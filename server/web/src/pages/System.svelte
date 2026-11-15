@@ -657,6 +657,7 @@
     {#if kyber.loaded}
       {@const encoder = field('video.encoder')}
       {@const backend = field('video.backend')}
+      {@const gpuPriority = field('video.gpu_priority')}
       {@const intra = field('video.intra_refresh')}
       {@const listen = field('network.listen_mode')}
       {@const sendQueue = field('network.datagram_send_queue')}
@@ -672,6 +673,12 @@
         <div class="set">
           <div><h3>{t('system.advanced.backend')}</h3><p>{choiceHint('video.backend')}</p></div>
           <Segmented label={t('system.advanced.backend')} options={backend.kind.options.map((o) => ({ value: o.value, label: o.label.replace(/\s*\(.*\)/, '') }))} value={value<string>('video.backend')} onchange={(v) => setValues({ 'video.backend': v })} />
+        </div>
+      {/if}
+      {#if gpuPriority?.kind.type === 'enum'}
+        <div class="set">
+          <div><h3>{gpuPriority.label}</h3><p>{choiceHint('video.gpu_priority')}</p></div>
+          <Segmented label={gpuPriority.label} options={gpuPriority.kind.options} value={value<string>('video.gpu_priority')} onchange={(v) => setValues({ 'video.gpu_priority': v })} />
         </div>
       {/if}
       {#if intra}
