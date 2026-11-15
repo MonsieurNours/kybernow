@@ -1,0 +1,212 @@
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index 2f3ae19..66fb18d 100644
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -236,6 +236,7 @@ fn video_config(
+         cursor_move_rate: config.cursor_move_rate(),
+         scale,
+         hdr: crate::hdr::HdrMode::Off,
++        gpu_priority: config.gpu_priority(),
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+index cefe178..d7a0569 100644
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -67,6 +67,9 @@ pub(crate) struct VideoConfig {
+     /// KyberNow (0022): HDR10, or SDR from the display's HDR capture
+     /// (Windows capture, `hdr`).
+     pub(crate) hdr: HdrMode,
++    /// KyberNow (0024): GPU priority of the capture and the encoding
++    /// (Windows capture, `gpu_priority`).
++    pub(crate) gpu_priority: config::GpuPriority,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -270,6 +273,12 @@ fn create_grab_source(
+     if video_config.hdr != HdrMode::Off {
+         capture.set_option("hdr", &video_config.hdr.capture_option().to_string())?;
+     }
++    // KyberNow (0024): GPU priority of the capture and the encoding (Windows
++    // desktop duplication).
++    capture.set_option(
++        "gpu_priority",
++        &video_config.gpu_priority.capture_option().to_string(),
++    )?;
+ 
+     let video_hook = video_hook_closure(metrics.cloned());
+     // Encoded Linux sources feed the muxer directly, with no capture-side hook.
+@@ -922,6 +931,7 @@ mod tests {
+             cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
+             scale: None,
+             hdr: HdrMode::Off,
++            gpu_priority: config::GpuPriority::default(),
+             #[cfg(feature = "watermark")]
+             watermark: None,
+             #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index dd2b544..de22282 100644
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -24,7 +24,7 @@ use std::collections::HashSet;
+ use std::fs;
+ use std::path::PathBuf;
+ 
+-use log::info;
++use log::{info, warn};
+ use serde::Deserialize;
+ 
+ #[cfg(target_os = "linux")]
+@@ -249,6 +249,7 @@ pub struct Config {
+     pub(crate) video_encoder_config: Option<EncoderConfig>,
+     clock_type: Option<ClockType>,
+     cursor_move_rate: Option<u32>,
++    gpu_priority: Option<String>,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -287,6 +288,21 @@ impl Config {
+             .min(MAX_CURSOR_MOVE_RATE)
+     }
+ 
++    /// GPU priority of the capture and the encoding, from `[kyavserver]
++    /// gpu_priority`: "normal", "high" (the default) or "realtime". Any
++    /// other value is logged and taken as "high".
++    pub(crate) fn gpu_priority(&self) -> GpuPriority {
++        match self.gpu_priority.as_deref() {
++            None | Some("high") => GpuPriority::High,
++            Some("normal") => GpuPriority::Normal,
++            Some("realtime") => GpuPriority::Realtime,
++            Some(other) => {
++                warn!("Unknown [kyavserver] gpu_priority {other:?} (normal, high or realtime): high");
++                GpuPriority::High
++            }
++        }
++    }
++
+     pub(crate) fn minimum_bitrate(&self) -> u32 {
+         self.minimum_bitrate.unwrap_or(5_000_000)
+     }
+@@ -864,6 +880,36 @@ mode = "encoded"
+         assert_eq!(source.source_size(), (1920, 1080));
+         assert_eq!(source.output_size(), (1280, 720));
+     }
++
++    #[test]
++    fn gpu_priority_defaults_to_high() {
++        let table: toml::Table = "[kyavserver]\nencoder = \"nvenc\"".parse().unwrap();
++        let config = from_table(&table).unwrap();
++        assert_eq!(config.gpu_priority(), GpuPriority::High);
++    }
++
++    #[test]
++    fn gpu_priority_reads_each_value() {
++        for (value, priority, option) in [
++            ("normal", GpuPriority::Normal, 0),
++            ("high", GpuPriority::High, 1),
++            ("realtime", GpuPriority::Realtime, 2),
++        ] {
++            let table: toml::Table = format!("[kyavserver]\ngpu_priority = \"{value}\"")
++                .parse()
++                .unwrap();
++            let config = from_table(&table).unwrap();
++            assert_eq!(config.gpu_priority(), priority);
++            assert_eq!(priority.capture_option(), option);
++        }
++    }
++
++    #[test]
++    fn gpu_priority_unknown_value_is_high() {
++        let table: toml::Table = "[kyavserver]\ngpu_priority = \"Realtime\"".parse().unwrap();
++        let config = from_table(&table).unwrap();
++        assert_eq!(config.gpu_priority(), GpuPriority::High);
++    }
+ }
+ 
+ /// Opus quality preset (`[kyavserver] audio_quality`).
+@@ -913,3 +959,29 @@ pub(crate) enum AudioLayout {
+     /// play stereo (the web client) need it when the host outputs 5.1 or 7.1.
+     Stereo,
+ }
++
++/// GPU priority of the capture and the encoding on Windows (`[kyavserver]
++/// gpu_priority`), see kn_gpu_priority() in kn_timing.h (txproto, libavgrab).
++#[derive(Clone, Copy, Debug, Default, PartialEq)]
++pub(crate) enum GpuPriority {
++    /// Windows' own scheduling, as in Kyber: the capture and the encoding
++    /// wait behind a game that keeps the graphics card busy.
++    Normal,
++    /// Process class HIGH and GPU thread priority 7.
++    #[default]
++    High,
++    /// Process class REALTIME (HIGH if Windows refuses it): always before a
++    /// game's frames, at the risk of a driver freeze on some computers.
++    Realtime,
++}
++
++impl GpuPriority {
++    /// Value of the capture's `gpu_priority` option (KN_GPU_PRIORITY_*).
++    pub(crate) fn capture_option(self) -> i64 {
++        match self {
++            Self::Normal => 0,
++            Self::High => 1,
++            Self::Realtime => 2,
++        }
++    }
++}
+diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+index 45b0d23..6c6b537 100644
+--- a/kyavservice/src/txproto/rtp.rs
++++ b/kyavservice/src/txproto/rtp.rs
+@@ -100,6 +100,7 @@ pub(crate) async fn generate_sdp(
+         scale: None,
+         max_fps: None,
+         hdr: crate::hdr::HdrMode::Off,
++        gpu_priority: config::GpuPriority::default(),
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index f2d33e7..35709d0 100644
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -191,6 +191,7 @@ async fn handle_command(
+                 scale: None,
+                 max_fps: None,
+                 hdr: HdrMode::Off,
++                gpu_priority: config.gpu_priority(),
+                 #[cfg(feature = "watermark")]
+                 watermark: None,
+                 #[cfg(target_os = "linux")]
+@@ -273,6 +274,7 @@ async fn handle_command(
+                 scale,
+                 max_fps,
+                 hdr: hdr_mode,
++                gpu_priority: config.gpu_priority(),
+                 #[cfg(feature = "watermark")]
+                 watermark: config.watermark.clone(),
+                 #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index 5356592..eaf4252 100644
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -52,6 +52,9 @@ pub(crate) struct VideoConfig {
+     /// KyberNow (0022): HDR10, or SDR from the display's HDR capture
+     /// (Windows capture, `hdr`).
+     pub(crate) hdr: HdrMode,
++    /// KyberNow (0024): GPU priority of the capture and the encoding
++    /// (Windows capture, `gpu_priority`).
++    pub(crate) gpu_priority: config::GpuPriority,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -701,6 +704,8 @@ pub(crate) fn configure(
+         if video_config.hdr != HdrMode::Off {
+             options.push(("hdr", video_config.hdr.capture_option()).into());
+         }
++        // KyberNow (0024): GPU priority of the capture and the encoding.
++        options.push(("gpu_priority", video_config.gpu_priority.capture_option()).into());
+         Some(Dictionary::from_entries(&options)?)
+     };
+ 

@@ -1,0 +1,145 @@
+diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
+index e6ec33f..3eb6752 100644
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -130,6 +130,7 @@ typedef struct DxgiCapture {
+     DxgiCursorHandler *cursor_sink;
+     int cursor_move_rate; /* KyberNow: "cursor_move_rate" option */
+     int max_framerate; /* KyberNow (0020): "max_framerate" option, 0 = none */
++    int gpu_priority; /* KyberNow (0024): "gpu_priority" option (KN_GPU_PRIORITY_*) */
+     /* KyberNow (0022): "hdr" option (KN_HDR_OFF, KN_HDR_PQ, KN_HDR_SDR), the
+      * converter on the graphics card, and what Windows says of the display. */
+     int hdr;
+@@ -1819,10 +1820,11 @@ static void *dxgi_capture_thread(void *s)
+     /* KyberNow (0022): SDR white and luminance (WGC on an HDR display too). */
+     kn_hdr_output_info((IUnknown *)dxgi_output, &priv->kn_info);
+ 
+-    /* KyberNow (0023): copy, conversion and encoding before a game's frames. */
++    /* KyberNow (0023): copy, conversion and encoding before a game's frames,
++     * as far as gpu_priority (0024) says. */
+     {
+         char kn_line[256];
+-        kn_gpu_priority(ctx->d3d11_device, kn_line, sizeof(kn_line));
++        kn_gpu_priority(ctx->d3d11_device, priv->gpu_priority, kn_line, sizeof(kn_line));
+         sp_log(entry, SP_LOG_INFO, "%s\n", kn_line);
+     }
+ 
+@@ -2121,6 +2123,14 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
+     if (max_rate)
+         cap_priv->max_framerate = av_clip(strtol(max_rate->value, NULL, 10), 0, 1000);
+ 
++    /* KyberNow (0024): GPU priority of the capture and encoding work, see
++     * kn_gpu_priority(); HIGH unless set. */
++    cap_priv->gpu_priority = KN_GPU_PRIORITY_HIGH;
++    AVDictionaryEntry *gpu_priority = av_dict_get(opts, "gpu_priority", NULL, 0);
++    if (gpu_priority)
++        cap_priv->gpu_priority = av_clip(strtol(gpu_priority->value, NULL, 10),
++                                         KN_GPU_PRIORITY_NORMAL, KN_GPU_PRIORITY_REALTIME);
++
+     /* KyberNow (0022): 0 = 8-bit SDR as before, 1 = HDR10 (P010), 2 = SDR
+      * image of a display captured in HDR (16-bit float brought to SDR). */
+     AVDictionaryEntry *hdr = av_dict_get(opts, "hdr", NULL, 0);
+diff --git a/subprojects/txproto/src/kn_timing.h b/subprojects/txproto/src/kn_timing.h
+index fe9cc31..ecb2266 100644
+--- a/subprojects/txproto/src/kn_timing.h
++++ b/subprojects/txproto/src/kn_timing.h
+@@ -213,14 +213,22 @@ static inline void kn_timing_unlock(ID3D10Multithread *mt)
+ 
+ /* GPU priority of the capture and encoding work: during a game that keeps
+  * the card busy, the copy, the conversion and the encoding would otherwise
+- * wait behind its frames (up to one game frame). Process class HIGH through
+- * D3DKMTSetProcessSchedulingPriorityClass (gdi32.dll, loaded at run time),
+- * never REALTIME: Microsoft warns that it can make the system unusable, and
+- * it is the suspect of two TDR freezes (0x116, nvlddmkm) right after a
+- * Station update on an NVIDIA card. Then IDXGIDevice::SetGPUThreadPriority(7)
+- * on `device`, as Sunshine does with HIGH. The hardware-accelerated GPU
+- * scheduling mode is only read, for the log. `buf` gets the log line. */
+-enum { KN_KMT_PRIORITY_HIGH = 4 };
++ * wait behind its frames (up to one game frame). `level` comes from
++ * [kyavserver] gpu_priority (KyberNow 0024):
++ *  - KN_GPU_PRIORITY_NORMAL: nothing changed, Windows' own scheduling (as
++ *    in Kyber);
++ *  - KN_GPU_PRIORITY_HIGH, the default: process class HIGH through
++ *    D3DKMTSetProcessSchedulingPriorityClass (gdi32.dll, loaded at run time);
++ *  - KN_GPU_PRIORITY_REALTIME: process class REALTIME, HIGH if Windows
++ *    refuses it. The work then always goes before a game's frames, but
++ *    Microsoft warns that it can make the system unusable, and it is the
++ *    suspect of two TDR freezes (0x116, nvlddmkm) right after a Station
++ *    update on an NVIDIA card: only when asked.
++ * Then, unless NORMAL, IDXGIDevice::SetGPUThreadPriority(7) on `device`, as
++ * Sunshine does. The hardware-accelerated GPU scheduling mode is only read,
++ * for the log. `buf` gets the log line. */
++enum { KN_GPU_PRIORITY_NORMAL, KN_GPU_PRIORITY_HIGH, KN_GPU_PRIORITY_REALTIME };
++enum { KN_KMT_PRIORITY_HIGH = 4, KN_KMT_PRIORITY_REALTIME = 5 };
+ #define KN_KMTQAITYPE_WDDM_2_7_CAPS 70
+ 
+ typedef struct KnKmtOpenAdapterFromLuid { LUID luid; UINT adapter; } KnKmtOpenAdapterFromLuid;
+@@ -262,7 +270,7 @@ static inline int kn_gpu_hags(HMODULE gdi, LUID luid)
+ }
+ 
+ /* SeIncreaseBasePriorityPrivilege on, if the process holds it (kyavserver
+- * runs as SYSTEM): SetGPUThreadPriority() may need it. */
++ * runs as SYSTEM): REALTIME needs it, SetGPUThreadPriority() may. */
+ static inline int kn_gpu_priority_privilege(void)
+ {
+     HANDLE token;
+@@ -280,8 +288,9 @@ static inline int kn_gpu_priority_privilege(void)
+     return ok;
+ }
+ 
+-static inline void kn_gpu_priority(ID3D11Device *device, char *buf, size_t size)
++static inline void kn_gpu_priority(ID3D11Device *device, int level, char *buf, size_t size)
+ {
++    static const char *const level_names[] = { "normal", "high", "realtime" };
+     static const GUID iid_dxgi_device = { /* {54ec77fa-1377-44e6-8c32-88fd5f44c84c} */
+         0x54ec77fa, 0x1377, 0x44e6, { 0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c }
+     };
+@@ -310,22 +319,37 @@ static inline void kn_gpu_priority(ID3D11Device *device, char *buf, size_t size)
+             hags = kn_gpu_hags(gdi, desc.AdapterLuid);
+     }
+ 
+-    if (set) {
+-        status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH);
+-        if (status >= 0)
+-            snprintf(class_name, sizeof(class_name), "HIGH");
+-        else
+-            snprintf(class_name, sizeof(class_name), "unchanged (HIGH refused: 0x%lX)", (unsigned long)status);
++    if (level == KN_GPU_PRIORITY_NORMAL) {
++        snprintf(class_name, sizeof(class_name), "unchanged");
++        hr = S_OK;
++    } else {
++        /* Before the class: REALTIME needs the privilege. */
++        kn_gpu_priority_privilege();
++        if (set && level == KN_GPU_PRIORITY_REALTIME) {
++            LONG realtime = set(GetCurrentProcess(), KN_KMT_PRIORITY_REALTIME);
++            if (realtime >= 0)
++                snprintf(class_name, sizeof(class_name), "REALTIME");
++            else if ((status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH)) >= 0)
++                snprintf(class_name, sizeof(class_name), "HIGH (REALTIME refused: 0x%lX)",
++                         (unsigned long)realtime);
++            else
++                snprintf(class_name, sizeof(class_name), "unchanged (REALTIME refused: 0x%lX, HIGH: 0x%lX)",
++                         (unsigned long)realtime, (unsigned long)status);
++        } else if (set) {
++            status = set(GetCurrentProcess(), KN_KMT_PRIORITY_HIGH);
++            if (status >= 0)
++                snprintf(class_name, sizeof(class_name), "HIGH");
++            else
++                snprintf(class_name, sizeof(class_name), "unchanged (HIGH refused: 0x%lX)", (unsigned long)status);
++        }
++        hr = IDXGIDevice_SetGPUThreadPriority(dxgi, 7);
+     }
+-
+-    kn_gpu_priority_privilege();
+-    hr = IDXGIDevice_SetGPUThreadPriority(dxgi, 7);
+     if (FAILED(hr) || FAILED(IDXGIDevice_GetGPUThreadPriority(dxgi, &thread)))
+         thread = 0;
+     IDXGIDevice_Release(dxgi);
+-    snprintf(buf, size, "GPU priority: process class %s (never REALTIME), hardware-accelerated GPU "
++    snprintf(buf, size, "GPU priority %s: process class %s, hardware-accelerated GPU "
+              "scheduling %s, GPU thread priority %d%s (vendor 0x%04X)",
+-             class_name, hags == 1 ? "on" : hags == 0 ? "off" : "unknown", thread,
++             level_names[level], class_name, hags == 1 ? "on" : hags == 0 ? "off" : "unknown", thread,
+              FAILED(hr) ? " (SetGPUThreadPriority refused)" : "", desc.VendorId);
+ }
+ #endif /* KN_TIMING_D3D11 */
