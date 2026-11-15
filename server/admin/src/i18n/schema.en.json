@@ -70,6 +70,26 @@
         }
       }
     },
+    "video.gpu_priority": {
+      "label": "GPU priority",
+      "help": "How the capture and the encoding share the graphics card with a game.",
+      "details": "When a game keeps the whole graphics card busy, capturing and encoding each frame wait behind the game’s own frames: the picture stutters on the device, even though the game runs smoothly on the computer. This setting tells Windows which work goes first. It applies from the next session. A KyberNow setting (patch 0024), with no effect on a stock Kyber.",
+      "advice": "Keep High. Try Real-time if a game that maxes out the graphics card stutters.",
+      "options": {
+        "normal": {
+          "label": "Normal",
+          "hint": "Windows’ own setting: the capture and the encoding wait their turn behind the game."
+        },
+        "high": {
+          "label": "High",
+          "hint": "Goes before the game most of the time. The right setting day to day."
+        },
+        "realtime": {
+          "label": "Real-time",
+          "hint": "Always goes before the game: removes stutter when a game maxes out the graphics card. On some computers, can freeze the NVIDIA driver (blue screen)."
+        }
+      }
+    },
     "video.minimum_bitrate": {
       "label": "Minimum bitrate",
       "help": "The floor below which picture quality will never drop.",

@@ -117,7 +117,7 @@ const MAC_ENCODERS: &[Choice] = &[
 ];
 
 pub fn fields() -> Vec<Field> {
-    vec![
+    let mut fields = vec![
         Field {
             id: "video.encoder", group: "video",
             table: &["kyavserver"], key: "encoder",
@@ -143,6 +143,24 @@ pub fn fields() -> Vec<Field> {
             help: "Le module de Kyber qui capture l'écran et le son puis pilote l'encodeur.",
             details: "Kyber est en train de remplacer son moteur de capture. Les deux coexistent dans la version 0.29 : l'historique est le plus sûr, le nouveau reçoit les dernières optimisations.",
             advice: "Gardez le moteur historique, sauf pour tester le nouveau si vous rencontrez un problème de capture.",
+            caution: None,
+            unit: None,
+        },
+        // Windows seulement (retiré plus bas sur Mac) : la priorité passe par
+        // l'ordonnanceur de la carte graphique de Windows (correctif 0024).
+        Field {
+            id: "video.gpu_priority", group: "video",
+            table: &["kyavserver"], key: "gpu_priority",
+            kind: Kind::Enum { options: &[
+                Choice { value: "normal", label: "Normale", hint: "Le réglage de Windows : la capture et l'encodage attendent leur tour derrière le jeu." },
+                Choice { value: "high", label: "Haute", hint: "Passe devant le jeu la plupart du temps. Le bon réglage au quotidien." },
+                Choice { value: "realtime", label: "Temps réel", hint: "Passe toujours devant le jeu : supprime les saccades quand un jeu sature la carte graphique. Sur certaines configurations, peut figer le pilote NVIDIA (écran bleu)." },
+            ]},
+            default: json!("high"),
+            label: "Priorité GPU",
+            help: "Comment la capture et l'encodage partagent la carte graphique avec un jeu.",
+            details: "Quand un jeu occupe toute la carte graphique, la capture et l'encodage de chaque image attendent derrière les images du jeu : l'image saccade sur l'appareil, alors que le jeu reste fluide sur l'ordinateur. Ce réglage dit à Windows quel travail passe en premier. Il s'applique à la session suivante. Réglage de KyberNow (correctif 0024), sans effet sur un Kyber d'origine.",
+            advice: "Gardez Haute. Essayez Temps réel si un jeu qui sature la carte graphique provoque des saccades.",
             caution: None,
             unit: None,
         },
@@ -360,7 +378,11 @@ pub fn fields() -> Vec<Field> {
             caution: None,
             unit: None,
         },
-    ]
+    ];
+    if cfg!(target_os = "macos") {
+        fields.retain(|f| f.id != "video.gpu_priority");
+    }
+    fields
 }
 
 impl Field {
