@@ -133,6 +133,10 @@ pub enum Message<'a> {
     TotpChanged { on: bool, account: &'a str },
     /// Le mot de passe a changé.
     PasswordChanged { forgot: &'a str },
+    /// Une passkey a été ajoutée (lot 1b).
+    PasskeyAdded { name: &'a str, account: &'a str },
+    /// Le compte a été supprimé (lot 1b).
+    AccountDeleted,
 }
 
 /// Le code « 123 456 », plus facile à lire.
@@ -230,6 +234,36 @@ pub fn compose(to: &str, lang: Lang, message: Message<'_>) -> Mail {
                 check = tr("Ce n'était pas vous ? Choisissez-en un autre tout de suite :", "Wasn't you? Choose another one right away:"),
             ),
         ),
+        Message::PasskeyAdded { name, account } => (
+            tr("Passkey ajoutée à votre compte KyberNow", "Passkey added to your KyberNow account"),
+            format!(
+                "{hello}\n\n{what}\n\n    {name}\n\n{check}\n{account}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = tr(
+                    "Une passkey vient d'être ajoutée à votre compte KyberNow ; elle ouvre le compte sans mot de passe :",
+                    "A passkey was just added to your KyberNow account; it opens the account without a password:",
+                ),
+                check = tr(
+                    "Ce n'était pas vous ? Retirez-la, changez votre mot de passe et vérifiez les sessions ouvertes :",
+                    "Wasn't you? Remove it, change your password and check the open sessions:",
+                ),
+            ),
+        ),
+        Message::AccountDeleted => (
+            tr("Votre compte KyberNow est supprimé", "Your KyberNow account is deleted"),
+            format!(
+                "{hello}\n\n{what}\n\n{after}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = tr(
+                    "Votre compte KyberNow vient d'être supprimé, avec ses passkeys, ses sessions et son journal.",
+                    "Your KyberNow account was just deleted, along with its passkeys, sessions and log.",
+                ),
+                after = tr(
+                    "Les sauvegardes du relais l'oublient sous 30 jours. Les logiciels KyberNow restent utilisables sans compte.",
+                    "The relay's backups forget it within 30 days. The KyberNow software stays usable without an account.",
+                ),
+            ),
+        ),
     };
     Mail { to: to.to_string(), subject, text }
 }
@@ -254,6 +288,8 @@ mod tests {
             Message::TotpChanged { on: true, account: "c" },
             Message::TotpChanged { on: false, account: "c" },
             Message::PasswordChanged { forgot: "f" },
+            Message::PasskeyAdded { name: "Chrome, Mac", account: "c" },
+            Message::AccountDeleted,
         ] {
             for lang in [Lang::Fr, Lang::En] {
                 let mail = compose("a@exemple.org", lang, m);

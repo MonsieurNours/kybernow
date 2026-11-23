@@ -805,6 +805,9 @@ async fn comptes_sur_le_relais() {
         assert!(off.hub.accounts.is_none());
         assert_eq!(https(&off, &pki.roots, DOMAIN, "GET", "/compte/connexion", &[]).await.unwrap().status, 404);
         assert_eq!(https(&off, &pki.roots, DOMAIN, "POST", "/compte/connexion", &[]).await.unwrap().status, 405);
+        // Sans comptes, pas de conditions ; `/confidentialite` reste la page de toujours.
+        assert_eq!(https(&off, &pki.roots, DOMAIN, "GET", "/conditions", &[]).await.unwrap().status, 404);
+        assert!(!https(&off, &pki.roots, DOMAIN, "GET", "/confidentialite", &[]).await.unwrap().body.contains("legal-draft"));
         drop(off);
 
         let dir = pki.dir.join("comptes");
@@ -847,6 +850,27 @@ async fn comptes_sur_le_relais() {
         let page = https(&relay, &pki.roots, DOMAIN, "GET", "/compte?lang=fr", &[("cookie", cookies.as_str())]).await.unwrap();
         assert_eq!(page.status, 200);
         assert!(page.body.contains("ana@exemple.org") && page.body.contains("Sessions ouvertes"));
+        // Lot 1b : le script des passkeys, permis sur ces pages seulement, servi par le relais.
+        assert!(page.headers.get("content-security-policy").unwrap().to_str().unwrap().contains("script-src 'self'"));
+        let script = page.body.split("<script src=\"").nth(1).unwrap().split('"').next().unwrap().to_string();
+        let js = https(&relay, &pki.roots, DOMAIN, "GET", &script, &[]).await.unwrap();
+        assert_eq!(js.status, 200);
+        assert_eq!(js.headers.get("content-type").unwrap(), "text/javascript; charset=utf-8");
+        assert!(js.body.contains("navigator.credentials"));
+        // L'export des données : un fichier JSON à télécharger.
+        let export_headers = [("content-type", "application/x-www-form-urlencoded"), ("cookie", cookies.as_str()), ("sec-fetch-site", "same-origin")];
+        let export = https_body(&relay, &pki.roots, DOMAIN, "POST", "/compte/export?lang=fr", &export_headers, &form("")).await.unwrap();
+        assert_eq!(export.status, 200);
+        assert_eq!(export.headers.get("content-type").unwrap(), "application/json; charset=utf-8");
+        assert_eq!(export.headers.get("content-disposition").unwrap(), "attachment; filename=\"kybernow-compte.json\"");
+        assert!(export.body.contains("\"email\": \"ana@exemple.org\""));
+        // Les textes juridiques, en brouillon, à côté des comptes.
+        for path in ["/conditions?lang=fr", "/confidentialite?lang=en"] {
+            let page = https(&relay, &pki.roots, DOMAIN, "GET", path, &[]).await.unwrap();
+            assert_eq!(page.status, 200, "{path}");
+            assert!(page.body.contains("legal-draft"), "{path}");
+            assert!(!page.headers.get("content-security-policy").unwrap().to_str().unwrap().contains("script-src"), "{path}");
+        }
         // Les pages d'une Station ne passent jamais par les comptes.
         let id = kybernow_tunnel::id::station_id(b"absente");
         let other = https(&relay, &pki.roots, &format!("{id}.{DOMAIN}"), "GET", "/compte", &[]).await.unwrap();

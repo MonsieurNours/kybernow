@@ -86,12 +86,29 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX audit_account ON audit(account, at);
     "#,
+    // 2 : lot 1b (passkeys, conditions et confidentialité acceptées, défis WebAuthn déjà servis).
+    r#"
+    ALTER TABLE accounts ADD COLUMN webauthn_user BLOB;
+    ALTER TABLE accounts ADD COLUMN terms_version TEXT;
+    ALTER TABLE accounts ADD COLUMN terms_accepted_at INTEGER;
+    ALTER TABLE accounts ADD COLUMN privacy_version TEXT;
+    ALTER TABLE accounts ADD COLUMN privacy_accepted_at INTEGER;
+    ALTER TABLE passkeys ADD COLUMN alg INTEGER NOT NULL DEFAULT -7;
+    ALTER TABLE passkeys ADD COLUMN transports TEXT NOT NULL DEFAULT '';
+    CREATE INDEX passkeys_account ON passkeys(account);
+    CREATE TABLE webauthn_used (
+        hash BLOB PRIMARY KEY,
+        expires_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
 pub const AUDIT_IP_SECS: i64 = 7 * 24 * 3600;
 /// Le journal lui-même : 12 mois.
 pub const AUDIT_SECS: i64 = 365 * 24 * 3600;
+/// Un compte jamais vérifié est effacé après ce temps (docs/juridique/README.md).
+pub const UNVERIFIED_SECS: i64 = 7 * 24 * 3600;
 
 /// Un compte.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +150,59 @@ pub struct Totp {
     pub activated_at: Option<i64>,
     /// Le dernier pas de 30 s accepté : un code ne sert qu'une fois.
     pub last_step: i64,
+}
+
+/// Une passkey (lot 1b) : la clé publique, jamais la clé privée.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Passkey {
+    pub id: i64,
+    pub account: i64,
+    /// L'identifiant de la passkey, donné par l'authentificateur.
+    pub credential: Vec<u8>,
+    /// La clé publique : ES256, le point non compressé ; Ed25519, 32 octets ; RS256, `len(n)`, `n`, `e`.
+    pub public_key: Vec<u8>,
+    /// L'algorithme COSE : -7 (ES256), -8 (Ed25519), -257 (RS256).
+    pub alg: i64,
+    pub counter: i64,
+    pub name: String,
+    pub transports: String,
+    pub created_at: i64,
+    pub seen_at: Option<i64>,
+}
+
+const PASSKEY_COLS: &str = "id, account, credential, public_key, alg, counter, name, transports, created_at, seen_at";
+
+fn passkey_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Passkey> {
+    Ok(Passkey {
+        id: r.get(0)?,
+        account: r.get(1)?,
+        credential: r.get(2)?,
+        public_key: r.get(3)?,
+        alg: r.get(4)?,
+        counter: r.get(5)?,
+        name: r.get(6)?,
+        transports: r.get(7)?,
+        created_at: r.get(8)?,
+        seen_at: r.get(9)?,
+    })
+}
+
+/// Une nouvelle passkey, vérifiée, à garder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewPasskey {
+    pub credential: Vec<u8>,
+    pub public_key: Vec<u8>,
+    pub alg: i64,
+    pub counter: i64,
+}
+
+/// Les versions des conditions d'utilisation et de la politique de confidentialité acceptées, et quand.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Terms {
+    pub terms: Option<String>,
+    pub terms_at: Option<i64>,
+    pub privacy: Option<String>,
+    pub privacy_at: Option<i64>,
 }
 
 /// Ce que donne un code à six chiffres reçu par e-mail.
@@ -445,6 +515,161 @@ impl Store {
         Ok(())
     }
 
+    // --- Passkeys (lot 1b) ----------------------------------------------------
+
+    /// L'identifiant WebAuthn du compte (`user.id`) : 32 octets aléatoires, créés à la première passkey.
+    pub fn webauthn_user(&self, account: i64) -> Result<Vec<u8>> {
+        let current: Option<Vec<u8>> = self.conn.query_row("SELECT webauthn_user FROM accounts WHERE id = ?1", [account], |r| r.get(0))?;
+        if let Some(id) = current {
+            return Ok(id);
+        }
+        let id = super::random::<32>().to_vec();
+        self.conn.execute("UPDATE accounts SET webauthn_user = ?2 WHERE id = ?1 AND webauthn_user IS NULL", params![account, id])?;
+        Ok(self.conn.query_row("SELECT webauthn_user FROM accounts WHERE id = ?1", [account], |r| r.get(0))?)
+    }
+
+    /// Garde une passkey ; `None` si cet identifiant est déjà connu (de ce compte ou d'un autre).
+    pub fn add_passkey(&self, account: i64, key: &NewPasskey, name: &str, transports: &str, now: i64) -> Result<Option<i64>> {
+        let n = self.conn.execute(
+            "INSERT INTO passkeys (account, credential, public_key, alg, counter, name, transports, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(credential) DO NOTHING",
+            params![account, key.credential, key.public_key, key.alg, key.counter, name, transports, now],
+        )?;
+        Ok((n == 1).then(|| self.conn.last_insert_rowid()))
+    }
+
+    /// Les passkeys d'un compte, la plus ancienne d'abord.
+    pub fn passkeys(&self, account: i64) -> Result<Vec<Passkey>> {
+        let mut stmt = self.conn.prepare(&format!("SELECT {PASSKEY_COLS} FROM passkeys WHERE account = ?1 ORDER BY created_at, id"))?;
+        let rows = stmt.query_map([account], passkey_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// La passkey de cet identifiant, si son compte existe.
+    pub fn passkey_by_credential(&self, credential: &[u8]) -> Result<Option<Passkey>> {
+        Ok(self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {PASSKEY_COLS} FROM passkeys WHERE credential = ?1 AND account IN (SELECT id FROM accounts WHERE deleted_at IS NULL)"
+                ),
+                [credential],
+                passkey_row,
+            )
+            .optional()?)
+    }
+
+    /// Note une connexion par la passkey : son compteur, l'heure.
+    pub fn use_passkey(&self, id: i64, counter: i64, now: i64) -> Result<()> {
+        self.conn.execute("UPDATE passkeys SET counter = ?2, seen_at = ?3 WHERE id = ?1", params![id, counter, now])?;
+        Ok(())
+    }
+
+    /// Renomme une passkey du compte ; faux si elle n'est pas à lui.
+    pub fn rename_passkey(&self, id: i64, account: i64, name: &str) -> Result<bool> {
+        Ok(self.conn.execute("UPDATE passkeys SET name = ?3 WHERE id = ?1 AND account = ?2", params![id, account, name])? == 1)
+    }
+
+    /// Retire une passkey du compte ; faux si elle n'est pas à lui.
+    pub fn delete_passkey(&self, id: i64, account: i64) -> Result<bool> {
+        Ok(self.conn.execute("DELETE FROM passkeys WHERE id = ?1 AND account = ?2", params![id, account])? == 1)
+    }
+
+    /// Note un défi WebAuthn servi ; faux s'il l'a déjà été (rejeu).
+    pub fn use_challenge(&self, hash: &[u8], expires_at: i64) -> Result<bool> {
+        Ok(self.conn.execute("INSERT OR IGNORE INTO webauthn_used (hash, expires_at) VALUES (?1, ?2)", params![hash, expires_at])? == 1)
+    }
+
+    // --- Conditions, export, suppression (lot 1b) ----------------------------
+
+    /// Les versions des conditions et de la politique de confidentialité acceptées à l'inscription.
+    pub fn set_terms(&self, account: i64, terms: &str, privacy: &str, now: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET terms_version = ?2, terms_accepted_at = ?4, privacy_version = ?3, privacy_accepted_at = ?4 WHERE id = ?1",
+            params![account, terms, privacy, now],
+        )?;
+        Ok(())
+    }
+
+    /// Ce que le compte a accepté (rien pour un compte créé par l'administrateur du relais).
+    pub fn terms(&self, account: i64) -> Result<Terms> {
+        Ok(self.conn.query_row(
+            "SELECT terms_version, terms_accepted_at, privacy_version, privacy_accepted_at FROM accounts WHERE id = ?1",
+            [account],
+            |r| Ok(Terms { terms: r.get(0)?, terms_at: r.get(1)?, privacy: r.get(2)?, privacy_at: r.get(3)? }),
+        )?)
+    }
+
+    /// Les données d'un compte, telles que l'export les donne (sans empreinte ni secret).
+    pub fn export(&self, account: i64, now: i64) -> Result<Option<serde_json::Value>> {
+        use serde_json::json;
+        let row: Option<(String, String, String, Option<i64>, i64, String)> = self
+            .conn
+            .query_row(
+                "SELECT email, name, lang, verified_at, created_at, plan FROM accounts WHERE id = ?1 AND deleted_at IS NULL",
+                [account],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            )
+            .optional()?;
+        let Some((email, name, lang, verified_at, created_at, plan)) = row else { return Ok(None) };
+        let Terms { terms, terms_at, privacy, privacy_at } = self.terms(account)?;
+        let totp = self.totp(account)?.and_then(|t| t.activated_at);
+        let passkeys: Vec<_> = self
+            .passkeys(account)?
+            .into_iter()
+            .map(|p| {
+                json!({
+                    "name": p.name,
+                    "credential": super::b64(&p.credential),
+                    "algorithm": p.alg,
+                    "transports": p.transports,
+                    "created_at": iso(p.created_at),
+                    "last_used_at": p.seen_at.map(iso),
+                })
+            })
+            .collect();
+        let sessions: Vec<_> = self
+            .sessions(account, now)?
+            .into_iter()
+            .map(|s| json!({ "device": s.device, "created_at": iso(s.created_at), "last_seen_at": iso(s.seen_at), "expires_at": iso(s.expires_at) }))
+            .collect();
+        let trusted: i64 =
+            self.conn.query_row("SELECT COUNT(*) FROM trusted_browsers WHERE account = ?1 AND expires_at > ?2", params![account, now], |r| r.get(0))?;
+        let mut stmt = self.conn.prepare("SELECT kind, ip, at FROM audit WHERE account = ?1 ORDER BY at, id")?;
+        let audit: Vec<_> = stmt
+            .query_map([account], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, i64>(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .map(|(kind, ip, at)| json!({ "event": kind, "ip": ip, "at": iso(at) }))
+            .collect();
+        Ok(Some(json!({
+            "format": "kybernow-account-export/1",
+            "exported_at": iso(now),
+            "account": {
+                "email": email,
+                "name": name,
+                "language": lang,
+                "plan": plan,
+                "created_at": iso(created_at),
+                "verified_at": verified_at.map(iso),
+                "terms": { "version": terms, "accepted_at": terms_at.map(iso) },
+                "privacy_policy": { "version": privacy, "accepted_at": privacy_at.map(iso) },
+            },
+            "security": {
+                "two_factor_since": totp.map(iso),
+                "recovery_codes_left": self.recovery_codes_left(account)?,
+                "trusted_browsers": trusted,
+                "passkeys": passkeys,
+            },
+            "sessions": sessions,
+            "audit": audit,
+        })))
+    }
+
+    /// Efface un compte et tout ce qui lui appartient (sessions, passkeys, journal…).
+    pub fn delete_account(&self, account: i64) -> Result<bool> {
+        Ok(self.conn.execute("DELETE FROM accounts WHERE id = ?1", [account])? == 1)
+    }
+
     // --- Journal -------------------------------------------------------------
 
     pub fn audit(&self, account: Option<i64>, kind: &str, ip: Option<&str>, now: i64) -> Result<()> {
@@ -460,8 +685,14 @@ impl Store {
     }
 
     /// Le ménage : jetons, sessions et navigateurs expirés ; adresses IP du
-    /// journal après [`AUDIT_IP_SECS`], le journal après [`AUDIT_SECS`].
+    /// journal après [`AUDIT_IP_SECS`], le journal après [`AUDIT_SECS`] ;
+    /// comptes jamais vérifiés après [`UNVERIFIED_SECS`] ; défis WebAuthn expirés.
     pub fn sweep(&self, now: i64) -> Result<()> {
+        let gone = self.conn.execute("DELETE FROM accounts WHERE verified_at IS NULL AND created_at <= ?1", [now - UNVERIFIED_SECS])?;
+        if gone > 0 {
+            tracing::info!(comptes = gone, "comptes jamais vérifiés effacés");
+        }
+        self.conn.execute("DELETE FROM webauthn_used WHERE expires_at <= ?1", [now])?;
         self.conn.execute("DELETE FROM email_tokens WHERE expires_at <= ?1", [now])?;
         self.conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", [now])?;
         self.conn.execute("DELETE FROM trusted_browsers WHERE expires_at <= ?1", [now])?;
@@ -469,6 +700,23 @@ impl Store {
         self.conn.execute("DELETE FROM audit WHERE at <= ?1", [now - AUDIT_SECS])?;
         Ok(())
     }
+}
+
+/// Une heure Unix en ISO 8601 (UTC) : `2026-11-23T08:30:00Z`.
+pub fn iso(unix: i64) -> String {
+    let days = unix.div_euclid(86_400);
+    let secs = unix.rem_euclid(86_400);
+    // Jours depuis 1970 vers le calendrier (H. Hinnant, « civil_from_days »).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", secs / 3600, secs / 60 % 60, secs % 60)
 }
 
 fn migrate(conn: &mut Connection, now: i64) -> Result<()> {
@@ -577,5 +825,81 @@ mod tests {
         assert_eq!(s.audit_of(id).unwrap().len(), 1);
         s.sweep(AUDIT_SECS + 1).unwrap();
         assert!(s.audit_of(id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn passkeys_conditions_export_et_suppression() {
+        let mut s = Store::memory(0).unwrap();
+        let id = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let other = s.create_account("b@exemple.org", "B", "h", "fr", Some(0), 0).unwrap().unwrap();
+        // L'identifiant WebAuthn : créé une fois, propre au compte.
+        let user = s.webauthn_user(id).unwrap();
+        assert_eq!(user.len(), 32);
+        assert_eq!(s.webauthn_user(id).unwrap(), user);
+        assert_ne!(s.webauthn_user(other).unwrap(), user);
+        let key = NewPasskey { credential: b"cred".to_vec(), public_key: vec![4; 65], alg: -7, counter: 3 };
+        let pk = s.add_passkey(id, &key, "Firefox, Windows", "internal", 10).unwrap().unwrap();
+        assert_eq!(s.add_passkey(other, &key, "x", "", 10).unwrap(), None, "un identifiant n'appartient qu'à un compte");
+        let found = s.passkey_by_credential(b"cred").unwrap().unwrap();
+        assert_eq!((found.account, found.alg, found.counter, found.seen_at), (id, -7, 3, None));
+        s.use_passkey(pk, 4, 20).unwrap();
+        assert!(!s.rename_passkey(pk, other, "volée").unwrap());
+        assert!(s.rename_passkey(pk, id, "Clé USB").unwrap());
+        let list = s.passkeys(id).unwrap();
+        assert_eq!((list[0].name.as_str(), list[0].counter, list[0].seen_at), ("Clé USB", 4, Some(20)));
+        assert!(!s.delete_passkey(pk, other).unwrap());
+        // Un défi ne sert qu'une fois.
+        assert!(s.use_challenge(b"defi", 100).unwrap());
+        assert!(!s.use_challenge(b"defi", 100).unwrap());
+        // Conditions acceptées ; l'export ne donne ni empreinte ni secret.
+        s.set_terms(id, "0.1", "0.2", 30).unwrap();
+        assert_eq!(s.terms(id).unwrap(), Terms { terms: Some("0.1".into()), terms_at: Some(30), privacy: Some("0.2".into()), privacy_at: Some(30) });
+        s.create_session(b"s", id, "Firefox", 10, 1000, true).unwrap();
+        s.audit(Some(id), "connexion", Some("192.0.2.1"), 10).unwrap();
+        s.set_pending_totp(id, b"secret").unwrap();
+        s.activate_totp(id, 1, 15).unwrap();
+        s.replace_recovery_codes(id, &[b"r1".to_vec()]).unwrap();
+        let export = s.export(id, 40).unwrap().unwrap();
+        assert_eq!(export["account"]["email"], "a@exemple.org");
+        assert_eq!(export["account"]["terms"]["version"], "0.1");
+        assert_eq!(export["account"]["privacy_policy"]["accepted_at"], "1970-01-01T00:00:30Z");
+        assert_eq!(export["security"]["passkeys"][0]["name"], "Clé USB");
+        assert_eq!(export["security"]["two_factor_since"], "1970-01-01T00:00:15Z");
+        assert_eq!(export["sessions"][0]["device"], "Firefox");
+        assert_eq!(export["audit"][0]["ip"], "192.0.2.1");
+        let text = export.to_string();
+        for secret in ["secret", "\"h\"", "r1", "public_key"] {
+            assert!(!text.contains(secret), "{secret} dans l'export");
+        }
+        // La suppression efface tout ce qui appartient au compte.
+        assert!(s.delete_account(id).unwrap());
+        assert!(s.account(id).unwrap().is_none() && s.export(id, 40).unwrap().is_none());
+        assert!(s.passkey_by_credential(b"cred").unwrap().is_none());
+        for table in ["sessions", "passkeys", "totp", "recovery_codes", "audit"] {
+            let n: i64 = s.conn.query_row(&format!("SELECT COUNT(*) FROM {table} WHERE account = ?1"), [id], |r| r.get(0)).unwrap();
+            assert_eq!(n, 0, "{table}");
+        }
+        assert!(s.account(other).unwrap().is_some());
+    }
+
+    #[test]
+    fn comptes_jamais_verifies_effaces_apres_sept_jours() {
+        let s = Store::memory(0).unwrap();
+        let unverified = s.create_account("a@exemple.org", "A", "h", "fr", None, 100).unwrap().unwrap();
+        let verified = s.create_account("b@exemple.org", "B", "h", "fr", Some(200), 100).unwrap().unwrap();
+        s.sweep(100 + UNVERIFIED_SECS - 1).unwrap();
+        assert!(s.account(unverified).unwrap().is_some());
+        s.use_challenge(b"d", 100 + UNVERIFIED_SECS).unwrap();
+        s.sweep(100 + UNVERIFIED_SECS).unwrap();
+        assert!(s.account(unverified).unwrap().is_none());
+        assert!(s.account(verified).unwrap().is_some());
+        assert!(s.use_challenge(b"d", 0).unwrap(), "défi expiré oublié");
+    }
+
+    #[test]
+    fn heures_iso() {
+        assert_eq!(iso(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso(1_795_392_000 + 8 * 3600 + 30 * 60 + 5), "2026-11-23T08:30:05Z");
+        assert_eq!(iso(951_782_400), "2000-02-29T00:00:00Z");
     }
 }

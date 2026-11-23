@@ -157,7 +157,7 @@ fn layout(lang: Lang, doc_title: &str, description: &str, here: &str, with_icons
 }
 
 /// Une page simple (confidentialité, ordinateur injoignable, page introuvable).
-fn simple(lang: Lang, title: &str, here: &str, body: &str) -> String {
+pub(crate) fn simple(lang: Lang, title: &str, here: &str, body: &str) -> String {
     let description = t(
         lang,
         "KyberNow Share : montrez votre ordinateur à vos amis, où qu'ils soient.",
