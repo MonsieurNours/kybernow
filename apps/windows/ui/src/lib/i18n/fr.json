@@ -479,7 +479,13 @@
     "ps_new_account": "Nouveau_Joueur",
     "ps_tv": "Apple TV du salon",
     "hdr_windows": "Le HDR demande Windows 11 24H2 sur l'ordinateur.",
-    "hdr_codec": "Le HDR demande le format HEVC ou AV1."
+    "hdr_codec": "Le HDR demande le format HEVC ou AV1.",
+    "invite_computer": "PC du salon",
+    "invite_bad_password": "Mot de passe refusé.",
+    "invite_no_invite": "Ce code ne sert plus.",
+    "invite_full": "Cette invitation a déjà ajouté tous ses appareils.",
+    "invite_too_many": "Trop d'essais : réessayez dans 9 min.",
+    "invite_access_off": "PC du salon n'est pas joignable hors de chez vous (accès coupé dans Admin)."
   },
   "lend": {
     "lend": "Prêter l'ordinateur…",
@@ -539,6 +545,16 @@
     "remove_confirm": "Retirer l'ordinateur de {host} de cet appareil ?",
     "enter_password": "Entrez votre mot de passe pour emprunter.",
     "brand": "KyberNow Share"
+  },
+  "invite": {
+    "title": "Ajouter {name}",
+    "title_unnamed": "Ajouter l'ordinateur",
+    "help": "Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.",
+    "password": "Mot de passe",
+    "add": "Ajouter l'ordinateur",
+    "adding": "Ajout de {name}…",
+    "adding_unnamed": "Ajout de l'ordinateur…",
+    "added": "{name} est ajouté."
   },
   "ps": {
     "on": "Allumée",

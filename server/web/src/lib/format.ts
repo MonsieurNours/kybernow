@@ -45,6 +45,11 @@ export function when(seconds: number): string {
   return t('format.onDate', { date: day(then) })
 }
 
+/** « 30 novembre à 14 h 01 » : une échéance (« Valable jusqu'au … »). */
+export function dateAt(seconds: number): string {
+  return t('format.dateAt', { date: day(new Date(seconds * 1000)), time: clock(seconds) })
+}
+
 export function capital(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }

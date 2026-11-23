@@ -21,6 +21,10 @@
   Prêt de l'ordinateur (docs/pret.md) : le même écran accepte un code de prêt ; l'app le dit
   (`lend` et un ticket) et emprunte ensuite (App.svelte : passage « Préparation de
   l'ordinateur », ou « En attente de {hôte}… » quand l'hôte doit accepter).
+
+  Invitations (docs/invitations.md) : un code d'invitation aussi ; l'app le dit (`invite`, un
+  ticket et le nom de l'ordinateur) et demande ensuite le mot de passe (App.svelte : feuille
+  « Ajouter {ordinateur} »).
 -->
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte'
@@ -37,6 +41,7 @@
     onclose,
     onjoined,
     onborrow,
+    oninvite,
   }: {
     /** Le code d'un lien, déjà rempli. */
     code?: string
@@ -49,6 +54,8 @@
     onjoined: (joined: ShareJoined) => void
     /** Le code est un code de prêt (prêt de l'ordinateur) : l'app emprunte avec ce ticket (« Préparation de l'ordinateur »). */
     onborrow: (ticket: number) => void
+    /** Le code est celui d'une invitation : l'app demande le mot de passe (« Ajouter {ordinateur} »). */
+    oninvite: (ticket: number, computer: string) => void
   } = $props()
 
   /** « 123 456 » : les six chiffres, groupés par trois. */
@@ -103,6 +110,7 @@
       const r = await invoke<ShareJoinOutcome>('share_join', { code: digits, name, quality, link })
       if (r.kind === 'joined') onjoined(r)
       else if (r.kind === 'lend') onborrow(r.ticket)
+      else if (r.kind === 'invite') oninvite(r.ticket, r.computer)
       else await follow(r.wait)
     } catch (err) {
       error = String(err)

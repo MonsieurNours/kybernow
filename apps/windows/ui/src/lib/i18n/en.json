@@ -479,7 +479,13 @@
     "ps_new_account": "New_Player",
     "ps_tv": "Living room Apple TV",
     "hdr_windows": "HDR needs Windows 11 24H2 on the computer.",
-    "hdr_codec": "HDR needs the HEVC or AV1 format."
+    "hdr_codec": "HDR needs the HEVC or AV1 format.",
+    "invite_computer": "Living room PC",
+    "invite_bad_password": "Password refused.",
+    "invite_no_invite": "This code is no longer valid.",
+    "invite_full": "This invitation has already added all its devices.",
+    "invite_too_many": "Too many attempts: try again in 9 min.",
+    "invite_access_off": "Living room PC cannot be reached away from home (access turned off in Admin)."
   },
   "lend": {
     "lend": "Lend the computer…",
@@ -539,6 +545,16 @@
     "remove_confirm": "Remove {host}'s computer from this device?",
     "enter_password": "Enter your password to borrow.",
     "brand": "KyberNow Share"
+  },
+  "invite": {
+    "title": "Add {name}",
+    "title_unnamed": "Add the computer",
+    "help": "This invitation adds the computer to your devices. Enter the password given with the code.",
+    "password": "Password",
+    "add": "Add the computer",
+    "adding": "Adding {name}…",
+    "adding_unnamed": "Adding the computer…",
+    "added": "{name} has been added."
   },
   "ps": {
     "on": "On",

@@ -12,6 +12,7 @@
   import Passage from './Passage.svelte'
   import AppSheet from './AppSheet.svelte'
   import JoinSheet from './JoinSheet.svelte'
+  import InviteSheet from './InviteSheet.svelte'
   import LendSheet from './LendSheet.svelte'
   import PairSheet from './PairSheet.svelte'
   import ConsoleSettings from './ConsoleSettings.svelte'
@@ -71,6 +72,12 @@
    * (passage ou fenêtre, comme un ordinateur) sans rien ajouter à la liste des ordinateurs.
    */
   let joining = $state<{ code: string; link: string | null } | null>(null)
+  /**
+   * « Rejoindre avec un code » est tombé sur un code d'invitation (docs/invitations.md) : la feuille « Ajouter
+   * {ordinateur} » et son mot de passe. L'ordinateur ajouté est sélectionné sur l'accueil, avec l'avis
+   * « {ordinateur} est ajouté. ».
+   */
+  let inviting = $state<{ ticket: number; computer: string } | null>(null)
   /** Les ordinateurs en session, dans l'ordre d'ouverture (plusieurs ordinateurs, quatre au plus). */
   let sessions = $state<string[]>([])
   let error = $state<string | null>(null)
@@ -277,6 +284,7 @@
   /** « Rejoindre avec un code », avec le code d'un lien (`kybernow://join?…`) s'il y en a un. */
   async function join(link: string | null = null) {
     error = null
+    inviting = null
     if (!link) {
       joining = { code: '', link: null }
       return
@@ -625,6 +633,25 @@
     onborrow={(ticket) => {
       joining = null
       borrow({ ticket }, '')
+    }}
+    oninvite={(ticket, computer) => {
+      joining = null
+      inviting = { ticket, computer }
+    }}
+  />
+{/if}
+
+{#if inviting}
+  <InviteSheet
+    ticket={inviting.ticket}
+    computer={inviting.computer}
+    onclose={() => (inviting = null)}
+    onadded={(added) => {
+      inviting = null
+      settingsId = null
+      consoleSettingsId = null
+      select(added.id)
+      notice = t('invite.added', { name: added.name })
     }}
   />
 {/if}

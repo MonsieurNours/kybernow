@@ -219,8 +219,17 @@ impl Store {
     }
 
     /// Ajoute ou remplace (même adresse et même port).
-    pub fn upsert(&mut self, mut c: Computer) -> String {
-        let id = if let Some(old) = self.computers.iter_mut().find(|o| o.host == c.host && o.port == c.port) {
+    pub fn upsert(&mut self, c: Computer) -> String {
+        let at = self.computers.iter().position(|o| o.host == c.host && o.port == c.port);
+        self.put(c, at)
+    }
+
+    /// Remplace l'ordinateur à la place `at` (il garde son identifiant, ses
+    /// réglages, sa dernière session…), ou ajoute `c` sans place. Une invitation
+    /// choisit elle-même l'ordinateur qu'elle remplace : le même Admin
+    /// (`inviting::same_computer`).
+    pub fn put(&mut self, mut c: Computer, at: Option<usize>) -> String {
+        let id = if let Some(old) = at.and_then(|i| self.computers.get_mut(i)) {
             c.id = old.id.clone();
             c.settings = old.settings.clone();
             c.last = old.last.take();

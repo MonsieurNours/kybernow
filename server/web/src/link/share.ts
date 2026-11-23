@@ -203,6 +203,8 @@ export function joinRefusalText(e: unknown): string {
       return t('share.join.stopped')
     case 'relay':
       return t('share.join.relayDown')
+    case 'invite':
+      return t('share.join.invite')
     default:
       return e.message || t('share.join.badRequest')
   }

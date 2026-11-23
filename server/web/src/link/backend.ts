@@ -211,6 +211,7 @@ export class JoinRefusal extends Error {
       | 'stopped'
       | 'relay'
       | 'lend'
+      | 'invite'
       | 'other',
     message = '',
     /** Secondes à attendre (`too_many`). */
@@ -284,7 +285,8 @@ export const backend = {
     switch (res.status) {
       case 404:
         // Un code de prêt (docs/pret.md, « Codes ») : l'ami emprunte l'ordinateur (`lendBorrow`).
-        throw new JoinRefusal(data?.lend === true ? 'lend' : 'no_share')
+        // Un code d'invitation (docs/invitations.md) : il sert dans l'app KyberNow Link, pas ici.
+        throw new JoinRefusal(data?.lend === true ? 'lend' : data?.invite === true ? 'invite' : 'no_share')
       case 403:
         throw new JoinRefusal(data?.error === 'refused' ? 'refused' : 'other', data?.error ?? t('common.error', { status: res.status }))
       case 409:

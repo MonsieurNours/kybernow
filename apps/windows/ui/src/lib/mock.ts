@@ -5,6 +5,7 @@
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
+import type { InviteAdded, InviteRefusal } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
@@ -80,6 +81,12 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // `?pret=impossible` (le prêt n'est pas possible sur cet ordinateur), `?pret=coupe` (prêt coupé dans Admin). La barre de
 // l'ami : `/bar.html?emprunt` (« Prêté par Matthieu », « Encore 1 h 20 », « Se déconnecter », « Rendre l'ordinateur »),
 // `&sansfin` (« Jusqu'à ce que Matthieu reprenne »), `&preavis` (le préavis de 2 minutes).
+// Invitations (docs/invitations.md), « Rejoindre » (`?rejoindre`) : 246810 est un code d'invitation du « PC du salon »
+// (la feuille « Ajouter PC du salon » et son mot de passe), 135790 celui d'une Station qui ne dit pas son nom (« Ajouter
+// l'ordinateur ») ; un mot de passe quelconque ajoute l'ordinateur (sélectionné sur l'accueil, « PC du salon est
+// ajouté. » ; une seconde fois, le même ordinateur prend le nouvel accès), « faux » est refusé (« Mot de passe
+// refusé. »), « vieux » : « Ce code ne sert plus. », « plein » : l'invitation a ajouté tous ses appareils, « essais » :
+// trop d'essais, « coupe » : l'accès hors de chez vous est coupé.
 const flags = new URLSearchParams(location.search)
 /** Le relais : `joint`, `tcp`, `injoignable`, `preparation`, `lent`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
@@ -587,6 +594,9 @@ const borrowBar = (): BorrowBar => ({
 const lendWaits = new Map<number, { kind: 'accept' | 'refuse'; at: number; cancelled: boolean }>()
 let lendSeq = 0
 let lendTicket: { id: number; code: string } | null = null
+/** Le code d'invitation trouvé par « Rejoindre » (246810 : avec le nom de l'ordinateur, 135790 : sans). */
+let inviteTicket: { id: number; named: boolean } | null = null
+let inviteSeq = 0
 let invitation = flags.has('invitation')
 const invitationFlag = flags.get('invitation')
 const loanReady = (): BorrowOutcome & { kind: 'ready' } => ({ kind: 'ready', id: `lend-${++lendSeq}`, title: t('mock.lend_computer_of'), host: 'Matthieu', fingerprint: fp('pc-salon') })
@@ -746,6 +756,49 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     })
     return lendView()
   },
+  // « Ajouter l'ordinateur » (invitation) : 1,5 s d'appel ; le ticket reste après un refus.
+  invite_redeem: async (a) => {
+    if (!inviteTicket || inviteTicket.id !== a.ticket) throw { kind: 'other', message: t('mock.no_session') } satisfies InviteRefusal
+    await sleep(1500)
+    const refusal = (kind: InviteRefusal['kind']): InviteRefusal => ({ kind, message: t(`mock.invite_${kind}`) })
+    const password = String(a.password).trim().toLowerCase()
+    if (password === 'faux') throw refusal('bad_password')
+    if (password === 'vieux') throw refusal('no_invite')
+    if (password === 'plein') throw refusal('full')
+    if (password === 'essais') throw refusal('too_many')
+    if (password === 'coupe') throw refusal('access_off')
+    const named = inviteTicket.named
+    inviteTicket = null
+    // Le même Admin (même empreinte) prend le nouvel accès au lieu d'être ajouté deux fois.
+    const name = named ? t('mock.invite_computer') : '192.168.50.20'
+    const old = computers.find((c) => c.id === 'inv1')
+    if (old) {
+      old.user = 'PORTABLE-BUREAU-ab12'
+      old.online = true
+    } else {
+      computers.push({
+        ...structuredClone(computers.find((c) => c.id === 'c3') ?? computers[0]),
+        id: 'inv1',
+        name,
+        host: '192.168.50.20',
+        port: 9443,
+        user: 'PORTABLE-BUREAU-ab12',
+        by_code: true,
+        wake: [],
+        fingerprint: fp('pc-du-salon'),
+        settings: { ...settings },
+        last: null,
+        online: true,
+        info: null,
+        preview: null,
+        preview_source: null,
+        waking: false,
+        station_pending: null,
+      })
+    }
+    emitComputers()
+    return { id: 'inv1', name: old?.name ?? name } satisfies InviteAdded
+  },
   share_defaults: () => ({ name: thisPc.name, quality: rememberedQuality }),
   share_link_code: (a) => {
     const m = String(a.link).match(/code=(\d{6})/)
@@ -760,6 +813,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     // 737373 : le relais ne répond pas ; 848484 : trois demandes attendent déjà l'hôte.
     if (code === '737373') throw t('mock.relay_mute')
     if (code === '848484') throw t('mock.pending_full')
+    // Un code d'invitation : l'app demande le mot de passe, puis ajoute l'ordinateur avec le ticket.
+    if (code === '246810' || code === '135790') {
+      inviteTicket = { id: ++inviteSeq, named: code === '246810' }
+      return { kind: 'invite', ticket: inviteSeq, computer: code === '246810' ? t('mock.invite_computer') : '' } satisfies ShareJoinOutcome
+    }
     // Un code de prêt : l'app emprunte ensuite avec le ticket.
     if (code === '777777' || code === '787878' || code === '797979') {
       lendTicket = { id: ++lendSeq, code }

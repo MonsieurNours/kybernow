@@ -479,8 +479,25 @@ export type ShareJoined = { id: string; title: string; host: string; role: Share
 /**
  * Réponse de `share_join` : l'invité entre (`joined`), ou sa demande attend l'accord de l'hôte (`pending`, par le
  * relais) : l'écran « Rejoindre » montre « En attente de l'accord de l'hôte… » et rappelle `share_wait` avec ce numéro.
+ * Un code de prêt (`lend`) : l'app emprunte avec le ticket. Un code d'invitation (`invite`, docs/invitations.md) :
+ * l'app demande le mot de passe (« Ajouter {ordinateur} », `computer` vide : « Ajouter l'ordinateur ») et ajoute
+ * l'ordinateur avec le ticket (`invite_redeem`).
  */
-export type ShareJoinOutcome = ({ kind: 'joined' } & ShareJoined) | { kind: 'pending'; wait: number } | { kind: 'lend'; ticket: number }
+export type ShareJoinOutcome =
+  | ({ kind: 'joined' } & ShareJoined)
+  | { kind: 'pending'; wait: number }
+  | { kind: 'lend'; ticket: number }
+  | { kind: 'invite'; ticket: number; computer: string }
+
+/** Réponse de `invite_redeem` : l'ordinateur ajouté (ou mis à jour : même Admin), que l'accueil sélectionne. */
+export type InviteAdded = { id: string; name: string }
+
+/**
+ * Refus de `invite_redeem`, montré sous le champ : « Mot de passe refusé. » (`bad_password`), « Ce code ne sert plus. »
+ * (`no_invite`), « Cette invitation a déjà ajouté tous ses appareils. » (`full`), « Trop d'essais : réessayez dans {n}
+ * min. » (`too_many`), accès hors de chez vous coupé (`access_off`), le reste (`other`) : le texte du cœur.
+ */
+export type InviteRefusal = { kind: 'bad_password' | 'no_invite' | 'full' | 'too_many' | 'access_off' | 'other'; message: string }
 
 /**
  * Réponse de `share_wait` (un appel tenu 25 s au plus) : `waiting` (rappeler), `joined` (l'hôte a accepté : la session

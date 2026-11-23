@@ -48,6 +48,10 @@ mod host;
 mod i18n;
 #[cfg(windows)]
 mod instance;
+// Invitations : l'ordinateur ajouté de loin, ses réponses à l'interface (se
+// teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod inviting;
 // Prêt de l'ordinateur : ordinateurs empruntés, panneau de l'hôte, barre de
 // l'ami (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]

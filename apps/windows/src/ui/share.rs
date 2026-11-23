@@ -180,7 +180,9 @@ pub fn share_link_code(link: String) -> Result<String, String> {
 /// Rend `joined` (la session à ouvrir, `share_connect`) quand une Station du
 /// réseau a répondu, `pending` quand une Station vue par le relais attend
 /// l'accord de l'hôte (`share_wait`), `lend` quand le code est un code de prêt
-/// (l'interface emprunte ensuite avec le ticket, `lend_borrow`), ou le texte du
+/// (l'interface emprunte ensuite avec le ticket, `lend_borrow`), `invite` quand
+/// c'est un code d'invitation (l'interface demande le mot de passe et ajoute
+/// l'ordinateur avec le ticket, `invite_redeem`), ou le texte du
 /// refus (celui du cœur :
 /// « Aucun partage avec ce code sur le réseau. », « Ce partage est complet… »,
 /// « Trop d'essais… », « Le relais ne répond pas. », « Trop de demandes en
@@ -235,9 +237,16 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
     // Un code de prêt (prêt de l'ordinateur) : la Station et le chemin sont gardés,
     // l'interface emprunte ensuite (`lend_borrow`, passage « Préparation de
     // l'ordinateur »), avec l'écran de ce PC.
+    // Un code d'invitation (docs/invitations.md) : de même, l'interface demande
+    // le mot de passe (« Ajouter {ordinateur} ») et ajoute l'ordinateur
+    // (`invite_redeem`) ; rien d'une session, ni prénom ni qualité retenus.
     let joining = match joining {
         Ok(j) => Ok(j),
         Err(share::ShareError::Lend(code)) => Err(*code),
+        Err(share::ShareError::Invite(code)) => {
+            let (ticket, computer) = super::invite::keep_ticket(&state, *code);
+            return Ok(JoinOutcome::Invite { ticket, computer });
+        }
         Err(e) => {
             log::info!("partage : refusé ({})", e.kind());
             return Err(e.text(i18n::lang()));

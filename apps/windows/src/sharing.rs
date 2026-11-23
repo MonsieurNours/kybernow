@@ -190,6 +190,11 @@ pub enum JoinOutcome {
     /// Le code est un code de prêt (prêt de l'ordinateur) : l'interface emprunte
     /// avec ce ticket (`lend_borrow`).
     Lend { ticket: u64 },
+    /// Le code est celui d'une invitation (docs/invitations.md) : l'interface
+    /// demande le mot de passe (« Ajouter {ordinateur} ») et ajoute l'ordinateur
+    /// avec ce ticket (`invite_redeem`). `computer` : son nom, vide quand la
+    /// Station ne le dit pas (« Ajouter l'ordinateur »).
+    Invite { ticket: u64, computer: String },
 }
 
 /// Réponse de `share_wait` (appel tenu 25 s au plus) : l'hôte n'a pas encore
@@ -505,12 +510,17 @@ mod tests {
         assert_eq!(serde_json::to_value(JoinOutcome::Pending { wait: 3 }).unwrap(), serde_json::json!({ "kind": "pending", "wait": 3 }));
         // Un code de prêt : l'interface emprunte avec ce ticket.
         assert_eq!(serde_json::to_value(JoinOutcome::Lend { ticket: 5 }).unwrap(), serde_json::json!({ "kind": "lend", "ticket": 5 }));
+        // Un code d'invitation : l'interface demande le mot de passe, puis ajoute l'ordinateur avec ce ticket.
+        assert_eq!(
+            serde_json::to_value(JoinOutcome::Invite { ticket: 6, computer: "PC du salon".into() }).unwrap(),
+            serde_json::json!({ "kind": "invite", "ticket": 6, "computer": "PC du salon" })
+        );
         assert_eq!(serde_json::to_value(WaitOutcome::Waiting).unwrap(), serde_json::json!({ "kind": "waiting" }));
         assert_eq!(serde_json::to_value(WaitOutcome::Cancelled).unwrap(), serde_json::json!({ "kind": "cancelled" }));
         assert_eq!(serde_json::to_value(WaitOutcome::Joined(joined())).unwrap()["kind"], "joined");
         // `api.ts` dit les mêmes noms.
         let api = include_str!("../ui/src/lib/api.ts");
-        for name in ["kind: 'joined'", "kind: 'pending'", "kind: 'waiting'", "kind: 'cancelled'"] {
+        for name in ["kind: 'joined'", "kind: 'pending'", "kind: 'lend'", "kind: 'invite'", "kind: 'waiting'", "kind: 'cancelled'"] {
             assert!(api.contains(name), "{name}");
         }
     }

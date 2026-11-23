@@ -60,6 +60,9 @@ mod share;
 // Prêt de l'ordinateur (KyberNow Share) : l'ami (ordinateurs empruntés, session
 // d'emprunt) et l'hôte (« Prêter l'ordinateur… », « Reprendre l'ordinateur »).
 mod lend;
+// Invitations : « Rejoindre avec un code » qui tombe sur un code d'invitation,
+// puis l'ordinateur ajouté avec le mot de passe (docs/invitations.md).
+mod invite;
 // Consoles PlayStation : recherche, comptes PSN, association, partie et sa
 // barre, réglages, envoi entre appareils (docs/playstation.md).
 mod playstation;
@@ -300,6 +303,8 @@ pub struct UiState {
     presence: Mutex<relais::Presence>,
     /// Prêt de l'ordinateur : ordinateurs empruntés, demandes, prêt accordé.
     lend: lend::LendState,
+    /// Invitations : le code trouvé par « Rejoindre », en attente de son mot de passe.
+    invite: invite::InviteState,
     /// Consoles PlayStation : comptes, consoles, parties en cours.
     ps: playstation::PsState,
 }
@@ -3969,6 +3974,7 @@ pub fn run(args: Vec<String>) {
             lend::lend_cancel_code,
             lend::lend_answer,
             lend::lend_take_back,
+            invite::invite_redeem,
             playstation::ps_state,
             playstation::ps_search_now,
             playstation::ps_login,

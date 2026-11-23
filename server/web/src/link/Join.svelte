@@ -7,7 +7,9 @@
   d'abord l'accord de l'hôte (« En attente de l'accord de l'hôte… », « Annuler ») ;
   l'écran reste titré « Rejoindre un partage », sans nom d'ordinateur. Un code
   de prêt (docs/pret.md, « Codes ») : la Station le dit (`lend`), et l'ami
-  emprunte l'ordinateur (`onLend`, la session d'emprunt fait la suite).
+  emprunte l'ordinateur (`onLend`, la session d'emprunt fait la suite). Un
+  code d'invitation (docs/invitations.md) : la Station le dit (`invite`), et
+  la page dit seulement qu'il sert dans l'app KyberNow Link.
 -->
 <script lang="ts">
   import { onMount, untrack } from 'svelte'

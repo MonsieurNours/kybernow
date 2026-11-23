@@ -634,6 +634,45 @@ export interface UpdateStatus {
   repo: string
 }
 
+/** Un appareil ajouté par une invitation (`name`… absents si Admin ne le connaît plus). */
+export interface InviteDevice {
+  id: string
+  name?: string
+  kind?: string
+  last_seen?: number
+}
+
+/** Une invitation (docs/invitations.md) : jamais son mot de passe, montré une seule fois. */
+export interface Invite {
+  id: string
+  name: string
+  code: string
+  created: number
+  expires: number
+  devices: InviteDevice[]
+  max_devices: number
+  last_used: number | null
+  /** Lien des apps (`kybernow://join?…&code=…`), avec le relais quand il tient le code. */
+  link: string
+  relay: { state: 'connecting' | 'joined' | 'unreachable' } | null
+}
+
+/** `GET /api/invites` : les invitations ouvertes, le maximum, les durées et le relais. */
+export interface InvitesView {
+  invites: Invite[]
+  max: number
+  days: number[]
+  relay: { set: boolean; remote_access: boolean }
+}
+
+/** Une invitation créée, ou son nouveau mot de passe : le mot de passe en clair, seulement ici. */
+export interface InviteShown extends InvitesView {
+  invite: Invite
+  password: string
+  /** « Accès hors de chez vous » vient d'être activé (création seulement). */
+  remote_access_turned_on?: boolean
+}
+
 export interface Pairing {
   link: string
   hostname: string
@@ -777,6 +816,13 @@ export const api = {
   relay: () => request<RelayStatus>('GET', '/api/relay'),
   /** `server` vide : pas de relais ; adresse invalide : `400` avec le texte d'Admin. */
   setRelay: (changes: { server?: string; remote_access?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
+
+  // Invitations (docs/invitations.md) : session d'Admin, jamais par le relais.
+  invites: () => request<InvitesView>('GET', '/api/invites'),
+  /** Refus `400` : nom vide, durée inconnue, deux invitations déjà. */
+  createInvite: (name: string, days: number) => request<InviteShown>('POST', '/api/invites', { name, days }),
+  deleteInvite: (id: string) => request<InvitesView>('DELETE', `/api/invites/${encodeURIComponent(id)}`),
+  invitePassword: (id: string) => request<InviteShown>('POST', `/api/invites/${encodeURIComponent(id)}/password`),
 
   // Prêt de l'ordinateur (docs/pret.md) : réglages et comptes d'amis, session d'Admin seulement.
   lendSettings: () => request<LendSettings>('GET', '/api/lend/settings'),

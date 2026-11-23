@@ -3,14 +3,16 @@
   (l'hôte, les invités et leurs droits), les demandes d'accès par code
   (Apple TV), et les appareils qui se sont connectés, chacun sur une carte
   qui s'ouvre : l'app au début de la session et ses options, l'accès, les
-  sessions. Puis « Hors de chez vous » : le relais et l'accès par le relais
-  (docs/relais.md). Rien de caché dans un menu.
+  sessions. Puis les invitations (un appareil ajouté de loin, avec un code et
+  un mot de passe, docs/invitations.md) et « Hors de chez vous » : le relais
+  et l'accès par le relais (docs/relais.md). Rien de caché dans un menu.
 -->
 <script lang="ts">
-  import { api, canCloseLaunch, joinedGuests, type Device, type Launch, type PairRequest, type Pairing, type RelayStatus } from '../lib/api'
+  import { api, canCloseLaunch, joinedGuests, type Device, type Invite, type InvitesView, type InviteShown, type Launch, type PairRequest, type Pairing, type RelayStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
-  import { ago, capital, deviceIcon, duration, mode, ms, when } from '../lib/format'
+  import { ago, capital, dateAt, deviceIcon, duration, mode, ms, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
+  import InviteDialog from '../lib/InviteDialog.svelte'
   import LaunchPicker from '../lib/LaunchPicker.svelte'
   import Qr from '../lib/Qr.svelte'
   import SharePanel from '../lib/SharePanel.svelte'
@@ -101,7 +103,11 @@
     loadDevices()
     loadKyber()
     loadRelay()
-    const timer = setInterval(loadDevices, 8000)
+    loadInvites()
+    const timer = setInterval(() => {
+      loadDevices()
+      loadInvites()
+    }, 8000)
     // L'état du relais change vite après un enregistrement (connexion, puis joint ou injoignable).
     const relayTimer = setInterval(loadRelay, 3000)
     return () => {
@@ -137,6 +143,57 @@
       notify('error', errorText(e))
     } finally {
       relaySaving = false
+    }
+  }
+
+  // Invitations (docs/invitations.md) : `GET /api/invites`, relu avec les appareils.
+  let invites = $state<InvitesView | null>(null)
+  /** Fenêtre « Inviter un appareil… » : vide pour en créer une, ou le mot de passe à montrer. */
+  let inviting = $state<{ shown: InviteShown | null } | null>(null)
+  /** Invitation dont une action est en cours. */
+  let inviteBusy = $state<string | null>(null)
+  const inviteFull = $derived(!!invites && invites.invites.length >= invites.max)
+  /** Le nom de l'invitation qui a ajouté chaque appareil. */
+  const invitedBy = $derived(new Map((invites?.invites ?? []).flatMap((i) => i.devices.map((d) => [d.id, i.name] as const))))
+
+  async function loadInvites() {
+    try {
+      invites = await api.invites()
+    } catch {
+      // 401 gérée globalement ; une Station antérieure n'a pas d'invitations.
+    }
+  }
+
+  /** Une réponse d'Admin : la liste, et le relais si « Accès hors de chez vous » vient de s'activer. */
+  function invitesChanged(view: InvitesView) {
+    invites = { invites: view.invites, max: view.max, days: view.days, relay: view.relay }
+    if (relay && relay.remote_access !== view.relay.remote_access) loadRelay()
+  }
+
+  async function newInvitePassword(i: Invite) {
+    inviteBusy = i.id
+    try {
+      const shown = await api.invitePassword(i.id)
+      invitesChanged(shown)
+      inviting = { shown }
+    } catch (e) {
+      notify('error', errorText(e))
+    } finally {
+      inviteBusy = null
+    }
+  }
+
+  async function deleteInvite(i: Invite) {
+    if (!confirm(t('devices.invites.confirmDelete', { name: i.name }))) return
+    inviteBusy = i.id
+    try {
+      invitesChanged(await api.deleteInvite(i.id))
+      notify('ok', t('devices.invites.deleted', { name: i.name }))
+      loadDevices()
+    } catch (e) {
+      notify('error', errorText(e))
+    } finally {
+      inviteBusy = null
     }
   }
 
@@ -328,6 +385,7 @@
           <span class="device-icon" class:live={isLive}><Icon name={deviceIcon(d.kind)} size={22} stroke={1.6} /></span>
           <span class="who">
             <span class="name">{d.name}</span>
+            {#if invitedBy.has(d.id)}<span class="invited">{t('devices.invites.deviceOf', { name: invitedBy.get(d.id) })}</span>{/if}
             {#if isOpen}
               <span class="meta">{[d.os, d.app].filter(Boolean).join(' · ')}</span>
             {:else}
@@ -422,6 +480,38 @@
     {/if}
   </section>
 
+  <!-- Invitations : ajouter un appareil de loin, avec un code et un mot de passe -->
+  {#if invites}
+    <section id="invitations" aria-labelledby="t-invites" class="card invites">
+      <div class="card-head">
+        <div>
+          <h2 id="t-invites">{t('devices.invites.title')}</h2>
+          <span class="sub">{t('devices.invites.help')}</span>
+        </div>
+        <div class="invite-add">
+          <button type="button" class="ghost" disabled={inviteFull} onclick={() => (inviting = { shown: null })}><Icon name="plus" size={15} stroke={2} />{t('devices.invites.invite')}</button>
+          {#if inviteFull}<span class="hint">{t('devices.invites.max')}</span>{/if}
+        </div>
+      </div>
+      {#each invites.invites as i (i.id)}
+        {@const named = i.devices.map((d) => d.name).filter((n): n is string => !!n)}
+        <div class="set invite">
+          <div>
+            <h3>{i.name}</h3>
+            <span class="mono meta">{t('devices.invites.line', { code: `${i.code.slice(0, 3)} ${i.code.slice(3)}`, date: dateAt(i.expires), n: i.devices.length, max: i.max_devices })}</span>
+            {#if named.length}<p>{named.join(', ')}</p>{/if}
+          </div>
+          <div class="invite-actions">
+            <button type="button" class="ghost small" disabled={inviteBusy !== null} onclick={() => newInvitePassword(i)}><Icon name="key" size={14} />{t('devices.invites.newPassword')}</button>
+            <button type="button" class="ghost small danger" disabled={inviteBusy !== null} onclick={() => deleteInvite(i)}><Icon name="trash" size={14} />{t('devices.invites.delete')}</button>
+          </div>
+        </div>
+      {:else}
+        <p class="empty">{t('devices.invites.none')}</p>
+      {/each}
+    </section>
+  {/if}
+
   <!-- Hors de chez vous : le relais et l'accès par le relais -->
   {#if relay}
     <section id="hors-de-chez-vous" aria-labelledby="t-away" class="card away">
@@ -453,6 +543,10 @@
     </section>
   {/if}
 </div>
+
+{#if inviting && invites}
+  <InviteDialog days={invites.days} shown={inviting.shown} onchange={invitesChanged} onclose={() => (inviting = null)} />
+{/if}
 
 {#if picking}
   <LaunchPicker device={picking} onclose={() => (picking = null)} onsaved={(list) => (devices = list)} />
@@ -849,6 +943,41 @@
     box-shadow: inset 0 0 0 1px var(--signal-line);
   }
 
+  /* Invitations */
+
+  .invites {
+    padding-bottom: 14px;
+  }
+
+  .invite-add {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .invite-add .hint {
+    font-size: 12px;
+    color: var(--faint);
+  }
+
+  .invite h3 {
+    overflow-wrap: anywhere;
+  }
+
+  .invite-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .invited {
+    font-size: 12px;
+    color: var(--signal-light);
+    overflow-wrap: anywhere;
+  }
+
   /* Hors de chez vous */
 
   .away .notice {
@@ -944,6 +1073,14 @@
 
     .relay-form {
       flex-wrap: wrap;
+    }
+
+    .invite-add {
+      align-items: flex-start;
+    }
+
+    .invite-actions {
+      justify-content: flex-start;
     }
 
     .relay-form input {
