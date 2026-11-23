@@ -101,7 +101,7 @@ final class AppModel: ObservableObject {
         adding = true
     }
 
-    /// Feuille « Rejoindre un partage » (KyberNow Share), avec le lien
+    /// Feuille « Rejoindre avec un code » (KyberNow Share), avec le lien
     /// `kybernow://join?…` qui l'a ouverte, s'il y en a un.
     @Published var joining = false
     var pendingJoin: ShareJoinLink?

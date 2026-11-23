@@ -2,8 +2,8 @@
   Invitation (docs/invitations.md, textes de docs/link-ui.md « Invitations ») : « Rejoindre avec un
   code » est tombé sur un code d'invitation. La feuille « Ajouter {ordinateur} » (« Ajouter
   l'ordinateur » quand la Station ne dit pas son nom) demande le mot de passe donné avec le code
-  (exemple grisé `xxxx-xxxx-xxxx`, ni correction ni majuscule automatiques ; tirets, espaces et
-  majuscules ne comptent pas). « Ajouter l'ordinateur » (inactif tant que le champ est vide) :
+  (masqué, avec « Afficher » / « Masquer » à droite du champ ; exemple grisé `xxxx-xxxx-xxxx`, ni
+  correction ni majuscule automatiques ; tirets, espaces et majuscules ne comptent pas). « Ajouter l'ordinateur » (inactif tant que le champ est vide) :
   « Ajout de {ordinateur}… » pendant l'appel (`invite_redeem`, 15 s au plus), puis l'ordinateur
   apparaît sur l'accueil, sélectionné, avec l'avis « {ordinateur} est ajouté. » (App.svelte). Un
   refus se lit sous le champ (« Mot de passe refusé. », « Ce code ne sert plus. »…), et l'on peut
@@ -32,6 +32,8 @@
   } = $props()
 
   let password = $state('')
+  /** « Afficher » : le mot de passe en clair, le temps de le relire. */
+  let shown = $state(false)
   let working = $state(false)
   let error = $state<string | null>(null)
   let field = $state<HTMLInputElement | null>(null)
@@ -72,21 +74,29 @@
     <p class="hint">{t('invite.help')}</p>
 
     <form onsubmit={add}>
-      <label class="col">
-        <span class="eyebrow">{t('invite.password')}</span>
-        <input
-          class="field mono"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck="false"
-          maxlength="40"
-          placeholder="xxxx-xxxx-xxxx"
-          bind:value={password}
-          bind:this={field}
-          oninput={() => (error = null)}
-          disabled={working}
-        />
-      </label>
+      <div class="col">
+        <label class="eyebrow" for="invite-password">{t('invite.password')}</label>
+        <span class="secret">
+          <input
+            id="invite-password"
+            class="field mono"
+            type={shown ? 'text' : 'password'}
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            maxlength="40"
+            placeholder="xxxx-xxxx-xxxx"
+            bind:value={password}
+            bind:this={field}
+            oninput={() => (error = null)}
+            disabled={working}
+          />
+          <button type="button" class="reveal" aria-pressed={shown} disabled={working} onclick={() => ((shown = !shown), field?.focus())}>
+            {shown ? t('invite.hide') : t('invite.show')}
+          </button>
+        </span>
+      </div>
 
       {#if working}<div class="wait" role="status"><span class="pulse"></span>{adding}</div>{/if}
       {#if error}<div class="error" role="alert">{error}</div>{/if}
@@ -183,6 +193,36 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+
+  .secret {
+    position: relative;
+    display: flex;
+  }
+
+  .secret .field {
+    flex: 1;
+    padding-right: 104px;
+  }
+
+  .reveal {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 32px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .reveal:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.06);
+    color: var(--text);
   }
 
   .row {

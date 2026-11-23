@@ -404,9 +404,9 @@ fn friend(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
 }
 
 /// Invitations (docs/invitations.md, docs/link-ui.md « Invitations ») : « Rejoindre avec un code » est tombé sur un
-/// code d'invitation. « Ajouter {ordinateur} », le texte, le champ « Mot de passe » (en clair, exemple grisé
-/// `xxxx-xxxx-xxxx` : il se recopie d'un papier), « Ajouter l'ordinateur » (inactif tant que le champ est vide) et
-/// « Annuler ». Au clavier ; à la manette, le pavé des lettres à droite (chiffres, lettres, tiret : de quoi taper le
+/// code d'invitation. « Ajouter {ordinateur} », le texte, le champ « Mot de passe » (masqué, exemple grisé
+/// `xxxx-xxxx-xxxx`) avec « Afficher » / « Masquer » à sa droite, « Ajouter l'ordinateur » (inactif tant que le champ
+/// est vide) et « Annuler ». Au clavier ; à la manette, le pavé des lettres à droite (chiffres, lettres, tiret : de quoi taper le
 /// mot de passe). Pendant l'appel, « Ajout de {ordinateur}… » ; un refus, sous le champ.
 fn invitation(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     let w = cv.w;
@@ -431,7 +431,14 @@ fn invitation(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f3
     ) + 22.0 * u;
     // Le champ « Mot de passe ».
     eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, tr("Mot de passe", "Password"));
-    let r = Rect::new(x0, y + 20.0 * u, left_w, 56.0 * u);
+    // « Afficher » / « Masquer », à droite du champ.
+    let reveal = if inv.reveal { tr("Masquer", "Hide") } else { tr("Afficher", "Show") };
+    let label_w = |cv: &mut Canvas, s: &str| cv.text_width(Text::new(Font::Regular, 14.0 * u, MUTED), s) + 28.0 * u;
+    // La place du plus long des deux : le champ ne bouge pas quand le libellé change.
+    let rw = label_w(cv, tr("Afficher", "Show")).max(label_w(cv, tr("Masquer", "Hide")));
+    let gw = label_w(cv, reveal);
+    widgets::ghost(cv, f, Target::InvitationReveal, x0 + left_w - gw, y + 20.0 * u + 8.0 * u, 40.0 * u, 14.0 * u, None, reveal, MUTED);
+    let r = Rect::new(x0, y + 20.0 * u, left_w - rw - 12.0 * u, 56.0 * u);
     let (focused, hover) = f.state(Target::InvitationPassword, r);
     if focused {
         widgets::ring(cv, r, 10.0 * u);
@@ -442,8 +449,11 @@ fn invitation(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f3
     let tw = if inv.password.is_empty() {
         cv.text(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Mono, 20.0 * u, GHOST), "xxxx-xxxx-xxxx");
         0.0
-    } else {
+    } else if inv.reveal {
         cv.text_fit(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, style, &inv.password, r.w - 40.0 * u)
+    } else {
+        let dots: String = "•".repeat(inv.password.chars().count());
+        cv.text_fit(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Regular, 20.0 * u, FROST), &dots, r.w - 40.0 * u)
     };
     let blink = !app.reduce_motion && (app.screen_since.elapsed().as_millis() / 530) % 2 == 0;
     if blink && !inv.busy {

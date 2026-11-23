@@ -818,14 +818,21 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
       inviteTicket = { id: ++inviteSeq, named: code === '246810' }
       return { kind: 'invite', ticket: inviteSeq, computer: code === '246810' ? t('mock.invite_computer') : '' } satisfies ShareJoinOutcome
     }
+    // Un partage ou un prêt ouvre une session : avec quatre sessions ouvertes (`?ordinateurs=4`), refusé après la
+    // réponse ; une invitation, elle, passe toujours.
+    const full = () => {
+      if (sessions.length >= 4) throw t('common.four_at_most')
+    }
     // Un code de prêt : l'app emprunte ensuite avec le ticket.
     if (code === '777777' || code === '787878' || code === '797979') {
+      full()
       lendTicket = { id: ++lendSeq, code }
       return { kind: 'lend', ticket: lendSeq } satisfies ShareJoinOutcome
     }
     // 111111 : l'hôte envoie un format que ce PC ne lit pas, on entre quand même (image à part).
     const relayed = relayCodes.includes(code)
     if (!relayed && code !== '123456' && code !== '482913' && code !== '111111') throw t('mock.no_share')
+    full()
     console.info(`share_join : qualité de l'image ${a.quality}`)
     guestQuality = ['auto', 'host', '2160p60', '1080p60', '720p30'].includes(String(a.quality)) ? (a.quality as ShareQuality) : 'auto'
     rememberedQuality = guestQuality

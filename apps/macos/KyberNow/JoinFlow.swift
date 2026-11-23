@@ -41,9 +41,6 @@ struct JoinSheet: View {
         .accessibilityLabel(ShareText.imageQuality)
     }
 
-    /// Quatre ordinateurs au plus, invités compris.
-    private var full: Bool { app.sessions.isFull }
-
     var body: some View {
         if let invitation {
             InviteAddPane(found: invitation) { dismiss() }
@@ -78,7 +75,7 @@ struct JoinSheet: View {
                 }
                 Button(ShareText.joinButton, action: join)
                     .buttonStyle(PrimaryButton(lit: model.busy))
-                    .disabled(!model.canJoin || full)
+                    .disabled(!model.canJoin)
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -94,9 +91,26 @@ struct JoinSheet: View {
         .onAppear {
             // Le rappel ne retient que l'app : en capturant la vue, qui tient
             // `model` (StateObject), le modèle se retiendrait lui-même.
-            model.onJoined = { [app] found in app.openGuestSession(found) }
+            // Quatre ordinateurs au plus, invités compris : seul ce qui ouvre une
+            // session (un partage, un prêt) est refusé, après coup, avec le texte
+            // de la limite (l'invité repart tout de suite) ; une invitation n'ouvre
+            // pas de session (docs/plusieurs-ordinateurs.md).
+            model.onJoined = { [app, weak model = model] found in
+                guard !app.sessions.isFull else {
+                    Share.leave(found)
+                    model?.refuse(LinkText.computersLimit)
+                    return
+                }
+                app.openGuestSession(found)
+            }
             // Un code de prêt : la session d'emprunt prend la suite.
-            model.onLend = { [app] source in app.openBorrowSession(source) }
+            model.onLend = { [app, weak model = model] source in
+                guard !app.sessions.isFull else {
+                    model?.refuse(LinkText.computersLimit)
+                    return
+                }
+                app.openBorrowSession(source)
+            }
             // Un code d'invitation : son mot de passe, dans cette feuille (le rappel ne retient que l'état).
             model.onInvite = { [invitation = $invitation] found in invitation.wrappedValue = found }
             model.start()
@@ -131,32 +145,28 @@ struct JoinSheet: View {
     }
 
     @ViewBuilder private var status: some View {
-        if full {
-            Notice(kind: .warn, text: LinkText.computersLimit)
-        } else {
-            switch model.state {
-            case .idle:
-                EmptyView()
-            case .looking:
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(ShareText.looking).font(Theme.sans(13)).foregroundStyle(Theme.muted)
-                }
-            case .waiting:
-                // Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » retire la demande).
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(ShareText.waiting).font(Theme.sans(13)).foregroundStyle(Theme.muted)
-                }
-                .accessibilityElement(children: .combine)
-            case let .failed(text):
-                Notice(kind: .warn, text: text)
+        switch model.state {
+        case .idle:
+            EmptyView()
+        case .looking:
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(ShareText.looking).font(Theme.sans(13)).foregroundStyle(Theme.muted)
             }
+        case .waiting:
+            // Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » retire la demande).
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(ShareText.waiting).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+            }
+            .accessibilityElement(children: .combine)
+        case let .failed(text):
+            Notice(kind: .warn, text: text)
         }
     }
 
     private func join() {
-        guard model.canJoin, !full else { return }
+        guard model.canJoin else { return }
         model.join(hosts: app.store.hosts)
     }
 
@@ -177,6 +187,8 @@ struct InviteAddPane: View {
     @EnvironmentObject var app: AppModel
     @StateObject private var model: InviteAddModel
     @FocusState private var focused: Bool
+    /// Le mot de passe en clair (« Afficher ») ; masqué par défaut.
+    @State private var shown = false
     let close: () -> Void
 
     init(found: InviteCodeFound, close: @escaping () -> Void) {
@@ -201,20 +213,36 @@ struct InviteAddPane: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(InviteText.password).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
-                // Ni correction ni majuscule automatiques : tirets et espaces facultatifs.
-                TextField(text: $model.password, prompt: Text(verbatim: InviteText.placeholder).foregroundColor(Theme.ghost)) { EmptyView() }
+                // Masqué (des points), « Afficher » à droite ; ni correction ni
+                // majuscule automatiques : tirets et espaces facultatifs.
+                HStack(spacing: 10) {
+                    Group {
+                        if shown {
+                            TextField(text: $model.password, prompt: Text(verbatim: InviteText.placeholder).foregroundColor(Theme.ghost)) { EmptyView() }
+                        } else {
+                            SecureField(text: $model.password, prompt: Text(verbatim: InviteText.placeholder).foregroundColor(Theme.ghost)) { EmptyView() }
+                        }
+                    }
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .font(Theme.mono(17))
                     .foregroundStyle(Theme.text)
                     .focused($focused)
                     .onSubmit(add)
-                    .padding(.horizontal, 14)
-                    .frame(height: 46)
-                    .background(Theme.bar, in: RoundedRectangle(cornerRadius: 11))
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(focused ? Theme.accentLine : Theme.line2))
-                    .disabled(model.adding)
                     .accessibilityLabel(InviteText.password)
+                    Button(shown ? InviteText.hide : InviteText.show) {
+                        shown.toggle()
+                        focused = true
+                    }
+                    .buttonStyle(.plain)
+                    .font(Theme.sans(13, .semibold))
+                    .foregroundStyle(Theme.accentLight)
+                }
+                .padding(.leading, 14).padding(.trailing, 12)
+                .frame(height: 46)
+                .background(Theme.bar, in: RoundedRectangle(cornerRadius: 11))
+                .overlay(RoundedRectangle(cornerRadius: 11).stroke(focused ? Theme.accentLine : Theme.line2))
+                .disabled(model.adding)
                 if let failure = model.failure {
                     Notice(kind: .warn, text: failure)
                 }

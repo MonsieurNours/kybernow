@@ -358,8 +358,8 @@
     <string name="stats_display">affichage</string>
     <string name="stats_rtt">Aller-retour</string>
     <string name="stats_losses" formatted="true">Pertes : %1$d images, %2$d trous, %3$d paquets</string>
-    <string name="share_join_title">Rejoindre un partage</string>
-    <string name="share_join_help">Le code s\'affiche chez la personne qui partage.</string>
+    <string name="share_join_title">Rejoindre avec un code</string>
+    <string name="share_join_help">Le code d\'un partage, d\'un prêt ou d\'une invitation.</string>
     <string name="share_join_name">Votre prénom</string>
     <string name="share_join_button">Rejoindre</string>
     <string name="share_join_searching">Recherche du partage…</string>
@@ -369,6 +369,8 @@
     <string name="invite_help">Cette invitation ajoute l\'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.</string>
     <string name="invite_password">Mot de passe</string>
     <string name="invite_password_placeholder">xxxx-xxxx-xxxx</string>
+    <string name="invite_password_show">Afficher</string>
+    <string name="invite_password_hide">Masquer</string>
     <string name="invite_add">Ajouter l\'ordinateur</string>
     <string name="invite_adding" formatted="true">Ajout de %1$s…</string>
     <string name="invite_adding_unnamed">Ajout de l\'ordinateur…</string>

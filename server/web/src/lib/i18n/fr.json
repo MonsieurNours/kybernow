@@ -630,6 +630,7 @@
         "one": "{n} jour",
         "other": "{n} jours"
       },
+      "durationHelp": "L'invitation et les appareils qu'elle ajoute tombent à la fin de cette durée.",
       "create": "Créer l'invitation",
       "cancel": "Annuler",
       "done": "Terminé",
@@ -1076,8 +1077,9 @@
     },
     "join": {
       "button": "Rejoindre avec un code",
-      "title": "Rejoindre un partage",
-      "lead": "Le code s'affiche chez la personne qui partage.",
+      "title": "Rejoindre avec un code",
+      "waitTitle": "Rejoindre un partage",
+      "lead": "Le code d'un partage, d'un prêt ou d'une invitation.",
       "name": "Votre prénom",
       "submit": "Rejoindre",
       "looking": "Recherche du partage…",

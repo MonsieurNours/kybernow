@@ -1694,6 +1694,8 @@ pub struct InvitationForm {
     pub password: String,
     /// Majuscule du pavé des lettres (manette), pour la touche suivante.
     pub shift: bool,
+    /// « Afficher » : le mot de passe en clair ; masqué (des points) sinon.
+    pub reveal: bool,
     /// « Ajout de {ordinateur}… » : le mot de passe est parti (15 s au plus).
     pub busy: bool,
     /// Le refus, sous le champ (`InviteError::text` du cœur).
@@ -2534,8 +2536,9 @@ pub enum Target {
     FriendPassword,
     FriendRemember,
     FriendGo,
-    /// Invitations : le champ « Mot de passe », « Ajouter l'ordinateur », « Annuler ».
+    /// Invitations : le champ « Mot de passe », « Afficher » / « Masquer », « Ajouter l'ordinateur », « Annuler ».
     InvitationPassword,
+    InvitationReveal,
     InvitationGo,
     InvitationCancel,
     /// La fin d'une session d'emprunt sans le prêt (fenêtre fermée, réseau perdu) : « Revenir ».
@@ -3886,6 +3889,10 @@ impl App {
             }
             Target::FriendGo => self.friend_go(),
             Target::InvitationPassword => Vec::new(),
+            Target::InvitationReveal => {
+                self.invitation.reveal = !self.invitation.reveal;
+                Vec::new()
+            }
             Target::InvitationGo => self.invitation_go(),
             Target::InvitationCancel => {
                 self.invitation_cancel();
@@ -7970,6 +7977,9 @@ mod tests {
         }
         app.nav(Nav::Erase);
         assert_eq!(app.invitation.password, "k7mq-p2x");
+        assert!(!app.invitation.reveal, "masqué d'abord");
+        app.activate(Target::InvitationReveal);
+        assert!(app.invitation.reveal);
         app.focus = Target::InvitationPassword;
         let acts = app.nav(Nav::Ok);
         let first = app.invitation.attempt;

@@ -125,7 +125,7 @@ private struct AddHostCameraPreview: UIViewRepresentable {
 /// Ce que montre la caméra qui cherche un QR code : son image et le viseur,
 /// ou pourquoi elle n'est pas là (autorisation refusée, pas de caméra). Les
 /// deux textes disent quelle autre voie reste à la personne, selon l'écran
-/// qui l'emploie (appairage d'un ordinateur, « Rejoindre un partage »).
+/// qui l'emploie (appairage d'un ordinateur, « Rejoindre avec un code »).
 struct AddHostCameraViewer: View {
     @ObservedObject var camera: AddHostCamera
     let wide: Bool

@@ -106,6 +106,9 @@ pub enum Event {
     PairAsked { name: String },
     PairAccepted(crate::model::Host),
     PairFailed(String),
+    /// Invitations : la réponse au mot de passe (numéro de l'essai) : l'ordinateur à garder, ou le texte du refus
+    /// (`InviteError::text`).
+    Invited { attempt: u32, result: Result<crate::model::Host, String> },
     /// Ce qu'une session envoie, étiqueté par sa session : plusieurs ordinateurs à la fois, un seul
     /// canal. Un événement d'une session finie est écarté.
     Session(SessionId, SessionEvent),
@@ -2223,6 +2226,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 }
                 *dirty = true;
             }
+            // Invitations : le mot de passe de « Ajouter {ordinateur} ».
+            if app.typing_invitation() {
+                for c in text.chars() {
+                    actions.extend(app.nav(Nav::Char(c)));
+                }
+                *dirty = true;
+            }
             // « Rejoindre un partage » : les chiffres du code, les lettres du prénom (accents compris).
             if app.screen == Screen::Join {
                 for c in text.chars() {
@@ -2616,10 +2626,23 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                     jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
                 }
             }
+            // Invitations : le code est celui d'une invitation. Le pilote garde le code (la Station, le chemin) ;
+            // l'écran « Ajouter {ordinateur} » demande le mot de passe (docs/invitations.md).
+            Err(share::ShareError::Invite(c)) => {
+                if app.join_invited(attempt, &c.computer) {
+                    jobs::invite_keep(*c);
+                    actions.push(Action::TextInput);
+                }
+            }
             Err(e) => {
                 log::info!("partage : {e}");
                 app.join_failed(attempt, e.to_string());
             }
+        },
+        // Invitations : l'ordinateur est ajouté (gardé, choisi sur l'accueil), ou le refus va sous le champ.
+        Event::Invited { attempt, result } => match result {
+            Ok(host) => actions.extend(app.invitation_added(attempt, host)),
+            Err(e) => app.invitation_failed(attempt, e),
         },
         // Prêt de l'ordinateur, ami : « En attente de {hôte}… » ; un emprunt abandonné entre-temps retire sa demande.
         Event::BorrowPending { source, host } => {
@@ -3392,6 +3415,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 l.handle.session.give_back();
             }
         }
+        Action::RedeemInvite { attempt, password } => jobs::invite_redeem(attempt, password, device_info(app), tx.clone()),
         Action::FriendAdd { address, port, fingerprint, relay, sid, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, relay, sid, login, password, remember, editing, tx.clone()),
         Action::Lend(id, op) => {
             let host = lives.get(id).and_then(|l| app.store.host(&l.host)).cloned();
@@ -3540,7 +3564,12 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     }
     let first = app.sessions.is_empty();
     // Le Steam Deck, le salon et KyberNow Link OS gardent une session ; quatre ordinateurs au plus.
+    // La limite ne vaut que pour une session à ouvrir : un code d'invitation (qui n'en ouvre pas) passe toujours ; un
+    // partage ou un prêt trouvé par « Rejoindre avec un code » est refusé ici, après coup, en le disant.
     if !first && (!app.multi_sessions() || app.sessions_full()) {
+        if visitor && app.multi_sessions() {
+            app.toast(tr("Quatre ordinateurs au plus en même temps.", "Four computers at most at the same time."));
+        }
         give_up(guest, loan);
         return;
     }

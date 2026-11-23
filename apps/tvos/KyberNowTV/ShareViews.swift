@@ -272,8 +272,10 @@ struct InviteAddView: View {
     @EnvironmentObject private var store: HostStore
     @StateObject private var model: InviteAddModel
     @FocusState private var focus: Target?
+    /// Le mot de passe en clair (« Afficher ») ; masqué par défaut.
+    @State private var shown = false
 
-    enum Target: Hashable { case back, password, add, cancel }
+    enum Target: Hashable { case back, password, reveal, add, cancel }
 
     init(found: InviteCodeFound) {
         _model = StateObject(wrappedValue: InviteAddModel(found: found))
@@ -304,16 +306,30 @@ struct InviteAddView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 10) {
                     Text(InviteText.password).font(Theme.sans(19)).foregroundStyle(Theme.muted)
-                    TextField(InviteText.placeholder, text: $model.password)
+                    // Masqué (des points) ; « Afficher » / « Masquer » à droite, à
+                    // la télécommande comme le reste (la droite depuis le champ).
+                    HStack(spacing: 20) {
+                        Group {
+                            if shown {
+                                TextField(InviteText.placeholder, text: $model.password)
+                            } else {
+                                SecureField(InviteText.placeholder, text: $model.password)
+                            }
+                        }
                         .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(Theme.mono(30))
-                        .frame(width: 760)
+                        .frame(width: 600)
                         .focused($focus, equals: .password)
                         // Le clavier fermé, mot de passe tapé : le focus passe à « Ajouter l'ordinateur ».
                         .onSubmit { if filled { focus = .add } }
                         .accessibilityLabel(Text(InviteText.password))
+                        Button(shown ? InviteText.hide : InviteText.show) { shown.toggle() }
+                            .buttonStyle(ChoiceButton(selected: shown, height: 64))
+                            .focused($focus, equals: .reveal)
+                    }
+                    .focusSection()
                 }
                 status
                 HStack(spacing: 20) {

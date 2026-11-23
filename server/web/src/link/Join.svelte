@@ -1,11 +1,11 @@
 <!--
-  « Rejoindre un partage » (KyberNow Share, docs/link-ui.md) : le code (celui
+  « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md) : le code (celui
   du lien `?join=`, ou les six chiffres tapés), le prénom et la « Qualité de
   l'image » (retenus pour la fois suivante), sans mot de passe d'Admin. La
   Station répond avec le jeton de l'invité ; avant d'entrer, on vérifie que ce
   navigateur sait lire un format de l'image. Par le relais, la demande attend
   d'abord l'accord de l'hôte (« En attente de l'accord de l'hôte… », « Annuler ») ;
-  l'écran reste titré « Rejoindre un partage », sans nom d'ordinateur. Un code
+  l'écran est alors titré « Rejoindre un partage », sans nom d'ordinateur. Un code
   de prêt (docs/pret.md, « Codes ») : la Station le dit (`lend`), et l'ami
   emprunte l'ordinateur (`onLend`, la session d'emprunt fait la suite). Un
   code d'invitation (docs/invitations.md) : la Station le dit (`invite`), et
@@ -192,7 +192,7 @@
   {#if pending}
     <!-- Par le relais : ni le prénom de l'hôte ni le nom de l'ordinateur ne sont connus avant l'accord. -->
     <div class="head">
-      <h1 class="disp">{t('share.join.title')}</h1>
+      <h1 class="disp">{t('share.join.waitTitle')}</h1>
       <p class="waiting" role="status"><span class="dot" aria-hidden="true"></span>{t('share.join.waiting')}</p>
     </div>
     <button type="button" class="ghost" onclick={cancelWait}>{t('share.cancel')}</button>

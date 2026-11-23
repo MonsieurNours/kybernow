@@ -630,6 +630,7 @@
         "one": "{n} day",
         "other": "{n} days"
       },
+      "durationHelp": "The invitation and the devices it adds expire at the end of this period.",
       "create": "Create the invitation",
       "cancel": "Cancel",
       "done": "Done",
@@ -1076,8 +1077,9 @@
     },
     "join": {
       "button": "Join with a code",
-      "title": "Join a share",
-      "lead": "The code is shown by the person sharing.",
+      "title": "Join with a code",
+      "waitTitle": "Join a share",
+      "lead": "The code of a share, a loan or an invitation.",
       "name": "Your name",
       "submit": "Join",
       "looking": "Looking for the share…",

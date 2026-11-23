@@ -313,6 +313,12 @@ final class ShareJoinModel: ObservableObject {
     }
     #endif
 
+    /// L'app refuse après coup ce que le code a trouvé (Mac : quatre sessions
+    /// déjà ouvertes, pour un partage ou un prêt) : le texte, à montrer tel quel.
+    func refuse(_ text: String) {
+        state = .failed(text)
+    }
+
     /// « Annuler » pendant la recherche ou l'attente, ou l'écran qui se ferme :
     /// une demande en attente est retirée chez l'hôte.
     func cancel() {

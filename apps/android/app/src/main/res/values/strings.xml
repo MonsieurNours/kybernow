@@ -358,8 +358,8 @@
     <string name="stats_display">display</string>
     <string name="stats_rtt">Round trip</string>
     <string name="stats_losses" formatted="true">Losses: %1$d frames, %2$d gaps, %3$d packets</string>
-    <string name="share_join_title">Join a share</string>
-    <string name="share_join_help">The code is shown by the person sharing.</string>
+    <string name="share_join_title">Join with a code</string>
+    <string name="share_join_help">The code of a share, a loan or an invitation.</string>
     <string name="share_join_name">Your name</string>
     <string name="share_join_button">Join</string>
     <string name="share_join_searching">Looking for the share…</string>
@@ -369,6 +369,8 @@
     <string name="invite_help">This invitation adds the computer to your devices. Enter the password given with the code.</string>
     <string name="invite_password">Password</string>
     <string name="invite_password_placeholder">xxxx-xxxx-xxxx</string>
+    <string name="invite_password_show">Show</string>
+    <string name="invite_password_hide">Hide</string>
     <string name="invite_add">Add the computer</string>
     <string name="invite_adding" formatted="true">Adding %1$s…</string>
     <string name="invite_adding_unnamed">Adding the computer…</string>

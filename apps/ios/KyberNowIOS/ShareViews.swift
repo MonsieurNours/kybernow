@@ -233,6 +233,9 @@ struct InviteAddView: View {
     @EnvironmentObject private var store: HostStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: InviteAddModel
+    @FocusState private var focused: Bool
+    /// Le mot de passe en clair (« Afficher ») ; masqué par défaut.
+    @State private var shown = false
 
     init(found: InviteCodeFound) {
         _model = StateObject(wrappedValue: InviteAddModel(found: found))
@@ -255,10 +258,7 @@ struct InviteAddView: View {
                 }
                 Text(InviteText.help).font(Theme.sans(15)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                // Ni correction ni majuscule automatiques (AddHostField) : tirets et espaces facultatifs.
-                AddHostField(label: InviteText.password, text: $model.password, prompt: InviteText.placeholder,
-                             mono: true, keyboard: .asciiCapable, submit: .go) { add() }
-                    .disabled(model.adding)
+                passwordField
                 if let failure = model.failure {
                     AddHostNotice(kind: .warn, text: failure)
                 }
@@ -302,6 +302,49 @@ struct InviteAddView: View {
         .onChange(of: model.password) { _, _ in model.passwordChanged() }
     }
 
+    /// « Mot de passe », masqué (des points), « Afficher » / « Masquer » à
+    /// droite ; ni correction ni majuscule automatiques : tirets et espaces
+    /// facultatifs. Le style des champs de l'ajout (`AddHostField`).
+    private var passwordField: some View {
+        let wide = DeviceDisplay.isPad
+        return VStack(alignment: .leading, spacing: wide ? 8 : 6) {
+            Text(InviteText.password).font(Theme.sans(wide ? 14 : 13)).foregroundStyle(Theme.muted)
+            HStack(spacing: 10) {
+                Group {
+                    if shown {
+                        TextField(text: $model.password, prompt: Text(verbatim: InviteText.placeholder).foregroundStyle(Theme.ghost)) { Text(InviteText.password) }
+                    } else {
+                        SecureField(text: $model.password, prompt: Text(verbatim: InviteText.placeholder).foregroundStyle(Theme.ghost)) { Text(InviteText.password) }
+                    }
+                }
+                .keyboardType(.asciiCapable)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .onSubmit { add() }
+                .focused($focused)
+                .font(Theme.mono(wide ? 16 : 15))
+                .foregroundStyle(Theme.text)
+                .tint(Theme.accent)
+                Button(shown ? InviteText.hide : InviteText.show) {
+                    shown.toggle()
+                    focused = true
+                }
+                .font(Theme.sans(wide ? 15 : 14, .semibold))
+                .foregroundStyle(Theme.accentLight)
+                .frame(minHeight: 44)
+            }
+            .padding(.leading, wide ? 18 : 16).padding(.trailing, 12)
+            .frame(height: wide ? 52 : 50)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(focused ? Theme.accent : Theme.line2))
+            .contentShape(Rectangle())
+            .onTapGesture { focused = true }
+            .animation(.easeOut(duration: 0.15), value: focused)
+            .disabled(model.adding)
+        }
+    }
+
     private func add() {
         guard model.canAdd else { return }
         model.add(to: store)
@@ -313,7 +356,7 @@ struct InviteAddView: View {
     }
 }
 
-/// « Code » / « QR code » : le choix en haut de « Rejoindre un partage » (appareil photo).
+/// « Code » / « QR code » : le choix en haut de « Rejoindre avec un code » (appareil photo).
 private struct JoinSourcePicker: View {
     @Binding var source: JoinView.Source
 

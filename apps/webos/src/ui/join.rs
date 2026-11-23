@@ -1,4 +1,5 @@
-//! « Rejoindre un partage » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres que
+//! « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md, « Partage » ; le code peut aussi être celui d'un prêt ou
+//! d'une invitation) : le code à six chiffres que
 //! l'hôte affiche, « Votre prénom » (proposé : le nom de ce téléviseur, puis celui de la dernière fois),
 //! « Qualité de l'image » (cinq choix, « Auto » proposé, retenue aussi) et « Rejoindre ». À la télécommande et à la manette, un pavé à droite qui suit le champ : les chiffres pour
 //! le code, les lettres pour le prénom ; les touches chiffrées de la télécommande et un clavier branché
@@ -17,8 +18,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.clear(INK);
     cv.line(1300.0, 1080.0, 1920.0, 460.0, 3.0, SPECTRE.alpha(0.08));
     widgets::label(cv, 96.0, 104.0, "KyberNow Share");
-    cv.text(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), tr("Rejoindre un partage", "Join a share"));
-    cv.paragraph(96.0, 262.0, Text::new(Font::Regular, 24.0, FROST_2), tr("Le code s'affiche chez la personne qui partage.", "The code is shown by the person sharing."), 860.0, 36.0);
+    cv.text(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), tr("Rejoindre avec un code", "Join with a code"));
+    cv.paragraph(96.0, 262.0, Text::new(Font::Regular, 24.0, FROST_2), tr("Le code d'un partage, d'un prêt ou d'une invitation.", "The code of a share, a loan or an invitation."), 860.0, 36.0);
     let j = &app.join;
     let blink = (app.join.started.elapsed().as_millis() / 530) % 2 == 0;
 

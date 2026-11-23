@@ -20,6 +20,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         AddStep::Address => address(app, cv, f),
         AddStep::Verify { address, port, fingerprint } => verify(cv, f, address, *port, fingerprint),
         AddStep::Friend => friend(app, cv, f),
+        AddStep::Invitation => invitation(app, cv, f),
     }
     let y = H - 48.0;
     let mut x = 96.0;
@@ -185,6 +186,61 @@ fn friend(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.paragraph(x + bw + 36.0, y + 32.0, Text::new(Font::Regular, 23.0, DANGER), m, (w - bw - 36.0).max(300.0), 32.0);
     }
     super::join::letter_pad(fr.shift, cv, f);
+}
+
+/// Invitations (docs/invitations.md, docs/link-ui.md « Invitations ») : « Rejoindre avec un code » est tombé sur un
+/// code d'invitation. « Ajouter {ordinateur} », le texte, le champ « Mot de passe » (masqué, exemple grisé
+/// `xxxx-xxxx-xxxx`) avec « Afficher » / « Masquer » à sa droite, « Ajouter l'ordinateur » (inactif tant que le champ
+/// est vide) et « Annuler » ; le pavé des lettres à droite (chiffres, lettres, tiret : de quoi taper le mot de passe à
+/// la télécommande). Pendant l'appel, « Ajout de {ordinateur}… » ; un refus, sous le champ.
+fn invitation(app: &App, cv: &mut Canvas, f: &mut Frame) {
+    let inv = &app.invitation;
+    cv.text_fit(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), &inv.title(), W - 180.0);
+    let (x, w) = (96.0, 860.0);
+    let mut y = 250.0;
+    y += cv.paragraph(
+        x,
+        y + 30.0,
+        Text::new(Font::Regular, 24.0, FROST_2),
+        tr("Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.", "This invitation adds the computer to your devices. Enter the password given with the code."),
+        w,
+        36.0,
+    ) + 40.0;
+    // Le champ « Mot de passe », et « Afficher » / « Masquer » à sa droite.
+    widgets::label(cv, x, y + 20.0, tr("Mot de passe", "Password"));
+    let reveal = if inv.reveal { tr("Masquer", "Hide") } else { tr("Afficher", "Show") };
+    let label_w = |cv: &mut Canvas, s: &str| cv.text_width(Text::new(Font::Semibold, 22.0, FROST), s) + 44.0;
+    // La place du plus long des deux : le champ ne bouge pas quand le libellé change.
+    let rw = label_w(cv, tr("Afficher", "Show")).max(label_w(cv, tr("Masquer", "Hide")));
+    let r = Rect::new(x, y + 34.0, w - rw - 16.0, 76.0);
+    let focused = f.hit(Target::InvitationPassword, r);
+    cv.rrect(r.x, r.y, r.w, r.h, 16.0, PANEL);
+    cv.rrect_stroke(r.x, r.y, r.w, r.h, 16.0, 2.0, if focused { CORE } else { SPECTRE });
+    if inv.password.is_empty() {
+        cv.text(r.x + 26.0, r.y + 50.0, Text::new(Font::Mono, 30.0, FROST_4), "xxxx-xxxx-xxxx");
+    } else if inv.reveal {
+        cv.text_fit(r.x + 26.0, r.y + 50.0, Text::new(Font::Mono, 30.0, FROST), &inv.password, r.w - 52.0);
+    } else {
+        let dots: String = "•".repeat(inv.password.chars().count());
+        cv.text_fit(r.x + 26.0, r.y + 50.0, Text::new(Font::Regular, 30.0, FROST), &dots, r.w - 52.0);
+    }
+    widgets::secondary(cv, f, Target::InvitationReveal, x + w - label_w(cv, reveal), y + 34.0 + (76.0 - 52.8) / 2.0, reveal, 22.0);
+    y += 34.0 + 76.0 + 16.0;
+    // Le refus, sous le champ.
+    if let (Some(m), false) = (&inv.message, inv.busy) {
+        y += cv.paragraph(x, y + 30.0, Text::new(Font::Regular, 23.0, DANGER), m, w, 32.0) + 12.0;
+    }
+    y += 24.0;
+    // « Ajouter l'ordinateur », « Annuler » ; pendant l'appel, « Ajout de {ordinateur}… ».
+    let bw = widgets::primary_state(cv, f, Target::InvitationGo, x, y, tr("Ajouter l'ordinateur", "Add the computer"), inv.ready());
+    widgets::secondary(cv, f, Target::InvitationCancel, x + bw + 20.0, y + (84.0 - 57.6) / 2.0, tr("Annuler", "Cancel"), 24.0);
+    if inv.busy {
+        let (cx, cy) = (x + 20.0, y + 84.0 + 56.0);
+        cv.circle(cx, cy, 14.0, HALO.alpha(0.35));
+        cv.circle(cx, cy, 6.0, SPECTRE);
+        cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), &inv.adding());
+    }
+    super::join::letter_pad(inv.shift, cv, f);
 }
 
 const KEYS: [char; 12] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', ':'];

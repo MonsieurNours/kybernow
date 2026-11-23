@@ -117,6 +117,7 @@
         <div class="field">
           <span class="label">{t('devices.invites.duration')}</span>
           <Segmented label={t('devices.invites.duration')} options={days.map((d) => ({ value: String(d), label: tn('devices.invites.days', d) }))} value={String(length)} onchange={(v: string) => (length = Number(v))} />
+          <p class="duration-help">{t('devices.invites.durationHelp')}</p>
         </div>
         <div class="foot">
           <button type="button" class="ghost" onclick={onclose}>{t('devices.invites.cancel')}</button>
@@ -220,6 +221,11 @@
   .label {
     font-size: 12.5px;
     color: var(--muted);
+  }
+
+  .duration-help {
+    font-size: 12.5px;
+    color: var(--faint);
   }
 
   .shown {

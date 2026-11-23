@@ -1,4 +1,5 @@
-//! « Rejoindre un partage » (KyberNow Share, docs/link-ui.md, « Partage ») : le code à six chiffres que
+//! « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md, « Partage » ; le code peut aussi être celui d'un prêt ou
+//! d'une invitation) : le code à six chiffres que
 //! l'hôte affiche, « Votre prénom » (proposé : le nom de l'appareil, retenu pour la fois suivante),
 //! « Qualité de l'image » (cinq choix, « Auto » proposé, retenue aussi) et « Rejoindre ». Au bureau, au clavier ; à la manette (Steam Deck, salon, KyberNow Link OS), un pavé à
 //! droite : les chiffres pour le code, les lettres pour le prénom (comme le mot de passe du Wi-Fi) ; un
@@ -42,13 +43,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let j = &app.join;
 
     eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, "KyberNow Share");
-    cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Rejoindre un partage", "Join a share"), (w - 2.0 * x0).min(left_w + 80.0 * u));
+    cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Rejoindre avec un code", "Join with a code"), (w - 2.0 * x0).min(left_w + 80.0 * u));
     y += if tight { 70.0 } else { 80.0 } * u;
     y += cv.paragraph(
         x0,
         y + 6.0 * u,
         Text::new(Font::Regular, 16.0 * u, MUTED),
-        tr("Le code s'affiche chez la personne qui partage.", "The code is shown by the person sharing."),
+        tr("Le code d'un partage, d'un prêt ou d'une invitation.", "The code of a share, a loan or an invitation."),
         left_w + 60.0 * u,
         24.0 * u,
     ) + 6.0 * u

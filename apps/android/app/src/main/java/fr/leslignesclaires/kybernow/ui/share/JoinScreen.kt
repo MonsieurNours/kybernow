@@ -47,6 +47,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.AnnotatedString
@@ -305,7 +306,8 @@ internal fun JoinContent(
                     Box(Modifier.background(Kn.frost.copy(alpha = 0.08f)).padding(s.dp(10f))) { KnIcon(KnIcons.back, size = 20f) }
                 }
                 Spacer(Modifier.width(s.dp(14f)))
-                // Le prénom de l'hôte et le nom de l'ordinateur ne sont connus qu'après l'accord : le titre ne change pas.
+                // « Rejoindre avec un code » : un partage, un prêt ou une invitation ; le prénom de l'hôte et le nom de
+                // l'ordinateur ne sont connus qu'après l'accord : le titre ne change pas.
                 Title(stringResource(R.string.share_join_title), size = if (s.tv) 40f else 26f)
             }
             if (waiting) {
@@ -373,13 +375,16 @@ private suspend fun stations(): List<ShareTarget> {
 /**
  * « Ajouter {ordinateur} » (docs/link-ui.md, « Invitations ») : le mot de passe donné avec le code (ni correction ni
  * majuscule automatiques ; tirets et espaces facultatifs : le clavier de la télécommande suffit), « Ajouter l'ordinateur »
- * (inactif tant que le champ est vide) et « Annuler » ; pendant l'appel, « Ajout de {ordinateur}… » ; un refus sous le
+ * (inactif tant que le champ est vide) et « Annuler » ; le mot de passe est masqué, « Afficher » / « Masquer » à droite du
+ * champ ; pendant l'appel, « Ajout de {ordinateur}… » ; un refus sous le
  * champ ([error], le texte du cœur). [computer] vide : « Ajouter l'ordinateur ». Au téléviseur, le focus est sur le champ.
  */
 @Composable
 internal fun InviteContent(computer: String, busy: Boolean, error: String?, onCancel: () -> Unit, onAdd: (String) -> Unit) {
     val s = LocalScale.current
     var password by remember { mutableStateOf("") }
+    // Masqué (des points) au départ ; « Afficher » / « Masquer » à droite du champ.
+    var visible by remember { mutableStateOf(false) }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (s.tv) runCatching { first.requestFocus() } }
     val title = if (computer.isBlank()) stringResource(R.string.invite_title_unnamed) else stringResource(R.string.invite_title, computer)
@@ -405,6 +410,11 @@ internal fun InviteContent(computer: String, busy: Boolean, error: String?, onCa
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth().focusRequester(first),
                 textStyle = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(22f), letterSpacing = s.sp(1f), color = Kn.frost),
+                visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+                // Un bouton à part entière : au téléviseur, la croix y mène depuis le champ (à droite) et OK bascule.
+                trailingIcon = {
+                    GlassButton(stringResource(if (visible) R.string.invite_password_hide else R.string.invite_password_show), { visible = !visible }, Modifier.padding(end = s.dp(6f)))
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
                 colors = fieldColors,
             )

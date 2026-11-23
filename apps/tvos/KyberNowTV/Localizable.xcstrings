@@ -5427,22 +5427,6 @@
         }
       }
     },
-    "Le code s'affiche chez la personne qui partage." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The code is shown by the person sharing."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le code s'affiche chez la personne qui partage."
-          }
-        }
-      }
-    },
     "Le compte d'%@" : {
       "localizations" : {
         "en" : {
@@ -7487,22 +7471,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rejoindre avec un code"
-          }
-        }
-      }
-    },
-    "Rejoindre un partage" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Join a share"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rejoindre un partage"
           }
         }
       }
@@ -10800,6 +10768,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mot de passe refusé."
+          }
+        }
+      }
+    },
+    "Le code d'un partage, d'un prêt ou d'une invitation." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The code of a share, a loan or an invitation."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le code d'un partage, d'un prêt ou d'une invitation."
+          }
+        }
+      }
+    },
+    "Afficher" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher"
+          }
+        }
+      }
+    },
+    "Masquer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masquer"
           }
         }
       }

@@ -410,7 +410,7 @@ class RelayUiTest {
         var joined = 0
         show(FormFactor.PHONE) { JoinContent(null, false, "Léa", ShareQuality.AUTO, true, null, {}, { _, _, _, _ -> joined++ }, waiting = true, onCancel = { cancelled++ }) }
         // Le titre ne change pas : le prénom de l'hôte et l'ordinateur ne sont connus qu'après l'accord.
-        rule.onNodeWithText("Rejoindre un partage").assertExists()
+        rule.onNodeWithText("Rejoindre avec un code").assertExists()
         rule.onNodeWithText("En attente de l'accord de l'hôte…").assertExists()
         rule.onNodeWithText("Annuler").assertHasClickAction().performClick()
         assertEquals(1, cancelled)

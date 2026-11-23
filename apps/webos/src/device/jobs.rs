@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError};
+use kybernow_core::invite;
 use kybernow_core::lend;
 use kybernow_core::profile::Capabilities;
 use kybernow_core::relay::{self, RelayAddr, RelayMode, RelayRoute};
@@ -308,6 +309,83 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
             }
         }
     });
+}
+
+/// Invitations : le code d'invitation que « Rejoindre avec un code » a trouvé (la Station, le chemin, le nom de
+/// l'ordinateur), gardé pendant que l'écran « Ajouter {ordinateur} » demande le mot de passe (un seul à la fois).
+static INVITE: std::sync::Mutex<Option<invite::InviteCode>> = std::sync::Mutex::new(None);
+
+/// Invitations : garde le code trouvé, pour `invite_redeem`.
+pub fn invite_keep(code: invite::InviteCode) {
+    *INVITE.lock().unwrap() = Some(code);
+}
+
+/// Invitations (docs/invitations.md) : le mot de passe part avec le code gardé (`invite::redeem`, 15 s au plus, par le
+/// même chemin que « Rejoindre » : le réseau, ou le relais). L'ordinateur revient comme un ordinateur appairé par code
+/// (adresse et port d'Admin, empreinte épinglée, compte propre à ce téléviseur, relais pour l'ouvrir hors de chez soi) ;
+/// sur le réseau, Admin dit aussi son système et de quoi le réveiller, comme après un appairage. Un refus : le texte du
+/// cœur (`InviteError::text`), avec le nom de l'ordinateur.
+pub fn invite_redeem(attempt: u32, password: String, device: DeviceInfo, tx: Sender<Event>) {
+    let Some(code) = INVITE.lock().unwrap().clone() else {
+        let _ = tx.send(Event::Invited { attempt, result: Err(invite::InviteError::NoInvite.text(kybernow_core::i18n::current(), "")) });
+        return;
+    };
+    std::thread::Builder::new()
+        .name("invite-redeem".into())
+        .spawn(move || {
+            let lang = kybernow_core::i18n::current();
+            let result = match invite::redeem(&code, &password, &device) {
+                Ok(i) => {
+                    log::info!("invitation : ordinateur ajouté{}", if i.via_relay { " par le relais" } else { "" });
+                    Ok(invited_host(&code, i))
+                }
+                Err(e) => {
+                    log::info!("invitation : refusée ({})", e.kind());
+                    Err(e.text(lang, &code.computer))
+                }
+            };
+            let _ = tx.send(Event::Invited { attempt, result });
+        })
+        .ok();
+}
+
+/// L'ordinateur d'une invitation, à garder comme un ordinateur appairé par code.
+fn invited_host(code: &invite::InviteCode, i: invite::Invited) -> Host {
+    let name = if i.hostname.trim().is_empty() { code.computer.clone() } else { i.hostname.clone() };
+    let mut host = Host {
+        id: new_id(),
+        name,
+        address: i.address.clone(),
+        port: i.port,
+        fingerprint: i.fingerprint.clone(),
+        user: i.username.clone(),
+        password: i.password.clone(),
+        os: None,
+        gpu: None,
+        av1: false,
+        mac: None,
+        wake: Vec::new(),
+        relay: i.relay.as_ref().map(host_relay),
+        settings: HostSettings::default(),
+        last: None,
+    };
+    // Ajouté sur le réseau : Admin répond aussi à `info` (par le relais, l'accueil le sondera).
+    if !i.via_relay {
+        let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+        if let Ok(info) = c.info() {
+            if !info.hostname.is_empty() {
+                host.name = info.hostname.clone();
+            }
+            host.os = (!info.os.is_empty()).then(|| info.os.clone());
+            host.gpu = info.gpu.clone();
+            host.av1 = info.av1;
+            host.wake = wake_targets(&info);
+            if let Some(r) = info.relay.as_ref() {
+                host.relay = Some(host_relay(r));
+            }
+        }
+    }
+    host
 }
 
 /// Réveille un ordinateur (Wake-on-LAN) par le cœur : ses cartes données par

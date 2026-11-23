@@ -406,8 +406,8 @@ S = [
 # KyberNow Share (docs/link-ui.md, « Partage »). Les refus de « Rejoindre », les fins du partage et les
 # raisons de « Partager » inactif sont écrits par le cœur (catalogue `share.*`), dans la langue de l'app.
 # L'invité
-("share_join_title", "Rejoindre un partage", "Join a share"),
-("share_join_help", "Le code s'affiche chez la personne qui partage.", "The code is shown by the person sharing."),
+("share_join_title", "Rejoindre avec un code", "Join with a code"),
+("share_join_help", "Le code d'un partage, d'un prêt ou d'une invitation.", "The code of a share, a loan or an invitation."),
 ("share_join_name", "Votre prénom", "Your name"),
 ("share_join_button", "Rejoindre", "Join"),
 ("share_join_searching", "Recherche du partage…", "Looking for the share…"),
@@ -419,6 +419,8 @@ S = [
 ("invite_help", "Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.", "This invitation adds the computer to your devices. Enter the password given with the code."),
 ("invite_password", "Mot de passe", "Password"),
 ("invite_password_placeholder", "xxxx-xxxx-xxxx", "xxxx-xxxx-xxxx"),
+("invite_password_show", "Afficher", "Show"),
+("invite_password_hide", "Masquer", "Hide"),
 ("invite_add", "Ajouter l'ordinateur", "Add the computer"),
 ("invite_adding", "Ajout de %1$s…", "Adding %1$s…"),
 ("invite_adding_unnamed", "Ajout de l'ordinateur…", "Adding the computer…"),

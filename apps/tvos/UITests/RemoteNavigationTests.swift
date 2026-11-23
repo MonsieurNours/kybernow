@@ -78,8 +78,9 @@ final class RemoteNavigationTests: XCTestCase {
     }
 
     /// « Rejoindre avec un code » sur un code d'invitation (`-demoInvite YES`,
-    /// sans Station) : « Ajouter PC du salon », le mot de passe au clavier de
-    /// l'écran, le bas jusqu'à « Ajouter l'ordinateur » ; l'ordinateur arrive
+    /// sans Station) : « Ajouter PC du salon », le mot de passe (masqué) au
+    /// clavier de l'écran, « Afficher » à sa droite, le bas jusqu'à « Ajouter
+    /// l'ordinateur » ; l'ordinateur arrive
     /// sur l'accueil avec l'avis « PC du salon est ajouté. ».
     func testInvitationCodeAddsTheComputer() {
         let app = launch(["-screen", "join", "-demoInvite", "YES"])
@@ -98,6 +99,15 @@ final class RemoteNavigationTests: XCTestCase {
         remote.press(.menu)
         sleep(1)
         XCTAssertTrue(app.staticTexts["Ajouter PC du salon"].exists, "le clavier fermé, l'écran de l'invitation doit rester")
+        // Le mot de passe est masqué : « Afficher », à droite du champ, le montre (puis « Masquer »).
+        remote.press(.right)
+        sleep(1)
+        XCTAssertEqual(focused(app).label, "Afficher")
+        remote.press(.select)
+        sleep(1)
+        XCTAssertEqual(focused(app).label, "Masquer")
+        remote.press(.left)
+        sleep(1)
         remote.press(.down)
         sleep(1)
         XCTAssertEqual(focused(app).label, "Ajouter l'ordinateur")

@@ -1,5 +1,6 @@
 <!--
-  « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md « Partage ») : les six
+  « Rejoindre avec un code » (KyberNow Share, docs/link-ui.md « Partage ») : aide « Le code d'un
+  partage, d'un prêt ou d'une invitation. » ; les six
   chiffres affichés chez la personne qui partage (ou ceux d'un lien kybernow://join,
   déjà remplis), votre prénom (proposé : le nom de ce PC, retenu pour la fois
   suivante) et la « Qualité de l'image » (« Auto » proposé, le dernier choix sinon :
@@ -11,7 +12,7 @@
   n'en est plus un : un format que ce PC ne lit pas lui vaut une image à part.
 
   Hors de chez soi (docs/relais.md) : le code part aussi au relais, et l'hôte accepte
-  chaque invité venu d'internet. L'écran reste titré « Rejoindre un partage » (le prénom
+  chaque invité venu d'internet. L'écran reste titré « Rejoindre avec un code » (le prénom
   de l'hôte et le nom de l'ordinateur ne sont connus qu'après l'accord) et montre « En
   attente de l'accord de l'hôte… » avec « Annuler » ; l'app tient la demande
   (`share_wait`, un appel de 25 s rappelé jusqu'à la réponse). La session s'ouvre si l'hôte
@@ -37,7 +38,6 @@
   let {
     code: initialCode = '',
     link = null,
-    full = false,
     onclose,
     onjoined,
     onborrow,
@@ -47,8 +47,6 @@
     code?: string
     /** Le lien `kybernow://join?…` : le code ne part qu'à l'ordinateur qu'il désigne. */
     link?: string | null
-    /** Quatre sessions sont déjà ouvertes : « Rejoindre » inactif, avec la raison. */
-    full?: boolean
     onclose: () => void
     /** Le partage est rejoint : la session s'ouvre. */
     onjoined: (joined: ShareJoined) => void
@@ -99,7 +97,9 @@
     error = null
   }
 
-  const ready = $derived(digits.length === 6 && !working && !full)
+  // Pas de limite des quatre sessions ici : une invitation n'ouvre pas de session. Un partage ou un prêt
+  // avec quatre sessions ouvertes est refusé après la réponse (« Quatre ordinateurs au plus… »).
+  const ready = $derived(digits.length === 6 && !working)
 
   async function join(e: Event) {
     e.preventDefault()
@@ -225,7 +225,6 @@
     {:else if phase === 'waiting'}
       <div class="wait" role="status"><span class="pulse"></span>{t('share.waiting')}</div>
     {/if}
-    {#if full}<p class="hint limit" role="note">{t('common.four_at_most')}</p>{/if}
     {#if error}<div class="error" role="alert">{error}</div>{/if}
 
     <div class="row">
@@ -317,11 +316,6 @@
     font-size: 14px;
     line-height: 1.55;
     color: var(--muted);
-  }
-
-  .hint.limit {
-    margin: 0;
-    color: var(--warn);
   }
 
   .col {

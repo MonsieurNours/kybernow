@@ -3,6 +3,7 @@ package fr.leslignesclaires.kybernow
 import android.app.Application
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasSetTextAction
@@ -24,7 +25,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * Les invitations, l'interface (docs/invitations.md ; textes de docs/link-ui.md, « Invitations »), en français :
- * « Ajouter {ordinateur} » après un code d'invitation, le champ « Mot de passe », « Ajouter l'ordinateur » inactif tant
+ * « Ajouter {ordinateur} » après un code d'invitation, le champ « Mot de passe » masqué (« Afficher », « Masquer »), « Ajouter l'ordinateur » inactif tant
  * que le champ est vide, « Annuler », « Ajout de {ordinateur}… » pendant l'appel, le refus sous le champ ; au
  * téléphone et au téléviseur.
  */
@@ -47,6 +48,13 @@ class InviteUiTest {
         // Vide : le bouton attend.
         rule.onNodeWithText("Ajouter l'ordinateur").assertIsNotEnabled()
         rule.onNode(hasSetTextAction()).performTextInput("k7mq-p2xa-9fz3")
+        // Masqué (des points) jusqu'à « Afficher », puis « Masquer ».
+        rule.onNodeWithText("k7mq-p2xa-9fz3").assertDoesNotExist()
+        rule.onNodeWithText("Afficher").performClick()
+        rule.onNodeWithText("k7mq-p2xa-9fz3").assertExists()
+        rule.onNodeWithText("Masquer").performClick()
+        rule.onNodeWithText("k7mq-p2xa-9fz3").assertDoesNotExist()
+        rule.onNodeWithText("Afficher").assertExists()
         rule.onNodeWithText("Ajouter l'ordinateur").assertIsEnabled().performClick()
         assertEquals(listOf("k7mq-p2xa-9fz3"), sent)
         rule.onNodeWithText("Annuler").performClick()
@@ -59,6 +67,8 @@ class InviteUiTest {
         rule.onNodeWithText("Ajouter PC du salon").assertExists()
         rule.onNodeWithText("Ajouter l'ordinateur").assertIsNotEnabled()
         rule.onNodeWithText("Annuler").assertExists()
+        // « Afficher » est un bouton à part, joignable à la croix.
+        rule.onNodeWithText("Afficher").assertHasClickAction()
     }
 
     @Test

@@ -18,7 +18,7 @@
   import ConsoleSettings from './ConsoleSettings.svelte'
   import type { Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
   import type { PsFound, PsState } from './lib/api'
-  import { MAX_SESSIONS, guestComputer, invoke, isConsoleId, listen } from './lib/api'
+  import { guestComputer, invoke, isConsoleId, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let computers = $state<Computer[]>([])
@@ -627,7 +627,6 @@
   <JoinSheet
     code={joining.code}
     link={joining.link}
-    full={sessions.length >= MAX_SESSIONS}
     onclose={() => (joining = null)}
     onjoined={joined}
     onborrow={(ticket) => {

@@ -182,8 +182,9 @@ pub fn share_link_code(link: String) -> Result<String, String> {
 /// l'accord de l'hôte (`share_wait`), `lend` quand le code est un code de prêt
 /// (l'interface emprunte ensuite avec le ticket, `lend_borrow`), `invite` quand
 /// c'est un code d'invitation (l'interface demande le mot de passe et ajoute
-/// l'ordinateur avec le ticket, `invite_redeem`), ou le texte du
-/// refus (celui du cœur :
+/// l'ordinateur avec le ticket, `invite_redeem`, même avec quatre sessions
+/// ouvertes), ou le texte du refus (« Quatre ordinateurs au plus… » pour un
+/// partage ou un prêt quand quatre sessions sont ouvertes ; sinon celui du cœur :
 /// « Aucun partage avec ce code sur le réseau. », « Ce partage est complet… »,
 /// « Trop d'essais… », « Le relais ne répond pas. », « Trop de demandes en
 /// attente… »). Le format de l'image de l'hôte n'en est plus un : un format que
@@ -195,10 +196,8 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
     if state.quitting.load(Ordering::Relaxed) {
         return Err(t("errors.session_not_ready", &[]));
     }
-    // Une session d'invité compte parmi les quatre.
-    if state.full() {
-        return Err(t("errors.four_at_most", &[]));
-    }
+    // Les quatre sessions ne se comptent qu'après la réponse : une invitation
+    // n'ouvre pas de session et passe toujours (docs/invitations.md).
     let code = share::normalize_code(&code).ok_or_else(|| t("errors.share_code", &[]))?;
     let link = match link.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
         Some(l) => Some(share::parse_link(l).ok_or_else(|| t("errors.share_link", &[]))?),
@@ -252,6 +251,22 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
             return Err(e.text(i18n::lang()));
         }
     };
+    // Une session d'invité ou d'emprunt compte parmi les quatre : refusée
+    // maintenant. Le partage rejoint est rendu, la demande en attente retirée ;
+    // un code de prêt n'a encore rien demandé.
+    if state.full() {
+        match joining {
+            Ok(Joining::Joined(found)) => {
+                std::thread::spawn(move || share::leave(&found));
+            }
+            Ok(Joining::Pending(pending)) => {
+                std::thread::spawn(move || share::cancel(&pending));
+            }
+            Err(_) => {}
+        }
+        log::info!("partage : refusé, quatre sessions déjà ouvertes");
+        return Err(t("errors.four_at_most", &[]));
+    }
     // Le prénom et la qualité de l'image sont retenus pour la fois suivante.
     let prefs = {
         let mut p = state.prefs.lock().unwrap();

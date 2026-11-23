@@ -51,6 +51,9 @@ pub enum Event {
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
     PairAsked { name: String, address: String },
     PairAccepted(crate::model::Host),
+    /// Invitations : la réponse au mot de passe (numéro de l'essai) : l'ordinateur à garder, ou le texte du refus
+    /// (`InviteError::text`).
+    Invited { attempt: u32, result: Result<crate::model::Host, String> },
     PairFailed(String),
     Status(Status),
     /// Mode de l'écran de la session (pour la dernière session).
@@ -579,7 +582,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
             }
             for c in ev.text().chars() {
                 // « Rejoindre un partage » : les chiffres du code, les lettres du prénom (accents compris).
-                if app.screen == Screen::Join || app.ps_typing() || app.ps_keyboard_open() || c.is_ascii_digit() || c == '.' || c == ':' || c.is_ascii_alphabetic() || c == '-' {
+                if app.screen == Screen::Join || app.typing_invitation() || app.ps_typing() || app.ps_keyboard_open() || c.is_ascii_digit() || c == '.' || c == ':' || c.is_ascii_alphabetic() || c == '-' {
                     actions.extend(app.nav(Nav::Char(c)));
                 }
             }
@@ -926,10 +929,22 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     jobs::borrow(crate::app::BorrowSource::Code { attempt }, c.target, c.route, request, tx.clone());
                 }
             }
+            // Invitations : le code est celui d'une invitation. Le pilote garde le code (la Station, le chemin) ;
+            // l'écran « Ajouter {ordinateur} » demande le mot de passe (docs/invitations.md).
+            Err(share::ShareError::Invite(c)) => {
+                if app.join_invited(attempt, &c.computer) {
+                    jobs::invite_keep(*c);
+                }
+            }
             Err(e) => {
                 log::info!("partage : {e}");
                 app.join_failed(attempt, e.to_string());
             }
+        },
+        // Invitations : l'ordinateur est ajouté (gardé, choisi sur l'accueil), ou le refus va sous le champ.
+        Event::Invited { attempt, result } => match result {
+            Ok(host) => actions.extend(app.invitation_added(attempt, host)),
+            Err(e) => app.invitation_failed(attempt, e),
         },
         // Prêt de l'ordinateur, ami : « En attente de {hôte}… » ; un emprunt abandonné entre-temps retire sa demande.
         Event::BorrowPending { source, host } => {
@@ -1233,6 +1248,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 l.handle.session.give_back();
             }
         }
+        Action::RedeemInvite { attempt, password } => jobs::invite_redeem(attempt, password, device_info(&app.store, &app.tv), tx.clone()),
         Action::FriendAdd { address, port, fingerprint, relay, sid, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, relay, sid, login, password, remember, editing, tx.clone()),
         Action::Lend(op) => {
             let host = live.as_ref().and_then(|_| app.session.as_ref()).and_then(|s| app.store.host(&s.host)).cloned();

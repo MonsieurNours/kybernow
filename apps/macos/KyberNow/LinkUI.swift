@@ -213,7 +213,7 @@ enum ShareText {
     static var linkCopied: String { String(localized: "Lien copié.") }
     static var copyFailed: String { String(localized: "Copie impossible : sélectionnez le lien à la main.") }
     static var code: String { String(localized: "Code") }
-    /// Le choix « Code » / « QR code » de « Rejoindre un partage » (appareil photo).
+    /// Le choix « Code » / « QR code » de « Rejoindre avec un code » (appareil photo).
     static var qrCode: String { String(localized: "QR code") }
     static var qrLabel: String { String(localized: "QR code du partage") }
     static var guests: String { String(localized: "Invités") }
@@ -342,8 +342,9 @@ enum ShareText {
 
     // L'invité.
     static var join: String { String(localized: "Rejoindre avec un code") }
-    static var joinTitle: String { String(localized: "Rejoindre un partage") }
-    static var joinHelp: String { String(localized: "Le code s'affiche chez la personne qui partage.") }
+    /// Le titre de l'écran : un partage, un prêt ou une invitation.
+    static var joinTitle: String { join }
+    static var joinHelp: String { String(localized: "Le code d'un partage, d'un prêt ou d'une invitation.") }
     static var yourName: String { String(localized: "Votre prénom") }
     static var joinButton: String { String(localized: "Rejoindre") }
     static var looking: String { String(localized: "Recherche du partage…") }
@@ -501,6 +502,9 @@ enum InviteText {
     static var password: String { LendText.password }
     /// L'exemple grisé du champ (pas traduit).
     static var placeholder: String { "xxxx-xxxx-xxxx" }
+    /// Le bouton à droite du champ, masqué par défaut : « Afficher », puis « Masquer ».
+    static var show: String { String(localized: "Afficher") }
+    static var hide: String { String(localized: "Masquer") }
     static var add: String { String(localized: "Ajouter l'ordinateur") }
     /// Pendant l'appel : « Ajout de PC du salon… », « Ajout d'Atelier… ».
     static func adding(_ computer: String) -> String {
