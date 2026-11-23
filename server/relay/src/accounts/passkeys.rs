@@ -443,21 +443,23 @@ impl Cx<'_> {
 pub(super) fn sign_in(mut cx: Cx<'_>) -> Reply {
     let acc = cx.acc;
     let mail_on = acc.mailer.is_some();
-    // Les échecs comptent par adresse IP, comme les mots de passe.
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, "passkey");
+    // Les échecs comptent par adresse IP (le compte n'est connu qu'après la signature) :
+    // une clé par adresse, pour qu'un tiers ne bloque pas les passkeys de tout le monde.
+    let key = format!("passkey:{}", super::super::ip_key(cx.req.ip));
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &key);
     if let Err(wait) = limit {
         return cx.limited(wait, |cx, n| pages::sign_in(&cx.view(), "", Some(n), mail_on, mail_on));
     }
-    let key = match cx.check_passkey(None) {
-        Ok(key) => key,
+    let passkey = match cx.check_passkey(None) {
+        Ok(passkey) => passkey,
         Err(why) => {
             tracing::debug!(raison = ?why, "passkey refusée à la connexion");
             let page = pages::sign_in(&cx.view(), "", Some(Notice::PasskeyFailed), mail_on, mail_on);
             return cx.page(200, page);
         }
     };
-    acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in_ok(cx.req.ip, "passkey");
-    let account = acc.db().account(key.account).ok().flatten();
+    acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in_ok(cx.req.ip, &key);
+    let account = acc.db().account(passkey.account).ok().flatten();
     let Some(account) = account.filter(|a| a.verified()) else {
         let page = pages::sign_in(&cx.view(), "", Some(Notice::PasskeyFailed), mail_on, mail_on);
         return cx.page(200, page);

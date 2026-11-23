@@ -680,6 +680,18 @@ fn passkeys_ajout_connexion_renommer_retirer() {
     for k in ["passkey_ajoutee", "connexion_passkey", "passkey_renommee", "passkey_retiree"] {
         assert!(kinds.iter().any(|x| x == k), "{k} dans le journal");
     }
+    // Cinq échecs d'une adresse bloquent cette adresse, pas les passkeys des autres.
+    let mut noisy = w.browser_at("203.0.113.70");
+    for _ in 0..5 {
+        assert_eq!(noisy.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut stranger, &[]).status, 200);
+    }
+    assert_eq!(noisy.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut stranger, &[]).status, 429);
+    let mut other_key = Authenticator::new(ES256, "https://share.test");
+    let mut owner = w.browser_at("198.51.100.71");
+    owner.sign_in("bob@exemple.org", PASSWORD);
+    owner.add_passkey(&other_key);
+    owner.post("/compte/deconnexion?lang=fr", &[]);
+    assert_eq!(location(&owner.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut other_key, &[])), "/compte?lang=fr");
     // Sans connexion, rien ne passe.
     let mut anon = w.browser_at("203.0.113.41");
     assert_eq!(location(&anon.post("/compte/passkeys/retirer?lang=fr", &[("id", "1")])), "/compte/connexion?lang=fr");
