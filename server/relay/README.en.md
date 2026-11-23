@@ -8,7 +8,7 @@ The public relay, `share.kybernow.app`, is open to every Station. You can also i
 
 | File | Contents |
 |---|---|
-| `src/` | The relay server (`kybernow-relay`): QUIC and TCP connections, Stations and clients, codes, web pages (`pages.rs`, `assets.rs`), browser proxy, metrics |
+| `src/` | The relay server (`kybernow-relay`): QUIC and TCP connections, Stations and clients, codes, web pages (`pages.rs`, `assets.rs`), accounts (`accounts/`), browser proxy, metrics |
 | `assets/` | What the pages embed: stylesheet (`share.css`, written by hand, with the brand tokens `kybernow.css`), Archivo and Martian Mono fonts reduced to Latin, icons, the KyberNow Share logo and favicon |
 | `tunnel/` | The tunnel crate (`kybernow-tunnel`), shared with Admin and the apps' core |
 | `Dockerfile` | The image: built with Rust 1.89, then the binary alone on distroless, without root |
@@ -141,13 +141,37 @@ Environment variables (`docker-compose.yml`) take precedence over `config/relay.
 
 The limits (`[limits]` in `relay.toml`) follow [docs/relais.en.md](../../docs/relais.en.md#relay-limits-and-protections): code lookups (10 per minute and 60 per hour per address, 30 per minute per /24 or /48, 600 per minute overall), QUIC connections (16 per address, 60 handshakes per minute, 4096 overall, address validation above 100 handshakes per second), TCP (32 per address, TLS and headers within 10 s, 16 KiB of headers), 4 Stations per address, 20 Station connections per minute per address, 8 clients per Station with 2 per address (`clients_per_station_per_ip`), a client sent away after 30 s with no flow or connection (`client_idle_secs`) and, at a full Station, the oldest idle client giving its seat, 4 UDP flows per client, 4 codes per Station. No bitrate cap by default.
 
+## Accounts
+
+KyberNow accounts ([docs/comptes.en.md](../../docs/comptes.en.md), batch 1a): sign-up, address verification (link valid for 24 h or six-digit code), sign-in, two-factor authentication (authenticator app, recovery codes, “Don't ask again on this device for 30 days”), forgotten password, and the account page (`/compte`: address, security, open sessions). Passkeys, account deletion and data export come in batch 1b. **Off by default**: without them, `/compte` is a not-found page.
+
+The pages are the relay's (`https://<name>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`), in French and English, with no script; they are the only ones taking POST (forms of 16 KiB at most).
+
+```sh
+mkdir -p data && sudo chown 65532:65532 data      # the database and key, owned by the image's user
+nano config/relay.toml                             # [accounts] enabled = true (template: relay.toml.example)
+docker compose up -d relay
+```
+
+- **Database**: SQLite, `/data/accounts.db` (`database`), migrations at start-up. Back up the `data/` folder along with the key.
+- **Key**: `/data/secret.key` (`secret_key`), created at first start (64 hex digits, readable by the relay only). It encrypts the two-factor secrets (AES-256-GCM) and signs the cookies: losing it turns two-factor authentication off for every account.
+- **Email**: `[accounts.smtp]` (`host`, `port`, `starttls`, `user`, `password_file`, `from`), over TLS (rustls). The password goes in a file (`config/smtp_password`, `chown 65532` then `chmod 600`). Without SMTP, no sign-up, no verification and no forgotten password: the administrator creates the accounts, already verified:
+
+  ```sh
+  docker compose exec relay kybernow-relay accounts add ana@example.org --name Ana
+  # then type the password (visible); or --password-file /config/password
+  ```
+
+- **Security**: `__Host-kn_session` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`), 256-bit token stored as a hash; signed CSRF token in every form, forms from another site (a Station's Admin included) refused; Argon2id passwords (at least 10 characters, known passwords refused); 10 sign-in attempts per IP address and 5 per account in 15 minutes (same for codes; only failures count); identical answers whether an account exists or not. The logs hold neither email addresses nor tokens; the accounts' audit log (in the database) erases IP addresses after 7 days.
+- **Settings from the environment**: `KN_RELAY_ACCOUNTS` (`on` or `off`, `RELAY_ACCOUNTS` in `.env`), `KN_RELAY_ACCOUNTS_DATABASE`, `KN_RELAY_ACCOUNTS_SECRET_KEY`, `KN_RELAY_ACCOUNTS_PUBLIC_URL`, `KN_RELAY_SMTP_HOST`, `KN_RELAY_SMTP_PORT`, `KN_RELAY_SMTP_STARTTLS`, `KN_RELAY_SMTP_USER`, `KN_RELAY_SMTP_PASSWORD_FILE`, `KN_RELAY_SMTP_FROM`.
+
 ## Operations
 
 - **Logs**: `docker compose logs relay`, rotated by Docker (20 MB × 5). They keep Stations' IP addresses and connection times, never a share code nor a page path. `RUST_LOG=debug` says more.
 - **Metrics** (Prometheus, `http://127.0.0.1:9464/metrics`): `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. An alert on `relay_tls_cert_expiry_seconds < 1209600` (14 days) warns of an expired Gandi token.
 - **Banning**: one address or network per line in `config/banlist.txt` (`203.0.113.0/24`, `#` for a comment); taken into account within 30 seconds.
 - **Health**: `docker compose ps` shows the health check's state (`kybernow-relay --healthcheck`).
-- **Pages**: `https://<name>/` (code entry; `https://<name>:<port>/` other than 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`.
+- **Pages**: `https://<name>/` (code entry; `https://<name>:<port>/` other than 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`; with accounts, `/compte/…`.
 
 ## The home page
 
@@ -166,6 +190,6 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-features --all-targets
 ```
 
-The tests run on the loopback, without network: a test authority, a relay, a fake Station (the tunnel agent, a fake Admin, TCP and UDP echoes) and a fake app (the tunnel and its local listening points). They cover QUIC, the TCP fallback (forced, and when UDP does not get through), a Station over TCP with an app over QUIC, Admin's refusals, the Station absent then connected, the Station and the relay restarting, codes and waiting with a fake Admin, the relay's home page and its files (languages, content policy, caching), the browser proxy (headers, cookies, WebSocket) and the limits.
+The tests run on the loopback, without network: a test authority, a relay, a fake Station (the tunnel agent, a fake Admin, TCP and UDP echoes) and a fake app (the tunnel and its local listening points). They cover QUIC, the TCP fallback (forced, and when UDP does not get through), a Station over TCP with an app over QUIC, Admin's refusals, the Station absent then connected, the Station and the relay restarting, codes and waiting with a fake Admin, the relay's home page and its files (languages, content policy, caching), the browser proxy (headers, cookies, WebSocket), the limits and the accounts (sign-up, verification, sign-in, two-factor authentication, recovery codes, forgotten password, attempt limits, CSRF, without SMTP).
 
 The `tunnel/` crate is taken by path: `features = ["station"]` for Admin, the default `client` feature for the apps' core, `server` for the relay. It builds for iOS and Android (rustls with ring, no OpenSSL).

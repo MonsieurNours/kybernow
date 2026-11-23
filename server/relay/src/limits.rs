@@ -47,6 +47,12 @@ impl Bucket {
         self.take_n(1.0, now)
     }
 
+    /// Rend un jeton pris (un essai réussi ne compte pas).
+    pub fn refund(&mut self, now: Instant) {
+        self.refill(now);
+        self.tokens = (self.tokens + 1.0).min(self.capacity);
+    }
+
     fn is_full(&mut self, now: Instant) -> bool {
         self.refill(now);
         self.tokens >= self.capacity
@@ -71,11 +77,17 @@ impl<K: Eq + Hash + Clone> Buckets<K> {
         self.map.entry(key.clone()).or_insert_with(|| Bucket::new(capacity, period, now)).take(now)
     }
 
+    /// Rend un jeton à cette clé.
+    pub fn refund(&mut self, key: &K, now: Instant) {
+        if let Some(b) = self.map.get_mut(key) {
+            b.refund(now);
+        }
+    }
+
     /// Oublie les seaux pleins (adresses revenues au calme).
     pub fn sweep(&mut self, now: Instant) {
         self.map.retain(|_, b| !b.is_full(now));
     }
-
 }
 
 /// Le réseau d'une adresse pour les limites : /24 en IPv4, /48 en IPv6.

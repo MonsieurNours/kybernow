@@ -328,6 +328,11 @@ pub struct Http {
 
 /// Une requête HTTPS au relais, avec ce nom (SNI et `Host`).
 pub async fn https(relay: &Relay, roots: &Arc<RootCertStore>, name: &str, method: &str, path: &str, extra: &[(&str, &str)]) -> std::io::Result<Http> {
+    https_body(relay, roots, name, method, path, extra, "{}").await
+}
+
+/// Comme [`https`], avec ce corps (un formulaire, par exemple).
+pub async fn https_body(relay: &Relay, roots: &Arc<RootCertStore>, name: &str, method: &str, path: &str, extra: &[(&str, &str)], body: &str) -> std::io::Result<Http> {
     let tcp = TcpStream::connect(relay.addr).await?;
     let mut cfg = rustls::ClientConfig::builder_with_provider(kybernow_tunnel::tls::provider())
         .with_safe_default_protocol_versions()
@@ -336,10 +341,17 @@ pub async fn https(relay: &Relay, roots: &Arc<RootCertStore>, name: &str, method
         .with_no_client_auth();
     cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
     let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from(name.to_string()).unwrap(), tcp).await?;
-    request(tls, name, method, path, extra).await
+    request_body(tls, name, method, path, extra, body).await
 }
 
 pub async fn request<S>(io: S, host: &str, method: &str, path: &str, extra: &[(&str, &str)]) -> std::io::Result<Http>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    request_body(io, host, method, path, extra, "{}").await
+}
+
+pub async fn request_body<S>(io: S, host: &str, method: &str, path: &str, extra: &[(&str, &str)], body: &str) -> std::io::Result<Http>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -349,7 +361,7 @@ where
     for (k, v) in extra {
         b = b.header(*k, *v);
     }
-    let resp = sender.send_request(b.body(Full::new(Bytes::from_static(b"{}"))).unwrap()).await.map_err(std::io::Error::other)?;
+    let resp = sender.send_request(b.body(Full::new(Bytes::from(body.to_string()))).unwrap()).await.map_err(std::io::Error::other)?;
     let status = resp.status().as_u16();
     let headers = resp.headers().clone();
     let body = resp.into_body().collect().await.map_err(std::io::Error::other)?.to_bytes();

@@ -29,6 +29,62 @@ pub struct Config {
     pub global_cap_mbps: u64,
     pub metrics: MetricsConfig,
     pub limits: Limits,
+    pub accounts: AccountsConfig,
+}
+
+/// Les comptes KyberNow (docs/comptes.md, « Réglages »), coupés par défaut.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AccountsConfig {
+    pub enabled: bool,
+    /// La base SQLite (dans un volume en écriture).
+    pub database: PathBuf,
+    /// Le fichier de la clé secrète (chiffrement des secrets TOTP, signature
+    /// des cookies) : créé au premier démarrage s'il n'existe pas.
+    pub secret_key: PathBuf,
+    /// L'adresse publique des pages, pour les liens des e-mails
+    /// (`https://<domaine>[:port public]` par défaut).
+    pub public_url: Option<String>,
+    /// L'envoi des e-mails ; sans lui, ni vérification ni mot de passe
+    /// oublié, et l'administrateur du relais crée les comptes.
+    pub smtp: Option<SmtpConfig>,
+}
+
+impl Default for AccountsConfig {
+    fn default() -> Self {
+        AccountsConfig {
+            enabled: false,
+            database: PathBuf::from("/data/accounts.db"),
+            secret_key: PathBuf::from("/data/secret.key"),
+            public_url: None,
+            smtp: None,
+        }
+    }
+}
+
+/// Le serveur SMTP des e-mails des comptes.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SmtpConfig {
+    pub host: String,
+    #[serde(default = "default_smtp_port")]
+    pub port: u16,
+    /// STARTTLS (port 587) ; `false` : TLS dès la connexion (port 465).
+    #[serde(default = "default_true")]
+    pub starttls: bool,
+    pub user: Option<String>,
+    /// Le mot de passe, dans un fichier à part (un secret Docker).
+    pub password_file: Option<PathBuf>,
+    /// L'expéditeur : `KyberNow <comptes@exemple.org>`.
+    pub from: String,
+}
+
+fn default_smtp_port() -> u16 {
+    587
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -114,6 +170,7 @@ impl Default for Config {
             global_cap_mbps: 0,
             metrics: MetricsConfig::default(),
             limits: Limits::default(),
+            accounts: AccountsConfig::default(),
         }
     }
 }
@@ -135,7 +192,11 @@ impl Config {
 
     /// `KN_RELAY_DOMAIN`, `KN_RELAY_LISTEN`, `KN_RELAY_PUBLIC_PORT`,
     /// `KN_RELAY_CERT`, `KN_RELAY_KEY`, `KN_RELAY_BANLIST`, `KN_RELAY_METRICS`
-    /// (adresse, ou `off`), `KN_RELAY_EGRESS_ALERT_MBPS`, `KN_RELAY_GLOBAL_CAP_MBPS`.
+    /// (adresse, ou `off`), `KN_RELAY_EGRESS_ALERT_MBPS`, `KN_RELAY_GLOBAL_CAP_MBPS` ;
+    /// les comptes : `KN_RELAY_ACCOUNTS` (`on` ou `off`), `KN_RELAY_ACCOUNTS_DATABASE`,
+    /// `KN_RELAY_ACCOUNTS_SECRET_KEY`, `KN_RELAY_ACCOUNTS_PUBLIC_URL`, `KN_RELAY_SMTP_HOST`,
+    /// `KN_RELAY_SMTP_PORT`, `KN_RELAY_SMTP_STARTTLS`, `KN_RELAY_SMTP_USER`,
+    /// `KN_RELAY_SMTP_PASSWORD_FILE`, `KN_RELAY_SMTP_FROM`.
     pub fn apply_env(&mut self, get: impl Fn(&str) -> Option<String>) -> Result<()> {
         let get = |k: &str| get(k).map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
         if let Some(d) = get("KN_RELAY_DOMAIN") {
@@ -171,6 +232,47 @@ impl Config {
         if let Some(v) = get("KN_RELAY_GLOBAL_CAP_MBPS") {
             self.global_cap_mbps = v.parse().context("KN_RELAY_GLOBAL_CAP_MBPS")?;
         }
+        let a = &mut self.accounts;
+        if let Some(v) = get("KN_RELAY_ACCOUNTS") {
+            a.enabled = parse_switch(&v).with_context(|| format!("KN_RELAY_ACCOUNTS : {v}"))?;
+        }
+        if let Some(v) = get("KN_RELAY_ACCOUNTS_DATABASE") {
+            a.database = v.into();
+        }
+        if let Some(v) = get("KN_RELAY_ACCOUNTS_SECRET_KEY") {
+            a.secret_key = v.into();
+        }
+        if let Some(v) = get("KN_RELAY_ACCOUNTS_PUBLIC_URL") {
+            a.public_url = Some(v);
+        }
+        if let Some(host) = get("KN_RELAY_SMTP_HOST") {
+            let smtp = a.smtp.get_or_insert_with(|| SmtpConfig {
+                host: String::new(),
+                port: default_smtp_port(),
+                starttls: true,
+                user: None,
+                password_file: None,
+                from: String::new(),
+            });
+            smtp.host = host;
+        }
+        if let Some(smtp) = a.smtp.as_mut() {
+            if let Some(v) = get("KN_RELAY_SMTP_PORT") {
+                smtp.port = v.parse().with_context(|| format!("KN_RELAY_SMTP_PORT : {v}"))?;
+            }
+            if let Some(v) = get("KN_RELAY_SMTP_STARTTLS") {
+                smtp.starttls = parse_switch(&v).with_context(|| format!("KN_RELAY_SMTP_STARTTLS : {v}"))?;
+            }
+            if let Some(v) = get("KN_RELAY_SMTP_USER") {
+                smtp.user = Some(v);
+            }
+            if let Some(v) = get("KN_RELAY_SMTP_PASSWORD_FILE") {
+                smtp.password_file = Some(v.into());
+            }
+            if let Some(v) = get("KN_RELAY_SMTP_FROM") {
+                smtp.from = v;
+            }
+        }
         Ok(())
     }
 
@@ -179,12 +281,37 @@ impl Config {
             && self.domain.split('.').all(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
         anyhow::ensure!(ok, "domaine invalide : {}", self.domain);
         anyhow::ensure!(self.public_port != Some(0), "port public invalide : 0");
+        if let Some(url) = &self.accounts.public_url {
+            anyhow::ensure!(url.starts_with("https://") && url.len() > 8 && !url.ends_with('/'), "[accounts] public_url : https://… sans / final ({url})");
+        }
+        if let Some(smtp) = &self.accounts.smtp {
+            anyhow::ensure!(!smtp.host.is_empty(), "[accounts.smtp] host manque");
+            anyhow::ensure!(smtp.from.contains('@'), "[accounts.smtp] from manque (KyberNow <comptes@exemple.org>)");
+        }
         Ok(())
+    }
+
+    /// L'adresse publique des pages : `public_url`, ou `https://<domaine>[:port]`.
+    pub fn public_url(&self, link_port: u16) -> String {
+        match &self.accounts.public_url {
+            Some(url) => url.clone(),
+            None if link_port == 443 => format!("https://{}", self.domain),
+            None => format!("https://{}:{link_port}", self.domain),
+        }
     }
 
     /// Le port des liens.
     pub fn link_port(&self, bound: u16) -> u16 {
         self.public_port.unwrap_or(bound)
+    }
+}
+
+/// `on`/`off`, `true`/`false`, `yes`/`no`, `1`/`0`.
+fn parse_switch(v: &str) -> Result<bool> {
+    match v.to_ascii_lowercase().as_str() {
+        "on" | "true" | "yes" | "1" => Ok(true),
+        "off" | "false" | "no" | "0" => Ok(false),
+        _ => anyhow::bail!("on ou off attendu"),
     }
 }
 
@@ -238,5 +365,53 @@ mod tests {
         assert_eq!(cfg.link_port(8443), 8443);
         let mut cfg = Config::default();
         assert!(cfg.apply_env(|k| (k == "KN_RELAY_PUBLIC_PORT").then(|| "0".to_string())).and_then(|_| cfg.check()).is_err());
+    }
+
+    #[test]
+    fn comptes_coupes_par_defaut() {
+        let cfg = Config::default();
+        assert!(!cfg.accounts.enabled && cfg.accounts.smtp.is_none());
+        assert_eq!(cfg.public_url(8443), "https://share.kybernow.app:8443");
+        assert_eq!(cfg.public_url(443), "https://share.kybernow.app");
+        let mut cfg: Config = toml::from_str(
+            r#"
+            [accounts]
+            enabled = true
+            database = "/data/a.db"
+            public_url = "https://relais.exemple.org"
+            [accounts.smtp]
+            host = "smtp.exemple.org"
+            user = "relais"
+            password_file = "/run/secrets/smtp"
+            from = "KyberNow <comptes@exemple.org>"
+            "#,
+        )
+        .unwrap();
+        let smtp = cfg.accounts.smtp.clone().unwrap();
+        assert_eq!((smtp.port, smtp.starttls), (587, true));
+        assert_eq!(cfg.public_url(8443), "https://relais.exemple.org");
+        assert!(cfg.check().is_ok());
+        cfg.apply_env(|k| match k {
+            "KN_RELAY_ACCOUNTS" => Some("off".into()),
+            "KN_RELAY_SMTP_PORT" => Some("465".into()),
+            "KN_RELAY_SMTP_STARTTLS" => Some("no".into()),
+            _ => None,
+        })
+        .unwrap();
+        let smtp = cfg.accounts.smtp.clone().unwrap();
+        assert!(!cfg.accounts.enabled);
+        assert_eq!((smtp.port, smtp.starttls), (465, false));
+        // Le SMTP par l'environnement seul.
+        let mut cfg = Config::default();
+        cfg.apply_env(|k| match k {
+            "KN_RELAY_ACCOUNTS" => Some("on".into()),
+            "KN_RELAY_SMTP_HOST" => Some("smtp.exemple.org".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(cfg.accounts.enabled);
+        assert!(cfg.check().is_err(), "l'expéditeur manque");
+        assert!(toml::from_str::<Config>("[accounts]\npublic_url = \"http://x\"").unwrap().check().is_err());
+        assert!(cfg.apply_env(|k| (k == "KN_RELAY_ACCOUNTS").then(|| "peut-être".into())).is_err());
     }
 }

@@ -45,6 +45,13 @@ yamux = "0.13"
 kybernow-tunnel = { path = "tunnel", features = ["client", "station", "server"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 
+# Argon2 (comptes) : lent exprès, très lent sans optimisation ; optimisé aussi pour les essais.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
 [profile.release]
 strip = true
 lto = "thin"

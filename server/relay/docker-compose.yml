@@ -34,10 +34,14 @@ services:
       KN_RELAY_PUBLIC_PORT: ${RELAY_PUBLIC_PORT:-}
       KN_RELAY_METRICS: ${RELAY_METRICS:-127.0.0.1:9464}
       KN_RELAY_BANLIST: /config/banlist.txt
+      # Comptes KyberNow (README.md, « Comptes ») : on ou off ; vide, relay.toml décide.
+      KN_RELAY_ACCOUNTS: ${RELAY_ACCOUNTS:-}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - ./certs:/certs:ro
       - ./config:/config:ro
+      # La base des comptes et sa clé (en écriture, à l'utilisateur 65532 de l'image).
+      - ./data:/data
     logging:
       driver: json-file
       options:

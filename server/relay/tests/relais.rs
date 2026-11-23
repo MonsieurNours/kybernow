@@ -793,3 +793,67 @@ async fn un_bout_qui_ne_lit_pas_ses_reponses_est_coupe() {
     .await
     .expect("délai");
 }
+
+/// Les comptes (docs/comptes.md, lot 1a) : coupés par défaut (`/compte` introuvable),
+/// sinon servis en GET et en POST sur le site du relais seulement.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn comptes_sur_le_relais() {
+    timeout(T * 3, async {
+        let pki = pki();
+        // Coupés : 404, en GET comme en POST, comme avant.
+        let off = relay(&pki, |_| {}).await;
+        assert!(off.hub.accounts.is_none());
+        assert_eq!(https(&off, &pki.roots, DOMAIN, "GET", "/compte/connexion", &[]).await.unwrap().status, 404);
+        assert_eq!(https(&off, &pki.roots, DOMAIN, "POST", "/compte/connexion", &[]).await.unwrap().status, 405);
+        drop(off);
+
+        let dir = pki.dir.join("comptes");
+        let relay = relay(&pki, |cfg| {
+            cfg.accounts.enabled = true;
+            cfg.accounts.database = dir.join("accounts.db");
+            cfg.accounts.secret_key = dir.join("secret.key");
+        })
+        .await;
+        let accounts = relay.hub.accounts.clone().expect("comptes ouverts");
+        assert!(dir.join("secret.key").exists(), "clé créée au premier démarrage");
+        accounts.add_verified("ana@exemple.org", "Ana", "cheval agrafe pile").unwrap();
+        let page = https(&relay, &pki.roots, DOMAIN, "GET", "/compte/connexion", &[("accept-language", "fr-FR")]).await.unwrap();
+        assert_eq!(page.status, 200);
+        assert!(page.body.contains("Se connecter") && !page.body.contains("Créer un compte"), "sans SMTP, pas d'inscription");
+        assert!(page.headers.get("content-security-policy").unwrap().to_str().unwrap().contains("form-action 'self'"));
+        let set: Vec<String> = page.headers.get_all("set-cookie").iter().map(|v| v.to_str().unwrap().to_string()).collect();
+        let csrf_cookie = set.iter().find(|c| c.starts_with("__Host-kn_csrf=")).expect("cookie CSRF");
+        assert!(csrf_cookie.contains("Secure") && csrf_cookie.contains("HttpOnly") && csrf_cookie.contains("SameSite=Lax"));
+        let csrf_value = csrf_cookie.split(';').next().unwrap().to_string();
+        let token = page.body.split(r#"name="csrf" value=""#).nth(1).unwrap().split('"').next().unwrap().to_string();
+        let form = |extra: &str| format!("csrf={token}&{extra}");
+        let headers = [("content-type", "application/x-www-form-urlencoded"), ("cookie", csrf_value.as_str()), ("sec-fetch-site", "same-origin")];
+        // Un formulaire qui n'en est pas un, ou trop gros : refusé avant d'être lu.
+        let not_form = https_body(&relay, &pki.roots, DOMAIN, "POST", "/compte/connexion", &[("cookie", csrf_value.as_str())], "{}").await.unwrap();
+        assert_eq!(not_form.status, 415);
+        let big = form(&format!("email={}", "a".repeat(20_000)));
+        assert_eq!(https_body(&relay, &pki.roots, DOMAIN, "POST", "/compte/connexion", &headers, &big).await.unwrap().status, 413);
+        // D'un autre site (une Station, du même site mais d'une autre origine) : refusé.
+        let station = [("content-type", "application/x-www-form-urlencoded"), ("cookie", csrf_value.as_str()), ("sec-fetch-site", "same-site")];
+        let body = form("email=ana%40exemple.org&password=cheval+agrafe+pile");
+        assert_eq!(https_body(&relay, &pki.roots, DOMAIN, "POST", "/compte/connexion?lang=fr", &station, &body).await.unwrap().status, 403);
+        // Se connecter : une session, puis la page du compte.
+        let r = https_body(&relay, &pki.roots, DOMAIN, "POST", "/compte/connexion?lang=fr", &headers, &body).await.unwrap();
+        assert_eq!(r.status, 303);
+        assert_eq!(r.headers.get("location").unwrap(), "/compte?lang=fr");
+        let session = r.headers.get_all("set-cookie").iter().map(|v| v.to_str().unwrap()).find(|c| c.starts_with("__Host-kn_session=")).unwrap().to_string();
+        assert!(session.contains("; Path=/; Secure; HttpOnly; SameSite=Lax"));
+        let cookies = format!("{csrf_value}; {}", session.split(';').next().unwrap());
+        let page = https(&relay, &pki.roots, DOMAIN, "GET", "/compte?lang=fr", &[("cookie", cookies.as_str())]).await.unwrap();
+        assert_eq!(page.status, 200);
+        assert!(page.body.contains("ana@exemple.org") && page.body.contains("Sessions ouvertes"));
+        // Les pages d'une Station ne passent jamais par les comptes.
+        let id = kybernow_tunnel::id::station_id(b"absente");
+        let other = https(&relay, &pki.roots, &format!("{id}.{DOMAIN}"), "GET", "/compte", &[]).await.unwrap();
+        assert!(!other.body.contains("Se connecter"));
+        // Les autres pages restent en GET seulement.
+        assert_eq!(https(&relay, &pki.roots, DOMAIN, "POST", "/", &[]).await.unwrap().status, 405);
+    })
+    .await
+    .expect("délai");
+}

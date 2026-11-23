@@ -37,3 +37,23 @@
 # codes_per_station = 4
 # header_timeout_secs = 10
 # max_header_bytes = 16384
+
+# Comptes KyberNow (docs/comptes.md, README.md « Comptes ») : coupés par défaut.
+# La base et la clé vont dans un dossier en écriture (./data:/data dans
+# docker-compose.yml) ; la clé est créée au premier démarrage.
+# [accounts]
+# enabled = true
+# database = "/data/accounts.db"
+# secret_key = "/data/secret.key"
+# Adresse des pages dans les e-mails (par défaut https://<domaine>[:port public]) :
+# public_url = "https://relais.exemple.org"
+#
+# Sans [accounts.smtp] : ni inscription, ni vérification, ni mot de passe
+# oublié ; les comptes se créent avec `kybernow-relay accounts add`.
+# [accounts.smtp]
+# host = "smtp.exemple.org"
+# port = 587
+# starttls = true          # false : TLS dès la connexion (port 465)
+# user = "relais@exemple.org"
+# password_file = "/config/smtp_password"
+# from = "KyberNow <comptes@exemple.org>"

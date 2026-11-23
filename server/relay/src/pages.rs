@@ -37,7 +37,7 @@ impl Lang {
         }
     }
 
-    fn code(self) -> &'static str {
+    pub fn code(self) -> &'static str {
         match self {
             Lang::Fr => "fr",
             Lang::En => "en",
@@ -54,7 +54,7 @@ pub enum Notice {
 }
 
 /// Espaces fines insécables du français devant : ; ! ? et dans les guillemets.
-fn fr(s: &str) -> String {
+pub fn fr(s: &str) -> String {
     s.replace(" :", "\u{202F}:")
         .replace(" ;", "\u{202F};")
         .replace(" !", "\u{202F}!")
@@ -63,7 +63,7 @@ fn fr(s: &str) -> String {
         .replace(" »", "\u{202F}»")
 }
 
-fn t(lang: Lang, fr_text: &str, en: &str) -> String {
+pub fn t(lang: Lang, fr_text: &str, en: &str) -> String {
     match lang {
         Lang::Fr => fr(fr_text),
         Lang::En => en.to_string(),

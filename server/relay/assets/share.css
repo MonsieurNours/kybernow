@@ -233,3 +233,57 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .solo-links { display: flex; gap: 24px; font-size: 15px; }
 .solo-links a { color: var(--kn-frost-2); text-decoration: none; }
 .solo-links a:hover { color: var(--kn-frost); text-decoration: underline; }
+
+/* ---- Comptes (/compte/…) : le logo, une carte, des formulaires (docs/comptes.md, « Lot 1 ») ---- */
+.acct { max-width: 480px; gap: 24px; }
+.acct-wide { max-width: 640px; }
+.acct-logo { display: block; }
+.acct-card {
+  width: 100%; padding: 32px; border-radius: var(--kn-r-card);
+  background: var(--kn-ink-2); box-shadow: inset 0 0 0 1px var(--kn-line-2), 0 40px 80px rgb(0 0 0 / .45);
+}
+.acct-card h1 { font-family: var(--kn-font-display); font-stretch: 125%; font-weight: 640; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.1; letter-spacing: -.025em; text-wrap: balance; }
+.acct-card h2 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; font-size: 17px; letter-spacing: -.01em; }
+.acct-card .help { color: var(--kn-frost-2); font-size: 16px; margin-top: 10px; }
+.acct-card .help b { color: var(--kn-frost); font-weight: 600; overflow-wrap: anywhere; }
+.acct-card .hint { color: var(--kn-mist); font-size: 14px; margin-top: 10px; }
+.acct-card .hint a, .acct-card .field-link a, .acct-links a { color: var(--kn-frost); text-decoration-color: var(--kn-signal); text-underline-offset: 3px; }
+.acct-card form { margin-top: 20px; }
+.acct-card form.acct-inline { margin: 0; }
+.acct-card > .btn, .acct-card form > .btn { width: 100%; margin-top: 20px; height: 52px; font-size: 16px; }
+.acct-card section { margin-top: 28px; }
+.acct-card section h2 { margin-bottom: 6px; }
+.field { margin-top: 16px; }
+.field label { display: block; margin-bottom: 8px; }
+.field input {
+  width: 100%; height: 48px; padding: 0 14px; border-radius: var(--kn-r-field); border: 0;
+  background: var(--kn-ink-0); color: var(--kn-frost); box-shadow: inset 0 0 0 1px var(--kn-line-2);
+  font: 400 16px/1 var(--kn-font-text); transition: box-shadow var(--kn-t-hover) ease-out;
+}
+.field input:hover { box-shadow: inset 0 0 0 1px var(--kn-frost-2); }
+.field input:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--kn-signal), 0 0 24px rgb(109 91 255 / .35); }
+.field input:user-invalid { box-shadow: inset 0 0 0 1px var(--kn-bad); }
+.field input:user-valid[minlength] { box-shadow: inset 0 0 0 1px var(--kn-ok); }
+.field .code-input { height: 64px; font: 560 28px/1 var(--kn-font-mono); letter-spacing: .12em; text-align: center; }
+.field .code-input::placeholder { color: var(--kn-faint); opacity: 1; }
+.field-link { margin-top: 10px; font-size: 14.5px; text-align: right; }
+.check { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; font-size: 15px; color: var(--kn-frost-2); cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--kn-signal-strong); flex: none; }
+.acct-links { margin-top: 20px; font-size: 15px; color: var(--kn-mist); text-align: center; }
+.acct-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.acct-actions .btn { flex: 1 1 auto; }
+.notice.ok { color: var(--kn-ok); }
+.option { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding: 18px; border-radius: var(--kn-r-field); box-shadow: inset 0 0 0 1px var(--kn-line-2); }
+.option p { color: var(--kn-frost-2); font-size: 14.5px; margin-top: 4px; }
+.qr { width: 208px; margin: 20px auto 0; padding: 4px; border-radius: var(--kn-r-field); background: #fff; }
+.qr svg { width: 100%; height: auto; }
+.secret { margin-top: 6px; font: 500 15px/1.5 var(--kn-font-mono); letter-spacing: .06em; color: var(--kn-frost); overflow-wrap: anywhere; }
+.codes { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin-top: 20px; padding: 16px; border-radius: var(--kn-r-field); background: var(--kn-ink-0); box-shadow: inset 0 0 0 1px var(--kn-line); font: 500 16px/1.4 var(--kn-font-mono); letter-spacing: .04em; text-align: center; }
+.acct-sub { padding-bottom: 4px; }
+@media (max-width: 560px) {
+  .acct-card { padding: 24px 20px 28px; }
+  .option { flex-direction: column; align-items: flex-start; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acct-card { background: var(--kn-ink-2); }
+}

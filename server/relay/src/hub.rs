@@ -21,6 +21,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadHalf};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
+use crate::accounts::Accounts;
 use crate::certs::CertStore;
 use crate::codes::Codes;
 use crate::config::Config;
@@ -176,6 +177,8 @@ pub struct Hub {
     cap: Option<Mutex<Bucket>>,
     /// Port écrit dans les liens (réglé une fois le port lié).
     pub link_port: AtomicU16,
+    /// Les comptes KyberNow (`[accounts] enabled`), servis sous `/compte/…`.
+    pub accounts: Option<Arc<Accounts>>,
 }
 
 /// Une connexion de navigateur comptée tant qu'elle vit.
@@ -231,7 +234,7 @@ async fn refuse(conn: &Conn, tx: Ctl, writer: tokio::task::JoinHandle<()>, code:
 }
 
 impl Hub {
-    pub fn new(cfg: Arc<Config>, certs: Arc<CertStore>, banlist: Arc<Banlist>) -> Arc<Hub> {
+    pub fn new(cfg: Arc<Config>, certs: Arc<CertStore>, banlist: Arc<Banlist>, accounts: Option<Arc<Accounts>>) -> Arc<Hub> {
         let now = Instant::now();
         let cap = (cfg.global_cap_mbps > 0).then(|| {
             let bytes_per_sec = (cfg.global_cap_mbps * 1_000_000 / 8).min(u64::from(u32::MAX)) as u32;
@@ -251,6 +254,7 @@ impl Hub {
             web_clients: AtomicUsize::new(0),
             next_media: AtomicU64::new(1),
             cap,
+            accounts,
         })
     }
 

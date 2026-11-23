@@ -136,7 +136,7 @@ SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans S
 ### Sécurité du relais
 
 - Mots de passe : Argon2id ; 10 caractères au moins ; liste des mots de passe connus refusée.
-- Console : cookie de session `__Host-`, `Secure`, `HttpOnly`, `SameSite=Strict`, protection CSRF ; limites d'essais par adresse et par compte.
+- Console : cookie de session `__Host-`, `Secure`, `HttpOnly`, `SameSite=Lax`, protection CSRF (jeton par formulaire, `Sec-Fetch-Site` vérifié) ; limites d'essais par adresse et par compte.
 - Clé de signature : dans un fichier à part, réservé au relais ; rotation possible (deux clés publiées, la Station épingle les deux pendant la transition).
 - Un relais piraté peut délivrer des jetons pour toute Station dont l'interrupteur est actif : c'est le prix du « relais décide », borné par les garde-fous ci-dessus.
 

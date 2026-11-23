@@ -5,11 +5,13 @@
 //! - `quic` et `tcp` : les connexions entrantes et leurs limites ;
 //! - [`web`], [`pages`] et [`assets`] : les pages du relais (accueil, saisie du code), leurs
 //!   fichiers embarqués et le mandataire du navigateur ;
+//! - [`accounts`] : les comptes KyberNow (`/compte/…`, docs/comptes.md), coupés par défaut ;
 //! - [`certs`] : le certificat relu à chaud ; [`metrics`] : Prometheus.
 
 pub mod assets;
 pub mod certs;
 pub mod codes;
+pub mod accounts;
 pub mod config;
 mod counted;
 pub mod hub;
@@ -29,6 +31,7 @@ use anyhow::{Context, Result};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+use crate::accounts::Accounts;
 use crate::certs::CertStore;
 use crate::config::Config;
 use crate::hub::Hub;
@@ -76,10 +79,18 @@ pub async fn start(cfg: Config) -> Result<Relay> {
     let cfg = Arc::new(cfg);
     let certs = CertStore::new(cfg.cert.clone(), cfg.key.clone());
     let banlist = Banlist::new(cfg.banlist.clone());
-    let hub = Hub::new(cfg.clone(), certs.clone(), banlist.clone());
     let (tcp, udp) = bind(cfg.listen)?;
     let addr = tcp.local_addr()?;
-    hub.link_port.store(cfg.link_port(addr.port()), Ordering::Relaxed);
+    let link_port = cfg.link_port(addr.port());
+    let accounts = if cfg.accounts.enabled {
+        let accounts = Accounts::open(&cfg.accounts, cfg.public_url(link_port)).context("comptes")?;
+        tracing::info!(base = %cfg.accounts.database.display(), smtp = cfg.accounts.smtp.is_some(), "comptes KyberNow ouverts");
+        Some(Arc::new(accounts))
+    } else {
+        None
+    };
+    let hub = Hub::new(cfg.clone(), certs.clone(), banlist.clone(), accounts);
+    hub.link_port.store(link_port, Ordering::Relaxed);
 
     let quic_cfg = quic::server_config(certs.clone())?;
     let endpoint = quic::endpoint(udp, quic_cfg.clone())?;
@@ -97,6 +108,9 @@ pub async fn start(cfg: Config) -> Result<Relay> {
                 tick.tick().await;
                 banlist.reload_if_changed();
                 hub.sweep();
+                if let Some(accounts) = hub.accounts.clone() {
+                    let _ = tokio::task::spawn_blocking(move || accounts.sweep()).await;
+                }
             }
         }));
     }

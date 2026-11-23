@@ -2,7 +2,8 @@
 //!
 //! - `share.<domaine>` : l'accueil de KyberNow Share et la saisie du code (`/`),
 //!   `/j/{code}`, `/assets/…` (styles, polices et logo embarqués), `/v1/codes/{code}`,
-//!   `/v1/health`, `/privacy` ;
+//!   `/v1/health`, `/privacy` ; avec les comptes (`[accounts] enabled`), `/compte/…`
+//!   ([`crate::accounts`]), seules pages en POST ;
 //! - `<id>.share.<domaine>` : mandataire HTTP/1.1 (WebSocket compris) vers
 //!   Admin de la Station `<id>`, par un flux `admin_http`.
 //!
@@ -26,6 +27,7 @@ use kybernow_tunnel::lookup::is_code;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 
+use crate::accounts::{Accounts, web as account_web};
 use crate::assets;
 use crate::hub::{Hub, VERSION};
 use crate::pages::{self, Lang};
@@ -130,7 +132,7 @@ where
         Site::Relay => {
             let svc = service_fn(move |req| {
                 let hub = hub.clone();
-                async move { Ok::<_, Infallible>(relay_page(&hub, req, ip)) }
+                async move { Ok::<_, Infallible>(relay_page(&hub, req, ip).await) }
             });
             let _ = builder.serve_connection(TokioIo::new(io), svc).await;
         }
@@ -145,8 +147,13 @@ where
     }
 }
 
-fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
+async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
     let lang = Lang::of_request(req.uri().query(), req.headers().get(header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()));
+    if let Some(accounts) = &hub.accounts
+        && account_web::is_account_path(req.uri().path())
+    {
+        return account_page(accounts.clone(), req, ip, lang).await;
+    }
     if req.method() != hyper::Method::GET && req.method() != hyper::Method::HEAD {
         return html(StatusCode::METHOD_NOT_ALLOWED, pages::not_found(lang));
     }
@@ -192,6 +199,77 @@ fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
             html(StatusCode::NOT_FOUND, pages::not_found(lang))
         }
     }
+}
+
+/// La taille d'un formulaire des comptes.
+pub const MAX_FORM_BYTES: usize = 16 * 1024;
+
+/// L'envoi vient-il d'un autre site ? `Sec-Fetch-Site` (une Station, `<id>.<domaine>`,
+/// est du même site mais pas de la même origine), sinon `Origin` (`null` est
+/// accepté : avec `Referrer-Policy: no-referrer`, un formulaire de la page l'envoie).
+pub fn cross_site(headers: &hyper::HeaderMap) -> bool {
+    let get = |h: &str| headers.get(h).and_then(|v| v.to_str().ok());
+    if let Some(site) = get("sec-fetch-site") {
+        return !matches!(site, "same-origin" | "none");
+    }
+    match (get("origin"), get("host")) {
+        (None | Some("null"), _) => false,
+        (Some(origin), Some(host)) => origin != format!("https://{host}"),
+        (Some(_), None) => true,
+    }
+}
+
+/// `/compte/…` : la requête lue (formulaire de 16 Kio au plus), puis servie hors de l'exécuteur.
+async fn account_page(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr, lang: Lang) -> Response<Body> {
+    let method = match *req.method() {
+        hyper::Method::GET | hyper::Method::HEAD => account_web::Method::Get,
+        hyper::Method::POST => account_web::Method::Post,
+        _ => account_web::Method::Other,
+    };
+    let cross = cross_site(req.headers());
+    let header = |h: header::HeaderName| req.headers().get(h).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let cookies: Vec<(String, String)> =
+        req.headers().get_all(header::COOKIE).iter().filter_map(|v| v.to_str().ok()).flat_map(account_web::parse_cookies).collect();
+    let user_agent = header(header::USER_AGENT);
+    let content_type = header(header::CONTENT_TYPE);
+    let path = req.uri().path().to_string();
+    let query = req.uri().query().map(account_web::parse_pairs).unwrap_or_default();
+    let form = if method == account_web::Method::Post {
+        if !content_type.starts_with("application/x-www-form-urlencoded") {
+            return html(StatusCode::UNSUPPORTED_MEDIA_TYPE, pages::not_found(lang));
+        }
+        match http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect().await {
+            Ok(body) => account_web::parse_pairs(&String::from_utf8_lossy(&body.to_bytes())),
+            Err(_) => return html(StatusCode::PAYLOAD_TOO_LARGE, pages::not_found(lang)),
+        }
+    } else {
+        Vec::new()
+    };
+    let request = account_web::Request { method, path, query, cookies, form, ip, lang, user_agent, cross_site: cross };
+    let Ok(_permit) = accounts.gate.acquire().await else { return html(StatusCode::SERVICE_UNAVAILABLE, pages::not_answering(lang)) };
+    let worker = accounts.clone();
+    let reply = match tokio::task::spawn_blocking(move || worker.handle(&request)).await {
+        Ok(r) => r,
+        Err(_) => return html(StatusCode::INTERNAL_SERVER_ERROR, pages::not_answering(lang)),
+    };
+    let status = StatusCode::from_u16(reply.status).unwrap_or(StatusCode::OK);
+    let mut r = match (reply.location, reply.html) {
+        (Some(location), _) => {
+            let mut r = redirect(&location);
+            *r.status_mut() = StatusCode::SEE_OTHER;
+            r
+        }
+        (None, page) => html(status, page.unwrap_or_default()),
+    };
+    for c in reply.cookies {
+        if let Ok(v) = HeaderValue::from_str(&c) {
+            r.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    if let Some(secs) = reply.retry_after {
+        r.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(secs));
+    }
+    r
 }
 
 /// `/j/{code}` : vers la page de la Station, `/link/?join=<code>`.
@@ -328,5 +406,25 @@ mod tests {
     fn origine_d_une_station() {
         assert_eq!(station_origin("abc", "share.kybernow.app", 8443), "https://abc.share.kybernow.app:8443");
         assert_eq!(station_origin("abc", "share.kybernow.app", 443), "https://abc.share.kybernow.app");
+    }
+
+    #[test]
+    fn formulaires_d_un_autre_site_refuses() {
+        let headers = |pairs: &[(&'static str, &'static str)]| {
+            let mut h = hyper::HeaderMap::new();
+            for (k, v) in pairs {
+                h.insert(*k, HeaderValue::from_static(v));
+            }
+            h
+        };
+        assert!(!cross_site(&headers(&[("sec-fetch-site", "same-origin")])));
+        assert!(!cross_site(&headers(&[("sec-fetch-site", "none")])), "adresse tapée, favori");
+        // Admin d'une Station (<id>.share.kybernow.app) est du même site, pas de la même origine.
+        assert!(cross_site(&headers(&[("sec-fetch-site", "same-site")])));
+        assert!(cross_site(&headers(&[("sec-fetch-site", "cross-site"), ("origin", "https://share.kybernow.app"), ("host", "share.kybernow.app")])));
+        assert!(!cross_site(&headers(&[("origin", "https://share.kybernow.app"), ("host", "share.kybernow.app")])));
+        assert!(!cross_site(&headers(&[("origin", "null"), ("host", "share.kybernow.app")])));
+        assert!(cross_site(&headers(&[("origin", "https://abc.share.kybernow.app"), ("host", "share.kybernow.app")])));
+        assert!(!cross_site(&headers(&[])), "sans ces en-têtes, le jeton CSRF suffit");
     }
 }

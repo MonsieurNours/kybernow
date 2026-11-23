@@ -136,7 +136,7 @@ SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self
 ### Relay security
 
 - Passwords: Argon2id; at least 10 characters; list of known passwords refused.
-- Console: `__Host-` session cookie, `Secure`, `HttpOnly`, `SameSite=Strict`, CSRF protection; attempt limits per address and per account.
+- Console: `__Host-` session cookie, `Secure`, `HttpOnly`, `SameSite=Lax`, CSRF protection (per-form token, `Sec-Fetch-Site` checked); attempt limits per address and per account.
 - Signing key: in a separate file, reserved for the relay; rotation possible (two keys published, the Station pins both during the transition).
 - A hacked relay can issue tokens for any Station whose switch is on: that is the price of “the relay decides”, bounded by the safeguards above.
 
