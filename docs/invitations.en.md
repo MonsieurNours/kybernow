@@ -25,6 +25,7 @@ This document is the shared contract of Admin, the Rust core, every Link app and
 2. The Station answers that it is an invitation: the app shows **“Add {computer}”**, with the **“Password”** field.
 3. Right password: the computer appears on the home screen, like a paired computer; the app selects it and says “{computer} has been added.”. It then opens with “Connect”, on the network or through the relay.
 4. The same computer already on the home screen (same Admin fingerprint) is not added twice: it takes the new access.
+5. An invitation opens no session: it goes through even when an app already holds four sessions ([plusieurs-ordinateurs.en.md](plusieurs-ordinateurs.en.md)); the limit only applies to “Connect”.
 
 The web client is served by the computer itself: an invitation code there only says “This code adds the computer in the KyberNow Link app.”
 

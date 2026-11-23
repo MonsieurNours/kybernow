@@ -25,6 +25,7 @@ Ce document est le contrat commun d'Admin, du cœur Rust, de toutes les apps Lin
 2. La Station répond que c'est une invitation : l'app montre **« Ajouter {ordinateur} »**, avec le champ **« Mot de passe »**.
 3. Bon mot de passe : l'ordinateur apparaît sur l'accueil, comme un ordinateur appairé ; l'app le sélectionne et dit « {ordinateur} est ajouté. ». Il s'ouvre ensuite par « Se connecter », sur le réseau ou par le relais.
 4. Le même ordinateur déjà sur l'accueil (même empreinte d'Admin) n'est pas ajouté deux fois : il prend le nouvel accès.
+5. Une invitation n'ouvre pas de session : elle passe même quand une app tient déjà quatre sessions ([plusieurs-ordinateurs.md](plusieurs-ordinateurs.md)), la limite ne vaut que pour « Se connecter ».
 
 Le client web est servi par l'ordinateur lui-même : un code d'invitation y dit seulement « Ce code sert à ajouter l'ordinateur dans l'app KyberNow Link. »
 
