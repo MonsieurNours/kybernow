@@ -1682,6 +1682,59 @@ impl InviteUi {
     }
 }
 
+/// Invitations (docs/invitations.md) : « Rejoindre avec un code » est tombé sur un code d'invitation
+/// (`ShareError::Invite` du cœur). L'écran « Ajouter {ordinateur} » demande le mot de passe donné avec le code ;
+/// `invite::redeem` ajoute l'ordinateur comme un ordinateur appairé, sans que personne ait à l'accepter. Le code
+/// lui-même (la Station, le chemin) reste au pilote (`device::jobs`) : l'interface n'a pas le cœur.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InvitationForm {
+    /// Le nom de l'ordinateur que dit la Station ; vide pour une Station qui ne le dit pas.
+    pub computer: String,
+    /// Le mot de passe tapé (majuscules, espaces et tirets ne comptent pas pour la Station).
+    pub password: String,
+    /// Majuscule du pavé des lettres (manette), pour la touche suivante.
+    pub shift: bool,
+    /// « Ajout de {ordinateur}… » : le mot de passe est parti (15 s au plus).
+    pub busy: bool,
+    /// Le refus, sous le champ (`InviteError::text` du cœur).
+    pub message: Option<String>,
+    /// Numéro de l'essai : une réponse d'un essai abandonné (« Annuler », retour) ne change pas l'écran.
+    pub attempt: u32,
+}
+
+impl InvitationForm {
+    /// Le mot de passe d'une invitation : douze signes, tirets et espaces en plus ; 64 au plus.
+    pub const MAX: usize = 64;
+
+    /// Le titre : « Ajouter {ordinateur} » ; sans nom, « Ajouter l'ordinateur » (docs/link-ui.md, « Invitations »).
+    pub fn title(&self) -> String {
+        match self.computer.trim() {
+            "" => tr("Ajouter l'ordinateur", "Add the computer").into(),
+            n if crate::i18n::english() => format!("Add {n}"),
+            n => format!("Ajouter {n}"),
+        }
+    }
+
+    /// Pendant l'appel : « Ajout de {ordinateur}… » (« Ajout d'Atelier… »).
+    pub fn adding(&self) -> String {
+        match self.computer.trim() {
+            "" => tr("Ajout de l'ordinateur…", "Adding the computer…").into(),
+            n if crate::i18n::english() => format!("Adding {n}…"),
+            n => format!("Ajout {}…", crate::i18n::de(n)),
+        }
+    }
+
+    /// « Ajouter l'ordinateur » peut partir : un mot de passe tapé, pas d'appel en cours.
+    pub fn ready(&self) -> bool {
+        !self.busy && self.password.chars().any(|c| !c.is_whitespace() && c != '-')
+    }
+}
+
+/// L'avis de la réussite : « {ordinateur} est ajouté. » (docs/link-ui.md, « Invitations »).
+pub fn invitation_added_notice(computer: &str) -> String {
+    if crate::i18n::english() { format!("{computer} has been added.") } else { format!("{computer} est ajouté.") }
+}
+
 /// Le lien d'un partage (`kybernow://join?…`, `share::JoinLink` du cœur) : « Rejoindre un partage », code rempli, vers
 /// la seule Station du lien (et son relais).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -2015,6 +2068,8 @@ pub enum AddStep {
     Code,
     /// Prêt de l'ordinateur : « Avec un compte d'ami » (une Station du réseau, l'identifiant, le mot de passe).
     Friend,
+    /// Invitations : « Ajouter {ordinateur} », le mot de passe donné avec le code d'invitation.
+    Invitation,
     /// Adresse et port d'Admin, au clavier ou au pavé.
     Address,
     /// Empreinte du certificat à comparer avec celle d'Admin.
@@ -2479,6 +2534,10 @@ pub enum Target {
     FriendPassword,
     FriendRemember,
     FriendGo,
+    /// Invitations : le champ « Mot de passe », « Ajouter l'ordinateur », « Annuler ».
+    InvitationPassword,
+    InvitationGo,
+    InvitationCancel,
     /// La fin d'une session d'emprunt sans le prêt (fenêtre fermée, réseau perdu) : « Revenir ».
     ComeBack,
     /// « Rendre l'ordinateur » dans la barre d'une session d'emprunt.
@@ -2593,6 +2652,9 @@ pub enum Action {
     /// vérifiés), puis gardée ; `editing` : un ordinateur déjà emprunté dont le mot de passe est redemandé.
     /// `relay` et `sid` : le relais de la Station (lien d'invitation), gardés avec l'ordinateur emprunté.
     FriendAdd { address: String, port: u16, fingerprint: Option<String>, relay: Option<String>, sid: Option<String>, login: String, password: String, remember: bool, editing: Option<String> },
+    /// Invitations : le mot de passe pour le code d'invitation gardé par le pilote (`invite::redeem`), suivi sous ce
+    /// numéro d'essai.
+    RedeemInvite { attempt: u32, password: String },
     /// Prêt de l'ordinateur, hôte, en session : une demande à Admin (code, demandes).
     Lend(SessionId, LendOp),
     /// Prêt de l'ordinateur, hôte, sur l'accueil : « Reprendre l'ordinateur » de cet ordinateur.
@@ -2738,6 +2800,8 @@ pub struct App {
     pub borrow: BorrowUi,
     pub lend_passwords: HashMap<String, String>,
     pub friend: FriendForm,
+    /// Invitations : l'écran « Ajouter {ordinateur} ».
+    pub invitation: InvitationForm,
     /// Un lien `kybernow://` reçu pendant une session (ou le lancement, le premier démarrage) : il s'ouvre quand
     /// l'app revient à ses écrans (`App::poll_link`).
     pub pending_link: Option<LinkUi>,
@@ -2943,6 +3007,7 @@ impl App {
             borrow: BorrowUi::default(),
             lend_passwords: HashMap::new(),
             friend: FriendForm::default(),
+            invitation: InvitationForm::default(),
             pending_link: None,
             ps: crate::ps::PsUi::default(),
         }
@@ -3118,6 +3183,9 @@ impl App {
                     (false, FriendField::Password) => Target::FriendPassword,
                     (true, _) => Target::Key('q'),
                 },
+                AddStep::Invitation => {
+                    if self.layout.console() { Target::Key('1') } else { Target::InvitationPassword }
+                }
                 AddStep::Ps(ref step) => {
                     use crate::ps::PsStep;
                     match step {
@@ -3228,6 +3296,11 @@ impl App {
     /// « Avec un compte d'ami » : l'identifiant ou le mot de passe est en cours de saisie.
     pub fn typing_friend(&self) -> bool {
         self.screen == Screen::Add && self.add.step == AddStep::Friend
+    }
+
+    /// Invitations : le mot de passe de « Ajouter {ordinateur} » est en cours de saisie.
+    pub fn typing_invitation(&self) -> bool {
+        self.screen == Screen::Add && self.add.step == AddStep::Invitation
     }
 
     /// L'ordinateur emprunté choisi sur l'accueil (`Store::selected` désigne un ordinateur appairé, ou emprunté).
@@ -3388,6 +3461,8 @@ impl App {
                 }
                 self.activate(Target::FriendGo)
             }
+            // Invitations : Entrée dans le champ ajoute l'ordinateur.
+            Nav::Ok if self.typing_invitation() && self.focus == Target::InvitationPassword => self.activate(Target::InvitationGo),
             Nav::Ok => {
                 let t = self.focus;
                 self.activate(t)
@@ -3453,13 +3528,13 @@ impl App {
                 }
             }
             Nav::Char(c) => {
-                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() || self.typing_friend() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() || self.typing_friend() || self.typing_invitation() {
                     return self.activate(Target::Key(c));
                 }
                 Vec::new()
             }
             Nav::Erase => {
-                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() || self.typing_friend() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() || self.typing_join() || self.typing_friend() || self.typing_invitation() {
                     return self.activate(Target::KeyErase);
                 }
                 Vec::new()
@@ -3577,6 +3652,11 @@ impl App {
                     }
                     self.go(Screen::Home);
                     vec![Action::StopPairing]
+                }
+                // Invitations : retour à « Rejoindre un partage », le code toujours là.
+                AddStep::Invitation => {
+                    self.invitation_cancel();
+                    Vec::new()
                 }
                 _ => {
                     self.add.step = AddStep::Code;
@@ -3805,6 +3885,27 @@ impl App {
                 Vec::new()
             }
             Target::FriendGo => self.friend_go(),
+            Target::InvitationPassword => Vec::new(),
+            Target::InvitationGo => self.invitation_go(),
+            Target::InvitationCancel => {
+                self.invitation_cancel();
+                Vec::new()
+            }
+            Target::Key(c) if self.typing_invitation() => {
+                self.invitation_type(c);
+                Vec::new()
+            }
+            Target::KeyErase if self.typing_invitation() => {
+                if !self.invitation.busy {
+                    self.invitation.password.pop();
+                    self.invitation.message = None;
+                }
+                Vec::new()
+            }
+            Target::KeyShift if self.typing_invitation() => {
+                self.invitation.shift = !self.invitation.shift;
+                Vec::new()
+            }
             Target::Key(c) if self.typing_friend() => {
                 self.friend_type(c);
                 Vec::new()
@@ -5038,6 +5139,96 @@ impl App {
         self.join.lending = true;
         self.join.started = Instant::now();
         true
+    }
+
+    // MARK: - Invitations
+
+    /// « Rejoindre avec un code » est tombé sur un code d'invitation (`ShareError::Invite`) : l'écran « Ajouter
+    /// {ordinateur} » demande le mot de passe (docs/invitations.md). Rend vrai si la recherche est toujours celle de
+    /// l'écran : le pilote garde alors le code et ouvre la saisie de texte.
+    pub fn join_invited(&mut self, attempt: u32, computer: &str) -> bool {
+        if !self.join_current(attempt) {
+            return false;
+        }
+        self.join.busy = false;
+        self.join.waiting = false;
+        self.join.lending = false;
+        self.join.wait_host = None;
+        self.join.message = None;
+        self.invitation = InvitationForm { computer: computer.trim().to_string(), attempt: self.invitation.attempt + 1, ..InvitationForm::default() };
+        self.add.step = AddStep::Invitation;
+        self.add.message = None;
+        self.go(Screen::Add);
+        true
+    }
+
+    /// Une lettre pour le mot de passe de l'invitation, 64 au plus.
+    fn invitation_type(&mut self, c: char) {
+        if self.invitation.busy || c.is_control() {
+            return;
+        }
+        let c = if self.invitation.shift { c.to_uppercase().next().unwrap_or(c) } else { c };
+        if self.invitation.password.chars().count() < InvitationForm::MAX {
+            self.invitation.password.push(c);
+            self.invitation.shift = false;
+            self.invitation.message = None;
+        }
+    }
+
+    /// « Ajouter l'ordinateur » (inactif tant que le champ est vide) : « Ajout de {ordinateur}… », le mot de passe part
+    /// à la Station (`invite::redeem`).
+    fn invitation_go(&mut self) -> Vec<Action> {
+        if !self.invitation.ready() {
+            return Vec::new();
+        }
+        self.invitation.attempt += 1;
+        self.invitation.busy = true;
+        self.invitation.message = None;
+        vec![Action::RedeemInvite { attempt: self.invitation.attempt, password: self.invitation.password.clone() }]
+    }
+
+    /// « Annuler » (ou retour) : « Rejoindre un partage » revient, son code toujours là ; une réponse en route ne
+    /// change plus l'écran.
+    fn invitation_cancel(&mut self) {
+        let attempt = self.invitation.attempt + 1;
+        self.invitation = InvitationForm { attempt, ..InvitationForm::default() };
+        self.add.step = AddStep::Code;
+        self.go(Screen::Join);
+    }
+
+    /// L'essai `attempt` est toujours celui de l'écran « Ajouter {ordinateur} ».
+    pub fn invitation_current(&self, attempt: u32) -> bool {
+        self.typing_invitation() && self.invitation.busy && self.invitation.attempt == attempt
+    }
+
+    /// Le mot de passe est bon : l'ordinateur est gardé comme un ordinateur appairé (le même ordinateur déjà là, même
+    /// empreinte d'Admin, prend le nouvel accès), choisi sur l'accueil, « {ordinateur} est ajouté. ». Un essai
+    /// abandonné entre-temps garde quand même l'ordinateur (son compte existe déjà sur la Station), sans changer
+    /// d'écran.
+    pub fn invitation_added(&mut self, attempt: u32, host: Host) -> Vec<Action> {
+        let name = host.name.clone();
+        let id = self.store.put_invited(host);
+        self.toast(invitation_added_notice(&name));
+        if self.invitation_current(attempt) {
+            self.invitation = InvitationForm { attempt: self.invitation.attempt, ..InvitationForm::default() };
+            self.join = JoinState { name: self.join.name.clone(), quality: self.join.quality, attempt: self.join.attempt, ..JoinState::new() };
+            self.add.step = AddStep::Code;
+            self.store.selected = Some(id);
+            self.go(Screen::Home);
+        }
+        vec![Action::Save, Action::Poll]
+    }
+
+    /// Le mot de passe est refusé (ou la Station ne répond pas) : le texte, sous le champ.
+    pub fn invitation_failed(&mut self, attempt: u32, message: String) {
+        if !self.invitation_current(attempt) {
+            return;
+        }
+        self.invitation.busy = false;
+        self.invitation.message = Some(message);
+        if !self.layout.console() {
+            self.focus = Target::InvitationPassword;
+        }
     }
 
     /// Une lettre pour le champ du compte d'ami (identifiant, mot de passe), 64 au plus.

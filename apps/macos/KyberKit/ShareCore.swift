@@ -947,9 +947,10 @@ public struct Invited: Sendable, Equatable {
         let relay = (j["relay"] as? [String: Any])
             .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
             .flatMap { try? JSONDecoder().decode(RelayInfo.self, from: $0) }
-            .flatMap { $0.server.isEmpty || $0.id.isEmpty ? nil : $0 }
-        let fingerprint = (j["fingerprint"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        let expires = (j["expires"] as? NSNumber).flatMap { $0.int64Value > 0 ? Date(timeIntervalSince1970: TimeInterval($0.int64Value)) : nil }
+            .flatMap { (r: RelayInfo) -> RelayInfo? in r.server.isEmpty || r.id.isEmpty ? nil : r }
+        let fingerprint = (j["fingerprint"] as? String).flatMap { (f: String) -> String? in f.isEmpty ? nil : f }
+        let seconds = (j["expires"] as? NSNumber)?.int64Value ?? 0
+        let expires = seconds > 0 ? Date(timeIntervalSince1970: TimeInterval(seconds)) : nil
         self.init(hostname: j["hostname"] as? String ?? "", address: j["address"] as? String ?? "",
                   port: (j["port"] as? NSNumber).flatMap { UInt16(exactly: $0.intValue) } ?? 0,
                   fingerprint: fingerprint, username: username, password: password, relay: relay,

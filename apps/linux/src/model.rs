@@ -541,7 +541,22 @@ impl Store {
 
     /// Ajoute un ordinateur, ou met à jour celui de même adresse.
     pub fn put(&mut self, host: Host) -> String {
-        if let Some(h) = self.hosts.iter_mut().find(|h| h.address == host.address && h.port == host.port) {
+        let i = self.hosts.iter().position(|h| h.address == host.address && h.port == host.port);
+        self.put_at(i, host)
+    }
+
+    /// Invitations (docs/invitations.md) : ajoute l'ordinateur d'une invitation. Le même ordinateur déjà là (même
+    /// empreinte d'Admin, sinon même adresse) prend le nouvel accès (adresse, compte, relais) au lieu d'être ajouté
+    /// deux fois.
+    pub fn put_invited(&mut self, host: Host) -> String {
+        let same_fp = host.fingerprint.as_deref().filter(|f| !f.is_empty()).and_then(|fp| self.hosts.iter().position(|h| h.fingerprint.as_deref() == Some(fp)));
+        let i = same_fp.or_else(|| self.hosts.iter().position(|h| h.address == host.address && h.port == host.port));
+        self.put_at(i, host)
+    }
+
+    /// Met à jour l'ordinateur `i` avec `host`, ou ajoute `host`.
+    fn put_at(&mut self, i: Option<usize>, host: Host) -> String {
+        if let Some(h) = i.and_then(|i| self.hosts.get_mut(i)) {
             let id = h.id.clone();
             let settings = h.settings.clone();
             let last = h.last.clone();
