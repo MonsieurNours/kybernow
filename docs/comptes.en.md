@@ -157,6 +157,39 @@ SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self
 
 Each batch has its mockup approved before the code, like invitations.
 
+## Batch 1: accounts on the relay
+
+Mockup: “Sign-up and sign-in” row of https://claude.ai/artifact/RSTsS6BYAt9SN9GEMEgiuc.
+
+### Pages (served by the relay, French and English, like the share page)
+
+| Route | Screen |
+|---|---|
+| `GET/POST /compte/inscription` | “Create an account”: name, email address, password (at least 10 characters, meter, known passwords refused), terms and privacy; refused when the page comes from an app (`?appareil=`) |
+| `GET/POST /compte/verifier` | “Check your email”: link valid 24 h, or six-digit code; “Resend the email”, “Change it” |
+| `GET /compte/proteger` | “Protect your account”, after activation: passkey (recommended), two-factor authentication; “Later” |
+| `GET/POST /compte/connexion` | “Sign in”: passkey first, then email and password; “Forgot your password?”; “Create an account” except from an app |
+| `GET/POST /compte/code` | “Two-factor authentication”: TOTP code, “Don't ask again on this device for 30 days”, “Use a recovery code” |
+| `GET/POST /compte/oubli`, `/compte/nouveau-mot-de-passe` | Link valid one hour; always the same answer (“If an account exists at this address, a link has just been sent to it.”); a new password closes the other sessions |
+| `GET /compte` | The account (until batch 4's console): email, security (passkeys, two-factor, recovery codes), open sessions, “Sign out”, “Delete the account” |
+
+### Database (SQLite, `accounts.db` in the relay's volume)
+
+`accounts` (id, unique lowercase email, name, Argon2id hash, verified at, created at, deleted at, plan) · `email_tokens` (SHA-256 hash of the token, account, purpose `verify`/`reset`, six-digit code, expiry) · `sessions` (token hash, account, device, created, seen, expiry, 2FA done) · `totp` (account, encrypted secret, enabled at) · `recovery_codes` (account, hash, used at) · `passkeys` (account, credential id, public key, counter, name, created, seen) · `trusted_browsers` (hash, account, expiry) · `audit` (account, kind, address, when). Versioned migrations at startup.
+
+### Settings (`relay.toml`, `[accounts]` section)
+
+`enabled` (off by default on a self-hosted relay), `database`, `secret_key` (file: encrypts TOTP secrets, signs cookies), `public_url`, and `[accounts.smtp]`: `host`, `port`, `starttls`, `user`, `password_file`, `from`. Without SMTP: neither email verification nor password reset; the relay's administrator creates accounts (`kybernow-relay accounts add`).
+
+### Security
+
+`__Host-kn_session` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`), 256-bit token kept as a hash; CSRF token per form; Argon2id; 10 sign-in attempts per address and 5 per account in 15 minutes; emails and tokens never in the logs; same answers whether an account exists or not (sign-in, reset, sign-up with a taken address: an email tells its owner).
+
+### Order
+
+1a. Database, sign-up, verification, sign-in, sign-out, password reset, two-factor and recovery codes, SMTP, limits, account page.
+1b. Passkeys (WebAuthn), account deletion, data export.
+
 ## Open question
 
 1. **Demo account for Apple**: on the public relay, with the Session right on the demo Station (suggested).

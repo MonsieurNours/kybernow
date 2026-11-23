@@ -157,6 +157,39 @@ SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans S
 
 Chaque lot a sa maquette validée avant le code, comme les invitations.
 
+## Lot 1 : comptes sur le relais
+
+Maquette : rangée « Inscription et connexion » de https://claude.ai/artifact/RSTsS6BYAt9SN9GEMEgiuc.
+
+### Pages (servies par le relais, français et anglais, comme la page du partage)
+
+| Route | Écran |
+|---|---|
+| `GET/POST /compte/inscription` | « Créer un compte » : nom, adresse e-mail, mot de passe (10 caractères au moins, jauge, mots de passe connus refusés), conditions et confidentialité ; refusé quand la page vient d'une app (`?appareil=`) |
+| `GET/POST /compte/verifier` | « Vérifiez votre e-mail » : lien valable 24 h, ou code à six chiffres ; « Renvoyer l'e-mail », « Le changer » |
+| `GET /compte/proteger` | « Protégez votre compte », après l'activation : passkey (conseillée), double authentification ; « Plus tard » |
+| `GET/POST /compte/connexion` | « Se connecter » : passkey d'abord, puis e-mail et mot de passe ; « Mot de passe oublié ? » ; « Créer un compte » sauf depuis une app |
+| `GET/POST /compte/code` | « Double authentification » : code TOTP, « Ne plus demander sur cet appareil pendant 30 jours », « Utiliser un code de secours » |
+| `GET/POST /compte/oubli`, `/compte/nouveau-mot-de-passe` | Lien valable une heure ; réponse toujours la même (« Si un compte existe à cette adresse, un lien vient d'y partir. ») ; un nouveau mot de passe ferme les autres sessions |
+| `GET /compte` | Le compte (en attendant la console du lot 4) : e-mail, sécurité (passkeys, double authentification, codes de secours), sessions ouvertes, « Se déconnecter », « Supprimer le compte » |
+
+### Base (SQLite, `accounts.db` dans le volume du relais)
+
+`accounts` (id, e-mail unique en minuscules, nom, empreinte Argon2id, vérifié le, créé le, supprimé le, offre) · `email_tokens` (empreinte SHA-256 du jeton, compte, usage `verify`/`reset`, code à six chiffres, échéance) · `sessions` (empreinte du jeton, compte, appareil, créée, vue, échéance, 2FA faite) · `totp` (compte, secret chiffré, activée le) · `recovery_codes` (compte, empreinte, utilisé le) · `passkeys` (compte, identifiant, clé publique, compteur, nom, créée, vue) · `trusted_browsers` (empreinte, compte, échéance) · `audit` (compte, type, adresse, quand). Migrations versionnées au démarrage.
+
+### Réglages (`relay.toml`, section `[accounts]`)
+
+`enabled` (coupé par défaut sur un relais auto-hébergé), `database`, `secret_key` (fichier : chiffrement des secrets TOTP et signature des cookies), `public_url`, et `[accounts.smtp]` : `host`, `port`, `starttls`, `user`, `password_file`, `from`. Sans SMTP : ni vérification par e-mail ni mot de passe oublié ; l'administrateur du relais crée les comptes (`kybernow-relay accounts add`).
+
+### Sécurité
+
+Cookie `__Host-kn_session` (`Secure`, `HttpOnly`, `SameSite=Lax`), jeton de 256 bits gardé en empreinte ; jeton CSRF par formulaire ; Argon2id ; 10 essais de connexion par adresse et 5 par compte en 15 minutes ; e-mails et jetons jamais dans les journaux ; réponses identiques qu'un compte existe ou non (connexion, oubli, inscription d'une adresse déjà prise : un e-mail le dit au titulaire).
+
+### Ordre
+
+1a. Base, inscription, vérification, connexion, déconnexion, mot de passe oublié, double authentification et codes de secours, SMTP, limites, page du compte.
+1b. Passkeys (WebAuthn), suppression du compte, export des données.
+
 ## Question ouverte
 
 1. **Compte de démonstration pour Apple** : sur le relais public, avec le droit Session sur la Station de démonstration (proposé).
