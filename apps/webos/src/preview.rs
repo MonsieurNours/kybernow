@@ -15,7 +15,7 @@ use crate::app::{
     AddStep, App, Found, HostLive, JoinField, JoinState, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, Polled, Problem, RouteUi, Screen, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKnown, StationLive, StationOp,
     StationPhase, StationRefusal, StationUi, Stats, Target, UpdateState, HOST_SECTIONS,
 };
-use crate::app::{BorrowSessionUi, BorrowSource, BorrowUi, Dialog, FriendForm, InviteUi, LendAvail, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam, LinkUi};
+use crate::app::{BorrowSessionUi, BorrowSource, BorrowUi, Dialog, FriendForm, InvitationForm, InviteUi, LendAvail, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam, LinkUi};
 use crate::model::{Borrowed, Host, HostSettings, LastSession, Profile, Store, WakeTarget};
 use crate::ui::{self, canvas::Canvas, Assets};
 
@@ -971,6 +971,27 @@ fn lend_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     app.focus = Target::DialogCancel;
     shot(app, cv, assets, None, dir, "24h-pret-retirer");
     app.dialog = None;
+
+    // Invitations : « Rejoindre avec un code » tombe sur un code d'invitation : « Ajouter {ordinateur} », le mot de
+    // passe (masqué, puis affiché), l'appel, le refus sous le champ.
+    app.join = JoinState { name: "LG OLED83G2".into(), code: "123456".into(), busy: true, attempt: 1, ..JoinState::new() };
+    app.screen = Screen::Join;
+    app.join_invited(1, "PC du salon");
+    shot(app, cv, assets, None, dir, "24i-invitation");
+    app.invitation.password = "k7mq-p2xa-9fz3".into();
+    app.focus = Target::InvitationReveal;
+    shot(app, cv, assets, None, dir, "24j-invitation-mot-de-passe");
+    app.invitation.reveal = true;
+    app.invitation.busy = true;
+    app.focus = Target::InvitationCancel;
+    shot(app, cv, assets, None, dir, "24k-invitation-ajout");
+    app.invitation.busy = false;
+    app.invitation.message = Some(crate::i18n::tr("Mot de passe refusé.", "Password refused.").into());
+    app.focus = Target::Key('1');
+    shot(app, cv, assets, None, dir, "24l-invitation-refus");
+    app.invitation = InvitationForm::default();
+    app.add.step = AddStep::Code;
+    app.join = JoinState::new();
     app.join = JoinState { name: "Léa".into(), code: "731402".into(), busy: true, waiting: true, lending: true, wait_host: Some("Matthieu".into()), ..JoinState::new() };
     app.go(Screen::Join);
     app.focus = Target::JoinCancel;
@@ -2179,6 +2200,69 @@ mod tests {
         app.join_lending(attempt);
         app.borrow_failed(&BorrowSource::Code { attempt }, "Matthieu a refusé.".into());
         assert_eq!(app.join.message.as_deref(), Some("Matthieu a refusé."));
+    }
+
+    // MARK: - Invitations
+
+    /// « Rejoindre avec un code » tombe sur un code d'invitation (docs/invitations.md) : « Ajouter {ordinateur} »
+    /// demande le mot de passe, masqué (« Afficher » le montre) ; « Ajouter l'ordinateur » est inactif tant que le champ
+    /// est vide ; le refus va sous le champ ; Retour ramène à « Rejoindre avec un code » et une réponse tardive ne change
+    /// plus l'écran ; la réussite garde l'ordinateur (le même, par son empreinte, sans doublon), le choisit et le dit.
+    #[test]
+    fn an_invite_code_from_join() {
+        use crate::app::{invitation_added_notice, InvitationForm};
+        let mut app = tv();
+        let hosts = app.store.hosts.len();
+        app.join = JoinState { code: "123456".into(), name: "Léa".into(), ..JoinState::new() };
+        app.go(Screen::Join);
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        assert!(!app.join_invited(attempt + 1, "PC du salon"), "une autre recherche n'ouvre rien");
+        assert!(app.join_invited(attempt, "PC du salon"));
+        assert_eq!((app.screen, app.add.step.clone(), app.focus, app.join.busy), (Screen::Add, AddStep::Invitation, Target::Key('1'), false));
+        assert_eq!((app.invitation.title(), app.invitation.adding()), ("Ajouter PC du salon".to_string(), "Ajout de PC du salon…".to_string()));
+        assert_eq!(InvitationForm { computer: "Atelier".into(), ..InvitationForm::default() }.adding(), "Ajout d'Atelier…");
+        assert!(app.activate(Target::InvitationGo).is_empty(), "inactif tant que le champ est vide");
+        for c in "k7mq-p2xa".chars() {
+            app.nav(Nav::Char(c));
+        }
+        app.nav(Nav::Erase);
+        assert_eq!(app.invitation.password, "k7mq-p2x");
+        assert!(!app.invitation.reveal);
+        app.activate(Target::InvitationReveal);
+        assert!(app.invitation.reveal);
+        app.focus = Target::InvitationPassword;
+        let acts = app.nav(Nav::Ok);
+        let first = app.invitation.attempt;
+        assert_eq!(acts, vec![Action::RedeemInvite { attempt: first, password: "k7mq-p2x".into() }]);
+        app.invitation_failed(first, "Mot de passe refusé.".into());
+        assert_eq!((app.invitation.busy, app.invitation.message.as_deref()), (false, Some("Mot de passe refusé.")));
+        // Retour pendant l'appel : « Rejoindre avec un code », le code toujours là ; la réponse n'y change rien.
+        app.activate(Target::InvitationGo);
+        let second = app.invitation.attempt;
+        app.nav(Nav::Back);
+        assert_eq!((app.screen, app.join.code.as_str()), (Screen::Join, "123456"));
+        app.invitation_failed(second, "Mot de passe refusé.".into());
+        assert_eq!(app.invitation.message, None);
+        // Un autre essai, réussi : le même ordinateur (même empreinte d'Admin) prend le nouvel accès.
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        assert!(app.join_invited(attempt, ""));
+        assert_eq!(app.invitation.title(), "Ajouter l'ordinateur");
+        for c in "k7mqp2xa9fz3".chars() {
+            app.activate(Target::Key(c));
+        }
+        app.activate(Target::InvitationGo);
+        let third = app.invitation.attempt;
+        let known = app.store.hosts[0].clone();
+        let invited = Host { id: "n".into(), address: "10.8.0.4".into(), user: "LG-ab12".into(), ..known.clone() };
+        assert_eq!(app.invitation_added(third, invited), vec![Action::Save, Action::Poll(known.id.clone())]);
+        assert_eq!((app.screen, app.store.selected.as_deref(), app.store.hosts.len()), (Screen::Home, Some(known.id.as_str()), hosts));
+        assert_eq!((app.store.hosts[0].address.as_str(), app.store.hosts[0].user.as_str()), ("10.8.0.4", "LG-ab12"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.clone()), Some(format!("{} est ajouté.", known.name)));
+        crate::i18n::force_english(true);
+        assert_eq!(invitation_added_notice("PC"), "PC has been added.");
+        crate::i18n::force_english(false);
     }
 
     /// La carte d'un ordinateur emprunté : « Emprunter » avec le mot de passe retenu ; « Rendre l'ordinateur » en session

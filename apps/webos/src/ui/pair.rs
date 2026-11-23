@@ -224,7 +224,8 @@ fn invitation(app: &App, cv: &mut Canvas, f: &mut Frame) {
         let dots: String = "•".repeat(inv.password.chars().count());
         cv.text_fit(r.x + 26.0, r.y + 50.0, Text::new(Font::Regular, 30.0, FROST), &dots, r.w - 52.0);
     }
-    widgets::secondary(cv, f, Target::InvitationReveal, x + w - label_w(cv, reveal), y + 34.0 + (76.0 - 52.8) / 2.0, reveal, 22.0);
+    let gw = label_w(cv, reveal);
+    widgets::secondary(cv, f, Target::InvitationReveal, x + w - gw, y + 34.0 + (76.0 - 52.8) / 2.0, reveal, 22.0);
     y += 34.0 + 76.0 + 16.0;
     // Le refus, sous le champ.
     if let (Some(m), false) = (&inv.message, inv.busy) {
