@@ -207,7 +207,17 @@
     "inviteExpired": "Invitation « {name} » échue : ses appareils sont retirés",
     "inviteDevice": "{name} ajouté par l'invitation « {invite} »",
     "invitesLocked": "Invitations bloquées 10 min après trop de mots de passe faux.",
-    "invitesLockedAddress": "Invitations bloquées 10 min pour {address} après trop de mots de passe faux."
+    "invitesLockedAddress": "Invitations bloquées 10 min pour {address} après trop de mots de passe faux.",
+    "accountAttached": "Station rattachée au compte KyberNow {name}",
+    "accountDetached": "Station détachée de son compte KyberNow",
+    "accountsOn": "Comptes KyberNow acceptés",
+    "accountsOff": "Comptes KyberNow refusés",
+    "accountNewDevice": "{name} entre pour la première fois (compte KyberNow)",
+    "accountBlocked": "{name} bloqué sur cet ordinateur",
+    "accountBlockedAll": "Compte KyberNow de {name} bloqué sur cet ordinateur",
+    "accountUnblocked": "{name} débloqué",
+    "stationRestartedNamed": "{name} a redémarré la Station (compte KyberNow)",
+    "stationUpdateNamed": "{name} a lancé la mise à jour vers {version} (compte KyberNow)"
   },
   "share": {
     "display": "Écran {n}",
@@ -262,5 +272,14 @@
     "badPassword": "Mot de passe refusé.",
     "full": "Cette invitation a déjà ajouté {max} appareils.",
     "unavailable": "L'ordinateur n'a pas pu créer l'accès : réessayez."
+  },
+  "accounts": {
+    "off": "Cet ordinateur n'accepte pas les comptes KyberNow (Admin › Compte KyberNow).",
+    "notAttached": "Cet ordinateur n'est rattaché à aucun compte KyberNow.",
+    "expired": "Jeton d'accès échu : l'app en redemande un au relais.",
+    "badToken": "Jeton d'accès refusé ({reason}).",
+    "blocked": "Ce compte ou cet appareil est bloqué sur cet ordinateur.",
+    "noRight": "Ce compte n'a pas ce droit sur cet ordinateur ({right}).",
+    "unknownEntry": "Accès inconnu."
   }
 }

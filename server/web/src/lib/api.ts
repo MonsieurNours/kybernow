@@ -657,6 +657,50 @@ export interface Invite {
   relay: { state: 'connecting' | 'joined' | 'unreachable' } | null
 }
 
+/** Un droit d'un compte KyberNow sur cet ordinateur (docs/comptes.md). */
+export type AccountRight = 'session' | 'lend' | 'share' | 'admin'
+
+/**
+ * `GET /api/account` : le compte KyberNow rattaché (docs/comptes.md, « Rattacher une
+ * Station »), la clé du relais épinglée et « Accepter les comptes KyberNow ».
+ */
+export interface AccountView {
+  attached: boolean
+  relay: string | null
+  owner: { kind: 'person' | 'organization'; id: string; name: string; email?: string | null } | null
+  keys: { kid: string; fingerprint: string | null }[]
+  /** Date du rattachement (secondes). */
+  pinned_at: number | null
+  accept: boolean
+  /** Mode d'essai (`KYBERNOW_ACCOUNT_TEST`) : clé locale, pas de relais. */
+  test: boolean
+  /** Identifiant de la Station chez le relais. */
+  station: string | null
+  /** La console du relais (« Gérer dans la console »). */
+  console: string | null
+  /** Le relais propose le rattachement : « Se connecter » actif. */
+  can_attach: boolean
+}
+
+/** Un compte et un appareil entrés par un jeton (`GET /api/account/access`). */
+export interface AccountAccess {
+  id: string
+  account: string
+  device: string
+  name: string
+  email?: string | null
+  device_name: string
+  rights: AccountRight[]
+  first_seen: number
+  last_seen: number
+  via: 'lan' | 'relay'
+  /** Bloqué ici (date), l'appareil ou tout son compte. */
+  blocked: number | null
+  account_blocked: boolean
+  /** Le propriétaire de l'ordinateur. */
+  owner: boolean
+}
+
 /** `GET /api/invites` : les invitations ouvertes, le maximum, les durées et le relais. */
 export interface InvitesView {
   invites: Invite[]
@@ -816,6 +860,15 @@ export const api = {
   relay: () => request<RelayStatus>('GET', '/api/relay'),
   /** `server` vide : pas de relais ; adresse invalide : `400` avec le texte d'Admin. */
   setRelay: (changes: { server?: string; remote_access?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
+
+  // Compte KyberNow (docs/comptes.md) : session d'Admin, jamais par le relais.
+  account: () => request<AccountView>('GET', '/api/account'),
+  /** `accept` : l'interrupteur ; `detach` : détacher la Station (liste effacée). */
+  setAccount: (changes: { accept?: boolean; detach?: boolean }) => request<AccountView>('PUT', '/api/account', changes),
+  accountAccess: () => request<{ entries: AccountAccess[] }>('GET', '/api/account/access'),
+  /** `account` : tout le compte (tous ses appareils), pas seulement cet appareil. */
+  blockAccess: (id: string, blocked: boolean, account = false) =>
+    request<{ entries: AccountAccess[] }>('POST', `/api/account/access/${encodeURIComponent(id)}/block`, { blocked, account }),
 
   // Invitations (docs/invitations.md) : session d'Admin, jamais par le relais.
   invites: () => request<InvitesView>('GET', '/api/invites'),

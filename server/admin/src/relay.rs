@@ -44,6 +44,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, mpsc};
 use tokio::task::AbortHandle;
 
+use kybernow_tunnel::access::{Right, Use};
+
 use crate::AppState;
 use crate::i18n::Msg;
 
@@ -1032,8 +1034,12 @@ enum Class {
     /// Le mandataire vers Kyber du client web : un invité accepté (cookie),
     /// partage ouvert.
     Kyber,
-    /// Un appareil appairé (compte Basic), seulement avec « Accès hors de chez vous ».
+    /// Un appareil appairé (compte Basic) ou un compte KyberNow (jeton),
+    /// seulement avec « Accès hors de chez vous ».
     Device,
+    /// Redémarrer et mettre à jour la Station : un compte KyberNow qui a le
+    /// droit Administrer (docs/comptes.md), jamais un compte Kyber.
+    StationAdmin,
     /// L'ami d'un prêt (code ou compte d'ami), quand le prêt est activé.
     Lend,
     /// Un appareil invité (code et mot de passe d'une invitation), quand
@@ -1058,8 +1064,12 @@ fn class_of(method: &Method, path: &str) -> Class {
     if path == "/api/lend" || path == "/api/lend/code" || path == "/api/lend/take-back" || path.starts_with("/api/lend/requests/") {
         return Class::Device;
     }
-    // Ni redémarrage ni mise à jour de la Station hors de chez soi : une
-    // action lourde, qu'on fait sur place ou dans Admin.
+    // Ni redémarrage ni mise à jour de la Station hors de chez soi avec un
+    // compte Kyber : une action lourde, qu'on fait sur place ou dans Admin ;
+    // seul un compte KyberNow qui a le droit Administrer le peut.
+    if path == "/api/stream/station/restart" || path == "/api/stream/station/update" {
+        return Class::StationAdmin;
+    }
     if path.starts_with("/api/stream/station/") {
         return Class::Never;
     }
@@ -1162,9 +1172,14 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
                 return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden"));
             }
         }
-        Class::Device => {
+        Class::Device | Class::StationAdmin => {
             if !s.settings.lock().unwrap().relay.remote_access {
                 return refusal(StatusCode::FORBIDDEN, "remote_access_off", Msg::new("relay.accessOff"));
+            }
+            let station_admin = class_of(req.method(), &path) == Class::StationAdmin;
+            // Sans jeton KyberNow, redémarrer et mettre à jour restent fermés par le relais.
+            if station_admin && crate::accounts::bearer(req.headers()).is_none() {
+                return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden"));
             }
             // L'adresse donnée par le relais (déjà forcée hors des adresses locales).
             let ip = req.extensions().get::<ConnectInfo<SocketAddr>>().map_or(IpAddr::V6(OUTSIDE), |c| c.0.ip());
@@ -1178,8 +1193,15 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
                 res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
                 return res;
             }
-            // Vérifié sans rien attendre entre le début et la fin de l'essai.
-            let ok = crate::api::stream_user(&s, req.headers()).is_ok();
+            // Vérifié sans rien attendre entre le début et la fin de l'essai :
+            // le jeton d'un compte KyberNow (chaque route vérifie ensuite son
+            // droit ; le droit Administrer ici pour la Station), sinon le compte Kyber.
+            let need = station_admin.then_some(Right::Admin);
+            let denied = match crate::accounts::authorize(&s, req.headers(), need, Use::Reusable, true) {
+                Some(found) => found.err().map(Some),
+                None => crate::api::stream_user(&s, req.headers()).err().map(|_| None),
+            };
+            let ok = denied.is_none();
             match s.relay.end_attempt_at(ip, ok, Instant::now()) {
                 Some(Blocked::All) => {
                     tracing::warn!("relais : {LOCK_AFTER_ALL} comptes refusés en 10 min, tout l'accès hors de chez vous bloqué 10 min");
@@ -1191,9 +1213,12 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
                 }
                 None => {}
             }
-            if !ok {
+            if let Some(denied) = denied {
                 tokio::time::sleep(FAILED_TRY_DELAY).await;
-                return refusal(StatusCode::UNAUTHORIZED, "unauthorized", Msg::new("api.kyberCredentials"));
+                return match denied {
+                    Some(d) => d.response(),
+                    None => refusal(StatusCode::UNAUTHORIZED, "unauthorized", Msg::new("api.kyberCredentials")),
+                };
             }
         }
         Class::Never => return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden")),
@@ -1319,9 +1344,14 @@ mod tests {
             (&post, "/api/update/install"), (&get, "/api/devices"), (&get, "/api/apps"), (&get, "/api/events"), (&get, "/api/relay"),
             (&Method::PUT, "/api/relay"), (&get, "/"), (&get, "/index.html"), (&post, "/link/"), (&get, "/ecran/kyclient_wasm.js"), (&post, "/api/session"),
             (&get, "/api/status"), (&get, "/api/shares"), (&get, "/kybernow/sessions"),
-            (&post, "/api/stream/station/restart"), (&post, "/api/stream/station/update"),
+            (&get, "/api/account"), (&Method::PUT, "/api/account"), (&get, "/api/account/access"), (&post, "/api/account/access/ab/block"),
+            (&post, "/api/stream/station/other"),
         ] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
+        }
+        // Redémarrer et mettre à jour : un compte KyberNow qui a le droit Administrer.
+        for p in ["/api/stream/station/restart", "/api/stream/station/update"] {
+            assert_eq!(class_of(&post, p), Class::StationAdmin, "{p}");
         }
     }
 
@@ -1509,6 +1539,51 @@ mod tests {
         let body: Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body["relay"], true);
         assert!(body.get("hostname").is_none() && body.get("setup_code_file").is_none(), "{body}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Un compte KyberNow par le relais (docs/comptes.md) : le jeton passe la
+    /// garde comme un appareil appairé ; redémarrer la Station, fermé à un
+    /// compte Kyber, s'ouvre au droit Administrer.
+    #[tokio::test]
+    async fn un_compte_kybernow_par_le_relais() {
+        let (s, dir) = console_state();
+        std::fs::write(dir.join("kyber_config.toml"), "").unwrap();
+        s.kyber.upsert_user("mac", "mot-de-passe-mac").unwrap();
+        let k = crate::accounts::attach_for_tests(&s);
+        let router = router(s.clone());
+        let call = |method: Method, path: &str, auth: HeaderMap| {
+            let mut req = axum::http::Request::builder().method(method).uri(path).header("x-kyber-admin", "1").body(Body::empty()).unwrap();
+            req.headers_mut().extend(auth);
+            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+            req.extensions_mut().insert(Via { kind: StreamKind::AdminTls, client: "c".into() });
+            tower::ServiceExt::oneshot(router.clone(), req)
+        };
+        let code = |res: Response| async move {
+            let status = res.status();
+            (status, serde_json::from_slice::<Value>(&axum::body::to_bytes(res.into_body(), 8192).await.unwrap()).unwrap_or(Value::Null)["code"].clone())
+        };
+        let session = crate::accounts::token_headers(&s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        let res = call(Method::GET, "/api/stream/info", session.clone()).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        // Noté « hors de chez vous » dans la liste locale.
+        assert_eq!(crate::accounts::access_view(&s)["entries"][0]["via"], "relay");
+        // Un compte Kyber ne redémarre pas la Station par le relais.
+        let mut basic = HeaderMap::new();
+        basic.insert(header::AUTHORIZATION, HeaderValue::from_str(&base64_basic("mac", "mot-de-passe-mac")).unwrap());
+        assert_eq!(code(call(Method::POST, "/api/stream/station/restart", basic).await.unwrap()).await, (StatusCode::FORBIDDEN, json!("relay_forbidden")));
+        // Ni un compte KyberNow sans le droit Administrer.
+        assert_eq!(code(call(Method::POST, "/api/stream/station/restart", session).await.unwrap()).await, (StatusCode::FORBIDDEN, json!("no_right")));
+        // Avec Administrer : accepté.
+        let admin = crate::accounts::token_headers(&s, &k, "acc_lea", "dev_1", &[Right::Admin]);
+        assert_eq!(call(Method::POST, "/api/stream/station/restart", admin).await.unwrap().status(), StatusCode::ACCEPTED);
+        // Un jeton d'une autre clé : refusé.
+        let other = kybernow_tunnel::access::Signer::from_pkcs8(&kybernow_tunnel::access::Signer::generate_pkcs8().unwrap()).unwrap();
+        let forged = crate::accounts::token_headers(&s, &other, "acc_lea", "dev_1", &[Right::Session, Right::Admin]);
+        assert_eq!(code(call(Method::GET, "/api/stream/info", forged).await.unwrap()).await, (StatusCode::UNAUTHORIZED, json!("bad_token")));
+        // Les réglages du compte ne s'atteignent jamais par le relais.
+        let admin = crate::accounts::token_headers(&s, &k, "acc_lea", "dev_1", &[Right::Admin]);
+        assert_eq!(code(call(Method::GET, "/api/account", admin).await.unwrap()).await, (StatusCode::FORBIDDEN, json!("relay_forbidden")));
         let _ = std::fs::remove_dir_all(dir);
     }
 

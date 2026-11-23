@@ -24,6 +24,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
+use kybernow_tunnel::access::{Right, Use};
 use serde_json::{Value, json};
 
 use crate::AppState;
@@ -886,6 +887,8 @@ pub async fn local_close(State(s): State<AppState>, ConnectInfo(peer): ConnectIn
 
 #[derive(Deserialize)]
 pub struct JoinBody {
+    /// Le code du partage ; absent avec le jeton d'un compte KyberNow (droit Partage).
+    #[serde(default)]
     code: String,
     name: String,
     #[serde(default)]
@@ -913,13 +916,24 @@ pub async fn join(
 ) -> Response {
     let via = via.map(|axum::Extension(v)| v);
     let browser = body.app == "web";
+    // Un compte KyberNow qui a le droit Partage : sans code, sans accord de
+    // l'hôte (docs/comptes.md) ; son nom et son appareil viennent du jeton.
+    let account = match crate::accounts::authorize(&s, &headers, Some(Right::Share), Use::Reusable, false) {
+        Some(Ok(grant)) => Some(grant),
+        Some(Err(denied)) => return denied.response(),
+        None => None,
+    };
     // Par le relais, ce qui prouve qu'un invité déjà là revient (share::Proof).
     let proof = via.as_ref().map(|v| share::Proof {
         secret: Some(guest_secret(&headers)).filter(|s| !s.is_empty()),
         cookie: share::guest_cookie(&headers, true),
         granted: s.relay.granted_guest(&v.client),
     });
-    let joined = match s.share.join_from(&body.code, &body.name, &body.device, &body.app, peer.ip(), browser, proof.as_ref()) {
+    let result = match &account {
+        Some(grant) => s.share.join_trusted(&grant.claims.name.account, &grant.device_id(), &body.app, browser, via.is_some()),
+        None => s.share.join_from(&body.code, &body.name, &body.device, &body.app, peer.ip(), browser, proof.as_ref()),
+    };
+    let joined = match result {
         Ok(joined) => joined,
         Err(JoinError::BadRequest) => return guest_error(StatusCode::BAD_REQUEST, "bad_request"),
         // Un code de prêt (docs/pret.md, « Codes ») : l'app passe à `borrow`.
@@ -1737,6 +1751,42 @@ mod tests {
         host_guest_answer(State(s.clone()), basic("mac", "mot-de-passe-mac"), Path((id.to_string(), action.to_string())), Bytes::from(r#"{"device_id":"mac-1"}"#))
             .await
             .map(|Json(v)| v)
+    }
+
+    /// Un compte KyberNow qui a le droit Partage (docs/comptes.md) : par le
+    /// relais, il entre sans code et sans attendre l'accord de l'hôte ; sans
+    /// ce droit, ou bloqué, il est refusé.
+    #[tokio::test]
+    async fn un_compte_avec_le_droit_partage_entre_sans_code_ni_accord() {
+        let st = station();
+        let s = &st.s;
+        let k = crate::accounts::attach_for_tests(s);
+        open_for_mac(s).await;
+        let join_body = || Json(serde_json::from_value::<JoinBody>(json!({ "name": "ignoré", "app": "ios" })).unwrap());
+        // Session seulement : pas le droit Partage.
+        let session = crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        let (status, v) = body(join(State(s.clone()), outside_peer(1), relay_via("c1"), session, join_body()).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("no_right")));
+        // Le droit Partage : entré tout de suite, avec son jeton de Kyber.
+        let share = crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::Share]);
+        let (status, v) = body(join(State(s.clone()), outside_peer(1), relay_via("c1"), share.clone(), join_body()).await).await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert!(v.get("pending").is_none() && v["kyber"]["token"].is_string(), "{v}");
+        assert!(s.relay.authorized("c1"));
+        let view = current_view(s);
+        assert_eq!(view["guests"][0]["name"], "Léa Martin");
+        assert_eq!(view["guests"][0]["pending"], false);
+        assert_eq!(view["guests"][0]["via"], "relay");
+        // Le même appareil revient : sa place, pas une deuxième.
+        let (status, _) = body(join(State(s.clone()), outside_peer(1), relay_via("c2"), share, join_body()).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(s.share.guest_count(), 1);
+        // Bloqué dans Admin : refusé même avec un jeton neuf.
+        let id = crate::accounts::entry_id("acc_lea", "dev_1");
+        s.accounts.set_blocked(&id, true, false).unwrap();
+        let again = crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::Share]);
+        let (status, v) = body(join(State(s.clone()), outside_peer(1), relay_via("c3"), again, join_body()).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("blocked")));
     }
 
     #[tokio::test]

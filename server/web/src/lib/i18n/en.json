@@ -344,7 +344,9 @@
       "users": "Users",
       "usersShort": "Users",
       "system": "System",
-      "systemShort": "System"
+      "systemShort": "System",
+      "account": "KyberNow account",
+      "accountShort": "Account"
     },
     "host": {
       "thisComputer": "This computer",
@@ -1483,6 +1485,62 @@
           "warning": "Your friend plays in your Mac session, in console mode: they only see the apps you choose. A game can still read your files: lend to friends you trust."
         }
       }
+    }
+  },
+  "account": {
+    "eyebrow": "Your computer, everywhere",
+    "title": "KyberNow account",
+    "intro": "Attached to a KyberNow account, this computer shows up on all your devices, and opens to the people the account gives rights to.",
+    "detached": {
+      "title": "Not attached",
+      "text": "Attach this computer to your KyberNow account to find it on all your devices and open it to other people.",
+      "signIn": "Sign in",
+      "soon": "Attaching comes with the next version of the relay.",
+      "optional": "Optional: the local network, pairing by code and invitations work without an account."
+    },
+    "attached": {
+      "to": "Attached to",
+      "relayLine": "Relay {relay} · relay key pinned on {date}",
+      "organization": "Organization",
+      "console": "Manage in the console",
+      "detach": "Detach",
+      "confirmDetach": "Detach this computer from the KyberNow account? People who came in with an account won't be able to open it anymore, and the access list will be cleared. Attach it again with “Sign in”.",
+      "detached": "Computer detached.",
+      "key": "Relay key",
+      "test": "Test mode: local key, no relay (KYBERNOW_ACCOUNT_TEST)."
+    },
+    "accept": {
+      "title": "Accept KyberNow accounts",
+      "help": "People the account gives rights to open this computer, on the network or away from home. Off, only your paired devices and invitations get in.",
+      "on": "KyberNow accounts accepted.",
+      "off": "KyberNow accounts refused."
+    },
+    "access": {
+      "title": "Came in with an account",
+      "sub": "Blocking here holds even if the relay says yes.",
+      "none": "Nobody has come in with an account yet.",
+      "block": "Block",
+      "unblock": "Unblock",
+      "blockAccount": "Block the account",
+      "blockAria": "Block {name}",
+      "unblockAria": "Unblock {name}",
+      "blockAccountAria": "Block all of {name}’s devices",
+      "blocked": "{name} is blocked on this computer.",
+      "blockedAll": "All of {name}’s devices are blocked on this computer.",
+      "unblocked": "{name} is unblocked.",
+      "blockedOn": "Blocked on {date}",
+      "accountBlockedOn": "Account blocked on {date}",
+      "owner": "Owner",
+      "newDevice": "new device",
+      "lan": "on the network",
+      "relay": "away from home",
+      "noRights": "No rights"
+    },
+    "rights": {
+      "session": "Session",
+      "lend": "Lending",
+      "share": "Sharing",
+      "admin": "Administer"
     }
   }
 }

@@ -40,6 +40,10 @@ pub struct Settings {
     /// Prêt de l'ordinateur : interrupteur, apps permises.
     #[serde(default)]
     pub lend: crate::lend::LendSettings,
+    /// Compte KyberNow rattaché (docs/comptes.md) : relais, propriétaire,
+    /// clé du relais épinglée, « Accepter les comptes KyberNow ».
+    #[serde(default)]
+    pub account: crate::accounts::AccountSettings,
     /// Réglages inconnus de cette version (écrits par une console plus
     /// récente, avant un retour arrière) : gardés à la réécriture.
     #[serde(flatten)]

@@ -116,6 +116,49 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Liste locale, blocage |
 | Admin | toutes les routes d'un appareil appairé | Acceptent aussi `Authorization: KyberNow <jeton>` selon les droits |
 
+### Format du jeton (lot 2)
+
+Défini dans le crate partagé `server/relay/tunnel` (module `access`) : le relais signe, la Station vérifie, le cœur des apps le transporte sans le lire.
+
+- **Forme compacte** : `<charge>.<signature>`, chacune en base64url sans remplissage ; 4 Kio au plus. La charge est le JSON ci-dessous ; la signature Ed25519 porte sur `kybernow-access/1 ` suivi de la charge encodée (aucune autre signature de la clé du relais ne passe pour un jeton).
+- **Charge** :
+
+  ```json
+  {"v":1,"relay":"share.kybernow.app","station":"<identifiant de la Station>",
+   "account":"<compte>","device":"<appareil>","rights":["session","share"],
+   "name":{"account":"Léa Martin","email":"lea@exemple.fr","device":"iPad de Léa"},
+   "iat":1795000000,"exp":1795000300,"jti":"<16 octets en base32>"}
+  ```
+
+  `rights` : `session`, `lend`, `share`, `admin` (un mot inconnu d'une version suivante est ignoré). `name` porte ce qu'Admin affiche dans sa liste (l'e-mail est facultatif).
+- **Clé publiée** (`GET /v1/keys`) : `{"keys":[{"kid":"<8 octets du SHA-256 de la clé, base32>","alg":"Ed25519","key":"<32 octets, base64url>"}]}` ; deux clés pendant une rotation. Admin montre l'empreinte `sha256:…` de la clé brute.
+- **Vérification par la Station**, dans cet ordre : clé épinglée (une des clés du rattachement), version, `relay` = le relais du rattachement, `station` = la sienne, `exp - iat` de 5 minutes au plus, `iat` pas dans le futur et `exp` pas passé, à **60 s** près (horloges), puis le `jti`.
+- **`jti` jamais rejoué** : le même jeton sert à tous les appels de son appareil pendant ses 5 minutes (session, signe de vie), mais un `jti` n'est jamais accepté pour un autre contenu ; pour redémarrer ou mettre à jour la Station, le jeton est **à usage unique** (consommé, il ne sert plus à rien d'autre). Les `jti` sont oubliés à leur échéance.
+- En-tête : `Authorization: KyberNow <jeton>`.
+
+### Admin (lot 2)
+
+- **Réglages** : section `[account]` de `kyber-admin.toml` : `relay`, `owner` (`kind` personne ou organisation, `id`, `name`, `email`), `keys` (clés épinglées), `pinned_at`, `accept` (l'interrupteur). Le rattachement (dialogue avec le relais) appellera `accounts::pin` ; il allume l'interrupteur, qu'Admin permet de couper.
+- **Liste locale** : `account-access.json` du dossier de données, une entrée par compte et appareil (noms, droits du dernier jeton, première et dernière venue, `lan` ou `relay`) ; blocage d'un appareil ou du compte entier. Une première venue met une ligne dans le fil. Détacher efface la liste.
+- **Routes** (session d'Admin, jamais par le relais) :
+
+  | Route | Corps | Réponse |
+  |---|---|---|
+  | `GET /api/account` | | `{attached, relay, owner, keys:[{kid, fingerprint}], pinned_at, accept, test, station, console, can_attach}` |
+  | `PUT /api/account` | `{accept?: bool, detach?: true}` | La même vue ; allumer sans rattachement : `409 not_attached` |
+  | `GET /api/account/access` | | `{entries:[{id, account, device, name, email, device_name, rights, first_seen, last_seen, via, blocked, account_blocked, owner}]}` |
+  | `POST /api/account/access/{id}/block` | `{blocked: bool, account?: bool}` | La liste ; `account` : tout le compte |
+
+- **Selon les droits**, sur le réseau comme par le relais (classe `Device` de la garde, « Accès hors de chez vous » actif) :
+  - **Session** : les routes `/api/stream/*` et celles de l'hôte (partage, prêt) comme un appareil appairé ; `prepare` rend en plus `kyber_token` `{token, user, expires}`, le jeton de Kyber (5 min) sous le compte `kn-account-…`, jamais écrit dans la configuration de Kyber ;
+  - **Partage** : `POST /api/share/join` sans `code` entre tout de suite (ni code, ni accord de l'hôte), sous le nom de la personne ; l'hôte le voit et peut le retirer ;
+  - **Administrer** : `POST /api/stream/station/restart` et `/update`, aussi **par le relais** (fermés par le relais à un compte Kyber), avec un jeton à usage unique ;
+  - **Prêt** : porté par le jeton et montré dans la liste ; le lanceur avec un compte vient au lot 4.
+- **Refus** : `{error, code}`, `code` parmi `accounts_off`, `not_attached`, `bad_token`, `token_expired` (401 : l'app redemande un jeton), `blocked`, `no_right` (403).
+- **Mode d'essai** : `KYBERNOW_ACCOUNT_TEST=1` au démarrage épingle une clé locale (`account-test.key`, relais `essai.kybernow.invalid`) quand la Station n'est rattachée à aucun relais ; `kyber-admin account-token --rights session,share` écrit un jeton signé par elle pour cette Station.
+- **Code** : `server/admin/src/accounts.rs` (réglages, vérification, liste, routes), branché dans `api.rs` (`stream_user`, redémarrer et mettre à jour), `relay.rs` (garde) et `share_api.rs` (rejoindre).
+- **Interface** : espace « Compte KyberNow » d'Admin (`#/compte`) : rattachée, le compte, le relais, la clé épinglée, « Gérer dans la console », « Détacher », l'interrupteur et la liste (« Bloquer », « Bloquer le compte », « Débloquer ») ; pas rattachée, « Se connecter », inactif tant que le relais ne propose pas le rattachement (`can_attach`).
+
 ### Données gardées par le relais
 
 | Donnée | Pourquoi | Durée |
