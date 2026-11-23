@@ -63,16 +63,16 @@ L'app montre l'écran de l'ordinateur sans filtre (navigateur, jeux, tout conten
 Le testeur n'a pas de Station : sans moyen de se connecter, la soumission est refusée (2.1). Il faut :
 
 - **Une Station de démonstration** allumée pendant la review, avec « Accès hors de chez vous » actif, joignable par le relais public ;
-- **Un compte d'ami** (prêt) pour le parcours principal : lien d'invitation, identifiant et mot de passe, sans accord à donner. Le partage par le relais demande à l'hôte d'accepter chaque invité : quelqu'un de l'équipe le fait aux heures données dans les notes. L'ajout d'un ordinateur à soi demande un accord dans Admin, hors de portée du testeur ;
+- **Le partage pour parcours principal** : l'appairage ne passe jamais par le relais (premier contact sur le réseau seulement, [relais.md](relais.md)), le testeur ne peut donc pas ajouter l'ordinateur comme le sien. Il entre par « Rejoindre avec un code » sur un partage ouvert ; quelqu'un de l'équipe l'accepte dans Admin et lui donne le clavier, la souris et les manettes, aux heures données dans les notes. Il voit ainsi le bureau entier, le cas générique de 4.2.7. Pas de compte d'ami dans les notes : le prêt est décrit et montré dans la vidéo, pas proposé à l'essai ;
 - **Une vidéo** sur un vrai iPhone et une vraie Apple TV : ajout, session, partage, prêt, console PlayStation (la console ne peut pas être prêtée au testeur : la vidéo la montre).
 
 ### Notes pour l'App Review (en anglais)
 
 > KyberNow Link is a remote desktop client for the user's own Windows PC, running our free host software KyberNow Station (https://www.kybernow.app). It is a generic mirror of the host's screen (guideline 4.2.7): every app runs on the user's PC, nothing is executed or sold in the client. No account is created in the app; there is no in-app purchase.
 >
-> To test: our demo PC is reachable over the internet through our relay and stays on during review. Open this invitation link on the device: {link}, sign in with **{username} / {password}**, then tap "Connect" on the computer that appears on the home screen. To try screen sharing, tap "Join with a code" and enter **{code}**; a team member accepts guests from {hours} (Paris time).
+> To test: tap "Join with a code" and enter **{code}**. Our demo PC is reachable over the internet through our relay and stays on during review; a team member accepts you and gives you the keyboard, mouse and gamepads, {hours} (Paris time). If you need another time slot, contact us at {email}.
 >
-> Lending (KyberNow Share): the owner of a PC can lend it to a trusted friend, from the host (KyberNow Admin). During a loan the friend sees the owner's own Windows session, restricted by the owner to the apps they chose; the owner creates and manages the friend's access on the host, and can end it at any time. The demo account above is such a friend account.
+> Lending (KyberNow Share): the owner of a PC can lend it to a trusted friend, from the host (KyberNow Admin). During a loan the friend sees the owner's own Windows session, restricted by the owner to the apps they chose; the owner creates and manages the friend's access on the host, and can end it at any time. It is shown in the attached video.
 >
 > PlayStation consoles: the app can also display the user's own PS5 or PS4 on their home network, like Sony's Remote Play. Signing in with Sony happens once, on Sony's own page, only to read the user's PSN account ID, which the console requires for pairing; it is stored on the device. A console cannot be provided for review: see the attached video, {link}.
 >
@@ -83,13 +83,13 @@ Le testeur n'a pas de Station : sans moyen de se connecter, la soumission est re
 - **Prêt (4.2.7)** : pendant un prêt, l'ami voit un lanceur limité aux apps choisies par l'hôte ; un testeur peut y voir le « miroir d'un logiciel » soumis à 4.2.7 a, qui exige un ordinateur appartenant à l'utilisateur, sur son réseau local. Notre réponse : c'est la session Windows de l'hôte, restreinte par lui ; l'accès naît et se gère sur l'hôte (4.2.7 c) ; rien ne s'achète ni ne se parcourt comme un magasin (4.2.7 d).
 - **PlayStation (5.2.1, 5.2.2)** : protocole de Sony recréé, connexion au compte Sony dans une vue web, nom des marques. D'autres apps de lecture à distance de PlayStation sont sur l'App Store, mais Apple peut demander une autorisation de Sony, et une plainte de Sony ferait retirer l'app.
 - **Licences** : publier l'app sous AGPL est permis aux titulaires des droits. Le code des consoles est écrit d'après chiaki-ng (AGPL-3.0) : s'il en reprend l'expression et pas seulement le protocole, ses auteurs sont aussi titulaires, et la GPL est jugée incompatible avec les conditions de l'App Store (retrait de VLC en 2011). Même question pour toute contribution extérieure.
-- **Parcours du testeur** : avec le compte d'ami, le testeur voit d'abord le lanceur du prêt, la fonction la plus exposée à 4.2.7. Pour qu'il voie d'abord le bureau entier, lui faire ajouter l'ordinateur (code accepté dans Admin par quelqu'un de l'équipe) ; c'est une question de permanence, à trancher avant la soumission.
+- **Parcours du testeur** : le testeur entre par le partage et voit le bureau entier ; le prêt n'est que décrit et montré. Il ne doit pas être caché pour autant (2.3.1, fonctions cachées) : notes et vidéo le présentent. Un testeur ou un réexamen plus tard peut encore l'essayer.
 - **Plan de repli** : si Apple refuse l'une de ces fonctions, la masquer dans les versions App Store par une option de compilation (`APPSTORE`), sans toucher aux versions installées depuis un Mac.
 
 ## Reste à faire avant la soumission
 
 - [ ] Fiche App Store (achat universel iPhone, iPad, Apple TV), textes FR et EN, captures.
-- [ ] Station de démonstration, code et compte d'ami pour la review, vidéo.
+- [ ] Station de démonstration, partage ouvert et permanence pour accepter le testeur, vidéo.
 - [ ] Mentions légales : ajouter les comptes PlayStation à la section Confidentialité.
 - [ ] Déclaration à l'ANSSI, puis `ITSEncryptionExportComplianceCode`.
 - [ ] Licence de Kyber (`third_party/kyber-desktop`) : confirmer qu'elle permet la distribution sur l'App Store.
