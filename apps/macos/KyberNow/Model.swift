@@ -651,6 +651,51 @@ final class HostStore: ObservableObject {
         Task { await refresh(host) }
     }
 
+    /// Un ordinateur ajouté par une invitation (docs/invitations.md) : gardé
+    /// comme un ordinateur appairé par code (compte propre à cet appareil au
+    /// trousseau, empreinte d'Admin épinglée, relais pour l'ouvrir hors de chez
+    /// soi). Le même ordinateur déjà là (même empreinte d'Admin) n'est pas
+    /// ajouté deux fois : il prend le nouvel accès (compte, adresse, relais),
+    /// en gardant ses réglages et ses statistiques. `computer` : le nom donné
+    /// par « Rejoindre », quand la Station ne dit pas le sien. Rend l'ordinateur,
+    /// à sélectionner sur l'accueil.
+    @discardableResult
+    func addInvited(_ invited: Invited, computer: String) -> Host {
+        let name = !invited.hostname.isEmpty ? invited.hostname : (computer.isEmpty ? invited.address : computer)
+        if let fingerprint = invited.fingerprint,
+           var host = hosts.first(where: { $0.consoleFingerprint.map { Self.sameFingerprint($0, fingerprint) } ?? false }) {
+            host.username = invited.username
+            if !invited.address.isEmpty {
+                host.address = invited.address
+                if invited.port != 0 { host.consolePort = invited.port }
+            }
+            if let relay = invited.relay { host.relay = relay }
+            host.pairedByCode = true
+            update(host)
+            setPassword(invited.password, for: host.id)
+            Task { await refresh(host) }
+            return host
+        }
+        // Sans port dit par Admin : celui d'Admin par défaut.
+        var host = Host(name: name, address: invited.address, consolePort: invited.port != 0 ? invited.port : 9443, username: invited.username)
+        host.consoleFingerprint = invited.fingerprint
+        host.relay = invited.relay
+        // Compte créé par Admin pour cet appareil, comme à l'accord d'un appairage par code.
+        host.pairedByCode = true
+        add(host, password: invited.password)
+        return host
+    }
+
+    /// Deux empreintes d'Admin sont la même : sans `sha256:`, sans deux-points, sans casse.
+    static func sameFingerprint(_ a: String, _ b: String) -> Bool {
+        func normal(_ s: String) -> String {
+            var t = s.lowercased()
+            if t.hasPrefix("sha256:") { t.removeFirst(7) }
+            return t.replacingOccurrences(of: ":", with: "").trimmingCharacters(in: .whitespaces)
+        }
+        return !normal(a).isEmpty && normal(a) == normal(b)
+    }
+
     func update(_ host: Host) {
         guard let i = hosts.firstIndex(where: { $0.id == host.id }) else { return }
         hosts[i] = host

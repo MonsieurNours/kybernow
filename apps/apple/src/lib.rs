@@ -35,6 +35,7 @@ use kybernow_core::{Display, WindowHandle};
 
 pub mod audio;
 pub mod input;
+pub mod invite;
 pub mod lend;
 pub mod playstation;
 pub mod relay;

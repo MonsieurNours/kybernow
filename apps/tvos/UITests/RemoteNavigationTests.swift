@@ -77,6 +77,34 @@ final class RemoteNavigationTests: XCTestCase {
         XCTAssertTrue(app.buttons["Réglages de l'app"].waitForExistence(timeout: 3))
     }
 
+    /// « Rejoindre avec un code » sur un code d'invitation (`-demoInvite YES`,
+    /// sans Station) : « Ajouter PC du salon », le mot de passe au clavier de
+    /// l'écran, le bas jusqu'à « Ajouter l'ordinateur » ; l'ordinateur arrive
+    /// sur l'accueil avec l'avis « PC du salon est ajouté. ».
+    func testInvitationCodeAddsTheComputer() {
+        let app = launch(["-screen", "join", "-demoInvite", "YES"])
+        XCTAssertTrue(app.buttons["1"].waitForExistence(timeout: 5))
+        sleep(1)
+        // Six fois « 1 » sur le pavé : le focus passe ensuite à « Rejoindre ».
+        for _ in 0..<6 { remote.press(.select) }
+        sleep(1)
+        XCTAssertEqual(focused(app).label, "Rejoindre")
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["Ajouter PC du salon"].waitForExistence(timeout: 5))
+        sleep(1)
+        remote.press(.select)
+        sleep(1)
+        app.typeText("K7MQ P2XA 9FZ3")
+        remote.press(.menu)
+        sleep(1)
+        XCTAssertTrue(app.staticTexts["Ajouter PC du salon"].exists, "le clavier fermé, l'écran de l'invitation doit rester")
+        remote.press(.down)
+        sleep(1)
+        XCTAssertEqual(focused(app).label, "Ajouter l'ordinateur")
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["PC du salon est ajouté."].waitForExistence(timeout: 5))
+    }
+
     /// Volet « Adresse » : taper l'adresse au clavier de l'écran ne ramène pas au premier volet.
     func testAddressFormSurvivesKeyboard() {
         let app = launch(["-screen", "add"])

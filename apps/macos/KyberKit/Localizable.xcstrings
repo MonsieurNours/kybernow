@@ -608,6 +608,22 @@
           }
         }
       }
+    },
+    "Ce code sert à ajouter l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This code adds the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce code sert à ajouter l'ordinateur."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -5,8 +5,10 @@
 // s'ouvre ensuite, sans que l'ordinateur soit ajouté. L'hôte : la tuile
 // « Partager » du menu de session ouvre le partage et ce panneau, en tuiles et
 // boutons : code, QR code, invités et ce qu'on peut faire de chacun,
-// « Nouveau code », « Arrêter le partage ». Les appels et les règles sont dans
-// Share.swift, commun aux apps d'Apple.
+// « Nouveau code », « Arrêter le partage ». Un code d'invitation
+// (docs/invitations.md) demande à la place son mot de passe, sur le même
+// écran (« Ajouter {ordinateur} »), et ajoute l'ordinateur à l'accueil. Les
+// appels et les règles sont dans Share.swift, commun aux apps d'Apple.
 
 import KyberKit
 import SwiftUI
@@ -18,6 +20,8 @@ struct JoinView: View {
     @EnvironmentObject private var store: HostStore
     @StateObject private var model: ShareJoinModel
     @FocusState private var focus: Target?
+    /// « Rejoindre » est tombé sur un code d'invitation : l'écran demande son mot de passe.
+    @State private var invitation: InviteCodeFound?
 
     enum Target: Hashable { case back, digit(Int), delete, name, quality(ShareQuality), join }
 
@@ -38,6 +42,14 @@ struct JoinView: View {
     private var digits: String { model.code.filter(\.isNumber) }
 
     var body: some View {
+        if let invitation {
+            InviteAddView(found: invitation)
+        } else {
+            joinForm
+        }
+    }
+
+    private var joinForm: some View {
         ZStack(alignment: .topLeading) {
             AmbientBackground()
             Button { leave() } label: {
@@ -104,6 +116,8 @@ struct JoinView: View {
             model.onJoined = { [app] found in app.openGuestSession(found) }
             // Un code de prêt : la session d'emprunt prend la suite.
             model.onLend = { [app] source in app.openBorrowSession(source) }
+            // Un code d'invitation : son mot de passe, sur cet écran (le rappel ne retient que l'état).
+            model.onInvite = { [invitation = $invitation] found in invitation.wrappedValue = found }
             model.start()
         }
         .onDisappear {
@@ -111,6 +125,7 @@ struct JoinView: View {
             model.stop()
             model.onJoined = nil
             model.onLend = nil
+            model.onInvite = nil
         }
         .onChange(of: model.code) { _, _ in
             model.codeChanged()
@@ -235,6 +250,126 @@ struct JoinView: View {
     private func join() {
         guard model.canJoin else { return }
         model.join(hosts: store.hosts)
+    }
+
+    private func leave() {
+        model.cancel()
+        app.screen = .home
+    }
+}
+
+// MARK: - Invitation
+
+/// « Ajouter {ordinateur} » (docs/link-ui.md, « Invitations ») : « Rejoindre »
+/// est tombé sur un code d'invitation. Le mot de passe donné avec le code, au
+/// clavier tvOS ou de l'iPhone (« xxxx-xxxx-xxxx » ; tirets et espaces
+/// facultatifs, sans majuscule ni correction), « Ajouter l'ordinateur » et
+/// « Annuler » ; pendant l'appel « Ajout de {ordinateur}… », un refus sous le
+/// champ. Ajouté, l'ordinateur est sélectionné sur l'accueil : « {ordinateur}
+/// est ajouté. » Retour, ou « Annuler », ramène à l'accueil.
+struct InviteAddView: View {
+    @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var store: HostStore
+    @StateObject private var model: InviteAddModel
+    @FocusState private var focus: Target?
+
+    enum Target: Hashable { case back, password, add, cancel }
+
+    init(found: InviteCodeFound) {
+        _model = StateObject(wrappedValue: InviteAddModel(found: found))
+    }
+
+    /// Le champ rempli : « Ajouter l'ordinateur » s'allume. Il reste actif
+    /// pendant l'appel (le focus y reste ; un second appui est ignoré).
+    private var filled: Bool { !model.trimmedPassword.isEmpty }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            AmbientBackground()
+            Button { leave() } label: {
+                HStack(spacing: 10) {
+                    Icon("arrow-left", size: 26, bold: true)
+                    Text("Retour").font(Theme.sans(22, .medium))
+                }
+                .padding(.leading, 18).padding(.trailing, 26)
+                .frame(height: 60)
+            }
+            .buttonStyle(GlassButton(radius: 30))
+            .focused($focus, equals: .back)
+            .padding(.leading, 96).padding(.top, 56)
+
+            VStack(alignment: .leading, spacing: 26) {
+                Text(model.title).font(Theme.display(48, 640)).tracking(-48 * 0.03).lineLimit(2)
+                Text(InviteText.help).font(Theme.sans(23)).foregroundStyle(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(InviteText.password).font(Theme.sans(19)).foregroundStyle(Theme.muted)
+                    TextField(InviteText.placeholder, text: $model.password)
+                        .keyboardType(.asciiCapable)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(Theme.mono(30))
+                        .frame(width: 760)
+                        .focused($focus, equals: .password)
+                        // Le clavier fermé, mot de passe tapé : le focus passe à « Ajouter l'ordinateur ».
+                        .onSubmit { if filled { focus = .add } }
+                        .accessibilityLabel(Text(InviteText.password))
+                }
+                status
+                HStack(spacing: 20) {
+                    Button(InviteText.add) { add() }
+                        .buttonStyle(PrimaryButton(height: 72, fontSize: 25))
+                        .disabled(!filled)
+                        .focused($focus, equals: .add)
+                    Button(StationText.cancel) { leave() }
+                        .buttonStyle(ChoiceButton(selected: false, height: 72, light: true))
+                        .focused($focus, equals: .cancel)
+                }
+            }
+            .padding(.horizontal, 60).padding(.vertical, 56)
+            .frame(width: 1100, alignment: .topLeading)
+            .glass(30)
+            .focusSection()
+            .padding(.leading, 96).padding(.top, 150)
+        }
+        .frame(width: 1920, height: 1080, alignment: .topLeading)
+        .ignoresSafeArea()
+        .defaultFocus($focus, .password)
+        .onExitCommand { leave() }
+        .onAppear {
+            // Le rappel ne retient que l'app : en capturant la vue, qui tient
+            // `model` (StateObject), le modèle se retiendrait lui-même.
+            model.onAdded = { [app] host in
+                app.selected = host.id
+                app.screen = .home
+                app.show(notice: InviteText.added(host.name))
+            }
+        }
+        .onDisappear {
+            model.cancel()
+            model.onAdded = nil
+        }
+        .onChange(of: model.password) { _, _ in model.passwordChanged() }
+    }
+
+    @ViewBuilder private var status: some View {
+        if model.adding {
+            HStack(spacing: 14) {
+                ProgressView()
+                Text(InviteText.adding(model.computer)).font(Theme.sans(24)).foregroundStyle(Theme.muted)
+            }
+        } else if let failure = model.failure {
+            HStack(alignment: .top, spacing: 16) {
+                Icon("warning", size: 30).foregroundStyle(Theme.warn)
+                Text(failure).font(Theme.sans(24)).foregroundStyle(Theme.warnText).lineSpacing(4)
+                    .frame(maxWidth: 700, alignment: .leading)
+            }
+        }
+    }
+
+    private func add() {
+        guard model.canAdd else { return }
+        model.add(to: store)
     }
 
     private func leave() {

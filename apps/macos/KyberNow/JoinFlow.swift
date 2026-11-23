@@ -2,7 +2,10 @@
 // « Partage ») : l'écran du code à six chiffres et du prénom (celui de la
 // dernière fois, sinon le nom de ce Mac). Le code part vers les ordinateurs
 // trouvés sur le réseau, celui qui partage répond ; la session d'invité
-// s'ouvre alors, sans que l'ordinateur soit ajouté à cette liste.
+// s'ouvre alors, sans que l'ordinateur soit ajouté à cette liste. Un code
+// de prêt ouvre la session d'emprunt ; un code d'invitation
+// (docs/invitations.md) demande à la place son mot de passe, dans la même
+// feuille (« Ajouter {ordinateur} »), et ajoute l'ordinateur à l'accueil.
 
 import KyberKit
 import SwiftUI
@@ -12,6 +15,8 @@ struct JoinSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: ShareJoinModel
     @FocusState private var codeFocused: Bool
+    /// « Rejoindre » est tombé sur un code d'invitation : la feuille demande son mot de passe.
+    @State private var invitation: InviteCodeFound?
 
     init(initialLink: ShareJoinLink?, demoWaiting: Bool = false) {
         // « Auto » : l'écran de la fenêtre, où s'ouvre la session d'invité.
@@ -40,6 +45,14 @@ struct JoinSheet: View {
     private var full: Bool { app.sessions.isFull }
 
     var body: some View {
+        if let invitation {
+            InviteAddPane(found: invitation) { dismiss() }
+        } else {
+            joinForm
+        }
+    }
+
+    private var joinForm: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -84,6 +97,8 @@ struct JoinSheet: View {
             model.onJoined = { [app] found in app.openGuestSession(found) }
             // Un code de prêt : la session d'emprunt prend la suite.
             model.onLend = { [app] source in app.openBorrowSession(source) }
+            // Un code d'invitation : son mot de passe, dans cette feuille (le rappel ne retient que l'état).
+            model.onInvite = { [invitation = $invitation] found in invitation.wrappedValue = found }
             model.start()
             codeFocused = true
         }
@@ -92,6 +107,7 @@ struct JoinSheet: View {
             model.stop()
             model.onJoined = nil
             model.onLend = nil
+            model.onInvite = nil
         }
         .onChange(of: model.code) { _, _ in model.codeChanged() }
     }
@@ -147,5 +163,112 @@ struct JoinSheet: View {
     private func close() {
         model.cancel()
         dismiss()
+    }
+}
+
+// MARK: - Invitation
+
+/// « Ajouter {ordinateur} » (docs/link-ui.md, « Invitations ») : « Rejoindre »
+/// est tombé sur un code d'invitation. Le mot de passe donné avec le code
+/// (« xxxx-xxxx-xxxx », tapé comme on veut), « Ajouter l'ordinateur » ;
+/// pendant l'appel « Ajout de {ordinateur}… », un refus sous le champ. Ajouté,
+/// l'ordinateur est sélectionné sur l'accueil : « {ordinateur} est ajouté. »
+struct InviteAddPane: View {
+    @EnvironmentObject var app: AppModel
+    @StateObject private var model: InviteAddModel
+    @FocusState private var focused: Bool
+    let close: () -> Void
+
+    init(found: InviteCodeFound, close: @escaping () -> Void) {
+        _model = StateObject(wrappedValue: InviteAddModel(found: found))
+        self.close = close
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.title).font(Theme.display(30)).foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(InviteText.help).font(Theme.sans(14)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button { cancel() } label: { Icon("x", size: 15, bold: true) }
+                    .buttonStyle(GhostButton(height: 34))
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel(StationText.cancel)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(InviteText.password).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+                // Ni correction ni majuscule automatiques : tirets et espaces facultatifs.
+                TextField(text: $model.password, prompt: Text(verbatim: InviteText.placeholder).foregroundColor(Theme.ghost)) { EmptyView() }
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                    .font(Theme.mono(17))
+                    .foregroundStyle(Theme.text)
+                    .focused($focused)
+                    .onSubmit(add)
+                    .padding(.horizontal, 14)
+                    .frame(height: 46)
+                    .background(Theme.bar, in: RoundedRectangle(cornerRadius: 11))
+                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(focused ? Theme.accentLine : Theme.line2))
+                    .disabled(model.adding)
+                    .accessibilityLabel(InviteText.password)
+                if let failure = model.failure {
+                    Notice(kind: .warn, text: failure)
+                }
+            }
+            if model.adding {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(InviteText.adding(model.computer)).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            HStack {
+                Spacer()
+                Button(StationText.cancel) { cancel() }
+                    .buttonStyle(GhostButton(height: 44))
+                Button(InviteText.add, action: add)
+                    .buttonStyle(PrimaryButton(lit: model.adding))
+                    .disabled(!model.canAdd)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(.horizontal, 36).padding(.vertical, 32)
+        .frame(width: 640)
+        .background {
+            ZStack {
+                Theme.background
+                RadialGradient(colors: [Theme.accentFill.opacity(0.22), .clear], center: .topTrailing, startRadius: 0, endRadius: 520)
+            }
+        }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            // Le rappel ne retient que l'app (voir `JoinSheet`).
+            model.onAdded = { [app] host in
+                app.joining = false
+                app.route = .home
+                app.selectedID = host.id
+                app.show(InviteText.added(host.name))
+            }
+            focused = true
+        }
+        .onDisappear {
+            model.cancel()
+            model.onAdded = nil
+        }
+        .onChange(of: model.password) { _, _ in model.passwordChanged() }
+    }
+
+    private func add() {
+        guard model.canAdd else { return }
+        model.add(to: app.store)
+    }
+
+    private func cancel() {
+        model.cancel()
+        close()
     }
 }

@@ -3,8 +3,10 @@
 // prénom ; la session d'invité s'ouvre ensuite, sans que l'ordinateur soit
 // ajouté. L'hôte : le panneau de « Partager » dans la barre de session (code,
 // QR code, « Copier le lien », invités et ce qu'on peut faire de chacun,
-// « Nouveau code », « Arrêter le partage »). Les appels et les règles sont
-// dans Share.swift, commun aux apps d'Apple.
+// « Nouveau code », « Arrêter le partage »). Un code d'invitation
+// (docs/invitations.md) demande à la place son mot de passe, dans la même
+// feuille (« Ajouter {ordinateur} »), et ajoute l'ordinateur à l'accueil. Les
+// appels et les règles sont dans Share.swift, commun aux apps d'Apple.
 
 import KyberKit
 import SwiftUI
@@ -21,6 +23,8 @@ struct JoinView: View {
     @FocusState private var codeFocused: Bool
     /// « Code » (taper les six chiffres) ou « QR code » (scanner celui de l'hôte).
     @State private var source: Source = .code
+    /// « Rejoindre » est tombé sur un code d'invitation : la feuille demande son mot de passe.
+    @State private var invitation: InviteCodeFound?
 
     enum Source: Hashable { case code, qr }
 
@@ -35,6 +39,14 @@ struct JoinView: View {
     }
 
     var body: some View {
+        if let invitation {
+            InviteAddView(found: invitation)
+        } else {
+            joinForm
+        }
+    }
+
+    private var joinForm: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top) {
@@ -90,6 +102,11 @@ struct JoinView: View {
                 dismiss()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { app.openBorrowSession(source) }
             }
+            // Un code d'invitation : son mot de passe, dans cette feuille (le rappel ne retient que l'état).
+            model.onInvite = { [invitation = $invitation] found in
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                invitation.wrappedValue = found
+            }
             model.start()
             codeFocused = source == .code
         }
@@ -98,6 +115,7 @@ struct JoinView: View {
             model.stop()
             model.onJoined = nil
             model.onLend = nil
+            model.onInvite = nil
             camera.stop()
             camera.onCode = nil
         }
@@ -194,6 +212,99 @@ struct JoinView: View {
         guard model.canJoin else { return }
         codeFocused = false
         model.join(hosts: store.hosts)
+    }
+
+    private func close() {
+        model.cancel()
+        dismiss()
+    }
+}
+
+// MARK: - Invitation
+
+/// « Ajouter {ordinateur} » (docs/link-ui.md, « Invitations ») : « Rejoindre »
+/// est tombé sur un code d'invitation. Le mot de passe donné avec le code
+/// (« xxxx-xxxx-xxxx », tapé comme on veut), « Ajouter l'ordinateur » et
+/// « Annuler » ; pendant l'appel « Ajout de {ordinateur}… », un refus sous le
+/// champ. Ajouté, l'ordinateur est sélectionné sur l'accueil : « {ordinateur}
+/// est ajouté. »
+struct InviteAddView: View {
+    @EnvironmentObject private var app: AppModel
+    @EnvironmentObject private var store: HostStore
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var model: InviteAddModel
+
+    init(found: InviteCodeFound) {
+        _model = StateObject(wrappedValue: InviteAddModel(found: found))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top) {
+                    Text(model.title)
+                        .font(Theme.display(34, 660)).tracking(-34 * 0.03)
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 12)
+                    Button { close() } label: {
+                        Icon("x", size: 16).foregroundStyle(Theme.muted).frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(Text(StationText.cancel))
+                }
+                Text(InviteText.help).font(Theme.sans(15)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Ni correction ni majuscule automatiques (AddHostField) : tirets et espaces facultatifs.
+                AddHostField(label: InviteText.password, text: $model.password, prompt: InviteText.placeholder,
+                             mono: true, keyboard: .asciiCapable, submit: .go) { add() }
+                    .disabled(model.adding)
+                if let failure = model.failure {
+                    AddHostNotice(kind: .warn, text: failure)
+                }
+                if model.adding {
+                    HStack(spacing: 10) {
+                        HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
+                        Text(InviteText.adding(model.computer)).font(Theme.sans(14)).foregroundStyle(Theme.muted)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                Button(InviteText.add) { add() }
+                    .buttonStyle(PrimaryButton(height: 54, fontSize: 17))
+                    .disabled(!model.canAdd)
+                    .opacity(model.canAdd ? 1 : 0.45)
+                    .saturation(model.canAdd ? 1 : 0.6)
+                Button(StationText.cancel) { close() }
+                    .buttonStyle(GlassButton(height: 48, fontSize: 16))
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(24)
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background)
+        .environment(\.addHostWide, DeviceDisplay.isPad)
+        .onAppear {
+            // Le rappel ne retient que l'app : en capturant la vue, qui tient
+            // `model` (StateObject), le modèle se retiendrait lui-même.
+            model.onAdded = { [app] host in
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                app.selected = host.id
+                app.sheet = nil
+                app.show(InviteText.added(host.name))
+            }
+        }
+        .onDisappear {
+            model.cancel()
+            model.onAdded = nil
+        }
+        .onChange(of: model.password) { _, _ in model.passwordChanged() }
+    }
+
+    private func add() {
+        guard model.canAdd else { return }
+        model.add(to: store)
     }
 
     private func close() {

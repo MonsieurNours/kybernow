@@ -37,6 +37,12 @@ pub const KN_SHARE_STOPPED: i32 = 28;
 /// `kn_lend_borrow` (`target_json`, `route_json`, et `{"code"}` dans
 /// `request_json`).
 pub const KN_SHARE_LEND: i32 = 29;
+/// « Rejoindre avec un code » : c'est un code d'invitation, qui ajoute
+/// l'ordinateur à cet appareil (docs/invitations.md ; 30 à 32 sont ceux du
+/// relais). `out` : `{code, target, route, computer}`, à donner tel quel à
+/// `kn_invite_redeem` avec le mot de passe de l'invitation ; `computer` :
+/// le nom de l'ordinateur (« Ajouter {ordinateur} »), vide s'il n'est pas dit.
+pub const KN_SHARE_INVITE: i32 = 33;
 
 /// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
 /// droits indépendants, les manettes et le clavier et la souris. Aucun
@@ -67,6 +73,12 @@ fn share_failure(e: ShareError, out: *mut *mut c_char, error: *mut *mut c_char) 
         ShareError::Lend(code) => {
             give_to(out, serde_json::to_string(&code).unwrap_or_default());
             KN_SHARE_LEND
+        }
+        // Un code d'invitation : `out` dit quelle Station, par quel chemin
+        // (`kn_invite_redeem`).
+        ShareError::Invite(code) => {
+            give_to(out, serde_json::to_string(&code).unwrap_or_default());
+            KN_SHARE_INVITE
         }
         ShareError::NoShare => KN_SHARE_NO_SHARE,
         ShareError::Full => KN_SHARE_FULL,

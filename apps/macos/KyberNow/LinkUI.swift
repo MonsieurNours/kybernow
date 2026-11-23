@@ -484,6 +484,33 @@ enum LendText {
     static var close: String { String(localized: "Fermer") }
 }
 
+// MARK: - Invitations
+
+/// Les textes des invitations (docs/link-ui.md, « Invitations ») : « Rejoindre
+/// avec un code » est tombé sur un code d'invitation, l'app demande son mot de
+/// passe et ajoute l'ordinateur. Les refus viennent du cœur ; « Mot de passe »
+/// et « Annuler » sont ceux du prêt et de la Station.
+enum InviteText {
+    /// « Ajouter PC du salon » ; sans nom, « Ajouter l'ordinateur ».
+    static func title(_ computer: String) -> String {
+        computer.isEmpty ? String(localized: "Ajouter l'ordinateur") : String(localized: "Ajouter \(computer)")
+    }
+    static var help: String {
+        String(localized: "Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.")
+    }
+    static var password: String { LendText.password }
+    /// L'exemple grisé du champ (pas traduit).
+    static var placeholder: String { "xxxx-xxxx-xxxx" }
+    static var add: String { String(localized: "Ajouter l'ordinateur") }
+    /// Pendant l'appel : « Ajout de PC du salon… », « Ajout d'Atelier… ».
+    static func adding(_ computer: String) -> String {
+        if computer.isEmpty { return String(localized: "Ajout de l'ordinateur…") }
+        return French.elides(computer) ? String(localized: "Ajout d'\(computer)…") : String(localized: "Ajout de \(computer)…")
+    }
+    /// L'avis bref, l'ordinateur sélectionné sur l'accueil.
+    static func added(_ computer: String) -> String { String(localized: "\(computer) est ajouté.") }
+}
+
 // MARK: - Réglages de l'ordinateur
 
 /// Les six rubriques des réglages d'un ordinateur, dans cet ordre.

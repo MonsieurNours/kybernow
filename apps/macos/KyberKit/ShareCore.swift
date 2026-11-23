@@ -455,12 +455,17 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     /// C'est un code de prêt de l'ordinateur (docs/pret.md) : la Station qui
     /// l'a, et le chemin pris ; l'app emprunte avec ce code (`Lend.borrow`).
     case lend(LendCodeFound)
+    /// C'est un code d'invitation (docs/invitations.md) : la Station qui l'a,
+    /// le chemin pris et le nom de l'ordinateur ; l'app demande le mot de passe
+    /// de l'invitation et ajoute l'ordinateur (`Invite.redeem`).
+    case invite(InviteCodeFound)
 
     public var errorDescription: String? {
         switch self {
         case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m),
              let .refused(m), let .expired(m), let .pendingFull(m), let .stopped(m), let .relay(m): return m
         case .lend: return String(localized: "Ce code sert à emprunter l'ordinateur.", bundle: .kyberKit)
+        case .invite: return String(localized: "Ce code sert à ajouter l'ordinateur.", bundle: .kyberKit)
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         }
     }
@@ -574,7 +579,7 @@ public enum Share {
                 case KN_SHARE_TOO_MANY: continuation.resume(throwing: ShareJoinError.tooManyTries(message))
                 case KN_SHARE_UNREADABLE: continuation.resume(throwing: ShareJoinError.unreadable(message))
                 case KN_CERTIFICATE_CHANGED: continuation.resume(throwing: ShareJoinError.certificateChanged)
-                case KN_SHARE_LEND: continuation.resume(throwing: joinError(status, message, out: result))
+                case KN_SHARE_LEND, KN_SHARE_INVITE: continuation.resume(throwing: joinError(status, message, out: result))
                 default: continuation.resume(throwing: ShareJoinError.other(message))
                 }
             }
@@ -707,6 +712,10 @@ public enum Share {
         case KN_SHARE_LEND:
             // Un code de prêt : `out` dit à qui l'emprunter.
             if let found = LendCodeFound(json: out) { return .lend(found) }
+            return .other(message)
+        case KN_SHARE_INVITE:
+            // Un code d'invitation : `out` dit quelle Station, par quel chemin (`Invite.redeem`).
+            if let found = InviteCodeFound(json: out) { return .invite(found) }
             return .other(message)
         case KN_SHARE_NO_SHARE: return .noShare(message)
         case KN_SHARE_FULL: return .full(message)
@@ -852,5 +861,157 @@ extension ConsoleClient {
             throw ConsoleError.network(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
         }
         return state
+    }
+}
+
+// MARK: - Invitations (docs/invitations.md)
+
+/// « Rejoindre avec un code » est tombé sur un code d'invitation
+/// (`KN_SHARE_INVITE`) : la Station qui l'a, le chemin pris (le réseau ou le
+/// relais) et le nom de l'ordinateur, pour « Ajouter {ordinateur} ». Le JSON
+/// du cœur repart tel quel vers `kn_invite_redeem`.
+public struct InviteCodeFound: Sendable, Equatable {
+    /// Les six chiffres.
+    public let code: String
+    /// Le nom de l'ordinateur ; vide pour une Station qui ne le dit pas.
+    public let computer: String
+    /// Trouvé par le relais (et non sur le réseau).
+    public let viaRelay: Bool
+    /// `{code, target, route, computer}`, tel que le cœur l'a rendu.
+    let json: String
+
+    init?(json text: String?) {
+        guard let text, let data = text.data(using: .utf8),
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let code = j["code"] as? String, j["target"] is [String: Any] else { return nil }
+        self.code = code
+        computer = (j["computer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        viaRelay = j["route"] is [String: Any]
+        json = text
+    }
+
+    #if DEBUG
+    /// Démonstration : un code d'invitation sans Station derrière.
+    public init(demoComputer: String) {
+        code = "482915"
+        computer = demoComputer
+        viaRelay = false
+        json = "{}"
+    }
+
+    /// Démonstration : sans Station derrière.
+    public var isDemo: Bool { json == "{}" }
+    #endif
+}
+
+/// L'ordinateur ajouté par une invitation : à garder comme un ordinateur
+/// appairé par code (adresse et port d'Admin, empreinte épinglée, compte
+/// propre à cet appareil au trousseau, relais comme `info.relay`).
+public struct Invited: Sendable, Equatable {
+    /// Le nom de l'ordinateur (« PC du salon »).
+    public let hostname: String
+    /// L'adresse d'Admin sur le réseau de l'ordinateur, et son port.
+    public let address: String
+    public let port: UInt16
+    /// L'empreinte d'Admin, à épingler.
+    public let fingerprint: String?
+    /// Le compte propre à cet appareil.
+    public let username: String
+    public let password: String
+    /// Le relais de la Station, pour l'ouvrir hors de chez soi.
+    public let relay: RelayInfo?
+    /// Le nom de l'invitation et son échéance : l'accès tombe avec elle.
+    public let inviteName: String
+    public let expires: Date?
+    /// Ajouté par le relais (et non sur le réseau).
+    public let viaRelay: Bool
+
+    public init(hostname: String, address: String, port: UInt16, fingerprint: String?, username: String, password: String,
+                relay: RelayInfo?, inviteName: String = "", expires: Date? = nil, viaRelay: Bool = false) {
+        self.hostname = hostname
+        self.address = address
+        self.port = port
+        self.fingerprint = fingerprint
+        self.username = username
+        self.password = password
+        self.relay = relay
+        self.inviteName = inviteName
+        self.expires = expires
+        self.viaRelay = viaRelay
+    }
+
+    init?(json text: String?) {
+        guard let text, let data = text.data(using: .utf8),
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let username = j["username"] as? String, let password = j["password"] as? String, !username.isEmpty else { return nil }
+        let relay = (j["relay"] as? [String: Any])
+            .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+            .flatMap { try? JSONDecoder().decode(RelayInfo.self, from: $0) }
+            .flatMap { $0.server.isEmpty || $0.id.isEmpty ? nil : $0 }
+        let fingerprint = (j["fingerprint"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let expires = (j["expires"] as? NSNumber).flatMap { $0.int64Value > 0 ? Date(timeIntervalSince1970: TimeInterval($0.int64Value)) : nil }
+        self.init(hostname: j["hostname"] as? String ?? "", address: j["address"] as? String ?? "",
+                  port: (j["port"] as? NSNumber).flatMap { UInt16(exactly: $0.intValue) } ?? 0,
+                  fingerprint: fingerprint, username: username, password: password, relay: relay,
+                  inviteName: j["invite_name"] as? String ?? "", expires: expires, viaRelay: j["via_relay"] as? Bool ?? false)
+    }
+}
+
+/// Un refus de l'invitation, avec le texte du cœur à montrer tel quel sous le
+/// champ du mot de passe (docs/link-ui.md, « Invitations »).
+public enum InviteError: LocalizedError, Sendable, Equatable {
+    /// « Mot de passe refusé. »
+    case badPassword(String)
+    /// « Ce code ne sert plus. »
+    case noInvite(String)
+    /// « Cette invitation a déjà ajouté tous ses appareils. »
+    case full(String)
+    /// « Trop d'essais : réessayez dans {n} min. »
+    case tooManyTries(String)
+    /// « {ordinateur} n'est pas joignable hors de chez vous (accès coupé dans Admin). »
+    case accessOff(String)
+    /// Le reste : Admin injoignable, relais muet, réponse illisible (texte du cœur).
+    case other(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .badPassword(m), let .noInvite(m), let .full(m), let .tooManyTries(m), let .accessOff(m), let .other(m): return m
+        }
+    }
+
+    init(status: Int32, message: String) {
+        switch status {
+        case KN_INVITE_BAD_PASSWORD: self = .badPassword(message)
+        case KN_INVITE_NO_INVITE: self = .noInvite(message)
+        case KN_INVITE_FULL: self = .full(message)
+        case KN_INVITE_TOO_MANY: self = .tooManyTries(message)
+        case KN_INVITE_ACCESS_OFF: self = .accessOff(message)
+        default: self = .other(message)
+        }
+    }
+}
+
+public enum Invite {
+    /// « Ajouter l'ordinateur » : le mot de passe de l'invitation, tel que tapé
+    /// (majuscules, espaces et tirets ne comptent pas). Rend l'ordinateur à
+    /// garder. Bloquant 15 s au plus : hors du fil principal.
+    public static func redeem(_ found: InviteCodeFound, password: String) async throws -> Invited {
+        let code = found.json, device = ConsoleClient.thisDeviceJSON
+        // Hors de chez soi sur iPhone ou iPad : la radio cellulaire d'abord.
+        if found.viaRelay { await Relay.wakeRadio() }
+        let result: (status: Int32, out: String?, message: String) = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var out: UnsafeMutablePointer<CChar>?
+                var error: UnsafeMutablePointer<CChar>?
+                let status = kn_invite_redeem(code, password, device, &out, &error)
+                let message = Core.take(error) ?? ""
+                continuation.resume(returning: (status, Core.take(out), message))
+            }
+        }
+        guard result.status == KN_OK else { throw InviteError(status: result.status, message: result.message) }
+        guard let invited = Invited(json: result.out) else {
+            throw InviteError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
+        }
+        return invited
     }
 }

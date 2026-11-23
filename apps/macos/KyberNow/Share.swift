@@ -132,6 +132,10 @@ final class ShareJoinModel: ObservableObject {
     /// l'ordinateur avec lui (session d'emprunt, « Préparation de
     /// l'ordinateur »). Sans lui : « Ce code sert à emprunter l'ordinateur. »
     var onLend: ((BorrowSource) -> Void)?
+    /// Le code est un code d'invitation (docs/invitations.md) : l'app demande
+    /// son mot de passe (« Ajouter {ordinateur} », `InviteAddModel`). Sans lui :
+    /// « Ce code sert à ajouter l'ordinateur. »
+    var onInvite: ((InviteCodeFound) -> Void)?
     private var task: Task<Void, Never>?
     private var attempt = 0
     /// La demande en attente de l'accord de l'hôte, à annuler si l'écran se ferme.
@@ -203,6 +207,16 @@ final class ShareJoinModel: ObservableObject {
         let link = link
         task = Task { [weak self] in
             guard let self else { return }
+            #if DEBUG
+            // Démonstration (`-demoInvite YES`) : le code est celui d'une invitation, sans Station.
+            if UserDefaults.standard.bool(forKey: "demoInvite"), let onInvite = self.onInvite {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard mine == self.attempt else { return }
+                self.state = .idle
+                onInvite(InviteCodeFound(demoComputer: InviteAddModel.demoComputer))
+                return
+            }
+            #endif
             do {
                 // Un lien donne la Station (et son relais) ; un code part vers les
                 // ordinateurs du réseau et vers les relais, celui des ordinateurs
@@ -234,6 +248,12 @@ final class ShareJoinModel: ObservableObject {
                     GuestName.remember(name)
                     self.state = .idle
                     onLend(BorrowSource(target: found.target, credentials: .code(found.code), name: name))
+                    return
+                }
+                // Un code d'invitation : le mot de passe de l'invitation prend la suite.
+                if case let .invite(found)? = error as? ShareJoinError, let onInvite = self.onInvite {
+                    self.state = .idle
+                    onInvite(found)
                     return
                 }
                 self.state = .failed(Self.text(error))
@@ -659,4 +679,121 @@ final class ShareHostModel: ObservableObject {
         guard let state, !waitingForRelayLink else { return nil }
         return state.web.isEmpty ? state.link : state.web
     }
+}
+
+// MARK: - Invitations
+
+/// « Ajouter {ordinateur} » (docs/invitations.md ; textes : docs/link-ui.md,
+/// « Invitations », dans LinkUI.swift) : « Rejoindre avec un code » est tombé
+/// sur un code d'invitation ; le mot de passe donné avec le code ajoute
+/// l'ordinateur, sans que personne ait à l'accepter. Il est gardé comme un
+/// ordinateur appairé par code (`HostStore.addInvited`) ; `onAdded` le reçoit,
+/// et l'app le sélectionne sur l'accueil (« {ordinateur} est ajouté. »).
+/// Chaque app dessine l'écran ; l'appel et les règles sont ici.
+@MainActor
+final class InviteAddModel: ObservableObject {
+    enum State: Equatable {
+        case idle
+        /// « Ajout de {ordinateur}… ».
+        case adding
+        /// Le texte du refus, sous le champ.
+        case failed(String)
+    }
+
+    let found: InviteCodeFound
+    /// Le mot de passe de l'invitation, tapé comme on veut (majuscules,
+    /// espaces et tirets ne comptent pas).
+    @Published var password = ""
+    @Published private(set) var state: State = .idle
+    /// Appelé une fois, avec l'ordinateur ajouté (ou qui a pris le nouvel accès).
+    var onAdded: ((Host) -> Void)?
+    private var task: Task<Void, Never>?
+    private var attempt = 0
+
+    init(found: InviteCodeFound) {
+        self.found = found
+    }
+
+    /// Le nom de l'ordinateur (vide : la Station ne l'a pas dit).
+    var computer: String { found.computer }
+    var title: String { InviteText.title(computer) }
+    var adding: Bool { state == .adding }
+    var trimmedPassword: String { password.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// « Ajouter l'ordinateur » : inactif tant que le champ est vide.
+    var canAdd: Bool { !trimmedPassword.isEmpty && !adding }
+    var failure: String? {
+        if case let .failed(text) = state { return text }
+        return nil
+    }
+
+    /// Le mot de passe change : le dernier refus s'efface.
+    func passwordChanged() {
+        if case .failed = state { state = .idle }
+    }
+
+    /// « Ajouter l'ordinateur » : l'appel part hors du fil principal (15 s au
+    /// plus). Un ordinateur ajouté est gardé même si l'écran s'est fermé
+    /// entre-temps : l'invitation lui a déjà donné son compte.
+    func add(to store: HostStore) {
+        guard canAdd else { return }
+        let password = trimmedPassword, found = found
+        attempt += 1
+        let mine = attempt
+        state = .adding
+        task?.cancel()
+        task = Task { [weak self] in
+            do {
+                let invited = try await InviteAddModel.redeem(found, password: password)
+                let host = store.addInvited(invited, computer: found.computer)
+                guard let self, mine == self.attempt else { return }
+                self.state = .idle
+                self.onAdded?(host)
+            } catch {
+                guard let self, mine == self.attempt else { return }
+                self.state = .failed(InviteAddModel.text(error))
+            }
+        }
+    }
+
+    /// « Annuler », ou l'écran qui se ferme.
+    func cancel() {
+        attempt += 1
+        task?.cancel()
+        task = nil
+        if adding { state = .idle }
+    }
+
+    /// Le texte d'un refus : celui du cœur, dans la langue de l'app, en phrase.
+    static func text(_ error: Error) -> String {
+        let text = (error as? InviteError)?.errorDescription ?? error.localizedDescription
+        return ShareText.sentence(text)
+    }
+
+    private static func redeem(_ found: InviteCodeFound, password: String) async throws -> Invited {
+        #if DEBUG
+        if found.isDemo { return try await demoRedeem(found, password: password) }
+        #endif
+        return try await Invite.redeem(found, password: password)
+    }
+
+    #if DEBUG
+    /// Démonstration : le nom de l'ordinateur de l'invitation.
+    static let demoComputer = "PC du salon"
+    /// Démonstration : le mot de passe accepté (« k7mq-p2xa-9fz3 », tapé
+    /// comme on veut) ; tout autre est refusé.
+    static let demoPassword = "k7mqp2xa9fz3"
+
+    /// Démonstration, sans Station : un ordinateur sur le réseau, joignable
+    /// aussi par le relais public.
+    private static func demoRedeem(_ found: InviteCodeFound, password: String) async throws -> Invited {
+        try await Task.sleep(for: .milliseconds(800))
+        let typed = password.lowercased().filter { $0.isLetter || $0.isNumber }
+        guard typed == demoPassword else { throw InviteError.badPassword(String(localized: "Mot de passe refusé.")) }
+        return Invited(hostname: found.computer, address: "192.168.1.50", port: 9443,
+                       fingerprint: "sha256:c41d7e0f9a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5",
+                       username: "\(GuestName.deviceName)-ab12", password: "demo",
+                       relay: RelayInfo(server: "share.kybernow.app", id: "demo", remoteAccess: true),
+                       inviteName: "App Review", expires: Date().addingTimeInterval(7 * 86400))
+    }
+    #endif
 }
