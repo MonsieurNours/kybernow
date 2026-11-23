@@ -344,7 +344,9 @@
       "users": "Utilisateurs",
       "usersShort": "Utilisateurs",
       "system": "Système",
-      "systemShort": "Système"
+      "systemShort": "Système",
+      "account": "Compte KyberNow",
+      "accountShort": "Compte"
     },
     "host": {
       "thisComputer": "Cet ordinateur",
@@ -1483,6 +1485,62 @@
           "warning": "Votre ami joue dans votre session du Mac, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance."
         }
       }
+    }
+  },
+  "account": {
+    "eyebrow": "Votre ordinateur, partout",
+    "title": "Compte KyberNow",
+    "intro": "Rattaché à un compte KyberNow, cet ordinateur se retrouve sur tous vos appareils, et s'ouvre aux personnes à qui le compte donne des droits.",
+    "detached": {
+      "title": "Pas rattaché",
+      "text": "Rattachez cet ordinateur à votre compte KyberNow pour le retrouver sur tous vos appareils et l'ouvrir à d'autres personnes.",
+      "signIn": "Se connecter",
+      "soon": "Le rattachement arrive avec la prochaine version du relais.",
+      "optional": "Facultatif : le réseau local, l'appairage par code et les invitations marchent sans compte."
+    },
+    "attached": {
+      "to": "Rattaché à",
+      "relayLine": "Relais {relay} · clé du relais épinglée le {date}",
+      "organization": "Organisation",
+      "console": "Gérer dans la console",
+      "detach": "Détacher",
+      "confirmDetach": "Détacher cet ordinateur du compte KyberNow ? Les personnes entrées par un compte ne pourront plus l'ouvrir, et la liste des accès sera effacée. On le rattache de nouveau avec « Se connecter ».",
+      "detached": "Ordinateur détaché.",
+      "key": "Clé du relais",
+      "test": "Mode d'essai : clé locale, aucun relais (KYBERNOW_ACCOUNT_TEST)."
+    },
+    "accept": {
+      "title": "Accepter les comptes KyberNow",
+      "help": "Les personnes à qui le compte donne des droits ouvrent cet ordinateur, sur le réseau ou hors de chez vous. Coupé, seuls vos appareils appairés et les invitations entrent.",
+      "on": "Comptes KyberNow acceptés.",
+      "off": "Comptes KyberNow refusés."
+    },
+    "access": {
+      "title": "Entrés par un compte",
+      "sub": "Bloquer ici vaut même si le relais dit oui.",
+      "none": "Personne n'est encore entré par un compte.",
+      "block": "Bloquer",
+      "unblock": "Débloquer",
+      "blockAccount": "Bloquer le compte",
+      "blockAria": "Bloquer {name}",
+      "unblockAria": "Débloquer {name}",
+      "blockAccountAria": "Bloquer tous les appareils de {name}",
+      "blocked": "{name} est bloqué sur cet ordinateur.",
+      "blockedAll": "Tous les appareils de {name} sont bloqués sur cet ordinateur.",
+      "unblocked": "{name} est débloqué.",
+      "blockedOn": "Bloqué le {date}",
+      "accountBlockedOn": "Compte bloqué le {date}",
+      "owner": "Propriétaire",
+      "newDevice": "nouvel appareil",
+      "lan": "sur le réseau",
+      "relay": "hors de chez vous",
+      "noRights": "Aucun droit"
+    },
+    "rights": {
+      "session": "Session",
+      "lend": "Prêt",
+      "share": "Partage",
+      "admin": "Administrer"
     }
   }
 }

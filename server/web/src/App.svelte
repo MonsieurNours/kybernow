@@ -9,17 +9,19 @@
   import ImageSound from './pages/ImageSound.svelte'
   import Devices from './pages/Devices.svelte'
   import Lend from './pages/Lend.svelte'
+  import Account from './pages/Account.svelte'
   import Users from './pages/Users.svelte'
   import System from './pages/System.svelte'
   import Mark from './lib/Mark.svelte'
   import Icon from './lib/Icon.svelte'
   import { isLent, lentLine } from './lib/lend'
 
-  // Six espaces, par intention.
+  // Sept espaces, par intention.
   const spaces = $derived([
     { id: 'ensemble', label: t('app.spaces.overview'), short: t('app.spaces.overviewShort'), icon: 'overview', component: Overview },
     { id: 'image-son', label: t('app.spaces.imageSound'), short: t('app.spaces.imageSoundShort'), icon: 'image', component: ImageSound },
     { id: 'appareils', label: t('app.spaces.devices'), short: t('app.spaces.devicesShort'), icon: 'link', component: Devices },
+    { id: 'compte', label: t('app.spaces.account'), short: t('app.spaces.accountShort'), icon: 'account', component: Account },
     { id: 'pret', label: t('app.spaces.lend'), short: t('app.spaces.lendShort'), icon: 'lend', component: Lend },
     { id: 'utilisateurs', label: t('app.spaces.users'), short: t('app.spaces.usersShort'), icon: 'user', component: Users },
     { id: 'systeme', label: t('app.spaces.system'), short: t('app.spaces.systemShort'), icon: 'gear', component: System },
