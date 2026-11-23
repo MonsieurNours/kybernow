@@ -116,6 +116,49 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Local list, blocking |
 | Admin | all the routes of a paired device | Also accept `Authorization: KyberNow <jeton>` according to the rights |
 
+### Token format (batch 2)
+
+Defined in the shared crate `server/relay/tunnel` (`access` module): the relay signs, the Station verifies, the apps' core carries it without reading it.
+
+- **Compact form**: `<payload>.<signature>`, each in base64url without padding; 4 KiB at most. The payload is the JSON below; the Ed25519 signature covers `kybernow-access/1 ` followed by the encoded payload (no other signature by the relay key passes for a token).
+- **Payload**:
+
+  ```json
+  {"v":1,"relay":"share.kybernow.app","station":"<Station identifier>",
+   "account":"<account>","device":"<device>","rights":["session","share"],
+   "name":{"account":"Léa Martin","email":"lea@example.org","device":"Léa's iPad"},
+   "iat":1795000000,"exp":1795000300,"jti":"<16 bytes in base32>"}
+  ```
+
+  `rights`: `session`, `lend`, `share`, `admin` (an unknown word from a later version is ignored). `name` carries what Admin shows in its list (the email is optional).
+- **Published key** (`GET /v1/keys`): `{"keys":[{"kid":"<8 bytes of the key's SHA-256, base32>","alg":"Ed25519","key":"<32 bytes, base64url>"}]}`; two keys during a rotation. Admin shows the `sha256:…` fingerprint of the raw key.
+- **Verification by the Station**, in this order: pinned key (one of the keys from the attachment), version, `relay` = the attachment's relay, `station` = its own, `exp - iat` of 5 minutes at most, `iat` not in the future and `exp` not past, within **60 s** (clocks), then the `jti`.
+- **`jti` never replayed**: the same token serves all of its device's calls during its 5 minutes (session, heartbeat), but a `jti` is never accepted for different content; to restart or update the Station, the token is **single use** (once consumed, it is good for nothing else). `jti`s are forgotten when they expire.
+- Header: `Authorization: KyberNow <token>`.
+
+### Admin (batch 2)
+
+- **Settings**: `[account]` section of `kyber-admin.toml`: `relay`, `owner` (`kind` person or organization, `id`, `name`, `email`), `keys` (pinned keys), `pinned_at`, `accept` (the switch). Attaching (the exchange with the relay) will call `accounts::pin`; it turns the switch on, which Admin lets you turn off.
+- **Local list**: `account-access.json` in the data folder, one entry per account and device (names, rights of the last token, first and last visit, `lan` or `relay`); blocking a device or the whole account. A first visit adds a line to the feed. Detaching clears the list.
+- **Routes** (Admin session, never through the relay):
+
+  | Route | Body | Response |
+  |---|---|---|
+  | `GET /api/account` | | `{attached, relay, owner, keys:[{kid, fingerprint}], pinned_at, accept, test, station, console, can_attach}` |
+  | `PUT /api/account` | `{accept?: bool, detach?: true}` | The same view; turning on without an attachment: `409 not_attached` |
+  | `GET /api/account/access` | | `{entries:[{id, account, device, name, email, device_name, rights, first_seen, last_seen, via, blocked, account_blocked, owner}]}` |
+  | `POST /api/account/access/{id}/block` | `{blocked: bool, account?: bool}` | The list; `account`: the whole account |
+
+- **According to the rights**, on the network as through the relay (the guard's `Device` class, “Access away from home” on):
+  - **Session**: the `/api/stream/*` routes and the host's (share, lending) like a paired device; `prepare` also returns `kyber_token` `{token, user, expires}`, the Kyber token (5 min) under the `kn-account-…` account, never written to Kyber's configuration;
+  - **Share**: `POST /api/share/join` without `code` gets in right away (no code, no host approval), under the person's name; the host sees them and can remove them;
+  - **Administer**: `POST /api/stream/station/restart` and `/update`, also **through the relay** (closed through the relay to a Kyber account), with a single-use token;
+  - **Lend**: carried by the token and shown in the list; the launcher with an account comes in batch 4.
+- **Refusals**: `{error, code}`, `code` among `accounts_off`, `not_attached`, `bad_token`, `token_expired` (401: the app asks for a new token), `blocked`, `no_right` (403).
+- **Test mode**: `KYBERNOW_ACCOUNT_TEST=1` at startup pins a local key (`account-test.key`, relay `essai.kybernow.invalid`) when the Station is attached to no relay; `kyber-admin account-token --rights session,share` writes a token signed by it for this Station.
+- **Code**: `server/admin/src/accounts.rs` (settings, verification, list, routes), wired into `api.rs` (`stream_user`, restart and update), `relay.rs` (guard) and `share_api.rs` (join).
+- **Interface**: Admin's “KyberNow account” space (`#/compte`): attached, the account, the relay, the pinned key, “Manage in the console”, “Detach”, the switch and the list (“Block”, “Block the account”, “Unblock”); not attached, “Sign in”, inactive until the relay offers attaching (`can_attach`).
+
 ### Data kept by the relay
 
 | Data | Why | Duration |
