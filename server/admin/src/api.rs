@@ -22,6 +22,7 @@ use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
 use crate::launch::Launch;
 use crate::pairing::{self, RequestError};
+use kybernow_tunnel::access::{Right, Use};
 use crate::{AppState, auth, gpu, lend_api, logs, preview, schema, service, share_api, station};
 
 pub fn router(state: AppState) -> Router<AppState> {
@@ -110,7 +111,13 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Hors de chez vous (docs/relais.md) : adresse du relais, accès des
         // appareils, état (session d'Admin, jamais par le relais).
         .route("/api/relay", get(crate::relay::get_relay).put(crate::relay::put_relay))
-        // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
+        // Compte KyberNow (docs/comptes.md) : compte rattaché, interrupteur,
+        // accès entrés par un jeton et leur blocage (session d'Admin, jamais par le relais).
+        .route("/api/account", get(crate::accounts::get).put(crate::accounts::put))
+        .route("/api/account/access", get(crate::accounts::get_access))
+        .route("/api/account/access/{id}/block", post(crate::accounts::block))
+        // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber,
+        // ou par le jeton d'un compte KyberNow qui a le droit Session.
         .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
@@ -764,8 +771,13 @@ async fn audio_settings(State(s): State<AppState>, Json(body): Json<AudioSetting
     audio_status(State(s)).await
 }
 
-/// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide.
+/// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide, ou
+/// compte Kyber d'un compte KyberNow (`Authorization: KyberNow <jeton>`, droit
+/// Session : `accounts::kyber_user`, joint par un jeton de Kyber).
 pub(crate) fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
+    if let Some(found) = crate::accounts::authorize(s, headers, Some(Right::Session), Use::Reusable, false) {
+        return found.map(|g| g.kyber_user()).map_err(|d| ApiError::msg(d.status(), d.msg()));
+    }
     let bad = || ApiError::msg(StatusCode::UNAUTHORIZED, Msg::new("api.kyberCredentials"));
     // Le client web (/link) passe par la session de la console.
     if !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t)) {
@@ -1113,6 +1125,9 @@ impl From<ApiError> for Refusal {
 enum Caller {
     /// Une app KyberNow Link : son compte Kyber.
     Device(String),
+    /// Un compte KyberNow qui a le droit Administrer (son jeton, consommé) :
+    /// « Léa Martin · iPad de Léa ».
+    Account(String),
     /// Admin lui-même (sa session, sans `Authorization`).
     Admin,
 }
@@ -1122,11 +1137,23 @@ enum Caller {
 /// succès ne remet pas ce compteur à zéro : un compte Kyber ne doit pas
 /// servir à effacer les échecs de la connexion d'Admin depuis la même adresse.
 /// Le droit ne dépend que du compte : tout appareil appairé peut redémarrer
-/// et mettre à jour.
+/// et mettre à jour ; un compte KyberNow, avec le droit Administrer (y
+/// compris par le relais), et un jeton qui ne sert qu'à cela.
 async fn station_caller(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<Caller, Refusal> {
     if let Some(wait) = s.auth.locked_for(peer.ip()) {
         let seconds = wait.as_secs().max(1);
         return Err(Refusal::new(StatusCode::TOO_MANY_REQUESTS, "locked", Msg::new("api.tooManyTries").with("seconds", seconds)).retry_after(seconds));
+    }
+    // Un compte KyberNow : le droit Administrer, et un jeton qui ne sert qu'une fois.
+    if let Some(found) = crate::accounts::authorize(s, headers, Some(Right::Admin), Use::Once, false) {
+        return match found {
+            Ok(grant) => Ok(Caller::Account(grant.label())),
+            Err(denied) => {
+                s.auth.note_failure(peer.ip());
+                tokio::time::sleep(FAILED_TRY_DELAY).await;
+                Err(Refusal::new(denied.status(), denied.code(), denied.msg()))
+            }
+        };
     }
     let admin = !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t));
     match stream_user(s, headers) {
@@ -1141,11 +1168,12 @@ async fn station_caller(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> 
 }
 
 /// La ligne du fil : l'appareil (par son identifiant, s'il utilise ce compte),
-/// sinon son compte, ou Admin.
-fn station_event(s: &AppState, caller: &Caller, device_id: Option<&str>, keys: [&str; 3]) -> Msg {
+/// sinon son compte, ou Admin ; un compte KyberNow par son nom (`kyber_named`).
+fn station_event(s: &AppState, caller: &Caller, device_id: Option<&str>, keys: [&str; 3], kyber_named: &str) -> Msg {
     let [named, account, admin] = keys;
     match caller {
         Caller::Admin => Msg::new(admin),
+        Caller::Account(name) => Msg::new(kyber_named).with("name", name.as_str()),
         Caller::Device(user) => match device_id.and_then(|id| s.activity.device_name(id, user)) {
             Some(name) => Msg::new(named).with("name", name),
             None => Msg::new(account).with("account", user.as_str()),
@@ -1212,7 +1240,7 @@ async fn stream_station_restart(
     let caller = station_caller(&s, peer, &headers).await?;
     let body = station_body(&body)?;
     let keys = ["events.stationRestarted", "events.stationRestartedAccount", "events.stationRestartedAdmin"];
-    let event = station_event(&s, &caller, body.device_id.as_deref(), keys);
+    let event = station_event(&s, &caller, body.device_id.as_deref(), keys, "events.stationRestartedNamed");
     restart_station(&s, body.force, event)?;
     // Les invités d'un partage l'apprennent (« arrêté ») avant l'arrêt.
     share_api::close_share(&s).await;
@@ -1268,7 +1296,7 @@ async fn stream_station_update(
     let installed = launch_install(&s).await?;
     share_api::close_share(&s).await;
     let keys = ["events.stationUpdate", "events.stationUpdateAccount", "events.installing"];
-    let event = station_event(&s, &caller, body.device_id.as_deref(), keys).with("version", installed.as_str());
+    let event = station_event(&s, &caller, body.device_id.as_deref(), keys, "events.stationUpdateNamed").with("version", installed.as_str());
     s.activity.event("info", event);
     Ok(accepted(json!({ "ok": true, "version": installed })))
 }
@@ -1403,12 +1431,14 @@ async fn stream_prepare(
             s.launcher.session_started(device_id, device_name, l, body.profile.clone());
         }
         relay_ready(&s);
-        return Ok(Json(json!({
+        let mut answer = json!({
             "virtual_display": false, "audio": audio, "kyber_port": port, "kyber_host": kyber_host, "heartbeat_seconds": 5,
             "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
             "launch": launch_name,
             "hdr": hdr,
-        })));
+        });
+        account_kyber_token(&s, &headers, &user, &mut answer);
+        return Ok(Json(answer));
     }
     let d = s.display.clone();
     let (u, id, policy) = (user.clone(), device_id.clone(), body.mode_policy);
@@ -1458,7 +1488,21 @@ async fn stream_prepare(
     if let Some(screens) = screens {
         answer["screens"] = json!(screens);
     }
+    account_kyber_token(&s, &headers, &user, &mut answer);
     Ok(Json(answer))
+}
+
+/// Un compte KyberNow n'a pas de compte dans la configuration de Kyber : la
+/// réponse de `prepare` lui donne un jeton de Kyber (`kyber_token`, la durée
+/// d'un jeton d'accès ; l'app le redemande avec son jeton suivant).
+fn account_kyber_token(s: &AppState, headers: &HeaderMap, user: &str, answer: &mut Value) {
+    if crate::accounts::bearer(headers).is_none() {
+        return;
+    }
+    if let Some(secret) = s.kyber.jwt_secret() {
+        let lifetime = crate::accounts::KYBER_TOKEN_LIFETIME;
+        answer["kyber_token"] = json!({ "token": crate::kyber_proxy::jwt(&secret, user, lifetime), "user": user, "expires": lifetime });
+    }
 }
 
 #[derive(Deserialize)]
@@ -2445,6 +2489,43 @@ mod tests {
         assert_eq!(answer["hdr"], json!([false]));
         let Json(v) = stream_hdr(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), hdr_body("tv-1", vec![true])).await.ok().unwrap();
         assert_eq!(v, json!({ "hdr": [false] }));
+    }
+
+    /// Un compte KyberNow (docs/comptes.md) : le droit Session ouvre les
+    /// routes `/api/stream/*` (et `prepare` donne un jeton de Kyber), le droit
+    /// Administrer redémarre la Station avec un jeton qui ne sert qu'une fois.
+    #[tokio::test]
+    async fn un_compte_kybernow_selon_ses_droits() {
+        let c = console_with_account();
+        c.s.kyber.set_jwt_secret("cle-de-test").unwrap();
+        let k = crate::accounts::attach_for_tests(&c.s);
+        let session = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        assert!(stream_info(State(c.s.clone()), session.clone()).await.is_ok());
+        let body = json!({ "width": 1920, "height": 1080, "refresh": 60, "virtual_display": false, "device": { "id": "ipad-1", "name": "iPad" } });
+        let Json(answer) = stream_prepare(State(c.s.clone()), peer(), session.clone(), None, Json(serde_json::from_value(body).unwrap())).await.ok().unwrap();
+        let user = answer["kyber_token"]["user"].as_str().unwrap();
+        assert_eq!(user, crate::accounts::kyber_user("acc_lea"));
+        assert_eq!(answer["kyber_token"]["token"].as_str().unwrap().split('.').count(), 3);
+        // Avec un compte Kyber, pas de jeton de Kyber dans la réponse (rien ne change).
+        c.s.activity.end(user, Some("ipad-1"), None);
+        // Le droit Partage seul n'ouvre pas de session.
+        let share = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_2", &[Right::Share]);
+        assert_eq!(stream_info(State(c.s.clone()), share).await.err().unwrap().0, StatusCode::FORBIDDEN);
+        // Redémarrer : pas avec Session seulement.
+        let err = restart_from(&c.s, session, "{}").await.unwrap_err();
+        assert_eq!((err.status, err.code), (StatusCode::FORBIDDEN, "no_right"));
+        // Avec Administrer : accepté, nommé dans le fil ; le même jeton ne resservira pas.
+        let admin = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Admin]);
+        let res = restart_from(&c.s, admin.clone(), "{}").await.unwrap();
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        assert!(texts(&c.s, i18n::Lang::Fr).iter().any(|t| t == "Léa Martin · iPad de Léa a redémarré la Station (compte KyberNow)"));
+        let err = restart_from(&c.s, admin, "{}").await.unwrap_err();
+        assert_eq!((err.status, err.code), (StatusCode::UNAUTHORIZED, "bad_token"));
+        // Interrupteur coupé : refusé, les comptes Kyber passent toujours.
+        c.s.update_settings(|st| st.account.accept = false).unwrap();
+        let session = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        assert_eq!(stream_info(State(c.s.clone()), session).await.err().unwrap().0, StatusCode::FORBIDDEN);
+        assert!(stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.is_ok());
     }
 
     #[tokio::test]

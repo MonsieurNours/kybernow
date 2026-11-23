@@ -839,6 +839,67 @@ impl Share {
         Ok(Joined { guest, snapshot: open.snapshot(), new })
     }
 
+    /// Un compte KyberNow qui a le droit Partage (docs/comptes.md, « Partage
+    /// avec un compte ») : il entre sans code ni accord de l'hôte, sur le
+    /// réseau ou par le relais (`relay`). `device` vient du jeton vérifié : le
+    /// même appareil reprend sa place. L'hôte le voit et peut le retirer
+    /// comme tout invité.
+    pub fn join_trusted(&self, name: &str, device: &str, app: &str, browser: bool, relay: bool) -> Result<Joined, JoinError> {
+        let now = Instant::now();
+        let mut s = self.state.lock().unwrap();
+        let name = clean(name, MAX_NAME);
+        let device = clean(device, MAX_DEVICE);
+        if name.is_empty() || device.is_empty() {
+            return Err(JoinError::BadRequest);
+        }
+        let app = if APPS.contains(&app) { app.to_string() } else { "other".to_string() };
+        let Some(open) = s.open.as_mut() else { return Err(JoinError::NoShare) };
+        let secret = random_hex(32);
+        let cookie = browser.then(|| random_hex(32));
+        let (guest, new) = match open.guests.iter_mut().find(|g| g.device == device) {
+            Some(g) => {
+                g.secret = secret;
+                g.cookie = cookie;
+                g.name = name;
+                g.app = app;
+                g.last_beat = now;
+                g.last_beat_secs = now_secs();
+                // Une demande en attente du même appareil : le compte la vaut.
+                g.pending = false;
+                g.via_relay = relay;
+                (g.clone(), false)
+            }
+            None => {
+                if open.guests.iter().filter(|g| !g.pending).count() >= MAX_GUESTS {
+                    return Err(JoinError::Full);
+                }
+                let g = Guest {
+                    id: random_hex(8),
+                    secret,
+                    cookie,
+                    name,
+                    device,
+                    app,
+                    role: Role::Spectator,
+                    rev: 1,
+                    since: now_secs(),
+                    last_beat_secs: now_secs(),
+                    last_beat: now,
+                    quality: Quality::Auto,
+                    preset: Preset::Host,
+                    last_quality: None,
+                    pending: false,
+                    via_relay: relay,
+                    requested: now,
+                    refuse_key: String::new(),
+                };
+                open.guests.push(g.clone());
+                (g, true)
+            }
+        };
+        Ok(Joined { guest, snapshot: open.snapshot(), new })
+    }
+
     /// Signe de vie d'un invité. `None` : inconnu (jamais venu, parti, ou
     /// sorti depuis longtemps).
     pub fn beat(&self, id: &str, secret: &str) -> Option<Beat> {

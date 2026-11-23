@@ -1,6 +1,7 @@
 //! kyber-admin : interface web d'administration d'un serveur Kyber.
 
 mod access;
+mod accounts;
 mod activity;
 mod api;
 mod assets;
@@ -116,6 +117,26 @@ enum Command {
         /// Affiche ce qui serait changé sans rien écrire
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Mode d'essai des comptes KyberNow (KYBERNOW_ACCOUNT_TEST=1) : écrit un
+    /// jeton d'accès signé par la clé d'essai, pour cette Station
+    #[command(hide = true)]
+    AccountToken {
+        /// Droits, séparés par des virgules : session, lend, share, admin
+        #[arg(long, default_value = "session")]
+        rights: String,
+        /// Identifiant du compte
+        #[arg(long, default_value = "essai-compte")]
+        account: String,
+        /// Identifiant de l'appareil
+        #[arg(long, default_value = "essai-appareil")]
+        device: String,
+        /// Nom de la personne
+        #[arg(long, default_value = "Essai")]
+        name: String,
+        /// Nom de l'appareil
+        #[arg(long, default_value = "Appareil d'essai")]
+        device_name: String,
     },
     /// Efface le mot de passe administrateur : Admin émet un nouveau code d'initialisation à son redémarrage
     ResetPassword,
@@ -580,6 +601,8 @@ pub struct Inner {
     pub friends: lend::Friends,
     /// Les invitations (`invites.json`, docs/invitations.md).
     pub invites: invites::Invites,
+    /// Comptes KyberNow (docs/comptes.md) : liste locale, vérification des jetons.
+    pub accounts: accounts::Accounts,
     /// La dernière partie de chaque ami (`lend-last.json`).
     pub last_played: lend_last::LastPlayed,
     /// Les derniers prêts (`lend-history.json`).
@@ -641,6 +664,7 @@ impl AppState {
             lend: lend::Lending::new(),
             friends: lend::Friends::load(&data_dir),
             invites: invites::Invites::load(&data_dir),
+            accounts: accounts::Accounts::load(&data_dir),
             last_played: lend_last::LastPlayed::load(&data_dir),
             lend_history: lend::History::load(&data_dir),
             local_token: local_token::LocalToken::new(&data_dir),
@@ -695,6 +719,10 @@ fn main() -> Result<()> {
         Some(Command::Update { action }) => update::apply::run(action, &data_dir),
         Some(Command::RestartStation) => station::run(&data_dir),
         Some(Command::Migrate { dry_run }) => migrate::command(&data_dir, dry_run),
+        Some(Command::AccountToken { rights, account, device, name, device_name }) => {
+            println!("{}", accounts::test_token(&data_dir, &rights, &account, &device, &name, &device_name)?);
+            Ok(())
+        }
         Some(Command::ResetPassword) => {
             let mut s = Settings::load(&data_dir)?;
             s.admin_password_hash = None;
@@ -961,6 +989,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         lend: lend::Lending::new(),
         friends: lend::Friends::load(&data_dir),
         invites: invites::Invites::load(&data_dir),
+        accounts: accounts::Accounts::load(&data_dir),
         last_played: lend_last::LastPlayed::load(&data_dir),
         lend_history: lend::History::load(&data_dir),
         local_token,
@@ -979,6 +1008,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         listen_port: listen.port(),
     }));
 
+    // Comptes KyberNow : clé d'essai épinglée en mode d'essai (KYBERNOW_ACCOUNT_TEST).
+    accounts::start_test_mode(&state);
     // Comptes en attente : Kyber redémarre dès qu'il redevient libre.
     api::supervise_access(state.clone());
     invites_api::supervise(state.clone());
