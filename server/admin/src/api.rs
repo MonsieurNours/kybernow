@@ -95,6 +95,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/pair/request/{id}", get(pair_status))
         .route("/api/pair/accept/{id}", post(pair_accept))
         .route("/api/pair/refuse/{id}", post(pair_refuse))
+        // Invitations (docs/invitations.md) : Admin, et l'appareil qui entre.
+        .route("/api/invites", get(crate::invites_api::list).post(crate::invites_api::create))
+        .route("/api/invites/{id}", axum::routing::delete(crate::invites_api::delete))
+        .route("/api/invites/{id}/password", post(crate::invites_api::new_password))
+        .route("/api/pair/invite", post(crate::invites_api::redeem))
         .route("/api/events", get(events))
         .route("/api/session/end", post(end_session))
         .route("/api/preview", get(admin_preview))
@@ -158,7 +163,7 @@ pub struct ApiError(pub(crate) StatusCode, pub(crate) String);
 
 impl ApiError {
     /// Un refus, écrit dans la langue de la requête.
-    fn msg(status: StatusCode, msg: Msg) -> Self {
+    pub(crate) fn msg(status: StatusCode, msg: Msg) -> Self {
         ApiError(status, msg.text())
     }
 }
@@ -1738,8 +1743,23 @@ async fn apps_browse(State(s): State<AppState>, Query(q): Query<BrowseQuery>) ->
 /// Oublie un appareil. Appairé par code, il perd aussi son accès : son compte
 /// propre est supprimé (et sa session, s'il en a une, prend fin).
 async fn forget_device(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let revoked = revoke_device(&s, &id).await?;
+    Ok(Json(json!({
+        "devices": s.activity.devices(),
+        "revoked": revoked,
+        "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "pending_access": s.pending_access.snapshot(),
+    })))
+}
+
+/// Retire un appareil de la liste ; son compte propre (appairage par code,
+/// invitation) est supprimé et sa session, s'il en a une, se termine. Rend
+/// vrai si un compte a été supprimé.
+pub(crate) async fn revoke_device(s: &AppState, id: &str) -> ApiResult<bool> {
     let live = s.activity.live().is_some_and(|l| l.device_id == id);
-    let device = s.activity.forget(&id).ok_or_else(|| ApiError::msg(StatusCode::NOT_FOUND, Msg::new("api.unknownDevice")))?;
+    let device = s.activity.forget(id).ok_or_else(|| ApiError::msg(StatusCode::NOT_FOUND, Msg::new("api.unknownDevice")))?;
+    // Sa place dans une invitation se libère.
+    s.invites.remove_device(id);
     let mut revoked = false;
     if device.own_account && s.kyber.users()?.iter().any(|u| u.username == device.user) {
         s.kyber.delete_user(&device.user)?;
@@ -1747,15 +1767,32 @@ async fn forget_device(State(s): State<AppState>, Path(id): Path<String>) -> Api
             s.activity.request_end();
         }
         s.activity.event("info", Msg::new("events.accessRevoked").with("name", device.name.as_str()).with("account", device.user.as_str()));
-        apply_accounts(&s, &device.user, &device.name, false).await;
+        apply_accounts(s, &device.user, &device.name, false).await;
         revoked = true;
     }
-    Ok(Json(json!({
-        "devices": s.activity.devices(),
-        "revoked": revoked,
-        "restart_pending": s.restart_pending.load(Ordering::Relaxed),
-        "pending_access": s.pending_access.snapshot(),
-    })))
+    Ok(revoked)
+}
+
+/// Le compte Kyber propre à un appareil (appairage, invitation).
+pub(crate) struct DeviceAccount {
+    pub username: String,
+    pub password: String,
+}
+
+/// Crée le compte propre à cet appareil, que la console et Kyber acceptent
+/// tous les deux ; l'ancien compte propre du même appareil ne sert plus.
+pub(crate) async fn create_device_account(s: &AppState, device: &DeviceInfo) -> ApiResult<DeviceAccount> {
+    let taken: Vec<String> = s.kyber.users()?.into_iter().map(|u| u.username).collect();
+    let username = pairing::account_name(&device.name, &taken);
+    let password = pairing::secret();
+    s.kyber.upsert_user(&username, &password)?;
+    if let Some(old) = s.activity.paired(device, &username) {
+        if let Err(e) = s.kyber.delete_user(&old) {
+            tracing::warn!("suppression de l'ancien compte {old} : {e:#}");
+        }
+    }
+    apply_accounts(s, &username, &device.name, true).await;
+    Ok(DeviceAccount { username, password })
 }
 
 /// Intervalle de la surveillance des comptes en attente.

@@ -13,6 +13,7 @@ pub mod focus;
 pub mod gamepads;
 pub mod i18n;
 pub mod input;
+pub mod invite;
 pub mod journal;
 pub mod latency;
 pub mod lend;

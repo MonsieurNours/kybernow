@@ -262,9 +262,11 @@ fn is_lend_public(path: &str) -> bool {
     ) || path.strip_prefix("/api/lend/requests/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
-/// `/api/pair/request` et `/api/pair/request/{id}`, seulement.
+/// `/api/pair/request`, `/api/pair/request/{id}` et `/api/pair/invite`, seulement.
 fn is_pair_request(path: &str) -> bool {
+    // L'appareil invité vérifie lui-même : code et mot de passe de l'invitation.
     path == "/api/pair/request"
+        || path == "/api/pair/invite"
         || path.strip_prefix("/api/pair/request/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 

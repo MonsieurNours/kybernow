@@ -696,7 +696,9 @@ async fn supervise_tick(s: &AppState, router: &Router) {
     let lending = s.lend.code_value().is_some()
         || s.lend.loan().is_some()
         || (s.settings.lock().unwrap().lend.enabled && s.friends.any_enabled());
-    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering || lending);
+    // Une invitation ouverte : son code se tient chez le relais (docs/invitations.md).
+    let inviting = s.invites.any_active();
+    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering || lending || inviting);
     let current = s.relay.running.lock().unwrap().as_ref().map(|r| r.relay.clone());
     if wanted != current {
         let old = s.relay.running.lock().unwrap().take();
@@ -765,7 +767,8 @@ async fn log_states(s: AppState, mut states: tokio::sync::watch::Receiver<AgentS
 async fn sync_codes(s: &AppState) {
     let Some(agent) = s.relay.joined_agent() else { return };
     // Le code du partage et celui du prêt (docs/pret.md, « Codes »).
-    let wanted: Vec<String> = s.share.snapshot().map(|snap| snap.code).into_iter().chain(s.lend.code_value()).collect();
+    // … et ceux des invitations (docs/invitations.md).
+    let wanted: Vec<String> = s.share.snapshot().map(|snap| snap.code).into_iter().chain(s.lend.code_value()).chain(s.invites.codes()).collect();
     for held in agent.codes() {
         if !wanted.contains(&held) {
             agent.release(&held);
@@ -780,7 +783,7 @@ async fn sync_codes(s: &AppState) {
         }
         match agent.reserve(Some(&code)).await {
             Ok(got) if got != code => {
-                if s.share.replace_code(&code, &got) || s.lend.replace_code(&code, &got) {
+                if s.share.replace_code(&code, &got) || s.lend.replace_code(&code, &got) || s.invites.replace_code(&code, &got) {
                     tracing::info!("relais : code pris ailleurs, nouveau code réservé");
                 } else {
                     agent.release(&got);
@@ -1033,6 +1036,9 @@ enum Class {
     Device,
     /// L'ami d'un prêt (code ou compte d'ami), quand le prêt est activé.
     Lend,
+    /// Un appareil invité (code et mot de passe d'une invitation), quand
+    /// une invitation est ouverte et l'accès hors de chez vous actif.
+    Invite,
     /// Jamais par le relais.
     Never,
 }
@@ -1044,6 +1050,8 @@ fn class_of(method: &Method, path: &str) -> Class {
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
         // L'ami d'un prêt (docs/pret.md) : code ou compte d'ami, puis son secret.
         "/api/lend/status" | "/api/lend/borrow" | "/api/lend/wait" | "/api/lend/beat" | "/api/lend/leave" => return Class::Lend,
+        // L'appareil invité (docs/invitations.md) : code, puis mot de passe.
+        "/api/pair/invite" => return Class::Invite,
         _ => {}
     }
     // L'hôte d'un prêt : un appareil appairé, comme les routes de l'hôte du partage.
@@ -1123,7 +1131,8 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
             // et « Rejoindre » essaie un code de prêt (`"lend": true`, puis `borrow`).
             let lending = s.settings.lock().unwrap().lend.enabled;
             let pages_open = s.share.is_open() || lending;
-            let join_open = s.share.is_open() || (lending && s.lend.code().is_some());
+            // Un code d'invitation se dit aussi par « Rejoindre » (`"invite": true`).
+            let join_open = s.share.is_open() || (lending && s.lend.code().is_some()) || s.invites.any_active();
             if (path == "/api/share/join" && !join_open) || (!path.starts_with("/api/") && !pages_open) {
                 return no_share(&path);
             }
@@ -1131,6 +1140,15 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
         Class::Lend => {
             if !s.settings.lock().unwrap().lend.enabled {
                 return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": "off" }))).into_response();
+            }
+        }
+        Class::Invite => {
+            if !s.invites.any_active() {
+                return (StatusCode::NOT_FOUND, Json(json!({ "error": "no_invite" }))).into_response();
+            }
+            // L'appareil ajouté de loin se connectera par le relais.
+            if !s.settings.lock().unwrap().relay.remote_access {
+                return refusal(StatusCode::FORBIDDEN, "remote_access_off", Msg::new("relay.accessOff"));
             }
         }
         Class::Kyber => {
@@ -1277,6 +1295,10 @@ mod tests {
         }
         for p in ["/api/lend/status", "/api/lend/borrow", "/api/lend/wait", "/api/lend/beat", "/api/lend/leave"] {
             assert_eq!(class_of(&post, p), Class::Lend, "{p}");
+        }
+        assert_eq!(class_of(&post, "/api/pair/invite"), Class::Invite);
+        for (m, p) in [(&get, "/api/invites"), (&post, "/api/invites"), (&Method::DELETE, "/api/invites/ab"), (&post, "/api/invites/ab/password")] {
+            assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
         }
         for (m, p) in [(&get, "/api/lend"), (&post, "/api/lend/code"), (&Method::DELETE, "/api/lend/code"), (&post, "/api/lend/requests/ab"), (&post, "/api/lend/take-back")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
@@ -1487,6 +1509,56 @@ mod tests {
         let body: Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body["relay"], true);
         assert!(body.get("hostname").is_none() && body.get("setup_code_file").is_none(), "{body}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Une invitation (docs/invitations.md) : « Rejoindre » la reconnaît par
+    /// le relais ; son mot de passe passe quand l'accès est actif, et l'appareil
+    /// ajouté ouvre ensuite l'ordinateur comme un appareil appairé.
+    #[tokio::test]
+    async fn une_invitation_par_le_relais() {
+        let dir = std::env::temp_dir().join(format!("kyber-admin-relay-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("kyber_config.toml"), "").unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default()));
+        let router = router(s.clone());
+        let post = |path: &str, body: Value| {
+            let mut req = axum::http::Request::builder().method(Method::POST).uri(path).header("x-kyber-admin", "1").header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string())).unwrap();
+            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+            req.extensions_mut().insert(Via { kind: StreamKind::AdminTls, client: "c".into() });
+            tower::ServiceExt::oneshot(router.clone(), req)
+        };
+        let read = |res: Response| async move {
+            let status = res.status();
+            (status, serde_json::from_slice::<Value>(&axum::body::to_bytes(res.into_body(), 8192).await.unwrap()).unwrap_or(Value::Null))
+        };
+        let device = json!({ "id": "appletv-1", "name": "Apple TV", "kind": "tv" });
+        // Sans invitation : rien à essayer.
+        let (status, _) = read(post("/api/pair/invite", json!({ "code": "123456", "password": "x", "device": device })).await.unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let password = crate::invites::generate_password();
+        let hash = crate::invites::hash_password(&password).unwrap();
+        let invite = s.invites.create("App Review", 30, hash, |_| false).unwrap();
+        // « Rejoindre » avec le code : c'est une invitation.
+        let (status, v) = read(post("/api/share/join", json!({ "code": invite.code, "name": "Apple TV", "device": "appletv-1", "app": "tvos" })).await.unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!((v["error"].as_str(), v["invite"].as_bool()), (Some("no_share"), Some(true)), "{v}");
+        // Accès hors de chez vous coupé : le mot de passe ne sert à rien.
+        let (status, v) = read(post("/api/pair/invite", json!({ "code": invite.code, "password": password, "device": device })).await.unwrap()).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("remote_access_off")));
+        s.settings.lock().unwrap().relay.remote_access = true;
+        let (status, v) = read(post("/api/pair/invite", json!({ "code": invite.code, "password": password, "device": device })).await.unwrap()).await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        let (user, secret) = (v["username"].as_str().unwrap().to_string(), v["password"].as_str().unwrap().to_string());
+        // L'appareil ajouté ouvre l'ordinateur par le relais avec son compte.
+        let mut req = axum::http::Request::builder().method(Method::GET).uri("/api/stream/info").header("x-kyber-admin", "1")
+            .header(header::AUTHORIZATION, base64_basic(&user, &secret)).body(Body::empty()).unwrap();
+        req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+        req.extensions_mut().insert(Via { kind: StreamKind::AdminTls, client: "c".into() });
+        let res = tower::ServiceExt::oneshot(router.clone(), req).await.unwrap();
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+        assert_ne!(res.status(), StatusCode::FORBIDDEN);
         let _ = std::fs::remove_dir_all(dir);
     }
 

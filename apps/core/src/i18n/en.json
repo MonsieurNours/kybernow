@@ -69,7 +69,8 @@
     "expired": "The host did not answer.",
     "pending_full": "Too many requests waiting: try again in a moment.",
     "share_stopped": "This share has stopped.",
-    "lend_code": "This code is for borrowing the computer."
+    "lend_code": "This code is for borrowing the computer.",
+    "invite_code": "This code adds the computer: update KyberNow Link."
   },
   "relay": {
     "unreachable": "The relay is not answering.",
@@ -119,5 +120,11 @@
     "decoder": "This device can't decode HDR.",
     "display": "The computer's display isn't in HDR.",
     "refused": "The computer couldn't switch to HDR: picture in SDR."
+  },
+  "invite": {
+    "bad_password": "Password refused.",
+    "no_invite": "This code is no longer valid.",
+    "full": "This invitation has already added all its devices.",
+    "too_many": "Too many attempts: try again in {minutes} min."
   }
 }

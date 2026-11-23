@@ -926,6 +926,10 @@ pub async fn join(
         Err(JoinError::NoShare) if s.lend.is_lend_code(&body.code.chars().filter(|c| !c.is_whitespace()).collect::<String>()) => {
             return (StatusCode::NOT_FOUND, Json(json!({ "error": "no_share", "lend": true }))).into_response();
         }
+        // Un code d'invitation (docs/invitations.md) : l'app demande le mot de passe, puis `pair/invite`.
+        Err(JoinError::NoShare) if s.invites.is_invite_code(&body.code) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "error": "no_share", "invite": true, "computer": hostname() }))).into_response();
+        }
         Err(JoinError::NoShare) => return guest_error(StatusCode::NOT_FOUND, "no_share"),
         Err(JoinError::Full) => return guest_error(StatusCode::CONFLICT, "full"),
         Err(JoinError::PendingFull) => return guest_error(StatusCode::CONFLICT, "pending_full"),

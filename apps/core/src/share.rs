@@ -1000,6 +1000,11 @@ pub enum ShareError {
     /// L'app emprunte avec [`crate::lend::borrow`] (« Ce code sert à
     /// emprunter l'ordinateur. » pour une app qui ne prête pas encore).
     Lend(Box<crate::lend::LendCode>),
+    /// Ce code est celui d'une invitation (`404 {"error":"no_share",
+    /// "invite":true}`, docs/invitations.md) : la Station qui l'a, le chemin
+    /// pris, le nom de l'ordinateur. L'app demande le mot de passe et ajoute
+    /// l'ordinateur avec [`crate::invite::redeem`].
+    Invite(Box<crate::invite::InviteCode>),
     /// Le reste : Admin injoignable, certificat changé, réponse illisible,
     /// relais muet (`ConsoleError::Relay`).
     Other(ConsoleError),
@@ -1017,13 +1022,14 @@ impl ShareError {
             Self::PendingFull => tr(lang, "share.pending_full", &[]),
             Self::Stopped => tr(lang, "share.share_stopped", &[]),
             Self::Lend(_) => tr(lang, "share.lend_code", &[]),
+            Self::Invite(_) => tr(lang, "share.invite_code", &[]),
             Self::Other(e) => e.text(lang),
         }
     }
 
     /// Nom stable pour les ponts : `no_share`, `full`, `too_many`,
     /// `unreadable`, `refused`, `expired`, `pending_full`, `stopped`, `lend`,
-    /// `other`.
+    /// `invite`, `other`.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::NoShare => "no_share",
@@ -1035,6 +1041,7 @@ impl ShareError {
             Self::PendingFull => "pending_full",
             Self::Stopped => "stopped",
             Self::Lend(_) => "lend",
+            Self::Invite(_) => "invite",
             Self::Other(_) => "other",
         }
     }
@@ -1436,12 +1443,17 @@ pub(crate) fn relay_target(route: &RelayRoute) -> ShareTarget {
     ShareTarget { host: route.station.clone(), port: 0, fingerprint: Some(route.admin_fp.clone()) }
 }
 
-/// Un refus « code de prêt » : la Station qui a ce code, et le chemin pris.
+/// Un refus « code de prêt » ou « code d'invitation » : la Station qui a
+/// ce code, et le chemin pris.
 fn lend_code(e: ShareError, code: &str, target: ShareTarget, route: Option<RelayRoute>) -> ShareError {
     match e {
         ShareError::Lend(_) => {
             log::info!("partage : ce code est un code de prêt ({})", if route.is_some() { "par le relais" } else { "sur le réseau" });
             ShareError::Lend(Box::new(crate::lend::LendCode { code: code.to_string(), target, route }))
+        }
+        ShareError::Invite(found) => {
+            log::info!("partage : ce code est un code d'invitation ({})", if route.is_some() { "par le relais" } else { "sur le réseau" });
+            ShareError::Invite(Box::new(crate::invite::InviteCode { code: code.to_string(), target, route, computer: found.computer }))
         }
         other => other,
     }
@@ -1518,7 +1530,7 @@ fn join_anywhere_with(
         match rx.recv_timeout(until.saturating_duration_since(std::time::Instant::now())) {
             Ok(Heard::Local(Ok(found))) => return Ok(Joining::Joined(found)),
             // Un code de prêt d'une Station du réseau : c'est sa réponse.
-            Ok(Heard::Local(Err(e @ ShareError::Lend(_)))) => return Err(e),
+            Ok(Heard::Local(Err(e @ (ShareError::Lend(_) | ShareError::Invite(_))))) => return Err(e),
             Ok(Heard::Local(Err(e))) => {
                 local_done = true;
                 local_error = Some(e);
@@ -1574,7 +1586,7 @@ fn join_link_with(
         Ok(Ok(found)) => Ok(Joining::Joined(found)),
         // La Station du lien dit non sur le réseau (complet, trop d'essais),
         // ou c'est un code de prêt : c'est sa réponse.
-        Ok(Err(e @ (ShareError::Full | ShareError::TooManyTries { .. } | ShareError::Lend(_)))) => Err(e),
+        Ok(Err(e @ (ShareError::Full | ShareError::TooManyTries { .. } | ShareError::Lend(_) | ShareError::Invite(_)))) => Err(e),
         _ => relay_join(route),
     }
 }
@@ -1628,7 +1640,7 @@ where
         }
     }
     // Un code de prêt : la Station qui l'a répondu.
-    if let Some(i) = errors.iter().position(|e| matches!(e, ShareError::Lend(_))) {
+    if let Some(i) = errors.iter().position(|e| matches!(e, ShareError::Lend(_) | ShareError::Invite(_))) {
         return Err(errors.swap_remove(i));
     }
     if let Some(i) = errors.iter().position(|e| matches!(e, ShareError::Full)) {

@@ -201,7 +201,13 @@
     "retryH264": " ; nouvel essai en H.264",
     "retryNoAudio": " ; nouvel essai sans le son",
     "startedAfter": "Image de {name} démarrée en {format}{audio}",
-    "noAudioSuffix": ", sans le son"
+    "noAudioSuffix": ", sans le son",
+    "inviteCreated": "Invitation « {name} » créée",
+    "inviteDeleted": "Invitation « {name} » supprimée, avec ses appareils",
+    "inviteExpired": "Invitation « {name} » échue : ses appareils sont retirés",
+    "inviteDevice": "{name} ajouté par l'invitation « {invite} »",
+    "invitesLocked": "Invitations bloquées 10 min après trop de mots de passe faux.",
+    "invitesLockedAddress": "Invitations bloquées 10 min pour {address} après trop de mots de passe faux."
   },
   "share": {
     "display": "Écran {n}",
@@ -245,5 +251,16 @@
       "launchedAfterUnlock": "{app} ouvert pour {name}, une fois la session du Mac déverrouillée",
       "launchLocked": "{app} n'a pas été ouvert pour {name} : la session du Mac est restée verrouillée pendant 2 minutes"
     }
+  },
+  "invites": {
+    "nameRequired": "Donnez un nom à l'invitation.",
+    "badDuration": "Durée inconnue : 1, 7 ou 30 jours.",
+    "tooMany": "{max} invitations au plus en même temps : supprimez-en une d'abord.",
+    "unknown": "Cette invitation n'existe plus.",
+    "noInvite": "Ce code ne sert plus.",
+    "tooManyTries": "Trop d'essais : réessayez dans 10 minutes.",
+    "badPassword": "Mot de passe refusé.",
+    "full": "Cette invitation a déjà ajouté {max} appareils.",
+    "unavailable": "L'ordinateur n'a pas pu créer l'accès : réessayez."
   }
 }

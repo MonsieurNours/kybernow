@@ -15,6 +15,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/session.rs` | Déroulé d'une session sur un fil dédié, dernier recours de la connexion (ci-dessous) ; ce que la plateforme fournit : `Platform` |
 | `src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), avec leur source chez Kyber (`PacketHandler::packet_from`), en-tête Opus |
 | `src/profile.rs` | Profils, format, débit selon les pixels par seconde ; puce HDR (`hdr_state`, ci-dessous) |
+| `src/invite.rs` | Invitations ([docs/invitations.md](../../docs/invitations.md)) : le code d'invitation trouvé par « Rejoindre » (`ShareError::Invite`), le mot de passe envoyé (`redeem`), l'ordinateur à garder (`Invited`) |
 | `src/lend.rs` | Prêt de l'ordinateur (ci-dessous) : l'ami (statut, emprunt par un code ou un compte, attente, départ, invitation), la vue de l'hôte |
 | `src/relay.rs` | Relais (ci-dessous) : tunnel vers une Station (Admin et Kyber sur la boucle locale), cache, code chez le relais, présence, chemin d'une session |
 | `src/share.rs` | KyberNow Share (ci-dessous) : rôles, échange avec Admin, lien et code, format vérifié, la Station qui partage cherchée sur le réseau (`join`) |

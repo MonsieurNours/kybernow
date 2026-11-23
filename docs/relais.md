@@ -125,7 +125,7 @@ Les pages du relais n'ont ni script, ni cookie, ni mesure d'audience, et ne char
 
 Mandataire : `Host` passé tel quel, `X-Forwarded-For` et `Forwarded` retirés (l'adresse du navigateur voyage dans l'en-tête du flux), `Domain=` retiré de tout `Set-Cookie`. Une origine par Station : le code d'une Station ne lit jamais les cookies d'une autre.
 
-Codes : le relais **réserve les codes**, uniques entre toutes les Stations qui lui sont connectées. Quatre codes au plus par Station. Les journaux du relais ne contiennent jamais un code.
+Codes : le relais **réserve les codes**, uniques entre toutes les Stations qui lui sont connectées. Quatre codes au plus par Station : celui du partage, celui du prêt et ceux des invitations (deux au plus). Les journaux du relais ne contiennent jamais un code.
 
 ## Admin
 
@@ -167,7 +167,8 @@ Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_
 - Un `Router` à part, `relay_guard`, n'ouvre que :
   - à un **invité**, quand un partage est ouvert : `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, `GET /api/session` réduit, le mandataire d'Admin vers Kyber (`kyber_proxy`) avec le cookie d'un invité accepté (WebSocket seulement, jamais `/kymux/start_mux`) ;
   - à un **appareil appairé** (compte Basic), seulement quand « Accès hors de chez vous » est actif : `/api/stream/*` (sauf `/api/stream/station/*`) et les routes de l'hôte `/api/share*` ; accès coupé : `403 {"error":…,"code":"remote_access_off"}` ;
-  - **jamais** par le relais : le redémarrage et la mise à jour de la Station (`/api/stream/station/restart`, `/api/stream/station/update` : une action lourde, qui se fait sur place ou dans Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, la configuration, les comptes, les journaux, le service, l'écran, le son, la mise à jour d'Admin, les appareils, les apps, `/api/events`, l'interface d'Admin. L'appairage se fait sur le réseau seulement.
+  - à un **appareil invité**, quand une invitation est ouverte et que « Accès hors de chez vous » est actif : `POST /api/pair/invite` (code et mot de passe de l'invitation, [invitations.md](invitations.md)) ; `POST /api/share/join` passe aussi quand une invitation est ouverte (il répond `"invite": true`) ;
+  - **jamais** par le relais : le redémarrage et la mise à jour de la Station (`/api/stream/station/restart`, `/api/stream/station/update` : une action lourde, qui se fait sur place ou dans Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*` (sauf `/api/pair/invite`), `/api/pairing`, `/api/invites*`, `/api/local/*`, la configuration, les comptes, les journaux, le service, l'écran, le son, la mise à jour d'Admin, les appareils, les apps, `/api/events`, l'interface d'Admin. L'appairage par code se fait sur le réseau seulement ; une invitation ajoute un appareil de loin.
 - **Blocage** : 10 échecs du compte Basic par le relais depuis une même adresse (un /64 en IPv6) en 10 minutes bloquent **cette adresse** 10 minutes (`429 {"code":"locked"}`) ; le propriétaire, d'ailleurs, passe toujours. Garde-fou : 100 échecs en 10 minutes, toutes adresses confondues, bloquent tout l'accès des appareils par le relais 10 minutes (`locked_until` de `GET /api/relay`). Chaque blocage met une ligne dans le fil.
 - **Kyber** : l'agent ne joint Kyber que pour un client autorisé (un invité accepté, tant qu'il donne signe de vie ; un appareil appairé après `prepare`, pour 30 s renouvelées par le signe de vie), et toujours **depuis et vers l'adresse du réseau local** de l'ordinateur, jamais par la boucle locale (le correctif 0019 réserve `/kybernow/*` à la boucle locale). Kyber écoute sur toutes les adresses.
 - Admin autorise un **client du relais** (son identifiant) : celui qui a fait le `wait`, le `beat` ou le `prepare`/`heartbeat` réussi. Un client qui se reconnecte garde son identifiant.
@@ -236,7 +237,7 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 - **Le relais** est vérifié par son certificat (autorités du web, ou empreinte épinglée).
 - **Code tapé** : c'est le relais qui donne l'empreinte d'Admin. Un relais menteur pourrait s'interposer ; c'est le prix du code à six chiffres. L'hôte voit et accepte chaque invité.
 - **Lien et QR code** : `fp` et `sid` viennent de la Station ; l'échange est de bout en bout, le relais ne peut pas s'interposer.
-- **Appareils appairés** : empreintes épinglées à l'appairage (sur le réseau). Par le relais, jamais de premier contact.
+- **Appareils appairés** : empreintes épinglées à l'appairage (sur le réseau). Par le relais, jamais de premier contact, sauf l'invitation : par un code tapé, l'empreinte vient du relais (comme pour un partage), d'où le mot de passe en plus ; par son lien ou son QR code, elle vient de la Station ([invitations.md](invitations.md)).
 - **Navigateur** : le relais déchiffre (vrai certificat `*.share.kybernow.app`). Les apps, elles, restent chiffrées de bout en bout.
 - Le relais public est en France ; il garde les adresses IP dans ses journaux quelques jours (journaux tournés par taille), jamais les codes. Page de confidentialité sur le relais (`/privacy`).
 

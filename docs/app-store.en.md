@@ -63,14 +63,14 @@ The app shows the computer's screen unfiltered (browser, games, any content): an
 The reviewer has no Station: with no way to connect, the submission is rejected (2.1). It takes:
 
 - **A demo Station** switched on during review, with "Access away from home" on, reachable through the public relay;
-- **Sharing as the main path**: pairing never goes through the relay (first contact on the network only, [relais.en.md](relais.en.md)), so the reviewer cannot add the computer as their own. They come in through "Join with a code" on an open share; a team member accepts them in Admin and gives them the keyboard, mouse and gamepads, during the hours given in the notes. They thus see the whole desktop, the generic case of 4.2.7. No friend account in the notes: lending is described and shown in the video, not offered for testing;
+- **An invitation** ([invitations.en.md](invitations.en.md)) as the main path: Admin › Link devices › “Invite a device…”, name “App Review”, 30 days. The reviewer types the code in “Join with a code”, then the password: the computer is added to their home screen through the relay, with nobody to accept it, and “Connect” opens the whole desktop, the generic case of 4.2.7. Five devices at most (iPhone, iPad, Apple TV); after a rejection or a new submission: “New password”, or a new invitation. No friend account in the notes: lending is described and shown in the video, not offered for testing;
 - **A video** on a real iPhone and a real Apple TV: adding, session, sharing, lending, PlayStation console (the console cannot be lent to the reviewer: the video shows it).
 
 ### Notes for App Review
 
 > KyberNow Link is a remote desktop client for the user's own Windows PC, running our free host software KyberNow Station (https://www.kybernow.app). It is a generic mirror of the host's screen (guideline 4.2.7): every app runs on the user's PC, nothing is executed or sold in the client. No account is created in the app; there is no in-app purchase.
 >
-> To test: tap "Join with a code" and enter **{code}**. Our demo PC is reachable over the internet through our relay and stays on during review; a team member accepts you and gives you the keyboard, mouse and gamepads, {hours} (Paris time). If you need another time slot, contact us at {email}.
+> To test: tap "Join with a code", enter **{code}**, then the password **{password}**. This adds our demo PC to the app (no approval is needed on our side; the access is valid until {date}). Then tap "Connect": you get the PC's full desktop, with touch, keyboard, mouse and game controllers. The demo PC is reachable over the internet through our relay and stays on during review. The same code and password work on iPhone, iPad and Apple TV (up to five devices).
 >
 > Lending (KyberNow Share): the owner of a PC can lend it to a trusted friend, from the host (KyberNow Admin). During a loan the friend sees the owner's own Windows session, restricted by the owner to the apps they chose; the owner creates and manages the friend's access on the host, and can end it at any time. It is shown in the attached video.
 >
@@ -83,13 +83,13 @@ The reviewer has no Station: with no way to connect, the submission is rejected 
 - **Lending (4.2.7)**: during a loan the friend sees a launcher limited to the apps the host chose; a reviewer may see it as a "mirror of specific software" under 4.2.7 a, which requires a computer owned by the user, on their local network. Our answer: it is the host's own Windows session, restricted by them; access is created and managed on the host (4.2.7 c); nothing can be bought or browsed like a store (4.2.7 d).
 - **PlayStation (5.2.1, 5.2.2)**: Sony's protocol reimplemented, Sony sign-in in a web view, trademark names. Other PlayStation remote-play apps are on the App Store, but Apple may ask for Sony's authorisation, and a complaint from Sony would get the app pulled.
 - **Licences**: rights holders may publish the app under the AGPL. The console code is written after chiaki-ng (AGPL-3.0): if it takes its expression and not just the protocol, its authors are rights holders too, and the GPL is deemed incompatible with the App Store terms (VLC pulled in 2011). Same question for any outside contribution.
-- **Reviewer path**: the reviewer comes in through sharing and sees the whole desktop; lending is only described and shown. It must not be hidden for all that (2.3.1, hidden features): the notes and the video present it. A reviewer, or a later re-review, may still try it.
+- **Reviewer path**: the reviewer comes in through an invitation and sees the whole desktop; lending is only described and shown. It must not be hidden for all that (2.3.1, hidden features): the notes and the video present it. A reviewer, or a later re-review, may still try it.
 - **Fallback plan**: if Apple rejects one of these features, hide it in App Store builds with a build flag (`APPSTORE`), without touching the versions installed from a Mac.
 
 ## Left before submission
 
 - [ ] App Store listing (universal purchase iPhone, iPad, Apple TV), FR and EN text, screenshots.
-- [ ] Demo Station, open share and someone on duty to accept the reviewer, video.
+- [ ] Demo Station (on, no sleep, “Access away from home” on), 30-day invitation, video.
 - [ ] Legal page: add the PlayStation accounts to the Privacy section.
 - [ ] ANSSI declaration, then `ITSEncryptionExportComplianceCode`.
 - [ ] Kyber licence (`third_party/kyber-desktop`): confirm it allows App Store distribution.

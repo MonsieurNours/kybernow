@@ -69,7 +69,8 @@
     "expired": "L'hôte n'a pas répondu.",
     "pending_full": "Trop de demandes en attente : réessayez dans un instant.",
     "share_stopped": "Ce partage est arrêté.",
-    "lend_code": "Ce code sert à emprunter l'ordinateur."
+    "lend_code": "Ce code sert à emprunter l'ordinateur.",
+    "invite_code": "Ce code sert à ajouter l'ordinateur : mettez à jour KyberNow Link."
   },
   "relay": {
     "unreachable": "Le relais ne répond pas.",
@@ -119,5 +120,11 @@
     "decoder": "Cet appareil ne décode pas le HDR.",
     "display": "L'écran de l'ordinateur n'est pas en HDR.",
     "refused": "L'ordinateur n'a pas pu passer en HDR : image en SDR."
+  },
+  "invite": {
+    "bad_password": "Mot de passe refusé.",
+    "no_invite": "Ce code ne sert plus.",
+    "full": "Cette invitation a déjà ajouté tous ses appareils.",
+    "too_many": "Trop d'essais : réessayez dans {minutes} min."
   }
 }

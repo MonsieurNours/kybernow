@@ -125,7 +125,7 @@ The relay's pages have no script, no cookie and no audience measurement, and loa
 
 Proxy: `Host` passed as is, `X-Forwarded-For` and `Forwarded` removed (the browser's address travels in the stream header), `Domain=` removed from every `Set-Cookie`. One origin per Station: one Station's code never reads another's cookies.
 
-Codes: the relay **reserves codes**, unique across all the Stations connected to it. Four codes at most per Station. The relay's logs never contain a code.
+Codes: the relay **reserves codes**, unique across all the Stations connected to it. Four codes at most per Station: the share's, the loan's and the invitations' (two at most). The relay's logs never contain a code.
 
 ## Admin
 
@@ -167,7 +167,8 @@ Admin considers “local” what comes from the loopback (`/api/local/*`, `local
 - A separate `Router`, `relay_guard`, only opens:
   - to a **guest**, when a share is open: `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, a reduced `GET /api/session`, Admin's proxy to Kyber (`kyber_proxy`) with an accepted guest's cookie (WebSocket only, never `/kymux/start_mux`);
   - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` (except `/api/stream/station/*`) and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
-  - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*`, `/api/pairing`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing happens on the network only.
+  - to an **invited device**, when an invitation is open and “Access away from home” is on: `POST /api/pair/invite` (the invitation's code and password, [invitations.en.md](invitations.en.md)); `POST /api/share/join` also passes when an invitation is open (it answers `"invite": true`);
+  - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*` (except `/api/pair/invite`), `/api/pairing`, `/api/invites*`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing by code happens on the network only; an invitation adds a device from afar.
 - **Blocking**: 10 Basic account failures through the relay from the same address (a /64 in IPv6) within 10 minutes block **that address** for 10 minutes (`429 {"code":"locked"}`); the owner, from elsewhere, still gets through. Safeguard: 100 failures within 10 minutes, all addresses together, block all of the devices' access through the relay for 10 minutes (`locked_until` of `GET /api/relay`). Each block puts a line in the feed.
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
@@ -236,7 +237,7 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 - **The relay** is checked by its certificate (web authorities, or pinned fingerprint).
 - **Typed code**: the relay gives Admin's fingerprint. A lying relay could get in the middle; that is the price of a six-digit code. The host sees and accepts each guest.
 - **Link and QR code**: `fp` and `sid` come from the Station; the exchange is end to end, the relay cannot get in the middle.
-- **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use.
+- **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use, except the invitation: with a typed code the fingerprint comes from the relay (as for a share), hence the extra password; with its link or QR code it comes from the Station ([invitations.en.md](invitations.en.md)).
 - **Browser**: the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
 - The public relay is in France; it keeps IP addresses in its logs for a few days (logs rotated by size), never codes. Privacy page on the relay (`/privacy`).
 

@@ -1232,6 +1232,11 @@ fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>
         (_, "stopped") => ShareError::Stopped,
         // Un code de prêt (docs/pret.md) : la Station et le chemin viennent de `share::join`.
         (404, _) if body.get("lend").and_then(|l| l.as_bool()) == Some(true) => ShareError::Lend(Box::default()),
+        // Un code d'invitation (docs/invitations.md) : l'app demande le mot de passe.
+        (404, _) if body.get("invite").and_then(|l| l.as_bool()) == Some(true) => {
+            let computer = body.get("computer").and_then(|c| c.as_str()).unwrap_or_default().to_string();
+            ShareError::Invite(Box::new(crate::invite::InviteCode { computer, ..Default::default() }))
+        }
         (404 | 405, _) => ShareError::NoShare,
         (409, "full") => ShareError::Full,
         (409, "pending_full") => ShareError::PendingFull,

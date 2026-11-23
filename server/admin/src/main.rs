@@ -14,6 +14,8 @@ mod foreground;
 mod gamepads;
 mod gpu;
 mod i18n;
+mod invites;
+mod invites_api;
 mod kyber_config;
 mod kyber_proxy;
 mod kyber_repair;
@@ -576,6 +578,8 @@ pub struct Inner {
     pub lend: lend::Lending,
     /// Les comptes d'amis du prêt (`lend-friends.json`).
     pub friends: lend::Friends,
+    /// Les invitations (`invites.json`, docs/invitations.md).
+    pub invites: invites::Invites,
     /// La dernière partie de chaque ami (`lend-last.json`).
     pub last_played: lend_last::LastPlayed,
     /// Les derniers prêts (`lend-history.json`).
@@ -636,6 +640,7 @@ impl AppState {
             consoles: consoles::Consoles::default(),
             lend: lend::Lending::new(),
             friends: lend::Friends::load(&data_dir),
+            invites: invites::Invites::load(&data_dir),
             last_played: lend_last::LastPlayed::load(&data_dir),
             lend_history: lend::History::load(&data_dir),
             local_token: local_token::LocalToken::new(&data_dir),
@@ -955,6 +960,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         consoles: consoles::Consoles::default(),
         lend: lend::Lending::new(),
         friends: lend::Friends::load(&data_dir),
+        invites: invites::Invites::load(&data_dir),
         last_played: lend_last::LastPlayed::load(&data_dir),
         lend_history: lend::History::load(&data_dir),
         local_token,
@@ -975,6 +981,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     // Comptes en attente : Kyber redémarre dès qu'il redevient libre.
     api::supervise_access(state.clone());
+    invites_api::supervise(state.clone());
     // Partage : invités sans nouvelles, fin de la session de l'hôte.
     share_api::supervise(state.clone());
     // Relais : connecté seulement pour un partage ouvert ou l'accès hors de

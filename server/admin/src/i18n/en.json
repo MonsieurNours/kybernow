@@ -201,7 +201,13 @@
     "retryH264": "; trying again in H.264",
     "retryNoAudio": "; trying again without sound",
     "startedAfter": "{name}’s picture started in {format}{audio}",
-    "noAudioSuffix": ", without sound"
+    "noAudioSuffix": ", without sound",
+    "inviteCreated": "Invitation “{name}” created",
+    "inviteDeleted": "Invitation “{name}” deleted, with its devices",
+    "inviteExpired": "Invitation “{name}” expired: its devices are removed",
+    "inviteDevice": "{name} added by the invitation “{invite}”",
+    "invitesLocked": "Invitations blocked for 10 min after too many wrong passwords.",
+    "invitesLockedAddress": "Invitations blocked for 10 min for {address} after too many wrong passwords."
   },
   "share": {
     "display": "Display {n}",
@@ -245,5 +251,16 @@
       "launchedAfterUnlock": "{app} opened for {name}, once the Mac session was unlocked",
       "launchLocked": "{app} wasn't opened for {name}: the Mac session stayed locked for 2 minutes"
     }
+  },
+  "invites": {
+    "nameRequired": "Give the invitation a name.",
+    "badDuration": "Unknown duration: 1, 7 or 30 days.",
+    "tooMany": "{max} invitations at most at the same time: delete one first.",
+    "unknown": "This invitation no longer exists.",
+    "noInvite": "This code is no longer valid.",
+    "tooManyTries": "Too many attempts: try again in 10 minutes.",
+    "badPassword": "Password refused.",
+    "full": "This invitation has already added {max} devices.",
+    "unavailable": "The computer could not create the access: try again."
   }
 }

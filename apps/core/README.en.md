@@ -15,6 +15,7 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/session.rs` | A session's flow on a dedicated thread, the connection's last resort (below); what the platform provides: `Platform` |
 | `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), with their source in Kyber (`PacketHandler::packet_from`), Opus header |
 | `src/profile.rs` | Profiles, format, bitrate following pixels per second; HDR chip (`hdr_state`, below) |
+| `src/invite.rs` | Invitations ([docs/invitations.en.md](../../docs/invitations.en.md)): the invitation code found by “Join” (`ShareError::Invite`), the password sent (`redeem`), the computer to keep (`Invited`) |
 | `src/lend.rs` | Lending the computer (below): the friend (status, borrowing by a code or an account, waiting, leaving, invitation), the host's view |
 | `src/relay.rs` | Relay (below): tunnel to a Station (Admin and Kyber on the loopback), cache, code at the relay, presence, a session's path |
 | `src/share.rs` | KyberNow Share (below): roles, exchange with Admin, link and code, format check, the sharing Station looked for on the network (`join`) |
