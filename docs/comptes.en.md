@@ -215,10 +215,17 @@ Mockup: “Sign-up and sign-in” row of https://claude.ai/artifact/RSTsS6BYAt9S
 | `GET/POST /compte/code` | “Two-factor authentication”: TOTP code, “Don't ask again on this device for 30 days”, “Use a recovery code” |
 | `GET/POST /compte/oubli`, `/compte/nouveau-mot-de-passe` | Link valid one hour; always the same answer (“If an account exists at this address, a link has just been sent to it.”); a new password closes the other sessions |
 | `GET /compte` | The account (until batch 4's console): email, security (passkeys, two-factor, recovery codes), open sessions, “Sign out”, “Delete the account” |
+| `POST /compte/connexion/passkey` | “Continue with a passkey” (batch 1b): the session opens in full, with no two-factor code |
+| `POST /compte/passkeys/ajouter`, `/renommer`, `/retirer` | Add a passkey (from `/compte` or `/compte/proteger`), rename it, remove it |
+| `GET/POST /compte/supprimer` | “Delete the account”: password or passkey asked again, then erasure and a confirmation email |
+| `POST /compte/export` | “Export my data”: `kybernow-compte.json` (account, accepted terms, security without secrets, sessions, log) |
+| `GET /conditions`, `/confidentialite` | Terms of use and privacy policy ([legal](juridique/README.en.md)), drafts marked as such, served with accounts |
 
 ### Database (SQLite, `accounts.db` in the relay's volume)
 
 `accounts` (id, unique lowercase email, name, Argon2id hash, verified at, created at, deleted at, plan) · `email_tokens` (SHA-256 hash of the token, account, purpose `verify`/`reset`, six-digit code, expiry) · `sessions` (token hash, account, device, created, seen, expiry, 2FA done) · `totp` (account, encrypted secret, enabled at) · `recovery_codes` (account, hash, used at) · `passkeys` (account, credential id, public key, counter, name, created, seen) · `trusted_browsers` (hash, account, expiry) · `audit` (account, kind, address, when). Versioned migrations at startup.
+
+Migration 2 (batch 1b): on `accounts`, `webauthn_user` (WebAuthn identifier, 32 random bytes), `terms_version`, `terms_accepted_at`, `privacy_version`, `privacy_accepted_at`; on `passkeys`, `alg` (COSE) and `transports`; `webauthn_used` (hash of a challenge already used, expiry). Migration 3 is reserved for batch 2.
 
 ### Settings (`relay.toml`, `[accounts]` section)
 
@@ -228,10 +235,18 @@ Mockup: “Sign-up and sign-in” row of https://claude.ai/artifact/RSTsS6BYAt9S
 
 `__Host-kn_session` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`), 256-bit token kept as a hash; CSRF token per form; Argon2id; 10 sign-in attempts per address and 5 per account in 15 minutes; emails and tokens never in the logs; same answers whether an account exists or not (sign-in, reset, sign-up with a taken address: an email tells its owner).
 
+Passkeys (batch 1b): verification written on `ring`, with no WebAuthn library (the Rust ones pull in OpenSSL, which the image doesn't have): CBOR and COSE keys read by the relay, ES256, Ed25519 and RS256, no attestation requested, user verification required (a passkey counts as two-factor authentication), a counter going backwards refused. Challenges aren't stored: signed with the relay's key, bound to the browser (CSRF cookie) and to their purpose, valid for 10 minutes, recorded once used (single-use). The pages keep a single script, `/assets/passkey.js`, served by the relay (`script-src 'self'` on `/compte/…` only); without it, the passkey buttons don't show.
+
 ### Order
 
-1a. Database, sign-up, verification, sign-in, sign-out, password reset, two-factor and recovery codes, SMTP, limits, account page.
-1b. Passkeys (WebAuthn), account deletion, data export.
+1a. Database, sign-up, verification, sign-in, sign-out, password reset, two-factor and recovery codes, SMTP, limits, account page. **Done.**
+1b. Passkeys (WebAuthn), account deletion, data export; version and date of the accepted terms, `/conditions` and `/confidentialite` pages; erasure of never-verified accounts after 7 days. **Done.**
+
+Batch 1b departures:
+
+- deletion erases the account **right away** (no 30-day delay in the database); the 30 days are those of the backup rotation;
+- the legal texts served are the public relay's, as drafts; a self-hosted relay has no setting yet to serve its own, and previous versions can't be browsed yet;
+- passkey sign-in doesn't offer autofill yet (`mediation: "conditional"`): a button is enough for now.
 
 ## Open question
 

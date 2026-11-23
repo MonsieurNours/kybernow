@@ -215,10 +215,17 @@ Maquette : rangée « Inscription et connexion » de https://claude.ai/artifact/
 | `GET/POST /compte/code` | « Double authentification » : code TOTP, « Ne plus demander sur cet appareil pendant 30 jours », « Utiliser un code de secours » |
 | `GET/POST /compte/oubli`, `/compte/nouveau-mot-de-passe` | Lien valable une heure ; réponse toujours la même (« Si un compte existe à cette adresse, un lien vient d'y partir. ») ; un nouveau mot de passe ferme les autres sessions |
 | `GET /compte` | Le compte (en attendant la console du lot 4) : e-mail, sécurité (passkeys, double authentification, codes de secours), sessions ouvertes, « Se déconnecter », « Supprimer le compte » |
+| `POST /compte/connexion/passkey` | « Continuer avec une passkey » (lot 1b) : la session s'ouvre entière, sans code de double authentification |
+| `POST /compte/passkeys/ajouter`, `/renommer`, `/retirer` | Ajouter une passkey (depuis `/compte` ou `/compte/proteger`), la renommer, la retirer |
+| `GET/POST /compte/supprimer` | « Supprimer le compte » : mot de passe ou passkey redemandé, puis effacement et e-mail de confirmation |
+| `POST /compte/export` | « Exporter mes données » : `kybernow-compte.json` (compte, conditions acceptées, sécurité sans secret, sessions, journal) |
+| `GET /conditions`, `/confidentialite` | Conditions d'utilisation et politique de confidentialité ([juridique](juridique/README.md)), brouillons marqués comme tels, servis avec les comptes |
 
 ### Base (SQLite, `accounts.db` dans le volume du relais)
 
 `accounts` (id, e-mail unique en minuscules, nom, empreinte Argon2id, vérifié le, créé le, supprimé le, offre) · `email_tokens` (empreinte SHA-256 du jeton, compte, usage `verify`/`reset`, code à six chiffres, échéance) · `sessions` (empreinte du jeton, compte, appareil, créée, vue, échéance, 2FA faite) · `totp` (compte, secret chiffré, activée le) · `recovery_codes` (compte, empreinte, utilisé le) · `passkeys` (compte, identifiant, clé publique, compteur, nom, créée, vue) · `trusted_browsers` (empreinte, compte, échéance) · `audit` (compte, type, adresse, quand). Migrations versionnées au démarrage.
+
+Migration 2 (lot 1b) : sur `accounts`, `webauthn_user` (identifiant WebAuthn, 32 octets aléatoires), `terms_version`, `terms_accepted_at`, `privacy_version`, `privacy_accepted_at` ; sur `passkeys`, `alg` (COSE) et `transports` ; `webauthn_used` (empreinte d'un défi déjà servi, échéance). La migration 3 est réservée au lot 2.
 
 ### Réglages (`relay.toml`, section `[accounts]`)
 
@@ -228,10 +235,18 @@ Maquette : rangée « Inscription et connexion » de https://claude.ai/artifact/
 
 Cookie `__Host-kn_session` (`Secure`, `HttpOnly`, `SameSite=Lax`), jeton de 256 bits gardé en empreinte ; jeton CSRF par formulaire ; Argon2id ; 10 essais de connexion par adresse et 5 par compte en 15 minutes ; e-mails et jetons jamais dans les journaux ; réponses identiques qu'un compte existe ou non (connexion, oubli, inscription d'une adresse déjà prise : un e-mail le dit au titulaire).
 
+Passkeys (lot 1b) : vérification écrite sur `ring`, sans bibliothèque WebAuthn (celles en Rust tirent OpenSSL, absent de l'image) : CBOR et clés COSE lus par le relais, ES256, Ed25519 et RS256, aucune attestation demandée, vérification de l'utilisateur exigée (une passkey vaut double authentification), compteur qui recule refusé. Les défis ne sont pas gardés en base : signés par la clé du relais, liés au navigateur (cookie CSRF) et à l'usage, valables 10 minutes, notés une fois servis (à usage unique). Les pages gardent un seul script, `/assets/passkey.js`, servi par le relais (`script-src 'self'` sur `/compte/…` seulement) ; sans lui, les boutons des passkeys n'apparaissent pas.
+
 ### Ordre
 
-1a. Base, inscription, vérification, connexion, déconnexion, mot de passe oublié, double authentification et codes de secours, SMTP, limites, page du compte.
-1b. Passkeys (WebAuthn), suppression du compte, export des données.
+1a. Base, inscription, vérification, connexion, déconnexion, mot de passe oublié, double authentification et codes de secours, SMTP, limites, page du compte. **Fait.**
+1b. Passkeys (WebAuthn), suppression du compte, export des données ; version et date des conditions acceptées, pages `/conditions` et `/confidentialite` ; effacement des comptes jamais vérifiés après 7 jours. **Fait.**
+
+Écarts du lot 1b :
+
+- la suppression efface le compte **tout de suite** (pas de délai de 30 jours en base) ; les 30 jours sont ceux de la rotation des sauvegardes ;
+- les textes juridiques servis sont ceux du relais public, en brouillon ; un relais auto-hébergé n'a pas encore de réglage pour servir les siens, et les versions précédentes ne sont pas encore consultables ;
+- la connexion par passkey ne propose pas encore la saisie automatique (`mediation: "conditional"`) : un bouton suffit pour l'instant.
 
 ## Question ouverte
 
