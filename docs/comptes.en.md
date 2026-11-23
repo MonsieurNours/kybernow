@@ -4,7 +4,7 @@ English · [Français](comptes.md)
 
 A **KyberNow account** (email address, password, two-factor authentication, passkeys) gives access, from any device, to every computer it is entitled to: your own, those opened to you (family, friends), those of your team. The relay becomes a Parsec-style service: it holds the accounts, the rights, the organizations, and **decides on access**; each relay installed elsewhere has its own accounts and stays entirely independent.
 
-This document is the framing, to be approved before the mockup and the code. Status: **decisions of 23/11/2026** (table below); the questions still open are at the end.
+This document is the framing, to be approved before the mockup and the code. Status: **decisions of 23/11/2026** (table below), mockup: https://claude.ai/artifact/RSTsS6BYAt9SN9GEMEgiuc; the question still open is at the end.
 
 ## Decisions
 
@@ -24,6 +24,10 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | What is managed where | **The relay's web console** (everything, fleet included) and **Admin** (attach the Station, switch, accesses seen and blocked); the apps sign in and show the account's computers |
 | Legal | Les Lignes Claires, data controller |
 | Schedule | **Everything, before the first App Store submission** |
+| Administer | Manage the computer's access in the console, restart and update the Station from the app, **including through the relay**; open Admin on the network (below). Not the whole Admin interface through the relay |
+| Sharing with an account | A person with the Sharing right **joins without the host's approval**; the host sees them and can remove them |
+| Admin on the network | Admin's password stays; **an account with the Administer right also opens Admin** (“Sign in with KyberNow”, on the network only) |
+| Person and organization | A computer attached to a person can be **opened to an organization** or one of its groups, like to a person |
 
 ## What the user sees
 
@@ -143,10 +147,6 @@ SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self
 
 Each batch has its mockup approved before the code, like invitations.
 
-## Open questions
+## Open question
 
-1. **Administer**: what does this right allow? Proposed: managing this computer's accesses in the console, restarting and updating the Station from the app (including through the relay, which is refused today); **not** the whole Admin interface through the relay for now.
-2. **Sharing with an account**: enter without the host's consent (proposed), or keep the consent?
-3. **Admin password**: does it remain the local access to Admin, or can an account with Administer also open Admin on the network?
-4. **Organizations**: can a computer belong to a person and be shared with an organization, or only to one or the other?
-5. **Demo account for Apple**: on the public relay, with the Session right on the demo Station (proposed).
+1. **Demo account for Apple**: on the public relay, with the Session right on the demo Station (suggested).

@@ -4,7 +4,7 @@
 
 Un **compte KyberNow** (adresse e-mail, mot de passe, double authentification, passkeys) donne accès, depuis n'importe quel appareil, à tous les ordinateurs auxquels il a droit : les siens, ceux qu'on lui a ouverts (famille, amis), ceux de son équipe. Le relais devient un service à la Parsec : il tient les comptes, les droits, les organisations, et **décide de l'accès** ; chaque relais installé ailleurs a ses propres comptes et reste entièrement indépendant.
 
-Ce document est le cadrage, à valider avant la maquette et le code. État : **décisions du 23/11/2026** (tableau ci-dessous) ; les questions encore ouvertes sont à la fin.
+Ce document est le cadrage, à valider avant la maquette et le code. État : **décisions du 23/11/2026** (tableau ci-dessous), maquette : https://claude.ai/artifact/RSTsS6BYAt9SN9GEMEgiuc ; la question encore ouverte est à la fin.
 
 ## Décisions
 
@@ -24,6 +24,10 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 | Où se gère quoi | **Console web du relais** (tout, flotte comprise) et **Admin** (rattacher la Station, interrupteur, accès vus et bloqués) ; les apps se connectent et montrent les ordinateurs du compte |
 | Juridique | Les Lignes Claires, responsable du traitement |
 | Calendrier | **Tout, avant la première soumission à l'App Store** |
+| Administrer | Gérer les accès de l'ordinateur dans la console, redémarrer et mettre à jour la Station depuis l'app, **y compris par le relais** ; ouvrir Admin sur le réseau (ci-dessous). Pas l'interface d'Admin entière par le relais |
+| Partage avec un compte | La personne qui a le droit Partage **entre sans l'accord de l'hôte** ; l'hôte la voit et peut la retirer |
+| Admin sur le réseau | Le mot de passe d'Admin reste ; **un compte qui a le droit Administrer ouvre aussi Admin** (« Se connecter avec KyberNow », sur le réseau seulement) |
+| Personne et organisation | Un ordinateur rattaché à une personne peut être **ouvert à une organisation** ou à l'un de ses groupes, comme à une personne |
 
 ## Ce que voit l'utilisateur
 
@@ -143,10 +147,6 @@ SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans S
 
 Chaque lot a sa maquette validée avant le code, comme les invitations.
 
-## Questions ouvertes
+## Question ouverte
 
-1. **Administrer** : que permet ce droit ? Proposé : gérer les accès de cet ordinateur dans la console, redémarrer et mettre à jour la Station depuis l'app (y compris par le relais, ce qu'on refuse aujourd'hui) ; **pas** l'interface d'Admin entière par le relais pour l'instant.
-2. **Partage avec un compte** : entrer sans l'accord de l'hôte (proposé), ou garder l'accord ?
-3. **Mot de passe d'Admin** : reste-t-il l'accès local à Admin, ou un compte Administrer peut-il aussi ouvrir Admin sur le réseau ?
-4. **Organisations** : un ordinateur peut-il appartenir à une personne et être partagé avec une organisation, ou seulement à l'une ou l'autre ?
-5. **Compte de démonstration pour Apple** : sur le relais public, avec le droit Session sur la Station de démonstration (proposé).
+1. **Compte de démonstration pour Apple** : sur le relais public, avec le droit Session sur la Station de démonstration (proposé).
