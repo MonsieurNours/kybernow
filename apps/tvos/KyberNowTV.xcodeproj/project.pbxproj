@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		77C69C831F462FFEF12C5D37 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5423BE12547D239616C8D49E /* PrivacyInfo.xcprivacy */; };
+		323202ED3FB780EE5A26BE71 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6C97D49ECC127389B3338CEA /* PrivacyInfo.xcprivacy */; };
 		00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A5D35E1D1F39460ADA6CF27 /* MetalSurface.swift */; };
 		009D902343AEA9CBC7B52ADD /* TopShelfStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D77E82DEC090B1E6892D2A /* TopShelfStore.swift */; };
 		00A1BD2C9C445702697ABF3A /* ConsolePads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72614D3FA9C09B285A83EC63 /* ConsolePads.swift */; };
@@ -142,6 +144,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		5423BE12547D239616C8D49E /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		6C97D49ECC127389B3338CEA /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		0339810BB789E02E13966DEA /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
 		068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClientCore.swift; sourceTree = "<group>"; };
 		0C5E2A6702CE5C7966E801CC /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -293,6 +297,7 @@
 		6024A25F878D4680C8F72802 /* KyberKitTV */ = {
 			isa = PBXGroup;
 			children = (
+				5423BE12547D239616C8D49E /* PrivacyInfo.xcprivacy */,
 				72614D3FA9C09B285A83EC63 /* ConsolePads.swift */,
 				41FC50A907BD6DAF12DD33D8 /* GamepadBridge.swift */,
 				BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */,
@@ -407,6 +412,7 @@
 		EBCC1FC963A1180D746F0485 /* KyberNowTV */ = {
 			isa = PBXGroup;
 			children = (
+				6C97D49ECC127389B3338CEA /* PrivacyInfo.xcprivacy */,
 				9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */,
 				FF2B83E12E2DC745DEDD61EC /* AppModel.swift */,
 				272FAFC7C3A7322B56993025 /* AppSettingsView.swift */,
@@ -577,6 +583,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				77C69C831F462FFEF12C5D37 /* PrivacyInfo.xcprivacy in Resources */,
 				0A5FD018AF3848551CC2F981 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -585,6 +592,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				323202ED3FB780EE5A26BE71 /* PrivacyInfo.xcprivacy in Resources */,
 				87F2964ED239257EDAD128ED /* Archivo-wdth-wght.ttf in Resources */,
 				7E927435A4BCBAFE2D6FBDDF /* Assets.xcassets in Resources */,
 				52771D6BEBD682855A334064 /* InfoPlist.xcstrings in Resources */,

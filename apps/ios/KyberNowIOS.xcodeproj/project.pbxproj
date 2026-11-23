@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		47FF68F1A71BDDDFFE796ABC /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4741DA97B26E523ADF6534BB /* PrivacyInfo.xcprivacy */; };
+		D73690086F4521BBDF43ADB1 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CD7F4A884136151EC0A93D28 /* PrivacyInfo.xcprivacy */; };
 		009690538F0D93F0BB964176 /* PlayStationHandoffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */; };
 		00BA5E4BEE7036BBEC9CE678 /* AddHostPanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */; };
 		0186090A9EACDF478809466D /* ConsolePads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946A6AC2CB4F854613684D80 /* ConsolePads.swift */; };
@@ -121,6 +123,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4741DA97B26E523ADF6534BB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		CD7F4A884136151EC0A93D28 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		0226C33E74431675895CF43B /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeymapIOS.swift; sourceTree = "<group>"; };
 		0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibrationView.swift; sourceTree = "<group>"; };
@@ -257,6 +261,7 @@
 		7617DED7C69AACF74C1ABBAE /* KyberKitIOS */ = {
 			isa = PBXGroup;
 			children = (
+				4741DA97B26E523ADF6534BB /* PrivacyInfo.xcprivacy */,
 				02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */,
 				216A2A00CF555F2A470BEDAD /* PlayStationKeyMouse.swift */,
 				8ACCD81A8B16FC7E417CA554 /* StreamView.swift */,
@@ -268,6 +273,7 @@
 		8B5382BAC00E1221D59723CF /* KyberNowIOS */ = {
 			isa = PBXGroup;
 			children = (
+				CD7F4A884136151EC0A93D28 /* PrivacyInfo.xcprivacy */,
 				410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */,
 				91FD6F412BECA15E4705994A /* AddHostScanner.swift */,
 				7769E5B65C16814E172611B0 /* AddHostView.swift */,
@@ -494,6 +500,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D73690086F4521BBDF43ADB1 /* PrivacyInfo.xcprivacy in Resources */,
 				33EBC4B0D83EB9730FAEF3F8 /* AppIcon.icon in Resources */,
 				F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */,
 				9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */,
@@ -508,6 +515,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				47FF68F1A71BDDDFFE796ABC /* PrivacyInfo.xcprivacy in Resources */,
 				6F9B57AA87C6D3AAA36655B9 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -44,6 +44,8 @@
 	</array>
 	<key>GCSupportsControllerUserInteraction</key>
 	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_kybernow._tcp</string>

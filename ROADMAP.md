@@ -49,6 +49,7 @@ Cadrée le 03/11/2026, contrat : [docs/station-macos.md](docs/station-macos.md).
 - **Android TV + Station** : envoi des ordinateurs du téléphone au téléviseur (code affiché au téléviseur, relais par Admin).
 - **iPhone et iPad** : Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.
 - **Apple TV** : TestFlight, puis l'App Store.
+- **App Store (iPhone, iPad, Apple TV)** : ce qui reste avant la soumission, voir [docs/app-store.md](docs/app-store.md) : Station de démonstration joignable par le relais pour l'App Review, vidéo, fiche et captures, étiquettes de confidentialité, questionnaire du chiffrement (déclaration à l'ANSSI), licence de Kyber à confirmer.
 - **Téléviseurs LG** : dépôt Homebrew Channel, pour des mises à jour installées depuis le téléviseur ; vibrations et gâchettes adaptatives de la DualSense par le service Bluetooth de webOS.
 - **Linux** : import DMA-BUF sans copie des images VA-API (4K à 120 Hz) ; décodage NVDEC pour les cartes NVIDIA ; dépôt Flatpak ou Flathub, pour des mises à jour installées seules.
 - **Raspberry Pi** : publier le dépôt apt (clé GPG, hébergement, appel dans `release.sh`) ; voie sans copie (images SAND posées sur un plan DRM).

@@ -49,6 +49,7 @@ Scoped on 2026-11-03, contract: [docs/station-macos.en.md](docs/station-macos.en
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
 - **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.
 - **Apple TV**: TestFlight, then the App Store.
+- **App Store (iPhone, iPad, Apple TV)**: what remains before submission, see [docs/app-store.en.md](docs/app-store.en.md): demo Station reachable through the relay for App Review, video, listing and screenshots, privacy labels, encryption questionnaire (ANSSI declaration), Kyber licence to confirm.
 - **LG TVs**: a Homebrew Channel repository, so updates install from the TV; DualSense rumble and adaptive triggers through webOS's Bluetooth service.
 - **Linux**: zero-copy DMA-BUF import of VA-API frames (4K at 120 Hz); NVDEC decoding for NVIDIA cards; a Flatpak repository or Flathub, so updates install by themselves.
 - **Raspberry Pi**: publish the apt repository (GPG key, hosting, called from `release.sh`); zero-copy path (SAND frames on a DRM plane).

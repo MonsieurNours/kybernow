@@ -138,7 +138,10 @@ targets:
         # l'écran externe a quand même sa scène, non interactive.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        ITSAppUsesNonExemptEncryption: false
+        # Chiffrement standard hors du système d'Apple (rustls, quinn, ring ;
+        # AES des consoles PlayStation) : true, le questionnaire d'App Store
+        # Connect suit (docs/app-store.md, « Chiffrement »).
+        ITSAppUsesNonExemptEncryption: true
     entitlements:
       path: KyberNowIOS/KyberNowIOS.entitlements
       properties:
