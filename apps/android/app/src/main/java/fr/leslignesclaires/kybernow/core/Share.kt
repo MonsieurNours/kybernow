@@ -413,6 +413,12 @@ sealed class JoinReply {
      * Station et sa route ([Lend.borrow]), avec l'écran de l'appareil.
      */
     data class Lend(val code: LendCode) : JoinReply()
+
+    /**
+     * Le code est celui d'une invitation (code 33 du cœur, docs/invitations.md) : l'app demande le mot de passe
+     * (« Ajouter {ordinateur} ») et ajoute l'ordinateur avec `Invite.redeem`.
+     */
+    data class Invite(val code: InviteCode) : JoinReply()
 }
 
 object Share {
@@ -499,6 +505,8 @@ object Share {
         val o = runCatching { JSONObject(text ?: "") }.getOrNull() ?: return JoinReply.Refused("other", "")
         // Un code de prêt : la Station qui l'a et sa route, pour emprunter (jamais reconnu au texte).
         if (o.optInt("code", 1) == LEND) o.optJSONObject("value")?.let(LendCode::parse)?.let { return JoinReply.Lend(it) }
+        // Un code d'invitation : la Station qui l'a, sa route et le nom de l'ordinateur, pour demander le mot de passe.
+        if (o.optInt("code", 1) == INVITE) o.optJSONObject("value")?.let(InviteCode::parse)?.let { return JoinReply.Invite(it) }
         if (o.optInt("code", 1) != 0) return refusal(o)
         val value = o.optJSONObject("value") ?: return JoinReply.Refused("other", "")
         value.optJSONObject("pending")?.let { return JoinReply.Pending(PendingJoin.parse(it)) }
@@ -527,7 +535,7 @@ object Share {
         when (reply) {
             is JoinReply.Joined -> leave(reply.found)
             is JoinReply.Pending -> cancel(reply.pending)
-            is JoinReply.Refused, is JoinReply.Lend -> {}
+            is JoinReply.Refused, is JoinReply.Lend, is JoinReply.Invite -> {}
         }
         throw CancellationException("rejoindre annulé")
     }
@@ -583,6 +591,8 @@ object Share {
     private const val STOPPED = 28
     /** Un code de prêt (`ShareError::Lend`) : `value` `{code, target, route}`. */
     private const val LEND = 29
+    /** Un code d'invitation (`ShareError::Invite`) : `value` `{code, target, route, computer}`. */
+    private const val INVITE = 33
 
     /** La capacité de « Partager » d'après l'info d'Admin (`HostInfo.raw`). */
     fun availability(infoJson: String): ShareAvailability = ShareAvailability.of(Native.shareAvailability(infoJson))

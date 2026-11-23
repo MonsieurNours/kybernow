@@ -14,6 +14,8 @@ mod exports;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod hdr;
 #[cfg(target_os = "android")]
+mod invite;
+#[cfg(target_os = "android")]
 mod jvm;
 #[cfg(target_os = "android")]
 mod lend;

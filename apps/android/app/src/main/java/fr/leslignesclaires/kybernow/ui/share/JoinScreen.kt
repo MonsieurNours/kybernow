@@ -2,6 +2,7 @@ package fr.leslignesclaires.kybernow.ui.share
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -56,6 +57,9 @@ import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.BorrowAsk
 import fr.leslignesclaires.kybernow.core.BorrowReply
+import fr.leslignesclaires.kybernow.core.Invite
+import fr.leslignesclaires.kybernow.core.InviteCode
+import fr.leslignesclaires.kybernow.core.InviteReply
 import fr.leslignesclaires.kybernow.core.JoinReply
 import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.core.Loan
@@ -77,6 +81,7 @@ import fr.leslignesclaires.kybernow.ui.KnIcons
 import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
+import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.add.QrScanner
@@ -104,9 +109,20 @@ private enum class Way { CODE, QR }
  * ordinateurs de l'appareil) ; un lien ou un QR code qui porte `relay` et `sid` ouvre le relais de la même façon, Admin
  * épinglé. Un invité venu par le relais attend l'accord de l'hôte (« En attente de l'accord de l'hôte… », « Annuler ») ;
  * s'il refuse, ne répond pas (120 s) ou que le relais se tait, l'écran le dit avec les textes du cœur.
+ *
+ * Un code d'invitation (docs/invitations.md) : l'écran devient « Ajouter {ordinateur} » et demande le mot de passe de
+ * l'invitation ([InviteContent]) ; accepté, l'ordinateur est gardé comme un ordinateur appairé (avec son relais, pour
+ * l'ouvrir hors de chez soi ; le même ordinateur déjà sur l'accueil, même empreinte d'Admin, prend le nouvel accès) et
+ * [onInvited] le montre sur l'accueil.
  */
 @Composable
-fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> Unit, onBorrowed: (Loan, BorrowAsk) -> Unit = { _, _ -> }) {
+fun JoinScreen(
+    link: ShareLink?,
+    onBack: () -> Unit,
+    onJoined: (ShareFound) -> Unit,
+    onBorrowed: (Loan, BorrowAsk) -> Unit = { _, _ -> },
+    onInvited: (Host) -> Unit = {},
+) {
     val app = KyberNowApp.instance
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -119,6 +135,10 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
     // Un code de prêt (docs/pret.md) : l'emprunt en cours (« Préparation de l'ordinateur »), puis l'attente de l'hôte.
     var preparing by remember { mutableStateOf(false) }
     var borrowWaiting by remember { mutableStateOf<PendingBorrow?>(null) }
+    // Un code d'invitation : le mot de passe, son envoi et son refus (écrit par le cœur, sous le champ).
+    var invite by remember { mutableStateOf<InviteCode?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    var inviteError by remember { mutableStateOf<String?>(null) }
     // Le cœur écrit les refus ; ce texte ne sert que s'il n'en donne aucun.
     val unreachable = stringResource(R.string.add_unreachable)
     // Avec un lien, la Station est donnée : on ne cherche rien sur le réseau (rien ne part avant « Rejoindre »).
@@ -127,6 +147,37 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
     val pending by rememberUpdatedState(waiting)
     val pendingBorrow by rememberUpdatedState(borrowWaiting)
     DisposableEffect(Unit) { onDispose { pending?.let(Share::cancel); pendingBorrow?.let(Lend::cancel) } }
+
+    // Retour ou « Annuler » : l'écran revient au code (rien n'a été ajouté).
+    val leaveInvite = { work?.cancel(); invite = null; adding = false; inviteError = null }
+    BackHandler(enabled = invite != null) { leaveInvite() }
+    invite?.let { code ->
+        InviteContent(
+            computer = code.computer, busy = adding, error = inviteError,
+            onCancel = leaveInvite,
+            onAdd = { password ->
+                if (!adding) {
+                    adding = true
+                    inviteError = null
+                    work = scope.launch {
+                        val reply = Invite.redeem(code, password, app.device)
+                        adding = false
+                        when (reply) {
+                            is InviteReply.Added -> {
+                                // Gardé comme un ordinateur appairé par code : son compte, son empreinte, son relais.
+                                val host = reply.invited.host(app.hosts.hosts.value, code.computer)
+                                app.hosts.put(host, reply.invited.password)
+                                invite = null
+                                onInvited(app.hosts.get(host.id) ?: host)
+                            }
+                            is InviteReply.Refused -> inviteError = reply.message.ifBlank { unreachable }
+                        }
+                    }
+                }
+            },
+        )
+        return
+    }
 
     JoinContent(
         link = link, hasCamera = hasCamera, name = app.guestName, quality = app.guestQuality, busy = busy, error = error, onBack = onBack,
@@ -170,6 +221,12 @@ fun JoinScreen(link: ShareLink?, onBack: () -> Unit, onJoined: (ShareFound) -> U
                         is JoinReply.Refused -> { busy = false; error = answer.message.ifBlank { unreachable } }
                         // Jamais : `waitForHost` n'en rend pas.
                         is JoinReply.Pending -> { busy = false; error = unreachable }
+                        // Un code d'invitation : « Ajouter {ordinateur} », le mot de passe de l'invitation.
+                        is JoinReply.Invite -> {
+                            busy = false
+                            inviteError = null
+                            invite = answer.code
+                        }
                         // Un code de prêt : emprunter l'ordinateur avec ce code, l'écran de l'appareil (« Préparation de
                         // l'ordinateur »), puis, s'il est utilisé, attendre l'accord de l'hôte (« En attente de {hôte}… »).
                         is JoinReply.Lend -> {
@@ -311,6 +368,59 @@ private suspend fun stations(): List<ShareTarget> {
         waited += 250
     }
     return discovery.found.value.map { ShareTarget(it.address, it.port, it.fingerprint) }
+}
+
+/**
+ * « Ajouter {ordinateur} » (docs/link-ui.md, « Invitations ») : le mot de passe donné avec le code (ni correction ni
+ * majuscule automatiques ; tirets et espaces facultatifs : le clavier de la télécommande suffit), « Ajouter l'ordinateur »
+ * (inactif tant que le champ est vide) et « Annuler » ; pendant l'appel, « Ajout de {ordinateur}… » ; un refus sous le
+ * champ ([error], le texte du cœur). [computer] vide : « Ajouter l'ordinateur ». Au téléviseur, le focus est sur le champ.
+ */
+@Composable
+internal fun InviteContent(computer: String, busy: Boolean, error: String?, onCancel: () -> Unit, onAdd: (String) -> Unit) {
+    val s = LocalScale.current
+    var password by remember { mutableStateOf("") }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (s.tv) runCatching { first.requestFocus() } }
+    val title = if (computer.isBlank()) stringResource(R.string.invite_title_unnamed) else stringResource(R.string.invite_title, computer)
+    Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(s.dp(if (s.tv) 56f else 20f)).widthIn(max = s.dp(if (s.tv) 980f else 760f)),
+            verticalArrangement = Arrangement.spacedBy(s.dp(16f)),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FocusCard(onClick = onCancel) {
+                    Box(Modifier.background(Kn.frost.copy(alpha = 0.08f)).padding(s.dp(10f))) { KnIcon(KnIcons.back, size = 20f) }
+                }
+                Spacer(Modifier.width(s.dp(14f)))
+                Title(title, size = if (s.tv) 40f else 26f)
+            }
+            Body(stringResource(R.string.invite_help), color = Kn.frost2, size = 15f)
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it.take(64) },
+                label = { Text(stringResource(R.string.invite_password)) },
+                placeholder = { Text(stringResource(R.string.invite_password_placeholder), fontFamily = KnFonts.mono, color = Kn.muted) },
+                singleLine = true,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().focusRequester(first),
+                textStyle = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(22f), letterSpacing = s.sp(1f), color = Kn.frost),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false),
+                colors = fieldColors,
+            )
+            error?.let { Body(it, color = Kn.warn, size = if (s.tv) 15f else 14f) }
+            if (busy) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(14f))) {
+                    CircularProgressIndicator(Modifier.size(s.dp(26f)), color = Kn.spectre, strokeWidth = s.dp(3f))
+                    Body(if (computer.isBlank()) stringResource(R.string.invite_adding_unnamed) else stringResource(R.string.invite_adding, computer), size = 18f, weight = 600, color = Kn.frost)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(s.dp(12f)), verticalAlignment = Alignment.CenterVertically) {
+                PrimaryButton(stringResource(R.string.invite_add), { onAdd(password) }, enabled = !busy && Invite.ready(password))
+                GlassButton(stringResource(R.string.cancel), onCancel)
+            }
+        }
+    }
 }
 
 @Composable

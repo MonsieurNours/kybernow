@@ -364,6 +364,15 @@
     <string name="share_join_button">Join</string>
     <string name="share_join_searching">Looking for the share…</string>
     <string name="share_join_waiting">Waiting for the host to accept…</string>
+    <string name="invite_title" formatted="true">Add %1$s</string>
+    <string name="invite_title_unnamed">Add the computer</string>
+    <string name="invite_help">This invitation adds the computer to your devices. Enter the password given with the code.</string>
+    <string name="invite_password">Password</string>
+    <string name="invite_password_placeholder">xxxx-xxxx-xxxx</string>
+    <string name="invite_add">Add the computer</string>
+    <string name="invite_adding" formatted="true">Adding %1$s…</string>
+    <string name="invite_adding_unnamed">Adding the computer…</string>
+    <string name="invite_added" formatted="true">%1$s has been added.</string>
     <string name="share_guest_on" formatted="true">Guest on %1$s</string>
     <string name="share_role_spectator">Spectator</string>
     <string name="share_role_player">Player</string>

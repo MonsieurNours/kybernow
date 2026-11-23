@@ -3,7 +3,9 @@
 //! `fr.leslignesclaires.kybernow.core.Native`. Réponses en JSON comme les
 //! autres appels d'Admin : `{"code": 0, "value": …}` ou `{"code": …,
 //! "error": "…"}` ; « Rejoindre » ajoute ses refus : 20 aucun partage avec ce
-//! code, 21 complet, 22 trop d'essais, 23 format de l'image illisible.
+//! code, 21 complet, 22 trop d'essais, 23 format de l'image illisible ; 29 un
+//! code de prêt, 33 un code d'invitation (`value` : de quoi emprunter, ou
+//! ajouter l'ordinateur avec `inviteRedeem`).
 
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jlong, jstring};
@@ -27,6 +29,12 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
             let text = ShareError::Lend(code.clone()).to_string();
             return serde_json::json!({ "code": 29, "error": text, "kind": "lend", "value": code }).to_string();
         }
+        // Un code d'invitation (docs/invitations.md) : `value` `{code, target,
+        // route, computer}`, à donner à `inviteRedeem` avec le mot de passe.
+        Err(ShareError::Invite(code)) => {
+            let text = ShareError::Invite(code.clone()).to_string();
+            return serde_json::json!({ "code": 33, "error": text, "kind": "invite", "value": code }).to_string();
+        }
         Err(e) => e,
     };
     let code = match &e {
@@ -39,6 +47,7 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
         ShareError::PendingFull => 26,
         ShareError::Stopped => 28,
         ShareError::Lend(_) => 29,
+        ShareError::Invite(_) => 33,
         ShareError::Other(_) => 1,
     };
     serde_json::json!({ "code": code, "error": e.to_string(), "kind": e.kind() }).to_string()
@@ -82,7 +91,9 @@ fn joining_envelope(r: Result<share::Joining, ShareError>) -> String {
 /// `kn_share_join_anywhere`) : `relays` `["relais.exemple.org:9443", …]` (le
 /// relais public est toujours interrogé en plus).
 /// `value` : `{"joined": {target, joined}}` ou `{"pending": {…}}` ; refus en
-/// plus : 24 refusé, 25 sans réponse, 26 trop de demandes ; 30, 31 relais.
+/// plus : 24 refusé, 25 sans réponse, 26 trop de demandes ; 30, 31 relais ;
+/// 29 code de prêt, 33 code d'invitation (`value` : `{code, target, route,
+/// computer}`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareJoinAnywhere(
     mut env: Env,

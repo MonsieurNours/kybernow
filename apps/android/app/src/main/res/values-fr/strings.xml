@@ -364,6 +364,15 @@
     <string name="share_join_button">Rejoindre</string>
     <string name="share_join_searching">Recherche du partage…</string>
     <string name="share_join_waiting">En attente de l\'accord de l\'hôte…</string>
+    <string name="invite_title" formatted="true">Ajouter %1$s</string>
+    <string name="invite_title_unnamed">Ajouter l\'ordinateur</string>
+    <string name="invite_help">Cette invitation ajoute l\'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.</string>
+    <string name="invite_password">Mot de passe</string>
+    <string name="invite_password_placeholder">xxxx-xxxx-xxxx</string>
+    <string name="invite_add">Ajouter l\'ordinateur</string>
+    <string name="invite_adding" formatted="true">Ajout de %1$s…</string>
+    <string name="invite_adding_unnamed">Ajout de l\'ordinateur…</string>
+    <string name="invite_added" formatted="true">%1$s est ajouté.</string>
     <string name="share_guest_on" formatted="true">Invité sur %1$s</string>
     <string name="share_role_spectator">Spectateur</string>
     <string name="share_role_player">Joueur</string>

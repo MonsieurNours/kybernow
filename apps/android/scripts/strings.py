@@ -412,6 +412,17 @@ S = [
 ("share_join_button", "Rejoindre", "Join"),
 ("share_join_searching", "Recherche du partage…", "Looking for the share…"),
 ("share_join_waiting", "En attente de l'accord de l'hôte…", "Waiting for the host to accept…"),
+# Invitations (docs/link-ui.md, « Invitations » ; contrat : docs/invitations.md) : « Rejoindre avec un code » tombe
+# sur un code d'invitation. Les refus du mot de passe sont écrits par le cœur (`InviteError::text`).
+("invite_title", "Ajouter %1$s", "Add %1$s"),
+("invite_title_unnamed", "Ajouter l'ordinateur", "Add the computer"),
+("invite_help", "Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.", "This invitation adds the computer to your devices. Enter the password given with the code."),
+("invite_password", "Mot de passe", "Password"),
+("invite_password_placeholder", "xxxx-xxxx-xxxx", "xxxx-xxxx-xxxx"),
+("invite_add", "Ajouter l'ordinateur", "Add the computer"),
+("invite_adding", "Ajout de %1$s…", "Adding %1$s…"),
+("invite_adding_unnamed", "Ajout de l'ordinateur…", "Adding the computer…"),
+("invite_added", "%1$s est ajouté.", "%1$s has been added."),
 ("share_guest_on", "Invité sur %1$s", "Guest on %1$s"),
 ("share_role_spectator", "Spectateur", "Spectator"),
 ("share_role_player", "Joueur", "Player"),

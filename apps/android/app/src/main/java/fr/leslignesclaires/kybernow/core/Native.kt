@@ -65,7 +65,8 @@ object Native {
      * « Rejoindre » sur le réseau et hors de chez soi (docs/relais.md) : `relays` `["relais.exemple.org:9443", …]`, les relais
      * des ordinateurs connus (le relais public, `share.kybernow.app`, est toujours interrogé en plus) ; `value` : `{"joined": {target, joined}}` ou `{"pending": {route, guest, secret, expires}}` ;
      * refus en plus : 24 refusé, 25 sans réponse de l'hôte, 26 trop de demandes en attente, 30 relais muet, 31 ordinateur absent ;
-     * 29 : un code de prêt de l'ordinateur, `value` `{code, target, route}` à donner à [lendBorrow].
+     * 29 : un code de prêt de l'ordinateur, `value` `{code, target, route}` à donner à [lendBorrow] ;
+     * 33 : un code d'invitation, `value` `{code, target, route, computer}` à donner à [inviteRedeem].
      */
     @JvmStatic external fun shareJoinAnywhere(targetsJson: String, relaysJson: String, requestJson: String, capabilitiesJson: String?): String
     /** Un lien de partage ([shareParseLink]) : le réseau d'abord, puis le relais (`relay`, `sid`) ; même `value`. */
@@ -143,6 +144,15 @@ object Native {
     @JvmStatic external fun consoleLendAnswer(handle: Long, request: String, accept: Boolean, steam: Int): String?
     /** « Reprendre l'ordinateur » (préavis de 2 min) ou, `now`, « Reprendre tout de suite ». */
     @JvmStatic external fun consoleLendTakeBack(handle: Long, now: Boolean): String?
+
+    // Invitations (docs/invitations.md) : ajouter un ordinateur de loin, sans accord sur place. Bloquant (15 s au plus).
+    /**
+     * « Ajouter l'ordinateur » : `codeJson` la `value` du code 33 de « Rejoindre », `password` celui de l'invitation,
+     * `deviceJson` `{id, name, kind, os, app}` ; `value` `{hostname, address, port, fingerprint, username, password, relay,
+     * invite_name, expires, via_relay}` ; refus 60 mot de passe refusé, 61 code qui ne sert plus, 62 invitation complète,
+     * 63 trop d'essais, 64 accès hors de chez vous coupé, 65 le reste (`error` : le texte à montrer).
+     */
+    @JvmStatic external fun inviteRedeem(codeJson: String, password: String, deviceJson: String): String
 
     // Mises à jour de l'app (réseau : jamais sur le fil principal).
     /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */

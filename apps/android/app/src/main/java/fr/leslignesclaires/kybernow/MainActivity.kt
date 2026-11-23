@@ -13,6 +13,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -115,7 +116,7 @@ class MainActivity : AppCompatActivity() {
                         onConsolePaired = { c -> model.select(c.id); route = Route.Home },
                     )
                     is Route.ConsoleSettings -> ConsoleSettingsScreen(r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
-                    is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed)
+                    is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed, onInvited = ::invited)
                     is Route.HostSettings -> HostSettingsScreen(model, r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
                     Route.AppSettings -> AppSettingsScreen(onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads })
                     Route.Gamepads -> {
@@ -179,6 +180,16 @@ class MainActivity : AppCompatActivity() {
         KyberNowApp.instance.handOverLoan(loan, ask)
         startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_BORROW, true))
         route = Route.Home
+    }
+
+    /**
+     * Une invitation a ajouté l'ordinateur (docs/invitations.md) : il est sur l'accueil, sélectionné, avec un avis bref
+     * « {ordinateur} est ajouté. ». Il s'ouvre ensuite par « Se connecter », sur le réseau ou par le relais.
+     */
+    private fun invited(h: Host) {
+        model.select(h.id)
+        route = Route.Home
+        Toast.makeText(this, getString(R.string.invite_added, h.name), Toast.LENGTH_SHORT).show()
     }
 
     override fun onStart() {
