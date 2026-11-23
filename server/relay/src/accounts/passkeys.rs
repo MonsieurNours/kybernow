@@ -250,7 +250,7 @@ impl Rp {
     /// D'après l'adresse publique (`https://share.kybernow.app[:port]`).
     pub fn of(public_url: &str) -> Rp {
         let origin = public_url.trim_end_matches('/').to_string();
-        let host = origin.trim_start_matches("https://").split('/').next().unwrap_or("");
+        let host = origin.split_once("://").map_or(origin.as_str(), |(_, rest)| rest).split('/').next().unwrap_or("");
         // Une adresse IPv6 ([::1]:8443) garde ses crochets ; le port n'est pas dans l'identifiant.
         let id = match host.strip_prefix('[') {
             Some(v6) => v6.split(']').next().unwrap_or("").to_string(),
@@ -767,6 +767,7 @@ pub mod tests {
         assert_eq!(Rp::of("https://share.kybernow.app"), Rp { id: "share.kybernow.app".into(), origin: "https://share.kybernow.app".into() });
         assert_eq!(Rp::of("https://Relais.Exemple.org:8443").id, "relais.exemple.org");
         assert_eq!(Rp::of("https://relais.exemple.org:8443").origin, "https://relais.exemple.org:8443");
+        assert_eq!(Rp::of("http://localhost:8787"), Rp { id: "localhost".into(), origin: "http://localhost:8787".into() });
     }
 
     #[test]
