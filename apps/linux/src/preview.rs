@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, BorrowSessionUi, BorrowSource, BorrowUi, Confirm, Found, FriendForm, HostLive, InviteUi, JoinField, JoinState, Layout, LendAvail, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam, LinkUi, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, RouteUi, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::app::{AddStep, App, BarMenu, BorrowSessionUi, BorrowSource, BorrowUi, Confirm, Found, FriendForm, HostLive, InvitationForm, InviteUi, JoinField, JoinState, Layout, LendAvail, LendCodeUi, LendHostState, LendHostView, LendLive, LendNoticeKind, LendRequestUi, LendSlotUi, LendState, LendSteam, LinkUi, MenuItem, NetKind, Online, PadInfo, PathKind, Phase, RouteUi, Screen, ScreensPlan, Section, SessionUi, Setting, ShareAvail, ShareGuest, ShareQuality, ShareRelay, ShareRole, ShareView, StationKind, StationLive, StationOp, StationStep, Stats, Target};
 use crate::model::{Borrowed, Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
@@ -804,6 +804,22 @@ fn lend_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix
     app.join.wait_host = Some("Matthieu".into());
     app.focus = Target::JoinCancel;
     shot(app, cv, None, dir, &name("24g-pret-code-attente"));
+    app.join = JoinState::new();
+
+    // Invitations : « Rejoindre avec un code » tombe sur un code d'invitation : « Ajouter {ordinateur} », le mot de
+    // passe, l'appel, le refus sous le champ.
+    app.join = JoinState { name: "Léa".into(), code: "123456".into(), busy: true, attempt: 1, ..JoinState::new() };
+    app.screen = Screen::Join;
+    app.join_invited(1, "PC du salon");
+    shot(app, cv, None, dir, &name("24l-invitation"));
+    app.invitation.password = "k7mq-p2xa-9fz3".into();
+    app.invitation.busy = true;
+    shot(app, cv, None, dir, &name("24m-invitation-ajout"));
+    app.invitation.busy = false;
+    app.invitation.message = Some(crate::i18n::tr("Mot de passe refusé.", "Password refused.").into());
+    shot(app, cv, None, dir, &name("24n-invitation-refus"));
+    app.invitation = InvitationForm::default();
+    app.add.step = AddStep::Code;
     app.join = JoinState::new();
 
     // La session d'emprunt : la connexion (« Préparation de l'ordinateur »), la barre ou le menu, le préavis, « Rendre

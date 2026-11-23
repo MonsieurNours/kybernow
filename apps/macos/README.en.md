@@ -196,6 +196,18 @@ Handing your PC over to a friend while you're not using it (KyberNow Share, 0.9.
 
 **Checked** (30/10/2026, Debug, windowless renders): the host panel (choices, code with a request, Station too old; also on 30/10: lending not possible, code with the relay link in preparation, relay joined, not reachable yet), the friend's bar (with “Disconnect”), “Waiting for Matthieu…”, the notice, the end by the host (“KyberNow Share” eyebrow), the “Come back” card after a lost network, the home screen of a friend's computer (in use, with a time slot) and of a lent computer (during the notice). **Not checked**: a real 0.9.0 Station (borrowing, waiting, heartbeat, real notice and end, “Come back”, taking back, creating a code), the “Give the computer back to {host}?” confirmation (NSAlert), adding through the invitation link and the “With a friend account” tab in a window, the Keychain for friend accounts, the switch from “Getting the away-from-home link ready…” to “Not reachable away from home yet.” after 10 s (same `RelayLinkWait` as sharing), opening an unreadable invitation link, “Disconnect” then “Come back”, the “You gave back the computer.” end from the launcher.
 
+## Invitations
+
+Adding a computer from afar, without anyone having to accept it on the spot: a six-digit code and a password created in Admin (contract: [docs/invitations.en.md](../../docs/invitations.en.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Invitations”; core: [docs/coeur-apple.en.md](../../docs/coeur-apple.en.md), “Invitations”). A single component for the Mac, the Apple TV, the iPhone and the iPad.
+
+- **KyberKit** (`ShareCore.swift`): `ShareJoinError.invite` (`KN_SHARE_INVITE`: “Join” hit an invitation code), `InviteCodeFound` (the code, the computer's name, the core's JSON passed back as is), `Invited` (the added computer: Admin's address and port, fingerprint, the device's own account, `RelayInfo`, the invitation's name and expiry), `InviteError` (core refusals, 60 to 65), `Invite.redeem` (`kn_invite_redeem`, off the main thread).
+- **Shared by the three apps**: `ShareJoinModel.onInvite`, `InviteAddModel` (`Share.swift`: the password, the call, the refusal), `HostStore.addInvited` (`Model.swift`: kept like a computer paired by code, `pairedByCode`, password in the Keychain, relay; a computer with the same Admin fingerprint takes the new access instead of being added twice), `InviteText` (`LinkUI.swift`).
+- **Mac**: `InviteAddPane` (`JoinFlow.swift`), in the “Join a share” sheet.
+
+“Join with a code” on an invitation code: the sheet becomes “Add {computer}” (no name: “Add the computer”), “This invitation adds the computer to your devices. Enter the password given with the code.”, the “Password” field (`xxxx-xxxx-xxxx`, no autocorrect), “Add the computer” (inactive while the field is empty, Return) and “Cancel” (Escape); during the call “Adding {computer}…”, a refusal from the core under the field (“Password refused.”, “This code is no longer valid.”…). Once added, the computer is selected on the home screen, with the notice “{computer} has been added.”; it then opens with “Connect”, on the network or through the relay.
+
+**Demo** (Debug): `-demoInvite YES` (any code typed in “Join” is an invitation for “PC du salon”; password `k7mq-p2xa-9fz3`, any other is refused).
+
 ## PlayStation consoles
 
 Playing your PS5 (or PS4) on this Mac, without Kyber or a Station (contract: [docs/playstation.en.md](../../docs/playstation.en.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “PlayStation consoles”). Sony's protocol is in the core (`apps/core/src/playstation`, bridge `apps/apple/src/playstation.rs`); the app only draws the screens, and picture and sound take the same path as a computer session.
@@ -241,7 +253,7 @@ apps/macos/
 ├── KyberKit/              # framework, Mac, Apple TV, iPhone and iPad: the Rust core as seen from Swift, image, sound, inputs
 │   ├── SessionEngine      # the Rust core's session (docs/coeur-apple.en.md): states, notices, packets, measurements
 │   ├── ConsoleClientCore  # Admin outside a session, through the core (info, preview, fingerprint, pairing)
-│   ├── ShareCore          # KyberNow Share: roles, guests, joining, link, QR code, host calls (shared)
+│   ├── ShareCore          # KyberNow Share: roles, guests, joining, link, QR code, host calls, invitations (shared)
 │   ├── LendCore           # lending the computer: status, borrowing, waiting, invitation, host calls (shared)
 │   ├── PlayStationCore    # PlayStation consoles: search, PSN account, pairing, wake, play (picture and sound), sending between devices (PSHandoff)
 │   ├── DualSenseHaptics   # HD haptics: sound card of the DualSense plugged in over USB, channels 3 and 4

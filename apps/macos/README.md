@@ -196,6 +196,18 @@ Confier son PC à un ami pendant qu'on ne s'en sert pas (KyberNow Share, 0.9.0 ;
 
 **Vérifié** (30/10/2026, Debug, rendus sans fenêtre) : le panneau de l'hôte (choix, code avec une demande, Station trop ancienne ; le 30/10 aussi : prêt impossible, code avec le lien du relais en préparation, relais joint, pas encore joignable), la barre de l'ami (avec « Se déconnecter »), « En attente de Matthieu… », le préavis, la fin par l'hôte (surtitre « KyberNow Share »), la carte « Revenir » après un réseau perdu, l'accueil de l'ordinateur d'un ami (occupé, avec un créneau) et celui d'un ordinateur prêté (pendant le préavis). **Pas vérifié** : une vraie Station 0.9.0 (emprunt, attente, signe de vie, préavis et fin réels, « Revenir », reprise, code créé), la confirmation « Rendre l'ordinateur à {hôte} ? » (NSAlert), l'ajout par le lien d'invitation et l'onglet « Avec un compte d'ami » dans une fenêtre, le Trousseau des comptes d'amis, le passage de « Préparation du lien hors de chez vous… » à « Pas encore joignable hors de chez vous. » au bout de 10 s (même `RelayLinkWait` que le partage), un lien d'invitation illisible ouvert, « Se déconnecter » puis « Revenir », la fin « Vous avez rendu l'ordinateur. » depuis le lanceur.
 
+## Invitations
+
+Ajouter un ordinateur de loin, sans que personne ait à l'accepter sur place : un code à six chiffres et un mot de passe créés dans Admin (contrat : [docs/invitations.md](../../docs/invitations.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Invitations » ; cœur : [docs/coeur-apple.md](../../docs/coeur-apple.md), « Invitations »). Un seul composant pour le Mac, l'Apple TV, l'iPhone et l'iPad.
+
+- **KyberKit** (`ShareCore.swift`) : `ShareJoinError.invite` (`KN_SHARE_INVITE` : « Rejoindre » est tombé sur un code d'invitation), `InviteCodeFound` (le code, le nom de l'ordinateur, le JSON du cœur rendu tel quel), `Invited` (l'ordinateur ajouté : adresse et port d'Admin, empreinte, compte propre à l'appareil, `RelayInfo`, nom et échéance de l'invitation), `InviteError` (refus du cœur, 60 à 65), `Invite.redeem` (`kn_invite_redeem`, hors du fil principal).
+- **Partagé par les trois apps** : `ShareJoinModel.onInvite`, `InviteAddModel` (`Share.swift` : le mot de passe, l'appel, le refus), `HostStore.addInvited` (`Model.swift` : gardé comme un ordinateur appairé par code, `pairedByCode`, mot de passe au Trousseau, relais ; un ordinateur de même empreinte d'Admin prend le nouvel accès au lieu d'être ajouté deux fois), `InviteText` (`LinkUI.swift`).
+- **Mac** : `InviteAddPane` (`JoinFlow.swift`), dans la feuille « Rejoindre un partage ».
+
+« Rejoindre avec un code » sur un code d'invitation : la feuille devient « Ajouter {ordinateur} » (sans nom : « Ajouter l'ordinateur »), « Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code. », le champ « Mot de passe » (`xxxx-xxxx-xxxx`, sans correction automatique), « Ajouter l'ordinateur » (inactif tant que le champ est vide, Entrée) et « Annuler » (Échap) ; pendant l'appel « Ajout de {ordinateur}… », un refus du cœur sous le champ (« Mot de passe refusé. », « Ce code ne sert plus. »…). Ajouté, l'ordinateur est sélectionné sur l'accueil, avec l'avis « {ordinateur} est ajouté. » ; il s'ouvre ensuite par « Se connecter », sur le réseau ou par le relais.
+
+**Démonstration** (Debug) : `-demoInvite YES` (tout code tapé dans « Rejoindre » est une invitation pour « PC du salon » ; mot de passe `k7mq-p2xa-9fz3`, tout autre est refusé).
+
 ## Consoles PlayStation
 
 Jouer à sa PS5 (ou PS4) sur ce Mac, sans Kyber ni Station (contrat : [docs/playstation.md](../../docs/playstation.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Consoles PlayStation »). Le protocole de Sony est dans le cœur (`apps/core/src/playstation`, pont `apps/apple/src/playstation.rs`) ; l'app ne fait que l'interface, et l'image et le son passent par le même chemin qu'une session d'ordinateur.
@@ -241,7 +253,7 @@ apps/macos/
 ├── KyberKit/              # framework, Mac, Apple TV, iPhone et iPad : le cœur Rust vu de Swift, image, son, entrées
 │   ├── SessionEngine      # la session du cœur Rust (docs/coeur-apple.md) : états, avis, paquets, mesures
 │   ├── ConsoleClientCore  # Admin hors session par le cœur (info, aperçu, empreinte, appairage)
-│   ├── ShareCore          # KyberNow Share : rôles, invités, rejoindre, lien, QR code, appels de l'hôte (partagé)
+│   ├── ShareCore          # KyberNow Share : rôles, invités, rejoindre, lien, QR code, appels de l'hôte, invitations (partagé)
 │   ├── LendCore           # prêter l'ordinateur : statut, emprunt, attente, invitation, appels de l'hôte (partagé)
 │   ├── PlayStationCore    # consoles PlayStation : recherche, compte PSN, association, réveil, partie (image et son), envoi entre appareils (PSHandoff)
 │   ├── DualSenseHaptics   # vibrations HD : carte son de la DualSense branchée en USB, voies 3 et 4

@@ -7948,6 +7948,82 @@ mod tests {
         assert_eq!((app.join.busy, app.join.lending, app.join.message.as_deref()), (false, false, Some("Matthieu a refusé.")));
     }
 
+    /// Invitations (docs/invitations.md) : « Rejoindre avec un code » tombe sur un code d'invitation. « Ajouter
+    /// {ordinateur} » demande le mot de passe ; « Ajouter l'ordinateur » est inactif tant que le champ est vide ; le
+    /// refus va sous le champ ; « Annuler » ramène à « Rejoindre un partage » et une réponse tardive ne change plus
+    /// l'écran ; la réussite garde l'ordinateur, le choisit sur l'accueil et le dit.
+    #[test]
+    fn an_invite_code_from_join() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.join = JoinState { code: "123456".into(), name: "Léa".into(), ..JoinState::new() };
+        app.go(Screen::Join);
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        assert!(!app.join_invited(attempt + 1, "PC du salon"), "une autre recherche n'ouvre rien");
+        assert!(app.join_invited(attempt, "PC du salon"));
+        assert_eq!((app.screen, app.add.step.clone(), app.focus, app.join.busy), (Screen::Add, AddStep::Invitation, Target::InvitationPassword, false));
+        assert_eq!((app.invitation.title(), app.invitation.adding()), ("Ajouter PC du salon".to_string(), "Ajout de PC du salon…".to_string()));
+        assert!(app.activate(Target::InvitationGo).is_empty(), "inactif tant que le champ est vide");
+        for c in "k7mq-p2xa".chars() {
+            app.nav(Nav::Char(c));
+        }
+        app.nav(Nav::Erase);
+        assert_eq!(app.invitation.password, "k7mq-p2x");
+        app.focus = Target::InvitationPassword;
+        let acts = app.nav(Nav::Ok);
+        let first = app.invitation.attempt;
+        assert_eq!(acts, vec![Action::RedeemInvite { attempt: first, password: "k7mq-p2x".into() }]);
+        assert!(app.activate(Target::InvitationGo).is_empty(), "un seul appel à la fois");
+        app.invitation_failed(first, "Mot de passe refusé.".into());
+        assert_eq!((app.invitation.busy, app.invitation.message.as_deref()), (false, Some("Mot de passe refusé.")));
+        app.nav(Nav::Char('3'));
+        assert_eq!(app.invitation.message, None, "taper efface le refus");
+        // « Annuler » pendant l'appel : retour à « Rejoindre un partage », la réponse n'y change rien.
+        app.activate(Target::InvitationGo);
+        let second = app.invitation.attempt;
+        app.activate(Target::InvitationCancel);
+        assert_eq!((app.screen, app.join.code.as_str()), (Screen::Join, "123456"));
+        app.invitation_failed(second, "Mot de passe refusé.".into());
+        assert_eq!(app.invitation.message, None);
+        // Un autre essai, réussi : l'ordinateur est gardé, choisi, et l'avis le dit.
+        app.activate(Target::JoinGo);
+        let attempt = app.join.attempt;
+        assert!(app.join_invited(attempt, ""));
+        assert_eq!(app.invitation.title(), "Ajouter l'ordinateur");
+        for c in "k7mqp2xa9fz3".chars() {
+            app.activate(Target::Key(c));
+        }
+        app.activate(Target::InvitationGo);
+        let third = app.invitation.attempt;
+        let invited = Host { id: "n".into(), name: "PC du salon".into(), address: "192.168.1.20".into(), port: 47990, fingerprint: Some("sha256:aa".into()), user: "Deck-ab12".into(), password: "s".into(), relay: Some(crate::model::HostRelay { server: "share.kybernow.app".into(), id: "abcd".into(), remote_access: true }), ..host() };
+        assert_eq!(app.invitation_added(third, invited), vec![Action::Save, Action::Poll]);
+        assert_eq!((app.screen, app.store.selected.as_deref(), app.store.hosts.len()), (Screen::Home, Some("n"), 1));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("PC du salon est ajouté."));
+        assert!(app.join.code.is_empty() && app.join.name == "Léa");
+        crate::i18n::force_english(true);
+        assert_eq!(invitation_added_notice("PC"), "PC has been added.");
+        assert_eq!(InvitationForm { computer: "PC".into(), ..InvitationForm::default() }.title(), "Add PC");
+        crate::i18n::force_english(false);
+    }
+
+    /// Le même ordinateur ajouté de nouveau par une invitation (même empreinte d'Admin, même ailleurs) prend le nouvel
+    /// accès, sans doublon ; ses réglages restent.
+    #[test]
+    fn an_invited_computer_is_not_added_twice() {
+        let mut store = Store::default();
+        let mut old = Host { fingerprint: Some("sha256:aa".into()), ..host() };
+        old.settings.hdr = false;
+        store.hosts.push(old);
+        let again = Host { id: "n".into(), address: "192.168.1.20".into(), port: 47990, fingerprint: Some("sha256:aa".into()), user: "Deck-ab12".into(), ..host() };
+        assert_eq!(store.put_invited(again), "a");
+        assert_eq!(store.hosts.len(), 1);
+        assert_eq!((store.hosts[0].address.as_str(), store.hosts[0].user.as_str(), store.hosts[0].settings.hdr), ("192.168.1.20", "Deck-ab12", false));
+        let other = Host { id: "o".into(), address: "10.0.0.9".into(), fingerprint: Some("sha256:bb".into()), ..host() };
+        assert_eq!(store.put_invited(other), "o");
+        assert_eq!(store.hosts.len(), 2);
+    }
+
     /// La carte d'un ordinateur emprunté : « Emprunter » part avec le mot de passe retenu ; sans lui, le formulaire du
     /// compte d'ami le redemande ; un ordinateur prêté à quelqu'un d'autre ne s'emprunte pas.
     #[test]

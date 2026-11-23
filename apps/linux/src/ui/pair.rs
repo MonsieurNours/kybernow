@@ -36,6 +36,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         AddStep::Mac => mac(app, cv, f, x0, y0, u),
         AddStep::Verify { address, port, fingerprint } => verify(app, cv, f, x0, y0, u, &address, port, &fingerprint),
         AddStep::Friend => friend(app, cv, f, x0, y0, u),
+        AddStep::Invitation => invitation(app, cv, f, x0, y0, u),
         AddStep::Ps(step) => super::ps::add(app, cv, f, &step, x0, y0, u, footer),
     }
     if app.layout.console() {
@@ -50,7 +51,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 x += legend(cv, x, gy, g, &["B"], tr("Retour", "Back")) + 28.0 * u;
                 legend(cv, x, gy, g, &["Y"], tr("Entrer une adresse", "Enter an address"));
             }
-            AddStep::Address | AddStep::Mac | AddStep::Friend => {
+            AddStep::Address | AddStep::Mac | AddStep::Friend | AddStep::Invitation => {
                 x += legend(cv, x, gy, g, &["A"], tr("Touche", "Key")) + 28.0 * u;
                 legend(cv, x, gy, g, &["B"], tr("Retour", "Back"));
                 let label = tr("Clavier", "Keyboard");
@@ -399,6 +400,81 @@ fn friend(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     if console {
         let px = x0 + left_w + 40.0 * u;
         super::join::letter_pad(fr.shift, cv, f, px, y0 + 80.0 * u, w - px - x0, u);
+    }
+}
+
+/// Invitations (docs/invitations.md, docs/link-ui.md « Invitations ») : « Rejoindre avec un code » est tombé sur un
+/// code d'invitation. « Ajouter {ordinateur} », le texte, le champ « Mot de passe » (en clair, exemple grisé
+/// `xxxx-xxxx-xxxx` : il se recopie d'un papier), « Ajouter l'ordinateur » (inactif tant que le champ est vide) et
+/// « Annuler ». Au clavier ; à la manette, le pavé des lettres à droite (chiffres, lettres, tiret : de quoi taper le
+/// mot de passe). Pendant l'appel, « Ajout de {ordinateur}… » ; un refus, sous le champ.
+fn invitation(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
+    let w = cv.w;
+    let console = app.layout.console();
+    let inv = &app.invitation;
+    let mut y = y0;
+    if app.layout == Layout::Desktop {
+        back_button(cv, f, x0, y, u);
+        y += 56.0;
+    }
+    let left_w = if console { (w * 0.46).min(560.0 * u) } else { (w - 2.0 * x0).min(640.0) };
+    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, tr("Invitation", "Invitation"));
+    cv.text_shrink(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), &inv.title(), w - 2.0 * x0);
+    y += 80.0 * u;
+    y += cv.paragraph(
+        x0,
+        y + 6.0 * u,
+        Text::new(Font::Regular, 16.0 * u, MUTED),
+        tr("Cette invitation ajoute l'ordinateur à vos appareils. Entrez le mot de passe donné avec le code.", "This invitation adds the computer to your devices. Enter the password given with the code."),
+        left_w,
+        24.0 * u,
+    ) + 22.0 * u;
+    // Le champ « Mot de passe ».
+    eyebrow(cv, x0, y + 8.0 * u, 11.5 * u, FAINT, tr("Mot de passe", "Password"));
+    let r = Rect::new(x0, y + 20.0 * u, left_w, 56.0 * u);
+    let (focused, hover) = f.state(Target::InvitationPassword, r);
+    if focused {
+        widgets::ring(cv, r, 10.0 * u);
+    }
+    cv.rrect(r.x, r.y, r.w, r.h, 10.0 * u, if hover { INK_3 } else { INK_2 });
+    cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * u, 1.5, SPECTRE);
+    let style = Text::new(Font::Mono, 20.0 * u, FROST);
+    let tw = if inv.password.is_empty() {
+        cv.text(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::Mono, 20.0 * u, GHOST), "xxxx-xxxx-xxxx");
+        0.0
+    } else {
+        cv.text_fit(r.x + 18.0 * u, r.y + r.h / 2.0 + 7.0 * u, style, &inv.password, r.w - 40.0 * u)
+    };
+    let blink = !app.reduce_motion && (app.screen_since.elapsed().as_millis() / 530) % 2 == 0;
+    if blink && !inv.busy {
+        cv.rect(r.x + 20.0 * u + tw, r.y + 14.0 * u, 2.0, r.h - 28.0 * u, SPECTRE);
+    }
+    y += 20.0 * u + 56.0 * u + 12.0 * u;
+    // Le refus, sous le champ (jusqu'à deux lignes).
+    if let (Some(m), false) = (&inv.message, inv.busy) {
+        let style = Text::new(Font::Regular, 15.0 * u, WARN);
+        y += cv.paragraph(x0, y + 14.0 * u, style, m, left_w, 22.0 * u) + 4.0 * u;
+    }
+    y += 18.0 * u;
+    // « Ajouter l'ordinateur », « Annuler » ; pendant l'appel, « Ajout de {ordinateur}… ».
+    let bw = widgets::primary_state(cv, f, Target::InvitationGo, x0, y, 52.0 * u, tr("Ajouter l'ordinateur", "Add the computer"), false, inv.ready());
+    let gw = widgets::ghost(cv, f, Target::InvitationCancel, x0 + bw + 18.0 * u, y + 6.0 * u, 40.0 * u, 14.0 * u, None, tr("Annuler", "Cancel"), MUTED);
+    if inv.busy {
+        let (mx, mid) = (x0 + bw + 18.0 * u + gw + 24.0 * u, y + 26.0 * u);
+        let t = app.screen_since.elapsed().as_secs_f32();
+        let a0 = if app.reduce_motion { 0.0 } else { t * 4.0 };
+        let pts: Vec<(f32, f32)> = (0..=16)
+            .map(|i| {
+                let a = a0 + i as f32 * 0.28;
+                (mx + 9.0 * u + 8.0 * u * a.cos(), mid + 8.0 * u * a.sin())
+            })
+            .collect();
+        cv.polyline(&pts, 2.0 * u, SPECTRE);
+        cv.text(mx + 28.0 * u, mid + 5.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), &inv.adding());
+    }
+    if console {
+        let px = x0 + left_w + 40.0 * u;
+        super::join::letter_pad(inv.shift, cv, f, px, y0 + 80.0 * u, w - px - x0, u);
     }
 }
 
