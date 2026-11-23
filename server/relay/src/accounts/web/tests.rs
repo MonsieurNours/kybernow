@@ -149,10 +149,10 @@ fn inscription_verification_connexion_et_double_authentification() {
     assert_eq!(page.status, 200);
     assert!(html(&page).contains("Créer un compte"));
     // Mot de passe trop connu : refusé, les champs restent.
-    let r = b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "Ana@Exemple.org"), ("password", "motdepasse123")]);
+    let r = b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "Ana@Exemple.org"), ("password", "motdepasse123"), ("conditions", "1")]);
     assert!(html(&r).contains("trop connu") && html(&r).contains(r#"value="Ana@Exemple.org""#));
     assert_eq!(w.outbox.0.lock().unwrap().len(), 0);
-    let r = b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "Ana@Exemple.org"), ("password", PASSWORD)]);
+    let r = b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "Ana@Exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     assert_eq!(location(&r), "/compte/verifier?lang=fr");
     assert!(b.jar.contains_key(PENDING_COOKIE) && !b.jar.contains_key(SESSION_COOKIE));
     // L'e-mail : le code et le lien (24 h), en français.
@@ -283,7 +283,7 @@ fn cookies_de_session() {
 fn verification_par_le_lien() {
     let w = world(true);
     let mut a = w.browser();
-    a.post("/compte/inscription?lang=en", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD)]);
+    a.post("/compte/inscription?lang=en", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     let mail = w.mail("ana@exemple.org");
     assert!(mail.subject.starts_with("Your KyberNow code"), "e-mail dans la langue de la page");
     let link = between(&mail.text, "https://share.test", "\n").to_string();
@@ -296,13 +296,13 @@ fn verification_par_le_lien() {
     assert!(phone.get(&link).status == 400, "le lien ne sert qu'une fois");
     // Ouvert dans le navigateur de l'inscription : la session s'ouvre.
     let mut b = w.browser();
-    b.post("/compte/inscription?lang=fr", &[("name", "Bob"), ("email", "bob@exemple.org"), ("password", PASSWORD)]);
+    b.post("/compte/inscription?lang=fr", &[("name", "Bob"), ("email", "bob@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     let link = between(&w.mail("bob@exemple.org").text, "https://share.test", "\n").to_string();
     assert_eq!(location(&b.get(&link)), "/compte/proteger?lang=fr");
     assert!(b.jar.contains_key(SESSION_COOKIE));
     // Un lien expiré.
     let mut c = w.browser();
-    c.post("/compte/inscription?lang=fr", &[("name", "Cléo"), ("email", "cleo@exemple.org"), ("password", PASSWORD)]);
+    c.post("/compte/inscription?lang=fr", &[("name", "Cléo"), ("email", "cleo@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     let link = between(&w.mail("cleo@exemple.org").text, "https://share.test", "\n").to_string();
     w.advance(VERIFY_SECS + 1);
     assert_eq!(c.get(&link).status, 400);
@@ -312,7 +312,7 @@ fn verification_par_le_lien() {
 fn renvoyer_et_changer_d_adresse() {
     let w = world(true);
     let mut b = w.browser();
-    b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD)]);
+    b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     let r = b.post("/compte/verifier?lang=fr", &[("action", "renvoyer")]);
     assert!(html(&r).contains("Un nouvel e-mail vient de partir"));
     assert_eq!(w.outbox.count_to("ana@exemple.org"), 2);
@@ -338,7 +338,12 @@ fn reponses_identiques_qu_un_compte_existe_ou_non() {
     let wrong = b.sign_in("ana@exemple.org", "pas le bon mot de passe");
     let unknown = b.sign_in("ana@exemple.org".replace("ana", "zoe").as_str(), "pas le bon mot de passe");
     assert_eq!(wrong.status, unknown.status);
-    assert_eq!(html(&wrong).replace("ana@", "X@"), html(&unknown).replace("zoe@", "X@"));
+    // Le défi des passkeys change à chaque page : on le met de côté.
+    let same = |page: &str, email: &str| {
+        let challenge = between(page, "data-challenge=\"", "\"");
+        page.replace(challenge, "DEFI").replace(email, "X@")
+    };
+    assert_eq!(same(html(&wrong), "ana@"), same(html(&unknown), "zoe@"));
     assert!(html(&wrong).contains("Adresse e-mail ou mot de passe incorrect"));
     // Oubli : toujours la même réponse.
     let known = b.post("/compte/oubli?lang=fr", &[("email", "ana@exemple.org")]);
@@ -349,9 +354,9 @@ fn reponses_identiques_qu_un_compte_existe_ou_non() {
     assert_eq!(w.outbox.count_to("zoe@exemple.org"), 0);
     // Inscription d'une adresse prise : même suite, et un e-mail au titulaire.
     let mut c = w.browser_at("198.51.100.9");
-    let taken = c.post("/compte/inscription?lang=fr", &[("name", "Intrus"), ("email", "ANA@exemple.org"), ("password", "un autre mot de passe")]);
+    let taken = c.post("/compte/inscription?lang=fr", &[("name", "Intrus"), ("email", "ANA@exemple.org"), ("password", "un autre mot de passe"), ("conditions", "1")]);
     let mut d = w.browser_at("198.51.100.10");
-    let fresh = d.post("/compte/inscription?lang=fr", &[("name", "Zoé"), ("email", "zoe@exemple.org"), ("password", "un autre mot de passe")]);
+    let fresh = d.post("/compte/inscription?lang=fr", &[("name", "Zoé"), ("email", "zoe@exemple.org"), ("password", "un autre mot de passe"), ("conditions", "1")]);
     assert_eq!(location(&taken), location(&fresh));
     assert_eq!(w.mail("ana@exemple.org").subject, "Votre compte KyberNow existe déjà");
     assert!(html(&c.get("/compte/verifier?lang=fr")).contains("<b>ana@exemple.org</b>"));
@@ -421,7 +426,7 @@ fn limites_d_essais() {
     assert_eq!(d.sign_in("y@exemple.org", "mauvais mot de passe").status, 429);
     // Les codes de vérification : 5 erreurs, puis le code ne vaut plus.
     let mut e = w.browser_at("203.0.113.6");
-    e.post("/compte/inscription?lang=fr", &[("name", "Léa"), ("email", "lea@exemple.org"), ("password", PASSWORD)]);
+    e.post("/compte/inscription?lang=fr", &[("name", "Léa"), ("email", "lea@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     let code: String = between(&w.mail("lea@exemple.org").text, "    ", "\n").chars().filter(char::is_ascii_digit).collect();
     let wrong = if code == "000000" { "111111" } else { "000000" };
     for _ in 0..5 {
@@ -500,7 +505,7 @@ fn depuis_une_app() {
     assert!(html(&page).contains("action=\"/compte/connexion?lang=fr&appareil=salon-tv\""));
     let refused = b.get("/compte/inscription?lang=fr&appareil=salon-tv");
     assert!(html(&refused).contains("dans un navigateur"));
-    let r = b.post("/compte/inscription?lang=fr&appareil=salon-tv", &[("name", "A"), ("email", "a@exemple.org"), ("password", PASSWORD)]);
+    let r = b.post("/compte/inscription?lang=fr&appareil=salon-tv", &[("name", "A"), ("email", "a@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     assert_eq!(r.status, 403);
     assert!(w.acc.db().account_by_email("a@exemple.org").unwrap().is_none());
     // Le nom de l'appareil est encodé dans les liens (lot 3) ; un nom vide ou avec un caractère de contrôle est ignoré.
@@ -548,3 +553,287 @@ fn les_essais_reussis_ne_comptent_pas() {
 
 // Lot 2 (rattachement) et moitié relais du lot 3 (appareils) : à part, pour ne pas mêler les fusions.
 mod lot2;
+// --- Lot 1b : passkeys, conditions, export, suppression ---------------------------
+
+use super::passkeys::tests::Authenticator;
+use super::passkeys::{ED25519, ES256};
+
+impl World {
+    fn account_id(&self, email: &str) -> i64 {
+        self.acc.db().account_by_email(email).unwrap().unwrap().id
+    }
+}
+
+impl Browser {
+    /// Ajoute une passkey depuis la page du compte (ce que fait `passkey.js`).
+    fn add_passkey(&mut self, auth: &Authenticator) -> Reply {
+        let page = self.get("/compte?lang=fr");
+        let challenge = between(html(&page), r#"data-passkey="create" data-challenge=""#, "\"").to_string();
+        let (client, object) = auth.create(&challenge);
+        self.post("/compte/passkeys/ajouter?lang=fr", &[("client_data", &b64(&client)), ("attestation", &b64(&object)), ("transports", "internal,hybrid")])
+    }
+
+    /// Envoie une assertion faite sur le défi de la page `page`.
+    fn passkey(&mut self, page: &str, target: &str, auth: &mut Authenticator, extra: &[(&str, &str)]) -> Reply {
+        let page = self.get(page);
+        let challenge = between(html(&page), r#"data-passkey="get" data-challenge=""#, "\"").to_string();
+        let a = auth.get(&challenge);
+        self.post_assertion(target, &a, extra)
+    }
+
+    fn post_assertion(&mut self, target: &str, a: &super::passkeys::Assertion, extra: &[(&str, &str)]) -> Reply {
+        let fields = [
+            ("credential", b64(&a.credential)),
+            ("client_data", b64(&a.client_data)),
+            ("authenticator", b64(&a.authenticator)),
+            ("signature", b64(&a.signature)),
+            ("user", b64(&a.user)),
+        ];
+        let mut form: Vec<(&str, &str)> = fields.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        form.extend_from_slice(extra);
+        self.post(target, &form)
+    }
+}
+
+#[test]
+fn passkeys_ajout_connexion_renommer_retirer() {
+    let w = world(true);
+    w.acc.add_verified("ana@exemple.org", "Ana", PASSWORD).unwrap();
+    let ana = w.account_id("ana@exemple.org");
+    let mut b = w.browser();
+    b.sign_in("ana@exemple.org", PASSWORD);
+    // La page du compte propose d'en ajouter une (formulaire caché sans script).
+    let page = b.get("/compte?lang=fr");
+    assert!(html(&page).contains("Ajouter une passkey") && html(&page).contains("/assets/passkey.js?v="));
+    let user = w.acc.db().webauthn_user(ana).unwrap();
+    assert!(html(&page).contains(&format!(r#"data-user-id="{}""#, b64(&user))));
+    let mut auth = Authenticator::new(ES256, "https://share.test");
+    auth.user = user.clone();
+    let r = b.add_passkey(&auth);
+    assert!(html(&r).contains("Passkey ajoutée") && html(&r).contains("Firefox, Windows") && html(&r).contains("jamais utilisée"));
+    assert_eq!(w.mail("ana@exemple.org").subject, "Passkey ajoutée à votre compte KyberNow");
+    // Déjà là : exclue du prochain ajout.
+    assert!(html(&b.get("/compte?lang=fr")).contains(&format!(r#"data-exclude="{}""#, b64(&auth.credential))));
+    // Un défi d'ajout ne sert qu'une fois, et seulement dans son navigateur.
+    let page = b.get("/compte?lang=fr");
+    let challenge = between(html(&page), r#"data-passkey="create" data-challenge=""#, "\"").to_string();
+    let second = Authenticator::new(ED25519, "https://share.test");
+    let (client, object) = second.create(&challenge);
+    let form = [("client_data", b64(&client)), ("attestation", b64(&object))];
+    let form: Vec<(&str, &str)> = form.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let mut other = w.browser_at("198.51.100.20");
+    other.sign_in("ana@exemple.org", PASSWORD);
+    assert!(html(&other.post("/compte/passkeys/ajouter?lang=fr", &form)).contains("La passkey n'a pas été acceptée"), "autre navigateur");
+    assert!(html(&b.post("/compte/passkeys/ajouter?lang=fr", &form)).contains("Passkey ajoutée"));
+    assert!(html(&b.post("/compte/passkeys/ajouter?lang=fr", &form)).contains("La passkey n'a pas été acceptée"), "rejeu");
+    // Une passkey d'un autre site, ou sans vérification de l'utilisateur : refusée.
+    assert!(html(&b.add_passkey(&Authenticator::new(ES256, "https://ailleurs.test"))).contains("pas été acceptée"));
+    let mut no_uv = Authenticator::new(ES256, "https://share.test");
+    no_uv.flags = 0x01;
+    assert!(html(&b.add_passkey(&no_uv)).contains("pas été acceptée"));
+    assert_eq!(w.acc.db().passkeys(ana).unwrap().len(), 2);
+
+    // La double authentification est active ; la passkey en tient lieu.
+    let setup = b.get("/compte/double-authentification?lang=fr");
+    assert!(html(&setup).contains("<svg"));
+    b.post("/compte/double-authentification?lang=fr", &[("code", &w.totp_code("ana@exemple.org", 0))]);
+    b.post("/compte/deconnexion?lang=fr", &[]);
+    let sign_in = b.get("/compte/connexion?lang=fr");
+    assert!(html(&sign_in).contains("Continuer avec une passkey"));
+    let r = b.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut auth, &[]);
+    assert_eq!(location(&r), "/compte?lang=fr", "pas de code : la passkey vaut double authentification");
+    assert!(html(&b.get("/compte?lang=fr")).contains("utilisée le"));
+    assert_eq!(w.acc.db().passkey_by_credential(&auth.credential).unwrap().unwrap().counter, 1);
+    // Rejouée (même défi, même signature) : refusée.
+    b.post("/compte/deconnexion?lang=fr", &[]);
+    let page = b.get("/compte/connexion?lang=fr");
+    let challenge = between(html(&page), r#"data-passkey="get" data-challenge=""#, "\"").to_string();
+    let a = auth.get(&challenge);
+    assert_eq!(location(&b.post_assertion("/compte/connexion/passkey?lang=fr", &a, &[])), "/compte?lang=fr");
+    b.post("/compte/deconnexion?lang=fr", &[]);
+    let r = b.post_assertion("/compte/connexion/passkey?lang=fr", &a, &[]);
+    assert!(html(&r).contains("La passkey n'a pas été acceptée") && !b.jar.contains_key(SESSION_COOKIE));
+    // Le défi d'un autre navigateur ne sert pas ici.
+    let mut thief = w.browser_at("203.0.113.40");
+    let r = thief.post_assertion("/compte/connexion/passkey?lang=fr", &auth.get(&challenge), &[]);
+    assert!(html(&r).contains("pas été acceptée"));
+    // Une passkey inconnue.
+    let mut stranger = Authenticator::new(ES256, "https://share.test");
+    assert!(html(&b.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut stranger, &[])).contains("pas été acceptée"));
+    // Une passkey copiée : son compteur recule.
+    auth.counter = 0;
+    assert!(html(&b.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut auth, &[])).contains("pas été acceptée"));
+    auth.counter = 10;
+    assert_eq!(location(&b.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut auth, &[])), "/compte?lang=fr");
+
+    // Renommer, retirer ; pas celles d'un autre compte.
+    let id = w.acc.db().passkey_by_credential(&auth.credential).unwrap().unwrap().id.to_string();
+    let r = b.post("/compte/passkeys/renommer?lang=fr", &[("id", &id), ("name", "  Téléphone <b>  ")]);
+    assert!(html(&r).contains("Passkey renommée") && html(&r).contains("Téléphone &lt;b&gt;"));
+    assert!(html(&b.post("/compte/passkeys/renommer?lang=fr", &[("id", &id), ("name", "  ")])).contains("Entrez votre nom"));
+    w.acc.add_verified("bob@exemple.org", "Bob", PASSWORD).unwrap();
+    let mut bob = w.browser_at("198.51.100.30");
+    bob.sign_in("bob@exemple.org", PASSWORD);
+    bob.post("/compte/passkeys/renommer?lang=fr", &[("id", &id), ("name", "volée")]);
+    bob.post("/compte/passkeys/retirer?lang=fr", &[("id", &id)]);
+    assert_eq!(w.acc.db().passkey_by_credential(&auth.credential).unwrap().unwrap().name, "Téléphone <b>");
+    let r = b.post("/compte/passkeys/retirer?lang=fr", &[("id", &id)]);
+    assert!(html(&r).contains("Passkey retirée") && !html(&r).contains("Téléphone"));
+    b.post("/compte/deconnexion?lang=fr", &[]);
+    assert!(html(&b.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut auth, &[])).contains("pas été acceptée"));
+    let kinds: Vec<String> = w.acc.db().audit_of(ana).unwrap().into_iter().map(|(k, _)| k).collect();
+    for k in ["passkey_ajoutee", "connexion_passkey", "passkey_renommee", "passkey_retiree"] {
+        assert!(kinds.iter().any(|x| x == k), "{k} dans le journal");
+    }
+    // Cinq échecs d'une adresse bloquent cette adresse, pas les passkeys des autres.
+    let mut noisy = w.browser_at("203.0.113.70");
+    for _ in 0..5 {
+        assert_eq!(noisy.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut stranger, &[]).status, 200);
+    }
+    assert_eq!(noisy.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut stranger, &[]).status, 429);
+    let mut other_key = Authenticator::new(ES256, "https://share.test");
+    let mut owner = w.browser_at("198.51.100.71");
+    owner.sign_in("bob@exemple.org", PASSWORD);
+    owner.add_passkey(&other_key);
+    owner.post("/compte/deconnexion?lang=fr", &[]);
+    assert_eq!(location(&owner.passkey("/compte/connexion?lang=fr", "/compte/connexion/passkey?lang=fr", &mut other_key, &[])), "/compte?lang=fr");
+    // Sans connexion, rien ne passe.
+    let mut anon = w.browser_at("203.0.113.41");
+    assert_eq!(location(&anon.post("/compte/passkeys/retirer?lang=fr", &[("id", "1")])), "/compte/connexion?lang=fr");
+    assert_eq!(location(&anon.post("/compte/export?lang=fr", &[])), "/compte/connexion?lang=fr");
+    assert_eq!(location(&anon.get("/compte/supprimer?lang=fr")), "/compte/connexion?lang=fr");
+}
+
+#[test]
+fn proteger_propose_la_passkey() {
+    let w = world(true);
+    let mut b = w.browser();
+    b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    let link = between(&w.mail("ana@exemple.org").text, "https://share.test", "\n").to_string();
+    assert_eq!(location(&b.get(&link)), "/compte/proteger?lang=fr");
+    let page = b.get("/compte/proteger?lang=fr");
+    assert!(html(&page).contains("(conseillée)") && html(&page).contains(r#"data-passkey="create""#));
+    let auth = Authenticator::new(ED25519, "https://share.test");
+    let challenge = between(html(&page), r#"data-passkey="create" data-challenge=""#, "\"").to_string();
+    let (client, object) = auth.create(&challenge);
+    let r = b.post("/compte/passkeys/ajouter?lang=fr", &[("client_data", &b64(&client)), ("attestation", &b64(&object))]);
+    assert!(html(&r).contains("Passkey ajoutée"));
+    let page = b.get("/compte/proteger?lang=fr");
+    assert!(html(&page).contains("Ajoutée") && !html(&page).contains(r#"data-passkey="create""#));
+}
+
+#[test]
+fn conditions_acceptees_a_l_inscription() {
+    let w = world(true);
+    let mut b = w.browser();
+    let page = b.get("/compte/inscription?lang=fr");
+    assert!(html(&page).contains(r#"name="conditions" value="1" required"#) && html(&page).contains(r#"href="/conditions?lang=fr""#));
+    let r = b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD)]);
+    assert!(html(&r).contains("Cochez la case"));
+    assert!(w.acc.db().account_by_email("ana@exemple.org").unwrap().is_none());
+    b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    let id = w.account_id("ana@exemple.org");
+    let crate::accounts::store::Terms { terms, terms_at, privacy, privacy_at } = w.acc.db().terms(id).unwrap();
+    assert_eq!(terms.as_deref(), Some(crate::legal::Doc::Terms.version()));
+    assert_eq!(privacy.as_deref(), Some(crate::legal::Doc::Privacy.version()));
+    assert_eq!((terms_at, privacy_at), (Some(T0), Some(T0)));
+    // Un compte créé par l'administrateur du relais n'a rien accepté.
+    w.acc.add_verified("bob@exemple.org", "Bob", PASSWORD).unwrap();
+    let bob = w.account_id("bob@exemple.org");
+    assert_eq!(w.acc.db().terms(bob).unwrap().terms, None);
+}
+
+#[test]
+fn comptes_jamais_verifies_effaces() {
+    let w = world(true);
+    let mut b = w.browser();
+    b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    w.acc.add_verified("bob@exemple.org", "Bob", PASSWORD).unwrap();
+    w.advance(6 * 86_400);
+    w.acc.sweep();
+    assert!(w.acc.db().account_by_email("ana@exemple.org").unwrap().is_some());
+    w.advance(86_400);
+    w.acc.sweep();
+    assert!(w.acc.db().account_by_email("ana@exemple.org").unwrap().is_none(), "sept jours sans vérification");
+    assert!(w.acc.db().account_by_email("bob@exemple.org").unwrap().is_some());
+    // L'adresse est de nouveau libre.
+    let mut c = w.browser_at("198.51.100.50");
+    c.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    assert!(w.acc.db().account_by_email("ana@exemple.org").unwrap().is_some());
+}
+
+#[test]
+fn export_des_donnees() {
+    let w = world(true);
+    let mut b = w.browser();
+    b.post("/compte/inscription?lang=fr", &[("name", "Ana"), ("email", "ana@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    let link = between(&w.mail("ana@exemple.org").text, "https://share.test", "\n").to_string();
+    b.get(&link);
+    b.add_passkey(&Authenticator::new(ES256, "https://share.test"));
+    let page = b.get("/compte?lang=fr");
+    assert!(html(&page).contains("Exporter mes données"));
+    let r = b.post("/compte/export?lang=fr", &[]);
+    assert_eq!(r.status, 200);
+    let file = r.download.expect("un fichier");
+    assert_eq!(file.filename, "kybernow-compte.json");
+    let data: serde_json::Value = serde_json::from_str(&file.body).unwrap();
+    assert_eq!(data["format"], "kybernow-account-export/1");
+    assert_eq!(data["account"]["email"], "ana@exemple.org");
+    assert_eq!(data["account"]["terms"]["version"], crate::legal::Doc::Terms.version());
+    assert_eq!(data["security"]["passkeys"][0]["name"], "Firefox, Windows");
+    assert_eq!(data["sessions"][0]["device"], "Firefox, Windows");
+    let events: Vec<&str> = data["audit"].as_array().unwrap().iter().map(|e| e["event"].as_str().unwrap()).collect();
+    assert!(events.contains(&"inscription") && events.contains(&"export_des_donnees"));
+    assert!(!file.body.contains("argon2") && !file.body.contains(PASSWORD));
+    // Un envoi d'un autre site ne télécharge rien.
+    b.cross_site = true;
+    assert_eq!(b.post("/compte/export?lang=fr", &[]).status, 403);
+}
+
+#[test]
+fn suppression_du_compte() {
+    let w = world(true);
+    w.acc.add_verified("ana@exemple.org", "Ana", PASSWORD).unwrap();
+    let ana = w.account_id("ana@exemple.org");
+    let mut b = w.browser();
+    b.sign_in("ana@exemple.org", PASSWORD);
+    let mut phone = w.browser_at("198.51.100.60");
+    phone.sign_in("ana@exemple.org", PASSWORD);
+    // Sans passkey, le mot de passe seulement.
+    let page = b.get("/compte/supprimer?lang=fr");
+    assert!(html(&page).contains("Supprimer définitivement") && !html(&page).contains("data-passkey"));
+    let r = b.post("/compte/supprimer?lang=fr", &[("action", "password"), ("password", "pas le bon")]);
+    assert!(html(&r).contains("Mot de passe incorrect"));
+    assert!(w.acc.db().account(ana).unwrap().is_some());
+    let r = b.post("/compte/supprimer?lang=fr", &[("action", "password"), ("password", PASSWORD)]);
+    assert!(html(&r).contains("Compte supprimé"));
+    assert!(!b.jar.contains_key(SESSION_COOKIE));
+    assert_eq!(w.mail("ana@exemple.org").subject, "Votre compte KyberNow est supprimé");
+    assert!(w.acc.db().account(ana).unwrap().is_none());
+    assert!(w.acc.db().audit_of(ana).unwrap().is_empty(), "le journal du compte part avec lui");
+    assert_eq!(location(&phone.get("/compte?lang=fr")), "/compte/connexion?lang=fr", "les autres sessions aussi");
+    assert!(html(&b.sign_in("ana@exemple.org", PASSWORD)).contains("incorrect"));
+
+    // Avec une passkey : la sienne confirme, pas celle d'un autre compte.
+    w.acc.add_verified("bob@exemple.org", "Bob", PASSWORD).unwrap();
+    w.acc.add_verified("zoe@exemple.org", "Zoé", PASSWORD).unwrap();
+    let bob_id = w.account_id("bob@exemple.org");
+    let mut bob = w.browser_at("198.51.100.61");
+    bob.sign_in("bob@exemple.org", PASSWORD);
+    let mut bob_key = Authenticator::new(ES256, "https://share.test");
+    bob_key.user = w.acc.db().webauthn_user(bob_id).unwrap();
+    bob.add_passkey(&bob_key);
+    let mut zoe = w.browser_at("198.51.100.62");
+    zoe.sign_in("zoe@exemple.org", PASSWORD);
+    let mut zoe_key = Authenticator::new(ES256, "https://share.test");
+    zoe.add_passkey(&zoe_key);
+    let page = bob.get("/compte/supprimer?lang=fr");
+    assert!(html(&page).contains("Confirmer avec une passkey") && html(&page).contains(&format!(r#"data-allow="{}""#, b64(&bob_key.credential))));
+    let r = bob.passkey("/compte/supprimer?lang=fr", "/compte/supprimer?lang=fr", &mut zoe_key, &[("action", "passkey")]);
+    assert!(html(&r).contains("La passkey n'a pas été acceptée"));
+    assert!(w.acc.db().account(bob_id).unwrap().is_some());
+    let r = bob.passkey("/compte/supprimer?lang=fr", "/compte/supprimer?lang=fr", &mut bob_key, &[("action", "passkey")]);
+    assert!(html(&r).contains("Compte supprimé"));
+    assert!(w.acc.db().account(bob_id).unwrap().is_none() && w.acc.db().passkey_by_credential(&bob_key.credential).unwrap().is_none());
+    assert!(w.acc.db().account_by_email("zoe@exemple.org").unwrap().is_some());
+}

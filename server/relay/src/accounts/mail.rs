@@ -136,6 +136,10 @@ pub enum Message<'a> {
     /// Un appareil ouvre pour la première fois un ordinateur du compte
     /// (garde-fou 4, « Avis à chaque nouvel appareil ») ; `account` : la page du compte.
     NewDevice { device: &'a str, computer: &'a str, account: &'a str },
+    /// Une passkey a été ajoutée (lot 1b).
+    PasskeyAdded { name: &'a str, account: &'a str },
+    /// Le compte a été supprimé (lot 1b).
+    AccountDeleted,
 }
 
 /// Le code « 123 456 », plus facile à lire.
@@ -254,6 +258,36 @@ pub fn compose(to: &str, lang: Lang, message: Message<'_>) -> Mail {
                 ),
             )
         }
+        Message::PasskeyAdded { name, account } => (
+            tr("Passkey ajoutée à votre compte KyberNow", "Passkey added to your KyberNow account"),
+            format!(
+                "{hello}\n\n{what}\n\n    {name}\n\n{check}\n{account}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = tr(
+                    "Une passkey vient d'être ajoutée à votre compte KyberNow ; elle ouvre le compte sans mot de passe :",
+                    "A passkey was just added to your KyberNow account; it opens the account without a password:",
+                ),
+                check = tr(
+                    "Ce n'était pas vous ? Retirez-la, changez votre mot de passe et vérifiez les sessions ouvertes :",
+                    "Wasn't you? Remove it, change your password and check the open sessions:",
+                ),
+            ),
+        ),
+        Message::AccountDeleted => (
+            tr("Votre compte KyberNow est supprimé", "Your KyberNow account is deleted"),
+            format!(
+                "{hello}\n\n{what}\n\n{after}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = tr(
+                    "Votre compte KyberNow vient d'être supprimé, avec ses passkeys, ses sessions, ses appareils connectés et son journal ; ses ordinateurs sont détachés.",
+                    "Your KyberNow account was just deleted, along with its passkeys, sessions, connected devices and log; its computers are detached.",
+                ),
+                after = tr(
+                    "Les sauvegardes du relais l'oublient sous 30 jours. Les logiciels KyberNow restent utilisables sans compte.",
+                    "The relay's backups forget it within 30 days. The KyberNow software stays usable without an account.",
+                ),
+            ),
+        ),
     };
     Mail { to: to.to_string(), subject, text }
 }
@@ -280,6 +314,8 @@ mod tests {
             Message::PasswordChanged { forgot: "f" },
             Message::NewDevice { device: "iPad de Léa", computer: "PC du salon", account: "c" },
             Message::NewDevice { device: "", computer: "PC du salon", account: "c" },
+            Message::PasskeyAdded { name: "Chrome, Mac", account: "c" },
+            Message::AccountDeleted,
         ] {
             for lang in [Lang::Fr, Lang::En] {
                 let mail = compose("a@exemple.org", lang, m);

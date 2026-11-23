@@ -94,6 +94,15 @@ pub struct Reply {
     /// Les `Set-Cookie`.
     pub cookies: Vec<String>,
     pub retry_after: Option<u64>,
+    /// Un fichier à télécharger (l'export des données, lot 1b) au lieu d'une page.
+    pub download: Option<Download>,
+}
+
+/// Un fichier JSON à télécharger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download {
+    pub filename: String,
+    pub body: String,
 }
 
 /// Décode `a=b&c=d` (formulaire ou requête) : `+` et `%XX`.
@@ -204,6 +213,8 @@ struct Cx<'a> {
     csrf_cookie: String,
     csrf: String,
     cookies: Vec<String>,
+    /// Le défi des passkeys de la page (connexion, confirmation), lot 1b.
+    challenge: String,
 }
 
 impl<'a> Cx<'a> {
@@ -218,11 +229,13 @@ impl<'a> Cx<'a> {
             }
         };
         let csrf = acc.keys.sign(format!("csrf:{csrf_cookie}").as_bytes());
-        Cx { acc, req, lang: req.lang, now: acc.now(), csrf_cookie, csrf, cookies }
+        let now = acc.now();
+        let challenge = passkeys::challenge(&acc.keys, passkeys::GET_PURPOSE, &csrf_cookie, now);
+        Cx { acc, req, lang: req.lang, now, csrf_cookie, csrf, cookies, challenge }
     }
 
     fn view(&self) -> View<'_> {
-        View { lang: self.lang, csrf: &self.csrf, appareil: appareil(self.req) }
+        View { lang: self.lang, csrf: &self.csrf, appareil: appareil(self.req), challenge: &self.challenge }
     }
 
     fn q(&self) -> String {
@@ -241,7 +254,7 @@ impl<'a> Cx<'a> {
     }
 
     fn page(self, status: u16, html: String) -> Reply {
-        Reply { status, html: Some(html), location: None, cookies: self.cookies, retry_after: None }
+        Reply { status, html: Some(html), location: None, cookies: self.cookies, retry_after: None, download: None }
     }
 
     /// La base n'a pas répondu.
@@ -251,7 +264,7 @@ impl<'a> Cx<'a> {
     }
 
     fn redirect(self, location: String) -> Reply {
-        Reply { status: 303, html: None, location: Some(location), cookies: self.cookies, retry_after: None }
+        Reply { status: 303, html: None, location: Some(location), cookies: self.cookies, retry_after: None, download: None }
     }
 
     fn limited(self, wait: Limited, html: impl FnOnce(&Cx<'_>, Notice) -> String) -> Reply {
@@ -423,7 +436,8 @@ impl Accounts {
             ("/compte/proteger", false) => {
                 let Some((_, account)) = cx.full_session() else { return to_sign_in(cx) };
                 let on = totp_active(self, account.id);
-                let page = pages::protect(&cx.view(), on);
+                let register = cx.registration(&account);
+                let page = pages::protect(&cx.view(), on, register.as_ref());
                 cx.page(200, page)
             }
             ("/compte/oubli", _) => forgot(cx, post),
@@ -440,6 +454,13 @@ impl Accounts {
             ("/compte/appareil", _) => device_pages::approve(cx, post),
             ("/compte/appareils/deconnecter", true) => device_pages::revoke(cx),
             ("/tv", false) => device_pages::tv(cx),
+            // Lot 1b : passkeys, suppression du compte, export des données.
+            ("/compte/connexion/passkey", true) => passkeys::sign_in(cx),
+            ("/compte/passkeys/ajouter", true) => passkeys::add(cx),
+            ("/compte/passkeys/renommer", true) => passkeys::rename(cx),
+            ("/compte/passkeys/retirer", true) => passkeys::remove(cx),
+            ("/compte/supprimer", _) => data::delete(cx, post),
+            ("/compte/export", true) => data::export(cx),
             ("/compte/deconnexion", true) => {
                 if let Some((s, a)) = cx.session() {
                     let _ = self.db().delete_session(s.id, a.id);
@@ -498,8 +519,11 @@ fn account_page(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
             sessions,
             computers: attach_pages::computers(&db, &cx.acc.stations, account.id),
             devices: device_pages::devices(&db, account.id),
+            passkeys: Vec::new(),
+            register: None,
         }
     };
+    let view = AccountView { passkeys: passkeys::views(&cx, account.id), register: cx.registration(&account), ..view };
     let page = pages::account(&cx.view(), &view, notice);
     cx.page(200, page)
 }
@@ -647,6 +671,10 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
     if name.is_empty() {
         return refuse(cx, Notice::NameMissing);
     }
+    // Lot 1b : la case « conditions et confidentialité ».
+    if cx.req.form("conditions") != "1" {
+        return refuse(cx, Notice::TermsMissing);
+    }
     let Some(email) = normalize_email(&typed) else { return refuse(cx, Notice::BadEmail) };
     if let Err(weak) = password::check_new(&password, &email) {
         return refuse(cx, Notice::Weak(weak));
@@ -656,6 +684,10 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
     match created {
         Ok(Some(id)) => {
             cx.audit(Some(id), "inscription");
+            let (terms, privacy) = (crate::legal::Doc::Terms.version(), crate::legal::Doc::Privacy.version());
+            if let Err(e) = acc.db().set_terms(id, terms, privacy, cx.now) {
+                tracing::warn!("conditions acceptées non notées : {e:#}");
+            }
             let account = acc.db().account(id).ok().flatten();
             if let Some(account) = account {
                 cx.send_verification(&account);
@@ -1003,6 +1035,12 @@ fn close_session(cx: Cx<'_>) -> Reply {
 
 mod attach_pages;
 mod device_pages;
+// Lot 1b : des modules enfants, pour se servir du contexte ([`Cx`]).
+#[path = "passkeys.rs"]
+mod passkeys;
+
+#[path = "data.rs"]
+mod data;
 
 #[cfg(test)]
 mod tests;

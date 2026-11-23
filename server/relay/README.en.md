@@ -143,9 +143,11 @@ The limits (`[limits]` in `relay.toml`) follow [docs/relais.en.md](../../docs/re
 
 ## Accounts
 
-KyberNow accounts ([docs/comptes.en.md](../../docs/comptes.en.md), batch 1a): sign-up, address verification (link valid for 24 h or six-digit code), sign-in, two-factor authentication (authenticator app, recovery codes, “Don't ask again on this device for 30 days”), forgotten password, and the account page (`/compte`: address, security, open sessions). Passkeys, account deletion and data export come in batch 1b. **Off by default**: without them, `/compte` is a not-found page.
+KyberNow accounts ([docs/comptes.en.md](../../docs/comptes.en.md), batch 1): sign-up (with the “terms and privacy” box), address verification (link valid for 24 h or six-digit code), sign-in, two-factor authentication (authenticator app, recovery codes, “Don't ask again on this device for 30 days”), passkeys, forgotten password, and the account page (`/compte`: address, security, passkeys, open sessions, data export, account deletion). **Off by default**: without them, `/compte` is a not-found page.
 
-The pages are the relay's (`https://<name>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`), in French and English, with no script; they are the only ones taking POST (forms of 16 KiB at most).
+The pages are the relay's (`https://<name>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`, `/compte/supprimer`), in French and English; they are the only ones taking POST (forms of 16 KiB at most). They have a single script, `/assets/passkey.js`, served by the relay and allowed on these pages only (`script-src 'self'`): it calls WebAuthn and sends the answer through the page's form. Without it, the passkey buttons don't show and everything else works.
+
+With accounts, the relay also serves `/conditions` and `/confidentialite`: the service's terms of use and privacy policy ([docs/juridique](../../docs/juridique/README.en.md)), **drafts** marked as such, copied into `assets/legal/` (a test checks the copies follow `docs/juridique`). These are the public relay's texts: a relay run by someone else must replace them with its own. Without accounts, `/confidentialite` stays the `/privacy` page.
 
 ```sh
 mkdir -p data && sudo chown 65532:65532 data      # the database and key, owned by the image's user
@@ -162,6 +164,8 @@ docker compose up -d relay
   # then type the password (visible); or --password-file /config/password
   ```
 
+- **Passkeys** (WebAuthn): verified by the relay on `ring` (ES256, Ed25519, RS256; no attestation requested; user verification required, so a passkey counts as two-factor authentication). The relay's WebAuthn identifier is the host name of `public_url` and the expected origin is `public_url`: a passkey created on `share.kybernow.app` only works there. Challenges signed with the relay's key, bound to the browser, valid for 10 minutes and single-use; at most 20 passkeys per account; an email on every addition.
+- **Account data**: “Export my data” gives a JSON file (`kybernow-compte.json`: account, accepted terms, security without secrets, sessions, attached computers, connected devices, log). “Delete the account” asks again for the password or a passkey, then erases the account and everything that belongs to it (its computers are detached, its devices disconnected); the backups of the `data/` folder must rotate within 30 days. An account never verified is erased seven days after sign-up. The version and date of the terms and privacy policy accepted are kept on each account.
 - **Security**: `__Host-kn_session` cookie (`Secure`, `HttpOnly`, `SameSite=Lax`), 256-bit token stored as a hash; signed CSRF token in every form, forms from another site (a Station's Admin included) refused; Argon2id passwords (at least 10 characters, known passwords refused); 10 sign-in attempts per IP address and 5 per account in 15 minutes (same for codes; only failures count); identical answers whether an account exists or not. The logs hold neither email addresses nor tokens; the accounts' audit log (in the database) erases IP addresses after 7 days.
 - **Settings from the environment**: `KN_RELAY_ACCOUNTS` (`on` or `off`, `RELAY_ACCOUNTS` in `.env`), `KN_RELAY_ACCOUNTS_DATABASE`, `KN_RELAY_ACCOUNTS_SECRET_KEY`, `KN_RELAY_ACCOUNTS_PUBLIC_URL`, `KN_RELAY_SMTP_HOST`, `KN_RELAY_SMTP_PORT`, `KN_RELAY_SMTP_STARTTLS`, `KN_RELAY_SMTP_USER`, `KN_RELAY_SMTP_PASSWORD_FILE`, `KN_RELAY_SMTP_FROM`.
 
@@ -171,7 +175,7 @@ docker compose up -d relay
 - **Metrics** (Prometheus, `http://127.0.0.1:9464/metrics`): `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. An alert on `relay_tls_cert_expiry_seconds < 1209600` (14 days) warns of an expired Gandi token.
 - **Banning**: one address or network per line in `config/banlist.txt` (`203.0.113.0/24`, `#` for a comment); taken into account within 30 seconds.
 - **Health**: `docker compose ps` shows the health check's state (`kybernow-relay --healthcheck`).
-- **Pages**: `https://<name>/` (code entry; `https://<name>:<port>/` other than 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`; with accounts, `/compte/…`.
+- **Pages**: `https://<name>/` (code entry; `https://<name>:<port>/` other than 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`; with accounts, `/compte/…`, `/conditions` and `/confidentialite`.
 
 ## The home page
 
@@ -190,6 +194,6 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-features --all-targets
 ```
 
-The tests run on the loopback, without network: a test authority, a relay, a fake Station (the tunnel agent, a fake Admin, TCP and UDP echoes) and a fake app (the tunnel and its local listening points). They cover QUIC, the TCP fallback (forced, and when UDP does not get through), a Station over TCP with an app over QUIC, Admin's refusals, the Station absent then connected, the Station and the relay restarting, codes and waiting with a fake Admin, the relay's home page and its files (languages, content policy, caching), the browser proxy (headers, cookies, WebSocket), the limits and the accounts (sign-up, verification, sign-in, two-factor authentication, recovery codes, forgotten password, attempt limits, CSRF, without SMTP).
+The tests run on the loopback, without network: a test authority, a relay, a fake Station (the tunnel agent, a fake Admin, TCP and UDP echoes) and a fake app (the tunnel and its local listening points). They cover QUIC, the TCP fallback (forced, and when UDP does not get through), a Station over TCP with an app over QUIC, Admin's refusals, the Station absent then connected, the Station and the relay restarting, codes and waiting with a fake Admin, the relay's home page and its files (languages, content policy, caching), the browser proxy (headers, cookies, WebSocket), the limits and the accounts (sign-up, verification, sign-in, two-factor authentication, recovery codes, forgotten password, attempt limits, CSRF, without SMTP, passkeys with a software authenticator, export, deletion, accepted terms, erasure of never-verified accounts).
 
 The `tunnel/` crate is taken by path: `features = ["station"]` for Admin, the default `client` feature for the apps' core, `server` for the relay. It builds for iOS and Android (rustls with ring, no OpenSSL).

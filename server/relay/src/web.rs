@@ -4,8 +4,9 @@
 //!   `/j/{code}`, `/assets/…` (styles, polices et logo embarqués), `/v1/codes/{code}`,
 //!   `/v1/health`, `/privacy` ; avec les comptes (`[accounts] enabled`), `/compte/…`
 //!   ([`crate::accounts`]), seules pages en POST ; avec eux aussi `/tv`,
-//!   `/v1/keys` (clé de signature des jetons) et l'API des appareils
-//!   (`/v1/devices/…`, `/v1/computers`, `/v1/access`, en JSON) ;
+//!   `/v1/keys` (clé de signature des jetons), l'API des appareils
+//!   (`/v1/devices/…`, `/v1/computers`, `/v1/access`, en JSON) et les textes
+//!   juridiques `/conditions` et `/confidentialite` ([`crate::legal`]) ;
 //! - `<id>.share.<domaine>` : mandataire HTTP/1.1 (WebSocket compris) vers
 //!   Admin de la Station `<id>`, par un flux `admin_http`.
 //!
@@ -78,6 +79,9 @@ fn html(status: StatusCode, page: String) -> Response<Body> {
 /// les images `data:` sont celles de la feuille de styles. Aucun script.
 pub const PAGE_POLICY: &str =
     "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+
+/// La politique des pages des comptes : la même, plus le script des passkeys (`/assets/passkey.js`, lot 1b).
+pub const ACCOUNT_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Un fichier de `/assets/` : l'adresse porte la version des fichiers, la réponse se garde un an.
 fn asset(name: &str) -> Option<Response<Body>> {
@@ -173,6 +177,10 @@ async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<B
     match path {
         "/" => html(StatusCode::OK, pages::home(lang, None)),
         "/v1/health" => json(StatusCode::OK, serde_json::json!({ "ok": true, "version": VERSION })),
+        // Avec les comptes, les textes juridiques du service (brouillons, lot 1b) ; sinon la page de toujours.
+        "/conditions" | "/confidentialite" if hub.accounts.is_some() => {
+            html(StatusCode::OK, crate::legal::page(path, lang).unwrap_or_else(|| pages::not_found(lang)))
+        }
         "/privacy" | "/confidentialite" => html(StatusCode::OK, pages::privacy(lang)),
         "/j" => {
             // Le formulaire de l'accueil : /j?code=123 456
@@ -265,13 +273,29 @@ async fn account_page(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAdd
         Err(_) => return html(StatusCode::INTERNAL_SERVER_ERROR, pages::not_answering(lang)),
     };
     let status = StatusCode::from_u16(reply.status).unwrap_or(StatusCode::OK);
-    let mut r = match (reply.location, reply.html) {
-        (Some(location), _) => {
+    let mut r = match (reply.location, reply.html, reply.download) {
+        // L'export des données (lot 1b) : un fichier JSON à télécharger.
+        (None, None, Some(file)) => {
+            let mut r = Response::new(full(file.body));
+            let h = r.headers_mut();
+            h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
+            h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            h.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
+            if let Ok(v) = HeaderValue::from_str(&format!("attachment; filename=\"{}\"", file.filename)) {
+                h.insert(header::CONTENT_DISPOSITION, v);
+            }
+            r
+        }
+        (Some(location), _, _) => {
             let mut r = redirect(&location);
             *r.status_mut() = StatusCode::SEE_OTHER;
             r
         }
-        (None, page) => html(status, page.unwrap_or_default()),
+        (None, page, _) => {
+            let mut r = html(status, page.unwrap_or_default());
+            r.headers_mut().insert("content-security-policy", HeaderValue::from_static(ACCOUNT_POLICY));
+            r
+        }
     };
     for c in reply.cookies {
         if let Ok(v) = HeaderValue::from_str(&c) {

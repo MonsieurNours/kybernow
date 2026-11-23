@@ -311,3 +311,51 @@ fn un_nouveau_mot_de_passe_deconnecte_les_appareils() {
     assert_eq!(api(&w, true, "/v1/devices/revoke", Some(token), Value::Null).status, 200);
     assert_eq!(api(&w, false, "/v1/computers", Some(token), Value::Null).status, 401);
 }
+
+// --- Avec le lot 1b : passkeys, export, suppression ---------------------------------
+
+#[test]
+fn passkey_depuis_une_app_export_et_suppression_avec_stations_et_appareils() {
+    use super::super::passkeys::tests::Authenticator;
+    use super::super::passkeys::ES256;
+
+    let w = world(true);
+    let link = linked(&w);
+    let mut b = signed_in(&w);
+    let ana = w.account_id("ana@exemple.org");
+    let account = w.acc.db().account(ana).unwrap().unwrap();
+    // Une Station rattachée, connectée, et un appareil vu sur elle.
+    let st = station(7);
+    link.online.lock().unwrap().insert(st.clone());
+    attach(&w, &mut b, &st);
+    let device = w.acc.open_device(&account, "iPad de Léa", "app").unwrap();
+    let token = device["token"].as_str().unwrap().to_string();
+    assert_eq!(api(&w, true, "/v1/access", Some(&token), json!({ "station": st })).status, 200);
+    // Une passkey, puis la connexion par elle depuis une app : la question de l'appareil, comme après le mot de passe.
+    let mut auth = Authenticator::new(ES256, "https://share.test");
+    auth.user = w.acc.db().webauthn_user(ana).unwrap();
+    b.add_passkey(&auth);
+    b.post("/compte/deconnexion?lang=fr", &[]);
+    let q = "?lang=fr&appareil=Mac";
+    let r = b.passkey(&format!("/compte/connexion{q}&retour=kybernow://compte"), &format!("/compte/connexion/passkey{q}"), &mut auth, &[]);
+    assert_eq!(location(&r), format!("/compte/connecter-appareil{q}"));
+    assert!(html(&b.get(&format!("/compte/connecter-appareil{q}"))).contains("Connecter KyberNow Link sur Mac"));
+    // L'export donne les ordinateurs rattachés et les appareils connectés, sans jeton.
+    let r = b.post("/compte/export?lang=fr", &[]);
+    let file = r.download.expect("un fichier");
+    let data: Value = serde_json::from_str(&file.body).unwrap();
+    assert_eq!(data["stations"][0]["id"], st.as_str());
+    assert_eq!(data["stations"][0]["name"], "PC du salon");
+    assert_eq!(data["devices"][0]["name"], "iPad de Léa");
+    assert!(!file.body.contains(&token));
+    // La suppression du compte détache ses Stations (prévenues) et ferme ses appareils.
+    let r = b.post("/compte/supprimer?lang=fr", &[("action", "password"), ("password", PASSWORD)]);
+    assert!(html(&r).contains("Compte supprimé"));
+    assert!(matches!(link.last(), Some((ref to, Msg::Detached { req: None })) if *to == st));
+    assert!(w.acc.db().station(&st).unwrap().is_none());
+    assert_eq!(w.acc.attach_status(&st, 1), Msg::Detached { req: Some(1) });
+    assert!(w.acc.db().devices_of(ana).unwrap().is_empty());
+    assert_eq!(api(&w, false, "/v1/computers", Some(&token), Value::Null).status, 401);
+    let left: i64 = w.acc.db().conn.query_row("SELECT COUNT(*) FROM device_stations", [], |r| r.get(0)).unwrap();
+    assert_eq!(left, 0);
+}

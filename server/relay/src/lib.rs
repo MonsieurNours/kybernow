@@ -15,6 +15,7 @@ pub mod accounts;
 pub mod config;
 mod counted;
 pub mod hub;
+pub mod legal;
 pub mod limits;
 pub mod metrics;
 pub mod pages;

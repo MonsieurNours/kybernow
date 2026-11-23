@@ -1,10 +1,12 @@
 //! Les comptes KyberNow sur le relais (docs/comptes.md, « Lot 1 : comptes sur
-//! le relais », partie 1a) : la base ([`store`]), les mots de passe
-//! ([`password`]), la double authentification ([`totp`]), les e-mails
-//! ([`mail`]), les pages `/compte/…` ([`pages`]) et leur aiguillage ([`web`]).
+//! le relais ») : la base ([`store`]), les mots de passe ([`password`]), la
+//! double authentification ([`totp`]), les e-mails ([`mail`]), les pages
+//! `/compte/…` ([`pages`]) et leur aiguillage ([`web`]).
 //!
-//! Les passkeys, la suppression du compte et l'export des données viennent au
-//! lot 1b.
+//! Lot 1b : les passkeys (`passkeys.rs`), l'export des données et la
+//! suppression du compte (`data.rs`), deux modules enfants de [`web`] ; la
+//! version des conditions acceptées ([`crate::legal`]) ; l'effacement des
+//! comptes jamais vérifiés ([`store::UNVERIFIED_SECS`]).
 //!
 //! Lot 2 : la clé de signature et les Stations rattachées ([`stations`]) ;
 //! moitié relais du lot 3 : les appareils connectés et les jetons d'accès
@@ -345,7 +347,8 @@ impl Accounts {
         Ok(id)
     }
 
-    /// Le ménage, toutes les 30 secondes : limites revenues au calme, jetons et sessions expirés.
+    /// Le ménage, toutes les 30 secondes : limites revenues au calme, jetons et sessions expirés,
+    /// comptes jamais vérifiés depuis sept jours.
     pub fn sweep(&self) {
         self.limits.lock().unwrap_or_else(|e| e.into_inner()).sweep();
         if let Err(e) = self.db().sweep(self.now()) {

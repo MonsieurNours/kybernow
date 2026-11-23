@@ -2,9 +2,15 @@
 //! modèle de la maquette (rangée « Inscription et connexion ») : le logo de
 //! KyberNow Share en haut, une carte, des formulaires sans script.
 //!
-//! Lot 1b : les boutons « Se connecter avec une passkey » et « Ajouter une
-//! passkey », et « Supprimer le compte », ne sont pas encore affichés (voir les
-//! `TODO lot 1b` plus bas).
+//! Lot 1b : « Continuer avec une passkey », « Ajouter une passkey », la liste
+//! des passkeys, l'export des données et « Supprimer le compte ». Les
+//! formulaires des passkeys (`data-passkey`) sont cachés tant que
+//! `/assets/passkey.js`, le seul script des pages, ne les montre pas : sans
+//! script, ou dans un navigateur sans WebAuthn, tout passe par le mot de passe.
+//!
+//! Lot 2 et moitié relais du lot 3 : « Rattacher {nom} », les ordinateurs
+//! rattachés et les appareils connectés sur la page du compte, « Connecter
+//! KyberNow Link sur {appareil} ? » et la page `/tv`.
 
 use super::password::Weak;
 use crate::assets;
@@ -47,6 +53,8 @@ pub struct View<'a> {
     pub csrf: &'a str,
     /// La page vient d'une app (`?appareil=…`, lot 3) : pas d'inscription.
     pub appareil: Option<&'a str>,
+    /// Le défi WebAuthn de la page (connexion, confirmation par passkey) ; vide : pas de passkey.
+    pub challenge: &'a str,
 }
 
 impl View<'_> {
@@ -103,6 +111,12 @@ pub enum Notice {
     StationDetached,
     /// Lot 3 : un appareil déconnecté.
     DeviceClosed,
+    /// Lot 1b : la case « conditions et confidentialité » n'est pas cochée.
+    TermsMissing,
+    PasskeyFailed,
+    PasskeyAdded,
+    PasskeyRenamed,
+    PasskeyRemoved,
 }
 
 impl Notice {
@@ -117,6 +131,9 @@ impl Notice {
                 | Notice::SessionClosed
                 | Notice::StationDetached
                 | Notice::DeviceClosed
+                | Notice::PasskeyAdded
+                | Notice::PasskeyRenamed
+                | Notice::PasskeyRemoved
         )
     }
 
@@ -153,6 +170,17 @@ impl Notice {
             Notice::SessionClosed => tr("Session fermée.", "Session closed."),
             Notice::StationDetached => tr("Ordinateur détaché.", "Computer detached."),
             Notice::DeviceClosed => tr("Appareil déconnecté.", "Device disconnected."),
+            Notice::TermsMissing => tr(
+                "Cochez la case pour accepter les conditions d'utilisation et la politique de confidentialité.",
+                "Tick the box to accept the terms of use and the privacy policy.",
+            ),
+            Notice::PasskeyFailed => tr(
+                "La passkey n'a pas été acceptée : réessayez, ou utilisez votre mot de passe.",
+                "The passkey wasn't accepted: try again, or use your password.",
+            ),
+            Notice::PasskeyAdded => tr("Passkey ajoutée.", "Passkey added."),
+            Notice::PasskeyRenamed => tr("Passkey renommée.", "Passkey renamed."),
+            Notice::PasskeyRemoved => tr("Passkey retirée.", "Passkey removed."),
         }
     }
 }
@@ -192,6 +220,8 @@ fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String
         Lang::En => (Lang::Fr, "Français"),
     };
     let wide = if wide { " acct-wide" } else { "" };
+    // Le seul script des pages, et seulement là où il y a une passkey (lot 1b).
+    let script = if card.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
     format!(
         r##"<!doctype html>
 <html lang="{lang}">
@@ -204,7 +234,7 @@ fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String
 <link rel="icon" type="image/svg+xml" href="{favicon}">
 <link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{css}">
-<title>{title} · KyberNow</title>
+<title>{title} · KyberNow</title>{script}
 </head>
 <body class="solo">
 <main class="solo-in acct{wide}">
@@ -212,7 +242,7 @@ fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String
 <div class="acct-card">
 {card}
 </div>
-<nav class="solo-links"><a href="{here}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/privacy">{privacy}</a></nav>
+<nav class="solo-links"><a href="{here}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></nav>
 </main>
 </body>
 </html>
@@ -227,6 +257,8 @@ fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String
         other_code = other.code(),
         logo_label = v.tr("Compte KyberNow", "KyberNow account"),
         privacy = v.tr("Confidentialité", "Privacy"),
+        terms = v.tr("Conditions", "Terms"),
+        q_lang = format!("?lang={}", lang.code()),
     )
 }
 
@@ -257,7 +289,16 @@ fn code_input(name: &str, autofocus: bool) -> String {
 /// « Se connecter ».
 pub fn sign_in(v: &View<'_>, email: &str, notice: Option<Notice>, can_sign_up: bool, can_forgot: bool) -> String {
     let title = v.tr("Se connecter", "Sign in");
-    // TODO lot 1b : « Se connecter avec une passkey » d'abord (docs/comptes.md, « Pages »), puis « ou ».
+    // Lot 1b : « Continuer avec une passkey » d'abord (docs/comptes.md, « Pages »), puis « ou ».
+    let passkey = if v.challenge.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{form}\n<p class=\"acct-or\" data-passkey-or hidden>{or}</p>",
+            form = passkey_get_form(v, "/compte/connexion/passkey", &[], &v.tr("Continuer avec une passkey", "Continue with a passkey")),
+            or = v.tr("ou", "or"),
+        )
+    };
     let forgot = if can_forgot {
         format!("<p class=\"field-link\"><a href=\"/compte/oubli{}\">{}</a></p>", v.q(), v.tr("Mot de passe oublié ?", "Forgot your password?"))
     } else {
@@ -281,7 +322,7 @@ pub fn sign_in(v: &View<'_>, email: &str, notice: Option<Notice>, can_sign_up: b
         String::new()
     };
     let card = format!(
-        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{notice}{form}\n{sign_up}",
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{notice}{passkey}\n{form}\n{sign_up}",
         help = v.tr("Avec votre compte KyberNow.", "With your KyberNow account."),
         notice = notice_html(v.lang, notice),
         form = v.form("/compte/connexion", "", &inner),
@@ -325,7 +366,7 @@ pub fn sign_up(v: &View<'_>, state: SignUp, name: &str, email: &str, notice: Opt
         ),
         SignUp::Open => {
             let inner = format!(
-                "{name}\n{email}\n{password}\n<p class=\"hint\">{hint}</p>\n<p class=\"hint\">{legal}</p>\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
+                "{name}\n{email}\n{password}\n<p class=\"hint\">{hint}</p>\n<label class=\"check\"><input type=\"checkbox\" name=\"conditions\" value=\"1\" required> <span>{legal}</span></label>\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
                 name = field(
                     &v.tr("Nom", "Name"),
                     &format!(r#"<input id="name" name="name" autocomplete="name" maxlength="80" value="{}" required>"#, esc(name))
@@ -336,9 +377,16 @@ pub fn sign_up(v: &View<'_>, state: SignUp, name: &str, email: &str, notice: Opt
                     "10 caractères au moins. Quelques mots qui n'ont rien à voir entre eux font un mot de passe sûr et facile à retenir.",
                     "At least 10 characters. A few unrelated words make a password that is safe and easy to remember.",
                 ),
+                // Lot 1b : les textes servis par le relais (crate::legal), version notée à l'inscription.
                 legal = match v.lang {
-                    Lang::Fr => t(v.lang, "En créant un compte, vous acceptez la <a href=\"/privacy\">politique de confidentialité</a> du relais.", ""),
-                    Lang::En => "By creating an account, you accept the relay's <a href=\"/privacy\">privacy policy</a>.".to_string(),
+                    Lang::Fr => format!(
+                        "J'accepte les <a href=\"/conditions?lang=fr\">conditions d'utilisation</a> et la <a href=\"/confidentialite?lang=fr\">politique de confidentialité</a> (version {}).",
+                        crate::legal::Doc::Terms.version()
+                    ),
+                    Lang::En => format!(
+                        "I accept the <a href=\"/conditions?lang=en\">terms of use</a> and the <a href=\"/confidentialite?lang=en\">privacy policy</a> (version {}).",
+                        crate::legal::Doc::Terms.version()
+                    ),
                 },
                 submit = v.tr("Créer le compte", "Create the account"),
             );
@@ -405,16 +453,30 @@ pub fn verify(v: &View<'_>, email: &str, notice: Option<Notice>, change: bool) -
 }
 
 /// « Protégez votre compte », après l'activation.
-pub fn protect(v: &View<'_>, totp_on: bool) -> String {
+pub fn protect(v: &View<'_>, totp_on: bool, register: Option<&Registration>) -> String {
     let title = v.tr("Protégez votre compte", "Protect your account");
-    // TODO lot 1b : la carte « Passkey (conseillée) », avant la double authentification.
+    // Lot 1b : la carte « Passkey (conseillée) », avant la double authentification.
+    let passkey_action = match register {
+        Some(r) if r.exclude.is_empty() => passkey_create_form(v, r, "btn kn-primary btn-sm"),
+        _ => format!("<span class=\"pill pill-on\">{}</span>", v.tr("Ajoutée", "Added")),
+    };
+    let passkey = format!(
+        "<div class=\"option\">\n<div><h2>{name} <small>{advised}</small></h2>\n<p>{text}</p>\n{none}</div>\n{passkey_action}\n</div>\n",
+        name = v.tr("Passkey", "Passkey"),
+        advised = v.tr("(conseillée)", "(recommended)"),
+        text = v.tr(
+            "Empreinte, visage ou code de l'appareil : elle remplace le mot de passe et vaut double authentification.",
+            "Fingerprint, face or device PIN: it replaces the password and counts as two-factor authentication.",
+        ),
+        none = passkey_unsupported(v),
+    );
     let action = if totp_on {
         format!("<span class=\"pill pill-on\">{}</span>", v.tr("Activée", "On"))
     } else {
         format!("<a class=\"btn kn-primary btn-sm\" href=\"/compte/double-authentification{}\">{}</a>", v.q(), v.tr("Activer", "Turn on"))
     };
     let card = format!(
-        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<div class=\"option\">\n<div><h2>{totp}</h2>\n<p>{totp_text}</p></div>\n{action}\n</div>\n<p class=\"acct-links\"><a href=\"/compte{q}\">{later}</a></p>",
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{passkey}<div class=\"option\">\n<div><h2>{totp}</h2>\n<p>{totp_text}</p></div>\n{action}\n</div>\n<p class=\"acct-links\"><a href=\"/compte{q}\">{later}</a></p>",
         help = v.tr(
             "Votre adresse est vérifiée. Ajoutez une deuxième protection à votre mot de passe.",
             "Your address is verified. Add a second protection to your password.",
@@ -561,6 +623,9 @@ pub struct AccountView {
     pub computers: Vec<ComputerView>,
     /// Lot 3 : les appareils connectés (apps, téléviseurs).
     pub devices: Vec<DeviceView>,
+    /// Lot 1b : les passkeys du compte, et de quoi en ajouter une (`None` : le maximum est atteint).
+    pub passkeys: Vec<PasskeyView>,
+    pub register: Option<Registration>,
 }
 
 /// Un ordinateur rattaché, sur la page du compte.
@@ -581,6 +646,27 @@ pub struct DeviceView {
     pub tv: bool,
     pub created_at: i64,
     pub seen_at: i64,
+}
+
+/// Une passkey, sur la page du compte.
+#[derive(Debug, Clone)]
+pub struct PasskeyView {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
+    pub seen_at: Option<i64>,
+}
+
+/// Les options d'un ajout de passkey, écrites dans le formulaire (`data-…`) pour `passkey.js`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registration {
+    pub challenge: String,
+    /// L'identifiant WebAuthn du compte, en base64url.
+    pub user_id: String,
+    pub user_name: String,
+    pub display_name: String,
+    /// Les passkeys déjà là (base64url) : l'authentificateur n'en crée pas une deuxième.
+    pub exclude: Vec<String>,
 }
 
 /// Le jour d'une heure Unix (UTC) : `23/11/2026`, ou `Nov 23, 2026`.
@@ -637,7 +723,8 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
             on = tr("Activer", "Turn on"),
         )
     };
-    // TODO lot 1b : les passkeys (liste, « Ajouter une passkey »), sous la double authentification.
+    // Lot 1b : les passkeys (liste, « Ajouter une passkey »), sous la double authentification.
+    let passkeys = passkeys_html(v, a);
     let sessions: String = a
         .sessions
         .iter()
@@ -665,9 +752,10 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
         "",
         &format!("<button class=\"btn btn-ghost\" type=\"submit\">{}</button>", tr("Se déconnecter", "Sign out")),
     );
-    // TODO lot 1b : « Supprimer le compte » et « Exporter mes données ».
+    // Lot 1b : « Exporter mes données » et « Supprimer le compte ».
+    let data = data_html(v);
     let card = format!(
-        "<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{computers}{devices}{sign_out}",
+        "<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n{passkeys}</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{computers}{devices}{data}{sign_out}",
         notice = notice_html(v.lang, notice),
         email_h = tr("Adresse e-mail", "Email address"),
         email = esc(&a.email),
@@ -934,6 +1022,170 @@ pub fn tv_approve(v: &View<'_>, code: &str, device: &str, email: &str) -> String
     page(v, &title, "/compte/appareil", false, &card)
 }
 
+// --- Lot 1b : passkeys, données du compte ---------------------------------------
+
+/// Un attribut `data-…` échappé.
+fn data_attr(name: &str, value: &str) -> String {
+    format!(" data-{name}=\"{}\"", esc(value))
+}
+
+/// Le message montré par `passkey.js` quand le navigateur refuse ou que l'on annule.
+fn passkey_error(v: &View<'_>) -> String {
+    format!(
+        "<p class=\"notice passkey-error\" role=\"alert\" hidden>{}</p>",
+        v.tr("La passkey n'a pas abouti : réessayez, ou utilisez votre mot de passe.", "The passkey didn't go through: try again, or use your password.")
+    )
+}
+
+/// Dit, sans script ou sans WebAuthn, que le navigateur ne sait pas faire de passkey ; `passkey.js` le cache.
+fn passkey_unsupported(v: &View<'_>) -> String {
+    format!(
+        "<p class=\"hint\" data-passkey-none>{}</p>",
+        v.tr(
+            "Ce navigateur ne permet pas d'ajouter une passkey ici (scripts coupés ou WebAuthn absent).",
+            "This browser can't add a passkey here (scripts off or no WebAuthn).",
+        )
+    )
+}
+
+/// Un formulaire de `navigator.credentials.get()` (connexion, confirmation), caché sans script.
+fn passkey_get_form(v: &View<'_>, path: &str, allow: &[String], label: &str) -> String {
+    let allow = if allow.is_empty() { String::new() } else { data_attr("allow", &allow.join(",")) };
+    let action = if path == "/compte/supprimer" { "<input type=\"hidden\" name=\"action\" value=\"passkey\">\n" } else { "" };
+    format!(
+        "<form method=\"post\" action=\"{path}{q}\" data-passkey=\"get\"{challenge}{allow} hidden>\n{csrf}\n{action}<button class=\"btn kn-primary\" type=\"submit\">{label}</button>\n{error}\n</form>",
+        q = v.q(),
+        challenge = data_attr("challenge", v.challenge),
+        csrf = v.csrf_field(),
+        error = passkey_error(v),
+    )
+}
+
+/// Le formulaire « Ajouter une passkey » (`navigator.credentials.create()`), caché sans script.
+fn passkey_create_form(v: &View<'_>, r: &Registration, class: &str) -> String {
+    format!(
+        "<form method=\"post\" action=\"/compte/passkeys/ajouter{q}\" class=\"acct-inline\" data-passkey=\"create\"{attrs} hidden>\n{csrf}\n<button class=\"{class}\" type=\"submit\">{label}</button>\n{error}\n</form>",
+        q = v.q(),
+        attrs = [
+            data_attr("challenge", &r.challenge),
+            data_attr("user-id", &r.user_id),
+            data_attr("user-name", &r.user_name),
+            data_attr("user-display", &r.display_name),
+            data_attr("rp-name", "KyberNow"),
+            data_attr("exclude", &r.exclude.join(",")),
+        ]
+        .concat(),
+        csrf = v.csrf_field(),
+        label = v.tr("Ajouter une passkey", "Add a passkey"),
+        error = passkey_error(v),
+    )
+}
+
+/// La partie « Passkeys » de la page du compte.
+fn passkeys_html(v: &View<'_>, a: &AccountView) -> String {
+    let tr = |f: &str, e: &str| v.tr(f, e);
+    let add = match &a.register {
+        Some(r) => passkey_create_form(v, r, "btn kn-primary btn-sm"),
+        None => format!("<span class=\"pill\">{}</span>", tr("20 au plus", "20 at most")),
+    };
+    let summary = if a.passkeys.is_empty() {
+        tr("Aucune. Une passkey remplace le mot de passe et vaut double authentification.", "None. A passkey replaces the password and counts as two-factor authentication.")
+    } else {
+        tr("Elles remplacent le mot de passe et valent double authentification.", "They replace the password and count as two-factor authentication.")
+    };
+    let list: String = a
+        .passkeys
+        .iter()
+        .map(|p| {
+            let added = date(v.lang, p.created_at);
+            let when = match (v.lang, p.seen_at) {
+                (Lang::Fr, Some(seen)) => format!("Ajoutée le {added}, utilisée le {}", date(v.lang, seen)),
+                (Lang::Fr, None) => format!("Ajoutée le {added}, jamais utilisée"),
+                (Lang::En, Some(seen)) => format!("Added {added}, last used {}", date(v.lang, seen)),
+                (Lang::En, None) => format!("Added {added}, never used"),
+            };
+            let id = format!("<input type=\"hidden\" name=\"id\" value=\"{}\">", p.id);
+            let rename = format!(
+                "<details class=\"acct-rename\"><summary class=\"btn btn-ghost btn-sm\">{label}</summary>\n{form}\n</details>",
+                label = tr("Renommer", "Rename"),
+                form = v.form(
+                    "/compte/passkeys/renommer",
+                    "acct-inline",
+                    &format!(
+                        "{id}\n<input name=\"name\" maxlength=\"60\" value=\"{name}\" aria-label=\"{aria}\" required>\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{ok}</button>",
+                        name = esc(&p.name),
+                        aria = tr("Nom de la passkey", "Passkey name"),
+                        ok = tr("Enregistrer", "Save"),
+                    ),
+                ),
+            );
+            let remove = v.form(
+                "/compte/passkeys/retirer",
+                "acct-inline",
+                &format!("{id}\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>", tr("Retirer", "Remove")),
+            );
+            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div><div class=\"acts\">{rename}{remove}</div></div>\n", esc(&p.name))
+        })
+        .collect();
+    format!(
+        "<div class=\"row\"><div><b>{name}</b><small>{summary}</small>{none}</div>{add}</div>\n{list}",
+        name = tr("Passkeys", "Passkeys"),
+        none = if a.register.is_some() { passkey_unsupported(v) } else { String::new() },
+    )
+}
+
+/// La partie « Vos données » de la page du compte : l'export, la suppression.
+fn data_html(v: &View<'_>) -> String {
+    let tr = |f: &str, e: &str| v.tr(f, e);
+    format!(
+        "<section>\n<h2>{h}</h2>\n<div class=\"row\"><div><b>{export}</b><small>{export_text}</small></div>{export_form}</div>\n<div class=\"row\"><div><b>{delete}</b><small>{delete_text}</small></div><a class=\"btn btn-ghost btn-sm\" href=\"/compte/supprimer{q}\">{delete_btn}</a></div>\n</section>\n",
+        h = tr("Vos données", "Your data"),
+        export = tr("Exporter mes données", "Export my data"),
+        export_text = tr("Un fichier JSON : le compte, la sécurité, les sessions, le journal.", "A JSON file: the account, security, sessions, log."),
+        export_form = v.form(
+            "/compte/export",
+            "acct-inline",
+            &format!("<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>", tr("Exporter", "Export")),
+        ),
+        delete = tr("Supprimer le compte", "Delete the account"),
+        delete_text = tr("Le compte et ses données sont effacés.", "The account and its data are erased."),
+        q = v.q(),
+        delete_btn = tr("Supprimer…", "Delete…"),
+    )
+}
+
+/// « Supprimer le compte » : confirmer avec une passkey (`allow` : celles du compte) ou le mot de passe.
+pub fn delete_account(v: &View<'_>, allow: &[String], notice: Option<Notice>) -> String {
+    let title = v.tr("Supprimer le compte", "Delete the account");
+    let passkey = if allow.is_empty() || v.challenge.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{form}\n<p class=\"acct-or\" data-passkey-or hidden>{or}</p>",
+            form = passkey_get_form(v, "/compte/supprimer", allow, &v.tr("Confirmer avec une passkey", "Confirm with a passkey")),
+            or = v.tr("ou", "or"),
+        )
+    };
+    let inner = format!(
+        "<input type=\"hidden\" name=\"action\" value=\"password\">\n{field}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
+        field = field(&v.tr("Mot de passe, pour confirmer", "Password, to confirm"), &password_input("password", "current-password")),
+        submit = v.tr("Supprimer définitivement", "Delete permanently"),
+    );
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<p class=\"hint\">{export}</p>\n{notice}{passkey}\n{form}\n<p class=\"acct-links\"><a href=\"/compte{q}\">{cancel}</a></p>",
+        help = v.tr(
+            "Le compte, ses passkeys, ses sessions, sa double authentification et son journal seront effacés tout de suite. Les sauvegardes du relais les oublient sous 30 jours.",
+            "The account, its passkeys, sessions, two-factor authentication and log will be erased right away. The relay's backups forget them within 30 days.",
+        ),
+        export = v.tr("Pensez à exporter vos données avant, depuis la page du compte.", "Remember to export your data first, from the account page."),
+        notice = notice_html(v.lang, notice),
+        form = v.form("/compte/supprimer", "", &inner),
+        q = v.q(),
+        cancel = v.tr("Annuler", "Cancel"),
+    );
+    page(v, &title, "/compte/supprimer", false, &card)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -955,8 +1207,18 @@ mod tests {
         out
     }
 
+    fn registration() -> Registration {
+        Registration {
+            challenge: "defi-ajout".into(),
+            user_id: "dXNlcg".into(),
+            user_name: "ana@exemple.org".into(),
+            display_name: "Ana \"<b>".into(),
+            exclude: vec!["Y3JlZA".into()],
+        }
+    }
+
     fn all(lang: Lang, appareil: Option<&str>) -> Vec<(&'static str, String)> {
-        let v = View { lang, csrf: "jeton-csrf", appareil };
+        let v = View { lang, csrf: "jeton-csrf", appareil, challenge: "defi" };
         let account_view = AccountView {
             email: "ana@exemple.org".into(),
             name: "Ana <b>".into(),
@@ -968,6 +1230,11 @@ mod tests {
             ],
             computers: vec![ComputerView { id: "st1".into(), name: "PC du <salon>".into(), attached_at: 1_700_000_000, online: true }],
             devices: vec![DeviceView { id: 3, name: "Apple TV".into(), tv: true, created_at: 1_700_000_000, seen_at: 1_700_000_000 }],
+            passkeys: vec![
+                PasskeyView { id: 7, name: "Chrome, Mac <i>".into(), created_at: 1_700_000_000, seen_at: None },
+                PasskeyView { id: 8, name: "Clé USB".into(), created_at: 1_700_000_000, seen_at: Some(1_700_100_000) },
+            ],
+            register: Some(registration()),
         };
         let mut pages = vec![
             ("connexion", sign_in(&v, "ana@exemple.org", Some(Notice::BadCredentials), true, true)),
@@ -977,7 +1244,10 @@ mod tests {
             ("inscription/fermee", sign_up(&v, SignUp::Closed, "", "", None)),
             ("verifier", verify(&v, "ana@exemple.org", Some(Notice::Resent), false)),
             ("verifier/changer", verify(&v, "ana@exemple.org", None, true)),
-            ("proteger", protect(&v, false)),
+            ("proteger", protect(&v, false, Some(&Registration { exclude: vec![], ..registration() }))),
+            ("proteger/passkey", protect(&v, true, Some(&registration()))),
+            ("supprimer", delete_account(&v, &["Y3JlZA".into()], Some(Notice::BadPassword))),
+            ("supprimer/sans-passkey", delete_account(&v, &[], None)),
             ("code", code(&v, Some(Notice::WrongCode), false)),
             ("code/secours", code(&v, None, true)),
             ("oubli", forgot(&v, Forgot::Form(None))),
@@ -985,7 +1255,7 @@ mod tests {
             ("oubli/indisponible", forgot(&v, Forgot::Unavailable)),
             ("nouveau", new_password(&v, "jeton", Some(Notice::Weak(Weak::TooShort)))),
             ("compte", account(&v, &account_view, Some(Notice::TotpOn))),
-            ("compte/sans-2fa", account(&v, &AccountView { totp_on: false, ..account_view.clone() }, None)),
+            ("compte/sans-2fa", account(&v, &AccountView { totp_on: false, passkeys: vec![], register: None, ..account_view.clone() }, None)),
             ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", Some(Notice::WrongCode))),
             ("secours", recovery_codes(&v, &["abcd-efgh".into()], None)),
             ("message", message(&v, "/compte/verifier", "Titre", "Texte.", ("/compte/connexion", "Lien"))),
@@ -1010,6 +1280,11 @@ mod tests {
             Notice::DeviceClosed,
             Notice::Weak(Weak::TooLong),
             Notice::Weak(Weak::LikeEmail),
+            Notice::TermsMissing,
+            Notice::PasskeyFailed,
+            Notice::PasskeyAdded,
+            Notice::PasskeyRenamed,
+            Notice::PasskeyRemoved,
         ] {
             pages.push(("avis", sign_in(&v, "", Some(n), true, true)));
         }
@@ -1029,15 +1304,19 @@ mod tests {
                 assert!(!page.contains('\u{2014}'), "{name} : tiret cadratin");
             }
         }
-        assert!(sign_in(&View { lang: Lang::Fr, csrf: "", appareil: None }, "", None, true, true).contains("Mot de passe oublié\u{202F}?"));
+        assert!(sign_in(&View { lang: Lang::Fr, csrf: "", appareil: None, challenge: "" }, "", None, true, true).contains("Mot de passe oublié\u{202F}?"));
     }
 
     #[test]
-    fn rien_qui_charge_du_dehors_et_pas_de_script() {
+    fn rien_qui_charge_du_dehors_et_un_seul_script() {
+        let script = format!("<script src=\"{}\" defer></script>", assets::url("passkey.js"));
         for lang in [Lang::Fr, Lang::En] {
             for (name, page) in all(lang, None) {
-                for bad in ["<script", "<iframe", "style=", "onclick=", "onload=", "analytics"] {
-                    assert!(!page.contains(bad), "{name} : {bad}");
+                // Le seul script : celui des passkeys, servi par le relais, là où il y a une passkey.
+                let page_without = page.replace(&script, "");
+                assert_eq!(page.contains(&script), page.contains("data-passkey=\""), "{name} : script des passkeys");
+                for bad in ["<script", "<iframe", "style=", "onclick=", "onload=", "analytics", "javascript:"] {
+                    assert!(!page_without.contains(bad), "{name} : {bad}");
                 }
                 for part in page.split("src=\"").skip(1).chain(page.split("<link ").skip(1).map(|l| l.split("href=\"").nth(1).unwrap_or(""))) {
                     assert!(part.starts_with('/'), "{name} : ressource hors du relais");
@@ -1066,7 +1345,7 @@ mod tests {
 
     #[test]
     fn depuis_une_app_pas_d_inscription() {
-        let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("abc") };
+        let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("abc"), challenge: "" };
         let page = sign_in(&v, "", None, true, true);
         assert!(!page.contains("Créer un compte"));
         assert!(page.contains("action=\"/compte/connexion?lang=fr&appareil=abc\""));
@@ -1077,14 +1356,44 @@ mod tests {
     }
 
     #[test]
-    fn passkeys_pas_encore_la() {
-        // Lot 1b : aucune mention des passkeys tant qu'elles ne marchent pas.
-        for lang in [Lang::Fr, Lang::En] {
-            for (name, page) in all(lang, None) {
-                assert!(!page.to_lowercase().contains("passkey"), "{name} : passkey");
-                assert!(!page.contains("Supprimer le compte") && !page.contains("Delete the account"), "{name}");
+    fn passkeys_cachees_sans_script() {
+        let pages = all(Lang::Fr, None);
+        let get = |n: &str| pages.iter().find(|(name, _)| *name == n).unwrap().1.clone();
+        // Chaque formulaire de passkey est caché (le script le montre), avec son message d'erreur caché.
+        for (name, page) in &pages {
+            for form in page.split("<form ").skip(1).filter(|f| f.contains("data-passkey=\"")) {
+                let tag = &form[..form.find('>').unwrap()];
+                assert!(tag.ends_with(" hidden"), "{name} : formulaire de passkey visible sans script");
+                assert!(form.contains("class=\"notice passkey-error\" role=\"alert\" hidden"), "{name}");
             }
         }
+        // Connexion : la passkey d'abord, avec le défi ; sans défi, pas de passkey.
+        let sign_in_page = get("connexion");
+        assert!(sign_in_page.find("Continuer avec une passkey").unwrap() < sign_in_page.find("name=\"password\"").unwrap());
+        assert!(sign_in_page.contains(r#"action="/compte/connexion/passkey?lang=fr" data-passkey="get" data-challenge="defi" hidden"#));
+        assert!(!sign_in(&View { lang: Lang::Fr, csrf: "c", appareil: None, challenge: "" }, "", None, true, true).contains("passkey"));
+        // Ajout : les options échappées, les passkeys déjà là exclues.
+        let account_page = get("compte");
+        assert!(account_page.contains(r#"data-passkey="create" data-challenge="defi-ajout" data-user-id="dXNlcg" data-user-name="ana@exemple.org" data-user-display="Ana &quot;&lt;b&gt;" data-rp-name="KyberNow" data-exclude="Y3JlZA" hidden"#));
+        assert!(account_page.contains("Chrome, Mac &lt;i&gt;") && account_page.contains("jamais utilisée"));
+        assert!(account_page.contains(r#"name="id" value="7""#) && account_page.contains("/compte/passkeys/retirer?lang=fr"));
+        assert!(account_page.contains("Exporter mes données") && account_page.contains("/compte/supprimer?lang=fr"));
+        assert!(!get("compte/sans-2fa").contains("data-passkey"), "maximum atteint : pas d'ajout");
+        // Protéger : la passkey conseillée, avant la double authentification ; « Ajoutée » s'il y en a une.
+        let protect_page = get("proteger");
+        assert!(protect_page.find("(conseillée)").unwrap() < protect_page.find("Double authentification").unwrap());
+        assert!(protect_page.contains("data-passkey=\"create\""));
+        assert!(!get("proteger/passkey").contains("data-passkey=\"") && get("proteger/passkey").contains("Ajoutée"));
+        // Supprimer : par passkey (celles du compte seulement) ou par mot de passe.
+        let delete_page = get("supprimer");
+        assert!(delete_page.contains(r#"data-passkey="get" data-challenge="defi" data-allow="Y3JlZA" hidden"#));
+        assert!(delete_page.contains(r#"name="action" value="passkey""#) && delete_page.contains(r#"name="action" value="password""#));
+        assert!(!get("supprimer/sans-passkey").contains("data-passkey"));
+        // Inscription : la case des conditions, avec leurs liens et leur version.
+        let sign_up_page = get("inscription");
+        assert!(sign_up_page.contains(r#"name="conditions" value="1" required"#));
+        assert!(sign_up_page.contains("/conditions?lang=fr") && sign_up_page.contains("/confidentialite?lang=fr"));
+        assert!(sign_up_page.contains(&format!("(version {})", crate::legal::Doc::Terms.version())));
     }
 
     #[test]
@@ -1093,7 +1402,7 @@ mod tests {
         assert!(page.contains("PC du &lt;salon&gt;") && page.contains("Rattaché le 14/11/2023") && page.contains("En ligne"));
         assert!(page.contains("action=\"/compte/ordinateurs/detacher?lang=fr\"") && page.contains(r#"name="id" value="st1""#));
         assert!(page.contains("Appareils connectés") && page.contains("Connecté par un code le"));
-        let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa") };
+        let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa"), challenge: "" };
         let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1");
         assert!(consent.contains("Connecter KyberNow Link sur iPad de Léa\u{202F}?"));
         assert!(consent.contains("action=\"/compte/connecter-appareil?lang=fr&appareil=iPad%20de%20L%C3%A9a\""));
