@@ -678,8 +678,10 @@ export interface AccountView {
   station: string | null
   /** La console du relais (« Gérer dans la console »). */
   console: string | null
-  /** Le relais propose le rattachement : « Se connecter » actif. */
+  /** Un relais est réglé (« Hors de chez vous ») : « Se connecter » actif. */
   can_attach: boolean
+  /** « Se connecter » attend la confirmation dans la console du relais (15 min au plus). */
+  attaching: boolean
 }
 
 /** Un compte et un appareil entrés par un jeton (`GET /api/account/access`). */
@@ -864,7 +866,13 @@ export const api = {
   // Compte KyberNow (docs/comptes.md) : session d'Admin, jamais par le relais.
   account: () => request<AccountView>('GET', '/api/account'),
   /** `accept` : l'interrupteur ; `detach` : détacher la Station (liste effacée). */
-  setAccount: (changes: { accept?: boolean; detach?: boolean }) => request<AccountView>('PUT', '/api/account', changes),
+  setAccount: (changes: { accept?: boolean; detach?: boolean; cancel_attach?: boolean }) => request<AccountView>('PUT', '/api/account', changes),
+  /**
+   * « Se connecter » : Admin demande un code de rattachement au relais (par sa connexion
+   * de contrôle) et rend la page de sa console à ouvrir. Refus : `409` `no_relay` ou
+   * `no_accounts`, `503` `relay_unreachable`.
+   */
+  attachAccount: () => request<{ url: string; expires: number }>('POST', '/api/account/attach', {}),
   accountAccess: () => request<{ entries: AccountAccess[] }>('GET', '/api/account/access'),
   /** `account` : tout le compte (tous ses appareils), pas seulement cet appareil. */
   blockAccess: (id: string, blocked: boolean, account = false) =>

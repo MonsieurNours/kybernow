@@ -503,8 +503,11 @@ fn depuis_une_app() {
     let r = b.post("/compte/inscription?lang=fr&appareil=salon-tv", &[("name", "A"), ("email", "a@exemple.org"), ("password", PASSWORD)]);
     assert_eq!(r.status, 403);
     assert!(w.acc.db().account_by_email("a@exemple.org").unwrap().is_none());
-    // Un identifiant d'appareil bizarre est ignoré.
-    assert!(html(&b.get("/compte/connexion?lang=fr&appareil=%3Cb%3E")).contains("Créer un compte"));
+    // Le nom de l'appareil est encodé dans les liens (lot 3) ; un nom vide ou avec un caractère de contrôle est ignoré.
+    let named = b.get("/compte/connexion?lang=fr&appareil=%3Cb%3E%20de%20L%C3%A9a");
+    assert!(html(&named).contains("action=\"/compte/connexion?lang=fr&appareil=%3Cb%3E%20de%20L%C3%A9a\"") && !html(&named).contains("<b> de"));
+    assert!(html(&b.get("/compte/connexion?lang=fr&appareil=a%0Ab")).contains("Créer un compte"));
+    assert!(html(&b.get("/compte/connexion?lang=fr&appareil=%20")).contains("Créer un compte"));
 }
 
 #[test]
@@ -542,3 +545,6 @@ fn les_essais_reussis_ne_comptent_pas() {
         assert_eq!(location(&b.sign_in("ana@exemple.org", PASSWORD)), "/compte?lang=fr");
     }
 }
+
+// Lot 2 (rattachement) et moitié relais du lot 3 (appareils) : à part, pour ne pas mêler les fusions.
+mod lot2;

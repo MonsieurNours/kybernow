@@ -26,6 +26,19 @@ pub fn esc(s: &str) -> String {
     out
 }
 
+/// Encode une valeur pour une adresse (`?appareil=iPad%20de%20L%C3%A9a`).
+pub fn pct(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 /// Ce que toutes les pages des comptes savent de la requête.
 #[derive(Debug, Clone, Copy)]
 pub struct View<'a> {
@@ -44,7 +57,7 @@ impl View<'_> {
 
     fn q_lang(&self, lang: Lang) -> String {
         match self.appareil {
-            Some(a) => format!("?lang={}&appareil={}", lang.code(), esc(a)),
+            Some(a) => format!("?lang={}&appareil={}", lang.code(), esc(&pct(a))),
             None => format!("?lang={}", lang.code()),
         }
     }
@@ -86,11 +99,25 @@ pub enum Notice {
     TotpOn,
     TotpOff,
     SessionClosed,
+    /// Lot 2 : un ordinateur détaché depuis la console.
+    StationDetached,
+    /// Lot 3 : un appareil déconnecté.
+    DeviceClosed,
 }
 
 impl Notice {
     fn is_ok(self) -> bool {
-        matches!(self, Notice::Resent | Notice::PasswordChanged | Notice::Verified | Notice::TotpOn | Notice::TotpOff | Notice::SessionClosed)
+        matches!(
+            self,
+            Notice::Resent
+                | Notice::PasswordChanged
+                | Notice::Verified
+                | Notice::TotpOn
+                | Notice::TotpOff
+                | Notice::SessionClosed
+                | Notice::StationDetached
+                | Notice::DeviceClosed
+        )
     }
 
     pub fn text(self, lang: Lang) -> String {
@@ -124,6 +151,8 @@ impl Notice {
             Notice::TotpOn => tr("Double authentification activée.", "Two-factor authentication is on."),
             Notice::TotpOff => tr("Double authentification coupée.", "Two-factor authentication is off."),
             Notice::SessionClosed => tr("Session fermée.", "Session closed."),
+            Notice::StationDetached => tr("Ordinateur détaché.", "Computer detached."),
+            Notice::DeviceClosed => tr("Appareil déconnecté.", "Device disconnected."),
         }
     }
 }
@@ -528,6 +557,30 @@ pub struct AccountView {
     pub totp_on: bool,
     pub recovery_left: usize,
     pub sessions: Vec<SessionView>,
+    /// Lot 2 : les ordinateurs rattachés au compte.
+    pub computers: Vec<ComputerView>,
+    /// Lot 3 : les appareils connectés (apps, téléviseurs).
+    pub devices: Vec<DeviceView>,
+}
+
+/// Un ordinateur rattaché, sur la page du compte.
+#[derive(Debug, Clone)]
+pub struct ComputerView {
+    pub id: String,
+    pub name: String,
+    pub attached_at: i64,
+    pub online: bool,
+}
+
+/// Un appareil connecté, sur la page du compte.
+#[derive(Debug, Clone)]
+pub struct DeviceView {
+    pub id: i64,
+    pub name: String,
+    /// Connecté par un code (téléviseur).
+    pub tv: bool,
+    pub created_at: i64,
+    pub seen_at: i64,
 }
 
 /// Le jour d'une heure Unix (UTC) : `23/11/2026`, ou `Nov 23, 2026`.
@@ -605,6 +658,8 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
             format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div>{act}</div>\n", esc(&s.device))
         })
         .collect();
+    let computers = computers_html(v, &a.computers);
+    let devices = devices_html(v, &a.devices);
     let sign_out = v.form(
         "/compte/deconnexion",
         "",
@@ -612,7 +667,7 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
     );
     // TODO lot 1b : « Supprimer le compte » et « Exporter mes données ».
     let card = format!(
-        "<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{sign_out}",
+        "<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{computers}{devices}{sign_out}",
         notice = notice_html(v.lang, notice),
         email_h = tr("Adresse e-mail", "Email address"),
         email = esc(&a.email),
@@ -669,6 +724,216 @@ pub fn recovery_codes(v: &View<'_>, codes: &[String], notice: Option<Notice>) ->
     page(v, &title, "/compte", false, &card)
 }
 
+// --- Lot 2 : ordinateurs rattachés ; lot 3 : appareils connectés -------------------------
+
+/// « Ordinateurs » sur la page du compte (rien tant qu'aucun n'est rattaché).
+fn computers_html(v: &View<'_>, computers: &[ComputerView]) -> String {
+    if computers.is_empty() {
+        return String::new();
+    }
+    let rows: String = computers
+        .iter()
+        .map(|c| {
+            let when = match v.lang {
+                Lang::Fr => format!("Rattaché le {}", date(v.lang, c.attached_at)),
+                Lang::En => format!("Attached {}", date(v.lang, c.attached_at)),
+            };
+            let state = if c.online {
+                format!("<span class=\"pill pill-on\">{}</span>", v.tr("En ligne", "Online"))
+            } else {
+                format!("<span class=\"pill\">{}</span>", v.tr("Hors ligne", "Offline"))
+            };
+            let detach = v.form(
+                "/compte/ordinateurs/detacher",
+                "acct-inline",
+                &format!(
+                    "<input type=\"hidden\" name=\"id\" value=\"{}\">\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>",
+                    esc(&c.id),
+                    v.tr("Détacher", "Detach")
+                ),
+            );
+            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div><div class=\"acts\">{state}\n{detach}</div></div>\n", esc(&c.name))
+        })
+        .collect();
+    format!("<section>\n<h2>{}</h2>\n{rows}</section>\n", v.tr("Ordinateurs", "Computers"))
+}
+
+/// « Appareils connectés » sur la page du compte (rien tant qu'aucun ne l'est).
+fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
+    if devices.is_empty() {
+        return String::new();
+    }
+    let rows: String = devices
+        .iter()
+        .map(|d| {
+            let name = if d.name.is_empty() { v.tr("Appareil", "Device") } else { d.name.clone() };
+            let how = if d.tv { v.tr("par un code", "with a code") } else { v.tr("par l'app", "from the app") };
+            let when = match v.lang {
+                Lang::Fr => format!("Connecté {how} le {}, vu le {}", date(v.lang, d.created_at), date(v.lang, d.seen_at)),
+                Lang::En => format!("Connected {how} {}, last seen {}", date(v.lang, d.created_at), date(v.lang, d.seen_at)),
+            };
+            let close = v.form(
+                "/compte/appareils/deconnecter",
+                "acct-inline",
+                &format!(
+                    "<input type=\"hidden\" name=\"id\" value=\"{}\">\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>",
+                    d.id,
+                    v.tr("Déconnecter", "Disconnect")
+                ),
+            );
+            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div>{close}</div>\n", esc(&name))
+        })
+        .collect();
+    format!("<section>\n<h2>{}</h2>\n{rows}</section>\n", v.tr("Appareils connectés", "Connected devices"))
+}
+
+/// « Rattacher {nom} » : le propriétaire, puis confirmer (`/compte/rattacher`).
+pub fn attach(v: &View<'_>, code: &str, computer: &str, name: &str, email: &str) -> String {
+    let computer = if computer.is_empty() { v.tr("cet ordinateur", "this computer") } else { computer.to_string() };
+    let title = match v.lang {
+        Lang::Fr => t(v.lang, &format!("Rattacher {}", esc(&computer)), ""),
+        Lang::En => format!("Attach {}", esc(&computer)),
+    };
+    let me = if name.is_empty() { esc(email) } else { format!("{} <small>{}</small>", esc(name), esc(email)) };
+    // TODO lot 5 : un choix par organisation que ce compte administre (« Moi » / « {organisation} »).
+    let inner = format!(
+        "<input type=\"hidden\" name=\"code\" value=\"{code}\">\n<fieldset class=\"field\">\n<legend class=\"mono-label\">{owner}</legend>\n<label class=\"check\"><input type=\"radio\" name=\"proprietaire\" value=\"moi\" checked> {me}</label>\n</fieldset>\n<p class=\"hint\">{after}</p>\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"rattacher\">{title}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
+        code = esc(code),
+        owner = v.tr("Propriétaire", "Owner"),
+        after = v.tr(
+            "L'ordinateur acceptera alors les comptes KyberNow, et l'accès hors de chez vous s'activera. Admin permet de couper l'un et l'autre, et de le détacher.",
+            "The computer will then accept KyberNow accounts, and access away from home will turn on. Admin can turn either off, and detach it.",
+        ),
+        cancel = v.tr("Annuler", "Cancel"),
+    );
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{form}",
+        help = v.tr(
+            "Admin demande à rattacher cet ordinateur à un compte KyberNow : il apparaîtra dans vos apps, où que vous soyez.",
+            "Admin asks to attach this computer to a KyberNow account: it will show up in your apps, wherever you are.",
+        ),
+        form = v.form("/compte/rattacher", "", &inner),
+    );
+    page(v, &title, "/compte/rattacher", false, &card)
+}
+
+/// Une page d'issue, sans formulaire : un titre, un texte, « Votre compte ».
+pub fn done(v: &View<'_>, here: &str, title: &str, text: &str) -> String {
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{text}</p>\n<p class=\"acct-links\"><a href=\"/compte{q}\">{account}</a></p>",
+        q = v.q(),
+        account = v.tr("Votre compte", "Your account"),
+    );
+    page(v, title, here, false, &card)
+}
+
+/// « Connecter KyberNow Link sur {appareil} ? » (fenêtre du système).
+/// `etat` : la valeur que l'app a donnée (`?etat=`), rendue telle quelle au retour.
+pub fn device_consent(v: &View<'_>, device: &str, email: &str, etat: &str) -> String {
+    let device = if device.is_empty() { v.tr("cet appareil", "this device") } else { device.to_string() };
+    let title = match v.lang {
+        Lang::Fr => t(v.lang, &format!("Connecter KyberNow Link sur {} ?", esc(&device)), ""),
+        Lang::En => format!("Connect KyberNow Link on {}?", esc(&device)),
+    };
+    let inner = format!(
+        "<input type=\"hidden\" name=\"etat\" value=\"{etat}\">\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"connecter\">{yes}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{no}</button>",
+        etat = esc(etat),
+        yes = v.tr("Connecter", "Connect"),
+        no = v.tr("Annuler", "Cancel"),
+    );
+    let help = match v.lang {
+        Lang::Fr => t(
+            v.lang,
+            &format!(
+                "L'app pourra ouvrir les ordinateurs du compte <b>{}</b>, sans connaître votre mot de passe. Vous pourrez la déconnecter depuis votre compte.",
+                esc(email)
+            ),
+            "",
+        ),
+        Lang::En => format!("The app will be able to open the computers of the account <b>{}</b>, without knowing your password. You can disconnect it from your account.", esc(email)),
+    };
+    let card = format!("<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{form}", form = v.form("/compte/connecter-appareil", "", &inner));
+    page(v, &title, "/compte/connecter-appareil", false, &card)
+}
+
+/// Le retour vers l'app (`kybernow://compte?code=…`) : la page y renvoie
+/// d'elle-même, et un bouton le fait si le navigateur ne suit pas.
+pub fn device_return(v: &View<'_>, target: &str, connected: bool) -> String {
+    let title = v.tr("Retour à l'app", "Back to the app");
+    let help = if connected {
+        v.tr("C'est fait : KyberNow Link est connecté à votre compte.", "Done: KyberNow Link is connected to your account.")
+    } else {
+        v.tr("Connexion annulée : l'app n'est pas connectée.", "Sign-in cancelled: the app isn't connected.")
+    };
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<a class=\"btn kn-primary\" href=\"{target}\">{open}</a>",
+        target = esc(target),
+        open = v.tr("Revenir à KyberNow Link", "Return to KyberNow Link"),
+    );
+    let html = page(v, &title, "/compte/connecter-appareil", false, &card);
+    // Sans script : un rafraîchissement vers le schéma de l'app.
+    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
+}
+
+/// `/tv` : le code affiché sur l'écran du téléviseur.
+pub fn tv_entry(v: &View<'_>, typed: &str, notice: Option<Notice>) -> String {
+    let title = v.tr("Connecter un appareil", "Connect a device");
+    let wrong = notice.is_some();
+    // En GET vers la page d'approbation : rien n'est changé avant « Connecter ».
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{notice}<form method=\"get\" action=\"/compte/appareil\">\n<input type=\"hidden\" name=\"lang\" value=\"{lang}\">\n{field}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>\n</form>",
+        help = v.tr(
+            "Entrez le code de huit signes affiché sur l'écran de l'appareil (Apple TV, téléviseur, Steam Deck…).",
+            "Enter the eight-character code shown on the device's screen (Apple TV, TV, Steam Deck…).",
+        ),
+        notice = notice_html(v.lang, notice),
+        lang = v.lang.code(),
+        field = field(
+            &v.tr("Code", "Code"),
+            &format!(
+                r#"<input id="code" class="code-input" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="XXXX-XXXX" value="{}" required{}>"#,
+                esc(typed),
+                if wrong { " autofocus" } else { "" }
+            )
+        ),
+        submit = v.tr("Continuer", "Continue"),
+    );
+    page(v, &title, "/tv", false, &card)
+}
+
+/// « Connecter l'appareil ? » (code d'un téléviseur), sur le modèle de la maquette.
+pub fn tv_approve(v: &View<'_>, code: &str, device: &str, email: &str) -> String {
+    let device = if device.is_empty() { v.tr("cet appareil", "this device") } else { device.to_string() };
+    let title = match v.lang {
+        Lang::Fr => t(v.lang, &format!("Connecter {} ?", esc(&device)), ""),
+        Lang::En => format!("Connect {}?", esc(&device)),
+    };
+    let inner = format!(
+        "<input type=\"hidden\" name=\"code\" value=\"{code}\">\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"connecter\">{yes}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"refuser\">{no}</button>",
+        code = esc(code),
+        yes = v.tr("Connecter", "Connect"),
+        no = v.tr("Ce n'est pas moi", "It wasn't me"),
+    );
+    let help = match v.lang {
+        Lang::Fr => t(
+            v.lang,
+            &format!(
+                "Le code <b>{}</b> s'affiche sur son écran. Il pourra ouvrir les ordinateurs du compte <b>{}</b> ; vous pourrez le déconnecter depuis votre compte.",
+                esc(code),
+                esc(email)
+            ),
+            "",
+        ),
+        Lang::En => format!(
+            "The code <b>{}</b> is shown on its screen. It will be able to open the computers of the account <b>{}</b>; you can disconnect it from your account.",
+            esc(code),
+            esc(email)
+        ),
+    };
+    let card = format!("<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{form}", form = v.form("/compte/appareil", "", &inner));
+    page(v, &title, "/compte/appareil", false, &card)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -701,6 +966,8 @@ mod tests {
                 SessionView { id: 1, device: "Firefox, Windows".into(), created_at: 1_700_000_000, seen_at: 1_700_000_000, current: true },
                 SessionView { id: 2, device: "Safari, iPhone".into(), created_at: 1_700_000_000, seen_at: 1_700_100_000, current: false },
             ],
+            computers: vec![ComputerView { id: "st1".into(), name: "PC du <salon>".into(), attached_at: 1_700_000_000, online: true }],
+            devices: vec![DeviceView { id: 3, name: "Apple TV".into(), tv: true, created_at: 1_700_000_000, seen_at: 1_700_000_000 }],
         };
         let mut pages = vec![
             ("connexion", sign_in(&v, "ana@exemple.org", Some(Notice::BadCredentials), true, true)),
@@ -722,6 +989,11 @@ mod tests {
             ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", Some(Notice::WrongCode))),
             ("secours", recovery_codes(&v, &["abcd-efgh".into()], None)),
             ("message", message(&v, "/compte/verifier", "Titre", "Texte.", ("/compte/connexion", "Lien"))),
+            ("rattacher", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org")),
+            ("rattache", done(&v, "/compte/rattacher", "Titre", "Texte.")),
+            ("appareil", device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1")),
+            ("tv", tv_entry(&v, "", Some(Notice::WrongCode))),
+            ("tv/approuver", tv_approve(&v, "BCDF-GHJK", "Apple TV du salon", "ana@exemple.org")),
         ];
         for n in [
             Notice::FormExpired,
@@ -734,6 +1006,8 @@ mod tests {
             Notice::UnverifiedNoMail,
             Notice::TotpOff,
             Notice::SessionClosed,
+            Notice::StationDetached,
+            Notice::DeviceClosed,
             Notice::Weak(Weak::TooLong),
             Notice::Weak(Weak::LikeEmail),
         ] {
@@ -769,8 +1043,8 @@ mod tests {
                     assert!(part.starts_with('/'), "{name} : ressource hors du relais");
                 }
                 assert!(!page.contains("https://"), "{name} : adresse absolue");
-                // Chaque formulaire est en POST, avec son jeton CSRF et la langue.
-                for form in page.split("<form ").skip(1) {
+                // Chaque formulaire est en POST, avec son jeton CSRF et la langue (sauf `/tv`, en GET, qui ne change rien).
+                for form in page.split("<form ").skip(1).filter(|f| !f.starts_with("method=\"get\" action=\"/compte/appareil\"")) {
                     assert!(form.starts_with("method=\"post\""), "{name} : formulaire en GET");
                     assert!(form.contains(&format!("?lang={}", lang.code())), "{name} : langue du formulaire");
                     assert!(form.contains(r#"name="csrf" value="jeton-csrf""#), "{name} : jeton CSRF");
@@ -811,6 +1085,24 @@ mod tests {
                 assert!(!page.contains("Supprimer le compte") && !page.contains("Delete the account"), "{name}");
             }
         }
+    }
+
+    #[test]
+    fn ordinateurs_appareils_et_retour_vers_l_app() {
+        let page = all(Lang::Fr, None).into_iter().find(|(n, _)| *n == "compte").unwrap().1;
+        assert!(page.contains("PC du &lt;salon&gt;") && page.contains("Rattaché le 14/11/2023") && page.contains("En ligne"));
+        assert!(page.contains("action=\"/compte/ordinateurs/detacher?lang=fr\"") && page.contains(r#"name="id" value="st1""#));
+        assert!(page.contains("Appareils connectés") && page.contains("Connecté par un code le"));
+        let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa") };
+        let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1");
+        assert!(consent.contains("Connecter KyberNow Link sur iPad de Léa\u{202F}?"));
+        assert!(consent.contains("action=\"/compte/connecter-appareil?lang=fr&appareil=iPad%20de%20L%C3%A9a\""));
+        let back = device_return(&v, "kybernow://compte?code=abc&etat=x\"y", true);
+        assert!(back.contains("<meta http-equiv=\"refresh\" content=\"0;url=kybernow://compte?code=abc&amp;etat=x&quot;y\">"));
+        assert!(back.contains("href=\"kybernow://compte?code=abc&amp;etat=x&quot;y\""));
+        let tv = tv_approve(&View { appareil: None, ..v }, "BCDF-GHJK", "Apple TV du salon", "ana@exemple.org");
+        assert!(tv.contains("Connecter Apple TV du salon\u{202F}?") && tv.contains("Ce n'est pas moi") && tv.contains("BCDF-GHJK"));
+        assert_eq!(pct("a b/é"), "a%20b%2F%C3%A9");
     }
 
     #[test]

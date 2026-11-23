@@ -114,6 +114,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Compte KyberNow (docs/comptes.md) : compte rattaché, interrupteur,
         // accès entrés par un jeton et leur blocage (session d'Admin, jamais par le relais).
         .route("/api/account", get(crate::accounts::get).put(crate::accounts::put))
+        .route("/api/account/attach", post(crate::accounts::attach))
         .route("/api/account/access", get(crate::accounts::get_access))
         .route("/api/account/access/{id}/block", post(crate::accounts::block))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber,

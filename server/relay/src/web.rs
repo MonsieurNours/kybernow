@@ -3,7 +3,9 @@
 //! - `share.<domaine>` : l'accueil de KyberNow Share et la saisie du code (`/`),
 //!   `/j/{code}`, `/assets/…` (styles, polices et logo embarqués), `/v1/codes/{code}`,
 //!   `/v1/health`, `/privacy` ; avec les comptes (`[accounts] enabled`), `/compte/…`
-//!   ([`crate::accounts`]), seules pages en POST ;
+//!   ([`crate::accounts`]), seules pages en POST ; avec eux aussi `/tv`,
+//!   `/v1/keys` (clé de signature des jetons) et l'API des appareils
+//!   (`/v1/devices/…`, `/v1/computers`, `/v1/access`, en JSON) ;
 //! - `<id>.share.<domaine>` : mandataire HTTP/1.1 (WebSocket compris) vers
 //!   Admin de la Station `<id>`, par un flux `admin_http`.
 //!
@@ -27,6 +29,7 @@ use kybernow_tunnel::lookup::is_code;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 
+use crate::accounts::devices::{self, ApiRequest};
 use crate::accounts::{Accounts, web as account_web};
 use crate::assets;
 use crate::hub::{Hub, VERSION};
@@ -154,6 +157,15 @@ async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<B
     {
         return account_page(accounts.clone(), req, ip, lang).await;
     }
+    if let Some(accounts) = &hub.accounts {
+        let path = req.uri().path();
+        if path == kybernow_tunnel::access::KEYS_PATH && req.method() == hyper::Method::GET {
+            return json(StatusCode::OK, serde_json::to_value(accounts.stations.keys.key_set()).expect("JSON"));
+        }
+        if devices::is_api_path(path) {
+            return device_api(accounts.clone(), req, ip).await;
+        }
+    }
     if req.method() != hyper::Method::GET && req.method() != hyper::Method::HEAD {
         return html(StatusCode::METHOD_NOT_ALLOWED, pages::not_found(lang));
     }
@@ -266,6 +278,54 @@ async fn account_page(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAdd
             r.headers_mut().append(header::SET_COOKIE, v);
         }
     }
+    if let Some(secs) = reply.retry_after {
+        r.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(secs));
+    }
+    r
+}
+
+/// L'API des appareils (`/v1/devices/…`, `/v1/computers`, `/v1/access`) :
+/// JSON de 16 Kio au plus, jeton porteur, servie hors de l'exécuteur.
+async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
+    let post = match *req.method() {
+        hyper::Method::GET => false,
+        hyper::Method::POST => true,
+        _ => return json(StatusCode::METHOD_NOT_ALLOWED, serde_json::json!({ "error": "method_not_allowed" })),
+    };
+    let bearer = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().split_once(' '))
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
+        .map(|(_, token)| token.trim().to_string());
+    let path = req.uri().path().to_string();
+    let body = if post {
+        match http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect().await {
+            Ok(b) => {
+                let bytes = b.to_bytes();
+                if bytes.iter().all(u8::is_ascii_whitespace) {
+                    serde_json::Value::Null
+                } else {
+                    match serde_json::from_slice(&bytes) {
+                        Ok(v) => v,
+                        Err(_) => return json(StatusCode::BAD_REQUEST, serde_json::json!({ "error": "bad_request" })),
+                    }
+                }
+            }
+            Err(_) => return json(StatusCode::PAYLOAD_TOO_LARGE, serde_json::json!({ "error": "too_large" })),
+        }
+    } else {
+        serde_json::Value::Null
+    };
+    let request = ApiRequest { post, path, bearer, body, ip };
+    let Ok(_permit) = accounts.gate.acquire().await else { return json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({ "error": "unavailable" })) };
+    let worker = accounts.clone();
+    let reply = match tokio::task::spawn_blocking(move || worker.api(&request)).await {
+        Ok(r) => r,
+        Err(_) => return json(StatusCode::INTERNAL_SERVER_ERROR, serde_json::json!({ "error": "unavailable" })),
+    };
+    let mut r = json(StatusCode::from_u16(reply.status).unwrap_or(StatusCode::OK), reply.body);
     if let Some(secs) = reply.retry_after {
         r.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(secs));
     }

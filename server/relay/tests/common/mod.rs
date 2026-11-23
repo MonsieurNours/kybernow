@@ -100,6 +100,10 @@ pub struct FakeStation {
     /// La cible de chaque flux UDP demandé (`None` : Kyber).
     pub flow_targets: Arc<Mutex<Vec<Option<ConsoleTarget>>>>,
     pub udp_echo: SocketAddr,
+    /// Les `attached` reçus du relais (comptes KyberNow).
+    pub attached: Arc<Mutex<Vec<kybernow_tunnel::msg::Attached>>>,
+    /// Les `detached` reçus.
+    pub detached: Arc<AtomicU32>,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -235,6 +239,9 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
     let seen = headers.clone();
     let flow_targets = Arc::new(Mutex::new(Vec::new()));
     let targets = flow_targets.clone();
+    let attached = Arc::new(Mutex::new(Vec::new()));
+    let detached = Arc::new(AtomicU32::new(0));
+    let (got_attached, got_detached) = (attached.clone(), detached.clone());
     let task = tokio::spawn(async move {
         while let Some(ev) = incoming.recv().await {
             match ev {
@@ -298,10 +305,14 @@ pub fn fake_station_with(identity: Arc<StationIdentity>, relay: RelayAddr, roots
                     }
                 }
                 Incoming::ClientGone { .. } => {}
+                Incoming::Attached(a) => got_attached.lock().unwrap().push(*a),
+                Incoming::Detached => {
+                    got_detached.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
     });
-    FakeStation { agent, identity, admin_fp: admin.fp, headers, flow_targets, udp_echo: udp_echo_addr, tasks: vec![task, echo_task] }
+    FakeStation { agent, identity, admin_fp: admin.fp, headers, flow_targets, udp_echo: udp_echo_addr, attached, detached, tasks: vec![task, echo_task] }
 }
 
 impl FakeStation {

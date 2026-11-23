@@ -6,6 +6,8 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::access::PublicKey;
+
 /// Qui se présente au relais.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -121,6 +123,8 @@ pub enum ErrorCode {
     Replaced,
     NoCode,
     NotBound,
+    /// Le relais ne tient pas de comptes KyberNow (`attach_request`).
+    NoAccounts,
     #[serde(other)]
     Other,
 }
@@ -136,6 +140,7 @@ impl ErrorCode {
             ErrorCode::Replaced => "replaced",
             ErrorCode::NoCode => "no_code",
             ErrorCode::NotBound => "not_bound",
+            ErrorCode::NoAccounts => "no_accounts",
             ErrorCode::Other => "other",
         }
     }
@@ -231,6 +236,35 @@ impl StreamHeader {
     pub fn console(&self) -> Option<ConsoleTarget> {
         ConsoleTarget::from_fields(self.to, &self.host_id, self.port).ok().flatten()
     }
+}
+
+/// À qui une Station est rattachée (docs/comptes.md, « Rattacher une Station »).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachOwner {
+    /// `person`, ou `organization` (lot 5).
+    pub kind: String,
+    /// L'identifiant du compte (ou de l'organisation) chez le relais.
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// `attached` : la Station est rattachée à un compte. Envoyé par le relais
+/// quand le rattachement est confirmé dans la console, et en réponse à
+/// `attach_status` (`req`) : la Station épingle `keys` pour `relay`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attached {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub req: Option<u32>,
+    /// Le nom du relais, tel qu'il l'écrit dans ses jetons (`relay`).
+    pub relay: String,
+    /// Le compte qui a rattaché.
+    pub account: String,
+    pub owner: AttachOwner,
+    /// Les clés de signature publiées (`GET /v1/keys`) : une, ou deux pendant une rotation.
+    pub keys: Vec<PublicKey>,
 }
 
 /// Tous les messages, sur le flux des messages et en tête des autres flux.
@@ -337,6 +371,35 @@ pub enum Msg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         token: Option<String>,
     },
+    /// Station → relais : un code de rattachement à un compte (« Compte
+    /// KyberNow › Se connecter » dans Admin) ; `name` : le nom de l'ordinateur.
+    AttachRequest {
+        req: u32,
+        #[serde(default)]
+        name: String,
+    },
+    /// Relais → Station : le code, et la page de la console à ouvrir
+    /// (`https://<relais>/compte/rattacher?code=…`), valable `expires` secondes.
+    AttachCode {
+        req: u32,
+        code: String,
+        url: String,
+        expires: u64,
+    },
+    /// Station → relais : où en est le rattachement (à chaque connexion d'une
+    /// Station rattachée) ; réponse `attached` ou `detached`.
+    AttachStatus {
+        req: u32,
+    },
+    Attached(Attached),
+    /// Station → relais : détachée dans Admin.
+    Detach {},
+    /// Relais → Station : détachée dans la console (ou plus rattachée, en
+    /// réponse à `attach_status`).
+    Detached {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        req: Option<u32>,
+    },
     /// Un type que cette version ne connaît pas : ignoré.
     #[serde(other)]
     Unknown,
@@ -390,6 +453,12 @@ impl Msg {
             Msg::Open { .. } => "open",
             Msg::Stream(_) => "stream",
             Msg::Media { .. } => "media",
+            Msg::AttachRequest { .. } => "attach_request",
+            Msg::AttachCode { .. } => "attach_code",
+            Msg::AttachStatus { .. } => "attach_status",
+            Msg::Attached(_) => "attached",
+            Msg::Detach {} => "detach",
+            Msg::Detached { .. } => "detached",
             Msg::Unknown => "unknown",
         }
     }
@@ -453,6 +522,31 @@ mod tests {
         assert_eq!(m, Msg::Ping { n: 4 });
         let e: Msg = serde_json::from_str(r#"{"t":"error","code":"nouveau"}"#).unwrap();
         assert!(matches!(e, Msg::Error(ErrorMsg { code: ErrorCode::Other, .. })));
+    }
+
+    #[test]
+    fn rattachement() {
+        let r = Msg::AttachRequest { req: 7, name: "PC du salon".into() };
+        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"t":"attach_request","req":7,"name":"PC du salon"}"#);
+        let c: Msg = serde_json::from_str(r#"{"t":"attach_code","req":7,"code":"abc","url":"https://share.test/compte/rattacher?code=abc","expires":900,"plus":1}"#).unwrap();
+        assert!(matches!(c, Msg::AttachCode { req: 7, expires: 900, .. }));
+        assert_eq!(serde_json::to_string(&Msg::Detach {}).unwrap(), r#"{"t":"detach"}"#);
+        assert_eq!(serde_json::from_str::<Msg>(r#"{"t":"detach","pourquoi":"x"}"#).unwrap(), Msg::Detach {});
+        assert_eq!(serde_json::to_string(&Msg::Detached { req: None }).unwrap(), r#"{"t":"detached"}"#);
+        let key = PublicKey::from_raw(&[1u8; 32]).unwrap();
+        let a = Msg::Attached(Attached {
+            req: None,
+            relay: "share.test".into(),
+            account: "acc_1".into(),
+            owner: AttachOwner { kind: "person".into(), id: "acc_1".into(), name: "Léa".into(), email: Some("lea@exemple.fr".into()) },
+            keys: vec![key.clone()],
+        });
+        let text = serde_json::to_string(&a).unwrap();
+        assert!(text.starts_with(r#"{"t":"attached","relay":"share.test","account":"acc_1","owner":{"kind":"person""#), "{text}");
+        assert_eq!(serde_json::from_str::<Msg>(&text).unwrap(), a);
+        // Une Station d'avant les comptes ignore ces messages.
+        let e: Msg = serde_json::from_str(r#"{"t":"error","req":7,"code":"no_accounts"}"#).unwrap();
+        assert!(matches!(e, Msg::Error(ErrorMsg { code: ErrorCode::NoAccounts, .. })));
     }
 
     #[test]

@@ -10,9 +10,16 @@
 //! autre Station ou déjà rejoué, compte ou appareil bloqué ici : refusé, même
 //! si le relais a dit oui.
 //!
-//! Le rattachement lui-même (dialogue avec le relais, `POST
-//! /v1/stations/attach`) viendra avec le relais : il appellera [`pin`]. En
-//! attendant, le mode d'essai ([`TEST_ENV`]) épingle une clé locale, et
+//! Le rattachement (docs/comptes.md, « Rattacher une Station ») passe par la
+//! connexion de contrôle de l'agent du relais : « Se connecter »
+//! (`POST /api/account/attach`) demande un code (`attach_request`) et rend la
+//! page de la console à ouvrir ; la personne y confirme, le relais envoie
+//! `attached` ([`on_attached`] : [`pin`], « Accepter les comptes KyberNow » et
+//! « Accès hors de chez vous » allumés). Un `attached` que personne n'a
+//! demandé ici (pas de « Se connecter » depuis 15 minutes) n'est jamais pris,
+//! sauf pour mettre à jour les clés du même rattachement. « Détacher » le dit
+//! au relais ; détachée dans la console, le relais envoie `detached`
+//! ([`on_detached`]). Le mode d'essai ([`TEST_ENV`]) épingle une clé locale, et
 //! `kyber-admin account-token` signe des jetons avec elle.
 
 use std::collections::HashMap;
@@ -25,7 +32,9 @@ use axum::Json;
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use kybernow_tunnel::TunnelError;
 use kybernow_tunnel::access::{self, AccessError, Claims, KeySet, PublicKey, Right, Rights, Use, Verifier};
+use kybernow_tunnel::msg::{Attached, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -379,6 +388,101 @@ pub fn detach(s: &AppState) -> Result<()> {
     Ok(())
 }
 
+/// Le relais réglé dans Admin (« Hors de chez vous ») est-il celui du rattachement ?
+fn same_relay(s: &AppState, relay: &str) -> bool {
+    s.settings.lock().unwrap().relay.addr().is_some_and(|a| a.web_authority() == relay)
+}
+
+/// `attached` reçu du relais (rattachement confirmé dans la console, ou
+/// réponse à `attach_status` à chaque connexion).
+pub fn on_attached(s: &AppState, a: Attached) {
+    let relay = match crate::relay::normalize_server(&a.relay) {
+        Ok(r) if !r.is_empty() => r,
+        _ => return tracing::warn!("comptes : rattachement ignoré (relais illisible)"),
+    };
+    let kind = if a.owner.kind == "organization" { OwnerKind::Organization } else { OwnerKind::Person };
+    let owner = Owner { kind, id: a.owner.id, name: a.owner.name, email: a.owner.email.filter(|e| !e.is_empty()) };
+    let keys = KeySet { keys: a.keys };
+    let current = s.settings.lock().unwrap().account.clone();
+    let asked = s.relay.attaching();
+    let same = current.attached() && !current.test && current.relay.as_deref() == Some(relay.as_str()) && current.owner.as_ref().map(|o| &o.id) == Some(&owner.id);
+    if same && !asked {
+        // Le même rattachement : les clés (rotation) et les noms suivent le relais.
+        let valid = keys.valid();
+        if valid.is_empty() || (valid == current.keys && current.owner.as_ref() == Some(&owner)) {
+            return;
+        }
+        if s.update_settings(|st| {
+            st.account.keys = valid;
+            st.account.owner = Some(owner);
+        })
+        .is_ok()
+        {
+            s.accounts.reset_verifier();
+            tracing::info!("comptes : clés du relais {relay} mises à jour");
+        }
+        return;
+    }
+    if !asked {
+        // Personne n'a demandé de rattachement ici : jamais pris.
+        tracing::warn!("comptes : rattachement non demandé, ignoré (relais {relay})");
+        return;
+    }
+    if let Err(e) = pin(s, &relay, owner, &keys) {
+        return tracing::warn!("comptes : rattachement refusé : {e:#}");
+    }
+    s.relay.attach_done();
+    // « Accès hors de chez vous » s'allume avec le rattachement (Admin permet de le couper).
+    let was_on = s.settings.lock().unwrap().relay.remote_access;
+    if !was_on && s.update_settings(|st| st.relay.remote_access = true).is_ok() {
+        tracing::info!("relais : accès hors de chez vous activé (rattachement)");
+        s.activity.event("info", Msg::new("events.relayAccessOn"));
+    }
+    s.relay.wake();
+}
+
+/// `detached` reçu du relais : détachée dans la console (ou plus connue du relais).
+pub fn on_detached(s: &AppState) {
+    let current = s.settings.lock().unwrap().account.clone();
+    if !current.attached() || current.test || !current.relay.as_deref().is_some_and(|r| same_relay(s, r)) {
+        return;
+    }
+    tracing::info!("comptes : détachée dans la console du relais");
+    if let Err(e) = detach(s) {
+        tracing::warn!("comptes : détachement : {e:#}");
+    }
+}
+
+/// `POST /api/account/attach` (« Se connecter ») : un code de rattachement
+/// demandé au relais, et la page de sa console à ouvrir dans le navigateur.
+pub async fn attach(State(s): State<AppState>) -> Response {
+    let refuse = |status: StatusCode, code: &str, msg: Msg| (status, Json(json!({ "error": msg.text(), "code": code }))).into_response();
+    if s.settings.lock().unwrap().relay.addr().is_none() {
+        return refuse(StatusCode::CONFLICT, "no_relay", Msg::new("accounts.noRelay"));
+    }
+    let name = crate::system::computer_name().unwrap_or_default();
+    match s.relay.attach_code(&name).await {
+        Ok(code) if code.url.starts_with("https://") => {
+            tracing::info!("comptes : rattachement demandé au relais");
+            Json(json!({ "url": code.url, "expires": code.expires.as_secs() })).into_response()
+        }
+        Ok(_) => {
+            s.relay.attach_done();
+            refuse(StatusCode::BAD_GATEWAY, "relay_unreachable", Msg::new("accounts.relayUnreachable"))
+        }
+        // Un relais sans comptes refuse ; un relais d'avant les comptes ne répond pas.
+        Err(TunnelError::Refused(ErrorCode::NoAccounts, _)) | Err(TunnelError::Timeout) => {
+            s.relay.attach_done();
+            refuse(StatusCode::CONFLICT, "no_accounts", Msg::new("accounts.noAccounts"))
+        }
+        Err(e) => {
+            tracing::info!("comptes : rattachement impossible : {e}");
+            s.relay.attach_done();
+            refuse(StatusCode::SERVICE_UNAVAILABLE, "relay_unreachable", Msg::new("accounts.relayUnreachable"))
+        }
+    }
+}
+
 /// Le mode d'essai est-il demandé (`KYBERNOW_ACCOUNT_TEST` à `1`, `true`, `oui`, `yes`) ?
 pub fn test_mode_wanted(value: Option<&str>) -> bool {
     value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "oui" | "yes" | "on"))
@@ -594,8 +698,10 @@ pub fn view(s: &AppState) -> Value {
         "test": a.test,
         "station": s.relay.id(),
         "console": a.relay.as_deref().and_then(console_url),
-        // Le relais ne propose pas encore le rattachement : « Se connecter » attend.
-        "can_attach": false,
+        // « Se connecter » demande le code au relais réglé dans « Hors de chez vous ».
+        "can_attach": s.settings.lock().unwrap().relay.addr().is_some(),
+        // « Se connecter » attend la confirmation dans la console.
+        "attaching": !attached && s.relay.attaching(),
     })
 }
 
@@ -611,12 +717,25 @@ pub struct AccountBody {
     /// Détacher la Station.
     #[serde(default)]
     detach: bool,
+    /// Abandonner « Se connecter » (le code du relais échoit de lui-même).
+    #[serde(default)]
+    cancel_attach: bool,
 }
 
 pub async fn put(State(s): State<AppState>, Json(body): Json<AccountBody>) -> Response {
+    if body.cancel_attach {
+        s.relay.attach_done();
+    }
     if body.detach {
+        let was = s.settings.lock().unwrap().account.clone();
         if let Err(e) = detach(&s) {
             return crate::api::ApiError::from(e).into_response();
+        }
+        // Détachée des deux côtés : le relais l'apprend (le mode d'essai n'a pas de relais).
+        if was.attached() && !was.test {
+            s.relay.detach_at_relay();
+        } else {
+            s.relay.attach_done();
         }
         return Json(view(&s)).into_response();
     }
@@ -862,6 +981,82 @@ mod tests {
         assert!(authorize(&s, &headers(&t), Some(Right::Session), Use::Reusable, false).unwrap().is_err());
         assert!(test_token(&dir, "tout", "a", "d", "n", "d").is_err());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn attached_msg(signer: &Signer, owner_id: &str) -> Attached {
+        Attached {
+            req: None,
+            relay: "share.kybernow.app".into(),
+            account: owner_id.into(),
+            owner: kybernow_tunnel::msg::AttachOwner { kind: "person".into(), id: owner_id.into(), name: "Léa".into(), email: Some("lea@exemple.fr".into()) },
+            keys: vec![signer.public_key().clone()],
+        }
+    }
+
+    #[test]
+    fn rattachement_par_le_relais() {
+        let (s, dir) = state();
+        let k = signer();
+        let v = view(&s);
+        assert_eq!((v["can_attach"].as_bool(), v["attaching"].as_bool()), (Some(true), Some(false)), "relais public réglé par défaut");
+        // Un `attached` que personne n'a demandé : jamais pris.
+        on_attached(&s, attached_msg(&k, "acc_lea"));
+        assert!(!view(&s)["attached"].as_bool().unwrap());
+        // « Se connecter », puis la confirmation dans la console.
+        s.relay.begin_attach();
+        assert!(view(&s)["attaching"].as_bool().unwrap());
+        on_attached(&s, attached_msg(&k, "acc_lea"));
+        let v = view(&s);
+        assert_eq!((v["attached"].as_bool(), v["accept"].as_bool(), v["attaching"].as_bool()), (Some(true), Some(true), Some(false)));
+        assert_eq!(v["owner"]["email"], "lea@exemple.fr");
+        assert!(s.settings.lock().unwrap().relay.remote_access, "accès hors de chez vous allumé");
+        assert!(!s.relay.attaching());
+        // Les jetons signés par la clé reçue passent.
+        let t = token(&s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        assert!(authorize(&s, &headers(&t), Some(Right::Session), Use::Reusable, false).unwrap().is_ok());
+        // À la reconnexion : nouvelles clés du même rattachement (rotation), sans rien rallumer.
+        s.update_settings(|st| st.account.accept = false).unwrap();
+        let k2 = signer();
+        let mut rotated = attached_msg(&k, "acc_lea");
+        rotated.keys.push(k2.public_key().clone());
+        on_attached(&s, rotated);
+        let v = view(&s);
+        assert_eq!(v["keys"].as_array().unwrap().len(), 2);
+        assert_eq!(v["accept"].as_bool(), Some(false), "l'interrupteur coupé le reste");
+        // Un autre propriétaire sans « Se connecter » : ignoré.
+        on_attached(&s, attached_msg(&k2, "acc_bob"));
+        assert_eq!(view(&s)["owner"]["id"], "acc_lea");
+        // Détachée dans la console : `detached`.
+        on_detached(&s);
+        assert!(!view(&s)["attached"].as_bool().unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn detacher_le_dit_au_relais_et_se_connecter_sans_relais() {
+        let (s, dir) = state();
+        let k = signer();
+        s.relay.begin_attach();
+        on_attached(&s, attached_msg(&k, "acc_lea"));
+        // Relais pas joint (essais) : le détachement attend la prochaine connexion.
+        let res = put(State(s.clone()), Json(AccountBody { accept: None, detach: true, cancel_attach: false })).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(s.relay.detach_pending());
+        assert!(!view(&s)["attached"].as_bool().unwrap());
+        // Le mode d'essai n'a pas de relais : rien à lui dire.
+        let (t, dir2) = state();
+        pin(&t, TEST_RELAY, Owner { id: "essai".into(), ..Owner::default() }, &KeySet { keys: vec![k.public_key().clone()] }).unwrap();
+        put(State(t.clone()), Json(AccountBody { accept: None, detach: true, cancel_attach: false })).await;
+        assert!(!t.relay.detach_pending());
+        // Pas de relais réglé : « Se connecter » le dit.
+        t.update_settings(|st| st.relay.server = Some(String::new())).unwrap();
+        assert!(!view(&t)["can_attach"].as_bool().unwrap());
+        let res = super::attach(State(t.clone())).await;
+        assert_eq!(res.status(), StatusCode::CONFLICT);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&body).unwrap()["code"], "no_relay");
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(dir2);
     }
 
     #[test]

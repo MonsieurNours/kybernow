@@ -86,6 +86,11 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX audit_account ON audit(account, at);
     "#,
+    // 2 : lot 1b (passkeys, suppression, export), dans la branche claude/comptes-lot1b.
+    // TODO fusion : remplacer cette place réservée par la migration 2 du lot 1b.
+    "SELECT 1;",
+    // 3 : lot 2 (Stations rattachées) et lot 3 (appareils connectés), voir `super::stations`.
+    super::stations::MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -148,7 +153,8 @@ pub enum CodeCheck {
 pub const CODE_ATTEMPTS: i64 = 5;
 
 pub struct Store {
-    conn: Connection,
+    /// Les modules du lot 2 (`super::stations`, `super::devices`) y ajoutent leurs requêtes.
+    pub(super) conn: Connection,
 }
 
 const ACCOUNT_COLS: &str = "id, email, name, password, lang, verified_at";

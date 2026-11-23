@@ -107,12 +107,15 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | Where | Route | What |
 |---|---|---|
 | Relay | `GET /v1/keys` | Public signing key |
-| Relay | `POST /v1/devices/code` → `{code, poll}`; `POST /v1/devices/poll` | Device sign-in by code (TVs) |
-| Relay | `GET /compte/connexion?appareil=…` | Device sign-in through the system window (return through the `kybernow://compte` scheme) |
+| Relay | `POST /v1/devices/code {name}` → `{code, poll, expires, interval, url, url_complete}`; `POST /v1/devices/poll {poll}` | Device sign-in by code (TVs) |
+| Relay | `GET /tv`; `GET/POST /compte/appareil?code=…` | Entering a TV's code; “Connect {device}?”, “It wasn't me” |
+| Relay | `GET /compte/connexion?appareil=…&retour=kybernow://compte[&etat=…]`; `GET/POST /compte/connecter-appareil`; `POST /v1/devices/token {code}` | Device sign-in through the system window (return through the `kybernow://compte?code=…` scheme, code exchanged for the device session) |
+| Relay | `POST /v1/devices/revoke` | The app signs out (its device session) |
 | Relay | `GET /v1/computers` | The account's computers, with the rights and the Station identifier |
 | Relay | `POST /v1/access {station}` | Access token (5 min) |
-| Relay | `POST /v1/stations/attach` (Station, through its control connection) | Attachment, after approval in the console |
+| Relay | `attach_request` → `attach_code`, then `attached`; `attach_status`; `detach` / `detached` (Station, through its control connection) | Attachment, after approval in the console (`/compte/rattacher?code=…`); detaching on both sides |
 | Admin | `GET/PUT /api/account` (Admin session) | Attached account, switch, detach |
+| Admin | `POST /api/account/attach` (Admin session) | “Sign in”: attach code asked of the relay, console page to open |
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Local list, blocking |
 | Admin | all the routes of a paired device | Also accept `Authorization: KyberNow <jeton>` according to the rights |
 
@@ -138,14 +141,15 @@ Defined in the shared crate `server/relay/tunnel` (`access` module): the relay s
 
 ### Admin (batch 2)
 
-- **Settings**: `[account]` section of `kyber-admin.toml`: `relay`, `owner` (`kind` person or organization, `id`, `name`, `email`), `keys` (pinned keys), `pinned_at`, `accept` (the switch). Attaching (the exchange with the relay) will call `accounts::pin`; it turns the switch on, which Admin lets you turn off.
+- **Settings**: `[account]` section of `kyber-admin.toml`: `relay`, `owner` (`kind` person or organization, `id`, `name`, `email`), `keys` (pinned keys), `pinned_at`, `accept` (the switch). Attaching (the relay's `attached`, see below) calls `accounts::pin`; it turns the switch and “Access away from home” on, which Admin lets you turn off.
 - **Local list**: `account-access.json` in the data folder, one entry per account and device (names, rights of the last token, first and last visit, `lan` or `relay`); blocking a device or the whole account. A first visit adds a line to the feed. Detaching clears the list.
 - **Routes** (Admin session, never through the relay):
 
   | Route | Body | Response |
   |---|---|---|
-  | `GET /api/account` | | `{attached, relay, owner, keys:[{kid, fingerprint}], pinned_at, accept, test, station, console, can_attach}` |
-  | `PUT /api/account` | `{accept?: bool, detach?: true}` | The same view; turning on without an attachment: `409 not_attached` |
+  | `GET /api/account` | | `{attached, relay, owner, keys:[{kid, fingerprint}], pinned_at, accept, test, station, console, can_attach, attaching}` |
+  | `PUT /api/account` | `{accept?: bool, detach?: true, cancel_attach?: true}` | The same view; turning on without an attachment: `409 not_attached`; detaching tells the relay |
+  | `POST /api/account/attach` | | `{url, expires}`: the console page to open; `409 no_relay` or `no_accounts`, `503 relay_unreachable` |
   | `GET /api/account/access` | | `{entries:[{id, account, device, name, email, device_name, rights, first_seen, last_seen, via, blocked, account_blocked, owner}]}` |
   | `POST /api/account/access/{id}/block` | `{blocked: bool, account?: bool}` | The list; `account`: the whole account |
 
@@ -157,7 +161,29 @@ Defined in the shared crate `server/relay/tunnel` (`access` module): the relay s
 - **Refusals**: `{error, code}`, `code` among `accounts_off`, `not_attached`, `bad_token`, `token_expired` (401: the app asks for a new token), `blocked`, `no_right` (403).
 - **Test mode**: `KYBERNOW_ACCOUNT_TEST=1` at startup pins a local key (`account-test.key`, relay `essai.kybernow.invalid`) when the Station is attached to no relay; `kyber-admin account-token --rights session,share` writes a token signed by it for this Station.
 - **Code**: `server/admin/src/accounts.rs` (settings, verification, list, routes), wired into `api.rs` (`stream_user`, restart and update), `relay.rs` (guard) and `share_api.rs` (join).
-- **Interface**: Admin's “KyberNow account” space (`#/compte`): attached, the account, the relay, the pinned key, “Manage in the console”, “Detach”, the switch and the list (“Block”, “Block the account”, “Unblock”); not attached, “Sign in”, inactive until the relay offers attaching (`can_attach`).
+- **Interface**: Admin's “KyberNow account” space (`#/compte`): attached, the account, the relay, the pinned key, “Manage in the console”, “Detach”, the switch and the list (“Block”, “Block the account”, “Unblock”); not attached, “Sign in” (active when a relay is set, `can_attach`) opens the relay's console in the browser, then the page waits for the confirmation (`attaching`, “Reopen the page”, “Cancel”).
+
+### Attaching and devices on the relay (batch 2, relay half of batch 3)
+
+- **Signing key**: `signing.key` (Ed25519 in PKCS#8), next to `secret_key`, created at first start, reserved to the relay (0600). Rotation: the relay's administrator drops `signing.next.key`; it is published along with the current key (`GET /v1/keys`) and given to the Stations that attach or reconnect (`attached`); once they all have it, it replaces `signing.key`. The relay's name in the tokens (`relay`) is the host of `public_url`, with its port when not 443.
+- **Control connection messages** (docs/relais.en.md, “Frames and messages”; a relay or Station from before accounts ignores them):
+
+  | Message | Direction | Fields |
+  |---|---|---|
+  | `attach_request` | Station → relay | `req`, `name` (the computer's name) |
+  | `attach_code` | relay → Station | `req`, `code`, `url` (`https://<relay>/compte/rattacher?code=…`), `expires` (900 s); relay without accounts: `error {req, code: "no_accounts"}` |
+  | `attached` | relay → Station | `req` (in answer to `attach_status`), `relay`, `account`, `owner {kind, id, name, email}`, `keys` (like `GET /v1/keys`) |
+  | `attach_status` | Station → relay | `req`; at each connection of an attached Station: answer `attached` (up-to-date keys) or `detached` |
+  | `detach` | Station → relay | Detached in Admin |
+  | `detached` | relay → Station | `req` (in answer to `attach_status`); detached in the console |
+
+- **Attaching**: Admin › “Sign in” asks for a code (kept 15 minutes in memory by the relay, one per Station) and opens the page in the browser; you sign in (the page is remembered, `__Host-kn_suite` cookie), “Attach {name}”, owner “Me” (organizations come in batch 5), “Attach”; the relay records the link (`stations` table) and sends `attached`. Station offline: it learns at its next connection (`attach_status`). Admin only takes an `attached` if “Sign in” was asked within 15 minutes, except to update the keys of the same attachment.
+- **Detaching**: from the account page (“Computers”, “Detach”: `detached` to the Station) or in Admin (`detach` to the relay, as soon as it is reached).
+- **Device sessions**: separate from browser sessions; 256-bit bearer token (`Authorization: Bearer …`), kept hashed, without expiry; “Connected devices” on the account page (“Disconnect”); a new password closes them all. System window: `retour` is `kybernow://compte` (nothing else), `etat` is given back as is; after “Connect”, a page sends back to `kybernow://compte?code=…&etat=…` (single-use code, 5 minutes, exchanged at `POST /v1/devices/token`). Code: eight characters `XXXX-XXXX` (no vowel, no 0, 1), 10 minutes, polled every 5 seconds (`202` pending, `200` the session, `403 denied`, `410 expired`); 20 codes asked and 10 wrong codes typed per address in 15 minutes.
+- **Access token**: `GET /v1/computers` returns `{computers:[{station, name, rights, owner, mine, online, attached_at}]}`; `POST /v1/access {station}` returns `{token, station, rights, expires, lifetime}`, `404 unknown_station` for a Station not in the account, `401 bad_session` without a device session. In batch 2, an account's computers are the ones it owns, with all rights.
+- **Notice for each new device**: a device's first token for a Station (`device_stations` table) sends an email to the owner (“New device on {computer}”) and adds a `nouvel_appareil` line to the log.
+- **Database**: migration 3 (`stations`, `devices`, `device_codes`, `device_stations`); migration 2 is batch 1b's.
+- **Code**: `server/relay/src/accounts/stations.rs` (key, attaching), `devices.rs` (devices, API, tokens), `web/attach_pages.rs` and `web/device_pages.rs` (pages); the hub (`hub.rs`) forwards the messages.
 
 ### Data kept by the relay
 

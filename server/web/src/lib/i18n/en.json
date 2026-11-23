@@ -1495,7 +1495,11 @@
       "title": "Not attached",
       "text": "Attach this computer to your KyberNow account to find it on all your devices and open it to other people.",
       "signIn": "Sign in",
-      "soon": "Attaching comes with the next version of the relay.",
+      "noRelay": "Set a relay first in “Away from home”: it holds the KyberNow accounts.",
+      "waiting": "Finish in the browser: sign in to your KyberNow account, then confirm attaching. This page updates by itself.",
+      "reopen": "Reopen the page",
+      "cancel": "Cancel",
+      "done": "Computer attached to {name}.",
       "optional": "Optional: the local network, pairing by code and invitations work without an account."
     },
     "attached": {

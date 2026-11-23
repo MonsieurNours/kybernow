@@ -190,9 +190,9 @@ pub fn device_name(ua: &str) -> String {
     }
 }
 
-/// Un identifiant d'appareil valable (`?appareil=`) : lettres, chiffres, `-` et `_`.
+/// Le nom de l'appareil d'une app (`?appareil=iPad de Léa`) : 64 caractères au plus, sans caractère de contrôle.
 fn appareil(req: &Request) -> Option<&str> {
-    req.query("appareil").filter(|a| !a.is_empty() && a.len() <= 64 && a.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+    req.query("appareil").filter(|a| !a.trim().is_empty() && a.chars().count() <= 64 && !a.chars().any(char::is_control))
 }
 
 /// Le contexte d'une requête : les cookies à poser, le jeton CSRF.
@@ -376,9 +376,9 @@ fn lang_of(account: &Account) -> Lang {
     if account.lang == "en" { Lang::En } else { Lang::Fr }
 }
 
-/// Les chemins servis par les comptes.
+/// Les chemins servis par les comptes (`/tv` : le code d'un téléviseur, lot 3).
 pub fn is_account_path(path: &str) -> bool {
-    path == "/compte" || path.starts_with("/compte/")
+    path == "/compte" || path.starts_with("/compte/") || path == "/tv"
 }
 
 impl Accounts {
@@ -404,9 +404,12 @@ impl Accounts {
         match (path, post) {
             ("/compte", false) => account_page(cx, None),
             ("/compte/connexion", false) => {
+                // Depuis une app (lot 3) : sa demande est retenue pour après la connexion.
+                if appareil(req).is_some() && !device_pages::remember_device_request(&mut cx) {
+                    return device_pages::bad_return(cx);
+                }
                 if cx.full_session().is_some() {
-                    let q = cx.q();
-                    return cx.redirect(format!("/compte{q}"));
+                    return device_pages::after_sign_in(cx);
                 }
                 let page = pages::sign_in(&cx.view(), "", None, self.mailer.is_some(), self.mailer.is_some());
                 cx.page(200, page)
@@ -429,6 +432,14 @@ impl Accounts {
             ("/compte/double-authentification/couper", true) => totp_off(cx, false),
             ("/compte/codes-de-secours", true) => totp_off(cx, true),
             ("/compte/sessions/fermer", true) => close_session(cx),
+            // Lot 2 : rattacher une Station, la détacher.
+            ("/compte/rattacher", _) => attach_pages::attach(cx, post),
+            ("/compte/ordinateurs/detacher", true) => attach_pages::detach(cx),
+            // Lot 3 : les appareils connectés.
+            ("/compte/connecter-appareil", _) => device_pages::consent(cx, post),
+            ("/compte/appareil", _) => device_pages::approve(cx, post),
+            ("/compte/appareils/deconnecter", true) => device_pages::revoke(cx),
+            ("/tv", false) => device_pages::tv(cx),
             ("/compte/deconnexion", true) => {
                 if let Some((s, a)) = cx.session() {
                     let _ = self.db().delete_session(s.id, a.id);
@@ -485,6 +496,8 @@ fn account_page(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
             totp_on,
             recovery_left: db.recovery_codes_left(account.id).unwrap_or(0),
             sessions,
+            computers: attach_pages::computers(&db, &cx.acc.stations, account.id),
+            devices: device_pages::devices(&db, account.id),
         }
     };
     let page = pages::account(&cx.view(), &view, notice);
@@ -536,8 +549,8 @@ fn sign_in(mut cx: Cx<'_>) -> Reply {
         return cx.redirect(format!("/compte/code{q}"));
     }
     cx.audit(Some(account.id), "connexion");
-    // TODO lot 3 : avec `?appareil=`, retour vers l'app par `kybernow://compte`.
-    cx.redirect(format!("/compte{q}"))
+    // Lot 3 : avec `?appareil=` ou une suite retenue (rattachement), on y va.
+    device_pages::after_sign_in(cx)
 }
 
 fn code_page(cx: Cx<'_>) -> Reply {
@@ -601,8 +614,7 @@ fn code_post(mut cx: Cx<'_>) -> Reply {
     }
     // Un nouveau jeton pour la session entière ; la demi-session est fermée.
     cx.open_session(account.id, true);
-    let q = cx.q();
-    cx.redirect(format!("/compte{q}"))
+    device_pages::after_sign_in(cx)
 }
 
 // --- Inscription et vérification ---------------------------------------------
@@ -843,6 +855,8 @@ fn new_password(mut cx: Cx<'_>, post: bool) -> Reply {
         let _ = db.set_verified(account.id, cx.now);
         // Un nouveau mot de passe ferme les sessions et oublie les navigateurs de confiance.
         let _ = db.delete_sessions(account.id, None);
+        // Les appareils connectés aussi (lot 3).
+        let _ = db.revoke_devices(account.id);
         let _ = db.forget_trusted_browsers(account.id);
     }
     cx.audit(Some(account.id), "mot_de_passe_change");
@@ -986,6 +1000,9 @@ fn close_session(cx: Cx<'_>) -> Reply {
     }
     account_page(cx, Some(Notice::SessionClosed))
 }
+
+mod attach_pages;
+mod device_pages;
 
 #[cfg(test)]
 mod tests;

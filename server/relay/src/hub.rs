@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use crate::accounts::Accounts;
+use crate::accounts::stations::StationLink;
 use crate::certs::CertStore;
 use crate::codes::Codes;
 use crate::config::Config;
@@ -240,7 +241,7 @@ impl Hub {
             let bytes_per_sec = (cfg.global_cap_mbps * 1_000_000 / 8).min(u64::from(u32::MAX)) as u32;
             Mutex::new(Bucket::new(bytes_per_sec, Duration::from_secs(1), now))
         });
-        Arc::new(Hub {
+        let hub = Arc::new(Hub {
             lookups: Mutex::new(LookupLimiter::new(&cfg.limits, now)),
             station_hellos: Mutex::new(Buckets::new(cfg.limits.stations_per_minute_per_ip, Duration::from_secs(60))),
             link_port: AtomicU16::new(cfg.listen.port()),
@@ -255,7 +256,13 @@ impl Hub {
             next_media: AtomicU64::new(1),
             cap,
             accounts,
-        })
+        });
+        // Les comptes envoient `attached` et `detached` aux Stations par le hub.
+        if let Some(accounts) = &hub.accounts {
+            let link: Weak<dyn StationLink> = Arc::downgrade(&hub) as Weak<dyn StationLink>;
+            accounts.stations.set_link(link);
+        }
+        hub
     }
 
     pub fn station(&self, id: &str) -> Option<Arc<StationPeer>> {
@@ -470,6 +477,35 @@ impl Hub {
                 let _ = peer.ctl.send(Msg::Pong { n });
             }
             Msg::Pong { n } => pong(&peer.conn, n),
+            // Comptes KyberNow (docs/comptes.md, « Rattacher une Station ») :
+            // seulement par la connexion de contrôle de la Station elle-même.
+            Msg::AttachRequest { req, name } => match &self.accounts {
+                Some(accounts) => {
+                    let (code, url, expires) = accounts.attach_request(&peer.id, &name);
+                    let _ = peer.ctl.send(Msg::AttachCode { req, code, url, expires });
+                }
+                None => {
+                    let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
+                }
+            },
+            Msg::AttachStatus { req } => match self.accounts.clone() {
+                // La base, hors de l'exécuteur.
+                Some(accounts) => {
+                    let (ctl, station) = (peer.ctl.clone(), peer.id.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let _ = ctl.send(accounts.attach_status(&station, req));
+                    });
+                }
+                None => {
+                    let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
+                }
+            },
+            Msg::Detach {} => {
+                if let Some(accounts) = self.accounts.clone() {
+                    let station = peer.id.clone();
+                    tokio::task::spawn_blocking(move || accounts.station_detached(&station));
+                }
+            }
             _ => {}
         }
     }
@@ -905,6 +941,16 @@ impl Hub {
         let station = self.station(station)?;
         let header = StreamHeader::new(StreamKind::AdminHttp, browser, ip, Some(host.into()));
         open_to_station(&station, header).await
+    }
+}
+
+impl StationLink for Hub {
+    fn online(&self, station: &str) -> bool {
+        self.station(station).is_some()
+    }
+
+    fn send(&self, station: &str, msg: Msg) -> bool {
+        self.station(station).is_some_and(|s| s.ctl.send(msg))
     }
 }
 

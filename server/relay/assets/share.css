@@ -269,6 +269,9 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .field-link { margin-top: 10px; font-size: 14.5px; text-align: right; }
 .check { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; font-size: 15px; color: var(--kn-frost-2); cursor: pointer; }
 .check input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--kn-signal-strong); flex: none; }
+.check small { color: var(--kn-mist); }
+.acct-card fieldset { min-width: 0; margin: 20px 0 0; padding: 0; border: 0; }
+.acct-card fieldset .check { margin-top: 10px; }
 .acct-links { margin-top: 20px; font-size: 15px; color: var(--kn-mist); text-align: center; }
 .acct-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .acct-actions .btn { flex: 1 1 auto; }

@@ -280,6 +280,9 @@
     "badToken": "Access token refused ({reason}).",
     "blocked": "This account or device is blocked on this computer.",
     "noRight": "This account doesn't have this right on this computer ({right}).",
-    "unknownEntry": "Unknown access."
+    "unknownEntry": "Unknown access.",
+    "noRelay": "Set a relay first in “Away from home”: it holds the KyberNow accounts.",
+    "noAccounts": "This relay doesn't offer KyberNow accounts.",
+    "relayUnreachable": "The relay isn't answering: try again in a moment."
   }
 }

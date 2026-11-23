@@ -49,7 +49,7 @@ pub use client::{ClientConfig, Flow, LocalListener, Tunnel, TunnelStats};
 #[cfg(feature = "station")]
 pub use identity::StationIdentity;
 #[cfg(feature = "station")]
-pub use station::{Agent, AgentConfig, AgentState, FlowRequest, Incoming};
+pub use station::{Agent, AgentConfig, AgentState, AttachCode, FlowRequest, Incoming};
 
 /// Version du protocole du tunnel (`hello.v`, `welcome.v`).
 pub const PROTOCOL_VERSION: u32 = 1;

@@ -26,7 +26,7 @@ use crate::error::TunnelError;
 use crate::dial::{DialConfig, DialError, Pinger, QUIC_RETRY_EVERY, Session, backoff, dial, dial_quic_only};
 use crate::frame::read_msg;
 use crate::identity::StationIdentity;
-use crate::msg::{ConsoleTarget, ErrorCode, ErrorMsg, Hello, Msg, Role, StreamHeader};
+use crate::msg::{Attached, ConsoleTarget, ErrorCode, ErrorMsg, Hello, Msg, Role, StreamHeader};
 use crate::quic::STATION_KEEP_ALIVE;
 use crate::transport::{AbortOnDrop, ActiveCounter, ActiveGuard, Conn, MediaReceiver, MediaSender, RelayStream, Transport};
 
@@ -88,6 +88,11 @@ pub enum Incoming {
     Flow(FlowRequest),
     /// Plus aucune connexion de ce client chez le relais.
     ClientGone { client: String },
+    /// La Station est rattachée à un compte KyberNow (confirmé dans la
+    /// console, ou réponse à [`Agent::attach_status`]) : à épingler.
+    Attached(Box<Attached>),
+    /// La Station n'est plus rattachée chez le relais (détachée dans la console).
+    Detached,
 }
 
 impl fmt::Debug for Incoming {
@@ -96,6 +101,8 @@ impl fmt::Debug for Incoming {
             Incoming::Stream { header, .. } => write!(f, "Stream({:?} de {})", header.kind, header.client),
             Incoming::Flow(r) => write!(f, "Flow({} clé {})", r.client, r.key),
             Incoming::ClientGone { client } => write!(f, "ClientGone({client})"),
+            Incoming::Attached(a) => write!(f, "Attached({} chez {})", a.owner.id, a.relay),
+            Incoming::Detached => write!(f, "Detached"),
         }
     }
 }
@@ -287,6 +294,16 @@ async fn flow_reader(socket: Arc<UdpSocket>, relay_flow: Arc<AtomicU64>, live: w
     }
 }
 
+/// Un code de rattachement donné par le relais (`attach_code`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachCode {
+    pub code: String,
+    /// La page de la console à ouvrir dans le navigateur.
+    pub url: String,
+    /// Valable ce temps.
+    pub expires: Duration,
+}
+
 /// L'agent de la Station ; il s'arrête quand on le lâche.
 pub struct Agent {
     shared: Arc<AgentShared>,
@@ -371,6 +388,39 @@ impl Agent {
             Ok(_) => Err(TunnelError::Closed),
             Err(_) => Err(TunnelError::Timeout),
         }
+    }
+
+    /// Demande un code de rattachement à un compte KyberNow (docs/comptes.md,
+    /// « Rattacher une Station ») ; `name` : le nom de l'ordinateur, montré
+    /// dans la console. Un relais sans comptes refuse (`no_accounts`), un
+    /// relais d'avant les comptes ne répond pas (`Timeout`).
+    pub async fn attach_code(&self, name: &str) -> Result<AttachCode, TunnelError> {
+        let live = self.shared.wait_live(Duration::from_secs(5)).await?;
+        let req = live.next_req.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        live.pending.lock().unwrap().insert(req, tx);
+        let _ = live.ctl.send(Msg::AttachRequest { req, name: name.to_string() });
+        let answer = timeout(Duration::from_secs(5), rx).await;
+        live.pending.lock().unwrap().remove(&req);
+        match answer {
+            Ok(Ok(Msg::AttachCode { code, url, expires, .. })) => Ok(AttachCode { code, url, expires: Duration::from_secs(expires) }),
+            Ok(Ok(Msg::Error(ErrorMsg { code, message, .. }))) => Err(TunnelError::Refused(code, message)),
+            Ok(_) => Err(TunnelError::Closed),
+            Err(_) => Err(TunnelError::Timeout),
+        }
+    }
+
+    /// Demande au relais où en est le rattachement : la réponse arrive en
+    /// [`Incoming::Attached`] ou [`Incoming::Detached`]. Faux sans connexion.
+    pub fn attach_status(&self) -> bool {
+        let Some(live) = self.shared.current() else { return false };
+        let req = live.next_req.fetch_add(1, Ordering::Relaxed);
+        live.ctl.send(Msg::AttachStatus { req }).is_ok()
+    }
+
+    /// Dit au relais que la Station est détachée (dans Admin). Faux sans connexion.
+    pub fn detach(&self) -> bool {
+        self.shared.current().is_some_and(|live| live.ctl.send(Msg::Detach {}).is_ok())
     }
 
     /// Libère un code (partage arrêté, « Nouveau code »).
@@ -581,7 +631,13 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
                 }
                 let _ = shared.incoming.try_send(Incoming::ClientGone { client });
             }
-            Msg::Reserved { req, .. } | Msg::Error(ErrorMsg { req: Some(req), .. }) => {
+            Msg::Attached(a) => {
+                let _ = shared.incoming.try_send(Incoming::Attached(Box::new(a)));
+            }
+            Msg::Detached { .. } => {
+                let _ = shared.incoming.try_send(Incoming::Detached);
+            }
+            Msg::Reserved { req, .. } | Msg::AttachCode { req, .. } | Msg::Error(ErrorMsg { req: Some(req), .. }) => {
                 let waiter = live.pending.lock().unwrap().remove(&req);
                 if let Some(w) = waiter {
                     let _ = w.send(msg);

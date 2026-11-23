@@ -37,7 +37,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
-use kybernow_tunnel::{Agent, AgentConfig, AgentState, ConsoleTarget, FlowRequest, Incoming, RelayAddr, StationIdentity, StreamHeader, StreamKind};
+use kybernow_tunnel::{Agent, AgentConfig, AgentState, AttachCode, ConsoleTarget, FlowRequest, Incoming, RelayAddr, StationIdentity, StreamHeader, StreamKind, TunnelError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -72,6 +72,9 @@ const RESERVE_RETRY: Duration = Duration::from_secs(10);
 /// L'agent reste connecté ce temps après le dernier partage : le suivant a
 /// son lien hors de chez soi tout de suite.
 const LINGER: Duration = Duration::from_secs(5 * 60);
+/// « Compte KyberNow › Se connecter » : l'agent reste connecté ce temps (la
+/// validité du code de rattachement) pour recevoir `attached`.
+pub const ATTACH_WINDOW: Duration = Duration::from_secs(15 * 60);
 /// Délai pour la négociation TLS d'une app, et pour les en-têtes HTTP.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// L'adresse donnée à une requête du relais dont l'adresse publique est
@@ -274,6 +277,10 @@ pub struct Relay {
     reserve_failed: Mutex<Option<Instant>>,
     /// La dernière fois qu'un partage était ouvert (voir `LINGER`).
     share_seen: Mutex<Option<Instant>>,
+    /// « Se connecter » à un compte KyberNow demandé à cet instant (voir `ATTACH_WINDOW`).
+    attaching: Mutex<Option<Instant>>,
+    /// Détachée dans Admin : à dire au relais dès qu'il est joint.
+    detach_pending: Mutex<bool>,
     wake: Notify,
 }
 
@@ -295,6 +302,8 @@ impl Relay {
             session: Mutex::new(None),
             reserve_failed: Mutex::new(None),
             share_seen: Mutex::new(None),
+            attaching: Mutex::new(None),
+            detach_pending: Mutex::new(false),
             wake: Notify::new(),
         }
     }
@@ -337,6 +346,81 @@ impl Relay {
     /// L'agent, s'il est joint au relais.
     fn joined_agent(&self) -> Option<Arc<Agent>> {
         self.agent().filter(|a| a.state().is_joined())
+    }
+
+    // --- Comptes KyberNow (docs/comptes.md, « Rattacher une Station ») ---
+
+    /// Un rattachement est en cours : « Se connecter » il y a moins de `ATTACH_WINDOW`.
+    pub fn attaching(&self) -> bool {
+        self.attaching.lock().unwrap().is_some_and(|t| t.elapsed() < ATTACH_WINDOW)
+    }
+
+    /// « Se connecter » : un rattachement commence (l'agent démarre, `attached` sera pris).
+    pub fn begin_attach(&self) {
+        *self.attaching.lock().unwrap() = Some(Instant::now());
+        self.wake();
+    }
+
+    /// Un détachement attend d'être dit au relais.
+    pub fn detach_pending(&self) -> bool {
+        *self.detach_pending.lock().unwrap()
+    }
+
+    /// Le rattachement est fini (réussi, ou abandonné).
+    pub fn attach_done(&self) {
+        *self.attaching.lock().unwrap() = None;
+    }
+
+    /// Demande un code de rattachement au relais, par la connexion de
+    /// contrôle (l'agent démarre s'il ne tournait pas) ; `name` : le nom de
+    /// l'ordinateur, montré dans la console.
+    pub async fn attach_code(&self, name: &str) -> Result<AttachCode, TunnelError> {
+        self.begin_attach();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let agent = loop {
+            if let Some(a) = self.joined_agent() {
+                break a;
+            }
+            if Instant::now() >= deadline {
+                let reason = match self.agent().map(|a| a.state()) {
+                    Some(AgentState::Unreachable { reason }) => reason,
+                    _ => "timeout".into(),
+                };
+                return Err(TunnelError::Unreachable(reason));
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        agent.attach_code(name).await
+    }
+
+    /// Détachée dans Admin : le relais l'apprend tout de suite s'il est joint,
+    /// sinon dès que l'agent le joint (il démarre pour ça).
+    pub fn detach_at_relay(&self) {
+        self.attach_done();
+        match self.joined_agent() {
+            Some(a) if a.detach() => {}
+            _ => {
+                *self.detach_pending.lock().unwrap() = true;
+                self.wake();
+            }
+        }
+    }
+
+    /// Relais joint : ce qui attendait (détachement), ou où en est le rattachement.
+    fn on_joined(&self, s: &AppState) {
+        let Some(agent) = self.joined_agent() else { return };
+        if std::mem::take(&mut *self.detach_pending.lock().unwrap()) {
+            if !agent.detach() {
+                *self.detach_pending.lock().unwrap() = true;
+            }
+            return;
+        }
+        let account = s.settings.lock().unwrap().account.clone();
+        let here = s.settings.lock().unwrap().relay.addr().map(|a| a.web_authority());
+        if account.attached() && !account.test && account.relay.is_some() && account.relay == here {
+            // Le relais répond `attached` (clés à jour) ou `detached`.
+            agent.attach_status();
+        }
     }
 
     /// Relais joint et ce code réservé chez lui : le partage est joignable hors de chez soi.
@@ -700,7 +784,9 @@ async fn supervise_tick(s: &AppState, router: &Router) {
         || (s.settings.lock().unwrap().lend.enabled && s.friends.any_enabled());
     // Une invitation ouverte : son code se tient chez le relais (docs/invitations.md).
     let inviting = s.invites.any_active();
-    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering || lending || inviting);
+    // Comptes KyberNow : un rattachement en cours, ou un détachement à dire au relais.
+    let accounts = s.relay.attaching() || s.relay.detach_pending();
+    let wanted = settings.addr().filter(|_| settings.remote_access || open || lingering || lending || inviting || accounts);
     let current = s.relay.running.lock().unwrap().as_ref().map(|r| r.relay.clone());
     if wanted != current {
         let old = s.relay.running.lock().unwrap().take();
@@ -755,6 +841,7 @@ async fn log_states(s: AppState, mut states: tokio::sync::watch::Receiver<AgentS
             AgentState::Joined { transport } => {
                 tracing::info!("relais : {relay} joint ({})", transport.as_str());
                 s.relay.wake();
+                s.relay.on_joined(&s);
             }
             AgentState::Unreachable { reason } => tracing::info!("relais : {relay} injoignable ({reason})"),
             AgentState::Stopped => tracing::info!("relais : agent arrêté"),
@@ -841,6 +928,8 @@ async fn serve_incoming(s: AppState, router: Router, mut incoming: mpsc::Receive
             Incoming::Flow(req) if req.console.is_some() => console_flow(&s, req),
             Incoming::Flow(req) => kyber_flow(&s, req),
             Incoming::ClientGone { client } => tracing::debug!("relais : {client} n'a plus de connexion"),
+            Incoming::Attached(a) => crate::accounts::on_attached(&s, *a),
+            Incoming::Detached => crate::accounts::on_detached(&s),
         }
     }
 }
@@ -1345,6 +1434,7 @@ mod tests {
             (&Method::PUT, "/api/relay"), (&get, "/"), (&get, "/index.html"), (&post, "/link/"), (&get, "/ecran/kyclient_wasm.js"), (&post, "/api/session"),
             (&get, "/api/status"), (&get, "/api/shares"), (&get, "/kybernow/sessions"),
             (&get, "/api/account"), (&Method::PUT, "/api/account"), (&get, "/api/account/access"), (&post, "/api/account/access/ab/block"),
+            (&post, "/api/account/attach"),
             (&post, "/api/stream/station/other"),
         ] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");

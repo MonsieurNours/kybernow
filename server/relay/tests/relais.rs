@@ -857,3 +857,278 @@ async fn comptes_sur_le_relais() {
     .await
     .expect("délai");
 }
+
+/// Le rattachement (docs/comptes.md, lot 2) de bout en bout : une fausse Station
+/// demande un code par sa connexion de contrôle, la personne confirme dans la
+/// console, la Station reçoit `attached` et ses clés ; un appareil connecté
+/// obtient un jeton d'accès que ces clés vérifient ; « Détacher » dans Admin
+/// efface le lien chez le relais.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rattacher_une_station_par_sa_connexion_de_controle() {
+    use kybernow_tunnel::access::{KeySet, Use, Verifier};
+    timeout(T * 3, async {
+        let pki = pki();
+        // Un relais sans comptes refuse le code.
+        let off = relay(&pki, |_| {}).await;
+        let lone = fake_station(
+            relay_addr(&off),
+            pki.roots.clone(),
+            false,
+            Policy::default(),
+        );
+        lone.joined().await;
+        match lone.agent.attach_code("PC").await {
+            Err(TunnelError::Refused(code, _)) => {
+                assert_eq!(code, kybernow_tunnel::msg::ErrorCode::NoAccounts)
+            }
+            other => panic!("code donné sans comptes : {other:?}"),
+        }
+        assert_eq!(
+            https(&off, &pki.roots, DOMAIN, "GET", "/v1/keys", &[])
+                .await
+                .unwrap()
+                .status,
+            404
+        );
+        drop(lone);
+        drop(off);
+
+        let dir = pki.dir.join("comptes-lot2");
+        let relay = relay(&pki, |cfg| {
+            cfg.accounts.enabled = true;
+            cfg.accounts.database = dir.join("accounts.db");
+            cfg.accounts.secret_key = dir.join("secret.key");
+        })
+        .await;
+        assert!(
+            dir.join("signing.key").exists(),
+            "clé de signature créée à côté de la clé des comptes"
+        );
+        let accounts = relay.hub.accounts.clone().unwrap();
+        accounts
+            .add_verified("ana@exemple.org", "Ana", "cheval agrafe pile")
+            .unwrap();
+        let keys = https(&relay, &pki.roots, DOMAIN, "GET", "/v1/keys", &[])
+            .await
+            .unwrap();
+        assert_eq!(keys.status, 200);
+        let published: KeySet = serde_json::from_str(&keys.body).unwrap();
+        assert_eq!(published.valid().len(), 1);
+
+        let station = fake_station(
+            relay_addr(&relay),
+            pki.roots.clone(),
+            false,
+            Policy::default(),
+        );
+        station.joined().await;
+        let attach = station.agent.attach_code("PC du salon").await.unwrap();
+        let port = relay.addr.port();
+        assert!(
+            attach
+                .url
+                .starts_with(&format!("https://{DOMAIN}:{port}/compte/rattacher?code=")),
+            "{}",
+            attach.url
+        );
+        assert_eq!(attach.expires, Duration::from_secs(15 * 60));
+        let path = attach
+            .url
+            .split_once(&format!(":{port}"))
+            .unwrap()
+            .1
+            .to_string();
+
+        // Dans le navigateur : se connecter, puis confirmer « Rattacher PC du salon ».
+        let page = https(
+            &relay,
+            &pki.roots,
+            DOMAIN,
+            "GET",
+            "/compte/connexion?lang=fr",
+            &[],
+        )
+        .await
+        .unwrap();
+        let cookie_of = |r: &Http, name: &str| {
+            r.headers
+                .get_all("set-cookie")
+                .iter()
+                .map(|v| v.to_str().unwrap())
+                .find(|c| c.starts_with(name))
+                .map(|c| c.split(';').next().unwrap().to_string())
+        };
+        let csrf_cookie = cookie_of(&page, "__Host-kn_csrf=").unwrap();
+        let csrf = page
+            .body
+            .split(r#"name="csrf" value=""#)
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_string();
+        let form_headers = |cookies: &str| -> [(&'static str, String); 3] {
+            [
+                ("content-type", "application/x-www-form-urlencoded".into()),
+                ("cookie", cookies.into()),
+                ("sec-fetch-site", "same-origin".into()),
+            ]
+        };
+        let h = form_headers(&csrf_cookie);
+        let h = h.each_ref().map(|(k, v)| (*k, v.as_str()));
+        let r = https_body(
+            &relay,
+            &pki.roots,
+            DOMAIN,
+            "POST",
+            "/compte/connexion?lang=fr",
+            &h,
+            &format!("csrf={csrf}&email=ana%40exemple.org&password=cheval+agrafe+pile"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status, 303);
+        let cookies = format!(
+            "{csrf_cookie}; {}",
+            cookie_of(&r, "__Host-kn_session=").unwrap()
+        );
+        let page = https(
+            &relay,
+            &pki.roots,
+            DOMAIN,
+            "GET",
+            &format!("{path}&lang=fr"),
+            &[("cookie", cookies.as_str())],
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.status, 200);
+        assert!(page.body.contains("Rattacher PC du salon"));
+        let h = form_headers(&cookies);
+        let h = h.each_ref().map(|(k, v)| (*k, v.as_str()));
+        let r = https_body(
+            &relay,
+            &pki.roots,
+            DOMAIN,
+            "POST",
+            "/compte/rattacher?lang=fr",
+            &h,
+            &format!("csrf={csrf}&code={}&action=rattacher", attach.code),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.status, 200);
+        assert!(
+            r.body.contains("Admin l'affiche déjà"),
+            "la Station est connectée"
+        );
+
+        // La Station reçoit `attached` par sa connexion de contrôle.
+        let got = async {
+            loop {
+                if let Some(a) = station.attached.lock().unwrap().first().cloned() {
+                    return a;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        let attached = timeout(T, got).await.expect("attached");
+        assert_eq!(attached.relay, format!("{DOMAIN}:{port}"));
+        assert_eq!(attached.keys, published.keys);
+        assert_eq!(attached.owner.email.as_deref(), Some("ana@exemple.org"));
+        // Reconnectée, elle redemande où elle en est.
+        assert!(station.agent.attach_status());
+        timeout(T, async {
+            while station.attached.lock().unwrap().len() < 2 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("attached en réponse à attach_status");
+
+        // Un appareil du compte : un jeton d'accès vérifié par les clés épinglées.
+        let account = accounts
+            .db()
+            .account_by_email("ana@exemple.org")
+            .unwrap()
+            .unwrap();
+        let device = accounts
+            .open_device(&account, "iPad de Léa", "app")
+            .unwrap();
+        let bearer = format!("Bearer {}", device["token"].as_str().unwrap());
+        let list = https(
+            &relay,
+            &pki.roots,
+            DOMAIN,
+            "GET",
+            "/v1/computers",
+            &[("authorization", bearer.as_str())],
+        )
+        .await
+        .unwrap();
+        assert_eq!(list.status, 200);
+        assert!(list.body.contains(station.id()) && list.body.contains("\"online\":true"));
+        let body = format!(r#"{{"station":"{}"}}"#, station.id());
+        let access = https_body(
+            &relay,
+            &pki.roots,
+            DOMAIN,
+            "POST",
+            "/v1/access",
+            &[
+                ("authorization", bearer.as_str()),
+                ("content-type", "application/json"),
+            ],
+            &body,
+        )
+        .await
+        .unwrap();
+        assert_eq!(access.status, 200, "{}", access.body);
+        let token: serde_json::Value = serde_json::from_str(&access.body).unwrap();
+        let verifier = Verifier::new(&attached.relay, station.id(), &attached.keys);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let claims = verifier
+            .verify(token["token"].as_str().unwrap(), now, Use::Reusable)
+            .expect("jeton vérifié par la Station");
+        assert_eq!(claims.account, attached.account);
+        assert_eq!(
+            https_body(
+                &relay,
+                &pki.roots,
+                DOMAIN,
+                "POST",
+                "/v1/access",
+                &[("content-type", "application/json")],
+                &body
+            )
+            .await
+            .unwrap()
+            .status,
+            401
+        );
+
+        // « Détacher » dans Admin : le relais oublie le lien.
+        assert!(station.agent.detach());
+        timeout(T, async {
+            while accounts.db().station(station.id()).unwrap().is_some() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("détachée chez le relais");
+        assert!(station.agent.attach_status());
+        timeout(T, async {
+            while station.detached.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("detached en réponse à attach_status");
+    })
+    .await
+    .expect("délai");
+}

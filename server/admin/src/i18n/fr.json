@@ -280,6 +280,9 @@
     "badToken": "Jeton d'accès refusé ({reason}).",
     "blocked": "Ce compte ou cet appareil est bloqué sur cet ordinateur.",
     "noRight": "Ce compte n'a pas ce droit sur cet ordinateur ({right}).",
-    "unknownEntry": "Accès inconnu."
+    "unknownEntry": "Accès inconnu.",
+    "noRelay": "Réglez d'abord un relais dans « Hors de chez vous » : c'est lui qui tient les comptes KyberNow.",
+    "noAccounts": "Ce relais ne propose pas les comptes KyberNow.",
+    "relayUnreachable": "Le relais ne répond pas : réessayez dans un instant."
   }
 }

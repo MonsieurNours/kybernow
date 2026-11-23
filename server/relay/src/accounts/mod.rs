@@ -6,13 +6,19 @@
 //! Les passkeys, la suppression du compte et l'export des données viennent au
 //! lot 1b.
 //!
+//! Lot 2 : la clé de signature et les Stations rattachées ([`stations`]) ;
+//! moitié relais du lot 3 : les appareils connectés et les jetons d'accès
+//! ([`devices`]).
+//!
 //! Tout ici est synchrone : le relais appelle [`Accounts::handle`] hors de
 //! l'exécuteur (`spawn_blocking`), quelques requêtes à la fois ([`Accounts::gate`]),
 //! parce qu'Argon2 prend du temps et de la mémoire exprès.
 
+pub mod devices;
 pub mod mail;
 pub mod pages;
 pub mod password;
+pub mod stations;
 pub mod store;
 pub mod totp;
 pub mod web;
@@ -271,6 +277,10 @@ pub struct Accounts {
     clock: Clock,
     /// Quelques requêtes à la fois, hors de l'exécuteur.
     pub gate: tokio::sync::Semaphore,
+    /// Lot 2 : la clé de signature, les codes de rattachement, le lien vers les Stations.
+    pub stations: stations::Stations,
+    /// Lot 3 : les limites des appareils.
+    pub devices: devices::Devices,
 }
 
 impl Accounts {
@@ -286,7 +296,10 @@ impl Accounts {
                 None
             }
         };
-        Ok(Accounts::with(store, keys, mailer, public_url, Hasher::new(), clock))
+        let mut accounts = Accounts::with(store, keys, mailer, public_url, Hasher::new(), clock);
+        let dir = cfg.secret_key.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        accounts.stations = stations::Stations::new(stations::SigningKeys::load_or_create(dir)?);
+        Ok(accounts)
     }
 
     pub fn with(store: Store, keys: Keys, mailer: Option<Arc<dyn Mailer>>, public_url: String, hasher: Hasher, clock: Clock) -> Accounts {
@@ -299,6 +312,8 @@ impl Accounts {
             limits: Mutex::new(Limiter::default()),
             clock,
             gate: tokio::sync::Semaphore::new(CONCURRENT),
+            stations: stations::Stations::new(stations::SigningKeys::ephemeral()),
+            devices: devices::Devices::default(),
         }
     }
 
@@ -336,6 +351,7 @@ impl Accounts {
         if let Err(e) = self.db().sweep(self.now()) {
             tracing::warn!("ménage de la base des comptes : {e:#}");
         }
+        self.sweep_devices();
     }
 }
 

@@ -2,8 +2,9 @@
   Compte KyberNow (docs/comptes.md) : le compte auquel l'ordinateur est
   rattaché, la clé du relais épinglée, « Accepter les comptes KyberNow »,
   et les comptes et appareils entrés par un jeton, qu'on bloque ici même si
-  le relais dit oui. Pas rattaché : « Se connecter », actif quand le relais
-  propose le rattachement.
+  le relais dit oui. Pas rattaché : « Se connecter » demande un code au
+  relais et ouvre sa console dans le navigateur (« Rattacher {nom} ») ; la
+  page attend la confirmation, qui arrive par la connexion de contrôle.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -19,10 +20,19 @@
   let entries = $state<AccountAccess[]>([])
   let saving = $state(false)
   let busy = $state<string | null>(null)
+  /** La page de la console ouverte par « Se connecter » (pour la rouvrir). */
+  let attachUrl = $state<string | null>(null)
 
   async function load() {
     try {
+      const before = account
       account = await api.account()
+      if (before && !before.attached && account.attached) {
+        // Confirmé dans la console : le relais l'a dit par la connexion de contrôle.
+        attachUrl = null
+        const o = account.owner
+        notify('ok', t('account.detached.done', { name: o ? o.email || o.name || o.id : '' }))
+      }
       entries = (await api.accountAccess()).entries
     } catch (e) {
       notify('error', errorText(e))
@@ -38,6 +48,37 @@
 
   const owner = $derived(account?.owner ?? null)
   const ownerName = $derived(owner ? owner.email || owner.name || owner.id : '')
+
+  async function signIn() {
+    // La fenêtre s'ouvre pendant le clic (sinon le navigateur la bloque), l'adresse suit.
+    const win = window.open('', '_blank')
+    saving = true
+    try {
+      const { url } = await api.attachAccount()
+      attachUrl = url
+      if (win) {
+        win.opener = null
+        win.location.href = url
+      } else {
+        window.open(url, '_blank', 'noopener')
+      }
+      account = await api.account()
+    } catch (e) {
+      win?.close()
+      notify('error', errorText(e))
+    } finally {
+      saving = false
+    }
+  }
+
+  async function cancelAttach() {
+    try {
+      account = await api.setAccount({ cancel_attach: true })
+      attachUrl = null
+    } catch (e) {
+      notify('error', errorText(e))
+    }
+  }
 
   async function setAccept(on: boolean) {
     saving = true
@@ -93,12 +134,23 @@
     <section aria-labelledby="t-acc" class="card feature detached">
       <h2 id="t-acc">{t('account.detached.title')}</h2>
       <p>{t('account.detached.text')}</p>
-      <div class="actions">
-        <button type="button" class="primary" disabled={!account.can_attach}>
-          <Icon name="user" size={16} />{t('account.detached.signIn')}
-        </button>
-        {#if !account.can_attach}<span class="soon">{t('account.detached.soon')}</span>{/if}
-      </div>
+      {#if account.attaching}
+        <!-- En attente de la confirmation dans la console du relais. -->
+        <p class="waiting" role="status"><span class="spinner" aria-hidden="true"></span>{t('account.detached.waiting')}</p>
+        <div class="actions">
+          {#if attachUrl}
+            <a class="ghost small" href={attachUrl} target="_blank" rel="noopener noreferrer">{t('account.detached.reopen')}</a>
+          {/if}
+          <button type="button" class="ghost small" onclick={cancelAttach}>{t('account.detached.cancel')}</button>
+        </div>
+      {:else}
+        <div class="actions">
+          <button type="button" class="primary" disabled={!account.can_attach || saving} onclick={signIn}>
+            <Icon name="user" size={16} />{t('account.detached.signIn')}
+          </button>
+          {#if !account.can_attach}<span class="soon">{t('account.detached.noRelay')}</span>{/if}
+        </div>
+      {/if}
       <p class="hint">{t('account.detached.optional')}</p>
     </section>
   {:else if account}
@@ -215,6 +267,38 @@
   .soon {
     font-size: 13px;
     color: var(--faint);
+  }
+
+  .waiting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--text-2);
+    max-width: 60ch;
+  }
+
+  .spinner {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--line);
+    border-top-color: var(--muted);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
   }
 
   .owner {

@@ -133,6 +133,9 @@ pub enum Message<'a> {
     TotpChanged { on: bool, account: &'a str },
     /// Le mot de passe a changé.
     PasswordChanged { forgot: &'a str },
+    /// Un appareil ouvre pour la première fois un ordinateur du compte
+    /// (garde-fou 4, « Avis à chaque nouvel appareil ») ; `account` : la page du compte.
+    NewDevice { device: &'a str, computer: &'a str, account: &'a str },
 }
 
 /// Le code « 123 456 », plus facile à lire.
@@ -230,6 +233,27 @@ pub fn compose(to: &str, lang: Lang, message: Message<'_>) -> Mail {
                 check = tr("Ce n'était pas vous ? Choisissez-en un autre tout de suite :", "Wasn't you? Choose another one right away:"),
             ),
         ),
+        Message::NewDevice { device, computer, account } => {
+            let device = if device.is_empty() { tr("Un appareil", "A device") } else { device.to_string() };
+            (
+                match lang {
+                    Lang::Fr => t(lang, &format!("Nouvel appareil sur {computer}"), ""),
+                    Lang::En => format!("New device on {computer}"),
+                },
+                format!(
+                    "{hello}\n\n{what}\n\n{check}\n{account}\n\n{sign}\n",
+                    hello = tr("Bonjour,", "Hello,"),
+                    what = match lang {
+                        Lang::Fr => t(lang, &format!("{device} vient d'ouvrir {computer} pour la première fois, avec votre compte KyberNow."), ""),
+                        Lang::En => format!("{device} just opened {computer} for the first time, with your KyberNow account."),
+                    },
+                    check = tr(
+                        "Ce n'était pas vous ? Déconnectez cet appareil et changez votre mot de passe ; dans Admin, « Compte KyberNow » permet aussi de le bloquer :",
+                        "Wasn't you? Disconnect this device and change your password; in Admin, \"KyberNow account\" can also block it:",
+                    ),
+                ),
+            )
+        }
     };
     Mail { to: to.to_string(), subject, text }
 }
@@ -254,6 +278,8 @@ mod tests {
             Message::TotpChanged { on: true, account: "c" },
             Message::TotpChanged { on: false, account: "c" },
             Message::PasswordChanged { forgot: "f" },
+            Message::NewDevice { device: "iPad de Léa", computer: "PC du salon", account: "c" },
+            Message::NewDevice { device: "", computer: "PC du salon", account: "c" },
         ] {
             for lang in [Lang::Fr, Lang::En] {
                 let mail = compose("a@exemple.org", lang, m);

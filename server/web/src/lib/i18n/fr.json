@@ -1495,7 +1495,11 @@
       "title": "Pas rattaché",
       "text": "Rattachez cet ordinateur à votre compte KyberNow pour le retrouver sur tous vos appareils et l'ouvrir à d'autres personnes.",
       "signIn": "Se connecter",
-      "soon": "Le rattachement arrive avec la prochaine version du relais.",
+      "noRelay": "Réglez d'abord un relais dans « Hors de chez vous » : c'est lui qui tient les comptes KyberNow.",
+      "waiting": "Terminez dans le navigateur : connectez-vous à votre compte KyberNow, puis confirmez le rattachement. Cette page se met à jour d'elle-même.",
+      "reopen": "Rouvrir la page",
+      "cancel": "Annuler",
+      "done": "Ordinateur rattaché à {name}.",
       "optional": "Facultatif : le réseau local, l'appairage par code et les invitations marchent sans compte."
     },
     "attached": {
