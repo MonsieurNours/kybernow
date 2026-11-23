@@ -17,7 +17,8 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | Rights on a computer | **Session** (the full desktop), **Lending** (the launcher, [pret.en.md](pret.en.md)), **Sharing** (join its shares without a code), **Administer** |
 | Self-hosted relay | Accounts specific to each relay; an app can be connected to several relays |
 | Sign-in | Email and password, two-factor authentication (TOTP), passkeys |
-| Attaching a Station | From Admin (“KyberNow account › Sign in”) |
+| Attaching a Station | From the Station installer, or from Admin (“KyberNow account › Sign in”) |
+| Installers | Optional “KyberNow account” step during Station installation (relay pages, “Another relay…”, owner, access turned on); enrollment token to deploy a fleet; sign-in also offered by the Link Windows installer |
 | Invitations | Kept, alongside accounts |
 | Emails | Configurable sending (SMTP in the relay's configuration); the public relay goes through an EU provider |
 | Database | SQLite in the relay's container, backed up |
@@ -50,6 +51,15 @@ This document is the framing, to be approved before the mockup and the code. Sta
 - Admin › **KyberNow account** › “Sign in”: Admin opens the relay's console in the browser (with an attach code); you sign in, choose the account or the organization, and confirm “Attach Living room PC”.
 - The Station then **belongs to that account** (or to that organization); “Accept KyberNow accounts” turns on, and Admin shows the account, the list of accesses, and “Detach”.
 - Attaching only happens from Admin: no one can attach someone else's Station.
+
+### In the installers
+
+- **Station** (Windows and Mac installers): a **“KyberNow account”** step, optional (“Later”: attach afterwards in Admin), **during installation** (installation keeps running in the background). It shows the **relay's pages** (sign-up, sign-in, passkey through Windows Hello or Touch ID, two-factor authentication) inside the installer's window.
+  - **Relay**: `share.kybernow.app` suggested; “Another relay…” opens an address field (host, port, fingerprint for a self-signed relay), checked before going on. The chosen address becomes the Station's relay (Admin › Away from home).
+  - **Owner**: the person; if the account administers organizations, a choice “Me” / “{organization}”.
+  - **Attachment** as soon as Admin starts; “Accept KyberNow accounts” and “Access away from home” are turned on, the installer says so, Admin can turn them off.
+- **Fleet deployment**: an organization's console gives an **enrollment token** (lifetime, number of Stations); the installer takes it on the command line, silently (`KyberNow-Station-Setup.exe /quiet /enroll=<token> /relay=<address>`), and attaches the Station to the organization without a screen.
+- **KyberNow Link for Windows**: its installer also offers, optionally, “Sign in to a KyberNow account” (same relay pages); the app then starts signed in. The other apps sign in from their home screen.
 
 ### Adding people
 

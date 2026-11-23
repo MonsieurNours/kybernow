@@ -17,7 +17,8 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 | Droits sur un ordinateur | **Session** (le bureau entier), **Prêt** (le lanceur, [pret.md](pret.md)), **Partage** (rejoindre ses partages sans code), **Administrer** |
 | Relais auto-hébergé | Comptes propres à chaque relais ; une app peut être connectée à plusieurs relais |
 | Connexion | E-mail et mot de passe, double authentification (TOTP), passkeys |
-| Rattacher une Station | Depuis Admin (« Compte KyberNow › Se connecter ») |
+| Rattacher une Station | Depuis l'installateur de la Station, ou depuis Admin (« Compte KyberNow › Se connecter ») |
+| Installateurs | Étape facultative « Compte KyberNow » pendant l'installation de la Station (pages du relais, « Autre relais… », propriétaire, accès activés) ; jeton d'enrôlement pour déployer une flotte ; connexion proposée aussi par l'installateur de Link Windows |
 | Invitations | Gardées, à côté des comptes |
 | E-mails | Envoi réglable (SMTP dans la configuration du relais) ; le relais public passe par un prestataire de l'UE |
 | Base | SQLite dans le conteneur du relais, sauvegardée |
@@ -50,6 +51,15 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 - Admin › **Compte KyberNow** › « Se connecter » : Admin ouvre la console du relais dans le navigateur (avec un code de rattachement) ; on se connecte, on choisit le compte ou l'organisation, on confirme « Rattacher PC du salon ».
 - La Station est alors **à ce compte** (ou à cette organisation) ; « Accepter les comptes KyberNow » s'active, et Admin montre le compte, la liste des accès, et « Détacher ».
 - Le rattachement n'a lieu que depuis Admin : personne ne peut rattacher la Station d'un autre.
+
+### Dans les installateurs
+
+- **Station** (installateur Windows et installateur Mac) : une étape **« Compte KyberNow »**, facultative (« Plus tard » : on rattache ensuite dans Admin), **pendant l'installation** (l'installation continue en fond). Elle affiche les **pages du relais** (inscription, connexion, passkey par Windows Hello ou Touch ID, double authentification) dans la fenêtre de l'installateur.
+  - **Relais** : `share.kybernow.app` proposé ; « Autre relais… » ouvre un champ d'adresse (hôte, port, empreinte pour un relais signé par lui-même), vérifié avant de continuer. L'adresse choisie devient le relais de la Station (Admin › Hors de chez vous).
+  - **Propriétaire** : la personne ; si le compte administre des organisations, un choix « Moi » / « {organisation} ».
+  - **Rattachement** dès qu'Admin démarre ; « Accepter les comptes KyberNow » et « Accès hors de chez vous » s'activent, l'installateur le dit, Admin permet de couper.
+- **Déploiement d'une flotte** : la console d'une organisation donne un **jeton d'enrôlement** (durée, nombre de Stations) ; l'installateur le prend en ligne de commande, en silencieux (`KyberNow-Station-Setup.exe /quiet /enroll=<jeton> /relay=<adresse>`), et rattache la Station à l'organisation sans écran.
+- **KyberNow Link pour Windows** : l'installateur propose aussi, facultatif, « Se connecter à un compte KyberNow » (mêmes pages du relais) ; l'app démarre alors connectée. Les autres apps se connectent depuis leur accueil.
 
 ### Ajouter des personnes
 
