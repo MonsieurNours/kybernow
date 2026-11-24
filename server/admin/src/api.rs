@@ -1495,7 +1495,8 @@ async fn stream_prepare(
 
 /// Un compte KyberNow n'a pas de compte dans la configuration de Kyber : la
 /// réponse de `prepare` lui donne un jeton de Kyber (`kyber_token`, la durée
-/// d'un jeton d'accès ; l'app le redemande avec son jeton suivant).
+/// d'un jeton d'accès), celle du signe de vie un neuf (l'app le donne à Kyber
+/// pour ses reconnexions).
 fn account_kyber_token(s: &AppState, headers: &HeaderMap, user: &str, answer: &mut Value) {
     if crate::accounts::bearer(headers).is_none() {
         return;
@@ -1603,6 +1604,9 @@ async fn stream_heartbeat(
     if let Some(lend) = lend_api::for_host(&s) {
         answer["lend"] = lend;
     }
+    // Un compte KyberNow : un jeton de Kyber neuf à chaque signe de vie (Kyber
+    // le relit quand il se reconnecte, après l'échéance de celui de `prepare`).
+    account_kyber_token(&s, &headers, &user, &mut answer);
     Ok(Json(answer))
 }
 
@@ -2507,6 +2511,11 @@ mod tests {
         let user = answer["kyber_token"]["user"].as_str().unwrap();
         assert_eq!(user, crate::accounts::kyber_user("acc_lea"));
         assert_eq!(answer["kyber_token"]["token"].as_str().unwrap().split('.').count(), 3);
+        // Le signe de vie en donne un neuf (Kyber le relit à sa reconnexion).
+        let Json(beat) = stream_heartbeat(State(c.s.clone()), session.clone(), None, Bytes::from(r#"{"device_id":"ipad-1"}"#)).await.ok().unwrap();
+        assert_eq!(beat["kyber_token"]["user"].as_str(), Some(user));
+        let Json(beat) = stream_heartbeat(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Bytes::from(r#"{"device_id":"mac-1"}"#)).await.ok().unwrap();
+        assert!(beat.get("kyber_token").is_none(), "pas pour un compte Kyber");
         // Avec un compte Kyber, pas de jeton de Kyber dans la réponse (rien ne change).
         c.s.activity.end(user, Some("ipad-1"), None);
         // Le droit Partage seul n'ouvre pas de session.

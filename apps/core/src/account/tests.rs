@@ -1,0 +1,390 @@
+//! Essais des comptes KyberNow dans le cœur : un faux relais qui répond
+//! comme `server/relay/src/accounts/devices.rs`.
+
+use super::*;
+
+const STATION: &str = "abcdefghijklmnopqrstuvwxyz";
+
+/// Un appel reçu par le faux relais.
+#[derive(Debug, Clone)]
+struct Seen {
+    relay: String,
+    method: String,
+    path: String,
+    bearer: Option<String>,
+    body: Option<Value>,
+}
+
+type Answer = Box<dyn Fn(&Seen, usize) -> Result<Reply, String> + Send + Sync>;
+
+/// Le faux relais : `answer(appel, rang de l'appel)`.
+struct Fake {
+    seen: Mutex<Vec<Seen>>,
+    answer: Answer,
+}
+
+impl Fake {
+    fn new(answer: impl Fn(&Seen, usize) -> Result<Reply, String> + Send + Sync + 'static) -> Arc<Fake> {
+        Arc::new(Fake { seen: Mutex::new(Vec::new()), answer: Box::new(answer) })
+    }
+
+    fn calls(&self) -> Vec<Seen> {
+        self.seen.lock().unwrap().clone()
+    }
+}
+
+impl RelayHttp for Fake {
+    fn call(&self, relay: &RelayAddr, method: &str, path: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, String> {
+        let s = Seen { relay: relay.to_string(), method: method.into(), path: path.into(), bearer: bearer.map(str::to_owned), body: body.cloned() };
+        let n = {
+            let mut seen = self.seen.lock().unwrap();
+            seen.push(s.clone());
+            seen.len() - 1
+        };
+        (self.answer)(&s, n)
+    }
+}
+
+fn reply(status: u16, body: Value) -> Result<Reply, String> {
+    Ok(Reply { status, body, retry_after: None })
+}
+
+fn opened_body() -> Value {
+    json!({
+        "token": "session-de-l-appareil",
+        "device": { "id": "dev_ab", "name": "iPad de Léa" },
+        "account": { "id": "acc_lea", "name": "Léa Martin", "email": "lea@exemple.fr" },
+        "relay": "share.kybernow.app",
+    })
+}
+
+fn account() -> Account {
+    Account {
+        relay: "share.kybernow.app".into(),
+        token: "session-de-l-appareil".into(),
+        account: AccountUser { id: "acc_lea".into(), name: "Léa Martin".into(), email: "lea@exemple.fr".into() },
+        device: AccountDevice { id: "dev_ab".into(), name: "iPad de Léa".into() },
+    }
+}
+
+/// Une Station : son identifiant, sa clé et sa signature de `admin_fp`.
+fn station(admin_fp: &str) -> (String, String, String) {
+    use base64::Engine;
+    use ring::signature::KeyPair;
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+    let pair = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+    let mut spki = vec![0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
+    spki.extend_from_slice(pair.public_key().as_ref());
+    let sig = pair.sign(&kybernow_tunnel::lookup::sig_message(admin_fp));
+    let b64 = base64::engine::general_purpose::STANDARD;
+    (kybernow_tunnel::id::station_id(&spki), b64.encode(&spki), b64.encode(sig.as_ref()))
+}
+
+#[test]
+fn le_jeton_ne_paraît_pas_dans_les_journaux() {
+    let a = account();
+    let shown = format!("{a:?}");
+    assert!(!shown.contains("session-de-l-appareil") && shown.contains("acc_lea"));
+    let s = a.summary();
+    assert_eq!(s.key, "share.kybernow.app|acc_lea");
+    assert_eq!((s.relay_label.as_str(), s.console.as_str()), ("share.kybernow.app", "https://share.kybernow.app/compte"));
+    assert!(!serde_json::to_string(&s).unwrap().contains("session-de-l-appareil"), "le résumé n'a pas le jeton");
+    // Le compte entier, lui, se garde avec son jeton (coffre du système).
+    let back: Account = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+    assert_eq!(back, a);
+}
+
+#[test]
+fn relais_sous_leur_forme_normale() {
+    assert_eq!(normalize_relay("").unwrap(), "share.kybernow.app");
+    assert_eq!(normalize_relay(" https://Share.Kybernow.app:443/ ").unwrap(), "share.kybernow.app");
+    assert_eq!(normalize_relay("relais.exemple.org:9443").unwrap(), "relais.exemple.org:9443");
+    assert_eq!(normalize_relay("a b"), Err(AccountError::BadRelay));
+    let pinned = "relais.exemple.org:9443#sha256:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB:AB";
+    let n = normalize_relay(pinned).unwrap();
+    assert!(n.contains("#sha256:ab"), "empreinte gardée : {n}");
+    assert_eq!(relay_label(&n), "relais.exemple.org:9443", "montré sans l'empreinte");
+    assert_eq!(console_url(&n), "https://relais.exemple.org:9443/compte");
+}
+
+#[test]
+fn fenetre_du_systeme() {
+    let s = sign_in("", "iPad de Léa").unwrap();
+    assert_eq!((s.relay.as_str(), s.callback_scheme.as_str()), ("share.kybernow.app", "kybernow"));
+    assert_eq!(s.state.len(), 32);
+    assert!(s.state.bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_eq!(
+        s.url,
+        format!("https://share.kybernow.app/compte/connexion?appareil=iPad%20de%20L%C3%A9a&retour=kybernow%3A%2F%2Fcompte&etat={}", s.state)
+    );
+    assert_ne!(sign_in("", "x").unwrap().state, s.state, "un état par demande");
+    // Le retour : le code échangé contre la session d'appareil.
+    let fake = Fake::new(|c, _| {
+        assert_eq!((c.method.as_str(), c.path.as_str(), c.bearer.as_deref()), ("POST", "/v1/devices/token", None));
+        assert_eq!(c.body, Some(json!({ "code": "c0de/+x" })));
+        reply(200, opened_body())
+    });
+    let back = format!("kybernow://compte?code=c0de%2F%2Bx&etat={}", s.state);
+    assert!(is_callback(&back) && is_callback("KYBERNOW://compte/?code=1") && !is_callback("kybernow://j/123456"));
+    let a = finish_sign_in_with(&*fake, &s, &back).unwrap();
+    assert_eq!(a, account());
+    assert_eq!(fake.calls()[0].relay, "share.kybernow.app");
+    // Un autre état, « Annuler », pas de code : rien n'est demandé au relais.
+    let other = format!("kybernow://compte?code=x&etat={}", "0".repeat(32));
+    assert_eq!(finish_sign_in_with(&*fake, &s, &other), Err(AccountError::BadCode));
+    assert_eq!(finish_sign_in_with(&*fake, &s, &format!("kybernow://compte?erreur=annule&etat={}", s.state)), Err(AccountError::Cancelled));
+    assert_eq!(finish_sign_in_with(&*fake, &s, &format!("kybernow://compte/?etat={}", s.state)), Err(AccountError::BadCode));
+    assert_eq!(finish_sign_in_with(&*fake, &s, "kybernow://ailleurs?code=x"), Err(AccountError::BadCode));
+    assert_eq!(fake.calls().len(), 1);
+    // Code échu ou déjà servi.
+    let refused = Fake::new(|_, _| reply(400, json!({ "error": "bad_code" })));
+    assert_eq!(finish_sign_in_with(&*refused, &s, &back), Err(AccountError::BadCode));
+}
+
+#[test]
+fn nom_de_l_appareil() {
+    assert_eq!(device_name("  "), "KyberNow Link");
+    assert_eq!(device_name("PC\n de Léa "), "PC de Léa");
+    assert_eq!(device_name(&"x".repeat(100)).len(), 64);
+}
+
+#[test]
+fn encodage_des_adresses() {
+    assert_eq!(encode("a b/é"), "a%20b%2F%C3%A9");
+    assert_eq!(decode("a%20b%2F%C3%A9+c"), "a b/é c");
+    assert_eq!(decode("100%"), "100%", "pourcent seul gardé");
+    assert_eq!(decode("%zz%4"), "%zz%4");
+}
+
+fn tv_body() -> Value {
+    json!({ "code": "KQ7M-4XPA", "poll": "secret-de-demande", "expires": 600, "interval": 5,
+            "url": "https://share.kybernow.app/tv", "url_complete": "https://share.kybernow.app/compte/appareil?code=KQ7M-4XPA" })
+}
+
+#[test]
+fn code_de_televiseur() {
+    let fake = Fake::new(|c, _| {
+        assert_eq!((c.path.as_str(), c.body.as_ref().unwrap()["name"].as_str()), ("/v1/devices/code", Some("Apple TV du salon")));
+        reply(200, tv_body())
+    });
+    let code = tv_code_with(&*fake, "share.kybernow.app", "Apple TV du salon").unwrap();
+    assert_eq!((code.code.as_str(), code.url_label.as_str(), code.expires, code.interval), ("KQ7M-4XPA", "share.kybernow.app/tv", 600, 5));
+    assert_eq!(code.url_complete, "https://share.kybernow.app/compte/appareil?code=KQ7M-4XPA");
+    let t = code.issued_at;
+    assert_eq!((code.minutes_left(t), code.minutes_left(t + 61), code.minutes_left(t + 599), code.minutes_left(t + 600)), (10, 9, 1, 0));
+    assert!(code.expired(t + 600) && !code.expired(t + 599));
+    // Les réponses d'une demande.
+    let answers = [reply(202, json!({ "pending": true, "interval": 5 })), reply(200, opened_body()), reply(403, json!({ "error": "denied" })), reply(410, json!({ "error": "expired" })), reply(404, json!({ "error": "unknown_code" }))];
+    let poll = Fake::new(move |c, n| {
+        assert_eq!(c.body, Some(json!({ "poll": "secret-de-demande" })));
+        answers[n].clone()
+    });
+    assert_eq!(tv_poll_with(&*poll, &code), Ok(TvPoll::Pending));
+    assert_eq!(tv_poll_with(&*poll, &code), Ok(TvPoll::Approved(Account { device: AccountDevice { id: "dev_ab".into(), name: "iPad de Léa".into() }, ..account() })));
+    assert_eq!(tv_poll_with(&*poll, &code), Err(AccountError::Denied));
+    assert_eq!(tv_poll_with(&*poll, &code), Err(AccountError::Expired));
+    assert_eq!(tv_poll_with(&*poll, &code), Err(AccountError::Expired));
+    // Trop de codes demandés.
+    let many = Fake::new(|_, _| Ok(Reply { status: 429, body: json!({ "error": "too_many" }), retry_after: Some(300) }));
+    let e = tv_code_with(&*many, "", "TV").unwrap_err();
+    assert_eq!(e, AccountError::TooMany { seconds: Some(300) });
+    assert_eq!(e.text(Lang::Fr), "Trop d'essais : réessayez dans 5 min.");
+}
+
+#[test]
+fn attente_du_code() {
+    let mut code = tv_code_with(&*Fake::new(|_, _| reply(200, tv_body())), "", "TV").unwrap();
+    code.interval = 0;
+    // Pending, relais muet, puis approuvé.
+    let fake = Fake::new(|_, n| match n {
+        0 => reply(202, json!({ "pending": true })),
+        1 => Err("connexion refusée".into()),
+        _ => reply(200, opened_body()),
+    });
+    let cancel = AtomicBool::new(false);
+    // Une demande par intervalle au moins (5 s pour de vrai, 200 ms ici).
+    let min = Duration::from_millis(200);
+    let started = Instant::now();
+    let a = tv_wait_with(&*fake, &code, &cancel, Duration::from_millis(20), min).unwrap();
+    assert_eq!(a.account.id, "acc_lea");
+    assert_eq!(fake.calls().len(), 3);
+    assert!(started.elapsed() >= min * 3, "pas plus d'une demande par intervalle");
+    // « Annuler » : tout de suite, sans demande.
+    let fake = Fake::new(|_, _| reply(202, json!({})));
+    cancel.store(true, Ordering::Relaxed);
+    assert_eq!(tv_wait_with(&*fake, &code, &cancel, Duration::from_millis(10), min), Err(AccountError::Cancelled));
+    assert!(fake.calls().is_empty());
+    // Refusé sur le téléphone.
+    cancel.store(false, Ordering::Relaxed);
+    let fake = Fake::new(|_, _| reply(403, json!({ "error": "denied" })));
+    assert_eq!(tv_wait_with(&*fake, &code, &cancel, Duration::from_millis(20), min), Err(AccountError::Denied));
+}
+
+#[test]
+fn ordinateurs_du_compte() {
+    let (id, key, sig) = station("sha256:aa:bb");
+    let (other, _, _) = station("sha256:cc");
+    let body = json!({ "computers": [
+        { "station": id, "name": "PC du salon", "rights": ["session", "lend", "share", "admin"], "owner": { "kind": "person", "id": "acc_lea", "name": "Léa Martin" },
+          "mine": true, "online": true, "attached_at": 1795000000, "station_key": key, "admin_fp": "sha256:aa:bb", "sig": sig },
+        // Signature qui ne tient pas : l'empreinte est écartée, l'ordinateur reste.
+        { "station": other, "name": "MacBook Pro", "rights": ["session"], "mine": true, "online": true, "station_key": key, "admin_fp": "sha256:faux", "sig": sig },
+        { "station": STATION, "name": "Hors ligne", "rights": ["session"], "mine": true, "online": false },
+        { "station": "pas-une-station", "name": "Illisible" },
+    ]});
+    let fake = Fake::new(move |c, _| {
+        assert_eq!((c.method.as_str(), c.path.as_str(), c.bearer.as_deref()), ("GET", "/v1/computers", Some("session-de-l-appareil")));
+        reply(200, body.clone())
+    });
+    let list = computers_with(&*fake, &account()).unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!((list[0].name.as_str(), list[0].admin_fp.as_deref(), list[0].online), ("PC du salon", Some("sha256:aa:bb"), true));
+    assert!(list[0].can("admin") && list[0].mine && list[0].account == "share.kybernow.app|acc_lea");
+    assert_eq!(list[1].admin_fp, None);
+    assert_eq!((list[2].station.as_str(), list[2].online), (STATION, false));
+    // L'empreinte vue une fois est gardée quand la Station se déconnecte.
+    let mut fresh = vec![AccountComputer { online: false, admin_fp: None, ..list[0].clone() }];
+    remember_fingerprints(&mut fresh, &list);
+    assert_eq!(fresh[0].admin_fp.as_deref(), Some("sha256:aa:bb"));
+    // Session d'appareil fermée ; relais sans comptes.
+    let closed = Fake::new(|_, _| reply(401, json!({ "error": "bad_session" })));
+    assert_eq!(computers_with(&*closed, &account()), Err(AccountError::SignedOut));
+    let old = Fake::new(|_, _| reply(404, Value::Null));
+    assert_eq!(computers_with(&*old, &account()), Err(AccountError::NoAccounts));
+    let down = Fake::new(|_, _| Err("délai dépassé".into()));
+    assert!(matches!(computers_with(&*down, &account()), Err(AccountError::Unreachable(_))));
+}
+
+#[test]
+fn pastilles_d_origine() {
+    let c = AccountComputer { relay: "relais.exemple.org:9443".into(), mine: true, owner: Owner { kind: "person".into(), id: "acc_lea".into(), name: "Léa Martin".into() }, ..Default::default() };
+    assert_eq!(c.origin(Lang::Fr, false), "Compte");
+    assert_eq!(c.origin(Lang::Fr, true), "Compte · relais.exemple.org:9443");
+    assert_eq!(c.origin(Lang::En, true), "Account · relais.exemple.org:9443");
+    let lent = AccountComputer { mine: false, ..c.clone() };
+    assert_eq!(lent.origin(Lang::Fr, false), "Ouvert par Léa");
+    assert_eq!(lent.origin(Lang::En, false), "Opened by Léa");
+    let org = AccountComputer { owner: Owner { kind: "organization".into(), id: "org_1".into(), name: "Les Lignes Claires".into() }, ..c };
+    assert_eq!(org.origin(Lang::Fr, true), "Les Lignes Claires");
+    assert_eq!((origin_paired(Lang::Fr), origin_paired(Lang::En)), ("Appairé".to_string(), "Paired".to_string()));
+}
+
+#[test]
+fn un_ordinateur_une_seule_fois() {
+    let c = |station: &str, fp: Option<&str>, account: &str| AccountComputer {
+        account: account.into(),
+        relay: "share.kybernow.app".into(),
+        station: station.into(),
+        name: station.into(),
+        admin_fp: fp.map(str::to_owned),
+        ..Default::default()
+    };
+    let paired = vec![
+        Paired { id: "salon".into(), fingerprint: Some("SHA256:AA:BB ".into()), station: None },
+        Paired { id: "bureau".into(), fingerprint: Some("sha256:dd".into()), station: Some("station-bureau".into()) },
+        Paired { id: "vieux".into(), fingerprint: None, station: None },
+    ];
+    let list = vec![
+        c("station-salon", Some("sha256:aa:bb"), "a"),
+        // Même Station que l'appairé « bureau », empreinte pas encore vue.
+        c("station-bureau", None, "a"),
+        c("station-atelier", Some("sha256:ee"), "a"),
+        // Le même ordinateur par un autre compte : une fois.
+        c("station-atelier", Some("sha256:ee"), "b"),
+        c("station-cave", None, "b"),
+    ];
+    let m = merge(&paired, &list);
+    assert_eq!(m.linked.iter().map(|(id, c)| (id.as_str(), c.station.as_str())).collect::<Vec<_>>(), vec![("salon", "station-salon"), ("bureau", "station-bureau")]);
+    assert_eq!(m.added.iter().map(|c| (c.station.as_str(), c.account.as_str())).collect::<Vec<_>>(), vec![("station-atelier", "a"), ("station-cave", "b")]);
+    // Sans appairé, rien n'est relié : quatre ordinateurs, l'atelier une fois.
+    assert_eq!(merge(&[], &list).added.len(), 4);
+}
+
+fn access(renew: Duration, fake: &Arc<Fake>) -> Arc<StationAccess> {
+    StationAccess::with_http(AccessParams { account: account(), station: STATION.into() }, fake.clone(), renew)
+}
+
+fn access_reply(n: usize, expires: u64) -> Result<Reply, String> {
+    reply(200, json!({ "token": format!("jeton-{n}"), "station": STATION, "rights": ["session"], "expires": expires, "lifetime": 300 }))
+}
+
+#[test]
+fn jeton_d_acces_garde_quatre_minutes() {
+    let fake = Fake::new(|c, n| {
+        assert_eq!((c.method.as_str(), c.path.as_str(), c.bearer.as_deref()), ("POST", "/v1/access", Some("session-de-l-appareil")));
+        assert_eq!(c.body, Some(json!({ "station": STATION })));
+        access_reply(n, now_secs() + 300)
+    });
+    let a = access(RENEW_AFTER, &fake);
+    assert_eq!(a.token().unwrap(), "jeton-0");
+    assert_eq!(a.token().unwrap(), "jeton-0", "le même pendant 4 minutes");
+    assert_eq!(fake.calls().len(), 1);
+    // Redémarrer : un jeton à part, pas gardé.
+    assert_eq!(a.single_use().unwrap(), "jeton-1");
+    assert_eq!(a.token().unwrap(), "jeton-0");
+    // Refusé par Admin (`token_expired`) : le suivant est neuf.
+    a.invalidate();
+    assert_eq!(a.token().unwrap(), "jeton-2");
+    // Passé le délai de renouvellement : un autre.
+    let b = access(Duration::ZERO, &fake);
+    assert_eq!(b.token().unwrap(), "jeton-3");
+    assert_eq!(b.token().unwrap(), "jeton-4");
+}
+
+#[test]
+fn jeton_d_acces_echu_selon_le_relais() {
+    // L'appareil a dormi : l'horloge monotone n'a pas avancé, l'échéance est passée.
+    let fake = Fake::new(|_, n| access_reply(n, now_secs() + 30));
+    let a = access(RENEW_AFTER, &fake);
+    assert_eq!(a.token().unwrap(), "jeton-0");
+    assert_eq!(a.token().unwrap(), "jeton-1", "à moins d'une minute de l'échéance");
+}
+
+#[test]
+fn jeton_d_acces_refuse() {
+    let answers = [reply(404, json!({ "error": "unknown_station" })), reply(401, json!({ "error": "bad_session" })), reply(200, json!({ "station": STATION }))];
+    let fake = Fake::new(move |_, n| answers[n].clone());
+    let a = access(RENEW_AFTER, &fake);
+    assert_eq!(a.token(), Err(AccountError::UnknownComputer));
+    assert_eq!(a.token(), Err(AccountError::SignedOut));
+    assert!(matches!(a.token(), Err(AccountError::Other(_))), "sans jeton");
+}
+
+#[test]
+fn se_deconnecter() {
+    let fake = Fake::new(|c, n| {
+        assert_eq!((c.path.as_str(), c.bearer.as_deref()), ("/v1/devices/revoke", Some("session-de-l-appareil")));
+        if n == 0 { reply(200, json!({ "ok": true })) } else { reply(401, json!({ "error": "bad_session" })) }
+    });
+    assert_eq!(sign_out_with(&*fake, &account()), Ok(()));
+    assert_eq!(sign_out_with(&*fake, &account()), Ok(()), "déjà fermée");
+}
+
+#[test]
+fn textes_et_codes() {
+    let all = [
+        AccountError::SignedOut,
+        AccountError::UnknownComputer,
+        AccountError::Denied,
+        AccountError::Expired,
+        AccountError::BadCode,
+        AccountError::Cancelled,
+        AccountError::TooMany { seconds: None },
+        AccountError::NoAccounts,
+        AccountError::BadRelay,
+        AccountError::Unreachable("x".into()),
+        AccountError::Other("x".into()),
+    ];
+    let codes: Vec<i32> = all.iter().map(AccountError::code).collect();
+    assert_eq!(codes, (70..=80).collect::<Vec<_>>());
+    for e in &all {
+        for lang in [Lang::Fr, Lang::En] {
+            let t = e.text(lang);
+            assert!(!t.is_empty() && !t.starts_with("account."), "{} : {t}", e.kind());
+        }
+    }
+    assert_eq!(AccountError::SignedOut.text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+    assert_eq!(AccountError::Denied.text(Lang::En), "Sign-in declined on the phone.");
+    assert_eq!(AccountError::TooMany { seconds: None }.text(Lang::Fr), "Trop d'essais : réessayez dans 15 min.");
+}

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::accounts::devices::{ApiReply, ApiRequest};
-use crate::accounts::stations::StationLink;
+use crate::accounts::stations::{Attest, StationLink};
 
 /// Les Stations « connectées » et ce qu'on leur a envoyé.
 #[derive(Default)]
@@ -32,6 +32,10 @@ impl StationLink for FakeLink {
         }
         self.sent.lock().unwrap().push((station.to_string(), msg));
         true
+    }
+
+    fn attest(&self, station: &str) -> Option<Attest> {
+        self.online(station).then(|| Attest { station_key: "Y2xl".into(), admin_fp: format!("sha256:{station}"), sig: "c2ln".into() })
     }
 }
 
@@ -199,6 +203,9 @@ fn connecter_une_app_par_la_fenetre_du_systeme() {
     assert_eq!(list.body["computers"][0]["station"], st.as_str());
     assert_eq!(list.body["computers"][0]["rights"], json!(["session", "lend", "share", "admin"]));
     assert_eq!(list.body["computers"][0]["online"], true);
+    // Connectée : l'empreinte d'Admin attestée, pour l'épingler dans l'app.
+    assert_eq!(list.body["computers"][0]["admin_fp"], format!("sha256:{st}"));
+    assert_eq!((list.body["computers"][0]["station_key"].as_str(), list.body["computers"][0]["sig"].as_str()), (Some("Y2xl"), Some("c2ln")));
     let mails = w.outbox.count_to("ana@exemple.org");
     let access = api(&w, true, "/v1/access", Some(&token), json!({ "station": st }));
     assert_eq!(access.status, 200);

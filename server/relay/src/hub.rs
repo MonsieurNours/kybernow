@@ -952,6 +952,14 @@ impl StationLink for Hub {
     fn send(&self, station: &str, msg: Msg) -> bool {
         self.station(station).is_some_and(|s| s.ctl.send(msg))
     }
+
+    fn attest(&self, station: &str) -> Option<crate::accounts::stations::Attest> {
+        self.station(station).map(|s| crate::accounts::stations::Attest {
+            station_key: s.station_key.clone(),
+            admin_fp: s.admin_fp.clone(),
+            sig: s.sig.clone(),
+        })
+    }
 }
 
 /// Un flux vers la Station, en-tête écrit ; `None` si la Station ne le

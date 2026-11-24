@@ -126,5 +126,22 @@
     "no_invite": "Ce code ne sert plus.",
     "full": "Cette invitation a déjà ajouté tous ses appareils.",
     "too_many": "Trop d'essais : réessayez dans {minutes} min."
+  },
+  "account": {
+    "signed_out": "Ce compte a été déconnecté de cet appareil : reconnectez-vous.",
+    "unknown_computer": "Cet ordinateur n'est plus sur votre compte.",
+    "denied": "Connexion refusée sur le téléphone.",
+    "expired": "Ce code ne sert plus : un nouveau s'affiche.",
+    "bad_code": "La connexion n'a pas abouti : réessayez.",
+    "cancelled": "Connexion annulée.",
+    "too_many": "Trop d'essais : réessayez dans {minutes} min.",
+    "no_accounts": "Ce relais n'a pas de comptes KyberNow.",
+    "bad_relay": "Adresse du relais illisible.",
+    "unreachable": "Le relais ne répond pas.",
+    "other": "Réponse inattendue du relais ({error}).",
+    "origin_account": "Compte",
+    "origin_account_relay": "Compte · {relay}",
+    "origin_shared": "Ouvert par {name}",
+    "origin_paired": "Appairé"
   }
 }
