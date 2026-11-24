@@ -4,6 +4,16 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Next version
+
+<!-- Rename to “## X.Y.Z” when publishing (scripts/release.sh looks for that exact heading). -->
+
+- **Self-hosted relay: KyberNow accounts need a compose update.** The nightly update replaces the relay's image, not its files: the new image runs unchanged, with accounts off. To turn accounts on, once, from the relay's folder:
+  1. fetch the compose files again: `for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`;
+  2. create the data folder (the accounts database and the keys): `mkdir -p data && sudo chown 65532:65532 data`;
+  3. add `[accounts]` and `enabled = true` to `config/relay.toml`, with the `[accounts.smtp]` section if you want email verification and password reset (see `relay.toml.example`);
+  4. restart: `docker compose pull && docker compose up -d`.
+
 ## 0.9.9
 
 - **Lending from a browser: the picture arrives even when the browser stumbles.** If your friend's browser can't start the picture in HEVC, the page tries again on its own in H.264, then, if needed, without sound; a brief notice says so. Same for a KyberNow Share guest. When nothing works, the failure screen shows a “Details” line to copy, and the Station notes the reason: in the Overview feed and on the loan card.

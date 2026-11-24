@@ -5,6 +5,16 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Prochaine version
+
+<!-- À renommer en « ## X.Y.Z » à la publication (scripts/release.sh cherche ce titre exact). -->
+
+- **Relais installé chez vous : les comptes KyberNow demandent une mise à jour du compose.** La mise à jour de chaque nuit remplace l'image du relais, pas ses fichiers : la nouvelle image tourne sans rien changer, comptes coupés. Pour activer les comptes, une fois, depuis le dossier du relais :
+  1. reprenez les fichiers du compose : `for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done` ;
+  2. créez le dossier des données (la base des comptes et les clés) : `mkdir -p data && sudo chown 65532:65532 data` ;
+  3. ajoutez `[accounts]` et `enabled = true` dans `config/relay.toml`, avec la section `[accounts.smtp]` si vous voulez la vérification par e-mail et le mot de passe oublié (voir `relay.toml.example`) ;
+  4. relancez : `docker compose pull && docker compose up -d`.
+
 ## 0.9.9
 
 - **Prêt depuis un navigateur : l'image arrive même quand le navigateur bute.** Si le navigateur de votre ami n'arrive pas à démarrer l'image en HEVC, la page recommence d'elle-même en H.264, puis, s'il le faut, sans le son ; un avis bref le dit. Même chose pour un invité de KyberNow Share. Quand rien ne marche, l'écran d'échec montre une ligne « Détails » à recopier, et la Station note la raison : dans le fil de la Vue d'ensemble et sur la carte du prêt.
