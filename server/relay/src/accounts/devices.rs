@@ -474,19 +474,22 @@ impl Accounts {
     }
 
     /// Le propriétaire d'une Station, pour `GET /v1/computers` : `{kind, id, name}`.
-    fn owner_json(&self, station: &super::stations::StationRow) -> Value {
+    /// Le propriétaire d'un ordinateur ; `None` pour une Station sans
+    /// propriétaire lisible (organisation effacée entre-temps) : elle n'est
+    /// pas listée, plutôt qu'un `owner` à `null` que les apps ne liraient pas.
+    fn owner_json(&self, station: &super::stations::StationRow) -> Option<Value> {
         let db = self.db();
         match (station.account, station.org) {
             (Some(a), _) => {
                 let name = db.account(a).ok().flatten().map(|a| a.name).unwrap_or_default();
                 drop(db);
-                json!({ "kind": "person", "id": self.public_account_id(a), "name": name })
+                Some(json!({ "kind": "person", "id": self.public_account_id(a), "name": name }))
             }
             (None, Some(o)) => match db.org(o).ok().flatten() {
-                Some(org) => json!({ "kind": "organization", "id": org.public_id, "name": org.name }),
-                None => Value::Null,
+                Some(org) => Some(json!({ "kind": "organization", "id": org.public_id, "name": org.name })),
+                None => None,
             },
-            (None, None) => Value::Null,
+            (None, None) => None,
         }
     }
 
@@ -500,11 +503,12 @@ impl Accounts {
             .iter()
             .filter_map(|s| {
                 let standing = self.standing(&account, s)?;
+                let owner = self.owner_json(s)?;
                 let mut c = json!({
                     "station": s.id,
                     "name": s.name,
                     "rights": standing.rights,
-                    "owner": self.owner_json(s),
+                    "owner": owner,
                     "mine": standing.mine,
                     "online": self.stations.online(&s.id),
                     "attached_at": s.attached_at,
