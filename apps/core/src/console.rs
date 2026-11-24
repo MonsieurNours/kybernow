@@ -1705,4 +1705,130 @@ mod tests {
         );
         assert_eq!(StationError::Unsupported.text(Lang::En), "this version of KyberNow Station can’t do this: update it from Admin");
     }
+
+    // --- Comptes KyberNow : le jeton d'accès du relais (docs/comptes.md) ---
+
+    use crate::account::{AccessParams, Account, AccountError, RelayAddr, RelayHttp, Reply, StationAccess, RENEW_AFTER};
+    use std::sync::atomic::AtomicUsize;
+
+    /// Le faux relais : un jeton neuf à chaque `POST /v1/access`, ou la
+    /// session de l'appareil fermée.
+    #[derive(Default)]
+    struct Tokens {
+        n: AtomicUsize,
+        closed: bool,
+    }
+
+    impl RelayHttp for Tokens {
+        fn call(&self, _: &RelayAddr, _: &str, path: &str, bearer: Option<&str>, _: Option<&serde_json::Value>) -> std::result::Result<Reply, String> {
+            assert_eq!((path, bearer), ("/v1/access", Some("session")));
+            if self.closed {
+                return Ok(Reply { status: 401, body: serde_json::json!({ "error": "bad_session" }), retry_after: None });
+            }
+            let n = self.n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let body = serde_json::json!({ "token": format!("jeton-{n}"), "expires": crate::account::now_secs() + 300, "lifetime": 300 });
+            Ok(Reply { status: 200, body, retry_after: None })
+        }
+    }
+
+    fn access(tokens: Tokens) -> Arc<StationAccess> {
+        let account = Account { relay: "share.kybernow.app".into(), token: "session".into(), ..Default::default() };
+        StationAccess::with_http(AccessParams { account, station: "abcdefghijklmnopqrstuvwxyz".into() }, Arc::new(tokens), RENEW_AFTER)
+    }
+
+    /// Un faux Admin en HTTPS : chaque requête (une par connexion) est notée,
+    /// ligne de requête et `Authorization`, et reçoit la réponse suivante.
+    fn fake_admin(answers: Vec<(u16, &'static str)>) -> (u16, Arc<Mutex<Vec<(String, String)>>>) {
+        use std::io::{Read, Write};
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec!["localhost".into()]).unwrap().self_signed(&key).unwrap();
+        let config = Arc::new(
+            rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![cert.der().clone()],
+                    rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(key.serialize_der())),
+                )
+                .unwrap(),
+        );
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for (stream, (status, body)) in listener.incoming().zip(answers) {
+                let Ok(stream) = stream else { return };
+                let mut tls = rustls::StreamOwned::new(rustls::ServerConnection::new(config.clone()).unwrap(), stream);
+                let (mut buf, mut chunk) = (Vec::new(), [0u8; 4096]);
+                let head_end = loop {
+                    let n = tls.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break i + 4;
+                    }
+                };
+                let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
+                let header = |name: &str| {
+                    head.lines()
+                        .find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.trim().to_string()))
+                        .unwrap_or_default()
+                };
+                let len: usize = header("content-length").parse().unwrap_or(0);
+                while buf.len() < head_end + len {
+                    let n = tls.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                log.lock().unwrap().push((head.lines().next().unwrap_or_default().to_string(), header("authorization")));
+                let reply = format!("HTTP/1.1 {status} R\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let _ = tls.write_all(reply.as_bytes());
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            }
+        });
+        (port, seen)
+    }
+
+    #[test]
+    fn compte_kybernow_jeton_d_acces() {
+        let (port, seen) = fake_admin(vec![
+            // Jeton échu (l'appareil a dormi) : un neuf, et l'appel refait.
+            (401, r#"{"error":"Jeton échu.","code":"token_expired"}"#),
+            (200, "{}"),
+            (200, r#"{"ok":true}"#),
+            (200, "{}"),
+        ]);
+        let c = Console::account("127.0.0.1", port, access(Tokens::default()), None);
+        assert!(c.station_access().is_some());
+        assert!(c.info().is_ok(), "second essai avec un jeton neuf");
+        // Redémarrer : un jeton à part, qu'Admin consomme ; le jeton en cours reste.
+        assert!(c.station_restart(None, false).is_ok());
+        assert!(c.info().is_ok());
+        let seen = seen.lock().unwrap().clone();
+        let auth: Vec<&str> = seen.iter().map(|(_, a)| a.as_str()).collect();
+        assert_eq!(auth, ["KyberNow jeton-0", "KyberNow jeton-1", "KyberNow jeton-2", "KyberNow jeton-1"]);
+        assert!(seen[0].0.starts_with("GET /api/stream/info") && seen[2].0.starts_with("POST /api/stream/station/restart"), "{seen:?}");
+        // Session de l'appareil fermée : rien ne part vers Admin, la raison est rendue.
+        let c = Console::account("127.0.0.1", port, access(Tokens { closed: true, ..Default::default() }), None);
+        assert!(matches!(c.info(), Err(ConsoleError::Account(AccountError::SignedOut))));
+        assert_eq!(ConsoleError::Account(AccountError::SignedOut).text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+    }
+
+    #[test]
+    fn jeton_de_kyber_d_un_compte() {
+        let w: PreparedWire = serde_json::from_str(r#"{"kyber_port":24812,"kyber_token":{"token":"jwt","user":"kn-account-abc","expires":300}}"#).unwrap();
+        let p = w.prepared();
+        assert_eq!(p.kyber_token, Some(KyberToken { token: "jwt".into(), user: "kn-account-abc".into(), expires: 300 }));
+        let w: PreparedWire = serde_json::from_str(r#"{"kyber_token":{"token":""}}"#).unwrap();
+        assert_eq!(w.prepared().kyber_token, None, "vide : pas de jeton");
+        let beat: HeartbeatReply = serde_json::from_str(r#"{"active":true,"kyber_token":{"token":"jwt-2"}}"#).unwrap();
+        assert_eq!(beat.kyber_token.map(|k| k.token).as_deref(), Some("jwt-2"));
+    }
 }
