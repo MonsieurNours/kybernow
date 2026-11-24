@@ -6,7 +6,7 @@
   import StatusIcon from '../lib/StatusIcon.svelte'
   import Toggle from '../lib/Toggle.svelte'
   import { t } from '../lib/i18n/index.svelte'
-  import { app, rerunChecks, startInstall } from '../lib/state.svelte'
+  import { afterWelcome, app, rerunChecks } from '../lib/state.svelte'
 
   const running = $derived(!app.checksDone)
   const update = $derived(!!app.existing)
@@ -59,7 +59,7 @@
 <div class="footer">
   {#if app.running}<span class="note warn-note">{t('welcome.willClose')}</span>{/if}
   <div class="spacer"></div>
-  <button type="button" class="primary" disabled={running} onclick={startInstall}>
+  <button type="button" class="primary" disabled={running} onclick={afterWelcome}>
     {running ? t('welcome.analysing') : update ? t('welcome.update') : t('welcome.install')}
   </button>
 </div>

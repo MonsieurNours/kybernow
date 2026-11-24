@@ -45,6 +45,16 @@ pub enum Event {
     Log { line: String },
     Done,
     Failed { task: String, message: String },
+    /// « Autre relais… » vérifié (`input` : ce qui a été saisi).
+    RelayProbed {
+        input: String,
+        #[serde(flatten)]
+        probe: crate::account::RelayProbe,
+    },
+    /// Connecté : la session d'appareil est remise à l'app.
+    AccountSignedIn { relay: String, name: String, email: String },
+    /// La connexion n'a pas abouti (`cancelled`, `exchange`, `store`).
+    AccountFailed { code: String, message: String },
 }
 
 /// Ce que l'interface demande à l'installateur.
@@ -56,6 +66,11 @@ pub enum Command {
     /// Ouvre l'app installée, puis ferme l'installateur.
     Launch,
     OpenUrl { url: String },
+    RelayProbe { address: String },
+    /// La page du relais dans le cadre donné (points CSS) : connexion de cet
+    /// appareil, ou création d'un compte (`signup`).
+    AccountView { relay: String, signup: bool, x: f64, y: f64, width: f64, height: f64 },
+    AccountViewHide,
     Minimize,
     Drag,
     Close,

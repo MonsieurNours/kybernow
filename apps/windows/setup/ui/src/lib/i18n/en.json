@@ -4,6 +4,7 @@
   },
   "steps": {
     "welcome": "Welcome",
+    "account": "KyberNow account",
     "install": "Installation",
     "done": "Ready"
   },
@@ -54,6 +55,7 @@
     "analysing": "Checking…"
   },
   "install": {
+    "connected": "Signed in: {email}",
     "rows": {
       "close": {
         "title": "Closing KyberNow Link",
@@ -100,6 +102,7 @@
     "showDetail": "Show details"
   },
   "done": {
+    "connected": "KyberNow Link will open signed in to {email}.",
     "updateLabel": "Update complete",
     "installLabel": "Installation complete",
     "title": "KyberNow Link is ready.",
@@ -157,5 +160,42 @@
     "running": "It will be closed during installation: a session in progress will be cut off.",
     "failed": "Could not install the files in C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
     "finished": "installation complete"
+  },
+  "account": {
+    "title": "Your KyberNow account",
+    "lead": "Sign in to find your computers as soon as KyberNow Link opens. Optional: you can also add a computer on your network, or join with a code.",
+    "signin": "Sign in",
+    "signinDetail": "The relay page opens in this window (passkey with Windows Hello).",
+    "signup": "Create an account",
+    "signupDetail": "Free, in a minute.",
+    "relayLabel": "Relay:",
+    "otherRelay": "Other relay…",
+    "laterNote": "You can also sign in from the KyberNow Link home screen.",
+    "later": "Later",
+    "back": "← Back",
+    "created": "Account created: sign in",
+    "retry": "Try again",
+    "failedTitle": "Signing in didn't go through",
+    "cancelled": "Signing in was cancelled on the relay page.",
+    "failed": "The relay didn't open this device's session ({reason}).",
+    "simulation": "Simulation",
+    "simulationLead": "The sign-in page of {relay} shows here, then “Connect KyberNow Link on this PC?”.",
+    "simulationSignup": "Creating an account on {relay} shows here; once it's created, “Account created: sign in”.",
+    "simulationConnect": "Connect",
+    "relay": {
+      "title": "Other relay",
+      "lead": "A relay installed at home or by your organization. It has its own accounts: your account on the KyberNow relay doesn't exist there.",
+      "address": "Relay address",
+      "hint": "Without a port, it's 443. A self-signed relay: add its fingerprint after #sha256:",
+      "checking": "Checking…",
+      "badAddress": "Unreadable address: host, host:port, optionally followed by #sha256:…",
+      "unreachable": "Relay unreachable ({reason}).",
+      "joined": "Relay reached · version {version} · {accounts}",
+      "accountsOn": "accounts on",
+      "accountsOff": "no accounts",
+      "noAccounts": "This relay has no accounts: KyberNow Link will use it without one. To sign in, choose another relay.",
+      "back": "Back to the KyberNow relay",
+      "use": "Use this relay"
+    }
   }
 }

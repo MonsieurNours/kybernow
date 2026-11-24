@@ -1,6 +1,7 @@
 //! Installateur de KyberNow Link, l'app Windows : par utilisateur, sans droits
 //! d'administrateur, une seule fois pour x64 et ARM64.
 
+pub mod account;
 pub mod events;
 pub mod i18n;
 pub mod payload;
