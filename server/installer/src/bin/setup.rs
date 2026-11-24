@@ -3,6 +3,8 @@
 //! Il porte le contenu à installer (accolé à la fin du fichier), dépose
 //! l'interface et `WebView2Loader.dll` dans `C:\Program Files\KyberNow\.setup`,
 //! puis lance l'interface. Avec `--uninstall`, il désinstalle KyberNow Station.
+//! Avec `/quiet [/enroll=<jeton>] [/relay=<adresse>]`, il installe sans écran
+//! (et sans WebView2), puis enrôle la Station (`kybernow::quiet`).
 //!
 //! Pas dans `%TEMP%` : l'interface y tournerait avec le jeton administrateur
 //! depuis un dossier où tout programme de l'utilisateur peut écrire, et
@@ -29,6 +31,13 @@ fn main() {
     if args.iter().any(|a| a == "--uninstall") {
         uninstall();
         return;
+    }
+    if let Some(quiet) = kybernow::quiet::parse_args(&args) {
+        let code = match std::env::current_exe() {
+            Ok(exe) if kybernow::payload::read_footer(&exe).is_ok() => kybernow::quiet::run_windows(&quiet, &exe),
+            _ => kybernow::quiet::EXIT_INSTALL_FAILED,
+        };
+        std::process::exit(code);
     }
     if let Err(e) = launch() {
         message(kybernow::DISPLAY_NAME, &t("setup.startFailed", &[("error", &format!("{e:#}"))]), false);

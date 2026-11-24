@@ -1,15 +1,18 @@
 //! Cœur de l'installateur de KyberNow Station : vérifications de l'ordinateur, choix des ports,
 //! installation et désinstallation. Partagé par le lanceur et l'interface.
 
+pub mod account;
 pub mod acl;
 pub mod checks;
 pub mod events;
+pub mod http;
 pub mod i18n;
 pub mod install;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod payload;
 pub mod ports;
+pub mod quiet;
 pub mod sys;
 pub mod uninstall;
 

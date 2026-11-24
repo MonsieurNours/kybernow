@@ -12,22 +12,26 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
+use kybernow::account::{AccountCommand, AccountEvent, Coordinator, ViewCommand};
 use kybernow::i18n::{self, t};
 use kybernow::mac::checks::MacInfo;
-use kybernow::mac::commands::{Command, Emit, Event};
+use kybernow::mac::commands::{Command, Emit, Event, TaskStatus};
 use kybernow::mac::{self, permissions};
 use tao::dpi::LogicalSize;
 use tao::event::{Event as WinEvent, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::platform::macos::WindowBuilderExtMacOS;
 use tao::window::WindowBuilder;
-use wry::WebViewBuilder;
 use wry::http::Request;
+use wry::{WebView, WebViewBuilder};
 
 enum UserEvent {
     Js(String),
     Drag,
     Close,
+    /// La page du relais (étape « Compte KyberNow »).
+    AccountView(ViewCommand),
+    AccountRedirect(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -131,6 +135,11 @@ fn menus(mode: Mode) -> muda::Menu {
 }
 
 pub fn main() -> wry::Result<()> {
+    // Installation silencieuse (déploiement) : sans fenêtre.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(quiet) = kybernow::quiet::parse_args(&args) {
+        std::process::exit(mac::run_quiet(&quiet, &payload()));
+    }
     let mode = mode();
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -169,12 +178,39 @@ pub fn main() -> wry::Result<()> {
         .build(&window)?;
     place_lights(&window);
 
+    let mut relay_view: Option<(String, WebView)> = None;
+    let redirect_proxy = proxy.clone();
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         let _ = &menu;
         match event {
             WinEvent::UserEvent(UserEvent::Js(json)) => {
                 let _ = webview.evaluate_script(&format!("window.__knReceive && window.__knReceive({json})"));
+            }
+            WinEvent::UserEvent(UserEvent::AccountView(ViewCommand::AccountView { url, x, y, width, height, signup })) => {
+                let bounds = super::view_bounds(x, y, width, height);
+                match &relay_view {
+                    Some((shown, view)) if *shown == url => {
+                        let _ = view.set_bounds(bounds);
+                        let _ = view.set_visible(true);
+                    }
+                    _ => {
+                        relay_view = None;
+                        let p = redirect_proxy.clone();
+                        match super::account_view(WebViewBuilder::new(), &window, &url, bounds, signup, move |to| {
+                            let _ = p.send_event(UserEvent::AccountRedirect(to));
+                        }) {
+                            Ok(view) => relay_view = Some((url, view)),
+                            Err(e) => eprintln!("page du relais : {e}"),
+                        }
+                    }
+                }
+            }
+            WinEvent::UserEvent(UserEvent::AccountView(ViewCommand::AccountViewHide)) => relay_view = None,
+            WinEvent::UserEvent(UserEvent::AccountRedirect(to)) => {
+                if let Some((_, view)) = &relay_view {
+                    let _ = view.load_url(&to);
+                }
             }
             WinEvent::UserEvent(UserEvent::Drag) => {
                 let _ = window.drag_window();
@@ -225,11 +261,29 @@ fn place_lights(window: &tao::window::Window) {
 }
 
 fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, busy: Arc<AtomicBool>) {
-    let emit: Emit = {
+    let to_page = {
         let proxy = Mutex::new(proxy.clone());
-        Arc::new(move |event: Event| {
+        Arc::new(move |json: String| {
+            let _ = proxy.lock().unwrap().send_event(UserEvent::Js(json));
+        })
+    };
+    // Étape « Compte KyberNow » : le rattachement part quand Admin a démarré.
+    let accounts = {
+        let to_page = to_page.clone();
+        Coordinator::new(Arc::new(move |event: AccountEvent| {
             if let Ok(json) = serde_json::to_string(&event) {
-                let _ = proxy.lock().unwrap().send_event(UserEvent::Js(json));
+                to_page(json);
+            }
+        }))
+    };
+    let emit: Emit = {
+        let accounts = accounts.clone();
+        Arc::new(move |event: Event| {
+            if matches!(&event, Event::Task { id, status: TaskStatus::Done, .. } if id == "admin") || matches!(event, Event::Done { .. }) {
+                accounts.admin_ready();
+            }
+            if let Ok(json) = serde_json::to_string(&event) {
+                to_page(json);
             }
         })
     };
@@ -239,6 +293,14 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, b
 
     std::thread::spawn(move || {
         for message in rx {
+            if let Ok(command) = serde_json::from_str::<AccountCommand>(&message) {
+                accounts.handle(command);
+                continue;
+            }
+            if let Ok(view) = serde_json::from_str::<ViewCommand>(&message) {
+                let _ = proxy.send_event(UserEvent::AccountView(view));
+                continue;
+            }
             let command: Command = match serde_json::from_str(&message) {
                 Ok(c) => c,
                 Err(e) => {
@@ -317,11 +379,7 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, b
                         busy.store(false, Ordering::SeqCst);
                     });
                 }
-                Command::OpenUrl { url } => {
-                    if url.starts_with("https://") || url.starts_with("http://") {
-                        let _ = std::process::Command::new("/usr/bin/open").arg(&url).spawn();
-                    }
-                }
+                Command::OpenUrl { url } => super::open_in_browser(&url),
                 Command::Copy { text } => {
                     use std::io::Write;
                     if let Ok(mut child) = std::process::Command::new("/usr/bin/pbcopy").stdin(std::process::Stdio::piped()).spawn() {
