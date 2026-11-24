@@ -16,8 +16,8 @@ use crate::accounts::stations::StationLink;
 
 /// Les Stations « connectées » et ce qu'on leur a envoyé.
 #[derive(Default)]
-struct FakeLink {
-    online: Mutex<HashSet<String>>,
+pub(super) struct FakeLink {
+    pub(super) online: Mutex<HashSet<String>>,
     sent: Mutex<Vec<(String, Msg)>>,
 }
 
@@ -36,23 +36,23 @@ impl StationLink for FakeLink {
 }
 
 impl FakeLink {
-    fn last(&self) -> Option<(String, Msg)> {
+    pub(super) fn last(&self) -> Option<(String, Msg)> {
         self.sent.lock().unwrap().last().cloned()
     }
 }
 
-fn linked(w: &World) -> Arc<FakeLink> {
+pub(super) fn linked(w: &World) -> Arc<FakeLink> {
     let link = Arc::new(FakeLink::default());
     let weak: Weak<dyn StationLink> = Arc::downgrade(&link) as Weak<dyn StationLink>;
     w.acc.stations.set_link(weak);
     link
 }
 
-fn station(n: u8) -> String {
+pub(super) fn station(n: u8) -> String {
     kybernow_tunnel::id::station_id(&[n; 32])
 }
 
-fn api(w: &World, post: bool, path: &str, bearer: Option<&str>, body: Value) -> ApiReply {
+pub(super) fn api(w: &World, post: bool, path: &str, bearer: Option<&str>, body: Value) -> ApiReply {
     w.acc.api(&ApiRequest { post, path: path.into(), bearer: bearer.map(str::to_string), body, ip: "192.0.2.10".parse().unwrap() })
 }
 
@@ -65,7 +65,7 @@ fn signed_in(w: &World) -> Browser {
 }
 
 /// Rattache `st` au compte d'Ana, depuis un navigateur connecté.
-fn attach(w: &World, b: &mut Browser, st: &str) {
+pub(super) fn attach(w: &World, b: &mut Browser, st: &str) {
     let (code, _, _) = w.acc.attach_request(st, "PC du salon");
     let page = b.get(&format!("/compte/rattacher?code={code}&lang=fr"));
     assert!(html(&page).contains("Rattacher PC du salon"));
@@ -112,7 +112,7 @@ fn rattacher_une_station_puis_la_detacher() {
     assert_eq!(a.keys, w.acc.stations.keys.key_set().keys);
     let row = w.acc.db().station(&st).unwrap().unwrap();
     assert_eq!(row.name, "PC du salon");
-    assert!(w.acc.db().audit_of(row.account).unwrap().iter().any(|(k, _)| k == "station_rattachee"));
+    assert!(w.acc.db().audit_of(row.account.unwrap()).unwrap().iter().any(|(k, _)| k == "station_rattachee"));
     // Le code a servi.
     assert_eq!(b.post("/compte/rattacher?lang=fr", &[("code", &code), ("action", "rattacher")]).status, 400);
     assert_eq!(b.get(&format!("/compte/rattacher?code={code}&lang=fr")).status, 400);
@@ -197,7 +197,8 @@ fn connecter_une_app_par_la_fenetre_du_systeme() {
     attach(&w, &mut b, &st);
     let list = api(&w, false, "/v1/computers", Some(&token), Value::Null);
     assert_eq!(list.body["computers"][0]["station"], st.as_str());
-    assert_eq!(list.body["computers"][0]["rights"], json!(["session", "lend", "share", "admin"]));
+    // Lot 4 : sans double authentification, pas de droit Administrer, même sur le sien.
+    assert_eq!(list.body["computers"][0]["rights"], json!(["session", "lend", "share"]));
     assert_eq!(list.body["computers"][0]["online"], true);
     let mails = w.outbox.count_to("ana@exemple.org");
     let access = api(&w, true, "/v1/access", Some(&token), json!({ "station": st }));

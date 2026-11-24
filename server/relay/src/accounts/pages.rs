@@ -8,11 +8,18 @@
 //! `/assets/passkey.js`, le seul script des pages, ne les montre pas : sans
 //! script, ou dans un navigateur sans WebAuthn, tout passe par le mot de passe.
 //!
+//! Lots 4 et 5 : la console (`console_pages.rs`), la barre de la console sur
+//! la page du compte, le choix du propriétaire sur « Rattacher ».
+//!
 //! Lot 2 et moitié relais du lot 3 : « Rattacher {nom} », les ordinateurs
 //! rattachés et les appareils connectés sur la page du compte, « Connecter
 //! KyberNow Link sur {appareil} ? » et la page `/tv`.
 
 use super::password::Weak;
+
+/// La console des lots 4 et 5 : « Ordinateurs », « Personnes », « Organisation », « Déployer des Stations ».
+#[path = "console_pages.rs"]
+pub mod console;
 use crate::assets;
 use crate::pages::{Lang, t};
 
@@ -117,6 +124,32 @@ pub enum Notice {
     PasskeyAdded,
     PasskeyRenamed,
     PasskeyRemoved,
+    /// Lot 4 : la console (personnes et droits).
+    PersonAdded,
+    InviteSent,
+    AccessChanged,
+    AccessRemoved,
+    NoRights,
+    BadDate,
+    /// Le droit Administrer, ou gérer une organisation, demande la double authentification.
+    NeedTwoFactor,
+    NotAllowed,
+    /// Lot 5 : les organisations.
+    OrgCreated,
+    OrgRenamed,
+    OrgNameMissing,
+    MemberAdded,
+    RoleChanged,
+    MemberRemoved,
+    InviteCancelled,
+    LastOwner,
+    OrgLeft,
+    GroupCreated,
+    GroupTaken,
+    GroupDeleted,
+    GroupChanged,
+    TokenRevoked,
+    BadNumber,
 }
 
 impl Notice {
@@ -134,6 +167,21 @@ impl Notice {
                 | Notice::PasskeyAdded
                 | Notice::PasskeyRenamed
                 | Notice::PasskeyRemoved
+                | Notice::PersonAdded
+                | Notice::InviteSent
+                | Notice::AccessChanged
+                | Notice::AccessRemoved
+                | Notice::OrgCreated
+                | Notice::OrgRenamed
+                | Notice::MemberAdded
+                | Notice::RoleChanged
+                | Notice::MemberRemoved
+                | Notice::InviteCancelled
+                | Notice::OrgLeft
+                | Notice::GroupCreated
+                | Notice::GroupDeleted
+                | Notice::GroupChanged
+                | Notice::TokenRevoked
         )
     }
 
@@ -181,6 +229,44 @@ impl Notice {
             Notice::PasskeyAdded => tr("Passkey ajoutée.", "Passkey added."),
             Notice::PasskeyRenamed => tr("Passkey renommée.", "Passkey renamed."),
             Notice::PasskeyRemoved => tr("Passkey retirée.", "Passkey removed."),
+            Notice::PersonAdded => tr(
+                "Personne ajoutée : l'ordinateur apparaît dans ses apps, et un e-mail le lui dit.",
+                "Person added: the computer shows up in their apps, and an email tells them.",
+            ),
+            Notice::InviteSent => tr(
+                "Invitation envoyée : cette adresse n'a pas encore de compte ; l'ordinateur y sera dès son compte créé.",
+                "Invitation sent: this address has no account yet; the computer will be there as soon as the account is created.",
+            ),
+            Notice::AccessChanged => tr("Accès enregistré.", "Access saved."),
+            Notice::AccessRemoved => tr("Accès retiré.", "Access removed."),
+            Notice::NoRights => tr("Cochez au moins un droit.", "Tick at least one right."),
+            Notice::BadDate => tr("Cette date ne va pas : une date à venir, au format jj/mm/aaaa.", "This date doesn't work: a date to come, as dd/mm/yyyy."),
+            Notice::NeedTwoFactor => tr(
+                "Activez d'abord la double authentification (ou ajoutez une passkey) sur votre compte.",
+                "First turn on two-factor authentication (or add a passkey) on your account.",
+            ),
+            Notice::NotAllowed => tr("Vous ne pouvez pas faire cela ici.", "You can't do that here."),
+            Notice::OrgCreated => tr("Organisation créée : vous en êtes Propriétaire.", "Organization created: you are its Owner."),
+            Notice::OrgRenamed => tr("Organisation renommée.", "Organization renamed."),
+            Notice::OrgNameMissing => tr("Entrez un nom.", "Enter a name."),
+            Notice::MemberAdded => tr("Membre ajouté, et prévenu par e-mail.", "Member added, and told by email."),
+            Notice::RoleChanged => tr("Rôle changé.", "Role changed."),
+            Notice::MemberRemoved => tr("Membre retiré.", "Member removed."),
+            Notice::InviteCancelled => tr("Invitation annulée.", "Invitation cancelled."),
+            Notice::LastOwner => tr(
+                "Une organisation garde au moins un Propriétaire : nommez-en un autre d'abord.",
+                "An organization keeps at least one Owner: name another one first.",
+            ),
+            Notice::OrgLeft => tr("Vous avez quitté l'organisation.", "You left the organization."),
+            Notice::GroupCreated => tr("Groupe créé.", "Group created."),
+            Notice::GroupTaken => tr("Un groupe porte déjà ce nom.", "A group already has this name."),
+            Notice::GroupDeleted => tr("Groupe supprimé.", "Group deleted."),
+            Notice::GroupChanged => tr("Groupe changé.", "Group changed."),
+            Notice::TokenRevoked => tr(
+                "Jeton révoqué : plus aucune Station ne s'enrôle avec lui ; celles déjà rattachées restent.",
+                "Token revoked: no more Stations enroll with it; those already attached stay.",
+            ),
+            Notice::BadNumber => tr("Ce nombre ne va pas.", "This number doesn't work."),
         }
     }
 }
@@ -214,12 +300,16 @@ fn input_id(input: &str) -> String {
 
 /// La page : le logo, la carte, la langue et la confidentialité.
 fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String {
+    page_with(v, title, here, if wide { " acct-wide" } else { "" }, card)
+}
+
+/// La page, avec la classe de largeur (`acct-wide`, `acct-console`).
+fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> String {
     let lang = v.lang;
     let (other, other_name) = match lang {
         Lang::Fr => (Lang::En, "English"),
         Lang::En => (Lang::Fr, "Français"),
     };
-    let wide = if wide { " acct-wide" } else { "" };
     // Le seul script des pages, et seulement là où il y a une passkey (lot 1b).
     let script = if card.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
     format!(
@@ -626,6 +716,8 @@ pub struct AccountView {
     /// Lot 1b : les passkeys du compte, et de quoi en ajouter une (`None` : le maximum est atteint).
     pub passkeys: Vec<PasskeyView>,
     pub register: Option<Registration>,
+    /// Lot 5 : ses organisations `(identifiant public, nom)`, pour la barre de la console.
+    pub orgs: Vec<(String, String)>,
 }
 
 /// Un ordinateur rattaché, sur la page du compte.
@@ -754,14 +846,16 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
     );
     // Lot 1b : « Exporter mes données » et « Supprimer le compte ».
     let data = data_html(v);
+    // Lot 4 : la console (« Ordinateurs », organisations) au-dessus.
     let card = format!(
-        "<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n{passkeys}</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{computers}{devices}{data}{sign_out}",
+        "{nav}<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n{passkeys}</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{computers}{devices}{data}{sign_out}",
         notice = notice_html(v.lang, notice),
         email_h = tr("Adresse e-mail", "Email address"),
         email = esc(&a.email),
         name = esc(&a.name),
         security = tr("Sécurité", "Security"),
         sessions_h = tr("Sessions ouvertes", "Open sessions"),
+        nav = console::nav(v, &a.orgs, console::Here::Account),
     );
     page(v, &title, "/compte", true, &card)
 }
@@ -876,16 +970,20 @@ fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
 }
 
 /// « Rattacher {nom} » : le propriétaire, puis confirmer (`/compte/rattacher`).
-pub fn attach(v: &View<'_>, code: &str, computer: &str, name: &str, email: &str) -> String {
+pub fn attach(v: &View<'_>, code: &str, computer: &str, name: &str, email: &str, orgs: &[(String, String)]) -> String {
     let computer = if computer.is_empty() { v.tr("cet ordinateur", "this computer") } else { computer.to_string() };
     let title = match v.lang {
         Lang::Fr => t(v.lang, &format!("Rattacher {}", esc(&computer)), ""),
         Lang::En => format!("Attach {}", esc(&computer)),
     };
     let me = if name.is_empty() { esc(email) } else { format!("{} <small>{}</small>", esc(name), esc(email)) };
-    // TODO lot 5 : un choix par organisation que ce compte administre (« Moi » / « {organisation} »).
+    // Lot 5 : « Moi », ou une organisation que ce compte gère.
+    let org_choices: String = orgs
+        .iter()
+        .map(|(id, org)| format!("\n<label class=\"check\"><input type=\"radio\" name=\"proprietaire\" value=\"{}\"> {}</label>", esc(id), esc(org)))
+        .collect();
     let inner = format!(
-        "<input type=\"hidden\" name=\"code\" value=\"{code}\">\n<fieldset class=\"field\">\n<legend class=\"mono-label\">{owner}</legend>\n<label class=\"check\"><input type=\"radio\" name=\"proprietaire\" value=\"moi\" checked> {me}</label>\n</fieldset>\n<p class=\"hint\">{after}</p>\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"rattacher\">{title}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
+        "<input type=\"hidden\" name=\"code\" value=\"{code}\">\n<fieldset class=\"field\">\n<legend class=\"mono-label\">{owner}</legend>\n<label class=\"check\"><input type=\"radio\" name=\"proprietaire\" value=\"moi\" checked> {me}</label>{org_choices}\n</fieldset>\n<p class=\"hint\">{after}</p>\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"rattacher\">{title}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
         code = esc(code),
         owner = v.tr("Propriétaire", "Owner"),
         after = v.tr(
@@ -1235,6 +1333,7 @@ mod tests {
                 PasskeyView { id: 8, name: "Clé USB".into(), created_at: 1_700_000_000, seen_at: Some(1_700_100_000) },
             ],
             register: Some(registration()),
+            orgs: vec![("org_abc".into(), "Les Lignes <Claires>".into())],
         };
         let mut pages = vec![
             ("connexion", sign_in(&v, "ana@exemple.org", Some(Notice::BadCredentials), true, true)),
@@ -1259,7 +1358,8 @@ mod tests {
             ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", Some(Notice::WrongCode))),
             ("secours", recovery_codes(&v, &["abcd-efgh".into()], None)),
             ("message", message(&v, "/compte/verifier", "Titre", "Texte.", ("/compte/connexion", "Lien"))),
-            ("rattacher", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org")),
+            ("rattacher", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[])),
+            ("rattacher/organisation", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[("org_abc".into(), "Les Lignes <Claires>".into())])),
             ("rattache", done(&v, "/compte/rattacher", "Titre", "Texte.")),
             ("appareil", device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1")),
             ("tv", tv_entry(&v, "", Some(Notice::WrongCode))),
@@ -1285,9 +1385,33 @@ mod tests {
             Notice::PasskeyAdded,
             Notice::PasskeyRenamed,
             Notice::PasskeyRemoved,
+            Notice::PersonAdded,
+            Notice::InviteSent,
+            Notice::AccessChanged,
+            Notice::AccessRemoved,
+            Notice::NoRights,
+            Notice::BadDate,
+            Notice::NeedTwoFactor,
+            Notice::NotAllowed,
+            Notice::OrgCreated,
+            Notice::OrgRenamed,
+            Notice::OrgNameMissing,
+            Notice::MemberAdded,
+            Notice::RoleChanged,
+            Notice::MemberRemoved,
+            Notice::InviteCancelled,
+            Notice::LastOwner,
+            Notice::OrgLeft,
+            Notice::GroupCreated,
+            Notice::GroupTaken,
+            Notice::GroupDeleted,
+            Notice::GroupChanged,
+            Notice::TokenRevoked,
+            Notice::BadNumber,
         ] {
             pages.push(("avis", sign_in(&v, "", Some(n), true, true)));
         }
+        pages.extend(console::tests::all(&v));
         pages
     }
 

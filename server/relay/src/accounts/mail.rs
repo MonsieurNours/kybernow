@@ -135,7 +135,13 @@ pub enum Message<'a> {
     PasswordChanged { forgot: &'a str },
     /// Un appareil ouvre pour la première fois un ordinateur du compte
     /// (garde-fou 4, « Avis à chaque nouvel appareil ») ; `account` : la page du compte.
-    NewDevice { device: &'a str, computer: &'a str, account: &'a str },
+    /// Lot 4 : `person`, l'appareil d'une personne ajoutée (son nom), pas du propriétaire.
+    NewDevice { device: &'a str, computer: &'a str, person: Option<&'a str>, account: &'a str },
+    /// Lot 4 : quelqu'un vous ouvre un ordinateur ; `rights` : les droits en mots ;
+    /// `link` : la console (avec un compte) ou l'inscription (sans compte).
+    ComputerShared { by: &'a str, computer: &'a str, rights: &'a str, until: Option<&'a str>, has_account: bool, link: &'a str },
+    /// Lot 5 : invitation dans une organisation ; `role` : le rôle en mots.
+    OrgInvite { by: &'a str, org: &'a str, role: &'a str, has_account: bool, link: &'a str },
     /// Une passkey a été ajoutée (lot 1b).
     PasskeyAdded { name: &'a str, account: &'a str },
     /// Le compte a été supprimé (lot 1b).
@@ -237,8 +243,14 @@ pub fn compose(to: &str, lang: Lang, message: Message<'_>) -> Mail {
                 check = tr("Ce n'était pas vous ? Choisissez-en un autre tout de suite :", "Wasn't you? Choose another one right away:"),
             ),
         ),
-        Message::NewDevice { device, computer, account } => {
+        Message::NewDevice { device, computer, person, account } => {
             let device = if device.is_empty() { tr("Un appareil", "A device") } else { device.to_string() };
+            let whose = match (person, lang) {
+                (None, Lang::Fr) => t(lang, "avec votre compte KyberNow", ""),
+                (None, Lang::En) => "with your KyberNow account".to_string(),
+                (Some(p), Lang::Fr) => t(lang, &format!("avec le compte KyberNow de {p}"), ""),
+                (Some(p), Lang::En) => format!("with {p}'s KyberNow account"),
+            };
             (
                 match lang {
                     Lang::Fr => t(lang, &format!("Nouvel appareil sur {computer}"), ""),
@@ -248,16 +260,75 @@ pub fn compose(to: &str, lang: Lang, message: Message<'_>) -> Mail {
                     "{hello}\n\n{what}\n\n{check}\n{account}\n\n{sign}\n",
                     hello = tr("Bonjour,", "Hello,"),
                     what = match lang {
-                        Lang::Fr => t(lang, &format!("{device} vient d'ouvrir {computer} pour la première fois, avec votre compte KyberNow."), ""),
-                        Lang::En => format!("{device} just opened {computer} for the first time, with your KyberNow account."),
+                        Lang::Fr => t(lang, &format!("{device} vient d'ouvrir {computer} pour la première fois, {whose}."), ""),
+                        Lang::En => format!("{device} just opened {computer} for the first time, {whose}."),
                     },
-                    check = tr(
-                        "Ce n'était pas vous ? Déconnectez cet appareil et changez votre mot de passe ; dans Admin, « Compte KyberNow » permet aussi de le bloquer :",
-                        "Wasn't you? Disconnect this device and change your password; in Admin, \"KyberNow account\" can also block it:",
-                    ),
+                    check = if person.is_none() {
+                        tr(
+                            "Ce n'était pas vous ? Déconnectez cet appareil et changez votre mot de passe ; dans Admin, « Compte KyberNow » permet aussi de le bloquer :",
+                            "Wasn't you? Disconnect this device and change your password; in Admin, \"KyberNow account\" can also block it:",
+                        )
+                    } else {
+                        tr(
+                            "Quelque chose ne va pas ? Retirez cette personne de l'ordinateur dans la console ; dans Admin, « Compte KyberNow » permet aussi de bloquer l'appareil :",
+                            "Something wrong? Remove this person from the computer in the console; in Admin, \"KyberNow account\" can also block the device:",
+                        )
+                    },
                 ),
             )
         }
+        Message::ComputerShared { by, computer, rights, until, has_account, link } => (
+            match lang {
+                Lang::Fr => t(lang, &format!("{by} vous ouvre {computer}"), ""),
+                Lang::En => format!("{by} opened {computer} for you"),
+            },
+            format!(
+                "{hello}\n\n{what}\n\n    {rights}{until}\n\n{next}\n{link}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = match lang {
+                    Lang::Fr => t(lang, &format!("{by} vous ajoute à {computer}, avec ces droits :"), ""),
+                    Lang::En => format!("{by} added you to {computer}, with these rights:"),
+                },
+                until = match (until, lang) {
+                    (None, _) => String::new(),
+                    (Some(d), Lang::Fr) => t(lang, &format!(", jusqu'au {d}"), ""),
+                    (Some(d), Lang::En) => format!(", until {d}"),
+                },
+                next = if has_account {
+                    tr(
+                        "L'ordinateur apparaît déjà dans vos apps KyberNow, connectées à votre compte. La console :",
+                        "The computer already shows up in your KyberNow apps, signed in to your account. The console:",
+                    )
+                } else {
+                    tr(
+                        "Créez votre compte KyberNow avec cette adresse : l'ordinateur y sera dès l'adresse vérifiée.",
+                        "Create your KyberNow account with this address: the computer will be there once the address is verified.",
+                    )
+                },
+            ),
+        ),
+        Message::OrgInvite { by, org, role, has_account, link } => (
+            match lang {
+                Lang::Fr => t(lang, &format!("{by} vous invite dans {org}"), ""),
+                Lang::En => format!("{by} invited you to {org}"),
+            },
+            format!(
+                "{hello}\n\n{what}\n\n{next}\n{link}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = match lang {
+                    Lang::Fr => t(lang, &format!("{by} vous ajoute à l'organisation {org} sur KyberNow, comme {role}."), ""),
+                    Lang::En => format!("{by} added you to the organization {org} on KyberNow, as {role}."),
+                },
+                next = if has_account {
+                    tr("Ses ordinateurs ouverts à vous apparaissent dans vos apps. La console :", "Its computers opened to you show up in your apps. The console:")
+                } else {
+                    tr(
+                        "Créez votre compte KyberNow avec cette adresse : vous serez membre dès l'adresse vérifiée.",
+                        "Create your KyberNow account with this address: you'll be a member once the address is verified.",
+                    )
+                },
+            ),
+        ),
         Message::PasskeyAdded { name, account } => (
             tr("Passkey ajoutée à votre compte KyberNow", "Passkey added to your KyberNow account"),
             format!(
@@ -312,8 +383,11 @@ mod tests {
             Message::TotpChanged { on: true, account: "c" },
             Message::TotpChanged { on: false, account: "c" },
             Message::PasswordChanged { forgot: "f" },
-            Message::NewDevice { device: "iPad de Léa", computer: "PC du salon", account: "c" },
-            Message::NewDevice { device: "", computer: "PC du salon", account: "c" },
+            Message::NewDevice { device: "iPad de Léa", computer: "PC du salon", person: None, account: "c" },
+            Message::NewDevice { device: "", computer: "PC du salon", person: Some("Léa"), account: "c" },
+            Message::ComputerShared { by: "Ana", computer: "PC du salon", rights: "Session, Partage", until: Some("31/12/2026"), has_account: true, link: "c" },
+            Message::ComputerShared { by: "Ana", computer: "PC du salon", rights: "Prêt", until: None, has_account: false, link: "c" },
+            Message::OrgInvite { by: "Ana", org: "Les Lignes Claires", role: "Membre", has_account: false, link: "c" },
             Message::PasskeyAdded { name: "Chrome, Mac", account: "c" },
             Message::AccountDeleted,
         ] {

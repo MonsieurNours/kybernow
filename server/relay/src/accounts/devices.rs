@@ -22,15 +22,18 @@
 //! Station envoie un e-mail au propriétaire et met une ligne au journal
 //! (garde-fou 4, « Avis à chaque nouvel appareil »).
 //!
-//! Pour l'instant (lot 2) : les ordinateurs d'un compte sont ceux qu'il
-//! possède, avec tous les droits ; les personnes et les droits viennent au lot 4.
+//! Lot 4 : les ordinateurs d'un compte sont les siens (tous les droits),
+//! ceux qu'on lui a ouverts et ceux de ses organisations, avec ses droits
+//! ([`super::people`]) ; l'avis de nouvel appareil part aussi pour l'appareil
+//! d'une personne ajoutée ; lot 5 : vers les Propriétaires et Administrateurs
+//! d'une organisation, avec une ligne à son journal.
 
 use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use kybernow_tunnel::access::{self, Claims, Names, Right, Rights};
+use kybernow_tunnel::access::{self, Claims, Names};
 use kybernow_tunnel::id::{base32_lower, is_station_id};
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
@@ -470,28 +473,39 @@ impl Accounts {
         }
     }
 
-    /// Les droits d'un compte sur une Station rattachée (lot 2 : le propriétaire a tout).
-    fn rights_on(&self, account: &Account, owner: i64) -> Option<Rights> {
-        // TODO lot 4 : les droits donnés à une personne ; lot 5 : à une organisation ou un groupe.
-        (account.id == owner).then(|| Rights::new(Right::ALL))
+    /// Le propriétaire d'une Station, pour `GET /v1/computers` : `{kind, id, name}`.
+    fn owner_json(&self, station: &super::stations::StationRow) -> Value {
+        let db = self.db();
+        match (station.account, station.org) {
+            (Some(a), _) => {
+                let name = db.account(a).ok().flatten().map(|a| a.name).unwrap_or_default();
+                drop(db);
+                json!({ "kind": "person", "id": self.public_account_id(a), "name": name })
+            }
+            (None, Some(o)) => match db.org(o).ok().flatten() {
+                Some(org) => json!({ "kind": "organization", "id": org.public_id, "name": org.name }),
+                None => Value::Null,
+            },
+            (None, None) => Value::Null,
+        }
     }
 
+    /// `GET /v1/computers` (lot 4) : les siens, ceux qu'on lui a ouverts, ceux de ses organisations.
     fn api_computers(&self, req: &ApiRequest) -> ApiReply {
         let Some((_, account)) = self.bearer_device(req.bearer.as_deref()) else {
             return error(401, "bad_session");
         };
-        let stations = self.db().stations_of(account.id).unwrap_or_default();
-        let owner = json!({ "kind": "person", "id": self.public_account_id(account.id), "name": account.name });
+        let stations = self.db().visible_stations(account.id, self.now()).unwrap_or_default();
         let list: Vec<Value> = stations
             .iter()
             .filter_map(|s| {
-                let rights = self.rights_on(&account, s.account)?;
+                let standing = self.standing(&account, s)?;
                 Some(json!({
                     "station": s.id,
                     "name": s.name,
-                    "rights": rights,
-                    "owner": owner,
-                    "mine": true,
+                    "rights": standing.rights,
+                    "owner": self.owner_json(s),
+                    "mine": standing.mine,
                     "online": self.stations.online(&s.id),
                     "attached_at": s.attached_at,
                 }))
@@ -509,37 +523,61 @@ impl Accounts {
             return error(400, "bad_request");
         }
         let station = self.db().station(station_id).ok().flatten();
-        let Some((station, rights)) = station.and_then(|s| self.rights_on(&account, s.account).map(|r| (s, r))) else {
+        let Some((station, rights)) = station.and_then(|s| self.rights_on(&account, &s).map(|r| (s, r))) else {
             return error(404, "unknown_station");
         };
         let now = self.now();
         let names = Names { account: account.name.clone(), email: Some(account.email.clone()), device: device.name.clone() };
         let claims = Claims::issue(&self.relay_name(), &station.id, &self.public_account_id(account.id), &device.public_id, rights, names, now.max(0) as u64);
         let token = self.stations.keys.signer().sign(&claims);
-        let first = self.db().first_visit(device.id, &station.id, now).unwrap_or(false);
+        let (first, opening) = self.db().visit(device.id, &station.id, now).unwrap_or((false, false));
+        let ip = req.ip.to_canonical().to_string();
+        // Lot 5 : le journal de l'organisation dit qui a ouvert quoi, quand, d'où.
+        if opening && let Some(org) = station.org {
+            let detail = json!({ "station": station.name, "device": device.name });
+            if let Err(e) = self.db().org_log(org, Some(&account), "acces", detail, Some(&ip), now) {
+                tracing::warn!("journal de l'organisation : {e:#}");
+            }
+        }
         if first {
-            self.new_device_notice(&station, &device, req.ip);
+            self.new_device_notice(&station, &device, &account, &ip);
         }
         reply(200, json!({ "token": token, "station": station.id, "rights": claims.rights, "expires": claims.exp, "lifetime": access::LIFETIME_SECS }))
     }
 
-    /// Garde-fou 4 : la première venue d'un appareil sur une Station, au propriétaire.
-    fn new_device_notice(&self, station: &super::stations::StationRow, device: &Device, ip: IpAddr) {
+    /// Garde-fou 4 : la première venue d'un appareil sur une Station, au
+    /// propriétaire (lot 4 : y compris l'appareil d'une personne ajoutée) ou,
+    /// pour un ordinateur d'organisation, à ses Propriétaires et Administrateurs (lot 5).
+    fn new_device_notice(&self, station: &super::stations::StationRow, device: &Device, who: &Account, ip: &str) {
         let now = self.now();
-        let owner = self.db().account(station.account).ok().flatten();
-        let Some(owner) = owner else { return };
-        let ip = ip.to_canonical().to_string();
-        if let Err(e) = self.db().audit(Some(owner.id), "nouvel_appareil", Some(&ip), now) {
-            tracing::warn!("journal des comptes : {e:#}");
+        let recipients: Vec<Account> = {
+            let db = self.db();
+            match (station.account, station.org) {
+                (Some(owner), _) => db.account(owner).ok().flatten().into_iter().collect(),
+                (None, Some(org)) => {
+                    let detail = json!({ "station": station.name, "device": device.name, "who": who.name });
+                    if let Err(e) = db.org_log(org, Some(who), "nouvel_appareil", detail, Some(ip), now) {
+                        tracing::warn!("journal de l'organisation : {e:#}");
+                    }
+                    db.org_managers(org).unwrap_or_default()
+                }
+                (None, None) => Vec::new(),
+            }
+        };
+        tracing::info!(station = %station.id, avis = recipients.len(), "nouvel appareil sur une Station : avis");
+        for owner in recipients {
+            if let Err(e) = self.db().audit(Some(owner.id), "nouvel_appareil", Some(ip), now) {
+                tracing::warn!("journal des comptes : {e:#}");
+            }
+            let Some(mailer) = &self.mailer else { continue };
+            if !self.limits.lock().unwrap_or_else(|e| e.into_inner()).mail(&owner.email) {
+                continue;
+            }
+            let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
+            let link = format!("{}/compte/ordinateur?id={}&lang={}", self.public_url, station.id, lang.code());
+            let person = if who.id == owner.id { None } else { Some(if who.name.is_empty() { who.email.as_str() } else { who.name.as_str() }) };
+            mailer.send(mail::compose(&owner.email, lang, Message::NewDevice { device: &device.name, computer: &station.name, person, account: &link }));
         }
-        tracing::info!(station = %station.id, "nouvel appareil sur une Station : avis au propriétaire");
-        let Some(mailer) = &self.mailer else { return };
-        if !self.limits.lock().unwrap_or_else(|e| e.into_inner()).mail(&owner.email) {
-            return;
-        }
-        let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
-        let link = format!("{}/compte?lang={}", self.public_url, lang.code());
-        mailer.send(mail::compose(&owner.email, lang, Message::NewDevice { device: &device.name, computer: &station.name, account: &link }));
     }
 
     /// Le ménage des codes d'appareil.

@@ -125,6 +125,9 @@ pub enum ErrorCode {
     NotBound,
     /// Le relais ne tient pas de comptes KyberNow (`attach_request`).
     NoAccounts,
+    /// Le jeton d'enrôlement est refusé (`enroll`) ; `message` : `unknown`,
+    /// `expired`, `revoked` ou `used_up`.
+    EnrollRefused,
     #[serde(other)]
     Other,
 }
@@ -141,6 +144,7 @@ impl ErrorCode {
             ErrorCode::NoCode => "no_code",
             ErrorCode::NotBound => "not_bound",
             ErrorCode::NoAccounts => "no_accounts",
+            ErrorCode::EnrollRefused => "enroll_refused",
             ErrorCode::Other => "other",
         }
     }
@@ -400,6 +404,15 @@ pub enum Msg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         req: Option<u32>,
     },
+    /// Station → relais : un jeton d'enrôlement d'organisation (installation
+    /// silencieuse, docs/comptes.md « Dans les installateurs ») ; réponse
+    /// `attached` (avec `req`) ou `error {code: "enroll_refused"}`.
+    Enroll {
+        req: u32,
+        token: String,
+        #[serde(default)]
+        name: String,
+    },
     /// Un type que cette version ne connaît pas : ignoré.
     #[serde(other)]
     Unknown,
@@ -459,6 +472,7 @@ impl Msg {
             Msg::Attached(_) => "attached",
             Msg::Detach {} => "detach",
             Msg::Detached { .. } => "detached",
+            Msg::Enroll { .. } => "enroll",
             Msg::Unknown => "unknown",
         }
     }
@@ -533,6 +547,10 @@ mod tests {
         assert_eq!(serde_json::to_string(&Msg::Detach {}).unwrap(), r#"{"t":"detach"}"#);
         assert_eq!(serde_json::from_str::<Msg>(r#"{"t":"detach","pourquoi":"x"}"#).unwrap(), Msg::Detach {});
         assert_eq!(serde_json::to_string(&Msg::Detached { req: None }).unwrap(), r#"{"t":"detached"}"#);
+        let e = Msg::Enroll { req: 3, token: "kne_x".into(), name: "GRAPH-01".into() };
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"t":"enroll","req":3,"token":"kne_x","name":"GRAPH-01"}"#);
+        let r: Msg = serde_json::from_str(r#"{"t":"error","req":3,"code":"enroll_refused","message":"expired"}"#).unwrap();
+        assert!(matches!(r, Msg::Error(ErrorMsg { code: ErrorCode::EnrollRefused, .. })));
         let key = PublicKey::from_raw(&[1u8; 32]).unwrap();
         let a = Msg::Attached(Attached {
             req: None,
