@@ -8,10 +8,12 @@
 
 use std::borrow::Cow;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, mpsc};
 
+use kybernow::account::{self, AccountCommand, AccountEvent, Coordinator, Navigation, ViewCommand};
 use kybernow::checks::SystemInfo;
-use kybernow::events::{Command, Emit, Event};
+use kybernow::events::{Command, Emit, Event, TaskStatus};
 use kybernow::i18n::{self, t};
 use rust_embed::Embed;
 use tao::dpi::LogicalSize;
@@ -19,7 +21,7 @@ use tao::event::{Event as WinEvent, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy};
 use tao::window::WindowBuilder;
 use wry::http::{Request, Response, header::CONTENT_TYPE};
-use wry::{WebContext, WebViewBuilder};
+use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder};
 
 #[derive(Embed)]
 #[folder = "ui/dist/"]
@@ -32,6 +34,68 @@ enum UserEvent {
     Drag,
     Minimize,
     Close,
+    /// La page du relais (étape « Compte KyberNow »), dans le cadre donné.
+    AccountView(ViewCommand),
+    /// La page du relais va ailleurs sur le relais (« Créer un compte »).
+    AccountRedirect(String),
+}
+
+/// Ouvre une adresse web dans le navigateur par défaut.
+pub(crate) fn open_in_browser(url: &str) {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return;
+    }
+    let _ = if cfg!(windows) {
+        std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("/usr/bin/open").arg(url).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(url).spawn()
+    };
+}
+
+/// La page du relais dans la fenêtre de l'installateur : une vue enfant posée
+/// sur le cadre de l'interface, qui ne quitte pas le relais (tout autre lien
+/// part dans le navigateur). `builder` porte le contexte de la fenêtre
+/// (profil de WebView2 sous Windows).
+pub(crate) fn account_view<'a>(
+    builder: WebViewBuilder<'a>,
+    window: &'a tao::window::Window,
+    url: &str,
+    bounds: wry::Rect,
+    signup: bool,
+    redirect: impl Fn(String) + 'static,
+) -> wry::Result<WebView> {
+    let origin = account::origin_of(url).unwrap_or_default();
+    let signup = Arc::new(AtomicBool::new(signup));
+    builder
+        .with_url(url)
+        .with_bounds(bounds)
+        .with_background_color((5, 7, 10, 255))
+        .with_devtools(cfg!(debug_assertions))
+        .with_navigation_handler(move |to| match account::view_navigation(&to, &origin, &signup) {
+            Navigation::Allow => true,
+            Navigation::External => {
+                open_in_browser(&to);
+                false
+            }
+            Navigation::Block => false,
+            Navigation::Redirect(next) => {
+                redirect(next);
+                false
+            }
+        })
+        .with_new_window_req_handler(|to, _| {
+            open_in_browser(&to);
+            NewWindowResponse::Deny
+        })
+        .build_as_child(window)
+}
+
+/// Le cadre de la page du relais, en points de la fenêtre.
+pub(crate) fn view_bounds(x: f64, y: f64, width: f64, height: f64) -> wry::Rect {
+    use tao::dpi::{LogicalPosition, LogicalSize};
+    wry::Rect { position: LogicalPosition::new(x, y).into(), size: LogicalSize::new(width.max(1.0), height.max(1.0)).into() }
 }
 
 pub(crate) fn arg(name: &str) -> Option<PathBuf> {
@@ -115,11 +179,43 @@ fn windows_main() -> wry::Result<()> {
         .with_url(url)
         .build(&window)?;
 
+    // La page du relais (étape « Compte KyberNow »), créée à la demande.
+    let mut relay_view: Option<(String, WebView)> = None;
+    let redirect_proxy = proxy.clone();
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             WinEvent::UserEvent(UserEvent::Js(json)) => {
                 let _ = webview.evaluate_script(&format!("window.__knReceive && window.__knReceive({json})"));
+            }
+            WinEvent::UserEvent(UserEvent::AccountView(ViewCommand::AccountView { url, x, y, width, height, signup })) => {
+                let bounds = view_bounds(x, y, width, height);
+                match &relay_view {
+                    Some((shown, view)) if *shown == url => {
+                        let _ = view.set_bounds(bounds);
+                        let _ = view.set_visible(true);
+                    }
+                    _ => {
+                        relay_view = None;
+                        let p = redirect_proxy.clone();
+                        let builder = WebViewBuilder::new_with_web_context(&mut context);
+                        match account_view(builder, &window, &url, bounds, signup, move |to| {
+                            let _ = p.send_event(UserEvent::AccountRedirect(to));
+                        }) {
+                            Ok(view) => {
+                                let _ = view.focus();
+                                relay_view = Some((url, view));
+                            }
+                            Err(e) => eprintln!("page du relais : {e}"),
+                        }
+                    }
+                }
+            }
+            WinEvent::UserEvent(UserEvent::AccountView(ViewCommand::AccountViewHide)) => relay_view = None,
+            WinEvent::UserEvent(UserEvent::AccountRedirect(to)) => {
+                if let Some((_, view)) = &relay_view {
+                    let _ = view.load_url(&to);
+                }
             }
             WinEvent::UserEvent(UserEvent::Drag) => {
                 let _ = window.drag_window();
@@ -141,11 +237,29 @@ fn windows_main() -> wry::Result<()> {
 /// Fil de travail : reçoit les commandes de l'interface et exécute les tâches.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, payload: Option<PathBuf>, installing: Arc<Mutex<bool>>) {
-    let emit: Emit = {
+    let to_page = {
         let proxy = Mutex::new(proxy.clone());
-        Arc::new(move |event: Event| {
+        Arc::new(move |json: String| {
+            let _ = proxy.lock().unwrap().send_event(UserEvent::Js(json));
+        })
+    };
+    // Étape « Compte KyberNow » : le rattachement part quand Admin a démarré.
+    let accounts = {
+        let to_page = to_page.clone();
+        Coordinator::new(Arc::new(move |event: AccountEvent| {
             if let Ok(json) = serde_json::to_string(&event) {
-                let _ = proxy.lock().unwrap().send_event(UserEvent::Js(json));
+                to_page(json);
+            }
+        }))
+    };
+    let emit: Emit = {
+        let accounts = accounts.clone();
+        Arc::new(move |event: Event| {
+            if matches!(&event, Event::Task { id, status: TaskStatus::Done } if id == "admin") || matches!(event, Event::Done { .. }) {
+                accounts.admin_ready();
+            }
+            if let Ok(json) = serde_json::to_string(&event) {
+                to_page(json);
             }
         })
     };
@@ -153,6 +267,14 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
 
     std::thread::spawn(move || {
         for message in rx {
+            if let Ok(command) = serde_json::from_str::<AccountCommand>(&message) {
+                accounts.handle(command);
+                continue;
+            }
+            if let Ok(view) = serde_json::from_str::<ViewCommand>(&message) {
+                let _ = proxy.send_event(UserEvent::AccountView(view));
+                continue;
+            }
             let command: Command = match serde_json::from_str(&message) {
                 Ok(c) => c,
                 Err(e) => {
@@ -198,12 +320,7 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
                         *installing.lock().unwrap() = false;
                     });
                 }
-                Command::OpenUrl { url } => {
-                    if url.starts_with("https://") || url.starts_with("http://") {
-                        let opener = if cfg!(windows) { ("cmd", vec!["/C", "start", "", url.as_str()]) } else { ("open", vec![url.as_str()]) };
-                        let _ = std::process::Command::new(opener.0).args(opener.1).spawn();
-                    }
-                }
+                Command::OpenUrl { url } => open_in_browser(&url),
                 Command::Reboot => {
                     if cfg!(windows) {
                         let _ = kybernow::sys::run("shutdown", &["/r", "/t", "5", "/c", &t("ui.rebootReason", &[])]);

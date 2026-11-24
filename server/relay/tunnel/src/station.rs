@@ -410,12 +410,14 @@ impl Agent {
         }
     }
 
-    /// Présente un jeton d'enrôlement d'organisation (docs/comptes.md, « Dans
-    /// les installateurs », lot 5) : le relais rattache la Station à
-    /// l'organisation et répond `attached` (rendu ici, pas en
-    /// [`Incoming::Attached`]) ; refusé : `enroll_refused` et la raison
-    /// (`unknown`, `expired`, `revoked`, `used_up`).
-    pub async fn enroll(&self, token: &str, name: &str) -> Result<crate::msg::Attached, TunnelError> {
+    /// Rattache la Station à une organisation avec un jeton d'enrôlement
+    /// (docs/comptes.md, « Dans les installateurs », lot 5) : la réponse
+    /// `attached` est rendue ici (pas en [`Incoming::Attached`]), à épingler
+    /// par Admin. Refusé : [`TunnelError::Refused`] avec `enroll_refused` et la
+    /// raison (`unknown`, `expired`, `revoked`, `used_up`), ou `no_accounts`
+    /// (relais sans comptes) ; un relais d'avant l'enrôlement ne répond pas
+    /// (`Timeout`).
+    pub async fn enroll(&self, token: &str, name: &str) -> Result<Attached, TunnelError> {
         let live = self.shared.wait_live(Duration::from_secs(5)).await?;
         let req = live.next_req.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();

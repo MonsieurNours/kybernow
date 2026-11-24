@@ -37,6 +37,8 @@ pub mod client;
 pub mod identity;
 #[cfg(feature = "station")]
 pub mod station;
+#[cfg(feature = "test-relay")]
+pub mod testing;
 
 pub use addr::{DEFAULT_PORT, DEFAULT_RELAY, RelayAddr};
 pub use dial::{DialError, QUIC_DIAL_TIMEOUT, QUIC_RETRY_EVERY, backoff};

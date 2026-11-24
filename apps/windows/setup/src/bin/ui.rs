@@ -23,6 +23,7 @@ mod ui {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
 
+    use knsetup::account::{self, Navigation, RelayAddr};
     use knsetup::events::{Command, Emit, Event};
     use knsetup::i18n::{lang, tr};
     use knsetup::{checks, install, sys};
@@ -32,7 +33,7 @@ mod ui {
     use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
     use tao::window::WindowBuilder;
     use wry::http::{Request, Response, header::CONTENT_TYPE};
-    use wry::{WebContext, WebViewBuilder};
+    use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder};
 
     include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
@@ -41,6 +42,41 @@ mod ui {
         Drag,
         Minimize,
         Close,
+        /// « Votre compte KyberNow » : la page du relais dans ce cadre (points CSS).
+        AccountView { relay: String, signup: bool, rect: (f64, f64, f64, f64) },
+        AccountViewHide,
+        /// La page du relais renvoie vers l'app (`kybernow://compte?code=…`).
+        AccountReturn(String),
+    }
+
+    /// La page du relais en cours : son relais, l'`etat` attendu au retour, sa vue.
+    struct RelayPage {
+        key: (String, bool),
+        relay: RelayAddr,
+        state: String,
+        view: WebView,
+    }
+
+    fn bounds((x, y, w, h): (f64, f64, f64, f64)) -> wry::Rect {
+        use tao::dpi::LogicalPosition;
+        wry::Rect { position: LogicalPosition::new(x, y).into(), size: LogicalSize::new(w.max(1.0), h.max(1.0)).into() }
+    }
+
+    /// Échange le code du retour contre la session d'appareil et la remet à l'app.
+    fn finish_sign_in(relay: RelayAddr, code: String, emit: Emit) {
+        std::thread::spawn(move || {
+            let result = account::exchange(&relay, &code).and_then(|session| account::store(&relay, &session).map(|_| session));
+            match result {
+                Ok(session) => {
+                    sys::log(&format!("compte KyberNow : connecté ({}, appareil {})", relay.web_authority(), session.device.id));
+                    emit(Event::AccountSignedIn { relay: relay.web_authority(), name: session.account.name, email: session.account.email });
+                }
+                Err(e) => {
+                    sys::log(&format!("compte KyberNow : échec ({e:#})"));
+                    emit(Event::AccountFailed { code: "exchange".into(), message: format!("{e:#}") });
+                }
+            }
+        });
     }
 
     fn arg(name: &str) -> Option<PathBuf> {
@@ -97,7 +133,17 @@ mod ui {
         let (tx, rx) = mpsc::channel::<String>();
         // Vrai pendant l'installation : la fenêtre refuse alors de se fermer.
         let installing = Arc::new(Mutex::new(false));
-        spawn_backend(rx, proxy, payload, installing.clone());
+        let emit: Emit = {
+            let proxy = Mutex::new(proxy.clone());
+            Arc::new(move |event: Event| {
+                if let Ok(json) = serde_json::to_string(&event) {
+                    let _ = proxy.lock().unwrap().send_event(UserEvent::Js(json));
+                }
+            })
+        };
+        spawn_backend(rx, proxy.clone(), emit.clone(), payload, installing.clone());
+        let device = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".into());
+        let mut relay_page: Option<RelayPage> = None;
 
         let mut context = WebContext::new(Some(webview_data));
         let webview = WebViewBuilder::new_with_web_context(&mut context)
@@ -117,6 +163,57 @@ mod ui {
                 WinEvent::UserEvent(UserEvent::Js(json)) => {
                     let _ = webview.evaluate_script(&format!("window.__knReceive && window.__knReceive({json})"));
                 }
+                WinEvent::UserEvent(UserEvent::AccountView { relay, signup, rect }) => {
+                    if let Some(page) = relay_page.as_ref().filter(|p| p.key == (relay.clone(), signup)) {
+                        let _ = page.view.set_bounds(bounds(rect));
+                        let _ = page.view.set_visible(true);
+                        return;
+                    }
+                    relay_page = None;
+                    let Some(addr) = RelayAddr::parse(&relay) else { return };
+                    let state = account::new_state();
+                    let url = if signup { account::signup_url(&addr, lang().code()) } else { account::login_url(&addr, &device, &state, lang().code()) };
+                    let origin = addr.origin();
+                    let p = proxy.clone();
+                    let built = WebViewBuilder::new_with_web_context(&mut context)
+                        .with_url(&url)
+                        .with_bounds(bounds(rect))
+                        .with_background_color((5, 7, 10, 255))
+                        .with_devtools(cfg!(debug_assertions))
+                        .with_navigation_handler(move |to| match account::navigation(&to, &origin) {
+                            Navigation::Allow => true,
+                            Navigation::Return(back) => {
+                                let _ = p.send_event(UserEvent::AccountReturn(back));
+                                false
+                            }
+                            Navigation::External => {
+                                sys::open_url(&to);
+                                false
+                            }
+                            Navigation::Block => false,
+                        })
+                        .with_new_window_req_handler(|to, _| {
+                            sys::open_url(&to);
+                            NewWindowResponse::Deny
+                        })
+                        .build_as_child(&window);
+                    match built {
+                        Ok(view) => {
+                            let _ = view.focus();
+                            relay_page = Some(RelayPage { key: (relay, signup), relay: addr, state, view });
+                        }
+                        Err(e) => sys::log(&format!("page du relais : {e}")),
+                    }
+                }
+                WinEvent::UserEvent(UserEvent::AccountViewHide) => relay_page = None,
+                WinEvent::UserEvent(UserEvent::AccountReturn(back)) => {
+                    let Some(page) = relay_page.take() else { return };
+                    match account::parse_return(&back) {
+                        Some(Ok((code, state))) if state == page.state => finish_sign_in(page.relay, code, emit.clone()),
+                        Some(Ok(_)) => emit(Event::AccountFailed { code: "state".into(), message: String::new() }),
+                        _ => emit(Event::AccountFailed { code: "cancelled".into(), message: String::new() }),
+                    }
+                }
                 WinEvent::UserEvent(UserEvent::Drag) => {
                     let _ = window.drag_window();
                 }
@@ -134,15 +231,7 @@ mod ui {
     }
 
     /// Fil de travail : reçoit les commandes de l'interface et exécute les tâches.
-    fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, payload: Option<PathBuf>, installing: Arc<Mutex<bool>>) {
-        let emit: Emit = {
-            let proxy = Mutex::new(proxy.clone());
-            Arc::new(move |event: Event| {
-                if let Ok(json) = serde_json::to_string(&event) {
-                    let _ = proxy.lock().unwrap().send_event(UserEvent::Js(json));
-                }
-            })
-        };
+    fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, emit: Emit, payload: Option<PathBuf>, installing: Arc<Mutex<bool>>) {
 
         std::thread::spawn(move || {
             for message in rx {
@@ -177,6 +266,16 @@ mod ui {
                         let _ = proxy.send_event(UserEvent::Close);
                     }
                     Command::OpenUrl { url } => sys::open_url(&url),
+                    Command::RelayProbe { address } => {
+                        let emit = emit.clone();
+                        std::thread::spawn(move || emit(Event::RelayProbed { probe: account::probe(&address), input: address }));
+                    }
+                    Command::AccountView { relay, signup, x, y, width, height } => {
+                        let _ = proxy.send_event(UserEvent::AccountView { relay, signup, rect: (x, y, width, height) });
+                    }
+                    Command::AccountViewHide => {
+                        let _ = proxy.send_event(UserEvent::AccountViewHide);
+                    }
                     Command::Minimize => {
                         let _ = proxy.send_event(UserEvent::Minimize);
                     }

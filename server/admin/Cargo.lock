@@ -948,6 +948,7 @@ dependencies = [
  "futures-util",
  "log",
  "quinn",
+ "quinn-proto",
  "rcgen",
  "ring",
  "rustls",

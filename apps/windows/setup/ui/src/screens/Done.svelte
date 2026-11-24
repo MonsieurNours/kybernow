@@ -18,6 +18,12 @@
     <p class="lead kn-enter kn-d2">
       {app.existing ? t('done.updateLead') : t('done.lead')}
     </p>
+    {#if app.account.signedIn}
+      <p class="connected kn-enter kn-d3">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+        {t('done.connected', { email: app.account.signedIn.email || app.account.signedIn.name })}
+      </p>
+    {/if}
     <p class="note kn-enter kn-d3">{t(app.desktop ? 'done.whereDesktop' : 'done.where')}</p>
   </div>
 
@@ -42,6 +48,15 @@
 </div>
 
 <style>
+  .connected {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--ok-text);
+  }
+
   .done {
     flex: 1;
     min-height: 0;

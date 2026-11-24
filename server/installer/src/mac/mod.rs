@@ -21,7 +21,7 @@
 
 pub mod checks;
 pub mod commands;
-pub mod http;
+pub use crate::http;
 pub mod install;
 pub mod permissions;
 pub mod root;
@@ -181,4 +181,51 @@ pub fn output_text(out: &std::process::Output) -> String {
 pub fn read(program: &str, args: &[&str]) -> Option<String> {
     let out = std::process::Command::new(program).args(args).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Installation silencieuse sur Mac (docs/comptes.md, « Enrôlement ») :
+/// `kybernow-ui --quiet [--enroll=<jeton>] [--relay=<adresse>]`, lancé dans
+/// la session de l'utilisateur (la Station vit dans sa session). macOS
+/// demande toujours une fois le mot de passe d'administrateur ; les
+/// autorisations (écran, accessibilité) se donnent ensuite depuis l'icône,
+/// ou par un profil de gestion (PPPC). Mêmes codes de sortie que sous Windows.
+pub fn run_quiet(args: &crate::quiet::QuietArgs, payload: &Path) -> i32 {
+    use crate::quiet::{EXIT_INSTALL_FAILED, QUIET_USER, append_log, random_password};
+    use commands::{Emit, Event, InstallRequest};
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("L'installation silencieuse se lance dans la session de l'utilisateur, pas en root.");
+        return EXIT_INSTALL_FAILED;
+    }
+    let emit: Emit = std::sync::Arc::new(|event: Event| {
+        if let Event::Log { line } = event {
+            println!("{line}");
+        }
+    });
+    let info = checks::run(&emit);
+    let existing = checks::existing();
+    let keep = existing.as_ref().is_some_and(|e| e.settings);
+    let (stream_port, console_port) = match (&existing, keep) {
+        (Some(e), true) => (e.stream_port, e.console_port),
+        _ => (info.stream_port, info.console_port),
+    };
+    let request = InstallRequest {
+        user: if keep { String::new() } else { QUIET_USER.into() },
+        password: if keep { String::new() } else { random_password() },
+        stream_port,
+        console_port,
+        virtual_display: true,
+        virtual_audio: true,
+        start_with_mac: true,
+        keep_reachable: true,
+        keep_settings: keep,
+    };
+    if install::run(&request, &info, payload, &emit).is_err() {
+        return EXIT_INSTALL_FAILED;
+    }
+    let (lines, code) = crate::quiet::after_install(args);
+    for line in &lines {
+        println!("{line}");
+    }
+    append_log(&logs_dir().join("install.log"), &lines);
+    code
 }

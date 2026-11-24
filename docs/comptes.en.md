@@ -116,6 +116,8 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | Relay | `attach_request` → `attach_code`, then `attached`; `attach_status`; `detach` / `detached` (Station, through its control connection) | Attachment, after approval in the console (`/compte/rattacher?code=…`); detaching on both sides |
 | Admin | `GET/PUT /api/account` (Admin session) | Attached account, switch, detach |
 | Admin | `POST /api/account/attach` (Admin session) | “Sign in”: attach code asked of the relay, console page to open |
+| Admin | `GET /api/local/account`, `PUT /api/local/account/relay`, `POST`/`DELETE /api/local/account/attach`, `POST /api/local/account/enroll` (local token) | The installer: chosen relay, attaching during installation, enrollment of a silent installation (“Installers”) |
+| Relay | `enroll` → `attached` (Station, through its control connection) | Enrollment with an organization token (batch 5) |
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Local list, blocking |
 | Admin | all the routes of a paired device | Also accept `Authorization: KyberNow <jeton>` according to the rights |
 
@@ -176,6 +178,7 @@ Defined in the shared crate `server/relay/tunnel` (`access` module): the relay s
   | `attach_status` | Station → relay | `req`; at each connection of an attached Station: answer `attached` (up-to-date keys) or `detached` |
   | `detach` | Station → relay | Detached in Admin |
   | `detached` | relay → Station | `req` (in answer to `attach_status`); detached in the console |
+  | `enroll` | Station → relay | `req`, `token` (the enrollment token), `name`; answer `attached` with this `req`, or `error {req, code}`: `enroll_refused` (`message`: `unknown`, `expired`, `revoked`, `used_up`), `no_accounts` (see “Installers” and “People, rights and organizations”) |
 
 - **Attaching**: Admin › “Sign in” asks for a code (kept 15 minutes in memory by the relay, one per Station) and opens the page in the browser; you sign in (the page is remembered, `__Host-kn_suite` cookie), “Attach {name}”, owner “Me” (organizations come in batch 5), “Attach”; the relay records the link (`stations` table) and sends `attached`. Station offline: it learns at its next connection (`attach_status`). Admin only takes an `attached` if “Sign in” was asked within 15 minutes, except to update the keys of the same attachment.
 - **Detaching**: from the account page (“Computers”, “Detach”: `detached` to the Station) or in Admin (`detach` to the relay, as soon as it is reached).
@@ -187,7 +190,7 @@ Defined in the shared crate `server/relay/tunnel` (`access` module): the relay s
 
 ### People, rights and organizations (batches 4 and 5)
 
-Done on the relay side (console, API, database) and on the Admin side; the apps (batch 3) and the installers' account step are separate work.
+Done on the relay side (console, API, database) and on the Admin side; the apps (batch 3) are separate work, the installers' account step is described in “Installers”.
 
 - **An account's rights on a computer**: all of them for its owner (a person), and for the Owners and Administrators of the owning organization; otherwise the union of the **given rights** not expired, to them, to an organization they are a member of, or to one of its groups. **Administer only counts with two-factor authentication** (active TOTP or a passkey, which is worth it), owner included: without it, the token and `/v1/computers` don't have `admin`, and the “People” page says so. Likewise, an organization Owner or Administrator without two-factor doesn't manage the organization and only has the given rights, like a member.
 - **Managing a computer's access** (“People”): its owner, the Owners and Administrators of the owning organization, and anyone with the (effective) Administer right.
@@ -200,7 +203,7 @@ Done on the relay side (console, API, database) and on the Admin side; the apps 
 - **Enrollment tokens** (“Deploy Stations”): a name, a duration (1 to 365 days), a number of Stations (1 to 10,000), and rights given to a group on each enrolled Station; `kne_` and 32 characters (160 bits), **shown only once**, kept hashed. The Station presents it through its control connection (`enroll`); the relay attaches it to the organization (same answer if it already is, without counting one more Station), gives the rights to the group, writes the log. Revoking prevents new enrollments; enrolled Stations stay.
 - **Admin on the network** (“Sign in with KyberNow”): Admin's sign-in page offers the button when the Station is attached and accepts accounts, **never through the relay**. Admin draws a `nonce` (16 bytes, 10 minutes, `kyber_admin_kn` cookie, `SameSite=Lax`) and opens `https://<relay>/compte/ouvrir-admin?station=…&nonce=…&retour=<Admin's address>`. Signed in, with the Administer right (two-factor), the person confirms “Open Admin of {computer}?”; the relay issues an access token (5 min, device `web`) whose **`jti` is the `nonce`**, and sends back to `<retour>/api/login/kybernow?token=…`. `retour` is only a local network address (private, link-local or loopback IP, dotless name, `.local`, `.lan`, `.home.arpa`), without a path. Admin checks the token (Administer right, **single use**) and that its `jti` is this browser's `nonce`, then opens its session; a line in the feed.
 - **Lending with an account**: `POST /api/lend/status` and `/api/lend/borrow` accept `Authorization: KyberNow <token>` with the Lending right instead of a friend account's login and password; borrowing happens under the account's name (no time slots: they stay those of friend accounts; Steam: “Their Steam account”). The allowed apps stay those of the “Lending” page.
-- **Enrollment on the Admin side**: `[account] enroll = "kne_…"` in `kyber-admin.toml` (written by the installer, which comes later, with the relay in `[relay]`); Admin presents it as soon as the relay is reached, takes `attached` like an asked attachment (accounts accepted, access away from home on), then erases it; refused for good (`enroll_refused`): a line in the feed and the token is erased; relay unreachable: new try, further and further apart (10 min at most).
+- **Enrollment on the Admin side**: two ways in, a single `enroll` message to the relay. The silent installer hands the token over through the local route `POST /api/local/account/enroll` (answered at once, for its exit code: “Installers”); a deployment tool can also write `[account] enroll = "kne_…"` in `kyber-admin.toml` (with the relay in `[relay]`): Admin presents it as soon as the relay is reached, takes `attached` like an asked attachment (accounts accepted, access away from home on), then erases it; refused for good (`enroll_refused`): a line in the feed and the token is erased; relay unreachable: new try, further and further apart (10 min at most).
 
 #### Console pages
 
@@ -231,6 +234,38 @@ The console bar (“Computers”, each organization, “Account”) is also at t
 - Migration 4: `grants` (Station, `account` or an invitation's `email`, `rights` as words `session,share`, `expires_at`, `invited_by`, `created_at`); `device_stations.seen_at` (last visit, for the log).
 - Migration 5: `organizations` (public identifier `org_…`, name, plan), `org_members` (role `owner`, `admin`, `member`), `org_invites`, `org_groups`, `group_members`, `org_log` (who, what as JSON, address, when), `enroll_tokens` (hash, start of the token, number, used, group and rights, expiry, revocation); `stations` rebuilt (`owner_kind` `person` or `organization`, `account` or `org`, `enrolled_by`); `grants.org` and `grants.grp`.
 - Code: `server/relay/src/accounts/people.rs` (given rights, an account's rights), `orgs.rs` (organizations, log, tokens, `enroll`), `console_pages.rs` (pages), `web/console.rs`, `web/org_pages.rs`, `web/admin_login.rs`; Admin: `accounts.rs` (sign in with KyberNow, enrollment), `lend_api.rs` (lending with an account); interface: `server/web/src/pages/Login.svelte`.
+
+### Installers
+
+Mock-up: “Installateurs” row. Code: `server/installer/src/account.rs` (flow, relay check, Admin routes), `quiet.rs` (silent installation), `ui/src/lib/account.svelte.ts` and `AccountStep.svelte` (interface shared by Windows and the Mac); `apps/windows/setup/src/account.rs` and `ui/src/screens/Account.svelte` (Link).
+
+- **Station, during installation** (Windows and Mac): the Installation screen becomes “Meanwhile: your KyberNow account” (“Sign in”, “Create an account”, “Relay: share.kybernow.app · Other relay…”, “Later”); installation goes on in the background, its progress stays at the top. The step is skipped for an already attached Station reinstalled keeping its settings (`[account] relay` in `kyber-admin.toml`).
+- **“Other relay…”**: address `host[:port][#sha256:…]`, checked live by the installer (`GET /v1/health`: reached, version; `GET /v1/keys`: accounts on or not; web authorities, or the fingerprint of a self-signed relay). A relay without accounts is kept for sharing and away-from-home access, without attaching. The chosen relay becomes the Station's (Admin › Away from home), even with “Later”.
+- **Attaching**: as soon as the “admin” task is done (Admin started), the installer calls Admin through its local routes (below); Admin asks the relay for the code (`attach_request`) and returns the page `/compte/rattacher?code=…`, which the installer shows **in its window** (wry child view: WebView2, WKWebView), without leaving the relay (any other link goes to the browser; “Create an account” replaces the first sign-in page with sign-up, and the relay's follow-up cookie brings back to attaching). “Whose computer is this?” is the relay's page (“Me” or an organization the account manages, batch 5). The installer follows Admin (`GET /api/local/account` every 2 s, 15 minutes at most) until `attached`; the final screen shows the three accesses: attached (account or organization, relay), “KyberNow accounts accepted”, “Away-from-home access on”. A self-signed relay: the page opens in the browser (the window's view would refuse its certificate).
+- **Admin's local routes** (loopback and local token, like `/api/local/*`; never through the relay):
+
+  | Route | Body | Answer |
+  |---|---|---|
+  | `GET /api/local/account` | | The view of `GET /api/account`, plus `server` (the set relay) and `remote_access` |
+  | `PUT /api/local/account/relay` | `{relay}` | Sets the relay (“Later”); the same view |
+  | `POST /api/local/account/attach` | `{relay?}` | Sets the relay, then like `POST /api/account/attach`: `{url, expires}` |
+  | `DELETE /api/local/account/attach` | | Abandons the attaching in progress (“Back”, “Later”) |
+  | `POST /api/local/account/enroll` | `{token, relay?}` | Enrollment: the view, attached; `400 bad_token` (shape), `403 bad_token` (refused by the relay: `enroll_refused`), `409 no_relay` / `no_accounts`, `503 relay_unreachable` |
+
+  All refuse an already attached Station (`409 already_attached`): attaching elsewhere goes through “Detach” in Admin. The local token is the tray icon's: the person at the computer can already accept a pairing; they can also attach a Station that isn't attached.
+- **Enrollment** (deploying a fleet): `KyberNow-Station-Setup.exe /quiet /enroll=<token> /relay=<address>` installs without any screen or WebView2 (default options, settings kept from an existing installation, installation account `kybernow` with a random password: you take over through the tray icon, “Reset Admin password…”), then hands the token to Admin (`POST /api/local/account/enroll`, 3 minutes of patience while Admin starts), which sends it to the relay through its control connection: `{"t":"enroll","req":3,"token":"kne_…","name":"GRAPH-01"}`. The relay answers as for an attachment confirmed in the console, `attached` carrying the same `req` (owner: the token's organization), or `error {req, code: "enroll_refused" | "no_accounts"}` (`enroll_refused` carries the reason: `unknown`, `expired`, `revoked`, `used_up`); a relay from before enrollment doesn't answer (10 s: `no_accounts`). Admin pins the answer like a requested `attached` (switch and away-from-home access on). Exit codes: `0`, `3010` (installed, reboot needed), `1` (installation failed), `2` (installed, not enrolled); everything is written to `install.log`. On the Mac: `kybernow-ui --quiet --enroll=<token> --relay=<address>` (the executable of “Install KyberNow Station” in the .dmg), in the user's session (not as root); macOS asks once for the administrator password, permissions are granted afterwards (tray icon, or a PPPC profile). Admin only checks the token's shape (8 to 256 characters `A-Z a-z 0-9 _ - . ~`); the relay decides (batch 5: duration, number of Stations, revocation). Tests: `server/relay/tunnel/tests/enrolement.rs` and Admin's `accounts::tests::enrolement_avec_un_relais_simule`, with the tunnel's simulated relay (`test-relay` feature).
+- **KyberNow Link for Windows**: on first installation, optional step “Your KyberNow account” between Welcome and Installation (not for an update). “Sign in” opens in the window `https://<relay>/compte/connexion?appareil=<PC name>&retour=kybernow://compte&etat=<16 random bytes>`; the return `kybernow://compte?code=…&etat=…` is intercepted (`etat` must match), the code exchanged (`POST /v1/devices/token`), and the device session **handed to the app** (batch 3):
+  - the **token** in the Windows Credential Manager, generic credential, target `KyberNow:account:<relay>` (`<relay>`: `host`, or `host:port` other than 443), user the account's email, secret the token in UTF-16LE (like the computers' passwords, `KyberNow:<id>`), `LOCAL_MACHINE` persistence;
+  - the **rest** in `%APPDATA%\KyberNow\accounts.json`: `{"accounts":[{"relay":"share.kybernow.app","account":{"id","name","email"},"device":{"id","name"},"added":<Unix seconds>}]}` (one entry per relay, replaced when signing in again; the token is never in it; `relay` carries `#sha256:…` for a self-signed relay).
+
+  The app reads both places at start-up and starts signed in; if it stores its accounts differently, it takes them from there then deletes the file. “Create an account” opens the site's sign-up in the window, then “Account created: sign in”. “Later”: the app signs in from its home screen. Uninstalling while erasing data also erases both places (`--forget-all` removes the `KyberNow:*` targets).
+
+Gaps of this step:
+
+- the “Me” / “{organization}” choice and the computer's name are not installer screens: it's the relay's attach page, shown in its window;
+- a self-signed relay's page opens in the browser, not in the window;
+- the silent installation takes the default options (no `/user=` or `/password=`, which would show in the process list);
+- on the Mac, the step must be finished (attached or “Later”) before permissions: their end restarts Admin, which would forget an attachment in progress.
 
 ### Data kept by the relay
 
@@ -270,7 +305,7 @@ SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self
 2. **Attachment and tokens**: signing key, attaching from Admin, access token, verification in Admin, the four safeguards.
 3. **Apps**: sign-in through the system window and by code, the account's computers on the home screen, token in every core call, several relays.
 4. **People and rights**: adding by email, Session, Lending, Sharing, Administer rights; lending and sharing with an account. **Done on the relay and Admin sides** (“People, rights and organizations”).
-5. **Organizations**: members, roles, groups, the organization's computers, log, mandatory two-factor authentication. **Done on the relay and Admin sides**; the installer that takes the enrollment token comes later.
+5. **Organizations**: members, roles, groups, the organization's computers, log, mandatory two-factor authentication. **Done on the relay and Admin sides**; the installer takes the enrollment token (“Installers”).
 6. **Legal and App Store**: texts, demo account, updated App Review notes.
 
 Each batch has its mockup approved before the code, like invitations.

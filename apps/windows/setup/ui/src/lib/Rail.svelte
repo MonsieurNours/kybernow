@@ -5,14 +5,14 @@
 -->
 <script lang="ts">
   import { send } from './backend'
-  import { app, go, stepIndex, STEPS } from './state.svelte'
+  import { app, go, stepIndex, steps } from './state.svelte'
   import Mark from './Mark.svelte'
   import { t } from './i18n/index.svelte'
 
   const index = $derived(stepIndex())
   const finished = $derived(app.screen === 'done')
   // Avancée de la couture : par étape, puis la progression réelle de l'installation.
-  const k = $derived(finished ? 1 : app.screen === 'install' ? 0.3 + (0.6 * app.percent) / 100 : [0.2, 0.3, 1][index])
+  const k = $derived(finished ? 1 : app.screen === 'install' ? 0.3 + (0.6 * app.percent) / 100 : app.screen === 'account' ? 0.25 : 0.2)
   const sx = $derived((44 + k * 292).toFixed(1))
   const sy = $derived((336 - k * 292).toFixed(1))
 
@@ -44,7 +44,7 @@
   </div>
 
   <ol>
-    {#each STEPS as step, i (step.label)}
+    {#each steps() as step, i (step.label)}
       {@const done = i < index || (finished && i === index)}
       {@const current = i === index && !finished}
       <li class:done class:current aria-current={current ? 'step' : undefined}>

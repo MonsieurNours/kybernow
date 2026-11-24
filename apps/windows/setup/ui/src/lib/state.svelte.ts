@@ -3,14 +3,34 @@
 import { onEvent, send, type Arch, type BackendEvent, type CheckStatus, type TaskStatus } from './backend'
 import { t } from './i18n/index.svelte'
 
-export type Screen = 'welcome' | 'install' | 'done' | 'about'
+export type Screen = 'welcome' | 'account' | 'install' | 'done' | 'about'
 
-/** Trois étapes : l'analyse du PC tourne pendant la bienvenue. */
-export const STEPS: { screens: Screen[]; label: string }[] = [
+/**
+ * L'analyse du PC tourne pendant la bienvenue ; « Votre compte KyberNow »
+ * (facultatif) seulement pour une première installation.
+ */
+const ALL_STEPS: { screens: Screen[]; label: string; fresh?: boolean }[] = [
   { screens: ['welcome'], label: 'steps.welcome' },
+  { screens: ['account'], label: 'steps.account', fresh: true },
   { screens: ['install'], label: 'steps.install' },
   { screens: ['done'], label: 'steps.done' },
 ]
+
+/** Les étapes de la colonne. */
+export function steps() {
+  return ALL_STEPS.filter((s) => !s.fresh || !app.existing)
+}
+
+export const DEFAULT_RELAY = 'share.kybernow.app'
+
+export interface RelayProbe {
+  input: string
+  address: string
+  ok: boolean
+  version: string | null
+  accounts: boolean
+  error: string | null
+}
 
 export const CHECK_ORDER = ['windows', 'arch', 'gpu', 'display', 'network', 'webview']
 
@@ -43,6 +63,18 @@ export const app = $state({
   log: [] as string[],
   failure: null as { task: string; message: string } | null,
   finished: false,
+  /** « Votre compte KyberNow » : choose, relay (« Autre relais »), page (celle du relais), failed. */
+  account: {
+    phase: 'choose' as 'choose' | 'relay' | 'page' | 'failed',
+    relay: DEFAULT_RELAY,
+    relayAccounts: true,
+    relayInput: '',
+    probe: null as RelayProbe | null,
+    probing: false,
+    signup: false,
+    signedIn: null as { relay: string; name: string; email: string } | null,
+    failure: null as { code: string; message: string } | null,
+  },
 })
 
 function handle(event: BackendEvent) {
@@ -84,7 +116,31 @@ function handle(event: BackendEvent) {
       app.finished = true
       app.percent = 100
       break
+    case 'relayProbed':
+      if (event.input.trim() === app.account.relayInput.trim()) {
+        const { type: _, ...probe } = event
+        app.account.probe = probe
+        app.account.probing = false
+      }
+      break
+    case 'accountSignedIn':
+      app.account.signedIn = { relay: event.relay, name: event.name, email: event.email }
+      send({ cmd: 'accountViewHide' })
+      // Connecté : l'installation suit, l'app démarrera connectée.
+      startInstall()
+      break
+    case 'accountFailed':
+      app.account.failure = { code: event.code, message: event.message }
+      app.account.phase = 'failed'
+      send({ cmd: 'accountViewHide' })
+      break
   }
+}
+
+/** « Installer » sur la bienvenue : le compte d'abord, pour une première installation. */
+export function afterWelcome() {
+  if (app.existing) startInstall()
+  else go('account')
 }
 
 export function startBackend() {
@@ -121,7 +177,7 @@ export function startInstall() {
 /** Index de l'étape affichée dans la colonne (« À propos » garde l'étape précédente). */
 export function stepIndex(): number {
   const screen = app.screen === 'about' ? app.previous : app.screen
-  return Math.max(0, STEPS.findIndex((s) => s.screens.includes(screen)))
+  return Math.max(0, steps().findIndex((s) => s.screens.includes(screen)))
 }
 
 export const reducedMotion =

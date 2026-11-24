@@ -1,6 +1,8 @@
 <!-- Terminé : ce Mac est prêt ; son adresse, /link et Admin en un scan. -->
 <script lang="ts">
   import qrcode from 'qrcode-generator'
+  import AccountDone from '../../lib/AccountDone.svelte'
+  import { account, doneLead } from '../../lib/account.svelte'
   import { t } from '../../lib/i18n/index.svelte'
   import { send } from '../bridge'
   import { allGranted, app } from '../state.svelte'
@@ -37,7 +39,10 @@
 <div class="done">
   <span class="lbl-m ok kn-enter">{t('mac.done.label')}</span>
   <h1 class="t kn-enter kn-d1">{t('mac.done.title')}</h1>
-  <p class="lead-m kn-enter kn-d2">{t('mac.done.lead')}</p>
+  <p class="lead-m kn-enter kn-d2">{account.attached ? doneLead(account.attached) : t('mac.done.lead')}</p>
+  {#if account.attached}
+    <div class="kn-enter kn-d2 account"><AccountDone attached={account.attached} columns /></div>
+  {/if}
 
   <div class="grid kn-enter kn-d2">
     <div class="left">
@@ -45,7 +50,7 @@
         <span class="mono-m">{address}</span>
         <button type="button" class="btn small" onclick={copy}>{copied ? t('mac.done.copied') : t('mac.done.copy')}</button>
       </div>
-      <p class="web">
+      <p class="web" class:hidden={!!account.attached}>
         {t('mac.done.webBefore')} <button type="button" class="url mono-m" onclick={() => send({ cmd: 'openUrl', url: `${url}/link` })}>{url}/link</button> {t('mac.done.webAfter')}
       </p>
       <div class="menubar" class:warn={!allGranted()}>
@@ -68,6 +73,14 @@
 </div>
 
 <style>
+  .account {
+    margin: 0 0 4px;
+  }
+
+  .hidden {
+    display: none;
+  }
+
   .done {
     display: flex;
     flex-direction: column;

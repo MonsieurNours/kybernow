@@ -123,7 +123,7 @@ pub enum ErrorCode {
     Replaced,
     NoCode,
     NotBound,
-    /// Le relais ne tient pas de comptes KyberNow (`attach_request`).
+    /// Le relais ne tient pas de comptes KyberNow (`attach_request`, `enroll`).
     NoAccounts,
     /// Le jeton d'enrôlement est refusé (`enroll`) ; `message` : `unknown`,
     /// `expired`, `revoked` ou `used_up`.
@@ -396,6 +396,17 @@ pub enum Msg {
         req: u32,
     },
     Attached(Attached),
+    /// Station → relais : rattacher la Station à une organisation avec un
+    /// jeton d'enrôlement (installation silencieuse, docs/comptes.md,
+    /// « Dans les installateurs ») ; `name` : le nom de l'ordinateur. Réponse
+    /// `attached` (avec `req`), ou `error {req, code}` : `enroll_refused`
+    /// (`message` : `unknown`, `expired`, `revoked`, `used_up`), `no_accounts`.
+    Enroll {
+        req: u32,
+        token: String,
+        #[serde(default)]
+        name: String,
+    },
     /// Station → relais : détachée dans Admin.
     Detach {},
     /// Relais → Station : détachée dans la console (ou plus rattachée, en
@@ -403,15 +414,6 @@ pub enum Msg {
     Detached {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         req: Option<u32>,
-    },
-    /// Station → relais : un jeton d'enrôlement d'organisation (installation
-    /// silencieuse, docs/comptes.md « Dans les installateurs ») ; réponse
-    /// `attached` (avec `req`) ou `error {code: "enroll_refused"}`.
-    Enroll {
-        req: u32,
-        token: String,
-        #[serde(default)]
-        name: String,
     },
     /// Un type que cette version ne connaît pas : ignoré.
     #[serde(other)]
@@ -470,9 +472,9 @@ impl Msg {
             Msg::AttachCode { .. } => "attach_code",
             Msg::AttachStatus { .. } => "attach_status",
             Msg::Attached(_) => "attached",
+            Msg::Enroll { .. } => "enroll",
             Msg::Detach {} => "detach",
             Msg::Detached { .. } => "detached",
-            Msg::Enroll { .. } => "enroll",
             Msg::Unknown => "unknown",
         }
     }
@@ -565,6 +567,22 @@ mod tests {
         // Une Station d'avant les comptes ignore ces messages.
         let e: Msg = serde_json::from_str(r#"{"t":"error","req":7,"code":"no_accounts"}"#).unwrap();
         assert!(matches!(e, Msg::Error(ErrorMsg { code: ErrorCode::NoAccounts, .. })));
+    }
+
+    #[test]
+    fn enrolement() {
+        let e = Msg::Enroll { req: 3, token: "kne_abc".into(), name: "GRAPH-01".into() };
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"t":"enroll","req":3,"token":"kne_abc","name":"GRAPH-01"}"#);
+        assert_eq!(serde_json::from_str::<Msg>(r#"{"t":"enroll","req":3,"token":"kne_abc"}"#).unwrap(), Msg::Enroll { req: 3, token: "kne_abc".into(), name: String::new() });
+        let r: Msg = serde_json::from_str(r#"{"t":"error","req":3,"code":"enroll_refused","message":"expired"}"#).unwrap();
+        assert_eq!(r, Msg::error(Some(3), ErrorCode::EnrollRefused, Some("expired".into())));
+        assert_eq!(ErrorCode::EnrollRefused.as_str(), "enroll_refused");
+        // La réponse est un `attached` qui porte `req`.
+        let a: Msg = serde_json::from_str(
+            r#"{"t":"attached","req":3,"relay":"share.test","account":"acc_1","owner":{"kind":"organization","id":"org_1","name":"Les Lignes Claires"},"keys":[]}"#,
+        )
+        .unwrap();
+        assert!(matches!(a, Msg::Attached(Attached { req: Some(3), .. })));
     }
 
     #[test]

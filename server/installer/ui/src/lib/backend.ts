@@ -1,6 +1,7 @@
 // Pont avec l'installateur Rust (window.ipc fourni par la vue web).
 // Dans un navigateur ordinaire, une simulation joue le même rôle.
 
+import { simulateAccount, type AccountCommand, type AccountEvent } from './account.svelte'
 import { t } from './i18n/index.svelte'
 
 export type CheckStatus = 'running' | 'ok' | 'warn' | 'error'
@@ -13,6 +14,8 @@ export interface Existing {
   consolePort: number
   /** Réglages trouvés : « Conserver » possible. */
   settings: boolean
+  /** Déjà rattachée à un compte KyberNow : l'étape « Compte KyberNow » est sautée si l'on garde les réglages. */
+  attached?: boolean
 }
 
 export type BackendEvent =
@@ -34,6 +37,7 @@ export type BackendEvent =
   | { type: 'log'; line: string }
   | { type: 'done'; lanIp: string | null; streamPort: number; consolePort: number; needReboot: boolean }
   | { type: 'failed'; task: string; message: string }
+  | AccountEvent
 
 export interface InstallRequest {
   user: string
@@ -58,6 +62,7 @@ export type Command =
   | { cmd: 'minimize' }
   | { cmd: 'drag' }
   | { cmd: 'close' }
+  | AccountCommand
 
 declare global {
   interface Window {
@@ -89,6 +94,11 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const emit = (event: BackendEvent) => listener(event)
 const randomPort = () => 20000 + Math.floor(Math.random() * 25000)
 
+// Admin démarré (tâche « admin » finie) : l'étape « Compte KyberNow » continue.
+let simAdminReady = false
+let adminWaiters: (() => void)[] = []
+const adminReady = () => (simAdminReady ? Promise.resolve() : new Promise<void>((r) => adminWaiters.push(r)))
+
 async function simulate(command: Command) {
   switch (command.cmd) {
     case 'runChecks': {
@@ -104,8 +114,10 @@ async function simulate(command: Command) {
         ['audio', 'ok', t('checks.audio'), t('simulation.audioDetail')],
       ]
       // ?existant dans l'adresse : simule une réinstallation par-dessus KyberNow 0.2.5.
-      const existing = new URLSearchParams(location.search).has('existant')
-        ? { version: '0.2.5', streamPort: 23456, consolePort: 34567, settings: true }
+      // &rattachee : la Station en place est déjà rattachée à un compte (pas d'étape « Compte KyberNow »).
+      const params = new URLSearchParams(location.search)
+      const existing = params.has('existant')
+        ? { version: '0.2.5', streamPort: 23456, consolePort: 34567, settings: true, attached: params.has('rattachee') }
         : null
       if (existing) items.push(['existing', 'ok', t('simulation.existing'), t('simulation.existingDetail')])
       for (const [id, status, title, detail] of items) {
@@ -150,12 +162,21 @@ async function simulate(command: Command) {
         last = target
         emit({ type: 'log', line: `${id} : terminé (simulation)` })
         emit({ type: 'task', id, status: 'done' })
+        if (id === 'admin') {
+          simAdminReady = true
+          adminWaiters.forEach((r) => r())
+          adminWaiters = []
+        }
       }
       emit({ type: 'done', lanIp: '192.168.1.100', streamPort: command.streamPort, consolePort: command.consolePort, needReboot: command.gamepads })
       break
     }
     case 'openUrl':
       window.open(command.url, '_blank', 'noopener')
+      break
+    case 'relayProbe':
+    case 'accountStart':
+      simulateAccount(command, emit, adminReady)
       break
     default:
       break

@@ -290,6 +290,8 @@
     "networkOnly": "Sign in with KyberNow only works on the network, not through the relay.",
     "webLoginOff": "This computer doesn't accept signing in with KyberNow: it isn't attached, or \"Accept KyberNow accounts\" is off.",
     "webLoginExpired": "Signing in with KyberNow expired: start again from Admin's sign-in page.",
-    "badOrigin": "Unreadable Admin address."
+    "badOrigin": "Unreadable Admin address.",
+    "alreadyAttached": "This computer is already attached to a KyberNow account: detach it in Admin first.",
+    "badEnrollToken": "Enrollment token refused: it's unknown, revoked, expired or already used for all its Stations."
   }
 }

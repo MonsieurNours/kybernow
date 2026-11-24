@@ -91,8 +91,10 @@ pub fn run(emit: &Emit) -> MacInfo {
 /// La Station déjà installée (`kybernow.json`), avec ses ports en service.
 pub fn existing() -> Option<Existing> {
     let record = super::read_record()?;
-    let settings = super::kyber_dir().join("kyber_config.toml").is_file() && super::admin_dir().join("kyber-admin.toml").is_file();
-    Some(Existing { version: record.version, stream_port: record.stream_port, console_port: record.console_port, settings })
+    let admin = std::fs::read_to_string(super::admin_dir().join("kyber-admin.toml")).ok();
+    let settings = super::kyber_dir().join("kyber_config.toml").is_file() && admin.is_some();
+    let attached = admin.as_deref().is_some_and(crate::checks::account_attached);
+    Some(Existing { version: record.version, stream_port: record.stream_port, console_port: record.console_port, settings, attached })
 }
 
 /// Pare-feu de l'application de macOS (`socketfilterfw`, lisible sans droits).

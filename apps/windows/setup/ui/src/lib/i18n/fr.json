@@ -4,6 +4,7 @@
   },
   "steps": {
     "welcome": "Bienvenue",
+    "account": "Compte KyberNow",
     "install": "Installation",
     "done": "C'est prêt"
   },
@@ -54,6 +55,7 @@
     "analysing": "Vérification…"
   },
   "install": {
+    "connected": "Connecté : {email}",
     "rows": {
       "close": {
         "title": "Fermeture de KyberNow Link",
@@ -100,6 +102,7 @@
     "showDetail": "Voir le détail"
   },
   "done": {
+    "connected": "KyberNow Link s'ouvrira connecté à {email}.",
     "updateLabel": "Mise à jour terminée",
     "installLabel": "Installation terminée",
     "title": "KyberNow Link est prête.",
@@ -157,5 +160,42 @@
     "running": "Elle sera fermée pendant l'installation : une session en cours sera coupée.",
     "failed": "Impossible d'installer les fichiers dans C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
     "finished": "installation terminée"
+  },
+  "account": {
+    "title": "Votre compte KyberNow",
+    "lead": "Connectez-vous pour retrouver vos ordinateurs dès l'ouverture de KyberNow Link. Facultatif : vous pouvez aussi ajouter un ordinateur sur votre réseau, ou rejoindre avec un code.",
+    "signin": "Se connecter",
+    "signinDetail": "La page du relais s'ouvre dans cette fenêtre (passkey par Windows Hello).",
+    "signup": "Créer un compte",
+    "signupDetail": "Gratuit, en une minute.",
+    "relayLabel": "Relais :",
+    "otherRelay": "Autre relais…",
+    "laterNote": "Vous pourrez aussi vous connecter depuis l'accueil de KyberNow Link.",
+    "later": "Plus tard",
+    "back": "← Retour",
+    "created": "Compte créé : se connecter",
+    "retry": "Réessayer",
+    "failedTitle": "La connexion n'a pas abouti",
+    "cancelled": "La connexion a été annulée sur la page du relais.",
+    "failed": "Le relais n'a pas ouvert la session de cet appareil ({reason}).",
+    "simulation": "Simulation",
+    "simulationLead": "Ici s'affiche la page de connexion de {relay}, puis « Connecter KyberNow Link sur ce PC ? ».",
+    "simulationSignup": "Ici s'affiche la création d'un compte sur {relay} ; une fois le compte créé, « Compte créé : se connecter ».",
+    "simulationConnect": "Connecter",
+    "relay": {
+      "title": "Autre relais",
+      "lead": "Un relais installé chez vous ou par votre organisation. Ses comptes sont les siens : votre compte du relais KyberNow n'y existe pas.",
+      "address": "Adresse du relais",
+      "hint": "Sans port, c'est le 443. Un relais signé par lui-même : ajoutez son empreinte après #sha256:",
+      "checking": "Vérification…",
+      "badAddress": "Adresse illisible : hôte, hôte:port, éventuellement suivi de #sha256:…",
+      "unreachable": "Relais injoignable ({reason}).",
+      "joined": "Relais joint · version {version} · {accounts}",
+      "accountsOn": "comptes activés",
+      "accountsOff": "sans comptes",
+      "noAccounts": "Ce relais n'a pas de comptes : KyberNow Link s'en servira sans compte. Pour vous connecter, choisissez un autre relais.",
+      "back": "Revenir au relais KyberNow",
+      "use": "Utiliser ce relais"
+    }
   }
 }

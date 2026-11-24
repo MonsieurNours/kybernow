@@ -15,12 +15,18 @@ export type BackendEvent =
   | { type: 'log'; line: string }
   | { type: 'done' }
   | { type: 'failed'; task: string; message: string }
+  | { type: 'relayProbed'; input: string; address: string; ok: boolean; version: string | null; accounts: boolean; error: string | null }
+  | { type: 'accountSignedIn'; relay: string; name: string; email: string }
+  | { type: 'accountFailed'; code: string; message: string }
 
 export type Command =
   | { cmd: 'runChecks' }
   | { cmd: 'install'; desktop: boolean }
   | { cmd: 'launch' }
   | { cmd: 'openUrl'; url: string }
+  | { cmd: 'relayProbe'; address: string }
+  | { cmd: 'accountView'; relay: string; signup: boolean; x: number; y: number; width: number; height: number }
+  | { cmd: 'accountViewHide' }
   | { cmd: 'minimize' }
   | { cmd: 'drag' }
   | { cmd: 'close' }
@@ -124,6 +130,15 @@ async function simulate(command: Command) {
     case 'openUrl':
       window.open(command.url, '_blank', 'noopener')
       break
+    case 'relayProbe': {
+      await wait(600)
+      const a = command.address.toLowerCase()
+      const address = a.replace(/^https:\/\//, '').replace(/\/+$/, '')
+      if (/\s/.test(a) || !a.includes('.')) emit({ type: 'relayProbed', input: command.address, address: '', ok: false, version: null, accounts: false, error: 'bad_address' })
+      else if (a.includes('injoignable')) emit({ type: 'relayProbed', input: command.address, address, ok: false, version: null, accounts: false, error: 'connexion refusée' })
+      else emit({ type: 'relayProbed', input: command.address, address, ok: true, version: '0.9.10', accounts: !a.includes('sans-comptes'), error: null })
+      break
+    }
     default:
       break
   }

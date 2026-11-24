@@ -41,6 +41,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/update", get(local_update))
         .route("/api/local/update/check", post(local_update_check))
         .route("/api/local/update/install", post(local_update_install))
+        // Comptes KyberNow depuis l'installateur de la Station (docs/comptes.md, « Dans les installateurs »).
+        .route("/api/local/account", get(crate::accounts::local_get))
+        .route("/api/local/account/relay", put(crate::accounts::local_relay))
+        .route("/api/local/account/attach", post(crate::accounts::local_attach).delete(crate::accounts::local_cancel))
+        .route("/api/local/account/enroll", post(crate::accounts::local_enroll))
         // KyberNow Share depuis le PC (icône près de l'horloge, ou accueil d'Admin avec sa session).
         .route("/api/local/displays", get(share_api::local_displays))
         .route("/api/local/share", get(share_api::local_get).delete(share_api::local_close))
@@ -362,7 +367,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 /// Les routes `/api/local/*` : depuis l'ordinateur lui-même (loopback, aussi
 /// en IPv4 projeté en IPv6) **et** avec le jeton local de la session de
 /// l'utilisateur (`x-kyber-local`, voir `local_token.rs`).
-fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
+pub(crate) fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
     if !peer.ip().to_canonical().is_loopback() {
         return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localOnly")));
     }

@@ -290,6 +290,8 @@
     "networkOnly": "Se connecter avec KyberNow ne marche que sur le réseau, pas par le relais.",
     "webLoginOff": "Cet ordinateur n'accepte pas la connexion avec KyberNow : il n'est pas rattaché, ou « Accepter les comptes KyberNow » est coupé.",
     "webLoginExpired": "La connexion avec KyberNow a expiré : recommencez depuis la page de connexion d'Admin.",
-    "badOrigin": "Adresse d'Admin illisible."
+    "badOrigin": "Adresse d'Admin illisible.",
+    "alreadyAttached": "Cet ordinateur est déjà rattaché à un compte KyberNow : détachez-le d'abord dans Admin.",
+    "badEnrollToken": "Jeton d'enrôlement refusé : il est inconnu, révoqué, échu ou a déjà servi pour toutes ses Stations."
   }
 }

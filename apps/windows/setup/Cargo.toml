@@ -38,6 +38,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tar = "0.4.46"
 zstd = "0.14.3"
+# « Votre compte KyberNow » : HTTPS vers le relais (autorités du web, ou
+# empreinte d'un relais signé par lui-même), comme l'installateur de la Station.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
+webpki-roots = "1"
 tao = { version = "0.37.1", optional = true }
 wry = { version = "0.57.0", optional = true }
 
@@ -48,6 +53,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_Security_Credentials",
     "Win32_System_Com",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",

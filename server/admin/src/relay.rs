@@ -45,6 +45,7 @@ use tokio::sync::{Notify, mpsc};
 use tokio::task::AbortHandle;
 
 use kybernow_tunnel::access::{Right, Use};
+use kybernow_tunnel::msg::Attached;
 
 use crate::AppState;
 use crate::i18n::Msg;
@@ -376,10 +377,33 @@ impl Relay {
     /// l'ordinateur, montré dans la console.
     pub async fn attach_code(&self, name: &str) -> Result<AttachCode, TunnelError> {
         self.begin_attach();
+        self.wait_joined().await?.attach_code(name).await
+    }
+
+    /// Enrôle la Station avec un jeton d'enrôlement d'organisation
+    /// (docs/comptes.md, « Dans les installateurs », lot 5), par la connexion
+    /// de contrôle : la réponse `attached` est à épingler
+    /// ([`crate::accounts::on_attached`], le rattachement est demandé).
+    /// L'agent démarre s'il ne tournait pas ; relais pas joint en 10 s :
+    /// [`TunnelError::Unreachable`].
+    pub async fn enroll(&self, token: &str, name: &str) -> Result<Attached, TunnelError> {
+        self.begin_attach();
+        let answer = match self.wait_joined().await {
+            Ok(agent) => agent.enroll(token, name).await,
+            Err(e) => Err(e),
+        };
+        if answer.is_err() {
+            self.attach_done();
+        }
+        answer
+    }
+
+    /// L'agent, une fois le relais joint (10 s au plus : la veille le démarre).
+    async fn wait_joined(&self) -> Result<Arc<Agent>, TunnelError> {
         let deadline = Instant::now() + Duration::from_secs(10);
-        let agent = loop {
+        loop {
             if let Some(a) = self.joined_agent() {
-                break a;
+                return Ok(a);
             }
             if Instant::now() >= deadline {
                 let reason = match self.agent().map(|a| a.state()) {
@@ -389,31 +413,7 @@ impl Relay {
                 return Err(TunnelError::Unreachable(reason));
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
-        };
-        agent.attach_code(name).await
-    }
-
-    /// Présente un jeton d'enrôlement d'organisation au relais (docs/comptes.md,
-    /// « Dans les installateurs », lot 5) ; la réponse `attached` se prend
-    /// comme un rattachement demandé.
-    pub async fn enroll(&self, token: &str, name: &str) -> Result<kybernow_tunnel::msg::Attached, TunnelError> {
-        self.begin_attach();
-        let deadline = Instant::now() + Duration::from_secs(20);
-        let agent = loop {
-            if let Some(a) = self.joined_agent() {
-                break a;
-            }
-            if Instant::now() >= deadline {
-                self.attach_done();
-                return Err(TunnelError::Timeout);
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        };
-        let answer = agent.enroll(token, name).await;
-        if answer.is_err() {
-            self.attach_done();
         }
-        answer
     }
 
     /// Détachée dans Admin : le relais l'apprend tout de suite s'il est joint,
@@ -1458,6 +1458,9 @@ mod tests {
             (&get, "/api/status"), (&get, "/api/shares"), (&get, "/kybernow/sessions"),
             (&get, "/api/account"), (&Method::PUT, "/api/account"), (&get, "/api/account/access"), (&post, "/api/account/access/ab/block"),
             (&post, "/api/account/attach"),
+            (&get, "/api/local/account"),
+            (&post, "/api/local/account/attach"),
+            (&post, "/api/local/account/enroll"),
             (&post, "/api/stream/station/other"),
         ] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");

@@ -684,6 +684,12 @@ impl AppState {
             listen_port: 0,
         }))
     }
+
+    /// Avec une empreinte d'Admin : l'agent du relais peut alors démarrer (essais du relais simulé).
+    pub fn with_tls_fingerprint(mut self, fingerprint: &str) -> Self {
+        Arc::get_mut(&mut self.0).expect("état neuf").tls_fingerprint = Some(fingerprint.to_string());
+        self
+    }
 }
 
 impl AppState {

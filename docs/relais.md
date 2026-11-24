@@ -59,7 +59,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 | `hello` | Station → relais | `v`, `role: "station"`, `version` (Admin), `admin_fp` (empreinte d'Admin), `sig` (signature de la Station sur `admin_fp`, ci-dessous), `codes` (codes à garder, après une reconnexion) |
 | `hello` | app → relais | `v`, `role: "client"`, `station` (identifiant, ou absent pour une connexion qui ne sert qu'à `status`), `token` |
 | `welcome` | relais → bout | `v`, `id` (identifiant de la Station, ou du client), `relay` (version du relais) ; pour une app : `online` (la Station est-elle là) ; pour la Station : `codes` (ceux de `hello` que le relais a gardés ; les autres sont à réserver de nouveau) |
-| `error` | relais → bout | `req` (si c'est une réponse), `code` : `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts` ; `message` facultatif (journaux, jamais affiché tel quel) |
+| `error` | relais → bout | `req` (si c'est une réponse), `code` : `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts`, `enroll_refused` ; `message` facultatif (journaux, jamais affiché tel quel) |
 | `reserve` | Station → relais | `req`, `preferred` (code voulu, facultatif) |
 | `reserved` | relais → Station | `req`, `code` (le code voulu s'il est libre, sinon un autre) |
 | `release` | Station → relais | `code` |
@@ -77,7 +77,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 | `attach_request` / `attach_code` | Station → relais / relais → Station | Comptes KyberNow : code de rattachement (docs/comptes.md, « Rattachement et appareils sur le relais ») |
 | `attach_status`, `detach` | Station → relais | Où en est le rattachement ; détachée dans Admin |
 | `attached` / `detached` | relais → Station | Rattachée (relais, compte, propriétaire, clés) ; détachée dans la console |
-| `enroll` | Station → relais | Lot 5 : jeton d'enrôlement d'organisation ; réponse `attached` ou `error` (`enroll_refused`) (docs/comptes.md, « Personnes, droits et organisations ») |
+| `enroll` | Station → relais | Comptes KyberNow, lot 5 : enrôlement (installation silencieuse) par un jeton d'organisation ; réponse `attached` (avec `req`) ou `error` `enroll_refused` (raison dans `message`) / `no_accounts` (docs/comptes.md, « Personnes, droits et organisations » et « Installateurs ») |
 
 **Signature** : `sig` est la signature Ed25519, par la clé de la Station, du texte `kybernow-relay/1 admin_fp ` suivi de `admin_fp`, en base64. La clé publique est celle du certificat client : le relais la redonne (`station_key`, SPKI en DER, base64) avec le code, et tout appareil qui connaît l'identifiant de la Station vérifie que la clé lui correspond et que la signature tient.
 

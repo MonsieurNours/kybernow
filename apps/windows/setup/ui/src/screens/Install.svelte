@@ -48,6 +48,12 @@
           ? t('install.installed', { version: __APP_VERSION__ })
           : t('install.lead')}
     </p>
+    {#if app.account.signedIn}
+      <span class="connected">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+        {t('install.connected', { email: app.account.signedIn.email || app.account.signedIn.name })}
+      </span>
+    {/if}
   </div>
   {#if showLog || app.failure}
     <pre bind:this={logBox} class="mono">{app.log.join('\n') || t('install.preparingLog')}</pre>
@@ -89,6 +95,14 @@
 </div>
 
 <style>
+  .connected {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--ok-text);
+  }
+
   .install {
     flex: 1;
     min-height: 0;
