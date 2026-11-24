@@ -362,7 +362,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 /// Les routes `/api/local/*` : depuis l'ordinateur lui-même (loopback, aussi
 /// en IPv4 projeté en IPv6) **et** avec le jeton local de la session de
 /// l'utilisateur (`x-kyber-local`, voir `local_token.rs`).
-fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
+pub(crate) fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
     if !peer.ip().to_canonical().is_loopback() {
         return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localOnly")));
     }

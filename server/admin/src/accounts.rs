@@ -23,13 +23,14 @@
 //! `kyber-admin account-token` signe des jetons avec elle.
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use axum::Json;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{ConnectInfo, Path as UrlPath, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use kybernow_tunnel::TunnelError;
@@ -501,6 +502,11 @@ pub fn local_view(s: &AppState) -> Value {
     v
 }
 
+/// Depuis l'ordinateur lui-même, avec le jeton local (comme toutes les routes `/api/local/*`).
+fn local_guard(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<(), Response> {
+    crate::api::local_only(s, peer, headers).map_err(IntoResponse::into_response)
+}
+
 fn refuse(status: StatusCode, code: &str, msg: Msg) -> Response {
     (status, Json(json!({ "error": msg.text(), "code": code }))).into_response()
 }
@@ -535,12 +541,18 @@ pub struct LocalRelayBody {
 }
 
 /// `GET /api/local/account` : où en est le rattachement.
-pub async fn local_get(State(s): State<AppState>) -> Json<Value> {
-    Json(local_view(&s))
+pub async fn local_get(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> Response {
+    if let Err(r) = local_guard(&s, peer, &headers) {
+        return r;
+    }
+    Json(local_view(&s)).into_response()
 }
 
 /// `PUT /api/local/account/relay {relay}` : le relais choisi, sans rattacher (« Plus tard »).
-pub async fn local_relay(State(s): State<AppState>, Json(body): Json<LocalRelayBody>) -> Response {
+pub async fn local_relay(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LocalRelayBody>) -> Response {
+    if let Err(r) = local_guard(&s, peer, &headers) {
+        return r;
+    }
     if body.relay.is_none() {
         return refuse(StatusCode::BAD_REQUEST, "bad_relay", Msg::new("accounts.noRelay"));
     }
@@ -552,7 +564,10 @@ pub async fn local_relay(State(s): State<AppState>, Json(body): Json<LocalRelayB
 
 /// `POST /api/local/account/attach {relay?}` : comme « Se connecter » dans
 /// Admin, la page du relais à ouvrir (`{url, expires}`), pour la fenêtre de l'installateur.
-pub async fn local_attach(State(s): State<AppState>, Json(body): Json<LocalRelayBody>) -> Response {
+pub async fn local_attach(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LocalRelayBody>) -> Response {
+    if let Err(r) = local_guard(&s, peer, &headers) {
+        return r;
+    }
     if let Err(r) = set_relay_locally(&s, body.relay.as_deref()) {
         return r;
     }
@@ -560,11 +575,14 @@ pub async fn local_attach(State(s): State<AppState>, Json(body): Json<LocalRelay
 }
 
 /// `DELETE /api/local/account/attach` : l'installateur abandonne (« Plus tard », « Retour »).
-pub async fn local_cancel(State(s): State<AppState>) -> Json<Value> {
+pub async fn local_cancel(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap) -> Response {
+    if let Err(r) = local_guard(&s, peer, &headers) {
+        return r;
+    }
     if !s.settings.lock().unwrap().account.attached() {
         s.relay.attach_done();
     }
-    Json(local_view(&s))
+    Json(local_view(&s)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -586,7 +604,10 @@ pub fn enroll_token_ok(token: &str) -> bool {
 /// d'une flotte (`/enroll=<jeton>`). Le jeton part au relais par la connexion
 /// de contrôle (`enroll`) ; sa réponse `attached` est épinglée comme un
 /// rattachement confirmé dans la console.
-pub async fn local_enroll(State(s): State<AppState>, Json(body): Json<EnrollBody>) -> Response {
+pub async fn local_enroll(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<EnrollBody>) -> Response {
+    if let Err(r) = local_guard(&s, peer, &headers) {
+        return r;
+    }
     let token = body.token.trim();
     if !enroll_token_ok(token) {
         return refuse(StatusCode::BAD_REQUEST, "bad_token", Msg::new("accounts.badEnrollToken"));
@@ -1219,6 +1240,37 @@ mod tests {
 
     // --- Routes locales de l'installateur ---
 
+    /// L'ordinateur lui-même.
+    fn here() -> ConnectInfo<SocketAddr> {
+        ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 50000)))
+    }
+
+    /// L'en-tête du jeton local, tiré s'il ne l'est pas encore.
+    fn local(s: &AppState) -> HeaderMap {
+        let file = s.data_dir.join(crate::local_token::FILE);
+        if !file.exists() {
+            s.local_token.renew();
+        }
+        let mut h = HeaderMap::new();
+        h.insert(crate::local_token::HEADER, std::fs::read_to_string(file).unwrap().trim().parse().unwrap());
+        h
+    }
+
+    #[tokio::test]
+    async fn les_routes_de_l_installateur_demandent_l_ordinateur_et_le_jeton_local() {
+        let (s, _dir) = state();
+        let far = ConnectInfo(SocketAddr::from(([192, 168, 1, 20], 50000)));
+        let (status, _) = body(local_get(State(s.clone()), far, local(&s)).await).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "depuis le réseau");
+        let (status, _) = body(local_enroll(State(s.clone()), here(), HeaderMap::new(), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: None })).await).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "sans jeton local");
+        let (status, _) = body(local_attach(State(s.clone()), far, local(&s), Json(LocalRelayBody::default())).await).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, v) = body(local_get(State(s.clone()), here(), local(&s)).await).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["attached"], false);
+    }
+
     async fn body(r: Response) -> (StatusCode, Value) {
         let status = r.status();
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
@@ -1237,19 +1289,19 @@ mod tests {
     #[tokio::test]
     async fn l_installateur_regle_le_relais_tant_que_la_station_n_est_pas_rattachee() {
         let (s, _dir) = state();
-        let (status, v) = body(local_relay(State(s.clone()), Json(LocalRelayBody { relay: Some("https://relais.exemple.org:9443/".into()) })).await).await;
+        let (status, v) = body(local_relay(State(s.clone()), here(), local(&s), Json(LocalRelayBody { relay: Some("https://relais.exemple.org:9443/".into()) })).await).await;
         assert_eq!(status, StatusCode::OK, "{v}");
         assert_eq!(v["server"], "relais.exemple.org:9443");
         assert_eq!(v["attached"], false);
-        let (status, v) = body(local_relay(State(s.clone()), Json(LocalRelayBody { relay: Some("pas une adresse".into()) })).await).await;
+        let (status, v) = body(local_relay(State(s.clone()), here(), local(&s), Json(LocalRelayBody { relay: Some("pas une adresse".into()) })).await).await;
         assert_eq!((status, v["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_relay")));
         // Rattachée : ni autre relais, ni autre rattachement, ni enrôlement par l'installateur.
         attach(&s, &signer());
-        let (status, v) = body(local_relay(State(s.clone()), Json(LocalRelayBody { relay: Some("share.kybernow.app".into()) })).await).await;
+        let (status, v) = body(local_relay(State(s.clone()), here(), local(&s), Json(LocalRelayBody { relay: Some("share.kybernow.app".into()) })).await).await;
         assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("already_attached")));
-        let (status, v) = body(local_attach(State(s.clone()), Json(LocalRelayBody::default())).await).await;
+        let (status, v) = body(local_attach(State(s.clone()), here(), local(&s), Json(LocalRelayBody::default())).await).await;
         assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("already_attached")));
-        let (status, v) = body(local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: None })).await).await;
+        let (status, v) = body(local_enroll(State(s.clone()), here(), local(&s), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: None })).await).await;
         assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("already_attached")));
         assert_eq!(s.settings.lock().unwrap().relay.server(), "relais.exemple.org:9443");
     }
@@ -1257,9 +1309,9 @@ mod tests {
     #[tokio::test]
     async fn sans_relais_ni_jeton_lisible_rien_ne_part() {
         let (s, _dir) = state();
-        let (status, v) = body(local_enroll(State(s.clone()), Json(EnrollBody { token: "kne 7Q".into(), relay: None })).await).await;
+        let (status, v) = body(local_enroll(State(s.clone()), here(), local(&s), Json(EnrollBody { token: "kne 7Q".into(), relay: None })).await).await;
         assert_eq!((status, v["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_token")));
-        let (status, v) = body(local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: Some(" ".into()) })).await).await;
+        let (status, v) = body(local_enroll(State(s.clone()), here(), local(&s), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: Some(" ".into()) })).await).await;
         assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("no_relay")));
         assert!(!s.relay.attaching());
     }
@@ -1302,13 +1354,13 @@ mod tests {
         crate::relay::supervise(s.clone(), axum::Router::new());
         let addr = relay.addr.to_string();
 
-        let refused = local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_mauvais_jeton".into(), relay: Some(addr.clone()) })).await;
+        let refused = local_enroll(State(s.clone()), here(), local(&s), Json(EnrollBody { token: "kne_mauvais_jeton".into(), relay: Some(addr.clone()) })).await;
         let status = refused.status();
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(!s.settings.lock().unwrap().account.attached());
         assert!(!s.relay.attaching());
 
-        let ok = local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_bon_jeton".into(), relay: Some(addr.clone()) })).await;
+        let ok = local_enroll(State(s.clone()), here(), local(&s), Json(EnrollBody { token: "kne_bon_jeton".into(), relay: Some(addr.clone()) })).await;
         assert_eq!(ok.status(), StatusCode::OK);
         let settings = s.settings.lock().unwrap().clone();
         assert!(settings.account.attached());
