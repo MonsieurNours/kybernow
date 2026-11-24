@@ -750,6 +750,102 @@ pub fn run(dir: &Path, lang: &str) {
     lend_shots(&mut app, &mut cv, &assets, &video, dir);
     // Les consoles PlayStation (docs/playstation.md ; textes : docs/link-ui.md, « Consoles PlayStation »).
     playstation_shots(&mut app, &mut cv, &assets, &video, dir);
+    // Les comptes KyberNow (docs/comptes.md) : accueil vide, code, accueil avec un compte, réglages.
+    account_shots(en, &mut cv, &assets, dir);
+}
+
+// MARK: - Comptes KyberNow
+
+fn kn_lea() -> crate::model::KnAccount {
+    crate::model::KnAccount { relay: "share.kybernow.app".into(), token: "jeton".into(), account: crate::model::KnUser { id: "acc_lea".into(), name: "Léa Martin".into(), email: "lea@exemple.org".into() }, ..Default::default() }
+}
+
+fn kn_computer(station: &str, name: &str, owner: Option<&str>) -> crate::model::KnComputer {
+    crate::model::KnComputer {
+        account: kn_lea().key(),
+        relay: "share.kybernow.app".into(),
+        station: station.into(),
+        name: name.into(),
+        mine: owner.is_none(),
+        owner: crate::model::KnOwner { kind: "person".into(), name: owner.unwrap_or("Léa Martin").into(), ..Default::default() },
+        online: true,
+        admin_fp: Some(format!("sha256:{station}")),
+        ..Default::default()
+    }
+}
+
+fn kn_code() -> crate::accounts::TvCodeUi {
+    crate::accounts::TvCodeUi {
+        code: "KQ7M-4XPA".into(),
+        url_label: "share.kybernow.app/tv".into(),
+        url_complete: "https://share.kybernow.app/compte/appareil?code=KQ7M-4XPA".into(),
+        relay: "share.kybernow.app".into(),
+        expires_at: crate::model::now_secs() + 9 * 60 - 20,
+    }
+}
+
+/// Le téléviseur sans ordinateur.
+fn empty(en: bool) -> App {
+    let demo = demo(en);
+    let mut app = App::new(Store::default());
+    app.tv = demo.tv.clone();
+    app.net = demo.net.clone();
+    app
+}
+
+/// Un compte connecté : ses ordinateurs à l'accueil, à côté d'un ordinateur appairé, avec leurs pastilles (calculées
+/// par le pilote, ici écrites à la main).
+fn with_account(en: bool) -> App {
+    let mut app = demo(en);
+    app.store.hosts.truncate(1);
+    app.found.clear();
+    app.store.put_account(kn_lea());
+    let list = vec![kn_computer("st_atelier", "Bureau", None), kn_computer("st_hugo", "PC d'Hugo", Some("Hugo Bernard"))];
+    app.account_computers(&kn_lea().key(), list.clone());
+    app.set_account_hosts(&list, std::collections::HashMap::new());
+    let ids: Vec<String> = app.store.account_hosts.iter().map(|a| a.id.clone()).collect();
+    let mut origins = std::collections::HashMap::new();
+    origins.insert("a".to_string(), crate::i18n::tr("Appairé", "Paired").to_string());
+    origins.insert(ids[0].clone(), crate::i18n::tr("Compte", "Account").to_string());
+    origins.insert(ids[1].clone(), if en { "Opened by Hugo".to_string() } else { "Ouvert par Hugo".to_string() });
+    app.accounts.origins = origins;
+    app.live.insert(ids[0].clone(), HostLive { online: Online::Away, ..Default::default() });
+    app.live.insert(ids[1].clone(), HostLive { online: Online::Offline, ..Default::default() });
+    app
+}
+
+/// Les comptes KyberNow (docs/link-ui.md, « Comptes KyberNow »).
+fn account_shots(en: bool, cv: &mut Canvas, assets: &Assets, dir: &Path) {
+    let mut app = empty(en);
+    app.go(Screen::Home);
+    shot(&mut app, cv, assets, None, dir, "40-comptes-accueil-vide");
+    app.activate(Target::AccountSignIn);
+    shot(&mut app, cv, assets, None, dir, "41a-comptes-code-demande");
+    let attempt = app.accounts.flow.attempt;
+    app.account_code(attempt, Ok(kn_code()));
+    shot(&mut app, cv, assets, None, dir, "41-comptes-code");
+    app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+    shot(&mut app, cv, assets, None, dir, "42-comptes-code-refuse");
+    app.activate(Target::AccountOtherRelay);
+    for c in "relais.exemple.org:9443".chars() {
+        app.nav(crate::app::Nav::Char(c));
+    }
+    app.accounts.flow.field_message = Some(crate::i18n::tr("Ce relais n'a pas de comptes KyberNow.", "This relay has no KyberNow accounts.").into());
+    shot(&mut app, cv, assets, None, dir, "43-comptes-autre-relais");
+
+    let mut app = with_account(en);
+    app.store.selected = Some(app.store.account_hosts[0].id.clone());
+    app.go(Screen::Home);
+    shot(&mut app, cv, assets, None, dir, "44-comptes-accueil");
+    app.open_settings(true, Screen::Home);
+    app.section = crate::app::APP_SECTIONS.iter().position(|s| *s == Section::Accounts).unwrap_or(1);
+    app.focus = Target::Setting(crate::app::Setting::AccountManage(0));
+    shot(&mut app, cv, assets, None, dir, "45-comptes-reglages");
+    app.adjust_for_preview(crate::app::Setting::AccountSignOut(0));
+    shot(&mut app, cv, assets, None, dir, "46-comptes-se-deconnecter");
+    app.dialog = None;
+    app.adjust_for_preview(crate::app::Setting::AccountManage(0));
+    shot(&mut app, cv, assets, None, dir, "47-comptes-gerer");
 }
 
 /// Une PS5 associée avec deux comptes, une PS4 trouvée sur le réseau, un appareil qui attend un envoi.
@@ -1103,6 +1199,88 @@ mod tests {
     use crate::app::{
         app_label, duration_label, format_code, guests_label, share_tile, Action, LendOp, Nav, ShareMove, ShareOp, NAME_MAX,
     };
+
+    // MARK: - Comptes KyberNow
+
+    /// Les éléments choisissables tiennent dans l'écran et ne se chevauchent pas.
+    fn fits(hits: &[(Target, crate::app::Rect)], what: &str) {
+        for (t, r) in hits {
+            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 1920.5 && r.y + r.h <= 1080.5, "{what} : {t:?} sort de l'écran ({r:?})");
+        }
+        for (i, (a, ra)) in hits.iter().enumerate() {
+            for (b, rb) in hits.iter().skip(i + 1) {
+                let overlap = ra.x < rb.x + rb.w - 0.5 && rb.x < ra.x + ra.w - 0.5 && ra.y < rb.y + rb.h - 0.5 && rb.y < ra.y + ra.h - 0.5;
+                assert!(!overlap || a == b, "{what} : {a:?} et {b:?} se chevauchent");
+            }
+        }
+    }
+
+    /// Sans ordinateur : « Se connecter à un compte KyberNow » a le focus, au-dessus de la rangée (ajout, « Rejoindre
+    /// avec un code ») ; les réglages de l'app restent à la croix ; tout tient, en français et en anglais.
+    #[test]
+    fn empty_home_offers_an_account() {
+        let assets = Assets::load();
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            let mut app = empty(en);
+            let mut cv = Canvas::new();
+            app.go(Screen::Home);
+            assert_eq!(app.focus, Target::AccountSignIn);
+            let hits = ui::draw(&app, &mut cv, &assets);
+            fits(&hits, "accueil vide");
+            let signin = hits.iter().find(|(t, _)| *t == Target::AccountSignIn).expect("se connecter").1;
+            let add = hits.iter().find(|(t, _)| *t == Target::AddCard).expect("ajouter").1;
+            assert!(add.y > signin.y + signin.h);
+            app.hits = hits;
+            app.nav(Nav::Down);
+            assert!(matches!(app.focus, Target::AddCard | Target::JoinCard), "la croix mène aux boutons de toujours");
+            app.nav(Nav::Up);
+            app.nav(Nav::Up);
+            assert_eq!(app.focus, Target::AppSettings);
+        }
+    }
+
+    /// L'écran du code, refusé, un autre relais (le pavé d'une adresse), et « Gérer le compte » : tout tient.
+    #[test]
+    fn account_screens_fit() {
+        crate::i18n::force_english(false);
+        let assets = Assets::load();
+        let mut cv = Canvas::new();
+        let mut app = empty(false);
+        app.activate(Target::AccountSignIn);
+        let attempt = app.accounts.flow.attempt;
+        app.account_code(attempt, Ok(kn_code()));
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "code");
+        assert!(hits.iter().any(|(t, _)| *t == Target::AccountOtherRelay) && hits.iter().any(|(t, _)| *t == Target::AccountBack));
+        app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "refusé");
+        assert!(hits.iter().any(|(t, _)| *t == Target::AccountNewCode));
+        app.activate(Target::AccountOtherRelay);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "autre relais");
+        for t in [Target::Key('.'), Target::Key(':'), Target::KeyErase, Target::KeyOk, Target::AccountRelayGo] {
+            assert!(hits.iter().any(|(x, _)| *x == t), "{t:?}");
+        }
+        let mut app = with_account(false);
+        app.open_settings(true, Screen::Home);
+        app.section = crate::app::APP_SECTIONS.iter().position(|s| *s == Section::Accounts).unwrap();
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "réglages");
+        for s in [crate::app::Setting::AccountManage(0), crate::app::Setting::AccountSignOut(0), crate::app::Setting::AccountAdd] {
+            assert!(hits.iter().any(|(t, _)| *t == Target::Setting(s)), "{s:?}");
+        }
+        app.adjust_for_preview(crate::app::Setting::AccountManage(0));
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "gérer");
+        // L'accueil : trois ordinateurs, un exemplaire chacun.
+        let mut app = with_account(false);
+        app.go(Screen::Home);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::Host(_))).count(), 3);
+        assert_eq!(app.origin("a"), Some("Appairé"));
+    }
 
     /// Les réglages s'atteignent à la croix depuis « Se connecter », sans
     /// touche particulière de la télécommande (télécommande tierce, manette).

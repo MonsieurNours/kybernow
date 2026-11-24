@@ -691,7 +691,7 @@ mod tests {
         let acts = app.account_unknown_computer(&id, "Cet ordinateur n'est plus sur votre compte.".into());
         assert_eq!(acts, vec![Action::Save, Action::AccountsSync]);
         assert_eq!(app.store.account_computers, vec![b.clone()]);
-        app.set_account_hosts(&[b.clone()], HashMap::new());
+        app.set_account_hosts(std::slice::from_ref(&b), HashMap::new());
         assert!(app.store.host(&id).is_none());
         // La session d'appareil fermée : le compte et ses ordinateurs partent.
         let acts = app.account_signed_out(&lea().key(), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.".into());

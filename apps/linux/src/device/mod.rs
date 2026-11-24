@@ -997,6 +997,8 @@ pub fn run(args: &[String]) {
             || app.screen == Screen::Gamepads
             || app.screen == Screen::Add
             || app.screen == Screen::Join
+            // Comptes KyberNow : l'attente du code ou de la page du relais (indicateur, « Le code change dans {n} min. »).
+            || app.screen == Screen::Account
             || app.sessions.iter().any(|s| s.share_busy || s.share_copied.is_some_and(|(t, _)| t.elapsed().as_secs_f32() < 4.2))
             // Le lien du relais en préparation : le cercle d'attente tourne, et la fenêtre se redessine à la fin de l'attente.
             || app.sessions.iter().any(|s| s.share.as_ref().is_some_and(crate::app::ShareView::relay_wait_redraw) || s.lend.as_ref().is_some_and(crate::app::LendHostView::relay_wait_redraw))
@@ -2695,13 +2697,14 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         },
         Event::LendHost { session, result } => app.lend_reply(session, result),
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
-        // Un lien transmis : la fenêtre de l'app passe devant (celle de l'accueil), le lien s'ouvre (ou attend la fin
-        // des sessions).
+        // Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (l'accueil refait quand ils arrivent).
         Event::Account(e) => {
             if accounts::handle(e, app, actions) {
                 accounts::sync(app);
             }
         }
+        // Un lien transmis : la fenêtre de l'app passe devant (celle de l'accueil), le lien s'ouvre (ou attend la fin
+        // des sessions).
         Event::Link(l) => {
             if app.sessions.is_empty() {
                 sdl::raise(wins.list[0].window);

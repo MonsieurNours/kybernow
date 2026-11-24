@@ -27,7 +27,15 @@ use crate::model::{new_id, Borrowed, Host, HostRelay, HostSettings};
 /// aperçu s'il en manque un.
 pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
     std::thread::spawn(move || {
-        let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+        // Un ordinateur d'un compte KyberNow que la découverte ne voit pas sur le réseau : pas d'adresse à sonder ;
+        // « Hors de chez vous » si le relais le dit connecté (jamais de sonde par le relais toutes les 8 s).
+        if host.address.is_empty() && super::accounts::access(&host.id).is_some() {
+            let away = away_from_home(&host, &ConsoleError::Network(String::from("absent du réseau")));
+            let _ = tx.send(Event::Polled { id: host.id.clone(), polled: Polled { away, ..Default::default() } });
+            return;
+        }
+        // Un ordinateur d'un compte : le jeton d'accès du relais ; un ordinateur appairé : le compte de l'appareil.
+        let c = super::accounts::console_of(&host);
         match c.info() {
             Ok(info) => {
                 let station = match &info.station {
@@ -153,7 +161,7 @@ fn wake_targets(info: &Info) -> Vec<crate::model::WakeTarget> {
 /// téléchargé et vérifié le paquet (quelques minutes au plus).
 pub fn station(host: Host, op: StationOp, force: bool, device_id: String, tx: Sender<Event>) {
     std::thread::spawn(move || {
-        let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+        let c = super::accounts::console_of(&host);
         let r = match op {
             StationOp::Restart => c.station_restart(Some(&device_id), force).map(|_| None),
             StationOp::Update => c.station_update(Some(&device_id), force).map(Some),
@@ -523,7 +531,7 @@ pub fn share_host(host: Host, op: ShareOp, tx: Sender<Event>) {
     std::thread::Builder::new()
         .name("share-host".into())
         .spawn(move || {
-            let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+            let c = super::accounts::console_of(&host);
             let result = share_run(&c, &op);
             if let Err(e) = &result {
                 log::warn!("partage : {e}");
@@ -778,7 +786,7 @@ pub fn lend_view(v: &lend::LendView) -> LendHostView {
 /// le code », « Accepter », « Refuser », « Reprendre l'ordinateur »), puis la vue du prêt telle qu'elle est.
 fn lend_run(host: &Host, op: &LendOp) -> Result<LendHostView, String> {
     let lang = kybernow_core::i18n::current();
-    let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+    let c = super::accounts::console_of(&host);
     let core_steam = |s: LendSteam| if s == LendSteam::Host { lend::LendSteam::Host } else { lend::LendSteam::Friend };
     let view = match op {
         LendOp::Code(duration, steam) => c.lend_code(*duration, core_steam(*steam)),

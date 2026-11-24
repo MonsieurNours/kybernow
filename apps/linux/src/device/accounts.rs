@@ -286,6 +286,17 @@ pub fn console(host: &Host) -> Option<Console> {
     Some(if host.address.is_empty() { c.with_relay(e.route.clone()) } else { c })
 }
 
+/// La console d'Admin d'un ordinateur de l'accueil, par le relais quand `relay` (« Hors de chez vous ») : celle d'un
+/// compte (le relais du compte), ou celle de l'appareil appairé (le relais de sa Station).
+pub fn admin(host: &Host, relay: bool) -> Console {
+    if let Some(e) = REGISTRY.lock().unwrap().as_ref().and_then(|r| r.get(&host.id)) {
+        let c = Console::account(&host.address, host.port, e.access.clone(), host.fingerprint.clone());
+        return if relay || host.address.is_empty() { c.with_relay(e.route.clone()) } else { c };
+    }
+    let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+    if relay { c.with_relay(super::session::relay_route(host)) } else { c }
+}
+
 /// La console d'Admin d'un ordinateur de l'accueil : celle d'un compte, ou celle de l'appareil appairé.
 pub fn console_of(host: &Host) -> Console {
     console(host).unwrap_or_else(|| Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone()))

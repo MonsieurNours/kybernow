@@ -404,6 +404,8 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 | Device session closed (from the account's page, new password) | “This account was signed out of this device: sign in again.”; its computers leave the home screen | « Ce compte a été déconnecté de cet appareil : reconnectez-vous. » |
 | App settings, section | “Accounts”; help “Create an account, change its password or delete it: on the account's page.” | « Comptes » ; aide « Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte. » |
 | One account | name, e-mail below, relay (“share.kybernow.app”); “Manage account” opens `https://{relay}/compte`; “Sign out” | « Gérer le compte » ; « Se déconnecter » |
+| “Manage account” on a TV | the QR code of `https://{relay}/compte`, below “Scan this code with your phone to open the account's page.” | « Scannez ce code avec votre téléphone pour ouvrir la page du compte. » |
+| Settings of an account computer, Station section | “KyberNow account” and the relay instead of the Admin account; no “Remove” (it leaves with the account) | « Compte KyberNow » ; pas de « Retirer » |
 | Sign out, confirmation | “Sign out of {account}? Its computers leave this device; the ones you paired stay.”; “Sign out”, “Cancel” | « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent. » |
 | Add | “Add an account”: the relay first (“share.kybernow.app” offered, “Another relay…”), then sign-in | « Ajouter un compte » |
 | No account | “No account.” and “Sign in to a KyberNow account” | « Aucun compte. » |

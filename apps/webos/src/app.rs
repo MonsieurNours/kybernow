@@ -330,6 +330,8 @@ pub enum Dialog {
     Force { host: String, op: StationOp, device: String },
     /// Prêt de l'ordinateur : « Rendre l'ordinateur à {hôte} ? » (la session d'emprunt).
     GiveBack { host: String },
+    /// Comptes KyberNow : « Se déconnecter de {compte} ? » (la clé du compte, son nom).
+    SignOut { account: String, name: String },
 }
 
 /// Attente au plus du retour de la Station : redémarrage, mise à jour.
@@ -1855,12 +1857,17 @@ pub enum Setting {
     UpdateChannel,
     /// Ouvre l'écran de test des manettes.
     Pads,
+    /// Réglages de l'app › Comptes (comptes KyberNow) : « Gérer le compte », « Se déconnecter » (indice dans
+    /// `Store::accounts`), « Ajouter un compte » (ou « Se connecter à un compte KyberNow » sans compte).
+    AccountManage(u8),
+    AccountSignOut(u8),
+    AccountAdd,
 }
 
 impl Setting {
     /// Une ligne qui agit (OK) au lieu de changer de valeur (gauche, droite).
     pub fn is_action(self) -> bool {
-        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration)
+        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd)
     }
 }
 
@@ -1880,6 +1887,8 @@ pub enum Section {
     Tv,
     /// Réglages de l'app : manettes branchées et leur test.
     Gamepads,
+    /// Réglages de l'app : les comptes KyberNow.
+    Accounts,
 }
 
 impl Section {
@@ -1893,6 +1902,7 @@ impl Section {
             Section::Station => "Station",
             Section::Tv => tr("Ce téléviseur", "This TV"),
             Section::Gamepads => tr("Manettes", "Controllers"),
+            Section::Accounts => tr("Comptes", "Accounts"),
         }
     }
 }
@@ -1900,7 +1910,7 @@ impl Section {
 /// Réglages de l'ordinateur choisi (docs/link-ui.md : six rubriques, dans cet ordre).
 pub const HOST_SECTIONS: [Section; 6] = [Section::Picture, Section::Sound, Section::Controls, Section::Network, Section::Statistics, Section::Station];
 /// Réglages de l'app sur ce téléviseur, même sans ordinateur.
-pub const APP_SECTIONS: [Section; 2] = [Section::Tv, Section::Gamepads];
+pub const APP_SECTIONS: [Section; 3] = [Section::Tv, Section::Accounts, Section::Gamepads];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -1917,6 +1927,8 @@ pub enum Screen {
     PlayStation,
     /// « Réglages de {nom} » d'une console.
     PsSettings,
+    /// Comptes KyberNow : le code (et « Un autre relais »), « Gérer le compte ».
+    Account,
 }
 
 /// Ce qu'on peut choisir.
@@ -2021,6 +2033,15 @@ pub enum Target {
     KeySpace,
     /// Les écrans des consoles PlayStation (`crate::ps`).
     Ps(crate::ps::PsTarget),
+    /// Comptes KyberNow (`crate::accounts`) : « Se connecter à un compte KyberNow » ; sur l'écran du code « Un autre
+    /// relais… », « Nouveau code », « Retour » ; « Un autre relais » : le champ « Relais », « Continuer », « Annuler ».
+    AccountSignIn,
+    AccountOtherRelay,
+    AccountNewCode,
+    AccountBack,
+    AccountRelayField,
+    AccountRelayGo,
+    AccountRelayCancel,
 }
 
 /// Ce que l'app demande au pilote du téléviseur.
@@ -2088,6 +2109,15 @@ pub enum Action {
     CheckUpdate,
     /// Consoles PlayStation (`crate::ps`).
     Ps(crate::ps::PsAction),
+    /// Comptes KyberNow : un code pour ce relais (vide : le relais public) et l'attente de son approbation
+    /// (`account::tv_code`, `tv_wait`), suivis sous ce numéro ; « Retour » l'abandonne (`AccountCancel`).
+    AccountCode { attempt: u32, relay: String },
+    AccountCancel,
+    /// « Se déconnecter » : la session d'appareil fermée chez le relais (`account::sign_out`) ; le compte est déjà oublié.
+    AccountSignOut(crate::model::KnAccount),
+    /// Les ordinateurs des comptes redemandés au relais (`account::computers`) ; l'accueil refait (`account::merge`).
+    AccountsRefresh,
+    AccountsSync,
     Quit,
 }
 
@@ -2152,6 +2182,8 @@ pub struct App {
     pub calibration: Option<CalibrationUi>,
     /// Consoles PlayStation : trouvées, leur état, l'écran d'ajout, leurs réglages.
     pub ps: crate::ps::PsUi,
+    /// Comptes KyberNow : la connexion en cours, les pastilles d'origine de l'accueil.
+    pub accounts: crate::accounts::AccountsUi,
 }
 
 /// L'écran « Réglage du HDR » (docs/hdr.md) : l'étape, le palier choisi à chaque étape, et où revenir.
@@ -2214,6 +2246,7 @@ impl App {
             pending_link: None,
             calibration: None,
             ps: crate::ps::PsUi::default(),
+            accounts: crate::accounts::AccountsUi::default(),
         }
     }
 
@@ -2286,7 +2319,10 @@ impl App {
 
     /// Les Stations trouvées qui ne sont pas déjà ajoutées.
     pub fn new_found(&self) -> Vec<&Found> {
-        self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port)).collect()
+        // Un ordinateur d'un compte annoncé sur le réseau est déjà là : même empreinte d'Admin.
+        let norm = |s: &str| s.trim().to_ascii_lowercase();
+        let of_account = |f: &Found| f.fingerprint.as_deref().is_some_and(|fp| self.store.account_hosts.iter().filter_map(|a| self.store.host(&a.id)).any(|h| h.fingerprint.as_deref().is_some_and(|hf| norm(hf) == norm(fp))));
+        self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port) && !of_account(f)).collect()
     }
 
     /// Les rubriques de l'écran des réglages ouvert.
@@ -2320,7 +2356,14 @@ impl App {
             Screen::Home if self.selected_console().is_some() => Target::Ps(crate::ps::PsTarget::Primary),
             Screen::Home => {
                 if self.store.hosts.is_empty() {
-                    if self.new_found().is_empty() { Target::AddCard } else { Target::Found(0) }
+                    // Sans ordinateur : « Se connecter à un compte KyberNow » d'abord.
+                    if !self.new_found().is_empty() {
+                        Target::Found(0)
+                    } else if self.store.borrowed.is_empty() && self.store.playstation.consoles.is_empty() {
+                        Target::AccountSignIn
+                    } else {
+                        Target::AddCard
+                    }
                 } else {
                     Target::Connect
                 }
@@ -2344,6 +2387,7 @@ impl App {
             Screen::HdrCalibration => Target::CalNext,
             Screen::PlayStation => Target::Ps(crate::ps::PsTarget::AddAccount),
             Screen::PsSettings => Target::Ps(crate::ps::PsTarget::Section(self.ps.section)),
+            Screen::Account => self.account_focus(),
         };
     }
 
@@ -2370,6 +2414,9 @@ impl App {
     /// Une touche de navigation.
     pub fn nav(&mut self, n: Nav) -> Vec<Action> {
         self.pointer = None;
+        if let Some(acts) = self.account_nav(n) {
+            return acts;
+        }
         match n {
             // « Rejoindre un partage » : OK dans un champ passe au suivant, ou rejoint quand tout est donné.
             Nav::Ok if self.screen == Screen::Join && matches!(self.focus, Target::JoinCode | Target::JoinName) => {
@@ -2569,6 +2616,7 @@ impl App {
                 if self.calibration.as_ref().is_some_and(|c| c.step > 0) { self.activate(Target::CalPrevious) } else { self.activate(Target::CalCancel) }
             }
             Screen::PlayStation | Screen::PsSettings => self.ps_back(),
+            Screen::Account => self.account_back(),
         }
     }
 
@@ -2681,6 +2729,9 @@ impl App {
             Target::Ps(t) => return self.ps_activate(t),
             Target::KeySpace => return Vec::new(),
             _ => {}
+        }
+        if let Some(acts) = self.account_activate(t) {
+            return acts;
         }
         match t {
             // Le bouton principal : se connecter ; hors ligne, réveiller
@@ -3067,6 +3118,7 @@ impl App {
                     self.focus = Target::Menu(MenuItem::Resume);
                     vec![Action::GiveBack]
                 }
+                Some(Dialog::SignOut { account, .. }) => self.account_sign_out(&account),
                 None => Vec::new(),
             },
             Target::DialogCancel => {
@@ -3086,6 +3138,8 @@ impl App {
             }
             Target::Back => self.back(),
             Target::KeySpace | Target::Ps(_) => Vec::new(),
+            // Comptes KyberNow : `account_activate`, plus haut.
+            Target::AccountSignIn | Target::AccountOtherRelay | Target::AccountNewCode | Target::AccountBack | Target::AccountRelayField | Target::AccountRelayGo | Target::AccountRelayCancel => Vec::new(),
         }
     }
 
@@ -3983,6 +4037,11 @@ impl App {
         }
     }
 
+    /// Les captures et les essais : un réglage choisi comme avec OK.
+    pub fn adjust_for_preview(&mut self, s: Setting) -> Vec<Action> {
+        self.adjust(s, 1)
+    }
+
     /// Change un réglage (gauche / droite, ou OK pour la valeur suivante).
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
         if matches!(s, Setting::HdrCalibrate | Setting::HdrCalibration) {
@@ -3996,6 +4055,9 @@ impl App {
         if s == Setting::UpdateChannel {
             self.store.app.beta = !self.store.app.beta;
             return vec![Action::Save, Action::CheckUpdate];
+        }
+        if let Some(acts) = self.account_adjust(s) {
+            return acts;
         }
         if s == Setting::Language {
             let order = ["auto", "fr", "en"];
@@ -4072,7 +4134,7 @@ impl App {
                 let t = if reliable == st.profile.reliable() { "" } else if reliable { "reliable" } else { "fast" };
                 st.set_transport(t);
             }
-            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration => {}
+            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd => {}
         }
         vec![Action::Save]
     }
@@ -4085,6 +4147,7 @@ impl App {
             Some(Dialog::Remove { host, .. }) if self.store.borrowed(&host).is_some() => Target::BorrowRemove,
             Some(Dialog::Force { op: StationOp::Restart, .. }) => Target::Setting(Setting::Restart),
             Some(Dialog::Force { op: StationOp::Update, .. }) => Target::Setting(Setting::Update),
+            Some(Dialog::SignOut { account, .. }) => Target::Setting(Setting::AccountSignOut(self.store.accounts.iter().position(|a| a.key() == account).unwrap_or(0) as u8)),
             _ => Target::Setting(Setting::Remove),
         };
     }

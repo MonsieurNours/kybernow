@@ -150,22 +150,31 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             };
             cv.text_fit(chips_x + 4.0, by + 84.0 + 44.0, Text::new(Font::Regular, 22.0, FROST_3), phrase, W - chips_x - 200.0);
         }
+        // Sans ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », le texte,
+        // « Se connecter à un compte KyberNow » et son aide (le code) ; « ou sans compte » au-dessus de la rangée, où
+        // sont « Ajouter un ordinateur ou une console » et « Rejoindre avec un code ».
         None => {
-            let y0 = 300.0;
+            let y0 = 250.0;
             cv.text(96.0, y0, Text::new(Font::Mono, 18.0, FROST_2).tracking(2.0), &tr("Bienvenue", "Welcome").to_uppercase());
-            cv.text(90.0, y0 + 120.0, Text::new(Font::Display, 104.0, FROST).tracking(-3.0), tr("Votre ordinateur,", "Your computer,"));
-            cv.text(90.0, y0 + 230.0, Text::new(Font::Display, 104.0, FROST).tracking(-3.0), tr("sur ce téléviseur.", "on this TV."));
+            cv.text_fit(90.0, y0 + 110.0, Text::new(Font::Display, 96.0, FROST).tracking(-3.0), tr("Retrouvez vos ordinateurs", "Find your computers"), W - 200.0);
             cv.paragraph(
                 96.0,
-                y0 + 300.0,
+                y0 + 170.0,
                 Text::new(Font::Regular, 24.0, FROST_2),
                 tr(
-                    "Installez KyberNow Station sur l'ordinateur Windows, puis ajoutez-le ici : il s'affiche en dessous dès qu'il est sur le réseau.",
-                    "Install KyberNow Station on the Windows computer, then add it here: it shows up below as soon as it is on the network.",
+                    "Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez.",
+                    "With a KyberNow account, your computers and the ones opened to you show up here, wherever you are.",
                 ),
-                940.0,
+                1100.0,
                 36.0,
             );
+            let by = y0 + 262.0;
+            let bw = widgets::primary(cv, f, Target::AccountSignIn, 96.0, by, tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"));
+            cv.paragraph(96.0 + bw + 36.0, by + 36.0, Text::new(Font::Regular, 22.0, FROST_3), crate::accounts::sign_in_help(), W - 96.0 - bw - 36.0 - 96.0, 30.0);
+            // « ou sans compte » : au-dessus de la rangée, dont les seules cartes sont alors l'ajout et « Rejoindre ».
+            if app.new_found().is_empty() && app.store.borrowed.is_empty() && super::consoles::card_count(app, FOUND_MAX) == (0, 0) {
+                widgets::label(cv, 96.0, H - 120.0 - 168.0 - 44.0 - 22.0, tr("ou sans compte", "or without an account"));
+            }
         }
     }
 
@@ -308,6 +317,14 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
             }
             let border = if focused { CORE } else if selected.as_deref() == Some(&h.id) { Rgba(227, 237, 240, 128) } else { BORDER };
             cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, if focused { 3.0 } else { 2.0 }, border);
+            // La pastille d'origine (« Compte », « Appairé »…), seulement quand un compte est connecté.
+            if let Some(o) = app.origin(&h.id) {
+                let style = Text::new(Font::Mono, 14.0, FROST).tracking(1.0);
+                let text = o.to_uppercase();
+                let pw = cv.text_width(style, &text).min(r.w - 48.0) + 24.0;
+                cv.rrect(r.x + 12.0, r.y + 12.0, pw, 32.0, 16.0, Rgba(5, 7, 10, 200));
+                cv.text_fit(r.x + 24.0, r.y + 33.0, style, &text, pw - 24.0);
+            }
             let name = Text::new(Font::Semibold, 21.0, FROST.alpha(dim));
             cv.text_fit(r.x, y + 168.0 + 34.0, name, &h.name, 300.0);
             let state = match live {
