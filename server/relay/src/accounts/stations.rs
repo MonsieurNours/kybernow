@@ -88,6 +88,21 @@ pub trait StationLink: Send + Sync {
     fn online(&self, station: &str) -> bool;
     /// Envoie un message à la Station, par sa connexion de contrôle ; faux si elle n'est pas là.
     fn send(&self, station: &str, msg: Msg) -> bool;
+    /// L'empreinte d'Admin de la Station connectée, signée par elle (comme
+    /// `GET /v1/codes/{code}`) : les apps l'épinglent pour l'ouvrir par le
+    /// relais, sans premier contact (`GET /v1/computers`, lot 3).
+    fn attest(&self, _station: &str) -> Option<Attest> {
+        None
+    }
+}
+
+/// L'empreinte d'Admin d'une Station et de quoi la vérifier : sa clé publique
+/// (SPKI en DER, base64), qui donne son identifiant, et sa signature.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attest {
+    pub station_key: String,
+    pub admin_fp: String,
+    pub sig: String,
 }
 
 /// La clé qui signe les jetons, et celles publiées.
@@ -171,6 +186,11 @@ impl Stations {
 
     pub fn link(&self) -> Option<Arc<dyn StationLink>> {
         self.link.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(Weak::upgrade)
+    }
+
+    /// L'empreinte d'Admin attestée de la Station, si elle est connectée.
+    pub fn attest(&self, station: &str) -> Option<Attest> {
+        self.link().and_then(|l| l.attest(station))
     }
 
     pub fn online(&self, station: &str) -> bool {

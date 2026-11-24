@@ -3,6 +3,7 @@
 // Sans l'app (captures), une partie de l'état ne sert pas.
 #![cfg_attr(not(feature = "device"), allow(dead_code))]
 
+mod accounts;
 mod app;
 mod app_time;
 #[cfg(feature = "device")]

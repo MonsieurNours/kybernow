@@ -141,11 +141,12 @@ impl Search {
 /// Un client d'Admin pour cet ordinateur : sur le réseau, ou par le relais (`relay` : l'ordinateur n'est joignable
 /// que par lui).
 fn admin(host: &Host, relay: bool) -> Option<Console> {
-    let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+    // Un ordinateur d'un compte KyberNow : le jeton d'accès du relais (`accounts::admin`).
+    let c = super::accounts::admin(host, relay);
     if !relay {
         return Some(c);
     }
-    c.with_relay(super::session::relay_route(host)).relay_twin()
+    c.relay_twin()
 }
 
 /// Les consoles que voit la Station de cet ordinateur (`GET /api/consoles`).

@@ -35,8 +35,8 @@
     <string name="home_pads_unavailable">Manettes indisponibles sur cet ordinateur</string>
     <string name="home_account_refused">Mot de passe refusé : mettez-le à jour dans les réglages.</string>
     <string name="home_certificate_changed">La Station a été réinstallée : vérifiez son empreinte dans les réglages.</string>
-    <string name="welcome_title">Retrouvez votre ordinateur</string>
-    <string name="welcome_body">Ajoutez un ordinateur équipé de KyberNow Station : sur le réseau, avec un code à accepter dans KyberNow Admin, son QR code ou son adresse.</string>
+    <string name="welcome_title">Retrouvez vos ordinateurs</string>
+    <string name="welcome_body">Avec un compte KyberNow, vos ordinateurs et ceux qu\'on vous a ouverts arrivent ici, où que vous soyez.</string>
     <string name="profile_game">Jeu</string>
     <string name="profile_desktop">Bureau</string>
     <string name="profile_max">Max</string>
@@ -384,6 +384,35 @@
     <string name="share_notice_keyboard_mouse">Vous avez le clavier et la souris.</string>
     <string name="share_notice_keyboard_mouse_back">Le clavier et la souris sont repris.</string>
     <string name="share_notice_watch">Vous regardez de nouveau.</string>
+    <string name="account_sign_in">Se connecter à un compte KyberNow</string>
+    <string name="account_sign_in_help_window">La page du relais s\'ouvre : mot de passe, passkey ou double authentification s\'y font, jamais dans l\'app. Pas encore de compte : « Créer un compte » sur cette page.</string>
+    <string name="account_sign_in_help_code">Un code s\'affiche : vous l\'approuvez depuis votre téléphone.</string>
+    <string name="account_without">ou sans compte</string>
+    <string name="account_signing_in">Connexion au compte…</string>
+    <string name="account_signed_in" formatted="true">Connecté à %1$s.</string>
+    <string name="account_code_step_scan">Scannez le QR code avec votre téléphone,</string>
+    <string name="account_code_step_open" formatted="true">ou ouvrez %1$s et entrez le code,</string>
+    <string name="account_code_step_connect">puis touchez « Connecter ».</string>
+    <string name="account_code_qr">QR code de connexion</string>
+    <string name="account_code_waiting" formatted="true">En attente de votre téléphone… Le code change dans %1$d min.</string>
+    <string name="account_code_relay" formatted="true">Relais : %1$s</string>
+    <string name="account_other_relay">Un autre relais…</string>
+    <string name="account_back">Retour</string>
+    <string name="account_code_denied">Connexion refusée sur le téléphone.</string>
+    <string name="account_code_new">Nouveau code</string>
+    <string name="account_relay_title">Un autre relais</string>
+    <string name="account_relay_field">Relais</string>
+    <string name="account_relay_help">L\'adresse du relais de votre compte, si ce n\'est pas share.kybernow.app.</string>
+    <string name="account_section">Comptes</string>
+    <string name="account_section_help">Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte.</string>
+    <string name="account_manage">Gérer le compte</string>
+    <string name="account_sign_out">Se déconnecter</string>
+    <string name="account_sign_out_confirm" formatted="true">Se déconnecter de %1$s ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent.</string>
+    <string name="account_add">Ajouter un compte</string>
+    <string name="account_none">Aucun compte.</string>
+    <string name="account_signed_out">Ce compte a été déconnecté de cet appareil : reconnectez-vous.</string>
+    <string name="account_unknown_computer">Cet ordinateur n\'est plus sur votre compte.</string>
+    <string name="account_bad_relay">Adresse du relais illisible.</string>
     <string name="share_quality_title">Qualité de l\'image</string>
     <string name="share_quality_auto">Auto</string>
     <string name="share_quality_host">Comme l\'hôte</string>

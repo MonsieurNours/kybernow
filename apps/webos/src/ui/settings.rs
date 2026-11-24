@@ -206,7 +206,7 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
         }
         Section::Statistics => statistics(cv, h, x, y, w),
         Section::Station => station(app, cv, f, h, x, y, w),
-        Section::Tv | Section::Gamepads => {}
+        Section::Tv | Section::Gamepads | Section::Accounts => {}
     }
 }
 
@@ -280,7 +280,7 @@ fn statistics(cv: &mut Canvas, h: &Host, x: f32, mut y: f32, w: f32) {
     let items = [
         (tr("Système", "System"), h.os.clone().unwrap_or_else(|| "—".into()), false),
         (tr("Carte graphique", "Graphics card"), h.gpu.clone().unwrap_or_else(|| "—".into()), false),
-        (tr("Adresse", "Address"), format!("{}:{}", h.address, h.port), true),
+        (tr("Adresse", "Address"), if h.address.is_empty() { "—".into() } else { format!("{}:{}", h.address, h.port) }, true),
         (tr("Empreinte", "Fingerprint"), fp, true),
     ];
     let col = (w - 2.0 * pad) / 2.0;
@@ -492,6 +492,13 @@ fn station(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, mut y: f
 
     // Le compte et le retrait, un peu à part.
     let y = y + 26.0;
+    // Un ordinateur d'un compte KyberNow : le compte qui le donne ; il quitte le téléviseur avec le compte
+    // (Réglages de l'app › Comptes), pas d'ici.
+    if let Some(link) = app.store.account_host(&h.id) {
+        let who = app.store.account(&link.account).map(|a| a.label()).unwrap_or_default();
+        widgets::row(cv, f, None, x, y, w, tr("Compte KyberNow", "KyberNow account"), &crate::model::relay_label(&link.relay), Value::Text(who));
+        return;
+    }
     // Sur ce téléviseur, tout compte vient du code ; Admin le confirme (`own_device`).
     let own = if live.own_device.unwrap_or(true) { tr("Accès propre à cet appareil", "This device's own access") } else { "" };
     let y = y + widgets::row(cv, f, None, x, y, w, tr("Compte", "Account"), own, Value::Text(h.user.clone())) + GAP;
@@ -548,6 +555,13 @@ pub fn dialog(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 StationOp::Update => tr("Mettre à jour quand même", "Update anyway"),
             },
         ),
+        // Comptes KyberNow : « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez
+        // appairés restent. »
+        Dialog::SignOut { name, .. } => (
+            crate::accounts::sign_out_question(name),
+            tr("Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent.", "Its computers leave this device; the ones you paired stay.").into(),
+            tr("Se déconnecter", "Sign out"),
+        ),
         // Prêt de l'ordinateur : « Rendre l'ordinateur à {hôte} ? », la question seule.
         Dialog::GiveBack { host } => (
             if english() { format!("Give the computer back to {host}?") } else { format!("Rendre l'ordinateur à {host} ?") },
@@ -573,6 +587,21 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let (x, w) = (X, WIDTH);
     let mut y = 88.0;
     match app.current_section() {
+        // Comptes KyberNow : chaque compte (« Gérer le compte » : nom, e-mail et relais ; « Se déconnecter »),
+        // « Ajouter un compte », l'aide ; sans compte, « Aucun compte. » et « Se connecter à un compte KyberNow ».
+        Section::Accounts => {
+            if app.store.accounts.is_empty() {
+                y += widgets::row(cv, f, None, x, y, w, tr("Aucun compte.", "No account."), "", Value::Text(String::new())) + GAP;
+                widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), crate::accounts::sign_in_help(), Value::Text("›".into()));
+                return;
+            }
+            for (i, a) in app.store.accounts.iter().enumerate().take(3) {
+                let who = if a.account.name.trim().is_empty() { a.relay_label() } else { format!("{} · {}", a.account.email, a.relay_label()) };
+                y += widgets::row(cv, f, s(Setting::AccountManage(i as u8)), x, y, w, &a.label(), &who, Value::Text(format!("{} ›", tr("Gérer le compte", "Manage account")))) + GAP;
+                y += widgets::row(cv, f, s(Setting::AccountSignOut(i as u8)), x, y, w, tr("Se déconnecter", "Sign out"), "", Value::Danger("›")) + GAP;
+            }
+            widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Ajouter un compte", "Add an account"), crate::accounts::accounts_help(), Value::Text("›".into()));
+        }
         Section::Gamepads => {
             y += widgets::row(cv, f, s(Setting::Pads), x, y, w, tr("Tester les manettes", "Test controllers"), tr("Touches, sticks, gâchettes et vibrations de chaque manette", "Buttons, sticks, triggers and rumble of each controller"), Value::Text("›".into())) + GAP;
             if app.pads.is_empty() {

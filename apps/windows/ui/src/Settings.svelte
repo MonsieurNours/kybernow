@@ -21,6 +21,7 @@
     thisPc,
     battery,
     start = null,
+    accountName = null,
     onremoved,
   }: {
     computer: Computer
@@ -28,6 +29,8 @@
     battery: Battery
     /** Rubrique à ouvrir (notification, menu de l'icône) ; sinon Image. */
     start?: string | null
+    /** Un ordinateur d'un compte KyberNow : le compte qui le donne (rubrique Station). */
+    accountName?: string | null
     onremoved: () => void
   } = $props()
 
@@ -395,7 +398,7 @@
       {:else if rubric === 'stats'}
         <Statistics {computer} />
       {:else}
-        <Station {computer} {onremoved} />
+        <Station {computer} {accountName} {onremoved} />
       {/if}
     </div>
   </div>

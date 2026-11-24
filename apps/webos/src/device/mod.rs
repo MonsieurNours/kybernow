@@ -6,6 +6,7 @@
 //! la fenêtre est effacée en transparent et ne montre que le menu, les
 //! capsules et le pointeur de l'ordinateur.
 
+mod accounts;
 mod jobs;
 mod link;
 mod log_file;
@@ -48,6 +49,8 @@ pub enum Event {
     Station { id: String, op: StationOp, result: Result<Option<String>, StationRefusal> },
     Preview { id: String, jpeg: Vec<u8> },
     Found(Vec<Found>),
+    /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
+    Account(accounts::AccountEvent),
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
     PairAsked { name: String, address: String },
     PairAccepted(crate::model::Host),
@@ -217,6 +220,10 @@ pub fn run(args: &[String]) {
 
     let (tx, rx) = channel::<Event>();
     jobs::discover(tx.clone());
+    // Comptes KyberNow : l'accueil d'après la liste gardée, puis les listes à jour du relais.
+    accounts::sync(&mut app);
+    accounts::refresh(&app, &tx);
+    let mut last_accounts = Instant::now();
     let mut last_update = Instant::now();
     app.update = crate::app::UpdateState::Checking;
     jobs::check_update(app.store.app.beta, tx.clone());
@@ -247,6 +254,8 @@ pub fn run(args: &[String]) {
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || (app.screen == Screen::Gamepads)
             || app.screen == Screen::Join
+            // Comptes KyberNow : l'attente du code (« Le code change dans {n} min. »).
+            || app.screen == Screen::Account
             || app.session.as_ref().is_some_and(|s| s.share_busy)
             // Le lien du relais en préparation : l'indicateur d'attente bat, et l'écran se redessine à la fin de l'attente.
             || app.session.as_ref().and_then(|s| s.share.as_ref()).is_some_and(crate::app::ShareView::relay_wait_redraw)
@@ -398,6 +407,11 @@ pub fn run(args: &[String]) {
                 app.tv.multichannel = m;
                 dirty = true;
             }
+        }
+        // Comptes KyberNow : les ordinateurs des comptes redemandés toutes les 5 minutes, hors session.
+        if live.is_none() && !app.store.accounts.is_empty() && last_accounts.elapsed() > Duration::from_secs(300) {
+            last_accounts = Instant::now();
+            accounts::refresh(&app, &tx);
         }
         // Mises à jour : au lancement, puis toutes les 6 heures (hors session).
         if live.is_none() && last_update.elapsed() > Duration::from_secs(6 * 3600) {
@@ -754,8 +768,15 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.images.insert(id, img);
             }
         }
+        Event::Account(e) => {
+            if accounts::handle(e, app, actions) {
+                accounts::sync(app);
+            }
+        }
         Event::Found(list) => {
             app.found = list;
+            // Un ordinateur d'un compte annoncé sur le réseau (même empreinte d'Admin) y prend son adresse.
+            accounts::locate(app);
             // Ajout par code en cours : le code va aussi aux Stations apparues depuis.
             if app.screen == Screen::Add
                 && app.add.step == AddStep::Code
@@ -839,6 +860,11 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             // L'image arrive : les manettes indisponibles sur l'ordinateur se disent, si une manette est branchée.
             if app.session.as_ref().is_some_and(|s| s.phase == Phase::Streaming) {
                 app.pads_unavailable_notice(pads.slots().len());
+            }
+            // Un ordinateur d'un compte KyberNow : la session de l'appareil fermée (le compte est oublié), ou un
+            // ordinateur qui n'est plus au compte (il quitte l'accueil).
+            if let Some((host, Phase::Ended { error: Some(e) })) = app.session.as_ref().map(|s| (s.host.clone(), s.phase.clone())) {
+                actions.extend(accounts::session_failed(app, &host, &e));
             }
         }
         Event::Mode(m) => {
@@ -1046,6 +1072,16 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         Action::Language => {
             i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale()));
             kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
+            // Les pastilles d'origine sont dans la langue de l'app.
+            accounts::sync(app);
+        }
+        Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name(), tx.clone()),
+        Action::AccountCancel => accounts::cancel(),
+        Action::AccountSignOut(a) => accounts::sign_out(a),
+        Action::AccountsRefresh => accounts::refresh(app, tx),
+        Action::AccountsSync => {
+            accounts::sync(app);
+            app.store.save();
         }
         Action::CheckUpdate => {
             app.update = crate::app::UpdateState::Checking;

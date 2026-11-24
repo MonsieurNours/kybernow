@@ -4,6 +4,12 @@
   recherche et installation ; ce PC (ce que sa carte graphique décode, vérifié au
   lancement, son écran, son son) et « Sur batterie », qui vaut pour toutes
   les sessions.
+
+  « Comptes » (docs/link-ui.md « Comptes KyberNow ») : chaque compte connecté (nom, e-mail, relais),
+  « Gérer le compte » (sa page sur le relais, dans le navigateur) et « Se déconnecter » (confirmé :
+  ses ordinateurs quittent cet appareil, les appairés restent) ; « Ajouter un compte » demande d'abord
+  le relais (share.kybernow.app proposé, ou « Un autre relais… » tapé), puis la page du relais s'ouvre.
+  L'app ne crée ni ne supprime de compte : la page du compte le fait.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -11,8 +17,8 @@
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import Switch from './lib/Switch.svelte'
-  import type { AppInfo, Battery, ThisPc, Update } from './lib/api'
-  import { invoke } from './lib/api'
+  import type { AccountView, AppInfo, Battery, ThisPc, Update } from './lib/api'
+  import { DEFAULT_RELAY, invoke } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let {
@@ -21,6 +27,11 @@
     thisPc,
     battery,
     check: checkOnOpen = false,
+    accounts = [],
+    signingIn = false,
+    signInError = null,
+    onsignin,
+    oncancelsignin,
     onbattery,
     onclose,
     oninstall,
@@ -31,6 +42,15 @@
     battery: Battery
     /** Ouverts par « Rechercher des mises à jour » (menu de l'icône) : la recherche part tout de suite. */
     check?: boolean
+    /** Les comptes KyberNow connectés sur ce PC. */
+    accounts?: AccountView[]
+    /** « Connexion au compte… » : la page du relais est ouverte, l'app attend son retour. */
+    signingIn?: boolean
+    /** Le refus de la dernière connexion (retour de la page du relais). */
+    signInError?: string | null
+    /** Ouvre la page de connexion du relais (`null` : le relais public) ; rend le refus, ou `null`. */
+    onsignin: (relay: string | null) => Promise<string | null>
+    oncancelsignin: () => void
     onbattery: (b: Battery) => void
     onclose: () => void
     oninstall: () => void
@@ -92,6 +112,42 @@
       error = String(e)
     }
   }
+  // MARK: - Comptes
+
+  /** « Ajouter un compte » : le choix du relais, puis, pour « Un autre relais… », son adresse. */
+  let adding = $state<'relay' | 'other' | null>(null)
+  let otherRelay = $state('')
+  let accountError = $state<string | null>(null)
+  /** « Se déconnecter » demandé pour ce compte : la confirmation. */
+  let confirmOut = $state<string | null>(null)
+  /** Une déconnexion en cours (le relais a 8 s pour répondre ; le compte est oublié de toute façon). */
+  let signingOut = $state<string | null>(null)
+
+  /** La page de connexion du relais (`relay` nul : le relais public) ; un refus reste sous les boutons. */
+  async function signIn(relay: string | null) {
+    accountError = await onsignin(relay)
+    if (!accountError) adding = null
+  }
+
+  async function manage(key: string) {
+    accountError = null
+    try {
+      await invoke('account_manage', { key })
+    } catch (e) {
+      accountError = String(e)
+    }
+  }
+
+  async function signOut(key: string) {
+    confirmOut = null
+    signingOut = key
+    try {
+      await invoke('account_sign_out', { key })
+    } finally {
+      signingOut = null
+    }
+  }
+
   const channel = (c: 'stable' | 'beta') =>
     run(async () => {
       if (info) info.channel = c
@@ -160,6 +216,74 @@
     {#if error}<div class="error">{error}</div>{/if}
 
     <p class="help">{t('appsheet.help')}</p>
+
+    <div class="pc accounts">
+      <div class="eyebrow">{t('account.section')}</div>
+      {#each accounts as a (a.key)}
+        <div class="account">
+          <div class="who">
+            <div class="aname">{a.name}</div>
+            {#if a.email && a.email !== a.name}<div class="email">{a.email}</div>{/if}
+            <div class="mono relay">{a.relay}</div>
+          </div>
+          <div class="buttons">
+            {#if confirmOut === a.key}
+              <button class="ghost danger" onclick={() => signOut(a.key)}>{t('account.sign_out')}</button>
+              <button class="ghost" onclick={() => (confirmOut = null)}>{t('common.cancel')}</button>
+            {:else}
+              <button class="ghost" onclick={() => manage(a.key)}>{t('account.manage')}</button>
+              <button class="ghost" disabled={signingOut === a.key} onclick={() => (confirmOut = a.key)}>{t('account.sign_out')}</button>
+            {/if}
+          </div>
+        </div>
+        {#if confirmOut === a.key}<p class="help confirm">{t('account.sign_out_confirm', { account: a.name })}</p>{/if}
+      {:else}
+        <p class="help">{t('account.none')}</p>
+      {/each}
+
+      {#if signingIn}
+        <div class="row">
+          <button class="ghost" disabled>{t('account.signing_in')}</button>
+          <button class="ghost" onclick={oncancelsignin}>{t('common.cancel')}</button>
+        </div>
+      {:else if accounts.length === 0}
+        <div class="row">
+          <button class="primary" onclick={() => signIn(null)}>{t('account.sign_in')}</button>
+          <button class="ghost" onclick={() => ((adding = 'other'), (accountError = null))}>{t('account.another_relay')}</button>
+        </div>
+      {:else if adding === 'relay'}
+        <!-- Le relais d'abord : le relais public, ou un autre. -->
+        <div class="row">
+          <button class="primary" onclick={() => signIn(null)}>{DEFAULT_RELAY}</button>
+          <button class="ghost" onclick={() => (adding = 'other')}>{t('account.another_relay')}</button>
+          <button class="ghost" onclick={() => (adding = null)}>{t('common.cancel')}</button>
+        </div>
+      {:else if adding !== 'other'}
+        <div class="row">
+          <button class="ghost" onclick={() => ((adding = 'relay'), (accountError = null))}>{t('account.add')}</button>
+        </div>
+      {/if}
+
+      {#if adding === 'other' && !signingIn}
+        <form class="other" onsubmit={(e) => (e.preventDefault(), signIn(otherRelay.trim()))}>
+          <div class="otitle">{t('account.another_relay_title')}</div>
+          <label class="relayfield">
+            <span>{t('account.relay')}</span>
+            <!-- svelte-ignore a11y_autofocus -->
+            <input class="field mono" bind:value={otherRelay} placeholder={t('account.relay_example')} autocomplete="off" spellcheck="false" autofocus />
+          </label>
+          <p class="help">{t('account.relay_help')}</p>
+          <div class="row">
+            <button class="primary" type="submit" disabled={!otherRelay.trim()}>{t('common.continue')}</button>
+            <button class="ghost" type="button" onclick={() => ((adding = null), (accountError = null))}>{t('common.cancel')}</button>
+          </div>
+        </form>
+      {/if}
+
+      {#if accountError || signInError}<div class="error">{accountError ?? signInError}</div>{/if}
+      <p class="help">{t('account.sign_in_help')}</p>
+      <p class="help">{t('account.section_help')}</p>
+    </div>
 
     <div class="pc">
       <div class="eyebrow">{t('appsheet.this_pc')}</div>
@@ -368,5 +492,75 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  /* Comptes KyberNow : un compte par ligne, ses boutons à droite. */
+  .account {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .who {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .aname {
+    font-size: 15px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .email {
+    font-size: 13px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  .relay {
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  .buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .danger {
+    color: var(--bad, #ff6b6b);
+  }
+
+  .confirm {
+    color: var(--muted);
+  }
+
+  .other {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--line-2);
+    border-radius: 14px;
+  }
+
+  .otitle {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .relayfield {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
   }
 </style>

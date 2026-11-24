@@ -8,6 +8,8 @@
 //! `cargo test` : le reste de l'espace de travail se compile sans le NDK.
 
 #[cfg(target_os = "android")]
+mod account;
+#[cfg(target_os = "android")]
 mod audio;
 #[cfg(target_os = "android")]
 mod exports;

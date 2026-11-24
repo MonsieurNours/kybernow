@@ -165,6 +165,11 @@ pub struct SessionParams {
     /// `screens` (multi-écrans) ou de l'invité, sinon l'app répond du
     /// décodeur (elle ne demande le HDR que s'il le lit).
     pub capabilities: Option<Capabilities>,
+    /// Un ordinateur d'un compte KyberNow (docs/comptes.md) : Admin est
+    /// appelé avec le jeton d'accès du relais (renouvelé toutes les 4
+    /// minutes), Kyber joint avec le jeton de Kyber que donne `prepare` ;
+    /// `user` et `password` ne servent pas.
+    pub account: Option<crate::account::AccessParams>,
 }
 
 /// Par où une session joint l'ordinateur (docs/relais.md). Par le relais,
@@ -217,6 +222,7 @@ impl SessionParams {
             screen_hdr: false,
             screen_luminance: None,
             capabilities: None,
+            account: None,
         }
     }
 
@@ -250,6 +256,7 @@ impl SessionParams {
             screen_hdr: false,
             screen_luminance: None,
             capabilities: None,
+            account: None,
         }
     }
 
@@ -263,7 +270,9 @@ impl SessionParams {
     /// `virtual_display`, `settings`, `auto_reconnect`, `gamepad_xbox360`,
     /// `clipboard`, `recovery`, et `screens` (multi-écrans, rendu à part pour
     /// [`Session::start_with_screens`]), `screen_hdr`, `screen_luminance` et `capabilities`
-    /// (HDR, docs/hdr.md) ; pour un invité, `guest` :
+    /// (HDR, docs/hdr.md), `account` (un ordinateur d'un compte KyberNow :
+    /// `{"account": <le compte, jeton compris>, "station": "<identifiant>"}`,
+    /// `user` et `password` alors facultatifs) ; pour un invité, `guest` :
     /// `{"joined": <réponse de share_join>, "capabilities": {hevc, hevc444,
     /// av1}}` (`user`, `password` et `mode` sont alors facultatifs) ; pour
     /// l'ami qui emprunte l'ordinateur, `borrower` : `{"borrowed": <réponse
@@ -320,6 +329,7 @@ impl SessionParams {
             screen_hdr: wire.screen_hdr,
             screen_luminance: wire.screen_luminance,
             capabilities: wire.capabilities,
+            account: wire.account,
         };
         Ok((params, wire.screens))
     }
@@ -388,6 +398,8 @@ struct ParamsJson {
     /// Ce que l'appareil décode (`{hevc, hevc444, av1, hdr}`).
     #[serde(default)]
     capabilities: Option<Capabilities>,
+    #[serde(default)]
+    account: Option<crate::account::AccessParams>,
 }
 
 fn yes() -> bool {
@@ -2585,7 +2597,23 @@ impl Worker {
         }
         self.status(Status::Preparing);
         let p = self.params.clone();
-        let direct = Arc::new(Console::new(&p.console_host, p.console_port, &p.user, &p.password, p.console_fingerprint.clone()));
+        // Un ordinateur d'un compte KyberNow : le jeton d'accès du relais,
+        // partagé par la sonde et la console de la session.
+        let access = p.account.clone().map(crate::account::StationAccess::new);
+        // Demandé avant la sonde du réseau : un relais lent ne passe pas pour
+        // un réseau muet, et une session d'appareil fermée se dit tout de suite.
+        if let Some(a) = access.clone() {
+            match self.step("jeton d'accès du relais", Duration::from_secs(12), move || a.token().map(|_| ())) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(self.console_failure(ConsoleError::Account(e))),
+                Err(c) => return Err(self.cut_failure(c)),
+            }
+        }
+        let console_for = |pinned: Option<String>| match &access {
+            Some(a) => Console::account(&p.console_host, p.console_port, a.clone(), pinned),
+            None => Console::new(&p.console_host, p.console_port, &p.user, &p.password, pinned),
+        };
+        let direct = Arc::new(console_for(p.console_fingerprint.clone()));
         // Par où passer : le réseau, ou le relais (docs/relais.md). La sonde
         // passe par `step` : « Annuler » la coupe aussi.
         let mut cut = None;
@@ -2608,7 +2636,7 @@ impl Worker {
             None => direct,
             Some(r) => {
                 check_relay_fingerprint(p.console_fingerprint.as_deref(), &r)?;
-                Arc::new(Console::new(&p.console_host, p.console_port, &p.user, &p.password, Some(r.admin_fp.clone())).with_relay(Some(r)))
+                Arc::new(console_for(Some(r.admin_fp.clone())).with_relay(Some(r)))
             }
         };
         self.console = Some(console.clone());
@@ -2627,9 +2655,17 @@ impl Worker {
             port: kyber_port,
             tls_host: None,
             verify_mode: None,
-            credentials: AuthCredentials::Basic {
-                username: p.user.clone(),
-                password: p.password.clone(),
+            credentials: match (&prepared.kyber_token, &p.account) {
+                // Un compte KyberNow : le jeton de Kyber d'Admin, jamais de compte Kyber.
+                (Some(k), _) => {
+                    info!("compte KyberNow : Kyber joint sous {}", k.user);
+                    AuthCredentials::Jwt { token: k.token.clone() }
+                }
+                (None, Some(_)) => return Err(t("session.account_no_kyber_token", &[]).into()),
+                (None, None) => AuthCredentials::Basic {
+                    username: p.user.clone(),
+                    password: p.password.clone(),
+                },
             },
             auto_reconnection: p.auto_reconnect,
         };
@@ -2720,6 +2756,7 @@ impl Worker {
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
             hdr: Vec::new(),
+            kyber_token: None,
         });
         self.platform.on_share_role(self.share_role, None);
         if let Some(image) = j.image.clone() {
@@ -2791,6 +2828,7 @@ impl Worker {
             kyber_fingerprint: Some(fingerprint.clone()),
             screens: None,
             hdr: vec![d.hdr],
+            kyber_token: None,
         });
         self.apply_borrowed_hdr(d.hdr);
 
@@ -3623,6 +3661,14 @@ impl Worker {
     }
 
     fn on_beat(&mut self, r: HeartbeatReply) -> Option<Failure> {
+        // Un compte KyberNow : un jeton de Kyber neuf, que Kyber relira s'il se reconnecte.
+        if let Some(k) = r.kyber_token.as_ref().filter(|k| !k.token.is_empty())
+            && self.params.account.is_some()
+            && let Some(c) = &self.client
+            && let Err(e) = c.update_credentials(AuthCredentials::Jwt { token: k.token.clone() })
+        {
+            warn!("jeton de Kyber pas renouvelé : {e}");
+        }
         // KyberNow Share : les invités de cet hôte, quand ils changent.
         if r.share != self.last_share {
             self.last_share = r.share.clone();
@@ -4815,6 +4861,7 @@ mod tests {
             kyber_fingerprint: None,
             screens,
             hdr: Vec::new(),
+            kyber_token: None,
         }
     }
 
@@ -5043,6 +5090,7 @@ mod tests {
             screen_hdr: false,
             screen_luminance: None,
             capabilities: None,
+            account: None,
         };
         let recorder = Arc::new(Recorder::default());
         let (tx, rx) = mpsc::channel();

@@ -1,7 +1,8 @@
 //! Les liens `kybernow://` (docs/pret.md, docs/kybernow-share.md) : le fichier .desktop déclare l'app pour
 //! `x-scheme-handler/kybernow` (`Exec=kybernow %u`), le navigateur ou le gestionnaire de fichiers la lance avec le
 //! lien. Un lien d'invitation (`kybernow://borrow?…`) ouvre l'ajout « Avec un compte d'ami », un lien de partage
-//! (`kybernow://join?…`) « Rejoindre un partage ».
+//! (`kybernow://join?…`) « Rejoindre un partage », le retour de la page d'un relais (`kybernow://compte?…`) la
+//! connexion à un compte KyberNow (docs/comptes.md).
 //!
 //! Une seule app reçoit les liens : la première ouverte écoute sur une prise Unix (`$XDG_RUNTIME_DIR/kybernow-link.sock`
 //! ; sous Flatpak, dans `$XDG_RUNTIME_DIR/app/$FLATPAK_ID`, commun à ses instances), et une app lancée avec un lien
@@ -28,6 +29,10 @@ pub fn from_args(args: &[String]) -> Option<String> {
 /// Ce que l'app fait d'un lien : une invitation, un partage, ou une invitation illisible ; `None` pour le reste
 /// (lien inconnu, partage illisible : rien ne s'ouvre).
 pub fn parse(url: &str) -> Option<LinkUi> {
+    // Comptes KyberNow : le retour de la page du relais, avant les liens de partage.
+    if kybernow_core::account::is_callback(url) {
+        return Some(LinkUi::Account(url.trim().to_string()));
+    }
     if let Some(i) = lend::parse_invite(url) {
         return Some(LinkUi::Invite(InviteUi { address: i.host, port: i.port, fingerprint: i.fingerprint, login: i.login, relay: i.relay, sid: i.sid, name: i.name }));
     }
@@ -131,5 +136,7 @@ mod tests {
             other => panic!("partage attendu : {other:?}"),
         }
         assert_eq!(parse("kybernow://ailleurs"), None);
+        // Le retour de la page d'un relais (comptes KyberNow), reconnu avant les liens de partage.
+        assert_eq!(parse("kybernow://compte?code=abc&etat=0123"), Some(LinkUi::Account("kybernow://compte?code=abc&etat=0123".into())));
     }
 }

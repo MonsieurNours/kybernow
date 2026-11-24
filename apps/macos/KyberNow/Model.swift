@@ -420,6 +420,11 @@ struct Host: Codable, Identifiable, Hashable {
     /// L'ordinateur ne crée pas les manettes de l'appareil (`gamepads` de
     /// `info`, Station Mac sans le droit d'Apple) : appris à chaque info.
     var gamepadsUnavailable: Bool?
+    /// Un ordinateur d'un compte KyberNow (docs/comptes.md), pas appairé sur
+    /// cet appareil : le compte qui le donne et sa Station chez le relais.
+    /// Ni mot de passe ni iCloud : le compte ouvre la console et la session
+    /// (Accounts.swift) ; il quitte l'accueil avec le compte.
+    var account: AccountLink?
 
     /// Une Station Mac (règle du cœur, `keymap::station_is_mac`).
     var isMac: Bool { Keymap.stationIsMac(os) }
@@ -473,7 +478,7 @@ struct Host: Codable, Identifiable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
         case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, lastHDR, pairedByCode, wake, relay
-        case os, gamepadsUnavailable
+        case os, gamepadsUnavailable, account
     }
 
     init(from decoder: Decoder) throws {
@@ -502,6 +507,7 @@ struct Host: Codable, Identifiable, Hashable {
         relay = try? c.decodeIfPresent(RelayInfo.self, forKey: .relay)
         os = try? c.decodeIfPresent(String.self, forKey: .os)
         gamepadsUnavailable = try? c.decodeIfPresent(Bool.self, forKey: .gamepadsUnavailable)
+        account = try? c.decodeIfPresent(AccountLink.self, forKey: .account)
         if let s = try c.decodeIfPresent(ConnectionSettings.self, forKey: .settings) {
             settings = s
         } else if let p = try c.decodeIfPresent(Profile.self, forKey: .profile) {
@@ -536,6 +542,7 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(relay, forKey: .relay)
         try c.encodeIfPresent(os, forKey: .os)
         try c.encodeIfPresent(gamepadsUnavailable, forKey: .gamepadsUnavailable)
+        try c.encodeIfPresent(account, forKey: .account)
     }
 }
 
@@ -621,6 +628,9 @@ final class HostStore: ObservableObject {
     /// chez soi. Demandé une fois par minute au plus par ordinateur.
     var onConsoles: ((UUID, [PlayStation.StationConsole]) -> Void)?
     private var consolesAsked: [UUID: Date] = [:]
+    /// Les comptes KyberNow de l'appareil (Accounts.swift) : la console et la
+    /// session de leurs ordinateurs, leur état hors du réseau.
+    weak var accounts: AccountStore?
 
     init(demo: Bool = false) {
         self.demo = demo
@@ -641,7 +651,31 @@ final class HostStore: ObservableObject {
         if let data = try? JSONEncoder().encode(hosts) {
             defaults.set(data, forKey: key)
         }
-        didSave?(hosts)
+        // Les ordinateurs d'un compte restent sur cet appareil : ni iCloud, ni Apple TV par le Mac.
+        didSave?(hosts.filter { $0.account == nil })
+    }
+
+    /// Les ordinateurs d'un compte à l'accueil (`AccountStore.sync`) : ajoutés,
+    /// mis à jour ou retirés d'un coup, réglages et statistiques gardés.
+    func setAccountHosts(_ list: [Host]) {
+        let ids = Set(list.map(\.id))
+        let gone = hosts.filter { $0.account != nil && !ids.contains($0.id) }
+        let added = list.filter { h in !hosts.contains { $0.id == h.id } }
+        // L'ordre de la liste gardé : chacun à sa place, les nouveaux à la fin.
+        let next = hosts.compactMap { h -> Host? in
+            guard h.account != nil else { return h }
+            return list.first { $0.id == h.id }
+        } + added
+        guard next != hosts else { return }
+        for h in gone {
+            imagery.forget(h)
+            status[h.id] = nil
+            stationTasks[h.id] = nil
+            lends[h.id] = nil
+        }
+        hosts = next
+        save()
+        for h in added { Task { await refresh(h) } }
     }
 
     func add(_ host: Host, password: String) {
@@ -717,7 +751,9 @@ final class HostStore: ObservableObject {
     }
 
     func password(for host: Host) -> String? {
-        demo ? demoPasswords[host.id] : Keychain.get(host.id)
+        // Un ordinateur d'un compte n'a pas de compte Kyber : le jeton d'accès suffit.
+        if host.account != nil { return "" }
+        return demo ? demoPasswords[host.id] : Keychain.get(host.id)
     }
 
     private func setPassword(_ password: String, for id: UUID) {
@@ -781,8 +817,14 @@ final class HostStore: ObservableObject {
     /// La console de l'ordinateur : sur le réseau, ou par son relais quand il
     /// n'est joignable que par lui (`route`).
     func console(for host: Host, route: ConsoleRoute = .auto) -> ConsoleClient? {
-        guard !demo, let password = password(for: host) else { return nil }
         let current = self.host(host.id) ?? host
+        // Un ordinateur d'un compte : la console du compte (réseau ou relais).
+        if current.account != nil {
+            guard !demo else { return nil }
+            let viaRelay = route == .relay || (route == .auto && status[host.id]?.away == true)
+            return accounts?.console(for: current, viaRelay: viaRelay)
+        }
+        guard !demo, let password = password(for: host) else { return nil }
         let viaRelay = route == .relay || (route == .auto && status[host.id]?.away == true)
         return ConsoleClient(host: current.address, port: current.consolePort, username: current.username, password: password,
                              fingerprint: current.consoleFingerprint, relay: viaRelay ? current.relayRoute : nil)
@@ -795,6 +837,12 @@ final class HostStore: ObservableObject {
     }
 
     func refresh(_ host: Host, explicit: Bool = false) async {
+        // Un ordinateur d'un compte pas vu sur le réseau : son état chez le relais.
+        if host.account != nil, let accounts, !demo, !accounts.isOnNetwork(host) {
+            let s = await accounts.awayStatus(host, previous: status[host.id])
+            if self.host(host.id) != nil { status[host.id] = s }
+            return
+        }
         guard let console = console(for: host, route: .direct) else { return }
         do {
             let info = try await console.info()
@@ -843,6 +891,11 @@ final class HostStore: ObservableObject {
             status[host.id] = HostStatus(online: true, info: status[host.id]?.info, problem: .passwordRefused)
         } catch ConsoleError.certificateChanged {
             status[host.id] = HostStatus(online: true, info: status[host.id]?.info, problem: .certificateChanged)
+        } catch let ConsoleError.account(failure, message) {
+            // Un ordinateur d'un compte : session de l'appareil fermée, ou
+            // ordinateur qui n'est plus au compte (le compte le retire de l'accueil).
+            accounts?.refused(host, failure: failure, message: message)
+            if self.host(host.id) != nil { status[host.id] = HostStatus(online: false, info: status[host.id]?.info) }
         } catch {
             status[host.id] = await unreachableOnNetwork(host, explicit: explicit)
         }
@@ -859,6 +912,8 @@ final class HostStore: ObservableObject {
     private func unreachableOnNetwork(_ host: Host, explicit: Bool) async -> HostStatus {
         let info = status[host.id]?.info
         let offline = HostStatus(online: false, info: info)
+        // Un ordinateur d'un compte : ce que le relais en dit (liste du compte).
+        if host.account != nil, let accounts, !demo { return await accounts.awayStatus(host, previous: status[host.id]) }
         guard !demo, Relay.mode != .off, let known = self.host(host.id), let relay = known.relay else { return offline }
         // Jamais de premier contact par le relais : il faut l'empreinte d'Admin.
         guard known.relayRoute != nil, let present = await presence(of: relay, force: explicit) else { return offline }

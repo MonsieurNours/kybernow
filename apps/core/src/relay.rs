@@ -89,6 +89,18 @@ impl RelayInfo {
     }
 }
 
+impl crate::account::AccountComputer {
+    /// La route de cet ordinateur d'un compte KyberNow par le relais du
+    /// compte, Admin épinglé sur l'empreinte vérifiée ; `None` tant que le
+    /// relais ne l'a pas donnée (Station jamais vue connectée).
+    pub fn route(&self) -> Option<RelayRoute> {
+        let admin_fp = self.admin_fp.as_deref().filter(|f| !f.trim().is_empty())?;
+        let route = RelayRoute { server: self.relay.clone(), station: self.station.clone(), admin_fp: admin_fp.trim().to_string() };
+        route.relay_addr().ok()?;
+        Some(route)
+    }
+}
+
 /// Une adresse de relais sous sa forme normale : nom en minuscules, sans
 /// schéma, sans port quand c'est le 443 (`share.kybernow.app`), avec lui
 /// sinon (`relais.exemple.org:9443`), empreinte épinglée gardée. `None` si
@@ -567,6 +579,15 @@ mod tests {
     use super::*;
 
     const STATION: &str = "abcdefghijklmnopqrstuvwxyz";
+
+    #[test]
+    fn route_d_un_ordinateur_du_compte() {
+        use crate::account::AccountComputer;
+        let c = AccountComputer { relay: DEFAULT_RELAY.into(), station: STATION.into(), admin_fp: Some(" sha256:aa ".into()), ..Default::default() };
+        assert_eq!(c.route(), Some(RelayRoute { server: DEFAULT_RELAY.into(), station: STATION.into(), admin_fp: "sha256:aa".into() }));
+        assert_eq!(AccountComputer { admin_fp: None, ..c.clone() }.route(), None, "jamais sans l'empreinte d'Admin");
+        assert_eq!(AccountComputer { station: "court".into(), ..c }.route(), None);
+    }
 
     #[test]
     fn routes() {

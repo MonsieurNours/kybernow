@@ -132,6 +132,7 @@ fn subtitle(app: &App, s: Section) -> String {
         Section::Station => tr("KyberNow Station, sur l'ordinateur : Admin, redémarrage, mise à jour.", "KyberNow Station, on the computer: Admin, restart, update.").into(),
         Section::App => tr("Langue, interface et mises à jour de l'app sur cet appareil.", "Language, interface and updates of the app on this device.").into(),
         Section::Gamepads => tr("Les manettes que voit cet appareil.", "The controllers this device sees.").into(),
+        Section::Accounts => crate::accounts::accounts_help().into(),
         Section::PsPicture => tr("Ce que la console envoie. Les réglages valent pour la partie suivante.", "What the console sends. Settings apply to the next game.").into(),
         Section::PsControls => tr("Le clavier, la souris et la DualSense changent tout de suite pendant une partie.", "The keyboard, mouse and DualSense change at once during a game.").into(),
         _ => String::new(),
@@ -565,6 +566,14 @@ pub(super) fn confirm(app: &App, cv: &mut Canvas, f: &mut Frame) {
             crate::ps::remove_account_question(name, *consoles),
             tr("Ses associations sont effacées de cet appareil. Une console associée aussi avec un autre compte reste, avec cet autre compte.", "Its pairings are erased from this device. A console also paired with another account stays, with that other account.").to_string(),
             tr("Retirer", "Remove"),
+            true,
+        ),
+        // Comptes KyberNow : « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez
+        // appairés restent. »
+        Confirm::SignOut { name, .. } => (
+            crate::accounts::sign_out_question(name),
+            tr("Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent.", "Its computers leave this device; the ones you paired stay.").to_string(),
+            tr("Se déconnecter", "Sign out"),
             true,
         ),
         // « Rendre l'ordinateur à {hôte} ? » : la question seule, sans autre texte (docs/link-ui.md).

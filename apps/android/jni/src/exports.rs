@@ -86,6 +86,9 @@ pub(crate) fn envelope<T: serde::Serialize>(r: Result<T, ConsoleError>) -> Strin
                 // Par le relais : 30 relais muet, 31 ordinateur absent du relais,
                 // 32 accès coupé dans Admin (`RelayError::code`).
                 ConsoleError::Relay(r) => r.code(),
+                // Un ordinateur d'un compte KyberNow sans jeton d'accès : 70 et
+                // suivants (`AccountError::code`).
+                ConsoleError::Account(a) => a.code(),
                 _ => 1,
             };
             serde_json::json!({ "code": code, "error": e.to_string() }).to_string()

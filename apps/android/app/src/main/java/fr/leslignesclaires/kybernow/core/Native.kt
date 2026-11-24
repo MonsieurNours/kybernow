@@ -154,6 +154,44 @@ object Native {
      */
     @JvmStatic external fun inviteRedeem(codeJson: String, password: String, deviceJson: String): String
 
+    // Comptes KyberNow (docs/comptes.md, lot 3 ; textes : docs/link-ui.md, « Comptes KyberNow »). Réponses
+    // `{"code": 0, "value": …}` ou `{"code": 70…80, "error", "kind"}` (voir [AccountCode]) ; 1 : JSON illisible.
+    // Les appels marqués bloquants : jamais sur le fil principal (8 s au plus chacun).
+    /** La forme normale d'un relais tapé (« Un autre relais… ») ; vide : `share.kybernow.app` ; refus 78. */
+    @JvmStatic external fun accountNormalizeRelay(relay: String): String
+    /** « Se connecter à un compte KyberNow » : `value` `{relay, url, state, callback_scheme}`, à garder jusqu'au retour. */
+    @JvmStatic external fun accountSignIn(relay: String, deviceName: String): String
+    /** Le retour `kybernow://compte?…` : `value`, le compte à garder entier (jeton compris). 75 : annulé. Bloquant. */
+    @JvmStatic external fun accountFinishSignIn(signInJson: String, callback: String): String
+    /** Vrai pour un retour de la connexion (`kybernow://compte…`). */
+    @JvmStatic external fun accountIsCallback(url: String): Boolean
+    /** Android TV : un code, `value` `{relay, code, poll, expires, interval, url, url_complete, url_label, issued_at}`. Bloquant. */
+    @JvmStatic external fun accountTvCode(relay: String, deviceName: String): String
+    /** Une demande : `value` `{"status":"pending"}` ou `{"status":"approved","account":{…}}` ; 73 échu, 72 refusé. Bloquant. */
+    @JvmStatic external fun accountTvPoll(codeJson: String): String
+    /** Minutes avant l'échéance du code (« Le code change dans {n} min. »). */
+    @JvmStatic external fun accountTvMinutesLeft(codeJson: String): Int
+    /** « Se déconnecter » chez le relais (l'app oublie le compte de toute façon). Bloquant. */
+    @JvmStatic external fun accountSignOut(accountJson: String): String
+    /** Les réglages « Comptes » : `value` `{key, relay, relay_label, account, device, console}`, sans le jeton. */
+    @JvmStatic external fun accountSummary(accountJson: String): String
+    /** Les ordinateurs du compte : `value` `[{account, relay, station, name, rights, owner, mine, online, admin_fp, attached_at}]` ; 70. Bloquant. */
+    @JvmStatic external fun accountComputers(accountJson: String): String
+    /** La liste qui arrive (`fresh`) avec les empreintes d'Admin déjà vues (`known`) : `value`, la liste. */
+    @JvmStatic external fun accountRememberFingerprints(freshJson: String, knownJson: String): String
+    /** Un ordinateur une fois : `paired` `[{id, fingerprint, station}]`, `computers` ceux des comptes ; `value` `{linked: [[id, ordinateur]], added: [ordinateur]}`. */
+    @JvmStatic external fun accountMerge(pairedJson: String, computersJson: String): String
+    /** La pastille d'origine (« Compte », « Compte · {relais} », l'organisation, « Ouvert par {prénom} ») ; `paired` : « Appairé ». */
+    @JvmStatic external fun accountOrigin(computerJson: String, severalRelays: Boolean, paired: Boolean): String
+    /** La route par le relais d'un ordinateur du compte (`{server, station, admin_fp}`), nulle sans empreinte d'Admin connue. */
+    @JvmStatic external fun accountRoute(computerJson: String): String?
+    /**
+     * La console d'un ordinateur du compte (comme [consoleNewRelay]) : `access` `{account, station}`, `host` et `port`
+     * d'Admin sur le réseau (vides sinon), `pinned` l'empreinte d'Admin, `route` par le relais ([accountRoute]), nul sur
+     * le réseau. 0 pour un JSON illisible. Ses refus : 70 et suivants en plus de ceux d'Admin et du relais.
+     */
+    @JvmStatic external fun consoleNewAccount(host: String, port: Int, pinned: String?, accessJson: String, routeJson: String?): Long
+
     // Mises à jour de l'app (réseau : jamais sur le fil principal).
     /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */
     @JvmStatic external fun updateCheck(current: String, beta: Boolean): String

@@ -15,6 +15,7 @@
     "network": "aucun paquet de réveil n'est parti ({error})"
   },
   "session": {
+    "account_no_kyber_token": "Cette Station ne donne pas encore de jeton aux comptes KyberNow : mettez-la à jour.",
     "internal": "erreur interne de la session",
     "no_image": "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir son journal dans Admin, Système › Journaux)",
     "unauthorized": "le serveur Kyber de l'ordinateur ne reconnaît pas encore le compte de cet appareil : dans Admin, redémarrez la Station (Système), puis réessayez",
@@ -126,5 +127,22 @@
     "no_invite": "Ce code ne sert plus.",
     "full": "Cette invitation a déjà ajouté tous ses appareils.",
     "too_many": "Trop d'essais : réessayez dans {minutes} min."
+  },
+  "account": {
+    "signed_out": "Ce compte a été déconnecté de cet appareil : reconnectez-vous.",
+    "unknown_computer": "Cet ordinateur n'est plus sur votre compte.",
+    "denied": "Connexion refusée sur le téléphone.",
+    "expired": "Ce code ne sert plus : un nouveau s'affiche.",
+    "bad_code": "La connexion n'a pas abouti : réessayez.",
+    "cancelled": "Connexion annulée.",
+    "too_many": "Trop d'essais : réessayez dans {minutes} min.",
+    "no_accounts": "Ce relais n'a pas de comptes KyberNow.",
+    "bad_relay": "Adresse du relais illisible.",
+    "unreachable": "Le relais ne répond pas.",
+    "other": "Réponse inattendue du relais ({error}).",
+    "origin_account": "Compte",
+    "origin_account_relay": "Compte · {relay}",
+    "origin_shared": "Ouvert par {name}",
+    "origin_paired": "Appairé"
   }
 }

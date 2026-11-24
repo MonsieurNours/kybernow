@@ -18,11 +18,15 @@ struct HomeView: View {
     @EnvironmentObject private var borrowed: BorrowedStore
     @EnvironmentObject private var pads: GamepadBridge
     @EnvironmentObject private var playstation: PlayStationStore
+    /// Comptes KyberNow : les pastilles d'origine.
+    @EnvironmentObject private var accounts: AccountStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Focus: Hashable {
         case connect, profile(Profile), hdr, settings, pads, host(UUID), borrowed(UUID), found(String), add, join, appSettings, takeBackNow, remove
         case console(UUID), consoleFound(String), account, consoleCustom
+        /// Accueil sans ordinateur : « Se connecter à un compte KyberNow », puis les boutons de toujours.
+        case signIn, emptyAdd, emptyJoin
     }
     @FocusState private var focus: Focus?
     @State private var pulse = false
@@ -91,7 +95,7 @@ struct HomeView: View {
                 .padding(.leading, 96).padding(.top, 1080 - 56 - 216 - 20 - 30)
         }
         .frame(width: 1920, height: 1080, alignment: .topLeading)
-        .defaultFocus($focus, store.hosts.isEmpty && borrowed.computers.isEmpty && playstation.consoles.isEmpty ? .add : .connect)
+        .defaultFocus($focus, store.hosts.isEmpty && borrowed.computers.isEmpty && playstation.consoles.isEmpty ? .signIn : .connect)
         .onChange(of: focus) { _, new in
             if case let .host(id)? = new, app.selected != id {
                 app.selected = id
@@ -164,12 +168,21 @@ struct HomeView: View {
             let lent = LentHome.view(of: host.id, in: store)
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 12) {
-                    statusDot(state)
-                    Text(lent.map(LentHome.line) ?? LinkText.status(state, away: store.status[host.id]?.away == true)).font(Theme.sans(21))
+                    HStack(spacing: 12) {
+                        statusDot(state)
+                        Text(lent.map(LentHome.line) ?? LinkText.status(state, away: store.status[host.id]?.away == true)).font(Theme.sans(21))
+                    }
+                    .padding(.leading, 16).padding(.trailing, 18)
+                    .frame(height: 44)
+                    .glass(22)
+                    // D'où vient l'ordinateur (« Compte », « Appairé »…), quand un compte KyberNow est connecté.
+                    if let origin = accounts.origins[host.id] {
+                        Text(verbatim: origin).font(Theme.sans(19, .medium)).foregroundStyle(Theme.text2)
+                            .padding(.horizontal, 16)
+                            .frame(height: 44)
+                            .glass(22)
+                    }
                 }
-                .padding(.leading, 16).padding(.trailing, 18)
-                .frame(height: 44)
-                .glass(22)
                 // Une ligne, interligne de 0,9 comme la maquette : un nom long rétrécit.
                 Text(host.name)
                     .font(Theme.display(140, 680))
@@ -251,15 +264,62 @@ struct HomeView: View {
                     Circle().fill(Theme.accent).frame(width: 9, height: 9)
                     Theme.eyebrow(String(localized: "Bienvenue")).font(Theme.mono(18))
                 }
-                Text("Vos ordinateurs, sur ce téléviseur")
-                    .font(Theme.display(110, 680))
-                    .tracking(-110 * 0.045)
+                // Sans aucun ordinateur (ni appairé ni d'un compte) : « Retrouvez vos
+                // ordinateurs » (docs/link-ui.md, « Comptes KyberNow »), le code d'abord.
+                // Une ligne : la rangée des cartes reste libre en dessous.
+                Text(AccountText.findTitle)
+                    .font(Theme.display(76, 680))
+                    .tracking(-76 * 0.045)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .foregroundStyle(Theme.text)
                     .frame(width: 1080, alignment: .leading)
-                Text("Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur.")
+                Text(AccountText.findText)
                     .font(Theme.sans(24)).foregroundStyle(Theme.text2)
                     .frame(width: 900, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 14) {
+                    Button { app.showAccountCode(from: .home) } label: {
+                        HStack(spacing: 16) {
+                            Text(AccountText.signIn)
+                            Icon("arrow-right", size: 28, bold: true)
+                        }
+                    }
+                    .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                    .focused($focus, equals: .signIn)
+                    Text(AccountText.signInHelpCode).font(Theme.sans(21)).foregroundStyle(Theme.muted)
+                }
+                .padding(.top, 14)
+                HStack(spacing: 16) {
+                    Rectangle().fill(Theme.line2).frame(width: 60, height: 1.5)
+                    Text(AccountText.withoutAccount).font(Theme.sans(21)).foregroundStyle(Theme.muted)
+                    Rectangle().fill(Theme.line2).frame(width: 60, height: 1.5)
+                }
+                HStack(spacing: 20) {
+                    Button { app.screen = .addHost } label: {
+                        HStack(spacing: 12) {
+                            Icon("plus", size: 26)
+                            Text(LinkText.addTitle).font(Theme.sans(22, .medium))
+                        }
+                        .padding(.horizontal, 24)
+                        .frame(height: 64)
+                    }
+                    .buttonStyle(GlassButton(radius: 18))
+                    .focused($focus, equals: .emptyAdd)
+                    Button { app.screen = .join(nil) } label: {
+                        HStack(spacing: 12) {
+                            Icon("share-network", size: 26)
+                            Text(ShareText.join).font(Theme.sans(22, .medium))
+                        }
+                        .padding(.horizontal, 24)
+                        .frame(height: 64)
+                    }
+                    .buttonStyle(GlassButton(radius: 18))
+                    .focused($focus, equals: .emptyJoin)
+                }
+                .focusSection()
             }
+            .focusSection()
         }
     }
 
@@ -654,6 +714,16 @@ struct HomeView: View {
                 HostPicture(host: h, online: state != false)
                     .frame(width: Self.cardWidth, height: 124)
                     .clipped()
+                    .overlay(alignment: .topLeading) {
+                        // La pastille d'origine, quand un compte KyberNow est connecté.
+                        if let origin = accounts.origins[h.id] {
+                            Text(verbatim: origin).font(Theme.sans(15, .medium)).foregroundStyle(Theme.text)
+                                .lineLimit(1)
+                                .padding(.horizontal, 10).padding(.vertical, 4)
+                                .background(Capsule().fill(Theme.background.opacity(0.72)))
+                                .padding(10)
+                        }
+                    }
                 VStack(alignment: .leading, spacing: 6) {
                     Text(h.name).font(Theme.sans(23, .semibold)).foregroundStyle(state == false ? Theme.muted : Theme.text).lineLimit(1)
                     HStack(spacing: 9) {
@@ -681,7 +751,7 @@ struct HomeView: View {
         }
         .buttonStyle(GlassButton(radius: 18))
         .focused($focus, equals: .host(h.id))
-        .accessibilityLabel("\(h.name), \(LinkText.status(state, away: store.status[h.id]?.away == true))")
+        .accessibilityLabel([h.name, accounts.origins[h.id], LinkText.status(state, away: store.status[h.id]?.away == true)].compactMap { $0 }.joined(separator: ", "))
     }
 
     private func foundCard(_ found: Discovery.Found) -> some View {

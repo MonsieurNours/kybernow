@@ -208,6 +208,10 @@ Ajouter un ordinateur de loin, sans que personne ait à l'accepter sur place : u
 
 **Démonstration** (Debug) : `-demoInvite YES` (tout code tapé dans « Rejoindre » est une invitation pour « PC du salon » ; mot de passe `k7mq-p2xa-9fz3`, tout autre est refusé).
 
+## Comptes KyberNow
+
+Un compte KyberNow donne à ce Mac les ordinateurs du compte (contrat : [docs/comptes.md](../../docs/comptes.md), lot 3 ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Comptes KyberNow ») : `AccountCore.swift` (KyberKit, pont `kn_account_*` et `kn_console_new_account`) et `Accounts.swift` (comptes au Trousseau de l'appareil, jamais dans iCloud ; leurs ordinateurs à l'accueil avec les mêmes cartes, un ordinateur une fois, pastille d'origine ; console et session par le compte, sur le réseau ou par le relais), communs aux trois apps ; la connexion ouvre la page du relais dans `ASWebAuthenticationSession`, Réglages de l'app › « Comptes » (« Gérer le compte », « Se déconnecter », « Ajouter un compte »). Pas encore essayé sur un Mac (construit nulle part) ; après l'ajout des fichiers, `xcodegen generate`.
+
 ## Consoles PlayStation
 
 Jouer à sa PS5 (ou PS4) sur ce Mac, sans Kyber ni Station (contrat : [docs/playstation.md](../../docs/playstation.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Consoles PlayStation »). Le protocole de Sony est dans le cœur (`apps/core/src/playstation`, pont `apps/apple/src/playstation.rs`) ; l'app ne fait que l'interface, et l'image et le son passent par le même chemin qu'une session d'ordinateur.

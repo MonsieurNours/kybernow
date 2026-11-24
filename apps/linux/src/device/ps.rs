@@ -224,10 +224,8 @@ impl Runtime {
                 if !matches!(online, Online::Online | Online::Away) {
                     continue;
                 }
-                let mut admin = Admin::new(&h.address, h.port, &h.user, &h.password, h.fingerprint.clone());
-                if online == Online::Away {
-                    admin = admin.with_relay(relay_route(h));
-                }
+                // Un ordinateur d'un compte KyberNow : le jeton d'accès du relais (`accounts::admin`).
+                let admin = super::accounts::admin(h, online == Online::Away);
                 let (tx, host) = (self.tx.clone(), h.id.clone());
                 std::thread::spawn(move || {
                     if let Ok(list) = admin.consoles() {
@@ -546,7 +544,7 @@ impl Runtime {
             .hosts
             .iter()
             .filter(|h| c.stations.iter().any(|s| s == &h.id) || self.seen_by.get(&h.id).is_some_and(|l| l.iter().any(|x| x.eq_ignore_ascii_case(&c.host_id))))
-            .filter_map(|h| relay_route(h).map(|r| (h.name.clone(), Admin::new(&h.address, h.port, &h.user, &h.password, h.fingerprint.clone()).with_relay(Some(r)))))
+            .filter_map(|h| relay_route(h).map(|_| (h.name.clone(), super::accounts::admin(h, true))))
             .collect();
         let addresses: Vec<Ipv4Addr> = live.address.iter().chain(c.addresses.iter()).filter_map(|a| a.parse().ok()).collect();
         let (tx, host_id) = (self.tx.clone(), c.host_id.clone());

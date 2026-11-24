@@ -7,6 +7,7 @@
 //! traits des modules [`input`] et [`audio`] ; seul le lecteur de manettes
 //! peut ouvrir SDL lui-même (feature `sdl`, Mac et Windows).
 
+pub mod account;
 pub mod audio;
 pub mod console;
 pub mod focus;

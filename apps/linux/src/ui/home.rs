@@ -241,7 +241,7 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
-        None => welcome(cv, f, x0, y, 1.0, hero_max),
+        None => welcome(app, cv, f, x0, y, 1.0, hero_max),
     }
     // Les ordinateurs.
     let ch = 96.0;
@@ -250,26 +250,37 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
     cards(app, cv, f, x0, cy, 244.0, ch, 14.0, w - 2.0 * x0, 1.0, true);
 }
 
-/// Sans ordinateur : bienvenue et ajout.
-fn welcome(cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
+/// Sans ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », le texte, « Se connecter à
+/// un compte KyberNow » et son aide (la page du relais au bureau, un code au salon) ; puis « ou sans compte » et les
+/// boutons de toujours : « Ajouter un ordinateur ou une console », « Rejoindre avec un code ».
+fn welcome(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
     eyebrow(cv, x0, y + 11.0 * u, 11.0 * u, FAINT, tr("Bienvenue", "Welcome"));
-    let style = Text::new(Font::Display, 52.0 * u, FROST).tracking(-1.0 * u);
-    cv.text_shrink(x0 - 2.0, y + 72.0 * u, style, tr("Votre ordinateur,", "Your computer,"), max);
-    cv.text_shrink(x0 - 2.0, y + 130.0 * u, style, tr("sur cet appareil.", "on this device."), max);
-    cv.paragraph(
+    let style = Text::new(Font::Display, 48.0 * u, FROST).tracking(-1.0 * u);
+    cv.text_shrink(x0 - 2.0, y + 64.0 * u, style, tr("Retrouvez vos ordinateurs", "Find your computers"), max);
+    let text_w = max.min(640.0 * u);
+    let mut yy = y + 100.0 * u;
+    yy += cv.paragraph(
         x0,
-        y + 170.0 * u,
+        yy,
         Text::new(Font::Regular, 15.0 * u, MUTED),
         tr(
-            "Installez KyberNow Station sur l'ordinateur Windows, puis ajoutez-le ici : il s'affiche en bas dès qu'il est sur le réseau.",
-            "Install KyberNow Station on the Windows computer, then add it here: it shows up below as soon as it is on the network.",
+            "Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez.",
+            "With a KyberNow account, your computers and the ones opened to you show up here, wherever you are.",
         ),
-        max.min(620.0 * u),
+        text_w,
         23.0 * u,
     );
-    let bw = primary(cv, f, Target::AddCard, x0, y + 226.0 * u, 52.0 * u, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"), false);
-    // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
-    widgets::ghost(cv, f, Target::JoinCard, x0 + bw + 18.0 * u, y + 226.0 * u + 3.0 * u, 46.0 * u, 15.0 * u, Some(Icon::Share), tr("Rejoindre avec un code", "Join with a code"), MUTED);
+    yy += 4.0 * u;
+    primary(cv, f, Target::AccountSignIn, x0, yy, 52.0 * u, tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), false);
+    yy += 52.0 * u + 24.0 * u;
+    yy += cv.paragraph(x0, yy, Text::new(Font::Regular, 13.5 * u, FAINT), crate::accounts::sign_in_help(app.sign_in_by_code()), text_w, 20.0 * u);
+    yy += 8.0 * u;
+    // « ou sans compte », puis l'ajout et « Rejoindre avec un code » (KyberNow Share, prêt, invitation).
+    let sep = Text::new(Font::Mono, 11.0 * u, GHOST).tracking(1.2 * u);
+    let sw = cv.text(x0, yy + 22.0 * u + 4.0 * u, sep, &tr("ou sans compte", "or without an account").to_uppercase());
+    let mut bx = x0 + sw + 18.0 * u;
+    bx += widgets::ghost(cv, f, Target::AddCard, bx, yy, 44.0 * u, 14.5 * u, Some(Icon::Plus), tr("Ajouter un ordinateur ou une console", "Add a computer or a console"), MUTED) + 10.0 * u;
+    widgets::ghost(cv, f, Target::JoinCard, bx, yy, 44.0 * u, 14.5 * u, Some(Icon::Share), tr("Rejoindre avec un code", "Join with a code"), MUTED);
 }
 
 /// La rangée des ordinateurs : enregistrés (nom et état), trouvés sur le
@@ -304,7 +315,9 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
             Some(l) => (WARN, l.as_str()),
             None => (dot, line),
         };
-        card(cv, f, Target::Host(i), Rect::new(x, y, cw, ch), u, &h.name, Some(dot), None, &[line], selected.as_deref() == Some(&h.id), false, live == Online::Offline);
+        // La pastille d'origine (« Compte », « Appairé »…), seulement quand un compte est connecté.
+        let lines: Vec<&str> = std::iter::once(line).chain(app.origin(&h.id)).collect();
+        card(cv, f, Target::Host(i), Rect::new(x, y, cw, ch), u, &h.name, Some(dot), None, &lines, selected.as_deref() == Some(&h.id), false, live == Online::Offline);
         x += cw + gap;
         slots -= 1;
     }
@@ -500,7 +513,7 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
-        None => welcome(cv, f, x0, y, u, hero_max),
+        None => welcome(app, cv, f, x0, y, u, hero_max),
     }
 
     // Les ordinateurs.

@@ -27,6 +27,12 @@
   du compte (associée avec deux comptes ou plus), la puce « Auto » ou « Personnalisé » et l'engrenage
   de ses réglages. Pas de profils ; la puce « HDR » d'une PS5 sur un écran HDR (docs/hdr.md).
 
+  Comptes KyberNow (docs/link-ui.md « Comptes KyberNow ») : sans aucun ordinateur, « Retrouvez vos
+  ordinateurs » et « Se connecter à un compte KyberNow » (la page du relais s'ouvre dans le navigateur ;
+  « Connexion au compte… » jusqu'à son retour), puis « ou sans compte » et les boutons de toujours. Les
+  ordinateurs des comptes ont les mêmes cartes, une seule fois (l'app écarte ceux déjà appairés) ; avec un
+  compte connecté, chaque carte porte sa pastille d'origine (« Compte », « Appairé »…).
+
   HDR (docs/link-ui.md « HDR ») : sur un écran HDR seulement, la puce « HDR » à côté du profil,
   allumée la première fois, gardée pour l'ordinateur (`Settings.hdr`) ; inactive avec la raison du
   cœur ; la ligne « Écran » dit alors « …, en HDR ». Ailleurs, aucune trace du HDR.
@@ -35,7 +41,7 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import { onMount } from 'svelte'
-  import type { Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc } from './lib/api'
+  import type { AccountView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc } from './lib/api'
   import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
@@ -72,6 +78,10 @@
     onconsolesettings,
     onchooseaccount,
     onpssearch,
+    accounts = [],
+    signingIn = false,
+    onsignin,
+    oncancelsignin,
   }: {
     computers: Computer[]
     discovered: Found[]
@@ -124,6 +134,14 @@
     onchooseaccount?: (id: string, account: string) => void
     /** « Réessayer » : une recherche des consoles tout de suite. */
     onpssearch?: () => void
+    /** Les comptes KyberNow connectés (les pastilles d'origine ne se montrent qu'avec un compte). */
+    accounts?: AccountView[]
+    /** « Connexion au compte… » : la page du relais est ouverte, l'app attend son retour. */
+    signingIn?: boolean
+    /** « Se connecter à un compte KyberNow » (le relais public). */
+    onsignin?: () => void
+    /** « Annuler » pendant « Connexion au compte… ». */
+    oncancelsignin?: () => void
   } = $props()
 
   /** Les consoles trouvées sur le réseau et pas encore gardées : « Sur le réseau ». */
@@ -134,7 +152,10 @@
   let accountMenu = $state(false)
   const chosenAccount = $derived(selectedConsole ? (selectedConsole.accounts.find((a) => a.id === selectedConsole!.chosen) ?? selectedConsole.accounts[0] ?? null) : null)
 
-  const fresh = $derived(discovered.filter((f) => !computers.some((c) => c.host === f.host && c.port === f.port)))
+  /** Même empreinte d'Admin, sans égard à la casse ni aux espaces. */
+  const sameFp = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
+  // Un ordinateur d'un compte vu sur le réseau n'est pas « Sur le réseau » à ajouter : même empreinte d'Admin.
+  const fresh = $derived(discovered.filter((f) => !computers.some((c) => (c.host === f.host && c.port === f.port) || (!!c.account && sameFp(c.fingerprint, f.fingerprint)))))
 
   const stateOf = (c: Computer, searching = false) =>
     c.waking && !c.online
@@ -415,14 +436,25 @@
       {/if}
       <p class="sentence">{sentence}</p>
     {:else}
+      <!-- Sans aucun ordinateur : un compte KyberNow d'abord, puis l'ajout et « Rejoindre » sans compte. -->
       <div class="eyebrow">{t('home.welcome')}</div>
-      <h1>{t('home.welcome_title')}</h1>
-      <p class="lead">{t('home.welcome_lead')}</p>
+      <h1>{t('account.find_title')}</h1>
+      <p class="lead">{t('account.find_lead')}</p>
       <div class="actions">
-        <button class="primary" onclick={() => onadd()}><Icon name="plus" size={18} />{t('home.add_computer')}</button>
+        {#if signingIn}
+          <button class="primary" disabled><Icon name="user" size={18} />{t('account.signing_in')}</button>
+          <button class="gear" onclick={() => oncancelsignin?.()}>{t('common.cancel')}</button>
+        {:else}
+          <button class="primary" onclick={() => onsignin?.()}><Icon name="user" size={18} />{t('account.sign_in')}</button>
+        {/if}
+      </div>
+      <p class="sentence">{t('account.sign_in_help')}</p>
+      {#if error}<div class="error" role="alert">{error}</div>{/if}
+      <div class="without" role="separator"><span>{t('account.without')}</span></div>
+      <div class="actions plain">
+        <button class="gear" onclick={() => onadd()}><Icon name="plus" size={18} />{t('home.add_computer')}</button>
         <button class="gear" onclick={onjoin}><Icon name="key" size={18} stroke={1.6} />{t('home.join')}</button>
       </div>
-      {#if error}<div class="error" role="alert">{error}</div>{/if}
     {/if}
   </section>
 
@@ -432,6 +464,8 @@
       {#each computers as c (c.id)}
         <button class="card" class:current={c.id === selected?.id} class:offline={c.online === false} onclick={() => onselect(c.id)}>
           {#if c.preview}<img src={c.preview} alt="" />{:else}<span class="sig" style:background={signature(c.fingerprint)}></span>{/if}
+          <!-- La pastille d'origine, seulement avec un compte connecté (« Compte », « Appairé »…). -->
+          {#if accounts.length > 0 && c.origin}<span class="origin">{c.origin}</span>{/if}
           <span class="label">
             <span class="name">{c.name}</span>
             <span class="state">{stateOf(c, retrying && c.id === selected?.id)}</span>
@@ -875,6 +909,46 @@
 
   .error {
     max-width: 620px;
+  }
+
+  /* « ou sans compte » : un trait de part et d'autre. */
+  .without {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: 520px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--faint);
+  }
+
+  .without::before,
+  .without::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line-2);
+  }
+
+  .actions.plain {
+    margin-top: 0;
+  }
+
+  /* La pastille d'origine d'un ordinateur (comptes KyberNow), en haut à gauche de sa carte. */
+  .card .origin {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    max-width: calc(100% - 28px);
+    padding: 3px 9px;
+    border: 1px solid var(--line-2);
+    border-radius: 999px;
+    background: rgb(9 13 18 / 0.75);
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* La puce du compte et son menu (le compte avec lequel la console ouvre la partie). */

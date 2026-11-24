@@ -786,8 +786,12 @@ private fun StationRubric(state: HostSettingsState, actions: HostSettingsActions
     }
 
     // Ajouté par un code : l'indicateur gardé à l'ajout, ou Admin (`account.own_device`) pour ceux d'avant la 0.5.0.
-    AccountRow(state.host.copy(paired = state.host.paired || info?.ownDevice == true), st.accountRefused, actions)
-    RemoveRow(state.host, actions)
+    // Un ordinateur venu d'un compte KyberNow : ni identifiant ni mot de passe, et il part avec le compte (« Se déconnecter »
+    // dans les réglages de l'app, ou détaché sur la page du compte), pas d'ici.
+    if (!state.host.fromAccount) {
+        AccountRow(state.host.copy(paired = state.host.paired || info?.ownDevice == true), st.accountRefused, actions)
+        RemoveRow(state.host, actions)
+    }
 }
 
 /** Un arc qui tourne (attente) ; immobile sans animations sans fin ([LocalMotion], captures). */
@@ -891,6 +895,10 @@ data class AppSettingsState(
     val update: UpdateState,
     val beta: Boolean,
     val version: String = BuildConfig.VERSION_NAME,
+    /** Les comptes KyberNow connectés sur cet appareil (sans leur jeton). */
+    val accounts: List<fr.leslignesclaires.kybernow.core.AccountSummary> = emptyList(),
+    /** Le retour de la page de connexion s'échange contre le compte : « Connexion au compte… ». */
+    val signingIn: Boolean = false,
 )
 
 class AppSettingsActions(
@@ -900,25 +908,42 @@ class AppSettingsActions(
     val updateAct: () -> Unit,
     val setBeta: (Boolean) -> Unit,
     val back: () -> Unit,
+    // Comptes KyberNow (docs/link-ui.md, « Comptes KyberNow »).
+    /** « Gérer le compte » : la page du compte, dans le navigateur. */
+    val manageAccount: (fr.leslignesclaires.kybernow.core.AccountSummary) -> Unit = {},
+    /** « Se déconnecter », confirmé. */
+    val signOut: (fr.leslignesclaires.kybernow.core.AccountSummary) -> Unit = {},
+    /** « Se connecter à un compte KyberNow » (aucun compte) : le relais public. */
+    val signIn: () -> Unit = {},
+    /** « Ajouter un compte » : le relais d'abord. */
+    val addAccount: () -> Unit = {},
 )
 
 @Composable
-fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit) {
+fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -> Unit = {}, onAddAccount: () -> Unit = {}) {
     val app = KyberNowApp.instance
     val context = LocalContext.current
+    val stored by app.accounts.accounts.collectAsState()
+    val accounts = remember(stored) { stored.map { fr.leslignesclaires.kybernow.core.Accounts.summary(it) } }
+    val signingIn by app.accounts.signingIn.collectAsState()
     val screen = remember { Screen.of(context) }
     val audio = remember { AudioOutput.current(context) }
     val update by app.updates.state.collectAsState()
     val beta by app.updates.beta.collectAsState()
     val language = AppCompatDelegate.getApplicationLocales().let { if (it.isEmpty) "auto" else it[0]!!.language }
     AppSettingsContent(
-        AppSettingsState(language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta),
+        AppSettingsState(language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn),
         AppSettingsActions(
             setLanguage = { v -> AppCompatDelegate.setApplicationLocales(if (v == "auto") LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(v)) },
             gamepads = onGamepads,
             updateAct = { app.updates.act() },
             setBeta = { app.updates.setBeta(it) },
             back = onBack,
+            // Au téléviseur, il n'y a pas toujours de navigateur : rien ne s'ouvre, l'app ne tombe pas.
+            manageAccount = { a -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(a.console))) } },
+            signOut = { a -> app.accounts.signOut(a.key) },
+            signIn = onSignIn,
+            addAccount = onAddAccount,
         ),
     )
 }
@@ -939,6 +964,9 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
             stringResource(R.string.app_settings_language), stringResource(R.string.app_settings_language_help),
             listOf("auto" to stringResource(R.string.settings_auto), "fr" to "Français", "en" to "English"), state.language,
         ) { v -> actions.setLanguage(v) }
+
+        Section(stringResource(R.string.account_section))
+        fr.leslignesclaires.kybernow.ui.account.AccountsRows(state.accounts, state.signingIn, actions.manageAccount, actions.signOut, actions.signIn, actions.addAccount)
 
         Section(stringResource(R.string.app_settings_device))
         InfoRow(stringResource(R.string.app_settings_device_name), state.deviceName, state.deviceOs)

@@ -79,6 +79,8 @@ targets:
       - path: ../macos/KyberNow/LinkUI.swift
       - path: ../macos/KyberNow/Share.swift
       - path: ../macos/KyberNow/Lend.swift
+      # Comptes KyberNow : comptes, ordinateurs du compte, textes (docs/comptes.md).
+      - path: ../macos/KyberNow/Accounts.swift
       # Consoles PlayStation : comptes, consoles, associations, réglages,
       # textes (le modèle de l'app Mac).
       - path: ../macos/KyberNow/PlayStation.swift

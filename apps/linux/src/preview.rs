@@ -1227,6 +1227,8 @@ pub fn run(dir: &Path, lang: &str) {
         ps_shots(&mut app, &mut cv, &video, dir, prefix);
         // Le HDR (docs/hdr.md) : sur un écran HDR (bureau Wayland avec la gestion des couleurs).
         hdr_shots(&mut app, &mut cv, &video, dir, prefix);
+        // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
+        account_shots(en, layout, &mut cv, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -1249,6 +1251,116 @@ pub fn run(dir: &Path, lang: &str) {
     shot(&mut app, &mut cv, None, dir, "rpi-08-reglages-app");
 
     os_shots(en, dir);
+}
+
+// MARK: - Comptes KyberNow
+
+/// Léa, sur le relais public.
+fn kn_lea() -> crate::model::KnAccount {
+    crate::model::KnAccount { relay: "share.kybernow.app".into(), token: "jeton".into(), account: crate::model::KnUser { id: "acc_lea".into(), name: "Léa Martin".into(), email: "lea@exemple.org".into() }, ..Default::default() }
+}
+
+/// Un ordinateur du compte de Léa.
+fn kn_computer(station: &str, name: &str, owner: Option<&str>) -> crate::model::KnComputer {
+    crate::model::KnComputer {
+        account: kn_lea().key(),
+        relay: "share.kybernow.app".into(),
+        station: station.into(),
+        name: name.into(),
+        mine: owner.is_none(),
+        owner: crate::model::KnOwner { kind: "person".into(), name: owner.unwrap_or("Léa Martin").into(), ..Default::default() },
+        online: true,
+        admin_fp: Some(format!("sha256:{station}")),
+        ..Default::default()
+    }
+}
+
+/// Un code de téléviseur de démonstration, valable encore 9 minutes.
+pub(crate) fn kn_code() -> crate::accounts::TvCodeUi {
+    crate::accounts::TvCodeUi {
+        code: "KQ7M-4XPA".into(),
+        url_label: "share.kybernow.app/tv".into(),
+        url_complete: "https://share.kybernow.app/compte/appareil?code=KQ7M-4XPA".into(),
+        relay: "share.kybernow.app".into(),
+        expires_at: crate::model::now_secs() + 9 * 60 - 20,
+    }
+}
+
+/// L'appli d'une interface, sans ordinateur.
+fn empty(en: bool, layout: Layout) -> App {
+    let demo = demo(en, layout);
+    let mut app = App::new(Store::default(), layout);
+    app.machine = demo.machine.clone();
+    app.net = demo.net.clone();
+    app.device_name = demo.device_name.clone();
+    app
+}
+
+/// Un compte connecté : ses ordinateurs à l'accueil (dont un ouvert par Hugo), à côté d'un ordinateur appairé, avec
+/// leurs pastilles (calculées par le pilote, ici écrites à la main).
+fn with_account(en: bool, layout: Layout) -> App {
+    let mut app = demo(en, layout);
+    app.store.hosts.truncate(1);
+    app.store.put_account(kn_lea());
+    let list = vec![kn_computer("st_atelier", "Atelier", None), kn_computer("st_hugo", "PC d'Hugo", Some("Hugo Bernard"))];
+    app.account_computers(&kn_lea().key(), list.clone());
+    app.set_account_hosts(&list, std::collections::HashMap::new());
+    let mut origins = std::collections::HashMap::new();
+    origins.insert("a".to_string(), crate::i18n::tr("Appairé", "Paired").to_string());
+    let ids: Vec<String> = app.store.account_hosts.iter().map(|a| a.id.clone()).collect();
+    origins.insert(ids[0].clone(), crate::i18n::tr("Compte", "Account").to_string());
+    origins.insert(ids[1].clone(), if en { "Opened by Hugo".to_string() } else { "Ouvert par Hugo".to_string() });
+    app.accounts.origins = origins;
+    app.live.insert(ids[0].clone(), HostLive { online: Online::Away, ..Default::default() });
+    app.live.insert(ids[1].clone(), HostLive { online: Online::Offline, ..Default::default() });
+    app
+}
+
+/// Les comptes KyberNow (docs/link-ui.md, « Comptes KyberNow ») : l'accueil vide, l'écran du code (et refusé, un autre
+/// relais), au bureau la page du relais ouverte et le relais d'abord, l'accueil avec un compte et ses pastilles,
+/// Réglages › Comptes, « Se déconnecter », et au salon « Gérer le compte ».
+fn account_shots(en: bool, layout: Layout, cv: &mut Canvas, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let mut app = empty(en, layout);
+    app.go(Screen::Home);
+    shot(&mut app, cv, None, dir, &name("60-comptes-accueil-vide"));
+    app.activate(Target::AccountSignIn);
+    if app.sign_in_by_code() {
+        shot(&mut app, cv, None, dir, &name("61a-comptes-code-demande"));
+        let attempt = app.accounts.flow.attempt;
+        app.account_code(attempt, Ok(kn_code()));
+        shot(&mut app, cv, None, dir, &name("61-comptes-code"));
+        app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+        shot(&mut app, cv, None, dir, &name("62-comptes-code-refuse"));
+    } else {
+        shot(&mut app, cv, None, dir, &name("61-comptes-page-du-relais"));
+        app.back();
+        app.open_settings(true, Screen::Home);
+        app.account_choose(Setting::AccountAdd);
+        shot(&mut app, cv, None, dir, &name("62-comptes-relais-d-abord"));
+    }
+    app.activate(Target::AccountOtherRelay);
+    for c in "relais.exemple.org:9443".chars() {
+        app.nav(crate::app::Nav::Char(c));
+    }
+    app.accounts.flow.field_message = Some(crate::i18n::tr("Ce relais n'a pas de comptes KyberNow.", "This relay has no KyberNow accounts.").into());
+    shot(&mut app, cv, None, dir, &name("63-comptes-autre-relais"));
+
+    let mut app = with_account(en, layout);
+    app.store.selected = Some(app.store.account_hosts[0].id.clone());
+    app.go(Screen::Home);
+    shot(&mut app, cv, None, dir, &name("64-comptes-accueil"));
+    app.open_settings(true, Screen::Home);
+    app.section = crate::app::APP_SECTIONS.iter().position(|s| *s == Section::Accounts).unwrap_or(1);
+    app.focus = Target::Setting(Setting::AccountManage(0));
+    shot(&mut app, cv, None, dir, &name("65-comptes-reglages"));
+    app.account_choose(Setting::AccountSignOut(0));
+    shot(&mut app, cv, None, dir, &name("66-comptes-se-deconnecter"));
+    app.confirm = None;
+    if app.admin_by_qr() {
+        app.account_choose(Setting::AccountManage(0));
+        shot(&mut app, cv, None, dir, &name("67-comptes-gerer"));
+    }
 }
 
 /// L'image fixe du démarrage de KyberNow Link OS (Plymouth) : la première
@@ -1401,6 +1513,159 @@ fn raspberry(app: &mut App) {
 mod tests {
     use super::*;
     use crate::app::Nav;
+
+    /// Les éléments choisissables tiennent dans l'écran et ne se chevauchent pas.
+    fn fits(hits: &[(Target, crate::app::Rect)], w: f32, h: f32, what: &str) {
+        for (t, r) in hits {
+            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= w + 0.5 && r.y + r.h <= h + 0.5, "{what} : {t:?} sort de l'écran ({r:?})");
+        }
+        for (i, (a, ra)) in hits.iter().enumerate() {
+            for (b, rb) in hits.iter().skip(i + 1) {
+                let overlap = ra.x < rb.x + rb.w - 0.5 && rb.x < ra.x + ra.w - 0.5 && ra.y < rb.y + rb.h - 0.5 && rb.y < ra.y + ra.h - 0.5;
+                assert!(!overlap || a == b, "{what} : {a:?} et {b:?} se chevauchent");
+            }
+        }
+    }
+
+    fn sizes() -> [(Layout, f32, f32); 4] {
+        [(Layout::Desktop, 1280.0, 800.0), (Layout::Desktop, 960.0, 600.0), (Layout::Handheld, 1280.0, 800.0), (Layout::Tv, 1920.0, 1080.0)]
+    }
+
+    /// Sans ordinateur : « Se connecter à un compte KyberNow » a le focus, avec « Ajouter » et « Rejoindre avec un
+    /// code » ; tout tient, en français et en anglais, dans la fenêtre la plus basse du bureau aussi.
+    #[test]
+    fn empty_home_offers_an_account() {
+        for en in [false, true] {
+            for (layout, w, h) in sizes() {
+                crate::i18n::force_english(en);
+                let mut app = empty(en, layout);
+                let mut cv = Canvas::new();
+                cv.resize(w as u32, h as u32, 1.0);
+                app.go(Screen::Home);
+                assert_eq!(app.focus, Target::AccountSignIn);
+                let hits = ui::draw(&app, &mut cv);
+                let signin = hits.iter().find(|(t, _)| *t == Target::AccountSignIn).expect("se connecter").1;
+                // Les boutons de toujours sont sous le bouton du compte (et la rangée des cartes, plus bas).
+                for t in [Target::AddCard, Target::JoinCard] {
+                    let r = hits.iter().find(|(x, _)| *x == t).expect("bouton de toujours").1;
+                    assert!(r.y > signin.y + signin.h, "{layout:?} {en} : {t:?} sous le compte");
+                }
+                let cards_top = hits.iter().filter(|(t, _)| *t == Target::AddCard).map(|(_, r)| r.y).fold(0.0f32, f32::max);
+                let welcome_bottom = hits.iter().filter(|(t, _)| *t == Target::JoinCard).map(|(_, r)| r.y + r.h).fold(f32::MAX, f32::min);
+                assert!(welcome_bottom <= cards_top, "{layout:?} {w}×{h} {en} : l'accueil vide touche la rangée");
+                fits(&hits, w, h, &format!("accueil vide {layout:?} {w}×{h}"));
+                app.hits = hits;
+                let acts = app.nav(Nav::Ok);
+                assert!(matches!(acts.first(), Some(crate::app::Action::AccountCode { .. } | crate::app::Action::AccountBrowser { .. })));
+            }
+        }
+    }
+
+    /// L'écran du code : les trois étapes, le code, son QR code, l'attente, le relais ; « Un autre relais… » et
+    /// « Retour » à la manette ; refusé, « Nouveau code ». Tout tient au Deck et au salon.
+    #[test]
+    fn code_screen() {
+        for (layout, w, h) in [(Layout::Handheld, 1280.0, 800.0), (Layout::Tv, 1920.0, 1080.0)] {
+            crate::i18n::force_english(false);
+            let mut app = empty(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(w as u32, h as u32, 1.0);
+            app.go(Screen::Home);
+            app.activate(Target::AccountSignIn);
+            let attempt = app.accounts.flow.attempt;
+            app.account_code(attempt, Ok(kn_code()));
+            let hits = ui::draw(&app, &mut cv);
+            fits(&hits, w, h, &format!("code {layout:?}"));
+            for t in [Target::AccountOtherRelay, Target::AccountBack] {
+                assert!(hits.iter().any(|(x, _)| *x == t), "{layout:?} : {t:?}");
+            }
+            assert_eq!(app.focus, Target::AccountBack);
+            // Le QR code : des modules sombres sur une carte claire, à droite.
+            let mut dark = 0;
+            for x in (w as u32 * 3 / 4)..(w as u32 - 60) {
+                if let Some(p) = cv.pix.pixel(x, (h * 0.3) as u32) {
+                    dark += (p.red() < 40) as usize;
+                }
+            }
+            assert!(dark > 10, "{layout:?} : le QR code");
+            app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(t, _)| *t == Target::AccountNewCode));
+            fits(&hits, w, h, &format!("refusé {layout:?}"));
+            // Un autre relais : le champ, le pavé d'une adresse (point, deux-points), « Continuer ».
+            app.activate(Target::AccountOtherRelay);
+            let hits = ui::draw(&app, &mut cv);
+            for t in [Target::AccountRelayField, Target::AccountRelayGo, Target::AccountRelayCancel, Target::Key('.'), Target::Key(':'), Target::KeyErase] {
+                assert!(hits.iter().any(|(x, _)| *x == t), "{layout:?} : {t:?}");
+            }
+            fits(&hits, w, h, &format!("autre relais {layout:?}"));
+            app.activate(Target::Key('a'));
+            app.activate(Target::Key('.'));
+            assert_eq!(app.accounts.flow.field, "a.");
+        }
+    }
+
+    /// Au bureau : « Connexion au compte… » pendant que la page du relais est ouverte, le relais d'abord pour
+    /// « Ajouter un compte » ; tout tient dans la fenêtre la plus étroite.
+    #[test]
+    fn desktop_sign_in_screens() {
+        for (w, h) in [(1280.0, 800.0), (960.0, 600.0)] {
+            crate::i18n::force_english(false);
+            let mut app = empty(false, Layout::Desktop);
+            let mut cv = Canvas::new();
+            cv.resize(w as u32, h as u32, 1.0);
+            app.go(Screen::Home);
+            app.activate(Target::AccountSignIn);
+            let hits = ui::draw(&app, &mut cv);
+            fits(&hits, w, h, "page du relais");
+            app.back();
+            app.open_settings(true, Screen::Home);
+            app.account_choose(Setting::AccountAdd);
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(t, _)| *t == Target::AccountRelayDefault) && hits.iter().any(|(t, _)| *t == Target::AccountOtherRelay));
+            fits(&hits, w, h, "relais d'abord");
+        }
+    }
+
+    /// Avec un compte : ses ordinateurs à l'accueil, chacun une fois, avec la pastille d'origine sur sa carte ; sans
+    /// compte, pas de pastille.
+    #[test]
+    fn account_computers_have_their_badge() {
+        crate::i18n::force_english(false);
+        let mut app = with_account(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        cv.resize(1280, 800, 1.0);
+        app.go(Screen::Home);
+        let hits = ui::draw(&app, &mut cv);
+        assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::Host(_))).count(), 3);
+        assert_eq!(app.origin("a"), Some("Appairé"));
+        let id = app.store.account_hosts[1].id.clone();
+        assert_eq!(app.origin(&id), Some("Ouvert par Hugo"));
+        app.store.forget_account(&kn_lea().key());
+        assert_eq!(app.store.hosts.len(), 1, "l'appairé reste");
+        assert_eq!(app.origin("a"), None);
+    }
+
+    /// Réglages de l'app › Comptes, et la confirmation de « Se déconnecter » : tout tient.
+    #[test]
+    fn accounts_settings_fit() {
+        for (layout, w, h) in sizes() {
+            crate::i18n::force_english(false);
+            let mut app = with_account(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(w as u32, h as u32, 1.0);
+            app.open_settings(true, Screen::Home);
+            app.section = crate::app::APP_SECTIONS.iter().position(|s| *s == Section::Accounts).unwrap();
+            let hits = ui::draw(&app, &mut cv);
+            for t in [Setting::AccountManage(0), Setting::AccountSignOut(0), Setting::AccountAdd] {
+                assert!(hits.iter().any(|(x, _)| *x == Target::Setting(t)), "{layout:?} : {t:?}");
+            }
+            app.account_choose(Setting::AccountSignOut(0));
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(t, _)| *t == Target::ConfirmYes));
+            fits(&hits, w, h, &format!("se déconnecter {layout:?}"));
+        }
+    }
 
     /// À la manette, les réglages s'atteignent par Y, et l'accueil par B.
     #[test]

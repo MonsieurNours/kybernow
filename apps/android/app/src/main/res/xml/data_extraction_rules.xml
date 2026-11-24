@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ce qui ne quitte jamais l'appareil, ni par la sauvegarde d'Android (déjà coupée : allowBackup faux) ni par le
+     transfert d'un appareil à l'autre (Android 12 et après) : les comptes KyberNow (session d'appareil chiffrée par une
+     clé du Keystore, qui ne se transfère pas ; docs/comptes.md). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="accounts.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="accounts.xml" />
+    </device-transfer>
+</data-extraction-rules>

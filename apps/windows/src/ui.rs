@@ -63,6 +63,9 @@ mod lend;
 // Invitations : « Rejoindre avec un code » qui tombe sur un code d'invitation,
 // puis l'ordinateur ajouté avec le mot de passe (docs/invitations.md).
 mod invite;
+// Comptes KyberNow : connexion par la page du relais, comptes gardés, leurs
+// ordinateurs à l'accueil, ouverts avec le jeton d'accès (docs/comptes.md).
+mod account;
 // Consoles PlayStation : recherche, comptes PSN, association, partie et sa
 // barre, réglages, envoi entre appareils (docs/playstation.md).
 mod playstation;
@@ -109,6 +112,10 @@ pub struct ComputerView {
     station_pending: Option<&'static str>,
     /// Prêté à un ami : « Prêté à {prénom} », « Reprendre l'ordinateur ».
     lend: Option<crate::lending::HomeLend>,
+    /// La pastille d'origine (comptes KyberNow, seulement avec un compte
+    /// connecté) : « Compte », « Compte · {relais} », l'organisation, « Ouvert
+    /// par {prénom} », « Appairé ».
+    origin: Option<String>,
 }
 
 /// Un ordinateur à ajouter : adresse et port de sa console, empreinte
@@ -335,6 +342,11 @@ pub enum Action {
 
 fn parse_action(args: &[String]) -> Option<Action> {
     let first = args.first()?;
+    // Le retour de la page de connexion d'un compte (`kybernow://compte?…`) :
+    // `account::callback`, rien à demander à l'interface.
+    if kybernow_core::account::is_callback(first) {
+        return None;
+    }
     // Le lien (ou le QR code) d'un partage : « Rejoindre avec un code ».
     if crate::link::is_join(first) {
         return Some(Action::Join { link: Some(first.clone()) });
@@ -434,7 +446,9 @@ impl UiState {
     }
 
     fn views(&self) -> Vec<ComputerView> {
-        let computers = self.with_store(|s| s.computers.clone());
+        let (computers, from_accounts) = self.with_store(|s| (s.computers.clone(), s.account_computers.clone()));
+        // Les pastilles d'origine (comptes KyberNow), hors du verrou des ordinateurs.
+        let mut origins = account::origins(&computers, &from_accounts);
         let waking: Vec<String> = self.waking.lock().unwrap().keys().cloned().collect();
         let pending: HashMap<String, Kind> = self.following.lock().unwrap().iter().map(|(id, (p, _))| (id.clone(), p.kind)).collect();
         // Les ordinateurs dont une session passe par le relais (lu avant `live` : les deux verrous ne se tiennent jamais ensemble).
@@ -461,7 +475,8 @@ impl UiState {
                 let station_pending = pending.get(&c.id).map(|k| k.code());
                 let via_relay = l.away || relayed.contains(&c.id);
                 let lend = l.lend.as_ref().and_then(crate::lending::HomeLend::of);
-                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend }
+                let origin = origins.remove(&c.id);
+                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin }
             })
             .collect()
     }
@@ -712,6 +727,12 @@ fn handle_args(app: &AppHandle, args: Vec<String>) {
             }
             return;
         }
+        // Le retour de la page de connexion d'un compte KyberNow (avant les liens
+        // de partage) : le code s'échange, l'accueil revient devant.
+        Some(link) if kybernow_core::account::is_callback(link) => {
+            account::callback(app, link);
+            return show_action(app, Action::Open);
+        }
         // Une notification de demande à rejoindre ou à emprunter : le panneau de « Partager »
         // ou de « Prêter l'ordinateur… » de cette session.
         Some(link) if crate::link::action(link).is_some_and(|(a, _)| a == "share" || a == "lend") => {
@@ -935,6 +956,10 @@ fn install_update(app: AppHandle) -> Result<(), String> {
 }
 
 fn console_for(c: &Computer) -> Console {
+    // Un ordinateur d'un compte KyberNow : le jeton d'accès du relais, jamais de mot de passe.
+    if let Some(ac) = &c.account {
+        return account::console(c, ac);
+    }
     let password = store::password(&c.id).unwrap_or_default();
     Console::new(&c.host, c.port, &c.user, &password, c.fingerprint.clone())
 }
@@ -979,15 +1004,29 @@ fn away_by_relay(app: &AppHandle, c: &Computer) -> bool {
 /// au plus. Rend vrai si l'accueil doit le revoir.
 fn refresh(app: &AppHandle, c: &Computer) -> bool {
     let state = app.state::<UiState>();
+    // Un ordinateur d'un compte : son adresse sur le réseau, d'après la découverte.
+    let located = account::locate(app, c);
+    let c = located.as_ref().unwrap_or(c);
     let console = console_for(c);
-    let info = console.info().ok();
+    let info = if c.account.is_some() && c.host.is_empty() {
+        // Jamais vu sur le réseau : seulement par le relais (présence, plus bas).
+        None
+    } else {
+        match console.info() {
+            Ok(i) => Some(i),
+            // Le relais refuse le jeton d'accès : compte oublié, ou ordinateur retiré du compte.
+            Err(e) if account::on_console_error(app, c, &e) => return true,
+            Err(_) => None,
+        }
+    };
     // Hors de chez soi : pas de réponse sur le réseau, mais le relais tient l'ordinateur.
     let away = info.is_none() && away_by_relay(app, c);
     let online = Some(info.is_some() || away);
     // Son relais, gardé avec lui pour l'ouvrir hors de chez soi (une Station sans
-    // relais réglé, ou antérieure, l'efface).
+    // relais réglé, ou antérieure, l'efface). Un ordinateur d'un compte garde la
+    // route du relais de son compte.
     let mut relay_changed = false;
-    if let Some(i) = info.as_ref().filter(|i| i.relay != c.relay) {
+    if let Some(i) = info.as_ref().filter(|i| c.account.is_none() && i.relay != c.relay) {
         let relay = i.relay.clone();
         relay_changed = state.with_store(|s| {
             let found = s.get_mut(&c.id).map(|m| m.relay = relay).is_some();
@@ -1040,7 +1079,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     // (version, installation, redémarrage) compte aussi.
     let station_changed = info.as_ref().is_some_and(|i| l.info.as_ref().map(|o| &o.station) != Some(&i.station));
     let lend_changed = l.lend != lend_view;
-    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed || lend_changed;
+    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed || lend_changed || located.is_some();
     l.online = online;
     l.away = away;
     l.lend = lend_view;
@@ -1434,6 +1473,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             wake: info.wake.clone(),
             station_notified: None,
             relay: info.relay.clone(),
+            account: None,
         })
     });
     if !store::set_password(&id, user, password) {
@@ -2959,12 +2999,28 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
     let host_name = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone()).map(|i| i.hostname).unwrap_or_default();
-    let local = system::is_this_pc(&c.host);
+    // Un ordinateur d'un compte KyberNow : le jeton d'accès du relais (demandé
+    // d'abord : ses refus se disent tout de suite), sur le réseau quand la
+    // découverte le voit, par le relais du compte sinon ; ni compte ni mot de
+    // passe. Un ordinateur appairé : son compte, sur le réseau d'abord, par le
+    // relais sinon quand l'ordinateur y est connu (docs/relais.md) ; une
+    // empreinte changée ne bascule jamais.
+    let (password, access, route, host, port) = match &c.account {
+        Some(ac) => {
+            let (access, route, host, port) = account::session_params(&app, &c, ac)?;
+            (String::new(), Some(access), route, host, port)
+        }
+        None => {
+            let password = store::password(&id).ok_or_else(|| t("errors.password_missing", &[]))?;
+            let route = kybernow_core::session::Route::Auto(relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref()));
+            (password, None, route, c.host.clone(), c.port)
+        }
+    };
+    let local = !host.is_empty() && system::is_this_pc(&host);
     if local || (!me.is_empty() && (host_name.eq_ignore_ascii_case(&me) || c.name.eq_ignore_ascii_case(&me))) {
-        log::warn!("session refusée : {} ({}) est ce PC", c.name, c.host);
+        log::warn!("session refusée : {} ({}) est ce PC", c.name, host);
         return Err(t("errors.this_pc", &[]));
     }
-    let password = store::password(&id).ok_or_else(|| t("errors.password_missing", &[]))?;
     let pc = {
         let cached = state.this_pc.lock().unwrap().clone();
         match cached {
@@ -3007,11 +3063,12 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         other => other.parse().unwrap_or(2),
     };
     let params = SessionParams {
-        console_host: c.host.clone(),
-        console_port: c.port,
+        console_host: host,
+        console_port: port,
         user: c.user.clone(),
         password,
-        console_fingerprint: c.fingerprint.clone(),
+        // Un ordinateur d'un compte : l'empreinte d'Admin que le relais donne (vérifiée par le cœur).
+        console_fingerprint: c.account.as_ref().and_then(|ac| ac.admin_fp.clone()).or_else(|| c.fingerprint.clone()),
         device: system::device_info(),
         mode,
         audio_channels,
@@ -3022,12 +3079,11 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         clipboard: s.clipboard,
         recovery: Default::default(),
         role: SessionRole::Host,
-        // Sur le réseau d'abord (`info` en 1,5 s), par le relais sinon quand l'ordinateur
-        // y est connu (docs/relais.md) ; une empreinte changée ne bascule jamais.
-        route: kybernow_core::session::Route::Auto(relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref())),
+        route,
         screen_hdr,
         screen_luminance,
         capabilities: None,
+        account: access,
     };
     let mouse = match s.mouse.as_str() {
         "jeu" => Some(true),
@@ -3975,6 +4031,11 @@ pub fn run(args: Vec<String>) {
             lend::lend_answer,
             lend::lend_take_back,
             invite::invite_redeem,
+            account::account_list,
+            account::account_sign_in,
+            account::account_sign_in_cancel,
+            account::account_manage,
+            account::account_sign_out,
             playstation::ps_state,
             playstation::ps_search_now,
             playstation::ps_login,
@@ -4069,6 +4130,8 @@ pub fn run(args: Vec<String>) {
             let _ = handle.state::<UiState>().discovery.set(d);
             let h = handle.clone();
             std::thread::spawn(move || poll(h));
+            // Comptes KyberNow : leurs ordinateurs relevés au lancement.
+            account::sync_soon(&handle, true);
             // Les ordinateurs empruntés (« Ordinateur de {hôte} ») : leur état.
             let h = handle.clone();
             std::thread::spawn(move || lend::poll_friends(h));
@@ -4092,6 +4155,10 @@ pub fn run(args: Vec<String>) {
             if let tauri::WindowEvent::Focused(true) = event {
                 if window.label().starts_with("connexion-") {
                     connexion_focused(window.app_handle(), window.label());
+                }
+                // L'accueil revient : les ordinateurs des comptes sont relevés (30 s au plus souvent).
+                if window.label() == "main" {
+                    account::sync_soon(window.app_handle(), false);
                 }
                 return;
             }

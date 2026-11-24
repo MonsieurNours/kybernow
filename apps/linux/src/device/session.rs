@@ -818,9 +818,10 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         sh.send(SessionEvent::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
     });
     let recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() };
-    let params = match (guest, loan) {
+    let account = if guest.is_none() && loan.is_none() { super::accounts::access(&host.id) } else { None };
+    let params = match (guest, loan, account) {
         // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
-        (Some(found), _) => SessionParams {
+        (Some(found), _, _) => SessionParams {
             auto_reconnect: host.settings.reconnect,
             gamepad_xbox360: host.settings.xbox360,
             recovery,
@@ -830,14 +831,42 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         },
         // Un emprunt : la Station de l'ami, le jeton du prêt renouvelé par son signe de vie, l'écran virtuel fait à la
         // taille de cet appareil (`SessionParams::borrower`) ; clavier, souris et manettes, jamais le presse-papiers.
-        (None, Some(loan)) => SessionParams {
+        (None, Some(loan), _) => SessionParams {
             gamepad_xbox360: host.settings.xbox360,
             recovery,
             screen_hdr: screen_hdr.is_some(),
             screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
             ..SessionParams::borrower(loan, device, settings, audio_channels)
         },
-        (None, None) => SessionParams {
+        // Un ordinateur d'un compte KyberNow (docs/comptes.md) : ni compte ni mot de passe, le jeton d'accès du relais
+        // (`account`), Admin épinglé sur l'empreinte du compte ; sur le réseau d'abord quand la découverte l'y voit
+        // (son adresse), sinon par le relais du compte.
+        (None, None, Some((access, route))) => SessionParams {
+            console_host: host.address.clone(),
+            console_port: host.port,
+            user: String::new(),
+            password: String::new(),
+            console_fingerprint: host.fingerprint.clone(),
+            device,
+            mode: Mode { width: w, height: h, refresh: fps },
+            audio_channels,
+            virtual_display: host.settings.virtual_display,
+            settings,
+            auto_reconnect: host.settings.reconnect,
+            gamepad_xbox360: host.settings.xbox360,
+            clipboard: host.settings.clipboard,
+            recovery,
+            role: SessionRole::Host,
+            route: match route {
+                Some(r) if host.address.is_empty() => kybernow_core::session::Route::Relay(r),
+                r => kybernow_core::session::Route::Auto(r),
+            },
+            screen_hdr: screen_hdr.is_some(),
+            screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
+            capabilities: None,
+            account: Some(access),
+        },
+        (None, None, None) => SessionParams {
             console_host: host.address.clone(),
             console_port: host.port,
             user: host.user.clone(),
@@ -858,6 +887,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             screen_hdr: screen_hdr.is_some(),
             screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
             capabilities: None,
+            account: None,
         },
     };
     let platform = Arc::new(LinuxPlatform(shared.clone()));

@@ -3,13 +3,14 @@
 //! la fenêtre de l'installateur, comme la fenêtre du système de l'app
 //! (`/compte/connexion?appareil=…&retour=kybernow://compte&etat=…`) ; au
 //! retour (`kybernow://compte?code=…&etat=…`), le code est échangé contre la
-//! session d'appareil (`POST /v1/devices/token`), remise à l'app :
-//!
-//! - le jeton dans le Gestionnaire d'identification de Windows, cible
-//!   `KyberNow:account:<relais>` (utilisateur : l'e-mail du compte, secret :
-//!   le jeton en UTF-16LE, comme les mots de passe des ordinateurs de l'app) ;
-//! - le reste dans `%APPDATA%\KyberNow\accounts.json`
-//!   (`{"accounts":[{relay, account:{id,name,email}, device:{id,name}, added}]}`).
+//! session d'appareil (`POST /v1/devices/token`), remise à l'app comme elle
+//! garde ses comptes (`apps/windows/src/store.rs`, `save_account`) : le compte
+//! **entier** (`{relay, token, account:{id,name,email}, device:{id,name}}`,
+//! JSON en UTF-8, comme `kybernow_core::account::Account`) dans le
+//! Gestionnaire d'identification de Windows, cible
+//! `KyberNowCompte:<relais>|<identifiant du compte>`, utilisateur l'e-mail.
+//! Rien dans un fichier : `accounts.json` est la liste des ordinateurs que
+//! l'app tient elle-même.
 //!
 //! L'app démarre alors connectée (lot 3, `apps/core` et `apps/windows`).
 
@@ -31,10 +32,12 @@ use sha2::{Digest, Sha256};
 pub const DEFAULT_RELAY: &str = "share.kybernow.app";
 /// Le retour vers l'app, intercepté par la fenêtre de l'installateur.
 pub const RETURN_URI: &str = "kybernow://compte";
-/// Préfixe des cibles du Gestionnaire d'identification (celui de l'app).
-pub const CREDENTIAL_PREFIX: &str = "KyberNow:account:";
-/// Le fichier des comptes connectés, dans `%APPDATA%\KyberNow`.
-pub const ACCOUNTS_FILE: &str = "accounts.json";
+/// Préfixe des cibles des comptes dans le Gestionnaire d'identification :
+/// celui de l'app (`store::ACCOUNT_PREFIX`), hors du filtre `KyberNow:*` des
+/// mots de passe des ordinateurs.
+pub const CREDENTIAL_PREFIX: &str = "KyberNowCompte:";
+/// Taille la plus grande d'un secret du gestionnaire (`CRED_MAX_CREDENTIAL_BLOB_SIZE`).
+const MAX_BLOB: usize = 5 * 512;
 
 // --- Adresse d'un relais ---------------------------------------------------------
 
@@ -397,55 +400,41 @@ pub fn exchange(relay: &RelayAddr, code: &str) -> Result<DeviceSession> {
     Ok(session)
 }
 
-/// L'entrée de `accounts.json` (sans le jeton, qui est dans le Gestionnaire d'identification).
-pub fn accounts_entry(relay: &RelayAddr, session: &DeviceSession, now: u64) -> Value {
+/// Le compte tel que l'app le garde (`kybernow_core::account::Account`,
+/// JSON) : le relais sous sa forme normale, le jeton, le compte, l'appareil.
+pub fn app_account(relay: &RelayAddr, session: &DeviceSession) -> Value {
     json!({
         "relay": relay.to_string(),
+        "token": session.token,
         "account": session.account,
         "device": session.device,
-        "added": now,
     })
 }
 
-/// Ajoute (ou remplace, même relais) l'entrée dans le contenu de `accounts.json`.
-pub fn merge_accounts(existing: Option<&str>, entry: Value) -> Value {
-    let mut doc: Value = existing.and_then(|t| serde_json::from_str(t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
-    let relay = entry["relay"].clone();
-    let mut list: Vec<Value> = doc["accounts"].as_array().cloned().unwrap_or_default();
-    list.retain(|a| a["relay"] != relay);
-    list.push(entry);
-    doc["accounts"] = Value::Array(list);
-    doc
+/// La cible du Gestionnaire d'identification d'un compte : celle de l'app
+/// (`Account::key`, `<relais>|<identifiant du compte>`).
+pub fn credential_target(relay: &RelayAddr, session: &DeviceSession) -> String {
+    format!("{CREDENTIAL_PREFIX}{relay}|{}", session.account.id)
 }
 
-/// La cible du Gestionnaire d'identification d'un relais.
-pub fn credential_target(relay: &RelayAddr) -> String {
-    format!("{CREDENTIAL_PREFIX}{}", relay.web_authority())
-}
-
-/// Remet la session à l'app : le jeton dans le Gestionnaire d'identification,
-/// le reste dans `%APPDATA%\KyberNow\accounts.json`.
+/// Remet la session à l'app : le compte entier dans le Gestionnaire
+/// d'identification, sous la cible de l'app (un compte déjà là est remplacé).
 #[cfg(windows)]
 pub fn store(relay: &RelayAddr, session: &DeviceSession) -> Result<()> {
-    write_credential(&credential_target(relay), &session.account.email, &session.token)?;
-    let dir = std::env::var_os("APPDATA").map(std::path::PathBuf::from).context("APPDATA absent")?.join(crate::sys::PRODUCT);
-    std::fs::create_dir_all(&dir)?;
-    let path = dir.join(ACCOUNTS_FILE);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let doc = merge_accounts(std::fs::read_to_string(&path).ok().as_deref(), accounts_entry(relay, session, now));
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&doc)?)?;
-    std::fs::rename(&tmp, &path)?;
-    Ok(())
+    let blob = serde_json::to_vec(&app_account(relay, session))?;
+    if blob.len() > MAX_BLOB {
+        bail!("compte trop long pour le Gestionnaire d'identification ({} octets)", blob.len());
+    }
+    let shown = if session.account.email.is_empty() { &session.account.id } else { &session.account.email };
+    write_credential(&credential_target(relay, session), shown, &blob)
 }
 
 #[cfg(windows)]
-fn write_credential(target: &str, user: &str, secret: &str) -> Result<()> {
+fn write_credential(target: &str, user: &str, blob: &[u8]) -> Result<()> {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::Security::Credentials::{CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredWriteW};
     let mut target = crate::sys::wide(target);
     let mut user = crate::sys::wide(user);
-    let blob: Vec<u8> = secret.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
     let cred = CREDENTIALW {
         Flags: 0,
         Type: CRED_TYPE_GENERIC,
@@ -461,7 +450,7 @@ fn write_credential(target: &str, user: &str, secret: &str) -> Result<()> {
         UserName: user.as_mut_ptr(),
     };
     if unsafe { CredWriteW(&cred, 0) } == 0 {
-        bail!("jeton non enregistré dans le Gestionnaire d'identification ({})", std::io::Error::last_os_error());
+        bail!("compte non enregistré dans le Gestionnaire d'identification ({})", std::io::Error::last_os_error());
     }
     Ok(())
 }
@@ -505,21 +494,20 @@ mod tests {
     }
 
     #[test]
-    fn session_et_fichier_des_comptes() {
+    fn session_remise_a_l_app() {
         let s: DeviceSession = serde_json::from_str(
             r#"{"token":"t0k","device":{"id":"dev_1","name":"PC-BUREAU"},"account":{"id":"acc_1","name":"Léa","email":"lea@exemple.fr"},"relay":"share.kybernow.app"}"#,
         )
         .unwrap();
         let r = RelayAddr::parse("share.kybernow.app").unwrap();
-        assert_eq!(credential_target(&r), "KyberNow:account:share.kybernow.app");
-        let entry = accounts_entry(&r, &s, 1795000000);
-        assert!(entry.get("token").is_none(), "le jeton ne va pas dans le fichier");
-        let doc = merge_accounts(Some(r#"{"accounts":[{"relay":"share.kybernow.app","account":{"id":"vieux"}},{"relay":"autre.test"}],"v":1}"#), entry.clone());
-        let list = doc["accounts"].as_array().unwrap();
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[1]["account"]["id"], "acc_1");
-        assert_eq!(doc["v"], 1, "le reste du fichier est gardé");
-        assert_eq!(merge_accounts(Some("pas du json"), entry)["accounts"].as_array().unwrap().len(), 1);
+        // La cible et le contenu de `store::save_account` de l'app (`Account::key`, `Account` en JSON).
+        assert_eq!(credential_target(&r, &s), "KyberNowCompte:share.kybernow.app|acc_1");
+        assert_eq!(
+            app_account(&r, &s),
+            json!({"relay":"share.kybernow.app","token":"t0k","account":{"id":"acc_1","name":"Léa","email":"lea@exemple.fr"},"device":{"id":"dev_1","name":"PC-BUREAU"}})
+        );
+        let p = RelayAddr::parse(&format!("relais.exemple.org:9443#SHA256:{}", ["AB"; 32].join(""))).unwrap();
+        assert_eq!(credential_target(&p, &s), format!("KyberNowCompte:relais.exemple.org:9443#sha256:{}|acc_1", ["ab"; 32].join(":")));
     }
 
     #[test]

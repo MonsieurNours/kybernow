@@ -10,6 +10,7 @@ import fr.leslignesclaires.kybernow.ui.settings.ConsoleSettingsScreen
 import kotlinx.coroutines.launch
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -24,6 +25,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import fr.leslignesclaires.kybernow.core.Accounts
+import fr.leslignesclaires.kybernow.core.FormFactor
+import fr.leslignesclaires.kybernow.ui.account.AccountCodeScreen
+import fr.leslignesclaires.kybernow.ui.account.AccountRelayScreen
 import fr.leslignesclaires.kybernow.core.BorrowAsk
 import fr.leslignesclaires.kybernow.core.Lend
 import fr.leslignesclaires.kybernow.core.LendInvite
@@ -62,6 +68,16 @@ sealed class Route {
     data object Gamepads : Route()
     /** « Rejoindre avec un code » (KyberNow Share) ; [link] : un lien ou un QR code `kybernow://join` qui donne la Station et le code. */
     data class Join(val link: ShareLink? = null) : Route()
+    /**
+     * Comptes KyberNow, Android TV : le code à approuver depuis le téléphone, sur [relay] ; [back] : l'écran d'où l'on
+     * vient (l'accueil, les réglages de l'app).
+     */
+    data class AccountCode(val relay: String, val back: Route = Home) : Route()
+    /**
+     * Comptes KyberNow : « Ajouter un compte », le relais d'abord (`share.kybernow.app` proposé, « Un autre relais… ») ;
+     * [other] : le champ « Un autre relais » ouvert d'emblée (depuis l'écran du code).
+     */
+    data class AccountRelay(val other: Boolean = false, val back: Route = AppSettings) : Route()
 }
 
 class MainActivity : AppCompatActivity() {
@@ -73,10 +89,23 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         handle(intent)
         val app = KyberNowApp.instance
+        // Les avis brefs des comptes (« Connecté à {compte}. », « Ce compte a été déconnecté de cet appareil… »).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                app.accounts.notices.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+            }
+        }
         setContent {
             KnTheme(app.form) {
                 // Le test des manettes s'ouvre depuis les réglages de l'app : Retour y revient.
-                BackHandler(route != Route.Home) { route = if (route == Route.Gamepads) Route.AppSettings else Route.Home }
+                BackHandler(route != Route.Home) {
+                    route = when (val r = route) {
+                        Route.Gamepads -> Route.AppSettings
+                        is Route.AccountCode -> r.back
+                        is Route.AccountRelay -> r.back
+                        else -> Route.Home
+                    }
+                }
                 when (val r = route) {
                     Route.Home -> HomeScreen(
                         model,
@@ -92,6 +121,7 @@ class MainActivity : AppCompatActivity() {
                             appSettings = { route = Route.AppSettings },
                             wake = ::wake,
                             join = { route = Route.Join() },
+                            signIn = { signIn(Accounts.DEFAULT_RELAY, Route.Home) },
                             borrow = { b, password -> model.borrow(b.id, password, ::borrowed) },
                             cancelBorrow = { b -> model.cancelBorrow(b.id) },
                             removeBorrowed = { b -> model.removeBorrowed(b.id) },
@@ -118,7 +148,22 @@ class MainActivity : AppCompatActivity() {
                     is Route.ConsoleSettings -> ConsoleSettingsScreen(r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
                     is Route.Join -> JoinScreen(r.link, onBack = { route = Route.Home }, onJoined = ::joined, onBorrowed = ::borrowed, onInvited = ::invited)
                     is Route.HostSettings -> HostSettingsScreen(model, r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
-                    Route.AppSettings -> AppSettingsScreen(onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads })
+                    Route.AppSettings -> AppSettingsScreen(
+                        onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads },
+                        onSignIn = { signIn(Accounts.DEFAULT_RELAY, Route.AppSettings) },
+                        onAddAccount = { route = Route.AccountRelay(back = Route.AppSettings) },
+                    )
+                    is Route.AccountCode -> AccountCodeScreen(
+                        r.relay,
+                        onApproved = { a -> app.accounts.added(a); route = Route.Home },
+                        onOtherRelay = { route = Route.AccountRelay(other = true, back = r) },
+                        onBack = { route = r.back },
+                    )
+                    is Route.AccountRelay -> AccountRelayScreen(
+                        r.other,
+                        onChosen = { relay -> signIn(relay, if (r.back is Route.AccountCode) r.back.back else r.back) },
+                        onBack = { route = r.back },
+                    )
                     Route.Gamepads -> {
                         DisposableEffect(Unit) {
                             PadMonitor.active = true
@@ -143,6 +188,11 @@ class MainActivity : AppCompatActivity() {
      */
     private fun handle(intent: Intent?) {
         val data = intent?.data ?: return
+        // `kybernow://compte?…` : le retour de la page de connexion du relais (comptes KyberNow), avant tout autre lien.
+        if (Accounts.isCallback(data.toString())) {
+            KyberNowApp.instance.accounts.finishSignIn(data.toString())
+            return
+        }
         TvChannel.hostIdOf(data)?.let { id ->
             KyberNowApp.instance.hosts.get(id)?.let { connect(it) }
             return
@@ -192,8 +242,36 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, getString(R.string.invite_added, h.name), Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * « Se connecter à un compte KyberNow » sur [relay] : au téléviseur, l'écran du code ; ailleurs, la page de connexion
+     * du relais dans un onglet personnalisé (le retour `kybernow://compte` arrive à [handle]), puis l'écran [back].
+     */
+    private fun signIn(relay: String, back: Route) {
+        if (KyberNowApp.instance.form == FormFactor.TV) {
+            route = Route.AccountCode(relay, back)
+            return
+        }
+        route = back
+        val url = KyberNowApp.instance.accounts.beginSignIn(relay) ?: return
+        openCustomTab(url)
+    }
+
+    /**
+     * Un onglet personnalisé (Custom Tabs) sans la bibliothèque androidx.browser : un navigateur qui les connaît (Chrome,
+     * Firefox, Samsung Internet…) ouvre la page par-dessus l'app ; un autre l'ouvre comme un lien. Le mot de passe, la
+     * passkey et la double authentification se font dans cette page, jamais dans l'app.
+     */
+    private fun openCustomTab(url: String) {
+        val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            .putExtras(Bundle().apply { putBinder("android.support.customtabs.extra.SESSION", null) })
+            .putExtra("android.support.customtabs.extra.TITLE_VISIBILITY", 1)
+        runCatching { startActivity(i) }.onFailure { android.util.Log.w("KyberNow", "comptes : aucun navigateur pour la page de connexion") }
+    }
+
     override fun onStart() {
         super.onStart()
+        // Les ordinateurs des comptes : au lancement et à chaque retour au premier plan.
+        KyberNowApp.instance.accounts.refresh()
         model.startPolling()
         model.refreshAfterSession()
         TvChannel.publish(this, KyberNowApp.instance.hosts.hosts.value)

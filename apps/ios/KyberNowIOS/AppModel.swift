@@ -55,6 +55,8 @@ final class AppModel: ObservableObject {
     @Published var mobileDataAsk: UUID?
 
     let store: HostStore
+    /// Les comptes KyberNow de cet appareil et leurs ordinateurs (Accounts.swift).
+    let accounts: AccountStore
     /// Les ordinateurs que des amis prêtent à cet appareil (docs/pret.md), à part des siens.
     let borrowed: BorrowedStore
     /// Consoles PlayStation : comptes PSN, consoles, associations (docs/playstation.md).
@@ -75,6 +77,7 @@ final class AppModel: ObservableObject {
         let demo = false
         #endif
         store = HostStore(demo: demo)
+        accounts = AccountStore(hosts: store)
         borrowed = BorrowedStore(demo: demo)
         playstation = PlayStationStore(demo: demo)
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
@@ -92,6 +95,14 @@ final class AppModel: ObservableObject {
                 withAnimation(Theme.join) { self?.consoleSession = nil }
             }
             .store(in: &bag)
+        // Comptes KyberNow : leurs avis (« Connecté à {compte}. », compte
+        // déconnecté), et l'adresse de leurs ordinateurs vus sur ce réseau.
+        accounts.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
+        discovery.$found
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.accounts.noteNetwork($0) }
+            .store(in: &bag)
+        accounts.onNotice = { [weak self] in self?.show($0) }
         discovery.start()
         defer { Self.shared = self }
         path.start(queue: DispatchQueue(label: "fr.leslignesclaires.kybernow.path"))

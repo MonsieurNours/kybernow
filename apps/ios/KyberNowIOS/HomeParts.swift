@@ -365,6 +365,9 @@ struct HomeHostCard: View {
     let status: String
     let selected: Bool
     let m: HomeCardMetrics
+    /// La pastille d'origine (« Compte », « Appairé »…), seulement quand un
+    /// compte KyberNow est connecté (docs/link-ui.md, « Comptes KyberNow »).
+    var origin: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -372,6 +375,17 @@ struct HomeHostCard: View {
                 .overlay { HostPicture(host: host, online: online != false) }
                 .frame(width: m.width, height: m.image)
                 .clipped()
+                .overlay(alignment: .topLeading) {
+                    if let origin, !origin.isEmpty {
+                        Text(verbatim: origin)
+                            .font(Theme.sans(max(10, m.detail - 2), .medium))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Capsule().fill(Theme.background.opacity(0.72)))
+                            .padding(6)
+                    }
+                }
             VStack(alignment: .leading, spacing: 4) {
                 Text(host.name)
                     .font(Theme.sans(m.name, .semibold))

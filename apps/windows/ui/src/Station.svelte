@@ -1,7 +1,9 @@
 <!--
   Rubrique Station des réglages d'un ordinateur : version de KyberNow Station,
   Admin dans le navigateur, redémarrage et mise à jour de la Station (avec
-  confirmation quand un appareil est en session), compte, retrait.
+  confirmation quand un appareil est en session), compte, retrait. Un ordinateur d'un compte KyberNow
+  (docs/comptes.md) : le compte qui le donne et son relais, sans « Retirer cet ordinateur » (il part avec
+  le compte : « Se déconnecter » dans les réglages de l'app, ou le retrait sur la page du compte).
 
   Après un redémarrage ou une mise à jour, l'app (côté Rust, `follow_loop`
   de ui.rs, le même suivi que pour le menu de l'icône) interroge la Station
@@ -15,7 +17,9 @@
   import { invoke, listen } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
-  let { computer, onremoved }: { computer: Computer; onremoved: () => void } = $props()
+  let { computer, accountName = null, onremoved }: { computer: Computer; accountName?: string | null; onremoved: () => void } = $props()
+  /** Le relais d'un ordinateur d'un compte, tel qu'on le montre (sans empreinte). */
+  const relayLabel = $derived(computer.account ? computer.account.relay.split('#')[0] : '')
 
   type Kind = 'restart' | 'update'
 
@@ -152,9 +156,11 @@
   <div class="line">
     <span>{t('station.account')}</span>
     <span class="account">
-      {#if computer.by_code || computer.info?.account?.own_device}{t('station.own_access')}<span class="mono user">{computer.user}</span>{:else}<span class="mono">{computer.user}</span>{/if}
+      {#if computer.account}{accountName ?? computer.origin ?? ''}<span class="mono user">{relayLabel}</span>
+      {:else if computer.by_code || computer.info?.account?.own_device}{t('station.own_access')}<span class="mono user">{computer.user}</span>{:else}<span class="mono">{computer.user}</span>{/if}
     </span>
   </div>
+  {#if !computer.account}
   <div class="line remove">
     {#if confirmRemove}
       <span>{t('station.remove_confirm', { name: computer.name })}</span>
@@ -166,6 +172,7 @@
       <button class="ghost" onclick={() => (confirmRemove = true)}><Icon name="trash" size={16} /> {t('station.remove_computer')}</button>
     {/if}
   </div>
+  {/if}
 </section>
 
 {#if confirm}

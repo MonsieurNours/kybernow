@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
     static let shared = AppModel()
 
     let store: HostStore
+    /// Les comptes KyberNow de ce Mac et leurs ordinateurs (Accounts.swift).
+    let accounts: AccountStore
     /// Les ordinateurs que des amis prêtent à ce Mac (docs/pret.md), à part des siens.
     let borrowed: BorrowedStore
     /// Les consoles PlayStation associées à ce Mac (PlayStation.swift).
@@ -72,6 +74,7 @@ final class AppModel: ObservableObject {
         // Le cœur Rust : son journal dans le journal unifié, la langue de l'app.
         Core.install()
         store = HostStore(demo: Self.demo)
+        accounts = AccountStore(hosts: store)
         borrowed = BorrowedStore(demo: Self.demo)
         playstation = PlayStationStore(demo: Self.demo)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
@@ -80,6 +83,14 @@ final class AppModel: ObservableObject {
         // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
         sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
+        // Comptes KyberNow : l'accueil suit les comptes (pastilles, « Connexion au
+        // compte… ») ; leurs avis, et l'adresse de leurs ordinateurs vus sur ce réseau.
+        accounts.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
+        accounts.onNotice = { [weak self] in self?.show($0) }
+        discovery.$found
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.accounts.noteNetwork($0) }
+            .store(in: &watchers)
         #if DEBUG
         if Self.demo {
             // Rien vers iCloud : les ordinateurs de démonstration restent sur ce Mac.
@@ -670,7 +681,7 @@ struct KyberNowApp: App {
         }
         // Réglages de l'app (⌘,) ; ceux de connexion vont par ordinateur.
         Settings {
-            AppSettingsView(cloud: app.cloud)
+            AppSettingsView(cloud: app.cloud, accounts: app.accounts)
         }
     }
 }

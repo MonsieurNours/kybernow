@@ -203,8 +203,12 @@ private struct Hero: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StatusPill(online: online, text: lent.map(LentHome.line) ?? LinkText.status(online, away: status?.away == true))
-                .modifier(rise(0))
+            HStack(spacing: 10) {
+                StatusPill(online: online, text: lent.map(LentHome.line) ?? LinkText.status(online, away: status?.away == true))
+                // D'où vient l'ordinateur (« Compte », « Appairé »…), quand un compte KyberNow est connecté.
+                if let origin = app.accounts.origins[host.id] { OriginBadge(text: origin, size: 13) }
+            }
+            .modifier(rise(0))
             VStack(alignment: .leading, spacing: 10) {
                 Text(host.name)
                     .font(Theme.display(nameSize, .bold))
@@ -456,31 +460,57 @@ private struct Welcome: View {
     @EnvironmentObject var app: AppModel
     let arrived: Bool
 
+    /// Sans aucun ordinateur (ni appairé ni d'un compte) : « Retrouvez vos
+    /// ordinateurs » (docs/link-ui.md, « Comptes KyberNow »), la connexion à un
+    /// compte d'abord, puis « ou sans compte » et les boutons de toujours.
     var body: some View {
+        let signingIn = app.accounts.signingIn
         VStack(alignment: .leading, spacing: 18) {
-            Text("Ouvrez votre ordinateur sur ce Mac")
+            Text(AccountText.findTitle)
                 .font(Theme.display(64, .bold)).tracking(-64 * 0.045)
                 .foregroundStyle(Theme.text)
                 .frame(maxWidth: 900, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .modifier(Rise(arrived: arrived, delay: 0.25))
-            Text("Ajoutez un ordinateur équipé de KyberNow Station. Sur ce réseau, il apparaît tout seul en bas de l'écran.")
+            Text(AccountText.findText)
                 .font(Theme.sans(16)).foregroundStyle(Theme.text2)
                 .frame(maxWidth: 560, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .modifier(Rise(arrived: arrived, delay: 0.35))
+            VStack(alignment: .leading, spacing: 10) {
+                Button { app.accounts.signIn() } label: {
+                    HStack(spacing: 12) {
+                        if signingIn { ProgressView().controlSize(.small) } else { Icon("user", size: 18, bold: true) }
+                        Text(signingIn ? AccountText.signingIn : AccountText.signIn)
+                    }
+                }
+                .buttonStyle(PrimaryButton(height: 56))
+                .disabled(signingIn)
+                Text(AccountText.signInHelpWindow)
+                    .font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: 560, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 18)
+            .modifier(Rise(arrived: arrived, delay: 0.45))
+            HStack(spacing: 12) {
+                Rectangle().fill(Theme.line2).frame(width: 48, height: 1)
+                Text(AccountText.withoutAccount).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                Rectangle().fill(Theme.line2).frame(width: 48, height: 1)
+            }
+            .modifier(Rise(arrived: arrived, delay: 0.5))
             HStack(spacing: 14) {
                 Button { app.add() } label: {
                     HStack(spacing: 12) { Icon("plus", size: 18, bold: true); Text(LinkText.addTitle) }
                 }
-                .buttonStyle(PrimaryButton(height: 56))
+                .buttonStyle(GhostButton(height: 48))
                 // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
                 Button { app.join() } label: {
                     HStack(spacing: 12) { Icon("share-network", size: 18, bold: true); Text(ShareText.join) }
                 }
-                .buttonStyle(GhostButton(height: 56))
+                .buttonStyle(GhostButton(height: 48))
             }
-            .padding(.top, 18)
-            .modifier(Rise(arrived: arrived, delay: 0.45))
+            .modifier(Rise(arrived: arrived, delay: 0.55))
         }
     }
 }
@@ -582,6 +612,9 @@ private struct HostCard: View {
                 HostBackdrop(host: host, picture: picture, online: status?.online, drift: false)
                     .frame(height: 86)
                     .clipped()
+                    .overlay(alignment: .topLeading) {
+                        if let origin = app.accounts.origins[host.id] { OriginBadge(text: origin, size: 11).padding(8) }
+                    }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(host.name).font(Theme.sans(15, .semibold)).foregroundStyle(status?.online == false ? Theme.muted : Theme.text).lineLimit(1)
                     HStack(spacing: 7) {
@@ -611,6 +644,24 @@ private struct HostCard: View {
             }
             Button(LinkText.settingsTitle(host.name)) { app.openSettings(host) }
         }
+    }
+}
+
+/// La pastille d'origine d'un ordinateur (docs/link-ui.md, « Comptes
+/// KyberNow ») : « Compte », « Compte · {relais} », l'organisation, « Ouvert
+/// par {prénom} », « Appairé ». Le texte vient du cœur.
+struct OriginBadge: View {
+    let text: String
+    var size: CGFloat = 12
+
+    var body: some View {
+        Text(verbatim: text)
+            .font(Theme.sans(size, .medium))
+            .foregroundStyle(Theme.text2)
+            .lineLimit(1)
+            .padding(.horizontal, size * 0.7).padding(.vertical, size * 0.3)
+            .background(Capsule().fill(Theme.background.opacity(0.72)))
+            .overlay(Capsule().strokeBorder(Theme.line2))
     }
 }
 

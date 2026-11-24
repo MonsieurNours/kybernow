@@ -500,7 +500,7 @@ impl Accounts {
             .iter()
             .filter_map(|s| {
                 let standing = self.standing(&account, s)?;
-                Some(json!({
+                let mut c = json!({
                     "station": s.id,
                     "name": s.name,
                     "rights": standing.rights,
@@ -508,7 +508,15 @@ impl Accounts {
                     "mine": standing.mine,
                     "online": self.stations.online(&s.id),
                     "attached_at": s.attached_at,
-                }))
+                });
+                // Connectée : l'empreinte d'Admin signée par la Station, que l'app
+                // vérifie et épingle (jamais de premier contact par le relais).
+                if let Some(a) = self.stations.attest(&s.id) {
+                    c["station_key"] = json!(a.station_key);
+                    c["admin_fp"] = json!(a.admin_fp);
+                    c["sig"] = json!(a.sig);
+                }
+                Some(c)
             })
             .collect();
         reply(200, json!({ "computers": list }))
