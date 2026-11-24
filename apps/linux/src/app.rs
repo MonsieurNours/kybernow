@@ -364,6 +364,8 @@ pub enum Confirm {
     GiveBack { session: SessionId, host: String },
     /// Consoles PlayStation : « Retirer le compte {nom} et ses {n} consoles ? ».
     RemovePsAccount { account: String, name: String, consoles: usize },
+    /// Comptes KyberNow : « Se déconnecter de {compte} ? » (la clé du compte, son nom).
+    SignOut { account: String, name: String },
 }
 
 /// Une Station trouvée sur le réseau (mDNS `_kybernow._tcp`), pas encore ajoutée.
@@ -1758,6 +1760,9 @@ pub enum LinkUi {
     Join(JoinLinkUi),
     /// Un lien d'invitation illisible : « Ce lien d'invitation est illisible. »
     BadInvite,
+    /// Comptes KyberNow : le retour de la page du relais (`kybernow://compte?code=…&etat=…`), à échanger contre la
+    /// session d'appareil (bureau).
+    Account(String),
 }
 
 /// Le champ que la saisie du compte d'ami remplit.
@@ -2169,6 +2174,11 @@ pub enum Setting {
     PsDefaultLayout,
     PsRumble,
     PsTriggers,
+    /// Réglages de l'app › Comptes (comptes KyberNow) : « Gérer le compte », « Se déconnecter » (indice dans
+    /// `Store::accounts`), « Ajouter un compte » (ou « Se connecter à un compte KyberNow » sans compte).
+    AccountManage(u8),
+    AccountSignOut(u8),
+    AccountAdd,
 }
 
 /// Une rubrique des réglages.
@@ -2199,6 +2209,8 @@ pub enum Section {
     /// Réglages d'une console PlayStation.
     PsPicture,
     PsControls,
+    /// Réglages de l'app (et de l'appareil sur KyberNow Link OS) › Comptes : les comptes KyberNow.
+    Accounts,
 }
 
 impl Section {
@@ -2223,12 +2235,13 @@ impl Section {
             Section::OsAdvanced => tr("Avancé", "Advanced"),
             Section::PsPicture => tr("Image", "Picture"),
             Section::PsControls => tr("Commandes", "Controls"),
+            Section::Accounts => tr("Comptes", "Accounts"),
         }
     }
 }
 
 /// Les rubriques des réglages de l'appareil (KyberNow Link OS), dans l'ordre de la maquette.
-pub const OS_SECTIONS: [Section; 8] = [Section::OsUsage, Section::OsNetwork, Section::OsControllers, Section::OsScreen, Section::OsSound, Section::OsUpdate, Section::OsLanguage, Section::OsAdvanced];
+pub const OS_SECTIONS: [Section; 9] = [Section::OsUsage, Section::OsNetwork, Section::OsControllers, Section::OsScreen, Section::OsSound, Section::OsUpdate, Section::OsLanguage, Section::Accounts, Section::OsAdvanced];
 
 /// Ce que l'app demande à KyberNow Link OS.
 #[derive(Clone, Debug, PartialEq)]
@@ -2262,7 +2275,7 @@ pub const BITRATES: [u32; 14] = [0, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 3
 /// Les rubriques des réglages d'un ordinateur (docs/link-ui.md) : le profil en
 /// tête, puis les six rubriques communes à toutes les apps Link.
 pub const HOST_SECTIONS: [Section; 7] = [Section::Profile, Section::Picture, Section::Sound, Section::Controls, Section::Network, Section::Statistics, Section::Station];
-pub const APP_SECTIONS: [Section; 2] = [Section::App, Section::Gamepads];
+pub const APP_SECTIONS: [Section; 3] = [Section::App, Section::Accounts, Section::Gamepads];
 
 /// La forme d'une ligne de réglage.
 #[derive(Clone, Debug, PartialEq)]
@@ -2346,6 +2359,8 @@ pub enum Screen {
     Device,
     /// KyberNow Link OS : veille (écran éteint ; une touche réveille).
     Standby,
+    /// Comptes KyberNow : se connecter (le code, ou la page du relais), un autre relais, gérer le compte au salon.
+    Account,
 }
 
 /// KyberNow Link OS : les étapes du premier démarrage, dans l'ordre.
@@ -2608,6 +2623,17 @@ pub enum Target {
     BarPsMute,
     BarPsSettings,
     BarPsRest,
+    /// Comptes KyberNow (`crate::accounts`) : « Se connecter à un compte KyberNow » ; sur l'écran du code « Un autre
+    /// relais… », « Nouveau code », « Retour » ; le relais d'abord (« share.kybernow.app ») ; « Un autre relais » : le
+    /// champ « Relais », « Continuer », « Annuler ».
+    AccountSignIn,
+    AccountOtherRelay,
+    AccountNewCode,
+    AccountBack,
+    AccountRelayDefault,
+    AccountRelayField,
+    AccountRelayGo,
+    AccountRelayCancel,
 }
 
 /// Ce que l'app demande au pilote. Une action de session porte l'identifiant de sa session :
@@ -2700,6 +2726,19 @@ pub enum Action {
     Os(OsAction),
     /// Consoles PlayStation.
     Ps(crate::ps::PsAction),
+    /// Comptes KyberNow : un code pour ce relais (vide : le relais public) et l'attente de son approbation
+    /// (`account::tv_code`, `tv_wait`), suivis sous ce numéro ; « Retour » l'abandonne (`AccountCancel`).
+    AccountCode { attempt: u32, relay: String },
+    AccountCancel,
+    /// Bureau : la page de connexion du relais dans le navigateur (`account::sign_in`) ; le retour
+    /// `kybernow://compte?…` arrive par les liens (`AccountCallback`, `account::finish_sign_in`).
+    AccountBrowser { attempt: u32, relay: String },
+    AccountCallback(String),
+    /// « Se déconnecter » : la session d'appareil fermée chez le relais (`account::sign_out`) ; le compte est déjà oublié.
+    AccountSignOut(crate::model::KnAccount),
+    /// Les ordinateurs des comptes redemandés au relais (`account::computers`) ; l'accueil refait (`account::merge`).
+    AccountsRefresh,
+    AccountsSync,
 }
 
 /// Où en est la recherche de mise à jour.
@@ -2810,6 +2849,8 @@ pub struct App {
     pub pending_link: Option<LinkUi>,
     /// Consoles PlayStation : trouvées, état, onglet de l'ajout, disposition en cours de saisie.
     pub ps: crate::ps::PsUi,
+    /// Comptes KyberNow : la connexion en cours, les pastilles d'origine de l'accueil.
+    pub accounts: crate::accounts::AccountsUi,
 }
 
 impl App {
@@ -3013,6 +3054,7 @@ impl App {
             invitation: InvitationForm::default(),
             pending_link: None,
             ps: crate::ps::PsUi::default(),
+            accounts: crate::accounts::AccountsUi::default(),
         }
     }
 
@@ -3027,7 +3069,13 @@ impl App {
 
     /// Le lien en attente s'ouvre si l'app est sur ses écrans, sans session ni premier démarrage.
     pub fn poll_link(&mut self) -> Vec<Action> {
-        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads);
+        // Le retour de la page du relais n'attend pas : le code qu'il porte ne vaut que 5 minutes.
+        if let Some(LinkUi::Account(url)) = &self.pending_link {
+            let url = url.clone();
+            self.pending_link = None;
+            return vec![Action::AccountCallback(url)];
+        }
+        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account);
         if !ready {
             return Vec::new();
         }
@@ -3037,6 +3085,7 @@ impl App {
                 self.toast(tr("Ce lien d'invitation est illisible.", "This invitation link can't be read."));
                 Vec::new()
             }
+            LinkUi::Account(url) => vec![Action::AccountCallback(url)],
             LinkUi::Invite(inv) => {
                 let field = if inv.login.is_empty() { FriendField::Login } else { FriendField::Password };
                 self.friend = FriendForm { login: inv.login.clone(), field, invite: Some(inv), ..FriendForm::default() };
@@ -3111,7 +3160,10 @@ impl App {
 
     /// Les Stations trouvées qui ne sont pas déjà ajoutées.
     pub fn new_found(&self) -> Vec<&Found> {
-        self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port)).collect()
+        // Un ordinateur d'un compte annoncé sur le réseau est déjà là : même empreinte d'Admin.
+        let norm = |s: &str| s.trim().to_ascii_lowercase();
+        let of_account = |f: &Found| f.fingerprint.as_deref().is_some_and(|fp| self.store.account_hosts.iter().filter_map(|a| self.store.host(&a.id)).any(|h| h.fingerprint.as_deref().is_some_and(|hf| norm(hf) == norm(fp))));
+        self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port) && !of_account(f)).collect()
     }
 
     /// Les rubriques de l'écran des réglages ouvert.
@@ -3170,7 +3222,14 @@ impl App {
             Screen::Launch | Screen::Home if self.selected_console().is_some() => Target::PsPlay,
             Screen::Launch | Screen::Home => {
                 if self.store.hosts.is_empty() {
-                    if self.new_found().is_empty() { Target::AddCard } else { Target::Found(0) }
+                    // Sans ordinateur : « Se connecter à un compte KyberNow » d'abord (sur Link OS, l'ajout reste le premier pas).
+                    if !self.new_found().is_empty() {
+                        Target::Found(0)
+                    } else if self.store.borrowed.is_empty() && self.store.ps_consoles.is_empty() {
+                        Target::AccountSignIn
+                    } else {
+                        Target::AddCard
+                    }
                 } else {
                     Target::Connect
                 }
@@ -3239,6 +3298,7 @@ impl App {
             },
             Screen::Device => Target::DeviceSection(self.device_section),
             Screen::Standby => Target::Back,
+            Screen::Account => self.account_focus(),
         };
     }
 
@@ -3442,6 +3502,9 @@ impl App {
             return Vec::new();
         }
         if let Some(acts) = self.ps_nav(n) {
+            return acts;
+        }
+        if let Some(acts) = self.account_nav(n) {
             return acts;
         }
         match n {
@@ -3750,6 +3813,7 @@ impl App {
                 Vec::new()
             }
             Screen::Session => self.session_back(),
+            Screen::Account => self.account_back(),
         }
     }
 
@@ -3827,6 +3891,9 @@ impl App {
     }
 
     pub fn activate(&mut self, t: Target) -> Vec<Action> {
+        if let Some(acts) = self.account_activate(t) {
+            return acts;
+        }
         if let Some(acts) = self.ps_activate(t) {
             return acts;
         }
@@ -4764,6 +4831,7 @@ impl App {
                 return;
             }
             Some(Confirm::Remove { .. }) => Setting::Remove,
+            Some(Confirm::SignOut { account, .. }) => Setting::AccountSignOut(self.store.accounts.iter().position(|a| a.key() == account).unwrap_or(0) as u8),
             Some(Confirm::Force { kind: StationKind::Update, .. }) => Setting::StationUpdate,
             _ => Setting::StationRestart,
         };
@@ -4783,6 +4851,7 @@ impl App {
                 vec![Action::GiveBack(session)]
             }
             Some(Confirm::RemovePsAccount { account, .. }) => self.ps_remove_account(&account),
+            Some(Confirm::SignOut { account, .. }) => self.account_sign_out(&account),
             Some(Confirm::Remove { host, name }) => {
                 self.store.remove(&host);
                 self.live.remove(&host);
@@ -5538,6 +5607,9 @@ impl App {
                 Row { setting: Setting::CheckUpdate, label: format!("KyberNow Link {}", self.version), hint: update, kind: RowKind::Action(tr("Chercher", "Check").into()), enabled: true, tag: None },
             ];
         }
+        if section == Section::Accounts {
+            return self.account_rows();
+        }
         if section == Section::Gamepads {
             let n = self.pads.len();
             let hint = if n == 0 {
@@ -5739,7 +5811,7 @@ impl App {
                 vec![
                     info(tr("Système", "System"), String::new(), h.os.clone().unwrap_or_else(dash)),
                     info(tr("Carte graphique", "Graphics card"), String::new(), h.gpu.clone().unwrap_or_else(dash)),
-                    info(tr("Adresse", "Address"), String::new(), format!("{}:{}", bracketed(&h.address), h.port)),
+                    info(tr("Adresse", "Address"), String::new(), if h.address.is_empty() { dash() } else { format!("{}:{}", bracketed(&h.address), h.port) }),
                     info(tr("Empreinte", "Fingerprint"), String::new(), h.fingerprint.as_deref().map(short_fp).unwrap_or_else(dash)),
                 ]
             }
@@ -5774,6 +5846,13 @@ impl App {
                             ready,
                         ));
                     }
+                }
+                // Un ordinateur d'un compte KyberNow : le compte qui le donne ; il quitte l'appareil avec le compte
+                // (Réglages de l'app › Comptes), pas d'ici.
+                if let Some(link) = self.store.account_host(&h.id) {
+                    let who = self.store.account(&link.account).map(|a| a.label()).unwrap_or_default();
+                    rows.push(info(tr("Compte KyberNow", "KyberNow account"), crate::model::relay_label(&link.relay), who));
+                    return rows;
                 }
                 // L'ajout par code donne à cet appareil son propre compte ; Admin 0.5.0 le confirme (`own_device`).
                 let own = self.live.get(&h.id).and_then(|l| l.own_device).unwrap_or(true);
@@ -5928,6 +6007,9 @@ impl App {
     /// Choisit la valeur `i` d'un réglage (`usize::MAX` : basculer, ou l'action).
     fn choose(&mut self, s: Setting, i: usize) -> Vec<Action> {
         if let Some(acts) = self.ps_choose(s, i) {
+            return acts;
+        }
+        if let Some(acts) = self.account_choose(s) {
             return acts;
         }
         match s {

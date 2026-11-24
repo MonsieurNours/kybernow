@@ -8,6 +8,14 @@
 //! (droits 0600) : en mode Jeu de SteamOS, aucun trousseau n'est déverrouillé.
 //! Le compte est propre à cet appareil (accordé par le code à six chiffres)
 //! et se retire dans Admin.
+//!
+//! Comptes KyberNow (docs/comptes.md, lot 3) : chaque compte connecté est
+//! gardé entier dans ce même fichier (`Store::accounts`, la session
+//! d'appareil comprise, droits 0600), comme les mots de passe des
+//! ordinateurs et des prêts : il n'y a pas de Secret Service en mode Jeu de
+//! SteamOS ni sur KyberNow Link OS. La dernière liste de leurs ordinateurs
+//! (`Store::account_computers`, rien de secret) l'accompagne, pour l'accueil
+//! dès le lancement.
 
 use std::path::PathBuf;
 
@@ -467,6 +475,117 @@ impl PsConsole {
     }
 }
 
+// MARK: - Comptes KyberNow (docs/comptes.md ; textes : docs/link-ui.md, « Comptes KyberNow »)
+
+/// Un compte KyberNow connecté sur cet appareil : le JSON d'`account::Account` du cœur, recopié ici pour l'interface
+/// seule (mêmes noms, mêmes valeurs ; le pilote passe de l'un à l'autre par serde). `token` est la session d'appareil :
+/// gardée dans ce fichier (0600), jamais dans les journaux (`Debug` la masque).
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct KnAccount {
+    /// Le relais, sous sa forme normale (`share.kybernow.app`, `relais.exemple.org:9443`, empreinte `#sha256:…` gardée).
+    pub relay: String,
+    pub token: String,
+    pub account: KnUser,
+    pub device: KnDevice,
+}
+
+impl std::fmt::Debug for KnAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KnAccount").field("relay", &self.relay).field("token", &"…").field("account", &self.account).finish()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct KnUser {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct KnDevice {
+    pub id: String,
+    pub name: String,
+}
+
+impl KnAccount {
+    /// Ce qui distingue ce compte des autres (`Account::key` du cœur) : le relais et l'identifiant du compte.
+    pub fn key(&self) -> String {
+        format!("{}|{}", self.relay, self.account.id)
+    }
+
+    /// {compte} des textes : le nom, sinon l'e-mail.
+    pub fn label(&self) -> String {
+        let n = self.account.name.trim();
+        if n.is_empty() { self.account.email.trim().to_string() } else { n.to_string() }
+    }
+
+    /// Le relais à montrer : `share.kybernow.app`, `relais.exemple.org:9443` (sans l'empreinte).
+    pub fn relay_label(&self) -> String {
+        relay_label(&self.relay)
+    }
+
+    /// « Gérer le compte » : la page du compte sur son relais (`account::console_url` du cœur).
+    pub fn console(&self) -> String {
+        format!("https://{}/compte", self.relay_label())
+    }
+}
+
+/// Un relais tel qu'on le montre : sa forme normale sans l'empreinte épinglée (`RelayAddr::web_authority`).
+pub fn relay_label(relay: &str) -> String {
+    let r = relay.split('#').next().unwrap_or_default().trim();
+    let r = r.strip_suffix(":443").unwrap_or(r);
+    if r.is_empty() { DEFAULT_RELAY.to_string() } else { r.to_string() }
+}
+
+/// Le relais public, proposé d'abord (« Ajouter un compte »).
+pub const DEFAULT_RELAY: &str = "share.kybernow.app";
+
+/// Un ordinateur d'un compte (`account::AccountComputer` du cœur, même JSON). La dernière liste est gardée (rien de
+/// secret) : l'accueil la montre dès le lancement, et l'empreinte d'Admin, que le relais ne donne que pour une Station
+/// connectée, y reste d'une liste à l'autre (`remember_fingerprints`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct KnComputer {
+    /// Le compte qui le donne (`KnAccount::key`).
+    pub account: String,
+    pub relay: String,
+    /// L'identifiant de la Station chez le relais.
+    pub station: String,
+    pub name: String,
+    pub rights: Vec<String>,
+    pub owner: KnOwner,
+    pub mine: bool,
+    pub online: bool,
+    pub admin_fp: Option<String>,
+    pub attached_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct KnOwner {
+    pub kind: String,
+    pub id: String,
+    pub name: String,
+}
+
+/// Un ordinateur de l'accueil venu d'un compte (et non appairé) : son identifiant chez l'app (`Host::id`), le compte
+/// qui le donne et sa Station chez le relais. L'ordinateur lui-même est dans `Store::hosts`, sans compte ni mot de
+/// passe (`user` et `password` vides), avec l'empreinte d'Admin du compte, son relais (`Host::relay`, pour la présence
+/// « Hors de chez vous ») et, quand la découverte le voit sur le réseau, son adresse ; ses réglages et sa dernière
+/// session restent comme ceux d'un ordinateur appairé.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct AccountHost {
+    pub id: String,
+    pub account: String,
+    pub relay: String,
+    pub station: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Store {
@@ -481,6 +600,11 @@ pub struct Store {
     /// Consoles PlayStation : les comptes PSN, et les consoles associées.
     pub ps_accounts: Vec<PsAccount>,
     pub ps_consoles: Vec<PsConsole>,
+    /// Comptes KyberNow : les comptes connectés (entiers, session d'appareil comprise), la dernière liste de leurs
+    /// ordinateurs, et ceux de l'accueil qui en viennent (`AccountHost`).
+    pub accounts: Vec<KnAccount>,
+    pub account_computers: Vec<KnComputer>,
+    pub account_hosts: Vec<AccountHost>,
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
@@ -565,6 +689,8 @@ impl Store {
             let mac = host.mac.clone().or_else(|| h.mac.clone());
             let relay = host.relay.clone().or_else(|| h.relay.clone());
             *h = Host { id: id.clone(), settings, last, wake, mac, relay, ..host };
+            // Un ordinateur d'un compte appairé ici (par code, par une invitation) devient un ordinateur appairé.
+            self.account_hosts.retain(|a| a.id != id);
             return id;
         }
         let id = host.id.clone();
@@ -683,11 +809,118 @@ impl Store {
     }
 
     pub fn remove(&mut self, id: &str) {
+        self.account_hosts.retain(|a| a.id != id);
         self.hosts.retain(|h| h.id != id);
         self.borrowed.retain(|b| b.id != id);
         if self.selected.as_deref() == Some(id) {
             self.selected = None;
         }
+    }
+
+    /// L'ordinateur `id` vient d'un compte (pas appairé sur cet appareil).
+    pub fn account_host(&self, id: &str) -> Option<&AccountHost> {
+        self.account_hosts.iter().find(|a| a.id == id)
+    }
+
+    pub fn account(&self, key: &str) -> Option<&KnAccount> {
+        self.accounts.iter().find(|a| a.key() == key)
+    }
+
+    /// Garde un compte connecté : celui de même clé (même relais, même compte) est remplacé (nouvelle session
+    /// d'appareil), sans doublon.
+    pub fn put_account(&mut self, a: KnAccount) {
+        match self.accounts.iter_mut().find(|o| o.key() == a.key()) {
+            Some(o) => *o = a,
+            None => self.accounts.push(a),
+        }
+    }
+
+    /// Oublie un compte (« Se déconnecter », session d'appareil fermée) : ses ordinateurs quittent l'accueil, ceux
+    /// qui sont appairés restent. Rend les identifiants des ordinateurs retirés.
+    pub fn forget_account(&mut self, key: &str) -> Vec<String> {
+        self.accounts.retain(|a| a.key() != key);
+        self.account_computers.retain(|c| c.account != key);
+        let gone: Vec<String> = self.account_hosts.iter().filter(|a| a.account == key).map(|a| a.id.clone()).collect();
+        for id in &gone {
+            self.remove(id);
+        }
+        gone
+    }
+
+    /// Les ordinateurs des comptes à l'accueil : `added` (de `account::merge` du cœur : ceux des comptes qui ne sont
+    /// pas déjà appairés ici, un seul exemplaire d'un compte à l'autre). Un ordinateur déjà là (même relais, même
+    /// Station) garde son identifiant, ses réglages et sa dernière session ; son nom et son empreinte suivent la liste ;
+    /// ceux qui n'y sont plus quittent l'accueil. Rend les identifiants retirés.
+    pub fn sync_account_hosts(&mut self, added: &[KnComputer]) -> Vec<String> {
+        let mut keep = Vec::new();
+        for c in added {
+            let relay = Some(HostRelay { server: c.relay.clone(), id: c.station.clone(), remote_access: true });
+            let id = match self.account_hosts.iter_mut().find(|a| a.relay == c.relay && a.station == c.station) {
+                Some(a) => {
+                    a.account = c.account.clone();
+                    a.id.clone()
+                }
+                None => {
+                    let id = new_id();
+                    self.account_hosts.push(AccountHost { id: id.clone(), account: c.account.clone(), relay: c.relay.clone(), station: c.station.clone() });
+                    id
+                }
+            };
+            match self.host_mut(&id) {
+                Some(h) => {
+                    if !c.name.trim().is_empty() {
+                        h.name = c.name.clone();
+                    }
+                    if c.admin_fp.is_some() {
+                        h.fingerprint = c.admin_fp.clone();
+                    }
+                    h.relay = relay;
+                }
+                None => self.hosts.push(Host {
+                    id: id.clone(),
+                    name: c.name.clone(),
+                    address: String::new(),
+                    port: 0,
+                    fingerprint: c.admin_fp.clone(),
+                    user: String::new(),
+                    password: String::new(),
+                    os: None,
+                    gpu: None,
+                    av1: false,
+                    mac: None,
+                    wake: Vec::new(),
+                    relay,
+                    settings: HostSettings::default(),
+                    last: None,
+                }),
+            }
+            keep.push(id);
+        }
+        let gone: Vec<String> = self.account_hosts.iter().filter(|a| !keep.contains(&a.id)).map(|a| a.id.clone()).collect();
+        for id in &gone {
+            self.remove(id);
+        }
+        gone
+    }
+
+    /// La découverte : un ordinateur d'un compte annoncé sur le réseau avec la même empreinte d'Admin y prend son
+    /// adresse (la session passe alors par le réseau, puis par le relais s'il ne répond pas) ; absent, il la perd (par
+    /// le relais seulement). Rend vrai si quelque chose a changé.
+    pub fn locate_account_hosts(&mut self, found: &[(String, u16, Option<String>)]) -> bool {
+        let norm = |s: &str| s.trim().to_ascii_lowercase();
+        let ids: Vec<String> = self.account_hosts.iter().map(|a| a.id.clone()).collect();
+        let mut changed = false;
+        for id in ids {
+            let Some(h) = self.host_mut(&id) else { continue };
+            let seen = h.fingerprint.as_deref().filter(|f| !f.trim().is_empty()).and_then(|fp| found.iter().find(|(_, _, f)| f.as_deref().is_some_and(|f| norm(f) == norm(fp))));
+            let (address, port) = seen.map(|(a, p, _)| (a.clone(), *p)).unwrap_or_default();
+            if h.address != address || h.port != port {
+                h.address = address;
+                h.port = port;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Dossier des dernières images de session (une par ordinateur).

@@ -247,6 +247,10 @@ public final class SessionEngine: @unchecked Sendable {
         /// ce nom (« {nom} n'est pas joignable hors de chez vous (accès coupé
         /// dans Admin). »).
         public var computerName: String?
+        /// Un ordinateur d'un compte KyberNow (docs/comptes.md) : le compte et
+        /// la Station (`account` du JSON de la session, `user` et `password`
+        /// vides), et par où passer. Le cœur demande le jeton d'accès au relais.
+        public var account: AccountSession?
 
         /// Session d'invité : la Station trouvée par `Share.join`, ce que
         /// l'appareil décode (le format de l'image est celui de l'hôte) et les
@@ -284,6 +288,24 @@ public final class SessionEngine: @unchecked Sendable {
             self.audioChannels = audioChannels
             self.virtualDisplay = virtualDisplay
             self.settings = settings
+        }
+    }
+
+    /// Ce que la session d'un ordinateur du compte tient du compte (`Params.account`).
+    public struct AccountSession: Sendable {
+        /// `{account, station}`.
+        public let access: AccountAccess
+        /// La route par le relais (`Accounts.route`) ; nil sans empreinte d'Admin
+        /// connue : la session ne passe alors que par le réseau.
+        public let relay: RelayRoute?
+        /// L'ordinateur est vu sur le réseau (Bonjour, même empreinte d'Admin) :
+        /// le réseau d'abord, puis le relais (`auto`) ; sinon le relais seul.
+        public let onNetwork: Bool
+
+        public init(access: AccountAccess, relay: RelayRoute?, onNetwork: Bool) {
+            self.access = access
+            self.relay = relay
+            self.onNetwork = onNetwork
         }
     }
 
@@ -460,6 +482,20 @@ public final class SessionEngine: @unchecked Sendable {
         if let relay = p.relay, p.guest == nil, p.borrower == nil {
             json["route"] = "auto"
             json["relay"] = relay.dictionary
+        }
+        // Un ordinateur d'un compte KyberNow : le compte et la Station, sans
+        // compte Kyber ; le réseau d'abord s'il y est vu, sinon le relais.
+        if let account = p.account, p.guest == nil, p.borrower == nil, let access = AccountJSON.object(account.access.json) {
+            json["account"] = access
+            json["user"] = ""
+            json["password"] = ""
+            if let relay = account.relay {
+                json["route"] = account.onNetwork ? "auto" : "relay"
+                json["relay"] = relay.dictionary
+            } else {
+                json["route"] = "direct"
+                json.removeValue(forKey: "relay")
+            }
         }
         if let screens = p.screens { json["screens"] = screens.json }
         if let luminance = p.screenLuminance { json["screen_luminance"] = luminance.json }

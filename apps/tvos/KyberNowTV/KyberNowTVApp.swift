@@ -22,6 +22,7 @@ struct KyberNowTVApp: App {
             RootView()
                 .environmentObject(app)
                 .environmentObject(app.store)
+                .environmentObject(app.accounts)
                 .environmentObject(app.borrowed)
                 .environmentObject(app.playstation)
                 .environmentObject(app.store.imagery)
@@ -85,6 +86,17 @@ struct RootView: View {
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
             case let .consolePair(request):
                 ConsolePairView(request: request)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case .accounts:
+                AccountsView()
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case let .accountCode(relay):
+                // Un autre relais : un autre écran (son propre modèle, son propre code).
+                AccountCodeView(accounts: app.accounts, relay: relay)
+                    .id(relay)
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case .accountRelay:
+                AccountRelayView()
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
             }
         }

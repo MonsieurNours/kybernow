@@ -91,6 +91,10 @@ enum LinkKind {
     case badInvite
 
     static func parse(_ text: String) -> LinkKind? {
+        // `kybernow://compte?…` : le retour de la page de connexion d'un compte
+        // KyberNow (ASWebAuthenticationSession le rend elle-même) ; ni un
+        // ordinateur, ni un code de partage.
+        if Accounts.isCallback(text) { return nil }
         if let link = Share.parseLink(text) { return .join(link) }
         if let invite = Lend.parseInvite(text) { return .borrow(invite) }
         if LendInvite.looksLikeInvite(text) { return .badInvite }

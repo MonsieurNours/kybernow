@@ -434,14 +434,17 @@ struct HomeScreen: View {
                     Theme.eyebrow(String(localized: "Bienvenue"))
                 }
                 .homeRise(revealed, 0.1)
-                Text(isPad ? "Vos ordinateurs, sur cet iPad" : "Vos ordinateurs, sur cet iPhone")
+                // Sans aucun ordinateur (ni appairé ni d'un compte) : la maquette
+                // « Retrouvez vos ordinateurs » (docs/link-ui.md, « Comptes KyberNow »).
+                Text(AccountText.findTitle)
                     .font(Theme.display(wide ? 72 : 44, 680))
                     .tracking(wide ? -72 * 0.04 : -44 * 0.04)
                     .lineSpacing(wide ? -10 : -6)
                     .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .homeRise(revealed, 0.18)
-                Text("Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, par un code à accepter sur l'ordinateur ou par son QR code.")
+                    .accessibilityAddTraits(.isHeader)
+                Text(AccountText.findText)
                     .font(Theme.sans(wide ? 17 : 14))
                     .foregroundStyle(Theme.text2)
                     .lineSpacing(2)
@@ -549,11 +552,20 @@ struct HomeScreen: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
-            Button { app.sheet = .addHost(nil) } label: {
+            // Comptes KyberNow : la page du relais s'ouvre dans la fenêtre du
+            // système ; pendant l'échange, « Connexion au compte… ».
+            let signingIn = app.accounts.signingIn
+            Button { app.accounts.signIn() } label: {
                 HStack(spacing: 12) {
-                    Text(LinkText.addTitle)
+                    Text(signingIn ? AccountText.signingIn : AccountText.signIn)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
                     if !wide { Spacer(minLength: 0) }
-                    Icon("plus", size: 20, bold: true)
+                    if signingIn {
+                        HomeSpinner(size: 20)
+                    } else {
+                        Icon("arrow-right", size: 20, bold: true)
+                    }
                 }
                 .padding(.leading, wide ? 22 : 20)
                 .padding(.trailing, wide ? 26 : 18)
@@ -561,22 +573,57 @@ struct HomeScreen: View {
             }
             .buttonStyle(HomeCTAStyle(online: true, height: wide ? 58 : 56, fontSize: wide ? 18 : 17, glow: ctaGlow))
             .keyboardShortcut(.defaultAction)
+            .disabled(signingIn)
             .homeRise(revealed, 0.48)
-            // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
-            Button { app.sheet = .join(nil) } label: {
-                HStack(spacing: 10) {
-                    Icon("share-network", size: 18)
-                    Text(ShareText.join)
-                }
-                .font(Theme.sans(16, .medium))
-                .foregroundStyle(Theme.text)
-                .padding(.horizontal, 20)
-                .frame(maxWidth: wide ? nil : .infinity, minHeight: 50)
-                .glass(12)
-                .contentShape(Rectangle())
+            Text(AccountText.signInHelpWindow)
+                .font(Theme.sans(wide ? 14 : 12.5))
+                .foregroundStyle(Theme.muted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 620, alignment: .leading)
+                .homeRise(revealed, 0.5)
+            // « ou sans compte », puis les boutons de toujours.
+            HStack(spacing: 12) {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                Text(AccountText.withoutAccount)
+                    .font(Theme.sans(wide ? 14 : 13))
+                    .foregroundStyle(Theme.muted)
+                    .fixedSize()
+                Rectangle().fill(Theme.line).frame(height: 1)
             }
-            .buttonStyle(HomePressStyle())
+            .frame(maxWidth: wide ? 620 : .infinity)
+            .padding(.vertical, 4)
             .homeRise(revealed, 0.52)
+            HStack(spacing: 12) {
+                Button { app.sheet = .addHost(nil) } label: {
+                    HStack(spacing: 10) {
+                        Icon("plus", size: 18)
+                        Text(LinkText.addTitle)
+                    }
+                    .font(Theme.sans(16, .medium))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: wide ? nil : .infinity, minHeight: 50)
+                    .glass(12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(HomePressStyle())
+                // KyberNow Share : rejoindre le partage de quelqu'un, sans ordinateur à soi.
+                Button { app.sheet = .join(nil) } label: {
+                    HStack(spacing: 10) {
+                        Icon("share-network", size: 18)
+                        Text(ShareText.join)
+                    }
+                    .font(Theme.sans(16, .medium))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: wide ? nil : .infinity, minHeight: 50)
+                    .glass(12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(HomePressStyle())
+            }
+            .homeRise(revealed, 0.56)
             }
         }
     }
@@ -652,7 +699,8 @@ struct HomeScreen: View {
         return Button {
             withAnimation(Theme.easeOut) { app.selected = h.id }
         } label: {
-            HomeHostCard(host: h, online: on, status: LinkText.status(on, away: store.status[h.id]?.away == true), selected: h.id == host?.id, m: m)
+            HomeHostCard(host: h, online: on, status: LinkText.status(on, away: store.status[h.id]?.away == true), selected: h.id == host?.id, m: m,
+                         origin: app.accounts.origins[h.id])
         }
         .buttonStyle(HomePressStyle())
         .hoverEffect(.lift)
@@ -661,9 +709,12 @@ struct HomeScreen: View {
                 Button { app.connect(h.id) } label: { Label { Text("Se connecter") } icon: { Image(systemName: "play.fill") } }
             }
             Button { app.sheet = .settings(h.id) } label: { Label { Text("Réglages") } icon: { Image(systemName: "slider.horizontal.3") } }
-            Button(role: .destructive) { removing = h } label: { Label { Text("Retirer") } icon: { Image(systemName: "trash") } }
+            // Un ordinateur d'un compte quitte l'accueil avec le compte (Réglages de l'app › Comptes).
+            if h.account == nil {
+                Button(role: .destructive) { removing = h } label: { Label { Text("Retirer") } icon: { Image(systemName: "trash") } }
+            }
         }
-        .accessibilityLabel(Text(verbatim: "\(h.name), \(LinkText.status(on, away: store.status[h.id]?.away == true))"))
+        .accessibilityLabel(Text(verbatim: [h.name, app.accounts.origins[h.id], LinkText.status(on, away: store.status[h.id]?.away == true)].compactMap { $0 }.joined(separator: ", ")))
         .accessibilityAddTraits(h.id == host?.id ? [.isSelected] : [])
         .accessibilityHint(Text("Met l'ordinateur en scène ; appui long : réglages, retirer"))
     }

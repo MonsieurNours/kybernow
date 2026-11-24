@@ -82,6 +82,10 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let label = format!("{} : {other}", tr("Tenu 3 s", "Held 3 s"));
     let lw = widgets::legend_width(cv, 34.0, &["☰"], &label);
     legend(cv, w - 96.0 - lw, gy, 34.0, &["☰"], &label);
+    // Se déconnecter d'un compte (Comptes) : la confirmation par-dessus.
+    if app.confirm.is_some() {
+        settings::confirm(app, cv, f);
+    }
 }
 
 fn net_label(app: &App) -> String {
@@ -132,6 +136,11 @@ fn nav_value(app: &App, s: Section) -> (String, Rgba) {
         }
         Section::OsLanguage => (match a.language.as_str() { "fr" => "Français".into(), "en" => "English".into(), _ => format!("Auto · {}", if crate::i18n::english() { "English" } else { "Français" }) }, FAINT),
         Section::OsAdvanced => (format!("SSH {} · {}", if o.ssh { tr("allumé", "on") } else { tr("éteint", "off") }, tr("journal", "log")), FAINT),
+        Section::Accounts => (match app.store.accounts.len() {
+            0 => tr("aucun", "none").into(),
+            1 => app.store.accounts[0].label(),
+            n => format!("{n}"),
+        }, FAINT),
         _ => (String::new(), FAINT),
     }
 }
@@ -147,6 +156,7 @@ fn description(app: &App, s: Section) -> String {
         Section::OsUpdate => tr("KyberNow Link OS se met à jour en entier : la nouvelle version s'installe à côté de l'actuelle, l'appareil l'essaie au redémarrage et revient en arrière tout seul si elle ne démarre pas. Vos ordinateurs et réglages restent.", "KyberNow Link OS updates as a whole: the new version installs next to the current one, the device tries it at reboot and rolls back by itself if it does not boot. Your computers and settings stay.").into(),
         Section::OsLanguage => tr("La langue des écrans de Link et de l'OS.", "The language of Link's and the OS's screens.").into(),
         Section::OsAdvanced => tr("Pour qui veut mettre les mains dedans : l'accès SSH, le redémarrage, l'arrêt.", "For those who want to get their hands in: SSH access, restart, shutdown.").into(),
+        Section::Accounts => crate::accounts::accounts_help().into(),
         _ => String::new(),
     }
 }

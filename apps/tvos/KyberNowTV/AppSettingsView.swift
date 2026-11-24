@@ -11,6 +11,8 @@ struct AppSettingsView: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var cloud: CloudSync
     @EnvironmentObject private var pads: GamepadBridge
+    /// Comptes KyberNow (Accounts.swift).
+    @EnvironmentObject private var accounts: AccountStore
     @ObservedObject private var prefs = Preferences.shared
     /// Langue choisie ici ; celle du lancement reste affichée jusqu'à la relance.
     @State private var language = LanguageChoice.current
@@ -41,6 +43,7 @@ struct AppSettingsView: View {
                     .font(Theme.sans(22)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 18)
+                accountsRow
                 icloudRow
                 languageRow
                 padsRow
@@ -115,6 +118,22 @@ struct AppSettingsView: View {
         .padding(.horizontal, 24).padding(.vertical, 10)
         .frame(minHeight: 88)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.04)))
+    }
+
+    /// « Comptes » : les comptes de cette Apple TV, « Ajouter un compte », « Se déconnecter ».
+    private var accountsRow: some View {
+        let names = accounts.accounts.map(\.displayName)
+        let note = names.isEmpty ? AccountText.none : names.joined(separator: ", ")
+        return Button { app.screen = .accounts } label: {
+            HStack(spacing: 24) {
+                label(AccountText.section, note)
+                Icon("arrow-right", size: 22, bold: true).foregroundStyle(Theme.faint)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10)
+            .frame(minHeight: 88)
+        }
+        .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
+        .focused($focus, equals: .row("accounts"))
     }
 
     private var padsRow: some View {

@@ -434,7 +434,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .putHdr()
         // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
         // épinglé sur l'empreinte connue (docs/relais.md). Sans relais connu, ou avec `KYBERNOW_RELAY=off` : sur le réseau.
-        if (hostSession && !Relays.off) host.relayRoute?.let { params.put("route", "auto").put("relay", JSONObject(it)) }
+        if (hostSession && !host.fromAccount && !Relays.off) host.relayRoute?.let { params.put("route", "auto").put("relay", JSONObject(it)) }
+        // Un ordinateur venu d'un compte KyberNow (docs/comptes.md) : sans identifiant ni mot de passe, le compte entier et la
+        // Station (le cœur demande le jeton d'accès au relais), Admin épinglé ; « Auto » s'il est vu sur le réseau, sinon par
+        // le relais. Ni l'un ni l'autre (compte oublié entre-temps, aucune route) : pas de session.
+        if (hostSession && host.fromAccount && !app.accounts.putSession(host, params)) {
+            finish()
+            return
+        }
         handle = Native.sessionStart(params.toString(), null, state, refresh)
         if (handle == 0L) {
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
@@ -886,6 +893,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * chez vous » est actif) : sans cela, ils iraient chercher l'ordinateur sur un réseau qui n'est pas le sien.
      */
     private fun console(): ConsoleClient {
+        // Un ordinateur venu d'un compte : le jeton d'accès du relais, par le même chemin que la session.
+        if (host.fromAccount) app.accounts.console(host, viaRelay = state.route.value?.viaRelay == true)?.let { return it }
         val route = if (state.route.value?.viaRelay == true) host.relayRoute else null
         return ConsoleClient(host.address, host.port, host.user, app.hosts.password(host.id) ?: "", host.fingerprint, route)
     }

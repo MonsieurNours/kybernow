@@ -17,7 +17,7 @@ struct AppSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        AppSettingsContent(app: app, cloud: app.cloud, close: { dismiss() })
+        AppSettingsContent(app: app, cloud: app.cloud, accounts: app.accounts, close: { dismiss() })
             .presentationDragIndicator(.visible)
             .presentationBackground(Theme.background)
     }
@@ -26,6 +26,8 @@ struct AppSettingsView: View {
 private struct AppSettingsContent: View {
     let app: AppModel
     @ObservedObject var cloud: CloudSync
+    /// Comptes KyberNow (Accounts.swift).
+    @ObservedObject var accounts: AccountStore
     let close: () -> Void
     @ObservedObject private var prefs = Preferences.shared
     /// Langue choisie ici ; celle du lancement reste affichée jusqu'à la relance.
@@ -35,6 +37,11 @@ private struct AppSettingsContent: View {
     @StateObject private var link = SettingsLink()
     /// L'écran « Réglage du HDR » ouvert.
     @State private var calibrating = false
+    /// « Ajouter un compte » : le relais d'abord.
+    @State private var addingAccount = false
+    /// « Se déconnecter », à confirmer.
+    @State private var signingOut: KyberAccount?
+    @Environment(\.openURL) private var openURL
 
     private var isPad: Bool { DeviceDisplay.isPad }
 
@@ -45,6 +52,7 @@ private struct AppSettingsContent: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     header
+                    section(AccountText.section) { accountRows }
                     section(String(localized: "iCloud")) { icloudRows }
                     section(String(localized: "Langue")) { languageRow }
                     section(String(localized: "Réseau")) { networkRows }
@@ -78,6 +86,87 @@ private struct AppSettingsContent: View {
             route = AudioRoute.current
         }
         .hdrCalibrationCover(isPresented: $calibrating)
+        .sheet(isPresented: $addingAccount) {
+            AddAccountSheet(accounts: accounts)
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Theme.background)
+        }
+        .confirmationDialog(AccountText.signOutQuestion(signingOut?.displayName ?? ""),
+                            isPresented: Binding(get: { signingOut != nil }, set: { if !$0 { signingOut = nil } }), titleVisibility: .visible) {
+            Button(AccountText.signOut, role: .destructive) {
+                if let a = signingOut { accounts.signOut(a) }
+                signingOut = nil
+            }
+            Button(StationText.cancel, role: .cancel) { signingOut = nil }
+        }
+    }
+
+    // MARK: Comptes KyberNow
+
+    /// Chaque compte (nom, e-mail, relais), « Gérer le compte » (la page du
+    /// compte) et « Se déconnecter » ; « Ajouter un compte ». Créer, changer
+    /// le mot de passe, supprimer : sur la page du compte, pas dans l'app.
+    @ViewBuilder private var accountRows: some View {
+        if accounts.accounts.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(AccountText.none).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                Button { accounts.signIn() } label: {
+                    HStack(spacing: 10) {
+                        if accounts.signingIn { HomeSpinner(size: 14).frame(width: 16, height: 16) }
+                        Text(accounts.signingIn ? AccountText.signingIn : AccountText.signIn)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButton(height: 48, fontSize: 15))
+                .disabled(accounts.signingIn)
+                Text(AccountText.signInHelpWindow).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                    .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(SettingsRowBackground())
+        } else {
+            ForEach(accounts.accounts) { a in
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: a.displayName).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                        if !a.name.isEmpty, !a.email.isEmpty {
+                            Text(verbatim: a.email).font(Theme.sans(12.5)).foregroundStyle(Theme.text2)
+                        }
+                        Text(verbatim: a.relayLabel).font(Theme.mono(12)).foregroundStyle(Theme.muted)
+                    }
+                    .accessibilityElement(children: .combine)
+                    HStack(spacing: 8) {
+                        Button(AccountText.manage) {
+                            if let url = URL(string: a.console) { openURL(url) }
+                        }
+                        .buttonStyle(GlassButton(height: 40, fontSize: 14))
+                        Button(AccountText.signOut) { signingOut = a }
+                            .buttonStyle(GlassButton(height: 40, fontSize: 14))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(SettingsRowBackground())
+            }
+            if accounts.signingIn {
+                HStack(spacing: 10) {
+                    HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
+                    Text(AccountText.signingIn).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                }
+                .padding(.horizontal, 14)
+            }
+        }
+        Button { addingAccount = true } label: {
+            HStack(spacing: 12) {
+                SettingsLabel(title: AccountText.add, note: AccountText.sectionHelp)
+                Icon("plus", size: 18).foregroundStyle(Theme.text2)
+            }
+            .modifier(SettingsRowBackground())
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(accounts.signingIn)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 
     /// « Réglage du HDR », avec l'état en dessous : « Automatique » ou « Réglé à l'œil ».
@@ -367,5 +456,112 @@ private struct SettingsFactRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(SettingsRowBackground())
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Ajouter un compte
+
+/// « Ajouter un compte » (docs/link-ui.md, « Comptes KyberNow ») : le relais
+/// d'abord, `share.kybernow.app` proposé, « Un autre relais… » pour un relais
+/// chez soi (l'adresse est lue par le cœur avant de continuer) ; puis la page
+/// de connexion du relais, dans la fenêtre du système.
+struct AddAccountSheet: View {
+    let accounts: AccountStore
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var relay = AccountRelayModel()
+    /// « Un autre relais… » : le champ de l'adresse.
+    @State private var other = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top) {
+                    Text(other ? AccountText.otherRelayTitle : AccountText.add)
+                        .font(Theme.display(34, 660)).tracking(-34 * 0.03)
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 12)
+                    Button { dismiss() } label: {
+                        Icon("x", size: 16).foregroundStyle(Theme.muted).frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(Text(StationText.cancel))
+                }
+                if other {
+                    relayField
+                    if let failure = relay.failure {
+                        AddHostNotice(kind: .warn, text: failure)
+                    }
+                    Button(AccountText.continueLabel) { continueWithOther() }
+                        .buttonStyle(PrimaryButton(height: 54, fontSize: 17))
+                        .disabled(!relay.canContinue)
+                        .opacity(relay.canContinue ? 1 : 0.45)
+                    Button(StationText.cancel) {
+                        other = false
+                        relay.changed()
+                    }
+                    .buttonStyle(GlassButton(height: 48, fontSize: 16))
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Text(AccountText.signInHelpWindow).font(Theme.sans(15)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { start("") } label: {
+                        Text(verbatim: Accounts.defaultRelay).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PrimaryButton(height: 54, fontSize: 17))
+                    Button(AccountText.otherRelay) {
+                        other = true
+                        focused = true
+                    }
+                    .buttonStyle(GlassButton(height: 48, fontSize: 16))
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background)
+        .environment(\.addHostWide, DeviceDisplay.isPad)
+        .onChange(of: relay.text) { _, _ in relay.changed() }
+    }
+
+    /// « Relais », exemple grisé, sans correction ni majuscule automatiques.
+    private var relayField: some View {
+        let wide = DeviceDisplay.isPad
+        return VStack(alignment: .leading, spacing: wide ? 8 : 6) {
+            Text(AccountText.relayField).font(Theme.sans(wide ? 14 : 13)).foregroundStyle(Theme.muted)
+            TextField(text: $relay.text, prompt: Text(verbatim: AccountText.relayPlaceholder).foregroundStyle(Theme.ghost)) { Text(AccountText.relayField) }
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .onSubmit { continueWithOther() }
+                .focused($focused)
+                .font(Theme.mono(wide ? 16 : 15))
+                .foregroundStyle(Theme.text)
+                .tint(Theme.accent)
+                .padding(.horizontal, wide ? 18 : 16)
+                .frame(height: wide ? 52 : 50)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.surface))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(focused ? Theme.accent : Theme.line2))
+            Text(AccountText.relayHelp).font(Theme.sans(wide ? 13 : 12)).foregroundStyle(Theme.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func continueWithOther() {
+        guard relay.canContinue, let address = relay.validate() else { return }
+        start(address)
+    }
+
+    /// La fiche se ferme, puis la page du relais s'ouvre (la fenêtre du
+    /// système se pose sur celle des réglages).
+    private func start(_ address: String) {
+        dismiss()
+        let accounts = accounts
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { accounts.signIn(relay: address) }
     }
 }

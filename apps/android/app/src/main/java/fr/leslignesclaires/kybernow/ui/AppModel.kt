@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -176,6 +177,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** Le refus du dernier « Reprendre l'ordinateur ». */
     val lendErrors: StateFlow<Map<String, String>> = _lendErrors.asStateFlow()
 
+    /**
+     * Les pastilles d'origine des cartes (docs/link-ui.md, « Comptes KyberNow »), seulement quand un compte est connecté :
+     * celle du compte pour un ordinateur du compte (appairé aussi ou non), « Appairé » pour les autres.
+     */
+    val origins: StateFlow<Map<String, String>> = combine(store.hosts, kn.accounts.accounts, kn.accounts.computers) { h, _, _ -> kn.accounts.origins(h) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
     fun current(): Host? = hosts.value.firstOrNull { it.id == _selected.value } ?: hosts.value.firstOrNull()
 
     fun select(id: String) {
@@ -208,6 +217,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (polling?.isActive == true) return
         polling = viewModelScope.launch {
             while (true) {
+                // Un ordinateur appairé depuis le dernier tour peut être celui d'un compte : un seul exemplaire.
+                kn.accounts.syncHosts()
                 hosts.value.forEach { loadImage(it.id) }
                 hosts.value.forEach { poll(it) }
                 borrowed.value.forEach { b -> launch { checkFriend(b) } }
@@ -223,7 +234,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         kn.gamepads.stop()
     }
 
-    private fun client(h: Host, pinned: String? = h.fingerprint) = ConsoleClient(h.address, h.port, h.user, store.password(h.id) ?: "", pinned)
+    /**
+     * La console d'Admin de l'ordinateur : son compte sur l'appareil, ou, pour un ordinateur venu d'un compte KyberNow,
+     * le jeton d'accès du relais (sur le réseau s'il y est vu, sinon par le relais).
+     */
+    private fun client(h: Host, pinned: String? = h.fingerprint): ConsoleClient =
+        if (h.fromAccount) kn.accounts.console(h) ?: ConsoleClient(h.address, h.port, pinned = pinned)
+        else ConsoleClient(h.address, h.port, h.user, store.password(h.id) ?: "", pinned)
 
     private fun poll(h: Host) = viewModelScope.launch { check(h) }
 
@@ -232,6 +249,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
      * (système, carte graphique, cartes réseau pour le réveil, accès propre à l'appareil).
      */
     private suspend fun check(h: Host): HostStatus {
+        if (h.fromAccount) return checkAccount(h)
         val password = store.password(h.id) ?: ""
         val reply = client(h).use { it.info() }
         val st = when (reply) {
@@ -273,6 +291,51 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
         return st
     }
+
+    /**
+     * Un ordinateur venu d'un compte KyberNow (docs/comptes.md) : vu sur le réseau (même empreinte d'Admin), Admin est
+     * interrogé avec un jeton d'accès du relais, et ce qu'il dit se garde comme pour les autres (système, carte
+     * graphique, cartes réseau, adresse sur le réseau) ; sinon, « Hors de chez vous » s'il est connecté au relais. Refus du
+     * compte : 70, le compte est oublié ; 71, l'ordinateur quitte l'accueil.
+     */
+    private suspend fun checkAccount(h: Host): HostStatus {
+        val lan = kn.accounts.lan(h)
+        val reply = if (lan != null) kn.accounts.console(h)?.use { it.info() } else null
+        if (reply is Reply.Failed && reply.accountSignedOut) {
+            h.account?.let { kn.accounts.signedOut(it.key, reply.message) }
+            return HostStatus(false)
+        }
+        if (reply is Reply.Failed && reply.accountComputerGone) {
+            kn.accounts.computerGone(h, reply.message)
+            return HostStatus(false)
+        }
+        val st = when {
+            reply is Reply.Ok -> HostStatus(true, reply.value)
+            reachableByRelay(h) -> HostStatus(online = true, away = true)
+            else -> HostStatus(online = false)
+        }
+        _status.value = _status.value + (h.id to st)
+        kn.ps.setAway(h.id, st.away)
+        if (_refusals.value.containsKey(h.id) && h.id !in _connecting.value) _refusals.value = _refusals.value - h.id
+        if (reply is Reply.Ok && lan != null) {
+            val i = reply.value
+            val wake = i.wake.ifEmpty { h.wake }
+            val gamepads = Native.gamepadsAvailable(i.raw)
+            // Le relais de la carte reste celui du compte : c'est par lui que l'ordinateur est reconnu d'une liste à l'autre.
+            if (i.os != h.os || i.gpu != h.gpu || i.av1 != h.av1 || i.virtualDisplay != h.virtualDisplay || wake != h.wake || gamepads != h.gamepads || lan.address != h.address || lan.port != h.port) {
+                store.update(h.id) { it.copy(os = i.os, gpu = i.gpu, av1 = i.av1, virtualDisplay = i.virtualDisplay, wake = wake, gamepads = gamepads, address = lan.address, port = lan.port) }
+            }
+            if (!store.imageFile(h.id).exists()) fetchPreview(h, "")
+        } else if (st.away && h.id !in previewAsked && !store.imageFile(h.id).exists()) {
+            // Hors de chez soi, l'aperçu passe par le relais (un tunnel) : une fois par lancement de l'app, pas à chaque sondage.
+            previewAsked += h.id
+            fetchPreview(h, "")
+        }
+        return st
+    }
+
+    /** Les ordinateurs des comptes dont l'aperçu a déjà été demandé par le relais. */
+    private val previewAsked = mutableSetOf<String>()
 
     // MARK: - Prêt de l'ordinateur : l'hôte
 
@@ -410,6 +473,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
      */
     fun connect(id: String, open: (Host) -> Unit) {
         val h = hosts.value.firstOrNull { it.id == id } ?: return
+        if (h.fromAccount) return connectAccount(h, open)
         val route = h.relayRoute
         if (_status.value[id]?.away != true || route == null) return open(h)
         if (id in _connecting.value) return
@@ -425,6 +489,34 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     reply.relayFailure != null -> refuse(id, RelayRefusal.of(reply.relayFailure, reply.message)!!)
                     reply.unauthorized -> _status.value = _status.value + (id to HostStatus(online = true, accountRefused = true, away = true))
                     reply.certificateChanged -> _status.value = _status.value + (id to HostStatus(online = true, certificateChanged = true, away = true))
+                    else -> refuse(id, RelayRefusal.Message(reply.message))
+                }
+            }
+        }
+    }
+
+    /**
+     * « Se connecter » à un ordinateur venu d'un compte : sans appairage, sur le réseau s'il y est vu, sinon par le relais,
+     * vérifié d'abord (jeton d'accès, puis Admin par le tunnel) pour dire pourquoi si ce n'est pas possible : les refus du
+     * relais, ceux d'Admin (comptes coupés, appareil bloqué, droit manquant : son texte), 70 (le compte est oublié), 71
+     * (« Cet ordinateur n'est plus sur votre compte. », il quitte l'accueil).
+     */
+    private fun connectAccount(h: Host, open: (Host) -> Unit) {
+        val id = h.id
+        if (kn.accounts.lan(h) != null) return open(h)
+        if (id in _connecting.value) return
+        val console = kn.accounts.console(h, viaRelay = true) ?: return refuse(id, RelayRefusal.StationOffline)
+        _connecting.value = _connecting.value + id
+        _refusals.value = _refusals.value - id
+        viewModelScope.launch {
+            val reply = console.use { it.info() }
+            _connecting.value = _connecting.value - id
+            when (reply) {
+                is Reply.Ok -> open(h)
+                is Reply.Failed -> when {
+                    reply.accountSignedOut -> h.account?.let { kn.accounts.signedOut(it.key, reply.message) }
+                    reply.accountComputerGone -> kn.accounts.computerGone(h, reply.message)
+                    reply.relayFailure != null -> refuse(id, RelayRefusal.of(reply.relayFailure, reply.message)!!)
                     else -> refuse(id, RelayRefusal.Message(reply.message))
                 }
             }
@@ -469,7 +561,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun fetchPreview(h: Host, password: String) {
         val width = getApplication<Application>().resources.displayMetrics.widthPixels.coerceIn(640, 1920)
-        val bytes = ConsoleClient(h.address, h.port, h.user, password, h.fingerprint).use { it.preview(width) } ?: return
+        val console = if (h.fromAccount) kn.accounts.console(h) ?: return else ConsoleClient(h.address, h.port, h.user, password, h.fingerprint)
+        val bytes = console.use { it.preview(width) } ?: return
         if (bytes.isEmpty()) return
         withContext(Dispatchers.IO) { store.imageFile(h.id).writeBytes(bytes) }
         loadImage(h.id, force = true)

@@ -29,6 +29,9 @@ class KyberNowApp : Application() {
         private set
     lateinit var updates: fr.leslignesclaires.kybernow.update.Updates
         private set
+    /** Comptes KyberNow : comptes connectés, ordinateurs des comptes à l'accueil (docs/comptes.md). */
+    lateinit var accounts: fr.leslignesclaires.kybernow.model.AccountManager
+        private set
     /** Consoles PlayStation : comptes, associations, recherche (docs/playstation.md). */
     lateinit var ps: fr.leslignesclaires.kybernow.playstation.PlayStations
         private set
@@ -101,6 +104,7 @@ class KyberNowApp : Application() {
         device = DeviceIdentity.of(this)
         form = DeviceIdentity.formFactor(this)
         Native.init(language())
+        accounts = fr.leslignesclaires.kybernow.model.AccountManager(this)
         ps = fr.leslignesclaires.kybernow.playstation.PlayStations(this, fr.leslignesclaires.kybernow.playstation.PsStore(this), hosts)
         updates = fr.leslignesclaires.kybernow.update.Updates(this).also { it.start() }
     }

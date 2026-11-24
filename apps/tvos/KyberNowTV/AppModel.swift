@@ -32,6 +32,14 @@ final class AppModel: ObservableObject {
         /// Consoles : l'association d'une console (de l'accueil, de l'ajout), ou
         /// l'ajout d'un compte sans console.
         case consolePair(PairRequest)
+        /// Comptes KyberNow (docs/comptes.md) : les comptes de cette Apple TV
+        /// (Réglages de l'app › Comptes).
+        case accounts
+        /// « Se connecter à un compte KyberNow » : le code et son QR code, sur ce
+        /// relais (vide : share.kybernow.app).
+        case accountCode(String)
+        /// « Un autre relais… » : l'adresse du relais du compte.
+        case accountRelay
     }
 
     /// Ce qu'ouvre l'écran de l'association.
@@ -62,6 +70,10 @@ final class AppModel: ObservableObject {
     var settingsSection: ComputerSection = .picture
 
     let store: HostStore
+    /// Les comptes KyberNow de cette Apple TV et leurs ordinateurs (Accounts.swift).
+    let accounts: AccountStore
+    /// Écran où revient l'écran du code (accueil ou comptes).
+    var accountReturn: Screen = .home
     /// Les consoles PlayStation et les comptes PlayStation Network (magasin
     /// commun avec le Mac, apps/macos/KyberNow/PlayStation.swift).
     let playstation: PlayStationStore
@@ -90,6 +102,7 @@ final class AppModel: ObservableObject {
         let demo = false
         #endif
         store = HostStore(demo: demo)
+        accounts = AccountStore(hosts: store)
         borrowed = BorrowedStore(demo: demo)
         playstation = PlayStationStore(demo: demo)
         playstation.attach(hosts: store)
@@ -101,6 +114,13 @@ final class AppModel: ObservableObject {
             }
         }
         if HDRDemo.requested { hdrDemo = HDRDemo() }
+        // Comptes KyberNow : leurs avis (« Connecté à {compte}. », compte
+        // déconnecté), et l'adresse de leurs ordinateurs vus sur ce réseau.
+        accounts.onNotice = { [weak self] in self?.show(notice: $0) }
+        discovery.$found
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.accounts.noteNetwork($0) }
+            .store(in: &bag)
         discovery.start()
         selected = store.ordered.first?.id ?? playstation.consoles.first?.id
         Self.current = self
@@ -264,6 +284,13 @@ final class AppModel: ObservableObject {
         guard screenHDR else { return }
         calibrationReturn = from
         screen = .hdrCalibration
+    }
+
+    /// « Se connecter à un compte KyberNow » : l'écran du code (relais vide :
+    /// share.kybernow.app) ; il revient d'où il a été ouvert.
+    func showAccountCode(relay: String = "", from: Screen) {
+        accountReturn = from
+        screen = .accountCode(relay)
     }
 
     func showGamepads(from: Screen) {

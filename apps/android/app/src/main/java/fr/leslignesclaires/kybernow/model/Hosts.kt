@@ -223,7 +223,17 @@ data class Host(
      * une Station Mac tant qu'Apple n'a pas accordé son droit : « Manettes indisponibles sur cet ordinateur ».
      */
     val gamepads: Boolean = true,
+    /**
+     * Un compte KyberNow donne cet ordinateur (docs/comptes.md) : la clé du compte et la Station chez le relais. Sans
+     * identifiant ([user] vide), l'ordinateur vient du compte seulement ([fromAccount]) : ni mot de passe ni appairage,
+     * un jeton d'accès du relais à chaque appel ; avec, c'est un ordinateur appairé qui est aussi sur le compte (sa
+     * pastille est celle du compte).
+     */
+    val account: HostAccount? = null,
 ) {
+    /** L'ordinateur n'est à l'accueil que par un compte : il en part avec le compte (« Se déconnecter », code 70, 71). */
+    val fromAccount: Boolean get() = account != null && user.isEmpty()
+
     /**
      * La route par le relais (`{server, station, admin_fp}`) pour une session « Auto » ou une console hors de chez
      * soi ; nulle sans relais connu ou sans empreinte d'Admin épinglée (par le relais, jamais de premier contact).
@@ -250,6 +260,7 @@ data class Host(
         .put("settings", settings.json())
         .put("last", last?.json() ?: JSONObject.NULL).put("paired", paired)
         .put("relay", relay?.json() ?: JSONObject.NULL).put("gamepads", gamepads)
+        .put("account", account?.json() ?: JSONObject.NULL)
 
     companion object {
         private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
@@ -272,7 +283,22 @@ data class Host(
             paired = o.optBoolean("paired"),
             relay = HostRelay.parse(o.optJSONObject("relay")),
             gamepads = o.optBoolean("gamepads", true),
+            account = HostAccount.parse(o.optJSONObject("account")),
         )
+    }
+}
+
+/** Le compte KyberNow d'un ordinateur de l'accueil : [key] (`relais|compte`, `Account::key` du cœur) et sa [station] chez le relais. */
+data class HostAccount(val key: String, val station: String) {
+    fun json(): JSONObject = JSONObject().put("key", key).put("station", station)
+
+    companion object {
+        fun parse(o: JSONObject?): HostAccount? {
+            if (o == null) return null
+            val key = o.optString("key").takeIf { it.isNotEmpty() } ?: return null
+            val station = o.optString("station").takeIf { it.isNotEmpty() } ?: return null
+            return HostAccount(key, station)
+        }
     }
 }
 
@@ -396,10 +422,10 @@ class HostStore(private val context: Context) {
         if (selectedId == id) selectedId = _hosts.value.firstOrNull()?.id ?: _borrowed.value.firstOrNull()?.id
     }
 
-    /** Ajoute ou remplace (même adresse et même port : même ordinateur). */
+    /** Ajoute ou remplace (même adresse et même port : même ordinateur ; un ordinateur d'un compte sans adresse connue n'en a pas). */
     fun put(host: Host, password: String? = null) {
         val list = _hosts.value.toMutableList()
-        val i = list.indexOfFirst { it.id == host.id || (it.address == host.address && it.port == host.port) }
+        val i = list.indexOfFirst { it.id == host.id || (host.address.isNotEmpty() && it.address == host.address && it.port == host.port) }
         val h = if (i >= 0) host.copy(id = list[i].id) else host
         if (i >= 0) list[i] = h else list.add(h)
         save(list)
@@ -416,6 +442,20 @@ class HostStore(private val context: Context) {
         secrets.edit().remove(id).apply()
         imageFile(id).delete()
         if (selectedId == id) selectedId = _hosts.value.firstOrNull()?.id
+    }
+
+    /**
+     * Les ordinateurs des comptes à l'accueil ([AccountHosts.sync]) : la liste n'est écrite que si elle change ; ceux qui
+     * partent (compte déconnecté, ordinateur retiré du compte) emportent leur image.
+     */
+    fun syncAccounts(merge: fr.leslignesclaires.kybernow.core.AccountMerge) {
+        val before = _hosts.value
+        val after = AccountHosts.sync(before, merge)
+        if (after == before) return
+        save(after)
+        val gone = before.filter { b -> after.none { it.id == b.id } }
+        gone.forEach { imageFile(it.id).delete() }
+        if (gone.any { it.id == selectedId }) selectedId = after.firstOrNull()?.id ?: _borrowed.value.firstOrNull()?.id
     }
 
     /** La dernière image de l'ordinateur (fin de session, aperçu d'Admin). */

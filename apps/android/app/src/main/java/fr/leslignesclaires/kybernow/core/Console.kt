@@ -208,6 +208,11 @@ sealed class Reply<out T> {
         val stationOffline get() = relayFailure == RelayFailure.STATION_OFFLINE
         /** Par le relais : « Accès hors de chez vous » est coupé dans Admin (le cœur a lu le 403 `remote_access_off`). */
         val remoteAccessOff get() = relayFailure == RelayFailure.ACCESS_OFF
+
+        /** Un ordinateur d'un compte KyberNow : la session de l'appareil est fermée (70) : oublier le compte. */
+        val accountSignedOut get() = code == AccountCode.SIGNED_OUT
+        /** Un ordinateur d'un compte KyberNow : il n'est plus sur le compte (71) : il quitte l'accueil. */
+        val accountComputerGone get() = code == AccountCode.UNKNOWN_COMPUTER
     }
 
     fun valueOrNull(): T? = (this as? Ok<T>)?.value
@@ -225,8 +230,18 @@ data class PairStatus(val state: PairState, val username: String? = null, val pa
  * [route] (`{server, station, admin_fp}`, [HostRelay.route]) : tous les appels passent alors par le relais, hors de
  * chez soi, Admin épinglé sur `admin_fp` (docs/relais.md) ; un tunnel qui ne s'ouvre pas rend les erreurs 30 et 31, un accès coupé dans Admin la 32.
  */
-class ConsoleClient(host: String, port: Int, user: String = "", password: String = "", pinned: String? = null, route: String? = null) : AutoCloseable {
-    private var handle = if (route == null) Native.consoleNew(host, port, user, password, pinned) else Native.consoleNewRelay(host, port, user, password, pinned, route)
+class ConsoleClient private constructor(private var handle: Long) : AutoCloseable {
+    constructor(host: String, port: Int, user: String = "", password: String = "", pinned: String? = null, route: String? = null) :
+        this(if (route == null) Native.consoleNew(host, port, user, password, pinned) else Native.consoleNewRelay(host, port, user, password, pinned, route))
+
+    companion object {
+        /**
+         * Un ordinateur d'un compte KyberNow (docs/comptes.md) : ni identifiant ni mot de passe, un jeton d'accès du relais
+         * à chaque appel ([access] `{account, station}`, [Accounts.access]). Sur le réseau : [host] et [port] d'Admin,
+         * [route] nulle ; sinon [host] vide et la route par le relais. Refus en plus : 70 et suivants ([AccountCode]).
+         */
+        fun account(host: String, port: Int, pinned: String?, access: String, route: String?) = ConsoleClient(Native.consoleNewAccount(host, port, pinned, access, route))
+    }
 
     val fingerprintSeen: String? get() = if (handle != 0L) Native.consoleFingerprintSeen(handle) else null
 

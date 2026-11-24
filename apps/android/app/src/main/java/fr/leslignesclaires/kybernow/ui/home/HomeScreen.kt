@@ -140,6 +140,8 @@ class HomeActions(
     val ps: PsHomeActions = PsHomeActions(),
     /** La puce « HDR » d'un ordinateur : le choix gardé pour lui (docs/hdr.md). */
     val setHdr: (Host, Boolean) -> Unit = { _, _ -> },
+    /** « Se connecter à un compte KyberNow » (accueil sans ordinateur) : onglet personnalisé, ou le code au téléviseur. */
+    val signIn: () -> Unit = {},
 )
 
 /** Tout ce que l'accueil montre. */
@@ -177,6 +179,10 @@ data class HomeState(
     val ps: PsHomeState = PsHomeState(),
     /** La puce « HDR » de chaque ordinateur (absente : écran SDR, aucune trace du HDR). */
     val hdr: Map<String, HdrState> = emptyMap(),
+    /** Comptes KyberNow : la pastille d'origine de chaque ordinateur, seulement quand un compte est connecté. */
+    val origins: Map<String, String> = emptyMap(),
+    /** Le retour de la page de connexion s'échange contre le compte : « Connexion au compte… ». */
+    val signingIn: Boolean = false,
 )
 
 @Composable
@@ -200,6 +206,8 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val borrowErrors by model.borrowErrors.collectAsState()
     val lend by model.lend.collectAsState()
     val lendErrors by model.lendErrors.collectAsState()
+    val origins by model.origins.collectAsState()
+    val signingIn by app.accounts.signingIn.collectAsState()
     val known = remember(borrowed, friends, borrowing) { borrowed.filter { model.friendPassword(it.id) != null }.map { it.id }.toSet() }
     val ps = app.ps
     val consoles by ps.store.consoles.collectAsState()
@@ -233,7 +241,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     HomeContent(
         HomeState(
             hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
-            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr,
+            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr, origins, signingIn,
         ),
         actions,
     )
@@ -255,7 +263,7 @@ fun HomeContent(state: HomeState, actions: HomeActions) {
     val host = if (friend != null || console != null) null else hosts.firstOrNull { it.id == selectedId } ?: hosts.firstOrNull()
 
     if (host == null && friend == null && console == null) {
-        Welcome(announced, state.update, actions, state.ps.unpaired)
+        Welcome(announced, state.update, actions, state.ps.unpaired, state.signingIn)
         return
     }
     BoxWithConstraints(Modifier.fillMaxSize().background(Kn.ink)) {
@@ -363,7 +371,14 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
     val set = host.settings
     // Au téléviseur (540 dp de haut), tout doit tenir au-dessus de la rangée des ordinateurs.
     Column(verticalArrangement = Arrangement.spacedBy(s.dp(if (s.tv) 7f else 10f))) {
-        StatusLine(st)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusLine(st)
+            // D'où vient l'ordinateur (« Compte », « Appairé »…), quand un compte est connecté.
+            state.origins[host.id]?.let {
+                Spacer(Modifier.width(s.dp(12f)))
+                OriginChip(it)
+            }
+        }
         FitTitle(host.name, Modifier.fillMaxWidth(), size = nameSize, min = nameSize * 0.45f)
         if (st.accountRefused) Body(stringResource(R.string.home_account_refused), color = Kn.warn, size = 13f)
         if (st.certificateChanged) Body(stringResource(R.string.home_certificate_changed), color = Kn.warn, size = 13f)
@@ -587,6 +602,7 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 Column {
                     Body(h.name, size = 15f, weight = if (h.id == selected) 600 else 400, maxLines = 1)
                     Mono(statusLabel(status[h.id]), size = 10f, color = if (status[h.id]?.online == true) Kn.frost2 else Kn.muted, maxLines = 1)
+                    state.origins[h.id]?.let { Mono(it, size = 10f, color = Kn.spectre, maxLines = 1) }
                 }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text(settingsTitle(h.name)) }, { menu = false; actions.hostSettings(h) })
@@ -674,9 +690,28 @@ private fun TallHome(state: HomeState, actions: HomeActions, hero: @Composable (
     }
 }
 
-/** Aucun ordinateur ajouté : la bienvenue, ceux annoncés sur le réseau et l'ajout. */
+/** La pastille d'origine d'un ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Compte », « Appairé »… */
 @Composable
-private fun Welcome(announced: List<Announced>, update: String?, actions: HomeActions, consoles: List<fr.leslignesclaires.kybernow.playstation.PsFound> = emptyList()) {
+private fun OriginChip(text: String) {
+    val s = LocalScale.current
+    val pill = RoundedCornerShape(999.dp)
+    Box(Modifier.clip(pill).background(Kn.spectre.copy(alpha = 0.14f)).border(BorderStroke(1.dp, Kn.spectre.copy(alpha = 0.5f)), pill).padding(horizontal = s.dp(10f), vertical = s.dp(3f))) {
+        Mono(text, size = 11f, color = Kn.frost, maxLines = 1)
+    }
+}
+
+/**
+ * Aucun ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », « Se connecter à un compte
+ * KyberNow » et son aide (la page du relais au téléphone et à la tablette, un code au téléviseur), puis « ou sans
+ * compte » et les boutons de toujours : ceux annoncés sur le réseau, l'ajout, « Rejoindre avec un code ». Pendant
+ * l'échange du retour de la page contre le compte, « Connexion au compte… ».
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun Welcome(
+    announced: List<Announced>, update: String?, actions: HomeActions, consoles: List<fr.leslignesclaires.kybernow.playstation.PsFound> = emptyList(),
+    signingIn: Boolean = false,
+) {
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (s.tv) runCatching { focus.requestFocus() } }
@@ -693,6 +728,17 @@ private fun Welcome(announced: List<Announced>, update: String?, actions: HomeAc
                 Title(stringResource(R.string.welcome_title), size = if (s.tv) 40f else 34f)
                 Body(stringResource(R.string.welcome_body), color = Kn.frost2, size = 16f)
                 Spacer(Modifier.height(s.dp(6f)))
+                // Sans effet pendant l'échange, mais toujours focalisable : au téléviseur, le focus ne se perd pas.
+                PrimaryButton(stringResource(if (signingIn) R.string.account_signing_in else R.string.account_sign_in), { if (!signingIn) actions.signIn() }, Modifier.focusRequester(focus))
+                Body(stringResource(if (s.tv) R.string.account_sign_in_help_code else R.string.account_sign_in_help_window), color = Kn.muted, size = 14f)
+                Spacer(Modifier.height(s.dp(4f)))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f).height(1.dp).background(Kn.line))
+                    Spacer(Modifier.width(s.dp(12f)))
+                    Eyebrow(stringResource(R.string.account_without))
+                    Spacer(Modifier.width(s.dp(12f)))
+                    Box(Modifier.weight(1f).height(1.dp).background(Kn.line))
+                }
                 announced.forEach { a ->
                     FocusCard({ actions.addAnnounced(a) }, Modifier.fillMaxWidth()) {
                         Row(Modifier.panel().padding(s.dp(16f)).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -720,8 +766,10 @@ private fun Welcome(announced: List<Announced>, update: String?, actions: HomeAc
                         }
                     }
                 }
-                PrimaryButton(stringResource(R.string.home_add), actions.add, Modifier.focusRequester(focus))
-                GlassButton(stringResource(R.string.home_join), actions.join)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
+                    GlassButton(stringResource(R.string.home_add), actions.add, leading = { KnIcon(KnIcons.plus, size = 16f); Spacer(Modifier.width(6.dp)) })
+                    GlassButton(stringResource(R.string.home_join), actions.join, leading = { KnIcon(KnIcons.code, size = 16f); Spacer(Modifier.width(6.dp)) })
+                }
             }
         }
     }

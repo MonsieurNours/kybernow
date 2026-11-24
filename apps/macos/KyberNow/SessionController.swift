@@ -1379,6 +1379,8 @@ final class SessionController: NSObject, ObservableObject {
             params.screens = request
             // Hors de chez soi : le réseau d'abord, puis le relais si l'accès est actif.
             params.relay = host.sessionRelay
+            // Un ordinateur d'un compte KyberNow : le compte et sa Station, sans compte Kyber.
+            params.account = store.sessionAccount(for: host)
         }
         // Par le relais, une fin faute de joindre l'ordinateur le dit avec son nom (l'ordinateur du partage pour un invité).
         params.computerName = host.name

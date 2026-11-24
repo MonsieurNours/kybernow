@@ -8,6 +8,8 @@ import SwiftUI
 
 struct AppSettingsView: View {
     @ObservedObject var cloud: CloudPublisher
+    /// Comptes KyberNow (Accounts.swift).
+    @ObservedObject var accounts: AccountStore
     /// Bêtas proposées par Sparkle (voir `UpdateChannels`).
     @AppStorage(UpdateChannels.betaKey) private var betaUpdates = false
     /// « Ouvrir à l'ouverture de session » (AppLife.swift).
@@ -21,6 +23,7 @@ struct AppSettingsView: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            AccountsCard(accounts: accounts)
             iCloudCard
             startupCard
             updatesCard
@@ -189,5 +192,136 @@ struct AppSettingsView: View {
                 : String(localized: "\(n) ordinateurs publiés.")
             return (text, false)
         }
+    }
+}
+
+// MARK: - Comptes KyberNow
+
+/// « Comptes » (docs/link-ui.md, « Comptes KyberNow ») : chaque compte (nom,
+/// e-mail, relais), « Gérer le compte » (la page du compte, dans le
+/// navigateur), « Se déconnecter » (confirmé) ; « Ajouter un compte » : le
+/// relais d'abord, puis la page de connexion du relais dans la fenêtre du
+/// système. Créer, changer le mot de passe, supprimer : sur la page du compte.
+private struct AccountsCard: View {
+    @ObservedObject var accounts: AccountStore
+    @StateObject private var relay = AccountRelayModel()
+    /// « Ajouter un compte » ouvert : le choix du relais, puis le champ d'« Un autre relais… ».
+    @State private var adding = false
+    @State private var other = false
+    /// « Se déconnecter », à confirmer.
+    @State private var signingOut: KyberAccount?
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        SettingsCard(icon: "user", title: AccountText.section) {
+            if accounts.accounts.isEmpty {
+                Text(AccountText.none).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+            }
+            ForEach(accounts.accounts) { a in
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(verbatim: a.displayName).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                        if !a.name.isEmpty, !a.email.isEmpty {
+                            Text(verbatim: a.email).font(Theme.sans(12)).foregroundStyle(Theme.text2)
+                        }
+                        Text(verbatim: a.relayLabel).font(Theme.mono(11)).foregroundStyle(Theme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    Button(AccountText.manage) {
+                        if let url = URL(string: a.console) { openURL(url) }
+                    }
+                    .buttonStyle(GhostButton(height: 30))
+                    Button(AccountText.signOut) { signingOut = a }
+                        .buttonStyle(GhostButton(height: 30))
+                }
+                .padding(12)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.line2))
+            }
+            if accounts.signingIn {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(AccountText.signingIn).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                }
+            } else if !adding {
+                Button(accounts.accounts.isEmpty ? AccountText.signIn : AccountText.add) {
+                    adding = true
+                    other = false
+                }
+                .buttonStyle(GhostButton(height: 34))
+            }
+            if adding, !accounts.signingIn { relayChoice }
+            Text(AccountText.sectionHelp)
+                .font(Theme.sans(12)).foregroundStyle(Theme.faint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .confirmationDialog(AccountText.signOutQuestion(signingOut?.displayName ?? ""),
+                            isPresented: Binding(get: { signingOut != nil }, set: { if !$0 { signingOut = nil } }), titleVisibility: .visible) {
+            Button(AccountText.signOut, role: .destructive) {
+                if let a = signingOut { accounts.signOut(a) }
+                signingOut = nil
+            }
+            Button(StationText.cancel, role: .cancel) { signingOut = nil }
+        }
+        .onChange(of: relay.text) { _, _ in relay.changed() }
+    }
+
+    /// Le relais d'abord : share.kybernow.app proposé, ou « Un autre relais… ».
+    @ViewBuilder private var relayChoice: some View {
+        if other {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(AccountText.otherRelayTitle).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                Text(AccountText.relayField).font(Theme.sans(12, .semibold)).foregroundStyle(Theme.text2)
+                TextField(text: $relay.text, prompt: Text(verbatim: AccountText.relayPlaceholder).foregroundColor(Theme.ghost)) { EmptyView() }
+                    .textFieldStyle(.plain)
+                    .font(Theme.mono(13))
+                    .foregroundStyle(Theme.text)
+                    .autocorrectionDisabled()
+                    .padding(.horizontal, 12)
+                    .frame(height: 36)
+                    .background(Theme.bar, in: RoundedRectangle(cornerRadius: 9))
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line2))
+                    .onSubmit { continueWithOther() }
+                Text(AccountText.relayHelp).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let failure = relay.failure {
+                    Text(failure).font(Theme.sans(12)).foregroundStyle(Theme.warnText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 10) {
+                    Button(AccountText.continueLabel) { continueWithOther() }
+                        .buttonStyle(PrimaryButton(height: 34))
+                        .disabled(!relay.canContinue)
+                    Button(StationText.cancel) {
+                        other = false
+                        relay.changed()
+                    }
+                    .buttonStyle(GhostButton(height: 34))
+                }
+            }
+        } else {
+            HStack(spacing: 10) {
+                Button { start("") } label: { Text(verbatim: Accounts.defaultRelay) }
+                    .buttonStyle(PrimaryButton(height: 34))
+                Button(AccountText.otherRelay) { other = true }
+                    .buttonStyle(GhostButton(height: 34))
+                Button(StationText.cancel) { adding = false }
+                    .buttonStyle(GhostButton(height: 34))
+            }
+            Text(AccountText.signInHelpWindow).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func continueWithOther() {
+        guard relay.canContinue, let address = relay.validate() else { return }
+        start(address)
+    }
+
+    private func start(_ address: String) {
+        adding = false
+        other = false
+        relay.text = ""
+        accounts.signIn(relay: address)
     }
 }
