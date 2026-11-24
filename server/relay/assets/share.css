@@ -321,7 +321,10 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .acct-rename[open] { flex-basis: 100%; }
 
 /* Lots 4 et 5 : la console (« Ordinateurs », « Personnes », « Organisation », « Déployer des Stations »). */
-.acct-console { max-width: 1040px; }
+.acct-console { max-width: 1040px; width: 100%; }
+.acct-console .acct-card { min-width: 0; }
+.console-box .row { flex-wrap: wrap; }
+.console-box .row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .console-nav, .tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .console-nav { margin: -8px 0 20px; padding-bottom: 14px; border-bottom: 1px solid var(--kn-line); }
@@ -349,8 +352,9 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .console-cols .console-box { margin-top: 20px; }
 .console-new { box-shadow: inset 0 0 0 1px var(--kn-signal); }
 .console-detach { margin-top: 24px !important; }
-.console-role { display: flex; gap: 6px; align-items: center; }
-.table-scroll { overflow-x: auto; margin-top: 16px; }
+.console-role { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.console-box .row .acts { flex: 1 1 auto; min-width: 0; }
+.table-scroll { position: relative; overflow-x: auto; margin-top: 16px; }
 .rights-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 14.5px; }
 .rights-table th, .rights-table td { padding: 12px 8px; border-top: 1px solid var(--kn-line); text-align: center; vertical-align: middle; }
 .rights-table thead th { border-top: 0; color: var(--kn-mist); font-weight: 500; font-size: 13px; }
@@ -372,8 +376,8 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .token-sm { font-size: 13px; }
 .btn-danger { color: #FFC9C4; background: #2A1414; box-shadow: inset 0 0 0 1px #5C2A26; }
 .btn-danger:hover { background: #3A1A18; }
-.acct-console form > .btn { width: auto; min-width: 200px; padding: 0 24px; }
+.acct-console form:not(.acct-inline) > .btn { width: auto; min-width: 200px; padding: 0 24px; }
 @media (max-width: 800px) {
-  .console-cols { grid-template-columns: 1fr; }
-  .acct-console form > .btn { width: 100%; }
+  .console-cols { grid-template-columns: minmax(0, 1fr); }
+  .acct-console form:not(.acct-inline) > .btn { width: 100%; }
 }

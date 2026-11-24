@@ -185,6 +185,53 @@ Defined in the shared crate `server/relay/tunnel` (`access` module): the relay s
 - **Database**: migration 3 (`stations`, `devices`, `device_codes`, `device_stations`); migration 2 is batch 1b's.
 - **Code**: `server/relay/src/accounts/stations.rs` (key, attaching), `devices.rs` (devices, API, tokens), `web/attach_pages.rs` and `web/device_pages.rs` (pages); the hub (`hub.rs`) forwards the messages.
 
+### People, rights and organizations (batches 4 and 5)
+
+Done on the relay side (console, API, database) and on the Admin side; the apps (batch 3) and the installers' account step are separate work.
+
+- **An account's rights on a computer**: all of them for its owner (a person), and for the Owners and Administrators of the owning organization; otherwise the union of the **given rights** not expired, to them, to an organization they are a member of, or to one of its groups. **Administer only counts with two-factor authentication** (active TOTP or a passkey, which is worth it), owner included: without it, the token and `/v1/computers` don't have `admin`, and the “People” page says so. Likewise, an organization Owner or Administrator without two-factor doesn't manage the organization and only has the given rights, like a member.
+- **Managing a computer's access** (“People”): its owner, the Owners and Administrators of the owning organization, and anyone with the (effective) Administer right.
+- **Adding a person**: their address, their rights, an optional end date (the end of the chosen day, UTC). With a verified account, the right is theirs right away; without an account, it waits for the address and moves to the account **when it is verified** (sign-up, forgotten-password link, or account created by the relay's administrator). Adding the same address again changes their rights. An email says so (“{name} opened {computer} for you”), with the console or the sign-up page.
+- **Opening to an organization**: a computer (a person's or an organization's) opens to a whole organization one is a member of, or to one of its groups, with rights; its log records it.
+- **Organization**: creating one requires two-factor authentication (the creator is its Owner). Inviting a member by address (verified account: member right away, email; no account: pending invitation, taken when the address is verified). Only an Owner names or removes an Owner; an organization always keeps one (“Leave” and changing the last one's role are refused). A deleted account: its organization gets another Owner (the oldest Administrator, otherwise the oldest member), or goes away with its computers if nobody is left.
+- **Organization log**: every change (members, roles, invitations, groups, rights given and removed, computers attached, detached, enrolled, tokens) and every opening of one of its computers (who, which device, from where; an opening: a first token after an hour without), and every new device. IP addresses forgotten after 7 days, lines after 12 months; seen by Owners and Administrators only.
+- **New-device notice**: for an added person's device, the email goes to the owner and names the person (“with Léa's KyberNow account”); for an organization's computer, to the Owners and Administrators, with a log line.
+- **Attaching**: the “Attach {name}” page offers “Me” and the organizations the account manages (Owner or Administrator, two-factor); `attached` then carries `owner {kind: "organization", id: "org_…", name}`. Attaching to another owner erases the given rights and first visits.
+- **Enrollment tokens** (“Deploy Stations”): a name, a duration (1 to 365 days), a number of Stations (1 to 10,000), and rights given to a group on each enrolled Station; `kne_` and 32 characters (160 bits), **shown only once**, kept hashed. The Station presents it through its control connection (`enroll`); the relay attaches it to the organization (same answer if it already is, without counting one more Station), gives the rights to the group, writes the log. Revoking prevents new enrollments; enrolled Stations stay.
+- **Admin on the network** (“Sign in with KyberNow”): Admin's sign-in page offers the button when the Station is attached and accepts accounts, **never through the relay**. Admin draws a `nonce` (16 bytes, 10 minutes, `kyber_admin_kn` cookie, `SameSite=Lax`) and opens `https://<relay>/compte/ouvrir-admin?station=…&nonce=…&retour=<Admin's address>`. Signed in, with the Administer right (two-factor), the person confirms “Open Admin of {computer}?”; the relay issues an access token (5 min, device `web`) whose **`jti` is the `nonce`**, and sends back to `<retour>/api/login/kybernow?token=…`. `retour` is only a local network address (private, link-local or loopback IP, dotless name, `.local`, `.lan`, `.home.arpa`), without a path. Admin checks the token (Administer right, **single use**) and that its `jti` is this browser's `nonce`, then opens its session; a line in the feed.
+- **Lending with an account**: `POST /api/lend/status` and `/api/lend/borrow` accept `Authorization: KyberNow <token>` with the Lending right instead of a friend account's login and password; borrowing happens under the account's name (no time slots: they stay those of friend accounts; Steam: “Their Steam account”). The allowed apps stay those of the “Lending” page.
+- **Enrollment on the Admin side**: `[account] enroll = "kne_…"` in `kyber-admin.toml` (written by the installer, which comes later, with the relay in `[relay]`); Admin presents it as soon as the relay is reached, takes `attached` like an asked attachment (accounts accepted, access away from home on), then erases it; refused for good (`enroll_refused`): a line in the feed and the token is erased; relay unreachable: new try, further and further apart (10 min at most).
+
+#### Console pages
+
+| Route | Screen |
+|---|---|
+| `GET /compte/ordinateurs` | “Computers”: “Yours”, “Opened for you”, one section per organization; “Create an organization” |
+| `GET /compte/ordinateur?id=…` | A computer's “People”: rights per person (Session, Lending, Sharing, Administer), “Add a person”, “Open to an organization”, “Remove”, “Detach this computer”; only one's own rights for whoever doesn't manage |
+| `POST /compte/ordinateur/ajouter` | `id`, `email`, `session`/`lend`/`share`/`admin` (`1`), `fin` (`yyyy-mm-dd` or `dd/mm/yyyy`, optional) |
+| `POST /compte/ordinateur/ouvrir` | `id`, `a` (`org_…`, or `org_…:<group>`), rights |
+| `POST /compte/ordinateur/retirer` | `id`, `acces` |
+| `GET/POST /compte/organisations/creer` | `nom`; two-factor required |
+| `GET /compte/organisation?id=org_…&vue=membres\|groupes\|ordinateurs\|journal` | “Organization”: members and roles, pending invitations, groups, computers and their access, log |
+| `POST /compte/organisation/inviter`, `/role`, `/retirer`, `/quitter`, `/renommer` | `email` and `role`; `compte` and `role`; `compte` or `invitation`; nothing; `nom` |
+| `POST /compte/organisation/groupes/creer`, `/supprimer`, `/membre` | `nom`; `groupe`; `groupe`, `compte`, `action` (`ajouter`, `retirer`) |
+| `GET /compte/organisation/deployer?id=…`; `POST /compte/organisation/jetons/creer`, `/revoquer` | “Deploy Stations”; `nom`, `jours`, `nombre`, `groupe`, rights; `jeton` |
+| `GET/POST /compte/ouvrir-admin` | “Open Admin of {computer}?” (`station`, `nonce`, `retour`) |
+
+The console bar (“Computers”, each organization, “Account”) is also at the top of `/compte`. Detaching from “People” goes back to “Computers”.
+
+#### API and messages
+
+- `GET /v1/computers`: one's own, those opened to them (to them, their organizations, their groups), and all those of the organizations they manage; `owner` is `{kind: "person", id: "acc_…", name}` or `{kind: "organization", id: "org_…", name}`, `mine` says whether they own it, `rights` their rights at this moment. `POST /v1/access`: the same rights, `404 unknown_station` without any right.
+- Control connection: `enroll {req, token, name}` (Station → relay); answer `attached {req, …}`, or `error {req, code: "enroll_refused", message}` with `unknown`, `expired`, `revoked` or `used_up`; relay without accounts: `no_accounts`. The `tunnel` crate carries it (`Agent::enroll`).
+- Admin: `POST /api/login/kybernow {origin, lang}` → `{url, expires}` (no session, `403 network_only` through the relay, `409 unavailable` without attachment or with the switch off); `GET /api/login/kybernow?token=…` → Admin's session (a page that goes back home) or the refusal; `GET /api/session` says `kybernow_login`.
+
+#### Database
+
+- Migration 4: `grants` (Station, `account` or an invitation's `email`, `rights` as words `session,share`, `expires_at`, `invited_by`, `created_at`); `device_stations.seen_at` (last visit, for the log).
+- Migration 5: `organizations` (public identifier `org_…`, name, plan), `org_members` (role `owner`, `admin`, `member`), `org_invites`, `org_groups`, `group_members`, `org_log` (who, what as JSON, address, when), `enroll_tokens` (hash, start of the token, number, used, group and rights, expiry, revocation); `stations` rebuilt (`owner_kind` `person` or `organization`, `account` or `org`, `enrolled_by`); `grants.org` and `grants.grp`.
+- Code: `server/relay/src/accounts/people.rs` (given rights, an account's rights), `orgs.rs` (organizations, log, tokens, `enroll`), `console_pages.rs` (pages), `web/console.rs`, `web/org_pages.rs`, `web/admin_login.rs`; Admin: `accounts.rs` (sign in with KyberNow, enrollment), `lend_api.rs` (lending with an account); interface: `server/web/src/pages/Login.svelte`.
+
 ### Data kept by the relay
 
 | Data | Why | Duration |
@@ -192,8 +239,10 @@ Defined in the shared crate `server/relay/tunnel` (`access` module): the relay s
 | Email, Argon2 hash of the password, TOTP secret (encrypted), passkeys (public keys) | Signing in | Lifetime of the account |
 | Signed-in devices (name, kind, last visit) | Device sessions, revocation | Lifetime of the device |
 | Attached Stations (identifier, name) | The account's computers | Until detached |
-| Organizations, members, groups, rights | Fleet | Lifetime of the organization |
-| Log (accesses, changes) | Security, fleet | 12 months |
+| Given rights (person or invited address, rights, end date) | Added people | Until removed or detached; an expired invitation goes after 7 days |
+| Organizations, members, invitations, groups, rights | Fleet | Lifetime of the organization |
+| Enrollment tokens (hash, start, number) | Deploying a fleet | Lifetime of the organization |
+| Log (accesses, changes; organization log) | Security, fleet | 12 months (IP addresses: 7 days) |
 | IP addresses | Security, limits | A few days (logs), as today |
 
 Deleted account: erased within 30 days (backups included). Data export from the console.
@@ -220,8 +269,8 @@ SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self
 1. **Relay, accounts**: SQLite database, creation, verification, sign-in, forgotten password, TOTP, passkeys, console (account), emails, limits.
 2. **Attachment and tokens**: signing key, attaching from Admin, access token, verification in Admin, the four safeguards.
 3. **Apps**: sign-in through the system window and by code, the account's computers on the home screen, token in every core call, several relays.
-4. **People and rights**: adding by email, Session, Lending, Sharing, Administer rights; lending and sharing with an account.
-5. **Organizations**: members, roles, groups, the organization's computers, log, mandatory two-factor authentication.
+4. **People and rights**: adding by email, Session, Lending, Sharing, Administer rights; lending and sharing with an account. **Done on the relay and Admin sides** (“People, rights and organizations”).
+5. **Organizations**: members, roles, groups, the organization's computers, log, mandatory two-factor authentication. **Done on the relay and Admin sides**; the installer that takes the enrollment token comes later.
 6. **Legal and App Store**: texts, demo account, updated App Review notes.
 
 Each batch has its mockup approved before the code, like invitations.
@@ -273,6 +322,15 @@ Batch 1b departures:
 - deletion erases the account **right away** (no 30-day delay in the database); the 30 days are those of the backup rotation;
 - the legal texts served are the public relay's, as drafts; a self-hosted relay has no setting yet to serve its own, and previous versions can't be browsed yet;
 - passkey sign-in doesn't offer autofill yet (`mediation: "conditional"`): a button is enough for now.
+
+Batches 4 and 5 departures:
+
+- the two-factor authentication required for Administer applies **to the computer's owner too** (in batch 2, they had all rights unconditionally); a passkey is worth it, as at sign-in;
+- an existing account added to a computer or an organization is added **right away**, without accepting (the email tells them); an address without an account waits for the address to be verified;
+- no end date for rights given to an organization or a group (only to people), and no role per group; lending's time slots and Steam account stay those of friend accounts;
+- the organization log keeps the openings of its own computers; those of a person's computer opened to the organization stay in the owner's account log;
+- “Copy” for the enrollment token isn't a button (the pages have no script): the token is selected in one click;
+- “Add a person” is a form on the page, not a window on top as in the mockup.
 
 ## Open question
 
