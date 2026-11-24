@@ -116,6 +116,8 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 | Relais | `attach_request` → `attach_code`, puis `attached` ; `attach_status` ; `detach` / `detached` (Station, par sa connexion de contrôle) | Rattachement, après approbation dans la console (`/compte/rattacher?code=…`) ; détachement des deux côtés |
 | Admin | `GET/PUT /api/account` (session d'Admin) | Compte rattaché, interrupteur, détacher |
 | Admin | `POST /api/account/attach` (session d'Admin) | « Se connecter » : code de rattachement demandé au relais, page de la console à ouvrir |
+| Admin | `GET /api/local/account`, `PUT /api/local/account/relay`, `POST`/`DELETE /api/local/account/attach`, `POST /api/local/account/enroll` (jeton local) | L'installateur : relais choisi, rattachement pendant l'installation, enrôlement d'une installation silencieuse (« Installateurs ») |
+| Relais | `enroll` → `attached` (Station, par sa connexion de contrôle) | Enrôlement par un jeton d'organisation (lot 5) |
 | Admin | `GET /api/account/access`, `POST /api/account/access/{id}/block` | Liste locale, blocage |
 | Admin | toutes les routes d'un appareil appairé | Acceptent aussi `Authorization: KyberNow <jeton>` selon les droits |
 
@@ -176,6 +178,7 @@ Défini dans le crate partagé `server/relay/tunnel` (module `access`) : le rela
   | `attach_status` | Station → relais | `req` ; à chaque connexion d'une Station rattachée : réponse `attached` (clés à jour) ou `detached` |
   | `detach` | Station → relais | Détachée dans Admin |
   | `detached` | relais → Station | `req` (en réponse à `attach_status`) ; détachée dans la console |
+  | `enroll` | Station → relais | `req`, `token` (le jeton d'enrôlement), `name` ; réponse `attached` avec ce `req`, ou `error {req, code}` : `bad_token` (inconnu, révoqué, échu, épuisé), `no_accounts` (voir « Installateurs ») |
 
 - **Rattacher** : Admin › « Se connecter » demande un code (gardé 15 minutes en mémoire par le relais, un par Station) et ouvre la page dans le navigateur ; on se connecte (la page est retenue, cookie `__Host-kn_suite`), « Rattacher {nom} », propriétaire « Moi » (les organisations viennent au lot 5), « Rattacher » ; le relais note le lien (table `stations`) et envoie `attached`. Station hors ligne : elle l'apprend à sa prochaine connexion (`attach_status`). Admin ne prend un `attached` que si « Se connecter » a été demandé dans les 15 minutes, sauf pour mettre à jour les clés du même rattachement.
 - **Détacher** : depuis la page du compte (« Ordinateurs », « Détacher » : `detached` à la Station) ou dans Admin (`detach` au relais, dès qu'il est joint).
@@ -184,6 +187,38 @@ Défini dans le crate partagé `server/relay/tunnel` (module `access`) : le rela
 - **Avis à chaque nouvel appareil** : le premier jeton d'un appareil pour une Station (table `device_stations`) envoie un e-mail au propriétaire (« Nouvel appareil sur {ordinateur} ») et met une ligne `nouvel_appareil` au journal.
 - **Base** : migration 3 (`stations`, `devices`, `device_codes`, `device_stations`) ; la migration 2 est celle du lot 1b.
 - **Code** : `server/relay/src/accounts/stations.rs` (clé, rattachement), `devices.rs` (appareils, API, jetons), `web/attach_pages.rs` et `web/device_pages.rs` (pages) ; le hub (`hub.rs`) fait suivre les messages.
+
+### Installateurs
+
+Maquette : rangée « Installateurs ». Code : `server/installer/src/account.rs` (déroulé, vérification du relais, routes d'Admin), `quiet.rs` (installation silencieuse), `ui/src/lib/account.svelte.ts` et `AccountStep.svelte` (interface commune à Windows et au Mac) ; `apps/windows/setup/src/account.rs` et `ui/src/screens/Account.svelte` (Link).
+
+- **Station, pendant l'installation** (Windows et Mac) : l'écran Installation devient « Pendant ce temps : votre compte KyberNow » (« Se connecter », « Créer un compte », « Relais : share.kybernow.app · Autre relais… », « Plus tard ») ; l'installation continue en fond, sa progression reste en haut. L'étape est sautée pour une Station déjà rattachée qu'on réinstalle en gardant ses réglages (`[account] relay` de `kyber-admin.toml`).
+- **« Autre relais… »** : adresse `hôte[:port][#sha256:…]`, vérifiée en direct par l'installateur (`GET /v1/health` : joint, version ; `GET /v1/keys` : comptes activés ou non ; autorités du web, ou l'empreinte d'un relais signé par lui-même). Un relais sans comptes est gardé pour le partage et l'accès hors de chez soi, sans rattachement. Le relais choisi devient celui de la Station (Admin › Hors de chez vous), même avec « Plus tard ».
+- **Rattachement** : dès que la tâche « admin » est finie (Admin démarré), l'installateur appelle Admin par ses routes locales (ci-dessous) ; Admin demande le code au relais (`attach_request`) et rend la page `/compte/rattacher?code=…`, que l'installateur affiche **dans sa fenêtre** (vue enfant de wry : WebView2, WKWebView), sans quitter le relais (tout autre lien part dans le navigateur ; « Créer un compte » remplace la première page de connexion par l'inscription, le cookie de suite du relais ramène au rattachement). « À qui est cet ordinateur ? » est la page du relais (le choix d'une organisation vient au lot 5). L'installateur suit Admin (`GET /api/local/account` toutes les 2 s, 15 minutes au plus) jusqu'à `attached` ; l'écran final montre les trois accès : rattaché (compte ou organisation, relais), « Comptes KyberNow acceptés », « Accès hors de chez vous activé ». Un relais signé par lui-même : la page s'ouvre dans le navigateur (la vue de la fenêtre refuserait son certificat).
+- **Routes locales d'Admin** (loopback et jeton local, comme `/api/local/*` ; jamais par le relais) :
+
+  | Route | Corps | Réponse |
+  |---|---|---|
+  | `GET /api/local/account` | | La vue de `GET /api/account`, plus `server` (le relais réglé) et `remote_access` |
+  | `PUT /api/local/account/relay` | `{relay}` | Règle le relais (« Plus tard ») ; la même vue |
+  | `POST /api/local/account/attach` | `{relay?}` | Règle le relais puis comme `POST /api/account/attach` : `{url, expires}` |
+  | `DELETE /api/local/account/attach` | | Abandonne le rattachement en cours (« Retour », « Plus tard ») |
+  | `POST /api/local/account/enroll` | `{token, relay?}` | Enrôlement : la vue, rattachée ; `400 bad_token` (forme), `403 bad_token` (refusé par le relais), `409 no_relay` / `no_accounts`, `503 relay_unreachable` |
+
+  Toutes refusent une Station déjà rattachée (`409 already_attached`) : se rattacher ailleurs passe par « Détacher » dans Admin. Le jeton local est celui de l'icône : la personne devant l'ordinateur peut déjà accepter un appairage ; elle peut aussi rattacher une Station qui ne l'est pas.
+- **Enrôlement** (déploiement d'une flotte) : `KyberNow-Station-Setup.exe /quiet /enroll=<jeton> /relay=<adresse>` installe sans écran ni WebView2 (options d'office, réglages gardés d'une installation existante, compte d'installation `kybernow` au mot de passe tiré au hasard : on reprend la main par l'icône, « Réinitialiser le mot de passe d'Admin… »), puis passe le jeton à Admin (`POST /api/local/account/enroll`, 3 minutes de patience au démarrage d'Admin), qui l'envoie au relais par sa connexion de contrôle : `{"t":"enroll","req":3,"token":"kne_…","name":"GRAPH-01"}`. Le relais répond comme à un rattachement confirmé dans la console, `attached` portant le même `req` (propriétaire : l'organisation du jeton), ou `error {req, code: "bad_token" | "no_accounts"}` ; un relais d'avant l'enrôlement ne répond pas (10 s : `no_accounts`). Admin épingle la réponse comme un `attached` demandé (interrupteur et accès hors de chez soi allumés). Codes de sortie : `0`, `3010` (installée, à redémarrer), `1` (installation échouée), `2` (installée, pas enrôlée) ; tout est écrit dans `install.log`. Sur Mac : `kybernow-ui --quiet --enroll=<jeton> --relay=<adresse>` (l'exécutable de « Installer KyberNow Station » du .dmg), dans la session de l'utilisateur (pas en root) ; macOS demande une fois le mot de passe d'administrateur, les autorisations se donnent ensuite (icône, ou profil PPPC). Le jeton n'est vérifié qu'en forme par Admin (8 à 256 signes `A-Z a-z 0-9 _ - . ~`) ; le relais décide (lot 5 : durée, nombre de Stations, révocation). Essai : `server/relay/tunnel/tests/enrolement.rs` et `accounts::tests::enrolement_avec_un_relais_simule` d'Admin, avec le relais simulé du tunnel (fonction `test-relay`).
+- **KyberNow Link pour Windows** : à la première installation, étape facultative « Votre compte KyberNow » entre Bienvenue et Installation (pas pour une mise à jour). « Se connecter » ouvre dans la fenêtre `https://<relais>/compte/connexion?appareil=<nom du PC>&retour=kybernow://compte&etat=<16 octets au hasard>` ; le retour `kybernow://compte?code=…&etat=…` est intercepté (l'`etat` doit être le même), le code échangé (`POST /v1/devices/token`), et la session d'appareil **remise à l'app** (lot 3) :
+  - le **jeton** dans le Gestionnaire d'identification de Windows, identifiant générique, cible `KyberNow:account:<relais>` (`<relais>` : `hôte` ou `hôte:port` hors du 443), utilisateur l'e-mail du compte, secret le jeton en UTF-16LE (comme les mots de passe des ordinateurs, `KyberNow:<id>`), persistance `LOCAL_MACHINE` ;
+  - le **reste** dans `%APPDATA%\KyberNow\accounts.json` : `{"accounts":[{"relay":"share.kybernow.app","account":{"id","name","email"},"device":{"id","name"},"added":<secondes Unix>}]}` (une entrée par relais, remplacée si l'on se reconnecte ; le jeton n'y est jamais ; `relay` porte `#sha256:…` pour un relais signé par lui-même).
+
+  L'app lit ces deux endroits au démarrage et démarre connectée ; si elle range ses comptes autrement, elle les reprend de là puis efface le fichier. « Créer un compte » ouvre l'inscription du site dans la fenêtre, puis « Compte créé : se connecter ». « Plus tard » : l'app se connecte depuis son accueil. Désinstaller en effaçant les données efface aussi ces deux endroits (`--forget-all` retire les cibles `KyberNow:*`).
+
+Écarts de cette étape :
+
+- le choix « Moi » / « {organisation} » et le nom de l'ordinateur ne sont pas des écrans de l'installateur : c'est la page de rattachement du relais, affichée dans sa fenêtre (les organisations viennent au lot 5, côté relais) ;
+- la page d'un relais signé par lui-même s'ouvre dans le navigateur, pas dans la fenêtre ;
+- l'installation silencieuse prend les options d'office (pas de `/user=` ni `/password=`, qui se verraient dans la liste des processus) ;
+- sur Mac, l'étape doit être finie (rattachée ou « Plus tard ») avant les autorisations : leur fin relance Admin, qui oublierait un rattachement en cours.
 
 ### Données gardées par le relais
 

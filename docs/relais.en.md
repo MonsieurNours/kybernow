@@ -59,7 +59,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 | `hello` | Station → relay | `v`, `role: "station"`, `version` (Admin), `admin_fp` (Admin's fingerprint), `sig` (the Station's signature over `admin_fp`, below), `codes` (codes to keep, after a reconnection) |
 | `hello` | app → relay | `v`, `role: "client"`, `station` (identifier, or absent for a connection used only for `status`), `token` |
 | `welcome` | relay → end | `v`, `id` (the Station's identifier, or the client's), `relay` (relay version); for an app: `online` (is the Station there); for the Station: `codes` (those from `hello` the relay kept; the others must be reserved again) |
-| `error` | relay → end | `req` (when it is an answer), `code`: `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts`; optional `message` (logs, never shown as is) |
+| `error` | relay → end | `req` (when it is an answer), `code`: `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts`, `bad_token`; optional `message` (logs, never shown as is) |
 | `reserve` | Station → relay | `req`, `preferred` (wanted code, optional) |
 | `reserved` | relay → Station | `req`, `code` (the wanted code if free, otherwise another) |
 | `release` | Station → relay | `code` |
@@ -77,6 +77,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 | `attach_request` / `attach_code` | Station → relay / relay → Station | KyberNow accounts: attach code (docs/comptes.en.md, “Attaching and devices on the relay”) |
 | `attach_status`, `detach` | Station → relay | Where attaching stands; detached in Admin |
 | `attached` / `detached` | relay → Station | Attached (relay, account, owner, keys); detached in the console |
+| `enroll` | Station → relay | KyberNow accounts: enrollment of a silent installation with an organization token; answer `attached` (with `req`) or `error` `bad_token` / `no_accounts` (docs/comptes.en.md, “Installers”) |
 
 **Signature**: `sig` is the Ed25519 signature, by the Station's key, of the text `kybernow-relay/1 admin_fp ` followed by `admin_fp`, in base64. The public key is the client certificate's: the relay hands it back (`station_key`, SPKI DER, base64) with the code, and any device that knows the Station's identifier checks that the key matches it and that the signature holds.
 
