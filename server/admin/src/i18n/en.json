@@ -214,6 +214,8 @@
     "accountsOff": "KyberNow accounts refused",
     "accountNewDevice": "{name} comes in for the first time (KyberNow account)",
     "accountAdminLogin": "{name} opens Admin with their KyberNow account",
+    "accountEnrolled": "Station enrolled in the organization {org} (KyberNow account)",
+    "accountEnrollRefused": "Enrollment token refused by the relay ({reason})",
     "accountBlocked": "{name} blocked on this computer",
     "accountBlockedAll": "{name}'s KyberNow account blocked on this computer",
     "accountUnblocked": "{name} unblocked",

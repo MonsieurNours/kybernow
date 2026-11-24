@@ -214,6 +214,8 @@
     "accountsOff": "Comptes KyberNow refusés",
     "accountNewDevice": "{name} entre pour la première fois (compte KyberNow)",
     "accountAdminLogin": "{name} ouvre Admin avec son compte KyberNow",
+    "accountEnrolled": "Station enrôlée dans l'organisation {org} (compte KyberNow)",
+    "accountEnrollRefused": "Jeton d'enrôlement refusé par le relais ({reason})",
     "accountBlocked": "{name} bloqué sur cet ordinateur",
     "accountBlockedAll": "Compte KyberNow de {name} bloqué sur cet ordinateur",
     "accountUnblocked": "{name} débloqué",

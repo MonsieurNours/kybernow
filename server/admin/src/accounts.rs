@@ -110,6 +110,11 @@ pub struct AccountSettings {
     /// Rattachée par le mode d'essai.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub test: bool,
+    /// Lot 5 : un jeton d'enrôlement d'organisation (`kne_…`), déposé par
+    /// l'installateur en silencieux (`/enroll=`) ; présenté au relais dès qu'il
+    /// est joint, puis effacé (enrôlée, ou refusé pour de bon).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enroll: Option<String>,
 }
 
 impl AccountSettings {
@@ -373,7 +378,7 @@ pub fn pin(s: &AppState, relay: &str, owner: Owner, keys: &KeySet) -> Result<()>
     let name = owner.email.clone().filter(|e| !e.is_empty()).unwrap_or_else(|| owner.name.clone());
     let test = relay == TEST_RELAY;
     s.update_settings(|st| {
-        st.account = AccountSettings { relay: Some(relay.clone()), owner: Some(owner), keys, pinned_at: Some(now_secs()), accept: true, test };
+        st.account = AccountSettings { relay: Some(relay.clone()), owner: Some(owner), keys, pinned_at: Some(now_secs()), accept: true, test, enroll: None };
     })?;
     s.accounts.reset_verifier();
     tracing::info!("comptes : Station rattachée à {name} (relais {relay})");
@@ -484,6 +489,45 @@ pub async fn attach(State(s): State<AppState>) -> Response {
             refuse(StatusCode::SERVICE_UNAVAILABLE, "relay_unreachable", Msg::new("accounts.relayUnreachable"))
         }
     }
+}
+
+/// Lot 5 : présente le jeton d'enrôlement déposé par l'installateur
+/// (`[account] enroll`), jusqu'à ce que le relais réponde : enrôlée (rattachée
+/// à l'organisation, comptes acceptés, accès hors de chez vous actif), ou
+/// refusé pour de bon (jeton inconnu, échu, révoqué, épuisé). Sans relais
+/// réglé, ou relais injoignable : nouvel essai, de plus en plus espacé.
+pub fn start_enroll(s: &AppState) {
+    let token = s.settings.lock().unwrap().account.enroll.clone().filter(|t| !t.trim().is_empty());
+    let Some(token) = token else { return };
+    let s = s.clone();
+    tokio::spawn(async move {
+        let mut wait = Duration::from_secs(5);
+        loop {
+            if s.settings.lock().unwrap().relay.addr().is_some() {
+                let name = crate::system::computer_name().unwrap_or_default();
+                match s.relay.enroll(token.trim(), &name).await {
+                    Ok(attached) => {
+                        let org = attached.owner.name.clone();
+                        on_attached(&s, attached);
+                        let _ = s.update_settings(|st| st.account.enroll = None);
+                        tracing::info!("comptes : Station enrôlée dans l'organisation {org}");
+                        s.activity.event("info", Msg::new("events.accountEnrolled").with("org", org.as_str()));
+                        return;
+                    }
+                    Err(TunnelError::Refused(ErrorCode::EnrollRefused, why)) | Err(TunnelError::Refused(ErrorCode::NoAccounts, why)) => {
+                        let why = why.unwrap_or_default();
+                        let _ = s.update_settings(|st| st.account.enroll = None);
+                        tracing::warn!("comptes : jeton d'enrôlement refusé ({why})");
+                        s.activity.event("warn", Msg::new("events.accountEnrollRefused").with("reason", why.as_str()));
+                        return;
+                    }
+                    Err(e) => tracing::info!("comptes : enrôlement remis à plus tard ({e})"),
+                }
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(Duration::from_secs(600));
+        }
+    });
 }
 
 /// Le mode d'essai est-il demandé (`KYBERNOW_ACCOUNT_TEST` à `1`, `true`, `oui`, `yes`) ?
