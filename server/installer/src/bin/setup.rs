@@ -14,6 +14,11 @@
 //! un jeton restreint qui ne peut pas écrire sous Program Files, et Edge
 //! refuse alors de démarrer (« ne peut pas lire ni écrire dans son répertoire
 //! de données »). Ce dossier ne contient aucun code exécuté par l'interface.
+//! Son chemin est donné **en forme longue** : élevé avec le compte d'un autre
+//! administrateur, `%TEMP%` arrive en forme courte (`C:\Users\USER_A~1\…`),
+//! que les règles du bac à sable de WebView2 ne reconnaissent pas, et Edge
+//! refuse de la même façon. Si `%TEMP%` ne se crée pas, `%LOCALAPPDATA%`
+//! prend le relais (voir [`webview_data_dir`]).
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -58,8 +63,7 @@ fn launch() -> anyhow::Result<()> {
     std::fs::write(&ui, UI_EXE)?;
     std::fs::write(tmp.join("WebView2Loader.dll"), WEBVIEW2_LOADER)?;
 
-    let webview_data: PathBuf =
-        std::env::temp_dir().join(format!("KyberNow-Station-Setup-WebView-{}", std::process::id()));
+    let webview_data = webview_data_dir();
     let status = std::process::Command::new(&ui)
         .arg("--payload")
         .arg(&exe)
@@ -78,6 +82,50 @@ fn launch() -> anyhow::Result<()> {
     }
     status?;
     Ok(())
+}
+
+/// Le dossier de données de WebView2 : dans `%TEMP%` du compte qui a élevé,
+/// sinon dans `%LOCALAPPDATA%`, toujours en forme longue (sans `~1`), et créé
+/// d'avance pour qu'un échec se voie ici plutôt que dans Edge.
+fn webview_data_dir() -> PathBuf {
+    let name = format!("KyberNow-Station-Setup-WebView-{}", std::process::id());
+    let mut bases = vec![std::env::temp_dir()];
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        bases.push(local.join("Temp"));
+        bases.push(local.join(kybernow::PRODUCT));
+    }
+    for base in &bases {
+        let dir = long_path(base).join(&name);
+        if std::fs::create_dir_all(&dir).is_ok() {
+            return long_path(&dir);
+        }
+    }
+    long_path(&std::env::temp_dir()).join(name)
+}
+
+/// Un chemin existant en forme longue (`GetLongPathNameW`) ; tel quel s'il
+/// n'existe pas ou si Windows ne sait pas le développer.
+#[cfg(windows)]
+fn long_path(path: &std::path::Path) -> PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut buf = vec![0u16; 1024];
+    loop {
+        let n = unsafe { GetLongPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+        if n == 0 {
+            return path.to_path_buf();
+        }
+        if n < buf.len() {
+            return PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]));
+        }
+        buf.resize(n + 1, 0);
+    }
+}
+
+#[cfg(not(windows))]
+fn long_path(path: &std::path::Path) -> PathBuf {
+    path.to_path_buf()
 }
 
 fn uninstall() {
