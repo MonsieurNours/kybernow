@@ -13,6 +13,7 @@
 //! `focus.rs`) qui le dit et qui l'applique (touches relâchées, manettes au repos, presse-papiers en
 //! pause, son coupé) ; l'app lui annonce ses fenêtres et recopie sa réponse.
 
+mod accounts;
 mod chime;
 mod focus;
 mod hdr_wl;
@@ -102,6 +103,8 @@ pub enum Event {
     StationReply { host: String, kind: crate::app::StationKind, result: Result<Option<String>, crate::app::StationRefusal> },
     Preview { id: String, jpeg: Vec<u8> },
     Found(Vec<Found>),
+    /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
+    Account(accounts::AccountEvent),
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
     PairAsked { name: String },
     PairAccepted(crate::model::Host),
@@ -939,6 +942,10 @@ pub fn run(args: &[String]) {
         app.pending_link = Some(l);
     }
     jobs::discover(tx.clone());
+    // Comptes KyberNow : l'accueil d'après la liste gardée, puis les listes à jour du relais.
+    accounts::sync(&mut app);
+    accounts::refresh(&app, &tx);
+    let mut last_accounts = Instant::now();
     // Les consoles PlayStation : recherche, association, parties ; les noms des touches de ce clavier.
     let mut ps = ps::Runtime::new(tx.clone());
     app.ps.key_names = ps::key_names();
@@ -1163,6 +1170,11 @@ pub fn run(args: &[String]) {
                     jobs::poll(h.clone(), false, tx.clone());
                 }
             }
+        }
+        // Comptes KyberNow : les ordinateurs des comptes redemandés toutes les 5 minutes, hors session.
+        if lives.is_empty() && !app.store.accounts.is_empty() && last_accounts.elapsed() > Duration::from_secs(300) {
+            last_accounts = Instant::now();
+            accounts::refresh(&app, &tx);
         }
         if lives.is_empty() && last_update.elapsed() > Duration::from_secs(6 * 3600) {
             last_update = Instant::now();
@@ -2226,6 +2238,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 }
                 *dirty = true;
             }
+            // Comptes KyberNow : l'adresse d'« Un autre relais » (le pilote garde les signes d'une adresse).
+            if app.typing_relay() {
+                for c in text.chars() {
+                    actions.extend(app.nav(Nav::Char(c)));
+                }
+                *dirty = true;
+            }
             // Invitations : le mot de passe de « Ajouter {ordinateur} ».
             if app.typing_invitation() {
                 for c in text.chars() {
@@ -2577,6 +2596,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         }
         Event::Found(list) => {
             app.found = list;
+            // Un ordinateur d'un compte annoncé sur le réseau (même empreinte d'Admin) y prend son adresse.
+            accounts::locate(app);
             if app.screen == Screen::Add && app.add.step == AddStep::Code && !app.add.code.is_empty() && app.new_found().iter().any(|f| !app.add.asked.iter().any(|(_, a)| *a == f.address)) {
                 actions.push(Action::StartPairing);
             }
@@ -2676,6 +2697,11 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         // Un lien transmis : la fenêtre de l'app passe devant (celle de l'accueil), le lien s'ouvre (ou attend la fin
         // des sessions).
+        Event::Account(e) => {
+            if accounts::handle(e, app, actions) {
+                accounts::sync(app);
+            }
+        }
         Event::Link(l) => {
             if app.sessions.is_empty() {
                 sdl::raise(wins.list[0].window);
@@ -2854,6 +2880,13 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             // L'image arrive : les manettes indisponibles sur l'ordinateur se disent, si une manette est branchée.
             if s.phase == Phase::Streaming {
                 app.pads_unavailable_notice(id, pads.count());
+            }
+            // Un ordinateur d'un compte KyberNow : la session de l'appareil fermée (le compte est oublié), ou un
+            // ordinateur qui n'est plus au compte (il quitte l'accueil).
+            if failed
+                && let Some((host, Phase::Ended { error: Some(e) })) = app.session_by(id).map(|s| (s.host.clone(), s.phase.clone()))
+            {
+                actions.extend(accounts::session_failed(app, &host, &e));
             }
             let Some(s) = app.sessions.iter_mut().find(|s| s.id == id) else { return };
             if finished || failed {
@@ -3142,7 +3175,11 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             }
             *quit = true;
         }
-        Action::Language => set_language(app),
+        Action::Language => {
+            set_language(app);
+            // Les pastilles d'origine sont dans la langue de l'app.
+            accounts::sync(app);
+        }
         Action::Interface => {
             let display = app.machine.display;
             let layout = if app.is_os() { if app.store.app.interface == "desktop" { Layout::Desktop } else { Layout::Tv } } else { system::layout(&app.store.app.interface, None, display) };
@@ -3414,6 +3451,16 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 }
                 l.handle.session.give_back();
             }
+        }
+        Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name.clone(), tx.clone()),
+        Action::AccountCancel => accounts::cancel(),
+        Action::AccountBrowser { attempt, relay } => accounts::sign_in_by_browser(attempt, relay, app.device_name.clone(), tx.clone()),
+        Action::AccountCallback(url) => accounts::callback(url, tx.clone()),
+        Action::AccountSignOut(a) => accounts::sign_out(a),
+        Action::AccountsRefresh => accounts::refresh(app, tx),
+        Action::AccountsSync => {
+            accounts::sync(app);
+            app.store.save();
         }
         Action::RedeemInvite { attempt, password } => jobs::invite_redeem(attempt, password, device_info(app), tx.clone()),
         Action::FriendAdd { address, port, fingerprint, relay, sid, login, password, remember, editing } => jobs::friend_add(address, port, fingerprint, relay, sid, login, password, remember, editing, tx.clone()),
