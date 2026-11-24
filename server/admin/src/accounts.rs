@@ -483,6 +483,152 @@ pub async fn attach(State(s): State<AppState>) -> Response {
     }
 }
 
+// --- Routes locales de l'installateur ---------------------------------------------------
+//
+// `/api/local/account…` : depuis l'ordinateur lui-même, avec le jeton local
+// (docs/comptes.md, « Dans les installateurs »). L'installateur de la Station
+// y règle le relais choisi, lance le rattachement (la page du relais s'ouvre
+// dans sa fenêtre) ou l'enrôlement d'une installation silencieuse. Une Station
+// déjà rattachée ne se rattache pas ailleurs par ces routes : c'est Admin
+// (« Détacher ») qui le décide.
+
+/// La vue de `GET /api/account`, avec le relais réglé et « Accès hors de chez vous ».
+pub fn local_view(s: &AppState) -> Value {
+    let mut v = view(s);
+    let relay = s.settings.lock().unwrap().relay.clone();
+    v["server"] = json!(relay.server());
+    v["remote_access"] = json!(relay.remote_access);
+    v
+}
+
+fn refuse(status: StatusCode, code: &str, msg: Msg) -> Response {
+    (status, Json(json!({ "error": msg.text(), "code": code }))).into_response()
+}
+
+/// Règle le relais de la Station (« Hors de chez vous ») avant un rattachement
+/// ou un enrôlement ; refusé si elle est déjà rattachée (pas en mode d'essai).
+fn set_relay_locally(s: &AppState, relay: Option<&str>) -> Result<(), Response> {
+    let current = s.settings.lock().unwrap().account.clone();
+    if current.attached() && !current.test {
+        return Err(refuse(StatusCode::CONFLICT, "already_attached", Msg::new("accounts.alreadyAttached")));
+    }
+    let Some(relay) = relay else { return Ok(()) };
+    let server = crate::relay::normalize_server(relay).map_err(|msg| refuse(StatusCode::BAD_REQUEST, "bad_relay", msg))?;
+    if server.is_empty() {
+        return Err(refuse(StatusCode::CONFLICT, "no_relay", Msg::new("accounts.noRelay")));
+    }
+    let before = s.settings.lock().unwrap().relay.server();
+    if before != server {
+        s.update_settings(|st| st.relay.server = if server == crate::relay::DEFAULT_SERVER { None } else { Some(server.clone()) })
+            .map_err(|e| crate::api::ApiError::from(e).into_response())?;
+        tracing::info!("relais : adresse réglée à « {server} » (installateur)");
+        s.relay.wake();
+    }
+    Ok(())
+}
+
+#[derive(Deserialize, Default)]
+pub struct LocalRelayBody {
+    /// Le relais choisi dans l'installateur ; absent : celui qui est réglé.
+    #[serde(default)]
+    relay: Option<String>,
+}
+
+/// `GET /api/local/account` : où en est le rattachement.
+pub async fn local_get(State(s): State<AppState>) -> Json<Value> {
+    Json(local_view(&s))
+}
+
+/// `PUT /api/local/account/relay {relay}` : le relais choisi, sans rattacher (« Plus tard »).
+pub async fn local_relay(State(s): State<AppState>, Json(body): Json<LocalRelayBody>) -> Response {
+    if body.relay.is_none() {
+        return refuse(StatusCode::BAD_REQUEST, "bad_relay", Msg::new("accounts.noRelay"));
+    }
+    match set_relay_locally(&s, body.relay.as_deref()) {
+        Ok(()) => Json(local_view(&s)).into_response(),
+        Err(r) => r,
+    }
+}
+
+/// `POST /api/local/account/attach {relay?}` : comme « Se connecter » dans
+/// Admin, la page du relais à ouvrir (`{url, expires}`), pour la fenêtre de l'installateur.
+pub async fn local_attach(State(s): State<AppState>, Json(body): Json<LocalRelayBody>) -> Response {
+    if let Err(r) = set_relay_locally(&s, body.relay.as_deref()) {
+        return r;
+    }
+    attach(State(s)).await
+}
+
+/// `DELETE /api/local/account/attach` : l'installateur abandonne (« Plus tard », « Retour »).
+pub async fn local_cancel(State(s): State<AppState>) -> Json<Value> {
+    if !s.settings.lock().unwrap().account.attached() {
+        s.relay.attach_done();
+    }
+    Json(local_view(&s))
+}
+
+#[derive(Deserialize)]
+pub struct EnrollBody {
+    /// Le jeton d'enrôlement donné par la console de l'organisation.
+    token: String,
+    #[serde(default)]
+    relay: Option<String>,
+}
+
+/// Forme d'un jeton d'enrôlement acceptée avant de le passer au relais : il
+/// ne voyage que dans un message JSON, mais un jeton collé de travers
+/// (espaces, guillemets, retour à la ligne) se voit tout de suite.
+pub fn enroll_token_ok(token: &str) -> bool {
+    (8..=256).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'~'))
+}
+
+/// `POST /api/local/account/enroll {token, relay?}` : installation silencieuse
+/// d'une flotte (`/enroll=<jeton>`). Le jeton part au relais par la connexion
+/// de contrôle (`enroll`) ; sa réponse `attached` est épinglée comme un
+/// rattachement confirmé dans la console.
+pub async fn local_enroll(State(s): State<AppState>, Json(body): Json<EnrollBody>) -> Response {
+    let token = body.token.trim();
+    if !enroll_token_ok(token) {
+        return refuse(StatusCode::BAD_REQUEST, "bad_token", Msg::new("accounts.badEnrollToken"));
+    }
+    if let Err(r) = set_relay_locally(&s, body.relay.as_deref()) {
+        return r;
+    }
+    if s.settings.lock().unwrap().relay.addr().is_none() {
+        return refuse(StatusCode::CONFLICT, "no_relay", Msg::new("accounts.noRelay"));
+    }
+    let name = crate::system::computer_name().unwrap_or_default();
+    let answer = s.relay.enroll(token, &name).await;
+    let refused = |status, code, key| {
+        s.relay.attach_done();
+        refuse(status, code, Msg::new(key))
+    };
+    match answer {
+        Ok(a) => {
+            on_attached(&s, a);
+            s.relay.attach_done();
+            if s.settings.lock().unwrap().account.attached() {
+                tracing::info!("comptes : Station enrôlée");
+                Json(local_view(&s)).into_response()
+            } else {
+                refuse(StatusCode::BAD_GATEWAY, "relay_unreachable", Msg::new("accounts.relayUnreachable"))
+            }
+        }
+        Err(TunnelError::Refused(ErrorCode::BadToken, _)) => {
+            tracing::info!("comptes : jeton d'enrôlement refusé par le relais");
+            refused(StatusCode::FORBIDDEN, "bad_token", "accounts.badEnrollToken")
+        }
+        // Un relais sans comptes refuse ; un relais d'avant l'enrôlement ne répond pas.
+        Err(TunnelError::Refused(ErrorCode::NoAccounts, _)) | Err(TunnelError::Timeout) => {
+            refused(StatusCode::CONFLICT, "no_accounts", "accounts.noAccounts")
+        }
+        Err(e) => {
+            tracing::info!("comptes : enrôlement impossible : {e}");
+            refused(StatusCode::SERVICE_UNAVAILABLE, "relay_unreachable", "accounts.relayUnreachable")
+        }
+    }
+}
+
 /// Le mode d'essai est-il demandé (`KYBERNOW_ACCOUNT_TEST` à `1`, `true`, `oui`, `yes`) ?
 pub fn test_mode_wanted(value: Option<&str>) -> bool {
     value.is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "oui" | "yes" | "on"))
@@ -1070,4 +1216,110 @@ mod tests {
         assert!(!s.settings.lock().unwrap().account.attached());
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    // --- Routes locales de l'installateur ---
+
+    async fn body(r: Response) -> (StatusCode, Value) {
+        let status = r.status();
+        let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    #[test]
+    fn forme_du_jeton_d_enrolement() {
+        assert!(enroll_token_ok("kne_7Qm2xR9pLa4V"));
+        assert!(!enroll_token_ok("court"));
+        assert!(!enroll_token_ok("kne_7Qm2 xR9pLa4V"));
+        assert!(!enroll_token_ok("\"kne_7Qm2xR9pLa4V\""));
+        assert!(!enroll_token_ok(&"a".repeat(300)));
+    }
+
+    #[tokio::test]
+    async fn l_installateur_regle_le_relais_tant_que_la_station_n_est_pas_rattachee() {
+        let (s, _dir) = state();
+        let (status, v) = body(local_relay(State(s.clone()), Json(LocalRelayBody { relay: Some("https://relais.exemple.org:9443/".into()) })).await).await;
+        assert_eq!(status, StatusCode::OK, "{v}");
+        assert_eq!(v["server"], "relais.exemple.org:9443");
+        assert_eq!(v["attached"], false);
+        let (status, v) = body(local_relay(State(s.clone()), Json(LocalRelayBody { relay: Some("pas une adresse".into()) })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_relay")));
+        // Rattachée : ni autre relais, ni autre rattachement, ni enrôlement par l'installateur.
+        attach(&s, &signer());
+        let (status, v) = body(local_relay(State(s.clone()), Json(LocalRelayBody { relay: Some("share.kybernow.app".into()) })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("already_attached")));
+        let (status, v) = body(local_attach(State(s.clone()), Json(LocalRelayBody::default())).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("already_attached")));
+        let (status, v) = body(local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: None })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("already_attached")));
+        assert_eq!(s.settings.lock().unwrap().relay.server(), "relais.exemple.org:9443");
+    }
+
+    #[tokio::test]
+    async fn sans_relais_ni_jeton_lisible_rien_ne_part() {
+        let (s, _dir) = state();
+        let (status, v) = body(local_enroll(State(s.clone()), Json(EnrollBody { token: "kne 7Q".into(), relay: None })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::BAD_REQUEST, Some("bad_token")));
+        let (status, v) = body(local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_7Qm2xR9pLa4V".into(), relay: Some(" ".into()) })).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("no_relay")));
+        assert!(!s.relay.attaching());
+    }
+
+    /// L'enrôlement de bout en bout : la route locale, l'agent du relais, le
+    /// relais simulé qui répond `attached` (ou refuse le jeton), l'épinglage.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn enrolement_avec_un_relais_simule() {
+        use kybernow_tunnel::msg::{AttachOwner, Msg};
+        use kybernow_tunnel::testing::FakeRelay;
+
+        let key = signer();
+        let public = key.public_key().clone();
+        let name = std::sync::Arc::new(Mutex::new(String::new()));
+        let relay = {
+            let name = name.clone();
+            let authority = std::sync::Arc::new(Mutex::new(String::new()));
+            let a2 = authority.clone();
+            let relay = FakeRelay::start(move |m| match m {
+                Msg::Enroll { req, token, name: computer } if token == "kne_bon_jeton" => {
+                    *name.lock().unwrap() = computer.clone();
+                    Some(Msg::Attached(Attached {
+                        req: Some(*req),
+                        relay: a2.lock().unwrap().clone(),
+                        account: "acc_lea".into(),
+                        owner: AttachOwner { kind: "organization".into(), id: "org_1".into(), name: "Les Lignes Claires".into(), email: None },
+                        keys: vec![public.clone()],
+                    }))
+                }
+                Msg::Enroll { req, .. } => Some(Msg::error(Some(*req), ErrorCode::BadToken, None)),
+                _ => None,
+            })
+            .await;
+            *authority.lock().unwrap() = relay.addr.web_authority();
+            relay
+        };
+
+        let (s, _dir) = state();
+        let s = s.with_tls_fingerprint(&format!("sha256:{}", ["ab"; 32].join(":")));
+        crate::relay::supervise(s.clone(), axum::Router::new());
+        let addr = relay.addr.to_string();
+
+        let refused = local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_mauvais_jeton".into(), relay: Some(addr.clone()) })).await;
+        let status = refused.status();
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!s.settings.lock().unwrap().account.attached());
+        assert!(!s.relay.attaching());
+
+        let ok = local_enroll(State(s.clone()), Json(EnrollBody { token: "kne_bon_jeton".into(), relay: Some(addr.clone()) })).await;
+        assert_eq!(ok.status(), StatusCode::OK);
+        let settings = s.settings.lock().unwrap().clone();
+        assert!(settings.account.attached());
+        assert_eq!(settings.account.relay.as_deref(), Some(relay.addr.web_authority().as_str()));
+        assert_eq!(settings.account.owner.as_ref().map(|o| o.kind), Some(OwnerKind::Organization));
+        assert!(settings.account.accept, "comptes acceptés");
+        assert!(settings.relay.remote_access, "accès hors de chez vous activé");
+        assert_eq!(*name.lock().unwrap(), crate::system::computer_name().unwrap_or_default());
+        let v = local_view(&s);
+        assert_eq!(v["owner"]["name"], "Les Lignes Claires");
+        assert_eq!(v["remote_access"], true);
+    }
+
 }

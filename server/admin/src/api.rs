@@ -39,6 +39,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/update", get(local_update))
         .route("/api/local/update/check", post(local_update_check))
         .route("/api/local/update/install", post(local_update_install))
+        // Comptes KyberNow depuis l'installateur de la Station (docs/comptes.md, « Dans les installateurs »).
+        .route("/api/local/account", get(crate::accounts::local_get))
+        .route("/api/local/account/relay", put(crate::accounts::local_relay))
+        .route("/api/local/account/attach", post(crate::accounts::local_attach).delete(crate::accounts::local_cancel))
+        .route("/api/local/account/enroll", post(crate::accounts::local_enroll))
         // KyberNow Share depuis le PC (icône près de l'horloge, ou accueil d'Admin avec sa session).
         .route("/api/local/displays", get(share_api::local_displays))
         .route("/api/local/share", get(share_api::local_get).delete(share_api::local_close))

@@ -283,6 +283,8 @@
     "unknownEntry": "Unknown access.",
     "noRelay": "Set a relay first in “Away from home”: it holds the KyberNow accounts.",
     "noAccounts": "This relay doesn't offer KyberNow accounts.",
-    "relayUnreachable": "The relay isn't answering: try again in a moment."
+    "relayUnreachable": "The relay isn't answering: try again in a moment.",
+    "alreadyAttached": "This computer is already attached to a KyberNow account: detach it in Admin first.",
+    "badEnrollToken": "Enrollment token refused: it's unknown, revoked, expired or already used for all its Stations."
   }
 }

@@ -123,8 +123,10 @@ pub enum ErrorCode {
     Replaced,
     NoCode,
     NotBound,
-    /// Le relais ne tient pas de comptes KyberNow (`attach_request`).
+    /// Le relais ne tient pas de comptes KyberNow (`attach_request`, `enroll`).
     NoAccounts,
+    /// Jeton d'enrôlement refusé (`enroll`) : inconnu, révoqué, échu ou épuisé.
+    BadToken,
     #[serde(other)]
     Other,
 }
@@ -141,6 +143,7 @@ impl ErrorCode {
             ErrorCode::NoCode => "no_code",
             ErrorCode::NotBound => "not_bound",
             ErrorCode::NoAccounts => "no_accounts",
+            ErrorCode::BadToken => "bad_token",
             ErrorCode::Other => "other",
         }
     }
@@ -392,6 +395,16 @@ pub enum Msg {
         req: u32,
     },
     Attached(Attached),
+    /// Station → relais : rattacher la Station à une organisation avec un
+    /// jeton d'enrôlement (installation silencieuse, docs/comptes.md,
+    /// « Enrôlement ») ; `name` : le nom de l'ordinateur. Réponse `attached`
+    /// (avec `req`), ou `error {req, code}` : `bad_token`, `no_accounts`.
+    Enroll {
+        req: u32,
+        token: String,
+        #[serde(default)]
+        name: String,
+    },
     /// Station → relais : détachée dans Admin.
     Detach {},
     /// Relais → Station : détachée dans la console (ou plus rattachée, en
@@ -457,6 +470,7 @@ impl Msg {
             Msg::AttachCode { .. } => "attach_code",
             Msg::AttachStatus { .. } => "attach_status",
             Msg::Attached(_) => "attached",
+            Msg::Enroll { .. } => "enroll",
             Msg::Detach {} => "detach",
             Msg::Detached { .. } => "detached",
             Msg::Unknown => "unknown",
@@ -547,6 +561,22 @@ mod tests {
         // Une Station d'avant les comptes ignore ces messages.
         let e: Msg = serde_json::from_str(r#"{"t":"error","req":7,"code":"no_accounts"}"#).unwrap();
         assert!(matches!(e, Msg::Error(ErrorMsg { code: ErrorCode::NoAccounts, .. })));
+    }
+
+    #[test]
+    fn enrolement() {
+        let e = Msg::Enroll { req: 3, token: "kne_abc".into(), name: "GRAPH-01".into() };
+        assert_eq!(serde_json::to_string(&e).unwrap(), r#"{"t":"enroll","req":3,"token":"kne_abc","name":"GRAPH-01"}"#);
+        assert_eq!(serde_json::from_str::<Msg>(r#"{"t":"enroll","req":3,"token":"kne_abc"}"#).unwrap(), Msg::Enroll { req: 3, token: "kne_abc".into(), name: String::new() });
+        let r: Msg = serde_json::from_str(r#"{"t":"error","req":3,"code":"bad_token"}"#).unwrap();
+        assert_eq!(r, Msg::error(Some(3), ErrorCode::BadToken, None));
+        assert_eq!(ErrorCode::BadToken.as_str(), "bad_token");
+        // La réponse est un `attached` qui porte `req`.
+        let a: Msg = serde_json::from_str(
+            r#"{"t":"attached","req":3,"relay":"share.test","account":"acc_1","owner":{"kind":"organization","id":"org_1","name":"Les Lignes Claires"},"keys":[]}"#,
+        )
+        .unwrap();
+        assert!(matches!(a, Msg::Attached(Attached { req: Some(3), .. })));
     }
 
     #[test]

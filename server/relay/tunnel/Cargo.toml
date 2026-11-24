@@ -18,6 +18,9 @@ station = ["dep:rcgen"]
 # Pièces du relais : certificat client facultatif, contrôle de congestion
 # choisi après la négociation.
 server = ["dep:quinn-proto"]
+# Relais simulé (connexion de contrôle seulement), pour les essais de
+# l'agent et d'Admin : rattachement, enrôlement.
+test-relay = ["station", "server"]
 
 [dependencies]
 base64 = "0.22"
@@ -45,3 +48,7 @@ tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "time", "io
 [[test]]
 name = "boucle_locale"
 required-features = ["client", "station", "server"]
+
+[[test]]
+name = "enrolement"
+required-features = ["test-relay"]

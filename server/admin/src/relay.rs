@@ -45,6 +45,7 @@ use tokio::sync::{Notify, mpsc};
 use tokio::task::AbortHandle;
 
 use kybernow_tunnel::access::{Right, Use};
+use kybernow_tunnel::msg::Attached;
 
 use crate::AppState;
 use crate::i18n::Msg;
@@ -376,10 +377,24 @@ impl Relay {
     /// l'ordinateur, montré dans la console.
     pub async fn attach_code(&self, name: &str) -> Result<AttachCode, TunnelError> {
         self.begin_attach();
+        self.wait_joined().await?.attach_code(name).await
+    }
+
+    /// Enrôle la Station avec un jeton d'enrôlement (docs/comptes.md,
+    /// « Enrôlement »), par la connexion de contrôle : la réponse `attached`
+    /// est à épingler ([`crate::accounts::on_attached`], le rattachement est
+    /// demandé). L'agent démarre s'il ne tournait pas.
+    pub async fn enroll(&self, token: &str, name: &str) -> Result<Attached, TunnelError> {
+        self.begin_attach();
+        self.wait_joined().await?.enroll(token, name).await
+    }
+
+    /// L'agent, une fois le relais joint (10 s au plus : la veille le démarre).
+    async fn wait_joined(&self) -> Result<Arc<Agent>, TunnelError> {
         let deadline = Instant::now() + Duration::from_secs(10);
-        let agent = loop {
+        loop {
             if let Some(a) = self.joined_agent() {
-                break a;
+                return Ok(a);
             }
             if Instant::now() >= deadline {
                 let reason = match self.agent().map(|a| a.state()) {
@@ -389,8 +404,7 @@ impl Relay {
                 return Err(TunnelError::Unreachable(reason));
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
-        };
-        agent.attach_code(name).await
+        }
     }
 
     /// Détachée dans Admin : le relais l'apprend tout de suite s'il est joint,
@@ -1435,6 +1449,9 @@ mod tests {
             (&get, "/api/status"), (&get, "/api/shares"), (&get, "/kybernow/sessions"),
             (&get, "/api/account"), (&Method::PUT, "/api/account"), (&get, "/api/account/access"), (&post, "/api/account/access/ab/block"),
             (&post, "/api/account/attach"),
+            (&get, "/api/local/account"),
+            (&post, "/api/local/account/attach"),
+            (&post, "/api/local/account/enroll"),
             (&post, "/api/stream/station/other"),
         ] {
             assert_eq!(class_of(m, p), Class::Never, "{m} {p}");
