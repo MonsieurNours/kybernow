@@ -213,6 +213,9 @@
     "accountsOn": "Comptes KyberNow acceptés",
     "accountsOff": "Comptes KyberNow refusés",
     "accountNewDevice": "{name} entre pour la première fois (compte KyberNow)",
+    "accountAdminLogin": "{name} ouvre Admin avec son compte KyberNow",
+    "accountEnrolled": "Station enrôlée dans l'organisation {org} (compte KyberNow)",
+    "accountEnrollRefused": "Jeton d'enrôlement refusé par le relais ({reason})",
     "accountBlocked": "{name} bloqué sur cet ordinateur",
     "accountBlockedAll": "Compte KyberNow de {name} bloqué sur cet ordinateur",
     "accountUnblocked": "{name} débloqué",
@@ -283,6 +286,10 @@
     "unknownEntry": "Accès inconnu.",
     "noRelay": "Réglez d'abord un relais dans « Hors de chez vous » : c'est lui qui tient les comptes KyberNow.",
     "noAccounts": "Ce relais ne propose pas les comptes KyberNow.",
-    "relayUnreachable": "Le relais ne répond pas : réessayez dans un instant."
+    "relayUnreachable": "Le relais ne répond pas : réessayez dans un instant.",
+    "networkOnly": "Se connecter avec KyberNow ne marche que sur le réseau, pas par le relais.",
+    "webLoginOff": "Cet ordinateur n'accepte pas la connexion avec KyberNow : il n'est pas rattaché, ou « Accepter les comptes KyberNow » est coupé.",
+    "webLoginExpired": "La connexion avec KyberNow a expiré : recommencez depuis la page de connexion d'Admin.",
+    "badOrigin": "Adresse d'Admin illisible."
   }
 }

@@ -412,7 +412,10 @@
     "create": "Créer et ouvrir Admin",
     "forgot": "Mot de passe oublié ?",
     "forgotHelp": "Sur l'ordinateur, menu de l'icône KyberNow Station › Réinitialiser le mot de passe d'Admin. Vos appareils et leurs comptes ne changent pas.",
-    "foot": "Connexion chiffrée par le certificat de cet ordinateur."
+    "foot": "Connexion chiffrée par le certificat de cet ordinateur.",
+    "kybernow": "Se connecter avec KyberNow",
+    "kybernowHint": "Avec un compte KyberNow qui a le droit Administrer sur cet ordinateur ; sur le réseau seulement.",
+    "or": "ou"
   },
   "overview": {
     "thisComputer": "Cet ordinateur",

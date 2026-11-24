@@ -103,6 +103,10 @@ const MIGRATIONS: &[&str] = &[
     "#,
     // 3 : lot 2 (Stations rattachées) et lot 3 (appareils connectés), voir `super::stations`.
     super::stations::MIGRATION,
+    // 4 : lot 4 (droits donnés aux personnes), voir `super::people`.
+    super::people::MIGRATION,
+    // 5 : lot 5 (organisations, groupes, journal, jetons d'enrôlement ; `stations` reconstruite), voir `super::orgs`.
+    super::orgs::MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -320,8 +324,13 @@ impl Store {
             .optional()?)
     }
 
+    /// L'adresse est vérifiée ; les invitations qui l'attendaient passent au compte (lots 4 et 5).
     pub fn set_verified(&self, id: i64, now: i64) -> Result<()> {
         self.conn.execute("UPDATE accounts SET verified_at = COALESCE(verified_at, ?2) WHERE id = ?1", params![id, now])?;
+        let claimed = self.claim_invitations(id)?;
+        if claimed > 0 {
+            tracing::info!(invitations = claimed, "invitations reprises par un compte vérifié");
+        }
         Ok(())
     }
 
@@ -642,6 +651,21 @@ impl Store {
             .into_iter()
             .map(|s| json!({ "id": s.id, "name": s.name, "owner": s.owner_kind, "attached_at": iso(s.attached_at) }))
             .collect();
+        // Lots 4 et 5 : les ordinateurs ouverts à ce compte (et ses droits), ses organisations.
+        let opened: Vec<_> = self
+            .visible_stations(account, now)?
+            .into_iter()
+            .filter(|s| s.account != Some(account))
+            .map(|s| {
+                let rights = self.granted_rights(account, &s.id, now).unwrap_or_default();
+                json!({ "id": s.id, "name": s.name, "rights": rights })
+            })
+            .collect();
+        let orgs: Vec<_> = self
+            .orgs_of(account)?
+            .into_iter()
+            .map(|(o, role)| json!({ "id": o.public_id, "name": o.name, "role": role.as_str() }))
+            .collect();
         let devices: Vec<_> = self
             .devices_of(account)?
             .into_iter()
@@ -675,6 +699,8 @@ impl Store {
             },
             "sessions": sessions,
             "stations": stations,
+            "opened_to_me": opened,
+            "organizations": orgs,
             "devices": devices,
             "audit": audit,
         })))
@@ -687,6 +713,9 @@ impl Store {
     pub fn delete_account(&self, account: i64) -> Result<bool> {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM device_stations WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
+        // Lots 4 et 5 : les droits donnés sur ses Stations ; ses organisations gardent un Propriétaire.
+        tx.execute("DELETE FROM grants WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
+        super::orgs::before_account_deleted(&tx, account)?;
         let n = tx.execute("DELETE FROM accounts WHERE id = ?1", [account])?;
         tx.commit()?;
         Ok(n == 1)
@@ -727,6 +756,9 @@ impl Store {
         self.conn.execute("DELETE FROM trusted_browsers WHERE expires_at <= ?1", [now])?;
         self.conn.execute("UPDATE audit SET ip = NULL WHERE ip IS NOT NULL AND at <= ?1", [now - AUDIT_IP_SECS])?;
         self.conn.execute("DELETE FROM audit WHERE at <= ?1", [now - AUDIT_SECS])?;
+        // Lot 4 : les invitations échues n'attendent plus ; lot 5 : le journal des organisations.
+        self.conn.execute("DELETE FROM grants WHERE expires_at IS NOT NULL AND expires_at <= ?1", [now - AUDIT_IP_SECS])?;
+        self.sweep_orgs(now)?;
         Ok(())
     }
 }

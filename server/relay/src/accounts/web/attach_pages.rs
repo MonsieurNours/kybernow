@@ -1,9 +1,11 @@
 //! Les pages du rattachement (docs/comptes.md, « Rattacher une Station »,
 //! lot 2) : « Rattacher {nom} » (`/compte/rattacher?code=…`, ouverte par
-//! Admin), et « Détacher » un ordinateur depuis la page du compte.
+//! Admin), et « Détacher » un ordinateur depuis la page du compte. Lot 5 : le
+//! propriétaire choisi (« Moi » ou une organisation gérée) ; « Détacher » aussi
+//! pour les Propriétaires et Administrateurs d'une organisation.
 
 use super::super::pages::{self, ComputerView, Notice, esc};
-use super::super::stations::Stations;
+use super::super::stations::{Owner, Stations};
 use super::super::store::Store;
 use super::device_pages::sign_in_first;
 use super::{Cx, Reply, account_page};
@@ -38,7 +40,9 @@ pub(super) fn attach(cx: Cx<'_>, post: bool) -> Reply {
         let Some(pending) = acc.stations.pending(&code, cx.now) else {
             return expired(cx);
         };
-        let page = pages::attach(&cx.view(), &code, &pending.name, &account.name, &account.email);
+        // Lot 5 : « Moi », ou une organisation que ce compte gère.
+        let orgs: Vec<(String, String)> = acc.managed_orgs(&account).into_iter().map(|o| (o.public_id, o.name)).collect();
+        let page = pages::attach(&cx.view(), &code, &pending.name, &account.name, &account.email, &orgs);
         return cx.page(200, page);
     }
     if cx.req.form("action") != "rattacher" {
@@ -51,11 +55,14 @@ pub(super) fn attach(cx: Cx<'_>, post: bool) -> Reply {
         );
         return cx.page(200, page);
     }
-    // TODO lot 5 : `proprietaire` peut désigner une organisation que ce compte administre.
+    // Lot 5 : `proprietaire` désigne « moi » ou une organisation que ce compte gère.
+    let Some(owner) = acc.owner_choice(&account, cx.req.form("proprietaire")) else {
+        return expired(cx);
+    };
     let Some(pending) = acc.stations.take(&code, cx.now) else {
         return expired(cx);
     };
-    let delivered = match acc.confirm_attach(&pending, &account) {
+    let delivered = match acc.confirm_attach(&pending, &account, &owner) {
         Ok(d) => d,
         Err(e) => {
             tracing::warn!("rattachement : {e:#}");
@@ -65,16 +72,20 @@ pub(super) fn attach(cx: Cx<'_>, post: bool) -> Reply {
     cx.audit(Some(account.id), "station_rattachee");
     tracing::info!(station = %pending.station, en_ligne = delivered, "Station rattachée à un compte");
     let name = if pending.name.is_empty() { cx.tr("L'ordinateur", "The computer") } else { pending.name.clone() };
+    let (to_fr, to_en) = match &owner {
+        Owner::Person => ("votre compte".to_string(), "your account".to_string()),
+        Owner::Org { name, .. } => (format!("l'organisation {}", esc(name)), format!("the organization {}", esc(name))),
+    };
     let text = match (cx.lang, delivered) {
-        (Lang::Fr, true) => t(cx.lang, &format!("{} est rattaché à votre compte : Admin l'affiche déjà, et il apparaît dans vos apps.", esc(&name)), ""),
-        (Lang::En, true) => format!("{} is attached to your account: Admin already shows it, and it appears in your apps.", esc(&name)),
+        (Lang::Fr, true) => t(cx.lang, &format!("{} est rattaché à {to_fr} : Admin l'affiche déjà, et il apparaît dans vos apps.", esc(&name)), ""),
+        (Lang::En, true) => format!("{} is attached to {to_en}: Admin already shows it, and it appears in your apps.", esc(&name)),
         (Lang::Fr, false) => t(
             cx.lang,
-            &format!("{} est rattaché à votre compte. Il n'est pas connecté au relais en ce moment : Admin le saura à sa prochaine connexion.", esc(&name)),
+            &format!("{} est rattaché à {to_fr}. Il n'est pas connecté au relais en ce moment : Admin le saura à sa prochaine connexion.", esc(&name)),
             "",
         ),
         (Lang::En, false) => {
-            format!("{} is attached to your account. It isn't connected to the relay right now: Admin will know at its next connection.", esc(&name))
+            format!("{} is attached to {to_en}. It isn't connected to the relay right now: Admin will know at its next connection.", esc(&name))
         }
     };
     let page = pages::done(&cx.view(), "/compte/rattacher", &cx.tr("Ordinateur rattaché", "Computer attached"), &text);
@@ -97,9 +108,13 @@ pub(super) fn detach(cx: Cx<'_>) -> Reply {
         return sign_in_first(cx);
     };
     let id = cx.req.form("id").to_string();
-    match acc.detach_by_account(&id, account.id) {
+    match acc.detach_by_account(&id, &account) {
         Ok(true) => {
             cx.audit(Some(account.id), "station_detachee");
+            // Lot 4 : depuis la console, on y revient.
+            if cx.req.form("depuis") == "console" {
+                return super::console::computers(cx, Some(Notice::StationDetached));
+            }
             account_page(cx, Some(Notice::StationDetached))
         }
         Ok(false) => account_page(cx, None),

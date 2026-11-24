@@ -213,6 +213,9 @@
     "accountsOn": "KyberNow accounts accepted",
     "accountsOff": "KyberNow accounts refused",
     "accountNewDevice": "{name} comes in for the first time (KyberNow account)",
+    "accountAdminLogin": "{name} opens Admin with their KyberNow account",
+    "accountEnrolled": "Station enrolled in the organization {org} (KyberNow account)",
+    "accountEnrollRefused": "Enrollment token refused by the relay ({reason})",
     "accountBlocked": "{name} blocked on this computer",
     "accountBlockedAll": "{name}'s KyberNow account blocked on this computer",
     "accountUnblocked": "{name} unblocked",
@@ -283,6 +286,10 @@
     "unknownEntry": "Unknown access.",
     "noRelay": "Set a relay first in “Away from home”: it holds the KyberNow accounts.",
     "noAccounts": "This relay doesn't offer KyberNow accounts.",
-    "relayUnreachable": "The relay isn't answering: try again in a moment."
+    "relayUnreachable": "The relay isn't answering: try again in a moment.",
+    "networkOnly": "Sign in with KyberNow only works on the network, not through the relay.",
+    "webLoginOff": "This computer doesn't accept signing in with KyberNow: it isn't attached, or \"Accept KyberNow accounts\" is off.",
+    "webLoginExpired": "Signing in with KyberNow expired: start again from Admin's sign-in page.",
+    "badOrigin": "Unreadable Admin address."
   }
 }

@@ -1018,6 +1018,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // Relais : connecté seulement pour un partage ouvert ou l'accès hors de
     // chez soi ; ce qui en arrive est servi ici, sous sa garde.
     relay::supervise(state.clone(), relay::router(state.clone()));
+    // Comptes KyberNow, lot 5 : le jeton d'enrôlement déposé par l'installateur.
+    accounts::start_enroll(&state);
     // Prêt : codes et demandes échus, préavis, fins, veille de Windows empêchée.
     lend_api::supervise(state.clone());
     // Consoles PlayStation du réseau : cherchées toutes les 30 s (docs/relais.md).

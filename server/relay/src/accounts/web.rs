@@ -449,6 +449,27 @@ impl Accounts {
             // Lot 2 : rattacher une Station, la détacher.
             ("/compte/rattacher", _) => attach_pages::attach(cx, post),
             ("/compte/ordinateurs/detacher", true) => attach_pages::detach(cx),
+            // Lot 4 : la console, les personnes et leurs droits.
+            ("/compte/ordinateurs", false) => console::computers(cx, None),
+            ("/compte/ordinateur", false) => console::people(cx),
+            ("/compte/ordinateur/ajouter", true) => console::add(cx),
+            ("/compte/ordinateur/ouvrir", true) => console::open_to(cx),
+            ("/compte/ordinateur/retirer", true) => console::remove(cx),
+            // Lot 5 : les organisations.
+            ("/compte/organisations/creer", _) => org_pages::create(cx, post),
+            ("/compte/organisation", false) => org_pages::page(cx),
+            ("/compte/organisation/renommer", true) => org_pages::rename(cx),
+            ("/compte/organisation/inviter", true) => org_pages::invite(cx),
+            ("/compte/organisation/role", true) => org_pages::set_role(cx),
+            ("/compte/organisation/retirer", true) => org_pages::remove(cx),
+            ("/compte/organisation/quitter", true) => org_pages::leave(cx),
+            ("/compte/organisation/groupes/creer", true) => org_pages::group_create(cx),
+            ("/compte/organisation/groupes/supprimer", true) => org_pages::group_delete(cx),
+            ("/compte/organisation/groupes/membre", true) => org_pages::group_member(cx),
+            ("/compte/organisation/deployer", false) => org_pages::deploy(cx),
+            ("/compte/organisation/jetons/creer", true) => org_pages::token_create(cx),
+            ("/compte/organisation/jetons/revoquer", true) => org_pages::token_revoke(cx),
+            ("/compte/ouvrir-admin", _) => admin_login::open_admin(cx, post),
             // Lot 3 : les appareils connectés.
             ("/compte/connecter-appareil", _) => device_pages::consent(cx, post),
             ("/compte/appareil", _) => device_pages::approve(cx, post),
@@ -521,6 +542,7 @@ fn account_page(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
             devices: device_pages::devices(&db, account.id),
             passkeys: Vec::new(),
             register: None,
+            orgs: db.orgs_of(account.id).unwrap_or_default().into_iter().map(|(o, _)| (o.public_id, o.name)).collect(),
         }
     };
     let view = AccountView { passkeys: passkeys::views(&cx, account.id), register: cx.registration(&account), ..view };
@@ -1033,8 +1055,11 @@ fn close_session(cx: Cx<'_>) -> Reply {
     account_page(cx, Some(Notice::SessionClosed))
 }
 
+mod admin_login;
 mod attach_pages;
+mod console;
 mod device_pages;
+mod org_pages;
 // Lot 1b : des modules enfants, pour se servir du contexte ([`Cx`]).
 #[path = "passkeys.rs"]
 mod passkeys;

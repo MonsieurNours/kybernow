@@ -410,6 +410,27 @@ impl Agent {
         }
     }
 
+    /// Présente un jeton d'enrôlement d'organisation (docs/comptes.md, « Dans
+    /// les installateurs », lot 5) : le relais rattache la Station à
+    /// l'organisation et répond `attached` (rendu ici, pas en
+    /// [`Incoming::Attached`]) ; refusé : `enroll_refused` et la raison
+    /// (`unknown`, `expired`, `revoked`, `used_up`).
+    pub async fn enroll(&self, token: &str, name: &str) -> Result<crate::msg::Attached, TunnelError> {
+        let live = self.shared.wait_live(Duration::from_secs(5)).await?;
+        let req = live.next_req.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        live.pending.lock().unwrap().insert(req, tx);
+        let _ = live.ctl.send(Msg::Enroll { req, token: token.to_string(), name: name.to_string() });
+        let answer = timeout(Duration::from_secs(10), rx).await;
+        live.pending.lock().unwrap().remove(&req);
+        match answer {
+            Ok(Ok(Msg::Attached(a))) => Ok(a),
+            Ok(Ok(Msg::Error(ErrorMsg { code, message, .. }))) => Err(TunnelError::Refused(code, message)),
+            Ok(_) => Err(TunnelError::Closed),
+            Err(_) => Err(TunnelError::Timeout),
+        }
+    }
+
     /// Demande au relais où en est le rattachement : la réponse arrive en
     /// [`Incoming::Attached`] ou [`Incoming::Detached`]. Faux sans connexion.
     pub fn attach_status(&self) -> bool {
@@ -632,7 +653,16 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
                 let _ = shared.incoming.try_send(Incoming::ClientGone { client });
             }
             Msg::Attached(a) => {
-                let _ = shared.incoming.try_send(Incoming::Attached(Box::new(a)));
+                // La réponse à `enroll` va à qui l'attend ; les autres (confirmé dans la console, `attach_status`) à Admin.
+                let waiter = a.req.and_then(|req| live.pending.lock().unwrap().remove(&req));
+                match waiter {
+                    Some(w) => {
+                        let _ = w.send(Msg::Attached(a));
+                    }
+                    None => {
+                        let _ = shared.incoming.try_send(Incoming::Attached(Box::new(a)));
+                    }
+                }
             }
             Msg::Detached { .. } => {
                 let _ = shared.incoming.try_send(Incoming::Detached);

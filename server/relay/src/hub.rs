@@ -500,6 +500,18 @@ impl Hub {
                     let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
                 }
             },
+            // Lot 5 : un jeton d'enrôlement (installation silencieuse), seulement par la Station elle-même.
+            Msg::Enroll { req, token, name } => match self.accounts.clone() {
+                Some(accounts) => {
+                    let (ctl, station) = (peer.ctl.clone(), peer.id.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let _ = ctl.send(accounts.enroll(&station, &token, &name, req));
+                    });
+                }
+                None => {
+                    let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
+                }
+            },
             Msg::Detach {} => {
                 if let Some(accounts) = self.accounts.clone() {
                     let station = peer.id.clone();

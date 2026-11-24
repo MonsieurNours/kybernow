@@ -43,7 +43,7 @@
     advanced: 'systeme/avance',
   }
 
-  let session = $state<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null } | null>(null)
+  let session = $state<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; kybernow_login?: boolean } | null>(null)
   let hash = $state(location.hash.slice(2))
   let restarting = $state(false)
 
@@ -165,7 +165,13 @@
 {#if !session}
   <div class="loading"><Mark size={34} lit breathe /></div>
 {:else if !session.authenticated}
-  <Login configured={session.configured} setupCodeFile={session.setup_code_file} hostname={session.hostname ?? null} onDone={loadSession} />
+  <Login
+    configured={session.configured}
+    setupCodeFile={session.setup_code_file}
+    hostname={session.hostname ?? null}
+    kybernow={session.kybernow_login ?? false}
+    onDone={loadSession}
+  />
 {:else}
   <div class="shell">
     <aside>

@@ -393,6 +393,29 @@ impl Relay {
         agent.attach_code(name).await
     }
 
+    /// Présente un jeton d'enrôlement d'organisation au relais (docs/comptes.md,
+    /// « Dans les installateurs », lot 5) ; la réponse `attached` se prend
+    /// comme un rattachement demandé.
+    pub async fn enroll(&self, token: &str, name: &str) -> Result<kybernow_tunnel::msg::Attached, TunnelError> {
+        self.begin_attach();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let agent = loop {
+            if let Some(a) = self.joined_agent() {
+                break a;
+            }
+            if Instant::now() >= deadline {
+                self.attach_done();
+                return Err(TunnelError::Timeout);
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        };
+        let answer = agent.enroll(token, name).await;
+        if answer.is_err() {
+            self.attach_done();
+        }
+        answer
+    }
+
     /// Détachée dans Admin : le relais l'apprend tout de suite s'il est joint,
     /// sinon dès que l'agent le joint (il démarre pour ça).
     pub fn detach_at_relay(&self) {

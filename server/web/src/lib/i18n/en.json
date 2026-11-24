@@ -412,7 +412,10 @@
     "create": "Create and open Admin",
     "forgot": "Forgot your password?",
     "forgotHelp": "On the computer, KyberNow Station tray icon menu › Reset the Admin password. Your devices and their accounts stay as they are.",
-    "foot": "Connection encrypted with this computer’s certificate."
+    "foot": "Connection encrypted with this computer’s certificate.",
+    "kybernow": "Sign in with KyberNow",
+    "kybernowHint": "With a KyberNow account that has the Administer right on this computer; on the network only.",
+    "or": "or"
   },
   "overview": {
     "thisComputer": "This computer",

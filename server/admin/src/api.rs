@@ -30,6 +30,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/session", get(session))
         .route("/api/setup", post(setup))
         .route("/api/login", post(login))
+        // Comptes KyberNow, lot 4 : « Se connecter avec KyberNow », sur le réseau seulement.
+        .route("/api/login/kybernow", post(crate::accounts::web_login_start).get(crate::accounts::web_login_return))
         .route("/api/logout", post(logout))
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))
@@ -202,6 +204,7 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
             "configured": s.auth.is_configured(),
             "authenticated": false,
             "relay": true,
+            "kybernow_login": false,
             "version": crate::update::current(),
             "platform": crate::i18n::PLATFORM,
         }));
@@ -210,6 +213,8 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
     Json(json!({
         "configured": s.auth.is_configured(),
         "authenticated": authenticated,
+        // Lot 4 : « Se connecter avec KyberNow » (rattachée, comptes acceptés), sur le réseau.
+        "kybernow_login": crate::accounts::web_login_available(&s),
         "setup_code_file": s.data_dir.join(auth::SETUP_TOKEN_FILE),
         // Déjà annoncé sur le réseau (Bonjour) : l'écran de connexion le nomme.
         "hostname": crate::system::computer_name(),

@@ -185,6 +185,53 @@ Défini dans le crate partagé `server/relay/tunnel` (module `access`) : le rela
 - **Base** : migration 3 (`stations`, `devices`, `device_codes`, `device_stations`) ; la migration 2 est celle du lot 1b.
 - **Code** : `server/relay/src/accounts/stations.rs` (clé, rattachement), `devices.rs` (appareils, API, jetons), `web/attach_pages.rs` et `web/device_pages.rs` (pages) ; le hub (`hub.rs`) fait suivre les messages.
 
+### Personnes, droits et organisations (lots 4 et 5)
+
+Fait côté relais (console, API, base) et côté Admin ; les apps (lot 3) et l'étape compte des installateurs sont un travail à part.
+
+- **Droits d'un compte sur un ordinateur** : tous pour son propriétaire (une personne), et pour les Propriétaires et Administrateurs de l'organisation propriétaire ; sinon l'union des **droits donnés** pas échus, à lui, à une organisation dont il est membre, ou à l'un de ses groupes. **Administrer ne compte qu'avec la double authentification** (TOTP active ou une passkey, qui la vaut), propriétaire compris : sans elle, le jeton et `/v1/computers` n'ont pas `admin`, et la page « Personnes » le dit. De même, un Propriétaire ou Administrateur d'organisation sans double authentification ne gère pas l'organisation et n'a que les droits donnés, comme un membre.
+- **Gérer les accès** d'un ordinateur (« Personnes ») : son propriétaire, les Propriétaires et Administrateurs de l'organisation propriétaire, et toute personne qui a le droit Administrer (effectif).
+- **Ajouter une personne** : son adresse, ses droits, une échéance facultative (la fin du jour choisi, UTC). Avec un compte vérifié, le droit est à elle tout de suite ; sans compte, il attend l'adresse et passe au compte **quand elle est vérifiée** (inscription, lien du mot de passe oublié, ou compte créé par l'administrateur du relais). Ajouter de nouveau la même adresse change ses droits. Un e-mail le dit (« {nom} vous ouvre {ordinateur} »), avec la console ou l'inscription.
+- **Ouvrir à une organisation** : un ordinateur (d'une personne ou d'une organisation) s'ouvre à toute une organisation dont on est membre, ou à l'un de ses groupes, avec des droits ; son journal le note.
+- **Organisation** : la créer demande la double authentification (le créateur en est Propriétaire). Inviter un membre par son adresse (avec un compte vérifié : membre tout de suite, e-mail ; sans compte : invitation en attente, reprise à la vérification de l'adresse). Seul un Propriétaire nomme ou retire un Propriétaire ; une organisation en garde toujours un (« Quitter » et changer le rôle du dernier sont refusés). Un compte supprimé : son organisation reçoit un autre Propriétaire (le plus ancien Administrateur, sinon le plus ancien membre), ou part avec ses ordinateurs s'il n'y a plus personne.
+- **Journal de l'organisation** : chaque changement (membres, rôles, invitations, groupes, droits donnés et retirés, ordinateurs rattachés, détachés, enrôlés, jetons) et chaque ouverture d'un de ses ordinateurs (qui, quel appareil, d'où ; une ouverture : un premier jeton après une heure sans), et chaque nouvel appareil. Adresses IP oubliées après 7 jours, lignes après 12 mois ; vu des Propriétaires et Administrateurs seulement.
+- **Avis de nouvel appareil** : pour l'appareil d'une personne ajoutée, l'e-mail part au propriétaire et nomme la personne (« avec le compte KyberNow de Léa ») ; pour un ordinateur d'organisation, aux Propriétaires et Administrateurs, avec une ligne au journal.
+- **Rattacher** : la page « Rattacher {nom} » propose « Moi » et les organisations que le compte gère (Propriétaire ou Administrateur, double authentification) ; `attached` porte alors `owner {kind: "organization", id: "org_…", name}`. Rattacher à un autre propriétaire efface les droits donnés et les premières venues.
+- **Jetons d'enrôlement** (« Déployer des Stations ») : un nom, une durée (1 à 365 jours), un nombre de Stations (1 à 10 000), et des droits donnés à un groupe sur chaque Station enrôlée ; `kne_` et 32 signes (160 bits), **montré une seule fois**, gardé en empreinte. La Station le présente par sa connexion de contrôle (`enroll`) ; le relais la rattache à l'organisation (même réponse si elle l'est déjà, sans compter une Station de plus), donne les droits au groupe, note le journal. Révoquer empêche de nouveaux enrôlements ; les Stations enrôlées restent.
+- **Admin sur le réseau** (« Se connecter avec KyberNow ») : la page de connexion d'Admin propose le bouton quand la Station est rattachée et accepte les comptes, **jamais par le relais**. Admin tire un `nonce` (16 octets, 10 minutes, cookie `kyber_admin_kn`, `SameSite=Lax`) et ouvre `https://<relais>/compte/ouvrir-admin?station=…&nonce=…&retour=<adresse d'Admin>`. Connectée, avec le droit Administrer (double authentification), la personne confirme « Ouvrir Admin de {ordinateur} ? » ; le relais délivre un jeton d'accès (5 min, appareil `web`) dont le **`jti` est le `nonce`**, et renvoie vers `<retour>/api/login/kybernow?token=…`. `retour` n'est qu'une adresse du réseau local (IP privée, lien local ou boucle locale, nom sans point, `.local`, `.lan`, `.home.arpa`), sans chemin. Admin vérifie le jeton (droit Administrer, **usage unique**) et que son `jti` est le `nonce` de ce navigateur, puis ouvre sa session ; une ligne dans le fil.
+- **Prêt avec un compte** : `POST /api/lend/status` et `/api/lend/borrow` acceptent `Authorization: KyberNow <jeton>` avec le droit Prêt à la place de l'identifiant et du mot de passe d'un compte d'ami ; l'emprunt se fait sous le nom du compte (pas de créneaux : ils restent ceux des comptes d'amis ; Steam : « Son compte Steam »). Les apps permises restent celles de la page « Prêt ».
+- **Enrôlement côté Admin** : `[account] enroll = "kne_…"` dans `kyber-admin.toml` (déposé par l'installateur, qui viendra après, avec le relais dans `[relay]`) ; Admin le présente dès que le relais est joint, prend `attached` comme un rattachement demandé (comptes acceptés, accès hors de chez vous actif), puis l'efface ; refusé pour de bon (`enroll_refused`), une ligne dans le fil et le jeton est effacé ; relais injoignable : nouvel essai, de plus en plus espacé (10 min au plus).
+
+#### Pages de la console
+
+| Route | Écran |
+|---|---|
+| `GET /compte/ordinateurs` | « Ordinateurs » : « À vous », « Ouverts pour vous », une section par organisation ; « Créer une organisation » |
+| `GET /compte/ordinateur?id=…` | « Personnes » d'un ordinateur : droits par personne (Session, Prêt, Partage, Administrer), « Ajouter une personne », « Ouvrir à une organisation », « Retirer », « Détacher cet ordinateur » ; ses droits seulement pour qui ne gère pas |
+| `POST /compte/ordinateur/ajouter` | `id`, `email`, `session`/`lend`/`share`/`admin` (`1`), `fin` (`aaaa-mm-jj` ou `jj/mm/aaaa`, facultatif) |
+| `POST /compte/ordinateur/ouvrir` | `id`, `a` (`org_…`, ou `org_…:<groupe>`), droits |
+| `POST /compte/ordinateur/retirer` | `id`, `acces` |
+| `GET/POST /compte/organisations/creer` | `nom` ; double authentification exigée |
+| `GET /compte/organisation?id=org_…&vue=membres\|groupes\|ordinateurs\|journal` | « Organisation » : membres et rôles, invitations en attente, groupes, ordinateurs et leurs accès, journal |
+| `POST /compte/organisation/inviter`, `/role`, `/retirer`, `/quitter`, `/renommer` | `email` et `role` ; `compte` et `role` ; `compte` ou `invitation` ; rien ; `nom` |
+| `POST /compte/organisation/groupes/creer`, `/supprimer`, `/membre` | `nom` ; `groupe` ; `groupe`, `compte`, `action` (`ajouter`, `retirer`) |
+| `GET /compte/organisation/deployer?id=…` ; `POST /compte/organisation/jetons/creer`, `/revoquer` | « Déployer des Stations » ; `nom`, `jours`, `nombre`, `groupe`, droits ; `jeton` |
+| `GET/POST /compte/ouvrir-admin` | « Ouvrir Admin de {ordinateur} ? » (`station`, `nonce`, `retour`) |
+
+La barre de la console (« Ordinateurs », chaque organisation, « Compte ») est aussi en haut de `/compte`. Le détachement depuis « Personnes » revient à « Ordinateurs ».
+
+#### API et messages
+
+- `GET /v1/computers` : les siens, ceux qu'on lui a ouverts (à lui, à ses organisations, à ses groupes), et tous ceux des organisations qu'il gère ; `owner` vaut `{kind: "person", id: "acc_…", name}` ou `{kind: "organization", id: "org_…", name}`, `mine` dit s'il en est le propriétaire, `rights` ses droits à cet instant. `POST /v1/access` : les mêmes droits, `404 unknown_station` sans aucun droit.
+- Connexion de contrôle : `enroll {req, token, name}` (Station → relais) ; réponse `attached {req, …}`, ou `error {req, code: "enroll_refused", message}` avec `unknown`, `expired`, `revoked` ou `used_up` ; relais sans comptes : `no_accounts`. Le crate `tunnel` le porte (`Agent::enroll`).
+- Admin : `POST /api/login/kybernow {origin, lang}` → `{url, expires}` (sans session, `403 network_only` par le relais, `409 unavailable` sans rattachement ou interrupteur coupé) ; `GET /api/login/kybernow?token=…` → la session d'Admin (page qui revient à l'accueil) ou le refus ; `GET /api/session` dit `kybernow_login`.
+
+#### Base
+
+- Migration 4 : `grants` (Station, `account` ou `email` d'une invitation, `rights` en mots `session,share`, `expires_at`, `invited_by`, `created_at`) ; `device_stations.seen_at` (dernière venue, pour le journal).
+- Migration 5 : `organizations` (identifiant public `org_…`, nom, offre), `org_members` (rôle `owner`, `admin`, `member`), `org_invites`, `org_groups`, `group_members`, `org_log` (qui, quoi en JSON, adresse, quand), `enroll_tokens` (empreinte, début du jeton, nombre, utilisés, groupe et droits, échéance, révocation) ; `stations` reconstruite (`owner_kind` `person` ou `organization`, `account` ou `org`, `enrolled_by`) ; `grants.org` et `grants.grp`.
+- Code : `server/relay/src/accounts/people.rs` (droits donnés, droits d'un compte), `orgs.rs` (organisations, journal, jetons, `enroll`), `console_pages.rs` (pages), `web/console.rs`, `web/org_pages.rs`, `web/admin_login.rs` ; Admin : `accounts.rs` (connexion avec KyberNow, enrôlement), `lend_api.rs` (prêt avec un compte) ; interface : `server/web/src/pages/Login.svelte`.
+
 ### Données gardées par le relais
 
 | Donnée | Pourquoi | Durée |
@@ -192,8 +239,10 @@ Défini dans le crate partagé `server/relay/tunnel` (module `access`) : le rela
 | E-mail, empreinte Argon2 du mot de passe, secret TOTP (chiffré), passkeys (clés publiques) | Se connecter | Vie du compte |
 | Appareils connectés (nom, sorte, dernière venue) | Sessions d'appareil, révocation | Vie de l'appareil |
 | Stations rattachées (identifiant, nom) | Ordinateurs du compte | Jusqu'au détachement |
-| Organisations, membres, groupes, droits | Flotte | Vie de l'organisation |
-| Journal (accès, changements) | Sécurité, flotte | 12 mois |
+| Droits donnés (personne ou adresse invitée, droits, échéance) | Personnes ajoutées | Jusqu'au retrait ou au détachement ; une invitation échue part après 7 jours |
+| Organisations, membres, invitations, groupes, droits | Flotte | Vie de l'organisation |
+| Jetons d'enrôlement (empreinte, début, nombre) | Déployer une flotte | Vie de l'organisation |
+| Journal (accès, changements ; journal de l'organisation) | Sécurité, flotte | 12 mois (adresses IP : 7 jours) |
 | Adresses IP | Sécurité, limites | Quelques jours (journaux), comme aujourd'hui |
 
 Compte supprimé : effacé sous 30 jours (sauvegardes comprises). Export des données depuis la console.
@@ -220,8 +269,8 @@ SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans S
 1. **Relais, comptes** : base SQLite, création, vérification, connexion, mot de passe oublié, TOTP, passkeys, console (compte), e-mails, limites.
 2. **Rattachement et jetons** : clé de signature, rattachement depuis Admin, jeton d'accès, vérification dans Admin, les quatre garde-fous.
 3. **Apps** : connexion par fenêtre du système et par code, ordinateurs du compte à l'accueil, jeton dans chaque appel du cœur, plusieurs relais.
-4. **Personnes et droits** : ajouter par e-mail, droits Session, Prêt, Partage, Administrer ; prêt et partage avec un compte.
-5. **Organisations** : membres, rôles, groupes, ordinateurs de l'organisation, journal, double authentification obligatoire.
+4. **Personnes et droits** : ajouter par e-mail, droits Session, Prêt, Partage, Administrer ; prêt et partage avec un compte. **Fait côté relais et Admin** (« Personnes, droits et organisations »).
+5. **Organisations** : membres, rôles, groupes, ordinateurs de l'organisation, journal, double authentification obligatoire. **Fait côté relais et Admin** ; l'installateur qui prend le jeton d'enrôlement vient après.
 6. **Juridique et App Store** : textes, compte de démonstration, notes de l'App Review mises à jour.
 
 Chaque lot a sa maquette validée avant le code, comme les invitations.
@@ -273,6 +322,15 @@ Passkeys (lot 1b) : vérification écrite sur `ring`, sans bibliothèque WebAuth
 - la suppression efface le compte **tout de suite** (pas de délai de 30 jours en base) ; les 30 jours sont ceux de la rotation des sauvegardes ;
 - les textes juridiques servis sont ceux du relais public, en brouillon ; un relais auto-hébergé n'a pas encore de réglage pour servir les siens, et les versions précédentes ne sont pas encore consultables ;
 - la connexion par passkey ne propose pas encore la saisie automatique (`mediation: "conditional"`) : un bouton suffit pour l'instant.
+
+Écarts des lots 4 et 5 :
+
+- la double authentification exigée pour Administrer vaut **aussi pour le propriétaire** de l'ordinateur (au lot 2, il avait tous les droits sans condition) ; une passkey la vaut, comme à la connexion ;
+- un compte existant ajouté à un ordinateur ou à une organisation l'est **tout de suite**, sans accepter (l'e-mail le prévient) ; une adresse sans compte attend la vérification de l'adresse ;
+- pas d'échéance pour les droits donnés à une organisation ou à un groupe (seulement aux personnes), ni de rôle par groupe ; les créneaux et le compte Steam du prêt restent ceux des comptes d'amis ;
+- le journal de l'organisation garde les ouvertures de ses propres ordinateurs ; celles d'un ordinateur de personne ouvert à l'organisation restent dans le journal du compte du propriétaire ;
+- « Copier » le jeton d'enrôlement n'est pas un bouton (les pages n'ont pas de script) : le jeton se sélectionne d'un clic ;
+- la page « Ajouter une personne » est un formulaire de la page, pas une fenêtre par-dessus comme dans la maquette.
 
 ## Question ouverte
 

@@ -12,13 +12,20 @@
 //! moitié relais du lot 3 : les appareils connectés et les jetons d'accès
 //! ([`devices`]).
 //!
+//! Lot 4 : les personnes et leurs droits ([`people`]) ; lot 5 : les
+//! organisations, groupes, journal et jetons d'enrôlement ([`orgs`]). La
+//! console (« Ordinateurs », « Personnes », « Organisation », « Déployer des
+//! Stations ») est dans `web/console.rs` et `web/org_pages.rs`.
+//!
 //! Tout ici est synchrone : le relais appelle [`Accounts::handle`] hors de
 //! l'exécuteur (`spawn_blocking`), quelques requêtes à la fois ([`Accounts::gate`]),
 //! parce qu'Argon2 prend du temps et de la mémoire exprès.
 
 pub mod devices;
 pub mod mail;
+pub mod orgs;
 pub mod pages;
+pub mod people;
 pub mod password;
 pub mod stations;
 pub mod store;
@@ -343,6 +350,8 @@ impl Accounts {
         let now = self.now();
         let db = self.db();
         let id = db.create_account(&email, name.trim(), &hash, "fr", Some(now), now)?.context("cette adresse a déjà un compte")?;
+        // Lots 4 et 5 : les invitations qui attendaient cette adresse.
+        db.claim_invitations(id)?;
         db.audit(Some(id), "compte_cree_par_l_administrateur", None, now)?;
         Ok(id)
     }

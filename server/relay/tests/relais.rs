@@ -1152,6 +1152,28 @@ async fn rattacher_une_station_par_sa_connexion_de_controle() {
         })
         .await
         .expect("detached en réponse à attach_status");
+
+        // Lot 5 : un jeton d'enrôlement d'organisation, présenté par la connexion de contrôle.
+        let org = accounts.db().create_org("Les Lignes Claires", account.id, 0).unwrap();
+        let token = kybernow_relay::accounts::orgs::new_enroll_token();
+        let hash = kybernow_relay::accounts::token_hash(&token);
+        let far = i64::MAX / 2;
+        accounts
+            .db()
+            .create_enroll_token(org.id, "Postes", &hash, &token[..9], 1, None, &Default::default(), account.id, 0, far)
+            .unwrap();
+        match station.agent.enroll("kne_inconnu", "GRAPH-01").await {
+            Err(TunnelError::Refused(code, Some(why))) => {
+                assert_eq!((code, why.as_str()), (kybernow_tunnel::msg::ErrorCode::EnrollRefused, "unknown"))
+            }
+            other => panic!("jeton inconnu accepté : {other:?}"),
+        }
+        let enrolled = station.agent.enroll(&token, "GRAPH-01").await.expect("enrôlée");
+        assert_eq!(enrolled.owner.kind, "organization");
+        assert_eq!(enrolled.owner.id, org.public_id);
+        assert_eq!(enrolled.keys, published.keys);
+        let row = accounts.db().station(station.id()).unwrap().unwrap();
+        assert_eq!((row.org, row.name.as_str()), (Some(org.id), "GRAPH-01"));
     })
     .await
     .expect("délai");

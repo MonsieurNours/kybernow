@@ -77,6 +77,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 | `attach_request` / `attach_code` | Station → relay / relay → Station | KyberNow accounts: attach code (docs/comptes.en.md, “Attaching and devices on the relay”) |
 | `attach_status`, `detach` | Station → relay | Where attaching stands; detached in Admin |
 | `attached` / `detached` | relay → Station | Attached (relay, account, owner, keys); detached in the console |
+| `enroll` | Station → relay | Batch 5: organization enrollment token; answer `attached` or `error` (`enroll_refused`) (docs/comptes.en.md, “People, rights and organizations”) |
 
 **Signature**: `sig` is the Ed25519 signature, by the Station's key, of the text `kybernow-relay/1 admin_fp ` followed by `admin_fp`, in base64. The public key is the client certificate's: the relay hands it back (`station_key`, SPKI DER, base64) with the code, and any device that knows the Station's identifier checks that the key matches it and that the signature holds.
 

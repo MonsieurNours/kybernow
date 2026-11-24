@@ -4,6 +4,9 @@
 //! processus), signes de vie, préavis, fin (remise en état, verrouillage).
 //!
 //! - l'ami (sans compte) : `POST /api/lend/status|borrow|wait|beat|leave` ;
+//!   avec un compte KyberNow qui a le droit Prêt (docs/comptes.md, lot 4),
+//!   `Authorization: KyberNow <jeton>` remplace le compte d'ami (identifiant et
+//!   mot de passe locaux) : l'emprunt se fait sous le nom du compte ;
 //! - l'hôte : `GET /api/lend`, `POST|DELETE /api/lend/code`, `POST
 //!   /api/lend/requests/{id}`, `POST /api/lend/take-back` (un appareil
 //!   appairé, ou la session d'Admin), et les mêmes sous `/api/local/lend…`
@@ -22,6 +25,7 @@ use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use kybernow_tunnel::access;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -553,7 +557,9 @@ static CONSOLE_ENDED: Mutex<Option<String>> = Mutex::new(None);
 
 #[derive(Deserialize)]
 pub struct StatusBody {
+    #[serde(default)]
     login: String,
+    #[serde(default)]
     password: String,
 }
 
@@ -585,12 +591,59 @@ async fn friend_of(s: &AppState, login: &str, password: &str) -> Result<lend::Fr
     }
 }
 
+/// Qui emprunte sans code : un compte d'ami, ou (lot 4) un compte KyberNow qui a le droit Prêt.
+struct Borrower {
+    /// L'identifiant du compte d'ami, ou `kn-<entrée>` pour un compte KyberNow.
+    id: String,
+    name: String,
+    slots: Vec<lend::Slot>,
+    steam: lend::Steam,
+}
+
+/// Lot 4 : le jeton d'un compte KyberNow (`Authorization: KyberNow …`) qui a le
+/// droit Prêt ; `None` sans jeton KyberNow (le compte d'ami suit son chemin).
+/// Les apps permises viennent des réglages du prêt ; pas de créneaux (ils sont
+/// ceux des comptes d'amis) ; Steam : « Son compte Steam », comme par défaut.
+fn account_borrower(s: &AppState, headers: &HeaderMap, via_relay: bool) -> Option<Result<Borrower, Response>> {
+    let found = crate::accounts::authorize(s, headers, Some(access::Right::Lend), access::Use::Reusable, via_relay)?;
+    Some(match found {
+        Ok(grant) => Ok(Borrower {
+            id: grant.device_id(),
+            name: grant.claims.name.account.trim().chars().take(40).collect(),
+            slots: Vec::new(),
+            steam: lend::Steam::default(),
+        }),
+        Err(denied) => Err(friend_error(denied.status(), denied.code())),
+    })
+}
+
+/// Essais : le nom de l'emprunteur d'un jeton KyberNow, ou le statut du refus.
+#[cfg(test)]
+pub fn account_borrower_for_tests(s: &AppState, headers: &HeaderMap) -> Option<Result<String, StatusCode>> {
+    account_borrower(s, headers, false).map(|r| r.map(|b| b.name).map_err(|res| res.status()))
+}
+
+/// Le compte d'ami (identifiant et mot de passe), ou le compte KyberNow du jeton.
+async fn borrower(s: &AppState, headers: &HeaderMap, via_relay: bool, login: &str, password: &str) -> Result<Borrower, Response> {
+    if let Some(found) = account_borrower(s, headers, via_relay) {
+        return found;
+    }
+    let f = friend_of(s, login, password).await?;
+    Ok(Borrower { id: f.id.clone(), name: f.name.clone(), slots: f.slots.clone(), steam: f.steam })
+}
+
 /// `POST /api/lend/status` : l'état de la carte « Ordinateur de {hôte} ».
-pub async fn status(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(body): Json<StatusBody>) -> Response {
+pub async fn status(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    via: Option<axum::Extension<Via>>,
+    Json(body): Json<StatusBody>,
+) -> Response {
     if let Err(wait) = s.lend.limits.count_try(peer.ip(), Instant::now()) {
         return too_many(wait);
     }
-    let friend = match friend_of(&s, &body.login, &body.password).await {
+    let friend = match borrower(&s, &headers, via.is_some(), &body.login, &body.password).await {
         Ok(f) => f,
         Err(res) => return res,
     };
@@ -658,6 +711,7 @@ pub struct BorrowScreen {
 pub async fn borrow(
     State(s): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     via: Option<axum::Extension<Via>>,
     Json(body): Json<BorrowBody>,
 ) -> Response {
@@ -680,7 +734,7 @@ pub async fn borrow(
         steam = c.steam;
         from_session = c.from_session;
     } else {
-        let friend = match friend_of(&s, body.login.as_deref().unwrap_or(""), body.password.as_deref().unwrap_or("")).await {
+        let friend = match borrower(&s, &headers, via.is_some(), body.login.as_deref().unwrap_or(""), body.password.as_deref().unwrap_or("")).await {
             Ok(f) => f,
             Err(res) => return res,
         };
@@ -1549,7 +1603,7 @@ mod tests {
         let (s, dir) = station();
         let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
         let code = view["code"]["code"].as_str().unwrap().to_string();
-        let (status, lent) = body(borrow(State(s.clone()), peer(50), None, borrow_code(&code, "Léa", "ipad")).await).await;
+        let (status, lent) = body(borrow(State(s.clone()), peer(50), HeaderMap::new(), None, borrow_code(&code, "Léa", "ipad")).await).await;
         assert_eq!(status, StatusCode::OK, "{lent}");
         // Pendant le prêt, le repère est là ; à la fin, il part.
         assert!(dir.join(ACTIVE_FILE).exists());
@@ -1581,7 +1635,7 @@ mod tests {
         assert_eq!(view(&s)["host"], v["host_default"]);
         // Un prêt par code, rendu : il entre dans les derniers prêts.
         let Json(code) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
-        let (status, lent) = body(borrow(State(s.clone()), peer(60), None, borrow_code(code["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
+        let (status, lent) = body(borrow(State(s.clone()), peer(60), HeaderMap::new(), None, borrow_code(code["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
         assert_eq!(status, StatusCode::OK, "{lent}");
         finish(&s, lent["lend"].as_str().unwrap(), Reason::Left).await;
         let Json(h) = history(State(s.clone())).await;
@@ -1598,7 +1652,7 @@ mod tests {
         std::fs::write(dir.join("kyber_config.toml"), "").unwrap();
         s.settings.lock().unwrap().lend.enabled = true;
         let Json(v) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
-        let (status, answer) = body(borrow(State(s.clone()), peer(70), None, borrow_code(v["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
+        let (status, answer) = body(borrow(State(s.clone()), peer(70), HeaderMap::new(), None, borrow_code(v["code"]["code"].as_str().unwrap(), "Sam", "tv")).await).await;
         assert_eq!((status, answer["error"].as_str()), (StatusCode::SERVICE_UNAVAILABLE, Some("off")));
         assert!(s.lend.loan().is_none(), "pas de prêt sans personne");
         let _ = std::fs::remove_dir_all(dir);
@@ -1633,7 +1687,7 @@ mod tests {
             async move {
                 let Json(view) = local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.ok().unwrap();
                 let code = view["code"]["code"].as_str().unwrap().to_string();
-                let (status, lent) = body(borrow(State(s.clone()), peer(40), None, borrow_code(&code, "Léa", device)).await).await;
+                let (status, lent) = body(borrow(State(s.clone()), peer(40), HeaderMap::new(), None, borrow_code(&code, "Léa", device)).await).await;
                 assert_eq!(status, StatusCode::OK, "{lent}");
                 s.lend.loan().unwrap()
             }
@@ -1668,9 +1722,9 @@ mod tests {
         assert_eq!(view["code"]["duration"], 7200);
         assert!(view["code"]["web"].as_str().unwrap().ends_with(&format!("/link/?join={code}")));
         // Un code faux, puis le bon.
-        let (status, v) = body(borrow(State(s.clone()), peer(20), None, borrow_code("000000", "Léa", "ipad")).await).await;
+        let (status, v) = body(borrow(State(s.clone()), peer(20), HeaderMap::new(), None, borrow_code("000000", "Léa", "ipad")).await).await;
         assert_eq!((status, v["error"].clone()), (StatusCode::NOT_FOUND, json!("no_code")));
-        let (status, lent) = body(borrow(State(s.clone()), peer(20), None, borrow_code(&code, "Léa", "ipad")).await).await;
+        let (status, lent) = body(borrow(State(s.clone()), peer(20), HeaderMap::new(), None, borrow_code(&code, "Léa", "ipad")).await).await;
         assert_eq!(status, StatusCode::OK, "{lent}");
         assert_eq!(lent["steam"], "host");
         assert!(lent["until"].as_u64().unwrap() >= now_secs() + 7199);
@@ -1680,7 +1734,7 @@ mod tests {
         assert!(s.lend.code().is_none(), "le code sert une fois");
         // Pendant le prêt : pas de nouveau code, et un autre ami trouve l'ordinateur prêté.
         assert!(local_code(State(s.clone()), local(), admin(&s), Bytes::new()).await.is_err());
-        let (status, v) = body(borrow(State(s.clone()), peer(21), None, borrow_code("123456", "Max", "tv")).await).await;
+        let (status, v) = body(borrow(State(s.clone()), peer(21), HeaderMap::new(), None, borrow_code("123456", "Max", "tv")).await).await;
         assert!(matches!(status, StatusCode::NOT_FOUND | StatusCode::CONFLICT), "{v}");
         // Signe de vie, puis « Rendre l'ordinateur ».
         let (id, secret) = (lent["lend"].as_str().unwrap().to_string(), lent["secret"].as_str().unwrap().to_string());
@@ -1721,15 +1775,15 @@ mod tests {
         let (s, dir) = station();
         let friend = s.friends.create(&lend::FriendBody { name: Some("Léa".into()), login: Some("lea".into()), ..Default::default() }, lend::hash_friend_password("secret-lea").unwrap()).unwrap();
         let login = |password: &str| Json(serde_json::from_value::<BorrowBody>(json!({ "login": "lea", "password": password, "name": "x", "device": "ipad", "app": "ios" })).unwrap());
-        let (status, v) = body(borrow(State(s.clone()), peer(30), None, login("faux")).await).await;
+        let (status, v) = body(borrow(State(s.clone()), peer(30), HeaderMap::new(), None, login("faux")).await).await;
         assert_eq!((status, v["error"].clone()), (StatusCode::UNAUTHORIZED, json!("bad_credentials")));
         // L'état de la carte.
-        let (status, st) = body(super::status(State(s.clone()), peer(30), Json(StatusBody { login: "lea".into(), password: "secret-lea".into() })).await).await;
+        let (status, st) = body(super::status(State(s.clone()), peer(30), HeaderMap::new(), None, Json(StatusBody { login: "lea".into(), password: "secret-lea".into() })).await).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(st["state"], "free");
         // L'ordinateur utilisé (un appareil en session) : il faut l'accord de l'hôte.
         s.activity.begin(Some(crate::activity::DeviceInfo { id: "mac-1".into(), name: "MacBook".into(), kind: Some("mac".into()), os: None, app: None }), "mac", None, None);
-        let (status, asked) = body(borrow(State(s.clone()), peer(30), None, login("secret-lea")).await).await;
+        let (status, asked) = body(borrow(State(s.clone()), peer(30), HeaderMap::new(), None, login("secret-lea")).await).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{asked}");
         assert!(asked["host"].is_string() && asked["computer"].is_string(), "{asked}");
         let (request, secret) = (asked["request"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
@@ -1739,7 +1793,7 @@ mod tests {
         let (status, v) = body(wait(State(s.clone()), secret_headers(&secret), None, Json(WaitBody { request: Some(request), lend: None })).await).await;
         assert_eq!((status, v["error"].clone()), (StatusCode::FORBIDDEN, json!("refused")));
         // Une nouvelle demande, que l'ami annule (« Annuler ») : l'hôte ne la voit plus.
-        let (status, asked) = body(borrow(State(s.clone()), peer(30), None, login("secret-lea")).await).await;
+        let (status, asked) = body(borrow(State(s.clone()), peer(30), HeaderMap::new(), None, login("secret-lea")).await).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{asked}");
         let (request, secret) = (asked["request"].as_str().unwrap().to_string(), asked["secret"].as_str().unwrap().to_string());
         let (status, _) = body(leave(State(s.clone()), secret_headers("faux"), None, Json(LendBody { lend: None, request: Some(request.clone()), error: None, started: None })).await).await;

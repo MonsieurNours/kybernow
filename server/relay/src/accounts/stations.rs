@@ -222,28 +222,53 @@ impl Stations {
 pub struct StationRow {
     pub id: String,
     pub name: String,
-    /// `person` (les organisations viennent au lot 5).
+    /// `person` ou `organization` (lot 5).
     pub owner_kind: String,
-    /// Le compte propriétaire.
-    pub account: i64,
+    /// Le compte propriétaire (une personne).
+    pub account: Option<i64>,
+    /// L'organisation propriétaire (lot 5).
+    pub org: Option<i64>,
     pub attached_at: i64,
 }
 
-fn station_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StationRow> {
-    Ok(StationRow { id: r.get(0)?, name: r.get(1)?, owner_kind: r.get(2)?, account: r.get(3)?, attached_at: r.get(4)? })
+pub(super) fn station_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StationRow> {
+    Ok(StationRow { id: r.get(0)?, name: r.get(1)?, owner_kind: r.get(2)?, account: r.get(3)?, org: r.get(4)?, attached_at: r.get(5)? })
 }
 
-const STATION_COLS: &str = "id, name, owner_kind, account, attached_at";
+const STATION_COLS: &str = "id, name, owner_kind, account, org, attached_at";
+/// Les mêmes colonnes, préfixées (`stations s`).
+pub(super) const STATION_COLS_S: &str = "s.id, s.name, s.owner_kind, s.account, s.org, s.attached_at";
 
 impl Store {
-    /// Rattache (ou rattache de nouveau, à un autre propriétaire) une Station.
+    /// Rattache (ou rattache de nouveau, à un autre propriétaire) une Station à une personne.
     pub fn attach_station(&self, id: &str, name: &str, account: i64, by: i64, now: i64) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO stations (id, name, owner_kind, account, attached_by, attached_at) VALUES (?1, ?2, 'person', ?3, ?4, ?5)
-             ON CONFLICT(id) DO UPDATE SET name = excluded.name, owner_kind = excluded.owner_kind, account = excluded.account,
-             attached_by = excluded.attached_by, attached_at = excluded.attached_at",
-            params![id, name, account, by, now],
+        self.attach_to(id, name, Some(account), None, by, None, now)
+    }
+
+    /// Rattache une Station à une organisation (lot 5) ; `enrolled_by` : le jeton d'enrôlement.
+    pub fn attach_station_to_org(&self, id: &str, name: &str, org: i64, by: Option<i64>, enrolled_by: Option<i64>, now: i64) -> Result<()> {
+        self.attach_to(id, name, None, Some(org), by.unwrap_or(0), enrolled_by, now)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn attach_to(&self, id: &str, name: &str, account: Option<i64>, org: Option<i64>, by: i64, enrolled_by: Option<i64>, now: i64) -> Result<()> {
+        let kind = if org.is_some() { "organization" } else { "person" };
+        let by = (by > 0).then_some(by);
+        let tx = self.conn.unchecked_transaction()?;
+        // Un autre propriétaire : les droits donnés et les premières venues repartent de zéro.
+        let previous: Option<(Option<i64>, Option<i64>)> =
+            tx.query_row("SELECT account, org FROM stations WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        if previous.is_some_and(|p| p != (account, org)) {
+            tx.execute("DELETE FROM grants WHERE station = ?1", [id])?;
+            tx.execute("DELETE FROM device_stations WHERE station = ?1", [id])?;
+        }
+        tx.execute(
+            "INSERT INTO stations (id, name, owner_kind, account, org, attached_by, attached_at, enrolled_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name, owner_kind = excluded.owner_kind, account = excluded.account, org = excluded.org,
+             attached_by = excluded.attached_by, attached_at = excluded.attached_at, enrolled_by = excluded.enrolled_by",
+            params![id, name, kind, account, org, by, now, enrolled_by],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -251,10 +276,17 @@ impl Store {
         Ok(self.conn.query_row(&format!("SELECT {STATION_COLS} FROM stations WHERE id = ?1"), [id], station_row).optional()?)
     }
 
-    /// Les Stations d'un compte, la plus récemment rattachée d'abord.
+    /// Les Stations d'un compte (à lui), la plus récemment rattachée d'abord.
     pub fn stations_of(&self, account: i64) -> Result<Vec<StationRow>> {
         let mut stmt = self.conn.prepare(&format!("SELECT {STATION_COLS} FROM stations WHERE account = ?1 ORDER BY attached_at DESC, id"))?;
         let rows = stmt.query_map([account], station_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Les Stations d'une organisation (lot 5), par nom.
+    pub fn stations_of_org(&self, org: i64) -> Result<Vec<StationRow>> {
+        let mut stmt = self.conn.prepare(&format!("SELECT {STATION_COLS} FROM stations WHERE org = ?1 ORDER BY name COLLATE NOCASE, id"))?;
+        let rows = stmt.query_map([org], station_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -265,8 +297,9 @@ impl Store {
             None => self.conn.execute("DELETE FROM stations WHERE id = ?1", [id])?,
         };
         if n > 0 {
-            // Les premières venues des appareils sur cette Station : un prochain rattachement repart de zéro.
+            // Les premières venues des appareils et les droits donnés : un prochain rattachement repart de zéro.
             self.conn.execute("DELETE FROM device_stations WHERE station = ?1", [id])?;
+            self.conn.execute("DELETE FROM grants WHERE station = ?1", [id])?;
         }
         Ok(n > 0)
     }
@@ -303,36 +336,70 @@ impl Accounts {
         (code, url, (expires_at - now) as u64)
     }
 
-    /// Le message `attached` pour cette Station rattachée à ce compte.
-    pub fn attached_msg(&self, account: &Account, req: Option<u32>) -> Msg {
+    /// Le message `attached` : `account` a rattaché la Station, qui est à `owner`.
+    pub fn attached_msg(&self, account: &Account, owner: &Owner, req: Option<u32>) -> Msg {
         let id = self.public_account_id(account.id);
-        Msg::Attached(Attached {
-            req,
-            relay: self.relay_name(),
-            account: id.clone(),
-            owner: AttachOwner { kind: "person".into(), id, name: account.name.clone(), email: Some(account.email.clone()) },
-            keys: self.stations.keys.key_set().keys.clone(),
-        })
+        let owner = match owner {
+            Owner::Person => AttachOwner { kind: "person".into(), id: id.clone(), name: account.name.clone(), email: Some(account.email.clone()) },
+            Owner::Org { public_id, name, .. } => AttachOwner { kind: "organization".into(), id: public_id.clone(), name: name.clone(), email: None },
+        };
+        Msg::Attached(Attached { req, relay: self.relay_name(), account: id, owner, keys: self.stations.keys.key_set().keys.clone() })
+    }
+
+    /// Le message `attached` d'une Station rattachée, d'après la base ; `None` : plus rattachée.
+    pub fn attached_msg_of(&self, row: &StationRow, req: Option<u32>) -> Option<Msg> {
+        let db = self.db();
+        match (row.account, row.org) {
+            (Some(a), _) => {
+                let account = db.account(a).ok().flatten()?;
+                drop(db);
+                Some(self.attached_msg(&account, &Owner::Person, req))
+            }
+            (None, Some(o)) => {
+                let org = db.org(o).ok().flatten()?;
+                // `account` : qui a rattaché, ou l'organisation elle-même (enrôlée par un jeton, ou compte effacé depuis).
+                let by: Option<Account> = db
+                    .conn
+                    .query_row("SELECT attached_by FROM stations WHERE id = ?1", [&row.id], |r| r.get::<_, Option<i64>>(0))
+                    .ok()
+                    .flatten()
+                    .and_then(|a| db.account(a).ok().flatten());
+                drop(db);
+                let owner = Owner::Org { id: org.id, public_id: org.public_id.clone(), name: org.name.clone() };
+                Some(match by {
+                    Some(account) => self.attached_msg(&account, &owner, req),
+                    None => Msg::Attached(Attached {
+                        req,
+                        relay: self.relay_name(),
+                        account: org.public_id.clone(),
+                        owner: AttachOwner { kind: "organization".into(), id: org.public_id, name: org.name, email: None },
+                        keys: self.stations.keys.key_set().keys.clone(),
+                    }),
+                })
+            }
+            (None, None) => None,
+        }
     }
 
     /// `attach_status` d'une Station : `attached` (clés à jour) ou `detached`.
     pub fn attach_status(&self, station: &str, req: u32) -> Msg {
-        let db = self.db();
-        let found = db.station(station).ok().flatten().and_then(|s| db.account(s.account).ok().flatten());
-        drop(db);
-        match found {
-            Some(account) => self.attached_msg(&account, Some(req)),
-            None => Msg::Detached { req: Some(req) },
-        }
+        let row = self.db().station(station).ok().flatten();
+        row.and_then(|r| self.attached_msg_of(&r, Some(req))).unwrap_or(Msg::Detached { req: Some(req) })
     }
 
     /// `detach` d'une Station : détachée dans Admin.
     pub fn station_detached(&self, station: &str) {
         let db = self.db();
-        let owner = db.station(station).ok().flatten().map(|s| s.account);
+        let row = db.station(station).ok().flatten();
         match db.detach_station(station, None) {
             Ok(true) => {
-                let _ = db.audit(owner, "station_detachee_par_admin", None, self.now());
+                let now = self.now();
+                if let Some(row) = &row {
+                    let _ = db.audit(row.account, "station_detachee_par_admin", None, now);
+                    if let Some(org) = row.org {
+                        let _ = db.org_log(org, None, "station_detachee_par_admin", serde_json::json!({ "station": row.name }), None, now);
+                    }
+                }
                 tracing::info!(station = %station, "Station détachée dans Admin");
             }
             Ok(false) => {}
@@ -341,20 +408,47 @@ impl Accounts {
     }
 
     /// Confirme un rattachement dans la console ; faux si la Station n'a pas reçu `attached`.
-    pub fn confirm_attach(&self, pending: &PendingAttach, account: &Account) -> Result<bool> {
+    pub fn confirm_attach(&self, pending: &PendingAttach, account: &Account, owner: &Owner) -> Result<bool> {
         let now = self.now();
-        self.db().attach_station(&pending.station, &pending.name, account.id, account.id, now)?;
-        Ok(self.stations.send(&pending.station, self.attached_msg(account, None)))
+        {
+            let db = self.db();
+            match owner {
+                Owner::Person => db.attach_station(&pending.station, &pending.name, account.id, account.id, now)?,
+                Owner::Org { id, .. } => {
+                    db.attach_station_to_org(&pending.station, &pending.name, *id, Some(account.id), None, now)?;
+                    db.org_log(*id, Some(account), "station_rattachee", serde_json::json!({ "station": pending.name }), None, now)?;
+                }
+            }
+        }
+        Ok(self.stations.send(&pending.station, self.attached_msg(account, owner, None)))
     }
 
-    /// Détache depuis la console : la Station le sait si elle est connectée.
-    pub fn detach_by_account(&self, station: &str, account: i64) -> Result<bool> {
-        let done = self.db().detach_station(station, Some(account))?;
+    /// Détache depuis la console (le propriétaire, ou un Propriétaire ou
+    /// Administrateur de l'organisation) : la Station le sait si elle est connectée.
+    pub fn detach_by_account(&self, station: &str, account: &Account) -> Result<bool> {
+        let row = self.db().station(station)?;
+        let Some(row) = row else { return Ok(false) };
+        if row.account != Some(account.id) && !self.org_manager(account, row.org) {
+            return Ok(false);
+        }
+        let done = self.db().detach_station(station, None)?;
         if done {
+            if let Some(org) = row.org {
+                let _ = self.db().org_log(org, Some(account), "station_detachee", serde_json::json!({ "station": row.name }), None, self.now());
+            }
             self.stations.send(station, Msg::Detached { req: None });
         }
         Ok(done)
     }
+}
+
+/// À qui rattacher une Station (« Propriétaire » de la page « Rattacher »).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Owner {
+    /// Le compte qui rattache.
+    Person,
+    /// Une organisation qu'il administre (lot 5).
+    Org { id: i64, public_id: String, name: String },
 }
 
 #[cfg(test)]
@@ -408,7 +502,7 @@ mod tests {
         assert_eq!(s.stations_of(a).unwrap().iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["st2", "st1"]);
         // Rattachée de nouveau par un autre compte : elle change de propriétaire.
         s.attach_station("st1", "PC du salon", b, b, 30).unwrap();
-        assert_eq!(s.station("st1").unwrap().unwrap().account, b);
+        assert_eq!(s.station("st1").unwrap().unwrap().account, Some(b));
         assert!(!s.detach_station("st1", Some(a)).unwrap(), "pas à ce compte");
         assert!(s.detach_station("st1", Some(b)).unwrap());
         assert!(s.station("st1").unwrap().is_none());

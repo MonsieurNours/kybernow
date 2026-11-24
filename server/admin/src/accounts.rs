@@ -110,6 +110,11 @@ pub struct AccountSettings {
     /// Rattachée par le mode d'essai.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub test: bool,
+    /// Lot 5 : un jeton d'enrôlement d'organisation (`kne_…`), déposé par
+    /// l'installateur en silencieux (`/enroll=`) ; présenté au relais dès qu'il
+    /// est joint, puis effacé (enrôlée, ou refusé pour de bon).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enroll: Option<String>,
 }
 
 impl AccountSettings {
@@ -182,6 +187,8 @@ pub struct Accounts {
     /// Dernier appel vérifié par la garde du relais, par entrée.
     relay_marks: Mutex<HashMap<String, Instant>>,
     verifier: Mutex<Option<Arc<Verifier>>>,
+    /// Lot 4 : « Se connecter avec KyberNow » en cours, par `nonce` (et leur échéance).
+    web_logins: Mutex<HashMap<String, Instant>>,
 }
 
 impl Accounts {
@@ -194,6 +201,7 @@ impl Accounts {
             saved_seen: Mutex::new(HashMap::new()),
             relay_marks: Mutex::new(HashMap::new()),
             verifier: Mutex::new(None),
+            web_logins: Mutex::new(HashMap::new()),
         }
     }
 
@@ -370,7 +378,7 @@ pub fn pin(s: &AppState, relay: &str, owner: Owner, keys: &KeySet) -> Result<()>
     let name = owner.email.clone().filter(|e| !e.is_empty()).unwrap_or_else(|| owner.name.clone());
     let test = relay == TEST_RELAY;
     s.update_settings(|st| {
-        st.account = AccountSettings { relay: Some(relay.clone()), owner: Some(owner), keys, pinned_at: Some(now_secs()), accept: true, test };
+        st.account = AccountSettings { relay: Some(relay.clone()), owner: Some(owner), keys, pinned_at: Some(now_secs()), accept: true, test, enroll: None };
     })?;
     s.accounts.reset_verifier();
     tracing::info!("comptes : Station rattachée à {name} (relais {relay})");
@@ -481,6 +489,45 @@ pub async fn attach(State(s): State<AppState>) -> Response {
             refuse(StatusCode::SERVICE_UNAVAILABLE, "relay_unreachable", Msg::new("accounts.relayUnreachable"))
         }
     }
+}
+
+/// Lot 5 : présente le jeton d'enrôlement déposé par l'installateur
+/// (`[account] enroll`), jusqu'à ce que le relais réponde : enrôlée (rattachée
+/// à l'organisation, comptes acceptés, accès hors de chez vous actif), ou
+/// refusé pour de bon (jeton inconnu, échu, révoqué, épuisé). Sans relais
+/// réglé, ou relais injoignable : nouvel essai, de plus en plus espacé.
+pub fn start_enroll(s: &AppState) {
+    let token = s.settings.lock().unwrap().account.enroll.clone().filter(|t| !t.trim().is_empty());
+    let Some(token) = token else { return };
+    let s = s.clone();
+    tokio::spawn(async move {
+        let mut wait = Duration::from_secs(5);
+        loop {
+            if s.settings.lock().unwrap().relay.addr().is_some() {
+                let name = crate::system::computer_name().unwrap_or_default();
+                match s.relay.enroll(token.trim(), &name).await {
+                    Ok(attached) => {
+                        let org = attached.owner.name.clone();
+                        on_attached(&s, attached);
+                        let _ = s.update_settings(|st| st.account.enroll = None);
+                        tracing::info!("comptes : Station enrôlée dans l'organisation {org}");
+                        s.activity.event("info", Msg::new("events.accountEnrolled").with("org", org.as_str()));
+                        return;
+                    }
+                    Err(TunnelError::Refused(ErrorCode::EnrollRefused, why)) | Err(TunnelError::Refused(ErrorCode::NoAccounts, why)) => {
+                        let why = why.unwrap_or_default();
+                        let _ = s.update_settings(|st| st.account.enroll = None);
+                        tracing::warn!("comptes : jeton d'enrôlement refusé ({why})");
+                        s.activity.event("warn", Msg::new("events.accountEnrollRefused").with("reason", why.as_str()));
+                        return;
+                    }
+                    Err(e) => tracing::info!("comptes : enrôlement remis à plus tard ({e})"),
+                }
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(Duration::from_secs(600));
+        }
+    });
 }
 
 /// Le mode d'essai est-il demandé (`KYBERNOW_ACCOUNT_TEST` à `1`, `true`, `oui`, `yes`) ?
@@ -674,6 +721,155 @@ fn check(s: &AppState, token: &str, need: Option<Right>, use_: Use, relay_guard:
         s.activity.event("info", Msg::new("events.accountNewDevice").with("name", grant.label()));
     }
     Ok(grant)
+}
+
+// --- Admin sur le réseau : « Se connecter avec KyberNow » (lot 4) -------------------
+
+/// Le cookie du `nonce` d'une connexion avec KyberNow en cours (`SameSite=Lax` :
+/// le retour depuis la console du relais est une navigation d'un autre site).
+pub const WEB_LOGIN_COOKIE: &str = "kyber_admin_kn";
+/// Une connexion avec KyberNow vaut 10 minutes.
+const WEB_LOGIN_TTL: Duration = Duration::from_secs(10 * 60);
+/// Connexions avec KyberNow en cours, au plus.
+const MAX_WEB_LOGINS: usize = 64;
+
+impl Accounts {
+    /// Un nouveau `nonce` (16 octets en base32), gardé 10 minutes.
+    fn new_web_login(&self) -> String {
+        let nonce = kybernow_tunnel::id::base32_lower(&rand::random::<[u8; 16]>());
+        let mut list = self.web_logins.lock().unwrap();
+        let now = Instant::now();
+        list.retain(|_, exp| *exp > now);
+        if list.len() >= MAX_WEB_LOGINS
+            && let Some(oldest) = list.iter().min_by_key(|(_, e)| **e).map(|(n, _)| n.clone())
+        {
+            list.remove(&oldest);
+        }
+        list.insert(nonce.clone(), now + WEB_LOGIN_TTL);
+        nonce
+    }
+
+    /// Prend le `nonce` (une seule fois), s'il vaut encore.
+    fn take_web_login(&self, nonce: &str) -> bool {
+        self.web_logins.lock().unwrap().remove(nonce).is_some_and(|exp| exp > Instant::now())
+    }
+}
+
+/// La connexion avec KyberNow est-elle possible (rattachée, comptes acceptés, pas en mode d'essai) ?
+pub fn web_login_available(s: &AppState) -> bool {
+    let a = s.settings.lock().unwrap().account.clone();
+    a.attached() && a.accept && !a.test && a.relay.as_deref().and_then(console_url).is_some()
+}
+
+/// Encode une valeur pour une adresse.
+fn pct(s: &str) -> String {
+    s.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
+}
+
+#[derive(Deserialize)]
+pub struct WebLoginBody {
+    /// L'adresse d'Admin vue par le navigateur (`https://192.168.1.20:8443`).
+    origin: String,
+    #[serde(default)]
+    lang: Option<String>,
+}
+
+/// `POST /api/login/kybernow` (sans session, sur le réseau seulement) : la page
+/// de la console du relais à ouvrir, et le cookie du `nonce`.
+pub async fn web_login_start(State(s): State<AppState>, via: Option<axum::Extension<crate::relay::Via>>, Json(body): Json<WebLoginBody>) -> Response {
+    let refuse = |status: StatusCode, code: &str, msg: Msg| (status, Json(json!({ "error": msg.text(), "code": code }))).into_response();
+    if via.is_some() {
+        return refuse(StatusCode::FORBIDDEN, "network_only", Msg::new("accounts.networkOnly"));
+    }
+    if !web_login_available(&s) {
+        return refuse(StatusCode::CONFLICT, "unavailable", Msg::new("accounts.webLoginOff"));
+    }
+    let origin = body.origin.trim().trim_end_matches('/').to_string();
+    if !(origin.starts_with("https://") || origin.starts_with("http://")) || origin.len() > 200 || origin[8..].contains(['/', '?', '#', '@', ' ']) {
+        return refuse(StatusCode::BAD_REQUEST, "bad_origin", Msg::new("accounts.badOrigin"));
+    }
+    let relay = s.settings.lock().unwrap().account.relay.clone().unwrap_or_default();
+    let Some(console) = console_url(&relay) else {
+        return refuse(StatusCode::CONFLICT, "unavailable", Msg::new("accounts.webLoginOff"));
+    };
+    let Some(station) = s.relay.id() else {
+        return refuse(StatusCode::CONFLICT, "unavailable", Msg::new("accounts.webLoginOff"));
+    };
+    let nonce = s.accounts.new_web_login();
+    let lang = if body.lang.as_deref() == Some("en") { "en" } else { "fr" };
+    let url = format!("{console}/ouvrir-admin?station={station}&nonce={nonce}&retour={}&lang={lang}", pct(&origin));
+    let cookie = format!(
+        "{WEB_LOGIN_COOKIE}={nonce}; Path=/api/login/kybernow; HttpOnly; SameSite=Lax; Max-Age={}{}",
+        WEB_LOGIN_TTL.as_secs(),
+        if s.secure_cookies { "; Secure" } else { "" }
+    );
+    tracing::info!("comptes : connexion avec KyberNow demandée");
+    ([(header::SET_COOKIE, cookie)], Json(json!({ "url": url, "expires": WEB_LOGIN_TTL.as_secs() }))).into_response()
+}
+
+/// Le `nonce` du cookie de ce navigateur.
+fn web_login_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|c| c.trim().split_once('='))
+        .find(|(k, _)| *k == WEB_LOGIN_COOKIE)
+        .map(|(_, v)| v.to_string())
+}
+
+#[derive(Deserialize)]
+pub struct WebLoginReturn {
+    #[serde(default)]
+    token: String,
+}
+
+/// Une petite page : vers l'accueil d'Admin (une navigation de ce site, pour
+/// que le cookie `SameSite=Strict` de la session parte), ou le refus.
+fn web_login_page(text: &str, ok: bool, cookies: Vec<String>) -> Response {
+    let refresh = if ok { "<meta http-equiv=\"refresh\" content=\"0;url=/\">" } else { "" };
+    let body = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\">{refresh}<title>KyberNow Admin</title></head><body><p>{}</p><p><a href=\"/\">Admin</a></p></body></html>",
+        text.replace('&', "&amp;").replace('<', "&lt;")
+    );
+    let status = if ok { StatusCode::OK } else { StatusCode::FORBIDDEN };
+    let mut res = (status, [(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], body).into_response();
+    for c in cookies {
+        if let Ok(v) = header::HeaderValue::from_str(&c) {
+            res.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    res
+}
+
+/// `GET /api/login/kybernow?token=…` : le retour depuis la console du relais.
+/// Le jeton (droit Administrer, usage unique) doit porter en `jti` le `nonce`
+/// de ce navigateur ; alors la session d'Admin s'ouvre.
+pub async fn web_login_return(
+    State(s): State<AppState>,
+    via: Option<axum::Extension<crate::relay::Via>>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<WebLoginReturn>,
+) -> Response {
+    let clear = format!("{WEB_LOGIN_COOKIE}=; Path=/api/login/kybernow; HttpOnly; SameSite=Lax; Max-Age=0{}", if s.secure_cookies { "; Secure" } else { "" });
+    if via.is_some() {
+        return web_login_page(&Msg::new("accounts.networkOnly").text(), false, vec![]);
+    }
+    let Some(nonce) = web_login_cookie(&headers).filter(|n| s.accounts.take_web_login(n)) else {
+        return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]);
+    };
+    let grant = match check(&s, q.token.trim(), Some(Right::Admin), Use::Once, false) {
+        Ok(g) if g.claims.jti == nonce => g,
+        Ok(_) => return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]),
+        Err(d) => return web_login_page(&d.msg().text(), false, vec![clear]),
+    };
+    tracing::info!("comptes : Admin ouvert avec KyberNow ({})", grant.label());
+    s.activity.event("info", Msg::new("events.accountAdminLogin").with("name", grant.label()));
+    let session = s.auth.open_session();
+    web_login_page("…", true, vec![crate::auth::session_cookie(&session, s.secure_cookies), clear])
 }
 
 // --- Routes : session d'Admin ------------------------------------------------------
@@ -1057,6 +1253,71 @@ mod tests {
         assert_eq!(serde_json::from_slice::<Value>(&body).unwrap()["code"], "no_relay");
         let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(dir2);
+    }
+
+    /// Lot 4 : « Se connecter avec KyberNow », sur le réseau seulement.
+    #[tokio::test]
+    async fn se_connecter_avec_kybernow_sur_le_reseau() {
+        let (s, dir) = state();
+        let k = signer();
+        let body = || Json(WebLoginBody { origin: "https://192.168.1.20:8443/".into(), lang: None });
+        // Pas rattachée : pas de connexion avec KyberNow.
+        assert!(!web_login_available(&s));
+        assert_eq!(web_login_start(State(s.clone()), None, body()).await.status(), StatusCode::CONFLICT);
+        attach(&s, &k);
+        assert!(web_login_available(&s));
+        // Par le relais : jamais.
+        let via = Some(axum::Extension(crate::relay::Via { kind: kybernow_tunnel::StreamKind::AdminHttp, client: "c1".into() }));
+        assert_eq!(web_login_start(State(s.clone()), via, body()).await.status(), StatusCode::FORBIDDEN);
+        let res = web_login_start(State(s.clone()), None, body()).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let cookie = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().to_string();
+        assert!(cookie.contains("SameSite=Lax") && cookie.contains("HttpOnly"));
+        let nonce = cookie.split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+        let json: Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1 << 16).await.unwrap()).unwrap();
+        let url = json["url"].as_str().unwrap();
+        assert!(url.starts_with("https://share.kybernow.app/compte/ouvrir-admin?station="), "{url}");
+        assert!(url.contains(&format!("nonce={nonce}")) && url.contains("retour=https%3A%2F%2F192.168.1.20%3A8443"));
+        // Le jeton du relais : droit Administrer, `jti` = le `nonce` de ce navigateur.
+        let signed = |jti: &str, rights: &[Right]| {
+            let names = Names { account: "Léa Martin".into(), email: None, device: "Navigateur".into() };
+            let mut claims = Claims::issue("share.kybernow.app", &s.relay.id().unwrap(), "acc_lea", "web", rights.iter().copied().collect(), names, now_secs());
+            claims.jti = jti.to_string();
+            k.sign(&claims)
+        };
+        let with_cookie = |n: &str| {
+            let mut h = HeaderMap::new();
+            h.insert(header::COOKIE, format!("{WEB_LOGIN_COOKIE}={n}").parse().unwrap());
+            h
+        };
+        let back = |token: String, h: HeaderMap| web_login_return(State(s.clone()), None, h, axum::extract::Query(WebLoginReturn { token }));
+        // Sans le droit Administrer : refusé (et le `nonce` a servi).
+        assert_eq!(back(signed(&nonce, &[Right::Session]), with_cookie(&nonce)).await.status(), StatusCode::FORBIDDEN);
+        // Un autre `nonce` que celui du navigateur : refusé.
+        let res = web_login_start(State(s.clone()), None, body()).await;
+        let nonce = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+        assert_eq!(back(signed("autre-nonce", &[Right::Admin]), with_cookie(&nonce)).await.status(), StatusCode::FORBIDDEN);
+        // Le bon : la session d'Admin s'ouvre, une seule fois.
+        let res = web_login_start(State(s.clone()), None, body()).await;
+        let nonce = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+        let admin_token = signed(&nonce, &[Right::Session, Right::Admin]);
+        let res = back(admin_token.clone(), with_cookie(&nonce)).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let session = res.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_string()).find(|c| c.starts_with(crate::auth::COOKIE)).unwrap();
+        let session = session.split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+        assert!(s.auth.session_valid(&session));
+        assert_eq!(back(admin_token, with_cookie(&nonce)).await.status(), StatusCode::FORBIDDEN, "une seule fois");
+        // Le prêt (lot 4) : le droit Prêt du jeton remplace le compte d'ami.
+        let lend = token(&s, &k, "acc_lea", "dev_1", &[Right::Lend]);
+        let b = crate::lend_api::account_borrower_for_tests(&s, &headers(&lend)).unwrap().unwrap();
+        assert_eq!(b, "Léa Martin");
+        let session_only = token(&s, &k, "acc_lea", "dev_1", &[Right::Session]);
+        assert_eq!(crate::lend_api::account_borrower_for_tests(&s, &headers(&session_only)).unwrap().unwrap_err(), StatusCode::FORBIDDEN);
+        assert!(crate::lend_api::account_borrower_for_tests(&s, &HeaderMap::new()).is_none(), "sans jeton : le compte d'ami");
+        // Interrupteur coupé : plus de connexion avec KyberNow.
+        s.update_settings(|st| st.account.accept = false).unwrap();
+        assert!(!web_login_available(&s));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
