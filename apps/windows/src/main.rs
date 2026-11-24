@@ -9,6 +9,10 @@ fn main() {
     eprintln!("KyberNow Link pour Windows ne se compile que pour Windows (apps/windows/scripts/build.sh).");
 }
 
+// Comptes KyberNow : identifiant d'un ordinateur d'un compte, relevés,
+// pastilles d'origine, réponses à l'interface (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod accounts;
 #[cfg(windows)]
 mod audio;
 #[cfg(windows)]

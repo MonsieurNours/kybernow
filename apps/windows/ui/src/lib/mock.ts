@@ -6,6 +6,7 @@
 import { i18n, langFromTag, t } from './i18n/index.svelte'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
+import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
@@ -364,6 +365,80 @@ const thisPc = {
 const discovered = [{ id: 'son', name: 'Studio-Son', host: '192.168.1.77', port: 31544, fingerprint: fp('studio-son') }]
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// Comptes KyberNow (docs/link-ui.md « Comptes KyberNow ») : `?comptes` (Léa est connectée sur share.kybernow.app :
+// deux ordinateurs de son compte arrivent à l'accueil, avec la pastille « Compte », l'un sur le réseau, l'autre hors de
+// chez vous ; les ordinateurs appairés disent « Appairé ») ; `?comptes=2` (un second compte, sur
+// relais.exemple.org:9443 : la pastille dit le relais). « Se connecter à un compte KyberNow » ouvre la page imitée, qui
+// revient au bout de 2 s : « Connecté à Léa Martin. » (avec `?comptes=annule` : « Annuler » sur la page, rien ;
+// `?comptes=refus` : « La connexion n'a pas abouti : réessayez. »). « Un autre relais… » : une adresse avec une espace
+// est illisible, une autre connecte Tom. `?comptes=ferme` : la session de Léa est fermée ailleurs 4 s après
+// l'ouverture (« Ce compte a été déconnecté de cet appareil : reconnectez-vous. »).
+type Kept = (typeof computers)[number] & { account?: AccountComputer | null; origin?: string | null; away?: boolean }
+const accountsFlag = flags.has('comptes') ? flags.get('comptes') || 'oui' : null
+const lea: AccountView = { key: 'share.kybernow.app|acc_lea', name: t('mock.account_lea'), email: 'lea@exemple.fr', relay: 'share.kybernow.app' }
+const tom: AccountView = { key: 'relais.exemple.org:9443|acc_tom', name: 'Tom', email: 'tom@exemple.org', relay: 'relais.exemple.org:9443' }
+let accountList: AccountView[] = []
+
+/** Un ordinateur d'un compte à l'accueil : `away`, seulement par le relais (pas d'adresse sur le réseau). */
+function accountEntry(a: AccountView, id: string, name: string, away: boolean): Kept {
+  const ac: AccountComputer = { account: a.key, relay: a.relay, station: id, name, rights: ['session', 'lend', 'share', 'admin'], owner: { kind: 'person', id: a.key, name: a.name }, mine: true, online: true, admin_fp: fp(id), attached_at: now }
+  const c = {
+    id,
+    name,
+    host: away ? '' : '192.168.1.130',
+    port: away ? 0 : 9443,
+    user: '',
+    by_code: false,
+    wake: [] as WakeTarget[],
+    fingerprint: fp(id),
+    os: 'Windows 11 Pro 24H2',
+    gpu: 'NVIDIA GeForce RTX 4060',
+    settings: { ...settings },
+    last: null as LastSession | null,
+    online: true as boolean | null,
+    info: (away ? null : { hostname: name, os: 'Windows 11 Pro 24H2', gpu: 'NVIDIA GeForce RTX 4060', av1: true, admin_version: '0.9.0', virtual_display: { available: true, max_screens: 2 }, station: station('0.9.0'), wake: [] }) as Info | null,
+    preview: null,
+    preview_source: null,
+    waking: false,
+    station_pending: null as Computer['station_pending'],
+  }
+  return Object.assign(c, { account: ac, away, via_relay: away })
+}
+/** Les pastilles d'origine, comme `account::origins` de l'app (seulement avec un compte connecté). */
+function markOrigins() {
+  const several = new Set(accountList.map((a) => a.relay)).size > 1
+  for (const c of computers as Kept[]) {
+    c.origin = accountList.length === 0 ? null : c.account ? (several ? `${t('mock.origin_account')} · ${c.account.relay}` : t('mock.origin_account')) : t('mock.origin_paired')
+  }
+}
+
+/** Un compte connecté : ses ordinateurs arrivent à l'accueil. */
+function signedIn(a: AccountView) {
+  accountList = [...accountList.filter((x) => x.key !== a.key), a]
+  const mine = a.key === lea.key ? [accountEntry(a, 'accatelier', t('mock.account_atelier'), false), accountEntry(a, 'accchalet', 'Chalet', true)] : [accountEntry(a, 'accstudio', t('mock.account_studio'), true)]
+  for (const c of mine) if (!computers.some((x) => x.id === c.id)) computers.push(c)
+  markOrigins()
+}
+/** Un compte oublié : ses ordinateurs quittent l'accueil, les appairés restent. */
+function signedOut(key: string) {
+  accountList = accountList.filter((a) => a.key !== key)
+  computers = computers.filter((c) => (c as Kept).account?.account !== key)
+  markOrigins()
+}
+
+if (accountsFlag && accountsFlag !== 'annule' && accountsFlag !== 'refus') {
+  signedIn(lea)
+  if (accountsFlag === '2') signedIn(tom)
+}
+if (accountsFlag === 'ferme') {
+  setTimeout(() => {
+    signedOut(lea.key)
+    emit('accounts', structuredClone(accountList))
+    emitComputers()
+    emit('account-signed-out', t('mock.account_signed_out'))
+  }, 4000)
+}
 
 /** Par où passe une session imitée : sur le réseau, ou par le relais (`?relais`, `?relais=tcp` : le repli TCP). */
 const directRoute: RouteView = { transport: 'direct', label: t('relay.path_direct'), via_relay: false, rtt_client: null, rtt_station: null }
@@ -1545,6 +1620,50 @@ const psCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
 }
 Object.assign(commands, psCommands)
+
+/** Comptes KyberNow : la page du relais imitée revient au bout de 2 s. */
+let signInTimer: ReturnType<typeof setTimeout> | null = null
+const accountCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
+  account_list: () => structuredClone(accountList),
+  account_sign_in: async (a) => {
+    const relay = String(a.relay ?? '').trim()
+    if (/\s/.test(relay)) throw t('mock.account_bad_relay')
+    console.info(`account_sign_in : la page de ${relay || 'share.kybernow.app'} s'ouvre dans le navigateur`)
+    if (signInTimer) clearTimeout(signInTimer)
+    signInTimer = setTimeout(() => {
+      signInTimer = null
+      let r: AccountSignIn
+      if (accountsFlag === 'annule') r = { kind: 'cancelled' }
+      else if (accountsFlag === 'refus') r = { kind: 'failed', message: t('mock.account_bad_code') }
+      else {
+        const who = relay && relay !== 'share.kybernow.app' ? tom : lea
+        signedIn(who)
+        emit('accounts', structuredClone(accountList))
+        emitComputers()
+        r = { kind: 'signed_in', account: who.name }
+      }
+      emit('account-sign-in', r)
+    }, 2000)
+    return null
+  },
+  account_sign_in_cancel: () => {
+    if (signInTimer) clearTimeout(signInTimer)
+    signInTimer = null
+    return null
+  },
+  account_manage: (a) => {
+    console.info(`account_manage : la page du compte ${a.key} s'ouvre dans le navigateur`)
+    return null
+  },
+  account_sign_out: async (a) => {
+    await sleep(600)
+    signedOut(String(a.key))
+    emit('accounts', structuredClone(accountList))
+    emitComputers()
+    return null
+  },
+}
+Object.assign(commands, accountCommands)
 
 export function mockTauri() {
   // `?copie=non` : le presse-papiers de la page refuse aussi, « Copier le lien » échoue.

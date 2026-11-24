@@ -1,9 +1,17 @@
 //! Les ordinateurs de l'app : liste et réglages dans
 //! `%APPDATA%\KyberNow\computers.json`, mots de passe dans le gestionnaire
 //! d'identifiants de Windows (`KyberNow:<id>`).
+//!
+//! Comptes KyberNow (docs/comptes.md, lot 3) : chaque compte connecté est
+//! gardé entier (JSON, jeton de la session d'appareil compris) dans le même
+//! gestionnaire, sous `KyberNowCompte:<relais>|<identifiant du compte>` (une
+//! cible par compte, hors du filtre `KyberNow:*` des mots de passe) ; la
+//! dernière liste des ordinateurs des comptes, sans rien de secret, dans
+//! `%APPDATA%\KyberNow\accounts.json`.
 
 use std::path::PathBuf;
 
+use kybernow_core::account::{Account, AccountComputer};
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::FILETIME;
 use windows::Win32::Security::Credentials::{
@@ -160,11 +168,33 @@ pub struct Computer {
     /// Absent d'une Station antérieure ou sans relais réglé.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay: Option<kybernow_core::relay::RelayInfo>,
+    /// Un ordinateur d'un compte KyberNow qui n'est pas appairé sur ce PC
+    /// (docs/comptes.md) : tel que le relais le donne (`/v1/computers`). Il est
+    /// ouvert avec le jeton d'accès du relais (ni compte ni mot de passe :
+    /// `user` est vide), sur le réseau quand la découverte le trouve (même
+    /// empreinte d'Admin), par le relais sinon ; il quitte l'accueil avec son
+    /// compte. Absent : un ordinateur appairé, ajouté par code ou par une
+    /// invitation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<AccountComputer>,
+}
+
+/// `accounts.json` : la dernière liste des ordinateurs des comptes, appairés
+/// sur ce PC compris (pour l'accueil, un ordinateur une seule fois), gardée
+/// d'un lancement à l'autre avec les empreintes d'Admin déjà vues
+/// (`account::remember_fingerprints` : le relais ne les donne que pour une
+/// Station connectée). Rien de secret.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct AccountsFile {
+    computers: Vec<AccountComputer>,
 }
 
 pub struct Store {
     path: PathBuf,
     pub computers: Vec<Computer>,
+    /// La dernière liste des ordinateurs des comptes connectés (`accounts.json`).
+    pub account_computers: Vec<AccountComputer>,
 }
 
 impl Store {
@@ -188,26 +218,25 @@ impl Store {
             },
             Err(_) => Vec::new(),
         };
-        Self { path, computers }
+        // Illisible : la liste revient de toute façon au prochain relevé des comptes.
+        let account_computers = std::fs::read_to_string(accounts_path(&path))
+            .ok()
+            .and_then(|t| serde_json::from_str::<AccountsFile>(&t).ok())
+            .map(|f| f.computers)
+            .unwrap_or_default();
+        Self { path, computers, account_computers }
+    }
+
+    /// Garde la dernière liste des ordinateurs des comptes (`accounts.json`).
+    pub fn save_account_computers(&self) {
+        let file = AccountsFile { computers: self.account_computers.clone() };
+        let Ok(text) = serde_json::to_string_pretty(&file) else { return };
+        write_atomic(&accounts_path(&self.path), &text);
     }
 
     pub fn save(&self) {
-        use std::io::Write;
-        let tmp = self.path.with_extension("json.tmp");
         let Ok(text) = serde_json::to_string_pretty(&self.computers) else { return };
-        // Écrit et posé sur le disque avant de remplacer l'ancien.
-        let written = std::fs::File::create(&tmp).and_then(|mut f| {
-            f.write_all(text.as_bytes())?;
-            f.sync_all()
-        });
-        match written {
-            Ok(()) => {
-                if let Err(e) = std::fs::rename(&tmp, &self.path) {
-                    log::error!("computers.json : {e}");
-                }
-            }
-            Err(e) => log::error!("computers.json : {e}"),
-        }
+        write_atomic(&self.path, &text);
     }
 
     pub fn get(&self, id: &str) -> Option<&Computer> {
@@ -258,6 +287,30 @@ impl Store {
         self.computers.retain(|c| c.id != id);
         self.save();
         delete_password(id);
+    }
+}
+
+/// `accounts.json`, à côté de `computers.json`.
+fn accounts_path(computers: &std::path::Path) -> PathBuf {
+    computers.with_file_name("accounts.json")
+}
+
+/// Écrit `text` dans `path`, posé sur le disque avant de remplacer l'ancien.
+fn write_atomic(path: &std::path::Path, text: &str) {
+    use std::io::Write;
+    let tmp = path.with_extension("json.tmp");
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(text.as_bytes())?;
+        f.sync_all()
+    });
+    match written {
+        Ok(()) => {
+            if let Err(e) = std::fs::rename(&tmp, path) {
+                log::error!("{name} : {e}");
+            }
+        }
+        Err(e) => log::error!("{name} : {e}"),
     }
 }
 
@@ -338,5 +391,106 @@ pub fn delete_password(id: &str) {
     let target = target(id);
     unsafe {
         let _ = CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None);
+    }
+}
+
+// MARK: - Comptes KyberNow
+
+/// Préfixe des comptes dans le gestionnaire d'identifiants : hors du filtre
+/// `KyberNow:*` de [`delete_all_passwords`] (les comptes ont le leur,
+/// [`delete_all_accounts`]).
+const ACCOUNT_PREFIX: &str = "KyberNowCompte:";
+/// Taille la plus grande d'un secret du gestionnaire (`CRED_MAX_CREDENTIAL_BLOB_SIZE`).
+const MAX_BLOB: usize = 5 * 512;
+
+fn account_target(key: &str) -> Vec<u16> {
+    wide(&format!("{ACCOUNT_PREFIX}{key}"))
+}
+
+/// Garde le compte entier (JSON en UTF-8, jeton compris) sous sa cible
+/// (`Account::key`), en remplaçant celui qui y était.
+pub fn save_account(account: &Account) -> bool {
+    let Ok(json) = serde_json::to_vec(account) else { return false };
+    if json.len() > MAX_BLOB {
+        log::error!("comptes : {} trop long pour le gestionnaire d'identifiants ({} octets)", account.key(), json.len());
+        return false;
+    }
+    let mut target = account_target(&account.key());
+    // Le nom montré par le gestionnaire d'identifiants : l'e-mail, sinon l'identifiant.
+    let shown = if account.account.email.is_empty() { &account.account.id } else { &account.account.email };
+    let mut user = wide(shown);
+    let cred = CREDENTIALW {
+        Flags: CRED_FLAGS(0),
+        Type: CRED_TYPE_GENERIC,
+        TargetName: PWSTR(target.as_mut_ptr()),
+        CredentialBlobSize: json.len() as u32,
+        CredentialBlob: json.as_ptr() as *mut u8,
+        Persist: CRED_PERSIST_LOCAL_MACHINE,
+        UserName: PWSTR(user.as_mut_ptr()),
+        LastWritten: FILETIME::default(),
+        ..Default::default()
+    };
+    unsafe { CredWriteW(&cred, 0).is_ok() }
+}
+
+/// Les comptes gardés, dans l'ordre de leur cible. Un compte illisible est
+/// écarté (et dit au journal, sans son contenu).
+pub fn accounts() -> Vec<Account> {
+    use windows::Win32::Security::Credentials::{CRED_ENUMERATE_FLAGS, CredEnumerateW};
+    let mut count = 0u32;
+    let mut list: *mut *mut CREDENTIALW = std::ptr::null_mut();
+    let filter = wide(&format!("{ACCOUNT_PREFIX}*"));
+    let mut out = Vec::new();
+    unsafe {
+        // Aucun compte : ERROR_NOT_FOUND.
+        if CredEnumerateW(PCWSTR(filter.as_ptr()), Some(CRED_ENUMERATE_FLAGS(0)), &mut count, &mut list).is_err() {
+            return out;
+        }
+        for c in std::slice::from_raw_parts(list, count as usize) {
+            let c = &**c;
+            if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
+                continue;
+            }
+            let bytes = std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize);
+            match serde_json::from_slice::<Account>(bytes) {
+                Ok(a) if !a.token.is_empty() => out.push(a),
+                Ok(_) => log::warn!("comptes : un compte gardé sans jeton, écarté"),
+                Err(e) => log::warn!("comptes : un compte gardé illisible, écarté ({e})"),
+            }
+        }
+        CredFree(list as *const _);
+    }
+    out.sort_by_key(|a| a.key());
+    out
+}
+
+/// Oublie le compte (`Account::key`).
+pub fn delete_account(key: &str) {
+    let target = account_target(key);
+    unsafe {
+        let _ = CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None);
+    }
+}
+
+/// Oublie tous les comptes (désinstallation), lisibles ou non. Rend leur nombre.
+pub fn delete_all_accounts() -> usize {
+    use windows::Win32::Security::Credentials::{CRED_ENUMERATE_FLAGS, CredEnumerateW};
+    let mut count = 0u32;
+    let mut list: *mut *mut CREDENTIALW = std::ptr::null_mut();
+    let filter = wide(&format!("{ACCOUNT_PREFIX}*"));
+    unsafe {
+        if CredEnumerateW(PCWSTR(filter.as_ptr()), Some(CRED_ENUMERATE_FLAGS(0)), &mut count, &mut list).is_err() {
+            return 0;
+        }
+        let creds = std::slice::from_raw_parts(list, count as usize);
+        let targets: Vec<PCWSTR> = creds.iter().map(|c| PCWSTR((**c).TargetName.0)).collect();
+        let mut n = 0;
+        for t in targets {
+            if CredDeleteW(t, CRED_TYPE_GENERIC, None).is_ok() {
+                n += 1;
+            }
+        }
+        CredFree(list as *const _);
+        n
     }
 }

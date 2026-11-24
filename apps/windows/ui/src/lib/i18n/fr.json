@@ -485,7 +485,15 @@
     "invite_no_invite": "Ce code ne sert plus.",
     "invite_full": "Cette invitation a déjà ajouté tous ses appareils.",
     "invite_too_many": "Trop d'essais : réessayez dans 9 min.",
-    "invite_access_off": "PC du salon n'est pas joignable hors de chez vous (accès coupé dans Admin)."
+    "invite_access_off": "PC du salon n'est pas joignable hors de chez vous (accès coupé dans Admin).",
+    "account_lea": "Léa Martin",
+    "account_atelier": "PC de Léa",
+    "account_studio": "Studio de Tom",
+    "origin_account": "Compte",
+    "origin_paired": "Appairé",
+    "account_bad_relay": "Adresse du relais illisible.",
+    "account_bad_code": "La connexion n'a pas abouti : réessayez.",
+    "account_signed_out": "Ce compte a été déconnecté de cet appareil : reconnectez-vous."
   },
   "lend": {
     "lend": "Prêter l'ordinateur…",
@@ -557,6 +565,27 @@
     "adding": "Ajout de {name}…",
     "adding_unnamed": "Ajout de l'ordinateur…",
     "added": "{name} est ajouté."
+  },
+  "account": {
+    "find_title": "Retrouvez vos ordinateurs",
+    "find_lead": "Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez.",
+    "sign_in": "Se connecter à un compte KyberNow",
+    "sign_in_help": "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page.",
+    "without": "ou sans compte",
+    "signing_in": "Connexion au compte…",
+    "signed_in": "Connecté à {account}.",
+    "section": "Comptes",
+    "section_help": "Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte.",
+    "none": "Aucun compte.",
+    "manage": "Gérer le compte",
+    "sign_out": "Se déconnecter",
+    "sign_out_confirm": "Se déconnecter de {account} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent.",
+    "add": "Ajouter un compte",
+    "another_relay": "Un autre relais…",
+    "another_relay_title": "Un autre relais",
+    "relay": "Relais",
+    "relay_example": "relais.exemple.org:9443",
+    "relay_help": "L'adresse du relais de votre compte, si ce n'est pas share.kybernow.app."
   },
   "ps": {
     "on": "Allumée",

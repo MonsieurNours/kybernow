@@ -2,6 +2,13 @@
   L'app : accueil, ajout, réglages, passage vers la session. Les consoles PlayStation (docs/link-ui.md
   « Consoles PlayStation ») : leur état (`ps_state`, événement `ps-state`), leur association
   (PairSheet), leurs réglages (ConsoleSettings) et leur partie, ouverte comme une session d'ordinateur.
+
+  Comptes KyberNow (docs/link-ui.md « Comptes KyberNow ») : les comptes connectés (`account_list`,
+  événement `accounts`), la connexion par la page du relais dans le navigateur (`account_sign_in`,
+  « Connexion au compte… » jusqu'à l'événement `account-sign-in` : l'avis « Connecté à {compte}. ») ;
+  leurs ordinateurs arrivent avec les autres (`computers`), avec leur pastille d'origine. Une session
+  d'appareil fermée ailleurs : l'avis « Ce compte a été déconnecté de cet appareil : reconnectez-vous. »
+  (événement `account-signed-out`).
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -16,7 +23,7 @@
   import LendSheet from './LendSheet.svelte'
   import PairSheet from './PairSheet.svelte'
   import ConsoleSettings from './ConsoleSettings.svelte'
-  import type { Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
+  import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
   import type { PsFound, PsState } from './lib/api'
   import { guestComputer, invoke, isConsoleId, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
@@ -91,6 +98,12 @@
   let battery = $state<Battery>('alleger')
   /** « Réessayer » en cours (accueil). */
   let retrying = $state<string | null>(null)
+  /** Les comptes KyberNow connectés sur ce PC (réglages de l'app, pastilles d'origine). */
+  let accounts = $state<AccountView[]>([])
+  /** « Connexion au compte… » : la page du relais est ouverte dans le navigateur, l'app attend son retour. */
+  let signingIn = $state(false)
+  /** Le refus de la dernière connexion à un compte, montré aussi dans les réglages de l'app. */
+  let signInError = $state<string | null>(null)
 
   function read(k: string) {
     try {
@@ -143,6 +156,19 @@
       listen<PsState>('ps-state', (s) => (ps = s)),
       listen<string>('lang', setLang),
       listen<number>('update-progress', (p) => (progress = p)),
+      listen<AccountView[]>('accounts', (a) => (accounts = a)),
+      listen<AccountSignIn>('account-sign-in', (r) => {
+        signingIn = false
+        if (r.kind === 'signed_in') {
+          signInError = null
+          notice = t('account.signed_in', { account: r.account })
+        } else if (r.kind === 'failed') {
+          signInError = r.message
+          error = r.message
+        }
+      }),
+      // La session de l'appareil a été fermée ailleurs (page du compte, nouveau mot de passe) : ses ordinateurs sont partis.
+      listen<string>('account-signed-out', (m) => (notice = m)),
       listen<Phase>('session-status', (p) => {
         if (!passage || passage.id !== p.id) return
         // « La Station redémarre… » jusqu'à l'étape suivante (voir StationRestarting).
@@ -208,6 +234,7 @@
       })
         .then(() => invoke<Friend[]>('lend_friends').then((f) => (friends = f)))
         .then(() => invoke<PsState>('ps_state').then((s) => (ps = s)))
+        .then(() => invoke<AccountView[]>('account_list').then((a) => (accounts = a)))
         .then(() =>
           invoke<AppInfo>('app_info').then((i) => {
             update = i.update
@@ -406,6 +433,32 @@
     }
   }
 
+  // MARK: - Comptes KyberNow
+
+  /**
+   * « Se connecter à un compte KyberNow » (accueil : le relais public) ou « Ajouter un compte » (le relais choisi) :
+   * la page du relais s'ouvre dans le navigateur, « Connexion au compte… » jusqu'à son retour. Rend le refus (adresse du
+   * relais illisible, navigateur qui ne s'ouvre pas), ou `null`.
+   */
+  async function signIn(relay: string | null = null): Promise<string | null> {
+    error = null
+    signInError = null
+    try {
+      await invoke('account_sign_in', { relay })
+      signingIn = true
+      return null
+    } catch (e) {
+      signingIn = false
+      return String(e)
+    }
+  }
+
+  /** « Annuler » pendant « Connexion au compte… » (la page fermée sans revenir). */
+  function cancelSignIn() {
+    signingIn = false
+    invoke('account_sign_in_cancel').catch(() => {})
+  }
+
   async function installUpdate() {
     progress = 0
     try {
@@ -580,7 +633,14 @@
 
 {#if settingsFor}
   {#key settingsFor.id}
-    <Settings computer={settingsFor} {thisPc} {battery} start={settingsRubric} onremoved={() => (settingsId = null)} />
+    <Settings
+      computer={settingsFor}
+      {thisPc}
+      {battery}
+      start={settingsRubric}
+      accountName={settingsFor.account ? (accounts.find((a) => a.key === settingsFor!.account!.account)?.name ?? null) : null}
+      onremoved={() => (settingsId = null)}
+    />
   {/key}
 {:else if consoleSettingsFor}
   {#key consoleSettingsFor.id}
@@ -605,6 +665,13 @@
     {friends}
     {selectedFriend}
     {sessions}
+    {accounts}
+    {signingIn}
+    onsignin={async () => {
+      const e = await signIn()
+      if (e) error = e
+    }}
+    oncancelsignin={cancelSignIn}
     busy={passage !== null && !passage.opening}
     retrying={retrying !== null && retrying === selected?.id}
     {error}
@@ -701,7 +768,21 @@
 {/if}
 
 {#if appSheet}
-  <AppSheet {update} {progress} {thisPc} {battery} check={appCheck} onbattery={setBattery} onclose={() => (appSheet = false)} oninstall={installUpdate} />
+  <AppSheet
+    {update}
+    {progress}
+    {thisPc}
+    {battery}
+    check={appCheck}
+    {accounts}
+    {signingIn}
+    {signInError}
+    onsignin={signIn}
+    oncancelsignin={cancelSignIn}
+    onbattery={setBattery}
+    onclose={() => (appSheet = false)}
+    oninstall={installUpdate}
+  />
 {/if}
 
 {#if passage && passageFor}

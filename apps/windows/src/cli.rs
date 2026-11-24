@@ -147,7 +147,7 @@ fn parse_args() -> Result<Args, String> {
             // Installation : lien kybernow://, notifications, raccourcis.
             "--setup-shell" => a.setup_shell = true,
             "--desktop" => a.desktop = true,
-            // Désinstallation : mots de passe et liste de la barre des tâches.
+            // Désinstallation : mots de passe, comptes KyberNow et liste de la barre des tâches.
             "--forget-all" => a.forget_all = true,
             "--clear-shell" => a.clear_shell = true,
             s if s.starts_with('-') => return Err(format!("option inconnue : {s}")),
@@ -200,6 +200,33 @@ impl HostEvents for CliEvents {
     }
 }
 
+/// Désinstallation : chaque compte KyberNow est d'abord déconnecté chez son
+/// relais (sur des fils, 6 s au plus en tout : le désinstalleur n'attend que
+/// 15 s), puis oublié du gestionnaire d'identification, même sans réponse.
+/// Rend le nombre de comptes oubliés.
+fn forget_accounts() -> usize {
+    use std::time::{Duration, Instant};
+    let accounts = crate::store::accounts();
+    let (tx, rx) = mpsc::channel();
+    for a in accounts.iter().cloned() {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = kybernow_core::account::sign_out(&a) {
+                log::info!("désinstallation : {} pas déconnecté chez le relais ({})", a.key(), e.kind());
+            }
+            let _ = tx.send(());
+        });
+    }
+    drop(tx);
+    let deadline = Instant::now() + Duration::from_secs(6);
+    for _ in 0..accounts.len() {
+        if rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).is_err() {
+            break;
+        }
+    }
+    crate::store::delete_all_accounts()
+}
+
 pub fn main() -> i32 {
     let args = match parse_args() {
         Ok(a) => a,
@@ -226,6 +253,8 @@ pub fn main() -> i32 {
     if args.forget_all {
         let n = crate::store::delete_all_passwords();
         log::info!("désinstallation : {n} mots de passe effacés");
+        let m = forget_accounts();
+        log::info!("désinstallation : {m} comptes KyberNow oubliés");
         return 0;
     }
 
@@ -330,6 +359,7 @@ pub fn main() -> i32 {
         screen_hdr: false,
         screen_luminance: None,
         capabilities: None,
+        account: None,
     };
     let (tx, rx) = mpsc::channel();
     let _host = SessionHost::start(

@@ -485,7 +485,15 @@
     "invite_no_invite": "This code is no longer valid.",
     "invite_full": "This invitation has already added all its devices.",
     "invite_too_many": "Too many attempts: try again in 9 min.",
-    "invite_access_off": "Living room PC cannot be reached away from home (access turned off in Admin)."
+    "invite_access_off": "Living room PC cannot be reached away from home (access turned off in Admin).",
+    "account_lea": "Léa Martin",
+    "account_atelier": "Léa's PC",
+    "account_studio": "Tom's studio",
+    "origin_account": "Account",
+    "origin_paired": "Paired",
+    "account_bad_relay": "Unreadable relay address.",
+    "account_bad_code": "Sign-in didn't go through: try again.",
+    "account_signed_out": "This account was signed out of this device: sign in again."
   },
   "lend": {
     "lend": "Lend the computer…",
@@ -557,6 +565,27 @@
     "adding": "Adding {name}…",
     "adding_unnamed": "Adding the computer…",
     "added": "{name} has been added."
+  },
+  "account": {
+    "find_title": "Find your computers",
+    "find_lead": "With a KyberNow account, your computers and the ones opened to you show up here, wherever you are.",
+    "sign_in": "Sign in to a KyberNow account",
+    "sign_in_help": "The relay's page opens: password, passkey or two-factor authentication happen there, never in the app. No account yet: “Create an account” on that page.",
+    "without": "or without an account",
+    "signing_in": "Signing in…",
+    "signed_in": "Signed in to {account}.",
+    "section": "Accounts",
+    "section_help": "Create an account, change its password or delete it: on the account's page.",
+    "none": "No account.",
+    "manage": "Manage account",
+    "sign_out": "Sign out",
+    "sign_out_confirm": "Sign out of {account}? Its computers leave this device; the ones you paired stay.",
+    "add": "Add an account",
+    "another_relay": "Another relay…",
+    "another_relay_title": "Another relay",
+    "relay": "Relay",
+    "relay_example": "relais.exemple.org:9443",
+    "relay_help": "Your account's relay address, if it isn't share.kybernow.app."
   },
   "ps": {
     "on": "On",

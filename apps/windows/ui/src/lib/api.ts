@@ -191,7 +191,49 @@ export type Computer = {
   station_pending?: 'restart' | 'update' | null
   /** Prêté à un ami : « Prêté à {prénom} », « Reprendre l'ordinateur » (absent : rien de prêté). */
   lend?: HomeLend | null
+  /**
+   * Un ordinateur d'un compte KyberNow qui n'est pas appairé sur ce PC (docs/comptes.md) : ouvert avec le jeton d'accès du
+   * relais, sans compte ni mot de passe (`user` vide) ; il quitte l'accueil avec son compte. Absent : un ordinateur appairé.
+   */
+  account?: AccountComputer | null
+  /**
+   * La pastille d'origine, seulement quand un compte est connecté : « Compte », « Compte · {relais} », le nom de
+   * l'organisation, « Ouvert par {prénom} », « Appairé » (texte du cœur, dans la langue de l'app).
+   */
+  origin?: string | null
 }
+
+/**
+ * Un ordinateur d'un compte, tel que le relais le donne (`/v1/computers`) : `account`, le compte qui le donne ;
+ * `rights` (`session`, `lend`, `share`, `admin`) ; `mine` : rattaché à ce compte (et non ouvert par quelqu'un d'autre).
+ */
+export type AccountComputer = {
+  account: string
+  relay: string
+  station: string
+  name: string
+  rights: string[]
+  owner: { kind: string; id: string; name: string }
+  mine: boolean
+  online: boolean
+  admin_fp: string | null
+  attached_at: number
+}
+
+/**
+ * Un compte KyberNow connecté sur ce PC (réglages de l'app, « Comptes ») : `key` (« Gérer le compte », « Se
+ * déconnecter »), `name` (le nom, sinon l'e-mail), l'e-mail, `relay` (« share.kybernow.app »). Jamais son jeton.
+ */
+export type AccountView = { key: string; name: string; email: string; relay: string }
+
+/**
+ * Événement `account-sign-in`, la fin d'une connexion par la page du relais : connecté (l'avis « Connecté à {compte}. »),
+ * refusée (le texte du cœur), annulée sur la page (rien).
+ */
+export type AccountSignIn = { kind: 'signed_in'; account: string } | { kind: 'failed'; message: string } | { kind: 'cancelled' }
+
+/** Le relais public, proposé d'abord (« Ajouter un compte »). */
+export const DEFAULT_RELAY = 'share.kybernow.app'
 
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
 
