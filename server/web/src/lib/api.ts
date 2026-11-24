@@ -770,9 +770,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   session: () =>
-    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; platform?: string }>('GET', '/api/session'),
+    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; platform?: string; kybernow_login?: boolean }>(
+      'GET',
+      '/api/session',
+    ),
   setup: (code: string, password: string) => request('POST', '/api/setup', { code, password }),
   login: (password: string) => request('POST', '/api/login', { password }),
+  /** « Se connecter avec KyberNow » (comptes, lot 4) : la page de la console du relais à ouvrir, sur le réseau seulement. */
+  kybernowLogin: (origin: string, lang: string) => request<{ url: string; expires: number }>('POST', '/api/login/kybernow', { origin, lang }),
   logout: () => request('POST', '/api/logout'),
   changePassword: (current: string, next: string) => request('POST', '/api/password', { current, new: next }),
 

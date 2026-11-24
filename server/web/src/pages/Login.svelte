@@ -1,27 +1,42 @@
 <!--
   Connexion à KyberNow Admin, ou première visite (choix du mot de passe avec le
   code d'initialisation). Le symbole immense, la couture allumée : la porte
-  de l'ordinateur.
+  de l'ordinateur. Comptes KyberNow (lot 4) : « Se connecter avec KyberNow »
+  quand l'ordinateur est rattaché et accepte les comptes, sur le réseau
+  seulement ; la console du relais renvoie ici avec le jeton.
 -->
 <script lang="ts">
   import { api } from '../lib/api'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
   import LangChoice from '../lib/LangChoice.svelte'
-  import { t } from '../lib/i18n/index.svelte'
+  import { i18n, t } from '../lib/i18n/index.svelte'
 
   let {
     configured,
     setupCodeFile,
     hostname,
+    kybernow = false,
     onDone,
-  }: { configured: boolean; setupCodeFile: string; hostname: string | null; onDone: () => void } = $props()
+  }: { configured: boolean; setupCodeFile: string; hostname: string | null; kybernow?: boolean; onDone: () => void } = $props()
 
   let code = $state('')
   let password = $state('')
   let confirm = $state('')
   let error = $state('')
   let busy = $state(false)
+
+  async function withKyberNow() {
+    error = ''
+    busy = true
+    try {
+      const { url } = await api.kybernowLogin(window.location.origin, i18n.lang)
+      window.location.assign(url)
+    } catch (e) {
+      error = errorText(e)
+      busy = false
+    }
+  }
 
   async function submit(event: SubmitEvent) {
     event.preventDefault()
@@ -106,6 +121,14 @@
         {busy ? t('login.wait') : configured ? t('login.open') : t('login.create')}
       </button>
     </form>
+
+    {#if configured && kybernow}
+      <div class="kybernow">
+        <span class="or hint">{t('login.or')}</span>
+        <button type="button" class="ghost" disabled={busy} onclick={withKyberNow}>{t('login.kybernow')}</button>
+        <span class="hint">{t('login.kybernowHint')}</span>
+      </div>
+    {/if}
 
     {#if configured}
       <details class="hint">
@@ -254,6 +277,21 @@
 
   .primary {
     height: 48px;
+    font-size: 15px;
+  }
+
+  .kybernow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .kybernow .or {
+    text-align: center;
+  }
+
+  .kybernow button {
+    height: 46px;
     font-size: 15px;
   }
 

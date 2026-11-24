@@ -244,7 +244,7 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
 /// compte de l'appareil hôte, secret de l'invité, ou code pour rejoindre
 /// (limité).
 fn is_public(path: &str) -> bool {
-    matches!(path, "/api/session" | "/api/login" | "/api/setup" | "/api/share")
+    matches!(path, "/api/session" | "/api/login" | "/api/login/kybernow" | "/api/setup" | "/api/share")
         || path.starts_with("/api/local/")
         || path.starts_with("/api/stream/")
         || path.starts_with("/api/share/")
