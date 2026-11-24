@@ -164,6 +164,8 @@ final class AccountStore: ObservableObject {
     /// Les ordinateurs du compte vus sur le réseau (Bonjour, même empreinte d'Admin) : leur adresse.
     private var seen: [UUID: Candidate] = [:]
     private var resolving: Set<String> = []
+    /// Les dernières annonces Bonjour : revues quand un ordinateur du compte arrive.
+    private var lastFound: [Discovery.Found] = []
     private var lastRefresh = Date.distantPast
     private var refreshing = false
     /// L'info d'un ordinateur du compte hors du réseau, demandée par le relais (2 min au plus).
@@ -190,14 +192,15 @@ final class AccountStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.sync() }
             .store(in: &bag)
-        // Au retour au premier plan : la liste de chaque compte relue.
+        // Au retour au premier plan : la liste de chaque compte relue (une fois
+        // par minute au plus : le Mac redevient actif à chaque clic dans l'app).
         #if os(macOS)
         let active = NSApplication.didBecomeActiveNotification
         #else
         let active = UIApplication.didBecomeActiveNotification
         #endif
         NotificationCenter.default.publisher(for: active)
-            .sink { [weak self] _ in Task { await self?.refreshAll(force: true) } }
+            .sink { [weak self] _ in Task { await self?.refreshAll() } }
             .store(in: &bag)
         Task { await refreshAll(force: true) }
     }
@@ -344,6 +347,8 @@ final class AccountStore: ObservableObject {
             }
         }
         if next != origins { origins = next }
+        // Un ordinateur du compte arrivé alors qu'il était déjà annoncé sur ce réseau.
+        if hosts.hosts.contains(where: { $0.account != nil && seen[$0.id] == nil }) { noteNetwork(lastFound) }
     }
 
     // MARK: Sur le réseau ou par le relais
@@ -356,6 +361,7 @@ final class AccountStore: ObservableObject {
     /// des ordinateurs du compte qui y sont, avec la même empreinte d'Admin.
     func noteNetwork(_ found: [Discovery.Found]) {
         guard !hosts.demo else { return }
+        lastFound = found
         let mine = hosts.hosts.filter { $0.account != nil }
         var still: Set<UUID> = []
         for h in mine {

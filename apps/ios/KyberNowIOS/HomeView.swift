@@ -594,7 +594,9 @@ struct HomeScreen: View {
             .frame(maxWidth: wide ? 620 : .infinity)
             .padding(.vertical, 4)
             .homeRise(revealed, 0.52)
-            HStack(spacing: 12) {
+            // iPhone : l'un sous l'autre (les deux libellés ne tiennent pas côte à côte).
+            let row = wide ? AnyLayout(HStackLayout(spacing: 12)) : AnyLayout(VStackLayout(spacing: 12))
+            row {
                 Button { app.sheet = .addHost(nil) } label: {
                     HStack(spacing: 10) {
                         Icon("plus", size: 18)
