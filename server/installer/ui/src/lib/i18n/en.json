@@ -413,5 +413,75 @@
       "note1": "The Mac's displays turn off faster when a session starts",
       "note2": "7.1 sound to the TV"
     }
+  },
+  "accountStep": {
+    "progress": "Installation · {percent}%",
+    "installed": "Installation complete",
+    "title": "Meanwhile: your KyberNow account",
+    "lead": "Attach this computer to your account to find it on all your devices, at home or away, and open it to other people.",
+    "signin": "Sign in",
+    "signinDetail": "I already have a KyberNow account.",
+    "signup": "Create an account",
+    "signupDetail": "Free: an email address and a password, or a passkey.",
+    "relayLabel": "Relay:",
+    "otherRelay": "Other relay…",
+    "laterNote": "You can also do it later in KyberNow Admin › KyberNow account.",
+    "later": "Later",
+    "back": "← Back",
+    "otherChoice": "← Other choice",
+    "retry": "Try again",
+    "connected": "Signed in: {who}",
+    "relay": {
+      "title": "Other relay",
+      "lead": "A relay installed at home or by your organization. It has its own accounts: your account on the KyberNow relay doesn't exist there.",
+      "address": "Relay address",
+      "hint": "Without a port, it's 443. A self-signed relay: add its fingerprint after #sha256:",
+      "checking": "Checking…",
+      "badAddress": "Unreadable address: host, host:port, optionally followed by #sha256:…",
+      "unreachable": "Relay unreachable ({reason}).",
+      "joined": "Relay reached · version {version} · {accounts}",
+      "accountsOn": "accounts on",
+      "accountsOff": "no accounts",
+      "noAccounts": "This relay has no accounts: the Station will use it for sharing and away-from-home access, without an account.",
+      "noAccountsUse": "The chosen relay has no accounts: the Station will use it for sharing and away-from-home access, without an account. To attach this computer to an account, choose another relay.",
+      "back": "Back to the KyberNow relay",
+      "use": "Use this relay"
+    },
+    "waiting": {
+      "title": "The relay page is coming",
+      "lead": "It opens here as soon as KyberNow Admin has started ({relay}). The installation goes on meanwhile."
+    },
+    "page": {
+      "external": "The relay page opened in your browser (self-signed relay). Sign in and confirm attaching: the installer will see it.",
+      "reopen": "Open the page again",
+      "simulation": "Simulation",
+      "simulationLead": "The page of {relay} shows here: sign in or sign up, then “Attach”.",
+      "simulationAttach": "Attach"
+    },
+    "failed": {
+      "title": "Attaching didn't go through",
+      "no_accounts": "This relay doesn't offer KyberNow accounts.",
+      "relay_unreachable": "The relay isn't answering: try again in a moment.",
+      "already_attached": "This computer is already attached to a KyberNow account: everything is set in KyberNow Admin › KyberNow account.",
+      "expired": "The relay page expired, or attaching was cancelled in KyberNow Admin.",
+      "admin_unreachable": "KyberNow Admin isn't answering: you can attach this computer later in Admin.",
+      "bad_relay": "Unreadable relay address.",
+      "no_relay": "No relay is set."
+    }
+  },
+  "accountDone": {
+    "lead": "It already appears in KyberNow Link on your devices signed in to {who}.",
+    "leadOrg": "It already appears in KyberNow Link for members of {who} who have the right.",
+    "attached": "Attached to your account",
+    "attachedOrg": "Attached to {name}",
+    "attachedDetail": "{who} · relay {relay}",
+    "accept": "KyberNow accounts accepted",
+    "acceptDetail": "People you add in the console open this computer.",
+    "acceptOff": "Off: turn it on in KyberNow Admin.",
+    "remote": "Away-from-home access on",
+    "remoteDetail": "Your devices open it through the relay when they're not on your network.",
+    "remoteOff": "Off: turn it on in KyberNow Admin › Away from home.",
+    "settings": "Everything is then set in KyberNow Admin › KyberNow account.",
+    "address": "On your network:"
   }
 }

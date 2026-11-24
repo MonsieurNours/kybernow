@@ -413,5 +413,75 @@
       "note1": "Écrans du Mac éteints plus vite en début de session",
       "note2": "Son 7.1 vers le téléviseur"
     }
+  },
+  "accountStep": {
+    "progress": "Installation · {percent} %",
+    "installed": "Installation terminée",
+    "title": "Pendant ce temps : votre compte KyberNow",
+    "lead": "Rattachez cet ordinateur à votre compte pour le retrouver sur tous vos appareils, de chez vous ou d'ailleurs, et l'ouvrir à d'autres personnes.",
+    "signin": "Se connecter",
+    "signinDetail": "J'ai déjà un compte KyberNow.",
+    "signup": "Créer un compte",
+    "signupDetail": "Gratuit : une adresse e-mail et un mot de passe, ou une passkey.",
+    "relayLabel": "Relais :",
+    "otherRelay": "Autre relais…",
+    "laterNote": "Vous pourrez aussi le faire plus tard dans KyberNow Admin › Compte KyberNow.",
+    "later": "Plus tard",
+    "back": "← Retour",
+    "otherChoice": "← Autre choix",
+    "retry": "Réessayer",
+    "connected": "Connecté : {who}",
+    "relay": {
+      "title": "Autre relais",
+      "lead": "Un relais installé chez vous ou par votre organisation. Ses comptes sont les siens : votre compte du relais KyberNow n'y existe pas.",
+      "address": "Adresse du relais",
+      "hint": "Sans port, c'est le 443. Un relais signé par lui-même : ajoutez son empreinte après #sha256:",
+      "checking": "Vérification…",
+      "badAddress": "Adresse illisible : hôte, hôte:port, éventuellement suivi de #sha256:…",
+      "unreachable": "Relais injoignable ({reason}).",
+      "joined": "Relais joint · version {version} · {accounts}",
+      "accountsOn": "comptes activés",
+      "accountsOff": "sans comptes",
+      "noAccounts": "Ce relais n'a pas de comptes : la Station l'utilisera pour le partage et l'accès hors de chez vous, sans compte.",
+      "noAccountsUse": "Le relais choisi n'a pas de comptes : la Station l'utilisera pour le partage et l'accès hors de chez vous, sans compte. Pour rattacher cet ordinateur à un compte, choisissez un autre relais.",
+      "back": "Revenir au relais KyberNow",
+      "use": "Utiliser ce relais"
+    },
+    "waiting": {
+      "title": "La page du relais arrive",
+      "lead": "Elle s'ouvre ici dès que KyberNow Admin a démarré ({relay}). L'installation continue en attendant."
+    },
+    "page": {
+      "external": "La page du relais s'est ouverte dans votre navigateur (relais signé par lui-même). Connectez-vous et confirmez le rattachement : l'installateur le verra.",
+      "reopen": "Rouvrir la page",
+      "simulation": "Simulation",
+      "simulationLead": "Ici s'affiche la page de {relay} : connexion ou inscription, puis « Rattacher ».",
+      "simulationAttach": "Rattacher"
+    },
+    "failed": {
+      "title": "Le rattachement n'a pas abouti",
+      "no_accounts": "Ce relais ne propose pas les comptes KyberNow.",
+      "relay_unreachable": "Le relais ne répond pas : réessayez dans un instant.",
+      "already_attached": "Cet ordinateur est déjà rattaché à un compte KyberNow : tout se règle dans KyberNow Admin › Compte KyberNow.",
+      "expired": "La page du relais a expiré, ou le rattachement a été annulé dans KyberNow Admin.",
+      "admin_unreachable": "KyberNow Admin ne répond pas : vous pourrez rattacher cet ordinateur plus tard dans Admin.",
+      "bad_relay": "Adresse de relais illisible.",
+      "no_relay": "Aucun relais n'est réglé."
+    }
+  },
+  "accountDone": {
+    "lead": "Il apparaît déjà dans KyberNow Link sur vos appareils connectés à {who}.",
+    "leadOrg": "Il apparaît déjà dans KyberNow Link pour les membres de {who} qui en ont le droit.",
+    "attached": "Rattaché à votre compte",
+    "attachedOrg": "Rattaché à {name}",
+    "attachedDetail": "{who} · relais {relay}",
+    "accept": "Comptes KyberNow acceptés",
+    "acceptDetail": "Les personnes que vous ajoutez dans la console ouvrent cet ordinateur.",
+    "acceptOff": "Coupé : à allumer dans KyberNow Admin.",
+    "remote": "Accès hors de chez vous activé",
+    "remoteDetail": "Vos appareils l'ouvrent par le relais quand ils ne sont pas sur votre réseau.",
+    "remoteOff": "Coupé : à allumer dans KyberNow Admin › Hors de chez vous.",
+    "settings": "Tout se règle ensuite dans KyberNow Admin › Compte KyberNow.",
+    "address": "Sur votre réseau :"
   }
 }

@@ -41,6 +41,11 @@ pub struct Existing {
     pub console_port: u16,
     /// `kyber_config.toml` et `kyber-admin.toml` présents : « Conserver » possible.
     pub settings: bool,
+    /// Déjà rattachée à un compte KyberNow (`[account] relay` de
+    /// `kyber-admin.toml`) : l'étape « Compte KyberNow » est sautée si l'on
+    /// garde les réglages.
+    #[serde(default)]
+    pub attached: bool,
 }
 
 /// Ce que l'installateur envoie à l'interface.

@@ -1,6 +1,8 @@
 <!-- Terminé : l'ordinateur est prêt ; KyberNow Admin sur le téléphone en un scan. -->
 <script lang="ts">
   import qrcode from 'qrcode-generator'
+  import AccountDone from '../lib/AccountDone.svelte'
+  import { account, doneLead } from '../lib/account.svelte'
   import { send } from '../lib/backend'
   import { t } from '../lib/i18n/index.svelte'
   import { app } from '../lib/state.svelte'
@@ -27,15 +29,23 @@
   }
 </script>
 
-<div class="done">
+<div class="done" class:compact={!!account.attached}>
   <div class="text">
     <span class="lbl ok kn-enter"><span class="dot"></span>{t('done.label')}</span>
     <h1 class="title kn-enter kn-d1">{t('done.title')}</h1>
-    <p class="lead kn-enter kn-d2">
-      {t('done.lead')}
-      <span class="mono addr">{ip}</span>
-    </p>
-    <p class="note kn-enter kn-d3">
+    {#if account.attached}
+      <p class="lead kn-enter kn-d2">
+        {doneLead(account.attached)}
+        {t('accountDone.address')}
+        <span class="mono addr">{ip}</span>
+      </p>
+    {:else}
+      <p class="lead kn-enter kn-d2">
+        {t('done.lead')}
+        <span class="mono addr">{ip}</span>
+      </p>
+    {/if}
+    <p class="note kn-enter kn-d3" class:hidden={!!account.attached}>
       {t('done.noAppBefore')}
       <button type="button" class="text-button mono small" onclick={() => send({ cmd: 'openUrl', url: `${consoleUrl}/link` })}>{consoleUrl}/link</button>
       {t('done.noAppAfter')}
@@ -53,6 +63,10 @@
     <strong>{t('done.phone')}</strong>
     <span class="note">{t('done.phoneNote')}</span>
   </div>
+
+  {#if account.attached}
+    <div class="account kn-enter kn-d3"><AccountDone attached={account.attached} columns /></div>
+  {/if}
 </div>
 
 <div class="footer">
@@ -80,6 +94,43 @@
 
   .text h1 {
     font-size: 42px;
+  }
+
+  /* Rattachée pendant l'installation : les accès allumés tiennent sous le texte et le QR code. */
+  .done.compact {
+    padding-top: 20px;
+    gap: 20px 44px;
+    overflow-y: auto;
+  }
+
+  .compact .text {
+    gap: 12px;
+  }
+
+  .compact .text h1 {
+    font-size: 34px;
+  }
+
+  .compact .phone {
+    padding: 16px;
+    gap: 10px;
+  }
+
+  .compact .qr {
+    width: 112px;
+    height: 112px;
+  }
+
+  .account {
+    grid-column: 1 / -1;
+  }
+
+  .account :global(.checks) {
+    max-width: none;
+  }
+
+  .hidden {
+    display: none;
   }
 
   .lbl.ok {

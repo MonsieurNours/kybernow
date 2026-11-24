@@ -2,6 +2,7 @@
 // (voir bridge.ts). Un seul état pour les quatre fenêtres : installation,
 // mise à jour, désinstallation et autorisations.
 
+import { account, accountResolved, bindAccount, handleAccount } from '../lib/account.svelte'
 import { t } from '../lib/i18n/index.svelte'
 import { mode, onEvent, send, type CheckStatus, type Existing, type MacEvent, type Permissions, type TaskStatus, type UpdateInfo } from './bridge'
 
@@ -110,8 +111,8 @@ function handle(event: MacEvent) {
       app.result = { lanIp: event.lanIp, streamPort: event.streamPort, consolePort: event.consolePort }
       app.installing = false
       app.percent = 100
-      // Les autorisations se donnent à l'app installée : étape suivante.
-      setTimeout(() => go('permissions'), 700)
+      // Les autorisations se donnent à l'app installée : étape suivante (après l'étape « Compte KyberNow »).
+      if (accountResolved()) setTimeout(() => go('permissions'), 700)
       break
     case 'permissions':
       app.permissions = { screen: event.screen, accessibility: event.accessibility, microphone: event.microphone }
@@ -142,11 +143,14 @@ function handle(event: MacEvent) {
       app.uninstall.phase = 'failed'
       app.uninstall.error = event.message
       break
+    default:
+      handleAccount(event)
   }
 }
 
 export function startBackend() {
   onEvent(handle)
+  bindAccount(send)
   if (mode === 'install') send({ cmd: 'runChecks' })
   else if (mode === 'update') send({ cmd: 'updateCheck' })
 }
@@ -191,6 +195,8 @@ export function startInstall() {
   app.log = []
   app.tasks = Object.fromEntries(TASK_ORDER.map((id) => [id, 'pending']))
   app.screen = 'install'
+  // « Compte KyberNow » pendant l'installation, sauf pour une Station déjà rattachée qu'on réinstalle.
+  account.wanted = !(keep && app.existing?.attached)
   send({
     cmd: 'install',
     user: keep ? '' : app.user.trim(),

@@ -1,7 +1,9 @@
 <!-- Étape 4 · Installation : les tâches défilent, la dernière ligne du journal en bas. -->
 <script lang="ts">
+  import AccountStep from '../../lib/AccountStep.svelte'
+  import { accountResolved } from '../../lib/account.svelte'
   import { t } from '../../lib/i18n/index.svelte'
-  import { send } from '../bridge'
+  import { isNative, send } from '../bridge'
   import Glyph from '../Glyph.svelte'
   import { app, go, TASK_ORDER } from '../state.svelte'
 
@@ -17,6 +19,15 @@
     if (showLog && app.log.length && logBox) logBox.scrollTop = logBox.scrollHeight
   })
 
+  // « Compte KyberNow » pendant l'installation (facultatif) ; les autorisations viennent après.
+  const accountStep = $derived(!failed && !accountResolved())
+  $effect(() => {
+    if (app.result && !failed && accountResolved() && app.screen === 'install') {
+      const timer = setTimeout(() => go('permissions'), 700)
+      return () => clearTimeout(timer)
+    }
+  })
+
   function statusText(id: string): string {
     const s = app.tasks[id]
     if (s === 'pending') return id === 'admin' ? t('mac.install.port', { port: app.ports.console }) : t('mac.install.coming')
@@ -24,6 +35,9 @@
   }
 </script>
 
+{#if accountStep}
+<AccountStep percent={app.percent} lastLine={last ? `› ${last}` : ''} native={isNative} openUrl={(url) => send({ cmd: 'openUrl', url })} />
+{:else}
 <div class="install">
   <span class="lbl-m kn-enter" class:bad={failed}>
     {failed ? t('mac.install.labelFailed') : t('mac.install.label', { percent: Math.round(app.percent) })}
@@ -65,6 +79,8 @@
     </span>
   {/if}
 </div>
+
+{/if}
 
 <style>
   .install {

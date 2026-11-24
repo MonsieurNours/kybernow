@@ -1,5 +1,6 @@
 // État de l'installation, alimenté par les événements de l'installateur.
 
+import { account, bindAccount, handleAccount } from './account.svelte'
 import { t } from './i18n/index.svelte'
 import { onEvent, send, type BackendEvent, type CheckStatus, type Existing, type TaskStatus } from './backend'
 
@@ -105,11 +106,14 @@ function handle(event: BackendEvent) {
       app.installing = false
       app.percent = 100
       break
+    default:
+      handleAccount(event)
   }
 }
 
 export function startBackend() {
   onEvent(handle)
+  bindAccount(send)
   // L'analyse ne modifie rien : elle commence dès l'ouverture, pendant la bienvenue.
   if (!app.checksStarted) {
     app.checksStarted = true
@@ -159,6 +163,8 @@ export function startInstall() {
   app.log = []
   app.tasks = Object.fromEntries(TASK_ORDER.map((id) => [id, 'pending']))
   app.screen = 'install'
+  // « Compte KyberNow » pendant l'installation, sauf pour une Station déjà rattachée qu'on réinstalle.
+  account.wanted = !(keep && app.existing?.attached)
   send({
     cmd: 'install',
     user: keep ? '' : app.user.trim(),

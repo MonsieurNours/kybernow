@@ -3,7 +3,10 @@
   symbole, dans la colonne, se remplit avec la progression.
 -->
 <script lang="ts">
+  import AccountStep from '../lib/AccountStep.svelte'
   import StatusIcon from '../lib/StatusIcon.svelte'
+  import { account, accountResolved } from '../lib/account.svelte'
+  import { isNative, send } from '../lib/backend'
   import { t } from '../lib/i18n/index.svelte'
   import { app, go, startInstall, TASK_ORDER } from '../lib/state.svelte'
 
@@ -36,8 +39,14 @@
     void app.log.length
     if (logBox) logBox.scrollTop = logBox.scrollHeight
   })
+
+  // « Compte KyberNow » pendant l'installation (facultatif), à la place de la liste des tâches.
+  const accountStep = $derived(!app.failure && !accountResolved())
 </script>
 
+{#if accountStep}
+<AccountStep percent={app.percent} {lastLine} native={isNative} openUrl={(url) => send({ cmd: 'openUrl', url })} />
+{:else}
 <div class="install">
   <div class="head">
     <span class="lbl signal">
@@ -51,6 +60,12 @@
           ? t('install.leadDone')
           : t('install.leadRunning')}
     </p>
+    {#if account.attached}
+      <span class="attached">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+        {t('accountStep.connected', { who: account.attached.email ?? account.attached.owner })}
+      </span>
+    {/if}
   </div>
 
   {#if showLog || app.failure}
@@ -91,6 +106,7 @@
     <button type="button" class="ghost" onclick={() => (showLog = !showLog)}>{showLog ? t('install.hideLog') : t('install.showLog')}</button>
   {/if}
 </div>
+{/if}
 
 <style>
   .install {
@@ -227,6 +243,14 @@
     white-space: nowrap;
     min-width: 0;
     flex: 0 1 auto;
+  }
+
+  .attached {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--ok-text);
   }
 
   .remaining {

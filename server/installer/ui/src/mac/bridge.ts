@@ -4,6 +4,7 @@
 // simulation joue le rôle du Mac (?mac, &mode=update|uninstall|permissions,
 // &existant pour une réinstallation).
 
+import { simulateAccount, type AccountCommand, type AccountEvent } from '../lib/account.svelte'
 import { t } from '../lib/i18n/index.svelte'
 
 export type CheckStatus = 'running' | 'ok' | 'warn' | 'error' | 'info'
@@ -17,6 +18,8 @@ export interface Existing {
   streamPort: number
   consolePort: number
   settings: boolean
+  /** Déjà rattachée à un compte KyberNow. */
+  attached?: boolean
 }
 
 export interface Permissions {
@@ -60,6 +63,7 @@ export type MacEvent =
   | { type: 'updateFailed'; message: string }
   | { type: 'uninstallDone' }
   | { type: 'uninstallFailed'; message: string }
+  | AccountEvent
 
 export interface InstallRequest {
   user: string
@@ -89,6 +93,7 @@ export type MacCommand =
   | { cmd: 'copy'; text: string }
   | { cmd: 'drag' }
   | { cmd: 'close' }
+  | AccountCommand
 
 declare global {
   interface Window {
@@ -125,12 +130,13 @@ export function send(command: MacCommand) {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const emit = (event: MacEvent) => listener(event)
-const sim = { permissions: { screen: true, accessibility: false, microphone: 'undetermined' as Mic }, watching: 0 }
+const sim = { permissions: { screen: true, accessibility: false, microphone: 'undetermined' as Mic }, watching: 0, adminReady: false, adminWaiters: [] as (() => void)[] }
+const adminReady = () => (sim.adminReady ? Promise.resolve() : new Promise<void>((r) => sim.adminWaiters.push(r)))
 
 async function simulate(command: MacCommand) {
   switch (command.cmd) {
     case 'runChecks': {
-      const existing = params.has('existant') ? { version: '0.9.4', streamPort: 23456, consolePort: 34567, settings: true } : null
+      const existing = params.has('existant') ? { version: '0.9.4', streamPort: 23456, consolePort: 34567, settings: true, attached: params.has('rattachee') } : null
       const items: [string, CheckStatus, string][] = [
         ['chip', 'ok', t('mac.simulation.chip')],
         ['macos', 'ok', t('mac.simulation.macos')],
@@ -177,6 +183,11 @@ async function simulate(command: MacCommand) {
         }
         last = target
         emit({ type: 'task', id, status: 'done' })
+        if (id === 'admin') {
+          sim.adminReady = true
+          sim.adminWaiters.forEach((r) => r())
+          sim.adminWaiters = []
+        }
       }
       emit({ type: 'done', lanIp: '192.168.1.105', streamPort: command.streamPort, consolePort: command.consolePort })
       break
@@ -225,6 +236,10 @@ async function simulate(command: MacCommand) {
       break
     case 'copy':
       void navigator.clipboard?.writeText(command.text)
+      break
+    case 'relayProbe':
+    case 'accountStart':
+      simulateAccount(command, emit, adminReady)
       break
     default:
       break

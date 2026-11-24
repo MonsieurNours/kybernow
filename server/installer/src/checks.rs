@@ -162,7 +162,24 @@ pub fn existing_kybernow() -> Option<Existing> {
         stream_port: kyber_config.as_deref().and_then(kyber_port).unwrap_or(record.stream_port),
         console_port: admin.as_deref().and_then(console_port).unwrap_or(record.console_port),
         settings: kyber_config.is_some() && admin.is_some(),
+        attached: admin.as_deref().is_some_and(account_attached),
     })
+}
+
+/// `kyber-admin.toml` porte un rattachement : `relay` dans la table `[account]`.
+pub fn account_attached(toml: &str) -> bool {
+    let mut section = "";
+    for line in toml.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.split(']').next()) {
+            section = name.trim();
+        } else if section == "account"
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "relay"
+        {
+            return value.trim().trim_matches('"').trim() != "";
+        }
+    }
+    false
 }
 
 /// `port` de la table `[kycontroller]` de `kyber_config.toml`.
@@ -488,5 +505,13 @@ mod tests {
         ]"#;
         assert!(best_gpu(parse_video_controllers(json)).is_none());
         assert!(parse_video_controllers("").is_empty());
+    }
+
+    #[test]
+    fn station_deja_rattachee() {
+        assert!(account_attached("listen = \"0.0.0.0:9443\"\n[account]\nrelay = \"share.kybernow.app\"\naccept = true\n"));
+        assert!(!account_attached("[relay]\nserver = \"share.kybernow.app\"\n[account]\naccept = false\n"));
+        assert!(!account_attached("[account]\nrelay = \"\"\n"));
+        assert!(!account_attached(""));
     }
 }
