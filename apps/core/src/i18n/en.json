@@ -15,6 +15,7 @@
     "network": "no wake-up packet could be sent ({error})"
   },
   "session": {
+    "account_no_kyber_token": "This Station doesn't give tokens to KyberNow accounts yet: update it.",
     "internal": "internal session error",
     "no_image": "the computer is not sending a picture (its encoder is not responding: see its log in Admin, System › Logs)",
     "unauthorized": "the computer's Kyber server does not recognise this device's account yet: in Admin, restart the Station (System), then try again",

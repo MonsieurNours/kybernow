@@ -33,6 +33,7 @@ use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareS
 use kybernow_core::wake;
 use kybernow_core::{Display, WindowHandle};
 
+pub mod account;
 pub mod audio;
 pub mod input;
 pub mod invite;
@@ -195,6 +196,9 @@ fn failure(e: ConsoleError, error: *mut *mut c_char) -> i32 {
         ConsoleError::CertificateChanged { .. } => KN_CERTIFICATE_CHANGED,
         // 30, 31, 32 (`RelayError::code`).
         ConsoleError::Relay(r) => r.code(),
+        // Un ordinateur d'un compte KyberNow sans jeton d'accès : 70 et
+        // suivants (`account::KN_ACCOUNT_*`).
+        ConsoleError::Account(a) => a.code(),
         _ => KN_ERROR,
     };
     give_to(error, e.to_string());

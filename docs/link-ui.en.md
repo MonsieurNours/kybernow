@@ -375,6 +375,41 @@ Contract: [invitations.en.md](invitations.en.md). All Link apps and Admin, same 
 | Admin, list | « {nom} » ; dessous « Code 123 456 · jusqu'au {date} · {n} / 5 appareils » et les noms des appareils ; « Nouveau mot de passe » ; « Supprimer », confirmé par « Supprimer l'invitation « {nom} » ? Les appareils qu'elle a ajoutés perdent leur accès. » | “{name}”; below “Code 123 456 · until {date} · {n} / 5 devices” and the devices' names; “New password”; “Delete”, confirmed by “Delete the invitation “{name}”? The devices it added lose their access.” |
 | Admin, device added by an invitation | « Invitation « {nom} » » sous son nom | “Invitation “{name}”” under its name |
 
+## KyberNow accounts
+
+Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row of https://claude.ai/artifact/RSTsS6BYAt9SN9GEMEgiuc. Every Link app; errors and badges come from the core (`account`), other texts from each app's catalogs. The app neither creates nor deletes accounts (App Store, guideline 5.1.1(v)): it points to the account's page.
+
+| Element | English | Français |
+|---|---|---|
+| Home with no computer, title | “Find your computers” | « Retrouvez vos ordinateurs » |
+| Home with no computer, text | “With a KyberNow account, your computers and the ones opened to you show up here, wherever you are.” | « Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez. » |
+| Main button | “Sign in to a KyberNow account” | « Se connecter à un compte KyberNow » |
+| Help under the button, system window (iPhone, iPad, Mac, Windows, desktop Linux, Android) | “The relay's page opens: password, passkey or two-factor authentication happen there, never in the app. No account yet: “Create an account” on that page.” | « La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page. » |
+| Help under the button, code (Apple TV, Android TV, LG TVs, living room, Deck) | “A code appears: you approve it from your phone.” | « Un code s'affiche : vous l'approuvez depuis votre téléphone. » |
+| Separator, then the usual buttons | “or without an account”; “Add a computer”, “Join with a code” | « ou sans compte » ; « Ajouter un ordinateur », « Rejoindre avec un code » |
+| System window, meanwhile | “Signing in…” | « Connexion au compte… » |
+| Success | brief notice “Signed in to {account}.” ({account}: the name, otherwise the e-mail); the account's computers arrive on the home screen | « Connecté à {compte}. » |
+| “Cancel” on the relay's page, window closed | nothing: the home screen stays as it is | rien |
+| Code, title | “Sign in to a KyberNow account” | « Se connecter à un compte KyberNow » |
+| Code, steps | “Scan the QR code with your phone,”, “or open {address} and enter the code,”, “then tap “Connect”.” ({address}: `share.kybernow.app/tv`) | « Scannez le QR code avec votre téléphone, », « ou ouvrez {adresse} et entrez le code, », « puis touchez « Connecter ». » |
+| Code, the code | “KQ7M-4XPA”, monospaced, large; QR code of the page with the code, labelled “QR code to sign in” | « QR code de connexion » |
+| Code, waiting | spinner, “Waiting for your phone… The code changes in {n} min.”; expired: a new code appears by itself | « En attente de votre téléphone… Le code change dans {n} min. » |
+| Code, relay | “Relay: {relay}”; “Another relay…”; “Back” | « Relais : {relais} » ; « Un autre relais… » ; « Retour » |
+| Code declined on the phone | “Sign-in declined on the phone.”, and “New code” | « Connexion refusée sur le téléphone. », et « Nouveau code » |
+| Another relay | title “Another relay”; field “Relay” (e.g. `relais.exemple.org:9443`), help “Your account's relay address, if it isn't share.kybernow.app.”; “Continue”, “Cancel”; refusals: “Unreadable relay address.”, “This relay has no KyberNow accounts.”, “The relay is not answering.” | « Un autre relais » ; « Relais », aide « L'adresse du relais de votre compte, si ce n'est pas share.kybernow.app. » ; « Continuer », « Annuler » ; « Adresse du relais illisible. », « Ce relais n'a pas de comptes KyberNow. », « Le relais ne répond pas. » |
+| Origin badge (computer cards and list, only when an account is signed in) | “Account”; with accounts on several relays: “Account · {relay}”; an organization's computer: its name (“Les Lignes Claires”); opened by someone else: “Opened by {name}”; paired on this device: “Paired” | « Compte » ; « Compte · {relais} » ; le nom de l'organisation ; « Ouvert par {prénom} » ; « Appairé » |
+| One computer once | a computer both paired and on an account (same Admin fingerprint, or same Station at the relay) shows only once: the paired one, with the account's badge; a computer on two accounts, once | un ordinateur une seule fois |
+| Account computer, state | like the others: “Online”, “Offline”, “Away from home”; “Connect” opens the session without pairing, on the network if it is there, otherwise through the relay | comme les autres |
+| Account computer, refusal | “This computer is no longer on your account.” (it leaves the home screen); otherwise: Admin's text (accounts turned off, device blocked, missing right) | « Cet ordinateur n'est plus sur votre compte. » |
+| Device session closed (from the account's page, new password) | “This account was signed out of this device: sign in again.”; its computers leave the home screen | « Ce compte a été déconnecté de cet appareil : reconnectez-vous. » |
+| App settings, section | “Accounts”; help “Create an account, change its password or delete it: on the account's page.” | « Comptes » ; aide « Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte. » |
+| One account | name, e-mail below, relay (“share.kybernow.app”); “Manage account” opens `https://{relay}/compte`; “Sign out” | « Gérer le compte » ; « Se déconnecter » |
+| Sign out, confirmation | “Sign out of {account}? Its computers leave this device; the ones you paired stay.”; “Sign out”, “Cancel” | « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent. » |
+| Add | “Add an account”: the relay first (“share.kybernow.app” offered, “Another relay…”), then sign-in | « Ajouter un compte » |
+| No account | “No account.” and “Sign in to a KyberNow account” | « Aucun compte. » |
+| Station too old | “This Station doesn't give tokens to KyberNow accounts yet: update it.” | « Cette Station ne donne pas encore de jeton aux comptes KyberNow : mettez-la à jour. » |
+| Other relay refusals | “Sign-in didn't go through: try again.” (return refused); “This code is no longer valid: a new one is shown.”; “Too many attempts: try again in {n} min.”; “Unexpected answer from the relay ({error}).” | « La connexion n'a pas abouti : réessayez. » ; « Ce code ne sert plus : un nouveau s'affiche. » ; « Trop d'essais : réessayez dans {n} min. » ; « Réponse inattendue du relais ({erreur}). » |
+
 ## Away from home (relay)
 
 Contract: [relais.en.md](relais.en.md). Through the relay, a session looks like a session on the network; only these texts change.

@@ -844,6 +844,13 @@ pub struct AccessParams {
     pub station: String,
 }
 
+impl AccessParams {
+    /// Pour ouvrir cet ordinateur du compte.
+    pub fn new(account: &Account, computer: &AccountComputer) -> Self {
+        Self { account: account.clone(), station: computer.station.clone() }
+    }
+}
+
 struct Cached {
     token: String,
     at: Instant,

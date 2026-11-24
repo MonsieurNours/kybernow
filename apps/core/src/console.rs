@@ -6,7 +6,10 @@
 //! (ConsoleClientCore.swift).
 //!
 //! Compte : Basic, le même que pour Kyber ; aucun pour un invité de KyberNow
-//! Share ([`Console::guest`], son jeton dans `x-kybernow-guest`). Certificat :
+//! Share ([`Console::guest`], son jeton dans `x-kybernow-guest`) ; pour un
+//! ordinateur d'un compte KyberNow ([`Console::account`], docs/comptes.md), le
+//! jeton d'accès du relais (`Authorization: KyberNow <jeton>`), redemandé
+//! toutes les 4 minutes et après un refus `401 token_expired`. Certificat :
 //! auto-signé, épinglé par son empreinte (`sha256:aa:bb:…`, SHA-256 du
 //! certificat DER).
 
@@ -36,6 +39,9 @@ pub enum ConsoleError {
     Relay(crate::relay::RelayError),
     Network(String),
     Invalid(String),
+    /// Un ordinateur d'un compte KyberNow : pas de jeton d'accès du relais
+    /// (session de l'appareil fermée, ordinateur retiré du compte, relais muet).
+    Account(crate::account::AccountError),
 }
 
 impl ConsoleError {
@@ -48,6 +54,7 @@ impl ConsoleError {
             Self::Relay(e) => e.text(lang, None),
             Self::Network(e) => tr(lang, "console.network", &[("error", e)]),
             Self::Invalid(e) => tr(lang, "console.invalid", &[("error", e)]),
+            Self::Account(e) => e.text(lang),
         }
     }
 }
@@ -536,6 +543,22 @@ pub struct Prepared {
     /// Le HDR obtenu pour chaque écran, dans l'ordre de `screens` (un seul
     /// élément pour un écran). Absent (Station d'avant le HDR) : SDR partout.
     pub hdr: Vec<bool>,
+    /// Un compte KyberNow (docs/comptes.md) : le jeton de Kyber (5 minutes)
+    /// sous le compte `kn-account-…`, à la place du compte Basic.
+    pub kyber_token: Option<KyberToken>,
+}
+
+/// Un jeton de Kyber donné par Admin à un compte KyberNow (`prepare`, puis
+/// chaque signe de vie).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KyberToken {
+    pub token: String,
+    /// Le compte Kyber du jeton (`kn-account-…`).
+    #[serde(default)]
+    pub user: String,
+    /// Durée de vie, en secondes.
+    #[serde(default)]
+    pub expires: u64,
 }
 
 #[derive(Deserialize)]
@@ -553,6 +576,8 @@ struct PreparedWire {
     screens: Option<Vec<Option<ScreenMode>>>,
     #[serde(default)]
     hdr: Option<Vec<bool>>,
+    #[serde(default)]
+    kyber_token: Option<KyberToken>,
 }
 
 #[derive(Deserialize)]
@@ -575,6 +600,7 @@ impl PreparedWire {
             kyber_fingerprint: self.kyber_fingerprint.filter(|s| !s.is_empty()),
             screens: self.screens.map(|list| list.into_iter().map(|m| m.filter(usable)).collect()),
             hdr: self.hdr.unwrap_or_default(),
+            kyber_token: self.kyber_token.filter(|t| !t.token.is_empty()),
         }
     }
 }
@@ -608,6 +634,9 @@ pub struct HeartbeatReply {
     /// rien à dire (ni code, ni demande, ni prêt).
     #[serde(default, deserialize_with = "crate::lend::lenient_view")]
     pub lend: Option<crate::lend::LendView>,
+    /// Un compte KyberNow : un jeton de Kyber neuf, pour ses reconnexions.
+    #[serde(default)]
+    pub kyber_token: Option<KyberToken>,
 }
 
 /// Réponse de `GET /api/stream/foreground`.
@@ -645,11 +674,27 @@ pub enum PairStatus {
     Accepted { username: String, password: String },
 }
 
+/// Le compte d'une console.
+#[derive(Clone)]
+enum Auth {
+    /// Invité de KyberNow Share, sans compte.
+    None,
+    /// `Basic …` : le compte Kyber de l'appareil.
+    Fixed(String),
+    /// Un compte KyberNow : le jeton d'accès du relais pour cette Station.
+    Account(Arc<crate::account::StationAccess>),
+}
+
 pub struct Console {
     base: String,
     host: String,
-    /// `None` : invité de KyberNow Share, sans compte.
-    authorization: Option<String>,
+    authorization: Auth,
+    /// Le jeton d'accès qui n'a pas pu être demandé au relais (rendu par
+    /// l'appel qui échoue, comme l'erreur du tunnel).
+    account_error: Mutex<Option<crate::account::AccountError>>,
+    /// Admin vient de refuser le jeton d'accès (`token_expired`, `bad_token`) :
+    /// l'appel est refait une fois avec un jeton neuf.
+    token_refused: std::sync::atomic::AtomicBool,
     agent: ureq::Agent,
     seen: Arc<Mutex<Option<String>>>,
     /// Par le relais ([`Self::with_relay`]) : Admin par le tunnel.
@@ -681,16 +726,32 @@ impl Console {
     /// accepté (lisible ensuite par `fingerprint_seen`).
     pub fn new(host: &str, port: u16, user: &str, password: &str, pinned: Option<String>) -> Self {
         let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
-        Self::build(host, port, Some(format!("Basic {token}")), pinned)
+        Self::build(host, port, Auth::Fixed(format!("Basic {token}")), pinned)
+    }
+
+    /// Un ordinateur d'un compte KyberNow (docs/comptes.md) : chaque appel
+    /// porte le jeton d'accès du relais (`Authorization: KyberNow <jeton>`),
+    /// sur le réseau comme par le relais ([`Self::with_relay`]) ; `pinned`
+    /// comme pour [`Self::new`] (l'empreinte que donne `/v1/computers`).
+    pub fn account(host: &str, port: u16, access: Arc<crate::account::StationAccess>, pinned: Option<String>) -> Self {
+        Self::build(host, port, Auth::Account(access), pinned)
+    }
+
+    /// Le compte KyberNow de cette console, s'il y en a un.
+    pub fn station_access(&self) -> Option<&Arc<crate::account::StationAccess>> {
+        match &self.authorization {
+            Auth::Account(a) => Some(a),
+            _ => None,
+        }
     }
 
     /// Sans compte, pour un invité de KyberNow Share (`share_join`,
     /// `share_beat`, `share_leave`) ; `pinned` comme pour [`Self::new`].
     pub fn guest(host: &str, port: u16, pinned: Option<String>) -> Self {
-        Self::build(host, port, None, pinned)
+        Self::build(host, port, Auth::None, pinned)
     }
 
-    fn build(host: &str, port: u16, authorization: Option<String>, pinned: Option<String>) -> Self {
+    fn build(host: &str, port: u16, authorization: Auth, pinned: Option<String>) -> Self {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let seen = Arc::new(Mutex::new(None));
         let verifier = PinVerifier {
@@ -712,6 +773,8 @@ impl Console {
             base: base_url(host, port),
             host: host.to_string(),
             authorization,
+            account_error: Mutex::new(None),
+            token_refused: std::sync::atomic::AtomicBool::new(false),
             agent,
             seen,
             relay: None,
@@ -725,7 +788,7 @@ impl Console {
     /// l'adresse de l'ordinateur sur son réseau (`admin_url`).
     pub fn with_relay(self, route: Option<crate::relay::RelayRoute>) -> Self {
         let Some(route) = route else { return self };
-        let mut c = Self::build(&self.host, 0, self.authorization, Some(route.admin_fp.clone()));
+        let mut c = Self::build(&self.host, 0, self.authorization.clone(), Some(route.admin_fp.clone()));
         c.base = self.base;
         c.relay = Some(RelayLink { route, tunnel: Mutex::new(None), error: Mutex::new(None) });
         c
@@ -788,6 +851,29 @@ impl Console {
     }
 
     pub(crate) fn request(&self, method: &str, path: &str, timeout: Duration) -> ureq::Request {
+        self.request_with(method, path, timeout, false)
+    }
+
+    /// `single_use` : pour un compte KyberNow, un jeton d'accès à part, que
+    /// Admin consomme (redémarrer, mettre à jour la Station).
+    fn request_with(&self, method: &str, path: &str, timeout: Duration, single_use: bool) -> ureq::Request {
+        let authorization = match &self.authorization {
+            Auth::None => None,
+            Auth::Fixed(a) => Some(a.clone()),
+            Auth::Account(access) => {
+                let token = if single_use { access.single_use() } else { access.token() };
+                match token {
+                    Ok(t) => Some(format!("KyberNow {t}")),
+                    Err(e) => {
+                        *self.account_error.lock().unwrap() = Some(e);
+                        // Pas de jeton : l'appel échoue tout de suite (port fermé de
+                        // la boucle locale) et rend la raison gardée (`read`).
+                        let r = self.agent.request(method, &format!("https://127.0.0.1:1/{path}")).timeout(timeout);
+                        return r;
+                    }
+                }
+            }
+        };
         let r = self
             .agent
             .request(method, &self.url(path))
@@ -795,18 +881,47 @@ impl Console {
             .set("x-kyber-admin", "1")
             // La console répond dans la langue de l'app (messages d'erreur, refus).
             .set("Accept-Language", i18n::current().code());
-        match &self.authorization {
-            Some(a) => r.set("Authorization", a),
+        match authorization {
+            Some(a) => r.set("Authorization", &a),
             None => r,
         }
+    }
+
+    /// Un refus d'Admin : pour un compte KyberNow, un jeton refusé
+    /// (`401 token_expired` ou `bad_token`) fait demander un jeton neuf.
+    fn refused(&self, status: u16, body: Option<serde_json::Value>) -> ConsoleError {
+        if status == 401
+            && let Auth::Account(access) = &self.authorization
+            && matches!(body.as_ref().and_then(|v| v.get("code")).and_then(|c| c.as_str()), Some("token_expired" | "bad_token"))
+        {
+            log::info!("comptes : jeton d'accès refusé par Admin, un neuf est demandé");
+            access.invalidate();
+            self.token_refused.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        http_error(status, body)
+    }
+
+    /// Fait l'appel ; refait une fois si Admin a refusé le jeton d'accès
+    /// (échu : l'appareil a dormi, son horloge a sauté). Rien n'a été fait
+    /// sur la Station : le jeton est vérifié avant tout.
+    fn with_fresh_token<T>(&self, call: impl Fn() -> Result<T>) -> Result<T> {
+        self.token_refused.store(false, std::sync::atomic::Ordering::Relaxed);
+        let r = call();
+        if r.is_err() && self.token_refused.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            return call();
+        }
+        r
     }
 
     pub(crate) fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
         match r {
             Ok(resp) => resp.into_json().map_err(|e| ConsoleError::Invalid(e.to_string())),
-            Err(ureq::Error::Status(status, resp)) => Err(http_error(status, resp.into_json::<serde_json::Value>().ok())),
+            Err(ureq::Error::Status(status, resp)) => Err(self.refused(status, resp.into_json::<serde_json::Value>().ok())),
             Err(ureq::Error::Transport(t)) => {
                 let text = t.to_string();
+                if let Some(e) = self.account_error.lock().unwrap().take() {
+                    return Err(ConsoleError::Account(e));
+                }
                 if let Some(e) = self.relay.as_ref().and_then(|l| l.error.lock().unwrap().take()) {
                     return Err(ConsoleError::Relay(e));
                 }
@@ -834,15 +949,17 @@ impl Console {
 
     /// [`Self::info`] avec un autre délai (`Route::Auto` : 1,5 s en direct).
     pub fn info_within(&self, timeout: Duration) -> Result<Info> {
-        let r = self.request("GET", "api/stream/info", timeout).call();
-        self.read(r)
+        self.with_fresh_token(|| {
+            let r = self.request("GET", "api/stream/info", timeout).call();
+            self.read(r)
+        })
     }
 
     pub fn prepare(&self, req: &PrepareRequest) -> Result<Prepared> {
-        let r = self
-            .request("POST", "api/stream/prepare", Duration::from_secs(40))
-            .send_json(req);
-        let w: PreparedWire = self.read(r)?;
+        let w: PreparedWire = self.with_fresh_token(|| {
+            let r = self.request("POST", "api/stream/prepare", Duration::from_secs(40)).send_json(req);
+            self.read(r)
+        })?;
         Ok(w.prepared())
     }
 
@@ -863,26 +980,28 @@ impl Console {
             #[serde(default)]
             hdr: Vec<bool>,
         }
-        let r = self
-            .request("POST", "api/stream/hdr", Duration::from_secs(10))
-            .send_json(Req { device_id, hdr, luminance });
-        let w: Resp = self.read(r)?;
+        let w: Resp = self.with_fresh_token(|| {
+            let r = self.request("POST", "api/stream/hdr", Duration::from_secs(10)).send_json(Req { device_id, hdr, luminance });
+            self.read(r)
+        })?;
         Ok(w.hdr)
     }
 
     pub fn heartbeat(&self, hb: &Heartbeat) -> Result<HeartbeatReply> {
-        let r = self
-            .request("POST", "api/stream/heartbeat", Duration::from_secs(20))
-            .send_json(hb);
-        self.read(r)
+        self.with_fresh_token(|| {
+            let r = self.request("POST", "api/stream/heartbeat", Duration::from_secs(20)).send_json(hb);
+            self.read(r)
+        })
     }
 
     /// `GET /api/consoles` : les consoles PlayStation que voit cette Station
     /// sur son réseau (docs/relais.md, « Consoles PlayStation »), jamais leur
     /// adresse. `404` : Station d'avant les consoles.
     pub fn consoles(&self) -> Result<Vec<StationConsole>> {
-        let r = self.request("GET", "api/consoles", Duration::from_secs(6)).call();
-        self.read::<ConsoleList>(r).map(|l| l.consoles)
+        self.with_fresh_token(|| {
+            let r = self.request("GET", "api/consoles", Duration::from_secs(6)).call();
+            self.read::<ConsoleList>(r).map(|l| l.consoles)
+        })
     }
 
     /// `POST /api/consoles/beat` : par le relais, ce client joint les consoles
@@ -894,10 +1013,10 @@ impl Console {
     }
 
     pub fn foreground(&self) -> Result<Foreground> {
-        let r = self
-            .request("GET", "api/stream/foreground", Duration::from_secs(2))
-            .call();
-        self.read(r)
+        self.with_fresh_token(|| {
+            let r = self.request("GET", "api/stream/foreground", Duration::from_secs(2)).call();
+            self.read(r)
+        })
     }
 
     /// Premier contact, sans compte : le certificat est vu (et retenu par
@@ -986,7 +1105,8 @@ impl Console {
         if let Some(id) = device_id.filter(|id| !id.is_empty()) {
             body["device_id"] = serde_json::json!(id);
         }
-        match self.request("POST", path, timeout).send_json(body) {
+        // Un compte KyberNow : un jeton à part, qu'Admin consomme.
+        match self.request_with("POST", path, timeout, true).send_json(body) {
             // Une Station 0.4.9 répond la page d'Admin (200, HTML) à une route
             // qu'elle ne connaît pas.
             Ok(resp) => match resp.into_json::<serde_json::Value>() {
