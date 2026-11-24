@@ -25,7 +25,7 @@ import KyberKit
 import Security
 #if os(macOS)
 import AppKit
-#elseif os(iOS)
+#else
 import UIKit
 #endif
 #if os(iOS) || os(macOS)
