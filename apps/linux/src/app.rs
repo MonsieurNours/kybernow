@@ -625,9 +625,10 @@ pub struct Stats {
     /// Images envoyées par l'ordinateur jamais montrées pendant la seconde (`Second::lost_frames`) : « Images
     /// perdues » des statistiques en PyroWave, en part des images (avec `fps`).
     pub lost_frames: u32,
-    /// PyroWave (docs/pyrowave.md) : la définition ramenée (`Second::lowered`), ligne « Définition ramenée » des
-    /// Statistiques (texte : `Lowered::text`).
-    pub lowered: Option<kybernow_core::pyrowave::Lowered>,
+    /// PyroWave (docs/pyrowave.md) : la définition ramenée (`Second::lowered`), déjà dite par le cœur
+    /// (`Lowered::text` : « Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s. ») ; ligne des
+    /// Statistiques. Un texte : l'interface se compile sans le cœur (captures).
+    pub lowered: Option<String>,
 }
 
 impl Stats {
@@ -1962,12 +1963,11 @@ pub struct SessionUi {
     pub hdr: Option<HdrUi>,
     /// PyroWave (docs/link-ui.md, « PyroWave ») : cet appareil joint l'ordinateur par câble (`system::wired_to`, au
     /// début de la session) ; le bandeau du début (montré depuis, et déjà montré une fois) ; « Passer en HEVC »
-    /// choisi (pour cette session seulement) ; la définition ramenée (largeur, hauteur, Mbit/s), quand l'app le sait.
+    /// choisi (pour cette session seulement). La définition ramenée est dans `Stats::lowered`.
     pub pw_wired: bool,
     pub pw_banner: Option<Instant>,
     pub pw_banner_seen: bool,
     pub pw_hevc: bool,
-    pub lowered: Option<(u32, u32, u32)>,
 }
 
 impl SessionUi {
@@ -2045,7 +2045,6 @@ impl SessionUi {
             pw_banner: None,
             pw_banner_seen: false,
             pw_hevc: false,
-            lowered: None,
         }
     }
 

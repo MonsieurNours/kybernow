@@ -7,6 +7,8 @@
 # Usage : apps/linux/scripts/sources.sh [--deps] DEST
 #   --deps : seulement de quoi compiler libkynput et FFmpeg (module du
 #            Flatpak qui ne change pas avec l'app, mis en cache).
+# KYBERNOW_KYBER_HEAD=1 : le SDK de Kyber pris dans ses dépôts git (HEAD), sans
+#            les correctifs déjà posés dans third_party/ (voir plus bas).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -35,9 +37,24 @@ cp "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$DEST/server/kyber-patches/"
 cp "$ROOT/apps/Cargo.lock" "$DEST/apps/"
 # Espace de travail réduit au cœur et à l'app Linux.
 sed -E 's/^members = .*/members = ["core", "linux"]/' "$ROOT/apps/Cargo.toml" > "$DEST/apps/Cargo.toml"
-"${R[@]}" --exclude 'contrib/work/' --exclude 'contrib/build/' \
-    --include 'kymedia/subprojects/vlc-rs/***' --exclude 'kymedia/subprojects/*' \
-    "$ROOT/third_party/kyber-desktop/kysdk" "$DEST/third_party/kyber-desktop/"
+if [ "${KYBERNOW_KYBER_HEAD:-0}" = 1 ]; then
+    # Le SDK de Kyber tel qu'il est dans ses dépôts git (HEAD de kysdk et de ses
+    # sous-modules), sans les correctifs posés dans third_party/ : ceux de cette
+    # branche s'y appliquent ensuite (build.sh). Utile quand le third_party/
+    # partagé porte les correctifs d'un autre travail. Lecture seule.
+    SDK="$ROOT/third_party/kyber-desktop/kysdk"
+    rm -rf "$DEST/third_party/kyber-desktop/kysdk" && mkdir -p "$DEST/third_party/kyber-desktop/kysdk"
+    git -C "$SDK" archive HEAD | tar -x -C "$DEST/third_party/kyber-desktop/kysdk"
+    git -C "$SDK" submodule status --recursive | awk '{print $2}' | while read -r sub; do
+        case "$sub" in kymedia/subprojects/vlc-rs) ;; kymedia/subprojects/*) continue ;; esac
+        mkdir -p "$DEST/third_party/kyber-desktop/kysdk/$sub"
+        git -C "$SDK/$sub" archive HEAD | tar -x -C "$DEST/third_party/kyber-desktop/kysdk/$sub"
+    done
+else
+    "${R[@]}" --exclude 'contrib/work/' --exclude 'contrib/build/' \
+        --include 'kymedia/subprojects/vlc-rs/***' --exclude 'kymedia/subprojects/*' \
+        "$ROOT/third_party/kyber-desktop/kysdk" "$DEST/third_party/kyber-desktop/"
+fi
 cp "$ROOT/third_party/kyber-desktop/"COPYING* "$DEST/third_party/kyber-desktop/" 2>/dev/null || true
 "${R[@]}" "$ROOT/brand/v2/app-icon" "$DEST/brand/v2/"
 # Clé publique des versions signées (mises à jour, apps/core/src/update.rs).
