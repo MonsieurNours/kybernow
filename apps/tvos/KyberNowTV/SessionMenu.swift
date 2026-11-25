@@ -22,7 +22,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr, pyrowave }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr, pyrowave }
 
     init(session: SessionController) {
         self.session = session
@@ -90,6 +90,8 @@ struct SessionMenu: View {
                     soundTile
                     // Un invité : la qualité de l'image reçue, et le choix des quatre.
                     if session.isGuest { qualityTile }
+                    // Regarder, plusieurs écrans : « Écran » et le choix ; en changer relance l'image.
+                    if !session.watchScreens.isEmpty { screenTile }
                     if !session.isGuest || session.shareRole.keyboardAndMouse {
                         mouseTile
                         padMouseTile
@@ -101,7 +103,8 @@ struct SessionMenu: View {
                         tile(.disconnect, icon: "power", title: LendText.disconnect, detail: LendText.comeBackHint) { session.end() }
                         tile(.quit, icon: "key", iconColor: Theme.danger, title: LendText.giveBack, detail: LendText.lentBy(session.lendHost)) { session.giveBackAsked = true }
                     } else if session.isGuest {
-                        tile(.quit, icon: "power", iconColor: Theme.danger, title: ShareText.leave, detail: ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
+                        tile(.quit, icon: "power", iconColor: Theme.danger, title: session.leaveLabel,
+                             detail: session.isWatching ? session.title : ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
                     } else {
                         // PyroWave en Wi-Fi ou par le relais : la tuile ambre, qui passe l'image en HEVC.
                         if let chip = session.pyrowaveChip {
@@ -151,6 +154,9 @@ struct SessionMenu: View {
             }
             if session.qualityPanel {
                 qualityPanelView
+            }
+            if session.screenPanel {
+                screenPanelView
             }
             if session.sharePanel {
                 SharePanelTV(session: session, share: session.share) { session.sharePanel = false }
@@ -301,7 +307,9 @@ struct SessionMenu: View {
     /// l'ordinateur… » ; moins pour un invité ; un ami : ni profil ni partage.
     private var tileCount: Int {
         if session.isBorrower { return 8 }
-        if session.isGuest { return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
+        if session.isGuest {
+            return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) + (session.watchScreens.isEmpty ? 0 : 1)
+        }
         // La tuile ambre de PyroWave (en Wi-Fi ou par le relais) en plus.
         return (showsLend ? 9 : 8) + (session.pyrowaveChip != nil ? 1 : 0)
     }
@@ -453,6 +461,47 @@ struct SessionMenu: View {
         .frame(width: 1920, height: 1080)
         .onExitCommand { session.qualityPanel = false }
         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .qualityChoice(session.shareQuality) } }
+    }
+
+    /// Regarder : la tuile « Écran », l'écran regardé en détail.
+    private var screenTile: some View {
+        let shown = session.watchDisplay
+        let label = session.watchScreens.first { $0.id == shown }?.label ?? ""
+        return Button { session.screenPanel = true } label: {
+            tileLabel(icon: "monitor", title: Share.watchWord(.screen), detail: label)
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .screen)
+    }
+
+    /// Regarder : le choix de l'écran du PC (« Écran 1 — 3840 × 2160 », le
+    /// principal d'abord) ; en changer relance l'image.
+    private var screenPanelView: some View {
+        let shown = session.watchDisplay
+        return ZStack {
+            Color.black.opacity(0.55)
+            VStack(alignment: .leading, spacing: 24) {
+                Theme.eyebrow(Share.watchWord(.screen))
+                HStack(spacing: 16) {
+                    ForEach(session.watchScreens) { screen in
+                        Button {
+                            session.watchScreen(screen.id)
+                            session.screenPanel = false
+                        } label: { Text(verbatim: screen.label).lineLimit(1).fixedSize() }
+                            .buttonStyle(ChoiceButton(selected: screen.id == shown, height: 72))
+                            .focused($focus, equals: .screenChoice(screen.id))
+                    }
+                }
+                Button("Fermer") { session.screenPanel = false }
+                    .buttonStyle(ChoiceButton(selected: false, height: 72))
+            }
+            .padding(56)
+            .glass(30, tint: 0.6)
+            .focusSection()
+        }
+        .frame(width: 1920, height: 1080)
+        .onExitCommand { session.screenPanel = false }
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .screenChoice(shown) } }
     }
 
     private var soundPanel: some View {

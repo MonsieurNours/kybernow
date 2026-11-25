@@ -13,6 +13,10 @@ import fr.leslignesclaires.kybernow.core.AccountReply
 import fr.leslignesclaires.kybernow.core.Accounts
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.Relays
+import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareQuality
+import fr.leslignesclaires.kybernow.core.ShareTarget
+import fr.leslignesclaires.kybernow.core.WatchReply
 import fr.leslignesclaires.kybernow.core.StoredAccount
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -257,6 +261,29 @@ class AccountManager(private val app: KyberNowApp) {
         val account = store.account(acc.key) ?: return false
         val lan = lan(h)
         return Accounts.putSession(params, account, acc.station, h.fingerprint, lan?.let { it.address to it.port }, route(h), relayAllowed = !Relays.off)
+    }
+
+    // MARK: - Regarder (droit « Regarder » d'un compte, docs/comptes.md)
+
+    /**
+     * Les ordinateurs venus d'un compte qui ont le droit « Regarder » : vrai quand c'est le seul (« Regarder » à la place
+     * de « Se connecter »), faux avec « Ouvrir le bureau » aussi (« Regarder » dans le menu de l'ordinateur).
+     */
+    fun watchRights(hosts: List<Host>): Map<String, Boolean> = hosts.filter { it.fromAccount }.mapNotNull { h ->
+        computerOf(h)?.takeIf(Accounts::canWatch)?.let { h.id to Accounts.watchOnly(it) }
+    }.toMap()
+
+    /**
+     * « Regarder » un ordinateur venu d'un compte : sur le réseau s'il y est vu, sinon par le relais (le cœur essaie dans
+     * cet ordre). Nul sans compte ni chemin (ni vu sur le réseau, ni route par le relais).
+     */
+    suspend fun watch(h: Host, decoders: Decoders, quality: ShareQuality, auto: JSONObject?): WatchReply? {
+        val acc = h.account ?: return null
+        val account = store.account(acc.key) ?: return null
+        val lan = lan(h)?.let { ShareTarget(it.address, it.port, h.fingerprint ?: it.fingerprint) }
+        val route = if (Relays.off) null else route(h)
+        if (lan == null && route == null) return null
+        return Share.watch(Accounts.access(account, acc.station), lan, route, decoders, quality, auto)
     }
 
     // MARK: - Se connecter

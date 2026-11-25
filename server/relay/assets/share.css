@@ -275,6 +275,8 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .acct-links { margin-top: 20px; font-size: 15px; color: var(--kn-mist); text-align: center; }
 .acct-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .acct-actions .btn { flex: 1 1 auto; }
+/* Les droits d'un lien d'accès (« {nom} vous ouvre {ordinateur} ») */
+.acct-rights { display: grid; gap: 6px; margin-top: 10px; padding-left: 1.2em; font-size: 14px; color: var(--kn-frost-2); }
 .notice.ok { color: var(--kn-ok); }
 .option { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding: 18px; border-radius: var(--kn-r-field); box-shadow: inset 0 0 0 1px var(--kn-line-2); }
 .option p { color: var(--kn-frost-2); font-size: 14.5px; margin-top: 4px; }

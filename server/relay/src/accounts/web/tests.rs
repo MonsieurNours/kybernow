@@ -554,6 +554,7 @@ fn les_essais_reussis_ne_comptent_pas() {
 // Lot 2 (rattachement) et moitié relais du lot 3 (appareils) : à part, pour ne pas mêler les fusions.
 mod lot2;
 mod lot45;
+mod lot6;
 // --- Lot 1b : passkeys, conditions, export, suppression ---------------------------
 
 use super::passkeys::tests::Authenticator;

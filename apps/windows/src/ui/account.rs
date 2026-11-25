@@ -446,3 +446,25 @@ pub fn session_params(app: &AppHandle, c: &Computer, ac: &AccountComputer) -> Re
         }
     }
 }
+
+/// Ce qu'il faut pour « Regarder » un ordinateur d'un compte
+/// (`share::watch_account`) : le jeton d'accès de son compte pour cette Station
+/// et son Admin sur le réseau quand la découverte le voit (même empreinte
+/// d'Admin) ; la route par le relais est celle du compte. Le jeton est demandé
+/// d'abord, comme pour une session : les refus du relais se disent avant tout.
+pub fn watch_params(app: &AppHandle, c: &Computer, ac: &AccountComputer) -> Result<(Arc<StationAccess>, Option<kybernow_core::share::ShareTarget>), String> {
+    let lang = i18n::lang();
+    let account = account_of(&ac.account).ok_or_else(|| AccountError::SignedOut.text(lang))?;
+    let access = access(&account, &ac.station);
+    if let Err(e) = access.token() {
+        on_error(app, c, &e);
+        return Err(e.text(lang));
+    }
+    let lan = seen_on_network(app, ac.admin_fp.as_deref().or(c.fingerprint.as_deref()))
+        .map(|f| kybernow_core::share::ShareTarget { host: f.host, port: f.port, fingerprint: f.fingerprint });
+    if lan.is_none() && ac.route().is_none() {
+        // Jamais vu connecté au relais : pas d'empreinte d'Admin, pas de route.
+        return Err(RelayError::StationOffline.text(lang, Some(c.name.as_str())));
+    }
+    Ok((access, lan))
+}

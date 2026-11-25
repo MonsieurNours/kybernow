@@ -33,8 +33,17 @@ pub use launch::{TOTAL as LAUNCH, TOTAL_REDUCED as LAUNCH_REDUCED};
 // Le geste du pointeur sur la barre du bureau (app de bureau seulement).
 #[allow(unused_imports)]
 pub use session::{at_bar_edge, over_bar, stats_stage_at, HINT_STRIP};
+// Regarder : les écrans de qui regarde (barre, panneau), pour les essais.
+#[allow(unused_imports)]
+pub use quality::screen_items as watch_screen_items;
 
 use crate::app::{App, Layout, Phase, Rect, Screen, SessionId, SessionUi, Target};
+
+/// Ce que dit le bouton principal de l'accueil pour cet ordinateur (« Se connecter », « Regarder »…), pour les essais.
+#[allow(dead_code)]
+pub fn home_main_label(app: &App, h: &crate::model::Host) -> &'static str {
+    home::main_action(app, h).1
+}
 use canvas::{Align, Canvas, Font, Rgba, Text};
 use theme::*;
 

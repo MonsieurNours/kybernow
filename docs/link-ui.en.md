@@ -226,6 +226,7 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, from o
 | Card help (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
 | Choice of display | « Choisissez l'écran à partager. »; « Recherche des écrans… »; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
 | A device's share | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
+| Share opened for watching (an account's “Watch” right, [comptes.en.md](comptes.en.md)) | « Ouvert pour {prénom}, qui regarde avec son compte. » instead of the code, link, QR code and their help; no “New code”, no requests; the guest list and “Stop sharing” as usual; it closes by itself when its last guest leaves. “Share” (host) or “Share a screen…” (PC) on this share makes it an ordinary one: the code comes back | “Opened for {name}, who is watching with their account.” |
 | List | « Participants » when the host is in it; « {nom} · Hôte » | “Participants”; “{name} · Host” |
 | Stopped | « Partage arrêté. » | “Sharing stopped.” |
 | Admin's header, top of the panel | « Partage en cours · {n} invités »; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |
@@ -424,6 +425,10 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 | One computer once | a computer both paired and on an account (same Admin fingerprint, or same Station at the relay) shows only once: the paired one, with the account's badge; a computer on two accounts, once | un ordinateur une seule fois |
 | Account computer, state | like the others: “Online”, “Offline”, “Away from home”; “Connect” opens the session without pairing, on the network if it is there, otherwise through the relay | comme les autres |
 | Account computer, refusal | “This computer is no longer on your account.” (it leaves the home screen); otherwise: Admin's text (accounts turned off, device blocked, missing right) | « Cet ordinateur n'est plus sur votre compte. » |
+| “Watch” right only (`view`, no `session`) | the card offers “Watch” instead of “Connect”; with both rights, “Watch” is in the computer's menu; contract: [comptes.en.md](comptes.en.md), “Watch, access links and computer groups” |
+| Watch, connecting | the connection steps, titled “Watching {name}” |
+| Watch, bar | the share guest's bar (“Spectator”, or “Player” if the host gives them a right); “Stop watching” instead of “Leave the share”; with several screens: “Screen” and the list (“Screen 1 — 3840 × 2160”, the main screen first), changing it restarts the picture |
+| Watch, end and refusals | “{host} removed you.”; “{name} is lent right now.”; “Sharing is turned off on this computer (Admin › Link devices).”; “This Station can't be watched yet: update it.”; otherwise: Admin's text |
 | Device session closed (from the account's page, new password) | “This account was signed out of this device: sign in again.”; its computers leave the home screen | « Ce compte a été déconnecté de cet appareil : reconnectez-vous. » |
 | App settings, section | “Accounts”; help “Create an account, change its password or delete it: on the account's page.” | « Comptes » ; aide « Créer un compte, changer son mot de passe ou le supprimer : sur la page du compte. » |
 | One account | name, e-mail below, relay (“share.kybernow.app”); “Manage account” opens `https://{relay}/compte`; “Sign out” | « Gérer le compte » ; « Se déconnecter » |

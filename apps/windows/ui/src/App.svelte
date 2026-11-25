@@ -23,7 +23,7 @@
   import LendSheet from './LendSheet.svelte'
   import PairSheet from './PairSheet.svelte'
   import ConsoleSettings from './ConsoleSettings.svelte'
-  import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
+  import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update, WatchWords } from './lib/api'
   import type { PsFound, PsState } from './lib/api'
   import { guestComputer, invoke, isConsoleId, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
@@ -281,6 +281,10 @@
       if (!computers.some((c) => c.id === a.id)) return
       select(a.id)
       connect(a.id)
+    } else if (a.kind === 'watch') {
+      if (!computers.some((c) => c.id === a.id)) return
+      select(a.id)
+      watch(a.id)
     } else if (a.kind === 'add') {
       addingWay = null
       adding = { found: null }
@@ -329,12 +333,14 @@
    * de l'accueil (titré « Invité sur {nom} »), les suivantes dans une fenêtre avec leur propre fenêtre de
    * connexion. La fin se lit telle que le cœur la dit.
    */
-  async function joined(j: ShareJoined) {
+  async function joined(j: ShareJoined, replacing: string | null = null) {
     joining = null
     error = null
-    const following = sessions.length > 0 || passage !== null
+    // `replacing` : le passage d'attente de « Regarder », que celui de la session remplace.
+    const following = sessions.length > 0 || (passage !== null && passage.id !== replacing)
     const fresh = () => ({ id: j.id, phase: 'preparing' as const, opening: false, closing: false, restarting: false, many: false, guest: j })
     if (!following) passage = fresh()
+    else if (replacing && passage?.id === replacing) passage = null
     try {
       const started = await invoke<ConnectInfo>('share_connect', { id: j.id })
       if (started.windowed) {
@@ -344,6 +350,31 @@
       }
     } catch (e) {
       if (passage?.id === j.id && !passage.opening) passage = null
+      error = String(e)
+    }
+  }
+
+  // MARK: - Regarder (droit « Regarder » d'un compte KyberNow)
+
+  /**
+   * « Regarder » un ordinateur d'un compte : la Station fait entrer ce PC en spectateur (10 s au plus), puis la
+   * session s'ouvre comme celle d'un invité, titrée « Regarder {nom} » (mot du cœur). Sans autre session, le
+   * passage s'ouvre tout de suite, sans « Annuler » tant que la Station n'a pas répondu. Refus : le texte du cœur.
+   */
+  async function watch(id: string) {
+    error = null
+    const c = computers.find((x) => x.id === id)
+    if (!c) return
+    const pendingId = 'watch-preparing'
+    if (sessions.length === 0 && passage === null) {
+      const w = await invoke<WatchWords>('share_watch_words', { name: c.name }).catch(() => null)
+      if (w && passage === null)
+        passage = { id: pendingId, phase: 'preparing', opening: false, closing: false, restarting: false, many: false, guest: { id: pendingId, title: w.title, host: '', role: 'spectator', fingerprint: c.fingerprint }, borrowing: true }
+    }
+    try {
+      await joined(await invoke<ShareJoined>('share_watch', { id }), pendingId)
+    } catch (e) {
+      if (passage?.id === pendingId) passage = null
       error = String(e)
     }
   }
@@ -677,6 +708,7 @@
     {error}
     onselect={select}
     onconnect={connect}
+    onwatch={watch}
     onshow={show}
     onretry={retry}
     onwake={wake}

@@ -118,6 +118,32 @@ object Native {
     @JvmStatic external fun consoleShareKick(handle: Long, guest: String): String?
     @JvmStatic external fun consoleShareClose(handle: Long): String?
 
+    // « Regarder » (droit `view` d'un compte KyberNow, docs/comptes.md ; docs/kybernow-share.md, « Regarder avec un compte »).
+    // Réponses comme « Rejoindre » ; refus en plus : 34 Station qui ne sait pas encore regarder, 35 ordinateur prêté,
+    // 36 partage coupé sur l'ordinateur (`error` : le texte à montrer). Bloquants (12 s au plus), hors du fil principal.
+    /**
+     * `access` `{account, station}` ([Accounts.access]), `lan` `{host, port, fingerprint}` (Admin vu sur le réseau) ou
+     * `null`, `route` ([accountRoute]) ou `null`, `request` `{app, display?, quality, auto?}`, `capabilities` ou `null` ;
+     * `value` : `{target, joined}`, `joined.watch` `{screens, switch, display}`.
+     */
+    @JvmStatic external fun shareWatch(accessJson: String, lanJson: String?, routeJson: String?, requestJson: String, capabilitiesJson: String?): String?
+    /** Comme [shareWatch], par une console de compte déjà ouverte ([consoleNewAccount]). */
+    @JvmStatic external fun consoleShareWatch(handle: Long, requestJson: String, capabilitiesJson: String?): String?
+    /** « Regarder {nom} » : le titre des étapes de la connexion. */
+    @JvmStatic external fun shareWatchTitle(computer: String): String
+    /** `action` « Regarder », `stop` « Arrêter de regarder », `screen` « Écran ». */
+    @JvmStatic external fun shareWatchWord(word: String): String
+    /** Une ligne du menu « Écran » (« Écran 1 — 3840 × 2160 ») d'un `joined.watch.screens[]` ; `null` si illisible. */
+    @JvmStatic external fun shareWatchScreenLabel(screenJson: String): String?
+    /** Session de qui regarde : l'écran choisi (un `id` de `joined.watch.screens`). */
+    @JvmStatic external fun sessionWatchScreen(handle: Long, display: Long)
+    /** Session de qui regarde : l'écran regardé (0 hors d'une telle session). */
+    @JvmStatic external fun sessionWatchDisplay(handle: Long): Long
+    /** L'ordinateur du compte (JSON de [accountComputers]) a le droit « Regarder ». */
+    @JvmStatic external fun accountCanWatch(computerJson: String): Boolean
+    /** « Regarder » sans « Ouvrir le bureau » : la carte propose « Regarder » à la place de « Se connecter ». */
+    @JvmStatic external fun accountWatchOnly(computerJson: String): Boolean
+
     // Prêt de l'ordinateur (docs/pret.md). L'ami : `target` `{host, port, fingerprint}`, `route` sa route par le relais
     // ou `null` ; refus 40 identifiant ou mot de passe, 41 code qui ne sert plus, 42 déjà prêté, 43 verrouillé, 44 prêt
     // coupé, 45 trop d'essais, 46 refusé, 47 sans réponse, 48 Station sans prêt. Bloquants.

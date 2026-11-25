@@ -443,6 +443,12 @@ export interface ShareView {
   guests: ShareGuest[]
   max_guests: number
   opened_at: number
+  /**
+   * Ouvert pour regarder (droit « Regarder » d'un compte KyberNow, docs/comptes.md) : le prénom de qui
+   * l'a fait ouvrir ; pas de code à montrer (il ne fait entrer personne), il se ferme quand son dernier
+   * invité part. `null` (ou absent avant la 0.10) : un partage ordinaire.
+   */
+  watch?: string | null
 }
 
 /** Un écran physique du PC, à partager (`GET /api/local/displays`, l'écran principal d'abord). */

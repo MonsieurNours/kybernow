@@ -174,8 +174,23 @@ pub(super) fn main_action(app: &App, h: &Host) -> (Target, &'static str, bool) {
         (true, true) if app.is_waking(&h.id) => (Target::Wake, tr("Réveil de l'ordinateur…", "Waking the computer…"), false),
         (true, true) => (Target::Wake, tr("Réveiller l'ordinateur", "Wake the computer"), false),
         (true, false) => (Target::Retry, tr("Réessayer", "Try again"), false),
+        // Droit « Regarder » seul (ordinateur d'un compte) : « Regarder » à la place de « Se connecter ».
+        _ if app.host_watch_only(&h.id) && app.watch_waiting(&h.id) => (Target::Connect, tr("Regarder…", "Watch…"), false),
+        _ if app.host_watch_only(&h.id) => (Target::Connect, crate::app::watch_word(), true),
         _ => (Target::Connect, tr("Se connecter", "Connect"), true),
     }
+}
+
+/// « Regarder » dans le menu de l'ordinateur (les boutons à côté de « Se connecter ») : un ordinateur d'un compte avec
+/// les droits « Ouvrir le bureau » et « Regarder » (docs/link-ui.md, « Comptes KyberNow »). « Regarder… » le temps
+/// d'entrer dans le partage.
+#[allow(clippy::too_many_arguments)]
+fn watch_button(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, y: f32, height: f32, size: f32) {
+    if !app.watch_in_menu(&h.id) || app.live.get(&h.id).is_some_and(|l| l.online == Online::Offline) {
+        return;
+    }
+    let label = if app.watch_waiting(&h.id) { tr("Regarder…", "Watch…") } else { crate::app::watch_word() };
+    widgets::ghost(cv, f, Target::Watch, x, y, height, size, Some(Icon::Eye), label, MUTED);
 }
 
 /// Ce que fait A sur l'accueil, pour la légende.
@@ -236,7 +251,8 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             x += profiles(cv, f, hst, x, y + 3.0, 46.0, 14.0) + 12.0;
             let (hw, help) = hdr_chip(cv, f, app.hdr_ui(hst), x, y + 3.0, 46.0, 14.0, 12.0);
             x += hw;
-            widgets::ghost(cv, f, Target::HostSettings, x, y + 3.0, 46.0, 14.0, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED);
+            x += widgets::ghost(cv, f, Target::HostSettings, x, y + 3.0, 46.0, 14.0, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED) + 12.0;
+            watch_button(app, cv, f, hst, x, y + 3.0, 46.0, 14.0);
             y += 52.0 + 30.0;
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
         }
@@ -508,7 +524,8 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             let (hw, help) = hdr_chip(cv, f, app.hdr_ui(hst), x, y + 4.0 * u, 52.0 * u, 17.0 * u, 14.0 * u);
             x += hw;
             // « Réglages » se voit et se touche (écran tactile du Deck, souris) ; Y l'ouvre aussi.
-            widgets::ghost(cv, f, Target::HostSettings, x, y + 4.0 * u, 52.0 * u, 17.0 * u, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED);
+            x += widgets::ghost(cv, f, Target::HostSettings, x, y + 4.0 * u, 52.0 * u, 17.0 * u, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED) + 14.0 * u;
+            watch_button(app, cv, f, hst, x, y + 4.0 * u, 52.0 * u, 17.0 * u);
             y += 60.0 * u + 30.0 * u;
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
         }

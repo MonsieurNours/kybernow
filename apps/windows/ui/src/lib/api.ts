@@ -217,7 +217,7 @@ export type Computer = {
 
 /**
  * Un ordinateur d'un compte, tel que le relais le donne (`/v1/computers`) : `account`, le compte qui le donne ;
- * `rights` (`session`, `lend`, `share`, `admin`) ; `mine` : rattaché à ce compte (et non ouvert par quelqu'un d'autre).
+ * `rights` (`session`, `view`, `lend`, `share`, `admin`) ; `mine` : rattaché à ce compte (et non ouvert par quelqu'un d'autre).
  */
 export type AccountComputer = {
   account: string
@@ -298,6 +298,8 @@ export type AppInfo = {
  */
 export type Action =
   | { kind: 'connect'; id: string }
+  /** « Regarder » (menu de l'icône) : un ordinateur d'un compte avec le droit « Regarder ». */
+  | { kind: 'watch'; id: string }
   | { kind: 'add' }
   /** « Rejoindre avec un code » (menu de l'icône) ; `link` : `kybernow://join?…` (lien ou QR code d'un partage). */
   | { kind: 'join'; link: string | null }
@@ -396,6 +398,8 @@ export type BarComputer = {
   state: 'online' | 'away' | 'offline' | 'searching'
   dot: 'ok' | 'bad' | 'warn' | 'faint'
   pick: 'show' | 'connect' | 'full' | 'wake' | 'waking' | 'retry' | 'busy'
+  /** Droit « Regarder » seul : « Regarder » (mot du cœur), et un clic regarde au lieu de se connecter. */
+  watch?: string | null
 }
 
 /** Événement `session-keep-sound` : « Garder le son » de la session `id`. */
@@ -529,7 +533,23 @@ export type RelayState = 'joined' | 'connecting' | 'unreachable'
  * demandée (`quality`) et la qualité reçue (`image`, « 1080p · 60 Hz » ; `null` tant que Kyber ne la
  * connaît pas : la barre ne dit alors que la qualité demandée).
  */
-export type GuestBar = { role: ShareRole; host: string; quality: ShareQuality; image: string | null }
+export type GuestBar = { role: ShareRole; host: string; quality: ShareQuality; image: string | null; watch?: WatchBar | null }
+
+/**
+ * Regarder avec un compte (droit « Regarder », docs/link-ui.md « Regarder, barre ») : mots du cœur. `stop` (« Arrêter
+ * de regarder ») remplace « Quitter le partage » ; `screen` (« Écran ») et `screens` (« Écran 1 — 3840 × 2160 »,
+ * l'écran principal d'abord) : le menu « Écran », seulement quand on peut changer d'écran (liste vide sinon).
+ */
+export type WatchBar = { stop: string; screen: string; screens: { id: number; label: string }[] }
+
+/** `share_watch_words` : « Regarder » (carte, menu) et le titre du passage, « Regarder {nom} » (mots du cœur). */
+export type WatchWords = { action: string; title: string }
+
+/** Le droit « Regarder » (`view`) d'un ordinateur d'un compte ; `only` : sans « Ouvrir le bureau » (`session`). */
+export const watchRight = (c: { account?: AccountComputer | null }) => {
+  const rights = c.account?.rights ?? []
+  return rights.includes('view') ? { only: !rights.includes('session') } : null
+}
 
 /** Réponse de `share_join` quand l'invité entre : la session d'invité à ouvrir (`share_connect`), son titre (« Invité sur Atelier ») et la teinte du passage. */
 export type ShareJoined = { id: string; title: string; host: string; role: ShareRole; fingerprint: string | null }

@@ -276,6 +276,16 @@ object Accounts {
     /** La route par le relais d'un ordinateur du compte (`{server, station, admin_fp}`), nulle sans empreinte d'Admin. */
     fun route(computer: AccountComputer): String? = runCatching { Native.accountRoute(computer.json) }.getOrNull()
 
+    /** Le droit « Regarder » (`view`, `AccountComputer::can_watch` du cœur) ; sans bibliothèque native, d'après les droits lus. */
+    fun canWatch(computer: AccountComputer): Boolean = runCatching { Native.accountCanWatch(computer.json) }.getOrElse { computer.can("view") }
+
+    /**
+     * « Regarder » sans « Ouvrir le bureau » (`watch_only`) : la carte propose « Regarder » à la place de « Se connecter » ;
+     * avec les deux droits, « Regarder » est dans le menu de l'ordinateur.
+     */
+    fun watchOnly(computer: AccountComputer): Boolean =
+        runCatching { Native.accountWatchOnly(computer.json) }.getOrElse { computer.can("view") && !computer.can("session") }
+
     // MARK: - Ce que l'app rend au cœur
 
     /**

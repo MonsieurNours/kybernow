@@ -392,6 +392,23 @@ impl SessionHost {
         }
     }
 
+    /// Regarder : « Écran » de la barre (`WatchScreen::id`). Faux quand la
+    /// session n'est pas encore là.
+    pub fn watch_screen(&self, display: u32) -> bool {
+        match self.app().and_then(|a| a.current_session()) {
+            Some(s) => {
+                s.watch_screen(display);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Regarder : l'écran regardé maintenant (`None` hors d'une session de qui regarde).
+    pub fn watch_display(&self) -> Option<u32> {
+        self.app().and_then(|a| a.current_session()).and_then(|s| s.watch_display())
+    }
+
     /// Prêt de l'ordinateur, session d'emprunt : « Rendre l'ordinateur » (après
     /// sa confirmation) ; le prêt finit pour de bon, puis la session. Faux quand
     /// la session n'est pas encore là.

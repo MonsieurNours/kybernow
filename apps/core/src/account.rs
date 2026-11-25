@@ -678,7 +678,7 @@ pub struct AccountComputer {
     /// L'identifiant de la Station chez le relais.
     pub station: String,
     pub name: String,
-    /// `session`, `lend`, `share`, `admin`.
+    /// `view`, `session`, `lend`, `share`, `admin` (un mot inconnu est gardé, sans effet).
     #[serde(default)]
     pub rights: Vec<String>,
     #[serde(default)]
@@ -702,6 +702,20 @@ impl AccountComputer {
     /// Le compte a ce droit sur l'ordinateur.
     pub fn can(&self, right: &str) -> bool {
         self.rights.iter().any(|r| r == right)
+    }
+
+    /// « Regarder » est proposé (droit `view`, docs/comptes.md) : sur la carte
+    /// à la place de « Se connecter » quand c'est le seul accès au bureau
+    /// ([`Self::watch_only`]), sinon dans le menu de l'ordinateur. Il passe
+    /// par [`crate::share::watch_account`].
+    pub fn can_watch(&self) -> bool {
+        self.can("view")
+    }
+
+    /// Le droit `view` sans `session` : la carte propose « Regarder » à la
+    /// place de « Se connecter » (docs/link-ui.md, « Comptes KyberNow »).
+    pub fn watch_only(&self) -> bool {
+        self.can("view") && !self.can("session")
     }
 
     /// La pastille d'origine (docs/link-ui.md) : « Compte » (avec le relais

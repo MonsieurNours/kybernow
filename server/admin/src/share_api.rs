@@ -313,6 +313,10 @@ pub fn view(s: &AppState, snapshot: &Snapshot) -> Value {
         "guests": snapshot.guests.iter().map(guest_json).collect::<Vec<_>>(),
         "max_guests": share::MAX_GUESTS,
         "opened_at": snapshot.opened_at,
+        // Ouvert pour regarder (droit « Regarder » d'un compte) : le prénom de
+        // qui l'a fait ouvrir ; pas de code à montrer, il se ferme quand son
+        // dernier invité part. `null` pour un partage ordinaire.
+        "watch": snapshot.watch,
     })
 }
 
@@ -489,13 +493,33 @@ fn opened(s: &AppState, snapshot: &Snapshot) {
     sync_sharing(s);
     // Un relais réglé se connecte pour le partage (hors de chez soi).
     s.relay.wake();
-    s.activity.event("info", Msg::new("events.shareOpened").with("host", host_name(snapshot)).with("n", snapshot.display.index));
+    // Ouvert pour regarder : le fil dit « {prénom} regarde votre écran ».
+    if snapshot.watch.is_none() {
+        s.activity.event("info", Msg::new("events.shareOpened").with("host", host_name(snapshot)).with("n", snapshot.display.index));
+    }
 }
 
 /// Arrête le partage ouvert : les invités sont coupés de Kyber (leur signe de
 /// vie suivant dit « arrêté »). Rend ce qu'il était.
 pub async fn close_share(s: &AppState) -> Option<Snapshot> {
     let snapshot = s.share.close()?;
+    finish_close(s, &snapshot).await;
+    s.activity.event("info", Msg::new("events.shareStopped"));
+    Some(snapshot)
+}
+
+/// Un partage ouvert pour regarder dont le dernier invité vient de partir se
+/// ferme (docs/comptes.md, « Regarder ») ; sans un mot dans le fil, qui vient
+/// de dire qu'il est parti.
+async fn close_if_unwatched(s: &AppState) {
+    if let Some(snapshot) = s.share.close_empty_watch() {
+        tracing::info!("partage ouvert pour regarder fermé : plus personne ne regarde");
+        finish_close(s, &snapshot).await;
+    }
+}
+
+/// Ce qui suit la fermeture d'un partage : écrans et son, relais, invités coupés de Kyber.
+async fn finish_close(s: &AppState, snapshot: &Snapshot) {
     sync_sharing(s);
     s.relay.wake();
     // Tous les invités à la fois : un Kyber lent ne fait attendre qu'une fois.
@@ -508,8 +532,6 @@ pub async fn close_share(s: &AppState) -> Option<Snapshot> {
     }
     while kicks.join_next().await.is_some() {}
     tracing::info!("partage arrêté ({} invité(s))", snapshot.guests.len());
-    s.activity.event("info", Msg::new("events.shareStopped"));
-    Some(snapshot)
 }
 
 /// Un invité sort (parti, retiré, sans nouvelles) : coupé de Kyber, et le fil le dit.
@@ -558,6 +580,7 @@ async fn remove_guest(s: &AppState, id: &str) -> ShareResult<Json<Value>> {
     } else {
         tracing::info!("partage : {} retiré", guest.name);
         guest_gone(s, &guest).await;
+        close_if_unwatched(s).await;
     }
     Ok(Json(current_view(s)))
 }
@@ -975,14 +998,14 @@ pub async fn join(
         // préférerait à celle de ce jeton ; il prend celle d'aujourd'hui.
         kyber_quality(&s, &guest).await;
     }
-    joined_answer(&s, &guest, &snapshot, via.as_ref()).await
+    joined_answer(&s, &guest, &snapshot, via.as_ref(), None).await
 }
 
 /// La réponse de `join` (sur le réseau, ou pour un invité accepté par
 /// `wait`) : jeton de Kyber, écran, format de l'image ; le cookie du
 /// navigateur ; par le relais, `"relay": true` et ce client autorisé à
 /// joindre Kyber.
-async fn joined_answer(s: &AppState, guest: &Guest, snapshot: &Snapshot, via: Option<&Via>) -> Response {
+async fn joined_answer(s: &AppState, guest: &Guest, snapshot: &Snapshot, via: Option<&Via>, watch: Option<Value>) -> Response {
     let display = &snapshot.display;
     let Some(token) = guest_token(s, guest, display.id) else {
         // Sans clé de jetons, Kyber ne le laisserait pas entrer.
@@ -1013,6 +1036,10 @@ async fn joined_answer(s: &AppState, guest: &Guest, snapshot: &Snapshot, via: Op
     });
     if via.is_some() {
         answer["relay"] = json!(true);
+    }
+    // Regarder : les écrans à choisir (`POST /api/share/watch`).
+    if let Some(watch) = watch {
+        answer["watch"] = watch;
     }
     let mut res = ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response();
     if let Some(cookie) = guest.cookie()
@@ -1059,7 +1086,7 @@ async fn wait_for(s: &AppState, headers: &HeaderMap, via: Option<Via>, guest: &s
         changed.as_mut().enable();
         match s.share.wait(guest, &secret) {
             share::Wait::Pending => {}
-            share::Wait::Admitted { guest, snapshot } => return joined_answer(s, &guest, &snapshot, via.as_ref()).await,
+            share::Wait::Admitted { guest, snapshot } => return joined_answer(s, &guest, &snapshot, via.as_ref(), None).await,
             share::Wait::Refused => return guest_error(StatusCode::FORBIDDEN, "refused"),
             share::Wait::Expired => return guest_error(StatusCode::GONE, "expired"),
             share::Wait::NoShare => return guest_error(StatusCode::GONE, "stopped"),
@@ -1165,6 +1192,7 @@ pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<ax
         share::Leave::Left(guest) => {
             tracing::info!("partage : {} part", guest.name);
             guest_gone(&s, &guest).await;
+            close_if_unwatched(&s).await;
             Json(json!({ "ok": true })).into_response()
         }
         // Une demande annulée : rien dans Kyber, rien dans le fil.
@@ -1181,6 +1209,211 @@ pub async fn leave(State(s): State<AppState>, headers: HeaderMap, via: Option<ax
         res.headers_mut().insert(header::SET_COOKIE, value);
     }
     res
+}
+
+// --- Regarder (droit « Regarder » d'un compte KyberNow) ---------------------------------
+
+/// Corps de `POST /api/share/watch` (tout est facultatif).
+#[derive(Deserialize, Default)]
+pub struct WatchBody {
+    /// L'app (`mac`, `ios`…), comme `join`.
+    #[serde(default)]
+    app: String,
+    /// L'écran voulu (identifiant de Kyber, `screens[].id`) si la Station
+    /// ouvre un partage du PC pour regarder ; absent : l'écran principal.
+    #[serde(default)]
+    display: Option<u32>,
+    #[serde(default)]
+    quality: share::Quality,
+    #[serde(default)]
+    auto: Option<AutoCaps>,
+}
+
+/// Un refus de « Regarder » : `{"error": <texte>, "code": <code>}`.
+fn watch_refusal(status: StatusCode, code: &'static str, msg: Msg) -> Response {
+    ShareError::new(status, code, msg).into_response()
+}
+
+/// Les écrans qu'on peut choisir en regardant : ceux du PC pour un partage
+/// ouvert pour regarder depuis le PC (`switch` vrai) ; sinon le seul écran du
+/// partage. L'écran principal d'abord, « Écran 1 ».
+async fn watch_screens(s: &AppState, snapshot: &Snapshot) -> Value {
+    let switch = snapshot.watch.is_some() && snapshot.origin == Origin::Local;
+    let d = &snapshot.display;
+    let single = || vec![json!({ "id": d.id, "index": d.index, "label": label(d.index), "width": d.width, "height": d.height, "refresh": d.refresh, "primary": d.index == 1 })];
+    let screens = if switch {
+        match displays(s).await {
+            Ok(list) if !list.is_empty() => list
+                .into_iter()
+                .map(|(p, id, index)| json!({ "id": id, "index": index, "label": label(index), "width": p.width, "height": p.height, "refresh": p.refresh, "primary": p.primary }))
+                .collect(),
+            _ => single(),
+        }
+    } else {
+        single()
+    };
+    json!({ "screens": screens, "switch": switch, "display": d.id })
+}
+
+/// L'écran d'un partage ouvert pour regarder depuis le PC : celui demandé,
+/// sinon l'écran principal (sinon le premier).
+fn pick_display(list: Vec<(PhysicalDisplay, u32, u32)>, wanted: Option<u32>) -> Option<ShareDisplay> {
+    let (d, id, index) = match wanted {
+        Some(w) => list.into_iter().find(|(_, id, _)| *id == w)?,
+        None => {
+            let primary = list.iter().position(|(d, _, _)| d.primary).unwrap_or(0);
+            list.into_iter().nth(primary)?
+        }
+    };
+    Some(ShareDisplay { id, index, width: d.width, height: d.height, refresh: d.refresh, name: d.name })
+}
+
+/// `POST /api/share/watch` (docs/comptes.md, « Regarder ») : un compte KyberNow
+/// qui a le droit « Regarder » (ou « Ouvrir le bureau ») voit l'écran de
+/// l'ordinateur, en spectateur du partage : celui qui est ouvert, sinon un
+/// partage ouvert pour lui (de la session en cours si quelqu'un est
+/// connecté, sinon d'un écran du PC, le principal par défaut), sans code à
+/// montrer, qui se ferme quand son dernier invité part. Réponse : celle de
+/// `join`, plus `watch` (`screens`, `switch`, `display`). Refus `{"error",
+/// "code"}` : ceux des comptes (`accounts_off`, `not_attached`,
+/// `token_expired`, `bad_token`, `blocked`, `no_right`), `account` (sans
+/// jeton de compte), `lent` (avec `computer`, le nom de l'ordinateur),
+/// `disabled`, `busy`, `full`, `unknown_display`, `unavailable`.
+pub async fn watch(State(s): State<AppState>, via: Option<axum::Extension<Via>>, headers: HeaderMap, body: axum::body::Bytes) -> Response {
+    let via = via.map(|axum::Extension(v)| v);
+    let body: WatchBody = if body.is_empty() {
+        WatchBody::default()
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(b) => b,
+            Err(e) => return watch_refusal(StatusCode::BAD_REQUEST, "bad_request", Msg::new("api.unreadableBody").with("error", e.to_string())),
+        }
+    };
+    let grant = match crate::accounts::authorize(&s, &headers, None, Use::Reusable, false) {
+        None => return watch_refusal(StatusCode::UNAUTHORIZED, "account", Msg::new("share.watchAccount")),
+        Some(Err(denied)) => return denied.response(),
+        Some(Ok(grant)) => grant,
+    };
+    // « Ouvrir le bureau » permet aussi de regarder.
+    if !grant.claims.rights.has(Right::View) && !grant.claims.rights.has(Right::Session) {
+        return crate::accounts::Denied::Right(Right::View).response();
+    }
+    if s.lend.borrower().is_some() {
+        // `computer` : {nom} de « {nom} est prêté en ce moment. », pour les apps.
+        let name = hostname();
+        let text = Msg::new("share.watchLent").with("name", name.as_str()).text();
+        return (StatusCode::CONFLICT, Json(json!({ "error": text, "code": "lent", "computer": name }))).into_response();
+    }
+    if !enabled(&s) {
+        return watch_refusal(StatusCode::CONFLICT, "disabled", Msg::new("share.disabled"));
+    }
+    let (name, device, browser, relay) = (grant.claims.name.account.clone(), grant.device_id(), body.app == "web", via.is_some());
+    let name = if name.trim().is_empty() { grant.label() } else { name };
+    let result = match s.share.join_trusted(&name, &device, &body.app, browser, relay) {
+        Err(JoinError::NoShare) => match watch_origin(&s, body.display).await {
+            Ok((origin, display)) => s.share.open_watch(origin, display, &name, &device, &body.app, browser, relay),
+            Err(refusal) => return refusal.into_response(),
+        },
+        other => other.map(|joined| (joined, false)),
+    };
+    let (joined, fresh) = match result {
+        Ok(r) => r,
+        Err(JoinError::Full) => return watch_refusal(StatusCode::CONFLICT, "full", Msg::new("share.full")),
+        Err(_) => return watch_refusal(StatusCode::BAD_REQUEST, "bad_request", Msg::new("share.watchAccount")),
+    };
+    let snapshot = if fresh {
+        // Comme `local_open` : un appareil a pu commencer à se préparer
+        // pendant la lecture des écrans ; l'un des deux voit toujours l'autre.
+        if joined.snapshot.origin == Origin::Local
+            && let Err(refusal) = device_free(&s)
+        {
+            close_share(&s).await;
+            return refusal.into_response();
+        }
+        let snapshot = avoid_lend_code(&s, joined.snapshot.clone());
+        tracing::info!("partage ouvert pour regarder ({}, écran {})", grant.label(), snapshot.display.id);
+        opened(&s, &snapshot);
+        snapshot
+    } else {
+        joined.snapshot.clone()
+    };
+    let guest = joined.guest;
+    let preset = resolve_quality(body.quality, body.auto.as_ref(), &snapshot.display);
+    let guest = s.share.set_quality(&guest.id, None, body.quality, preset).unwrap_or(guest);
+    if joined.new {
+        tracing::info!("partage : {} regarde ({}, compte KyberNow)", guest.name, guest.app);
+        s.activity.event("info", Msg::new("events.shareWatching").with("name", guest.name.as_str()));
+    } else {
+        kyber_quality(&s, &guest).await;
+    }
+    let screens = watch_screens(&s, &snapshot).await;
+    joined_answer(&s, &guest, &snapshot, via.as_ref(), Some(screens)).await
+}
+
+/// D'où vient le partage ouvert pour regarder : la session en cours (son
+/// écran principal), sinon un écran du PC (`display`, le principal par
+/// défaut), si rien d'autre n'a pris les écrans ni le son.
+async fn watch_origin(s: &AppState, display: Option<u32>) -> ShareResult<(Origin, ShareDisplay)> {
+    if let Some(live) = s.activity.live() {
+        let screen = host_display(s).await?;
+        return Ok((Origin::Host { device_id: live.device_id, user: live.user, name: live.name }, screen));
+    }
+    device_free(s)?;
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let taken = blocking(move || Ok(!d.status()["session"].is_null() || !a.status()["session"].is_null())).await?;
+    if taken {
+        return Err(ShareError::new(StatusCode::CONFLICT, "busy", Msg::new("share.busy")));
+    }
+    let list = displays(s).await?;
+    let screen = pick_display(list, display).ok_or_else(|| ShareError::new(StatusCode::NOT_FOUND, "unknown_display", Msg::new("share.unknownDisplay")))?;
+    Ok((Origin::Local, screen))
+}
+
+#[derive(Deserialize)]
+pub struct WatchDisplayBody {
+    guest: String,
+    display: u32,
+}
+
+/// `POST /api/share/watch/display` (en-tête `x-kybernow-guest`) : « Écran »
+/// de la barre de qui regarde un partage ouvert pour regarder depuis le PC.
+/// L'écran change pour tous ses invités (le signe de vie suivant le porte,
+/// avec son jeton) ; la réponse est celle du signe de vie, avec le nouvel
+/// écran et un jeton qui le porte : l'invité se reconnecte tout de suite.
+/// Refus (`{"error": <code>}`) : `unknown_guest` (404), `fixed` (409 : un
+/// partage ordinaire, ou ouvert depuis une session), `unknown_display`
+/// (404), `too_many` (429, un changement par seconde), `unavailable` (503).
+pub async fn watch_display(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<WatchDisplayBody>) -> Response {
+    let secret = guest_secret(&headers);
+    match s.share.quality_request(&body.guest, &secret) {
+        None => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+        Some(Err(wait)) => {
+            let seconds = wait.as_secs_f64().ceil().max(1.0) as u64;
+            let mut res = (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": "too_many", "retry_after": seconds }))).into_response();
+            res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+            return res;
+        }
+        Some(Ok(())) => {}
+    }
+    let Ok(list) = displays(&s).await else { return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable") };
+    let Some(display) = pick_display(list, Some(body.display)) else { return guest_error(StatusCode::NOT_FOUND, "unknown_display") };
+    let (guest, display) = match s.share.set_watch_display(&body.guest, &secret, display) {
+        Ok(r) => r,
+        Err(share::WatchDisplayError::Unknown) => return guest_error(StatusCode::NOT_FOUND, "unknown_guest"),
+        Err(share::WatchDisplayError::Fixed) => return guest_error(StatusCode::CONFLICT, "fixed"),
+    };
+    let (index, gdi) = (display.index, display.name.clone());
+    tracing::info!("partage : {} regarde maintenant l'écran {index} ({gdi})", guest.name);
+    let Some(token) = guest_token(&s, &guest, display.id) else { return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable") };
+    let answer = json!({
+        "role": guest.role,
+        "token": token,
+        "expires": share::TOKEN_LIFETIME,
+        "end": null,
+        "display": { "id": display.id, "width": display.width, "height": display.height, "refresh": display.refresh },
+        "image": image_json(&guest),
+    });
+    ([(header::CACHE_CONTROL, "no-store")], Json(answer)).into_response()
 }
 
 // --- Veille ----------------------------------------------------------------------------
@@ -1210,6 +1443,12 @@ async fn supervise_tick(s: &AppState) {
     for guest in s.share.expire() {
         tracing::info!("partage : {} ne donne plus de nouvelles", guest.name);
         guest_gone(s, &guest).await;
+    }
+    // Ouvert pour regarder et plus personne : fermé (aussi après une
+    // ouverture dont l'invité n'a jamais pu entrer).
+    close_if_unwatched(s).await;
+    if !s.share.is_open() {
+        return;
     }
     match snapshot.origin {
         Origin::Host { device_id, name, .. } if s.activity.live().is_none_or(|l| l.device_id != device_id) => {
@@ -1942,5 +2181,141 @@ mod tests {
         // Pas de relais : `null`.
         s.settings.lock().unwrap().relay.server = Some(String::new());
         assert!(current_view(s)["relay"].is_null());
+    }
+
+    fn watch_req(app: &str, display: Option<u32>) -> Bytes {
+        Bytes::from(json!({ "app": app, "display": display }).to_string())
+    }
+
+    /// Regarder (docs/comptes.md) : sans partage, la Station en ouvre un du PC
+    /// pour la personne, sans code à montrer ; un deuxième compte le rejoint ;
+    /// « Écran » change l'écran ; il se ferme quand le dernier part.
+    #[tokio::test]
+    async fn regarder_ouvre_un_partage_du_pc_qui_se_ferme_seul() {
+        let st = station();
+        let s = &st.s;
+        let k = crate::accounts::attach_for_tests(s);
+        // Sans jeton de compte, ou sans le droit : refusé.
+        let (status, v) = body(watch(State(s.clone()), None, HeaderMap::new(), watch_req("ios", None)).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::UNAUTHORIZED, Some("account")));
+        let share_only = crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::Share]);
+        let (status, v) = body(watch(State(s.clone()), None, share_only, watch_req("ios", None)).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("no_right")));
+        // Le droit « Regarder » : un partage du PC ouvert pour Léa, l'écran principal.
+        let lea_token = crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::View]);
+        let (status, lea) = body(watch(State(s.clone()), None, lea_token, Bytes::new()).await).await;
+        assert_eq!(status, StatusCode::OK, "{lea}");
+        assert_eq!(lea["role"], "spectator");
+        assert_eq!(claims(lea["kyber"]["token"].as_str().unwrap())["kn_role"], "spectator");
+        assert_eq!(lea["watch"]["switch"], true);
+        let screens = lea["watch"]["screens"].as_array().unwrap().clone();
+        assert!(screens.len() >= 2, "{screens:?}");
+        assert_eq!(screens[0]["label"], "Écran 1");
+        let primary = screens.iter().find(|d| d["primary"] == true).unwrap_or(&screens[0])["id"].clone();
+        assert_eq!(lea["display"]["id"], primary);
+        assert_eq!(lea["watch"]["display"], primary);
+        let view = current_view(s);
+        assert_eq!((view["origin"].as_str(), view["watch"].as_str()), (Some("local"), Some("Léa Martin")));
+        assert!(s.share.local_open());
+        // Son code ne fait entrer personne.
+        let code = view["code"].as_str().unwrap().to_string();
+        let (status, _) = body(join(State(s.clone()), peer(20), None, HeaderMap::new(), join_body(&code, "Max", "tv", "tvos")).await).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(texts(s).iter().any(|t| t == "Léa Martin regarde votre écran"));
+        assert!(!texts(s).iter().any(|t| t.contains("partage l'écran")));
+        // Un deuxième appareil (Session : il peut aussi regarder) rejoint le même partage.
+        let max_token = crate::accounts::token_headers(s, &k, "acc_max", "dev_2", &[Right::Session]);
+        let (status, max) = body(watch(State(s.clone()), None, max_token, watch_req("tvos", Some(424242))).await).await;
+        assert_eq!(status, StatusCode::OK, "{max}");
+        assert_eq!(s.share.guest_count(), 2);
+        // « Écran » : l'autre écran, pour tous ; le jeton le porte.
+        let other = screens.iter().find(|d| d["id"] != primary).unwrap()["id"].as_u64().unwrap() as u32;
+        let (lea_id, lea_secret) = (lea["guest"].as_str().unwrap().to_string(), lea["secret"].as_str().unwrap().to_string());
+        let (status, moved) = body(watch_display(State(s.clone()), guest_headers(&lea_secret), Json(WatchDisplayBody { guest: lea_id.clone(), display: other })).await).await;
+        assert_eq!(status, StatusCode::OK, "{moved}");
+        assert_eq!(moved["display"]["id"], other);
+        assert_eq!(claims(moved["token"].as_str().unwrap())["kn_display"], other);
+        let (max_id, max_secret) = (max["guest"].as_str().unwrap().to_string(), max["secret"].as_str().unwrap().to_string());
+        let (_, b) = body(beat(State(s.clone()), guest_headers(&max_secret), None, Json(GuestBody { guest: max_id.clone(), error: None, started: None })).await).await;
+        assert_eq!(b["display"]["id"], other);
+        // Un écran inconnu, puis trop vite : refusés.
+        let (status, v) = body(watch_display(State(s.clone()), guest_headers(&max_secret), Json(WatchDisplayBody { guest: max_id.clone(), display: 42 })).await).await;
+        assert_eq!((status, v["error"].as_str()), (StatusCode::NOT_FOUND, Some("unknown_display")));
+        let (status, _) = body(watch_display(State(s.clone()), guest_headers(&max_secret), Json(WatchDisplayBody { guest: max_id.clone(), display: other })).await).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        // Léa part : le partage reste pour Max ; Max part : il se ferme.
+        let _ = leave(State(s.clone()), guest_headers(&lea_secret), None, Json(GuestBody { guest: lea_id, error: None, started: None })).await;
+        assert!(s.share.is_open());
+        let _ = leave(State(s.clone()), guest_headers(&max_secret), None, Json(GuestBody { guest: max_id, error: None, started: None })).await;
+        assert!(!s.share.is_open());
+        assert!(!s.share.local_open());
+        assert!(!texts(s).iter().any(|t| t == "Partage arrêté"));
+    }
+
+    /// Quelqu'un est en session : Regarder ouvre le partage de sa session
+    /// (son écran, pas d'« Écran ») ; « Partager » de l'hôte le rend ordinaire.
+    #[tokio::test]
+    async fn regarder_la_session_en_cours() {
+        let st = station();
+        let s = &st.s;
+        let k = crate::accounts::attach_for_tests(s);
+        s.activity.begin(Some(mac()), "mac", None, None);
+        let token = crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::View]);
+        let (status, lea) = body(watch(State(s.clone()), None, token, watch_req("mac", None)).await).await;
+        assert_eq!(status, StatusCode::OK, "{lea}");
+        assert_eq!(lea["watch"]["switch"], false);
+        assert_eq!(lea["watch"]["screens"].as_array().unwrap().len(), 1);
+        assert_eq!(lea["host"], "MacBook de Léa");
+        let view = current_view(s);
+        assert_eq!((view["origin"].as_str(), view["watch"].as_str()), (Some("host"), Some("Léa Martin")));
+        // L'hôte voit le partage dans son signe de vie.
+        assert!(for_host(s, Some("mac-1")).is_some());
+        let (id, secret) = (lea["guest"].as_str().unwrap().to_string(), lea["secret"].as_str().unwrap().to_string());
+        let (status, v) = body(watch_display(State(s.clone()), guest_headers(&secret), Json(WatchDisplayBody { guest: id.clone(), display: lea["display"]["id"].as_u64().unwrap() as u32 })).await).await;
+        assert_eq!((status, v["error"].as_str()), (StatusCode::CONFLICT, Some("fixed")));
+        // « Partager » de l'hôte : le même partage, maintenant avec un code.
+        let Json(opened) = host_open(State(s.clone()), basic("mac", "mot-de-passe-mac"), Bytes::from(r#"{"device_id":"mac-1"}"#)).await.ok().unwrap();
+        assert!(opened["watch"].is_null());
+        assert_eq!(opened["guests"][0]["name"], "Léa Martin");
+        // Léa part : un partage ordinaire reste ouvert.
+        let _ = leave(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: id, error: None, started: None })).await;
+        assert!(s.share.is_open());
+    }
+
+    /// Regarder un partage déjà ouvert (avec son code) : la personne y entre
+    /// en spectateur ; refus : partage coupé, comptes coupés, complet.
+    #[tokio::test]
+    async fn regarder_un_partage_ouvert_et_les_refus() {
+        let st = station();
+        let s = &st.s;
+        let k = crate::accounts::attach_for_tests(s);
+        let token = || crate::accounts::token_headers(s, &k, "acc_lea", "dev_1", &[Right::View]);
+        let Json(opened) = local_open(State(s.clone()), peer(5), admin(s), Json(LocalOpenBody { display: kyber_display_id("\\\\.\\DISPLAY2") })).await.ok().unwrap();
+        let code = opened["code"].as_str().unwrap().to_string();
+        let (status, lea) = body(watch(State(s.clone()), None, token(), watch_req("ios", None)).await).await;
+        assert_eq!(status, StatusCode::OK, "{lea}");
+        assert_eq!(lea["display"]["id"], opened["display"]["id"], "l'écran choisi par la personne au PC");
+        assert_eq!(lea["watch"]["switch"], false);
+        assert!(current_view(s)["watch"].is_null());
+        // Complet : quatre invités au plus.
+        for i in 0..3 {
+            let (status, _) = body(join(State(s.clone()), peer(10 + i), None, HeaderMap::new(), join_body(&code, "Invité", &format!("d{i}"), "mac")).await).await;
+            assert_eq!(status, StatusCode::OK);
+        }
+        let other = crate::accounts::token_headers(s, &k, "acc_max", "dev_2", &[Right::View]);
+        let (status, v) = body(watch(State(s.clone()), None, other, watch_req("ios", None)).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("full")));
+        close_share(s).await;
+        // Le partage coupé (`multi_client`).
+        s.kyber.apply(&[("network.multi_client".to_string(), Some(json!(false)))].into_iter().collect()).unwrap();
+        let (status, v) = body(watch(State(s.clone()), None, token(), watch_req("ios", None)).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::CONFLICT, Some("disabled")));
+        assert_eq!(v["error"], "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).");
+        s.kyber.apply(&[("network.multi_client".to_string(), Some(json!(true)))].into_iter().collect()).unwrap();
+        // Les comptes coupés.
+        s.settings.lock().unwrap().account.accept = false;
+        let (status, v) = body(watch(State(s.clone()), None, token(), watch_req("ios", None)).await).await;
+        assert_eq!((status, v["code"].as_str()), (StatusCode::FORBIDDEN, Some("accounts_off")));
+        assert!(!s.share.is_open());
     }
 }

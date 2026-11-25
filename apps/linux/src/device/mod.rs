@@ -121,6 +121,9 @@ pub enum Event {
     Update(Result<Option<kybernow_core::update::Available>, String>),
     /// KyberNow Share, invité : la réponse de « Rejoindre » (numéro de la recherche), ou son refus.
     ShareJoined { attempt: u32, result: Result<share::Found, share::ShareError> },
+    /// Regarder (droit « Regarder » d'un compte) : la réponse de `share::watch_account` pour cet ordinateur de
+    /// l'accueil, ou son refus.
+    ShareWatched { host: String, result: Result<share::Found, share::ShareError> },
     /// KyberNow Share, invité : la demande est partie par le relais, l'hôte ne l'a pas encore acceptée
     /// (« En attente de l'accord de l'hôte… »).
     SharePending { attempt: u32 },
@@ -2788,6 +2791,18 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 app.join_failed(attempt, e.to_string());
             }
         },
+        // Regarder : la session de qui regarde s'ouvre si la demande est encore celle de l'accueil ; sinon l'invité
+        // repart. Un refus : le texte du cœur en avis (un compte fermé ou un ordinateur qui n'est plus au compte, comme
+        // pour une session).
+        Event::ShareWatched { host, result } => match result {
+            Ok(found) if app.watch_answered(&host) => connect_watcher(app, lives, wins, tx, &host, found),
+            Ok(found) => jobs::share_leave(found),
+            Err(e) => {
+                let text = e.text(kybernow_core::i18n::current());
+                actions.extend(accounts::session_failed(app, &host, &text));
+                app.watch_failed(&host, text);
+            }
+        },
         // Invitations : l'ordinateur est ajouté (gardé, choisi sur l'accueil), ou le refus va sous le champ.
         Event::Invited { attempt, result } => match result {
             Ok(host) => actions.extend(app.invitation_added(attempt, host)),
@@ -3052,6 +3067,8 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             if let Some(l) = lives.get_mut(id) {
                 l.mode = format!("{} × {}", m.width, m.height);
                 l.hz = m.refresh;
+                // Regarder : un autre écran relance l'image ; la coche suit l'écran que le cœur dit regardé.
+                app.watch_display(id, l.handle.session.watch_display());
             }
         }
         SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered } => {
@@ -3068,6 +3085,8 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             if fps > 0.0 {
                 l.mbps.push(mbps);
             }
+            // Regarder : l'écran regardé suit aussi le choix d'un autre spectateur du même partage.
+            app.watch_display(id, l.handle.session.watch_display());
             if let Some(s) = app.session_by_mut(id) {
                 let mut history = s.stats.as_ref().map(|s| s.history.clone()).unwrap_or_default();
                 if let Some(v) = latency_ms {
@@ -3562,6 +3581,23 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 l.handle.session.set_share_quality(session::core_quality(q));
             }
         }
+        // Regarder : le jeton d'accès du compte et sa route ; l'ordinateur sur le réseau quand la découverte l'y voit.
+        // La « Qualité de l'image » est celle de la dernière fois, « Auto » d'après l'écran de la fenêtre.
+        Action::Watch { host } => {
+            let (Some(h), Some((access, route))) = (app.store.host(&host).cloned(), accounts::watch_access(&host)) else {
+                app.watch_failed(&host, tr("Cet ordinateur n'est plus sur votre compte.", "This computer is no longer on your account.").into());
+                return;
+            };
+            let lan = (!h.address.is_empty() && h.port != 0).then(|| ShareTarget { host: h.address.clone(), port: h.port, fingerprint: h.fingerprint.clone() });
+            let quality = crate::app::ShareQuality::parse(&app.store.app.share_quality);
+            let request = share::WatchRequest { app: "linux".into(), display: None, quality: session::core_quality(quality), auto: Some(join_auto(app, wins)) };
+            jobs::share_watch(host, access, lan, route, request, session::guest_capabilities(&app.machine), tx.clone());
+        }
+        Action::WatchScreen(id, display) => {
+            if let Some(l) = lives.get(id) {
+                l.handle.session.watch_screen(display);
+            }
+        }
         Action::Share(id, op) => {
             let host = lives.get(id).and_then(|l| app.store.host(&l.host)).cloned();
             match host {
@@ -3660,6 +3696,11 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
 /// plus, une fenêtre chacune, le registre du cœur). Sans place pour elle, l'invité repart de la Station.
 fn connect_guest(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, found: share::Found) {
     open_session(app, lives, wins, tx, "", crate::model::Profile::Jeu, Some(found), None);
+}
+
+/// Regarder : la session de qui regarde l'ordinateur `host` de l'accueil, un invité spectateur de son partage.
+fn connect_watcher(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, found: share::Found) {
+    open_session(app, lives, wins, tx, host, crate::model::Profile::Jeu, Some(found), None);
 }
 
 /// Ouvre la session d'emprunt d'un prêt accordé (prêt de l'ordinateur) : comme une session d'invité, une session de plus
@@ -3770,7 +3811,9 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         give_up(guest, loan);
         return;
     }
-    let guest_title = guest.as_ref().map(|f| crate::app::guest_title(f.joined.computer.trim()));
+    // Qui regarde : « Regarder {nom} » (catalogue du cœur) à la place de « Invité sur {nom} ».
+    let lang = kybernow_core::i18n::current();
+    let guest_title = guest.as_ref().map(|f| if f.joined.watch.is_some() { share::watch_title(lang, f.joined.computer.trim()) } else { crate::app::guest_title(f.joined.computer.trim()) });
     // La clé d'une session d'emprunt : l'ordinateur emprunté (compte d'ami), sinon le prêt.
     let borrow_key = loan.as_ref().map(|(l, src)| match src {
         crate::app::BorrowSource::Account { id, .. } => id.clone(),
@@ -3905,10 +3948,23 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     let mut ui = match &guest {
         // Arrivé en spectateur ; l'hôte donne la suite (`Platform::on_share_role`, avant la connexion).
         Some(f) => {
-            let mut ui = SessionUi::guest(id, &h.id, f.joined.computer.trim(), session::role_of(f.joined.role));
-            // La « Qualité de l'image » demandée à « Rejoindre », et l'image que la Station dit déjà (`on_share_image` la suit).
+            let computer = f.joined.computer.trim();
+            let role = session::role_of(f.joined.role);
+            let mut ui = match &f.joined.watch {
+                // Regarder : les écrans de l'ordinateur (libellés du cœur), « Écran » si `menu()`, l'écran regardé.
+                Some(w) => {
+                    let screens = w.screens.iter().map(|sc| (sc.id, sc.label(lang))).collect();
+                    let watch = crate::app::WatchUi { host: host.into(), screens, menu: w.menu(), display: if w.display != 0 { w.display } else { f.joined.display.id } };
+                    let mut ui = SessionUi::watcher(id, &h.id, computer, role, watch);
+                    ui.name = share::watch_title(lang, computer);
+                    ui
+                }
+                None => SessionUi::guest(id, &h.id, computer, role),
+            };
+            // La « Qualité de l'image » demandée (« Rejoindre », ou celle retenue pour Regarder), et l'image que la
+            // Station dit déjà (`on_share_image` la suit).
             if let Some(g) = ui.guest.as_mut() {
-                g.quality = app.join.quality;
+                g.quality = if g.watch.is_some() { crate::app::ShareQuality::parse(&app.store.app.share_quality) } else { app.join.quality };
                 g.image = f.joined.image.as_ref().and_then(|i| i.label());
             }
             ui

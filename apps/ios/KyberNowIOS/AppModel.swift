@@ -53,6 +53,8 @@ final class AppModel: ObservableObject {
     /// Ordinateur à ouvrir une fois l'accord donné : l'appareil est en
     /// données mobiles et « Sessions en données mobiles » est coupé.
     @Published var mobileDataAsk: UUID?
+    /// La question des données mobiles posée pour « Regarder » : l'accord regarde.
+    private var watchAfterMobileData: UUID?
 
     let store: HostStore
     /// Les comptes KyberNow de cet appareil et leurs ordinateurs (Accounts.swift).
@@ -296,7 +298,18 @@ final class AppModel: ObservableObject {
     func connect(_ id: UUID, mobileDataOK: Bool = false) {
         guard session == nil, let host = store.host(id) else { return }
         if !mobileDataOK, !prefs.allowCellular, onMobileData {
+            watchAfterMobileData = nil
             mobileDataAsk = id
+            return
+        }
+        if watchAfterMobileData == id {
+            watchAfterMobileData = nil
+            watch(id, mobileDataOK: true)
+            return
+        }
+        // Le droit « Regarder » seul : « Se connecter » n'est pas proposé, on regarde.
+        if store.watchOnly(host) {
+            watch(id, mobileDataOK: true)
             return
         }
         selected = id
@@ -305,6 +318,32 @@ final class AppModel: ObservableObject {
             withAnimation(Theme.join) { self?.session = nil }
         }
         session = controller
+        controller.start()
+    }
+
+    /// « Regarder » un ordinateur du compte (droit `view`) : une session
+    /// d'invité spectateur, étapes titrées « Regarder {nom} ». Une session à
+    /// la fois, comme « Se connecter » (même question en données mobiles).
+    func watch(_ id: UUID, mobileDataOK: Bool = false) {
+        guard session == nil, let host = store.host(id) else { return }
+        if !mobileDataOK, !prefs.allowCellular, onMobileData {
+            mobileDataAsk = id
+            watchAfterMobileData = id
+            return
+        }
+        selected = id
+        sheet = nil
+        let controller = SessionController(watch: host, store: store) { [weak self] _ in
+            withAnimation(Theme.join) { self?.session = nil }
+        }
+        session = controller
+        #if DEBUG && targetEnvironment(simulator)
+        if store.demo {
+            launched = true
+            controller.demoWatch()
+            return
+        }
+        #endif
         controller.start()
     }
 

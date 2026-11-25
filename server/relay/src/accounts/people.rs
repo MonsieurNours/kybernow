@@ -25,6 +25,7 @@ use kybernow_tunnel::access::{Right, Rights};
 use rusqlite::{OptionalExtension, params};
 
 use super::Accounts;
+use super::station_groups::GROUP_GRANT_FOR;
 use super::stations::StationRow;
 use super::store::{Account, Store};
 
@@ -182,13 +183,19 @@ impl Store {
     }
 
     /// Les droits donnés à ce compte sur cette Station (à lui, à ses
-    /// organisations, à ses groupes), pas échus.
+    /// organisations, à ses groupes), pas échus ; et ceux donnés sur un groupe
+    /// d'ordinateurs où elle est ([`super::station_groups`]).
     pub fn granted_rights(&self, account: i64, station: &str, now: i64) -> Result<Rights> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT g.rights FROM grants g WHERE g.station = ?3 AND {LIVE} AND (
                  g.account = ?1
                  OR (g.grp IS NULL AND g.org IN (SELECT org FROM org_members WHERE account = ?1))
-                 OR g.grp IN (SELECT grp FROM group_members WHERE account = ?1))"
+                 OR g.grp IN (SELECT grp FROM group_members WHERE account = ?1))
+             UNION ALL
+             SELECT gg.rights FROM group_grants gg JOIN station_groups sg ON sg.id = gg.sgroup
+                 JOIN station_group_members m ON m.sgroup = gg.sgroup
+                 JOIN stations s ON s.id = m.station AND s.org = sg.org
+             WHERE m.station = ?3 AND {GROUP_GRANT_FOR}"
         ))?;
         let rows = stmt.query_map(params![account, now, station], |r| r.get::<_, String>(0))?;
         let mut all = Vec::new();
@@ -199,7 +206,8 @@ impl Store {
     }
 
     /// Les Stations qu'un compte peut voir : les siennes, celles des
-    /// organisations qu'il administre, celles qu'on lui a ouvertes.
+    /// organisations qu'il administre, celles qu'on lui a ouvertes (une à une,
+    /// ou par un groupe d'ordinateurs).
     pub fn visible_stations(&self, account: i64, now: i64) -> Result<Vec<StationRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {cols} FROM stations s WHERE s.account = ?1
@@ -208,6 +216,9 @@ impl Store {
                     g.account = ?1
                     OR (g.grp IS NULL AND g.org IN (SELECT org FROM org_members WHERE account = ?1))
                     OR g.grp IN (SELECT grp FROM group_members WHERE account = ?1)))
+               OR s.id IN (SELECT m.station FROM group_grants gg JOIN station_groups sg ON sg.id = gg.sgroup
+                    JOIN station_group_members m ON m.sgroup = gg.sgroup
+                    WHERE s.org = sg.org AND {GROUP_GRANT_FOR})
              ORDER BY s.account IS NOT ?1, s.name COLLATE NOCASE, s.id",
             cols = super::stations::STATION_COLS_S,
         ))?;

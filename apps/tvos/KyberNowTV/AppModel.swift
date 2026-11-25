@@ -364,6 +364,11 @@ final class AppModel: ObservableObject {
 
     func connect(_ id: UUID) {
         guard session == nil, consoleSession == nil, let host = store.host(id) else { return }
+        // Le droit « Regarder » seul : « Se connecter » n'est pas proposé, on regarde.
+        if store.watchOnly(host) {
+            watch(id)
+            return
+        }
         selected = id
         let controller = SessionController(host: host, store: store) { [weak self] _ in
             withAnimation(Theme.join) {
@@ -373,6 +378,29 @@ final class AppModel: ObservableObject {
         }
         session = controller
         screen = .session(id)
+        controller.start()
+    }
+
+    /// « Regarder » un ordinateur du compte (droit `view`) : une session
+    /// d'invité spectateur, étapes titrées « Regarder {nom} ». Une session à
+    /// la fois, comme « Se connecter ».
+    func watch(_ id: UUID) {
+        guard session == nil, consoleSession == nil, let host = store.host(id) else { return }
+        selected = id
+        let controller = SessionController(watch: host, store: store) { [weak self] _ in
+            withAnimation(Theme.join) {
+                self?.session = nil
+                self?.screen = .home
+            }
+        }
+        session = controller
+        screen = .session(controller.host.id)
+        #if DEBUG
+        if store.demo {
+            controller.demoWatch(menu: UserDefaults.standard.string(forKey: "screen") == "watch-menu")
+            return
+        }
+        #endif
         controller.start()
     }
 

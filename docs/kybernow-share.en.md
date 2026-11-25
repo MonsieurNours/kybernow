@@ -113,6 +113,24 @@ Every Link app (Mac, Windows, Linux, iPhone, iPad, Apple TV, Android, LG TVs) an
 
 The KyberNow relay lets a guest join a share from the internet: same code, same link, same QR code. The host accepts each guest who comes through the relay (“Requests” in their panel); on the network, nothing changes. The contract (tunnel, Admin routes `wait`, `accept`, `refuse`, the `guests[].pending` and `via` fields, links, Admin's guard by route, trust) is in [relais.en.md](relais.en.md).
 
+## Watching with an account
+
+A KyberNow account's “Watch” right (`view`, contract in [comptes.en.md](comptes.en.md), “Watch, access links and computer groups”; texts in [link-ui.en.md](link-ui.en.md), “KyberNow accounts”) goes through sharing: the person comes in as a **spectator**, with no code and no approval from the host, like an account with the Share right. It is the real screen: nothing changes for whoever is using the computer.
+
+- **A share is open**: they join it (same seat if their device is already there, four guests at most). The screen is the share's.
+- **No share**: the Station opens one **for them**: that of the current session if someone is connected (its main screen, like “Share”), otherwise a share from the PC (like “Share a screen…”, the main screen by default, or the one the app asks for). This share has **no code to show**: its code lets nobody in, the relay doesn't hold it; the panels (Admin, tray icon, host's bar) say « Ouvert pour {prénom}, qui regarde avec son compte. » / “Opened for {name}, who is watching with their account.”. It **closes by itself** when its last guest leaves (left, removed, silent), with no “Sharing stopped” in the feed. The host's “Share”, or “Share a screen…” on the PC, makes it an ordinary share (the code comes back, it no longer closes by itself); a session that starts closes a share from the PC, as always.
+- **Screen**: only on a share from the PC opened for watching; changing it changes that share's screen for everyone watching it (their next heartbeat carries it, with a fresh `kn_display` token, and their session reconnects). Elsewhere, the screen is the share's.
+- **The host knows**: Admin's feed says « {prénom} regarde votre écran »; the person is a guest like any other (“Remove”, “Give the controllers”, “Give the keyboard and mouse”).
+
+**Exchange with Admin**:
+
+- `POST /api/share/watch` — header `Authorization: KyberNow <token>` (right `view`, or `session`: “Open the desktop” also lets you watch), `{"app":"mac|…","display":<id>?,"quality":"auto|…","auto":{…}?}` (all optional) → the `join` answer (`guest`, `secret`, `role`, `host`, `computer`, `kyber`, `display`, `codec`, `yuv444`, `beat`, `relay` through the relay) and `"watch":{"screens":[{"id","index","label","width","height","refresh","primary"}],"switch":true|false,"display":<id>}` (`switch`: the screen can be changed; `screens`: the PC's screens, main first, or the share's only screen). After that, everything is a guest's: `beat`, `quality`, `leave`. Refusals `{"error":<text>,"code":<code>}`: the accounts' ones (`accounts_off`, `not_attached`, `token_expired`, `bad_token`, `blocked`, `no_right`), `account` (401, no account token), `lent` (409, with `computer`: the computer's name), `disabled` (409, `multi_client` off), `busy` (409, a connection holds the screens or sound), `full` (409), `unknown_display` (404), `unavailable` (503). Through the relay, the route is a device's (“Access away from home”).
+- `POST /api/share/watch/display` — header `x-kybernow-guest: <secret>`, `{"guest":"<id>","display":<id>}` → a heartbeat answer with the new screen and a token carrying it. Refusals `{"error":<code>}`: `unknown_guest` (404), `fixed` (409: this share's screen can't be changed), `unknown_display` (404), `too_many` (429, one change per second, like `quality`), `unavailable` (503). Through the relay, like the guest's routes.
+- `info` (`GET /api/stream/info`): `"share":{…,"watch":true}`; a token with only `view` can read `info` too. An older Station answers `404` with no `code` to `POST /api/share/watch`: “This Station can't be watched yet: update it.”.
+- The share view (`GET /api/share`, `/api/local/share`, `share` in the host's heartbeat, `/api/status`) gives `"watch":"<name>"` for a share opened for watching, `null` otherwise.
+
+**Core** ([apps/core/README.en.md](../apps/core/README.en.md)): `share::watch_account` (on the network, otherwise through the account's relay) or `share::watch` (an account console already open) return a `Found` whose `joined.watch` lists the screens; the session opens with `SessionParams::guest`, like a guest's; `Session::watch_screen` and `Session::watch_display` for “Screen”; “{host} removed you.” at the end. `AccountComputer::can_watch` and `watch_only` for the card.
+
 ## Outside this first step
 
 - Lending the computer in turns: its own contract, [pret.en.md](pret.en.md) (console mode in the host's session).

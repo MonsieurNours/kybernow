@@ -321,6 +321,8 @@ pub struct UiState {
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Action {
     Connect { id: String },
+    /// « Regarder » (droit « Regarder » d'un compte KyberNow, menu de l'icône).
+    Watch { id: String },
     Add,
     /// « Rejoindre avec un code » (menu de l'icône, `kybernow://join?…` : le lien).
     Join { link: Option<String> },
@@ -674,6 +676,9 @@ struct BarComputer {
     dot: &'static str,
     /// `show`, `connect`, `full`, `wake`, `waking`, `retry`, `busy`.
     pick: &'static str,
+    /// Droit « Regarder » seul (ordinateur d'un compte) : « Regarder » (mot du
+    /// cœur) ; un clic regarde au lieu de se connecter.
+    watch: Option<String>,
 }
 
 fn bar_computer_list(app: &AppHandle) -> Vec<BarComputer> {
@@ -693,6 +698,7 @@ fn bar_computer_list(app: &AppHandle) -> Vec<BarComputer> {
                     menu::Dot::Faint => "faint",
                 },
                 pick: menu::pick(&s, c).code(),
+                watch: c.watch.as_ref().filter(|w| w.only).map(|w| w.word.clone()),
             }
         })
         .collect()
@@ -1944,6 +1950,8 @@ struct GuestBar {
     host: String,
     quality: &'static str,
     image: Option<String>,
+    /// Regarder avec un compte : « Arrêter de regarder », « Écran » et ses écrans.
+    watch: Option<crate::sharing::WatchView>,
 }
 
 /// `bar-label` : le profil de la session `id` a changé.
@@ -3609,6 +3617,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         host: g.host.clone(),
         quality: g.quality.lock().unwrap().as_str(),
         image: g.image.lock().unwrap().clone(),
+        watch: g.watch.clone(),
     });
     // Prêt de l'ordinateur : l'ami qui emprunte (barre réduite) ou, pour l'hôte, « Prêter l'ordinateur… ».
     let host_session = guest.is_none() && borrow.is_none();
@@ -3874,6 +3883,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                     .filter(|h| h.available)
                     .map(|h| h.on),
                 guest: guest.map(|(_, role)| role),
+                watch: r.guest.as_ref().and_then(|g| g.watch.as_ref().map(|w| menu::WatchSession { title: g.title.clone(), stop: w.stop.clone() })),
             }
         })
         .collect();
@@ -3906,6 +3916,11 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                 can_wake: !c.wake.is_empty(),
                 waking: waking.contains(&c.id),
                 station,
+                // Droit « Regarder » d'un compte : « Regarder » (à la place de « Se connecter » sans « Ouvrir le bureau »).
+                watch: c.account.as_ref().filter(|ac| ac.can_watch()).map(|ac| menu::Watch {
+                    only: ac.watch_only(),
+                    word: kybernow_core::share::watch_word(i18n::lang(), "action"),
+                }),
             }
         })
         .collect();
@@ -3971,6 +3986,7 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
                 let _ = session_hdr(app.clone(), id, !on);
             }
             Cmd::Connect(id) => show_action(&app, Action::Connect { id }),
+            Cmd::Watch(id) => show_action(&app, Action::Watch { id }),
             Cmd::Wake(id) => fail(wake(app.clone(), id).map(|_| ())),
             Cmd::Retry(id) => {
                 let _ = poll_now(app.clone(), id);
@@ -4161,6 +4177,10 @@ pub fn run(args: Vec<String>) {
             share::share_refuse,
             share::share_guest,
             share::share_quality,
+            share::share_watch,
+            share::share_watch_words,
+            share::share_watch_screen,
+            share::share_watch_display,
             share::share_kick,
             share::share_close,
             share::copy_text,

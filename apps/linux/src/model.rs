@@ -571,6 +571,19 @@ pub struct KnComputer {
     pub attached_at: i64,
 }
 
+impl KnComputer {
+    /// Droit « Regarder » (`view`) : miroir d'`AccountComputer::can_watch` du cœur.
+    pub fn can_watch(&self) -> bool {
+        self.rights.iter().any(|r| r == "view")
+    }
+
+    /// « Regarder » sans « Ouvrir le bureau » (`view` sans `session`) : la carte propose « Regarder » à la place de
+    /// « Se connecter » (miroir d'`AccountComputer::watch_only`).
+    pub fn watch_only(&self) -> bool {
+        self.can_watch() && !self.rights.iter().any(|r| r == "session")
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct KnOwner {
@@ -827,6 +840,12 @@ impl Store {
     /// L'ordinateur `id` vient d'un compte (pas appairé sur cet appareil).
     pub fn account_host(&self, id: &str) -> Option<&AccountHost> {
         self.account_hosts.iter().find(|a| a.id == id)
+    }
+
+    /// L'ordinateur d'un compte derrière `id` (un ordinateur de l'accueil venu d'un compte) : ses droits.
+    pub fn account_computer(&self, id: &str) -> Option<&KnComputer> {
+        let link = self.account_host(id)?;
+        self.account_computers.iter().find(|c| c.relay == link.relay && c.station == link.station)
     }
 
     pub fn account(&self, key: &str) -> Option<&KnAccount> {

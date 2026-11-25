@@ -4,6 +4,9 @@
 //! puce de la barre (`session::bar`) ; à la manette (Steam Deck, salon, KyberNow Link OS), un panneau par-dessus
 //! l'image, ouvert par la tuile « Qualité de l'image » du menu (B revient au menu). La changer ne relance que
 //! l'image de l'invité.
+//!
+//! Regarder (droit « Regarder » d'un compte, docs/link-ui.md, « Regarder, barre ») : avec plusieurs écrans, « Écran »
+//! et la liste (« Écran 1 — 3840 × 2160 », l'écran principal d'abord), du même dessin ; en changer relance l'image.
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::icons::Icon;
@@ -27,17 +30,32 @@ pub fn items(s: &SessionUi) -> Vec<(Target, String, String, bool)> {
         .collect()
 }
 
+/// Les écrans de qui regarde : (cible, « Écran 1 — 3840 × 2160 », rien, regardé).
+pub fn screen_items(s: &SessionUi) -> Vec<(Target, String, String, bool)> {
+    let Some(w) = s.watch() else { return Vec::new() };
+    w.screens.iter().map(|(id, label)| (Target::ScreenPick(*id), label.clone(), String::new(), *id == w.display)).collect()
+}
+
 /// À la manette : le panneau au centre de l'image assombrie, et la légende des boutons.
 pub fn overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    panel(app, cv, f, tr("Qualité de l'image", "Picture quality"), items(s));
+}
+
+/// À la manette, qui regarde : la liste des écrans, du même dessin.
+pub fn screen_overlay(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    panel(app, cv, f, crate::app::watch_screen_word(), screen_items(s));
+}
+
+fn panel(app: &App, cv: &mut Canvas, f: &mut Frame, title: &str, items: Vec<(Target, String, String, bool)>) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
     cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, 200));
     let x0 = if app.layout == Layout::Tv { 96.0 } else { 48.0 };
     let mut y = 50.0 * u;
-    eyebrow(cv, x0, y, 12.0 * u, FAINT, tr("Qualité de l'image", "Picture quality"));
+    eyebrow(cv, x0, y, 12.0 * u, FAINT, title);
     y += 26.0 * u;
     let (rw, rh, gap) = ((w - 2.0 * x0).min(620.0 * u), 64.0 * u, 12.0 * u);
-    for (t, label, received, on) in items(s) {
+    for (t, label, received, on) in items {
         let r = Rect::new(x0, y, rw, rh);
         let (focused, hover) = f.state(t, r);
         if focused {

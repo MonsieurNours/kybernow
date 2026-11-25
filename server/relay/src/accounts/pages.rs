@@ -150,6 +150,10 @@ pub enum Notice {
     GroupChanged,
     TokenRevoked,
     BadNumber,
+    /// Liens d'accès (docs/comptes.md, « Regarder, liens d'accès et groupes d'ordinateurs »).
+    LinkRevoked,
+    TooManyLinks,
+    LinkAccepted,
 }
 
 impl Notice {
@@ -182,6 +186,8 @@ impl Notice {
                 | Notice::GroupDeleted
                 | Notice::GroupChanged
                 | Notice::TokenRevoked
+                | Notice::LinkRevoked
+                | Notice::LinkAccepted
         )
     }
 
@@ -267,6 +273,9 @@ impl Notice {
                 "Token revoked: no more Stations enroll with it; those already attached stay.",
             ),
             Notice::BadNumber => tr("Ce nombre ne va pas.", "This number doesn't work."),
+            Notice::LinkRevoked => tr("Lien révoqué : il ne servira plus.", "Link revoked: it won't work anymore."),
+            Notice::TooManyLinks => tr("Révoquez un lien avant d'en créer un autre.", "Revoke a link before creating another one."),
+            Notice::LinkAccepted => tr("C'est fait : l'ordinateur est dans vos ordinateurs.", "Done: the computer is now in your computers."),
         }
     }
 }
@@ -1401,6 +1410,9 @@ mod tests {
             Notice::GroupChanged,
             Notice::TokenRevoked,
             Notice::BadNumber,
+            Notice::LinkRevoked,
+            Notice::TooManyLinks,
+            Notice::LinkAccepted,
         ] {
             pages.push(("avis", sign_in(&v, "", Some(n), true, true)));
         }
@@ -1457,7 +1469,8 @@ mod tests {
                     assert!(part.starts_with('/'), "{name} : ressource hors du relais");
                 }
                 // Seule exception : « Ouvrir sur le réseau », vers l'adresse d'Admin sur le réseau de l'ordinateur.
-                assert!(!page.contains("https://") || name == "admin-reseau", "{name} : adresse absolue");
+                // Et le lien d'accès tout juste créé, montré une seule fois pour être copié.
+                assert!(!page.contains("https://") || name == "admin-reseau" || name == "personnes/lien-cree", "{name} : adresse absolue");
                 // Chaque formulaire est en POST, avec son jeton CSRF et la langue (sauf `/tv`, en GET, qui ne change rien).
                 for form in page.split("<form ").skip(1).filter(|f| !f.starts_with("method=\"get\" action=\"/compte/appareil\"")) {
                     assert!(form.starts_with("method=\"post\""), "{name} : formulaire en GET");

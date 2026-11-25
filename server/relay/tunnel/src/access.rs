@@ -57,6 +57,11 @@ const MAX_SEEN: usize = 100_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Right {
+    /// Regarder l'écran, sans clavier, souris, manette ni presse-papiers :
+    /// un invité spectateur du partage de l'ordinateur, ouvert pour lui s'il
+    /// n'y en a pas (docs/comptes.md, « Regarder, liens d'accès et groupes
+    /// d'ordinateurs »). Une Station qui ne le connaît pas l'ignore.
+    View,
     /// Le bureau entier : les routes `/api/stream/*` d'Admin.
     Session,
     /// Le lanceur du prêt (docs/pret.md).
@@ -68,10 +73,11 @@ pub enum Right {
 }
 
 impl Right {
-    pub const ALL: [Right; 4] = [Right::Session, Right::Lend, Right::Share, Right::Admin];
+    pub const ALL: [Right; 5] = [Right::View, Right::Session, Right::Lend, Right::Share, Right::Admin];
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Right::View => "view",
             Right::Session => "session",
             Right::Lend => "lend",
             Right::Share => "share",

@@ -145,6 +145,13 @@
 </script>
 
 <div class="share">
+  {#if share.watch}
+    <!-- Ouvert pour regarder : pas de code ni de lien à montrer. -->
+    <div class="heading">
+      <h2 class="disp">{title}</h2>
+      <span class="sub">{t('share.watchFor', { name: share.watch })}</span>
+    </div>
+  {:else}
   <div class="top">
     {#if relay === 'waiting'}
       <div class="qr-wait" style="width: 152px; height: 152px" role="img" aria-label={t('share.relayPreparing')}><span class="spin big"></span></div>
@@ -170,6 +177,7 @@
       {:else if relay === 'unreachable'}<p class="help">{t('share.relayUnreachable')}</p>{/if}
     </div>
   </div>
+  {/if}
 
   {#if requests.length}
     <div class="people requests">
@@ -227,7 +235,9 @@
   </div>
 
   <div class="foot">
-    <button type="button" class="ghost" disabled={busy !== null} onclick={() => run('code', () => ops.code())}><Icon name="restart" size={15} />{t('share.newCode')}</button>
+    {#if !share.watch}
+      <button type="button" class="ghost" disabled={busy !== null} onclick={() => run('code', () => ops.code())}><Icon name="restart" size={15} />{t('share.newCode')}</button>
+    {/if}
     <button type="button" class="danger" disabled={busy !== null} onclick={() => run('stop', () => ops.stop(), t('share.stopped'))}>{t('share.stop')}</button>
   </div>
 </div>

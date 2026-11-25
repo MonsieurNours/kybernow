@@ -181,6 +181,20 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountRout
     }
 }
 
+/// « Regarder » est proposé (droit `view`) ; faux pour un JSON illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountCanWatch(mut env: Env, _: JClass, computer: JString) -> jboolean {
+    let computer = string(&mut env, &computer);
+    if serde_json::from_str::<AccountComputer>(&computer).is_ok_and(|c| c.can_watch()) { JNI_TRUE } else { JNI_FALSE }
+}
+
+/// Le droit `view` sans `session` : « Regarder » à la place de « Se connecter » sur la carte.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountWatchOnly(mut env: Env, _: JClass, computer: JString) -> jboolean {
+    let computer = string(&mut env, &computer);
+    if serde_json::from_str::<AccountComputer>(&computer).is_ok_and(|c| c.watch_only()) { JNI_TRUE } else { JNI_FALSE }
+}
+
 /// La console d'un ordinateur du compte (comme `consoleNewRelay`) : `access`
 /// `{account, station}`, `host` et `port` d'Admin sur le réseau (vides sinon),
 /// `pinned` l'empreinte d'Admin, `route` par le relais (`accountRoute`), nul

@@ -695,6 +695,8 @@ enum Msg {
     ShareQuality(ShareQuality),
     /// L'image de l'invité, répondue par `POST /api/share/quality`.
     ShareImage(ShareImage),
+    /// Regarder : « Écran » choisi dans la barre (identifiant de Kyber).
+    WatchScreen(u32),
     /// Réponse du signe de vie d'un emprunt.
     LendBeat(crate::lend::LendBeat),
     /// La Station ne connaît plus le prêt.
@@ -1340,6 +1342,9 @@ pub struct Session {
     hdr_used: Arc<AtomicBool>,
     /// PyroWave : débit du lien donné par l'app, en Mbit/s (0 : inconnu).
     link_mbps: Arc<AtomicU32>,
+    /// Regarder : l'écran regardé (identifiant de Kyber ; 0 : pas une
+    /// session de qui regarde, ou pas encore connu).
+    watch_display: Arc<AtomicU32>,
 }
 
 impl Session {
@@ -1371,6 +1376,7 @@ impl Session {
         let worker = Worker::new(params, screens, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone(), focus.clone());
         let hdr_used = worker.hdr_used.clone();
         let link_mbps = worker.link_mbps.clone();
+        let watch_display = worker.watch_display.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
         let thread = std::thread::Builder::new()
@@ -1397,6 +1403,7 @@ impl Session {
             focus,
             hdr_used,
             link_mbps,
+            watch_display,
         })
     }
 
@@ -1481,6 +1488,27 @@ impl Session {
     /// arrive par [`Platform::on_share_image`]. Sans effet pour un hôte.
     pub fn set_share_quality(&self, quality: ShareQuality) {
         self.send(Msg::ShareQuality(quality));
+    }
+
+    /// Regarder (docs/comptes.md) : « Écran » de la barre, `display` étant
+    /// l'identifiant d'un écran de `joined.watch.screens`
+    /// ([`crate::share::WatchScreen::id`]). La Station change l'écran du
+    /// partage ouvert pour regarder (`POST /api/share/watch/display`), puis la
+    /// session se reconnecte à Kyber sur cet écran (étapes « Premières
+    /// images », [`Platform::on_mode`] avec sa taille), sans fin de session.
+    /// Un refus (partage dont l'écran ne se change pas, écran débranché, plus
+    /// d'un changement par seconde) laisse l'écran tel quel, noté au journal.
+    /// Sans effet hors d'une session de qui regarde, ou si
+    /// `joined.watch.switch` est faux.
+    pub fn watch_screen(&self, display: u32) {
+        self.send(Msg::WatchScreen(display));
+    }
+
+    /// Regarder : l'écran regardé maintenant (à cocher dans « Écran ») ;
+    /// `None` hors d'une session de qui regarde. Il change aussi quand un
+    /// autre spectateur du même partage en choisit un autre.
+    pub fn watch_display(&self) -> Option<u32> {
+        Some(self.watch_display.load(Ordering::Relaxed)).filter(|id| *id != 0)
     }
 
     /// Session d'emprunt : « Rendre l'ordinateur » (après sa confirmation,
@@ -1783,6 +1811,8 @@ struct Worker {
     /// PyroWave : débit du lien donné par l'app (0 : inconnu), partagé avec
     /// [`Session`].
     link_mbps: Arc<AtomicU32>,
+    /// Regarder : l'écran regardé ([`Session::watch_display`]).
+    watch_display: Arc<AtomicU32>,
     /// PyroWave : la définition ramenée en place (docs/pyrowave.md).
     lowered: Option<crate::pyrowave::Lowered>,
     /// Une adaptation pour la définition ramenée est en cours : pas d'avis
@@ -1978,6 +2008,7 @@ impl Worker {
             station_pyrowave: false,
             station_pyrowave_max: None,
             link_mbps: Arc::new(AtomicU32::new(0)),
+            watch_display: Arc::new(AtomicU32::new(0)),
             lowered: None,
             refitting: false,
             hdr_obtained: Vec::new(),
@@ -2155,6 +2186,11 @@ impl Worker {
         self.params.clipboard && !self.visitor()
     }
 
+    /// Un invité venu regarder avec son compte ([`crate::share::watch`]).
+    fn watching(&self) -> bool {
+        self.guest.as_ref().is_some_and(|g| g.joined.watch.is_some())
+    }
+
     /// {hôte} des textes du partage.
     fn share_host(&self) -> String {
         self.guest.as_ref().map(|g| g.joined.host_name().to_string()).unwrap_or_default()
@@ -2162,7 +2198,8 @@ impl Worker {
 
     /// Le partage finit la session d'un invité : la raison (texte de link-ui).
     fn share_ended(&mut self, end: ShareEnd) -> Failure {
-        let text = end.text(i18n::current(), &self.share_host());
+        // Qui regarde : « {hôte} vous a retiré. » (docs/link-ui.md, « Regarder, fin et refus »).
+        let text = if self.watching() { end.text_watching(i18n::current(), &self.share_host()) } else { end.text(i18n::current(), &self.share_host()) };
         info!("partage : {}", end.text(Lang::Fr, &self.share_host()));
         self.share_end = Some((end, text.clone()));
         text.into()
@@ -2278,6 +2315,7 @@ impl Worker {
         next.hdr_used = self.hdr_used.clone();
         next.hdr_noticed = self.hdr_noticed;
         next.link_mbps = self.link_mbps.clone();
+        next.watch_display = self.watch_display.clone();
         next.lowered = self.lowered;
         *self = next;
     }
@@ -2888,6 +2926,9 @@ impl Worker {
             hdr: Vec::new(),
             kyber_token: None,
         });
+        if j.watch.is_some() {
+            self.watch_display.store(d.id, Ordering::Relaxed);
+        }
         self.platform.on_share_role(self.share_role, None);
         if let Some(image) = j.image.clone() {
             self.share_image_changed(image);
@@ -3265,6 +3306,9 @@ impl Worker {
         let Some(g) = self.guest.as_mut() else { return };
         info!("partage : nouvel écran {} ({}×{}), reconnexion à Kyber", d.id, d.width, d.height);
         g.joined.display = d;
+        if g.joined.watch.is_some() {
+            self.watch_display.store(d.id, Ordering::Relaxed);
+        }
         let token = g.joined.kyber.token.clone();
         let mode = Mode { width: d.width, height: d.height, refresh: d.refresh.max(1) };
         self.requested = mode;
@@ -3342,6 +3386,40 @@ impl Worker {
                 }
             })
             .expect("fil de la qualité");
+    }
+
+    /// Regarder : « Écran » choisi (sur un fil d'appel) ; la réponse arrive
+    /// comme un signe de vie ([`Self::on_share_beat`] : jeton, puis nouvel
+    /// écran et reconnexion).
+    fn ask_watch_screen(&mut self, display: u32) {
+        let (Some(g), Some(console)) = (self.guest.clone(), self.console.clone()) else {
+            info!("écran à regarder demandé hors d'une session d'invité : ignoré");
+            return;
+        };
+        if !g.joined.watch.as_ref().is_some_and(|w| w.switch) {
+            info!("écran à regarder demandé, mais l'écran de ce partage ne se change pas : ignoré");
+            return;
+        }
+        if g.joined.display.id == display {
+            return;
+        }
+        info!("regarder : écran {display} demandé");
+        let tx = self.tx.clone();
+        let alive = self.alive.clone();
+        let label = journal::current();
+        std::thread::Builder::new()
+            .name("kybernow-ecran".into())
+            .spawn(move || {
+                journal::resume(label);
+                match console.share_watch_display(&g.joined.guest, &g.joined.secret, display) {
+                    Ok(beat) if alive.load(Ordering::Relaxed) => {
+                        let _ = tx.send(Msg::ShareBeat(beat));
+                    }
+                    Ok(_) => {}
+                    Err(e) => warn!("regarder : écran {display} refusé ({})", e.text(Lang::Fr)),
+                }
+            })
+            .expect("fil de l'écran");
     }
 
     /// L'invité reçoit une image à part (à lui ou à ceux de même qualité),
@@ -3794,6 +3872,7 @@ impl Worker {
                 }
                 Ok(Msg::GiveBack) => info!("« Rendre l'ordinateur » hors d'un emprunt : ignoré"),
                 Ok(Msg::ShareQuality(quality)) => self.ask_share_quality(quality),
+                Ok(Msg::WatchScreen(display)) => self.ask_watch_screen(display),
                 Ok(Msg::ShareImage(image)) => self.share_image_changed(image),
                 Ok(Msg::NoImage) => {
                     if let Some(e) = self.no_image_restart() {
@@ -6287,6 +6366,38 @@ mod tests {
         let both = ShareBeat { display: Some(ShareDisplay { id: 4, width: 1920, height: 1080, refresh: 60, hdr: false }), ..beat(ShareRole::Player) };
         assert!(w.on_share_beat(both).is_none());
         assert!(w.share_reconnecting && w.start_at.is_none() && w.wants_input());
+    }
+
+    /// Regarder : la session d'un invité venu avec son compte ; « Écran »
+    /// change d'écran par un signe de vie ; « {hôte} vous a retiré. ».
+    #[test]
+    fn regarder_un_ecran_puis_un_autre() {
+        let (mut w, _) = guest(ShareRole::Spectator);
+        let watch = share::ShareWatch {
+            screens: vec![share::WatchScreen { id: 7, index: 1, width: 1920, height: 1080, refresh: 60, primary: true }, share::WatchScreen { id: 9, index: 2, width: 2560, height: 1440, refresh: 144, primary: false }],
+            switch: true,
+            display: 7,
+        };
+        w.guest.as_mut().unwrap().joined.watch = Some(watch);
+        assert!(w.watching());
+        w.watch_display.store(7, Ordering::Relaxed);
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        // Le même écran : rien n'est demandé.
+        w.ask_watch_screen(7);
+        // La réponse de la Station (comme un signe de vie) : reconnexion sur l'écran 9.
+        let moved = ShareBeat { display: Some(ShareDisplay { id: 9, width: 2560, height: 1440, refresh: 144, hdr: false }), ..beat(ShareRole::Spectator) };
+        assert!(w.on_share_beat(moved).is_none());
+        assert_eq!(w.watch_display.load(Ordering::Relaxed), 9);
+        assert!(w.share_reconnecting);
+        // Retiré par l'hôte : le texte de qui regarde.
+        let removed = ShareBeat { end: Some(ShareEnd::Removed), ..beat(ShareRole::Spectator) };
+        let f = w.on_share_beat(removed).expect("fin");
+        assert_eq!(f.text, ShareEnd::Removed.text_watching(i18n::current(), "Léa"));
+        // Un invité venu avec un code : pas d'« Écran », la fin d'un invité.
+        let (mut w, _) = guest(ShareRole::Spectator);
+        assert!(!w.watching());
+        let f = w.on_share_beat(ShareBeat { end: Some(ShareEnd::Removed), ..beat(ShareRole::Spectator) }).expect("fin");
+        assert_eq!(f.text, ShareEnd::Removed.text(i18n::current(), "Léa"));
     }
 
     #[test]

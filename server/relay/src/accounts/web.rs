@@ -414,6 +414,10 @@ impl Accounts {
             );
             return cx.page(403, page);
         }
+        // Un lien d'accès : `/compte/lien/kla_…` (le lien est dans le chemin).
+        if let Some(token) = path.strip_prefix("/compte/lien/") {
+            return link_pages::open(cx, token, post);
+        }
         match (path, post) {
             ("/compte", false) => account_page(cx, None),
             ("/compte/connexion", false) => {
@@ -459,6 +463,9 @@ impl Accounts {
             ("/compte/ordinateur/ajouter", true) => console::add(cx),
             ("/compte/ordinateur/ouvrir", true) => console::open_to(cx),
             ("/compte/ordinateur/retirer", true) => console::remove(cx),
+            // Liens d'accès et groupes d'ordinateurs (docs/comptes.md, « Regarder, liens d'accès et groupes d'ordinateurs »).
+            ("/compte/ordinateur/liens/creer", true) => link_pages::create(cx),
+            ("/compte/ordinateur/liens/revoquer", true) => link_pages::revoke(cx),
             // Lot 5 : les organisations.
             ("/compte/organisations/creer", _) => org_pages::create(cx, post),
             ("/compte/organisation", false) => org_pages::page(cx),
@@ -470,6 +477,11 @@ impl Accounts {
             ("/compte/organisation/groupes/creer", true) => org_pages::group_create(cx),
             ("/compte/organisation/groupes/supprimer", true) => org_pages::group_delete(cx),
             ("/compte/organisation/groupes/membre", true) => org_pages::group_member(cx),
+            ("/compte/organisation/groupes-ordinateurs/creer", true) => org_pages::sgroup_create(cx),
+            ("/compte/organisation/groupes-ordinateurs/supprimer", true) => org_pages::sgroup_delete(cx),
+            ("/compte/organisation/groupes-ordinateurs/ordinateur", true) => org_pages::sgroup_station(cx),
+            ("/compte/organisation/groupes-ordinateurs/ouvrir", true) => org_pages::sgroup_open(cx),
+            ("/compte/organisation/groupes-ordinateurs/retirer", true) => org_pages::sgroup_remove(cx),
             ("/compte/organisation/deployer", false) => org_pages::deploy(cx),
             ("/compte/organisation/jetons/creer", true) => org_pages::token_create(cx),
             ("/compte/organisation/jetons/revoquer", true) => org_pages::token_revoke(cx),
@@ -744,6 +756,10 @@ fn verified(mut cx: Cx<'_>, account: &Account) -> Reply {
     if cx.pending().as_deref() == Some(account.email.as_str()) {
         cx.cookies.push(clear_cookie(PENDING_COOKIE));
         cx.open_session(account.id, true);
+        // Une page retenue avant l'inscription (un lien d'accès) : on y revient.
+        if let Some(next) = device_pages::take_next(&mut cx) {
+            return cx.redirect(next);
+        }
         // L'espace s'ouvre sur le tour d'accueil (docs/comptes.md, « L'espace du compte »).
         return cx.redirect(format!("/compte/bienvenue{q}"));
     }
@@ -1066,6 +1082,7 @@ mod admin_login;
 mod attach_pages;
 mod console;
 mod device_pages;
+mod link_pages;
 mod org_pages;
 // Lot 1b : des modules enfants, pour se servir du contexte ([`Cx`]).
 #[path = "passkeys.rs"]

@@ -481,7 +481,8 @@ struct HomeScreen: View {
                 if on { app.connect(host.id) } else if canWake { store.wake(host) } else { retry(host) }
             } label: {
                 HStack(spacing: 12) {
-                    Text(on ? String(localized: "Se connecter") : waking ? LinkText.waking : canWake ? LinkText.wake : String(localized: "Réessayer"))
+                    // Le droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
+                    Text(on ? (store.watchOnly(host) ? Share.watchWord(.action) : String(localized: "Se connecter")) : waking ? LinkText.waking : canWake ? LinkText.wake : String(localized: "Réessayer"))
                     if !wide { Spacer(minLength: 0) }
                     if busy {
                         HomeSpinner(size: 20)
@@ -708,7 +709,15 @@ struct HomeScreen: View {
         .hoverEffect(.lift)
         .contextMenu {
             if on != false {
-                Button { app.connect(h.id) } label: { Label { Text("Se connecter") } icon: { Image(systemName: "play.fill") } }
+                if store.watchOnly(h) {
+                    Button { app.watch(h.id) } label: { Label { Text(verbatim: Share.watchWord(.action)) } icon: { Image(systemName: "eye") } }
+                } else {
+                    Button { app.connect(h.id) } label: { Label { Text("Se connecter") } icon: { Image(systemName: "play.fill") } }
+                    // Avec les deux droits du compte, « Regarder » est dans le menu de l'ordinateur.
+                    if store.canWatch(h) {
+                        Button { app.watch(h.id) } label: { Label { Text(verbatim: Share.watchWord(.action)) } icon: { Image(systemName: "eye") } }
+                    }
+                }
             }
             Button { app.sheet = .settings(h.id) } label: { Label { Text("Réglages") } icon: { Image(systemName: "slider.horizontal.3") } }
             // Un ordinateur d'un compte quitte l'accueil avec le compte (Réglages de l'app › Comptes).

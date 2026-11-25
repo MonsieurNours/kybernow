@@ -287,12 +287,13 @@ private struct Hero: View {
                 }
                 .buttonStyle(GhostButton(height: 56))
             } else {
+                // Le droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
                 Button { app.connect(host) } label: {
                     HStack(spacing: 12) {
                         Icon("arrow-elbow-down-left", size: 14, bold: true)
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-                        Text("Se connecter")
+                        if app.store.watchOnly(host) { Text(verbatim: Share.watchWord(.action)) } else { Text("Se connecter") }
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
@@ -640,7 +641,15 @@ private struct HostCard: View {
             if let session = app.sessions.session(for: host.id) {
                 Button(LinkText.showSession) { session.bringToFront() }
             } else {
-                Button("Se connecter") { app.connect(host) }.disabled(status?.online != true || app.sessions.isFull)
+                if app.store.watchOnly(host) {
+                    Button(Share.watchWord(.action)) { app.watch(host) }.disabled(status?.online != true || app.sessions.isFull)
+                } else {
+                    Button("Se connecter") { app.connect(host) }.disabled(status?.online != true || app.sessions.isFull)
+                    // Avec les deux droits du compte, « Regarder » est dans le menu de l'ordinateur.
+                    if app.store.canWatch(host) {
+                        Button(Share.watchWord(.action)) { app.watch(host) }.disabled(status?.online != true || app.sessions.isFull)
+                    }
+                }
             }
             Button(LinkText.settingsTitle(host.name)) { app.openSettings(host) }
         }

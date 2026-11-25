@@ -41,9 +41,9 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import { onMount } from 'svelte'
-  import type { AccountView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc } from './lib/api'
-  import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText } from './lib/api'
-  import { t } from './lib/i18n/index.svelte'
+  import type { AccountView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc, WatchWords } from './lib/api'
+  import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText, watchRight } from './lib/api'
+  import { i18n, t } from './lib/i18n/index.svelte'
 
   let {
     computers,
@@ -59,6 +59,7 @@
     error,
     onselect,
     onconnect,
+    onwatch,
     onshow,
     onretry,
     onwake,
@@ -101,6 +102,8 @@
     error: string | null
     onselect: (id: string) => void
     onconnect: (id: string) => void
+    /** « Regarder » : un ordinateur d'un compte avec le droit « Regarder » (`view`). */
+    onwatch?: (id: string) => void
     /** « Afficher la session » : sa fenêtre passe devant. */
     onshow: (id: string) => void
     onretry: (id: string) => void
@@ -165,6 +168,22 @@
         : c.online
           ? t(c.away ? 'home.away' : 'home.online')
           : t('home.offline')
+
+  /**
+   * Le droit « Regarder » de l'ordinateur choisi (docs/link-ui.md, « Comptes KyberNow ») : seul (`only`), « Regarder »
+   * remplace « Se connecter » ; avec « Ouvrir le bureau », il suit « Se connecter ». Le mot vient du cœur.
+   */
+  const watching = $derived(selected ? watchRight(selected) : null)
+  let watchWord = $state('')
+  let watchLang = ''
+  $effect(() => {
+    const lang = i18n.lang
+    if (!watching || (watchWord && watchLang === lang)) return
+    watchLang = lang
+    invoke<WatchWords>('share_watch_words', { name: '' })
+      .then((w) => (watchWord = w.action))
+      .catch(() => {})
+  })
 
   const waking = $derived(!!selected?.waking && !selected.online)
   /** L'ordinateur choisi est en session : « Afficher la session ». */
@@ -387,7 +406,7 @@
       <h1>{selected.name}</h1>
       {#if selected.info?.os || selected.os}<div class="system">{selected.info?.os || selected.os}</div>{/if}
       {#if error}<div class="error" role="alert">{error}</div>{/if}
-      {#if screen}
+      {#if screen && !watching?.only}
         <div class="chip"><Icon name="monitor" size={20} /><span>{screen}</span></div>
       {/if}
       <div class="actions">
@@ -411,11 +430,21 @@
           <button class="primary" disabled={busy || retrying} onclick={() => onretry(selected!.id)}>
             <Icon name="restart" size={18} />{t('home.retry')}
           </button>
+        {:else if watching?.only}
+          <!-- Droit « Regarder » seul : « Regarder » à la place de « Se connecter ». -->
+          <button class="primary" disabled={busy || full || !watchWord} aria-describedby={full ? 'four-at-most' : undefined} onclick={() => onwatch?.(selected!.id)}>
+            <Icon name="eye" size={18} />{watchWord}
+          </button>
         {:else}
           <button class="primary" disabled={busy || full} aria-describedby={full ? 'four-at-most' : undefined} onclick={() => onconnect(selected!.id)}>
             <Icon name="play" size={18} />{t('home.connect')}
           </button>
+          {#if watching && watchWord}
+            <!-- Avec les deux droits : « Regarder » à côté de « Se connecter ». -->
+            <button class="gear" disabled={busy || full} onclick={() => onwatch?.(selected!.id)}><Icon name="eye" size={18} stroke={1.6} />{watchWord}</button>
+          {/if}
         {/if}
+        {#if !watching?.only}
         <div class="profiles" role="radiogroup" aria-label={t('home.profile')}>
           {#each profiles as p (p.value)}
             {@const on = !custom && selected.settings.profile === p.value}
@@ -427,6 +456,7 @@
           {@const on = hdrChip.available && (selected.settings.hdr ?? true)}
           {@render hdrButton(on, hdrChip.available, hdrChip.reason, toggleHdr)}
         {/if}
+        {/if}
         <button class="gear" aria-label={t('home.settings_for', { name: selected.name })} onclick={() => onsettings(selected!.id)}>
           <Icon name="gear" size={18} stroke={1.6} />{t('home.settings')}
         </button>
@@ -434,7 +464,7 @@
       {#if full && !inSession && selected.online !== false}
         <p class="sentence limit" id="four-at-most">{t('common.four_at_most')}</p>
       {/if}
-      <p class="sentence">{sentence}</p>
+      {#if !watching?.only}<p class="sentence">{sentence}</p>{/if}
     {:else}
       <!-- Sans aucun ordinateur : un compte KyberNow d'abord, puis l'ajout et « Rejoindre » sans compte. -->
       <div class="eyebrow">{t('home.welcome')}</div>

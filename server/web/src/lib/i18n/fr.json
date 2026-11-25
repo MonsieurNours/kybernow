@@ -1050,6 +1050,7 @@
     "titleLocal": "Partage de l'écran {n}",
     "titleHost": "Partager {name}",
     "openedBy": "Ouvert depuis la session de {name}.",
+    "watchFor": "Ouvert pour {name}, qui regarde avec son compte.",
     "codeLabel": "Code",
     "codeAria": "Code {digits}",
     "copy": "Copier le lien",

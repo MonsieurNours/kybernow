@@ -268,6 +268,17 @@ function sharePage(s, share) {
   const away = waiting
     ? `<p class="page-hint away" role="status"><span class="spin" aria-hidden="true"></span>${esc(t('share.relayPreparing'))}</p>`
     : relay === 'unreachable' ? `<p class="page-hint away">${esc(t('share.relayUnreachable'))}</p>` : ''
+  // Ouvert pour regarder (droit « Regarder » d'un compte) : ni code, ni lien, ni QR code, ni « Nouveau code ».
+  if (share.watch) {
+    return `${pageHead(shareTitle(s, share), sub)}
+    <p class="page-hint">${esc(t('share.watchFor', { name: share.watch }))}</p>
+    ${shareError(ui)}
+    ${requests}<div class="people">
+      <div class="people-head"><span class="lbl">${esc(host ? t('share.participants') : t('share.people'))}</span><span>${esc(t('share.limit'))}</span></div>
+      ${host}${guests || `<p class="nobody">${esc(t('share.nobody'))}</p>`}
+    </div>
+    <div class="share-foot"><span></span><button class="stop" data-cmd="shareStop" ${busy}>${esc(t('share.stop'))}</button></div>`
+  }
   return `${pageHead(shareTitle(s, share), sub)}
     <div class="share-top">
       <div class="qr" role="img" aria-label="${esc(t('share.qrLabel'))}">${waiting ? '<span class="spin" aria-hidden="true"></span>' : share.qr || ''}</div>
@@ -409,7 +420,7 @@ function shareItem(s, up, idle) {
   if (share) {
     const n = guestsOf(share).length
     const asks = requestsOf(share).length
-    const detail = [`${t('share.codeLabel')} ${share.code.slice(0, 3)} ${share.code.slice(3)}`, n ? tn('share.guests', n) : null, asks ? tn('share.requests', asks) : null].filter(Boolean).join(' · ')
+    const detail = [share.watch ? t('share.watchFor', { name: share.watch }) : `${t('share.codeLabel')} ${share.code.slice(0, 3)} ${share.code.slice(3)}`, n ? tn('share.guests', n) : null, asks ? tn('share.requests', asks) : null].filter(Boolean).join(' · ')
     return `<button class="item signal" data-page="share">${icon('share', '#D4CEFF')}<span class="two"><span>${esc(shareTitle(s, share))}</span><small>${esc(detail)}</small></span></button>`
   }
   // Pendant la session d'un appareil, c'est lui qui partage (« Partager » dans sa barre).

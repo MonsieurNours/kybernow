@@ -53,7 +53,7 @@ struct SessionView: View {
             // puis disparaît de la hiérarchie une fois ouvert (même raison).
             if session.phase != .ended, session.passageShown {
                 Passage(host: session.host, open: revealed, title: session.title,
-                        button: session.isBorrower ? LendText.borrow : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
+                        button: session.isBorrower ? LendText.borrow : session.isWatching ? Share.watchWord(.action) : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                     .allowsHitTesting(false)
             }
 

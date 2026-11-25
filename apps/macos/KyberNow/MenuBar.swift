@@ -184,7 +184,7 @@ enum MenuContent {
                                  action: .hdr(id), help: hdr.reason))
         }
         out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics(id)))
-        out.append(MenuEntry(title: session.isGuest ? ShareText.leave : String(localized: "Se déconnecter"), action: .disconnect(id)))
+        out.append(MenuEntry(title: session.isWatching ? Share.watchWord(.stop) : session.isGuest ? ShareText.leave : String(localized: "Se déconnecter"), action: .disconnect(id)))
         out.append(.line)
         return out
     }

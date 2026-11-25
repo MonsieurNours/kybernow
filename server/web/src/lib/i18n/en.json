@@ -1050,6 +1050,7 @@
     "titleLocal": "Sharing display {n}",
     "titleHost": "Share {name}",
     "openedBy": "Opened from {name}'s session.",
+    "watchFor": "Opened for {name}, who is watching with their account.",
     "codeLabel": "Code",
     "codeAria": "Code {digits}",
     "copy": "Copy link",

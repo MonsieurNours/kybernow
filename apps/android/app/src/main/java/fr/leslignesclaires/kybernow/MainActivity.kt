@@ -122,6 +122,8 @@ class MainActivity : AppCompatActivity() {
                             wake = ::wake,
                             join = { route = Route.Join() },
                             signIn = { signIn(Accounts.DEFAULT_RELAY, Route.Home) },
+                            // « Regarder » (droit d'un compte) : la session d'un invité spectateur, comme « Rejoindre avec un code ».
+                            watch = { h -> model.watch(h.id, fr.leslignesclaires.kybernow.model.Screen.of(this).current, ::joined) },
                             borrow = { b, password -> model.borrow(b.id, password, ::borrowed) },
                             cancelBorrow = { b -> model.cancelBorrow(b.id) },
                             removeBorrowed = { b -> model.removeBorrowed(b.id) },
