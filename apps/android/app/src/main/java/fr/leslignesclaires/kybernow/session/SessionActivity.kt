@@ -205,8 +205,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
         pads = PadRouter({ handle }, app.gamepads).apply { guide = host.settings.guide }
         remote = RemoteRouter { handle }
-        // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite. Un emprunt : « Ordinateur de {hôte} ».
-        val title = guest?.let { getString(R.string.share_guest_on, it.computer) } ?: loan?.let { getString(R.string.lend_card_title, it.host) } ?: host.name
+        // Un invité : « Invité sur {nom} » (la connexion, le menu), la barre réduite ; qui regarde avec son compte : « Regarder
+        // {nom} » (le cœur). Un emprunt : « Ordinateur de {hôte} ».
+        val watching = guest?.watch
+        val title = guest?.let { g -> if (g.watch != null) Share.watchTitle(g.computer) else getString(R.string.share_guest_on, g.computer) }
+            ?: loan?.let { getString(R.string.lend_card_title, it.host) } ?: host.name
+        // « Arrêter de regarder », et « Écran » avec ses lignes quand la Station permet d'en changer (plusieurs écrans).
+        val watchUi = watching?.let { w ->
+            state.watchDisplay.value = w.display
+            WatchUi(Share.watchWord("stop"), Share.watchWord("screen"), if (w.menu) w.screens.map { it.id to Share.watchScreenLabel(it) } else emptyList())
+        }
         // Face à une Station Mac, ses touches (menu, rangée du clavier) ; un invité ou un ami qui emprunte ne connaît pas
         // le système de l'ordinateur : celles d'un PC.
         val mac = hostSession && Native.stationIsMac(host.os ?: "")
@@ -215,7 +223,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         pads.mouse.mac = mac
         ui = SessionUi(
             title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
-            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, watch = watchUi,
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
@@ -527,6 +535,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         .collect { visible -> overlay.visibility = if (visible) View.VISIBLE else View.GONE }
                 }
                 launch { state.ended.collect { if (it?.error != null) overlay.visibility = View.VISIBLE } }
+                if (ui.watch?.screens?.isNotEmpty() == true) launch {
+                    // Qui regarde : l'écran regardé, relu chaque seconde (il suit aussi le choix d'un autre spectateur).
+                    state.second.collect { val h = handle; if (h != 0L) Native.sessionWatchDisplay(h).toInt().takeIf { it != 0 }?.let { state.watchDisplay.value = it } }
+                }
                 launch {
                     // Invité : ce que son rôle permet change en cours de partage. Un droit retiré relâche ce qui était tenu
                     // (le cœur le fait de son côté ; ici, ce que l'interface montre).
@@ -935,6 +947,17 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      * relancer ici) : elle relance l'image de l'invité seulement, jamais celle de l'hôte, et l'image reçue revient par
      * `onShareImage`. Retenue pour la fois suivante.
      */
+    /**
+     * Qui regarde : « Écran » choisi. Le cœur le dit à la Station sur un fil, puis l'image repart sur cet écran ; refusé
+     * (écran débranché, plus d'un changement par seconde), rien ne change et la coche revient à l'écran regardé.
+     */
+    override fun watchScreen(id: Int) {
+        val h = handle
+        if (guest?.watch == null || h == 0L) return
+        state.watchDisplay.value = id
+        Native.sessionWatchScreen(h, id.toLong())
+    }
+
     override fun setShareQuality(quality: ShareQuality) {
         if (guest == null || quality == state.shareQuality.value) return
         state.shareQuality.value = quality

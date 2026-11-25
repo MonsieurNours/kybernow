@@ -85,8 +85,15 @@ final class SessionController: ObservableObject {
     /// Un invité n'a ni compte, ni profil, ni écran virtuel ; son ordinateur
     /// n'est pas dans la liste de cet appareil (`host` n'est qu'un nom et une
     /// adresse), rien n'est gardé après le partage (docs/kybernow-share.md).
-    let guest: ShareFound?
-    var isGuest: Bool { guest != nil }
+    @Published private(set) var guest: ShareFound?
+    /// Regarder un ordinateur du compte (droit `view`, docs/comptes.md) :
+    /// l'ordinateur de l'accueil ; la personne entre au départ de la session
+    /// (`AccountStore.watch`), puis la session est celle d'un invité.
+    let watchHost: Host?
+    var isWatching: Bool { watchHost != nil }
+    var isGuest: Bool { guest != nil || watchHost != nil }
+    /// Regarder : le choix de l'écran est ouvert, dans le menu.
+    @Published var screenPanel = false
     /// Le rôle de l'invité (« Spectateur », « Joueur »), changé par l'hôte en cours de partage.
     @Published private(set) var shareRole: ShareRole = .spectator
     /// La « Qualité de l'image » de l'invité (celle demandée, changée dans le
@@ -151,7 +158,30 @@ final class SessionController: ObservableObject {
     /// ou « Ordinateur de {hôte} ».
     var title: String {
         if isBorrower { return LendText.computerOf(lendHost) }
+        if let watchHost { return Share.watchTitle(watchHost.name) }
         return guest.map { ShareText.guestOn($0.computer) } ?? host.name
+    }
+
+    /// « Quitter le partage », ou « Arrêter de regarder » pour qui regarde.
+    var leaveLabel: String { isWatching ? Share.watchWord(.stop) : ShareText.leave }
+
+    /// Regarder : la tuile « Écran » du menu (plusieurs écrans qu'on peut changer).
+    var watchScreens: [ShareWatchScreen] {
+        guard let watch = guest?.watch, watch.menu else { return [] }
+        return watch.screens
+    }
+
+    /// Regarder : l'écran regardé, allumé dans « Écran ».
+    var watchDisplay: UInt32 {
+        let shown = engine?.watchDisplay ?? 0
+        return shown != 0 ? shown : guest?.watch?.display ?? 0
+    }
+
+    /// Regarder : un autre écran ; la session se reconnecte dessus.
+    func watchScreen(_ id: UInt32) {
+        guard isWatching, isLive, id != watchDisplay else { return }
+        engine?.watchScreen(id)
+        objectWillChange.send()
     }
 
     /// « Partager » avec cet ordinateur : disponible, ou inactif avec la raison.
@@ -162,6 +192,7 @@ final class SessionController: ObservableObject {
         self.store = store
         self.onFinish = onFinish
         guest = nil
+        watchHost = nil
         borrowSource = nil
         borrowFlow = nil
         share = ShareHostModel(console: nil) { [store, id = host.id] in ShareHostModel.availability(of: id, in: store) }
@@ -184,6 +215,7 @@ final class SessionController: ObservableObject {
         self.store = store
         self.onFinish = onFinish
         guest = found
+        watchHost = nil
         borrowSource = nil
         borrowFlow = nil
         shareRole = found.role
@@ -191,6 +223,30 @@ final class SessionController: ObservableObject {
         share = ShareHostModel(console: nil) { .available }
         lend = LendHostModel(console: nil) { .available }
         // Le pavé et la manette ne font souris que si l'hôte donne la souris : ensuite, « Pavé en souris ».
+        remoteMouse = false
+        padMouse = false
+    }
+
+    /// « Regarder » un ordinateur du compte : la session d'un invité spectateur,
+    /// qui entre au départ (`start`), étapes titrées « Regarder {nom} ».
+    init(watch computer: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
+        var host = Host(name: computer.name, address: computer.address, consolePort: computer.consolePort, username: "")
+        // Comme un invité : l'image de l'ordinateur telle quelle, rien de partagé.
+        host.settings.apply(.jeu)
+        host.settings.display = .physical
+        host.settings.mouse = .desktop
+        host.settings.clipboard = false
+        host.settings.keepLastImage = false
+        self.host = host
+        self.store = store
+        self.onFinish = onFinish
+        guest = nil
+        watchHost = computer
+        borrowSource = nil
+        borrowFlow = nil
+        shareQuality = GuestQuality.proposed
+        share = ShareHostModel(console: nil) { .available }
+        lend = LendHostModel(console: nil) { .available }
         remoteMouse = false
         padMouse = false
     }
@@ -210,6 +266,7 @@ final class SessionController: ObservableObject {
         self.store = store
         self.onFinish = onFinish
         guest = nil
+        watchHost = nil
         borrowSource = source
         borrowFlow = BorrowFlow(source: source)
         share = ShareHostModel(console: nil) { .available }
@@ -421,6 +478,34 @@ final class SessionController: ObservableObject {
         streamView.appleISOKeyboard = prefs.appleISOKeyboard
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.route = AudioRoute.current }
+        }
+
+        // Regarder : la personne entre d'abord dans le partage de l'ordinateur
+        // (« Préparation de l'écran »), puis la session est celle d'un invité.
+        if let watchHost, guest == nil {
+            phase = .preparing
+            let quality = shareQuality
+            let tv = TVDisplay.native
+            let screen = ShareScreen(pixelWidth: tv.width, pixelHeight: tv.height, refresh: tv.refresh)
+            Task { [weak self] in
+                guard let accounts = self?.store.accounts else { return }
+                do {
+                    let found = try await accounts.watch(watchHost, quality: quality, screen: screen)
+                    guard let self, self.isLive else {
+                        Share.leave(found)
+                        return
+                    }
+                    self.guest = found
+                    self.shareRole = found.role
+                    self.launch(settings: settings, password: password, mode: mode)
+                } catch {
+                    guard let self, self.isLive else { return }
+                    let text = ShareJoinModel.text(error)
+                    self.shareEndText = text
+                    self.fail(text)
+                }
+            }
+            return
         }
 
         // Prêt de l'ordinateur : l'emprunt d'abord (« Préparation de
@@ -1016,6 +1101,13 @@ final class SessionController: ObservableObject {
     }
 
     /// Démonstration : la session d'un invité (sans Station), au rôle demandé.
+    /// Démonstration : regarder un ordinateur du compte, deux écrans dans « Écran ».
+    func demoWatch(menu: Bool) {
+        let screens = [ShareWatchScreen(demoID: 1, label: "Écran 1 — 3840 × 2160"), ShareWatchScreen(demoID: 2, label: "Écran 2 — 2560 × 1440")]
+        guest = ShareFound(demoComputer: host.name, host: host.name, role: .spectator, watch: ShareWatch(demoScreens: screens))
+        demoGuest(role: .spectator, menu: menu)
+    }
+
     func demoGuest(role: ShareRole, menu: Bool) {
         shareRole = role
         // La qualité reçue dans le menu : une image à part en 1080p · 60 Hz.

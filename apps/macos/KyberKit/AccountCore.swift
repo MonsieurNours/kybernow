@@ -125,7 +125,7 @@ public struct AccountComputer: Codable, Sendable, Equatable, Hashable {
     /// L'identifiant de la Station chez le relais.
     public var station: String
     public var name: String
-    /// `session`, `lend`, `share`, `admin`.
+    /// `session`, `view`, `lend`, `share`, `admin`.
     public var rights: [String]
     public var owner: Owner?
     /// Rattaché à ce compte (et non ouvert par quelqu'un d'autre).
@@ -348,6 +348,18 @@ public enum Accounts {
     /// La pastille d'un ordinateur appairé (« Appairé »), quand un compte est connecté.
     public static var originPaired: String {
         Core.take(kn_account_origin_paired()) ?? ""
+    }
+
+    /// « Regarder » est proposé pour cet ordinateur du compte (droit `view`) :
+    /// sur la carte si `watchOnly`, sinon dans son menu.
+    public static func canWatch(_ computer: AccountComputer) -> Bool {
+        kn_account_can_watch(computer.json)
+    }
+
+    /// Le droit `view` sans `session` : la carte propose « Regarder » à la
+    /// place de « Se connecter ».
+    public static func watchOnly(_ computer: AccountComputer) -> Bool {
+        kn_account_watch_only(computer.json)
     }
 
     /// La route par le relais d'un ordinateur du compte ; nil sans empreinte

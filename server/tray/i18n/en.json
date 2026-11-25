@@ -222,6 +222,7 @@
       "takeKbm": "Take back keyboard and mouse",
       "remove": "Remove",
       "newCode": "New code",
+      "watchFor": "Opened for {name}, who is watching with their account.",
       "stop": "Stop sharing",
       "limit": "Four guests at most.",
       "guests": {

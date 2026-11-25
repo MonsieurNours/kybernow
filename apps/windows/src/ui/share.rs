@@ -38,11 +38,11 @@ use kybernow_core::console::{Console, ConsoleError, Mode};
 use kybernow_core::profile::{Profile, StreamSettings};
 use kybernow_core::screens::DisplaysSetting;
 use kybernow_core::session::SessionParams;
-use kybernow_core::share::{self, Found, JoinRequest, Joining, PendingJoin, ShareAvailability, ShareGuest, ShareOpened, ShareQuality, ShareRole, ShareState, ShareTarget};
+use kybernow_core::share::{self, Found, JoinRequest, Joining, PendingJoin, ShareAvailability, ShareGuest, ShareOpened, ShareQuality, ShareRole, ShareState, ShareTarget, WatchRequest};
 
 use super::*;
 use crate::relais;
-use crate::sharing::{self, JoinOutcome, Joined, Known, ShareView, WaitOutcome};
+use crate::sharing::{self, JoinOutcome, Joined, Known, ShareView, WaitOutcome, WatchView};
 
 /// L'ordinateur qui partage, vu par une session d'invité.
 pub struct Guest {
@@ -58,6 +58,9 @@ pub struct Guest {
     pub quality: Mutex<ShareQuality>,
     /// La qualité reçue (« 1080p · 60 Hz »), quand Kyber en connaît la taille.
     pub image: Mutex<Option<String>>,
+    /// Regarder avec un compte (droit « Regarder ») : « Arrêter de regarder » et
+    /// « Écran » dans la barre ; le titre est alors « Regarder {nom} ».
+    pub watch: Option<WatchView>,
 }
 
 /// Un partage rejoint, en attente de sa session (`share_connect`).
@@ -281,7 +284,7 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
         Err(code) => return Ok(JoinOutcome::Lend { ticket: super::lend::keep_ticket(&state, code, name) }),
     };
     match joining {
-        Joining::Joined(found) => Ok(JoinOutcome::Joined(open_found(&state, found, quality))),
+        Joining::Joined(found) => Ok(JoinOutcome::Joined(open_found(&state, found, quality, None))),
         Joining::Pending(pending) => {
             // Hors de chez soi : l'hôte accepte chaque invité. Une demande déjà en
             // attente (une autre ouverture de « Rejoindre ») est retirée.
@@ -298,13 +301,23 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
 }
 
 /// Le partage trouvé devient la session d'invité à ouvrir (`share_connect`) :
-/// le passage de l'accueil montre « Invité sur {nom} » dès maintenant. Un partage
-/// rejoint dont la session ne s'est jamais ouverte repart.
-fn open_found(state: &UiState, found: Found, quality: ShareQuality) -> Joined {
+/// le passage de l'accueil montre « Invité sur {nom} » dès maintenant (« Regarder
+/// {nom} » pour qui regarde avec un compte : `watching`, le nom de l'ordinateur
+/// sur l'accueil). Un partage rejoint dont la session ne s'est jamais ouverte repart.
+fn open_found(state: &UiState, found: Found, quality: ShareQuality, watching: Option<&str>) -> Joined {
     let j = &found.joined;
     let host = j.host_name().to_string();
-    let computer = if j.computer.trim().is_empty() { host.clone() } else { j.computer.clone() };
-    let title = t("share.guest_on", &[("name", &computer)]);
+    let lang = i18n::lang();
+    let computer = match watching.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => name.to_string(),
+        None if j.computer.trim().is_empty() => host.clone(),
+        None => j.computer.clone(),
+    };
+    let watch = watching.map(|_| WatchView::new(&j.watch.clone().unwrap_or_default(), lang));
+    let title = match watching {
+        Some(_) => share::watch_title(lang, &computer),
+        None => t("share.guest_on", &[("name", &computer)]),
+    };
     let session = window::new_app_id();
     let id = format!("guest-{session}");
     log::info!(
@@ -319,6 +332,7 @@ fn open_found(state: &UiState, found: Found, quality: ShareQuality) -> Joined {
         role: Mutex::new(j.role),
         quality: Mutex::new(quality),
         image: Mutex::new(j.image.as_ref().and_then(|i| i.label())),
+        watch,
     });
     let joined = Joined { id: id.clone(), title, host, role: j.role.as_str(), fingerprint: found.target.fingerprint.clone() };
     let old = state.pending_guest.lock().unwrap().replace(Pending { id, session, found, guest });
@@ -326,6 +340,95 @@ fn open_found(state: &UiState, found: Found, quality: ShareQuality) -> Joined {
         std::thread::spawn(move || share::leave(&old.found));
     }
     joined
+}
+
+// MARK: - Regarder avec un compte
+
+/// Les mots de « Regarder » (catalogue du cœur) que l'accueil montre : le
+/// bouton de la carte ou du menu (« Regarder »), et le titre du passage
+/// (« Regarder {nom} ») pour cet ordinateur.
+#[derive(Serialize)]
+pub struct WatchWords {
+    action: String,
+    title: String,
+}
+
+#[tauri::command(async)]
+pub fn share_watch_words(name: String) -> WatchWords {
+    let lang = i18n::lang();
+    WatchWords { action: share::watch_word(lang, "action"), title: share::watch_title(lang, &name) }
+}
+
+/// « Regarder » un ordinateur d'un compte KyberNow (droit `view`,
+/// docs/comptes.md) : la Station fait entrer ce PC en spectateur dans son
+/// partage ouvert, ou en ouvre un pour lui (`share::watch_account` : sur le
+/// réseau d'abord quand la découverte le voit, sinon par le relais du compte).
+/// Rend la session d'invité à ouvrir (`share_connect`), titrée « Regarder
+/// {nom} ». La « Qualité de l'image » est celle retenue pour « Rejoindre ».
+/// Refus : le texte du cœur (« Cette Station ne permet pas encore de regarder :
+/// mettez-la à jour. », « {nom} est prêté en ce moment. », « Le partage est
+/// coupé sur cet ordinateur (Admin › Appareils Link). », complet, ou le texte
+/// d'Admin), « Quatre ordinateurs au plus… ». Bloque 10 s au plus.
+#[tauri::command(async)]
+pub fn share_watch(app: AppHandle, id: String) -> Result<Joined, String> {
+    let state = app.state::<UiState>();
+    if state.quitting.load(Ordering::Relaxed) {
+        return Err(t("errors.session_not_ready", &[]));
+    }
+    if state.full() {
+        return Err(t("errors.four_at_most", &[]));
+    }
+    let Some(c) = state.with_store(|s| s.get(&id).cloned()) else {
+        return Err(t("errors.no_session", &[]));
+    };
+    let Some(ac) = c.account.clone().filter(|ac| ac.can_watch()) else {
+        return Err(t("errors.no_session", &[]));
+    };
+    let (access, lan) = super::account::watch_params(&app, &c, &ac)?;
+    let quality = state.prefs.lock().unwrap().share_quality.unwrap_or_default();
+    let pc = this_pc_of(&state);
+    let caps = capabilities(&pc);
+    let request = WatchRequest { app: "windows".into(), display: None, quality, auto: sharing::join_auto(quality, system::screen_mode(), caps) };
+    log::info!("regarder : {} ({}), image {}", c.name, if lan.is_some() { "sur le réseau d'abord" } else { "par le relais" }, quality.as_str());
+    let found = match share::watch_account(access, lan, ac.route(), &request, Some(caps)) {
+        Ok(found) => found,
+        Err(e) => {
+            log::info!("regarder : refusé ({})", e.kind());
+            if let share::ShareError::Other(err) = &e {
+                super::account::on_console_error(&app, &c, err);
+            }
+            return Err(e.text(i18n::lang()));
+        }
+    };
+    // Une autre session a pris la dernière place pendant l'appel : le partage est rendu.
+    if state.full() {
+        std::thread::spawn(move || share::leave(&found));
+        return Err(t("errors.four_at_most", &[]));
+    }
+    Ok(open_found(&state, found, quality, Some(&c.name)))
+}
+
+/// « Écran » de la barre de qui regarde : la Station change l'écran du partage
+/// (pour tous ceux qui le regardent), la session se reconnecte sur lui. Un
+/// refus de la Station laisse l'écran tel quel (noté au journal par le cœur).
+#[tauri::command(async)]
+pub fn share_watch_screen(app: AppHandle, id: String, display: u32) -> Result<(), String> {
+    let state = app.state::<UiState>();
+    if state.with_session(&id, |r| r.guest.as_ref().is_some_and(|g| g.watch.is_some())) != Some(true) {
+        return Err(t("errors.no_session", &[]));
+    }
+    if !state.with_session(&id, |r| r.host.watch_screen(display)).unwrap_or(false) {
+        return Err(t("errors.session_not_ready", &[]));
+    }
+    log::info!("regarder : écran {display} demandé");
+    Ok(())
+}
+
+/// L'écran regardé maintenant (coché dans « Écran ») : il suit aussi le choix
+/// d'un autre spectateur du même partage. `None` hors d'une session de qui regarde.
+#[tauri::command(async)]
+pub fn share_watch_display(app: AppHandle, id: String) -> Option<u32> {
+    app.state::<UiState>().with_session(&id, |r| r.host.watch_display()).flatten()
 }
 
 /// « En attente de l'accord de l'hôte… » : un appel tenu 25 s au plus que
@@ -360,7 +463,7 @@ pub fn share_wait(app: AppHandle, wait: u64) -> Result<WaitOutcome, String> {
         Ok(None) => Ok(WaitOutcome::Waiting),
         Ok(Some(found)) => {
             finished(&state);
-            Ok(WaitOutcome::Joined(open_found(&state, found, quality)))
+            Ok(WaitOutcome::Joined(open_found(&state, found, quality, None)))
         }
         Err(e) => {
             finished(&state);

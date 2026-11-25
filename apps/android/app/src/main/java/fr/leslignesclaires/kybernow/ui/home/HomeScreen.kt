@@ -142,6 +142,8 @@ class HomeActions(
     val setHdr: (Host, Boolean) -> Unit = { _, _ -> },
     /** « Se connecter à un compte KyberNow » (accueil sans ordinateur) : onglet personnalisé, ou le code au téléviseur. */
     val signIn: () -> Unit = {},
+    /** « Regarder » un ordinateur du compte (droit « Regarder ») : comme un invité spectateur de son partage. */
+    val watch: (Host) -> Unit = {},
 )
 
 /** Tout ce que l'accueil montre. */
@@ -183,6 +185,13 @@ data class HomeState(
     val origins: Map<String, String> = emptyMap(),
     /** Le retour de la page de connexion s'échange contre le compte : « Connexion au compte… ». */
     val signingIn: Boolean = false,
+    /**
+     * Comptes KyberNow, droit « Regarder » : vrai quand c'est le seul (« Regarder » à la place de « Se connecter »), faux
+     * avec « Ouvrir le bureau » aussi (« Regarder » dans le menu de l'ordinateur) ; absent : pas de « Regarder ».
+     */
+    val watch: Map<String, Boolean> = emptyMap(),
+    /** « Regarder » / “Watch”, le mot du cœur. */
+    val watchWord: String = "",
 )
 
 @Composable
@@ -208,6 +217,8 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val lendErrors by model.lendErrors.collectAsState()
     val origins by model.origins.collectAsState()
     val signingIn by app.accounts.signingIn.collectAsState()
+    val watch by model.watch.collectAsState()
+    val watchWord = remember { fr.leslignesclaires.kybernow.core.Share.watchWord("action") }
     val known = remember(borrowed, friends, borrowing) { borrowed.filter { model.friendPassword(it.id) != null }.map { it.id }.toSet() }
     val ps = app.ps
     val consoles by ps.store.consoles.collectAsState()
@@ -241,7 +252,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     HomeContent(
         HomeState(
             hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
-            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr, origins, signingIn,
+            borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr, origins, signingIn, watch, watchWord,
         ),
         actions,
     )
@@ -457,6 +468,8 @@ private fun MainButton(host: Host, st: HostStatus, state: HomeState, actions: Ho
     host.id in state.connecting -> PrimaryButton(stringResource(R.string.home_connecting), {}, modifier)
     st.online == false && host.wakeTargets.isNotEmpty() -> PrimaryButton(stringResource(R.string.home_wake), { actions.wake(host) }, modifier)
     st.online == false -> PrimaryButton(stringResource(R.string.home_retry), { actions.retry(host) }, modifier)
+    // Droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
+    state.watch[host.id] == true -> PrimaryButton(state.watchWord, { actions.watch(host) }, modifier)
     else -> PrimaryButton(stringResource(R.string.home_connect), { actions.connect(host) }, modifier)
 }
 
@@ -605,6 +618,8 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                     state.origins[h.id]?.let { Mono(it, size = 10f, color = Kn.spectre, maxLines = 1) }
                 }
                 DropdownMenu(menu, { menu = false }) {
+                    // Avec « Ouvrir le bureau » et « Regarder », « Regarder » est ici (la carte garde « Se connecter »).
+                    if (state.watch[h.id] == false) DropdownMenuItem({ Text(state.watchWord) }, { menu = false; actions.watch(h) })
                     DropdownMenuItem({ Text(settingsTitle(h.name)) }, { menu = false; actions.hostSettings(h) })
                 }
             }

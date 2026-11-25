@@ -75,6 +75,7 @@
     "tooltip_session": "KyberNow Link · in session on {name}",
     "tooltip_sessions": "KyberNow Link · in session on {count} computers",
     "tooltip_guest": "KyberNow Link · guest on {name}",
+    "tooltip_watch": "KyberNow Link · {title}",
     "in_session": "In session on {name}",
     "measures": "{latency} ms · {fps} fps · {mbps} Mbit/s",
     "measures_guest": "{latency} ms · {fps} fps",

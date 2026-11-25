@@ -384,6 +384,9 @@ public struct ShareFound: Sendable {
     public internal(set) var quality: ShareQuality = .auto
     /// Entré par le relais, hors de chez l'hôte : la session y reste (puce « Par le relais »).
     public internal(set) var viaRelay = false
+    /// Regarder un ordinateur du compte (`Share.watch`) : les écrans du PC et
+    /// le choix « Écran » ; nil pour un invité entré avec un code.
+    public internal(set) var watch: ShareWatch?
 
     init?(json text: String) {
         guard let data = text.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -399,13 +402,16 @@ public struct ShareFound: Sendable {
         role = ShareRole(wire: joined["role"] as? String) ?? .spectator
         codec = (joined["codec"] as? String).flatMap(VideoCodec.init(rawValue:))
         viaRelay = joined["route"] is [String: Any]
+        watch = (joined["watch"] as? [String: Any]).map(ShareWatch.init(json:))
     }
 
     #if DEBUG
     /// Démonstration (Debug, sans Station) : un partage rejoint pour de faux,
     /// pour dessiner la session d'un invité.
-    public init(demoComputer: String, host: String, role: ShareRole, quality: ShareQuality = .auto, viaRelay: Bool = false) {
+    public init(demoComputer: String, host: String, role: ShareRole, quality: ShareQuality = .auto, viaRelay: Bool = false,
+                watch: ShareWatch? = nil) {
         json = "{}"
+        self.watch = watch
         self.quality = quality
         self.viaRelay = viaRelay
         target = ShareTarget(host: "192.0.2.1", port: 1)
@@ -421,6 +427,55 @@ public struct ShareFound: Sendable {
         guard let data = json.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
         return j["joined"] ?? [:]
     }
+}
+
+/// Un écran du PC regardé (`joined.watch.screens`), le principal d'abord.
+public struct ShareWatchScreen: Sendable, Equatable, Identifiable {
+    /// L'identifiant de l'écran chez la Station (`SessionEngine.watchScreen`).
+    public let id: UInt32
+    /// « Écran 1 — 3840 × 2160 », écrit par le cœur.
+    public let label: String
+
+    init?(json object: [String: Any]) {
+        guard let id = (object["id"] as? NSNumber).flatMap({ UInt32(exactly: $0.int64Value) }),
+              let label = Core.take(kn_share_watch_screen_label(Share.json(object))) else { return nil }
+        self.id = id
+        self.label = label
+    }
+
+    #if DEBUG
+    public init(demoID id: UInt32, label: String) {
+        self.id = id
+        self.label = label
+    }
+    #endif
+}
+
+/// Regarder (`joined.watch`) : les écrans du PC, si on peut en changer, et
+/// celui du départ.
+public struct ShareWatch: Sendable, Equatable {
+    public let screens: [ShareWatchScreen]
+    /// L'écran de ce partage se change (un partage du PC ouvert pour regarder).
+    public let canSwitch: Bool
+    /// L'écran regardé au départ.
+    public let display: UInt32
+
+    init(json object: [String: Any]) {
+        screens = (object["screens"] as? [[String: Any]] ?? []).compactMap(ShareWatchScreen.init(json:))
+        canSwitch = object["switch"] as? Bool ?? false
+        display = (object["display"] as? NSNumber).flatMap { UInt32(exactly: $0.int64Value) } ?? screens.first?.id ?? 0
+    }
+
+    #if DEBUG
+    public init(demoScreens screens: [ShareWatchScreen], canSwitch: Bool = true) {
+        self.screens = screens
+        self.canSwitch = canSwitch
+        display = screens.first?.id ?? 0
+    }
+    #endif
+
+    /// « Écran » dans la barre : plusieurs écrans, et on peut en changer.
+    public var menu: Bool { canSwitch && screens.count > 1 }
 }
 
 /// Un refus de « Rejoindre », avec le texte du cœur à montrer tel quel.
@@ -450,6 +505,13 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     /// l'ordinateur n'y est pas (éteint ou en veille), ou son accès hors de chez
     /// soi est coupé dans Admin : le texte du cœur, choisi par son code.
     case relay(String)
+    /// Regarder : la Station est trop ancienne (« Cette Station ne permet pas
+    /// encore de regarder : mettez-la à jour. »), l'ordinateur est prêté, ou
+    /// son partage est coupé (codes 34, 35, 36 du cœur) : le texte du cœur.
+    case watch(String)
+    /// Regarder : un refus du compte (session de l'appareil fermée,
+    /// ordinateur qui n'est plus au compte…), avec son code.
+    case account(AccountError)
     /// Le reste : Station injoignable, réponse illisible (message du cœur).
     case other(String)
     /// C'est un code de prêt de l'ordinateur (docs/pret.md) : la Station qui
@@ -463,7 +525,8 @@ public enum ShareJoinError: LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case let .noShare(m), let .full(m), let .tooManyTries(m), let .unreadable(m), let .other(m),
-             let .refused(m), let .expired(m), let .pendingFull(m), let .stopped(m), let .relay(m): return m
+             let .refused(m), let .expired(m), let .pendingFull(m), let .stopped(m), let .relay(m), let .watch(m): return m
+        case let .account(e): return e.message
         case .lend: return String(localized: "Ce code sert à emprunter l'ordinateur.", bundle: .kyberKit)
         case .invite: return String(localized: "Ce code sert à ajouter l'ordinateur.", bundle: .kyberKit)
         case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
@@ -636,6 +699,55 @@ public enum Share {
         }
     }
 
+    // MARK: Regarder (docs/kybernow-share.md, « Regarder avec un compte »)
+
+    /// « Regarder » un ordinateur du compte (droit `view`) : sans code ni accord
+    /// de l'hôte, la personne entre en spectateur dans le partage de
+    /// l'ordinateur (la Station en ouvre un pour elle s'il n'y en a pas). Sur
+    /// le réseau d'abord (`lan` : son Admin là où l'app le voit, 1,5 s), sinon
+    /// par le relais du compte (`route`). `display` : un écran de
+    /// `ShareWatch.screens`, nil pour celui du partage. La session s'ouvre
+    /// ensuite comme celle d'un invité (`SessionEngine.Params(guest:)`).
+    /// Refus : `.watch`, `.full`, `.unreadable`, `.account`, sinon le texte
+    /// d'Admin. Bloquant jusqu'à 12 s : hors du fil principal.
+    public static func watch(access: AccountAccess, lan: ShareTarget?, route: RelayRoute?, display: UInt32? = nil,
+                             quality: ShareQuality = .auto, screen: ShareScreen? = nil,
+                             capabilities: DecoderCapabilities = .current) async throws -> ShareFound {
+        var fields: [String: Any] = ["app": app, "quality": quality.wire]
+        if let display { fields["display"] = Int(display) }
+        // `auto` part quel que soit le choix (voir `join`).
+        if let screen, let auto = autoQuality(screen: screen, capabilities: capabilities) { fields["auto"] = auto }
+        let request = json(fields), caps = capabilitiesJSON(capabilities)
+        let accessJSON = access.json, lanJSON = lan.map { json($0.json) }, routeJSON = route?.json
+        if route != nil, lan == nil { await Relay.wakeRadio(server: route?.server) }
+        let result = await blocking { out, error in kn_share_watch(accessJSON, lanJSON, routeJSON, request, caps, &out, &error) }
+        guard result.status == KN_OK else { throw joinError(result.status, result.message, out: result.out) }
+        guard let out = result.out, var found = ShareFound(json: out) else {
+            throw ShareJoinError.other(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
+        }
+        found.quality = quality
+        return found
+    }
+
+    /// « Regarder {nom} » : le titre des étapes de la connexion de qui regarde.
+    public static func watchTitle(_ computer: String) -> String {
+        Core.take(kn_share_watch_title(computer)) ?? computer
+    }
+
+    /// Les mots de qui regarde, dans la langue de l'app.
+    public enum WatchWord: String, Sendable {
+        /// « Regarder » (carte, menu de l'ordinateur).
+        case action
+        /// « Arrêter de regarder » (barre, à la place de « Quitter le partage »).
+        case stop
+        /// « Écran » (barre, avec plusieurs écrans).
+        case screen
+    }
+
+    public static func watchWord(_ word: WatchWord) -> String {
+        Core.take(kn_share_watch_word(word.rawValue)) ?? ""
+    }
+
     /// L'hôte a-t-il répondu à la demande ? Un appel tient 25 s au plus : nil,
     /// toujours en attente (rappeler) ; sinon l'invité est accepté, et sa session
     /// s'ouvrira par le relais. Refus et délai : « L'hôte a refusé. », « L'hôte
@@ -727,6 +839,8 @@ public enum Share {
         case KN_SHARE_STOPPED: return .stopped(message)
         case KN_RELAY_UNREACHABLE, KN_RELAY_STATION_OFFLINE, KN_RELAY_ACCESS_OFF: return .relay(message)
         case KN_CERTIFICATE_CHANGED: return .certificateChanged
+        case KN_SHARE_WATCH_UNSUPPORTED, KN_SHARE_LENT, KN_SHARE_SHARING_OFF: return .watch(message)
+        case let code where AccountFailure(rawValue: code) != nil: return .account(AccountError(status: code, message: message))
         default: return .other(message)
         }
     }
@@ -765,7 +879,7 @@ public enum Share {
         return context.createCGImage(scaled, from: scaled.extent.integral)
     }
 
-    private static func json(_ value: Any) -> String {
+    static func json(_ value: Any) -> String {
         (try? JSONSerialization.data(withJSONObject: value)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 }

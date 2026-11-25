@@ -144,6 +144,11 @@ class SessionUi(
      * clavier de l'écran proposent les touches du Mac. Toujours faux pour un invité et un ami qui emprunte.
      */
     val mac: Boolean = false,
+    /**
+     * « Regarder » avec un compte (docs/link-ui.md, « Regarder, barre ») : la session d'un invité ([guest] vrai), avec
+     * « Arrêter de regarder » et, quand la Station le permet, « Écran » et sa liste ; nul pour un invité venu par un code.
+     */
+    val watch: WatchUi? = null,
 ) {
     var menuOpen by mutableStateOf(false)
     var barOpen by mutableStateOf(false)
@@ -191,6 +196,8 @@ class SessionUi(
     // KyberNow Share, côté invité.
     /** La feuille « Qualité de l'image » (les cinq choix, la qualité reçue) est ouverte. */
     var qualityOpen by mutableStateOf(false)
+    /** Qui regarde : la feuille « Écran » (les écrans du PC, celui qu'on regarde coché) est ouverte. */
+    var watchScreenOpen by mutableStateOf(false)
 
     // KyberNow Share, côté hôte.
     /** Le panneau du partage (code, lien, QR code, invités) est ouvert. */
@@ -239,11 +246,18 @@ class SessionUi(
     fun keyboardMouseAllowed(role: ShareRole = state.shareRole.value) = !guest || role.keyboardMouse
 
     /** Un menu, une feuille, la barre, le clavier… par-dessus l'image (la manette à part). */
-    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
+    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing || shareOpen || qualityOpen || watchScreenOpen || lendOpen || giveBackConfirm
 
     /** Quelque chose est à l'écran par-dessus l'image. */
     val anything get() = covering || padShown
 }
+
+/**
+ * « Regarder » (droit « Regarder » d'un compte) : les mots du cœur, [stop] « Arrêter de regarder » (à la place de
+ * « Quitter le partage ») et [screen] « Écran », et les écrans du PC pour ce menu ([screens] : `id` et « Écran 1 —
+ * 3840 × 2160 », le principal d'abord ; vide quand l'écran ne se change pas ou qu'il n'y en a qu'un).
+ */
+data class WatchUi(val stop: String, val screen: String, val screens: List<Pair<Int, String>> = emptyList())
 
 interface SessionActions {
     fun resume()
@@ -271,6 +285,8 @@ interface SessionActions {
     // KyberNow Share, côté invité (docs/link-ui.md, « Partage », « Qualité de l'image »).
     /** La « Qualité de l'image » choisie : dite à la Station, qui relance l'image de l'invité seulement ; retenue pour la fois suivante. */
     fun setShareQuality(quality: ShareQuality)
+    /** Qui regarde : « Écran » choisi (un `id` de [WatchUi.screens]) ; l'image repart sur cet écran. */
+    fun watchScreen(id: Int) {}
 
     // KyberNow Share, côté hôte (docs/link-ui.md, « Partage »).
     /** « Partager » : ouvre le partage de l'écran principal (ou montre celui qui est ouvert) et son panneau. */
@@ -338,6 +354,7 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.statsOpen) Stats(ui, Modifier.align(if (ui.tv) Alignment.TopEnd else Alignment.BottomEnd).padding(LocalScale.current.dp(20f)))
         if (ui.keysOpen) KeysSheet(ui, Modifier.align(Alignment.Center))
         if (ui.qualityOpen && ui.guest) QualitySheet(ui, Modifier.align(Alignment.Center))
+        if (ui.watchScreenOpen && ui.watch != null) WatchScreenSheet(ui, ui.watch, Modifier.align(Alignment.Center))
         if (ui.typing) TypeText(ui, Modifier.align(Alignment.Center))
         if (ui.shareOpen) SharePanel(ui, Modifier.align(Alignment.Center))
         if (ui.lendOpen && !ui.guest && !ui.borrower) LendPanel(ui, Modifier.align(Alignment.Center))
@@ -511,7 +528,7 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
                 Body(capsuleText(capsule), size = 14f)
                 if (capsule is Capsule.Reconnecting) {
                     Spacer(Modifier.width(s.dp(12f)))
-                    GlassButton(stringResource(if (ui.guest) R.string.share_leave else R.string.session_disconnect), { ui.actions.quit() })
+                    GlassButton(leaveLabel(ui), { ui.actions.quit() })
                 }
             }
         }
@@ -556,8 +573,8 @@ private fun PhoneBar(ui: SessionUi) {
     val first = remember { FocusRequester() }
     // Ouverte à la manette : le focus sur le premier élément, et de nouveau quand la feuille des
     // touches se ferme. Une image d'attente : la vue d'interface vient de passer de GONE à visible.
-    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen, ui.qualityOpen, ui.lendOpen, ui.giveBackConfirm) {
-        if (ui.padBar && !ui.keysOpen && !ui.shareOpen && !ui.qualityOpen && !ui.lendOpen && !ui.giveBackConfirm) {
+    LaunchedEffect(ui.padBar, ui.keysOpen, ui.shareOpen, ui.qualityOpen, ui.watchScreenOpen, ui.lendOpen, ui.giveBackConfirm) {
+        if (ui.padBar && !ui.keysOpen && !ui.shareOpen && !ui.qualityOpen && !ui.watchScreenOpen && !ui.lendOpen && !ui.giveBackConfirm) {
             withFrameNanos { }
             runCatching { first.requestFocus() }
         }
@@ -596,7 +613,7 @@ private fun PhoneBar(ui: SessionUi) {
                 }
                 // Un invité quitte le partage : l'ordinateur, lui, ne change pas. L'ami qui emprunte se déconnecte sans rendre
                 // l'ordinateur (il peut revenir pendant 15 min).
-                GlassButton(stringResource(if (ui.guest) R.string.share_leave else R.string.session_disconnect), { ui.actions.quit() })
+                GlassButton(leaveLabel(ui), { ui.actions.quit() })
                 BarIcon(KnIcons.close, stringResource(R.string.session_close)) { ui.barOpen = false }
             }
             if (ui.padBar) Body(stringResource(if (ui.console != null) R.string.ps_pad_bar else R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
@@ -650,6 +667,11 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
     val s = LocalScale.current
     StatsCard(ui, sec, Modifier.focusRequester(first))
     QualityButton(ui)
+    // Qui regarde, sur un PC à plusieurs écrans : « Écran » et celui qu'on regarde.
+    ui.watch?.takeIf { it.screens.isNotEmpty() }?.let { w ->
+        val shown by ui.state.watchDisplay.collectAsState()
+        GlassButton(w.screen, { ui.watchScreenOpen = true }, selected = ui.watchScreenOpen, detail = w.screens.firstOrNull { it.first == shown }?.second)
+    }
     Body(
         roleLabel(role), Modifier.clip(RoundedCornerShape(999.dp)).background(Kn.frost.copy(alpha = 0.06f)).padding(horizontal = s.dp(14f), vertical = s.dp(8f)),
         size = 14f, weight = 600, color = Kn.frost,
@@ -694,6 +716,37 @@ private fun QualitySheet(ui: SessionUi, modifier: Modifier) {
         image?.label?.let { Mono(it, size = 14f, color = Kn.spectre) }
         QualityChoices(chosen, { ui.actions.setShareQuality(it); ui.qualityOpen = false }, focus = first)
         GlassButton(stringResource(R.string.session_close), { ui.qualityOpen = false })
+    }
+}
+
+/** « Quitter le partage » d'un invité, « Arrêter de regarder » de qui regarde, « Se déconnecter » sinon. */
+@Composable
+private fun leaveLabel(ui: SessionUi): String = when {
+    ui.watch != null -> ui.watch.stop
+    ui.guest -> stringResource(R.string.share_leave)
+    else -> stringResource(R.string.session_disconnect)
+}
+
+/**
+ * La feuille « Écran » de qui regarde (docs/link-ui.md, « Regarder, barre ») : les écrans du PC (« Écran 1 — 3840 ×
+ * 2160 », le principal d'abord), celui qu'on regarde allumé. En choisir un autre relance l'image sur lui, puis la
+ * feuille se ferme.
+ */
+@Composable
+private fun WatchScreenSheet(ui: SessionUi, watch: WatchUi, modifier: Modifier) {
+    val s = LocalScale.current
+    val shown by ui.state.watchDisplay.collectAsState()
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    Column(modifier.padding(s.dp(20f)).widthIn(max = s.dp(720f)).opaquePanel().padding(s.dp(22f)), verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
+        Eyebrow(watch.screen)
+        watch.screens.forEachIndexed { i, (id, label) ->
+            GlassButton(
+                label, { if (id != shown) ui.actions.watchScreen(id); ui.watchScreenOpen = false },
+                if (i == 0) Modifier.focusRequester(first) else Modifier, selected = id == shown,
+            )
+        }
+        GlassButton(stringResource(R.string.session_close), { ui.watchScreenOpen = false })
     }
 }
 
@@ -931,13 +984,17 @@ private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, au
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         // La qualité reçue (« 1080p · 60 Hz ») quand la Station la dit, sinon celle qu'on a choisie (« Auto »).
         Tile(KnIcons.screen, stringResource(R.string.share_quality_title), image?.label ?: qualityLabel(chosen)) { ui.qualityOpen = true }
+        ui.watch?.takeIf { it.screens.isNotEmpty() }?.let { w ->
+            val shown by ui.state.watchDisplay.collectAsState()
+            Tile(KnIcons.screen, w.screen, w.screens.firstOrNull { it.first == shown }?.second) { ui.watchScreenOpen = true }
+        }
         if (role.keyboardMouse) {
             Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
             Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
             Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
             Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
         }
-        Tile(KnIcons.exit, stringResource(R.string.share_leave), null, danger = true) { ui.actions.quit() }
+        Tile(KnIcons.exit, leaveLabel(ui), null, danger = true) { ui.actions.quit() }
     }
 }
 

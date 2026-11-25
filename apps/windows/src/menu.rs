@@ -26,6 +26,8 @@ pub enum Cmd {
     /// « HDR » coché ou décoché pour cette session (gardé pour l'ordinateur).
     Hdr(String),
     Connect(String),
+    /// « Regarder » (droit « Regarder » d'un compte KyberNow).
+    Watch(String),
     Wake(String),
     Retry(String),
     /// Ordinateur et profil (`jeu`, `bureau`, `max`).
@@ -137,6 +139,26 @@ pub struct Session {
     /// réglages, la souris seulement avec le clavier et la souris, et
     /// « Quitter le partage » à la place de « Se déconnecter ».
     pub guest: Option<ShareRole>,
+    /// Regarder avec un compte (session d'invité) : son titre (« Regarder
+    /// {nom} ») et « Arrêter de regarder », mots du cœur.
+    pub watch: Option<WatchSession>,
+}
+
+/// Les mots d'une session de qui regarde (catalogue du cœur).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WatchSession {
+    pub title: String,
+    pub stop: String,
+}
+
+/// « Regarder » sur un ordinateur d'un compte (droit `view`, docs/link-ui.md,
+/// « Comptes KyberNow ») : `only` (sans le droit « Ouvrir le bureau ») il
+/// remplace « Se connecter » ; sinon il suit « Se connecter ». `word` :
+/// « Regarder », mot du cœur.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Watch {
+    pub only: bool,
+    pub word: String,
 }
 
 /// Redémarrage ou mise à jour de la Station en cours.
@@ -179,6 +201,8 @@ pub struct Computer {
     pub waking: bool,
     /// `None` : Station trop ancienne, ou pas encore vue.
     pub station: Option<Station>,
+    /// Ordinateur d'un compte avec le droit « Regarder » : « Regarder ».
+    pub watch: Option<Watch>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -220,7 +244,10 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
         match session.guest {
             // Invité d'un partage : son titre et son rôle (« Spectateur », « Joueur »).
             Some(role) => {
-                out.push(Item::inactive(tr("share.guest_on", &[("name", &session.name)])));
+                out.push(Item::inactive(match &session.watch {
+                    Some(w) => w.title.clone(),
+                    None => tr("share.guest_on", &[("name", &session.name)]),
+                }));
                 out.push(Item::inactive(tr(crate::sharing::role_label(role), &[])));
             }
             None => out.push(Item::inactive(tr("tray.in_session", &[("name", &session.name)]))),
@@ -250,8 +277,12 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
             out.push(Item::Sub { text: tr("tray.mouse", &[]), key: None, checked: false, dot: None, items: modes });
         }
         out.push(Item::line(tr("tray.statistics", &[]), Some(Cmd::Statistics(id.clone()))));
-        let leave = if session.guest.is_some() { "share.leave" } else { "tray.disconnect" };
-        out.push(Item::line(tr(leave, &[]), Some(Cmd::Disconnect(id.clone()))));
+        let leave = match (&session.watch, session.guest.is_some()) {
+            (Some(w), _) => w.stop.clone(),
+            (None, true) => tr("share.leave", &[]),
+            (None, false) => tr("tray.disconnect", &[]),
+        };
+        out.push(Item::line(leave, Some(Cmd::Disconnect(id.clone()))));
         out.push(Item::Separator);
     }
     for c in &s.computers {
@@ -395,6 +426,13 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
         mark: Mark::None,
         default: false,
     };
+    let watch = |enabled: bool| Item::Line {
+        text: c.watch.as_ref().map(|w| w.word.clone()).unwrap_or_default(),
+        cmd: Some(Cmd::Watch(c.id.clone())),
+        enabled,
+        mark: Mark::None,
+        default: false,
+    };
     match pick(s, c) {
         Pick::Show => {
             // En session : « Afficher », « Garder le son » (à partir de deux
@@ -413,13 +451,24 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
             out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect(c.id.clone()))));
             out.push(Item::Separator);
         }
-        // La Station redémarre ou s'installe : l'ordinateur revient de lui-même.
-        Pick::Busy => out.push(connect(false)),
         Pick::Waking => out.push(Item::inactive(tr("tray.waking", &[]))),
         Pick::Wake => out.push(Item::line(tr("tray.wake", &[]), Some(Cmd::Wake(c.id.clone())))),
         Pick::Retry => out.push(Item::line(tr("tray.retry", &[]), Some(Cmd::Retry(c.id.clone())))),
+        // Droit « Regarder » seul : « Regarder » à la place de « Se connecter ».
+        Pick::Busy | Pick::Connect(_) if c.watch.as_ref().is_some_and(|w| w.only) => {
+            let enabled = matches!(pick(s, c), Pick::Connect(true));
+            out.push(watch(enabled));
+        }
+        // La Station redémarre ou s'installe : l'ordinateur revient de lui-même.
+        Pick::Busy => out.push(connect(false)),
         // Quatre ordinateurs au plus en même temps.
-        Pick::Connect(enabled) => out.push(connect(enabled)),
+        Pick::Connect(enabled) => {
+            out.push(connect(enabled));
+            // Avec les deux droits, « Regarder » suit « Se connecter ».
+            if c.watch.is_some() {
+                out.push(watch(enabled));
+            }
+        }
     }
 
     let mut profiles: Vec<Item> = PROFILES
@@ -484,6 +533,8 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
 pub fn tooltip(s: &State, tr: Tr) -> String {
     match s.sessions.as_slice() {
         [] => tr("tray.tooltip", &[]),
+        // Qui regarde : « KyberNow Link · Regarder {nom} ».
+        [session] if session.watch.is_some() => tr("tray.tooltip_watch", &[("title", &session.watch.as_ref().map(|w| w.title.clone()).unwrap_or_default())]),
         [session] if session.guest.is_some() => tr("tray.tooltip_guest", &[("name", &session.name)]),
         [session] => tr("tray.tooltip_session", &[("name", &session.name)]),
         many => tr("tray.tooltip_sessions", &[("count", &many.len().to_string())]),
@@ -655,7 +706,7 @@ mod tests {
     }
 
     fn session_atelier() -> Session {
-        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, hdr: None, guest: None }
+        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, hdr: None, guest: None, watch: None }
     }
 
     #[test]
@@ -743,6 +794,7 @@ mod tests {
             keep_sound: true,
             hdr: None,
             guest: None,
+            watch: None,
         };
         let s = State {
             sessions: vec![session_atelier(), salon_session],
@@ -820,6 +872,7 @@ mod tests {
             keep_sound: false,
             hdr: None,
             guest: Some(role),
+            watch: None,
         }
     }
 
@@ -841,6 +894,38 @@ mod tests {
                 "You are watching again."
             ]
         );
+    }
+
+    /// Droit « Regarder » d'un compte (docs/link-ui.md, « Comptes KyberNow ») : seul, « Regarder » remplace
+    /// « Se connecter » ; avec « Ouvrir le bureau », il le suit. La session de qui regarde : son titre et
+    /// « Arrêter de regarder » (mots du cœur).
+    #[test]
+    fn regarder() {
+        let word = |lang| kybernow_core::share::watch_word(lang, "action");
+        let only = Computer { watch: Some(Watch { only: true, word: word(Lang::Fr) }), ..atelier() };
+        let l = lines(&State { computers: vec![only.clone()], ..Default::default() }, Lang::Fr);
+        assert_eq!(l[..2], ["{vert} Atelier — En ligne >", "  Regarder"]);
+        assert!(!l.iter().any(|x| x.contains("Se connecter")), "{l:?}");
+        let mut c = Vec::new();
+        cmds(&build(&State { computers: vec![only.clone()], ..Default::default() }, &tr(Lang::Fr)), &mut c);
+        assert!(c.contains(&Cmd::Watch("a".into())) && !c.contains(&Cmd::Connect("a".into())));
+        // Quatre sessions : inactif, comme « Se connecter ».
+        let full = lines(&State { computers: vec![only], full: true, ..Default::default() }, Lang::Fr);
+        assert_eq!(full[1], "  ~Regarder");
+        let both = Computer { watch: Some(Watch { only: false, word: word(Lang::En) }), ..atelier() };
+        let en = lines(&State { computers: vec![both], ..Default::default() }, Lang::En);
+        assert_eq!(en[1..3], ["  Connect (Game)", "  Watch"]);
+        // En session : son titre à la place de « Invité sur … », « Arrêter de regarder ».
+        let lang = Lang::Fr;
+        let session = Session {
+            watch: Some(WatchSession { title: kybernow_core::share::watch_title(lang, "Atelier"), stop: kybernow_core::share::watch_word(lang, "stop") }),
+            ..guest_session(ShareRole::Spectator)
+        };
+        let fr = lines(&State { sessions: vec![session], computers: vec![atelier()], ..Default::default() }, lang);
+        assert_eq!(fr[..6], ["~Regarder Atelier", "~Spectateur", "~9,0 ms · 60 i/s", "Plein écran", "Statistiques", "Arrêter de regarder"]);
+        let watching = State { sessions: vec![Session { watch: Some(WatchSession { title: "Regarder Atelier".into(), stop: String::new() }), ..guest_session(ShareRole::Spectator) }], ..Default::default() };
+        assert_eq!(tooltip(&watching, &tr(Lang::Fr)), "KyberNow Link · Regarder Atelier");
+        assert_eq!(tooltip(&State { sessions: vec![Session { watch: Some(WatchSession { title: "Watching Atelier".into(), stop: String::new() }), ..guest_session(ShareRole::Spectator) }], ..Default::default() }, &tr(Lang::En)), "KyberNow Link · Watching Atelier");
     }
 
     #[test]

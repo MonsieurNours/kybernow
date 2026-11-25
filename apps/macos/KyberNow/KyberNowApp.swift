@@ -276,7 +276,42 @@ final class AppModel: ObservableObject {
     /// prend la place de l'accueil (plein écran, ou tous les écrans), les
     /// suivantes s'ouvrent dans une fenêtre par-dessus (« Cet écran »).
     func connect(_ host: Host) {
+        // Le droit « Regarder » seul : « Se connecter » n'est pas proposé, on regarde.
+        if store.watchOnly(host) {
+            watch(host)
+            return
+        }
         openSession(host)
+    }
+
+    /// « Regarder » un ordinateur du compte (droit `view`) : une session
+    /// d'invité spectateur dans sa fenêtre, comptée parmi les quatre, étapes
+    /// titrées « Regarder {nom} ». Déjà regardé : sa fenêtre passe devant.
+    func watch(_ host: Host) {
+        if let existing = sessions.all.first(where: { $0.watchHost?.id == host.id && $0.isLive }) {
+            existing.bringToFront()
+            return
+        }
+        guard !sessions.isFull else { return }
+        let first = sessions.isEmpty
+        let opening: SessionController.Opening = first ? .first(home: homeWindow) : .next(anchor: sessions.anchorWindow)
+        let session = SessionController(watch: host, store: store, opening: opening) { [weak self] in self?.sessionFinished($0) }
+        session.onWindowClosed = { [weak self] in self?.sessionWindowClosed($0) }
+        session.onEnded = { [weak self] in self?.sessionEnded($0) }
+        if !first { Dock.comeForward() }
+        #if DEBUG
+        if Self.demo, !UserDefaults.standard.bool(forKey: "demoCore") {
+            session.demoWatch()
+            sessions.add(session)
+            sessions.refresh()
+            hideHomeForFirstSession(first)
+            return
+        }
+        #endif
+        session.start()
+        sessions.add(session)
+        sessions.refresh()
+        hideHomeForFirstSession(first)
     }
 
     private func openSession(_ host: Host, demo: String? = nil) {
@@ -647,7 +682,7 @@ struct KyberNowApp: App {
             CommandMenu("Session") {
                 let target = app.sessions.commandTarget
                 // Un invité quitte le partage (docs/link-ui.md, « Partage »).
-                Button(target?.isGuest == true ? ShareText.leave : String(localized: "Se déconnecter")) {
+                Button(target?.isWatching == true ? Share.watchWord(.stop) : target?.isGuest == true ? ShareText.leave : String(localized: "Se déconnecter")) {
                     if let ps = app.playstation.keySession { return ps.close() }
                     guard let s = app.sessions.commandTarget else { return }
                     if s.isLive { s.end() } else { s.dismissFailure() }

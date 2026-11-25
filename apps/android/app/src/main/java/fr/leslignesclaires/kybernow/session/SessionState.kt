@@ -202,6 +202,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
      * connue : sans lui, l'interface ne montre aucune qualité reçue.
      */
     val shareImage = MutableStateFlow<ShareImage?>(null)
+    /** Qui regarde (droit « Regarder » d'un compte) : l'écran regardé (`sessionWatchDisplay`, il suit aussi le choix d'un autre spectateur) ; 0 inconnu. */
+    val watchDisplay = MutableStateFlow(0)
     /** Le libellé du cœur d'une image reçue ; les essais sans bibliothèque native en donnent un. */
     internal var imageLabel: (String) -> String? = Share::imageLabel
     /** Le code du partage tel qu'on l'affiche (« 123 456 », le cœur) ; les essais sans bibliothèque native en donnent un. */

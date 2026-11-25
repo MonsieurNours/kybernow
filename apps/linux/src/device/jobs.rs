@@ -592,6 +592,23 @@ fn share_wait(pending: PendingJoin, caps: Capabilities, attempt: u32, tx: &Sende
     let _ = tx.send(Event::ShareJoined { attempt, result });
 }
 
+/// Regarder (droit « Regarder » d'un compte) : l'invité spectateur entre dans le partage de l'ordinateur `host` de
+/// l'accueil (`share::watch_account` : sur le réseau d'abord quand la découverte l'y voit, sinon par le relais du compte ;
+/// la Station ouvre un partage pour lui s'il n'y en a pas). Le format de son image est vérifié avec ce que cet appareil
+/// décode ; la réponse revient avec l'ordinateur.
+pub fn share_watch(host: String, access: Arc<kybernow_core::account::StationAccess>, lan: Option<ShareTarget>, route: Option<RelayRoute>, request: share::WatchRequest, caps: Capabilities, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("share-watch".into())
+        .spawn(move || {
+            let result = share::watch_account(access, lan, route, &request, Some(caps));
+            if let Err(e) = &result {
+                log::info!("regarder : refusé ({})", e.kind());
+            }
+            let _ = tx.send(Event::ShareWatched { host, result });
+        })
+        .ok();
+}
+
 /// « Annuler » (ou retour) pendant l'attente de l'accord de l'hôte : la demande est retirée chez l'hôte, l'attente s'arrête.
 pub fn share_cancel() {
     let Some(w) = JOIN_WAIT.lock().unwrap().take() else { return };

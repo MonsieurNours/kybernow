@@ -39,7 +39,7 @@ struct SessionView: View {
 
                 if session.phase != .ended {
                     Passage(host: session.host, open: revealed, title: session.title,
-                            button: session.isBorrower ? LendText.borrow : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
+                            button: session.isBorrower ? LendText.borrow : session.isWatching ? Share.watchWord(.action) : session.isGuest ? ShareText.joinButton : String(localized: "Se connecter"))
                         .allowsHitTesting(false)
                         .ignoresSafeArea()
                 }
@@ -597,6 +597,8 @@ struct SessionBar: View {
                     } else if session.isGuest {
                         guestRole
                         qualityMenu
+                        // Regarder, plusieurs écrans : « Écran » et la liste ; en changer relance l'image.
+                        if !session.watchScreens.isEmpty { watchScreenMenu }
                     } else {
                         profileMenu
                     }
@@ -690,6 +692,21 @@ struct SessionBar: View {
             item("monitor", session.shareImageLabel)
         }
         .accessibilityLabel(Text(verbatim: "\(ShareText.imageQuality), \(session.shareImageLabel)"))
+    }
+
+    private var watchScreenMenu: some View {
+        let shown = session.watchDisplay
+        return Menu {
+            Section(Share.watchWord(.screen)) {
+                ForEach(session.watchScreens) { screen in
+                    Button { session.watchScreen(screen.id) } label: {
+                        if screen.id == shown { Label(screen.label, systemImage: "checkmark") } else { Text(screen.label) }
+                    }
+                }
+            }
+        } label: {
+            item("monitor", Share.watchWord(.screen))
+        }
     }
 
     private var profileMenu: some View {
@@ -829,7 +846,7 @@ struct SessionBar: View {
                 HStack(spacing: 8) {
                     Icon("power", size: 18)
                     // Un invité quitte le partage ; il n'éteint rien chez l'hôte.
-                    if session.isGuest { Text(ShareText.leave).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize() }
+                    if session.isGuest { Text(session.leaveLabel).font(Theme.sans(13, .semibold)).lineLimit(1).fixedSize() }
                 }
                 .foregroundStyle(Theme.dangerText)
                 .padding(.horizontal, session.isGuest ? 12 : 0)
@@ -837,7 +854,7 @@ struct SessionBar: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
             }
-            .accessibilityLabel(Text(session.isGuest ? ShareText.leave : String(localized: "Se déconnecter")))
+            .accessibilityLabel(Text(session.isGuest ? session.leaveLabel : String(localized: "Se déconnecter")))
         }
     }
 

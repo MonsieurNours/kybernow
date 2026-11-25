@@ -1234,6 +1234,8 @@ pub fn run(dir: &Path, lang: &str) {
         pyrowave_shots(&mut app, &mut cv, &video, dir, prefix);
         // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
         account_shots(en, layout, &mut cv, dir, prefix);
+        // Regarder (droit « Regarder » d'un compte) : la carte, le menu de l'ordinateur, la session de qui regarde.
+        watch_shots(en, layout, &mut cv, &video, dir, prefix);
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -1367,6 +1369,86 @@ fn account_shots(en: bool, layout: Layout, cv: &mut Canvas, dir: &Path, prefix: 
         app.account_choose(Setting::AccountManage(0));
         shot(&mut app, cv, None, dir, &name("67-comptes-gerer"));
     }
+}
+
+/// Les droits d'un ordinateur du compte de Léa à l'accueil (« Atelier », le premier).
+fn set_rights(app: &mut App, rights: &[&str]) {
+    if let Some(c) = app.store.account_computers.iter_mut().find(|c| c.station == "st_atelier") {
+        c.rights = rights.iter().map(|r| r.to_string()).collect();
+    }
+}
+
+/// La session de qui regarde « Atelier », à deux écrans : celui regardé, le second.
+pub(crate) fn watch_session(app: &App) -> SessionUi {
+    let host = app.store.account_hosts.first().map(|a| a.id.clone()).unwrap_or_default();
+    let screens = vec![(7, crate::i18n::tr("Écran 1 — 3840 × 2160", "Screen 1 — 3840 × 2160").to_string()), (8, crate::i18n::tr("Écran 2 — 1920 × 1080", "Screen 2 — 1920 × 1080").to_string())];
+    let mut s = SessionUi::watcher(1, "share:g1", "Atelier", ShareRole::Spectator, crate::app::WatchUi { host, screens, menu: true, display: 7 });
+    s.phase = Phase::Streaming;
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 22.0, lost: 0, mode: "3840 × 2160".into(), decoder: "VA-API HEVC".into(), audio_ms: Some(15.0), history: vec![9.0, 9.4, 8.9, 10.1, 9.2, 9.0], ..Default::default() });
+    s.started = Instant::now() - Duration::from_millis(2100);
+    s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+    if let Some(g) = s.guest.as_mut() {
+        g.image = Some("1080p · 60 Hz".into());
+    }
+    s
+}
+
+/// Regarder (docs/link-ui.md, lignes « Regarder… » de « Comptes KyberNow ») : « Regarder » à la place de « Se
+/// connecter » (droit seul), dans le menu de l'ordinateur (les deux droits), un refus, la connexion « Regarder Atelier »,
+/// la barre (« Écran », « Arrêter de regarder ») ou le menu à la manette, la liste des écrans, la fin.
+fn watch_shots(en: bool, layout: Layout, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let console = layout.console();
+    let mut app = with_account(en, layout);
+    let host = app.store.account_hosts[0].id.clone();
+    app.store.selected = Some(host.clone());
+    app.go(Screen::Home);
+    set_rights(&mut app, &["view"]);
+    app.focus = Target::Connect;
+    shot(&mut app, cv, None, dir, &name("68-regarder-seul"));
+    set_rights(&mut app, &["session", "view"]);
+    app.focus = if console { Target::Connect } else { Target::Watch };
+    shot(&mut app, cv, None, dir, &name("68b-regarder-menu"));
+    set_rights(&mut app, &["view"]);
+    app.watch(&host);
+    app.watch_failed(&host, crate::i18n::tr("Atelier est prêté en ce moment.", "Atelier is lent right now.").into());
+    shot(&mut app, cv, None, dir, &name("68c-regarder-refus"));
+    app.toast = None;
+
+    let mut s = watch_session(&app);
+    s.phase = Phase::Connecting;
+    s.opened_at = None;
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    app.focus = Target::CancelConnect;
+    shot(&mut app, cv, None, dir, &name("69-regarder-connexion"));
+    let mut s = watch_session(&app);
+    if console {
+        s.menu = true;
+        app.focus = Target::Menu(MenuItem::Screen);
+    } else {
+        s.bar = true;
+        app.pointer = Some((700.0, 20.0));
+    }
+    app.set_session(Some(s));
+    shot(&mut app, cv, Some(video), dir, &name("69b-regarder-barre"));
+    let mut s = watch_session(&app);
+    if console {
+        s.watch_panel = true;
+        app.focus = Target::ScreenPick(7);
+    } else {
+        s.bar = true;
+        s.bar_menu = Some(BarMenu::Screen);
+        app.pointer = None;
+    }
+    app.set_session(Some(s));
+    shot(&mut app, cv, Some(video), dir, &name("69c-regarder-ecran"));
+    let mut s = watch_session(&app);
+    s.phase = Phase::Ended { error: Some(crate::i18n::tr("Matthieu vous a retiré.", "Matthieu removed you.").into()) };
+    app.set_session(Some(s));
+    app.focus = Target::Back;
+    shot(&mut app, cv, None, dir, &name("69d-regarder-fin"));
+    app.set_session(None);
 }
 
 /// L'image fixe du démarrage de KyberNow Link OS (Plymouth) : la première
@@ -1680,6 +1762,125 @@ mod tests {
         app.store.forget_account(&kn_lea().key());
         assert_eq!(app.store.hosts.len(), 1, "l'appairé reste");
         assert_eq!(app.origin("a"), None);
+    }
+
+    /// Regarder, sur l'accueil (docs/link-ui.md, « Droit « Regarder » seul ») : le droit seul fait du bouton principal
+    /// « Regarder » (A aussi) ; avec « Ouvrir le bureau », « Se connecter » reste et « Regarder » est à côté ; sans le
+    /// droit, rien. Une demande en cours n'est pas refaite ; un refus vient en avis ; un ordinateur déjà regardé passe
+    /// devant. Tout tient, à chaque interface.
+    #[test]
+    fn watch_from_the_home_card() {
+        crate::i18n::force_english(false);
+        for (layout, w, h) in sizes() {
+            let mut app = with_account(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(w as u32, h as u32, 1.0);
+            let host = app.store.account_hosts[0].id.clone();
+            app.store.selected = Some(host.clone());
+            app.go(Screen::Home);
+            // Sans le droit : ni « Regarder », ni rien à demander.
+            assert!(!app.host_can_watch(&host));
+            assert_eq!(crate::ui::home_main_label(&app, app.selected().unwrap()), "Se connecter");
+            assert!(app.activate(Target::Watch).is_empty());
+            // Le droit seul : « Regarder » à la place de « Se connecter ».
+            set_rights(&mut app, &["view"]);
+            assert!(app.host_watch_only(&host) && !app.watch_in_menu(&host));
+            assert_eq!(crate::ui::home_main_label(&app, app.selected().unwrap()), "Regarder");
+            let hits = ui::draw(&app, &mut cv);
+            assert!(hits.iter().any(|(t, _)| *t == Target::Connect) && !hits.iter().any(|(t, _)| *t == Target::Watch), "{layout:?}");
+            assert_eq!(app.activate(Target::Connect), vec![crate::app::Action::Watch { host: host.clone() }]);
+            assert!(app.activate(Target::Connect).is_empty(), "une demande à la fois");
+            assert_eq!(crate::ui::home_main_label(&app, app.selected().unwrap()), "Regarder…");
+            app.watch_failed(&host, "Atelier est prêté en ce moment.".into());
+            assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Atelier est prêté en ce moment."));
+            assert!(app.watch_pending.is_none());
+            // Une réponse arrivée après coup (autre demande) : rien n'est dit.
+            app.toast = None;
+            app.watch_failed(&host, "tard".into());
+            assert!(app.toast.is_none());
+            // Les deux droits : « Se connecter », et « Regarder » à côté, dans la fenêtre.
+            set_rights(&mut app, &["session", "view"]);
+            assert_eq!(crate::ui::home_main_label(&app, app.selected().unwrap()), "Se connecter");
+            assert!(matches!(app.activate(Target::Connect).as_slice(), [crate::app::Action::Connect { .. }]));
+            let hits = ui::draw(&app, &mut cv);
+            let r = hits.iter().find(|(t, _)| *t == Target::Watch).unwrap_or_else(|| panic!("{layout:?} : « Regarder » manque")).1;
+            assert!(r.x >= 0.0 && r.x + r.w <= w && r.y + r.h <= h, "{layout:?} : « Regarder » sort de la fenêtre : {r:?}");
+            assert_eq!(app.activate(Target::Watch), vec![crate::app::Action::Watch { host: host.clone() }]);
+            app.watch_answered(&host);
+            // Déjà regardé : « Regarder » ramène la session.
+            app.open_session(watch_session(&app));
+            assert_eq!(app.watch_session(&host), Some(1));
+            assert_eq!(app.activate(Target::Watch), vec![crate::app::Action::ShowSession(1)]);
+        }
+    }
+
+    /// Regarder, en session (docs/link-ui.md, « Regarder, barre ») : la barre d'un invité, « Arrêter de regarder » à la
+    /// place de « Quitter le partage », « Écran » et sa liste avec plusieurs écrans (l'écran regardé coché) ; un autre
+    /// écran se demande, le même non ; un seul écran : pas d'« Écran ». À la manette, la tuile « Écran » ouvre la
+    /// liste, B revient au menu.
+    #[test]
+    fn watch_session_bar_and_menu() {
+        crate::i18n::force_english(false);
+        let mut app = with_account(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        cv.resize(960, 600, 1.0);
+        let mut s = watch_session(&app);
+        assert_eq!(s.name, "Regarder Atelier");
+        assert_eq!(s.leave_label(), "Arrêter de regarder");
+        assert_eq!(guest_session(ShareRole::Spectator).leave_label(), "Quitter le partage");
+        s.bar = true;
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        let hits = ui::draw(&app, &mut cv);
+        for t in [Target::BarScreen, Target::BarQuality, Target::BarQuit] {
+            let r = hits.iter().find(|(h, _)| *h == t).unwrap_or_else(|| panic!("{t:?} manque")).1;
+            assert!(r.x >= 0.0 && r.x + r.w <= 960.0, "{t:?} sort de la fenêtre : {r:?}");
+        }
+        assert!(app.activate(Target::BarScreen).is_empty());
+        assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Screen));
+        let items = crate::ui::watch_screen_items(app.session().unwrap());
+        assert_eq!(items.iter().map(|i| (i.0, i.3)).collect::<Vec<_>>(), vec![(Target::ScreenPick(7), true), (Target::ScreenPick(8), false)]);
+        let hits = ui::draw(&app, &mut cv);
+        assert!(hits.iter().any(|(t, _)| *t == Target::ScreenPick(8)));
+        assert!(app.activate(Target::ScreenPick(7)).is_empty(), "l'écran déjà regardé ne demande rien");
+        assert_eq!(app.activate(Target::ScreenPick(8)), vec![crate::app::Action::WatchScreen(1, 8)]);
+        assert_eq!(app.session().unwrap().watch().unwrap().display, 8);
+        assert_eq!(app.session().unwrap().bar_menu, None);
+        // Le cœur dit un autre écran (un autre spectateur l'a changé) : la coche suit.
+        app.watch_display(1, Some(7));
+        assert_eq!(app.session().unwrap().watch().unwrap().display, 7);
+        // Un seul écran : pas d'« Écran ».
+        let mut one = watch_session(&app);
+        one.bar = true;
+        if let Some(w) = one.guest.as_mut().and_then(|g| g.watch.as_mut()) {
+            w.menu = false;
+        }
+        app.set_session(Some(one));
+        let hits = ui::draw(&app, &mut cv);
+        assert!(!hits.iter().any(|(t, _)| *t == Target::BarScreen));
+
+        // À la manette.
+        let mut app = with_account(false, Layout::Handheld);
+        cv.resize(1280, 800, 1.0);
+        let mut s = watch_session(&app);
+        s.menu = true;
+        app.set_session(Some(s));
+        app.screen = Screen::Session;
+        let hits = ui::draw(&app, &mut cv);
+        assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Screen)));
+        app.activate(Target::Menu(MenuItem::Screen));
+        let s = app.session().unwrap();
+        assert!(s.watch_panel && !s.menu);
+        assert_eq!(app.focus, Target::ScreenPick(7));
+        let hits = ui::draw(&app, &mut cv);
+        assert!(hits.iter().any(|(t, _)| *t == Target::ScreenPick(8)));
+        app.back();
+        let s = app.session().unwrap();
+        assert!(!s.watch_panel && s.menu, "B revient au menu");
+        assert_eq!(app.focus, Target::Menu(MenuItem::Screen));
+        app.activate(Target::Menu(MenuItem::Screen));
+        assert_eq!(app.activate(Target::ScreenPick(8)), vec![crate::app::Action::WatchScreen(1, 8)]);
+        assert!(!app.session().unwrap().watch_panel && !app.session().unwrap().menu, "le choix revient à l'image");
     }
 
     /// Réglages de l'app › Comptes, et la confirmation de « Se déconnecter » : tout tient.

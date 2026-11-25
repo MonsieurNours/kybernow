@@ -222,6 +222,7 @@
       "takeKbm": "Reprendre le clavier et la souris",
       "remove": "Retirer",
       "newCode": "Nouveau code",
+      "watchFor": "Ouvert pour {name}, qui regarde avec son compte.",
       "stop": "Arrêter le partage",
       "limit": "Quatre invités au plus.",
       "guests": {

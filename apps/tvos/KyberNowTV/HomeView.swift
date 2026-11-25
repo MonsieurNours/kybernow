@@ -23,7 +23,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Focus: Hashable {
-        case connect, profile(Profile), hdr, settings, pads, host(UUID), borrowed(UUID), found(String), add, join, appSettings, takeBackNow, remove
+        case connect, watch, profile(Profile), hdr, settings, pads, host(UUID), borrowed(UUID), found(String), add, join, appSettings, takeBackNow, remove
         case console(UUID), consoleFound(String), account, consoleCustom
         /// Accueil sans ordinateur : « Se connecter à un compte KyberNow », puis les boutons de toujours.
         case signIn, emptyAdd, emptyJoin
@@ -229,6 +229,19 @@ struct HomeView: View {
                     .glass(16)
                     .focusSection()
                     hdrChip(host)
+                    // Avec les deux droits du compte, « Regarder » est parmi les actions de l'ordinateur.
+                    if state != false, store.canWatch(host), !store.watchOnly(host) {
+                        Button { app.watch(host.id) } label: {
+                            HStack(spacing: 12) {
+                                Icon("eye", size: 26)
+                                Text(verbatim: Share.watchWord(.action)).font(Theme.sans(22, .medium))
+                            }
+                            .padding(.leading, 20).padding(.trailing, 24)
+                            .frame(height: 64)
+                        }
+                        .buttonStyle(GlassButton(radius: 18))
+                        .focused($focus, equals: .watch)
+                    }
                     Button { app.showSettings(host.id) } label: {
                         HStack(spacing: 12) {
                             Icon("sliders-horizontal", size: 26)
@@ -819,7 +832,8 @@ struct HomeView: View {
     /// quand l'app connaît une de ses cartes réseau, sinon « Réessayer » ;
     /// pendant le réveil : « Réveil de l'ordinateur… », sans effet (le focus reste).
     private func primaryLabel(_ host: Host, state: Bool?) -> String {
-        guard state == false else { return String(localized: "Se connecter") }
+        // Le droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
+        guard state == false else { return store.watchOnly(host) ? Share.watchWord(.action) : String(localized: "Se connecter") }
         if store.waking.contains(host.id) { return LinkText.waking }
         return store.canWake(host) ? LinkText.wake : String(localized: "Réessayer")
     }

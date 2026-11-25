@@ -655,6 +655,17 @@ private struct SessionBar: View {
             .help(ShareText.imageQuality)
             .accessibilityLabel(Text(verbatim: "\(ShareText.imageQuality), \(session.shareImageLabel)"))
             .overlay(ring(0))
+            // Regarder, plusieurs écrans : « Écran » et la liste ; en changer relance l'image.
+            let screens = session.watchScreens
+            if !screens.isEmpty {
+                let shown = session.watchDisplay
+                GlassMenu(items: screens.map { screen in
+                    .init(id: "\(screen.id)", title: screen.label, checked: screen.id == shown) { session.watchScreen(screen.id) }
+                }) {
+                    chip(icon: "monitor", text: Share.watchWord(.screen), caret: true, compact: compact)
+                }
+                .help(Share.watchWord(.screen))
+            }
             if role.keyboardAndMouse {
                 GlassMenu(items: MouseChoice.allCases.map { choice in
                     .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
@@ -679,7 +690,7 @@ private struct SessionBar: View {
             Button { session.end() } label: {
                 HStack(spacing: 8) {
                     Icon("power", size: 15, bold: true)
-                    Text(ShareText.leave).lineLimit(1).fixedSize()
+                    Text(leaveLabel).lineLimit(1).fixedSize()
                 }
                 .font(Theme.sans(13, .semibold))
                 .foregroundStyle(Theme.dangerText)
@@ -690,13 +701,16 @@ private struct SessionBar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(ShareText.leave + " (⌃⌥⌘D)")
+            .help(leaveLabel + " (⌃⌥⌘D)")
             .overlay(ring(session.padItems - 1))
         }
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .fixedSize()
     }
+
+    /// « Quitter le partage », ou « Arrêter de regarder » pour qui regarde.
+    private var leaveLabel: String { session.isWatching ? Share.watchWord(.stop) : ShareText.leave }
 
     /// Barre d'un ami qui emprunte (docs/link-ui.md, « Prêt de l'ordinateur ») :
     /// « Prêté par {hôte} », le temps restant, les mesures, le son, la souris,

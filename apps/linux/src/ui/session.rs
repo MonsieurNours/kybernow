@@ -46,6 +46,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 menu(app, cv, f, s);
             } else if s.lend_panel {
                 lend::overlay(app, cv, f, s);
+            } else if s.watch_panel {
+                quality::screen_overlay(app, cv, f, s);
             } else if s.share_panel {
                 // Un invité n'a pas de panneau d'hôte : le sien est la « Qualité de l'image ».
                 if s.guest.is_some() {
@@ -479,6 +481,8 @@ struct BarLayout {
     /// La puce de « Qualité de l'image » d'un invité : la qualité reçue (le choix tant qu'on ne la connaît pas), et sa
     /// largeur.
     quality: Option<(String, f32)>,
+    /// Regarder, avec plusieurs écrans : la puce « Écran » (son menu : un écran par ligne), et sa largeur.
+    screen: Option<(String, f32)>,
     /// « Par le relais » (« Par le relais (TCP) » en repli) : la session passe par le relais ; sa largeur.
     route: Option<(String, f32)>,
     /// « HDR », cochable, après le profil (écran HDR seulement) : son état et sa largeur.
@@ -508,7 +512,7 @@ impl BarLayout {
         };
         let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), &profile) + if s.visitor() { 24.0 } else { 34.0 };
         let quit = if s.guest.is_some() {
-            tr("Quitter le partage", "Leave")
+            s.leave_label()
         } else if s.borrow.is_some() {
             tr("Rendre l'ordinateur", "Give back the computer")
         } else {
@@ -533,6 +537,12 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), &t) + 34.0;
             (t, w)
         });
+        // Qui regarde un ordinateur à plusieurs écrans : « Écran », en menu (docs/link-ui.md, « Regarder, barre »).
+        let screen = s.watch_menu().then(|| {
+            let t = crate::app::watch_screen_word().to_string();
+            let w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), &t) + 34.0;
+            (t, w)
+        });
         let pill = share::pill_label(s).map(|t| {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
@@ -553,11 +563,11 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = pw.as_ref().map_or(0.0, |(_, pw)| pw + 8.0) + 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
+        let others = pw.as_ref().map_or(0.0, |(_, pw)| pw + 8.0) + 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + screen.as_ref().map_or(0.0, |(_, sw)| sw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, pw, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, total }
     }
 }
 
@@ -617,7 +627,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, pw, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -736,6 +746,21 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         quality_x = qr.x;
         x += qw + 8.0;
     }
+    // Regarder, avec plusieurs écrans : « Écran », du même dessin ; son menu liste les écrans, celui regardé coché.
+    let mut screen_x = x;
+    if let Some((label, sw)) = &screen {
+        let sr = Rect::new(x, cy - 15.0, *sw, 30.0);
+        let (focused, hover) = f.state(Target::BarScreen, sr);
+        cv.rrect(sr.x, sr.y, sr.w, sr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Screen) { INK_3 } else { Rgba(20, 27, 35, 255) });
+        cv.rrect_stroke(sr.x, sr.y, sr.w, sr.h, 7.0, 1.0, LINE_2);
+        if focused {
+            widgets::ring(cv, sr, 7.0);
+        }
+        cv.text(sr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), label);
+        cv.text(sr.x + sr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
+        screen_x = sr.x;
+        x += sw + 8.0;
+    }
     // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
     // écran, « Partager » ; chacun nomme son bouton au survol.
     let (mut keys_x, mut computers_x, mut share_x, mut lend_x) = (x, x, x, x);
@@ -829,6 +854,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         Some(BarMenu::Share) => share::dropdown(cv, f, app, s, share_x + 17.0, h + 6.0),
         Some(BarMenu::Lend) => lend::dropdown(cv, f, app, s, lend_x + 17.0, h + 6.0),
         Some(BarMenu::Quality) => dropdown_titled(cv, f, quality_x, h + 6.0, 300.0, Some(tr("Qualité de l'image", "Picture quality")), &quality::items(s)),
+        Some(BarMenu::Screen) => dropdown_titled(cv, f, screen_x, h + 6.0, 300.0, Some(crate::app::watch_screen_word()), &quality::screen_items(s)),
         None => {
             // Le nom du bouton survolé, sous la barre (jamais par-dessus un menu).
             if let Some((r, name)) = tip {
@@ -1385,6 +1411,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if let Some(g) = &s.guest {
         tiles.push((MenuItem::Quality, tr("Qualité de l'image", "Picture quality").into(), g.shown().into(), false, false));
     }
+    // Qui regarde un ordinateur à plusieurs écrans : « Écran », qui montre l'écran regardé (comme les autres choix).
+    if let Some(w) = s.watch().filter(|w| w.menu) {
+        tiles.push((MenuItem::Screen, crate::app::watch_screen_word().into(), w.shown(), false, false));
+    }
     // Les manettes d'un invité ne servent qu'avec ce droit : sans lui, pas de tuile.
     let pads = s.role().is_none_or(|r| r.pads());
     if guest || tv || app.machine.battery.is_none() {
@@ -1407,7 +1437,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
         }
-        tiles.push((MenuItem::Disconnect, tr("Quitter le partage", "Leave").into(), s.name.clone(), false, true));
+        tiles.push((MenuItem::Disconnect, s.leave_label().into(), s.name.clone(), false, true));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
         // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.

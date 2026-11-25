@@ -365,6 +365,8 @@ class ShareFound(
     val height: Int,
     val refresh: Int,
     val json: String,
+    /** « Regarder » avec un compte (`joined.watch`) : les écrans du PC ; nul pour un invité venu par un code. */
+    val watch: ShareWatch? = null,
 ) {
     /** Le JSON `joined` de la session d'invité. */
     val joined: JSONObject get() = JSONObject(json).getJSONObject("joined")
@@ -384,7 +386,32 @@ class ShareFound(
                 height = display?.optInt("height") ?: 0,
                 refresh = display?.optInt("refresh") ?: 0,
                 json = value.toString(),
+                watch = joined.optJSONObject("watch")?.let(ShareWatch::parse),
             )
+        }
+    }
+}
+
+/** Un écran du PC pour « Écran » de qui regarde (`joined.watch.screens[]`) ; [json] repart au cœur pour son libellé. */
+data class WatchScreen(val id: Int, val index: Int, val width: Int, val height: Int, val primary: Boolean, val json: String) {
+    companion object {
+        fun parse(o: JSONObject) = WatchScreen(o.optInt("id"), o.optInt("index"), o.optInt("width"), o.optInt("height"), o.optBoolean("primary"), o.toString())
+    }
+}
+
+/**
+ * « Regarder » (`joined.watch`, `ShareWatch` du cœur) : les écrans du PC (le principal d'abord), [switch] vrai quand la
+ * Station a ouvert un partage du PC pour regarder (« Écran » en change), [display] l'écran regardé au départ.
+ */
+data class ShareWatch(val screens: List<WatchScreen>, val switch: Boolean, val display: Int) {
+    /** La barre montre « Écran » et sa liste : on peut en changer, et il y en a plusieurs (`ShareWatch::menu`). */
+    val menu: Boolean get() = switch && screens.size > 1
+
+    companion object {
+        fun parse(o: JSONObject): ShareWatch {
+            val a = o.optJSONArray("screens")
+            val screens = if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let(WatchScreen::parse) }
+            return ShareWatch(screens, o.optBoolean("switch"), o.optInt("display"))
         }
     }
 }
@@ -419,6 +446,16 @@ sealed class JoinReply {
      * (« Ajouter {ordinateur} ») et ajoute l'ordinateur avec `Invite.redeem`.
      */
     data class Invite(val code: InviteCode) : JoinReply()
+}
+
+/**
+ * Réponse de « Regarder » : la Station trouvée (la personne entre comme un invité spectateur), ou le refus du cœur avec
+ * son [code] (34 Station trop ancienne, 35 prêté, 36 partage coupé ; ceux du relais, 30 à 32 ; ceux des comptes, 70 et
+ * suivants ; 1 le texte d'Admin), son [kind] et son texte.
+ */
+sealed class WatchReply {
+    data class Joined(val found: ShareFound) : WatchReply()
+    data class Refused(val code: Int, val kind: String, val message: String) : WatchReply()
 }
 
 object Share {
@@ -586,6 +623,53 @@ object Share {
     fun leave(found: ShareFound) {
         Thread({ Native.shareLeave(found.json) }, "kybernow-partage-depart").start()
     }
+
+    // MARK: - Regarder (droit « Regarder » d'un compte, docs/comptes.md)
+
+    /** Le `request` de « Regarder » : `{app, quality}` et `auto` (comme [joinRequest]) ; l'écran principal au départ. */
+    internal fun watchRequest(quality: ShareQuality, auto: JSONObject?): JSONObject =
+        JSONObject().put("app", "android").put("quality", quality.id).also { if (auto != null) it.put("auto", auto) }
+
+    /**
+     * « Regarder » un ordinateur du compte : [access] `{account, station}`, [lan] l'Admin vu sur le réseau
+     * (`{host, port, fingerprint}`) ou nul, [route] par le relais ou nulle. Le cœur essaie le réseau d'abord, puis le
+     * relais. La personne entre comme un invité spectateur : [JoinReply.Joined] (avec [ShareFound.watch]) ou le refus
+     * du cœur (34 Station trop ancienne, 35 ordinateur prêté, 36 partage coupé, ceux d'Admin et des comptes : son texte).
+     */
+    suspend fun watch(access: String, lan: ShareTarget?, route: String?, decoders: Decoders, quality: ShareQuality = ShareQuality.AUTO, auto: JSONObject? = null): WatchReply {
+        val request = watchRequest(quality, auto)
+        val text = withContext(Dispatchers.IO) { Native.shareWatch(access, lan?.json()?.toString(), route, request.toString(), capabilities(decoders).toString()) }
+        val reply = readWatch(text)
+        // Renoncé pendant l'appel : la personne repart tout de suite, comme un invité.
+        if (!currentCoroutineContext().isActive) {
+            if (reply is WatchReply.Joined) leave(reply.found)
+            throw CancellationException("regarder annulé")
+        }
+        return reply
+    }
+
+    /**
+     * La réponse du cœur à « Regarder » : `value` `{target, joined}`, ou un refus avec son code (les comptes et le relais
+     * passent par l'enveloppe d'Admin : 70 et suivants, 30 à 32), son genre (`kind`, `relay` pour un code du relais) et
+     * son texte. Illisible : un refus sans texte.
+     */
+    internal fun readWatch(text: String?): WatchReply {
+        val o = runCatching { JSONObject(text ?: "") }.getOrNull() ?: return WatchReply.Refused(1, "other", "")
+        val code = o.optInt("code", 1)
+        if (code != 0) return refusal(o).let { WatchReply.Refused(code, it.kind, it.message) }
+        val value = o.optJSONObject("value") ?: return WatchReply.Refused(1, "other", "")
+        return runCatching { WatchReply.Joined(ShareFound.parse(value)) }.getOrNull() ?: WatchReply.Refused(1, "other", "")
+    }
+
+    /** « Regarder {nom} » (titre de la connexion, à la place de « Invité sur {nom} »). */
+    fun watchTitle(computer: String): String = runCatching { Native.shareWatchTitle(computer) }.getOrDefault(computer)
+
+    /** Les mots du cœur : `action` « Regarder », `stop` « Arrêter de regarder », `screen` « Écran » ; vide sans bibliothèque native. */
+    fun watchWord(word: String): String = runCatching { Native.shareWatchWord(word) }.getOrDefault("")
+
+    /** « Écran 1 — 3840 × 2160 » (le cœur) ; sans lui, la taille seule. */
+    fun watchScreenLabel(screen: WatchScreen): String =
+        runCatching { Native.shareWatchScreenLabel(screen.json) }.getOrNull() ?: "${screen.width} × ${screen.height}"
 
     /** Codes du cœur : `shareWait` toujours en attente ; partage arrêté pendant l'attente (`ShareError::Stopped`). Ceux du relais : [RelayFailure]. */
     private const val WAITING = 27

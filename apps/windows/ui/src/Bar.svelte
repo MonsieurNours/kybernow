@@ -91,7 +91,7 @@
   /** Les réglages s'écartent du profil : « Personnalisé ». */
   let custom = $state(false)
   let menu = $state<Menu | null>(null)
-  type Menu = 'profile' | 'mouse' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats'
+  type Menu = 'profile' | 'mouse' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats' | 'screen'
   /**
    * Ce que montre la fenêtre de la barre : la barre (ouverte au pointeur, par « Statistiques », par une capsule
    * choisie), ou la capsule d'un avis bref seule, en haut de l'image (docs/link-ui.md « Barre de session »).
@@ -638,6 +638,8 @@
     const next = menu === which ? null : which
     refusal = null
     if (next === 'computers') computers = await invoke<BarComputer[]>('bar_computers')
+    // Regarder : l'écran regardé maintenant (il suit aussi le choix d'un autre spectateur).
+    if (next === 'screen') watched = await invoke<number | null>('share_watch_display', { id }).catch(() => null)
     if (next && !menu) await invoke('bar_menu', { open: true })
     menu = next
     if (next) await growForMenu()
@@ -692,6 +694,7 @@
     c.state === 'online' ? t('home.online') : c.state === 'away' ? t('home.away') : c.state === 'offline' ? t('home.offline') : t('common.searching')
   /** Ce que dit la ligne à droite : « Afficher », « Réveiller l'ordinateur »… */
   const hintOf = (c: BarComputer) =>
+    (c.watch && (c.pick === 'connect' || c.pick === 'full') ? c.watch : null) ??
     ({ show: t('bar.show'), wake: t('home.wake'), waking: t('home.waking'), retry: t('home.retry') })[c.pick as string] ?? ''
   const full = $derived(others.some((c) => c.pick === 'full'))
 
@@ -703,6 +706,13 @@
         await closeMenu()
         await invoke('show_session', { id: c.id })
         invoke('bar_hide', { id: c.id })
+      } else if (c.pick === 'connect' && c.watch) {
+        // Droit « Regarder » seul : la Station fait entrer ce PC en spectateur, puis la session d'invité
+        // s'ouvre dans sa fenêtre, titrée « Regarder {nom} » (refus : le texte du cœur).
+        const j = await invoke<{ id: string }>('share_watch', { id: c.id })
+        await invoke('share_connect', { id: j.id })
+        await closeMenu()
+        invoke('bar_hide', { id, focus: false })
       } else if (c.pick === 'connect') {
         // Une session de plus, dans sa fenêtre ; sa connexion s'y montre (elle garde le clavier).
         await invoke('connect', { id: c.id })
@@ -766,6 +776,25 @@
         guest = { ...guest, quality: before }
         showNotice(String(e))
       }
+    }
+  }
+
+  /** Regarder : l'écran regardé (coché dans « Écran »), lu à l'ouverture du menu. */
+  let watched = $state<number | null>(null)
+
+  /**
+   * « Écran » de qui regarde : la Station change l'écran du partage pour tous ceux qui le regardent, la session se
+   * reconnecte sur lui (étapes « Premières images »). Un refus laisse l'écran tel quel.
+   */
+  async function pickScreen(display: number) {
+    await closeMenu()
+    afterMenu()
+    if (!guest?.watch || display === watched) return
+    watched = display
+    try {
+      await invoke('share_watch_screen', { id, display })
+    } catch (e) {
+      showNotice(String(e))
     }
   }
 
@@ -1409,6 +1438,25 @@
         </div>
       {/if}
     </div>
+    <!-- Regarder, plusieurs écrans dont on peut changer : « Écran » et la liste (mots du cœur). -->
+    {#if guest.watch && guest.watch.screens.length > 1}
+      <div class="anchor">
+        <button class="chip" class:open={menu === 'screen'} aria-haspopup="menu" aria-expanded={menu === 'screen'} aria-label={guest.watch.screen} title={guest.watch.screen} onclick={() => toggle('screen')}>
+          {@render chipBody('monitor', guest.watch.screen, true)}
+        </button>
+        {#if menu === 'screen'}
+          <div class="menu quality" role="menu" aria-label={guest.watch.screen}>
+            <div class="menu-title" aria-hidden="true">{guest.watch.screen}</div>
+            {#each guest.watch.screens as sc (sc.id)}
+              <button role="menuitemradio" aria-checked={sc.id === watched} onclick={() => pickScreen(sc.id)}>
+                <span class="tick">{#if sc.id === watched}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+                <span class="name">{sc.label}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
     <!-- Un invité n'a la souris et les touches que si l'hôte lui a donné le clavier et la souris. -->
     {#if roleKbm(guest.role)}
       {@render mouseChip()}
@@ -1416,8 +1464,10 @@
     {/if}
     <span class="sep"></span>
     {@render fullscreenButton()}
-    <button class="quit" title={t('share.leave') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>
-      <Icon name="power" size={16} stroke={1.9} />{t('share.leave')}
+    <!-- Qui regarde : « Arrêter de regarder » (mot du cœur) à la place de « Quitter le partage ». -->
+    {@const leave = guest.watch?.stop ?? t('share.leave')}
+    <button class="quit" title={leave + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>
+      <Icon name="power" size={16} stroke={1.9} />{leave}
     </button>
   {:else}
     <span class="title">{title}</span>

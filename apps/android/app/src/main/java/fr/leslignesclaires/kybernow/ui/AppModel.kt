@@ -16,7 +16,12 @@ import fr.leslignesclaires.kybernow.core.LendAvailable
 import fr.leslignesclaires.kybernow.core.LendStatus
 import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.core.Loan
+import fr.leslignesclaires.kybernow.core.AccountCode
+import fr.leslignesclaires.kybernow.core.WatchReply
+import fr.leslignesclaires.kybernow.core.Share
+import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareTarget
+import fr.leslignesclaires.kybernow.model.ScreenMode
 import fr.leslignesclaires.kybernow.core.HostInfo
 import fr.leslignesclaires.kybernow.core.HostRelay
 import fr.leslignesclaires.kybernow.core.Native
@@ -81,6 +86,23 @@ data class HostStatus(
  * Pourquoi l'ordinateur n'a pas pu être ouvert hors de chez soi (textes de docs/link-ui.md, « Hors de chez vous »), choisi
  * par le code du cœur ([RelayFailure]), jamais par le texte du message d'Admin.
  */
+/** Ce que l'accueil fait d'un refus de « Regarder » ([watchRefusal]). */
+sealed interface WatchRefusal {
+    /** 70 : la session de l'appareil est fermée, le compte est oublié. */
+    data object SignedOut : WatchRefusal
+    /** 71 : l'ordinateur n'est plus sur le compte, il quitte l'accueil. */
+    data object ComputerGone : WatchRefusal
+    /** Le refus écrit sur l'accueil. */
+    data class Show(val why: RelayRefusal) : WatchRefusal
+}
+
+/** Un refus de « Regarder », choisi par son code (jamais par le texte), comme ceux de « Se connecter ». */
+fun watchRefusal(r: WatchReply.Refused): WatchRefusal = when {
+    r.code == AccountCode.SIGNED_OUT -> WatchRefusal.SignedOut
+    r.code == AccountCode.UNKNOWN_COMPUTER -> WatchRefusal.ComputerGone
+    else -> WatchRefusal.Show(RelayRefusal.of(RelayFailure.of(r.code), r.message) ?: RelayRefusal.Message(r.message))
+}
+
 sealed interface RelayRefusal {
     /** « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » (31) */
     data object StationOffline : RelayRefusal
@@ -518,6 +540,45 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     reply.accountComputerGone -> kn.accounts.computerGone(h, reply.message)
                     reply.relayFailure != null -> refuse(id, RelayRefusal.of(reply.relayFailure, reply.message)!!)
                     else -> refuse(id, RelayRefusal.Message(reply.message))
+                }
+            }
+        }
+    }
+
+    /**
+     * Les ordinateurs venus d'un compte avec le droit « Regarder » (docs/link-ui.md, « Comptes KyberNow ») : vrai quand
+     * c'est le seul (« Regarder » à la place de « Se connecter »), faux avec « Ouvrir le bureau » aussi (dans le menu).
+     */
+    val watch: StateFlow<Map<String, Boolean>> = combine(store.hosts, kn.accounts.accounts, kn.accounts.computers) { h, _, _ -> kn.accounts.watchRights(h) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * « Regarder » un ordinateur venu d'un compte (docs/kybernow-share.md, « Regarder avec un compte ») : la personne entre
+     * dans le partage de l'ordinateur comme un invité spectateur ([open] ouvre sa session, celle d'un invité), sur le
+     * réseau s'il y est vu, sinon par le relais. « Connexion… » sur le bouton pendant l'appel ; un refus s'écrit sur
+     * l'accueil, le texte du cœur tel quel (« {nom} est prêté en ce moment. », « Cette Station ne permet pas encore de
+     * regarder : mettez-la à jour. »…) ; 70, 71 et ceux du relais comme pour « Se connecter » ([watchRefusal]).
+     */
+    fun watch(id: String, screen: ScreenMode, open: (ShareFound) -> Unit) {
+        val h = hosts.value.firstOrNull { it.id == id } ?: return
+        if (!h.fromAccount || id in _connecting.value) return
+        _connecting.value = _connecting.value + id
+        _refusals.value = _refusals.value - id
+        viewModelScope.launch {
+            val quality = kn.guestQuality
+            val auto = withContext(Dispatchers.Default) { Share.autoQuality(screen, kn.decoders) }
+            val reply = kn.accounts.watch(h, kn.decoders, quality, auto)
+            _connecting.value = _connecting.value - id
+            when (reply) {
+                null -> refuse(id, RelayRefusal.StationOffline)
+                is WatchReply.Joined -> open(reply.found)
+                // Comme « Se connecter » : 70 le compte est oublié, 71 l'ordinateur quitte l'accueil, 31 et 32 les phrases du
+                // relais avec le nom de l'ordinateur ; le reste (34 à 36, Admin, 30) : le texte du cœur tel quel.
+                is WatchReply.Refused -> when (val o = watchRefusal(reply)) {
+                    WatchRefusal.SignedOut -> h.account?.let { kn.accounts.signedOut(it.key, reply.message) }
+                    WatchRefusal.ComputerGone -> kn.accounts.computerGone(h, reply.message)
+                    is WatchRefusal.Show -> refuse(id, o.why)
                 }
             }
         }

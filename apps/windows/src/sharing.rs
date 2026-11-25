@@ -9,7 +9,7 @@
 use kybernow_core::console::Mode;
 use kybernow_core::profile::Capabilities;
 use kybernow_core::screens::DeviceScreen;
-use kybernow_core::share::{self, DecoderCaps, ShareAuto, ShareAvailability, ShareGuest, ShareImage, ShareQuality, ShareRole, ShareState, ShareTarget, ShareVia};
+use kybernow_core::share::{self, DecoderCaps, ShareAuto, ShareAvailability, ShareGuest, ShareImage, ShareQuality, ShareRole, ShareState, ShareTarget, ShareVia, ShareWatch, WatchScreen};
 use serde::Serialize;
 
 /// Une Station vue sur le réseau ou déjà ajoutée à l'app : son adresse, le
@@ -358,6 +358,41 @@ impl ShareView {
                 full: false,
                 qr: None,
             },
+        }
+    }
+}
+
+/// Regarder (droit « Regarder » d'un compte, docs/comptes.md ; textes de
+/// docs/link-ui.md, « Regarder, barre ») : ce que la barre de qui regarde
+/// montre en plus de celle d'un invité. Les mots viennent du catalogue du
+/// cœur : « Arrêter de regarder » à la place de « Quitter le partage », et
+/// « Écran » avec une ligne par écran (« Écran 1 — 3840 × 2160 »,
+/// l'écran principal d'abord) seulement quand on peut en changer
+/// ([`ShareWatch::menu`]) ; sinon la liste est vide et la barre n'a pas de
+/// menu « Écran ».
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WatchView {
+    pub stop: String,
+    pub screen: String,
+    pub screens: Vec<WatchScreenView>,
+}
+
+/// Une ligne du menu « Écran » : l'identifiant à rendre à `share_watch_screen`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WatchScreenView {
+    pub id: u32,
+    pub label: String,
+}
+
+impl WatchView {
+    pub fn new(watch: &ShareWatch, lang: kybernow_core::i18n::Lang) -> Self {
+        let mut screens: Vec<&WatchScreen> = if watch.menu() { watch.screens.iter().collect() } else { Vec::new() };
+        // L'écran principal d'abord (la Station le met déjà en tête).
+        screens.sort_by_key(|s| !s.primary);
+        WatchView {
+            stop: share::watch_word(lang, "stop"),
+            screen: share::watch_word(lang, "screen"),
+            screens: screens.into_iter().map(|s| WatchScreenView { id: s.id, label: s.label(lang) }).collect(),
         }
     }
 }
@@ -737,5 +772,18 @@ mod tests {
             let len: i32 = rest.split_once('v').unwrap().0.parse().unwrap();
             assert!(x.parse::<i32>().unwrap() + len <= q.size && y.parse::<i32>().unwrap() < q.size);
         }
+    }
+
+    #[test]
+    fn watch_view() {
+        let screen = |id, index, primary| WatchScreen { id, index, width: 3840, height: 2160, refresh: 60, primary };
+        let watch = ShareWatch { screens: vec![screen(4, 2, false), screen(1, 1, true)], switch: true, display: 1 };
+        let v = WatchView::new(&watch, Lang::Fr);
+        assert_eq!((v.stop.as_str(), v.screen.as_str()), ("Arrêter de regarder", "Écran"));
+        assert_eq!(v.screens, vec![WatchScreenView { id: 1, label: "Écran 1 — 3840 × 2160".into() }, WatchScreenView { id: 4, label: "Écran 2 — 3840 × 2160".into() }]);
+        assert_eq!(WatchView::new(&watch, Lang::En).stop, "Stop watching");
+        // Un partage dont l'écran ne se change pas, ou un seul écran : pas de menu « Écran ».
+        assert!(WatchView::new(&ShareWatch { switch: false, ..watch.clone() }, Lang::Fr).screens.is_empty());
+        assert!(WatchView::new(&ShareWatch { screens: vec![screen(1, 1, true)], switch: true, display: 1 }, Lang::Fr).screens.is_empty());
     }
 }

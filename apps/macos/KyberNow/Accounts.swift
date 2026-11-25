@@ -424,17 +424,18 @@ final class AccountStore: ObservableObject {
     /// Un refus du cœur pour un ordinateur du compte : la session de
     /// l'appareil fermée (le compte est oublié), ou l'ordinateur qui n'est
     /// plus au compte (il quitte l'accueil) ; le reste se dit à l'ouverture.
-    func refused(_ host: Host, failure: AccountFailure, message: String) {
+    /// `notify` faux : l'appelant montre déjà le texte (la carte de fin de « Regarder »).
+    func refused(_ host: Host, failure: AccountFailure, message: String, notify: Bool = true) {
         guard let c = computer(for: host), let account = account(c.account) else { return }
         switch failure {
         case .signedOut:
             forget(account)
-            onNotice?(ShareText.sentence(message))
+            if notify { onNotice?(ShareText.sentence(message)) }
         case .unknownComputer:
             computers[c.account]?.removeAll { $0.same(c) }
             saveComputers()
             sync()
-            onNotice?(ShareText.sentence(message))
+            if notify { onNotice?(ShareText.sentence(message)) }
         default:
             break
         }
@@ -446,6 +447,49 @@ final class AccountStore: ObservableObject {
         guard host.account != nil, let c = computer(for: host), let account = account(c.account),
               let access = Accounts.access(account, station: c.station) else { return nil }
         return SessionEngine.AccountSession(access: access, relay: Relay.mode == .off ? nil : Accounts.route(c), onNetwork: isOnNetwork(host))
+    }
+
+    // MARK: Regarder (docs/comptes.md, « Regarder, liens d'accès et groupes d'ordinateurs »)
+
+    /// « Regarder » est proposé pour cet ordinateur (droit `view` de son compte).
+    func canWatch(_ host: Host) -> Bool {
+        if hosts.demo { return host.account != nil }
+        return computer(for: host).map(Accounts.canWatch) ?? false
+    }
+
+    /// Le droit « Regarder » seul : la carte propose « Regarder » à la place de « Se connecter ».
+    func watchOnly(_ host: Host) -> Bool {
+        if hosts.demo { return false }
+        return computer(for: host).map(Accounts.watchOnly) ?? false
+    }
+
+    /// « Regarder » : la personne entre en spectateur dans le partage de
+    /// l'ordinateur, sur le réseau s'il y est vu, sinon par le relais du
+    /// compte. Un refus du compte (session de l'appareil fermée, ordinateur
+    /// qui n'est plus au compte) change l'accueil comme ailleurs ; son texte
+    /// est rendu à l'appelant (la carte de fin).
+    func watch(_ host: Host, quality: ShareQuality, screen: ShareScreen) async throws -> ShareFound {
+        #if DEBUG
+        if hosts.demo {
+            try await Task.sleep(for: .milliseconds(800))
+            let screens = [ShareWatchScreen(demoID: 1, label: "Écran 1 — 3840 × 2160"), ShareWatchScreen(demoID: 2, label: "Écran 2 — 2560 × 1440")]
+            return ShareFound(demoComputer: host.name, host: host.name, role: .spectator, quality: quality, watch: ShareWatch(demoScreens: screens))
+        }
+        #endif
+        guard let c = computer(for: host), let account = account(c.account),
+              let access = Accounts.access(account, station: c.station) else {
+            throw ShareJoinError.other("")
+        }
+        let fp = c.adminFingerprint ?? host.consoleFingerprint
+        let lan = seen[host.id].map { ShareTarget(host: $0.address, port: $0.port, fingerprint: fp) }
+            ?? (host.account == nil && !host.address.isEmpty ? ShareTarget(host: host.address, port: host.consolePort, fingerprint: fp) : nil)
+        let route = Relay.mode == .off ? nil : Accounts.route(c)
+        do {
+            return try await Share.watch(access: access, lan: lan, route: route, quality: quality, screen: screen)
+        } catch let ShareJoinError.account(e) {
+            refused(host, failure: e.failure, message: e.message, notify: false)
+            throw ShareJoinError.account(e)
+        }
     }
 
     // MARK: Se connecter (iPhone, iPad, Mac)
@@ -503,6 +547,12 @@ extension HostStore {
     func sessionAccount(for host: Host) -> SessionEngine.AccountSession? {
         host.account == nil ? nil : accounts?.session(for: host)
     }
+
+    /// « Regarder » dans le menu de l'ordinateur (ou sur sa carte, avec `watchOnly`).
+    func canWatch(_ host: Host) -> Bool { accounts?.canWatch(host) ?? false }
+
+    /// Le droit « Regarder » seul : « Regarder » à la place de « Se connecter » sur la carte.
+    func watchOnly(_ host: Host) -> Bool { accounts?.watchOnly(host) ?? false }
 }
 
 // MARK: - Fenêtre du système (iPhone, iPad, Mac)

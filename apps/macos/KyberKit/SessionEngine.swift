@@ -848,6 +848,20 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { _ = kn_session_set_share_quality(s, Int32(quality.rawValue)) }
     }
 
+    /// Regarder : « Écran » choisi dans la barre (un `ShareWatchScreen.id`) ; la
+    /// session se reconnecte sur cet écran (étapes « Premières images »,
+    /// `onMode`). Sans effet si l'écran de ce partage ne se change pas.
+    public func watchScreen(_ id: UInt32) {
+        if let s = live { kn_session_watch_screen(s, id) }
+    }
+
+    /// Regarder : l'écran regardé (coché dans « Écran ») ; 0 hors d'une
+    /// session de qui regarde. Il suit aussi le choix d'un autre spectateur.
+    public var watchDisplay: UInt32 {
+        guard let s = live else { return 0 }
+        return kn_session_watch_display(s)
+    }
+
     /// Plafond de débit (fenêtre occultée) ; nil le retire.
     public func setBitrateCap(_ cap: UInt32?) {
         if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
