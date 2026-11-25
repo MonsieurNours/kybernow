@@ -29,12 +29,46 @@ pub fn unavailable(enabled: bool, kyber_dir: &Path) -> Option<&'static str> {
     (!vulkan_ok(kyber_dir, crate::gpu::encoding_luid())).then_some("vulkan")
 }
 
-/// Le `pyrowave` de `info` : `{ available }`, et `reason` s'il ne l'est pas.
-pub fn info(enabled: bool, kyber_dir: &Path) -> serde_json::Value {
-    match unavailable(enabled, kyber_dir) {
+/// Le `pyrowave` de `info` : `{ available }`, `reason` s'il ne l'est pas,
+/// et `max_mbps` ([`max_mbps`]) quand il est connu.
+pub fn info(enabled: bool, max_mbps: Option<u32>, kyber_dir: &Path) -> serde_json::Value {
+    let mut v = match unavailable(enabled, kyber_dir) {
         None => serde_json::json!({ "available": true }),
         Some(reason) => serde_json::json!({ "available": false, "reason": reason }),
+    };
+    if let Some(m) = max_mbps {
+        v["max_mbps"] = m.into();
     }
+    v
+}
+
+/// Part de la vitesse de la prise que PyroWave peut prendre en Auto :
+/// Ethernet, le lien moins les en-têtes et le reste du trafic ; Wi-Fi, la
+/// vitesse annoncée par la borne est un débit radio, le débit réel en est
+/// à peu près la moitié.
+const AUTO_SHARE_ETHERNET: f64 = 0.8;
+const AUTO_SHARE_WIFI: f64 = 0.5;
+
+/// Le « Débit maximal » annoncé aux apps (`pyrowave.max_mbps`, Mbit/s) :
+/// `setting` (réglage `video.pyrowave_max_mbps` : `auto`, `300`, `500`,
+/// `800`) ; en Auto (ou valeur inconnue), d'après `link`, la prise de la
+/// Station ([`crate::wake::link`]) : 80 % de sa vitesse en Ethernet, 50 % en
+/// Wi-Fi, arrondi aux 50 Mbit/s du dessous (1 Gbit/s → 800, 2,5 Gbit/s →
+/// 2000, Wi-Fi à 1201 Mbit/s → 600). `None` : prise inconnue, pas de plafond
+/// de l'ordinateur (les apps gardent le leur).
+pub fn max_mbps(setting: &str, link: Option<(crate::wake::Kind, u32)>) -> Option<u32> {
+    if let Ok(v) = setting.parse::<u32>()
+        && v > 0
+    {
+        return Some(v);
+    }
+    let (kind, mbps) = link?;
+    let share = match kind {
+        crate::wake::Kind::Ethernet => AUTO_SHARE_ETHERNET,
+        crate::wake::Kind::Wifi => AUTO_SHARE_WIFI,
+    };
+    let v = (f64::from(mbps) * share / 50.0).floor() as u32 * 50;
+    (v >= 50).then_some(v)
 }
 
 /// Vérifie la carte une fois au démarrage d'Admin, en fond : la première
@@ -127,7 +161,21 @@ mod tests {
     #[test]
     fn off_comes_first() {
         assert_eq!(unavailable(false, Path::new("nulle-part")), Some("off"));
-        assert_eq!(info(false, Path::new("nulle-part")), serde_json::json!({ "available": false, "reason": "off" }));
+        assert_eq!(info(false, None, Path::new("nulle-part")), serde_json::json!({ "available": false, "reason": "off" }));
+        assert_eq!(info(false, Some(500), Path::new("nulle-part")), serde_json::json!({ "available": false, "reason": "off", "max_mbps": 500 }));
+    }
+
+    #[test]
+    fn maximum_bitrate_set_or_from_the_port() {
+        use crate::wake::Kind::{Ethernet, Wifi};
+        assert_eq!(max_mbps("500", Some((Ethernet, 10_000))), Some(500));
+        assert_eq!(max_mbps("auto", Some((Ethernet, 1000))), Some(800));
+        assert_eq!(max_mbps("auto", Some((Ethernet, 2500))), Some(2000));
+        assert_eq!(max_mbps("auto", Some((Ethernet, 100))), Some(50));
+        assert_eq!(max_mbps("auto", Some((Wifi, 1201))), Some(600));
+        assert_eq!(max_mbps("auto", Some((Ethernet, 10))), None);
+        assert_eq!(max_mbps("auto", None), None);
+        assert_eq!(max_mbps("n'importe", Some((Ethernet, 1000))), Some(800));
     }
 
     #[cfg(not(windows))]

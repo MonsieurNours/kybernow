@@ -625,6 +625,9 @@ pub struct Stats {
     /// Images envoyées par l'ordinateur jamais montrées pendant la seconde (`Second::lost_frames`) : « Images
     /// perdues » des statistiques en PyroWave, en part des images (avec `fps`).
     pub lost_frames: u32,
+    /// PyroWave (docs/pyrowave.md) : la définition ramenée (`Second::lowered`), ligne « Définition ramenée » des
+    /// Statistiques (texte : `Lowered::text`).
+    pub lowered: Option<kybernow_core::pyrowave::Lowered>,
 }
 
 impl Stats {

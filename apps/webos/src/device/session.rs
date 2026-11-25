@@ -292,6 +292,9 @@ impl Platform for WebOsPlatform {
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
             Notice::HdrRefused => kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()),
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
+            Notice::ResolutionLowered { lowered: Some(l) } => l.text(kybernow_core::i18n::current()),
+            Notice::ResolutionLowered { lowered: None } => return,
         };
         self.0.send(Event::Notice(msg));
     }

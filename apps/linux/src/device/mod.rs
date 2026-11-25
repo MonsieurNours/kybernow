@@ -147,7 +147,8 @@ pub enum SessionEvent {
     Mode(Mode),
     /// `chain` : le trajet d'une image mesuré avec l'ordinateur (`Second::chain`, ses six étapes) ; `hdr` : un
     /// écran au moins de l'image est en HDR.
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool },
+    /// `lowered` : PyroWave, la définition ramenée (`Second::lowered`).
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered> },
     Notice(String),
     /// Le pointeur de l'ordinateur sur l'écran `screen` de l'appareil (multi-écrans :
     /// une couche par écran ; la forme est celle de l'écran où il se trouve).
@@ -2945,7 +2946,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 l.hz = m.refresh;
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered } => {
             let Some(l) = lives.get_mut(id) else { return };
             let local = Stats::local_medians(&l.local);
             l.local.clear();
@@ -2968,7 +2969,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                 }
                 let stages = Stats::stages(chain, local);
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames });
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered });
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();
             }

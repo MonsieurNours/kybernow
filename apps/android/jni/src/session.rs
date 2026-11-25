@@ -467,6 +467,11 @@ impl Platform for AndroidPlatform {
             chain[4],
             chain[5],
             if s.hdr { 1.0 } else { 0.0 },
+            // PyroWave : définition ramenée (0 sans) : largeur, hauteur, fréquence, plafond (Mbit/s).
+            s.lowered.map_or(0.0, |l| l.width as f64),
+            s.lowered.map_or(0.0, |l| l.height as f64),
+            s.lowered.map_or(0.0, |l| l.refresh as f64),
+            s.lowered.map_or(0.0, |l| l.mbps as f64),
         ];
         self.0.listener.with(|env, obj| {
             let a = env.new_double_array(values.len() as i32)?;
@@ -493,6 +498,11 @@ impl Platform for AndroidPlatform {
             }
             // HDR : Windows a refusé le HDR de l'écran virtuel (une fois par session) ; le texte du cœur.
             Notice::HdrRefused => (8, 0, 0, false, 0, 0, false, Some(kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()))),
+            // PyroWave : définition ramenée (`hasMode`, le texte du cœur), ou revenue à celle de l'appareil.
+            Notice::ResolutionLowered { lowered } => match lowered {
+                Some(l) => (9, l.width, l.height, false, 0, l.mbps, true, Some(l.text(kybernow_core::i18n::current()))),
+                None => (9, 0, 0, false, 0, 0, false, None),
+            },
         };
         self.0.listener.with(|env, obj| {
             let e = jstring_or_null(env, error.as_deref())?;

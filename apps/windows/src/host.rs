@@ -83,7 +83,7 @@ pub struct Stats {
     pub audio_output_ms: Option<f64>,
     /// PyroWave (docs/link-ui.md) : la définition ramenée pour tenir dans le
     /// débit (largeur, hauteur, Mbit/s), ligne « Définition ramenée » des
-    /// Statistiques. Le cœur ne la dit pas encore : toujours absente.
+    /// Statistiques, d'après `Second::lowered` du cœur.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lowered: Option<(u32, u32, u32)>,
 }
@@ -625,13 +625,21 @@ impl Platform for WinPlatform {
             audio_channels: audio.map_or(self.audio_channels, |a| a.channels as u16),
             audio_buffer_ms: audio.map(|a| a.buffer_ms),
             audio_output_ms: audio.map(|a| a.output_ms),
-            lowered: None,
+            lowered: second.lowered.map(|l| (l.width, l.height, l.mbps)),
         });
     }
     fn on_notice(&self, notice: &kybernow_core::session::Notice) {
-        if matches!(notice, kybernow_core::session::Notice::HdrRefused) {
-            log::warn!("HDR : refusé par l'ordinateur, image en SDR");
-            self.events.notice(&kybernow_core::profile::hdr_refused_text(crate::i18n::lang()));
+        match notice {
+            kybernow_core::session::Notice::HdrRefused => {
+                log::warn!("HDR : refusé par l'ordinateur, image en SDR");
+                self.events.notice(&kybernow_core::profile::hdr_refused_text(crate::i18n::lang()));
+            }
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+            kybernow_core::session::Notice::ResolutionLowered { lowered: Some(l) } => {
+                log::info!("PyroWave : définition ramenée à {}×{} ({} Mbit/s)", l.width, l.height, l.mbps);
+                self.events.notice(&l.text(crate::i18n::lang()));
+            }
+            _ => {}
         }
     }
     fn on_game_fullscreen(&self, game: bool) {

@@ -25,6 +25,17 @@ Toutes les apps et la Station s'y tiennent.
 3. **Demande** : l'app demande `codec: "PyroWave"` dans la requête de démarrage, avec `fallback_codec` (son format habituel, H.264 sans lui). L'API Rust de kyclient a `VideoSessionConfig::fallback_codec`, l'API C `kyclient_video_session_config_set_fallback_codec`.
 4. **Acceptation** : kycontroller ne garde PyroWave que si la Station le propose (Windows et `[kyavserver] pyrowave` vrai ou absent), sinon il prend le format de repli (journal : « PyroWave not offered by this Station: HEVC instead »). kyavserver vérifie encore (H.264 sinon). Le client lit le format qui arrive dans le paquet de codec du flux.
 5. **Encodeur** : PyroWave ne dépend pas de `[kyavserver] encoder` (NVENC, AMF, Quick Sync ou x264) : l'encodeur H.264/HEVC choisi reste celui des autres flux.
+6. **Débit maximal** : `pyrowave.max_mbps` (Mbit/s), présent quand il est connu : le réglage « Débit maximal » d'Admin (`video.pyrowave_max_mbps`, `[kyavserver] pyrowave_max_mbps` lu par Admin seul : `auto` par défaut, `300`, `500`, `800`) ; en Auto, d'après la prise réseau de la Station (`TransmitLinkSpeed` de la première carte avec une adresse, Ethernet et carte de la passerelle d'abord, relue toutes les minutes) : 80 % de sa vitesse en Ethernet, 50 % en Wi-Fi (débit radio annoncé), arrondi aux 50 Mbit/s du dessous (1 Gbit/s → 800, 2,5 Gbit/s → 2000, 100 Mbit/s → 50). Prise inconnue : absent, pas de plafond de l'ordinateur.
+
+## Définition ramenée
+
+Règle des apps ([link-ui.md](link-ui.md), « PyroWave ») : quand le débit dont PyroWave a besoin dépasse le plafond, l'app baisse la définition (puis la fréquence), jamais la netteté, et le dit. Le calcul est dans le cœur (`apps/core/src/pyrowave.rs`, voir [apps/core/README.md](../apps/core/README.md)), le même pour toutes les apps.
+
+- **Débit nécessaire** : largeur × hauteur × fréquence × bits par pixel, la somme des écrans d'une session à plusieurs écrans. **1,5 bit par pixel en 4:2:0** (SDR ou HDR10 : le haut de ce que donne PyroWave à netteté pleine, ~1,2 à 1,5) ; **2,25 en 4:4:4** (moitié plus : deux fois plus d'échantillons de couleur, qui pèsent moins que la luminance). Soit ≈ 187 Mbit/s en 1080p60, ≈ 747 Mbit/s en 4K60, ≈ 1 120 Mbit/s en 4K60 4:4:4. Valeurs à confirmer sur des flux de la Station.
+- **Plafond** : le plus petit de ceux qui sont connus : `pyrowave.max_mbps` de la Station, le débit du lien que l'app donne (vitesse de sa prise, ou débit mesuré), le débit réglé à la main dans l'app (format sans profil). Aucun : la définition de l'appareil reste.
+- **Choix** : la plus grande définition paire qui tient, proportions gardées, à la fréquence de l'écran, jusqu'à 720 lignes ; puis 120, 100, 60, 50 ou 30 Hz, avec de nouveau la plus grande définition qui tient ; rien ne tient : 720p à 30 Hz. À plusieurs écrans, la même échelle pour tous, positions comprises (ils restent bord à bord).
+- **Demandée à la Station** : c'est la définition de l'écran virtuel (`prepare`), au démarrage et à chaque adaptation ; quand le plafond ou le format change en session, l'écran virtuel est refait si la définition doit changer. Sans écran virtuel, la Station garde son écran : seul le débit est plafonné. Kyber reçoit au moins le débit nécessaire à cette définition (profil), jamais plus que le plafond.
+- **Dit aux apps** : avis `ResolutionLowered` (bandeau « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », retiré quand elle revient) et `Second::lowered` (ligne des Statistiques), dans les ponts C, JNI et les apps Windows et Linux.
 
 ## La Station Windows
 
@@ -33,7 +44,7 @@ Toutes les apps et la Station s'y tiennent.
 - **Les deux moteurs** : txproto (`create_pyrowave` de `txproto/video.rs`, capture reliée directement à l'encodeur) et libavconv (`encoder_names`, filtre `null`). `encode.c` et `enc.c` n'ont rien à changer : l'encodeur se déclare matériel sur des images D3D11, ils lui passent le contexte d'images de la capture.
 - **Plusieurs écrans** : un encodeur par écran, comme pour les autres formats ; chacun ouvre son device Vulkan sur la carte de son écran.
 - **Image réduite d'un invité** (KyberNow Share) : PyroWave réduit lui-même l'image (options `out_width`, `out_height`) au lieu de `scale_d3d11` ; cadence plafonnée par la capture (txproto), `fps` de l'encodeur réglé sur elle pour le budget d'image.
-- **Réglage** : `[kyavserver] pyrowave` (vrai par défaut), clé `video.pyrowave` d'Admin, Windows seulement (textes provisoires, marqués `TODO textes pyrowave`).
+- **Réglage** : `[kyavserver] pyrowave` (vrai par défaut), clé `video.pyrowave` d'Admin, Windows seulement (textes provisoires, marqués `TODO textes pyrowave`). « Débit maximal » : `video.pyrowave_max_mbps` (voir l'annonce, point 6), Windows seulement ; l'aide Auto de la maquette (« ici {n} Mbit/s ») reste à faire dans la carte PyroWave d'Admin.
 - **Surcouche** : `libpyrowave-shared-1.dll` et `pyrowave-device-validation.exe` dans `third_party/payload/kyber-overlay/`, donc dans l'installateur et les mises à jour.
 
 ## Essai sur le PC
@@ -65,3 +76,4 @@ Puis, une fois la Station installée avec la surcouche (et un client qui sait le
 | Encodage d'une image capturée en D3D11 sur un PC | **à essayer** (section précédente) |
 | Session complète vers le Mac | à essayer, avec le décodeur Mac |
 | HDR10 (P010), 4:4:4, image réduite d'un invité dans une session, plusieurs écrans, moteur libavconv | à essayer |
+| Définition ramenée (cœur) et « Débit maximal » (Admin) | tests unitaires passés sur le Mac (25/11/2026 : cœur 357, Admin 323) ; jamais vue en session (il faut le correctif kyclient dans le cœur) ; vitesse de la prise lue par Windows jamais essayée |

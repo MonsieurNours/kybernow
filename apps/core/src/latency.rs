@@ -130,6 +130,9 @@ pub struct Second {
     /// Un écran au moins de l'image en cours est en HDR (docs/hdr.md),
     /// posé par la session.
     pub hdr: bool,
+    /// PyroWave : la définition ramenée en place (docs/pyrowave.md), posée
+    /// par la session ; ligne « Définition ramenée » des Statistiques.
+    pub lowered: Option<crate::pyrowave::Lowered>,
 }
 
 /// Étapes d'une image sur l'ordinateur (µs, son horloge).

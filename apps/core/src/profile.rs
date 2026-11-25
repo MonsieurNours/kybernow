@@ -516,6 +516,11 @@ mod tests {
         let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":false,"reason":"vulkan"}}"#).unwrap();
         assert!(!info.pyrowave_offered());
         assert_eq!(info.pyrowave.and_then(|p| p.reason).as_deref(), Some("vulkan"));
+        // « Débit maximal » d'Admin : absent avec une Station d'avant.
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":true,"max_mbps":500}}"#).unwrap();
+        assert_eq!(info.pyrowave.and_then(|p| p.max_mbps), Some(500));
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":true}}"#).unwrap();
+        assert_eq!(info.pyrowave.and_then(|p| p.max_mbps), None);
         assert_eq!(pyrowave_fallback(Capabilities { hevc: false, av1: true, ..Capabilities::default() }), Codec::Av1);
         assert_eq!(pyrowave_fallback(Capabilities::default()), Codec::H264);
     }

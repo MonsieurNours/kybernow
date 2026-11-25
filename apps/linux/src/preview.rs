@@ -157,6 +157,7 @@ fn session(app: &App) -> SessionUi {
         stages: Stats::stages(Some([0.8, 2.2, 0.4, 0.8, 1.3, 1.9]), None),
         hdr: false,
         lost_frames: 0,
+        lowered: None,
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));

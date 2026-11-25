@@ -985,15 +985,14 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
 /// (oui s'il manque), puis la carte qui encode (`pyrowave.rs`, appel
 /// bloquant la première fois).
 async fn pyrowave_offer(s: &AppState) -> Value {
-    let enabled = s
-        .kyber
-        .values()
-        .ok()
-        .and_then(|v| v.into_iter().find(|f| f.id == "video.pyrowave"))
-        .and_then(|f| f.value.as_bool())
-        .unwrap_or(true);
+    let values = s.kyber.values().ok().unwrap_or_default();
+    let value = |id: &str| values.iter().find(|f| f.id == id).map(|f| f.value.clone());
+    let enabled = value("video.pyrowave").and_then(|v| v.as_bool()).unwrap_or(true);
+    // « Débit maximal » (docs/pyrowave.md) : réglé, ou d'après la prise réseau.
+    let setting = value("video.pyrowave_max_mbps").and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| "auto".into());
+    let max = crate::pyrowave::max_mbps(&setting, crate::wake::link());
     let dir = s.kyber_dir.clone();
-    tokio::task::spawn_blocking(move || crate::pyrowave::info(enabled, &dir))
+    tokio::task::spawn_blocking(move || crate::pyrowave::info(enabled, max, &dir))
         .await
         .unwrap_or(Value::Null)
 }

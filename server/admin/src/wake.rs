@@ -52,6 +52,12 @@ pub struct Card {
     pub armed: Option<bool>,
     /// Nom de la carte (« Intel(R) Ethernet Connection I219-V »).
     pub name: String,
+    /// Vitesse de la prise en Mbit/s (`TransmitLinkSpeed` de Windows ; en
+    /// Wi-Fi, le débit annoncé par la borne) ; `None` : inconnue. Pas
+    /// envoyée aux apps : elle sert au « Débit maximal » de PyroWave en Auto
+    /// ([`link`], `pyrowave.rs`).
+    #[serde(skip)]
+    pub link_mbps: Option<u32>,
 }
 
 static CARDS: Mutex<Vec<Card>> = Mutex::new(Vec::new());
@@ -59,6 +65,18 @@ static CARDS: Mutex<Vec<Card>> = Mutex::new(Vec::new());
 /// Les cartes, telles que relues en dernier (vide avant la première lecture).
 pub fn cards() -> Vec<Card> {
     CARDS.lock().unwrap().clone()
+}
+
+/// La prise réseau de la Station, pour le « Débit maximal » de PyroWave en
+/// Auto : sa sorte et sa vitesse (Mbit/s), celles de la première carte avec
+/// une adresse et une vitesse connue, dans l'ordre de [`cards`] (Ethernet,
+/// carte de la passerelle d'abord) ; `None` : inconnue.
+pub fn link() -> Option<(Kind, u32)> {
+    link_of(&cards())
+}
+
+fn link_of(cards: &[Card]) -> Option<(Kind, u32)> {
+    cards.iter().filter(|c| c.ipv4.is_some()).find_map(|c| c.link_mbps.map(|m| (c.kind, m)))
 }
 
 /// Lance la relecture de fond (au démarrage d'Admin).
@@ -127,6 +145,8 @@ struct Adapter {
     ipv4: Vec<(Ipv4Addr, u8)>,
     /// Une passerelle par défaut : la carte du réseau local.
     gateway: bool,
+    /// Vitesse de la prise en bit/s (`TransmitLinkSpeed`) ; 0 : inconnue.
+    speed_bps: u64,
 }
 
 const IF_TYPE_ETHERNET: u32 = 6;
@@ -219,6 +239,11 @@ fn select(adapters: &[Adapter], armed: Option<&[String]>) -> Vec<Card> {
             kind,
             armed: armed.map(|list| list.contains(&normalized(&name))),
             name,
+            // Une carte sur un commutateur virtuel : la vitesse de la carte physique.
+            link_mbps: Some(a.speed_bps)
+                .filter(|s| *s > 0 && *s != u64::MAX)
+                .or_else(|| adapters.iter().filter(|o| o.mac == a.mac && o.up).map(|o| o.speed_bps).find(|s| *s > 0 && *s != u64::MAX))
+                .map(|s| (s / 1_000_000).min(u64::from(u32::MAX)) as u32),
         });
     }
     cards
@@ -296,6 +321,7 @@ mod platform {
                     connector: Some(flags & 0b100 != 0),
                     filter: flags & 0b10 != 0,
                     up: r.OperStatus == IfOperStatusUp,
+                    speed_bps: r.TransmitLinkSpeed,
                     ..Adapter::default()
                 }
             })
@@ -393,6 +419,7 @@ mod platform {
             kind: Kind::Ethernet,
             armed: Some(true),
             name: String::new(),
+            link_mbps: None,
         }]
     }
 
@@ -493,6 +520,7 @@ mod mac {
                     kind,
                     armed: womp,
                     name: port,
+                    link_mbps: None,
                 };
                 Some((default_if.as_deref() == Some(device.as_str()), card))
             })
@@ -519,11 +547,32 @@ mod tests {
             up: true,
             ipv4: ip.map(|(a, p)| vec![(a.parse().unwrap(), p)]).unwrap_or_default(),
             gateway: ip.is_some(),
+            speed_bps: 0,
         }
     }
 
     const ETH: [u8; 6] = [0x3C, 0x7C, 0x3F, 0x12, 0xAB, 0xCD];
     const WIFI: [u8; 6] = [0xA4, 0xB1, 0xC1, 0x00, 0x11, 0x22];
+
+    #[test]
+    fn vitesse_de_la_prise_pour_pyrowave() {
+        let mut eth = adapter("Intel(R) Ethernet Connection (7) I219-V", ETH, 6, 14, Some(("192.168.1.20", 24)));
+        eth.speed_bps = 1_000_000_000;
+        let mut wifi = adapter("Intel(R) Wi-Fi 6 AX201 160MHz", WIFI, 71, 9, Some(("192.168.1.21", 24)));
+        wifi.speed_bps = 1_201_000_000;
+        let cards = select(&[wifi.clone(), eth.clone()], None);
+        assert_eq!(cards[0].link_mbps, Some(1000));
+        assert_eq!(link_of(&cards), Some((Kind::Ethernet, 1000)));
+        // Ethernet débranché (sans adresse) : la prise est le Wi-Fi.
+        eth.ipv4.clear();
+        eth.gateway = false;
+        assert_eq!(link_of(&select(&[wifi.clone(), eth], None)), Some((Kind::Wifi, 1201)));
+        // Vitesse inconnue (0, ou u64::MAX que Windows donne parfois).
+        wifi.speed_bps = u64::MAX;
+        assert_eq!(link_of(&select(&[wifi], None)), None);
+        // Pas dans le JSON des apps.
+        assert!(serde_json::to_value(&cards[0]).unwrap().get("link_mbps").is_none());
+    }
 
     #[test]
     fn diffusion_du_sous_reseau() {
@@ -564,6 +613,7 @@ mod tests {
                     kind: Kind::Ethernet,
                     armed: Some(true),
                     name: "Intel(R) Ethernet Connection (7) I219-V".into(),
+                    link_mbps: None,
                 },
                 Card {
                     mac: "A4:B1:C1:00:11:22".into(),
@@ -572,6 +622,7 @@ mod tests {
                     kind: Kind::Wifi,
                     armed: Some(false),
                     name: "Intel(R) Wi-Fi 6 AX201 160MHz".into(),
+                    link_mbps: None,
                 },
             ]
         );

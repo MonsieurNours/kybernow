@@ -442,6 +442,7 @@ impl Platform for LinuxPlatform {
             audio_ms: self.0.audio_ms(),
             chain: s.chain.map(|c| c.all()),
             hdr: s.hdr,
+            lowered: s.lowered,
         });
     }
 
@@ -460,6 +461,9 @@ impl Platform for LinuxPlatform {
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
             Notice::HdrRefused => kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()),
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
+            Notice::ResolutionLowered { lowered: Some(l) } => l.text(kybernow_core::i18n::current()),
+            Notice::ResolutionLowered { lowered: None } => return,
         };
         self.0.send(SessionEvent::Notice(msg));
     }
