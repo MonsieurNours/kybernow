@@ -1,0 +1,32 @@
+diff --git a/subprojects/packagefiles/lua/meson.build b/subprojects/packagefiles/lua/meson.build
+index 09721be..4361e6b 100644
+--- a/subprojects/packagefiles/lua/meson.build
++++ b/subprojects/packagefiles/lua/meson.build
+@@ -175,16 +175,23 @@ meson.override_dependency('lua', lua_dep)
+ meson.override_dependency('lua-5.4', lua_dep)
+ 
+ # Build luac for txproto when none on PATH (e.g. macOS); independent of the interpreter.
++# KyberNow (Station Linux) : seul un « luac5.4 » installé compte (Fedora 45 n'a
++# que Lua 5.5 en « luac », que txproto refuse) ; sinon le nôtre, compilé avec
++# les sources de Lua plutôt que lié à liblua.so, qui cache les fonctions
++# internes dont luac a besoin (échec de liaison sous Ubuntu 24.04). txproto
++# cherche « luac5.4 » d'abord : « luac » n'est remplacé que s'il manque.
+ luac_name = 'luac' + lua_versions[0] + '.' + lua_versions[1]
+-if not find_program(luac_name, 'luac', required: false).found()
++if not find_program(luac_name, required: false).found()
+   luac_exe = executable(
+     'luac',
+-    'src/luac.c',
+-    dependencies: [lua_dep] + lua_lib_deps,
++    ['src/luac.c'] + lua_sources,
++    dependencies: lua_lib_deps,
+     implicit_include_directories: false,
+   )
+   meson.override_find_program(luac_name, luac_exe)
+-  meson.override_find_program('luac', luac_exe)
++  if run_command('sh', '-c', 'command -v luac', check: false).returncode() != 0
++    meson.override_find_program('luac', luac_exe)
++  endif
+ endif
+ 
+ pkg = import('pkgconfig')

@@ -228,6 +228,11 @@ fn detect() -> Result<(Kind, Box<dyn Recorder>)> {
     }
 }
 
+/// `shown` (le nom que donne le bureau) désigne l'écran créé sous le nom `made`.
+fn same_output(shown: &str, made: &str) -> bool {
+    shown == made || shown.strip_suffix(made).is_some_and(|p| p.ends_with('-'))
+}
+
 /// Échelle la plus proche de `want` parmi celles que le bureau propose.
 fn nearest_scale(scales: &[f64], want: f64) -> f64 {
     scales.iter().copied().min_by(|a, b| (a - want).abs().total_cmp(&(b - want).abs())).unwrap_or(1.0)
@@ -249,7 +254,12 @@ fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Res
     let virtuals: Vec<&Mon> = mons.iter().filter(|m| m.virt).collect();
     for ls in &layout.screens {
         let taken: Vec<String> = sh.connectors.iter().flatten().cloned().collect();
-        if sh.connectors[ls.slot].as_ref().is_some_and(|c| virtuals.iter().any(|m| &m.connector == c)) {
+        // Nom connu à la création : celui du bureau peut porter un préfixe
+        // (KWin de Plasma 6 : « Virtual-KyberNow-1 » pour « KyberNow-1 »).
+        if let Some(known) = sh.connectors[ls.slot].clone()
+            && let Some(m) = virtuals.iter().find(|m| same_output(&m.connector, &known))
+        {
+            sh.connectors[ls.slot] = Some(m.connector.clone());
             continue;
         }
         let found = virtuals.iter().find(|m| !taken.contains(&m.connector) && m.width == ls.width && m.height == ls.height);
@@ -512,7 +522,7 @@ impl Agent {
                     return json!({ "width": 0, "height": 0, "refresh": 0 });
                 };
                 // Pas encore sur le bureau (pas de flux) : le mode demandé.
-                let shown = sh.connectors[slot].as_ref().and_then(|c| mons.iter().find(|m| &m.connector == c && m.enabled));
+                let shown = sh.connectors[slot].as_ref().and_then(|c| mons.iter().find(|m| same_output(&m.connector, c) && m.enabled));
                 match shown {
                     Some(m) => json!({ "width": m.width, "height": m.height, "refresh": m.refresh }),
                     None => json!({ "width": v.width, "height": v.height, "refresh": v.refresh }),
@@ -595,7 +605,19 @@ impl Agent {
             self.stop_physicals();
             for d in &displays {
                 let name = d["name"].as_str().unwrap_or_default().to_string();
-                match self.recorder.monitor(&name) {
+                // Un écran qui vient d'être rallumé (fin de session) peut ne
+                // pas être encore revenu chez le compositeur (KWin) : on
+                // réessaie un instant.
+                let mut cast = self.recorder.monitor(&name);
+                for _ in 0..6 {
+                    if cast.is_ok() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(500));
+                    self.recorder.pump();
+                    cast = self.recorder.monitor(&name);
+                }
+                match cast {
                     Ok(cast) => self.physicals.push(Physical {
                         id: d["id"].as_u64().unwrap_or(1) as u32,
                         name,

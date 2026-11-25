@@ -58,19 +58,24 @@ enum StreamEvent {
 #[derive(Default)]
 struct State {
     screencast: Option<ZkdeScreencastUnstableV1>,
-    outputs: Vec<(wl_output::WlOutput, Option<String>)>,
+    /// Écrans annoncés par KWin : l'objet, le nom de l'objet global (pour son
+    /// retrait) et le connecteur. Un écran éteint puis rallumé revient sous
+    /// un nouvel objet global.
+    outputs: Vec<(wl_output::WlOutput, u32, Option<String>)>,
     events: HashMap<u32, StreamEvent>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for State {
     fn event(state: &mut Self, registry: &wl_registry::WlRegistry, event: wl_registry::Event, _: &(), _: &Connection, qh: &QueueHandle<Self>) {
-        if let wl_registry::Event::Global { name, interface, version } = event {
-            match interface.as_str() {
+        match event {
+            wl_registry::Event::Global { name, interface, version } => match interface.as_str() {
                 "zkde_screencast_unstable_v1" => state.screencast = Some(registry.bind(name, version.min(3), qh, ())),
                 // Version 4 : l'événement `name` donne le connecteur (« HDMI-A-1 »).
-                "wl_output" => state.outputs.push((registry.bind(name, version.min(4), qh, ()), None)),
+                "wl_output" => state.outputs.push((registry.bind(name, version.min(4), qh, ()), name, None)),
                 _ => {}
-            }
+            },
+            wl_registry::Event::GlobalRemove { name } => state.outputs.retain(|(_, global, _)| *global != name),
+            _ => {}
         }
     }
 }
@@ -78,9 +83,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
 impl Dispatch<wl_output::WlOutput, ()> for State {
     fn event(state: &mut Self, output: &wl_output::WlOutput, event: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         if let wl_output::Event::Name { name } = event
-            && let Some(slot) = state.outputs.iter_mut().find(|(o, _)| o == output)
+            && let Some(slot) = state.outputs.iter_mut().find(|(o, ..)| o == output)
         {
-            slot.1 = Some(name);
+            slot.2 = Some(name);
         }
     }
 }
@@ -172,17 +177,23 @@ impl Recorder for Kde {
             &qh,
             (),
         );
+        // Le nom que KWin donne à l'écran varie (« Virtual-KyberNow-1 » sous
+        // Plasma 6) : la disposition le retrouve par son nom (`same_output`).
         Ok((self.wait(stream)?, Some(name)))
     }
 
     fn monitor(&mut self, connector: &str) -> Result<Cast> {
+        // Un écran rallumé revient comme un nouveau `wl_output` : son objet,
+        // puis son nom, arrivent en deux allers-retours.
+        let _ = self.queue.roundtrip(&mut self.state);
         let _ = self.queue.roundtrip(&mut self.state);
         let output = self
             .state
             .outputs
             .iter()
-            .find(|(_, n)| n.as_deref() == Some(connector))
-            .map(|(o, _)| o.clone())
+            .rev()
+            .find(|(_, _, n)| n.as_deref() == Some(connector))
+            .map(|(o, ..)| o.clone())
             .ok_or_else(|| format!("écran {connector} inconnu de KWin"))?;
         let qh = self.queue.handle();
         let stream = self.screencast()?.stream_output(&output, POINTER_HIDDEN, &qh, ());
@@ -224,8 +235,20 @@ pub fn parse_outputs(text: &str) -> Vec<Mon> {
         }
         out
     };
-    plain
-        .lines()
+    // Plasma 6 écrit une propriété par ligne (indentée) sous « Output: » ;
+    // Plasma 5.27, tout sur une ligne : on recolle chaque bloc.
+    let mut blocks: Vec<String> = Vec::new();
+    for line in plain.lines() {
+        if line.starts_with(char::is_whitespace) && !blocks.is_empty() {
+            let last = blocks.last_mut().unwrap();
+            last.push(' ');
+            last.push_str(line.trim());
+        } else {
+            blocks.push(line.trim().to_string());
+        }
+    }
+    blocks
+        .iter()
         .filter_map(|line| {
             let words: Vec<&str> = line.split_whitespace().collect();
             if words.first() != Some(&"Output:") {
@@ -233,7 +256,9 @@ pub fn parse_outputs(text: &str) -> Vec<Mon> {
             }
             let name = words.get(2)?.to_string();
             let after = |key: &str| words.iter().position(|w| *w == key).and_then(|i| words.get(i + 1)).copied();
-            let enabled = words.contains(&"enabled");
+            // Plasma 6 n'écrit ni « enabled » ni « disabled » pour un écran
+            // virtuel : allumé sauf s'il est dit éteint.
+            let enabled = !words.contains(&"disabled");
             let priority: u32 = after("priority").and_then(|p| p.parse().ok()).unwrap_or(0);
             // Mode courant : « 0:1920x1080@60*! » (l'astérisque).
             let (width, height, refresh) = words
@@ -252,7 +277,8 @@ pub fn parse_outputs(text: &str) -> Vec<Mon> {
                 .unwrap_or((0, 0));
             let scale = after("Scale:").and_then(|s| s.parse().ok()).unwrap_or(1.0);
             Some(Mon {
-                virt: name.starts_with(VIRTUAL_PREFIX),
+                // Plasma 6 nomme l'écran « Virtual-KyberNow-1 », Plasma 5.27 « KyberNow-1 ».
+                virt: name.contains(VIRTUAL_PREFIX),
                 connector: name,
                 enabled,
                 x,
@@ -329,5 +355,16 @@ Output: 3 HDMI-A-1 disabled connected Modes: 0:3840x2160@120*! Geometry: 0,0 384
         assert!(m[1].virt && !m[1].primary);
         assert_eq!((m[1].x, m[1].y, m[1].scale), (1920, 0, 2.0));
         assert_eq!((m[2].enabled, m[2].refresh, m[2].scale), (false, 120, 1.5));
+    }
+
+    #[test]
+    fn reads_kscreen_doctor_of_plasma_6() {
+        let text = "Output: 1 Virtual-1 b2d68585\n\tenabled\n\tconnected\n\tpriority 1\n\tUnknown\n\tModes:  1:1280x1364@59.99*!  2:4096x2160@60.00\n\tGeometry: 0,0 1280x1364\n\tScale: 1\n\
+Output: 2 Virtual-KyberNow-1 0f3a\n\tenabled\n\tconnected\n\tpriority 2\n\tModes:  1:2560x1440@60.00*!\n\tGeometry: 1280,0 1280x720\n\tScale: 2\n";
+        let m = parse_outputs(text);
+        assert_eq!(m.len(), 2);
+        assert_eq!((m[0].connector.as_str(), m[0].enabled, m[0].primary, m[0].width, m[0].refresh), ("Virtual-1", true, true, 1280, 60));
+        assert!(m[1].virt && m[1].enabled && !m[1].primary);
+        assert_eq!((m[1].width, m[1].height, m[1].x, m[1].scale), (2560, 1440, 1280, 2.0));
     }
 }

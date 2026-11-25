@@ -59,7 +59,9 @@ build() {
     cp "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" "$BIN/"
     echo "==> Kyber"
     rm -rf "$RT" && mkdir -p "$RT"
+    # Fedora range les bibliothèques dans lib64, Debian et Ubuntu dans lib/<triplet>.
     cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$RT/"
+    [ -d "$RT_SRC/lib64" ] && cp -a "$RT_SRC/lib64" "$RT/"
 }
 
 # Première fois : la même initialisation que le paquet

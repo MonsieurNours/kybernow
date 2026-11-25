@@ -22,7 +22,7 @@
 #
 # KYBER_PATCH_ONLY=1 : poser les correctifs, sans compiler.
 #
-# Prérequis (Ubuntu 24.04, Debian 13, Fedora 42) : voir docs/station-linux.md,
+# Prérequis (Ubuntu 24.04, Debian 13, Fedora 42 et après) : voir docs/station-linux.md,
 # « Compiler ». Rust (scripts/kyber-toolchain.sh), cargo-c, meson 1.11.
 set -euo pipefail
 
@@ -124,11 +124,35 @@ if [ -d "$KYMEDIA/subprojects/FFmpeg-n8.1" ] && [ "$(cat "$FFMPEG_STAMP" 2>/dev/
     rm -rf "$KYMEDIA/subprojects/FFmpeg-n8.1" "$KYMEDIA/builddir-linux/subprojects/FFmpeg-n8.1"
 fi
 
+# Lua, de même (correctif Linux 0004 dans ses fichiers de construction).
+LUA_STAMP="$KYMEDIA/subprojects/lua-5.4.6/.kybernow-wrap"
+LUA_WRAP=$(cat "$KYMEDIA/subprojects/lua.wrap" $(find "$KYMEDIA/subprojects/packagefiles/lua" -type f | sort) | sha256sum | cut -d' ' -f1)
+if [ -d "$KYMEDIA/subprojects/lua-5.4.6" ] && [ "$(cat "$LUA_STAMP" 2>/dev/null)" != "$LUA_WRAP" ]; then
+    echo "==> Lua : fichiers de construction changés, nouvelle extraction"
+    rm -rf "$KYMEDIA/subprojects/lua-5.4.6" "$KYMEDIA/builddir-linux/subprojects/lua-5.4.6"
+fi
+
 # Les scripts de Kyber nomment le dossier des bibliothèques de x86_64 en dur ;
 # sur arm64, meson installe dans lib/aarch64-linux-gnu.
 export PKG_CONFIG_PATH="$OUT/lib/pkgconfig:$OUT/lib/$TRIPLET/pkgconfig:$OUT/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export LD_LIBRARY_PATH="$OUT/lib:$OUT/lib/$TRIPLET:$OUT/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 mkdir -p "$OUT/bin" "$OUT/share"
+# bindgen 0.69 (liaisons de libavconv) lit mal les structures avec un libclang
+# 21 ou plus récent (Fedora 45 : clang 23) : celui de LLVM 20, 19 ou 18 s'il est
+# installé (Fedora : clang20-devel ; Ubuntu 24.04 : libclang-18-dev).
+if [ -z "${LIBCLANG_PATH:-}" ]; then
+    for d in /usr/lib/llvm-20/lib /usr/lib64/llvm20/lib64 /usr/lib/llvm-19/lib /usr/lib64/llvm19/lib64 \
+             /usr/lib/llvm-18/lib /usr/lib64/llvm18/lib64; do
+        if ls "$d"/libclang.so* >/dev/null 2>&1; then export LIBCLANG_PATH="$d"; break; fi
+    done
+fi
+[ -n "${LIBCLANG_PATH:-}" ] && echo "==> libclang : $LIBCLANG_PATH"
+
+# Code relogeable partout : le GCC d'Ubuntu le fait par défaut (PIE), pas
+# celui de Fedora ; sans lui, les objets C++ de libvpl (CMake) laissent des
+# relocations en lecture seule et FFmpeg ne lie plus libavutil.so (« read-only
+# segment has dynamic relocations », Fedora 45).
+export CFLAGS="${CFLAGS:+$CFLAGS }-fPIC" CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fPIC"
 
 echo "==> Compilation de kymedia (txproto, libavconv, FFmpeg, kyavserver)"
 # Le lecteur (VLC) ne sert pas à la Station : seulement la partie serveur.
@@ -137,6 +161,7 @@ echo "==> Compilation de kymedia (txproto, libavconv, FFmpeg, kyavserver)"
         build-linux.sh > build-linux-kybernow.sh \
     && chmod +x build-linux-kybernow.sh && ./build-linux-kybernow.sh -o "$OUT")
 echo "$FFMPEG_WRAP" > "$FFMPEG_STAMP"
+[ -d "$KYMEDIA/subprojects/lua-5.4.6" ] && echo "$LUA_WRAP" > "$LUA_STAMP"
 
 echo "==> Compilation de kynput (kynputserver, libkynput)"
 (cd "$KYNPUT" && sed "s|x86_64-linux-gnu|$TRIPLET|g" build-linux.sh > build-linux-kybernow.sh \

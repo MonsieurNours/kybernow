@@ -46,10 +46,11 @@ GNOME lets no program read the screen directly: everything goes through Mutter, 
 
 The agent picks its desktop at startup: GNOME if Mutter is on the session bus, otherwise KDE if KWin gives it its capture protocol (`KYBERNOW_DESKTOP=gnome|kde` to force). On KDE (`kde.rs`):
 
-- **Virtual displays**: KWin's Wayland protocol `zkde_screencast_unstable_v1` (version 2 and later, Plasma 5.25 and later), `stream_virtual_output`: KWin creates the display “KyberNow-1” (“KyberNow-2”…) at the given size (in points, with the scale: 2 from 2,048 pixels wide) and its PipeWire stream comes with the `created` event. KWin sets the size at creation: a resolution change during the session remakes the display.
+- **Virtual displays**: KWin's Wayland protocol `zkde_screencast_unstable_v1` (version 2 and later, Plasma 5.25 and later), `stream_virtual_output`: KWin creates the display “KyberNow-1” (“KyberNow-2”…; Plasma 6 calls it “Virtual-KyberNow-1”) at the given size (in points, with the scale: 2 from 2,048 pixels wide) and its PipeWire stream comes with the `created` event. KWin sets the size at creation: a resolution change during the session remakes the display.
 - **The computer's displays**: `stream_output` on their `wl_output` (named by version 4 of `wl_output`), without the portal's dialog.
 - **Right to the protocol**: KWin only gives it to a program declared in a `.desktop` file whose `Exec` is the agent and which names the interface (`X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1`). The package installs `/usr/share/applications/fr.leslignesclaires.kybernow.station.display.desktop`; the test Station, its copy in `~/.local/share/applications`. Without it, the agent says so in Admin's log.
-- **Layout**: `kscreen-doctor` (enable, place, scale, priority; displays left out of the layout are disabled); places in points. The list is read from its text output (`-o`): `kscreen-doctor -j` crashes on Plasma 5.27.
+- **Layout**: `kscreen-doctor` (enable, place, scale, priority; displays left out of the layout are disabled); places in points. The list is read from its text output (`-o`, one line per display on Plasma 5.27, one line per property on Plasma 6; a Plasma 6 virtual display says neither “enabled” nor “disabled”): `kscreen-doctor -j` crashes on Plasma 5.27.
+- **Display turned off then on**: KWin removes it, then announces it under a new `wl_output` object; the agent follows those removals and retries the capture for a moment at the end of a session.
 - **Safety net**: virtual displays live with the agent's Wayland connection; if it stops, KWin removes them.
 
 ### Keyboard, mouse, pointer
@@ -86,6 +87,7 @@ Kept in `server/linux/kyber-patches`, applied after the common patches by `serve
 | `0001-kyavservice-ecrans-suivis-linux` | GStreamer sources file (`[kyavserver.gstreamer] sources_file`) reread at each listing and each stream, watched to announce changes; identifier and place of each source |
 | `0002-kynput-pointeur-wayland` | Absolute pointer through uinput on Wayland, clicks and wheel through it while it holds the pointer |
 | `0003-libavgrab-gstreamer-1-24` | Builds with GStreamer 1.24 (Ubuntu 24.04), which lacks `gst_message_get_details` |
+| `0004-kymedia-luac-5-4` | A 5.4 `luac` built by Kyber when the system has none (Fedora 45: Lua 5.5), from Lua's sources |
 
 ## Building
 
@@ -95,12 +97,19 @@ On a Linux machine of the wanted architecture (the « KyberNow Linux » VM for a
 # Tools (Ubuntu 24.04; similar names on Debian and Fedora)
 sudo apt install build-essential cmake nasm bison flex pkg-config pipx lua5.4 python3-jinja2 \
   glslang-tools spirv-tools libclang-dev libssl-dev libv4l-dev libcap-dev libvdpau-dev libnuma-dev \
-  libva-dev libdrm-dev libgbm-dev libegl-dev libvulkan-dev libplacebo-dev libshaderc-dev \
+  libva-dev libdrm-dev libgbm-dev libegl-dev libvulkan-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libpulse-dev libasound2-dev \
   libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-shape0-dev libxtst-dev \
   libxkbcommon-dev libwayland-dev wayland-protocols libevdev-dev libudev-dev libinput-dev
+# Fedora 42 and later (no libplacebo-devel: Kyber builds its own)
+sudo dnf install gcc gcc-c++ cmake nasm bison flex pipx python3-jinja2 glslang spirv-tools clang-devel \
+  openssl-devel libv4l-devel libcap-devel libvdpau-devel numactl-devel libva-devel libdrm-devel \
+  mesa-libgbm-devel mesa-libEGL-devel vulkan-loader-devel gstreamer1-devel gstreamer1-plugins-base-devel \
+  pipewire-devel pulseaudio-libs-devel alsa-lib-devel libxcb-devel libXtst-devel libXrandr-devel libxkbcommon-devel \
+  wayland-devel wayland-protocols-devel libevdev-devel systemd-devel libinput-devel dbus-devel rustup \
+  libXrandr-devel clang20-devel
 pipx install meson==1.11.2 && pipx inject meson jinja2
-cargo install cargo-c --version 0.10.15 && rustup toolchain install 1.89.0
+cargo install cargo-c --version 0.10.15 --locked --features vendored-openssl && rustup toolchain install 1.89.0
 
 # Kyber sources kept apart (as for the Mac), then Kyber with our patches
 KYBER_DIR=<copy of kyber-desktop> server/linux/scripts/build-kyber.sh
@@ -110,7 +119,15 @@ KYBER_DIR=<copy> server/linux/scripts/run-station.sh start
 KYBER_DIR=<copy> server/linux/scripts/package.sh
 ```
 
-Pitfalls met: the `luac` of Kyber's Lua subproject does not link on Linux (it is only built when no `luac` is installed: hence `lua5.4`); libplacebo needs jinja2 in meson's Python (`pipx inject`); Kyber's scripts hard-code the `x86_64-linux-gnu` folder (`build-kyber.sh` replaces it with the machine's).
+Pitfalls met:
+
+- `luac`: txproto needs a 5.4 `luac`. Ubuntu has one (`lua5.4`); Fedora 45 only has Lua 5.5. Linux patch 0004 makes Kyber build its own `luac` from Lua's sources (linked to `liblua.so`, it did not link) when no `luac5.4` is installed.
+- Vulkan: without `libXrandr-devel`, the Vulkan loader Kyber builds doesn't configure, and txproto, then built without Vulkan, doesn't build.
+- libplacebo: a system `libplacebo-devel` (Fedora 45: 7.360) takes precedence over the one Kyber builds (7.351) and txproto no longer builds; don't install it.
+- libclang: libavconv's Rust bindings (bindgen 0.69) misread the headers with libclang 21 or later (Fedora 45: clang 23, “AVConvHandle is defined multiple times”); `build-kyber.sh` takes LLVM 20's, 19's or 18's if installed (`clang20-devel`).
+- Position-independent code: Fedora's GCC doesn't produce PIE code by default, unlike Ubuntu's; libvpl's C++ objects left read-only relocations and FFmpeg no longer linked `libavutil.so`. `build-kyber.sh` passes `-fPIC` everywhere.
+- OpenSSL 4 (Fedora 45): cargo-c installs with its bundled OpenSSL (`--features vendored-openssl`).
+- libplacebo needs jinja2 in meson's Python (`pipx inject`); Kyber's scripts hard-code the `x86_64-linux-gnu` folder (`build-kyber.sh` replaces it with the machine's).
 
 ## What the KyberNow Link apps see
 
@@ -120,7 +137,7 @@ Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station�
 
 1. **Kyber on Linux.** Built with our patches for x86_64 and arm64 (`build-kyber.sh`), without the VLC player. **Done in the arm64 VM (25/11/2026).**
 2. **Admin on Linux.** systemd service, Station recognised, restart, encoders: **written**. Wake on LAN (ethtool), home preview, graphics card name, app at session start (`.desktop` files, Steam): **to do**.
-3. **Virtual displays.** GNOME through Mutter: **written and tried in the VM** (see “Tests”). KDE through KWin: **written**; capture and access right tried on KWin 5.27, virtual display not yet (see “Tests”).
+3. **Virtual displays.** GNOME through Mutter and KDE Plasma 6 through KWin: **written and tried in the VMs** (see “Tests”).
 4. **Sound.** KyberNow PipeWire output: **written**.
 5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland: to do.
 6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Tray icon, update applier (root service), update from Admin: to do.
@@ -141,6 +158,13 @@ Everything in the « KyberNow Linux » Parallels VM (Ubuntu 24.04 arm64, GNOME 4
 
 Pitfalls found on the way: the app picks its display from Kyber's list as soon as `prepare` answers, before Kyber has reread the displays file (“Unknown GStreamer display id 1”, first session from the Mac): on a Linux Station, `prepare` waits until Kyber lists the created displays (2 s at most, 266 ms measured); `pipewiresrc path=<n>` expects the node's serial number (the first try landed on another node, “not-negotiated”, or on nothing); Admin ends a session without the app's heartbeat (5 s); the previous layout, given back right after a virtual display was removed, was refused (“stale information”): the agent retries with the next state; the VM's GNOME uses the “physical” layout.
 
-**KDE (25/11/2026)**, on a headless KWin 5.27 started next to GNOME in the VM (`kwin_wayland --virtual`, Plasma 6 doesn't exist for Ubuntu 24.04): the agent finds the protocol (version 3), captures KWin's display (stream negotiated at 1920 × 1080 BGRx) and reads its layout through `kscreen-doctor`; KWin's access control refuses the protocol without the `.desktop` file and gives it with it. **The virtual display could not be tried**: this headless KWin refuses it (“Could not find output”); only the DRM backend of a real Plasma session can create one. Two defects found and fixed on the way: a layout without a virtual display disabled the displays on KDE, and a refused virtual display left Kyber without a display.
+**KDE Plasma 6 (25/11/2026)**, in a second Parallels VM « KyberNow Linux KDE » (Fedora 45 KDE arm64, Plasma and KWin 6.8.1, Wayland, automatic login; installed without a window through Anaconda and a kickstart file, ssh with the other VM's key):
 
-**Not tried yet**: a real Plasma 6 session (virtual display, layout applied, session from an app), an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.
+- building Kyber, Admin and the agent on Fedora 45 (pitfalls above: Lua 5.5, libclang 23, position-independent code, libplacebo, libXrandr, OpenSSL 4, `lib64`);
+- test Station: Kyber, Admin and the agent start, the agent recognises KDE; KWin's access control gives the protocol thanks to the `.desktop` file;
+- session through Admin's API (no app): 1920 × 1080 virtual display created by KWin, alone and primary, the VM's display turned off; two displays, 2560 × 1440 at scale 2 at (0, 0) and 1920 × 1080 at (1280, 0) in points; sound to the « KyberNow » output; the virtual display's stream read by GStreamer the way Kyber reads it; at the end, the VM's display comes back and Kyber captures it again;
+- first, on a headless KWin 5.27 in the Ubuntu VM: capture and access control; that KWin cannot create virtual displays.
+
+Defects found and fixed on the way: a layout without a virtual display disabled the displays on KDE; a refused virtual display left Kyber without a display; Plasma 6's “Virtual-KyberNow-1” name wasn't recognised; Plasma 6's `kscreen-doctor` output (one property per line) wasn't read; a display turned back on was looked up under its old object.
+
+**Not tried yet**: a session from an app on KDE, an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.
