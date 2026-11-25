@@ -74,6 +74,21 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 - Les droits se donnent à une personne ou à un groupe. Le journal de l'organisation dit qui a ouvert quoi, quand, d'où, et chaque changement de droits.
 - Double authentification **obligatoire** pour les Propriétaires et Administrateurs d'une organisation, et pour tout compte qui a le droit Administrer.
 
+## L'espace du compte
+
+Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). La console du relais (`/compte/…`) devient une appli : un **menu latéral fixe** et une **colonne de contenu de largeur constante** (920 px), quelle que soit la page ; au téléphone (moins de 880 px), le menu devient une **barre d'onglets en bas**.
+
+- **Menu** : « Ordinateurs » (avec leur nombre), « Personnes », « Familles et équipes » (puis chacune, avec son initiale dans sa couleur), « Compte et sécurité » ; en bas, « Pour bien démarrer » (étapes faites sur 4) et la personne connectée, avec « Se déconnecter ». Le logo est celui de KyberNow Share.
+- **Famille ou équipe** : une organisation a désormais un **genre**, choisi à sa création (`kind` : `family` ou `team`, migration 6 ; les organisations d'avant sont des équipes). Les deux ont les mêmes droits, rôles et groupes ; les mots et les exemples changent (« Famille Martin », « L'atelier »), une famille a la couleur ambre, une équipe le bleu ciel, et seule une équipe a l'onglet « Déployer » (jetons d'enrôlement). « Familles et équipes » explique le principe par un schéma : des personnes, réunies dans un groupe, ouvrent des ordinateurs.
+- **Droits, en mots de tous les jours** : Session devient « Ouvrir le bureau », Prêt « Emprunter pour jouer », Partage « Rejoindre vos partages », Administrer reste. Chaque droit a une phrase et un exemple (« Votre neveu qui joue le mercredi après-midi ») ; on les coche en tuiles. Les noms techniques (`session`, `lend`, `share`, `admin`) ne changent pas.
+- **Pages** : « Ordinateurs » (cartes, « Rattacher un ordinateur », « Ouverts pour vous », une section par famille ou équipe) ; la page d'un ordinateur (« Qui y a accès », « Ce que chaque droit permet », « Réglages ») ; « Personnes » (`/compte/personnes` : tous ceux à qui l'on a ouvert ses ordinateurs) ; « Familles et équipes » (`/compte/familles`) ; la page d'une famille ou d'une équipe (onglets Membres, Groupes, Ordinateurs, Journal, Déployer) ; « Compte et sécurité » (`/compte`).
+- **Panneaux** : « Ajouter une personne », « Ouvrir à une famille ou une équipe », « Inviter un membre », « Créer un groupe », « Nouveau jeton » et « Rattacher un ordinateur » s'ouvrent dans un panneau à droite, par l'ancre de l'adresse (`#ajouter`), sans script ; un formulaire refusé rouvre son panneau.
+- **Tour d'accueil** (`/compte/bienvenue?etape=0…3`) : plein écran, une idée par écran avec son illustration : bienvenue, protéger son compte (passkey, ou la double authentification), rattacher son ordinateur (la page se recharge toutes les 5 s tant qu'aucun n'est rattaché), l'ouvrir à une famille ou une équipe. Il s'ouvre après la vérification de l'adresse, et la première fois que « Ordinateurs » s'ouvre ; « Passer » ou la fin le marquent vu (`welcomed_at`, migration 6). Une passkey ajoutée depuis le tour ramène à l'étape suivante (`suite=bienvenue`).
+- **« Pour bien démarrer »** : rattacher un ordinateur, protéger son compte, ouvrir un ordinateur à quelqu'un, créer sa famille ou son équipe ; la carte disparaît quand les quatre sont faites.
+- **Transitions** : les pages passent de l'une à l'autre par les transitions du navigateur (`@view-transition`) : le menu reste, le contenu glisse ; les étapes du tour glissent de droite à gauche. `prefers-reduced-motion` les coupe. Toujours aucun script, sauf `passkey.js`.
+- **Après la connexion**, l'espace s'ouvre sur « Ordinateurs » (`/compte/ordinateurs`), plus sur la page du compte.
+- **Voir les pages sans relais** : `KN_PAGES_DIR=<dossier> cargo test ecrire_les_pages -- --ignored` (dans `server/relay`) écrit toutes les pages, en français et en anglais, avec les fichiers du relais ; `python3 -m http.server` les sert.
+
 ## Architecture
 
 ### Pièces

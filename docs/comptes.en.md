@@ -74,6 +74,21 @@ This document is the framing, to be approved before the mockup and the code. Sta
 - Rights are given to a person or to a group. The organization's log says who opened what, when, from where, and every change of rights.
 - Two-factor authentication **mandatory** for an organization's Owners and Administrators, and for any account with the Administer right.
 
+## The account space
+
+Decided on 11/25/2026 with the mockup (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). The relay's console (`/compte/…`) becomes an app: a **fixed side menu** and a **content column of constant width** (920 px), whatever the page; on a phone (under 880 px), the menu becomes a **tab bar at the bottom**.
+
+- **Menu**: “Computers” (with their count), “People”, “Families and teams” (then each one, with its initial in its color), “Account and security”; at the bottom, “Getting started” (steps done out of 4) and the signed-in person, with “Sign out”. The logo is KyberNow Share's.
+- **Family or team**: an organization now has a **kind**, chosen when it's created (`kind`: `family` or `team`, migration 6; earlier organizations are teams). Both have the same rights, roles and groups; the words and examples change (“The Martins”, “The studio”), a family is amber, a team sky blue, and only a team has the “Deploy” tab (enrollment tokens). “Families and teams” explains the principle with a diagram: people, gathered in a group, open computers.
+- **Rights, in everyday words**: Session becomes “Open the desktop”, Lending “Borrow to play”, Sharing “Join your shares”, Administer stays. Each right has a sentence and an example (“Your nephew playing on Wednesday afternoons”); they are ticked as tiles. The technical names (`session`, `lend`, `share`, `admin`) don't change.
+- **Pages**: “Computers” (cards, “Attach a computer”, “Opened for you”, a section per family or team); a computer's page (“Who has access”, “What each right allows”, “Settings”); “People” (`/compte/personnes`: everyone you opened your computers to); “Families and teams” (`/compte/familles`); a family's or team's page (Members, Groups, Computers, Log, Deploy tabs); “Account and security” (`/compte`).
+- **Panels**: “Add a person”, “Open to a family or team”, “Invite a member”, “Create a group”, “New token” and “Attach a computer” open in a panel on the right, through the address anchor (`#ajouter`), without script; a refused form reopens its panel.
+- **Welcome tour** (`/compte/bienvenue?etape=0…3`): full screen, one idea per screen with its illustration: welcome, protect your account (passkey, or two-factor authentication), attach your computer (the page reloads every 5 s while none is attached), open it to a family or team. It opens after the address is verified, and the first time “Computers” opens; “Skip” or the end mark it seen (`welcomed_at`, migration 6). A passkey added from the tour brings you back to the next step (`suite=bienvenue`).
+- **“Getting started”**: attach a computer, protect your account, open a computer to someone, create your family or team; the card disappears once all four are done.
+- **Transitions**: pages go from one to the next with the browser's transitions (`@view-transition`): the menu stays, the content slides; the tour's steps slide from right to left. `prefers-reduced-motion` turns them off. Still no script, except `passkey.js`.
+- **After signing in**, the space opens on “Computers” (`/compte/ordinateurs`), no longer on the account page.
+- **Seeing the pages without a relay**: `KN_PAGES_DIR=<folder> cargo test ecrire_les_pages -- --ignored` (in `server/relay`) writes every page, in French and English, with the relay's files; `python3 -m http.server` serves them.
+
 ## Architecture
 
 ### Pieces

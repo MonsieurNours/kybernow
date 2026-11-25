@@ -451,6 +451,10 @@ impl Accounts {
             ("/compte/ordinateurs/detacher", true) => attach_pages::detach(cx),
             // Lot 4 : la console, les personnes et leurs droits.
             ("/compte/ordinateurs", false) => console::computers(cx, None),
+            ("/compte/personnes", false) => console::all_people(cx),
+            ("/compte/familles", false) => console::families(cx),
+            ("/compte/bienvenue", false) => console::welcome(cx),
+            ("/compte/bienvenue", true) => console::welcome_done(cx),
             ("/compte/ordinateur", false) => console::people(cx),
             ("/compte/ordinateur/ajouter", true) => console::add(cx),
             ("/compte/ordinateur/ouvrir", true) => console::open_to(cx),
@@ -546,7 +550,8 @@ fn account_page(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
         }
     };
     let view = AccountView { passkeys: passkeys::views(&cx, account.id), register: cx.registration(&account), ..view };
-    let page = pages::account(&cx.view(), &view, notice);
+    let shell = console::shell(&cx, &account);
+    let page = pages::account(&cx.view(), &view, &shell, notice);
     cx.page(200, page)
 }
 
@@ -738,7 +743,8 @@ fn verified(mut cx: Cx<'_>, account: &Account) -> Reply {
     if cx.pending().as_deref() == Some(account.email.as_str()) {
         cx.cookies.push(clear_cookie(PENDING_COOKIE));
         cx.open_session(account.id, true);
-        return cx.redirect(format!("/compte/proteger{q}"));
+        // L'espace s'ouvre sur le tour d'accueil (docs/comptes.md, « L'espace du compte »).
+        return cx.redirect(format!("/compte/bienvenue{q}"));
     }
     let page = pages::sign_in(&cx.view(), &account.email, Some(Notice::Verified), true, true);
     cx.page(200, page)

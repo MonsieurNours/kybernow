@@ -69,7 +69,8 @@ pub(super) fn after_sign_in(mut cx: Cx<'_>) -> Reply {
     if appareil(cx.req).is_some() {
         return cx.redirect(format!("/compte/connecter-appareil{q}"));
     }
-    cx.redirect(format!("/compte{q}"))
+    // L'espace s'ouvre sur « Ordinateurs » (ou le tour d'accueil, la première fois).
+    cx.redirect(format!("/compte/ordinateurs{q}"))
 }
 
 /// `etat` donné par l'app : 128 signes d'adresse au plus, sinon rien.

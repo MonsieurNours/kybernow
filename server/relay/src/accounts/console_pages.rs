@@ -1,54 +1,310 @@
-//! La console des comptes (docs/comptes.md, lots 4 et 5), sur le modèle de la
-//! maquette : « Ordinateurs » (les siens, ceux qu'on lui a ouverts, ceux de
-//! ses organisations), « Personnes » d'un ordinateur avec « Ajouter une
-//! personne », « Organisation » (membres et rôles, groupes, ordinateurs,
-//! journal) et « Déployer des Stations » (jetons d'enrôlement). Comme les
-//! autres pages des comptes : des formulaires, sans script.
+//! L'espace du compte (docs/comptes.md, « L'espace du compte ») : une appli à
+//! menu latéral, de largeur constante, avec « Ordinateurs », « Personnes »,
+//! « Familles et équipes » (chacune avec sa page : membres et rôles, groupes,
+//! ordinateurs, journal, déploiement pour une équipe) et « Compte et
+//! sécurité » ; le tour d'accueil (`/compte/bienvenue`) et la liste « Pour bien
+//! démarrer ». Des formulaires, sans script : les panneaux s'ouvrent par
+//! l'ancre de l'adresse (`#ajouter`), les pages passent de l'une à l'autre par
+//! les transitions du navigateur (`@view-transition`).
 
 use kybernow_tunnel::access::{Right, Rights};
 
-use super::super::orgs::{EnrollToken, Group, Invite, LogLine, Member, Role};
-use super::{Notice, View, date, esc, field, notice_html, page_with, pct};
+use super::super::orgs::{EnrollToken, Group, Invite, Kind, LogLine, Member, Role};
+use super::{Notice, Registration, View, date, esc, field, notice_html, passkey_create_form_with, passkey_unsupported, pct};
+use crate::assets;
 use crate::pages::{Lang, t};
 
-/// Où l'on est dans la barre de la console.
+// --- La coquille -----------------------------------------------------------------------
+
+/// Où l'on est dans le menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Here {
     Computers,
+    People,
+    Families,
     Org(String),
     Account,
     None,
 }
 
-/// La barre : « Ordinateurs », chaque organisation, « Compte ».
-pub fn nav(v: &View<'_>, orgs: &[(String, String)], here: Here) -> String {
-    let link = |href: String, label: &str, current: bool| {
-        let cur = if current { " aria-current=\"page\"" } else { "" };
-        format!("<a href=\"{href}\"{cur}>{}</a>", esc(label))
-    };
-    let mut items = vec![link(format!("/compte/ordinateurs{}", v.q()), &v.tr("Ordinateurs", "Computers"), here == Here::Computers)];
-    for (id, name) in orgs {
-        items.push(link(format!("/compte/organisation{}&amp;id={}", v.q(), pct(id)), name, here == Here::Org(id.clone())));
+/// Une famille ou une équipe, dans le menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavOrg {
+    pub id: String,
+    pub name: String,
+    pub kind: Kind,
+}
+
+/// « Pour bien démarrer » : les quatre étapes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Start {
+    /// Une passkey ou la double authentification.
+    pub protected: bool,
+    /// Un ordinateur à lui.
+    pub attached: bool,
+    /// Un accès donné sur l'un de ses ordinateurs.
+    pub opened: bool,
+    /// Membre d'une famille ou d'une équipe.
+    pub grouped: bool,
+}
+
+impl Start {
+    pub fn done(&self) -> usize {
+        [self.protected, self.attached, self.opened, self.grouped].iter().filter(|d| **d).count()
     }
-    items.push(link(format!("/compte{}", v.q()), &v.tr("Compte", "Account"), here == Here::Account));
-    format!("<nav class=\"console-nav\" aria-label=\"{}\">{}</nav>\n", v.tr("Console", "Console"), items.join(""))
 }
 
-fn console(v: &View<'_>, title: &str, here_path: &str, card: &str) -> String {
-    page_with(v, title, here_path, " acct-console", card)
+/// Ce que le menu montre sur chaque page de l'espace.
+#[derive(Debug, Clone, Default)]
+pub struct Shell {
+    pub name: String,
+    pub email: String,
+    pub orgs: Vec<NavOrg>,
+    pub computers: usize,
+    pub people: usize,
+    pub start: Start,
 }
 
-/// Le nom d'un droit.
+/// Une icône du sprite de la page.
+pub fn ic(name: &str) -> String {
+    format!("<svg class=\"ka-ic\" aria-hidden=\"true\"><use href=\"#i-{name}\"></use></svg>")
+}
+
+/// Les icônes (traits de 1,7), une fois par page.
+pub const SPRITE: &str = r##"<svg class="ka-sprite" aria-hidden="true"><defs>
+<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></symbol>
+<symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.4.2 4.3 1.8 4.8 4.4"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11l8-6.5 8 6.5"/><path d="M6 9.8V19h12V9.8"/><path d="M10 19v-5h4v5"/></symbol>
+<symbol id="i-team" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M3 12.5h18"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.8 3.6-6 7-6s6.2 2.2 7 6"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.4-3 8-7 9.5-4-1.5-7-5.1-7-9.5V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4"/><path d="M11 11l8-8M16 6l2 2M14 8l2 2"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-desk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 8h6M7 11h10"/><path d="M9 20h6"/></symbol>
+<symbol id="i-pad" viewBox="0 0 24 24"><path d="M6 9h12a3 3 0 0 1 3 3v2a3 3 0 0 1-5.2 2l-1-1H9.2l-1 1A3 3 0 0 1 3 14v-2a3 3 0 0 1 3-3z"/><path d="M8 11v3M6.5 12.5h3M16 12h.01M18 13.5h.01"/></symbol>
+<symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.8l7.4-3.6M8.3 13.2l7.4 3.6"/></symbol>
+<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.2 6.2l2.1 2.1M17.7 15.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 17.8l2.1-2.1M17.7 8.3l2.1-2.1"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+<symbol id="i-log" viewBox="0 0 24 24"><path d="M5 5h14M5 10h14M5 15h9M5 20h6"/></symbol>
+<symbol id="i-rocket" viewBox="0 0 24 24"><path d="M5 15c-1 1-1.5 3.5-1.5 5.5 2 0 4.5-.5 5.5-1.5"/><path d="M9 15l-2.5-2.5C8 8 11.5 4 19.5 4.5 20 12.5 16 16 11.5 17.5z"/><circle cx="14.5" cy="9.5" r="1.5"/></symbol>
+<symbol id="i-out" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h10"/></symbol>
+</defs></svg>"##;
+
+/// Une pastille ronde avec l'initiale ; sa couleur suit le nom.
+pub fn avatar(name: &str) -> String {
+    let initial = name.trim().chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "•".into());
+    let n = name.bytes().fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32)) % 6;
+    format!("<span class=\"ka-av ka-av-{n}\" aria-hidden=\"true\">{}</span>", esc(&initial))
+}
+
+/// « Famille » ou « Équipe ».
+pub fn kind_name(lang: Lang, kind: Kind) -> String {
+    match kind {
+        Kind::Family => t(lang, "Famille", "Family"),
+        Kind::Team => t(lang, "Équipe", "Team"),
+    }
+}
+
+/// « la famille » ou « l'équipe », dans une phrase.
+fn kind_the(lang: Lang, kind: Kind) -> String {
+    match kind {
+        Kind::Family => t(lang, "la famille", "the family"),
+        Kind::Team => t(lang, "l'équipe", "the team"),
+    }
+}
+
+fn kind_class(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Family => "family",
+        Kind::Team => "team",
+    }
+}
+
+/// La pastille « Famille » ou « Équipe ».
+fn kind_pill(lang: Lang, kind: Kind) -> String {
+    format!("<span class=\"ka-pill ka-pill-{}\">{}</span>", kind_class(kind), kind_name(lang, kind))
+}
+
+/// L'initiale d'une famille ou d'une équipe, dans sa couleur.
+fn badge(name: &str, kind: Kind, big: bool) -> String {
+    let initial = name.trim().chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "•".into());
+    format!("<span class=\"ka-badge ka-badge-{}{}\" aria-hidden=\"true\">{}</span>", kind_class(kind), if big { " ka-badge-lg" } else { "" }, esc(&initial))
+}
+
+fn count_word(lang: Lang, n: usize, fr_one: &str, fr_many: &str, en_one: &str, en_many: &str) -> String {
+    match lang {
+        Lang::Fr => format!("{n} {}", if n > 1 { fr_many } else { fr_one }),
+        Lang::En => format!("{n} {}", if n == 1 { en_one } else { en_many }),
+    }
+}
+
+/// Le menu latéral (et la barre d'onglets du téléphone).
+fn side(v: &View<'_>, shell: &Shell, here: &Here) -> (String, String) {
+    let q = v.q();
+    let cur = |h: &Here| if h == here { " aria-current=\"page\"" } else { "" };
+    let count = |n: usize| if n == 0 { String::new() } else { format!("<span class=\"ka-count\">{n}</span>") };
+    let orgs: String = shell
+        .orgs
+        .iter()
+        .map(|o| {
+            let current = if *here == Here::Org(o.id.clone()) { " aria-current=\"page\"" } else { "" };
+            format!(
+                "<a class=\"ka-sub\" href=\"/compte/organisation{q}&amp;id={id}\"{current}>{badge}<span>{name}</span></a>",
+                id = pct(&o.id),
+                badge = badge(&o.name, o.kind, false),
+                name = esc(&o.name),
+            )
+        })
+        .collect();
+    let families_current = if matches!(here, Here::Families) { " aria-current=\"page\"" } else { "" };
+    let n = shell.start.done();
+    let starter = if n < 4 {
+        format!(
+            "<a class=\"ka-starter\" href=\"/compte/ordinateurs{q}#demarrer\"><b>{title}</b><small>{steps}</small><span class=\"ka-bar\"><i class=\"ka-w{n}\"></i></span></a>",
+            title = v.tr("Pour bien démarrer", "Getting started"),
+            steps = match v.lang {
+                Lang::Fr => format!("{n} étape{} sur 4", if n > 1 { "s" } else { "" }),
+                Lang::En => format!("{n} of 4 steps"),
+            },
+        )
+    } else {
+        String::new()
+    };
+    let sign_out = v.form(
+        "/compte/deconnexion",
+        "ka-out",
+        &format!("<button class=\"ka-icon-btn\" type=\"submit\" title=\"{l}\" aria-label=\"{l}\">{}</button>", ic("out"), l = v.tr("Se déconnecter", "Sign out")),
+    );
+    let side = format!(
+        "<aside class=\"ka-side\" aria-label=\"{menu}\">\n<a class=\"ka-logo\" href=\"/compte/ordinateurs{q}\"><img src=\"{logo}\" alt=\"KyberNow Share\" width=\"190\" height=\"35\"></a>\n<nav class=\"ka-nav\">\n<a href=\"/compte/ordinateurs{q}\"{c_computers}>{i_monitor}<span>{computers}</span>{n_computers}</a>\n<a href=\"/compte/personnes{q}\"{c_people}>{i_people}<span>{people}</span>{n_people}</a>\n<a href=\"/compte/familles{q}\"{families_current}>{i_home}<span>{families}</span></a>\n{orgs}\n<p class=\"ka-nav-label\">{you}</p>\n<a href=\"/compte{q}\"{c_account}>{i_user}<span>{account}</span></a>\n</nav>\n<div class=\"ka-side-foot\">\n{starter}\n<div class=\"ka-me\">{avatar}<div><b>{name}</b><small>{email}</small></div>{sign_out}</div>\n</div>\n</aside>",
+        menu = v.tr("Menu", "Menu"),
+        logo = assets::url("kybernow-share-dark.svg"),
+        c_computers = cur(&Here::Computers),
+        i_monitor = ic("monitor"),
+        computers = v.tr("Ordinateurs", "Computers"),
+        n_computers = count(shell.computers),
+        c_people = cur(&Here::People),
+        i_people = ic("people"),
+        people = v.tr("Personnes", "People"),
+        n_people = count(shell.people),
+        i_home = ic("home"),
+        families = v.tr("Familles et équipes", "Families and teams"),
+        you = v.tr("Vous", "You"),
+        c_account = cur(&Here::Account),
+        i_user = ic("user"),
+        account = v.tr("Compte et sécurité", "Account and security"),
+        avatar = avatar(&shell.name),
+        name = esc(&shell.name),
+        email = esc(&shell.email),
+    );
+    let in_families = matches!(here, Here::Families | Here::Org(_));
+    let tabbar = format!(
+        "<nav class=\"ka-tabbar\" aria-label=\"{menu}\">\n<a href=\"/compte/ordinateurs{q}\"{c1}>{i1}<span>{l1}</span></a>\n<a href=\"/compte/personnes{q}\"{c2}>{i2}<span>{l2}</span></a>\n<a href=\"/compte/familles{q}\"{c3}>{i3}<span>{l3}</span></a>\n<a href=\"/compte{q}\"{c4}>{i4}<span>{l4}</span></a>\n</nav>",
+        menu = v.tr("Menu", "Menu"),
+        c1 = cur(&Here::Computers),
+        i1 = ic("monitor"),
+        l1 = v.tr("Ordinateurs", "Computers"),
+        c2 = cur(&Here::People),
+        i2 = ic("people"),
+        l2 = v.tr("Personnes", "People"),
+        c3 = if in_families { " aria-current=\"page\"" } else { "" },
+        i3 = ic("home"),
+        l3 = v.tr("Familles", "Families"),
+        c4 = cur(&Here::Account),
+        i4 = ic("user"),
+        l4 = v.tr("Compte", "Account"),
+    );
+    (side, tabbar)
+}
+
+/// Une page de l'espace : le menu, la colonne de contenu (920 px), le pied.
+pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &str, body: &str) -> String {
+    let (side, tabbar) = side(v, shell, &here);
+    let (other, other_name) = match v.lang {
+        Lang::Fr => (Lang::En, "English"),
+        Lang::En => (Lang::Fr, "Français"),
+    };
+    let script = if body.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
+    format!(
+        r##"<!doctype html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="{favicon}">
+<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{css}">
+<title>{title} · KyberNow</title>{script}
+</head>
+<body class="ka-body">
+{sprite}
+<div class="ka-app">
+{side}
+<main class="ka-main">
+<div class="ka-page">
+{body}
+</div>
+<footer class="ka-foot"><a href="{here_path}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></footer>
+</main>
+</div>
+{tabbar}
+</body>
+</html>
+"##,
+        lang = v.lang.code(),
+        favicon = assets::url("kybernow-favicon.svg"),
+        font = assets::url("archivo.woff2"),
+        css = assets::url("share.css"),
+        sprite = SPRITE,
+        q_other = v.q_lang(other),
+        other_code = other.code(),
+        q_lang = format!("?lang={}", v.lang.code()),
+        terms = v.tr("Conditions", "Terms"),
+        privacy = v.tr("Confidentialité", "Privacy"),
+    )
+}
+
+/// Le titre d'une page : le surtitre, le titre, le chapeau, l'action à droite.
+fn head(eyebrow: &str, title: &str, lede: &str, action: &str) -> String {
+    let eyebrow = if eyebrow.is_empty() { String::new() } else { format!("<p class=\"ka-eyebrow\">{eyebrow}</p>\n") };
+    let lede = if lede.is_empty() { String::new() } else { format!("\n<p class=\"ka-lede\">{lede}</p>") };
+    format!("<header class=\"ka-head\"><div>{eyebrow}<h1>{title}</h1>{lede}</div>{action}</header>\n")
+}
+
+/// Un encadré d'explication.
+fn help_box(icon: &str, html: &str) -> String {
+    format!("<div class=\"ka-help\">{}<div>{html}</div></div>\n", ic(icon))
+}
+
+/// Un panneau latéral, ouvert par son ancre (`#id`) ; `open` : ouvert d'office (formulaire à corriger).
+fn sheet(v: &View<'_>, id: &str, eyebrow: &str, title: &str, body: &str, open: bool) -> String {
+    format!(
+        "<div class=\"ka-sheet-wrap{open}\" id=\"{id}\">\n<a class=\"ka-scrim\" href=\"#\" aria-label=\"{close}\"></a>\n<section class=\"ka-sheet\" role=\"dialog\" aria-labelledby=\"{id}-titre\">\n<a class=\"ka-sheet-close\" href=\"#\" aria-label=\"{close}\">{x}</a>\n<p class=\"ka-eyebrow\">{eyebrow}</p>\n<h2 id=\"{id}-titre\">{title}</h2>\n{body}\n</section>\n</div>\n",
+        open = if open { " is-open" } else { "" },
+        close = v.tr("Fermer", "Close"),
+        x = ic("close"),
+        eyebrow = esc(eyebrow),
+    )
+}
+
+/// Le nom d'un droit, tel que la console le montre.
 pub fn right_name(lang: Lang, r: Right) -> String {
     match r {
-        Right::Session => t(lang, "Session", "Session"),
-        Right::Lend => t(lang, "Prêt", "Lending"),
-        Right::Share => t(lang, "Partage", "Sharing"),
+        Right::Session => t(lang, "Ouvrir le bureau", "Open the desktop"),
+        Right::Lend => t(lang, "Emprunter pour jouer", "Borrow to play"),
+        Right::Share => t(lang, "Rejoindre vos partages", "Join your shares"),
         Right::Admin => t(lang, "Administrer", "Administer"),
     }
 }
 
-/// Les droits en mots : « Session, Partage ».
+/// Les droits en mots : « Ouvrir le bureau, Rejoindre vos partages ».
 pub fn rights_words(lang: Lang, rights: &Rights) -> String {
     rights.iter().map(|r| right_name(lang, r)).collect::<Vec<_>>().join(", ")
 }
@@ -62,11 +318,20 @@ pub fn role_name(lang: Lang, role: Role) -> String {
     }
 }
 
+fn right_icon(r: Right) -> &'static str {
+    match r {
+        Right::Session => "desk",
+        Right::Lend => "pad",
+        Right::Share => "share",
+        Right::Admin => "gear",
+    }
+}
+
 fn right_help(v: &View<'_>, r: Right) -> String {
     match r {
-        Right::Session => v.tr("Le bureau entier, comme vous.", "The whole desktop, like you."),
-        Right::Lend => v.tr("Le lanceur, avec les apps permises dans Admin.", "The launcher, with the apps allowed in Admin."),
-        Right::Share => v.tr("Rejoindre vos partages sans code.", "Join your shares without a code."),
+        Right::Session => v.tr("Se connecter à l'ordinateur et l'utiliser comme vous, de n'importe où.", "Connect to the computer and use it like you, from anywhere."),
+        Right::Lend => v.tr("Jouer aux apps que vous avez permises dans Admin, quand l'ordinateur est libre.", "Play the apps you allowed in Admin, when the computer is free."),
+        Right::Share => v.tr("Entrer dans un partage que vous ouvrez, sans taper de code.", "Join a share you open, without typing a code."),
         Right::Admin => v.tr(
             "Gérer les accès, redémarrer et mettre à jour la Station. Double authentification exigée.",
             "Manage access, restart and update the Station. Two-factor authentication required.",
@@ -74,17 +339,37 @@ fn right_help(v: &View<'_>, r: Right) -> String {
     }
 }
 
-/// Les cases des droits (`session`, `lend`, `share`, `admin`).
-fn rights_fieldset(v: &View<'_>, legend: &str, checked: &Rights, with_help: bool) -> String {
-    let boxes: String = Right::ALL
+fn right_example(v: &View<'_>, r: Right) -> String {
+    match r {
+        Right::Session => v.tr("Votre conjoint qui reprend ses fichiers depuis le portable.", "Your partner picking up their files from the laptop."),
+        Right::Lend => v.tr("Votre neveu qui joue le mercredi après-midi.", "Your nephew playing on Wednesday afternoons."),
+        Right::Share => v.tr("Un ami qui vous rejoint pour une partie à deux.", "A friend joining you for a two-player game."),
+        Right::Admin => v.tr("La personne qui s'occupe des ordinateurs de l'atelier.", "The person who looks after the studio's computers."),
+    }
+}
+
+/// Les quatre droits, en tuiles à cocher (`session`, `lend`, `share`, `admin`).
+fn rights_tiles(v: &View<'_>, legend: &str, checked: &Rights, prefix: &str) -> String {
+    let tiles: String = Right::ALL
         .iter()
         .map(|r| {
             let on = if checked.has(*r) { " checked" } else { "" };
-            let help = if with_help { format!("<br><small>{}</small>", right_help(v, *r)) } else { String::new() };
-            format!("<label class=\"check\"><input type=\"checkbox\" name=\"{}\" value=\"1\"{on}> <span>{}{help}</span></label>\n", r.as_str(), right_name(v.lang, *r))
+            format!(
+                "<label class=\"ka-right ka-right-pick\"><input type=\"checkbox\" name=\"{name}\" value=\"1\" id=\"{prefix}-{name}\"{on}><span class=\"ka-tick\">{tick}</span>{icon}<b>{label}</b><small>{example}</small></label>\n",
+                name = r.as_str(),
+                tick = ic("check"),
+                icon = ic(right_icon(*r)),
+                label = right_name(v.lang, *r),
+                example = right_example(v, *r),
+            )
         })
         .collect();
-    format!("<fieldset>\n<legend class=\"mono-label\">{legend}</legend>\n{boxes}</fieldset>")
+    format!("<fieldset class=\"ka-fieldset\">\n<legend>{legend}</legend>\n<div class=\"ka-rights ka-rights-2\">\n{tiles}</div>\n</fieldset>")
+}
+
+/// Les droits en étiquettes.
+fn rights_tags(v: &View<'_>, rights: &Rights) -> String {
+    rights.iter().map(|r| format!("<span class=\"ka-tag\">{}{}</span>", ic(right_icon(r)), right_name(v.lang, r))).collect()
 }
 
 fn hidden(name: &str, value: &str) -> String {
@@ -97,10 +382,44 @@ fn small_button(label: &str) -> String {
 
 fn state_pill(v: &View<'_>, online: bool) -> String {
     if online {
-        format!("<span class=\"pill pill-on\">{}</span>", v.tr("En ligne", "Online"))
+        format!("<span class=\"ka-pill ka-pill-on\">{}</span>", v.tr("En ligne", "Online"))
     } else {
-        format!("<span class=\"pill\">{}</span>", v.tr("Hors ligne", "Offline"))
+        format!("<span class=\"ka-pill ka-pill-off\">{}</span>", v.tr("Hors ligne", "Offline"))
     }
+}
+
+/// Une ligne de liste : l'icône ou l'avatar, le nom et le détail, ce qu'on y fait.
+fn row(lead: &str, name: &str, detail: &str, acts: &str) -> String {
+    let detail = if detail.is_empty() { String::new() } else { format!("<small>{detail}</small>") };
+    format!("<div class=\"row\">{lead}<div class=\"ka-row-main\"><b>{name}</b>{detail}</div><div class=\"acts\">{acts}</div></div>\n")
+}
+
+// --- Pour bien démarrer --------------------------------------------------------------
+
+fn start_card(v: &View<'_>, start: &Start) -> String {
+    let n = start.done();
+    if n == 4 {
+        return String::new();
+    }
+    let q = v.q();
+    let item = |done: bool, i: usize, label: String, href: String| {
+        let tick = if done { ic("check") } else { i.to_string() };
+        format!("<a class=\"ka-step{}\" href=\"{href}\"><span class=\"ka-step-tick\">{tick}</span><span>{label}</span></a>", if done { " is-done" } else { "" })
+    };
+    // Un anneau de 4 crans : la longueur du cercle (r = 26) est 163,4.
+    let offset = 163.4 * (1.0 - n as f64 / 4.0);
+    format!(
+        "<section class=\"ka-start\" id=\"demarrer\">\n<div><p class=\"ka-eyebrow\">{eyebrow}</p>\n<h2>{title}</h2>\n<div class=\"ka-steps\">\n{s1}\n{s2}\n{s3}\n{s4}\n</div></div>\n<svg class=\"ka-ring\" viewBox=\"0 0 64 64\" aria-hidden=\"true\"><circle cx=\"32\" cy=\"32\" r=\"26\" class=\"ka-ring-bg\"/><circle cx=\"32\" cy=\"32\" r=\"26\" class=\"ka-ring-on\" stroke-dasharray=\"163.4\" stroke-dashoffset=\"{offset:.1}\" transform=\"rotate(-90 32 32)\"/><text x=\"32\" y=\"37\" text-anchor=\"middle\">{n}/4</text></svg>\n</section>\n",
+        eyebrow = v.tr("Pour bien démarrer", "Getting started"),
+        title = match v.lang {
+            Lang::Fr => format!("Encore {} étape{} pour profiter de tout", 4 - n, if 4 - n > 1 { "s" } else { "" }),
+            Lang::En => format!("{} more step{} to make the most of it", 4 - n, if 4 - n > 1 { "s" } else { "" }),
+        },
+        s1 = item(start.attached, 1, v.tr("Rattacher votre ordinateur", "Attach your computer"), format!("/compte/ordinateurs{q}#rattacher")),
+        s2 = item(start.protected, 2, v.tr("Protéger votre compte", "Protect your account"), format!("/compte{q}#securite")),
+        s3 = item(start.opened, 3, v.tr("Ouvrir votre ordinateur à quelqu'un", "Open your computer to someone"), format!("/compte/personnes{q}")),
+        s4 = item(start.grouped, 4, v.tr("Créer votre famille ou votre équipe", "Create your family or team"), format!("/compte/familles{q}")),
+    )
 }
 
 // --- Ordinateurs -----------------------------------------------------------------------
@@ -111,7 +430,7 @@ pub struct ComputerCard {
     pub id: String,
     pub name: String,
     pub online: bool,
-    /// « de Léa Martin », « Groupe Graphistes · 4 personnes »…
+    /// « Vous et 2 accès donnés », « de Léa Martin »…
     pub detail: String,
     /// Ses droits, quand l'ordinateur n'est pas à lui.
     pub rights: Option<Rights>,
@@ -122,81 +441,134 @@ pub struct ComputerCard {
 pub struct ComputersView {
     pub mine: Vec<ComputerCard>,
     pub opened: Vec<ComputerCard>,
-    /// `(identifiant, nom, ordinateurs)` par organisation.
-    pub orgs: Vec<(String, String, Vec<ComputerCard>)>,
-    pub nav_orgs: Vec<(String, String)>,
+    /// `(identifiant, nom, genre, ordinateurs)` par famille ou équipe.
+    pub orgs: Vec<(String, String, Kind, Vec<ComputerCard>)>,
+    pub shell: Shell,
 }
 
-fn cards(v: &View<'_>, list: &[ComputerCard]) -> String {
-    let items: String = list
-        .iter()
-        .map(|c| {
-            let rights = match &c.rights {
-                Some(r) => format!(
-                    "<span class=\"pills\">{}</span>",
-                    r.iter().map(|r| format!("<span class=\"pill\">{}</span>", right_name(v.lang, r))).collect::<Vec<_>>().join("")
-                ),
-                None => String::new(),
-            };
-            format!(
-                "<a class=\"card-link\" href=\"/compte/ordinateur{q}&amp;id={id}\"><span class=\"card-top\"><b>{name}</b>{state}</span><small>{detail}</small>{rights}</a>\n",
-                q = v.q(),
-                id = pct(&c.id),
-                name = esc(&c.name),
-                state = state_pill(v, c.online),
-                detail = esc(&c.detail),
-            )
-        })
-        .collect();
-    format!("<div class=\"cards\">\n{items}</div>")
+fn pc_card(v: &View<'_>, c: &ComputerCard) -> String {
+    let foot = match &c.rights {
+        Some(r) => format!("<span class=\"ka-tags\">{}</span>", rights_tags(v, r)),
+        None => format!("<small>{}</small>", esc(&c.detail)),
+    };
+    let detail = if c.rights.is_some() { format!("<small>{}</small>", esc(&c.detail)) } else { String::new() };
+    format!(
+        "<a class=\"ka-pc\" href=\"/compte/ordinateur{q}&amp;id={id}\"><span class=\"ka-pc-top\"><span class=\"ka-pc-icon\">{icon}</span><span class=\"ka-pc-name\"><b>{name}</b>{detail}</span>{state}</span><span class=\"ka-pc-foot\">{foot}</span></a>\n",
+        q = v.q(),
+        id = pct(&c.id),
+        icon = ic("monitor"),
+        name = esc(&c.name),
+        state = state_pill(v, c.online),
+    )
+}
+
+fn attach_steps(v: &View<'_>) -> String {
+    format!(
+        "<ol class=\"ka-points\">\n<li><span class=\"ka-n\">1</span><div>{s1}</div></li>\n<li><span class=\"ka-n\">2</span><div>{s2}</div></li>\n<li><span class=\"ka-n\">3</span><div>{s3}</div></li>\n</ol>\n",
+        s1 = v.tr("Sur l'ordinateur, ouvrez <b>Admin</b> : l'icône KyberNow près de l'horloge.", "On the computer, open <b>Admin</b>: the KyberNow icon near the clock."),
+        s2 = v.tr("Allez dans <b>Compte KyberNow</b>, puis <b>Se connecter</b>.", "Go to <b>KyberNow account</b>, then <b>Sign in</b>."),
+        s3 = v.tr("Connectez-vous avec ce compte et confirmez. L'ordinateur apparaît ici aussitôt.", "Sign in with this account and confirm. The computer shows up here right away."),
+    )
 }
 
 pub fn computers(v: &View<'_>, c: &ComputersView, notice: Option<Notice>) -> String {
     let title = v.tr("Ordinateurs", "Computers");
-    let mut body = String::new();
-    let section = |h: &str, list: &[ComputerCard]| format!("<section>\n<h2 class=\"mono-label\">{}</h2>\n{}\n</section>\n", esc(h), cards(v, list));
-    if !c.mine.is_empty() {
-        body.push_str(&section(&v.tr("À vous", "Yours"), &c.mine));
+    let q = v.q();
+    let add = format!(
+        "<a class=\"ka-pc-add\" href=\"#rattacher\"><span class=\"ka-plus\">{plus}</span><b>{attach}</b><small>{from}</small></a>\n",
+        plus = ic("plus"),
+        attach = v.tr("Rattacher un ordinateur", "Attach a computer"),
+        from = v.tr("Depuis Admin, sur l'ordinateur", "From Admin, on the computer"),
+    );
+    let mine: String = c.mine.iter().map(|p| pc_card(v, p)).collect();
+    let mut body = format!(
+        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{h}</h2><small>{n}</small></div>\n<div class=\"ka-grid\">\n{mine}{add}</div>\n</section>\n",
+        h = v.tr("À vous", "Yours"),
+        n = count_word(v.lang, c.mine.len(), "ordinateur", "ordinateurs", "computer", "computers"),
+    );
+    let opened = if c.opened.is_empty() {
+        help_box(
+            "info",
+            &v.tr(
+                "Quand quelqu'un vous ouvre son ordinateur, il apparaît ici, avec ce que vous pouvez y faire. <b>Pour l'instant, personne ne vous en a ouvert.</b>",
+                "When someone opens their computer to you, it shows up here, with what you can do on it. <b>Nobody has opened one to you yet.</b>",
+            ),
+        )
+    } else {
+        format!("<div class=\"ka-grid\">\n{}</div>\n", c.opened.iter().map(|p| pc_card(v, p)).collect::<String>())
+    };
+    body.push_str(&format!("<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2></div>\n{opened}</section>\n", v.tr("Ouverts pour vous", "Opened for you")));
+    for (id, name, kind, list) in &c.orgs {
+        let cards: String = list.iter().map(|p| pc_card(v, p)).collect();
+        let cards = if cards.is_empty() {
+            format!("<p class=\"ka-muted\">{}</p>\n", v.tr("Aucun ordinateur pour l'instant.", "No computers yet."))
+        } else {
+            format!("<div class=\"ka-grid\">\n{cards}</div>\n")
+        };
+        body.push_str(&format!(
+            "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2><a href=\"/compte/organisation{q}&amp;id={id}\">{name}</a></h2>{pill}</div>\n{cards}</section>\n",
+            id = pct(id),
+            name = esc(name),
+            pill = kind_pill(v.lang, *kind),
+        ));
     }
-    if !c.opened.is_empty() {
-        body.push_str(&section(&v.tr("Ouverts pour vous", "Opened for you"), &c.opened));
-    }
-    for (_, name, list) in &c.orgs {
-        if !list.is_empty() {
-            body.push_str(&section(name, list));
+    let hello = if c.shell.name.is_empty() {
+        String::new()
+    } else {
+        match v.lang {
+            Lang::Fr => t(v.lang, &format!("Bonjour {}", esc(&c.shell.name)), ""),
+            Lang::En => format!("Hello {}", esc(&c.shell.name)),
         }
-    }
-    if body.is_empty() {
-        body = format!("<p class=\"help\">{}</p>\n", v.tr("Aucun ordinateur pour l'instant.", "No computers yet."));
-    }
-    let card = format!(
-        "{nav}<div class=\"console-head\"><div><h1>{title}</h1>\n<p class=\"help\">{help}</p></div><p class=\"hint\">{attach}</p></div>\n{notice}{body}<p class=\"acct-links\"><a href=\"/compte/organisations/creer{q}\">{create}</a></p>",
-        nav = nav(v, &c.nav_orgs, Here::Computers),
-        help = v.tr("Les vôtres, ceux qu'on vous a ouverts, et ceux de vos organisations.", "Yours, those opened for you, and those of your organizations."),
-        attach = v.tr(
-            "Rattacher un ordinateur : Admin › Compte KyberNow › « Se connecter », sur l'ordinateur.",
-            "Attach a computer: Admin › KyberNow account › \"Sign in\", on the computer.",
+    };
+    let page = format!(
+        "{head}{notice}{start}{body}{sheet}",
+        head = head(
+            &hello,
+            &format!("<strong>{}</strong>", v.tr("Vos ordinateurs", "Your computers")),
+            &v.tr(
+                "Ceux qui sont à vous, ceux qu'on vous a ouverts et ceux de vos familles et équipes. Vous les retrouvez dans KyberNow Link, sur tous vos appareils.",
+                "Yours, those opened to you and those of your families and teams. You find them in KyberNow Link, on all your devices.",
+            ),
+            "",
         ),
         notice = notice_html(v.lang, notice),
-        q = v.q(),
-        create = v.tr("Créer une organisation", "Create an organization"),
+        start = start_card(v, &c.shell.start),
+        sheet = sheet(
+            v,
+            "rattacher",
+            &v.tr("Sur l'ordinateur", "On the computer"),
+            &v.tr("Rattacher un ordinateur", "Attach a computer"),
+            &format!(
+                "{steps}{help}<div class=\"ka-sheet-actions\"><a class=\"btn kn-primary\" href=\"#\">{ok}</a></div>",
+                steps = attach_steps(v),
+                help = help_box(
+                    "info",
+                    &v.tr(
+                        "Vous installez une nouvelle Station ? L'installateur propose l'étape <b>Compte KyberNow</b> : rien d'autre à faire.",
+                        "Installing a new Station? The installer offers the <b>KyberNow account</b> step: nothing else to do.",
+                    ),
+                ),
+                ok = v.tr("Compris", "Got it"),
+            ),
+            false,
+        ),
     );
-    console(v, &title, "/compte/ordinateurs", &card)
+    frame(v, &c.shell, Here::Computers, &title, "/compte/ordinateurs", &page)
 }
 
-// --- Personnes d'un ordinateur ---------------------------------------------------------
+// --- Un ordinateur : qui y a accès ------------------------------------------------------
 
-/// Une ligne de « Personnes ».
+/// Une ligne de « Qui y a accès ».
 #[derive(Debug, Clone)]
 pub struct PersonRow {
-    /// Le droit donné (`None` : le propriétaire, ou les gérants de l'organisation).
+    /// Le droit donné (`None` : le propriétaire, ou les gérants de la famille ou de l'équipe).
     pub grant: Option<i64>,
     pub name: String,
     pub detail: String,
     pub rights: Rights,
 }
 
-/// La page « Personnes » d'un ordinateur.
+/// La page d'un ordinateur.
 #[derive(Debug, Clone)]
 pub struct PeopleView {
     pub id: String,
@@ -205,32 +577,21 @@ pub struct PeopleView {
     pub rows: Vec<PersonRow>,
     /// Ses accès se gèrent ici.
     pub manage: bool,
-    /// « Détacher » (propriétaire, gérant de l'organisation).
+    /// « Détacher » (propriétaire, gérant de la famille ou de l'équipe).
     pub can_detach: bool,
     /// Ses droits à lui, s'il ne gère pas.
     pub my_rights: Rights,
     /// Le droit Administrer lui est donné, sans double authentification.
     pub admin_needs_2fa: bool,
-    /// « Ouvrir à » : `(valeur, libellé)` des organisations et groupes possibles.
+    /// « Ouvrir à » : `(valeur, libellé)` des familles, équipes et groupes possibles.
     pub targets: Vec<(String, String)>,
     /// Le formulaire « Ajouter une personne » tel qu'envoyé (adresse, droits, échéance).
     pub form: (String, Rights, String),
-    pub nav_orgs: Vec<(String, String)>,
-}
-
-fn dots(v: &View<'_>, rights: &Rights) -> String {
-    Right::ALL
-        .iter()
-        .map(|r| {
-            let (class, word) = if rights.has(*r) { ("dot on", v.tr("oui", "yes")) } else { ("dot", v.tr("non", "no")) };
-            format!("<td><span class=\"{class}\" role=\"img\" aria-label=\"{} : {word}\"></span></td>", right_name(v.lang, *r))
-        })
-        .collect()
+    pub shell: Shell,
 }
 
 pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
-    let title = v.tr("Personnes", "People");
-    let heads: String = Right::ALL.iter().map(|r| format!("<th scope=\"col\">{}</th>", right_name(v.lang, *r))).collect();
+    let q = v.q();
     let rows: String = p
         .rows
         .iter()
@@ -243,108 +604,410 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
                 ),
                 _ => String::new(),
             };
-            format!(
-                "<tr><th scope=\"row\"><b>{}</b><small>{}</small></th>{}<td>{remove}</td></tr>\n",
-                esc(&r.name),
-                esc(&r.detail),
-                dots(v, &r.rights)
-            )
+            let tags = if r.grant.is_none() {
+                format!("<span class=\"ka-tag is-lit\">{}</span>", v.tr("Tout", "Everything"))
+            } else {
+                rights_tags(v, &r.rights)
+            };
+            row(&avatar(&r.name), &esc(&r.name), &esc(&r.detail), &format!("<span class=\"ka-tags\">{tags}</span>{remove}"))
         })
         .collect();
-    let table = format!(
-        "<div class=\"table-scroll\"><table class=\"rights-table\">\n<thead><tr><th scope=\"col\">{who}</th>{heads}<th><span class=\"visually-hidden\">{act}</span></th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table></div>\n<p class=\"hint\">{legend}</p>",
-        who = v.tr("Personne", "Person"),
-        act = v.tr("Actions", "Actions"),
-        legend = v.tr(
-            "● violet : droit donné · gris : non. Le prêt suit les apps et les créneaux réglés dans Admin (page « Prêt »).",
-            "● purple: right given · grey: not. Lending follows the apps and time slots set in Admin (\"Lending\" page).",
+    let add_button = if p.manage {
+        format!("<a class=\"btn kn-primary btn-sm\" href=\"#ajouter\">{}{}</a>", ic("plus"), v.tr("Ajouter une personne", "Add a person"))
+    } else {
+        String::new()
+    };
+    let tiles: String = Right::ALL
+        .iter()
+        .map(|r| format!("<div class=\"ka-right\">{}<b>{}</b><small>{}</small></div>\n", ic(right_icon(*r)), right_name(v.lang, *r), right_help(v, *r)))
+        .collect();
+    let mut body = format!(
+        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{who}</h2>{add_button}</div>\n<div class=\"ka-list\">\n{rows}</div>\n<p class=\"ka-muted ka-after\">{lend}</p>\n</section>\n",
+        who = v.tr("Qui y a accès", "Who has access"),
+        lend = v.tr(
+            "Le prêt suit les apps et les créneaux réglés dans Admin, page « Prêt ».",
+            "Lending follows the apps and time slots set in Admin, on the \"Lending\" page.",
         ),
     );
-    let mut forms = String::new();
-    if p.manage {
-        let (email, rights, until) = &p.form;
-        let inner = format!(
-            "{id}\n{email}\n{rights}\n{until}\n<button class=\"btn kn-primary\" type=\"submit\">{send}</button>",
-            id = hidden("id", &p.id),
-            email = field(
-                &v.tr("Adresse e-mail", "Email address"),
-                &format!(
-                    r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" value="{}" required>"#,
-                    esc(email)
-                ),
-            ),
-            rights = rights_fieldset(v, &v.tr("Droits", "Rights"), rights, true),
-            until = field(
-                &v.tr("Jusqu'au (facultatif)", "Until (optional)"),
-                &format!(r#"<input id="fin" name="fin" type="date" value="{}" placeholder="{}">"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
-            ),
-            send = v.tr("Envoyer l'invitation", "Send the invitation"),
-        );
-        forms.push_str(&format!(
-            "<section class=\"console-box\" id=\"ajouter\">\n<h2>{}</h2>\n<p class=\"hint\">{}</p>\n{}\n</section>\n",
-            v.tr("Ajouter une personne", "Add a person"),
-            v.tr(
-                "Avec un compte, l'ordinateur apparaît chez elle ; sans compte, l'e-mail lui propose d'en créer un. Ajouter la même adresse change ses droits.",
-                "With an account, the computer shows up for them; without one, the email offers to create it. Adding the same address changes their rights.",
-            ),
-            v.form("/compte/ordinateur/ajouter", "", &inner)
-        ));
-        if !p.targets.is_empty() {
-            let options: String = p.targets.iter().map(|(val, label)| format!("<option value=\"{}\">{}</option>", esc(val), esc(label))).collect();
-            let inner = format!(
-                "{id}\n<div class=\"field\"><label class=\"mono-label\" for=\"a\">{to}</label>\n<select id=\"a\" name=\"a\" required>{options}</select></div>\n{rights}\n<button class=\"btn btn-ghost\" type=\"submit\">{open}</button>",
-                id = hidden("id", &p.id),
-                to = v.tr("À", "To"),
-                rights = rights_fieldset(v, &v.tr("Droits", "Rights"), &Rights::new([Right::Session]), false),
-                open = v.tr("Ouvrir", "Open"),
-            );
-            forms.push_str(&format!(
-                "<section class=\"console-box\">\n<h2>{}</h2>\n<p class=\"hint\">{}</p>\n{}\n</section>\n",
-                v.tr("Ouvrir à une organisation", "Open to an organization"),
-                v.tr(
-                    "Toute l'organisation, ou l'un de ses groupes, comme une personne. Ouvrir de nouveau change les droits.",
-                    "The whole organization, or one of its groups, like a person. Opening again changes the rights.",
-                ),
-                v.form("/compte/ordinateur/ouvrir", "", &inner)
-            ));
-        }
-    } else {
-        let mine = if p.my_rights.is_empty() { v.tr("aucun", "none") } else { rights_words(v.lang, &p.my_rights) };
-        forms.push_str(&format!("<p class=\"help\">{} <b>{}</b></p>\n", v.tr("Vos droits sur cet ordinateur :", "Your rights on this computer:"), esc(&mine)));
+    if !p.manage {
+        let mine = if p.my_rights.is_empty() { format!("<span class=\"ka-tag\">{}</span>", v.tr("aucun", "none")) } else { rights_tags(v, &p.my_rights) };
+        body.push_str(&format!("<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2></div>\n<p class=\"ka-tags\">{mine}</p>\n</section>\n", v.tr("Ce que vous pouvez y faire", "What you can do on it")));
     }
     if p.admin_needs_2fa {
-        forms.push_str(&format!(
-            "<p class=\"notice\" role=\"status\">{} <a href=\"/compte/double-authentification{}\">{}</a></p>\n",
+        body.push_str(&format!(
+            "<p class=\"notice\" role=\"status\">{} <a href=\"/compte/double-authentification{q}\">{}</a></p>\n",
             v.tr(
                 "Le droit Administrer vous est donné, mais il ne compte qu'avec la double authentification.",
                 "The Administer right is given to you, but it only counts with two-factor authentication.",
             ),
-            v.q(),
             v.tr("L'activer", "Turn it on"),
         ));
     }
-    if p.can_detach {
-        forms.push_str(&v.form(
-            "/compte/ordinateurs/detacher",
-            "acct-inline console-detach",
-            &format!("{}\n{}\n{}", hidden("id", &p.id), hidden("depuis", "console"), small_button(&v.tr("Détacher cet ordinateur", "Detach this computer"))),
+    body.push_str(&format!(
+        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{h}</h2><small>{sub}</small></div>\n<div class=\"ka-rights\">\n{tiles}</div>\n</section>\n",
+        h = v.tr("Ce que chaque droit permet", "What each right allows"),
+        sub = v.tr("Quatre droits, à combiner", "Four rights, to combine"),
+    ));
+    let mut on_pc = String::new();
+    if p.manage && !p.targets.is_empty() {
+        on_pc.push_str(&row(
+            &ic("home"),
+            &v.tr("Ouvrir à une famille ou une équipe", "Open to a family or team"),
+            &v.tr("Toute la famille ou l'équipe, ou l'un de ses groupes.", "The whole family or team, or one of its groups."),
+            &format!("<a class=\"btn btn-ghost btn-sm\" href=\"#ouvrir\">{}</a>", v.tr("Ouvrir", "Open")),
         ));
     }
-    let card = format!(
-        "{nav}<p class=\"crumbs\"><a href=\"/compte/ordinateurs{q}\">{computers}</a> › <b>{name}</b> {state}</p>\n<h1>{title}</h1>\n{notice}{table}\n{forms}",
-        nav = nav(v, &p.nav_orgs, Here::None),
-        q = v.q(),
+    if p.can_detach {
+        on_pc.push_str(&row(
+            &ic("close"),
+            &v.tr("Détacher de votre compte", "Detach from your account"),
+            &v.tr(
+                "Les personnes ajoutées perdent leur accès. Le réseau local et l'appairage restent.",
+                "The people added lose their access. The local network and pairing stay.",
+            ),
+            &v.form(
+                "/compte/ordinateurs/detacher",
+                "acct-inline",
+                &format!("{}\n{}\n<button class=\"btn btn-danger btn-sm\" type=\"submit\">{}</button>", hidden("id", &p.id), hidden("depuis", "console"), v.tr("Détacher", "Detach")),
+            ),
+        ));
+    }
+    if !on_pc.is_empty() {
+        body.push_str(&format!("<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2></div>\n<div class=\"ka-list\">\n{on_pc}</div>\n</section>\n", v.tr("Réglages", "Settings")));
+    }
+    let mut sheets = String::new();
+    if p.manage {
+        let (email, rights, until) = &p.form;
+        let inner = format!(
+            "{id}\n{email}\n{rights}\n{until}\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{send}</button></div>",
+            id = hidden("id", &p.id),
+            email = field(
+                &v.tr("Son adresse e-mail", "Their email address"),
+                &format!(
+                    r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" placeholder="lea@exemple.fr" value="{}" required>"#,
+                    esc(email)
+                ),
+            ),
+            rights = rights_tiles(v, &v.tr("Ce qu'elle peut faire", "What they can do"), rights, "ajout"),
+            until = field(
+                &v.tr("Jusqu'au (facultatif)", "Until (optional)"),
+                &format!(r#"<input id="fin" name="fin" type="date" value="{}" placeholder="{}">"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+            ),
+            cancel = v.tr("Annuler", "Cancel"),
+            send = v.tr("Envoyer l'invitation", "Send the invitation"),
+        );
+        let failed = !email.is_empty() && notice.is_some_and(|n| !n.is_ok());
+        sheets.push_str(&sheet(
+            v,
+            "ajouter",
+            &p.name,
+            &v.tr("Ajouter une personne", "Add a person"),
+            &format!(
+                "<p class=\"ka-muted\">{}</p>\n{}",
+                v.tr(
+                    "Avec un compte KyberNow, l'ordinateur apparaît tout de suite chez elle. Sinon, l'e-mail lui propose d'en créer un. Ajouter la même adresse change ses droits.",
+                    "With a KyberNow account, the computer shows up for them right away. Otherwise, the email offers to create one. Adding the same address changes their rights.",
+                ),
+                v.form("/compte/ordinateur/ajouter", "", &inner)
+            ),
+            failed,
+        ));
+        if !p.targets.is_empty() {
+            let options: String = p.targets.iter().map(|(val, label)| format!("<option value=\"{}\">{}</option>", esc(val), esc(label))).collect();
+            let inner = format!(
+                "{id}\n<div class=\"field\"><label class=\"mono-label\" for=\"a\">{to}</label>\n<select id=\"a\" name=\"a\" required>{options}</select></div>\n{rights}\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{open}</button></div>",
+                id = hidden("id", &p.id),
+                to = v.tr("À qui", "To whom"),
+                rights = rights_tiles(v, &v.tr("Ce qu'ils peuvent faire", "What they can do"), &Rights::new([Right::Session]), "ouvrir"),
+                cancel = v.tr("Annuler", "Cancel"),
+                open = v.tr("Ouvrir", "Open"),
+            );
+            sheets.push_str(&sheet(
+                v,
+                "ouvrir",
+                &p.name,
+                &v.tr("Ouvrir à une famille ou une équipe", "Open to a family or team"),
+                &format!(
+                    "<p class=\"ka-muted\">{}</p>\n{}",
+                    v.tr(
+                        "Chaque membre, et chacun de ceux qui arriveront ensuite, reçoit ces droits. Ouvrir de nouveau change les droits.",
+                        "Each member, and everyone who joins later, gets these rights. Opening again changes the rights.",
+                    ),
+                    v.form("/compte/ordinateur/ouvrir", "", &inner)
+                ),
+                false,
+            ));
+        }
+    }
+    let page = format!(
+        "<nav class=\"ka-crumbs\"><a href=\"/compte/ordinateurs{q}\">{computers}</a><span>/</span><span>{name}</span></nav>\n<div class=\"ka-pc ka-pc-head\"><span class=\"ka-pc-top\"><span class=\"ka-pc-icon\">{icon}</span><span class=\"ka-pc-name\"><b>{name}</b><small>{whose}</small></span>{state}</span></div>\n{notice}{body}{sheets}",
         computers = v.tr("Ordinateurs", "Computers"),
         name = esc(&p.name),
+        icon = ic("monitor"),
+        whose = if p.manage { v.tr("Vous gérez ses accès", "You manage its access") } else { v.tr("Ouvert pour vous", "Opened for you") },
         state = state_pill(v, p.online),
         notice = notice_html(v.lang, notice),
     );
-    console(v, &format!("{title} · {}", esc(&p.name)), "/compte/ordinateur", &card)
+    frame(v, &p.shell, Here::Computers, &p.name, "/compte/ordinateur", &page)
 }
 
-// --- Organisation ----------------------------------------------------------------------
+// --- Personnes -------------------------------------------------------------------------
 
-/// L'onglet de la page d'une organisation.
+/// Une personne (ou une famille, une équipe, un groupe) qui a accès à l'un de ses ordinateurs.
+#[derive(Debug, Clone)]
+pub struct Granted {
+    pub name: String,
+    pub detail: String,
+    pub computer_id: String,
+    pub computer: String,
+    pub rights: Rights,
+}
+
+/// La page « Personnes ».
+#[derive(Debug, Clone, Default)]
+pub struct AllPeopleView {
+    pub rows: Vec<Granted>,
+    /// Ses ordinateurs, pour « Ajouter une personne » : `(identifiant, nom)`.
+    pub computers: Vec<(String, String)>,
+    pub shell: Shell,
+}
+
+pub fn all_people(v: &View<'_>, a: &AllPeopleView) -> String {
+    let title = v.tr("Personnes", "People");
+    let q = v.q();
+    let action = match a.computers.as_slice() {
+        [] => String::new(),
+        [(id, _)] => format!("<a class=\"btn kn-primary\" href=\"/compte/ordinateur{q}&amp;id={}#ajouter\">{}{}</a>", pct(id), ic("plus"), v.tr("Ajouter une personne", "Add a person")),
+        _ => format!("<a class=\"btn kn-primary\" href=\"#choisir\">{}{}</a>", ic("plus"), v.tr("Ajouter une personne", "Add a person")),
+    };
+    let list = if a.rows.is_empty() {
+        help_box(
+            "people",
+            &v.tr(
+                "Personne d'autre que vous n'a accès à vos ordinateurs. <b>Ajoutez une personne</b> par son adresse e-mail et choisissez ce qu'elle peut faire.",
+                "Nobody but you has access to your computers. <b>Add a person</b> by their email address and choose what they can do.",
+            ),
+        )
+    } else {
+        let rows: String = a
+            .rows
+            .iter()
+            .map(|g| {
+                let detail = format!("<a href=\"/compte/ordinateur{q}&amp;id={}\">{}</a>{}", pct(&g.computer_id), esc(&g.computer), if g.detail.is_empty() { String::new() } else { format!(" · {}", esc(&g.detail)) });
+                row(&avatar(&g.name), &esc(&g.name), &detail, &format!("<span class=\"ka-tags\">{}</span>", rights_tags(v, &g.rights)))
+            })
+            .collect();
+        format!("<div class=\"ka-list\">\n{rows}</div>\n")
+    };
+    let choose = if a.computers.len() > 1 {
+        let links: String = a
+            .computers
+            .iter()
+            .map(|(id, name)| row(&ic("monitor"), &esc(name), "", &format!("<a class=\"btn btn-ghost btn-sm\" href=\"/compte/ordinateur{q}&amp;id={}#ajouter\">{}</a>", pct(id), v.tr("Choisir", "Choose"))))
+            .collect();
+        sheet(v, "choisir", &v.tr("Ajouter une personne", "Add a person"), &v.tr("Sur quel ordinateur ?", "On which computer?"), &format!("<div class=\"ka-list\">\n{links}</div>"), false)
+    } else {
+        String::new()
+    };
+    let page = format!(
+        "{head}<section class=\"ka-section\">\n{list}</section>\n<section class=\"ka-section\">\n{help}</section>\n{choose}",
+        head = head(
+            "",
+            &format!("<strong>{title}</strong>"),
+            &v.tr(
+                "Tous ceux à qui vous avez ouvert un ordinateur, seuls ou par une famille ou une équipe.",
+                "Everyone you opened a computer to, on their own or through a family or team.",
+            ),
+            &action,
+        ),
+        help = help_box(
+            "info",
+            &v.tr(
+                "La personne reçoit un e-mail. <b>Si elle a déjà un compte KyberNow</b>, l'ordinateur apparaît tout de suite dans son app. Sinon, le lien de l'e-mail lui propose d'en créer un. Vous pouvez retirer un accès à tout moment, depuis la page de l'ordinateur.",
+                "They get an email. <b>If they already have a KyberNow account</b>, the computer shows up in their app right away. Otherwise, the link in the email offers to create one. You can remove an access at any time, from the computer's page.",
+            ),
+        ),
+    );
+    frame(v, &a.shell, Here::People, &title, "/compte/personnes", &page)
+}
+
+// --- Familles et équipes ---------------------------------------------------------------
+
+/// Une famille ou une équipe, sur « Familles et équipes ».
+#[derive(Debug, Clone)]
+pub struct OrgCard {
+    pub id: String,
+    pub name: String,
+    pub kind: Kind,
+    pub role: Role,
+    pub members: usize,
+    pub computers: usize,
+}
+
+/// La page « Familles et équipes ».
+#[derive(Debug, Clone, Default)]
+pub struct FamiliesView {
+    pub orgs: Vec<OrgCard>,
+    pub shell: Shell,
+}
+
+/// Les deux cartes « Une famille », « Une équipe », vers la création.
+fn kind_cards(v: &View<'_>) -> String {
+    let q = v.q();
+    format!(
+        "<div class=\"ka-kinds\">\n<a class=\"ka-kind ka-kind-family\" href=\"/compte/organisations/creer{q}&amp;genre=famille\"><span class=\"ka-halo\"></span><span class=\"ka-kind-icon\">{home}</span><h3>{fam}</h3><p>{fam_text}</p><ul><li>{f1}</li><li>{f2}</li><li>{f3}</li></ul></a>\n<a class=\"ka-kind ka-kind-team\" href=\"/compte/organisations/creer{q}&amp;genre=equipe\"><span class=\"ka-halo\"></span><span class=\"ka-kind-icon\">{team}</span><h3>{tm}</h3><p>{tm_text}</p><ul><li>{t1}</li><li>{t2}</li><li>{t3}</li></ul></a>\n</div>\n",
+        home = ic("home"),
+        fam = v.tr("Une famille", "A family"),
+        fam_text = v.tr("Pour la maison : les parents, les enfants, les grands-parents.", "For home: parents, children, grandparents."),
+        f1 = v.tr("Le PC du salon pour toute la famille", "The living room PC for the whole family"),
+        f2 = v.tr("Un groupe « Les enfants » qui peut emprunter pour jouer", "A \"Kids\" group that can borrow to play"),
+        f3 = v.tr("Simple : vous gérez, les autres utilisent", "Simple: you manage, the others use"),
+        team = ic("team"),
+        tm = v.tr("Une équipe", "A team"),
+        tm_text = v.tr("Pour un atelier, une association, une entreprise.", "For a studio, an association, a company."),
+        t1 = v.tr("Des rôles : propriétaire, administrateur, membre", "Roles: owner, administrator, member"),
+        t2 = v.tr("Des groupes, comme « Graphistes » ou « Montage »", "Groups, like \"Designers\" or \"Editing\""),
+        t3 = v.tr("Un journal de qui a ouvert quoi, des Stations à déployer", "A log of who opened what, Stations to deploy"),
+    )
+}
+
+pub fn families(v: &View<'_>, f: &FamiliesView) -> String {
+    let title = v.tr("Familles et équipes", "Families and teams");
+    let q = v.q();
+    let how = format!(
+        "<div class=\"ka-how\" role=\"img\" aria-label=\"{aria}\">\n<div class=\"ka-how-col\"><p class=\"ka-eyebrow\">{people}</p><span class=\"ka-chip\">{a1}Léa</span><span class=\"ka-chip\">{a2}Tom</span></div>\n<div class=\"ka-flow\"></div>\n<div class=\"ka-how-col\"><p class=\"ka-eyebrow\">{group}</p><div class=\"ka-how-group\"><b>{kids}</b>{in_family}</div></div>\n<div class=\"ka-flow\"></div>\n<div class=\"ka-how-col\"><p class=\"ka-eyebrow\">{computers}</p><span class=\"ka-chip ka-chip-pc\">{monitor}{pc}</span><small>{lend}</small></div>\n</div>\n<p class=\"ka-muted ka-after\">{text}</p>\n",
+        aria = v.tr("Des personnes, réunies dans un groupe, ouvrent des ordinateurs.", "People, gathered in a group, open computers."),
+        people = v.tr("Des personnes", "People"),
+        a1 = avatar("Léa"),
+        a2 = avatar("Tom"),
+        group = v.tr("Un groupe", "A group"),
+        kids = v.tr("Les enfants", "The kids"),
+        in_family = v.tr("dans la famille", "in the family"),
+        computers = v.tr("Vos ordinateurs", "Your computers"),
+        monitor = ic("monitor"),
+        pc = v.tr("PC du salon", "Living room PC"),
+        lend = v.tr("Emprunter pour jouer", "Borrow to play"),
+        text = v.tr(
+            "Ajoutez Léa au groupe, et elle peut emprunter le PC du salon. Retirez-la, et l'accès disparaît. Un groupe n'est pas obligatoire : vous pouvez aussi ouvrir un ordinateur à toute la famille ou à toute l'équipe.",
+            "Add Léa to the group, and she can borrow the living room PC. Remove her, and the access is gone. A group isn't required: you can also open a computer to the whole family or team.",
+        ),
+    );
+    let mine = if f.orgs.is_empty() {
+        String::new()
+    } else {
+        let cards: String = f
+            .orgs
+            .iter()
+            .map(|o| {
+                let detail = format!(
+                    "{} · {} · {}",
+                    kind_name(v.lang, o.kind),
+                    count_word(v.lang, o.members, "membre", "membres", "member", "members"),
+                    count_word(v.lang, o.computers, "ordinateur", "ordinateurs", "computer", "computers"),
+                );
+                format!(
+                    "<a class=\"ka-org\" href=\"/compte/organisation{q}&amp;id={id}\">{badge}<span class=\"ka-row-main\"><b>{name}</b><small>{detail}</small></span><span class=\"ka-pill\">{role}</span>{arrow}</a>\n",
+                    id = pct(&o.id),
+                    badge = badge(&o.name, o.kind, true),
+                    name = esc(&o.name),
+                    role = role_name(v.lang, o.role),
+                    arrow = ic("arrow"),
+                )
+            })
+            .collect();
+        format!("<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2></div>\n<div class=\"ka-orgs\">\n{cards}</div>\n</section>\n", v.tr("Les vôtres", "Yours"))
+    };
+    let page = format!(
+        "{head}<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{how_h}</h2></div>\n{how}</section>\n{mine}<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{create_h}</h2></div>\n{kinds}</section>\n",
+        head = head(
+            "",
+            &format!("<strong>{title}</strong>"),
+            &v.tr(
+                "Réunissez des personnes pour leur ouvrir vos ordinateurs d'un seul coup, au lieu de les ajouter une par une.",
+                "Gather people to open your computers to them in one go, instead of adding them one by one.",
+            ),
+            "",
+        ),
+        how_h = v.tr("Comment ça marche", "How it works"),
+        create_h = v.tr("En créer une", "Create one"),
+        kinds = kind_cards(v),
+    );
+    frame(v, &f.shell, Here::Families, &title, "/compte/familles", &page)
+}
+
+/// « Créer votre famille » ou « Créer votre équipe » ; sans genre : le choix.
+pub fn create_org(v: &View<'_>, name: &str, kind: Option<Kind>, two_factor: bool, shell: &Shell, notice: Option<Notice>) -> String {
+    let q = v.q();
+    let Some(kind) = kind else {
+        let title = v.tr("Créer une famille ou une équipe", "Create a family or team");
+        let page = format!(
+            "<nav class=\"ka-crumbs\"><a href=\"/compte/familles{q}\">{families}</a><span>/</span><span>{create}</span></nav>\n{head}{notice}{kinds}",
+            families = v.tr("Familles et équipes", "Families and teams"),
+            create = v.tr("Créer", "Create"),
+            head = head("", &format!("<strong>{title}</strong>"), &v.tr("Les deux ouvrent vos ordinateurs à plusieurs personnes. Choisissez les mots qui vous ressemblent.", "Both open your computers to several people. Choose the words that suit you."), ""),
+            notice = notice_html(v.lang, notice),
+            kinds = kind_cards(v),
+        );
+        return frame(v, shell, Here::Families, &title, "/compte/organisations/creer", &page);
+    };
+    let family = kind == Kind::Family;
+    let title = if family { v.tr("Créer votre famille", "Create your family") } else { v.tr("Créer votre équipe", "Create your team") };
+    let body = if two_factor {
+        let inner = format!(
+            "{genre}\n{name}\n<div class=\"ka-form-actions\"><a class=\"btn btn-ghost\" href=\"/compte/familles{q}\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{create}</button></div>",
+            genre = hidden("genre", if family { "famille" } else { "equipe" }),
+            name = field(
+                &if family { v.tr("Nom de la famille", "Family name") } else { v.tr("Nom de l'équipe", "Team name") },
+                &format!(
+                    r#"<input id="nom" name="nom" maxlength="64" placeholder="{}" value="{}" required>"#,
+                    if family { v.tr("Famille Martin", "The Martins") } else { v.tr("L'atelier", "The studio") },
+                    esc(name)
+                ),
+            ),
+            cancel = v.tr("Annuler", "Cancel"),
+            create = if family { v.tr("Créer la famille", "Create the family") } else { v.tr("Créer l'équipe", "Create the team") },
+        );
+        v.form("/compte/organisations/creer", "ka-form", &inner)
+    } else {
+        format!(
+            "<p class=\"notice\" role=\"status\">{} <a href=\"/compte{q}#securite\">{}</a></p>",
+            v.tr(
+                "Pour gérer une famille ou une équipe, protégez d'abord votre compte : une passkey, ou la double authentification.",
+                "To manage a family or team, protect your account first: a passkey, or two-factor authentication.",
+            ),
+            v.tr("Protéger mon compte", "Protect my account"),
+        )
+    };
+    let page = format!(
+        "<nav class=\"ka-crumbs\"><a href=\"/compte/familles{q}\">{families}</a><span>/</span><span>{title}</span></nav>\n<div class=\"ka-create ka-create-{class}\"><span class=\"ka-halo\"></span><span class=\"ka-kind-icon\">{icon}</span>{head}</div>\n{notice}<section class=\"ka-section\">\n{body}\n</section>\n<section class=\"ka-section\">\n{help}</section>\n",
+        families = v.tr("Familles et équipes", "Families and teams"),
+        class = kind_class(kind),
+        icon = ic(if family { "home" } else { "team" }),
+        head = head(
+            &kind_name(v.lang, kind),
+            &format!("<strong>{title}</strong>"),
+            &if family {
+                v.tr("Ajoutez ensuite vos proches, puis ouvrez-leur vos ordinateurs en une fois.", "Then add your loved ones, and open your computers to them in one go.")
+            } else {
+                v.tr("Invitez ensuite vos collègues, créez des groupes et rattachez les ordinateurs de l'équipe.", "Then invite your colleagues, create groups and attach the team's computers.")
+            },
+            "",
+        ),
+        notice = notice_html(v.lang, notice),
+        help = help_box(
+            "shield",
+            &v.tr(
+                "Ceux qui gèrent une famille ou une équipe (propriétaires et administrateurs) protègent leur compte par une <b>passkey</b> ou la <b>double authentification</b>.",
+                "Those who manage a family or team (owners and administrators) protect their account with a <b>passkey</b> or <b>two-factor authentication</b>.",
+            ),
+        ),
+    );
+    frame(v, shell, Here::Families, &title, "/compte/organisations/creer", &page)
+}
+
+// --- Une famille ou une équipe ----------------------------------------------------------
+
+/// L'onglet de la page d'une famille ou d'une équipe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Members,
@@ -373,21 +1036,22 @@ impl Tab {
     }
 }
 
-/// Un ordinateur de l'organisation.
+/// Un ordinateur de la famille ou de l'équipe.
 #[derive(Debug, Clone)]
 pub struct OrgComputer {
     pub id: String,
     pub name: String,
     pub online: bool,
-    /// Ses accès donnés, en mots (« Groupe Graphistes : Session »).
+    /// Ses accès donnés, en mots (« Groupe Graphistes : Ouvrir le bureau »).
     pub access: String,
 }
 
-/// La page d'une organisation.
+/// La page d'une famille ou d'une équipe.
 #[derive(Debug, Clone)]
 pub struct OrgView {
     pub id: String,
     pub name: String,
+    pub kind: Kind,
     pub role: Role,
     /// Propriétaire ou Administrateur, avec la double authentification.
     pub manage: bool,
@@ -400,8 +1064,643 @@ pub struct OrgView {
     pub groups: Vec<Group>,
     pub computers: Vec<OrgComputer>,
     pub log: Vec<LogLine>,
-    pub nav_orgs: Vec<(String, String)>,
+    pub shell: Shell,
 }
+
+fn role_select(v: &View<'_>, name: &str, current: Role, allow_owner: bool) -> String {
+    let options: String = Role::ALL
+        .iter()
+        .filter(|r| allow_owner || **r != Role::Owner || current == Role::Owner)
+        .map(|r| {
+            let sel = if *r == current { " selected" } else { "" };
+            format!("<option value=\"{}\"{sel}>{}</option>", r.as_str(), role_name(v.lang, *r))
+        })
+        .collect();
+    format!("<select name=\"{name}\" aria-label=\"{}\">{options}</select>", v.tr("Rôle", "Role"))
+}
+
+/// Le haut de la page d'une famille ou d'une équipe : l'initiale, le nom, le genre, le rôle, les onglets.
+#[allow(clippy::too_many_arguments)]
+fn org_top(v: &View<'_>, id: &str, name: &str, kind: Kind, role: Role, manage: bool, current: &str, action: &str) -> String {
+    let q_id = format!("{}&amp;id={}", v.q(), pct(id));
+    let mut tabs = vec![
+        ("membres", format!("/compte/organisation{q_id}&amp;vue=membres"), v.tr("Membres", "Members")),
+        ("groupes", format!("/compte/organisation{q_id}&amp;vue=groupes"), v.tr("Groupes", "Groups")),
+        ("ordinateurs", format!("/compte/organisation{q_id}&amp;vue=ordinateurs"), v.tr("Ordinateurs", "Computers")),
+    ];
+    if manage {
+        tabs.push(("journal", format!("/compte/organisation{q_id}&amp;vue=journal"), v.tr("Journal", "Log")));
+        if kind == Kind::Team {
+            tabs.push(("deployer", format!("/compte/organisation/deployer{q_id}"), v.tr("Déployer", "Deploy")));
+        }
+    }
+    let tabs: String = tabs
+        .into_iter()
+        .map(|(word, href, label)| {
+            let cur = if word == current { " aria-current=\"page\"" } else { "" };
+            format!("<a href=\"{href}\"{cur}>{label}</a>")
+        })
+        .collect();
+    let you = match role {
+        Role::Owner => v.tr("Vous êtes propriétaire", "You are the owner"),
+        Role::Admin => v.tr("Vous êtes administrateur", "You are an administrator"),
+        Role::Member => v.tr("Vous êtes membre", "You are a member"),
+    };
+    format!(
+        "<nav class=\"ka-crumbs\"><a href=\"/compte/familles{q}\">{families}</a><span>/</span><span>{name}</span></nav>\n<header class=\"ka-head\"><div class=\"ka-org-head\">{badge}<div><h1><strong>{name}</strong></h1><p class=\"ka-pills\">{kind}<span class=\"ka-pill ka-pill-sig\">{you}</span></p></div></div>{action}</header>\n<nav class=\"ka-tabs\" aria-label=\"{sections}\">{tabs}</nav>\n",
+        q = v.q(),
+        families = v.tr("Familles et équipes", "Families and teams"),
+        name = esc(name),
+        badge = badge(name, kind, true),
+        kind = kind_pill(v.lang, kind),
+        sections = v.tr("Sections", "Sections"),
+    )
+}
+
+pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
+    let id_field = hidden("id", &o.id);
+    let the = kind_the(v.lang, o.kind);
+    let warn = if o.needs_2fa {
+        format!(
+            "<p class=\"notice\" role=\"status\">{} <a href=\"/compte{}#securite\">{}</a></p>\n",
+            match v.lang {
+                Lang::Fr => t(v.lang, &format!("Pour gérer {the}, protégez votre compte : une passkey, ou la double authentification."), ""),
+                Lang::En => format!("To manage {the}, protect your account: a passkey, or two-factor authentication."),
+            },
+            v.q(),
+            v.tr("Protéger mon compte", "Protect my account"),
+        )
+    } else {
+        String::new()
+    };
+    let mut sheets = String::new();
+    let body = match o.tab {
+        Tab::Members => {
+            let rows: String = o
+                .members
+                .iter()
+                .map(|m| {
+                    let mut detail = vec![esc(&m.email)];
+                    if m.role.manages() {
+                        detail.push(if m.two_factor { v.tr("compte protégé", "account protected") } else { v.tr("compte pas encore protégé", "account not protected yet") });
+                    }
+                    detail.extend(m.groups.iter().map(|g| esc(g)));
+                    let name = if m.account == o.me { format!("{} ({})", esc(&m.name), v.tr("vous", "you")) } else { esc(&m.name) };
+                    // Un Administrateur ne touche pas aux Propriétaires ; seul un Propriétaire en nomme.
+                    let editable = o.manage && (o.role == Role::Owner || m.role != Role::Owner);
+                    let acts = if editable {
+                        let role = v.form(
+                            "/compte/organisation/role",
+                            "acct-inline ka-role",
+                            &format!("{id_field}\n{}\n{}\n{}", hidden("compte", &m.account.to_string()), role_select(v, "role", m.role, o.role == Role::Owner), small_button(&v.tr("Changer", "Change"))),
+                        );
+                        let remove = if m.account == o.me {
+                            String::new()
+                        } else {
+                            v.form("/compte/organisation/retirer", "acct-inline", &format!("{id_field}\n{}\n{}", hidden("compte", &m.account.to_string()), small_button(&v.tr("Retirer", "Remove"))))
+                        };
+                        format!("{role}\n{remove}")
+                    } else {
+                        format!("<span class=\"ka-tag{}\">{}</span>", if m.role == Role::Owner { " is-lit" } else { "" }, role_name(v.lang, m.role))
+                    };
+                    row(&avatar(&m.name), &name, &detail.join(" · "), &acts)
+                })
+                .collect();
+            let invites: String = o
+                .invites
+                .iter()
+                .map(|i| {
+                    let cancel = if o.manage {
+                        v.form("/compte/organisation/retirer", "acct-inline", &format!("{id_field}\n{}\n{}", hidden("invitation", &i.id.to_string()), small_button(&v.tr("Annuler", "Cancel"))))
+                    } else {
+                        String::new()
+                    };
+                    row(&avatar(&i.email), &esc(&i.email), &format!("{} · {}", v.tr("Invitation envoyée", "Invitation sent"), role_name(v.lang, i.role)), &cancel)
+                })
+                .collect();
+            if o.manage {
+                let inner = format!(
+                    "{id_field}\n{email}\n<div class=\"field\"><label class=\"mono-label\" for=\"role\">{role_l}</label>\n{role}</div>\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{send}</button></div>",
+                    email = field(
+                        &v.tr("Son adresse e-mail", "Their email address"),
+                        r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" required>"#,
+                    ),
+                    role_l = v.tr("Son rôle", "Their role"),
+                    role = role_select(v, "role", Role::Member, o.role == Role::Owner).replacen("<select ", "<select id=\"role\" ", 1),
+                    cancel = v.tr("Annuler", "Cancel"),
+                    send = v.tr("Envoyer l'invitation", "Send the invitation"),
+                );
+                sheets.push_str(&sheet(v, "inviter", &o.name, &v.tr("Inviter un membre", "Invite a member"), &v.form("/compte/organisation/inviter", "", &inner), false));
+            }
+            let roles = help_box(
+                "info",
+                &v.tr(
+                    "<b>Propriétaire</b> : tout, y compris nommer d'autres propriétaires. <b>Administrateur</b> : gère les membres, les groupes et les ordinateurs. <b>Membre</b> : utilise ce qu'on lui ouvre.",
+                    "<b>Owner</b>: everything, including naming other owners. <b>Administrator</b>: manages members, groups and computers. <b>Member</b>: uses what is opened to them.",
+                ),
+            );
+            let rename = if o.manage && o.role == Role::Owner {
+                let inner = format!(
+                    "{id_field}\n<input name=\"nom\" maxlength=\"64\" value=\"{}\" aria-label=\"{}\" required>\n{}",
+                    esc(&o.name),
+                    v.tr("Nouveau nom", "New name"),
+                    small_button(&v.tr("Renommer", "Rename"))
+                );
+                row(&ic("gear"), &v.tr("Renommer", "Rename"), "", &v.form("/compte/organisation/renommer", "acct-inline ka-inline-field", &inner))
+            } else {
+                String::new()
+            };
+            let leave = row(
+                &ic("out"),
+                &match v.lang {
+                    Lang::Fr => t(v.lang, &format!("Quitter {the}"), ""),
+                    Lang::En => format!("Leave {the}"),
+                },
+                &v.tr("Vous perdez les accès qu'elle vous donne.", "You lose the access it gives you."),
+                &v.form("/compte/organisation/quitter", "acct-inline", &format!("{id_field}\n<button class=\"btn btn-danger btn-sm\" type=\"submit\">{}</button>", v.tr("Quitter", "Leave"))),
+            );
+            format!(
+                "{roles}<div class=\"ka-list ka-after\">\n{rows}{invites}</div>\n<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{settings}</h2></div>\n<div class=\"ka-list\">\n{rename}{leave}</div>\n</section>\n",
+                settings = v.tr("Réglages", "Settings"),
+            )
+        }
+        Tab::Groups => {
+            let cards: String = o
+                .groups
+                .iter()
+                .map(|g| {
+                    let members: String = g
+                        .members
+                        .iter()
+                        .map(|(acc, name)| {
+                            let out = if o.manage {
+                                v.form(
+                                    "/compte/organisation/groupes/membre",
+                                    "acct-inline",
+                                    &format!("{id_field}\n{}\n{}\n{}\n{}", hidden("groupe", &g.id.to_string()), hidden("compte", &acc.to_string()), hidden("action", "retirer"), small_button(&v.tr("Retirer", "Remove"))),
+                                )
+                            } else {
+                                String::new()
+                            };
+                            row(&avatar(name), &esc(name), "", &out)
+                        })
+                        .collect();
+                    let manage = if o.manage {
+                        let options: String = o
+                            .members
+                            .iter()
+                            .filter(|m| !g.members.iter().any(|(a, _)| *a == m.account))
+                            .map(|m| format!("<option value=\"{}\">{}</option>", m.account, esc(&m.name)))
+                            .collect();
+                        let add = if options.is_empty() {
+                            String::new()
+                        } else {
+                            v.form(
+                                "/compte/organisation/groupes/membre",
+                                "acct-inline ka-role",
+                                &format!(
+                                    "{id_field}\n{}\n{}\n<select name=\"compte\" aria-label=\"{}\">{options}</select>\n{}",
+                                    hidden("groupe", &g.id.to_string()),
+                                    hidden("action", "ajouter"),
+                                    v.tr("Membre", "Member"),
+                                    small_button(&v.tr("Ajouter au groupe", "Add to the group"))
+                                ),
+                            )
+                        };
+                        let delete = v.form(
+                            "/compte/organisation/groupes/supprimer",
+                            "acct-inline",
+                            &format!("{id_field}\n{}\n<button class=\"btn btn-danger btn-sm\" type=\"submit\">{}</button>", hidden("groupe", &g.id.to_string()), v.tr("Supprimer le groupe", "Delete the group")),
+                        );
+                        format!("<div class=\"ka-group-acts\">{add}\n{delete}</div>")
+                    } else {
+                        String::new()
+                    };
+                    format!(
+                        "<section class=\"ka-group\">\n<div class=\"ka-group-head\">{badge}<div><b>{name}</b><small>{count}</small></div></div>\n<div class=\"ka-list\">\n{members}</div>\n{manage}</section>\n",
+                        badge = badge(&g.name, o.kind, false),
+                        name = esc(&g.name),
+                        count = count_word(v.lang, g.members.len(), "personne", "personnes", "person", "people"),
+                    )
+                })
+                .collect();
+            let create = if o.manage {
+                let inner = format!(
+                    "{id_field}\n{}\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{}</a><button class=\"btn kn-primary\" type=\"submit\">{}</button></div>",
+                    field(
+                        &v.tr("Nom du groupe", "Group name"),
+                        &format!(r#"<input id="nom" name="nom" maxlength="64" placeholder="{}" required>"#, if o.kind == Kind::Family { v.tr("Les enfants", "The kids") } else { v.tr("Graphistes", "Designers") }),
+                    ),
+                    v.tr("Annuler", "Cancel"),
+                    v.tr("Créer le groupe", "Create the group"),
+                );
+                sheets.push_str(&sheet(v, "groupe", &o.name, &v.tr("Créer un groupe", "Create a group"), &v.form("/compte/organisation/groupes/creer", "", &inner), false));
+                format!("<a class=\"ka-pc-add ka-group-add\" href=\"#groupe\"><span class=\"ka-plus\">{}</span><b>{}</b></a>\n", ic("plus"), v.tr("Créer un groupe", "Create a group"))
+            } else {
+                String::new()
+            };
+            let empty = if o.groups.is_empty() && !o.manage { format!("<p class=\"ka-muted\">{}</p>\n", v.tr("Aucun groupe pour l'instant.", "No groups yet.")) } else { String::new() };
+            format!(
+                "{help}{empty}<div class=\"ka-groups ka-after\">\n{cards}{create}</div>\n",
+                help = help_box(
+                    "info",
+                    &v.tr(
+                        "Un groupe réunit des membres qui ont les mêmes besoins. <b>Ouvrez un ordinateur au groupe</b> (depuis la page de l'ordinateur), et chaque membre ajouté ensuite y a accès sans rien régler de plus.",
+                        "A group gathers members with the same needs. <b>Open a computer to the group</b> (from the computer's page), and each member added later gets access without anything else to set.",
+                    ),
+                ),
+            )
+        }
+        Tab::Computers => {
+            let rows: String = o
+                .computers
+                .iter()
+                .map(|c| {
+                    row(
+                        &ic("monitor"),
+                        &format!("<a href=\"/compte/ordinateur{}&amp;id={}\">{}</a>", v.q(), pct(&c.id), esc(&c.name)),
+                        &esc(&c.access),
+                        &state_pill(v, c.online),
+                    )
+                })
+                .collect();
+            let list = if o.computers.is_empty() {
+                format!("<p class=\"ka-muted\">{}</p>\n", v.tr("Aucun ordinateur pour l'instant.", "No computers yet."))
+            } else {
+                format!("<div class=\"ka-list\">\n{rows}</div>\n")
+            };
+            format!(
+                "{help}<div class=\"ka-after\">{list}</div>",
+                help = help_box(
+                    "info",
+                    &match v.lang {
+                        Lang::Fr => t(
+                            v.lang,
+                            &format!("Un ordinateur de {the} lui appartient : il reste là quand quelqu'un part. Pour en rattacher un : Admin › Compte KyberNow › « Se connecter », puis choisissez {the} comme propriétaire."),
+                            "",
+                        ),
+                        Lang::En => format!("A computer of {the} belongs to it: it stays when someone leaves. To attach one: Admin › KyberNow account › \"Sign in\", then choose {the} as the owner."),
+                    },
+                ),
+            )
+        }
+        Tab::Log => format!("<div class=\"ka-list\">\n{}</div>\n", log_html(v, &o.log, o.kind)),
+    };
+    let action = if o.manage && o.tab == Tab::Members {
+        format!("<a class=\"btn kn-primary\" href=\"#inviter\">{}{}</a>", ic("plus"), v.tr("Inviter un membre", "Invite a member"))
+    } else {
+        String::new()
+    };
+    let page = format!(
+        "{top}{notice}{warn}<div class=\"ka-tab-panel\">\n{body}</div>\n{sheets}",
+        top = org_top(v, &o.id, &o.name, o.kind, o.role, o.manage, o.tab.word(), &action),
+        notice = notice_html(v.lang, notice),
+    );
+    frame(v, &o.shell, Here::Org(o.id.clone()), &o.name, "/compte/organisation", &page)
+}
+
+// --- Déployer des Stations (équipes) --------------------------------------------------
+
+/// La page « Déployer des Stations ».
+#[derive(Debug, Clone)]
+pub struct DeployView {
+    pub id: String,
+    pub name: String,
+    pub role: Role,
+    /// Les jetons et leurs Stations enrôlées `(nom, quand)`.
+    pub tokens: Vec<(EnrollToken, Vec<(String, i64)>)>,
+    pub groups: Vec<(i64, String)>,
+    /// Le jeton tout juste créé, montré une seule fois.
+    pub new_token: Option<String>,
+    /// Le relais, pour la ligne de commande (`/relay=`).
+    pub relay: String,
+    pub now: i64,
+    pub shell: Shell,
+}
+
+pub fn deploy(v: &View<'_>, d: &DeployView, notice: Option<Notice>) -> String {
+    let title = v.tr("Déployer des Stations", "Deploy Stations");
+    let id_field = hidden("id", &d.id);
+    let fresh = match &d.new_token {
+        Some(token) => format!(
+            "<section class=\"ka-fresh\">\n<h2>{h}</h2>\n<p class=\"ka-muted\">{once}</p>\n<p class=\"token\">{token}</p>\n<p class=\"mono-label\">{silent}</p>\n<p class=\"token token-sm\">KyberNow-Station-Setup.exe /quiet /enroll={token} /relay={relay}</p>\n</section>\n",
+            h = v.tr("Nouveau jeton", "New token"),
+            once = v.tr("Montré une seule fois : copiez-le maintenant.", "Shown only once: copy it now."),
+            token = esc(token),
+            silent = v.tr("Installation silencieuse (Windows)", "Silent install (Windows)"),
+            relay = esc(&d.relay),
+        ),
+        None => String::new(),
+    };
+    let tokens: String = d
+        .tokens
+        .iter()
+        .map(|(tk, stations)| {
+            let until = match v.lang {
+                Lang::Fr => format!("jusqu'au {}", date(v.lang, tk.expires_at - 1)),
+                Lang::En => format!("until {}", date(v.lang, tk.expires_at - 1)),
+            };
+            let mut parts = vec![format!("{} / {} Stations", tk.used, tk.max_stations), until];
+            if let Some(g) = &tk.group_name
+                && !tk.rights.is_empty()
+            {
+                parts.push(match v.lang {
+                    Lang::Fr => t(v.lang, &format!("groupe {g} : {}", rights_words(v.lang, &tk.rights)), ""),
+                    Lang::En => format!("group {g}: {}", rights_words(v.lang, &tk.rights)),
+                });
+            }
+            let state = match tk.refusal(d.now) {
+                None => String::new(),
+                Some("revoked") => format!("<span class=\"ka-pill ka-pill-off\">{}</span>", v.tr("Révoqué", "Revoked")),
+                Some("expired") => format!("<span class=\"ka-pill ka-pill-off\">{}</span>", v.tr("Échu", "Expired")),
+                Some(_) => format!("<span class=\"ka-pill ka-pill-off\">{}</span>", v.tr("Épuisé", "Used up")),
+            };
+            let revoke = if tk.revoked_at.is_none() {
+                v.form(
+                    "/compte/organisation/jetons/revoquer",
+                    "acct-inline",
+                    &format!("{id_field}\n{}\n<button class=\"btn btn-danger btn-sm\" type=\"submit\">{}</button>", hidden("jeton", &tk.id.to_string()), v.tr("Révoquer le jeton", "Revoke the token")),
+                )
+            } else {
+                String::new()
+            };
+            let enrolled: String = stations
+                .iter()
+                .map(|(name, at)| {
+                    let when = match v.lang {
+                        Lang::Fr => format!("enrôlée le {}", date(v.lang, *at)),
+                        Lang::En => format!("enrolled {}", date(v.lang, *at)),
+                    };
+                    row(&ic("monitor"), &esc(name), &when, "")
+                })
+                .collect();
+            format!("{}{enrolled}", row(&ic("key"), &esc(&tk.name), &format!("{}… · {}", esc(&tk.hint), esc(&parts.join(" · "))), &format!("{state}{revoke}")))
+        })
+        .collect();
+    let tokens = if tokens.is_empty() { String::new() } else { format!("<div class=\"ka-list ka-after\">\n{tokens}</div>\n") };
+    let groups: String = std::iter::once(format!("<option value=\"\">{}</option>", v.tr("Aucun", "None")))
+        .chain(d.groups.iter().map(|(id, name)| format!("<option value=\"{id}\">{}</option>", esc(name))))
+        .collect();
+    let inner = format!(
+        "{id_field}\n{name}\n<div class=\"ka-two\">{days}\n{count}</div>\n<div class=\"field\"><label class=\"mono-label\" for=\"groupe\">{group_l}</label>\n<select id=\"groupe\" name=\"groupe\">{groups}</select></div>\n{rights}\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{create}</button></div>",
+        name = field(&v.tr("Nom", "Name"), r#"<input id="nom" name="nom" maxlength="64" placeholder="Postes graphistes" required>"#),
+        days = field(&v.tr("Durée (jours)", "Duration (days)"), r#"<input id="jours" name="jours" type="number" min="1" max="365" value="30" required>"#),
+        count = field(&v.tr("Nombre de Stations", "Number of Stations"), r#"<input id="nombre" name="nombre" type="number" min="1" max="10000" value="10" required>"#),
+        group_l = v.tr("Groupe qui reçoit les droits", "Group that gets the rights"),
+        rights = rights_tiles(v, &v.tr("Droits donnés au groupe", "Rights given to the group"), &Rights::new([Right::Session]), "jeton"),
+        cancel = v.tr("Annuler", "Cancel"),
+        create = v.tr("Créer le jeton", "Create the token"),
+    );
+    let action = format!("<a class=\"btn kn-primary\" href=\"#jeton\">{}{}</a>", ic("plus"), v.tr("Créer un jeton", "Create a token"));
+    let page = format!(
+        "{top}{notice}<div class=\"ka-tab-panel\">\n{help}{fresh}{tokens}<p class=\"ka-muted ka-after\">{revoke_help}</p>\n</div>\n{sheet}",
+        top = org_top(v, &d.id, &d.name, Kind::Team, d.role, true, "deployer", &action),
+        notice = notice_html(v.lang, notice),
+        help = help_box(
+            "rocket",
+            &v.tr(
+                "<b>Pour installer plusieurs Stations d'un coup.</b> Créez un jeton, puis lancez l'installateur avec lui : chaque Station se rattache à l'équipe toute seule, sans écran.",
+                "<b>To install several Stations at once.</b> Create a token, then run the installer with it: each Station attaches itself to the team, with no screen.",
+            ),
+        ),
+        revoke_help = v.tr(
+            "Révoquer un jeton empêche de nouveaux enrôlements ; les Stations déjà rattachées restent à l'équipe.",
+            "Revoking a token prevents new enrollments; the Stations already attached stay with the team.",
+        ),
+        sheet = sheet(v, "jeton", &d.name, &v.tr("Nouveau jeton d'enrôlement", "New enrollment token"), &v.form("/compte/organisation/jetons/creer", "", &inner), false),
+    );
+    frame(v, &d.shell, Here::Org(d.id.clone()), &title, "/compte/organisation/deployer", &page)
+}
+
+// --- Le tour d'accueil -----------------------------------------------------------------
+
+/// Ce que le tour sait du compte.
+#[derive(Debug, Clone, Default)]
+pub struct Welcome {
+    pub name: String,
+    /// Une passkey ou la double authentification.
+    pub protected: bool,
+    /// De quoi ajouter une passkey (`None` : déjà fait, ou le maximum).
+    pub register: Option<Registration>,
+    /// Le premier ordinateur à lui, s'il y en a un.
+    pub computer: Option<String>,
+}
+
+/// L'illustration de chaque étape (SVG, sans script).
+fn stage(step: u8) -> &'static str {
+    match step {
+        1 => r##"<svg viewBox="0 0 520 500" aria-hidden="true"><circle cx="260" cy="250" r="120" class="kt-ring"/><circle cx="260" cy="250" r="120" class="kt-ring kt-ring-2"/><g class="kt-glow"><path d="M260 140l90 38v70c0 56-38 102-90 120-52-18-90-64-90-120v-70z" class="kt-shield"/><circle cx="260" cy="240" r="30" class="kt-line"/><path d="M243 240c0-10 8-17 17-17M277 240c0 12-6 22-17 28M252 248c3 6 8 9 8 9" class="kt-line"/></g><text x="260" y="420" text-anchor="middle" class="kt-caption">TOUCH ID · FACE ID · WINDOWS HELLO</text></svg>"##,
+        2 => r##"<svg viewBox="0 0 520 500" aria-hidden="true"><rect x="60" y="150" width="190" height="130" rx="12" class="kt-box"/><rect x="74" y="164" width="162" height="102" rx="6" class="kt-screen"/><text x="88" y="190" class="kt-caption">ADMIN</text><text x="88" y="214" class="kt-title">Compte KyberNow</text><rect x="88" y="228" width="100" height="26" rx="5" class="kt-btn"/><path d="M140 296h40M155 280v16" class="kt-dim"/><path d="M250 215 C 320 215, 300 300, 370 300" class="kt-beam kt-glow"/><g class="kt-glow"><rect x="360" y="250" width="110" height="100" rx="16" class="kt-shield"/><circle cx="415" cy="290" r="14" class="kt-dot"/><path d="M393 330c4-12 12-18 22-18s18 6 22 18" class="kt-line kt-line-sig"/></g></svg>"##,
+        3 => r##"<svg viewBox="0 0 520 500" aria-hidden="true"><g class="kt-glow"><rect x="210" y="210" width="100" height="70" rx="10" class="kt-shield"/></g><text x="260" y="250" text-anchor="middle" class="kt-caption">PC</text><rect x="40" y="90" width="180" height="120" rx="20" class="kt-fam"/><circle cx="80" cy="160" r="18" class="kt-av kt-av-0"/><circle cx="130" cy="160" r="18" class="kt-av kt-av-1"/><circle cx="180" cy="160" r="18" class="kt-av kt-av-2"/><rect x="300" y="290" width="190" height="120" rx="20" class="kt-team"/><circle cx="340" cy="362" r="18" class="kt-av kt-av-3"/><circle cx="390" cy="362" r="18" class="kt-av kt-av-1"/><circle cx="440" cy="362" r="18" class="kt-av kt-av-4"/><path d="M200 205 L 230 225" class="kt-beam kt-beam-fam"/><path d="M320 295 L 290 270" class="kt-beam kt-beam-team"/></svg>"##,
+        _ => r##"<svg viewBox="0 0 520 500" aria-hidden="true"><circle cx="260" cy="250" r="170" class="kt-orbit-line"/><circle cx="260" cy="250" r="110" class="kt-core"/><g class="kt-glow"><rect x="200" y="200" width="120" height="80" rx="10" class="kt-shield"/><path d="M240 300h40M260 280v20" class="kt-line kt-line-sig"/></g><g class="kt-orbit"><line x1="260" y1="250" x2="430" y2="250" class="kt-beam"/><line x1="260" y1="250" x2="312.5" y2="411.7" class="kt-beam"/><line x1="260" y1="250" x2="122.5" y2="349.9" class="kt-beam"/><line x1="260" y1="250" x2="122.5" y2="150.1" class="kt-beam"/><line x1="260" y1="250" x2="312.5" y2="88.3" class="kt-beam"/><circle cx="430" cy="250" r="26" class="kt-dev"/><circle cx="312.5" cy="411.7" r="26" class="kt-dev"/><circle cx="122.5" cy="349.9" r="26" class="kt-dev"/><circle cx="122.5" cy="150.1" r="26" class="kt-dev"/><circle cx="312.5" cy="88.3" r="26" class="kt-dev"/></g></svg>"##,
+    }
+}
+
+/// `/compte/bienvenue?etape=…` : le tour d'accueil, en quatre étapes plein écran.
+pub fn welcome(v: &View<'_>, step: u8, w: &Welcome) -> String {
+    let q = v.q();
+    let step = step.clamp(0, 3);
+    let go = |s: u8| format!("/compte/bienvenue{q}&amp;etape={s}");
+    // Finir (ou passer) : le tour est vu ; `suite` choisit où l'on va.
+    let finish = |label: &str, suite: &str, class: &str| v.form("/compte/bienvenue", "ka-inline-form", &format!("{}\n<button class=\"{class}\" type=\"submit\">{label}</button>", hidden("suite", suite)));
+    let point = |n: &str, html: String| format!("<li><span class=\"ka-n\">{n}</span><div>{html}</div></li>");
+    let (eyebrow, title, body, next) = match step {
+        0 => (
+            match v.lang {
+                Lang::Fr => t(v.lang, &if w.name.is_empty() { "Bienvenue".to_string() } else { format!("Bienvenue, {}", esc(&w.name)) }, ""),
+                Lang::En => if w.name.is_empty() { "Welcome".to_string() } else { format!("Welcome, {}", esc(&w.name)) },
+            },
+            v.tr("Votre ordinateur, <strong>sur tous vos appareils</strong>", "Your computer, <strong>on all your devices</strong>"),
+            format!(
+                "<p>{text}</p>\n<ul class=\"ka-points\">{p1}{p2}{p3}</ul>",
+                text = v.tr(
+                    "Votre compte KyberNow relie vos ordinateurs à tous vos appareils. Connectez-vous une fois dans KyberNow Link : ils apparaissent tout de suite, sur la télé comme sur le téléphone.",
+                    "Your KyberNow account links your computers to all your devices. Sign in once in KyberNow Link: they show up right away, on the TV as on the phone.",
+                ),
+                p1 = point("1", v.tr("<b>Protégez votre compte</b> en une touche.", "<b>Protect your account</b> with one touch.")),
+                p2 = point("2", v.tr("<b>Rattachez votre ordinateur</b> depuis Admin.", "<b>Attach your computer</b> from Admin.")),
+                p3 = point("3", v.tr("<b>Ouvrez-le à vos proches</b> ou à votre équipe, si vous voulez.", "<b>Open it to your loved ones</b> or your team, if you like.")),
+            ),
+            format!("<a class=\"btn kn-primary\" href=\"{}\">{}{}</a>", go(1), v.tr("Commencer", "Start"), ic("arrow")),
+        ),
+        1 => {
+            let state = if w.protected {
+                format!("<p class=\"ka-wait is-ok\"><span class=\"ka-spin\"></span><span>{}</span></p>", v.tr("<b>Votre compte est protégé.</b>", "<b>Your account is protected.</b>"))
+            } else {
+                String::new()
+            };
+            let action = match (&w.register, w.protected) {
+                (Some(r), false) => format!(
+                    "<a class=\"btn btn-ghost\" href=\"{later}\">{later_l}</a>\n{form}",
+                    later = go(2),
+                    later_l = v.tr("Plus tard", "Later"),
+                    form = passkey_create_form_with(v, r, "btn kn-primary", &hidden("suite", "bienvenue")),
+                ),
+                _ => format!("<a class=\"btn kn-primary\" href=\"{}\">{}{}</a>", go(2), v.tr("Continuer", "Continue"), ic("arrow")),
+            };
+            (
+                v.tr("Étape 1 sur 3", "Step 1 of 3"),
+                v.tr("Protégez votre compte <strong>avec une passkey</strong>", "Protect your account <strong>with a passkey</strong>"),
+                format!(
+                    "<p>{text}</p>\n{state}{none}<p class=\"ka-muted\">{totp}</p>",
+                    text = v.tr(
+                        "Votre compte ouvre vos ordinateurs : il mérite mieux qu'un mot de passe. Une passkey utilise Touch ID, Face ID ou Windows Hello, et personne ne peut vous la voler par e-mail.",
+                        "Your account opens your computers: it deserves better than a password. A passkey uses Touch ID, Face ID or Windows Hello, and nobody can steal it from you by email.",
+                    ),
+                    none = if w.protected { String::new() } else { passkey_unsupported(v) },
+                    totp = match v.lang {
+                        Lang::Fr => t(v.lang, &format!("Vous préférez une application d'authentification ? <a href=\"/compte/double-authentification{q}\">Activer la double authentification</a>"), ""),
+                        Lang::En => format!("Prefer an authenticator app? <a href=\"/compte/double-authentification{q}\">Turn on two-factor authentication</a>"),
+                    },
+                ),
+                action,
+            )
+        }
+        2 => {
+            let state = match &w.computer {
+                Some(name) => format!(
+                    "<p class=\"ka-wait is-ok\"><span class=\"ka-spin\"></span><span>{}</span></p>",
+                    match v.lang {
+                        Lang::Fr => t(v.lang, &format!("<b>{}</b> est rattaché à votre compte.", esc(name)), ""),
+                        Lang::En => format!("<b>{}</b> is attached to your account.", esc(name)),
+                    }
+                ),
+                None => format!("<p class=\"ka-wait\"><span class=\"ka-spin\"></span><span>{}</span></p>", v.tr("En attente de votre ordinateur…", "Waiting for your computer…")),
+            };
+            (
+                v.tr("Étape 2 sur 3", "Step 2 of 3"),
+                v.tr("Rattachez <strong>votre ordinateur</strong>", "Attach <strong>your computer</strong>"),
+                format!("{steps}{state}", steps = attach_steps(v)),
+                format!(
+                    "<a class=\"btn {class}\" href=\"{}\">{}{}</a>",
+                    go(3),
+                    if w.computer.is_some() { v.tr("Continuer", "Continue") } else { v.tr("Plus tard", "Later") },
+                    if w.computer.is_some() { ic("arrow") } else { String::new() },
+                    class = if w.computer.is_some() { "kn-primary" } else { "btn-ghost" },
+                ),
+            )
+        }
+        _ => (
+            v.tr("Étape 3 sur 3", "Step 3 of 3"),
+            v.tr("Ouvrez-le <strong>à ceux que vous voulez</strong>", "Open it <strong>to whoever you like</strong>"),
+            format!(
+                "<p>{text}</p>\n<div class=\"ka-kinds ka-kinds-tour\">\n{family}\n{team}\n</div>",
+                text = v.tr(
+                    "Ajoutez une personne par son e-mail et choisissez ce qu'elle peut faire. Pour plusieurs personnes à la fois, réunissez-les :",
+                    "Add a person by their email and choose what they can do. For several people at once, gather them:",
+                ),
+                family = v.form(
+                    "/compte/bienvenue",
+                    "ka-inline-form",
+                    &format!(
+                        "{}\n<button class=\"ka-kind ka-kind-family\" type=\"submit\"><span class=\"ka-halo\"></span><span class=\"ka-kind-icon\">{}</span><h3>{}</h3><p>{}</p></button>",
+                        hidden("suite", "famille"),
+                        ic("home"),
+                        v.tr("Une famille", "A family"),
+                        v.tr("Le PC du salon pour toute la maison.", "The living room PC for the whole home.")
+                    )
+                ),
+                team = v.form(
+                    "/compte/bienvenue",
+                    "ka-inline-form",
+                    &format!(
+                        "{}\n<button class=\"ka-kind ka-kind-team\" type=\"submit\"><span class=\"ka-halo\"></span><span class=\"ka-kind-icon\">{}</span><h3>{}</h3><p>{}</p></button>",
+                        hidden("suite", "equipe"),
+                        ic("team"),
+                        v.tr("Une équipe", "A team"),
+                        v.tr("Des rôles, des groupes et un journal.", "Roles, groups and a log.")
+                    )
+                ),
+            ),
+            finish(&v.tr("Ouvrir mon espace", "Open my space"), "", "btn kn-primary"),
+        ),
+    };
+    let progress: String = (0..4).map(|i| format!("<i{}></i>", if i <= step { " class=\"is-done\"" } else { "" })).collect();
+    let back = if step > 0 { format!("<a class=\"btn btn-text\" href=\"{}\">{}{}</a>", go(step - 1), ic("back"), v.tr("Retour", "Back")) } else { "<span></span>".to_string() };
+    let body = format!(
+        "<div class=\"kt-top\"><img class=\"kt-logo\" src=\"{logo}\" alt=\"KyberNow Share\" width=\"200\" height=\"37\"><div class=\"kt-progress\" role=\"img\" aria-label=\"{of}\">{progress}</div>{skip}</div>\n<div class=\"kt-main kt-step-{step}\"><div class=\"kt-stage\">{stage}</div>\n<div class=\"kt-text\"><p class=\"ka-eyebrow\">{eyebrow}</p>\n<h1>{title}</h1>\n{body}</div></div>\n<div class=\"kt-foot\">{back}<div class=\"kt-actions\">{next}</div></div>",
+        logo = assets::url("kybernow-share-dark.svg"),
+        of = match v.lang {
+            Lang::Fr => format!("Étape {} sur 4", step + 1),
+            Lang::En => format!("Step {} of 4", step + 1),
+        },
+        skip = finish(&v.tr("Passer", "Skip"), "", "btn btn-text"),
+        stage = stage(step),
+    );
+    let refresh = if step == 2 && w.computer.is_none() { "\n<meta http-equiv=\"refresh\" content=\"5\">" } else { "" };
+    let script = if body.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
+    format!(
+        r##"<!doctype html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="robots" content="noindex">{refresh}
+<link rel="icon" type="image/svg+xml" href="{favicon}">
+<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{css}">
+<title>{title} · KyberNow</title>{script}
+</head>
+<body class="kt-page">
+{sprite}
+<main class="kt-tour">
+{body}
+</main>
+</body>
+</html>
+"##,
+        lang = v.lang.code(),
+        title = v.tr("Bienvenue", "Welcome"),
+        favicon = assets::url("kybernow-favicon.svg"),
+        font = assets::url("archivo.woff2"),
+        css = assets::url("share.css"),
+        sprite = SPRITE,
+    )
+}
+
+// --- Admin sur le réseau ---------------------------------------------------------------
+
+/// « Ouvrir Admin de {ordinateur} ? » : Admin s'ouvrira à `host`, sur le réseau.
+pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &str)]) -> String {
+    let title = match v.lang {
+        Lang::Fr => t(v.lang, &format!("Ouvrir Admin de {} ?", esc(computer)), ""),
+        Lang::En => format!("Open Admin of {}?", esc(computer)),
+    };
+    let hidden_fields: String = fields.iter().map(|(k, val)| hidden(k, val)).collect::<Vec<_>>().join("\n");
+    let inner = format!(
+        "{hidden_fields}\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"ouvrir\">{open}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
+        open = v.tr("Ouvrir Admin", "Open Admin"),
+        cancel = v.tr("Annuler", "Cancel"),
+    );
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<p class=\"help\"><b>{host}</b></p>\n<p class=\"hint\">{check}</p>\n{form}",
+        help = v.tr(
+            "Avec le droit Administrer, votre compte ouvre Admin de cet ordinateur, sur le réseau seulement, à cette adresse :",
+            "With the Administer right, your account opens this computer's Admin, on the network only, at this address:",
+        ),
+        host = esc(host),
+        check = v.tr("Vous n'avez pas demandé à ouvrir Admin à l'instant ? Annulez.", "You didn't just ask to open Admin? Cancel."),
+        form = v.form("/compte/ouvrir-admin", "", &inner),
+    );
+    super::page_with(v, &title, "/compte/ouvrir-admin", "", &card)
+}
+
+/// Vers Admin, avec le jeton (lien, et rafraîchissement sans script).
+pub fn open_admin_go(v: &View<'_>, target: &str) -> String {
+    let title = v.tr("Ouverture d'Admin", "Opening Admin");
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<a class=\"btn kn-primary\" href=\"{target}\">{open}</a>",
+        help = v.tr("Admin s'ouvre ; sinon, ce bouton (le lien vaut 5 minutes).", "Admin is opening; otherwise, this button (the link is valid for 5 minutes)."),
+        target = esc(target),
+        open = v.tr("Ouvrir Admin", "Open Admin"),
+    );
+    let html = super::page_with(v, &title, "/compte/ouvrir-admin", "", &card);
+    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
+}
+
+// --- Le journal ------------------------------------------------------------------------
 
 /// Une ligne du journal en mots.
 pub fn log_text(lang: Lang, l: &LogLine) -> String {
@@ -467,480 +1766,27 @@ fn when(lang: Lang, unix: i64) -> String {
     }
 }
 
-fn log_html(v: &View<'_>, log: &[LogLine]) -> String {
+/// Une ligne du journal, avec les mots de la famille ou de l'équipe.
+pub fn log_line(lang: Lang, l: &LogLine, kind: Kind) -> String {
+    let text = log_text(lang, l);
+    match (lang, kind) {
+        (Lang::Fr, Kind::Family) => text.replace("l'organisation", "la famille"),
+        (Lang::Fr, Kind::Team) => text.replace("l'organisation", "l'équipe"),
+        (Lang::En, Kind::Family) => text.replace("the organization", "the family"),
+        (Lang::En, Kind::Team) => text.replace("the organization", "the team"),
+    }
+}
+
+fn log_html(v: &View<'_>, log: &[LogLine], kind: Kind) -> String {
     if log.is_empty() {
-        return format!("<p class=\"hint\">{}</p>", v.tr("Rien encore.", "Nothing yet."));
+        return format!("<p class=\"ka-muted ka-pad\">{}</p>", v.tr("Rien encore.", "Nothing yet."));
     }
     log.iter()
         .map(|l| {
             let from = l.ip.as_deref().map(|ip| format!(" · {}", esc(ip))).unwrap_or_default();
-            format!("<div class=\"row\"><div><span>{}</span><small>{}{from}</small></div></div>\n", esc(&log_text(v.lang, l)), when(v.lang, l.at))
+            row(&ic("log"), &esc(&log_line(v.lang, l, kind)), &format!("{}{from}", when(v.lang, l.at)), "")
         })
         .collect()
-}
-
-fn role_select(v: &View<'_>, name: &str, current: Role, allow_owner: bool) -> String {
-    let options: String = Role::ALL
-        .iter()
-        .filter(|r| allow_owner || **r != Role::Owner || current == Role::Owner)
-        .map(|r| {
-            let sel = if *r == current { " selected" } else { "" };
-            format!("<option value=\"{}\"{sel}>{}</option>", r.as_str(), role_name(v.lang, *r))
-        })
-        .collect();
-    format!("<select name=\"{name}\" aria-label=\"{}\">{options}</select>", v.tr("Rôle", "Role"))
-}
-
-pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
-    let q_id = format!("{}&amp;id={}", v.q(), pct(&o.id));
-    let tabs: String = [
-        (Tab::Members, v.tr("Membres", "Members")),
-        (Tab::Groups, v.tr("Groupes", "Groups")),
-        (Tab::Computers, v.tr("Ordinateurs", "Computers")),
-        (Tab::Log, v.tr("Journal", "Log")),
-    ]
-    .iter()
-    .map(|(tab, label)| {
-        let cur = if *tab == o.tab { " aria-current=\"page\"" } else { "" };
-        format!("<a href=\"/compte/organisation{q_id}&amp;vue={}\"{cur}>{label}</a>", tab.word())
-    })
-    .collect();
-    let you = match v.lang {
-        Lang::Fr => t(v.lang, &format!("Organisation · vous êtes {} · double authentification exigée des Propriétaires et Administrateurs", role_name(v.lang, o.role)), ""),
-        Lang::En => format!("Organization · you are {} · two-factor authentication required of Owners and Administrators", role_name(v.lang, o.role)),
-    };
-    let warn = if o.needs_2fa {
-        format!(
-            "<p class=\"notice\" role=\"status\">{} <a href=\"/compte/double-authentification{}\">{}</a></p>\n",
-            v.tr(
-                "Pour gérer l'organisation, activez la double authentification (ou ajoutez une passkey) sur votre compte.",
-                "To manage the organization, turn on two-factor authentication (or add a passkey) on your account.",
-            ),
-            v.q(),
-            v.tr("L'activer", "Turn it on"),
-        )
-    } else {
-        String::new()
-    };
-    let id_field = hidden("id", &o.id);
-    let body = match o.tab {
-        Tab::Members => {
-            let rows: String = o
-                .members
-                .iter()
-                .map(|m| {
-                    let mut detail = vec![m.email.clone()];
-                    detail.push(if m.two_factor { v.tr("double authentification", "two-factor") } else { v.tr("sans double authentification", "no two-factor") });
-                    detail.extend(m.groups.iter().cloned());
-                    let name = if m.account == o.me { format!("{} ({})", m.name, v.tr("vous", "you")) } else { m.name.clone() };
-                    // Un Administrateur ne touche pas aux Propriétaires ; seul un Propriétaire en nomme.
-                    let editable = o.manage && (o.role == Role::Owner || m.role != Role::Owner);
-                    let acts = if editable {
-                        let role = v.form(
-                            "/compte/organisation/role",
-                            "acct-inline console-role",
-                            &format!(
-                                "{id_field}\n{}\n{}\n{}",
-                                hidden("compte", &m.account.to_string()),
-                                role_select(v, "role", m.role, o.role == Role::Owner),
-                                small_button(&v.tr("Changer", "Change"))
-                            ),
-                        );
-                        let remove = if m.account == o.me {
-                            String::new()
-                        } else {
-                            v.form(
-                                "/compte/organisation/retirer",
-                                "acct-inline",
-                                &format!("{id_field}\n{}\n{}", hidden("compte", &m.account.to_string()), small_button(&v.tr("Retirer", "Remove"))),
-                            )
-                        };
-                        format!("<div class=\"acts\">{role}\n{remove}</div>")
-                    } else {
-                        format!("<span class=\"pill\">{}</span>", role_name(v.lang, m.role))
-                    };
-                    format!("<div class=\"row\"><div><b>{}</b><small>{}</small></div>{acts}</div>\n", esc(&name), esc(&detail.join(" · ")))
-                })
-                .collect();
-            let invites: String = o
-                .invites
-                .iter()
-                .map(|i| {
-                    let cancel = if o.manage {
-                        v.form(
-                            "/compte/organisation/retirer",
-                            "acct-inline",
-                            &format!("{id_field}\n{}\n{}", hidden("invitation", &i.id.to_string()), small_button(&v.tr("Annuler", "Cancel"))),
-                        )
-                    } else {
-                        String::new()
-                    };
-                    format!(
-                        "<div class=\"row\"><div><b>{}</b><small>{} · {}</small></div>{cancel}</div>\n",
-                        esc(&i.email),
-                        v.tr("Invitation envoyée", "Invitation sent"),
-                        role_name(v.lang, i.role)
-                    )
-                })
-                .collect();
-            let invite = if o.manage {
-                let inner = format!(
-                    "{id_field}\n<div class=\"inline-fields\">{email}\n<div class=\"field\"><label class=\"mono-label\" for=\"role\">{role_l}</label>\n{role}</div></div>\n<button class=\"btn kn-primary\" type=\"submit\">{send}</button>",
-                    email = field(
-                        &v.tr("Adresse e-mail", "Email address"),
-                        r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" required>"#,
-                    ),
-                    role_l = v.tr("Rôle", "Role"),
-                    role = role_select(v, "role", Role::Member, o.role == Role::Owner).replacen("<select ", "<select id=\"role\" ", 1),
-                    send = v.tr("Inviter un membre", "Invite a member"),
-                );
-                format!("<section class=\"console-box\">\n<h2>{}</h2>\n{}\n</section>\n", v.tr("Inviter un membre", "Invite a member"), v.form("/compte/organisation/inviter", "", &inner))
-            } else {
-                String::new()
-            };
-            let leave = v.form(
-                "/compte/organisation/quitter",
-                "acct-inline console-detach",
-                &format!("{id_field}\n{}", small_button(&v.tr("Quitter l'organisation", "Leave the organization"))),
-            );
-            let rename = if o.manage && o.role == Role::Owner {
-                let inner = format!(
-                    "{id_field}\n<div class=\"inline-fields\">{}</div>\n<button class=\"btn btn-ghost\" type=\"submit\">{}</button>",
-                    field(&v.tr("Nom de l'organisation", "Organization name"), &format!(r#"<input id="nom" name="nom" maxlength="64" value="{}" required>"#, esc(&o.name))),
-                    v.tr("Renommer", "Rename"),
-                );
-                v.form("/compte/organisation/renommer", "", &inner)
-            } else {
-                String::new()
-            };
-            format!(
-                "<div class=\"console-cols\">\n<section class=\"console-box\">\n<h2>{members_h}</h2>\n{rows}{invites}</section>\n<section class=\"console-box\">\n<h2>{log_h}</h2>\n{log}\n<p class=\"acct-links\"><a href=\"/compte/organisation{q_id}&amp;vue=journal\">{all}</a></p></section>\n</div>\n{invite}{rename}{leave}",
-                members_h = v.tr("Membres", "Members"),
-                log_h = v.tr("Journal", "Log"),
-                log = log_html(v, &o.log[..o.log.len().min(8)]),
-                all = v.tr("Tout le journal", "The whole log"),
-            )
-        }
-        Tab::Groups => {
-            let list: String = o
-                .groups
-                .iter()
-                .map(|g| {
-                    let members: String = g
-                        .members
-                        .iter()
-                        .map(|(acc, name)| {
-                            let out = if o.manage {
-                                v.form(
-                                    "/compte/organisation/groupes/membre",
-                                    "acct-inline",
-                                    &format!(
-                                        "{id_field}\n{}\n{}\n{}\n{}",
-                                        hidden("groupe", &g.id.to_string()),
-                                        hidden("compte", &acc.to_string()),
-                                        hidden("action", "retirer"),
-                                        small_button(&v.tr("Retirer", "Remove"))
-                                    ),
-                                )
-                            } else {
-                                String::new()
-                            };
-                            format!("<div class=\"row\"><div><b>{}</b></div>{out}</div>\n", esc(name))
-                        })
-                        .collect();
-                    let manage = if o.manage {
-                        let options: String = o
-                            .members
-                            .iter()
-                            .filter(|m| !g.members.iter().any(|(a, _)| *a == m.account))
-                            .map(|m| format!("<option value=\"{}\">{}</option>", m.account, esc(&m.name)))
-                            .collect();
-                        let add = if options.is_empty() {
-                            String::new()
-                        } else {
-                            v.form(
-                                "/compte/organisation/groupes/membre",
-                                "acct-inline console-role",
-                                &format!(
-                                    "{id_field}\n{}\n{}\n<select name=\"compte\" aria-label=\"{}\">{options}</select>\n{}",
-                                    hidden("groupe", &g.id.to_string()),
-                                    hidden("action", "ajouter"),
-                                    v.tr("Membre", "Member"),
-                                    small_button(&v.tr("Ajouter au groupe", "Add to the group"))
-                                ),
-                            )
-                        };
-                        let delete = v.form(
-                            "/compte/organisation/groupes/supprimer",
-                            "acct-inline",
-                            &format!("{id_field}\n{}\n{}", hidden("groupe", &g.id.to_string()), small_button(&v.tr("Supprimer le groupe", "Delete the group"))),
-                        );
-                        format!("<div class=\"acct-actions\">{add}\n{delete}</div>")
-                    } else {
-                        String::new()
-                    };
-                    let count = match v.lang {
-                        Lang::Fr => format!("{} personne{}", g.members.len(), if g.members.len() > 1 { "s" } else { "" }),
-                        Lang::En => format!("{} {}", g.members.len(), if g.members.len() == 1 { "person" } else { "people" }),
-                    };
-                    format!("<section class=\"console-box\">\n<h2>{} <small>{count}</small></h2>\n{members}{manage}\n</section>\n", esc(&g.name))
-                })
-                .collect();
-            let create = if o.manage {
-                let inner = format!(
-                    "{id_field}\n<div class=\"inline-fields\">{}</div>\n<button class=\"btn kn-primary\" type=\"submit\">{}</button>",
-                    field(&v.tr("Nom du groupe", "Group name"), r#"<input id="nom" name="nom" maxlength="64" placeholder="Graphistes" required>"#),
-                    v.tr("Créer le groupe", "Create the group"),
-                );
-                format!("<section class=\"console-box\">\n<h2>{}</h2>\n{}\n</section>\n", v.tr("Nouveau groupe", "New group"), v.form("/compte/organisation/groupes/creer", "", &inner))
-            } else {
-                String::new()
-            };
-            let empty = if o.groups.is_empty() { format!("<p class=\"help\">{}</p>\n", v.tr("Aucun groupe pour l'instant.", "No groups yet.")) } else { String::new() };
-            format!(
-                "<p class=\"hint\">{}</p>\n{empty}{list}{create}",
-                v.tr(
-                    "Les droits se donnent à un groupe depuis la page « Personnes » d'un ordinateur, ou avec un jeton d'enrôlement.",
-                    "Rights are given to a group from a computer's \"People\" page, or with an enrollment token.",
-                )
-            )
-        }
-        Tab::Computers => {
-            let rows: String = o
-                .computers
-                .iter()
-                .map(|c| {
-                    format!(
-                        "<div class=\"row\"><div><b><a href=\"/compte/ordinateur{}&amp;id={}\">{}</a></b><small>{}</small></div>{}</div>\n",
-                        v.q(),
-                        pct(&c.id),
-                        esc(&c.name),
-                        esc(&c.access),
-                        state_pill(v, c.online)
-                    )
-                })
-                .collect();
-            let empty = if o.computers.is_empty() { format!("<p class=\"help\">{}</p>\n", v.tr("Aucun ordinateur pour l'instant.", "No computers yet.")) } else { String::new() };
-            let deploy = if o.manage {
-                format!("<p class=\"acct-links\"><a class=\"btn kn-primary\" href=\"/compte/organisation/deployer{q_id}\">{}</a></p>", v.tr("Déployer des Stations", "Deploy Stations"))
-            } else {
-                String::new()
-            };
-            format!(
-                "<p class=\"hint\">{}</p>\n<section class=\"console-box\">\n{empty}{rows}</section>\n{deploy}",
-                v.tr(
-                    "Rattacher un ordinateur à l'organisation : Admin › Compte KyberNow › « Se connecter », puis choisir l'organisation comme propriétaire ; ou un jeton d'enrôlement.",
-                    "Attach a computer to the organization: Admin › KyberNow account › \"Sign in\", then choose the organization as owner; or an enrollment token.",
-                )
-            )
-        }
-        Tab::Log => format!("<section class=\"console-box\">\n{}</section>\n", log_html(v, &o.log)),
-    };
-    let card = format!(
-        "{nav}<div class=\"console-head\"><div><h1>{name}</h1>\n<p class=\"hint\">{you}</p></div></div>\n<nav class=\"tabs\" aria-label=\"{tabs_l}\">{tabs}</nav>\n{notice}{warn}{body}",
-        nav = nav(v, &o.nav_orgs, Here::Org(o.id.clone())),
-        name = esc(&o.name),
-        tabs_l = v.tr("Sections", "Sections"),
-        notice = notice_html(v.lang, notice),
-    );
-    console(v, &o.name, "/compte/organisation", &card)
-}
-
-/// « Créer une organisation ».
-pub fn create_org(v: &View<'_>, name: &str, two_factor: bool, nav_orgs: &[(String, String)], notice: Option<Notice>) -> String {
-    let title = v.tr("Créer une organisation", "Create an organization");
-    let body = if two_factor {
-        let inner = format!(
-            "{}\n<button class=\"btn kn-primary\" type=\"submit\">{}</button>",
-            field(&v.tr("Nom", "Name"), &format!(r#"<input id="nom" name="nom" maxlength="64" placeholder="Les Lignes Claires" value="{}" required>"#, esc(name))),
-            v.tr("Créer", "Create"),
-        );
-        v.form("/compte/organisations/creer", "", &inner)
-    } else {
-        format!(
-            "<p class=\"notice\" role=\"status\">{} <a href=\"/compte/double-authentification{}\">{}</a></p>",
-            v.tr(
-                "Les Propriétaires d'une organisation ont la double authentification : activez-la d'abord (ou ajoutez une passkey).",
-                "An organization's Owners have two-factor authentication: turn it on first (or add a passkey).",
-            ),
-            v.q(),
-            v.tr("L'activer", "Turn it on"),
-        )
-    };
-    let card = format!(
-        "{nav}<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n{notice}{body}",
-        nav = nav(v, nav_orgs, Here::None),
-        help = v.tr(
-            "Une organisation a des membres, des groupes et des ordinateurs, et un journal de qui ouvre quoi.",
-            "An organization has members, groups and computers, and a log of who opens what.",
-        ),
-        notice = notice_html(v.lang, notice),
-    );
-    console(v, &title, "/compte/organisations/creer", &card)
-}
-
-// --- Déployer des Stations -------------------------------------------------------------
-
-/// La page « Déployer des Stations ».
-#[derive(Debug, Clone)]
-pub struct DeployView {
-    pub id: String,
-    pub name: String,
-    /// Les jetons et leurs Stations enrôlées `(nom, quand)`.
-    pub tokens: Vec<(EnrollToken, Vec<(String, i64)>)>,
-    pub groups: Vec<(i64, String)>,
-    /// Le jeton tout juste créé, montré une seule fois.
-    pub new_token: Option<String>,
-    /// Le relais, pour la ligne de commande (`/relay=`).
-    pub relay: String,
-    pub now: i64,
-    pub nav_orgs: Vec<(String, String)>,
-}
-
-pub fn deploy(v: &View<'_>, d: &DeployView, notice: Option<Notice>) -> String {
-    let title = v.tr("Déployer des Stations", "Deploy Stations");
-    let q_id = format!("{}&amp;id={}", v.q(), pct(&d.id));
-    let id_field = hidden("id", &d.id);
-    let fresh = match &d.new_token {
-        Some(token) => format!(
-            "<section class=\"console-box console-new\">\n<h2>{h}</h2>\n<p class=\"hint\">{once}</p>\n<p class=\"token\">{token}</p>\n<p class=\"mono-label\">{silent}</p>\n<p class=\"token token-sm\">KyberNow-Station-Setup.exe /quiet /enroll={token} /relay={relay}</p>\n</section>\n",
-            h = v.tr("Nouveau jeton", "New token"),
-            once = v.tr("Montré une seule fois : copiez-le maintenant.", "Shown only once: copy it now."),
-            token = esc(token),
-            silent = v.tr("Installation silencieuse (Windows)", "Silent install (Windows)"),
-            relay = esc(&d.relay),
-        ),
-        None => String::new(),
-    };
-    let tokens: String = d
-        .tokens
-        .iter()
-        .map(|(tk, stations)| {
-            let until = match v.lang {
-                Lang::Fr => format!("jusqu'au {}", date(v.lang, tk.expires_at - 1)),
-                Lang::En => format!("until {}", date(v.lang, tk.expires_at - 1)),
-            };
-            let mut parts = vec![format!("{} / {} Stations", tk.used, tk.max_stations), until];
-            if let Some(g) = &tk.group_name
-                && !tk.rights.is_empty()
-            {
-                parts.push(match v.lang {
-                    Lang::Fr => t(v.lang, &format!("groupe {g} : {}", rights_words(v.lang, &tk.rights)), ""),
-                    Lang::En => format!("group {g}: {}", rights_words(v.lang, &tk.rights)),
-                });
-            }
-            let state = match tk.refusal(d.now) {
-                None => String::new(),
-                Some("revoked") => format!("<span class=\"pill\">{}</span>", v.tr("Révoqué", "Revoked")),
-                Some("expired") => format!("<span class=\"pill\">{}</span>", v.tr("Échu", "Expired")),
-                Some(_) => format!("<span class=\"pill\">{}</span>", v.tr("Épuisé", "Used up")),
-            };
-            let revoke = if tk.revoked_at.is_none() {
-                v.form(
-                    "/compte/organisation/jetons/revoquer",
-                    "acct-inline",
-                    &format!("{id_field}\n{}\n<button class=\"btn btn-danger btn-sm\" type=\"submit\">{}</button>", hidden("jeton", &tk.id.to_string()), v.tr("Révoquer le jeton", "Revoke the token")),
-                )
-            } else {
-                String::new()
-            };
-            let list: String = stations
-                .iter()
-                .map(|(name, at)| {
-                    let when = match v.lang {
-                        Lang::Fr => format!("enrôlée le {}", date(v.lang, *at)),
-                        Lang::En => format!("enrolled {}", date(v.lang, *at)),
-                    };
-                    format!("<div class=\"row\"><div><b>{}</b></div><small>{when}</small></div>\n", esc(name))
-                })
-                .collect();
-            let list = if list.is_empty() {
-                String::new()
-            } else {
-                format!("<h3 class=\"mono-label\">{}</h3>\n{list}", v.tr("Stations enrôlées par ce jeton", "Stations enrolled with this token"))
-            };
-            format!(
-                "<section class=\"console-box\">\n<div class=\"row\"><div><b>{name}</b><small>{hint}… · {parts}</small></div><div class=\"acts\">{state}{revoke}</div></div>\n{list}</section>\n",
-                name = esc(&tk.name),
-                hint = esc(&tk.hint),
-                parts = esc(&parts.join(" · ")),
-            )
-        })
-        .collect();
-    let groups: String = std::iter::once(format!("<option value=\"\">{}</option>", v.tr("Aucun", "None")))
-        .chain(d.groups.iter().map(|(id, name)| format!("<option value=\"{id}\">{}</option>", esc(name))))
-        .collect();
-    let inner = format!(
-        "{id_field}\n<div class=\"inline-fields\">{name}\n{days}\n{count}</div>\n<div class=\"field\"><label class=\"mono-label\" for=\"groupe\">{group_l}</label>\n<select id=\"groupe\" name=\"groupe\">{groups}</select></div>\n{rights}\n<button class=\"btn kn-primary\" type=\"submit\">{create}</button>",
-        name = field(&v.tr("Nom", "Name"), r#"<input id="nom" name="nom" maxlength="64" placeholder="Postes graphistes" required>"#),
-        days = field(&v.tr("Durée (jours)", "Duration (days)"), r#"<input id="jours" name="jours" type="number" min="1" max="365" value="30" required>"#),
-        count = field(&v.tr("Nombre de Stations", "Number of Stations"), r#"<input id="nombre" name="nombre" type="number" min="1" max="10000" value="10" required>"#),
-        group_l = v.tr("Droits donnés au groupe", "Rights given to the group"),
-        rights = rights_fieldset(v, &v.tr("Droits", "Rights"), &Rights::new([Right::Session]), false),
-        create = v.tr("Nouveau jeton", "New token"),
-    );
-    let card = format!(
-        "{nav}<p class=\"crumbs\"><a href=\"/compte/organisation{q_id}&amp;vue=ordinateurs\">{org} › {computers}</a> › <b>{tokens_l}</b></p>\n<h1>{title}</h1>\n{notice}{fresh}{tokens}<section class=\"console-box\">\n<h2>{new_h}</h2>\n<p class=\"hint\">{help}</p>\n{form}\n</section>\n<p class=\"hint\">{revoke_help}</p>",
-        nav = nav(v, &d.nav_orgs, Here::Org(d.id.clone())),
-        org = esc(&d.name),
-        computers = v.tr("Ordinateurs", "Computers"),
-        tokens_l = v.tr("Jetons d'enrôlement", "Enrollment tokens"),
-        notice = notice_html(v.lang, notice),
-        new_h = v.tr("Nouveau jeton", "New token"),
-        help = v.tr(
-            "L'installateur de la Station le prend en silencieux et rattache la Station à l'organisation, sans écran.",
-            "The Station installer takes it silently and attaches the Station to the organization, with no screen.",
-        ),
-        form = v.form("/compte/organisation/jetons/creer", "", &inner),
-        revoke_help = v.tr(
-            "Révoquer le jeton empêche de nouveaux enrôlements ; les Stations déjà rattachées restent à l'organisation.",
-            "Revoking the token prevents new enrollments; the Stations already attached stay with the organization.",
-        ),
-    );
-    console(v, &title, "/compte/organisation/deployer", &card)
-}
-
-// --- Admin sur le réseau ---------------------------------------------------------------
-
-/// « Ouvrir Admin de {ordinateur} ? » : Admin s'ouvrira à `host`, sur le réseau.
-pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &str)]) -> String {
-    let title = match v.lang {
-        Lang::Fr => t(v.lang, &format!("Ouvrir Admin de {} ?", esc(computer)), ""),
-        Lang::En => format!("Open Admin of {}?", esc(computer)),
-    };
-    let hidden_fields: String = fields.iter().map(|(k, val)| hidden(k, val)).collect::<Vec<_>>().join("\n");
-    let inner = format!(
-        "{hidden_fields}\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"ouvrir\">{open}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
-        open = v.tr("Ouvrir Admin", "Open Admin"),
-        cancel = v.tr("Annuler", "Cancel"),
-    );
-    let card = format!(
-        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<p class=\"help\"><b>{host}</b></p>\n<p class=\"hint\">{check}</p>\n{form}",
-        help = v.tr(
-            "Avec le droit Administrer, votre compte ouvre Admin de cet ordinateur, sur le réseau seulement, à cette adresse :",
-            "With the Administer right, your account opens this computer's Admin, on the network only, at this address:",
-        ),
-        host = esc(host),
-        check = v.tr(
-            "Vous n'avez pas demandé à ouvrir Admin à l'instant ? Annulez.",
-            "You didn't just ask to open Admin? Cancel.",
-        ),
-        form = v.form("/compte/ouvrir-admin", "", &inner),
-    );
-    page_with(v, &title, "/compte/ouvrir-admin", "", &card)
-}
-
-/// Vers Admin, avec le jeton (lien, et rafraîchissement sans script).
-pub fn open_admin_go(v: &View<'_>, target: &str) -> String {
-    let title = v.tr("Ouverture d'Admin", "Opening Admin");
-    let card = format!(
-        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<a class=\"btn kn-primary\" href=\"{target}\">{open}</a>",
-        help = v.tr("Admin s'ouvre ; sinon, ce bouton (le lien vaut 5 minutes).", "Admin is opening; otherwise, this button (the link is valid for 5 minutes)."),
-        target = esc(target),
-        open = v.tr("Ouvrir Admin", "Open Admin"),
-    );
-    let html = page_with(v, &title, "/compte/ouvrir-admin", "", &card);
-    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
 }
 
 #[cfg(test)]
@@ -948,14 +1794,29 @@ pub(super) mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Le menu des essais : une équipe, une famille, deux étapes faites.
+    pub fn shell() -> Shell {
+        Shell {
+            name: "Ana <b>".into(),
+            email: "ana@exemple.org".into(),
+            orgs: vec![
+                NavOrg { id: "org_abc".into(), name: "Les Lignes Claires".into(), kind: Kind::Team },
+                NavOrg { id: "org_fam".into(), name: "Famille Martin".into(), kind: Kind::Family },
+            ],
+            computers: 3,
+            people: 1,
+            start: Start { protected: true, attached: true, opened: false, grouped: false },
+        }
+    }
+
     /// Toutes les pages de la console, pour les essais de `super::tests` (typographie, rien du dehors, CSRF).
     pub fn all(v: &View<'_>) -> Vec<(&'static str, String)> {
         let card = |id: &str, rights: Option<Rights>| ComputerCard { id: id.into(), name: "PC du <salon>".into(), online: id == "st1", detail: "de Léa".into(), rights };
         let computers_view = ComputersView {
             mine: vec![card("st1", None)],
             opened: vec![card("st2", Some(Rights::new([Right::Lend, Right::Share])))],
-            orgs: vec![("org_abc".into(), "Les Lignes Claires".into(), vec![card("st3", None)])],
-            nav_orgs: vec![("org_abc".into(), "Les Lignes Claires".into())],
+            orgs: vec![("org_abc".into(), "Les Lignes Claires".into(), Kind::Team, vec![card("st3", None)])],
+            shell: shell(),
         };
         let people_view = PeopleView {
             id: "st1".into(),
@@ -971,7 +1832,7 @@ pub(super) mod tests {
             admin_needs_2fa: false,
             targets: vec![("org_abc".into(), "Les Lignes Claires (toute l'organisation)".into()), ("org_abc:3".into(), "Les Lignes Claires › Graphistes".into())],
             form: ("sam@exemple.fr".into(), Rights::new([Right::Session]), "2026-12-31".into()),
-            nav_orgs: vec![],
+            shell: shell(),
         };
         let member = |id: i64, role: Role| Member {
             account: id,
@@ -1016,6 +1877,7 @@ pub(super) mod tests {
         let org_view = |tab: Tab, role: Role, manage: bool| OrgView {
             id: "org_abc".into(),
             name: "Les Lignes Claires".into(),
+            kind: Kind::Team,
             role,
             manage,
             needs_2fa: role.manages() && !manage,
@@ -1026,7 +1888,7 @@ pub(super) mod tests {
             groups: vec![Group { id: 3, name: "Graphistes".into(), members: vec![(3, "Membre 3".into())] }],
             computers: vec![OrgComputer { id: "st3".into(), name: "Station de rendu".into(), online: true, access: t(v.lang, "Groupe Graphistes : Session", "Group Graphistes: Session") }],
             log: kinds.iter().map(|k| line(k)).collect(),
-            nav_orgs: vec![("org_abc".into(), "Les Lignes Claires".into())],
+            shell: shell(),
         };
         let token = EnrollToken {
             id: 1,
@@ -1044,12 +1906,28 @@ pub(super) mod tests {
         let deploy_view = DeployView {
             id: "org_abc".into(),
             name: "Les Lignes Claires".into(),
+            role: Role::Owner,
             tokens: vec![(token.clone(), vec![("GRAPH-01".into(), 1_700_000_000)]), (EnrollToken { revoked_at: Some(1), ..token }, vec![])],
             groups: vec![(3, "Graphistes".into())],
             new_token: Some("kne_abcdefghijklmnopqrstuvwxyz234567".into()),
             relay: "share.test".into(),
             now: 1_700_000_000,
-            nav_orgs: vec![],
+            shell: shell(),
+        };
+        let people_all = AllPeopleView {
+            rows: vec![Granted { name: "Léa".into(), detail: "lea@exemple.fr".into(), computer_id: "st1".into(), computer: "PC du <salon>".into(), rights: Rights::new([Right::Lend]) }],
+            computers: vec![("st1".into(), "PC du <salon>".into()), ("st2".into(), "Portable".into())],
+            shell: shell(),
+        };
+        let families_view = FamiliesView {
+            orgs: vec![OrgCard { id: "org_abc".into(), name: "Les Lignes Claires".into(), kind: Kind::Team, role: Role::Owner, members: 3, computers: 1 }],
+            shell: shell(),
+        };
+        let welcome_view = Welcome {
+            name: "Ana".into(),
+            protected: false,
+            register: Some(Registration { challenge: "defi".into(), user_id: "dXNlcg".into(), user_name: "ana@exemple.org".into(), display_name: "Ana".into(), exclude: vec![] }),
+            computer: None,
         };
         vec![
             ("ordinateurs", computers(v, &computers_view, Some(Notice::StationDetached))),
@@ -1062,8 +1940,21 @@ pub(super) mod tests {
             ("organisation/groupes", org(v, &org_view(Tab::Groups, Role::Admin, true), None)),
             ("organisation/ordinateurs", org(v, &org_view(Tab::Computers, Role::Owner, true), None)),
             ("organisation/journal", org(v, &org_view(Tab::Log, Role::Owner, true), None)),
-            ("organisation/creer", create_org(v, "", true, &[], None)),
-            ("organisation/creer-sans-2fa", create_org(v, "", false, &[], None)),
+            ("organisation/creer", create_org(v, "", Some(Kind::Team), true, &shell(), None)),
+            ("organisation/creer-famille", create_org(v, "", Some(Kind::Family), true, &shell(), None)),
+            ("organisation/creer-choix", create_org(v, "", None, true, &shell(), None)),
+            ("organisation/creer-sans-2fa", create_org(v, "", Some(Kind::Family), false, &shell(), None)),
+            ("organisation/famille", org(v, &OrgView { kind: Kind::Family, ..org_view(Tab::Groups, Role::Owner, true) }, None)),
+            ("personnes-toutes", all_people(v, &people_all)),
+            ("personnes-toutes/vide", all_people(v, &AllPeopleView { shell: shell(), ..AllPeopleView::default() })),
+            ("familles", families(v, &families_view)),
+            ("familles/vide", families(v, &FamiliesView { shell: shell(), ..FamiliesView::default() })),
+            ("bienvenue/0", welcome(v, 0, &welcome_view)),
+            ("bienvenue/1", welcome(v, 1, &welcome_view)),
+            ("bienvenue/1-protege", welcome(v, 1, &Welcome { protected: true, register: None, ..welcome_view.clone() })),
+            ("bienvenue/2", welcome(v, 2, &welcome_view)),
+            ("bienvenue/2-rattache", welcome(v, 2, &Welcome { computer: Some("PC du <salon>".into()), ..welcome_view.clone() })),
+            ("bienvenue/3", welcome(v, 3, &welcome_view)),
             ("deployer", deploy(v, &deploy_view, Some(Notice::TokenRevoked))),
             ("ouvrir-admin", open_admin(v, "PC du salon", "192.168.1.20:8443", &[("station", "st1"), ("nonce", "n"), ("retour", "x")])),
         ]

@@ -10,12 +10,12 @@ use kybernow_tunnel::access::Right;
 use serde_json::json;
 
 use super::super::mail::Message;
-use super::super::orgs::{ENROLL_MAX_DAYS, ENROLL_MAX_STATIONS, Org, Role, clean_org_name, new_enroll_token};
+use super::super::orgs::{ENROLL_MAX_DAYS, ENROLL_MAX_STATIONS, Kind, Org, Role, clean_org_name, new_enroll_token};
 use super::super::pages::Notice;
 use super::super::pages::console::{self, DeployView, OrgComputer, OrgView, Tab, rights_words, role_name};
 use super::super::people::Subject;
 use super::super::store::Account;
-use super::console::{form_rights, nav_orgs, signed_in};
+use super::console::{form_rights, shell, signed_in};
 use super::device_pages::sign_in_first;
 use super::{Cx, Reply, lang_of, normalize_email, token_hash};
 
@@ -86,6 +86,7 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
         OrgView {
             id: org.public_id.clone(),
             name: org.name.clone(),
+            kind: org.kind,
             role,
             manage,
             needs_2fa: role.manages() && !manage,
@@ -96,14 +97,14 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
             groups: db.groups(org.id).unwrap_or_default(),
             computers,
             log: if role.manages() || tab == Tab::Log { db.org_log_of(org.id, limit).unwrap_or_default() } else { Vec::new() },
-            nav_orgs: Vec::new(),
+            shell: Default::default(),
         }
     };
     // Le journal : les Propriétaires et Administrateurs seulement.
     let view = OrgView {
         log: if manage { view.log } else { Vec::new() },
         tab: if !manage && tab == Tab::Log { Tab::Members } else { view.tab },
-        nav_orgs: nav_orgs(&cx, account.id),
+        shell: shell(&cx, account),
         ..view
     };
     let page = console::org(&cx.view(), &view, notice);
@@ -129,18 +130,28 @@ pub(super) fn create(cx: Cx<'_>, post: bool) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
     let two_factor = acc.db().two_factor(account.id).unwrap_or(false);
-    let nav = nav_orgs(&cx, account.id);
-    if !post || !two_factor {
+    let nav = shell(&cx, &account);
+    // Le genre : choisi sur « Familles et équipes » (`genre=famille` ou `equipe`) ; sans genre, le choix.
+    let genre = if post { cx.req.form("genre").to_string() } else { cx.req.query("genre").unwrap_or("").to_string() };
+    let kind = match genre.as_str() {
+        "famille" | "family" => Some(Kind::Family),
+        "equipe" | "team" => Some(Kind::Team),
+        // Un formulaire sans genre (d'avant l'espace du compte) : une équipe.
+        _ if post => Some(Kind::Team),
+        _ => None,
+    };
+    if !post || !two_factor || kind.is_none() {
         let notice = (post && !two_factor).then_some(Notice::NeedTwoFactor);
-        let page = console::create_org(&cx.view(), "", two_factor, &nav, notice);
+        let page = console::create_org(&cx.view(), "", kind, two_factor, &nav, notice);
         return cx.page(200, page);
     }
+    let kind = kind.unwrap_or(Kind::Team);
     let name = clean_org_name(cx.req.form("nom"));
     if name.is_empty() {
-        let page = console::create_org(&cx.view(), "", true, &nav, Some(Notice::OrgNameMissing));
+        let page = console::create_org(&cx.view(), "", Some(kind), true, &nav, Some(Notice::OrgNameMissing));
         return cx.page(200, page);
     }
-    let created = acc.db().create_org(&name, account.id, cx.now);
+    let created = acc.db().create_org(&name, kind, account.id, cx.now);
     let org = match created {
         Ok(o) => o,
         Err(e) => {
@@ -355,15 +366,16 @@ fn deploy_page(cx: Cx<'_>, account: &Account, org: &Org, new_token: Option<Strin
         DeployView {
             id: org.public_id.clone(),
             name: org.name.clone(),
+            role: db.org_role(org.id, account.id).ok().flatten().unwrap_or(Role::Member),
             tokens,
             groups: db.groups(org.id).unwrap_or_default().into_iter().map(|g| (g.id, g.name)).collect(),
             new_token,
             relay: acc.relay_name(),
             now: cx.now,
-            nav_orgs: Vec::new(),
+            shell: Default::default(),
         }
     };
-    let view = DeployView { nav_orgs: nav_orgs(&cx, account.id), ..view };
+    let view = DeployView { shell: shell(&cx, account), ..view };
     let page = console::deploy(&cx.view(), &view, notice);
     cx.page(200, page)
 }

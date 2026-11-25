@@ -509,6 +509,11 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
             cx.audit(Some(account.id), "passkey_ajoutee");
             let link = cx.url(&format!("/compte?lang={}", lang_of(&account).code()));
             cx.mail(&account.email, lang_of(&account), Message::PasskeyAdded { name: &name, account: &link });
+            // Depuis le tour d'accueil : l'étape suivante.
+            if cx.req.form("suite") == "bienvenue" {
+                let q = cx.q();
+                return cx.redirect(format!("/compte/bienvenue{q}&etape=2"));
+            }
             account_page(cx, Some(Notice::PasskeyAdded))
         }
         Ok(None) => account_page(cx, Some(Notice::PasskeyFailed)),

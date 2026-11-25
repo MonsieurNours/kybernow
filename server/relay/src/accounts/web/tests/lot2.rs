@@ -64,7 +64,7 @@ pub(super) fn api(w: &World, post: bool, path: &str, bearer: Option<&str>, body:
 fn signed_in(w: &World) -> Browser {
     w.acc.add_verified("ana@exemple.org", "Ana", PASSWORD).unwrap();
     let mut b = w.browser();
-    assert_eq!(location(&b.sign_in("ana@exemple.org", PASSWORD)), "/compte?lang=fr");
+    assert_eq!(location(&b.sign_in("ana@exemple.org", PASSWORD)), "/compte/ordinateurs?lang=fr");
     b
 }
 
@@ -122,8 +122,10 @@ fn rattacher_une_station_puis_la_detacher() {
     assert_eq!(b.get(&format!("/compte/rattacher?code={code}&lang=fr")).status, 400);
     // À la reconnexion, la Station demande où elle en est : `attached`, avec la demande.
     assert!(matches!(w.acc.attach_status(&st, 9), Msg::Attached(ref a) if a.req == Some(9)));
-    // La page du compte la montre ; « Détacher » le dit à la Station.
-    let page = b.get("/compte?lang=fr");
+    // « Ordinateurs » la montre (après le tour d'accueil) ; « Détacher » le dit à la Station.
+    assert_eq!(location(&b.get("/compte/ordinateurs?lang=fr")), "/compte/bienvenue?lang=fr", "la première fois : le tour d'accueil");
+    assert_eq!(location(&b.post("/compte/bienvenue?lang=fr", &[("suite", "")])), "/compte/ordinateurs?lang=fr");
+    let page = b.get("/compte/ordinateurs?lang=fr");
     assert!(html(&page).contains("PC du salon") && html(&page).contains("En ligne"));
     let r = b.post("/compte/ordinateurs/detacher?lang=fr", &[("id", &st)]);
     assert!(html(&r).contains("Ordinateur détaché"));
