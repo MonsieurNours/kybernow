@@ -399,8 +399,21 @@ pub fn hdr_format(settings: &StreamSettings, caps: Capabilities) -> StreamSettin
     s
 }
 
+/// Le format à la place de PyroWave : HEVC, sinon AV1, sinon H.264. C'est
+/// aussi le repli donné à Kyber avec PyroWave (`fallback_codec`, correctif
+/// 0025), que la Station prend si elle ne le propose plus.
+pub fn pyrowave_fallback(caps: Capabilities) -> Codec {
+    if caps.hevc {
+        Codec::Hevc
+    } else if caps.av1 {
+        Codec::Av1
+    } else {
+        Codec::H264
+    }
+}
+
 /// Le format PyroWave d'une session (docs/link-ui.md, « PyroWave »).
-/// `offered` : la Station le propose (`info.pyrowave`) ; `relayed` : la
+/// `offered` : la Station le propose ([`crate::console::Info::pyrowave_offered`]) ; `relayed` : la
 /// session passe par le relais.
 /// - Choisi à la main (format sans profil) : gardé si la Station le propose
 ///   et que l'appareil le décode (Wi-Fi et relais compris : les apps
@@ -415,7 +428,7 @@ pub fn pyrowave_format(settings: &StreamSettings, caps: Capabilities, offered: b
     let mut s = settings.clone();
     if s.codec == Codec::PyroWave {
         if !possible {
-            s.codec = if caps.hevc { Codec::Hevc } else if caps.av1 { Codec::Av1 } else { Codec::H264 };
+            s.codec = pyrowave_fallback(caps);
             s.yuv444 = s.yuv444 && s.codec == Codec::Hevc && caps.hevc444;
         }
         return s;
@@ -497,9 +510,14 @@ mod tests {
         assert_eq!((s.codec, s.wired), (Codec::PyroWave, true));
         assert!(!StreamSettings::from_json(r#"{"codec":"hevc","mbps":60}"#).unwrap().wired);
         let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc"}"#).unwrap();
-        assert!(!info.pyrowave, "Station d'avant PyroWave");
-        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":true}"#).unwrap();
-        assert!(info.pyrowave);
+        assert!(!info.pyrowave_offered(), "Station d'avant PyroWave");
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":true}}"#).unwrap();
+        assert!(info.pyrowave_offered());
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":false,"reason":"vulkan"}}"#).unwrap();
+        assert!(!info.pyrowave_offered());
+        assert_eq!(info.pyrowave.and_then(|p| p.reason).as_deref(), Some("vulkan"));
+        assert_eq!(pyrowave_fallback(Capabilities { hevc: false, av1: true, ..Capabilities::default() }), Codec::Av1);
+        assert_eq!(pyrowave_fallback(Capabilities::default()), Codec::H264);
     }
 
     #[test]
