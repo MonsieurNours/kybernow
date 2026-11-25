@@ -1453,6 +1453,7 @@ fn sync_keyboard_grab(app: &App, lives: &Lives, wins: &mut Wins) {
                 _ => w.extra || app.layout.console() || if wi == 0 { app.fullscreen } else { w.fullscreen },
             };
         if want != w.grab {
+            log::info!("mode immersif : clavier {} (fenêtre {wi})", if want { "saisi" } else { "rendu au système" });
             unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, want as c_int) };
             wins.list[wi].grab = want;
         }
