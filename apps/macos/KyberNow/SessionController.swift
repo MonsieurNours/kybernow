@@ -737,6 +737,28 @@ final class SessionController: NSObject, ObservableObject {
     /// La fenêtre de la session est en plein écran.
     var isFullScreen: Bool { window?.styleMask.contains(.fullScreen) == true }
 
+    // MARK: - Mode immersif (docs/link-ui.md)
+
+    /// Le réglage tel qu'il est maintenant : les réglages de l'ordinateur
+    /// restent ouverts pendant la session, un changement vaut tout de suite.
+    var immersiveChoice: ImmersiveChoice { (store.host(host.id) ?? host).settings.immersive }
+
+    /// Le mode pourrait servir à cette session (le crochet reste posé).
+    var immersiveWanted: Bool { isLive && hasKeyboardAndMouse && immersiveChoice != .never }
+
+    /// La vue qui prend tout le clavier en ce moment : l'app au premier plan,
+    /// une fenêtre de la session clé avec son image qui a le clavier (pas un
+    /// champ ou un menu de la barre), en plein écran selon le réglage (avec
+    /// plusieurs écrans, les fenêtres le sont toujours).
+    var immersiveView: StreamView? {
+        guard phase == .streaming, hasKeyboardAndMouse, NSApp.isActive, let key = NSApp.keyWindow else { return nil }
+        let choice = immersiveChoice
+        guard choice != .never, let surface = surfaces.first(where: { $0.window === key }),
+              key.firstResponder === surface.streamView else { return nil }
+        if choice == .fullScreen, !multiScreen, !key.styleMask.contains(.fullScreen) { return nil }
+        return surface.streamView
+    }
+
     /// Les fenêtres de la session (celle de la session, puis celles des autres écrans).
     var windows: [NSWindow] { surfaces.compactMap(\.window) }
 

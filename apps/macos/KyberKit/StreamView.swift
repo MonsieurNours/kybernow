@@ -50,6 +50,13 @@ public final class StreamView: NSView {
 
     /// « ⌘ envoyée comme Ctrl » (raccourcis Windows sous les doigts du Mac).
     public var commandAsControl = true
+    /// Mode immersif (docs/link-ui.md) : les touches arrivent par le crochet
+    /// de l'app (`deliverImmersive`), et ⌘ part comme la touche ⊞ : « ⌘
+    /// envoyée comme Ctrl » ne s'y applique pas. Posé par le crochet à chaque
+    /// touche ; le passage d'un état à l'autre relâche ce qui est tenu.
+    public var immersive = false
+    /// L'état dans lequel les touches tenues sont parties.
+    private var sentImmersive = false
     /// Raccourcis gardés par le Mac (menus de l'app) : ⌃⌥⌘ + lettre.
     public static let reservedModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
     /// Où est le pointeur du Mac sur la vue (points depuis son coin haut gauche),
@@ -474,7 +481,17 @@ public final class StreamView: NSView {
     // MARK: - Clavier
 
     private func send(keyCode: UInt16, pressed: Bool, keyboardType: Int64? = nil) {
-        guard let scancode = Keymap.scancode(keyCode: keyCode, commandAsControl: commandAsControl, keyboardType: keyboardType) else { return }
+        if immersive != sentImmersive {
+            // ⌘ change de touche (Ctrl ↔ ⊞) : ce qui est tenu se relâche tel
+            // qu'il est parti, puis les modificateurs encore tenus repartent.
+            sentImmersive = immersive
+            if let input {
+                input.releaseAll()
+                input.forgetModifiers()
+                if pressed { resyncModifiers() }
+            }
+        }
+        guard let scancode = Keymap.scancode(keyCode: keyCode, commandAsControl: commandAsControl && !immersive, keyboardType: keyboardType) else { return }
         input?.key(scancode: scancode, pressed: pressed)
     }
 
@@ -530,6 +547,18 @@ public final class StreamView: NSView {
         for c in codes {
             input?.modifier(c, pressed: false)
             send(keyCode: c, pressed: false)
+        }
+    }
+
+    /// Une touche prise par le crochet du mode immersif, avant le système
+    /// (⌘ ⇥, ⌘ Espace, Mission Control) : elle va à l'ordinateur, comme une
+    /// touche tapée dans la vue.
+    public func deliverImmersive(_ event: NSEvent) {
+        switch event.type {
+        case .keyDown: keyDown(with: event)
+        case .keyUp: keyUp(with: event)
+        case .flagsChanged: flagsChanged(with: event)
+        default: break
         }
     }
 
