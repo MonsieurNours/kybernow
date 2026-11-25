@@ -354,6 +354,11 @@ public final class SessionEngine: @unchecked Sendable {
         /// Le texte à montrer, une fois par session (« L'ordinateur n'a pas pu
         /// passer en HDR : image en SDR. »).
         case hdrRefused(String)
+        /// PyroWave : la définition demandée à l'ordinateur est ramenée pour
+        /// tenir dans le débit (`text` : « Définition ramenée à {l} × {h} pour
+        /// tenir dans {n} Mbit/s. », langue de l'app) ; nil : revenue à celle
+        /// de l'appareil.
+        case resolutionLowered(PyroWaveLowered?, text: String)
     }
 
     // Rappels, tous sur le fil principal.
@@ -438,6 +443,8 @@ public final class SessionEngine: @unchecked Sendable {
     private var lastSecond: LatencySecond?
     /// Format du dernier paquet de codec (`receivedCodec`), sous `lock`.
     private var receivedCodecValue: VideoCodec?
+    /// `lowered`, sous `lock`.
+    private var loweredValue: PyroWaveLowered?
     private var padCaptured = false
     private var occluded = false
     private var vsync = true
@@ -846,6 +853,20 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
     }
 
+    /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit que ce
+    /// Mac sait tenir vers l'ordinateur, en Mbit/s ; nil : inconnu.
+    public func setLinkMbps(_ mbps: Int?) {
+        if let s = live { kn_session_set_link_mbps(s, UInt32(max(0, mbps ?? 0))) }
+    }
+
+    /// PyroWave : la définition ramenée en place (dernière seconde du cœur),
+    /// pour les Statistiques ; nil sans.
+    public var lowered: PyroWaveLowered? {
+        lock.lock()
+        defer { lock.unlock() }
+        return loweredValue
+    }
+
     /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
     /// (fil principal). Celle donnée à `init` sert aux écrans sans vue.
     public func register(_ view: StreamView, screen: Int) {
@@ -1220,8 +1241,12 @@ public final class SessionEngine: @unchecked Sendable {
         second.lostPackets = Int(s.lost_packets)
         second.rttMs = s.has_rtt ? s.rtt_ms : nil
         second.bytes = Int(s.bytes)
+        let lowered = s.lowered
+            ? PyroWaveLowered(width: Int(s.lowered_width), height: Int(s.lowered_height), refresh: Int(s.lowered_refresh), mbps: Int(s.lowered_mbps))
+            : nil
         lock.lock()
         lastSecond = second
+        loweredValue = lowered
         lock.unlock()
     }
 
@@ -1237,6 +1262,9 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_RESTORE_OFFER: notice = .restoreOffer(n.has_mode ? Mode(width: Int(n.width), height: Int(n.height), refresh: 0) : nil)
         case KN_NOTICE_STATION_RESTARTING: notice = .stationRestarting
         case KN_NOTICE_HDR_REFUSED: notice = .hdrRefused(n.error.map { String(cString: $0) } ?? "")
+        case KN_NOTICE_RESOLUTION_LOWERED:
+            let lowered = n.has_mode ? PyroWaveLowered(width: Int(n.width), height: Int(n.height), refresh: 0, mbps: Int(n.bitrate_mbps)) : nil
+            notice = .resolutionLowered(lowered, text: n.error.map { String(cString: $0) } ?? "")
         default: return
         }
         DispatchQueue.main.async { [self] in onNotice?(notice) }

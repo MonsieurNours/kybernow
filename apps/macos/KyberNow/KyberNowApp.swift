@@ -599,8 +599,11 @@ struct KyberNowApp: App {
     init() {
         Theme.registerFonts()
         AppModel.shared.checkForUpdates = { [updater] in updater.checkForUpdates(nil) }
-        // Décodeurs sondés et pipeline Metal compilé hors du fil principal, avant le premier flux.
+        // Décodeurs sondés (PyroWave compris : une image de test décodée par le GPU)
+        // et pipeline Metal compilé hors du fil principal, avant le premier flux.
         DispatchQueue.global(qos: .userInitiated).async { DecoderCapabilities.prepare() }
+        // Câble Ethernet ou non (« Auto » et PyroWave, docs/pyrowave-client-mac.md).
+        NetworkLink.start()
     }
 
     var body: some Scene {

@@ -42,7 +42,16 @@ First-frame PSNR: 64 dB on Y (1440p 4:2:0), 56 dB on Y and 49 to 51 dB on chroma
 
 ## The core
 
-`apps/core` knows PyroWave (format, capabilities, Station announcement, “Auto” rule when wired): see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”. The Mac app sends `pyrowave` in the decoder capabilities; it doesn't yet give `wired` (Ethernet cable) in the settings, nor the format screen: they'll come with the mock-ups.
+`apps/core` knows PyroWave (format, capabilities, Station announcement, “Auto” rule when wired): see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”. The Mac app sends `pyrowave` in the decoder capabilities, `wired` (Ethernet cable, `NetworkLink`) in the settings and its link rate (`LinkRate`: interface speed, 80% on Ethernet, 50% without a cable; `kn_session_set_link_mbps`) for the lowered resolution.
+
+## The interface
+
+Rules and texts: [link-ui.en.md](link-ui.en.md), “PyroWave”; details in [apps/macos/README.en.md](../apps/macos/README.en.md), “PyroWave”.
+
+- Settings › Picture: “Video format” with “Auto” and “PyroWave” (when the Station knows PyroWave), reasons for an inactive PyroWave, help texts, amber warning on Wi-Fi or through the relay, 4:4:4 help.
+- In session: start banner (8 s, “Switch to HEVC” for the session only, close button), amber chip in the bar, received format in the bar; reminder “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” when the core lowers it.
+- Statistics: “Lost frames” as a percentage, and the lowered-resolution line.
+- Builds as of 25/11/2026; not seen on screen nor tried with a Station.
 
 ## Waiting on the Station
 

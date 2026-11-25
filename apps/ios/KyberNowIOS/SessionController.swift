@@ -808,6 +808,9 @@ final class SessionController: ObservableObject {
         case let .hdrRefused(text):
             // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
             show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
+        case let .resolutionLowered(lowered, text):
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
+            if let lowered { show(notice: text.isEmpty ? PyroWaveText.lowered(width: lowered.width, height: lowered.height, mbps: lowered.mbps) : text, for: 6) }
         }
     }
 

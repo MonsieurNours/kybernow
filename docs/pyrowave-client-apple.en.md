@@ -41,7 +41,7 @@ link-ui texts, in the apps' catalogs (the `Localizable.xcstrings` of Apple TV, i
 - **iPhone, iPad, Settings › Picture › Video format**: Auto, HEVC, H.264, AV1, PyroWave (inactive, struck through, with its reason in the help); the amber warning under the choice (`SettingsWarning`, `choice(…, warning:)`); the “Sharp text (4:4:4)” help; in PyroWave, the bitrate is no longer amber above Wi-Fi comfort (the format warning is enough).
 - **iPhone, iPad, session**: start-of-session banner, as a session capsule: title, “The picture may stutter.”, “Switch to HEVC” (not for a guest or a friend) and the close button; 8 s. Bar: the amber chip “PyroWave on Wi-Fi” / “PyroWave away from home” next to the stats, which opens them. Stats (iPhone sheet, iPad panel): the “PyroWave” format and the “Lost frames” tile (share of the frames of the last 30 seconds), on top of the losses.
 - **Received format**: `SessionEngine.receivedCodec` (last codec packet), read every second: the chip, tile, banner and stats format follow what the Station really sends (PyroWave picked by “Auto”, or its `fallback_codec`).
-- **Resolution lowered**: the core does not yet say when it lowers the resolution to fit the bitrate. The text is ready (`PyroWaveText.lowered`, “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.”, FR and EN in the catalogs), but nothing shows it: its place is under the banner title and in the stats, to be wired when the core provides it.
+- **Resolution lowered**: the core says it (`KN_NOTICE_RESOLUTION_LOWERED`, `SessionEngine.Notice.resolutionLowered` in KyberKit); the Apple TV and the iPhone/iPad show its text as a notice for a few seconds (“Resolution lowered to {w} × {h} to fit in {n} Mbit/s.”). Not yet in their statistics (`SessionEngine.lowered` provides it, as on the Mac), nor the link rate given to the core (`LinkRate`, `SessionEngine.setLinkMbps`, wired on the Mac only). Written without being compiled for iPhone and Apple TV (no device libraries in the Mac worktree).
 
 Demo (Debug, simulator): `-demo YES` with `-demoPyroWave wifi|relay` (session in PyroWave: banner, chip or tile, “Lost frames”; Apple TV `-screen passage|menu`, iPhone `-screen bar`), `-demoPyroWaveOffer on|off` (the Tower announces PyroWave), `-demoCodec pyrowave` (PyroWave chosen for the Tower), `-demoPyroWaveDecodes YES` (the simulator counted as decoding PyroWave), `-demoLink Wi-Fi|Ethernet` (Apple TV) or `wifi|ethernet` (iPhone, iPad) for the help texts.
 
@@ -82,5 +82,5 @@ On the Mac, in the branch worktree (or after merging), Xcode 26, `xcodegen`:
 ## What is waiting
 
 - The Station's kyclient patch and the core's `pyrowave` feature turned on for every app: then remove the `--kyber-pyrowave` flag.
-- “Resolution lowered”: to be provided by the core (text ready).
+- “Resolution lowered”: notice wired; statistics line and link rate still to do (as on the Mac).
 - The 2022 Apple TV 4K only has Gigabit Ethernet (and only the 128 GB model): PyroWave at 4K60 (800 Mbit/s by default) is close to the limit there; to watch in “Lost frames”.

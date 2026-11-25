@@ -32,6 +32,11 @@ struct StatsPanel: View {
     var route = RouteInfo.direct
     /// Un écran au moins de la session est en HDR : « HDR » après le format.
     var hdr = false
+    /// L'image est en PyroWave : ligne « Images perdues » en part des images
+    /// (une image perdue est sautée, docs/link-ui.md).
+    var pyrowave = false
+    /// PyroWave : la définition ramenée par le cœur pour tenir dans le débit.
+    var lowered: PyroWaveLowered?
 
     /// Durée d'une image au débit du moment (repère des graphiques).
     private var budget: Double { 1000 / max(30, stats?.fps ?? 60) }
@@ -192,6 +197,19 @@ struct StatsPanel: View {
             row(String(localized: "Image"), (screens > 1 ? String(localized: "\(screens) écrans") + " · " : "")
                 + (hdr ? String(localized: "\(s.width) × \(s.height) · \(s.format) · HDR · \(Int(s.fps.rounded())) i/s")
                        : String(localized: "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s")))
+            if pyrowave {
+                let lost = Double(history.reduce(0) { $0 + $1.lostFrames })
+                let shown = history.reduce(0) { $0 + $1.fps }
+                row(PyroWaveText.lostFrames, PyroWaveText.percent(lost + shown > 0 ? lost / (lost + shown) * 100 : 0))
+            }
+            if let lowered {
+                GridRow {
+                    Text(PyroWaveText.lowered(width: lowered.width, height: lowered.height, mbps: lowered.mbps))
+                        .font(Theme.sans(11.5)).foregroundStyle(Theme.warnText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .gridCellColumns(2)
+                }
+            }
             if s.latencyMs != nil || s.rejectedSamples > 0 {
                 row(String(localized: "Mesures"), String(localized: "\(Int((s.measuredRatio * 100).rounded())) % des images") + (s.rejectedSamples > 0 ? " · " + String(localized: "\(s.rejectedSamples) rejetées") : ""))
             }
