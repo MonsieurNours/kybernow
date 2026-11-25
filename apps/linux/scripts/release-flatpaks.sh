@@ -44,7 +44,7 @@ if [ -n "${KYBERNOW_FLATPAK_WORK:-}" ]; then
     ENV+="KYBERNOW_FLATPAK_WORK=$KYBERNOW_FLATPAK_WORK "
     # Un dossier de travail neuf part du cache de flatpak-builder des
     # constructions à la main (modules déjà compilés, repérés par leur empreinte).
-    vm "[ -d $KYBERNOW_FLATPAK_WORK ] || [ ! -d ~/.cache/kybernow-flatpak ] || cp -a ~/.cache/kybernow-flatpak $KYBERNOW_FLATPAK_WORK"
+    vm "[ -d $KYBERNOW_FLATPAK_WORK ] || [ ! -d ~/.cache/kybernow-flatpak ] || { mkdir -p $KYBERNOW_FLATPAK_WORK && cp -a ~/.cache/kybernow-flatpak/. $KYBERNOW_FLATPAK_WORK/; }"
 fi
 [ -n "${KYBERNOW_KYBER_HEAD:-}" ] && ENV+="KYBERNOW_KYBER_HEAD=$KYBERNOW_KYBER_HEAD "
 
