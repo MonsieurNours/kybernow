@@ -160,6 +160,12 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     assert!(html(&page).contains(&format!(r#"name="proprietaire" value="{id}""#)) && html(&page).contains("Les Lignes Claires"));
     let r = ana.post("/compte/rattacher?lang=fr", &[("code", &code), ("action", "rattacher"), ("proprietaire", &id)]);
     assert!(html(&r).contains("rattaché à l'organisation Les Lignes Claires"));
+    // « Personnes » : l'ordinateur de l'équipe, qu'Ana gère, a son bouton « Ajouter une personne ».
+    let page = ana.get("/compte/personnes?lang=fr");
+    assert!(html(&page).contains("#ajouter") && html(&page).contains("Ajouter une personne") && !html(&page).contains("rattachez-le d'abord"));
+    // Groupes : le panneau de chaque groupe, et ses formulaires qui y reviennent.
+    let page = ana.get(&format!("/compte/organisation?id={id}&vue=groupes&lang=fr"));
+    assert!(html(&page).contains("id=\"groupe-") && html(&page).contains("/compte/organisation/groupes/membre?lang=fr#groupe-"));
     let Some((_, Msg::Attached(a))) = link.last() else { panic!("attached attendu") };
     assert_eq!((a.owner.kind.as_str(), a.owner.id.as_str(), a.owner.email.as_deref()), ("organization", id.as_str(), None));
     let row = w.acc.db().station(&st).unwrap().unwrap();

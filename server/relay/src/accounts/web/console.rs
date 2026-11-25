@@ -18,18 +18,24 @@ use super::device_pages::sign_in_first;
 use super::{Cx, Reply, lang_of, normalize_email};
 use crate::pages::{Lang, t};
 
+/// Les ordinateurs dont ce compte gère les accès : les siens, et ceux des familles et équipes qu'il gère.
+pub(super) fn managed_stations(cx: &Cx<'_>, account: &Account) -> Vec<StationRow> {
+    let visible = cx.acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
+    visible.into_iter().filter(|s| cx.acc.can_manage(account, s)).collect()
+}
+
 /// Ce que le menu de l'espace montre : ses familles et équipes, les nombres, « Pour bien démarrer ».
 pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
+    let managed = managed_stations(cx, account);
     let db = cx.acc.db();
     let orgs = db.orgs_of(account.id).unwrap_or_default();
-    let mine = db.stations_of(account.id).unwrap_or_default();
-    let people: usize = mine.iter().map(|s| db.grants_of(&s.id).map(|g| g.len()).unwrap_or(0)).sum();
+    let people: usize = managed.iter().map(|s| db.grants_of(&s.id).map(|g| g.len()).unwrap_or(0)).sum();
     Shell {
         name: account.name.clone(),
         email: account.email.clone(),
         computers: db.visible_stations(account.id, cx.now).map(|v| v.len()).unwrap_or(0),
         people,
-        start: Start { protected: db.two_factor(account.id).unwrap_or(false), attached: !mine.is_empty(), opened: people > 0, grouped: !orgs.is_empty() },
+        start: Start { protected: db.two_factor(account.id).unwrap_or(false), attached: !managed.is_empty(), opened: people > 0, grouped: !orgs.is_empty() },
         orgs: orgs.into_iter().map(|(o, _)| NavOrg { id: o.public_id, name: o.name, kind: o.kind }).collect(),
     }
 }
@@ -139,9 +145,9 @@ fn subject_words(cx: &Cx<'_>, subject: &Subject) -> (String, String) {
 /// `GET /compte/personnes` : ceux à qui il a ouvert ses ordinateurs.
 pub(super) fn all_people(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
+    let mine = managed_stations(&cx, &account);
     let view = {
         let db = cx.acc.db();
-        let mine = db.stations_of(account.id).unwrap_or_default();
         let mut rows = Vec::new();
         for s in &mine {
             for g in db.grants_of(&s.id).unwrap_or_default() {
@@ -186,10 +192,8 @@ pub(super) fn families(cx: Cx<'_>) -> Reply {
 pub(super) fn welcome(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let step = cx.req.query("etape").and_then(|s| s.parse::<u8>().ok()).unwrap_or(0).min(3);
-    let (protected, computer) = {
-        let db = cx.acc.db();
-        (db.two_factor(account.id).unwrap_or(false), db.stations_of(account.id).unwrap_or_default().into_iter().next().map(|s| s.name))
-    };
+    let computer = managed_stations(&cx, &account).into_iter().next().map(|s| s.name);
+    let protected = cx.acc.db().two_factor(account.id).unwrap_or(false);
     let register = if protected { None } else { cx.registration(&account) };
     let view = Welcome { name: account.name.clone(), protected, register, computer };
     let page = console::welcome(&cx.view(), step, &view);

@@ -776,11 +776,19 @@ pub fn all_people(v: &View<'_>, a: &AllPeopleView) -> String {
     let title = v.tr("Personnes", "People");
     let q = v.q();
     let action = match a.computers.as_slice() {
-        [] => String::new(),
+        [] => format!("<a class=\"btn kn-primary\" href=\"/compte/ordinateurs{q}#rattacher\">{}{}</a>", ic("plus"), v.tr("Rattacher un ordinateur", "Attach a computer")),
         [(id, _)] => format!("<a class=\"btn kn-primary\" href=\"/compte/ordinateur{q}&amp;id={}#ajouter\">{}{}</a>", pct(id), ic("plus"), v.tr("Ajouter une personne", "Add a person")),
         _ => format!("<a class=\"btn kn-primary\" href=\"#choisir\">{}{}</a>", ic("plus"), v.tr("Ajouter une personne", "Add a person")),
     };
-    let list = if a.rows.is_empty() {
+    let list = if a.computers.is_empty() {
+        help_box(
+            "monitor",
+            &v.tr(
+                "Pour ouvrir un ordinateur à quelqu'un, <b>rattachez-le d'abord</b> à votre compte, ou à une famille ou une équipe que vous gérez.",
+                "To open a computer to someone, <b>attach it first</b> to your account, or to a family or team you manage.",
+            ),
+        )
+    } else if a.rows.is_empty() {
         help_box(
             "people",
             &v.tr(
@@ -1225,62 +1233,88 @@ pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
             )
         }
         Tab::Groups => {
+            // Un formulaire qui revient sur le panneau du groupe (l'ancre suit la réponse).
+            let at = |path: &str, frag: &str, class: &str, inner: &str| {
+                let q = v.q();
+                v.form(path, class, inner).replacen(&format!("action=\"{path}{q}\""), &format!("action=\"{path}{q}#{frag}\""), 1)
+            };
+            let member_form = |g: &Group, account: i64, add: bool, frag: &str| {
+                at(
+                    "/compte/organisation/groupes/membre",
+                    frag,
+                    "acct-inline",
+                    &format!(
+                        "{id_field}\n{}\n{}\n{}\n<button class=\"btn {} btn-sm\" type=\"submit\">{}</button>",
+                        hidden("groupe", &g.id.to_string()),
+                        hidden("compte", &account.to_string()),
+                        hidden("action", if add { "ajouter" } else { "retirer" }),
+                        if add { "kn-primary" } else { "btn-ghost" },
+                        if add { v.tr("Ajouter", "Add") } else { v.tr("Retirer", "Remove") },
+                    ),
+                )
+            };
             let cards: String = o
                 .groups
                 .iter()
                 .map(|g| {
-                    let members: String = g
-                        .members
-                        .iter()
-                        .map(|(acc, name)| {
-                            let out = if o.manage {
-                                v.form(
-                                    "/compte/organisation/groupes/membre",
-                                    "acct-inline",
-                                    &format!("{id_field}\n{}\n{}\n{}\n{}", hidden("groupe", &g.id.to_string()), hidden("compte", &acc.to_string()), hidden("action", "retirer"), small_button(&v.tr("Retirer", "Remove"))),
-                                )
-                            } else {
-                                String::new()
-                            };
-                            row(&avatar(name), &esc(name), "", &out)
-                        })
-                        .collect();
-                    let manage = if o.manage {
-                        let options: String = o
+                    let frag = format!("groupe-{}", g.id);
+                    let members = if g.members.is_empty() {
+                        format!("<p class=\"ka-muted ka-group-empty\">{}</p>", v.tr("Personne pour l'instant.", "Nobody yet."))
+                    } else {
+                        let chips: String = g.members.iter().map(|(_, name)| format!("<span class=\"ka-chip\">{}{}</span>", avatar(name), esc(name))).collect();
+                        format!("<div class=\"ka-chips\">{chips}</div>")
+                    };
+                    let foot = if o.manage {
+                        format!(
+                            "<div class=\"ka-group-acts\"><a class=\"btn {} btn-sm\" href=\"#{frag}\">{}{}</a></div>",
+                            if g.members.is_empty() { "kn-primary" } else { "btn-ghost" },
+                            ic("people"),
+                            if g.members.is_empty() { v.tr("Ajouter des membres", "Add members") } else { v.tr("Gérer les membres", "Manage members") },
+                        )
+                    } else {
+                        String::new()
+                    };
+                    if o.manage {
+                        // Le panneau du groupe : chaque membre, dedans ou pas ; puis supprimer le groupe.
+                        let rows: String = o
                             .members
                             .iter()
-                            .filter(|m| !g.members.iter().any(|(a, _)| *a == m.account))
-                            .map(|m| format!("<option value=\"{}\">{}</option>", m.account, esc(&m.name)))
+                            .map(|m| {
+                                let inside = g.members.iter().any(|(a, _)| *a == m.account);
+                                let state = if inside { format!("<span class=\"ka-tag is-lit\">{}</span>", v.tr("Dans le groupe", "In the group")) } else { String::new() };
+                                row(&avatar(&m.name), &esc(&m.name), &esc(&m.email), &format!("{state}{}", member_form(g, m.account, !inside, &frag)))
+                            })
                             .collect();
-                        let add = if options.is_empty() {
-                            String::new()
-                        } else {
-                            v.form(
-                                "/compte/organisation/groupes/membre",
-                                "acct-inline ka-role",
-                                &format!(
-                                    "{id_field}\n{}\n{}\n<select name=\"compte\" aria-label=\"{}\">{options}</select>\n{}",
-                                    hidden("groupe", &g.id.to_string()),
-                                    hidden("action", "ajouter"),
-                                    v.tr("Membre", "Member"),
-                                    small_button(&v.tr("Ajouter au groupe", "Add to the group"))
-                                ),
-                            )
-                        };
                         let delete = v.form(
                             "/compte/organisation/groupes/supprimer",
                             "acct-inline",
                             &format!("{id_field}\n{}\n<button class=\"btn btn-danger btn-sm\" type=\"submit\">{}</button>", hidden("groupe", &g.id.to_string()), v.tr("Supprimer le groupe", "Delete the group")),
                         );
-                        format!("<div class=\"ka-group-acts\">{add}\n{delete}</div>")
-                    } else {
-                        String::new()
-                    };
+                        sheets.push_str(&sheet(
+                            v,
+                            &frag,
+                            &o.name,
+                            &match v.lang {
+                                Lang::Fr => t(v.lang, &format!("Le groupe « {} »", esc(&g.name)), ""),
+                                Lang::En => format!("The \"{}\" group", esc(&g.name)),
+                            },
+                            &format!(
+                                "<p class=\"ka-muted\">{help}</p>\n<div class=\"ka-list\">\n{rows}</div>\n<p class=\"ka-muted ka-after\">{invite}</p>\n<div class=\"ka-sheet-actions ka-sheet-split\"><a class=\"btn btn-ghost\" href=\"#\">{done}</a>{delete}</div>",
+                                help = v.tr(
+                                    "Ajoutez ou retirez des membres : chacun reçoit aussitôt les accès ouverts au groupe, ou les perd.",
+                                    "Add or remove members: each one gets the access opened to the group right away, or loses it.",
+                                ),
+                                invite = v.tr("Quelqu'un manque ? Invitez-le d'abord, dans l'onglet Membres.", "Someone missing? Invite them first, in the Members tab."),
+                                done = v.tr("Terminé", "Done"),
+                            ),
+                            false,
+                        ));
+                    }
                     format!(
-                        "<section class=\"ka-group\">\n<div class=\"ka-group-head\">{badge}<div><b>{name}</b><small>{count}</small></div></div>\n<div class=\"ka-list\">\n{members}</div>\n{manage}</section>\n",
+                        "<section class=\"ka-group\">\n<div class=\"ka-group-head\">{badge}<div><b>{name}</b><small>{count}</small></div></div>\n{members}\n{foot}</section>\n",
                         badge = badge(&g.name, o.kind, false),
                         name = esc(&g.name),
-                        count = count_word(v.lang, g.members.len(), "personne", "personnes", "person", "people"),
+                        count = count_word(v.lang, g.members.len(), "membre", "membres", "member", "members"),
                     )
                 })
                 .collect();
@@ -1294,7 +1328,18 @@ pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
                     v.tr("Annuler", "Cancel"),
                     v.tr("Créer le groupe", "Create the group"),
                 );
-                sheets.push_str(&sheet(v, "groupe", &o.name, &v.tr("Créer un groupe", "Create a group"), &v.form("/compte/organisation/groupes/creer", "", &inner), false));
+                sheets.push_str(&sheet(
+                    v,
+                    "groupe",
+                    &o.name,
+                    &v.tr("Créer un groupe", "Create a group"),
+                    &format!(
+                        "<p class=\"ka-muted\">{}</p>\n{}",
+                        v.tr("Vous y ajouterez ensuite des membres.", "You'll then add members to it."),
+                        v.form("/compte/organisation/groupes/creer", "", &inner)
+                    ),
+                    false,
+                ));
                 format!("<a class=\"ka-pc-add ka-group-add\" href=\"#groupe\"><span class=\"ka-plus\">{}</span><b>{}</b></a>\n", ic("plus"), v.tr("Créer un groupe", "Create a group"))
             } else {
                 String::new()
@@ -1305,8 +1350,8 @@ pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
                 help = help_box(
                     "info",
                     &v.tr(
-                        "Un groupe réunit des membres qui ont les mêmes besoins. <b>Ouvrez un ordinateur au groupe</b> (depuis la page de l'ordinateur), et chaque membre ajouté ensuite y a accès sans rien régler de plus.",
-                        "A group gathers members with the same needs. <b>Open a computer to the group</b> (from the computer's page), and each member added later gets access without anything else to set.",
+                        "<b>Un groupe réunit des membres qui ont les mêmes besoins.</b> Créez-le, ajoutez-y des membres, puis ouvrez-lui un ordinateur : sur la page de l'ordinateur, « Réglages » › « Ouvrir à une famille ou une équipe ». Chaque membre ajouté ensuite y a accès sans rien régler de plus.",
+                        "<b>A group gathers members with the same needs.</b> Create it, add members, then open a computer to it: on the computer's page, “Settings” › “Open to a family or team”. Each member added later gets access without anything else to set.",
                     ),
                 ),
             )
