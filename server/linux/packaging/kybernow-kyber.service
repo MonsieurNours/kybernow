@@ -1,0 +1,20 @@
+# KyberNow Station pour Linux : le serveur Kyber (kycontroller, qui lance
+# kyavserver et kynputserver), dans la session graphique de l'utilisateur,
+# piloté par Admin (docs/station-linux.md).
+[Unit]
+Description=KyberNow Station (Kyber)
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service kybernow-admin.service
+Wants=kybernow-admin.service
+
+[Service]
+Environment=KYBER_CONFIG=%h/.local/share/kybernow/station/kyber/kyber_config.toml
+Environment=PATH=/usr/lib/kybernow-station/runtime/bin:/usr/bin:/bin
+Environment=LD_LIBRARY_PATH=/usr/lib/kybernow-station/runtime/lib:/usr/lib/kybernow-station/runtime/lib/x86_64-linux-gnu:/usr/lib/kybernow-station/runtime/lib/aarch64-linux-gnu:/usr/lib/kybernow-station/runtime/lib64
+WorkingDirectory=%h/.local/share/kybernow/station/kyber
+ExecStart=/usr/lib/kybernow-station/runtime/bin/kycontroller
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

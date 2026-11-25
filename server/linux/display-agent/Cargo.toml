@@ -1,0 +1,22 @@
+[package]
+name = "kybernow-display-linux"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Écrans de KyberNow Station pour Linux (GNOME par Mutter, KDE par KWin) : écrans virtuels, capture et disposition, pilotés par KyberNow Admin"
+publish = false
+
+[[bin]]
+name = "kybernow-display"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+wayland-client = "0.31"
+wayland-scanner = "0.31"
+wayland-backend = "0.3"
+
+[profile.release]
+strip = true
+lto = "thin"

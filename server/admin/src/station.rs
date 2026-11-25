@@ -198,6 +198,16 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
 /// Pas d'assistant détaché : launchd arrêterait avec Admin tout ce qu'il lance.
 #[cfg(not(windows))]
 fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
+    // Station Linux : systemd relance Kyber puis Admin (docs/station-linux.md).
+    #[cfg(target_os = "linux")]
+    if crate::linux::is_station() {
+        let dir = data_dir.join(DIR);
+        let _ = fs::create_dir_all(&dir);
+        Journal::open(dir.join(LOG)).line("==> Redémarrage de KyberNow Station demandé depuis Admin (Linux)");
+        crate::linux::restart_station(GRACE);
+        tracing::info!("redémarrage de la Station : Kyber puis Admin relancés par systemd");
+        return Ok(None);
+    }
     if !crate::mac::is_station() {
         return Err(crate::i18n::Msg::new("station.windowsOnly").into());
     }

@@ -1,5 +1,6 @@
-//! Pilotage du service Windows `kyber`, ou du LaunchAgent de Kyber sur une
-//! Station Mac (`mac.rs`).
+//! Pilotage du service Windows `kyber`, du LaunchAgent de Kyber sur une
+//! Station Mac (`mac.rs`), ou de son service systemd sur une Station Linux
+//! (`linux.rs`).
 //!
 //! Sur les autres systèmes (développement sur Mac), un service simulé garde
 //! son état en mémoire pour pouvoir tester l'interface.
@@ -54,6 +55,11 @@ pub fn platform() -> Box<dyn ServiceControl> {
     #[cfg(target_os = "macos")]
     if let Some(plist) = crate::mac::kyber_plist() {
         return Box::new(crate::mac::Launchd { plist: plist.to_path_buf() });
+    }
+    // Station Linux : Kyber en service systemd de l'utilisateur (docs/station-linux.md).
+    #[cfg(target_os = "linux")]
+    if let Some(unit) = crate::linux::kyber_unit() {
+        return Box::new(crate::linux::Systemd { unit: unit.to_string() });
     }
     #[cfg(not(windows))]
     {

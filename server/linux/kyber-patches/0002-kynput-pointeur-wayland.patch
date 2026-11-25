@@ -1,0 +1,277 @@
+diff --git a/kynput/src/linux/abs_pointer.rs b/kynput/src/linux/abs_pointer.rs
+new file mode 100644
+index 0000000..1c780a3
+--- /dev/null
++++ b/kynput/src/linux/abs_pointer.rs
+@@ -0,0 +1,151 @@
++// Project Kyber: abs_pointer.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow (Station Linux) : pointeur absolu par uinput, pour un bureau
++//! Wayland (GNOME, KDE) où aucun client ne peut placer le pointeur (XTest ne
++//! déplace que celui de Xwayland). Un appareil « KyberNow pointeur » à deux
++//! axes absolus et aux boutons d'une souris : udev le classe en souris
++//! absolue (comme la tablette USB d'une machine virtuelle) et le compositeur
++//! l'étend sur tout son bureau. Ses axes couvrent la boîte autour des écrans
++//! que l'ordinateur annonce (places données par KyberNow Admin).
++//!
++//! Tant que l'appareil place le pointeur, les clics et la molette passent
++//! par lui aussi : GNOME n'applique pas les clics d'une autre souris pendant
++//! qu'un pointeur absolu le tient. Un mouvement relatif (pointeur capturé,
++//! jeux) rend la main à la souris relative.
++
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{Mutex, OnceLock};
++
++use evdev_rs::{AbsInfo, InputEvent as EvdevEvent, TimeVal, UInputDevice, enums::*};
++use log::{info, warn};
++
++use crate::linux::utils::uinput_utils::{UINPUT_DEVICE_DESC_DEFAULT, UinputDeviceDesc, plug_device};
++use crate::{Display, Result};
++
++const NAME: &str = "KyberNow pointeur";
++/// Étendue des axes : la boîte des écrans est ramenée à 0..=AXIS_MAX.
++const AXIS_MAX: i32 = 65535;
++
++const KEYS: &[EV_KEY] = &[
++    EV_KEY::BTN_LEFT,
++    EV_KEY::BTN_RIGHT,
++    EV_KEY::BTN_MIDDLE,
++    EV_KEY::BTN_SIDE,
++    EV_KEY::BTN_EXTRA,
++];
++const RELS: &[EV_REL] = &[
++    EV_REL::REL_HWHEEL,
++    EV_REL::REL_WHEEL,
++    EV_REL::REL_WHEEL_HI_RES,
++    EV_REL::REL_HWHEEL_HI_RES,
++];
++const AXIS: AbsInfo = AbsInfo { value: 0, minimum: 0, maximum: AXIS_MAX, fuzz: 0, flat: 0, resolution: 0 };
++const ABS: &[(EV_ABS, AbsInfo)] = &[(EV_ABS::ABS_X, AXIS), (EV_ABS::ABS_Y, AXIS)];
++const DESC: UinputDeviceDesc = UinputDeviceDesc {
++    keys: Some(KEYS),
++    rels: Some(RELS),
++    abs: Some(ABS),
++    ..UINPUT_DEVICE_DESC_DEFAULT
++};
++
++static DEVICE: OnceLock<Option<Mutex<UInputDevice>>> = OnceLock::new();
++static ACTIVE: AtomicBool = AtomicBool::new(false);
++
++/// Ce bureau ne laisse pas placer le pointeur par X11 (session Wayland, ou
++/// pas de serveur X) : le pointeur absolu passe par uinput.
++pub(crate) fn wanted() -> bool {
++    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
++        || std::env::var("XDG_SESSION_TYPE").is_ok_and(|v| v == "wayland");
++    let x11 = std::env::var_os("DISPLAY").is_some_and(|v| !v.is_empty());
++    wayland || !x11
++}
++
++fn device() -> Option<&'static Mutex<UInputDevice>> {
++    DEVICE
++        .get_or_init(|| match plug_device(NAME, &DESC) {
++            Ok(device) => Some(Mutex::new(device)),
++            Err(err) => {
++                warn!("'{NAME}' not plugged: {err:?}");
++                None
++            }
++        })
++        .as_ref()
++}
++
++/// Le pointeur absolu tient le pointeur (dernier mouvement absolu).
++pub(crate) fn active() -> bool {
++    ACTIVE.load(Ordering::Relaxed)
++}
++
++/// Un mouvement relatif rend la main à la souris relative.
++pub(crate) fn release() {
++    ACTIVE.store(false, Ordering::Relaxed);
++}
++
++fn write(device: &UInputDevice, events: &[(EventCode, i32)]) -> Result<()> {
++    let ts = TimeVal::new(0, 0);
++    for (code, value) in events {
++        device.write_event(&EvdevEvent::new(&ts, code, *value))?;
++    }
++    device.write_event(&EvdevEvent::new(&ts, &EventCode::EV_SYN(EV_SYN::SYN_REPORT), 0))?;
++    Ok(())
++}
++
++/// Place le pointeur à (x, y) du bureau, dans la boîte des écrans `displays`.
++pub(crate) fn move_to(displays: &[Display], x: i32, y: i32) -> Result<()> {
++    let Some(device) = device() else { return Ok(()) };
++    let (Some(left), Some(top)) = (displays.iter().map(|d| d.x).min(), displays.iter().map(|d| d.y).min()) else {
++        return Ok(());
++    };
++    let right = displays.iter().map(|d| d.x + d.width).max().unwrap_or(left + 1);
++    let bottom = displays.iter().map(|d| d.y + d.height).max().unwrap_or(top + 1);
++    let scale = |v: i32, lo: i32, hi: i32| {
++        let span = (hi - lo - 1).max(1) as i64;
++        (((v - lo).clamp(0, span as i32) as i64 * AXIS_MAX as i64 + span / 2) / span) as i32
++    };
++    if !ACTIVE.swap(true, Ordering::Relaxed) {
++        info!("'{NAME}' takes the pointer ({left},{top})-({right},{bottom})");
++    }
++    let device = device.lock().unwrap_or_else(|e| e.into_inner());
++    write(
++        &device,
++        &[
++            (EventCode::EV_ABS(EV_ABS::ABS_X), scale(x, left, right)),
++            (EventCode::EV_ABS(EV_ABS::ABS_Y), scale(y, top, bottom)),
++        ],
++    )
++}
++
++/// Clic ou molette par le pointeur absolu (quand il tient le pointeur).
++pub(crate) fn emit(events: &[(EventCode, i32)]) -> Result<()> {
++    let Some(device) = device() else { return Ok(()) };
++    let device = device.lock().unwrap_or_else(|e| e.into_inner());
++    write(&device, events)
++}
++
++#[cfg(test)]
++mod tests {
++    #[test]
++    fn wanted_follows_the_session() {
++        // Seulement la forme : l'environnement du test décide.
++        let _ = super::wanted();
++    }
++}
+diff --git a/kynput/src/linux/host_mouse.rs b/kynput/src/linux/host_mouse.rs
+index 06f305c..4a6edfe 100644
+--- a/kynput/src/linux/host_mouse.rs
++++ b/kynput/src/linux/host_mouse.rs
+@@ -82,6 +82,12 @@ impl Backend {
+ 
+         let ev_code = EventCode::EV_KEY(ev_key);
+ 
++        // KyberNow : le pointeur absolu (Wayland) tient le pointeur, ses clics
++        // passent par lui.
++        if super::abs_pointer::active() {
++            return super::abs_pointer::emit(&[(ev_code, event.pressed as i32)]);
++        }
++
+         let sys_event = EvdevEvent::new(&ts, &ev_code, event.pressed as i32);
+         self.device.write_event(&sys_event)?;
+ 
+@@ -93,6 +99,7 @@ impl Backend {
+ 
+     fn inject_move(&self, event: &MouseMove) -> Result<()> {
+         let ts = TimeVal::new(0, 0);
++        super::abs_pointer::release();
+ 
+         if event.dx != 0 {
+             let ev_code = EventCode::EV_REL(EV_REL::REL_X);
+@@ -120,6 +127,10 @@ impl Backend {
+     fn uinput_inject_wheel(&self, ev_code: EventCode, value: i32) -> Result<()> {
+         let ts = TimeVal::new(0, 0);
+ 
++        if super::abs_pointer::active() {
++            return super::abs_pointer::emit(&[(ev_code, value)]);
++        }
++
+         let sys_event = EvdevEvent::new(&ts, &ev_code, value);
+         self.device.write_event(&sys_event)?;
+ 
+diff --git a/kynput/src/linux/host_mouse_position.rs b/kynput/src/linux/host_mouse_position.rs
+index ccc1b63..1b7b27a 100644
+--- a/kynput/src/linux/host_mouse_position.rs
++++ b/kynput/src/linux/host_mouse_position.rs
+@@ -39,14 +39,22 @@ fn convert_host_config(host_config: Arc<HostConfig>) -> HashMap<u32, Display> {
+ }
+ 
+ struct Backend {
+-    // X11 server-wide variables
+-    conn: xcb::Connection,
+-    root: xcb::x::Window,
++    // X11 server-wide variables (None : bureau Wayland, pointeur par uinput,
++    // KyberNow, `abs_pointer`).
++    x11: Option<(xcb::Connection, xcb::x::Window)>,
+     displays: HashMap<u32, Display>,
+ }
+ 
+ impl Backend {
+     fn create(host_config: Arc<HostConfig>) -> Result<Box<dyn ThreadedConsumerBackend>> {
++        if super::abs_pointer::wanted() {
++            info!("Wayland session: absolute pointer through uinput");
++            return Ok(Box::new(Self {
++                x11: None,
++                displays: convert_host_config(host_config),
++            }));
++        }
++
+         // Connect to X server
+         let (conn, screen_num) = xcb::Connection::connect(None)?;
+ 
+@@ -58,8 +66,7 @@ impl Backend {
+         let root = screen.root();
+ 
+         Ok(Box::new(Self {
+-            conn,
+-            root,
++            x11: Some((conn, root)),
+             displays: convert_host_config(host_config),
+         }))
+     }
+@@ -73,20 +80,28 @@ impl Backend {
+             return Ok(());
+         };
+ 
++        let Some((conn, root)) = &self.x11 else {
++            let displays: Vec<Display> = self.displays.values().cloned().collect();
++            return super::abs_pointer::move_to(
++                &displays,
++                display.x + position.x as i32,
++                display.y + position.y as i32,
++            );
++        };
+         let root_x = display.x as i16 + position.x;
+         let root_y = display.y as i16 + position.y;
+ 
+-        self.conn.send_request(&xcb::xtest::FakeInput {
++        conn.send_request(&xcb::xtest::FakeInput {
+             r#type: x11::xlib::MotionNotify as _,
+             detail: 0,
+             time: 0,
+-            root: self.root,
++            root: *root,
+             root_x,
+             root_y,
+             deviceid: 0,
+         });
+ 
+-        self.conn.flush()?;
++        conn.flush()?;
+ 
+         Ok(())
+     }
+diff --git a/kynput/src/linux/mod.rs b/kynput/src/linux/mod.rs
+index dc73fd6..9773d59 100644
+--- a/kynput/src/linux/mod.rs
++++ b/kynput/src/linux/mod.rs
+@@ -18,6 +18,7 @@
+ // You should have received a copy of the GNU Affero General Public License
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
++mod abs_pointer;
+ pub mod client_cursor;
+ pub mod client_keyboard_mouse;
+ pub mod clipboard;

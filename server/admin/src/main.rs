@@ -27,6 +27,8 @@ mod lend_last;
 mod lend_sys;
 mod local_token;
 mod logs;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod linux;
 #[cfg(not(windows))]
 mod mac;
 mod migrate;

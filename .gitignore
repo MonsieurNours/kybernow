@@ -39,3 +39,5 @@ server/macos/audio-driver/build/
 # Icône de la barre des menus, app, installateur et .dmg de la Station Mac
 server/macos/menubar/build/
 server/macos/dist/
+server/linux/dist/
+server/linux/display-agent/target/

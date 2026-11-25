@@ -1580,5 +1580,89 @@
       "share": "Partage",
       "admin": "Administrer"
     }
+  },
+  "linux": {
+    "session": {
+      "keys": {
+        "winSub": "Activités"
+      }
+    },
+    "overview": {
+      "display": {
+        "noDriver": "Écran virtuel indisponible"
+      }
+    },
+    "devices": {
+      "card": {
+        "launchText": "Une app s'ouvre sur l'ordinateur dès que l'écran virtuel est prêt, dans votre session. Déjà ouverte, elle revient au premier plan."
+      },
+      "launch": {
+        "intro": "Une app s'ouvre sur l'ordinateur dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent des applications installées de votre session.",
+        "loading": "Lecture des applications…",
+        "readFailed": "Les applications n'ont pas pu être relues : {error}. Ouvrez votre session sur l'ordinateur, puis actualisez.",
+        "allOf": "Applications de l'ordinateur",
+        "emptyCatalogue": "Aucune app trouvée. Ouvrez votre session sur l'ordinateur, puis actualisez."
+      }
+    },
+    "system": {
+      "update": {
+        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez le journal (journalctl --user -u kybernow-admin)."
+      },
+      "server": {
+        "simulated": "(simulé hors Station)",
+        "trayTitle": "Icône de Kyber dans la barre du bureau"
+      },
+      "station": {
+        "timeout": "La Station n'a pas redémarré en 3 minutes : voyez le journal (journalctl --user -u kybernow-admin)."
+      },
+      "wake": {
+        "allowedHelp": "Cette carte peut allumer l'ordinateur quand il est en veille. Vos appareils peuvent le réveiller depuis l'app KyberNow Link. Après un arrêt complet, cela dépend du BIOS.",
+        "notAllowedHelp": "Pour que vos appareils puissent allumer cet ordinateur, autorisez le réveil par paquet magique sur la carte réseau (sudo ethtool -s <carte> wol g, ou les réglages de la connexion) et dans le BIOS.",
+        "unknownHelp": "Linux ne dit pas si cette carte peut allumer l'ordinateur. Pour que vos appareils le puissent, autorisez le réveil par paquet magique sur la carte réseau (sudo ethtool -s <carte> wol g) et dans le BIOS."
+      }
+    },
+    "imageSound": {
+      "hdrGamma": {
+        "srgb": "sRGB"
+      },
+      "pill": {
+        "simulated": "Simulé : pas de Station installée sur cet ordinateur",
+        "driverUnavailable": "Écran virtuel indisponible",
+        "ready": "Prêt · écran virtuel du bureau",
+        "readyVersion": "Prêt · écran virtuel du bureau",
+        "readySound": "Prêt · sortie son KyberNow"
+      },
+      "display": {
+        "hdrWindows": "Pas encore de HDR depuis une Station Linux.",
+        "hdrCheckProfile": "Le bureau n'a pas pris le profil : les jeux voient {seen} nits au lieu de {wanted}.",
+        "hdrCheckUnread": "Le bureau ne donne pas les luminosités de l'écran virtuel.",
+        "hdrGammaHelp": "Réglage des Stations Windows : rien à choisir sur cet ordinateur.",
+        "failsafeHelp": "L'écran virtuel disparaît tout seul si la Station s'arrête, et le bureau rallume vos écrans dans leur disposition. Vous pouvez aussi le faire tout de suite.",
+        "failsafeHelpSeconds": "L'écran virtuel disparaît tout seul si la Station s'arrête, et le bureau rallume vos écrans dans leur disposition. Vous pouvez aussi le faire tout de suite."
+      },
+      "sound": {
+        "installSteam": "La sortie son KyberNow n'a pas pu être créée : vérifiez que PipeWire (ou PulseAudio) tourne dans votre session. Sans elle, le son sort aussi des haut-parleurs de l'ordinateur."
+      }
+    },
+    "lend": {
+      "warning": "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+      "page": {
+        "intro": "Prêtez l'ordinateur à un ami quand vous ne vous en servez pas : il joue depuis son appareil, avec les apps que vous choisissez. À la fin, tout revient comme avant, et votre session reste ouverte.",
+        "switchHelp": "Tant que le prêt est activé, votre session doit rester ouverte : la Station empêche la mise en veille et le verrouillage automatique."
+      },
+      "apps": {
+        "pickIntro": "Votre ami pourra l'ouvrir depuis le lanceur. Les apps et leurs icônes viennent des applications installées de votre session."
+      },
+      "admin": {
+        "settings": {
+          "session": "Votre session"
+        },
+        "off": {
+          "title": "Prêtez votre ordinateur à un ami, en toute simplicité",
+          "friendsText": "Ils empruntent avec leur identifiant quand l'ordinateur est libre, sinon ils vous demandent.",
+          "warning": "Votre ami joue dans votre session, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance."
+        }
+      }
+    }
   }
 }

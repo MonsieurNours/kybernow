@@ -38,6 +38,8 @@ mod mac;
 pub fn mac_agent_path() -> Option<std::path::PathBuf> {
     mac::agent_path()
 }
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(windows)]
 pub mod pointer;
 #[cfg(windows)]
@@ -458,7 +460,12 @@ pub struct PhysicalDisplay {
 /// même CRC sur trois entiers de 32 bits (petit-boutistes) : le type du
 /// contexte (`SP_TYPE_CONTEXT`, 2), le numéro d'écran de macOS
 /// (`CGDirectDisplayID`) et le type d'entrée (`SP_IO_TYPE_VIDEO_DISPLAY`, 1).
+/// Station Linux (`linux:<numéro>`, `display/linux.rs`) : le numéro est
+/// l'identifiant que l'agent écrit dans le fichier des écrans de Kyber.
 pub fn kyber_display_id(name: &str) -> u32 {
+    if let Some(id) = name.strip_prefix("linux:").and_then(|n| n.parse::<u32>().ok()) {
+        return id;
+    }
     if let Some(id) = name.strip_prefix("mac:").and_then(|n| n.parse::<u32>().ok()) {
         let bytes: Vec<u8> = [2u32, id, 1u32].iter().flat_map(|v| v.to_le_bytes()).collect();
         return kyber_crc(&bytes);
@@ -1000,7 +1007,18 @@ impl Manager {
             }
             (false, _) => Box::new(Simulated::default()),
         };
-        #[cfg(all(not(windows), not(target_os = "macos")))]
+        // Station Linux : écrans virtuels de GNOME par l'agent kybernow-display
+        // (docs/station-linux.md) ; sans lui, les écrans tels quels.
+        #[cfg(target_os = "linux")]
+        let backend: Box<dyn Backend> = match (crate::linux::is_station(), linux::agent_path()) {
+            (true, Some(path)) => Box::new(linux::LinuxBackend::new(path)),
+            (true, None) => {
+                tracing::warn!("agent des écrans introuvable (kybernow-display) : les écrans tels qu'ils sont");
+                Box::new(Absent)
+            }
+            (false, _) => Box::new(Simulated::default()),
+        };
+        #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
         let backend: Box<dyn Backend> = Box::new(Simulated::default());
         Self::with_backend(data_dir, settings, backend)
     }

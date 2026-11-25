@@ -1,0 +1,10 @@
+# KyberNow Station pour Linux : sous KDE Plasma, KWin ne donne son protocole
+# d'écrans virtuels et de capture (zkde_screencast_unstable_v1) qu'à un
+# programme déclaré ici (Exec), sans dialogue (docs/station-linux.md).
+[Desktop Entry]
+Type=Application
+Name=KyberNow Station
+Comment=Écrans de KyberNow Station
+Exec=/usr/lib/kybernow-station/bin/kybernow-display
+NoDisplay=true
+X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1

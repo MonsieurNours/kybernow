@@ -1,0 +1,4 @@
+# KyberNow Station pour Linux : /dev/uinput pour l'utilisateur assis devant
+# l'ordinateur (uaccess), pour le clavier, la souris, le pointeur absolu,
+# les manettes et le stylet des appareils connectés.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

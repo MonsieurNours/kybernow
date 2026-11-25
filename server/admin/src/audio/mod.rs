@@ -122,7 +122,12 @@ impl Router {
             (true, None) => Box::new(Absent),
             (false, _) => Box::new(Simulated),
         };
-        #[cfg(all(not(windows), not(target_os = "macos")))]
+        // Station Linux : une sortie PipeWire « KyberNow » le temps de la session
+        // (docs/station-linux.md).
+        #[cfg(target_os = "linux")]
+        let backend: Box<dyn Backend> =
+            if crate::linux::is_station() { Box::new(linux::LinuxBackend) } else { Box::new(Simulated) };
+        #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
         let backend: Box<dyn Backend> = Box::new(Simulated);
         Arc::new(Self {
             backend,
@@ -294,6 +299,7 @@ impl Router {
 /// Station Mac sans sortie son virtuelle : le son de l'écran capturé part tel
 /// quel (Kyber le prend par ScreenCaptureKit), et rien n'est annoncé aux apps.
 #[cfg(not(windows))]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 struct Absent;
 
 #[cfg(not(windows))]
@@ -390,6 +396,121 @@ mod mac {
                 args.extend(["--previous-system", system.as_str()]);
             }
             self.run(&args).map(|_| ())
+        }
+    }
+}
+
+/// Station Linux : le son de la session part vers une sortie « KyberNow »
+/// créée pour l'occasion (module `module-null-sink` de PipeWire, par son
+/// serveur compatible PulseAudio et `pactl`), au nombre de voies de
+/// l'appareil ; elle devient la sortie par défaut, les sons en cours y sont
+/// déplacés, et Kyber capture son retour (le moniteur de la sortie par
+/// défaut). Rien ne sort des haut-parleurs de l'ordinateur pendant la
+/// session. À la fin : sortie d'origine rendue, sons ramenés, module retiré.
+/// `previous_format` garde le numéro du module.
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::process::Command;
+
+    use super::*;
+
+    const SINK: &str = "kybernow";
+
+    pub struct LinuxBackend;
+
+    fn pactl(args: &[&str]) -> Result<String> {
+        let out = Command::new("pactl").args(args).output().map_err(|e| anyhow::anyhow!("pactl : {e}"))?;
+        anyhow::ensure!(out.status.success(), "pactl {} : {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    /// Ordre des voies de PulseAudio pour 2, 6 et 8 voies.
+    pub(super) fn channel_map(channels: u16) -> &'static str {
+        match channels {
+            6 => "front-left,front-right,front-center,lfe,rear-left,rear-right",
+            8 => "front-left,front-right,front-center,lfe,rear-left,rear-right,side-left,side-right",
+            _ => "front-left,front-right",
+        }
+    }
+
+    fn sink_inputs() -> Vec<String> {
+        pactl(&["list", "short", "sink-inputs"])
+            .map(|t| t.lines().filter_map(|l| l.split_whitespace().next().map(str::to_string)).collect())
+            .unwrap_or_default()
+    }
+
+    fn move_all(to: &str) {
+        for input in sink_inputs() {
+            let _ = pactl(&["move-sink-input", &input, to]);
+        }
+    }
+
+    /// Modules « kybernow » restés d'une session interrompue.
+    fn unload_ours() {
+        if let Ok(list) = pactl(&["list", "short", "modules"]) {
+            for line in list.lines().filter(|l| l.contains("module-null-sink") && l.contains(&format!("sink_name={SINK}"))) {
+                if let Some(id) = line.split_whitespace().next() {
+                    let _ = pactl(&["unload-module", id]);
+                }
+            }
+        }
+    }
+
+    impl Backend for LinuxBackend {
+        fn status(&self) -> Result<Value> {
+            let default = pactl(&["get-default-sink"]).ok();
+            // La sortie KyberNow est créée pour chaque session : elle est là
+            // dès que le serveur de son répond.
+            let ours = pactl(&["info"]).is_ok();
+            Ok(json!({
+                "speakers": ours.then(|| json!({ "id": SINK, "name": "KyberNow", "channels": 8 })),
+                "default": default.map(|d| json!({ "id": d, "name": d, "channels": Value::Null })),
+            }))
+        }
+        fn supported(&self) -> bool {
+            pactl(&["info"]).is_ok()
+        }
+        fn route(&self, channels: u16) -> Result<(Record, u16)> {
+            let previous = pactl(&["get-default-sink"])?;
+            unload_ours();
+            let module = pactl(&[
+                "load-module",
+                "module-null-sink",
+                &format!("sink_name={SINK}"),
+                &format!("channels={channels}"),
+                &format!("channel_map={}", channel_map(channels)),
+                "rate=48000",
+                "sink_properties=device.description=KyberNow",
+            ])?;
+            pactl(&["set-default-sink", SINK])?;
+            move_all(SINK);
+            tracing::info!("son vers la sortie KyberNow ({channels} voies, module {module}), sortie d'avant : {previous}");
+            Ok((Record { previous, previous_format: Some(module), speakers: SINK.into() }, channels))
+        }
+        fn restore(&self, record: &Record) -> Result<()> {
+            if !record.previous.is_empty() && record.previous != SINK {
+                let _ = pactl(&["set-default-sink", &record.previous]);
+                move_all(&record.previous);
+            }
+            match &record.previous_format {
+                Some(module) if !module.is_empty() => {
+                    let _ = pactl(&["unload-module", module]);
+                }
+                _ => {}
+            }
+            unload_ours();
+            tracing::info!("sortie son d'origine rendue ({})", record.previous);
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn channel_orders() {
+            assert_eq!(super::channel_map(2), "front-left,front-right");
+            assert_eq!(super::channel_map(6).split(',').count(), 6);
+            assert_eq!(super::channel_map(8).split(',').count(), 8);
         }
     }
 }

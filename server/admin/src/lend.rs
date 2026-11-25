@@ -1237,7 +1237,7 @@ impl Lending {
             })
             .collect();
         json!({
-            "available": true,
+            "available": crate::lend_api::available(),
             "enabled": enabled,
             "state": state,
             "borrower": borrower,

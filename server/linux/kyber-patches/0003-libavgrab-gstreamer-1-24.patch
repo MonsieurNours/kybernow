@@ -1,0 +1,20 @@
+diff --git a/subprojects/libavconv/libavgrab/gstreamer.c b/subprojects/libavconv/libavgrab/gstreamer.c
+--- a/subprojects/libavconv/libavgrab/gstreamer.c
++++ b/subprojects/libavconv/libavgrab/gstreamer.c
+@@ -50,6 +50,16 @@ static inline const gchar *gst_state_get_name(GstState state)
+ }
+ #endif
+ 
++#if !GST_CHECK_VERSION(1, 26, 0)
++/* KyberNow (Station Linux) : GStreamer 1.24 (Ubuntu 24.04) n'a pas encore
++ * gst_message_get_details ; la structure du message porte les mêmes
++ * détails (erreur, avertissement). */
++static inline const GstStructure *gst_message_get_details(GstMessage *msg)
++{
++    return gst_message_get_structure(msg);
++}
++#endif
++
+ typedef struct GStreamerFrame {
+     GstBuffer                  *buf;
+     GstVideoFrame               frame;
