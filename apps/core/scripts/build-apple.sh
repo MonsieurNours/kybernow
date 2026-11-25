@@ -48,12 +48,13 @@ DEPLOYMENT=18.0
 ALL_TARGETS=(aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-tvos aarch64-apple-tvos-sim)
 TARGETS=()
 COMMAND=build
-KYBER_PYROWAVE=0
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGETS+=("${2:-}"); shift ;;
         --check) COMMAND=check ;;
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        --sans-pyrowave) KYBER_PYROWAVE=0 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift

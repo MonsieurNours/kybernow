@@ -44,12 +44,13 @@ OUT="$HERE/Vendor"
 
 # Empreinte de ce qui fait les bibliothèques client : correctifs, ce script,
 # versions des outils.
-KYBER_PYROWAVE="${KYBER_PYROWAVE:-0}"
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 STAMP_ONLY=0
 for arg in "$@"; do
     case "$arg" in
         --stamp) STAMP_ONLY=1 ;;
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        --sans-pyrowave) KYBER_PYROWAVE=0 ;;
         *) echo "Option inconnue : $arg" >&2; exit 1 ;;
     esac
 done

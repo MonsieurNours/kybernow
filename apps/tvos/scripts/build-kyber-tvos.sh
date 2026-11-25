@@ -43,10 +43,11 @@ DEPLOYMENT=18.0
 . "$ROOT/scripts/verrou.sh"
 kyber_verrou_sortie "$OUT" "build-kyber-tvos.sh" || exit 1
 
-KYBER_PYROWAVE=0
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        --sans-pyrowave) KYBER_PYROWAVE=0 ;;
         *) echo "Option inconnue : $1 (--kyber-pyrowave)" >&2; exit 1 ;;
     esac
     shift

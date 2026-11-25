@@ -36,6 +36,7 @@ while [ $# -gt 0 ]; do
         --no-build) BUILD=0 ;;
         --prefix) BUILD_ARGS+=(--prefix "$2"); PREFIX="$2"; shift ;;
         --kyber-pyrowave) BUILD_ARGS+=(--kyber-pyrowave) ;;
+        --sans-pyrowave) BUILD_ARGS+=(--sans-pyrowave) ;;
         *) echo "option inconnue : $1" >&2; exit 2 ;;
     esac
     shift

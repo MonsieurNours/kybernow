@@ -628,6 +628,13 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
         pending: Mutex::new(HashMap::new()),
     });
     shared.live.send_replace(Some(live.clone()));
+    // L'adresse d'Admin sur le réseau et « Admin à distance » sont dans le
+    // `hello`, mais Admin a pu les donner pendant que la connexion s'ouvrait
+    // (après le `hello`, avant `live`) : [`Agent::admin_status`] les a
+    // gardés sans pouvoir les envoyer, et ne les renvoie qu'au changement
+    // suivant. On les redonne une fois la connexion prête.
+    let (admin_lan, remote_admin) = shared.admin.lock().unwrap().clone();
+    let _ = live.ctl.send(Msg::AdminStatus { admin_lan, remote_admin });
     shared.state.send_replace(AgentState::Joined { transport });
     log::info!("relais {} joint en {transport} (Station {})", shared.cfg.relay, welcome.id);
     let _media_task = AbortOnDrop(tokio::spawn(media_loop(shared.clone(), media_rx)));

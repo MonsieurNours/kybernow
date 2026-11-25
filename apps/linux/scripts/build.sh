@@ -46,7 +46,7 @@ PROFILE=release
 INSTALL=""
 DEPS_ONLY=0
 RPI=0
-KYBER_PYROWAVE="${KYBER_PYROWAVE:-0}"
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) COMMAND=check ;;
@@ -54,6 +54,7 @@ while [ $# -gt 0 ]; do
         --deps-only) DEPS_ONLY=1 ;;
         --rpi) RPI=1 ;;
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        --sans-pyrowave) KYBER_PYROWAVE=0 ;;
         --prefix) PREFIX="$2"; shift ;;
         --install) INSTALL="$2"; shift ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;

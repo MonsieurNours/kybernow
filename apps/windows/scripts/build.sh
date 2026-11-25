@@ -36,12 +36,13 @@ KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
 
 PROFILE=release
 ARCH=x64
-KYBER_PYROWAVE=0
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --debug) PROFILE=debug ;;
         --arch) ARCH="${2:-}"; shift ;;
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        --sans-pyrowave) KYBER_PYROWAVE=0 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift

@@ -13,10 +13,11 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ARCH="$(uname -m)"
-KP=""
+KP=" --kyber-pyrowave"
 for a in "$@"; do
     case "$a" in
         --kyber-pyrowave) KP=" --kyber-pyrowave" ;;
+        --sans-pyrowave) KP=" --sans-pyrowave" ;;
         *) ARCH="$a" ;;
     esac
 done

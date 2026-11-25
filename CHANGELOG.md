@@ -5,6 +5,13 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.11.1
+
+Corrections de la 0.11.0.
+
+- **PyroWave fonctionne dans les apps.** En 0.11.0, les apps ne le demandaient jamais à la Station : « {ordinateur} ne propose pas PyroWave » s'affichait même avec une carte graphique qui convient.
+- **Admin depuis KyberNow Share, chez vous.** La page du compte propose de nouveau « Ouvrir sur le réseau » quand Admin à distance est coupé : la Station redonne son adresse sur le réseau au relais dès que la connexion est prête.
+
 ## 0.11.0
 
 PyroWave, le débit automatique, le stylet, « Regarder » et les nouveautés des comptes. Cette version reprend aussi tout ce qu'apportait la bêta 0.10.0 : les comptes KyberNow, les invitations et la priorité donnée à l'image sur la carte graphique.

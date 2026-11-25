@@ -32,9 +32,12 @@
 set -euo pipefail
 
 PLATFORM="${1:-}"
-KYBER_PYROWAVE=0
-[ "${2:-}" = --kyber-pyrowave ] && KYBER_PYROWAVE=1
-[ $# -le 1 ] || [ "$KYBER_PYROWAVE" = 1 ] || { echo "Usage : $0 tvos|ios [--kyber-pyrowave]" >&2; exit 1; }
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
+case "${2:-}" in
+    "" | --kyber-pyrowave) ;;
+    --sans-pyrowave) KYBER_PYROWAVE=0 ;;
+    *) echo "Usage : $0 tvos|ios [--kyber-pyrowave|--sans-pyrowave]" >&2; exit 1 ;;
+esac
 case "$PLATFORM" in
     tvos) TARGETS=(aarch64-apple-tvos aarch64-apple-tvos-sim) ;;
     ios) TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim) ;;

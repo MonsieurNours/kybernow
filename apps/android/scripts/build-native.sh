@@ -64,7 +64,7 @@ TARGETS=()
 COMMAND=build
 PROFILE=release
 PYROWAVE=1
-KYBER_PYROWAVE=0
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGETS+=("${2:-}"); shift ;;
@@ -72,6 +72,7 @@ while [ $# -gt 0 ]; do
         --debug) PROFILE=debug ;;
         --no-pyrowave) PYROWAVE=0 ;;
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        --sans-pyrowave) KYBER_PYROWAVE=0 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift

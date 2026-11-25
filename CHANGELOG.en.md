@@ -4,6 +4,13 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.11.1
+
+Fixes for 0.11.0.
+
+- **PyroWave works in the apps.** In 0.11.0, the apps never asked the Station for it: “{computer} doesn't offer PyroWave” showed even with a suitable graphics card.
+- **Admin from KyberNow Share, at home.** The account page offers “Open on the network” again when Remote Admin is off: the Station gives the relay its network address again as soon as the connection is ready.
+
 ## 0.11.0
 
 PyroWave, the automatic bitrate, the pen, “Watch” and the new account features. This version also includes everything the 0.10.0 beta brought: KyberNow accounts, invitations and the priority given to the picture on the graphics card.

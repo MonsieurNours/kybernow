@@ -66,8 +66,12 @@ trap 'rm -rf "$STAGE"' EXIT
 kyber_verrou_sortie "$VENDOR" "apps/apple/scripts/build-apple.sh" || exit 1
 
 echo "==> kybernow-core + kybernow-apple ($TARGET)"
+# PyroWave demandé à Kyber (fonctionnalité kyber-pyrowave), par défaut comme
+# les autres apps ; KYBER_PYROWAVE=0 le coupe (build-kyclient.sh pareil).
+FEATURES=()
+[ "${KYBER_PYROWAVE:-1}" = 1 ] && FEATURES=(--features kyber-pyrowave)
 (cd "$ROOT/apps" && cargo_quiet cargo cinstall -p kybernow-apple --target "$TARGET" --release \
-    --library-type cdylib --prefix="$STAGE")
+    --library-type cdylib --prefix="$STAGE" ${FEATURES[@]+"${FEATURES[@]}"})
 
 LIB="$STAGE/lib/libkybernow.dylib"
 [ -f "$LIB" ] || { echo "libkybernow.dylib absente de $STAGE/lib" >&2; exit 1; }
