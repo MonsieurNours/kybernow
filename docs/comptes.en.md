@@ -100,6 +100,26 @@ Decided on 25/11/2026.
 - **Deploy**: an enrollment token can put the enrolled computers straight into a computer group (“Put in the group”).
 - Managing computer groups: Owners and Administrators, with two-factor authentication.
 
+### Invitations, adding members and sessions
+
+Decided on 25/11/2026.
+
+**Invitations** (a person added to a computer by their address, a member invited to a family or team):
+- A pending invitation **expires after 30 days**; the rights it carried no longer pass to the account. It stays in the list, “Invitation expired”, until it is resent or removed.
+- Under the address: “Invitation sent on {date} · expires on {date}”; expired: “Invitation expired on {date}”.
+- **“Resend the invitation”**: sends the e-mail again and restarts the 30 days (also for an expired invitation); at most once an hour per invitation (“Invitation already resent less than an hour ago.”); notice “Invitation resent to {address}.”; a line in the log.
+- French: « Invitation envoyée le {date} · expire le {date} », « Invitation expirée le {date} », « Renvoyer l'invitation », « Invitation déjà renvoyée il y a moins d'une heure. », « Invitation renvoyée à {adresse}. ».
+
+**Adding someone** (“Add a person”, “Invite a member”, “Open a group” to a member):
+- The address field **suggests people you already know** as you type: the members of your families and teams, and the people you've already opened a computer to, “First Last — address”. No script: a browser list (`datalist`).
+- **No duplicates**: addresses are compared ignoring case and spaces; adding someone who already has access to this computer changes their rights instead of adding a line (“{name} already had access: their rights are updated.”); inviting someone already in the family or team is refused (“{name} is already a member.”); a pending invitation for the same address is replaced, not doubled. The “People” page shows each person once, even if added by address on one computer and by account on another.
+- French: « {nom} avait déjà accès : ses droits sont mis à jour. », « {nom} en fait déjà partie. ».
+
+**Sessions**:
+- The access token a device shows a Station lasts **2 minutes** (instead of 5); the apps renew it on their own. A Station still accepts up to 5 minutes (older relay).
+- A **device session** (an app signed in to the account) **expires after 90 days unused**: the app says “This account was signed out of this device: sign in again.”, as after signing out from the account's page.
+- “Account and security”, list of devices: “Used {duration} ago”; help “A device unused for 90 days is signed out.” (« Utilisé il y a {durée} » ; « Un appareil qui ne sert pas pendant 90 jours est déconnecté. »).
+
 ## The account space
 
 Decided on 11/25/2026 with the mockup (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). The relay's console (`/compte/…`) becomes an app: a **fixed side menu** and a **content column of constant width** (920 px), whatever the page; on a phone (under 880 px), the menu becomes a **tab bar at the bottom**.

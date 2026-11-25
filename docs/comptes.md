@@ -100,6 +100,26 @@ Décidé le 25/11/2026.
 - **Déployer** : un jeton d'enrôlement peut ranger d'office les ordinateurs enrôlés dans un groupe d'ordinateurs (« Ranger dans le groupe »).
 - Gérer les groupes d'ordinateurs : les Propriétaires et Administrateurs, avec la double authentification.
 
+### Invitations, ajout de membres et sessions
+
+Décidé le 25/11/2026.
+
+**Invitations** (une personne ajoutée à un ordinateur par son adresse, un membre invité dans une famille ou une équipe) :
+- Une invitation en attente **expire après 30 jours** ; les droits qu'elle portait ne passent plus au compte. Elle reste dans la liste, « Invitation expirée », jusqu'à ce qu'on la renvoie ou la retire.
+- Sous l'adresse : « Invitation envoyée le {date} · expire le {date} » ; expirée : « Invitation expirée le {date} ».
+- **« Renvoyer l'invitation »** : renvoie l'e-mail et repart pour 30 jours (aussi pour une invitation expirée) ; une fois par heure au plus et par invitation (« Invitation déjà renvoyée il y a moins d'une heure. ») ; avis « Invitation renvoyée à {adresse}. » ; une ligne au journal.
+- Anglais : “Invitation sent on {date} · expires on {date}”, “Invitation expired on {date}”, “Resend the invitation”, “Invitation already resent less than an hour ago.”, “Invitation resent to {address}.”.
+
+**Ajouter quelqu'un** (« Ajouter une personne », « Inviter un membre », « Ouvrir un groupe » à un membre) :
+- Le champ de l'adresse **propose les personnes déjà connues** à mesure qu'on tape : les membres de vos familles et équipes, et les personnes à qui vous avez déjà ouvert un ordinateur, « Prénom Nom — adresse ». Sans script : une liste du navigateur (`datalist`).
+- **Pas de doublon** : les adresses sont comparées sans tenir compte des majuscules ni des espaces ; ajouter quelqu'un qui a déjà un accès à cet ordinateur change ses droits au lieu d'ajouter une ligne (« {nom} avait déjà accès : ses droits sont mis à jour. ») ; inviter un membre déjà dans la famille ou l'équipe est refusé (« {nom} en fait déjà partie. ») ; une invitation en attente pour la même adresse est remplacée, pas doublée. La page « Personnes » montre chaque personne une fois, même ajoutée par son adresse sur un ordinateur et par son compte sur un autre.
+- Anglais : “{name} already had access: their rights are updated.”, “{name} is already a member.”.
+
+**Sessions** :
+- Le jeton d'accès qu'un appareil présente à une Station vaut **2 minutes** (au lieu de 5) ; les apps le renouvellent d'elles-mêmes. Une Station accepte toujours jusqu'à 5 minutes (relais plus ancien).
+- Une **session d'appareil** (une app connectée au compte) **expire après 90 jours sans servir** : l'app dit « Ce compte a été déconnecté de cet appareil : reconnectez-vous. », comme après une déconnexion depuis la page du compte.
+- « Compte et sécurité », liste des appareils : « Utilisé il y a {durée} » ; aide « Un appareil qui ne sert pas pendant 90 jours est déconnecté. » / “Used {duration} ago”; “A device unused for 90 days is signed out.”.
+
 ## L'espace du compte
 
 Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). La console du relais (`/compte/…`) devient une appli : un **menu latéral fixe** et une **colonne de contenu de largeur constante** (920 px), quelle que soit la page ; au téléphone (moins de 880 px), le menu devient une **barre d'onglets en bas**.
