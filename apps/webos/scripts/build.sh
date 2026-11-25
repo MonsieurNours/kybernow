@@ -140,22 +140,16 @@ cargo_quiet() {
 # Jamais le correctif kyclient de PyroWave (0025) : les téléviseurs LG n'ont
 # pas PyroWave (docs/pyrowave.md), et le cœur ne compile pas avec lui sans sa
 # fonctionnalité pyrowave.
-for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE"/kyber-patches/*.patch; do
+. "$ROOT/scripts/kyber-client-patches.sh"
+PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
+for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-pyrowave.patch) continue ;;
-        *-kyclient-*) repo="$KYSDK/kyctl" ;;
-        *-kynput-*) repo="$KYSDK/kynput" ;;
-        *-kynet-*) repo="$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
     esac
-    if git -C "$repo" apply --check "$patch" 2>/dev/null; then
-        git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
-    elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
-        echo "Correctif $(basename "$patch") inapplicable :" >&2
-        git -C "$repo" apply --check "$patch" >&2 || true
-        exit 1
-    fi
+    PATCHES+=("$patch")
 done
+PATCHES+=("$HERE"/kyber-patches/*.patch)
+kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 
 # libkynput (API C de kynput, sans SDL), statique.
 if [ ! -f "$PREFIX/lib/pkgconfig/kynput.pc" ]; then

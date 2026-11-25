@@ -100,22 +100,15 @@ kyber_toolchain_check rustc cargo-c
 # Le correctif kyclient de PyroWave (0025) seulement avec --kyber-pyrowave :
 # third_party/ est partagé par toutes les apps, et le cœur sans sa
 # fonctionnalité `pyrowave` ne compile pas contre lui (`fallback_codec`).
-for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
+. "$ROOT/scripts/kyber-client-patches.sh"
+PATCHES=("$APPS"/macos/kyber-patches/*.patch)
+for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
-        *-kyclient-*) repo="$KYSDK/kyctl" ;;
-        *-kynput-*) repo="$KYSDK/kynput" ;;
-        *-kynet-*) repo="$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
     esac
-    if git -C "$repo" apply --check "$patch" 2>/dev/null; then
-        git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
-    elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
-        echo "Correctif $(basename "$patch") inapplicable :" >&2
-        git -C "$repo" apply --check "$patch" >&2 || true
-        exit 1
-    fi
+    PATCHES+=("$patch")
 done
+kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 
 # VLC : une fonction vide par export de libvlc.dll (jamais appelée tant que
 # l'image et le son vont à l'app), et un libvlc.pc qui la désigne.
