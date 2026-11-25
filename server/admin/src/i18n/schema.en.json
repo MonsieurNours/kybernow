@@ -70,6 +70,12 @@
         }
       }
     },
+    "video.pyrowave": {
+      "label": "PyroWave (provisional)",
+      "help": "Provisional text: offer the PyroWave format to devices.",
+      "details": "Provisional text. PyroWave is a picture format that is very fast to encode and decode, for the local network; it needs a lot of bandwidth. Offered only if the graphics card allows it.",
+      "advice": "Provisional text: keep it on."
+    },
     "video.gpu_priority": {
       "label": "GPU priority",
       "help": "How the capture and the encoding share the graphics card with a game.",

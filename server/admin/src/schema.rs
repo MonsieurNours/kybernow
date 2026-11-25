@@ -164,6 +164,22 @@ pub fn fields() -> Vec<Field> {
             caution: None,
             unit: None,
         },
+        // TODO textes pyrowave : libellés provisoires, en attente de la
+        // maquette (docs/pyrowave.md). Windows seulement (retiré plus bas
+        // sur Mac). Proposé aux apps seulement si la carte graphique a un
+        // Vulkan 1.3 qui convient (pyrowave.rs).
+        Field {
+            id: "video.pyrowave", group: "video",
+            table: &["kyavserver"], key: "pyrowave",
+            kind: Kind::Bool,
+            default: json!(true),
+            label: "PyroWave (provisoire)",
+            help: "Texte provisoire : proposer le format PyroWave aux appareils.",
+            details: "Texte provisoire. PyroWave est un format d'image très rapide à encoder et à décoder, pour le réseau local ; il demande beaucoup de débit. Proposé seulement si la carte graphique le permet.",
+            advice: "Texte provisoire : laissez activé.",
+            caution: None,
+            unit: None,
+        },
         Field {
             id: "video.minimum_bitrate", group: "video",
             table: &["kyavserver"], key: "minimum_bitrate",
@@ -380,7 +396,7 @@ pub fn fields() -> Vec<Field> {
         },
     ];
     if cfg!(target_os = "macos") {
-        fields.retain(|f| f.id != "video.gpu_priority");
+        fields.retain(|f| f.id != "video.gpu_priority" && f.id != "video.pyrowave");
     }
     fields
 }
