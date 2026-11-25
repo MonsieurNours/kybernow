@@ -697,6 +697,9 @@ fn run_switch(
 
 /// Point d'entrée de `kyber-admin update …`.
 pub fn run(action: Action, data_dir: &Path) -> Result<()> {
+    // Sous Linux, le service root ne lit pas le dossier de données d'Admin.
+    #[cfg(target_os = "linux")]
+    let _ = data_dir;
     #[cfg(target_os = "linux")]
     return match action {
         Action::Serve => super::linux::serve(),
@@ -1065,7 +1068,10 @@ pub fn previous_version(layout: &Layout) -> Option<String> {
     #[cfg(target_os = "macos")]
     return super::mac::previous_version(layout);
     #[cfg(target_os = "linux")]
-    return super::linux::previous_version();
+    {
+        let _ = layout;
+        return super::linux::previous_version();
+    }
     #[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(unreachable_code))]
     {
         let _ = layout;

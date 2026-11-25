@@ -13,7 +13,7 @@
 mod app;
 // Sur Mac, l'agent de console ne prend que ce qui sert au prêt.
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
 mod console;
 mod fonts;
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
