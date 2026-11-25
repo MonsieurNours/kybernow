@@ -1,0 +1,550 @@
+diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
+index ab86f25..a644b07 100644
+--- a/kynput/src/capi/mod.rs
++++ b/kynput/src/capi/mod.rs
+@@ -823,11 +823,12 @@ pub extern "C" fn kynput_mouse_position_y(position: &MousePosition) -> i16 {
+ }
+ 
+ /// KyberNow: whether this build's host side injects pens (Windows: a
+-/// synthetic pen, see `windows/host_pen.rs`). A host that does tells each
+-/// client so (`PenAvailable`).
++/// synthetic pen, see `windows/host_pen.rs`; Linux: a uinput tablet, see
++/// `linux/host_pen.rs`). A host that does tells each client so
++/// (`PenAvailable`).
+ #[unsafe(no_mangle)]
+ pub extern "C" fn kynput_host_pen_available() -> bool {
+-    cfg!(target_os = "windows")
++    cfg!(any(target_os = "windows", target_os = "linux"))
+ }
+ 
+ #[unsafe(no_mangle)]
+diff --git a/kynput/src/linux/host_pen.rs b/kynput/src/linux/host_pen.rs
+new file mode 100644
+index 0000000..cb138d3
+--- /dev/null
++++ b/kynput/src/linux/host_pen.rs
+@@ -0,0 +1,184 @@
++// Project Kyber: host_pen.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow (Station Linux, correctif 0006) : le stylet de l'appareil devient
++//! une tablette graphique de l'ordinateur, « KyberNow stylet », par uinput
++//! (`BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `ABS_PRESSURE`, `ABS_TILT_X/Y`,
++//! `BTN_STYLUS`). udev la classe en tablette, libinput la donne au
++//! compositeur (Wayland : `tablet-v2` ; X11 : XInput2), et les logiciels de
++//! dessin y lisent pression, inclinaison et gomme. Traduction dans
++//! `pen_tablet.rs`. La tablette n'est créée qu'au premier paquet du stylet.
++//! Mêmes règles que les autres Stations (docs/stylet.md).
++
++use std::sync::Arc;
++
++use evdev_rs::{AbsInfo, InputEvent as EvdevEvent, TimeVal, UInputDevice, enums::*};
++use log::{debug, error, info, warn};
++
++use super::pen_tablet::{
++    AXIS_MAX, AXIS_RESOLUTION, Code, Frame, PRESSURE_MAX, PenTablet, TILT_MAX, TILT_RESOLUTION,
++};
++use crate::linux::utils::uinput_utils::{UINPUT_DEVICE_DESC_DEFAULT, UinputDeviceDesc, plug_device};
++use crate::pipeline::{InputConsumerHandle, InputHandler};
++use crate::utils::threaded_consumer::{ThreadedConsumer, ThreadedConsumerBackend};
++use crate::{Display, Error, HostConfig, InputConsumer, InputPacket, InputType, Payload, Pen, Result};
++
++const NAME: &str = "KyberNow stylet";
++
++const KEYS: &[EV_KEY] = &[EV_KEY::BTN_TOOL_PEN, EV_KEY::BTN_TOOL_RUBBER, EV_KEY::BTN_TOUCH, EV_KEY::BTN_STYLUS];
++const fn axis(minimum: i32, maximum: i32, resolution: i32) -> AbsInfo {
++    AbsInfo { value: 0, minimum, maximum, fuzz: 0, flat: 0, resolution }
++}
++const ABS: &[(EV_ABS, AbsInfo)] = &[
++    (EV_ABS::ABS_X, axis(0, AXIS_MAX, AXIS_RESOLUTION)),
++    (EV_ABS::ABS_Y, axis(0, AXIS_MAX, AXIS_RESOLUTION)),
++    (EV_ABS::ABS_PRESSURE, axis(0, PRESSURE_MAX, 0)),
++    (EV_ABS::ABS_TILT_X, axis(-TILT_MAX, TILT_MAX, TILT_RESOLUTION)),
++    (EV_ABS::ABS_TILT_Y, axis(-TILT_MAX, TILT_MAX, TILT_RESOLUTION)),
++];
++const DESC: UinputDeviceDesc = UinputDeviceDesc { keys: Some(KEYS), abs: Some(ABS), ..UINPUT_DEVICE_DESC_DEFAULT };
++
++fn event_code(code: Code) -> EventCode {
++    match code {
++        Code::ToolPen => EventCode::EV_KEY(EV_KEY::BTN_TOOL_PEN),
++        Code::ToolRubber => EventCode::EV_KEY(EV_KEY::BTN_TOOL_RUBBER),
++        Code::Touch => EventCode::EV_KEY(EV_KEY::BTN_TOUCH),
++        Code::Stylus => EventCode::EV_KEY(EV_KEY::BTN_STYLUS),
++        Code::X => EventCode::EV_ABS(EV_ABS::ABS_X),
++        Code::Y => EventCode::EV_ABS(EV_ABS::ABS_Y),
++        Code::Pressure => EventCode::EV_ABS(EV_ABS::ABS_PRESSURE),
++        Code::TiltX => EventCode::EV_ABS(EV_ABS::ABS_TILT_X),
++        Code::TiltY => EventCode::EV_ABS(EV_ABS::ABS_TILT_Y),
++    }
++}
++
++struct Backend {
++    /// `None` avant le premier paquet ; `Some(None)` : uinput a refusé.
++    device: Option<Option<UInputDevice>>,
++    tablet: PenTablet,
++    displays: Vec<Display>,
++}
++
++impl Backend {
++    fn device(&mut self) -> Option<&UInputDevice> {
++        self.device
++            .get_or_insert_with(|| match plug_device(NAME, &DESC) {
++                Ok(device) => {
++                    info!("'{NAME}' plugged");
++                    Some(device)
++                }
++                Err(err) => {
++                    warn!("'{NAME}' not plugged: {err:?}");
++                    None
++                }
++            })
++            .as_ref()
++    }
++
++    fn write(&mut self, frames: Vec<Frame>) -> Result<()> {
++        let Some(device) = self.device() else { return Ok(()) };
++        let ts = TimeVal::new(0, 0);
++        for frame in frames {
++            for (code, value) in frame {
++                device.write_event(&EvdevEvent::new(&ts, &event_code(code), value))?;
++            }
++            device.write_event(&EvdevEvent::new(&ts, &EventCode::EV_SYN(EV_SYN::SYN_REPORT), 0))?;
++        }
++        Ok(())
++    }
++
++    fn inject(&mut self, pen: &Pen) -> Result<()> {
++        let was_in = self.tablet.in_range();
++        let frames = self.tablet.update(pen, &self.displays);
++        if frames.is_empty() && pen.has(Pen::IN_RANGE) {
++            warn!("Got a Pen on unknown Display ID {}", pen.display_id);
++        }
++        match (was_in, self.tablet.in_range()) {
++            (false, true) => info!("Pen near ({})", if pen.has(Pen::ERASER) { "eraser" } else { "tip" }),
++            (true, false) => info!("Pen left"),
++            _ => debug!("Pen {pen:?}"),
++        }
++        self.write(frames)
++    }
++}
++
++impl ThreadedConsumerBackend for Backend {
++    fn on_packet(&mut self, pkt: InputPacket) -> Result<()> {
++        match pkt.payload {
++            Payload::Pen(ref pen) => self.inject(pen),
++            _ => {
++                error!("Unexpected packet type {:?}", pkt.get_type());
++                Err(Error::InvalidType)
++            }
++        }
++    }
++
++    fn on_config(&mut self, host_config: Arc<HostConfig>) -> Result<()> {
++        self.displays = host_config.display_list.clone();
++        Ok(())
++    }
++}
++
++impl Drop for Backend {
++    fn drop(&mut self) {
++        let frames = self.tablet.leave();
++        if !frames.is_empty() {
++            let _ = self.write(frames);
++        }
++    }
++}
++
++pub struct HostPenHandler {
++    handler: ThreadedConsumer,
++}
++
++impl HostPenHandler {
++    pub fn new(host_config: Arc<HostConfig>) -> Result<Self> {
++        let builder = Box::new(move || {
++            Ok(Box::new(Backend { device: None, tablet: PenTablet::default(), displays: host_config.display_list.clone() })
++                as Box<dyn ThreadedConsumerBackend>)
++        });
++        Ok(Self { handler: ThreadedConsumer::new("HostPenHandler", builder) })
++    }
++}
++
++impl InputConsumer for HostPenHandler {
++    fn consume(&self, pkt: InputPacket) -> Result<()> {
++        self.handler.consume(pkt)
++    }
++}
++
++impl InputHandler for HostPenHandler {
++    fn start(self: Arc<Self>) -> Result<()> {
++        Ok(())
++    }
++
++    fn stop(self: Arc<Self>) -> Result<()> {
++        self.handler.stop()
++    }
++
++    fn update_host_config(self: Arc<Self>, host_config: Arc<HostConfig>) -> Result<()> {
++        self.handler.update_host_config(host_config)
++    }
++
++    fn to_consumer(self: Arc<Self>) -> Option<InputConsumerHandle> {
++        Some(InputConsumerHandle { consumer: self, handled_types: vec![InputType::Pen] })
++    }
++}
+diff --git a/kynput/src/linux/mod.rs b/kynput/src/linux/mod.rs
+index cb91f29..90e4ebc 100644
+--- a/kynput/src/linux/mod.rs
++++ b/kynput/src/linux/mod.rs
+@@ -27,6 +27,8 @@ pub mod host_gamepad;
+ pub mod host_keyboard;
+ pub mod host_mouse;
+ pub mod host_mouse_position;
++pub mod host_pen;
++mod pen_tablet;
+ pub mod pipeline_config;
+ mod uhid_gamepad;
+ mod uinput_generated;
+@@ -43,5 +45,6 @@ pub use host_keyboard::{HostKeyboardConfig, HostKeyboardHandler};
+ 
+ pub use host_mouse::{HostMouseConfig, HostMouseHandler};
+ pub use host_mouse_position::HostMousePositionHandler;
++pub use host_pen::HostPenHandler;
+ 
+ pub use pipeline_config::PipelineConfigBuilder;
+diff --git a/kynput/src/linux/pen_tablet.rs b/kynput/src/linux/pen_tablet.rs
+new file mode 100644
+index 0000000..f18fe91
+--- /dev/null
++++ b/kynput/src/linux/pen_tablet.rs
+@@ -0,0 +1,284 @@
++// Project Kyber: pen_tablet.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow (Station Linux, correctif 0006) : le stylet de l'appareil,
++//! traduit en événements d'une tablette graphique (evdev). Ce module ne fait
++//! que la traduction, sans uinput (`host_pen.rs` l'écrit) : ses tests passent
++//! aussi hors de Linux.
++//!
++//! - La tablette couvre la boîte autour des écrans que la Station annonce,
++//!   comme le pointeur absolu (`abs_pointer.rs`) : le compositeur (et Xorg)
++//!   étend une tablette sans écran à elle sur tout le bureau.
++//! - Approche (`IN_RANGE`) : outil pointe (`BTN_TOOL_PEN`) ou gomme
++//!   (`BTN_TOOL_RUBBER`), toujours sans pression d'abord : libinput prendrait
++//!   une pression à l'approche pour l'usure de la pointe et la retrancherait.
++//!   Un changement de bout sans départ fait partir l'un avant d'entrer l'autre.
++//! - Contact : `BTN_TOUCH` et une pression jamais sous 6 % de l'étendue :
++//!   libinput décide du contact par la pression (seuil de 5 % sur une tablette
++//!   qu'il ne connaît pas), pas par `BTN_TOUCH`.
++//! - Inclinaison en centièmes de degré (résolution en unités par radian, que
++//!   libinput convertit en degrés) ; mêmes sens que le protocole (X vers la
++//!   droite, Y vers soi). La rotation n'est pas transmise : libinput ne la lit
++//!   que sur certains stylets Wacom.
++//! - Bouton du stylet : `BTN_STYLUS`.
++//! - Départ (pas de `IN_RANGE`) : pointe levée, boutons relâchés, outil retiré.
++
++use crate::{Display, Pen};
++
++/// Étendue des axes X et Y : la boîte des écrans est ramenée à 0..=AXIS_MAX.
++pub(crate) const AXIS_MAX: i32 = 65535;
++/// Résolution des axes X et Y (unités par millimètre) : libinput refuse une
++/// tablette sans taille.
++pub(crate) const AXIS_RESOLUTION: i32 = 100;
++pub(crate) const PRESSURE_MAX: i32 = 4095;
++/// Plus petite pression en contact (6 %), au-dessus du seuil de libinput.
++const CONTACT_FLOOR: i32 = PRESSURE_MAX * 6 / 100;
++/// Inclinaison en centièmes de degré, de -90° à 90°.
++pub(crate) const TILT_MAX: i32 = 9000;
++/// Centièmes de degré par radian (100 × 180 / π).
++pub(crate) const TILT_RESOLUTION: i32 = 5730;
++
++/// Les codes evdev dont la tablette se sert.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Code {
++    ToolPen,
++    ToolRubber,
++    Touch,
++    Stylus,
++    X,
++    Y,
++    Pressure,
++    TiltX,
++    TiltY,
++}
++
++/// Événements d'un même instant (suivis d'un `SYN_REPORT`).
++pub(crate) type Frame = Vec<(Code, i32)>;
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum Tool {
++    Pen,
++    Rubber,
++}
++
++impl Tool {
++    fn code(self) -> Code {
++        match self {
++            Tool::Pen => Code::ToolPen,
++            Tool::Rubber => Code::ToolRubber,
++        }
++    }
++}
++
++/// État de la tablette, entre deux paquets du stylet.
++#[derive(Default)]
++pub(crate) struct PenTablet {
++    tool: Option<Tool>,
++    touching: bool,
++    barrel: bool,
++}
++
++/// Place (x, y) de l'écran `display_id` dans la boîte des écrans, ramenée
++/// à 0..=AXIS_MAX.
++pub(crate) fn box_position(displays: &[Display], display_id: u32, x: i16, y: i16) -> Option<(i32, i32)> {
++    let display = displays.iter().find(|d| d.id == display_id)?;
++    let left = displays.iter().map(|d| d.x).min()?;
++    let top = displays.iter().map(|d| d.y).min()?;
++    let right = displays.iter().map(|d| d.x + d.width).max()?;
++    let bottom = displays.iter().map(|d| d.y + d.height).max()?;
++    let scale = |v: i32, lo: i32, hi: i32| {
++        let span = (hi - lo - 1).max(1) as i64;
++        (((v - lo).clamp(0, span as i32) as i64 * AXIS_MAX as i64 + span / 2) / span) as i32
++    };
++    Some((scale(display.x + x as i32, left, right), scale(display.y + y as i32, top, bottom)))
++}
++
++fn pressure(pen: &Pen) -> i32 {
++    if !pen.has(Pen::CONTACT) {
++        return 0;
++    }
++    CONTACT_FLOOR + ((pen.pressure as i64 * (PRESSURE_MAX - CONTACT_FLOOR) as i64) / Pen::MAX_PRESSURE as i64) as i32
++}
++
++impl PenTablet {
++    /// Le stylet est près de la surface (outil entré).
++    pub(crate) fn in_range(&self) -> bool {
++        self.tool.is_some()
++    }
++
++    /// Événements pour un paquet `Pen` de l'appareil.
++    pub(crate) fn update(&mut self, pen: &Pen, displays: &[Display]) -> Vec<Frame> {
++        if !pen.has(Pen::IN_RANGE) {
++            return self.leave();
++        }
++        let Some((x, y)) = box_position(displays, pen.display_id, pen.x, pen.y) else {
++            return vec![];
++        };
++        let tool = if pen.has(Pen::ERASER) { Tool::Rubber } else { Tool::Pen };
++        let (tilt_x, tilt_y) = if pen.has(Pen::TILT) {
++            (pen.tilt_x as i32 * 100, pen.tilt_y as i32 * 100)
++        } else {
++            (0, 0)
++        };
++        let place = [(Code::X, x), (Code::Y, y), (Code::TiltX, tilt_x), (Code::TiltY, tilt_y)];
++
++        let mut frames = vec![];
++        if self.tool.is_some_and(|t| t != tool) {
++            frames.extend(self.leave());
++        }
++        if self.tool.is_none() {
++            let mut enter = vec![(tool.code(), 1)];
++            enter.extend(place);
++            enter.push((Code::Pressure, 0));
++            frames.push(enter);
++            self.tool = Some(tool);
++        }
++
++        let mut frame: Frame = place.to_vec();
++        frame.push((Code::Pressure, pressure(pen)));
++        let touching = pen.has(Pen::CONTACT);
++        if touching != self.touching {
++            frame.push((Code::Touch, touching as i32));
++            self.touching = touching;
++        }
++        let barrel = pen.has(Pen::BARREL);
++        if barrel != self.barrel {
++            frame.push((Code::Stylus, barrel as i32));
++            self.barrel = barrel;
++        }
++        frames.push(frame);
++        frames
++    }
++
++    /// Le stylet part : pointe levée, bouton relâché, outil retiré.
++    pub(crate) fn leave(&mut self) -> Vec<Frame> {
++        let Some(tool) = self.tool.take() else {
++            return vec![];
++        };
++        let mut frame = vec![];
++        if std::mem::take(&mut self.touching) {
++            frame.push((Code::Touch, 0));
++        }
++        if std::mem::take(&mut self.barrel) {
++            frame.push((Code::Stylus, 0));
++        }
++        frame.push((Code::Pressure, 0));
++        frame.push((tool.code(), 0));
++        vec![frame]
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn displays() -> Vec<Display> {
++        vec![
++            Display { id: 1, x: 0, y: 0, width: 1920, height: 1080 },
++            Display { id: 2, x: 1920, y: 0, width: 1280, height: 720 },
++        ]
++    }
++
++    fn pen(flags: u8, pressure: u16) -> Pen {
++        Pen { pressure, flags, ..Pen::new(1, 960, 540) }
++    }
++
++    fn value(frame: &Frame, code: Code) -> Option<i32> {
++        frame.iter().find(|(c, _)| *c == code).map(|(_, v)| *v)
++    }
++
++    #[test]
++    fn box_of_the_displays() {
++        let d = displays();
++        assert_eq!(box_position(&d, 1, 0, 0), Some((0, 0)));
++        assert_eq!(box_position(&d, 2, 1279, 0).map(|p| p.0), Some(AXIS_MAX));
++        assert_eq!(box_position(&d, 1, 0, 1079).map(|p| p.1), Some(AXIS_MAX));
++        assert_eq!(box_position(&d, 9, 0, 0), None, "écran inconnu");
++    }
++
++    #[test]
++    fn approach_then_contact_then_leave() {
++        let d = displays();
++        let mut t = PenTablet::default();
++
++        // Contact dès le premier paquet : d'abord l'approche, sans pression.
++        let f = t.update(&pen(Pen::IN_RANGE | Pen::CONTACT, 0), &d);
++        assert_eq!(f.len(), 2);
++        assert_eq!(value(&f[0], Code::ToolPen), Some(1));
++        assert_eq!(value(&f[0], Code::Pressure), Some(0));
++        assert_eq!(value(&f[1], Code::Touch), Some(1));
++        assert_eq!(value(&f[1], Code::Pressure), Some(CONTACT_FLOOR), "jamais 0 en contact");
++        assert!(t.in_range());
++
++        let f = t.update(&pen(Pen::IN_RANGE | Pen::CONTACT, Pen::MAX_PRESSURE), &d);
++        assert_eq!(f.len(), 1);
++        assert_eq!(value(&f[0], Code::Pressure), Some(PRESSURE_MAX));
++        assert_eq!(value(&f[0], Code::Touch), None, "contact inchangé");
++
++        // Pointe levée, survol.
++        let f = t.update(&pen(Pen::IN_RANGE, 0), &d);
++        assert_eq!(value(&f[0], Code::Touch), Some(0));
++        assert_eq!(value(&f[0], Code::Pressure), Some(0));
++
++        // Départ.
++        let f = t.update(&pen(0, 0), &d);
++        assert_eq!(f, vec![vec![(Code::Pressure, 0), (Code::ToolPen, 0)]]);
++        assert!(!t.in_range());
++        assert!(t.leave().is_empty(), "déjà parti");
++    }
++
++    #[test]
++    fn eraser_swap_leaves_the_tip_first() {
++        let d = displays();
++        let mut t = PenTablet::default();
++        t.update(&pen(Pen::IN_RANGE | Pen::CONTACT | Pen::BARREL, 30000), &d);
++        let f = t.update(&pen(Pen::IN_RANGE | Pen::ERASER, 0), &d);
++        assert_eq!(f[0], vec![(Code::Touch, 0), (Code::Stylus, 0), (Code::Pressure, 0), (Code::ToolPen, 0)]);
++        assert_eq!(value(&f[1], Code::ToolRubber), Some(1));
++        assert_eq!(f.len(), 3);
++    }
++
++    #[test]
++    fn tilt_and_barrel() {
++        let d = displays();
++        let mut t = PenTablet::default();
++        let mut p = pen(Pen::IN_RANGE | Pen::TILT | Pen::BARREL, 0);
++        p.tilt_x = -35;
++        p.tilt_y = 60;
++        let f = t.update(&p, &d);
++        let last = f.last().unwrap();
++        assert_eq!(value(last, Code::TiltX), Some(-3500));
++        assert_eq!(value(last, Code::TiltY), Some(6000));
++        assert_eq!(value(last, Code::Stylus), Some(1));
++        // Sans TILT, l'inclinaison est à plat.
++        let f = t.update(&pen(Pen::IN_RANGE | Pen::BARREL, 0), &d);
++        assert_eq!(value(&f[0], Code::TiltX), Some(0));
++        assert_eq!(value(&f[0], Code::Stylus), None);
++    }
++
++    #[test]
++    fn unknown_display_is_ignored() {
++        let mut t = PenTablet::default();
++        let mut p = pen(Pen::IN_RANGE, 0);
++        p.display_id = 7;
++        assert!(t.update(&p, &displays()).is_empty());
++        assert!(!t.in_range());
++    }
++}
+diff --git a/kynput/src/linux/pipeline_config.rs b/kynput/src/linux/pipeline_config.rs
+index 68da020..fdcc660 100644
+--- a/kynput/src/linux/pipeline_config.rs
++++ b/kynput/src/linux/pipeline_config.rs
+@@ -25,7 +25,7 @@ use log::info;
+ use crate::linux::{
+     ClientKeyboardMouseConfig, ClientKeyboardMouseHandler, ClipboardHandler, HostCursorHandler,
+     HostGamepadHandler, HostKeyboardConfig, HostKeyboardHandler, HostMouseConfig, HostMouseHandler,
+-    HostMousePositionHandler,
++    HostMousePositionHandler, HostPenHandler,
+ };
+ #[cfg(feature = "sdl2")]
+ use crate::sdl2::ClientGamepadHandler;
+@@ -42,6 +42,7 @@ impl InputPipelineConfigBuilder for PipelineConfigBuilder {
+         service_config: &ServiceConfig,
+     ) -> Option<InputPipelineConfig> {
+         let mouse_handler_host_config = host_config.clone();
++        let pen_host_config = host_config.clone();
+         // KyberNow (correctif Linux 0005) : « Toutes les manettes en Xbox 360 ».
+         let gamepad_force_xbox360 = service_config.gamepad_force_xbox360;
+ 
+@@ -58,6 +59,8 @@ impl InputPipelineConfigBuilder for PipelineConfigBuilder {
+                 )?))
+             }),
+             Box::new(|_router| Ok(Arc::new(HostMouseHandler::new(HostMouseConfig::default())?))),
++            // KyberNow (correctif Linux 0006) : le stylet, en tablette uinput.
++            Box::new(move |_router| Ok(Arc::new(HostPenHandler::new(pen_host_config)?))),
+             Box::new(|router| Ok(Arc::new(HostCursorHandler::new(router, host_config)?))),
+         ];
+ 

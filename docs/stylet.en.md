@@ -35,6 +35,7 @@ On the Station, the pen is the mouse: it goes through with the “keyboard and m
 - `apps/macos/kyber-patches/0005-kynput-stylet.patch` (client side, applied by every app and by the Stations, which reapply the apps' patches after theirs): the `Pen` type (`kynput/src/types/pen.rs`), `PenAvailable`, the C API (`kynput_pen_to_packet`, `kynput_pen_from_packet`, `kynput_Pen` struct) and kynput-rs (`Pen`, `ControlEvent::PenAvailable`).
 - `server/kyber-patches/0027-kynput-stylet.patch` (Station): Windows' synthetic pen (`kynput/src/windows/host_pen.rs`), its wiring in `host_keyboard_mouse.rs`, `kynput_host_pen_available()`, and the input server (`pipeline_state.rs`: right, lifted pen, announcement).
 - `server/macos/kyber-patches/0020-kynput-stylet-mac.patch` (Mac Station): macOS tablet events (`kynput/src/macos/host_keyboard_mouse.rs`) and `kynput_host_pen_available()` true on the Mac too.
+- `server/linux/kyber-patches/0006-kynput-stylet-linux.patch` (Linux Station): the uinput tablet (`kynput/src/linux/host_pen.rs`, translation in `pen_tablet.rs`) and `kynput_host_pen_available()` true on Linux too.
 
 Details in [kyber-changes.en.md](kyber-changes.en.md).
 
@@ -47,6 +48,12 @@ A Windows synthetic pen (`CreateSyntheticPointerDevice(PT_PEN)`, Windows 10 1809
 Patch `server/macos/kyber-patches/0020-kynput-stylet-mac.patch`, after 0002 (which injects the mouse through `CGEvent`) and 0015: the app's pen becomes a tablet for macOS, like one from a Wacom driver. Approach and leaving are proximity events (`kCGEventTabletProximity`, tip or eraser: `NSPointingDeviceType` 1 or 3, with fixed device and tool IDs); switching ends without leaving makes one end leave before the other enters. The rest are mouse events of the tablet subtype (`kCGEventMouseSubtypeTabletPoint`) carrying the pressure (0 to 1, never 0 in contact), the tilt (−1 to 1, 64° at most, the reverse of the Mac app), the rotation (degrees) and the pen's buttons: hovering as `MouseMoved`, tip down as a dragged left click (double click included). The pen button is a right click, as a tablet driver does: pressed while hovering or with the tip down, held until both the button and the tip are released; a tip put down first stays a left click. Software that knows nothing of tablets sees a mouse. `kynput_host_pen_available()` is true on the Mac too: the Mac Station announces the pen (`PenAvailable`). Nothing to repeat at intervals, unlike Windows. It needs the Accessibility permission, as the mouse does.
 
 kynput's log: “Pen near (tip)” or “(eraser)”, “Pen Left button down” / “up”, “Pen left”; each point at `debug` level.
+
+## Linux Station
+
+Patch `server/linux/kyber-patches/0006-kynput-stylet-linux.patch`, after 0027: the app's pen becomes a uinput graphics tablet, « KyberNow stylet », created at the first `Pen` packet, which libinput hands to the compositor like a plugged-in tablet (Wayland: `tablet-v2`; X11: XInput2), on GNOME as on KDE. Its X and Y axes cover the box of the announced displays, like the absolute pointer (Linux patch 0002): the compositor spreads a tablet without a screen of its own over the whole desktop. Approach brings in the tip tool (`BTN_TOOL_PEN`) or the eraser (`BTN_TOOL_RUBBER`), always with no pressure first (libinput would take pressure on approach for tip wear); switching ends without leaving takes one out before bringing the other in. In contact: `BTN_TOUCH` and pressure over 0-4095, never under 6 % (libinput decides contact from pressure, with a 5 % threshold on a tablet it does not know). Tilt in hundredths of a degree (`ABS_TILT_X/Y`, resolution in units per radian), same directions as the protocol. Pen button: `BTN_STYLUS`. Rotation does not go through: libinput only reads it on some Wacom pens. Nothing to repeat at intervals. `kynput_host_pen_available()` is true on Linux: the Linux Station announces the pen.
+
+kynput's log: “'KyberNow stylet' plugged”, “Pen near (tip)” or “(eraser)”, “Pen left”; each point at `debug`.
 
 ## The apps' core
 
@@ -74,3 +81,4 @@ The Apple bridge (`apps/apple/src/input.rs`) has `kn_input_pen` and `kn_pen_tilt
 5. Share guest with the keyboard and mouse (pen), then without (nothing); mouse taken back by the host while the guest writes (pen lifted).
 6. Several displays: the pen on the second display's window.
 7. Mac Station (built with 0016, Accessibility permission) and the Mac app with a tablet, or an iPad with an Apple Pencil: “Pen near (tip)” in kynput's log, pressure and tilt in Krita or Photoshop on the Mac, eraser (eraser tool picked on approach), pen button as a right click, hover (the app's cursor), pen leaving then mouse. Already checked without a tablet: event sequence (unit tests) and reading by AppKit.
+8. Linux Station (built with Linux patch 0006), on GNOME then KDE Wayland, then on X11: “'KyberNow stylet' plugged” and “Pen near (tip)” in kynput's log, `libinput list-devices` shows a tablet, pressure and tilt in Krita, eraser, pen button, hover, pen leaving then mouse (the absolute pointer takes over again). Already checked without a tablet: translation (unit tests on the Mac).
