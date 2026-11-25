@@ -20,7 +20,7 @@ vm_repo() {
     local root main
     [ -n "${KYBERNOW_LINUX_REPO:-}" ] && { echo "$KYBERNOW_LINUX_REPO"; return; }
     root="$(cd "$1" && pwd -P)"
-    main="$(cd "$(git -C "$root" rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)" || main="$root"
+    main="$(cd "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)" || main="$root"
     case "$root" in
         "$main" | "$main"/*) echo "$VM_MAIN_IN_VM${root#"$main"}" ;;
         *) echo "$VM_MAIN_IN_VM" ;;

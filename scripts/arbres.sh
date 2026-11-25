@@ -29,7 +29,7 @@
 # (.kybernow-arbre) : rien n'est réécrit, les caches restent valables. Les
 # scripts de compilation posent ensuite leurs correctifs, comme à la main.
 
-ARBRES_MAIN="$(cd "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --git-common-dir)/.." && pwd -P)"
+ARBRES_MAIN="$(cd "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-format=absolute --git-common-dir)/.." && pwd -P)"
 ARBRES_TP="$(cd "$ARBRES_MAIN/third_party" 2>/dev/null && pwd -P)" || ARBRES_TP="$ARBRES_MAIN/third_party"
 ARBRES="${KYBERNOW_ARBRES:-$ARBRES_TP/arbres}"
 # Le dépôt principal vu de la VM « KyberNow Linux » (dossier partagé de Parallels).
