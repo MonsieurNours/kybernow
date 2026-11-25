@@ -18,8 +18,9 @@ DEST="${1:?usage : sources.sh [--deps] DEST}"
 mkdir -p "$DEST/apps" "$DEST/third_party/kyber-desktop" "$DEST/brand/v2"
 R=(rsync -a --delete --exclude target/ --exclude 'builddir*/' --exclude node_modules/ --exclude '.git/')
 if [ "$DEPS" = 1 ]; then
-    mkdir -p "$DEST/apps/linux/scripts"
+    mkdir -p "$DEST/apps/linux/scripts" "$DEST/apps/linux/pyrowave"
     cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"
+    cp "$HERE/pyrowave/"* "$DEST/apps/linux/pyrowave/"
 else
     "${R[@]}" "$ROOT/apps/core" "$ROOT/apps/linux" "$DEST/apps/"
     # Le cœur dépend du tunnel du relais (KyberNow Share), par chemin.

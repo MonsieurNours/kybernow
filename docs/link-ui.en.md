@@ -502,6 +502,8 @@ Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “
 | Statistics, extra line | “Lost frames” “0.8%” |
 | Sharp text (4:4:4) with PyroWave | help: “With PyroWave, almost free: only the bitrate goes up.” |
 | Inactive value | “{name} doesn't offer PyroWave.”; “{this device} can't decode PyroWave.” |
+| Inactive value, Raspberry Pi ([pyrowave-client-pi.en.md](pyrowave-client-pi.en.md)) | Pi 4, 3, Zero 2 W: “This Raspberry Pi can't decode PyroWave: it takes a Raspberry Pi 5.”; Pi 5 on Raspberry Pi OS: “This Raspberry Pi can't decode PyroWave: it needs an up-to-date Raspberry Pi OS “Trixie”.”; Pi 5 on KyberNow Link OS: “This Raspberry Pi can't decode PyroWave.” |
+| Label of the value, and the Pi's “This device” card | “graphics card” (on the Pi too: PyroWave goes through V3D, not the Pi's decoder); line “PyroWave by the graphics card” |
 | Web client, Auto help (computer offers it), after the format's | “Pick PyroWave yourself: a browser can't tell whether this device is connected by cable.” |
 | Web client, warning under the choice, unknown network (**proposed**, instead of the Wi-Fi one) | “This browser can't tell whether you're connected by cable. Without an Ethernet cable, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
 | Web client, start banner, unknown network (**proposed**) | title “PyroWave, unknown network”; “Without an Ethernet cable, the picture may stutter.”; button “Switch to {format}” |

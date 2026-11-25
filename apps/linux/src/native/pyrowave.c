@@ -3,7 +3,15 @@
 // libpyrowave-shared.so.1, compilée par scripts/build.sh au commit de la
 // Station). La bibliothèque est chargée au lancement (dlopen) : sans elle, ou
 // sans Vulkan 1.3 qui convienne, PyroWave est indisponible et rien d'autre ne
-// change (le Raspberry Pi ne la cherche même pas).
+// change.
+//
+// Raspberry Pi 5 (docs/pyrowave-client-pi.md) : le pilote Vulkan est Mesa
+// v3dv, qui n'écrit jamais dans une image sans format ; la bibliothèque y est
+// compilée avec le déquantificateur en r16f (scripts/build.sh), et le décodeur
+// prend toujours le chemin par fragments (l'IDWT en calcul écrit sans format).
+// Le Pi 4 (v3dv aussi) n'a pas les opérations de sous-groupe : refusé ici, avec
+// sa raison. Sur le Pi, l'app fait cette sonde dans un processus à part
+// (`kybernow --pyrowave-probe`, device/system.rs).
 //
 // Voie simple, mesurée d'abord : PyroWave décode sur la carte puis relit les
 // plans dans la mémoire du processeur (chemin « CPU buffer » de l'amont), en
@@ -52,6 +60,7 @@ static pyrowave_device g_device;
 static int g_state; // 0 : pas encore essayé, 1 : prêt, -1 : indisponible
 static char g_gpu[320];
 static char g_err[400];
+static int g_v3dv; // pilote Mesa v3dv (Raspberry Pi 4 et 5)
 
 static void set(char *dst, int len, const char *msg) {
     if (dst && len > 0) snprintf(dst, (size_t)len, "%s", msg);
@@ -84,20 +93,42 @@ static void *open_lib(void) {
     return dlopen("libpyrowave-shared.so.1", RTLD_NOW | RTLD_LOCAL);
 }
 
-// Le nom et le type de la carte du device, par le chargeur Vulkan.
-static int device_type(void) {
+// Les opérations de sous-groupe dont le décodeur a besoin (pyrowave_decoder.cpp, Decoder::init).
+#define KN_PW_SUBGROUP_OPS (VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | \
+                            VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT)
+
+// Le nom, le pilote et le type de la carte du device, par le chargeur Vulkan ;
+// `ops` : ses opérations de sous-groupe.
+static int device_type(VkSubgroupFeatureFlags *ops) {
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice gpu = VK_NULL_HANDLE;
     p_pyrowave_device_get_vk_device_handles(g_device, &instance, &gpu, NULL);
     void *vk = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL);
     if (!vk || !gpu) return -1;
     PFN_vkGetInstanceProcAddr gipa = (PFN_vkGetInstanceProcAddr)dlsym(vk, "vkGetInstanceProcAddr");
-    PFN_vkGetPhysicalDeviceProperties props = gipa ? (PFN_vkGetPhysicalDeviceProperties)gipa(instance, "vkGetPhysicalDeviceProperties") : NULL;
+    PFN_vkGetPhysicalDeviceProperties2 props = gipa ? (PFN_vkGetPhysicalDeviceProperties2)gipa(instance, "vkGetPhysicalDeviceProperties2") : NULL;
     if (!props) return -1;
-    VkPhysicalDeviceProperties p;
+    VkPhysicalDeviceSubgroupProperties sub = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+    VkPhysicalDeviceDriverProperties drv = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES, .pNext = &sub};
+    VkPhysicalDeviceProperties2 p = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &drv};
     props(gpu, &p);
-    snprintf(g_gpu, sizeof g_gpu, "%.255s (Vulkan %u.%u)", p.deviceName, VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion));
-    return (int)p.deviceType;
+    g_v3dv = drv.driverID == VK_DRIVER_ID_MESA_V3DV;
+    *ops = sub.supportedOperations;
+    // « V3D 7.1.10.2 (Vulkan 1.3, Mesa 26.2.7-1~bpo13+0~rpt1) »
+    snprintf(g_gpu, sizeof g_gpu, "%.200s (Vulkan %u.%u%s%.80s)", p.properties.deviceName, VK_API_VERSION_MAJOR(p.properties.apiVersion),
+             VK_API_VERSION_MINOR(p.properties.apiVersion), drv.driverInfo[0] ? ", " : "", drv.driverInfo);
+    return (int)p.properties.deviceType;
+}
+
+// Le chemin par fragments de l'amont (IDWT par rendus) : préféré par l'amont
+// (GPU mobiles), toujours sur v3dv (l'IDWT en calcul y est impossible) ;
+// KYBERNOW_PYROWAVE_FRAGMENT=1 (ou 0) le force, pour les essais. Jamais en
+// HDR (il ne sait pas l'échelle des sorties 10 bits). Verrou pris.
+static int fragment_path(int hdr) {
+    if (hdr) return 0;
+    const char *env = getenv("KYBERNOW_PYROWAVE_FRAGMENT");
+    if (env && *env) return env[0] == '1';
+    return g_v3dv || p_pyrowave_decoder_device_prefers_fragment_path(g_device);
 }
 
 // Verrou pris.
@@ -132,7 +163,15 @@ static int load(void) {
         g_device = NULL;
         return g_state;
     }
-    int type = device_type();
+    VkSubgroupFeatureFlags ops = 0;
+    int type = device_type(&ops);
+    // Raspberry Pi 4 (V3D 4.2) : sous-groupes de base seulement ; le décodeur le refuserait.
+    if (type >= 0 && (ops & KN_PW_SUBGROUP_OPS) != KN_PW_SUBGROUP_OPS) {
+        snprintf(g_err, sizeof g_err, "opérations de sous-groupe manquantes (0x%x au lieu de 0x%x : %s)", (unsigned)ops, (unsigned)KN_PW_SUBGROUP_OPS, g_gpu);
+        p_pyrowave_device_destroy(g_device);
+        g_device = NULL;
+        return g_state;
+    }
     // Rendu logiciel (llvmpipe/lavapipe) : bien trop lent pour une session, sauf pour les essais.
     if (type == VK_PHYSICAL_DEVICE_TYPE_CPU && !getenv("KYBERNOW_PYROWAVE_CPU")) {
         snprintf(g_err, sizeof g_err, "rendu logiciel seulement (%s)", g_gpu);
@@ -177,6 +216,12 @@ kn_pw *kn_pw_open(int width, int height, int c444, int hdr, char *err, int errle
         pthread_mutex_unlock(&g_lock);
         return NULL;
     }
+    // v3dv : seul le chemin par fragments y marche, et il n'existe pas en HDR10.
+    if (hdr && g_v3dv) {
+        set(err, errlen, "HDR10 : pas avec ce pilote (v3dv)");
+        pthread_mutex_unlock(&g_lock);
+        return NULL;
+    }
     kn_pw *d = calloc(1, sizeof *d);
     if (!d) {
         pthread_mutex_unlock(&g_lock);
@@ -188,8 +233,7 @@ kn_pw *kn_pw_open(int width, int height, int c444, int hdr, char *err, int errle
     info.width = width;
     info.height = height;
     info.chroma = c444 ? PYROWAVE_CHROMA_SUBSAMPLING_444 : PYROWAVE_CHROMA_SUBSAMPLING_420;
-    // Le chemin par fragments (GPU mobiles) ne sait pas l'échelle des sorties 10 bits.
-    info.fragment_path = !hdr && p_pyrowave_decoder_device_prefers_fragment_path(g_device);
+    info.fragment_path = fragment_path(hdr);
     pyrowave_result r = p_pyrowave_decoder_create(&info, &d->dec);
     pthread_mutex_unlock(&g_lock);
     if (r != PYROWAVE_SUCCESS || !d->dec) {

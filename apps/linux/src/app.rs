@@ -5728,7 +5728,8 @@ impl App {
                 let who = |hw: bool| if hw { Tag::hw(m.hw_name()) } else { Tag::cpu() };
                 let mut codec_tags = vec![None, who(m.hw_hevc), who(m.hw_h264), if m.hw_av1 { Tag::hw(m.hw_name()) } else { None }];
                 if pw_shown {
-                    codec_tags.push(m.pyrowave.then(|| Tag::hw(m.hw_name())).flatten());
+                    // Décodé par la carte graphique, sur le Pi aussi (V3D, pas son décodeur vidéo).
+                    codec_tags.push(m.pyrowave.then(|| Tag::hw(tr("carte graphique", "graphics card"))).flatten());
                 }
                 let display = ["auto", "vsync", "immediate", "vrr"];
                 let vrr_hint = match (pi, m.vrr) {
@@ -6412,7 +6413,11 @@ impl App {
     pub fn pyrowave_codec_hint(&self, h: &Host, base: String, shown: bool) -> (String, Option<crate::pyrowave::Risk>) {
         use crate::pyrowave as pw;
         let m = &self.machine;
-        let reason = pw::unavailable(&h.name, h.pyrowave, m.pyrowave);
+        let who = match &m.pi {
+            Some(p) => pw::Decoder::Pi { generation: p.generation, link_os: self.os.is_some() },
+            None => pw::Decoder::Device,
+        };
+        let reason = pw::unavailable(&h.name, h.pyrowave, m.pyrowave, who);
         match h.settings.codec.as_str() {
             "pyrowave" => match reason {
                 Some(r) => (r, None),

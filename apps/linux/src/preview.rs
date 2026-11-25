@@ -1254,6 +1254,7 @@ pub fn run(dir: &Path, lang: &str) {
     shot(&mut app, &mut cv, None, dir, "rpi-07h-reglages-station");
     app.open_settings(true, Screen::Home);
     shot(&mut app, &mut cv, None, dir, "rpi-08-reglages-app");
+    pi_pyrowave_shots(&mut app, &mut cv, dir);
 
     os_shots(en, dir);
 }
@@ -1477,6 +1478,36 @@ fn os_shots(en: bool, dir: &Path) {
     app.layout = Layout::Desktop;
     app.open_host_section(Section::Station, Screen::Home);
     shot(&mut app, &mut cv, None, dir, "os-bureau-07h-reglages-station");
+}
+
+/// PyroWave sur le Raspberry Pi (docs/pyrowave-client-pi.md) : la carte « Cet appareil » d'un Pi 5 qui le décode,
+/// Réglages › Image avec PyroWave choisi (étiquette « carte graphique »), puis la valeur inactive et sa raison sur un
+/// Pi 5 sous un système trop ancien, et sur un Pi 4.
+fn pi_pyrowave_shots(app: &mut App, cv: &mut Canvas, dir: &Path) {
+    let machine = app.machine.clone();
+    app.machine.pyrowave = true;
+    if let Some(h) = app.store.host_mut("a") {
+        h.pyrowave = true;
+        h.settings.codec = "pyrowave".into();
+    }
+    app.open_settings(true, Screen::Home);
+    shot(app, cv, None, dir, "rpi-46-pyrowave-carte");
+    app.open_host_section(Section::Picture, Screen::Home);
+    app.focus = Target::Setting(crate::app::Setting::Codec);
+    shot(app, cv, None, dir, "rpi-46b-pyrowave-image");
+    app.machine.pyrowave = false;
+    shot(app, cv, None, dir, "rpi-46c-pyrowave-inactif-pi5");
+    if let Some(p) = app.machine.pi.as_mut() {
+        p.model = "Raspberry Pi 4 Model B".into();
+        p.generation = 4;
+    }
+    shot(app, cv, None, dir, "rpi-46d-pyrowave-inactif-pi4");
+    app.machine = machine;
+    if let Some(h) = app.store.host_mut("a") {
+        h.pyrowave = false;
+        h.settings.codec = "auto".into();
+    }
+    app.focus = Target::Connect;
 }
 
 /// La machine de démonstration devient un Raspberry Pi 5 (8 Go, Raspberry Pi

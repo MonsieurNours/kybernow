@@ -82,13 +82,36 @@ pub fn yuv444_help() -> &'static str {
     tr("Avec PyroWave, presque sans coût : seul le débit monte.", "With PyroWave, almost free: only the bitrate goes up.")
 }
 
+/// L'appareil qui décode, pour la raison d'une valeur PyroWave inactive : un Raspberry Pi (sa génération, et
+/// KyberNow Link OS ou Raspberry Pi OS : docs/pyrowave-client-pi.md), ou un autre.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decoder {
+    Device,
+    Pi { generation: u8, link_os: bool },
+}
+
 /// Pourquoi la valeur PyroWave est inactive : l'ordinateur `name` ne le propose pas, ou cet appareil ne le décode
-/// pas (dans cet ordre). `None` : rien ne l'empêche.
-pub fn unavailable(name: &str, offered: bool, decodes: bool) -> Option<String> {
+/// pas (dans cet ordre). `None` : rien ne l'empêche. Sur le Raspberry Pi, « {cet appareil} » de link-ui devient
+/// « Ce Raspberry Pi », avec ce qu'il lui faut : un Pi 5 ; sur un Pi 5 sous Raspberry Pi OS, le système à jour.
+pub fn unavailable(name: &str, offered: bool, decodes: bool, who: Decoder) -> Option<String> {
     if !offered {
         Some(if crate::i18n::english() { format!("{name} doesn't offer PyroWave.") } else { format!("{name} ne propose pas PyroWave.") })
     } else if !decodes {
-        Some(tr("Cet appareil ne sait pas décoder PyroWave.", "This device can't decode PyroWave.").into())
+        Some(
+            match who {
+                Decoder::Device => tr("Cet appareil ne sait pas décoder PyroWave.", "This device can't decode PyroWave."),
+                Decoder::Pi { generation, .. } if generation < 5 => tr(
+                    "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.",
+                    "This Raspberry Pi can't decode PyroWave: it takes a Raspberry Pi 5.",
+                ),
+                Decoder::Pi { link_os: false, .. } => tr(
+                    "Ce Raspberry Pi ne sait pas décoder PyroWave : il lui faut Raspberry Pi OS « Trixie », à jour.",
+                    "This Raspberry Pi can't decode PyroWave: it needs an up-to-date Raspberry Pi OS “Trixie”.",
+                ),
+                Decoder::Pi { .. } => tr("Ce Raspberry Pi ne sait pas décoder PyroWave.", "This Raspberry Pi can't decode PyroWave."),
+            }
+            .into(),
+        )
     } else {
         None
     }
@@ -130,15 +153,25 @@ mod tests {
         force_english(false);
         assert_eq!(Risk::Wifi.chip(), "PyroWave en Wi-Fi");
         assert_eq!(Risk::Relay.chip(), "PyroWave hors de chez vous");
-        assert_eq!(unavailable("Atelier", false, true).unwrap(), "Atelier ne propose pas PyroWave.");
-        assert_eq!(unavailable("Atelier", true, false).unwrap(), "Cet appareil ne sait pas décoder PyroWave.");
-        assert_eq!(unavailable("Atelier", true, true), None);
+        let d = Decoder::Device;
+        let pi = |generation, link_os| Decoder::Pi { generation, link_os };
+        assert_eq!(unavailable("Atelier", false, true, d).unwrap(), "Atelier ne propose pas PyroWave.");
+        assert_eq!(unavailable("Atelier", true, false, d).unwrap(), "Cet appareil ne sait pas décoder PyroWave.");
+        assert_eq!(unavailable("Atelier", true, true, d), None);
+        assert_eq!(unavailable("Atelier", false, false, pi(4, true)).unwrap(), "Atelier ne propose pas PyroWave.");
+        assert_eq!(unavailable("Atelier", true, false, pi(4, true)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.");
+        assert_eq!(unavailable("Atelier", true, false, pi(3, false)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5.");
+        assert_eq!(unavailable("Atelier", true, false, pi(5, false)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave : il lui faut Raspberry Pi OS « Trixie », à jour.");
+        assert_eq!(unavailable("Atelier", true, false, pi(5, true)).unwrap(), "Ce Raspberry Pi ne sait pas décoder PyroWave.");
+        assert_eq!(unavailable("Atelier", true, true, pi(5, true)), None);
         assert_eq!(lowered(1920, 1080, 300), "Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.");
         assert_eq!(lost_value(8, 992), "0,8 %");
         assert_eq!(lost_value(0, 0), "0,0 %");
         force_english(true);
         assert_eq!(Risk::Relay.chip(), "PyroWave away from home");
-        assert_eq!(unavailable("Atelier", false, false).unwrap(), "Atelier doesn't offer PyroWave.");
+        assert_eq!(unavailable("Atelier", false, false, Decoder::Device).unwrap(), "Atelier doesn't offer PyroWave.");
+        assert_eq!(unavailable("Atelier", true, false, Decoder::Pi { generation: 4, link_os: true }).unwrap(), "This Raspberry Pi can't decode PyroWave: it takes a Raspberry Pi 5.");
+        assert_eq!(unavailable("Atelier", true, false, Decoder::Pi { generation: 5, link_os: true }).unwrap(), "This Raspberry Pi can't decode PyroWave.");
         assert_eq!(switch_to_hevc(), "Switch to HEVC");
         assert_eq!(lost_value(8, 992), "0.8 %");
     }

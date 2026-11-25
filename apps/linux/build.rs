@@ -20,7 +20,7 @@
 //! - PyroWave (`src/native/pyrowave.c`, docs/pyrowave-client-linux.md) :
 //!   l'en-tête de l'API C et ceux de Vulkan, posés dans le préfixe par
 //!   build.sh ; la bibliothèque est chargée au lancement (dlopen, `-ldl`).
-//!   Sans eux (Raspberry Pi), `pyrowave_none.c` : PyroWave indisponible.
+//!   Sans eux, `pyrowave_none.c` : PyroWave indisponible.
 
 use std::path::PathBuf;
 use std::{env, fs};
