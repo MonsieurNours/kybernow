@@ -618,6 +618,9 @@ pub struct Stats {
     pub stages: [Option<f64>; 6],
     /// Un écran au moins de l'image est en HDR (`Second::hdr`) : « HDR » après le format.
     pub hdr: bool,
+    /// PyroWave (docs/pyrowave.md) : la définition ramenée (`Second::lowered`), ligne « Définition ramenée » des
+    /// Statistiques (texte : `Lowered::text`).
+    pub lowered: Option<kybernow_core::pyrowave::Lowered>,
 }
 
 impl Stats {

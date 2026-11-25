@@ -389,6 +389,15 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetB
     h.session.set_hidden(bg);
 }
 
+/// PyroWave (docs/pyrowave.md, « Définition ramenée ») : débit du lien vers
+/// l'ordinateur, en Mbit/s (0 : inconnu).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetLinkMbps(_: Env, _: JClass, h: jlong, mbps: jint) {
+    if let Some(h) = handle(h) {
+        h.session.set_link_mbps((mbps > 0).then_some(mbps as u32));
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPickDisplay(_: Env, _: JClass, h: jlong, id: jint) {
     if let Some(h) = handle(h) {

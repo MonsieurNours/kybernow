@@ -113,6 +113,9 @@
     "state_locked": "Locked",
     "state_off": "Lending off"
   },
+  "pyrowave": {
+    "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s."
+  },
   "hdr": {
     "off": "The computer doesn't offer HDR.",
     "windows": "HDR needs Windows 11 24H2 on the computer.",

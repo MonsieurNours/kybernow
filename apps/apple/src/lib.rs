@@ -651,6 +651,14 @@ pub struct KnSecond {
     /// Un écran au moins de l'image en cours est en HDR (statistiques :
     /// « HDR » après le format).
     pub hdr: bool,
+    /// PyroWave (docs/pyrowave.md) : définition ramenée en place
+    /// (Statistiques, ligne « Définition ramenée ») : `lowered_width` ×
+    /// `lowered_height` à `lowered_refresh` Hz pour tenir dans `lowered_mbps`.
+    pub lowered: bool,
+    pub lowered_width: u32,
+    pub lowered_height: u32,
+    pub lowered_refresh: u32,
+    pub lowered_mbps: u32,
 }
 
 impl From<&Second> for KnSecond {
@@ -671,6 +679,11 @@ impl From<&Second> for KnSecond {
             rtt_ms: s.rtt_ms.unwrap_or(0.0),
             bytes: s.bytes,
             hdr: s.hdr,
+            lowered: s.lowered.is_some(),
+            lowered_width: s.lowered.map_or(0, |l| l.width),
+            lowered_height: s.lowered.map_or(0, |l| l.height),
+            lowered_refresh: s.lowered.map_or(0, |l| l.refresh),
+            lowered_mbps: s.lowered.map_or(0, |l| l.mbps),
         }
     }
 }
@@ -704,6 +717,12 @@ pub const KN_NOTICE_STATION_RESTARTING: u32 = 7;
 /// montrer, « L'ordinateur n'a pas pu passer en HDR : image en SDR. » (langue
 /// de l'app).
 pub const KN_NOTICE_HDR_REFUSED: u32 = 8;
+/// PyroWave (docs/pyrowave.md, « Définition ramenée ») : `has_mode` vrai,
+/// la définition demandée à l'ordinateur est ramenée à `width` × `height`
+/// pour tenir dans `bitrate_mbps` ; `error` : le texte du bandeau,
+/// « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » (langue de
+/// l'app). `has_mode` faux : revenue à celle de l'appareil, bandeau retiré.
+pub const KN_NOTICE_RESOLUTION_LOWERED: u32 = 9;
 
 #[repr(C)]
 pub struct KnNotice {
@@ -1119,6 +1138,17 @@ impl Platform for ApplePlatform {
                 error_c = CString::new(profile::hdr_refused_text(i18n::current())).unwrap_or_default();
                 n.error = error_c.as_ptr();
             }
+            Notice::ResolutionLowered { lowered } => {
+                n.kind = KN_NOTICE_RESOLUTION_LOWERED;
+                if let Some(l) = lowered {
+                    n.has_mode = true;
+                    n.width = l.width;
+                    n.height = l.height;
+                    n.bitrate_mbps = l.mbps;
+                    error_c = CString::new(l.text(i18n::current())).unwrap_or_default();
+                    n.error = error_c.as_ptr();
+                }
+            }
         }
         unsafe { f(self.cb.userdata, &n) };
     }
@@ -1268,6 +1298,15 @@ pub unsafe extern "C" fn kn_session_set_settings(s: *const KnSession, settings_j
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_bitrate_cap(s: *const KnSession, cap: u32) {
     with(s, |s| s.set_bitrate_cap((cap > 0).then_some(cap)));
+}
+
+/// PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit que
+/// l'appareil sait tenir vers l'ordinateur, en Mbit/s (vitesse du lien ou
+/// débit mesuré ; 0 : inconnu). À donner juste après le démarrage, puis à
+/// chaque changement durable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_link_mbps(s: *const KnSession, mbps: u32) {
+    with(s, |s| s.set_link_mbps((mbps > 0).then_some(mbps)));
 }
 
 /// L'app fige l'image (arrière-plan, fenêtre cachée) ou la reprend : la

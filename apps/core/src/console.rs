@@ -248,6 +248,12 @@ pub struct PyroWaveInfo {
     /// Sinon pourquoi : `off` (réglage d'Admin), `windows`, `vulkan`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// « Débit maximal » d'Admin, en Mbit/s : réglé (300, 500, 800), ou en
+    /// « Auto » d'après la prise réseau de la Station. Absent (Station plus
+    /// ancienne, prise inconnue) : pas de plafond de l'ordinateur. Au-delà,
+    /// les apps baissent la définition ([`crate::pyrowave`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mbps: Option<u32>,
 }
 
 /// `hdr` de `GET /api/stream/info`.

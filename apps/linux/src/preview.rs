@@ -155,6 +155,7 @@ fn session(app: &App) -> SessionUi {
         // Le trajet d'une image : les mesures de l'ordinateur (capture, encodage, envoi, réseau) et de l'appareil.
         stages: Stats::stages(Some([0.8, 2.2, 0.4, 0.8, 1.3, 1.9]), None),
         hdr: false,
+        lowered: None,
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
