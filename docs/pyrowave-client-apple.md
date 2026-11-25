@@ -47,7 +47,7 @@ Démonstration (Debug, simulateur) : `-demo YES` avec `-demoPyroWave wifi|relay`
 
 ## Code commun avec le Mac
 
-Les changements de KyberKit et de `apps/macos/KyberNow` servent aux trois apps : `VideoCodec.pyrowave`, `HostInfo.pyrowave`, `SessionEngine.Settings.wired`, `receivedCodec`, `onLowered` et `setLinkMbps`, `LatencySecond.lowered` et `VideoStats.lowered` (`LoweredMode`, `LatencyReporting.swift`, `VideoRenderer.swift`), `PyroWaveSupport.swift` (annonce, lien, choix, débit, durées), `PyroWaveText` (textes), `ConnectionSettings.decodes444(.pyrowave)`. L'app Mac compile avec (vérifié le 25/11/2026) mais n'a pas encore l'interface de PyroWave ni `wired` (elle envoie `false`) : c'est le prochain pas du client Mac.
+Les changements de KyberKit et de `apps/macos/KyberNow` servent aux trois apps : `VideoCodec.pyrowave`, `HostInfo.pyrowave`, `SessionEngine.Settings.wired`, `receivedCodec`, `onLowered` et `setLinkMbps`, `LatencySecond.lowered` et `VideoStats.lowered` (`LoweredMode`, `LatencyReporting.swift`, `VideoRenderer.swift`), `PyroWaveSupport.swift` (annonce, lien, choix, débit, durées, `LinkRate` du Mac), `PyroWaveText` (textes), `ConnectionSettings.decodes444(.pyrowave)`. L'app Mac s'en sert aussi : interface de PyroWave, `wired`, débit du lien et définition ramenée ([pyrowave-client-mac.md](pyrowave-client-mac.md)).
 
 ## Essai hors ligne (`apps/apple/tests/pyrowave`)
 

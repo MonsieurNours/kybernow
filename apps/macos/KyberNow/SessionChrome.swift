@@ -29,6 +29,11 @@ final class ChromeHostingView: NSHostingView<SessionChrome> {
            session.screenOfferRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
             return super.hitTest(point)
         }
+        // Le bandeau de PyroWave (« Passer en HEVC », croix) prend les clics.
+        if session.pyrowaveBanner, !session.barVisible,
+           session.pyrowaveBannerRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
+            return super.hitTest(point)
+        }
         // Le panneau des mesures laisse tout passer, sauf son bouton de fermeture.
         if session.statsPanel, session.statsCloseRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
             return super.hitTest(point)
@@ -49,6 +54,18 @@ struct SessionChrome: View {
     static let space = CoordinateSpace.global
 
     private var streaming: Bool { session.phase == .streaming }
+
+    /// Bandeau de PyroWave en Wi-Fi ou par le relais (docs/link-ui.md).
+    @ViewBuilder private var pyrowaveBanner: some View {
+        if streaming, session.pyrowaveBanner {
+            let hevc: (() -> Void)? = session.isVisitor ? nil : { session.switchToHEVC() }
+            PyroWaveBanner(title: PyroWaveText.chip(session.pyrowaveLink), switchToHEVC: hevc, close: { session.closePyroWaveBanner() })
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: PyroWaveBannerRectKey.self, value: g.frame(in: Self.space))
+                })
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -79,6 +96,7 @@ struct SessionChrome: View {
                                 .allowsHitTesting(false)
                         }
                     }
+                    pyrowaveBanner
                     if streaming, session.screenOfferShown, let offer = session.screenOffer {
                         ScreenOfferToast(offer: offer, adapt: session.adaptToScreen, later: session.dismissScreenOffer)
                             .background(GeometryReader { g in
@@ -100,7 +118,8 @@ struct SessionChrome: View {
             if streaming, session.statsPanel {
                 StatsPanel(stats: session.stats, history: session.statsHistory, audio: session.audioStats,
                            sessionLosses: session.sessionLosses, close: session.toggleStatsPanel, screens: session.screenCount,
-                           route: session.path, hdr: session.hdrStreaming)
+                           route: session.path, hdr: session.hdrStreaming,
+                           pyrowave: session.receivedCodec == .pyrowave, lowered: session.lowered)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .transition(.opacity.combined(with: .offset(x: 24)))
@@ -118,7 +137,9 @@ struct SessionChrome: View {
         .onPreferenceChange(GlassMenuOpenKey.self) { open in session.barMenuOpen = open }
         .onPreferenceChange(ScreenOfferRectKey.self) { rect in session.screenOfferRect = rect }
         .onPreferenceChange(HintRectKey.self) { rect in session.hintRect = rect }
+        .onPreferenceChange(PyroWaveBannerRectKey.self) { rect in session.pyrowaveBannerRect = rect }
         .animation(Theme.easeOut, value: session.screenOfferShown)
+        .animation(Theme.easeOut, value: session.pyrowaveBanner)
         .animation(Theme.easeOut, value: session.barVisible)
         .animation(Theme.easeOut, value: session.statsPanel)
         .preferredColorScheme(.dark)
@@ -406,6 +427,59 @@ private struct ScreenOfferToast: View {
     }
 }
 
+// MARK: - PyroWave
+
+/// Rectangle du bandeau de PyroWave, dans le repère de la vue de session.
+struct PyroWaveBannerRectKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// Bandeau du début de session, PyroWave choisi en Wi-Fi ou par le relais
+/// (docs/link-ui.md, « PyroWave ») : 8 s ou la croix ; « Passer en HEVC »
+/// relance l'image en HEVC pour la session seulement.
+private struct PyroWaveBanner: View {
+    let title: String
+    let switchToHEVC: (() -> Void)?
+    let close: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Icon("warning", size: 14, bold: true).foregroundStyle(Theme.warn)
+            Text(title).font(Theme.sans(12.5, .semibold)).foregroundStyle(Theme.warnText)
+            Text(PyroWaveText.bannerBody).foregroundStyle(Theme.text2)
+            if let switchToHEVC {
+                Button(action: switchToHEVC) {
+                    Text(PyroWaveText.switchToHEVC)
+                        .font(Theme.sans(12.5, .semibold))
+                        .foregroundStyle(Theme.text)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Button(action: close) {
+                Icon("x", size: 12, bold: true)
+                    .foregroundStyle(Theme.faint)
+                    .frame(width: 24, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Fermer"))
+        }
+        .font(Theme.sans(12.5))
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .frame(height: 38)
+        .glass(10, tint: 0.55)
+    }
+}
+
 // MARK: - Rappel
 
 private struct HintToast: View {
@@ -500,8 +574,7 @@ private struct SessionBar: View {
         if let s = session.stats, !s.format.isEmpty {
             // Un invité reçoit le format de son image (celui de l'hôte, ou un
             // format qu'il lit si le sien ne l'est pas), pas celui de ses réglages.
-            let codec = session.imageCodec.rawValue.uppercased()
-            parts.append("\(codec == "H264" ? "H.264" : codec) \(s.format.contains("4:4:4") ? "4:4:4" : "4:2:0")")
+            parts.append("\(LinkFormat.codec(session.imageCodec)) \(s.format.contains("4:4:4") ? "4:4:4" : "4:2:0")")
         }
         return parts.joined(separator: " · ")
     }
@@ -569,6 +642,7 @@ private struct SessionBar: View {
             chip(icon: ShareText.icon(role), text: ShareText.role(role), tint: role.plays ? Theme.accent : Theme.text2, compact: compact)
             relayChip(compact: compact)
             statsButton(compact: compact)
+            pyrowaveChip(compact: compact)
             divider
             keepSound(compact: compact)
             // « Qualité de l'image » : la qualité reçue, et les cinq choix.
@@ -643,6 +717,7 @@ private struct SessionBar: View {
             divider
             relayChip(compact: compact)
             statsButton(compact: compact)
+            pyrowaveChip(compact: compact)
             divider
             hdrToggle(compact: compact)
             keepSound(compact: compact)
@@ -720,6 +795,7 @@ private struct SessionBar: View {
             relayChip(compact: compact)
             divider
             statsButton(compact: compact)
+            pyrowaveChip(compact: compact)
             divider
             GlassMenu(items: Profile.allCases.map { profile in
                 .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) { session.select(profile) }
@@ -844,6 +920,31 @@ private struct SessionBar: View {
     @ViewBuilder private func relayChip(compact: Bool) -> some View {
         if session.path.viaRelay {
             chip(icon: "globe-hemisphere-west", text: LinkText.viaRelay, tint: Theme.accent, compact: compact)
+        }
+    }
+
+    /// Puce ambre « PyroWave en Wi-Fi » / « PyroWave hors de chez vous »
+    /// (docs/link-ui.md) : elle ouvre les statistiques.
+    @ViewBuilder private func pyrowaveChip(compact: Bool) -> some View {
+        if let text = session.pyrowaveChip {
+            Button { if !session.statsPanel { session.toggleStatsPanel() } } label: {
+                HStack(spacing: 7) {
+                    Icon(session.pyrowaveLink == .relay ? "globe-hemisphere-west" : "wifi-high", size: 15, bold: true).foregroundStyle(Theme.warn)
+                    if !compact {
+                        Text(text).font(Theme.sans(12.5, .semibold)).foregroundStyle(Theme.warnText).lineLimit(1).fixedSize()
+                    }
+                }
+                .padding(.horizontal, compact ? 8 : 10)
+                .frame(height: 28)
+                .background(Capsule().fill(Theme.warnBg))
+                .overlay(Capsule().strokeBorder(Theme.warnLine))
+                .padding(.horizontal, 2)
+                .frame(height: 34)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(PyroWaveText.bannerBody)
+            .accessibilityLabel(Text(verbatim: "\(text). \(PyroWaveText.bannerBody)"))
         }
     }
 

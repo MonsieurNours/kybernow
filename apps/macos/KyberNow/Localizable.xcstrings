@@ -65,6 +65,22 @@
         }
       }
     },
+    "Ce Mac ne sait pas décoder PyroWave." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac can't decode PyroWave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac ne sait pas décoder PyroWave."
+          }
+        }
+      }
+    },
     "Définition ramenée à %@ pour tenir dans %lld Mbit/s." : {
       "localizations" : {
         "en" : {

@@ -33,6 +33,8 @@ private struct SettingsContent: View {
     let host: Host
     let status: HostStatus?
     @State private var confirmRemove = false
+    /// Ce Mac est relié par câble (Ethernet) : « Auto » et PyroWave.
+    @State private var wired = NetworkLink.shared.wired
 
     private var info: HostInfo? { status?.info }
     private var s: ConnectionSettings { host.settings }
@@ -85,6 +87,7 @@ private struct SettingsContent: View {
         }
         .preferredColorScheme(.dark)
         .frame(minWidth: 1100, minHeight: 760)
+        .onReceive(NotificationCenter.default.publisher(for: NetworkLink.changed)) { _ in wired = NetworkLink.shared.wired }
         .alert(stationConfirm.wrappedValue?.title ?? "", isPresented: Binding(get: { stationConfirm.wrappedValue != nil }, set: { if !$0 { app.store.stationConfirm = nil } }), presenting: stationConfirm.wrappedValue) { c in
             Button(c.confirmLabel, role: .destructive) {
                 app.store.stationConfirm = nil
@@ -388,17 +391,26 @@ private struct SettingsContent: View {
         SettingsCard(icon: "image", title: String(localized: "Image")) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Format vidéo").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+                // PyroWave (docs/link-ui.md) : avec « Auto » (un profil), seulement si la Station le connaît.
+                let pw = pyrowave
                 Segmented(
-                    options: [(VideoCodec.hevc, "HEVC"), (.h264, "H.264"), (.av1, "AV1")],
-                    selection: Binding(get: { s.codec }, set: { c in if let c { update(custom: true) { $0.codec = c } } }),
-                    disabled: disabledCodecs,
+                    options: formatOptions(pw),
+                    selection: Binding(get: { pw.shown && s.profile != nil ? FormatPick.auto : .codec(s.codec) },
+                                       set: { p in if let p { pickFormat(p) } }),
+                    disabled: disabledFormats(pw),
                     fill: true
                 )
-                Text(codecHint).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                Text(formatNote(pw)).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                if s.codec == .pyrowave, pw.usable, let warning = PyroWaveText.warning(pw.link) {
+                    Notice(kind: .warn, text: warning)
+                }
             }
             // HDR allumé : pas de 4:4:4 (le HDR n'existe qu'en 4:2:0).
+            let pw = pyrowave
+            let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.profile != nil)
             toggleRow(String(localized: "Texte net (4:4:4)"),
                       hdrOn ? SettingsText.sharpTextHDR
+                          : pyroImage ? PyroWaveText.sharpText
                           : can444 ? SettingsText.sharpTextHelp : (s.codec == .h264 ? String(localized: "Le 4:4:4 demande le HEVC.") : String(localized: "Ce Mac ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0.")),
                       isOn: Binding(get: { s.yuv444 && can444 && !hdrOn }, set: { v in update(custom: true) { $0.yuv444 = v } }))
                 .disabled(!can444 || hdrOn)
@@ -484,6 +496,69 @@ private struct SettingsContent: View {
         if !caps.hevc { off.insert(.hevc) }
         if !(caps.av1 && info?.av1 == true) { off.insert(.av1) }
         return off
+    }
+
+    // MARK: - PyroWave
+
+    /// Une valeur de « Format vidéo » : « Auto » (le profil) ou un format.
+    private enum FormatPick: Hashable {
+        case auto
+        case codec(VideoCodec)
+    }
+
+    /// PyroWave pour cet ordinateur : montré si la Station le connaît (ou s'il
+    /// est choisi), inactif avec sa raison, et le lien de ce Mac.
+    private var pyrowave: PyroWaveChoice {
+        PyroWaveChoice.of(offer: info?.pyrowave, decodes: DecoderCapabilities.current.pyrowave, chosen: s.codec == .pyrowave,
+                          link: PyroWaveLink(wired: wired, relay: app.store.viaRelay(host)))
+    }
+
+    private func formatOptions(_ pw: PyroWaveChoice) -> [(FormatPick, String)] {
+        var formats: [(FormatPick, String)] = [(.codec(.hevc), "HEVC"), (.codec(.h264), "H.264"), (.codec(.av1), "AV1")]
+        if pw.shown {
+            formats.insert((.auto, String(localized: "Auto")), at: 0)
+            formats.append((.codec(.pyrowave), PyroWaveText.name))
+        }
+        return formats
+    }
+
+    private func disabledFormats(_ pw: PyroWaveChoice) -> Set<FormatPick> {
+        var off = Set(disabledCodecs.map { FormatPick.codec($0) })
+        if pw.shown, !pw.usable { off.insert(.codec(.pyrowave)) }
+        return off
+    }
+
+    /// L'aide de « Format vidéo » : la raison d'un PyroWave inactif d'abord,
+    /// puis celle de PyroWave choisi ou d'« Auto », sinon celle d'avant.
+    private func formatNote(_ pw: PyroWaveChoice) -> String {
+        guard pw.shown else { return codecHint }
+        switch pw.block {
+        case .notOffered?: return PyroWaveText.notOffered(host.name)
+        case .noDecoder?: return String(localized: "Ce Mac ne sait pas décoder PyroWave.")
+        case nil: break
+        }
+        if s.profile != nil { return pw.link == .cable ? PyroWaveText.helpAutoWired : PyroWaveText.helpAutoWireless }
+        return s.codec == .pyrowave ? PyroWaveText.helpChosen : codecHint
+    }
+
+    /// Un format choisi rend le profil « Personnalisé » ; « Auto » reprend le
+    /// profil Jeu. PyroWave choisi : le débit qu'« Auto » prendrait par câble.
+    private func pickFormat(_ pick: FormatPick) {
+        guard case let .codec(c) = pick else {
+            if s.profile == nil { update { $0.apply(.jeu) } }
+            return
+        }
+        let m = sessionMode
+        update(custom: true) { st in
+            let wasPyroWave = st.codec == .pyrowave
+            st.codec = c
+            if c == .pyrowave {
+                st.bitrateMbps = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
+            } else if wasPyroWave {
+                // En quittant PyroWave, un débit d'HEVC.
+                st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps)
+            }
+        }
     }
 
     private var codecHint: String {
