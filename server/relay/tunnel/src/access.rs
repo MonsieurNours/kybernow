@@ -165,6 +165,10 @@ pub struct Claims {
     pub exp: u64,
     /// Identifiant unique du jeton (16 octets en base32).
     pub jti: String,
+    /// `relay` : délivré pour ouvrir Admin à distance, après une passkey (docs/comptes.md,
+    /// « Admin depuis KyberNow Share ») ; absent sinon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// Les noms portés par le jeton, pour la liste locale d'Admin.
@@ -193,6 +197,7 @@ impl Claims {
             iat: now,
             exp: now + LIFETIME_SECS,
             jti: new_jti(),
+            via: None,
         }
     }
 }

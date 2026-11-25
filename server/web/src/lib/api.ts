@@ -500,6 +500,14 @@ export interface RelayStatus {
   /** Accès par le relais bloqué jusqu'à cette heure (secondes Unix), après trop d'essais. */
   locked_until: number | null
   sessions: { device: string; since: number }[]
+  /** « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share »). */
+  remote_admin?: boolean
+  /** Rattachée à un compte KyberNow qui accepte les comptes : l'interrupteur peut servir. */
+  remote_admin_ready?: boolean
+  /** Qui a Admin ouvert à distance en ce moment. */
+  remote_admin_sessions?: string[]
+  /** Cette page est ouverte à distance, par le relais. */
+  via_relay?: boolean
 }
 
 /**
@@ -770,7 +778,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   session: () =>
-    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; platform?: string; kybernow_login?: boolean }>(
+    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; platform?: string; kybernow_login?: boolean; remote_admin?: boolean }>(
       'GET',
       '/api/session',
     ),
@@ -866,7 +874,7 @@ export const api = {
   // Relais de KyberNow (« Hors de chez vous ») : session d'Admin, jamais par le relais.
   relay: () => request<RelayStatus>('GET', '/api/relay'),
   /** `server` vide : pas de relais ; adresse invalide : `400` avec le texte d'Admin. */
-  setRelay: (changes: { server?: string; remote_access?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
+  setRelay: (changes: { server?: string; remote_access?: boolean; remote_admin?: boolean }) => request<RelayStatus>('PUT', '/api/relay', changes),
 
   // Compte KyberNow (docs/comptes.md) : session d'Admin, jamais par le relais.
   account: () => request<AccountView>('GET', '/api/account'),

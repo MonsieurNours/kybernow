@@ -91,7 +91,7 @@ Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRF
 
 ## Admin depuis KyberNow Share
 
-Décidé avec l'auteur le 25/11/2026 ; **revient sur une décision du cadrage** (« Pas l'interface d'Admin entière par le relais », tableau des décisions) : avec un nouvel interrupteur, coupé au départ, **tout Admin** s'ouvre de n'importe où, par le relais, pour un compte qui a le droit Administrer. Spécification à valider avant le code.
+Décidé avec l'auteur le 25/11/2026 ; **revient sur une décision du cadrage** (« Pas l'interface d'Admin entière par le relais », tableau des décisions) : avec un nouvel interrupteur, coupé au départ, **tout Admin** s'ouvre de n'importe où, par le relais, pour un compte qui a le droit Administrer. Validée et écrite le 25/11/2026 (tunnel, relais, Admin, icône Windows et Mac) ; pas encore essayée sur une vraie Station.
 
 ### Ce que voit l'utilisateur
 
@@ -103,7 +103,7 @@ Décidé avec l'auteur le 25/11/2026 ; **revient sur une décision du cadrage** 
   - Station hors ligne : le lien est grisé, « Hors ligne ».
 - **Interrupteur dans Admin**, Hors de chez vous : « Admin à distance » (« Les administrateurs de cet ordinateur ouvrent Admin depuis KyberNow Share, de n'importe où. »), **coupé au départ** ; il demande « Accès hors de chez vous » allumé et la Station rattachée à un compte. Il ne s'allume que **sur place** (session d'Admin sur le réseau) ; il se coupe de partout.
 - **Avertissements à chaque ouverture à distance** :
-  - une notification sur l'ordinateur (icône de la Station, Windows et Mac) : « Admin est ouvert à distance par {nom}. » ;
+  - l'ordinateur le dit : sur Mac, une notification « Admin est ouvert à distance par {nom} » ; sous Windows, le panneau de l'icône s'ouvre avec la même ligne (l'icône n'a pas de notifications) ; et Admin montre un bandeau « Admin ouvert à distance, par KyberNow Share. » à qui l'a ouvert ainsi ;
   - une ligne dans le fil d'Admin et, pour l'ordinateur d'une famille ou d'une équipe, dans son journal ;
   - un e-mail aux propriétaires (et aux administrateurs d'une famille ou d'une équipe), quand le relais envoie des e-mails : « Admin de {ordinateur} ouvert à distance par {nom}, {date}, depuis {ville ou adresse}. » ;
   - la session d'Admin ouverte par le relais **se ferme après 30 minutes sans activité** (et au plus 8 heures).

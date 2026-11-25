@@ -79,7 +79,7 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
                     })
                     .collect();
                 let access = if access.is_empty() { cx.tr("Propriétaires et Administrateurs seulement", "Owners and Administrators only") } else { access.join(" · ") };
-                OrgComputer { online: acc.stations.online(&s.id), id: s.id, name: s.name, access: crate::pages::t(cx.lang, &access, &access.replace(" : ", ": ")) }
+                OrgComputer { online: acc.stations.online(&s.id), id: s.id, name: s.name, access: crate::pages::t(cx.lang, &access, &access.replace(" : ", ": ")), admin: manage }
             })
             .collect();
         let limit = if tab == Tab::Log { 200 } else { 8 };

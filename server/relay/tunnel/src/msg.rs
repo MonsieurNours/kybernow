@@ -173,6 +173,13 @@ pub struct Hello {
     /// Version du logiciel (Admin, app), pour les journaux du relais.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// Station : les adresses d'Admin sur le réseau (`https://192.168.1.20:8443`), montrées aux
+    /// seuls gérants de l'ordinateur (docs/comptes.md, « Admin depuis KyberNow Share »).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub admin_lan: Vec<String>,
+    /// Station : « Admin à distance » est allumé.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remote_admin: bool,
 }
 
 /// `welcome` : la réponse du relais à `hello`.
@@ -415,6 +422,20 @@ pub enum Msg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         req: Option<u32>,
     },
+    /// Station → relais : ses adresses d'Admin sur le réseau et « Admin à distance », quand ils changent.
+    AdminStatus {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        admin_lan: Vec<String>,
+        #[serde(default)]
+        remote_admin: bool,
+    },
+    /// Station → relais : Admin vient d'être ouvert à distance par ce compte (son identifiant et son nom),
+    /// pour le journal de la famille ou de l'équipe et l'e-mail aux propriétaires.
+    AdminOpened {
+        account: String,
+        #[serde(default)]
+        name: String,
+    },
     /// Un type que cette version ne connaît pas : ignoré.
     #[serde(other)]
     Unknown,
@@ -475,6 +496,8 @@ impl Msg {
             Msg::Enroll { .. } => "enroll",
             Msg::Detach {} => "detach",
             Msg::Detached { .. } => "detached",
+            Msg::AdminStatus { .. } => "admin_status",
+            Msg::AdminOpened { .. } => "admin_opened",
             Msg::Unknown => "unknown",
         }
     }

@@ -121,6 +121,7 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
             online: acc.stations.online(&s.id),
             detail,
             rights: (!standing.mine && !standing.manage).then(|| standing.rights.clone()),
+            admin: standing.rights.has(Right::Admin),
         };
         match (standing.mine, s.org.and_then(|o| orgs.iter().position(|(org, _)| org.id == o))) {
             (true, _) => view.mine.push(card),
@@ -319,6 +320,7 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
         admin_needs_2fa: standing.admin_needs_2fa,
         targets,
         form: form.unwrap_or_else(|| (String::new(), Rights::new([Right::Session, Right::Share]), String::new())),
+        admin: standing.rights.has(Right::Admin),
         shell: shell(&cx, account),
     };
     let page = console::people(&cx.view(), &view, notice);

@@ -163,6 +163,8 @@ struct AgentShared {
     flows: Mutex<StationFlows>,
     incoming: mpsc::Sender<Incoming>,
     active: ActiveCounter,
+    /// Les adresses d'Admin sur le réseau et « Admin à distance » (dans `hello`, et `admin_status`).
+    admin: Mutex<(Vec<String>, bool)>,
 }
 
 impl AgentShared {
@@ -332,6 +334,7 @@ impl Agent {
             flows: Mutex::new(StationFlows::default()),
             incoming,
             active: ActiveCounter::default(),
+            admin: Mutex::new((Vec::new(), false)),
         });
         let task = tokio::spawn(run(shared.clone()));
         let gc = tokio::spawn(collect_sockets(Arc::downgrade(&shared)));
@@ -441,6 +444,25 @@ impl Agent {
         live.ctl.send(Msg::AttachStatus { req }).is_ok()
     }
 
+    /// Les adresses d'Admin sur le réseau et « Admin à distance » : gardés pour chaque `hello`, et dits
+    /// au relais tout de suite s'ils changent.
+    pub fn admin_status(&self, admin_lan: Vec<String>, remote_admin: bool) {
+        let changed = {
+            let mut cur = self.shared.admin.lock().unwrap();
+            let changed = *cur != (admin_lan.clone(), remote_admin);
+            *cur = (admin_lan.clone(), remote_admin);
+            changed
+        };
+        if changed && let Some(live) = self.shared.current() {
+            let _ = live.ctl.send(Msg::AdminStatus { admin_lan, remote_admin });
+        }
+    }
+
+    /// Admin vient d'être ouvert à distance par ce compte. Faux sans connexion.
+    pub fn admin_opened(&self, account: &str, name: &str) -> bool {
+        self.shared.current().is_some_and(|live| live.ctl.send(Msg::AdminOpened { account: account.into(), name: name.into() }).is_ok())
+    }
+
     /// Dit au relais que la Station est détachée (dans Admin). Faux sans connexion.
     pub fn detach(&self) -> bool {
         self.shared.current().is_some_and(|live| live.ctl.send(Msg::Detach {}).is_ok())
@@ -515,6 +537,7 @@ async fn collect_sockets(shared: Weak<AgentShared>) {
 
 fn dial_config(shared: &AgentShared) -> DialConfig {
     let id = &shared.cfg.identity;
+    let (admin_lan, remote_admin) = shared.admin.lock().unwrap().clone();
     DialConfig {
         relay: shared.cfg.relay.clone(),
         roots: shared.cfg.roots.clone(),
@@ -529,6 +552,8 @@ fn dial_config(shared: &AgentShared) -> DialConfig {
             sig: Some(id.sign_admin_fp(&shared.cfg.admin_fp)),
             codes: shared.codes.lock().unwrap().iter().cloned().collect(),
             version: Some(shared.cfg.version.clone()),
+            admin_lan,
+            remote_admin,
         },
         with_media: true,
         force_tcp: shared.cfg.force_tcp,

@@ -10,7 +10,7 @@
 use kybernow_tunnel::access::{Right, Rights};
 
 use super::super::orgs::{EnrollToken, Group, Invite, Kind, LogLine, Member, Role};
-use super::{Notice, Registration, View, date, esc, field, notice_html, passkey_create_form_with, passkey_unsupported, pct};
+use super::{Notice, Registration, View, date, esc, field, notice_html, passkey_create_form_with, passkey_get_form_with, passkey_unsupported, pct};
 use crate::assets;
 use crate::pages::{Lang, t};
 
@@ -434,9 +434,14 @@ pub struct ComputerCard {
     pub detail: String,
     /// Ses droits, quand l'ordinateur n'est pas à lui.
     pub rights: Option<Rights>,
+    /// Le droit Administrer : le raccourci « Admin ».
+    pub admin: bool,
 }
 
-/// La page « Ordinateurs ».
+/// « Ouvrir Admin » (docs/comptes.md, « Admin depuis KyberNow Share ») : la page du relais qui choisit la voie.
+fn admin_href(v: &View<'_>, id: &str) -> String {
+    format!("/compte/admin{}&amp;id={}", v.q(), pct(id))
+}
 #[derive(Debug, Clone, Default)]
 pub struct ComputersView {
     pub mine: Vec<ComputerCard>,
@@ -452,8 +457,14 @@ fn pc_card(v: &View<'_>, c: &ComputerCard) -> String {
         None => format!("<small>{}</small>", esc(&c.detail)),
     };
     let detail = if c.rights.is_some() { format!("<small>{}</small>", esc(&c.detail)) } else { String::new() };
+    // La carte entière mène à l'ordinateur ; le raccourci « Admin » passe au-dessus.
+    let admin = if c.admin && c.online {
+        format!("<a class=\"ka-admin-chip\" href=\"{}\" title=\"{}\">{}Admin</a>", admin_href(v, &c.id), v.tr("Ouvrir Admin", "Open Admin"), ic("gear"))
+    } else {
+        String::new()
+    };
     format!(
-        "<a class=\"ka-pc\" href=\"/compte/ordinateur{q}&amp;id={id}\"><span class=\"ka-pc-top\"><span class=\"ka-pc-icon\">{icon}</span><span class=\"ka-pc-name\"><b>{name}</b>{detail}</span>{state}</span><span class=\"ka-pc-foot\">{foot}</span></a>\n",
+        "<div class=\"ka-pc ka-pc-card\"><span class=\"ka-pc-top\"><span class=\"ka-pc-icon\">{icon}</span><span class=\"ka-pc-name\"><a class=\"ka-pc-link\" href=\"/compte/ordinateur{q}&amp;id={id}\"><b>{name}</b></a>{detail}</span>{state}</span><span class=\"ka-pc-foot\">{foot}{admin}</span></div>\n",
         q = v.q(),
         id = pct(&c.id),
         icon = ic("monitor"),
@@ -587,6 +598,8 @@ pub struct PeopleView {
     pub targets: Vec<(String, String)>,
     /// Le formulaire « Ajouter une personne » tel qu'envoyé (adresse, droits, échéance).
     pub form: (String, Rights, String),
+    /// Le droit Administrer : « Ouvrir Admin ».
+    pub admin: bool,
     pub shell: Shell,
 }
 
@@ -745,7 +758,11 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
         name = esc(&p.name),
         icon = ic("monitor"),
         whose = if p.manage { v.tr("Vous gérez ses accès", "You manage its access") } else { v.tr("Ouvert pour vous", "Opened for you") },
-        state = state_pill(v, p.online),
+        state = if p.admin && p.online {
+            format!("{}<a class=\"btn btn-ghost btn-sm\" href=\"{}\">{}{}</a>", state_pill(v, p.online), admin_href(v, &p.id), ic("gear"), v.tr("Ouvrir Admin", "Open Admin"))
+        } else {
+            state_pill(v, p.online)
+        },
         notice = notice_html(v.lang, notice),
     );
     frame(v, &p.shell, Here::Computers, &p.name, "/compte/ordinateur", &page)
@@ -1052,6 +1069,8 @@ pub struct OrgComputer {
     pub online: bool,
     /// Ses accès donnés, en mots (« Groupe Graphistes : Ouvrir le bureau »).
     pub access: String,
+    /// Le droit Administrer : « Admin ».
+    pub admin: bool,
 }
 
 /// La page d'une famille ou d'une équipe.
@@ -1365,7 +1384,11 @@ pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
                         &ic("monitor"),
                         &format!("<a href=\"/compte/ordinateur{}&amp;id={}\">{}</a>", v.q(), pct(&c.id), esc(&c.name)),
                         &esc(&c.access),
-                        &state_pill(v, c.online),
+                        &if c.admin && c.online {
+                            format!("{}<a class=\"btn btn-ghost btn-sm\" href=\"{}\">{}Admin</a>", state_pill(v, c.online), admin_href(v, &c.id), ic("gear"))
+                        } else {
+                            state_pill(v, c.online)
+                        },
                     )
                 })
                 .collect();
@@ -1707,29 +1730,85 @@ pub fn welcome(v: &View<'_>, step: u8, w: &Welcome) -> String {
 
 // --- Admin sur le réseau ---------------------------------------------------------------
 
-/// « Ouvrir Admin de {ordinateur} ? » : Admin s'ouvrira à `host`, sur le réseau.
-pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &str)]) -> String {
+/// « Ouvrir Admin de {ordinateur} ? » : Admin s'ouvrira à `host`, sur le réseau ; `remote` : de n'importe
+/// où, par le relais, confirmé par une passkey (`Some(passkeys du compte)`, vide : il n'en a pas).
+pub fn open_admin(v: &View<'_>, computer: &str, host: &str, fields: &[(&str, &str)], remote: Option<&[String]>) -> String {
     let title = match v.lang {
         Lang::Fr => t(v.lang, &format!("Ouvrir Admin de {} ?", esc(computer)), ""),
-        Lang::En => format!("Open Admin of {}?", esc(computer)),
+        Lang::En => format!("Open {}'s Admin?", esc(computer)),
     };
     let hidden_fields: String = fields.iter().map(|(k, val)| hidden(k, val)).collect::<Vec<_>>().join("\n");
-    let inner = format!(
-        "{hidden_fields}\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"ouvrir\">{open}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
-        open = v.tr("Ouvrir Admin", "Open Admin"),
-        cancel = v.tr("Annuler", "Cancel"),
+    let cancel = v.form(
+        "/compte/ouvrir-admin",
+        "acct-inline",
+        &format!("{hidden_fields}\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{}</button>", v.tr("Annuler", "Cancel")),
     );
-    let card = format!(
-        "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<p class=\"help\"><b>{host}</b></p>\n<p class=\"hint\">{check}</p>\n{form}",
-        help = v.tr(
-            "Avec le droit Administrer, votre compte ouvre Admin de cet ordinateur, sur le réseau seulement, à cette adresse :",
-            "With the Administer right, your account opens this computer's Admin, on the network only, at this address:",
+    let (where_, form) = match remote {
+        None => (
+            v.tr(
+                "Avec le droit Administrer, votre compte ouvre Admin de cet ordinateur, sur son réseau, à cette adresse :",
+                "With the Administer right, your account opens this computer's Admin, on its network, at this address:",
+            ),
+            v.form(
+                "/compte/ouvrir-admin",
+                "",
+                &format!(
+                    "{hidden_fields}\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"ouvrir\">{open}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{cancel}</button>",
+                    open = v.tr("Ouvrir Admin", "Open Admin"),
+                    cancel = v.tr("Annuler", "Cancel"),
+                ),
+            ),
         ),
+        Some([]) => (
+            v.tr("De n'importe où, par KyberNow Share, à cette adresse :", "From anywhere, through KyberNow Share, at this address:"),
+            format!(
+                "<p class=\"notice\" role=\"status\">{} <a href=\"/compte{}#securite\">{}</a></p>\n{cancel}",
+                v.tr(
+                    "Ajoutez d'abord une passkey à votre compte : elle protège l'ouverture d'Admin à distance.",
+                    "Add a passkey to your account first: it protects opening Admin remotely.",
+                ),
+                v.q(),
+                v.tr("Ajouter une passkey", "Add a passkey"),
+            ),
+        ),
+        Some(allow) => (
+            v.tr("De n'importe où, par KyberNow Share, à cette adresse :", "From anywhere, through KyberNow Share, at this address:"),
+            format!(
+                "{}\n{}{cancel}",
+                passkey_get_form_with(v, "/compte/ouvrir-admin", allow, &v.tr("Confirmer avec une passkey", "Confirm with a passkey"), &format!("{hidden_fields}\n{}\n", hidden("action", "ouvrir"))),
+                passkey_unsupported(v),
+            ),
+        ),
+    };
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{where_}</p>\n<p class=\"help\"><b>{host}</b></p>\n<p class=\"hint\">{check}</p>\n{form}",
         host = esc(host),
         check = v.tr("Vous n'avez pas demandé à ouvrir Admin à l'instant ? Annulez.", "You didn't just ask to open Admin? Cancel."),
-        form = v.form("/compte/ouvrir-admin", "", &inner),
     );
     super::page_with(v, &title, "/compte/ouvrir-admin", "", &card)
+}
+
+/// Admin à distance est coupé : le lien ne vaut que sur le réseau de l'ordinateur.
+pub fn admin_lan_only(v: &View<'_>, computer: &str, lan: Option<&str>) -> String {
+    let title = v.tr("Admin sur le réseau seulement", "Admin on the network only");
+    let open = match lan {
+        Some(url) => format!("<a class=\"btn kn-primary\" href=\"{}\">{}</a>", esc(url), v.tr("Ouvrir sur le réseau", "Open on the network")),
+        None => String::new(),
+    };
+    let card = format!(
+        "<h1>{title}</h1>\n<p class=\"help\">{text}</p>\n{open}\n<p class=\"acct-links\"><a href=\"/compte/ordinateurs{q}\">{back}</a></p>",
+        text = match v.lang {
+            Lang::Fr => t(
+                v.lang,
+                &format!("Admin à distance est coupé sur {} : ce lien ne marche que chez vous, sur le même réseau. Allumez-le dans Admin › Hors de chez vous.", esc(computer)),
+                "",
+            ),
+            Lang::En => format!("Remote Admin is off on {}: this link only works at home, on the same network. Turn it on in Admin › Away from home.", esc(computer)),
+        },
+        q = v.q(),
+        back = v.tr("Vos ordinateurs", "Your computers"),
+    );
+    super::page_with(v, &title, "/compte/admin", "", &card)
 }
 
 /// Vers Admin, avec le jeton (lien, et rafraîchissement sans script).
@@ -1795,6 +1874,8 @@ pub fn log_text(lang: Lang, l: &LogLine) -> String {
         ("jeton_cree", Lang::En) => format!("{who} created the enrollment token {}", d("token")),
         ("jeton_revoque", Lang::Fr) => fr(format!("{who} a révoqué le jeton d'enrôlement {}", d("token"))),
         ("jeton_revoque", Lang::En) => format!("{who} revoked the enrollment token {}", d("token")),
+        ("admin_distance", Lang::Fr) => fr(format!("{} a ouvert Admin de {} à distance", if d("who").is_empty() { who.clone() } else { d("who") }, d("station"))),
+        ("admin_distance", Lang::En) => format!("{} opened {}'s Admin remotely", if d("who").is_empty() { who.clone() } else { d("who") }, d("station")),
         ("acces", Lang::Fr) => fr(format!("{who} a ouvert {} ({})", d("station"), d("device"))),
         ("acces", Lang::En) => format!("{who} opened {} ({})", d("station"), d("device")),
         ("nouvel_appareil", Lang::Fr) => fr(format!("Nouvel appareil pour {} : {} sur {} · e-mail envoyé aux Administrateurs", d("who"), d("device"), d("station"))),
@@ -1856,7 +1937,7 @@ pub(super) mod tests {
 
     /// Toutes les pages de la console, pour les essais de `super::tests` (typographie, rien du dehors, CSRF).
     pub fn all(v: &View<'_>) -> Vec<(&'static str, String)> {
-        let card = |id: &str, rights: Option<Rights>| ComputerCard { id: id.into(), name: "PC du <salon>".into(), online: id == "st1", detail: "de Léa".into(), rights };
+        let card = |id: &str, rights: Option<Rights>| ComputerCard { id: id.into(), name: "PC du <salon>".into(), online: id == "st1", detail: "de Léa".into(), admin: rights.is_none(), rights };
         let computers_view = ComputersView {
             mine: vec![card("st1", None)],
             opened: vec![card("st2", Some(Rights::new([Right::Lend, Right::Share])))],
@@ -1877,6 +1958,7 @@ pub(super) mod tests {
             admin_needs_2fa: false,
             targets: vec![("org_abc".into(), "Les Lignes Claires (toute l'organisation)".into()), ("org_abc:3".into(), "Les Lignes Claires › Graphistes".into())],
             form: ("sam@exemple.fr".into(), Rights::new([Right::Session]), "2026-12-31".into()),
+            admin: true,
             shell: shell(),
         };
         let member = |id: i64, role: Role| Member {
@@ -1918,6 +2000,7 @@ pub(super) mod tests {
             "jeton_revoque",
             "acces",
             "nouvel_appareil",
+            "admin_distance",
         ];
         let org_view = |tab: Tab, role: Role, manage: bool| OrgView {
             id: "org_abc".into(),
@@ -1931,7 +2014,7 @@ pub(super) mod tests {
             members: vec![member(1, Role::Owner), member(2, Role::Admin), member(3, Role::Member)],
             invites: vec![Invite { id: 9, email: "paul@exemple.fr".into(), role: Role::Member, created_at: 1_700_000_000 }],
             groups: vec![Group { id: 3, name: "Graphistes".into(), members: vec![(3, "Membre 3".into())] }],
-            computers: vec![OrgComputer { id: "st3".into(), name: "Station de rendu".into(), online: true, access: t(v.lang, "Groupe Graphistes : Session", "Group Graphistes: Session") }],
+            computers: vec![OrgComputer { id: "st3".into(), name: "Station de rendu".into(), online: true, access: t(v.lang, "Groupe Graphistes : Session", "Group Graphistes: Session"), admin: manage }],
             log: kinds.iter().map(|k| line(k)).collect(),
             shell: shell(),
         };
@@ -2001,7 +2084,10 @@ pub(super) mod tests {
             ("bienvenue/2-rattache", welcome(v, 2, &Welcome { computer: Some("PC du <salon>".into()), ..welcome_view.clone() })),
             ("bienvenue/3", welcome(v, 3, &welcome_view)),
             ("deployer", deploy(v, &deploy_view, Some(Notice::TokenRevoked))),
-            ("ouvrir-admin", open_admin(v, "PC du salon", "192.168.1.20:8443", &[("station", "st1"), ("nonce", "n"), ("retour", "x")])),
+            ("ouvrir-admin", open_admin(v, "PC du salon", "192.168.1.20:8443", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], None)),
+            ("ouvrir-admin/distance", open_admin(v, "PC du salon", "st1.share.test", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], Some(&["Y3JlZA".to_string()]))),
+            ("ouvrir-admin/sans-passkey", open_admin(v, "PC du salon", "st1.share.test", &[("station", "st1"), ("nonce", "n"), ("retour", "x")], Some(&[]))),
+            ("admin-reseau", admin_lan_only(v, "PC du salon", Some("https://192.168.1.20:8443/api/login/kybernow/start"))),
         ]
     }
 

@@ -167,6 +167,8 @@
     "setupCode": "Setup code: enter it when Admin opens to choose a new password.",
     "copyCode": "Copy the code",
     "copied": "Copied",
+    "remoteAdmin": "Admin is open remotely by {name}",
+    "remoteAdminHint": "Through KyberNow Share. Not expected? Turn off “Remote Admin” in Admin, Away from home.",
     "pairRequest": "{name} is asking for access",
     "pairHint": "Compare the code shown on the device with the one in Admin before accepting.",
     "verify": "Check in Admin",

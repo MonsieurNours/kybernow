@@ -91,15 +91,25 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
     if !is_station_id(&station_id) || !nonce_ok(&nonce) {
         return refused(cx, "Cette demande ne vient pas d'Admin.", "This request doesn't come from Admin.");
     }
-    let Some(origin) = local_origin(&retour) else {
+    // Sur le réseau (une adresse locale), ou à distance : exactement l'adresse de cette Station par le relais.
+    let acc = cx.acc;
+    let remote_origin = acc.station_origin(&station_id);
+    let remote = retour.trim().trim_end_matches('/') == remote_origin;
+    let Some(origin) = (if remote { Some(remote_origin.clone()) } else { local_origin(&retour) }) else {
         return refused(
             cx,
-            "Admin s'ouvre avec KyberNow sur le réseau seulement : cette adresse n'est pas une adresse du réseau local.",
-            "Admin opens with KyberNow on the network only: this address isn't a local network address.",
+            "Cette adresse n'est ni celle d'Admin sur le réseau local, ni celle de cet ordinateur par KyberNow Share.",
+            "This address is neither Admin's on the local network, nor this computer's through KyberNow Share.",
         );
     };
+    if remote && !acc.stations.admin(&station_id).is_some_and(|(_, on)| on) {
+        return refused(
+            cx,
+            "Admin à distance est coupé sur cet ordinateur (ou il est hors ligne). Allumez-le dans Admin › Hors de chez vous.",
+            "Remote Admin is off on this computer (or it's offline). Turn it on in Admin › Away from home.",
+        );
+    }
     let account = signed_in!(cx);
-    let acc = cx.acc;
     let station = acc.db().station(&station_id).ok().flatten();
     let standing = station.as_ref().and_then(|s| acc.standing(&account, s));
     let Some((station, standing)) = station.zip(standing).filter(|(_, s)| s.rights.has(Right::Admin)) else {
@@ -120,19 +130,33 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
             "Your account doesn't have the Administer right on this computer.",
         );
     };
-    if !post {
+    // À distance : une passkey du compte confirme chaque ouverture.
+    let allow: Vec<String> = if remote { acc.db().passkeys(account.id).unwrap_or_default().iter().map(|p| super::super::b64(&p.credential)).collect() } else { Vec::new() };
+    let show = |cx: Cx<'_>, status: u16| {
         let host = origin.split_once("://").map(|(_, h)| h).unwrap_or(&origin).to_string();
-        let page = console::open_admin(&cx.view(), &station.name, &host, &[("station", &station_id), ("nonce", &nonce), ("retour", &origin)]);
-        return cx.page(200, page);
+        let page = console::open_admin(&cx.view(), &station.name, &host, &[("station", &station_id), ("nonce", &nonce), ("retour", &origin)], remote.then_some(allow.as_slice()));
+        cx.page(status, page)
+    };
+    if !post {
+        return show(cx, 200);
     }
     if cx.req.form("action") != "ouvrir" {
         let page = super::super::pages::done(&cx.view(), "/compte/ouvrir-admin", &cx.tr("Annulé", "Cancelled"), &cx.tr("Admin ne s'ouvre pas.", "Admin doesn't open."));
         return cx.page(200, page);
     }
+    if remote && (allow.is_empty() || cx.check_passkey(Some(account.id)).is_err()) {
+        cx.audit(Some(account.id), "admin_distance_refuse");
+        return show(cx, 403);
+    }
     let names = Names { account: account.name.clone(), email: Some(account.email.clone()), device: cx.tr("Navigateur (Admin sur le réseau)", "Browser (Admin on the network)") };
     let mut claims = Claims::issue(&acc.relay_name(), &station.id, &acc.public_account_id(account.id), "web", standing.rights, names, cx.now.max(0) as u64);
     // Le `jti` est le `nonce` d'Admin : le jeton ne sert qu'au navigateur qui l'a demandé.
     claims.jti = nonce;
+    // À distance, après la passkey : Admin n'ouvre sa session par le relais qu'avec ce jeton.
+    if remote {
+        claims.via = Some("relay".into());
+        claims.name.device = cx.tr("Navigateur (Admin à distance)", "Browser (remote Admin)");
+    }
     let token = acc.stations.keys.signer().sign(&claims);
     cx.audit(Some(account.id), "admin_ouvert");
     if let Some(org) = station.org {
@@ -141,6 +165,29 @@ pub(super) fn open_admin(cx: Cx<'_>, post: bool) -> Reply {
     }
     tracing::info!(station = %station.id, "Admin ouvert avec un compte KyberNow");
     let page = console::open_admin_go(&cx.view(), &format!("{origin}/api/login/kybernow?token={token}"));
+    cx.page(200, page)
+}
+
+/// `GET /compte/admin?id=…` : « Ouvrir Admin » de la console. À distance si la Station le permet,
+/// sinon sur son réseau ; le départ est chez Admin (`/api/login/kybernow/start`), qui tire le `nonce`.
+pub(super) fn start(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let id = cx.req.query("id").unwrap_or("").to_string();
+    let station = if is_station_id(&id) { acc.db().station(&id).ok().flatten() } else { None };
+    let Some(station) = station.filter(|s| acc.standing(&account, s).is_some_and(|st| st.rights.has(Right::Admin))) else {
+        return refused(cx, "Votre compte n'a pas le droit Administrer sur cet ordinateur.", "Your account doesn't have the Administer right on this computer.");
+    };
+    let Some((lan, remote_on)) = acc.stations.admin(&station.id) else {
+        return refused(cx, "Cet ordinateur est hors ligne : Admin ne s'ouvre pas.", "This computer is offline: Admin doesn't open.");
+    };
+    let q = format!("?lang={}", cx.lang.code());
+    if remote_on {
+        let target = format!("{}/api/login/kybernow/start{q}", acc.station_origin(&station.id));
+        return cx.redirect(target);
+    }
+    let lan = lan.first().map(|o| format!("{o}/api/login/kybernow/start{q}"));
+    let page = console::admin_lan_only(&cx.view(), &station.name, lan.as_deref());
     cx.page(200, page)
 }
 

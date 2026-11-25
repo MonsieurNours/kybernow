@@ -770,6 +770,8 @@ async fn un_bout_qui_ne_lit_pas_ses_reponses_est_coupe() {
             sig: None,
             codes: vec![],
             version: None,
+            admin_lan: Vec::new(),
+            remote_admin: false,
         };
         send.write_all(&encode(&Msg::Hello(hello))).await.unwrap();
         assert!(matches!(read_msg(&mut recv).await.unwrap(), Some(Msg::Welcome(_))));

@@ -32,6 +32,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/login", post(login))
         // Comptes KyberNow, lot 4 : « Se connecter avec KyberNow », sur le réseau seulement.
         .route("/api/login/kybernow", post(crate::accounts::web_login_start).get(crate::accounts::web_login_return))
+        .route("/api/login/kybernow/start", get(crate::accounts::web_login_begin))
         .route("/api/logout", post(logout))
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))
@@ -204,6 +205,20 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
     // Par le relais : un invité du navigateur. Ni nom de l'ordinateur (connu
     // seulement après l'accord de l'hôte), ni fichier du code d'initialisation ;
     // l'image passera en WebSocket.
+    // À distance (« Admin depuis KyberNow Share ») : la garde a remis la session à distance en cookie de session.
+    let remote = via.is_some() && auth::session_token(&headers).is_some_and(|t| s.auth.session_valid(&t)) && crate::accounts::remote_admin_on(&s);
+    if remote {
+        return Json(json!({
+            "configured": true,
+            "authenticated": true,
+            "relay": true,
+            "remote_admin": true,
+            "kybernow_login": false,
+            "hostname": crate::system::computer_name(),
+            "version": crate::update::current(),
+            "platform": crate::i18n::PLATFORM,
+        }));
+    }
     if via.is_some() {
         return Json(json!({
             "configured": s.auth.is_configured(),
@@ -411,6 +426,8 @@ async fn local_state(
         "version": crate::update::current(),
         "pair_requests_count": requests.len(),
         "pair_requests": requests,
+        // « Admin depuis KyberNow Share » : qui a Admin ouvert à distance (l'icône le dit).
+        "remote_admin_sessions": s.auth.remote_names(),
         "share": share_api::status(&s),
         "share_enabled": share_api::enabled(&s),
         // Prêt de l'ordinateur : la vue du prêt (icône).

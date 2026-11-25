@@ -392,6 +392,7 @@ pub fn detach(s: &AppState) -> Result<()> {
     s.update_settings(|st| st.account = AccountSettings::default())?;
     s.accounts.reset_verifier();
     s.accounts.clear();
+    s.auth.close_remote_sessions();
     tracing::info!("comptes : Station détachée");
     s.activity.event("info", Msg::new("events.accountDetached"));
     Ok(())
@@ -922,6 +923,64 @@ impl Accounts {
     }
 }
 
+/// « Admin à distance » vaut-il (docs/comptes.md, « Admin depuis KyberNow Share ») : allumé, l'accès hors de
+/// chez vous aussi, et la connexion avec KyberNow possible.
+pub fn remote_admin_on(s: &AppState) -> bool {
+    let relay = s.settings.lock().unwrap().relay.clone();
+    relay.remote_admin && relay.remote_access && web_login_available(s)
+}
+
+/// Le cookie du `nonce` par le relais : `__Host-`, donc sur tout le site (`Path=/`).
+const REMOTE_LOGIN_COOKIE: &str = "__Host-kyber_admin_kn";
+
+#[derive(Deserialize)]
+pub struct WebLoginBegin {
+    #[serde(default)]
+    lang: Option<String>,
+}
+
+/// `GET /api/login/kybernow/start` : le départ depuis la console du relais (« Ouvrir Admin »), sur le
+/// réseau ou à distance. Tire le `nonce` et renvoie vers « Ouvrir Admin de {ordinateur} ? » chez le relais.
+pub async fn web_login_begin(
+    State(s): State<AppState>,
+    via: Option<axum::Extension<crate::relay::Via>>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<WebLoginBegin>,
+) -> Response {
+    let remote = via.is_some();
+    if remote && !remote_admin_on(&s) {
+        return web_login_page(&Msg::new("accounts.remoteAdminOff").text(), false, vec![]);
+    }
+    if !web_login_available(&s) {
+        return web_login_page(&Msg::new("accounts.webLoginOff").text(), false, vec![]);
+    }
+    // L'adresse d'Admin telle que le navigateur la voit (le relais passe `Host` tel quel).
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("").trim().to_string();
+    if host.is_empty() || host.len() > 200 || host.contains(['/', '?', '#', '@', ' ']) {
+        return web_login_page(&Msg::new("accounts.badOrigin").text(), false, vec![]);
+    }
+    let scheme = if remote || s.secure_cookies { "https" } else { "http" };
+    let origin = format!("{scheme}://{host}");
+    let relay = s.settings.lock().unwrap().account.relay.clone().unwrap_or_default();
+    let (Some(console), Some(station)) = (console_url(&relay), s.relay.id()) else {
+        return web_login_page(&Msg::new("accounts.webLoginOff").text(), false, vec![]);
+    };
+    let nonce = s.accounts.new_web_login();
+    let lang = if q.lang.as_deref() == Some("en") { "en" } else { "fr" };
+    let url = format!("{console}/ouvrir-admin?station={station}&nonce={nonce}&retour={}&lang={lang}", pct(&origin));
+    let cookie = if remote {
+        format!("{REMOTE_LOGIN_COOKIE}={nonce}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age={}", WEB_LOGIN_TTL.as_secs())
+    } else {
+        format!("{WEB_LOGIN_COOKIE}={nonce}; Path=/api/login/kybernow; HttpOnly; SameSite=Lax; Max-Age={}{}", WEB_LOGIN_TTL.as_secs(), if s.secure_cookies { "; Secure" } else { "" })
+    };
+    tracing::info!("comptes : connexion avec KyberNow demandée depuis la console ({})", if remote { "à distance" } else { "sur le réseau" });
+    let mut res = (StatusCode::SEE_OTHER, [(header::LOCATION, url.as_str()), (header::CACHE_CONTROL, "no-store")]).into_response();
+    if let Ok(v) = header::HeaderValue::from_str(&cookie) {
+        res.headers_mut().append(header::SET_COOKIE, v);
+    }
+    res
+}
+
 /// La connexion avec KyberNow est-elle possible (rattachée, comptes acceptés, pas en mode d'essai) ?
 pub fn web_login_available(s: &AppState) -> bool {
     let a = s.settings.lock().unwrap().account.clone();
@@ -976,15 +1035,15 @@ pub async fn web_login_start(State(s): State<AppState>, via: Option<axum::Extens
     ([(header::SET_COOKIE, cookie)], Json(json!({ "url": url, "expires": WEB_LOGIN_TTL.as_secs() }))).into_response()
 }
 
-/// Le `nonce` du cookie de ce navigateur.
-fn web_login_cookie(headers: &HeaderMap) -> Option<String> {
+/// Le `nonce` du cookie de ce navigateur (`name` : sur le réseau, ou par le relais).
+fn web_login_cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|c| c.trim().split_once('='))
-        .find(|(k, _)| *k == WEB_LOGIN_COOKIE)
+        .find(|(k, _)| *k == name)
         .map(|(_, v)| v.to_string())
 }
 
@@ -1021,18 +1080,34 @@ pub async fn web_login_return(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<WebLoginReturn>,
 ) -> Response {
-    let clear = format!("{WEB_LOGIN_COOKIE}=; Path=/api/login/kybernow; HttpOnly; SameSite=Lax; Max-Age=0{}", if s.secure_cookies { "; Secure" } else { "" });
-    if via.is_some() {
-        return web_login_page(&Msg::new("accounts.networkOnly").text(), false, vec![]);
+    let remote = via.is_some();
+    let clear = if remote {
+        format!("{REMOTE_LOGIN_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")
+    } else {
+        format!("{WEB_LOGIN_COOKIE}=; Path=/api/login/kybernow; HttpOnly; SameSite=Lax; Max-Age=0{}", if s.secure_cookies { "; Secure" } else { "" })
+    };
+    // Par le relais : seulement avec « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share »).
+    if remote && !remote_admin_on(&s) {
+        return web_login_page(&Msg::new("accounts.remoteAdminOff").text(), false, vec![clear]);
     }
-    let Some(nonce) = web_login_cookie(&headers).filter(|n| s.accounts.take_web_login(n)) else {
+    let cookie_name = if remote { REMOTE_LOGIN_COOKIE } else { WEB_LOGIN_COOKIE };
+    let Some(nonce) = web_login_cookie(&headers, cookie_name).filter(|n| s.accounts.take_web_login(n)) else {
         return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]);
     };
-    let grant = match check(&s, q.token.trim(), Some(Right::Admin), Use::Once, false) {
-        Ok(g) if g.claims.jti == nonce => g,
+    let grant = match check(&s, q.token.trim(), Some(Right::Admin), Use::Once, remote) {
+        // À distance, le jeton dit que le relais a vu une passkey (`via: "relay"`).
+        Ok(g) if g.claims.jti == nonce && (!remote || g.claims.via.as_deref() == Some("relay")) => g,
         Ok(_) => return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]),
         Err(d) => return web_login_page(&d.msg().text(), false, vec![clear]),
     };
+    if remote {
+        let name = if grant.claims.name.account.is_empty() { grant.label() } else { grant.claims.name.account.clone() };
+        tracing::info!("comptes : Admin ouvert à distance avec KyberNow ({})", grant.label());
+        s.activity.event("warn", Msg::new("events.accountAdminRemote").with("name", name.clone()));
+        s.relay.admin_opened(&grant.claims.account, &name);
+        let session = s.auth.open_remote_session(&name);
+        return web_login_page("…", true, vec![crate::auth::remote_session_cookie(&session), clear]);
+    }
     tracing::info!("comptes : Admin ouvert avec KyberNow ({})", grant.label());
     s.activity.event("info", Msg::new("events.accountAdminLogin").with("name", grant.label()));
     let session = s.auth.open_session();

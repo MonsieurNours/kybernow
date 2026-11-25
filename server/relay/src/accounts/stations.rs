@@ -27,6 +27,9 @@ use kybernow_tunnel::access::{KeySet, Signer};
 use kybernow_tunnel::id::base32_lower;
 use kybernow_tunnel::msg::{AttachOwner, Attached, Msg};
 use rusqlite::{OptionalExtension, params};
+use serde_json::json;
+
+use crate::pages::Lang;
 
 use super::store::{Account, Store};
 use super::{Accounts, random};
@@ -92,6 +95,10 @@ pub trait StationLink: Send + Sync {
     /// `GET /v1/codes/{code}`) : les apps l'épinglent pour l'ouvrir par le
     /// relais, sans premier contact (`GET /v1/computers`, lot 3).
     fn attest(&self, _station: &str) -> Option<Attest> {
+        None
+    }
+    /// Les adresses d'Admin sur le réseau et « Admin à distance » de la Station connectée.
+    fn admin(&self, _station: &str) -> Option<(Vec<String>, bool)> {
         None
     }
 }
@@ -199,6 +206,11 @@ impl Stations {
 
     pub fn send(&self, station: &str, msg: Msg) -> bool {
         self.link().is_some_and(|l| l.send(station, msg))
+    }
+
+    /// Les adresses d'Admin sur le réseau et « Admin à distance » de la Station connectée.
+    pub fn admin(&self, station: &str) -> Option<(Vec<String>, bool)> {
+        self.link().and_then(|l| l.admin(station))
     }
 
     /// Un nouveau code pour cette Station (le précédent ne vaut plus).
@@ -337,6 +349,49 @@ impl Accounts {
     pub fn relay_name(&self) -> String {
         let host = self.public_url.trim_start_matches("https://").trim_end_matches('/');
         host.strip_suffix(":443").unwrap_or(host).to_string()
+    }
+
+    /// L'adresse d'Admin de cette Station par le relais (`https://<id>.share.kybernow.app`).
+    pub fn station_origin(&self, station: &str) -> String {
+        format!("https://{station}.{}", self.relay_name())
+    }
+
+    /// Admin vient d'être ouvert à distance (« Admin depuis KyberNow Share ») : une ligne au journal
+    /// de la famille ou de l'équipe, un e-mail aux propriétaires (au plus un par heure et par personne).
+    pub fn admin_opened(&self, station: &str, account: &str, name: &str) {
+        static LAST: std::sync::OnceLock<Mutex<HashMap<(String, String), i64>>> = std::sync::OnceLock::new();
+        let now = self.now();
+        let Some(row) = self.db().station(station).ok().flatten() else { return };
+        tracing::info!(station = %row.id, "Admin ouvert à distance");
+        let recipients: Vec<Account> = {
+            let db = self.db();
+            match (row.account, row.org) {
+                (Some(owner), _) => db.account(owner).ok().flatten().into_iter().collect(),
+                (None, Some(org)) => {
+                    let detail = json!({ "station": row.name, "who": name });
+                    if let Err(e) = db.org_log(org, None, "admin_distance", detail, None, now) {
+                        tracing::warn!("journal de l'organisation : {e:#}");
+                    }
+                    db.org_managers(org).unwrap_or_default()
+                }
+                (None, None) => Vec::new(),
+            }
+        };
+        let Some(mailer) = &self.mailer else { return };
+        for owner in recipients {
+            {
+                let mut last = LAST.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+                last.retain(|_, at| now - *at < 3600);
+                let key = (format!("{station}:{}", owner.id), account.to_string());
+                if last.contains_key(&key) {
+                    continue;
+                }
+                last.insert(key, now);
+            }
+            let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
+            let date = super::pages::date(lang, now);
+            mailer.send(super::mail::compose(&owner.email, lang, super::mail::Message::AdminOpened { by: name, computer: &row.name, date: &date }));
+        }
     }
 
     /// L'identifiant public d'un compte (dans les jetons et chez la Station) :

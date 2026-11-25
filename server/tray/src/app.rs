@@ -291,6 +291,7 @@ fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>, share
         "version": env!("CARGO_PKG_VERSION"),
         "console": s.console.as_ref().map(|c| json!({
             "pairRequests": c.pair_requests,
+            "remoteAdmin": c.remote_admin,
             "pendingAccess": c.pending_access,
             "session": c.session,
             "user": c.user,
@@ -360,6 +361,8 @@ struct App {
     look: Option<Look>,
     /// Demandes d'accès déjà signalées (le panneau s'ouvre pour les nouvelles).
     seen_requests: HashSet<String>,
+    /// Les personnes déjà vues avec Admin ouvert à distance.
+    seen_remote: HashSet<String>,
     /// Demandes pour rejoindre le partage déjà signalées (de même).
     seen_asks: HashSet<String>,
     /// Demandes d'emprunt (et préavis d'un créneau) déjà signalés (de même).
@@ -475,6 +478,7 @@ pub fn run() -> Result<()> {
         shown: None,
         look: None,
         seen_requests: Default::default(),
+        seen_remote: Default::default(),
         seen_asks: Default::default(),
         seen_lend: Default::default(),
         done: false,
@@ -592,7 +596,11 @@ impl App {
             console.and_then(|c| c.share.as_ref()).map(|s| share::local_request_ids(s).into_iter().collect()).unwrap_or_default();
         // Un ami veut emprunter l'ordinateur, ou son créneau commence : la page du prêt.
         let lend_asks: HashSet<String> = lend_view.map(|l| lend::request_ids(l).into_iter().chain(lend::slot_start(l)).collect()).unwrap_or_default();
-        let fresh = requests.iter().any(|id| !self.seen_requests.contains(id));
+        // Admin ouvert à distance (« Admin depuis KyberNow Share ») : le panneau s'ouvre, une fois par personne.
+        let remote: HashSet<String> = snap.console.as_ref().map(|c| c.remote_admin.iter().cloned().collect()).unwrap_or_default();
+        let fresh_remote = remote.iter().any(|n| !self.seen_remote.contains(n));
+        self.seen_remote = remote;
+        let fresh = fresh_remote || requests.iter().any(|id| !self.seen_requests.contains(id));
         let fresh_ask = asks.iter().any(|id| !self.seen_asks.contains(id));
         let fresh_lend = lend_asks.iter().any(|id| !self.seen_lend.contains(id));
         self.seen_requests = requests;

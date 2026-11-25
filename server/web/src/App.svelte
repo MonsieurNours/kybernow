@@ -43,7 +43,7 @@
     advanced: 'systeme/avance',
   }
 
-  let session = $state<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; kybernow_login?: boolean } | null>(null)
+  let session = $state<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null; kybernow_login?: boolean; remote_admin?: boolean } | null>(null)
   let hash = $state(location.hash.slice(2))
   let restarting = $state(false)
 
@@ -213,6 +213,14 @@
     </header>
 
     <main>
+      {#if session.remote_admin}
+        <!-- Admin ouvert à distance, par KyberNow Share (docs/comptes.md) : on le voit sur chaque page. -->
+        <div class="restart notice" role="status">
+          <Icon name="browser" size={18} />
+          <span>{t('app.remoteAdmin')}</span>
+          <button type="button" class="ghost small" onclick={logout}>{t('app.remoteAdminSignOut')}</button>
+        </div>
+      {/if}
       {#if status?.pending_access?.length}
         <div class="restart notice warn" role="status">
           <Icon name="restart" size={18} />

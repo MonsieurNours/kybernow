@@ -10,6 +10,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 - **An account space that's easier to get to grips with.** On your KyberNow account's page, a menu on the left stays in place from one page to the next: your computers, the people you open them to, your families and teams, your account. A welcome tour guides you step by step (protect your account, attach your computer, open it to your loved ones), and a “Getting started” card shows what's left to do.
 - **Families and teams.** You create a family (home, the kids) or a team (a studio, a company): the same rights, clearer words, and a diagram that explains groups. Rights are now called “Open the desktop”, “Borrow to play”, “Join your shares” and “Administer”, each with an example.
+- **Open Admin from KyberNow Share.** On your account page, an “Open Admin” button next to each computer you administer: one click, a passkey, and Admin opens already signed in. At home, it goes through the network; from anywhere, first turn on “Remote Admin” in Admin › Away from home (off at the start). At each remote opening, the computer says so, the owners see it in the log, and the session closes after 30 minutes without activity.
 
 ## 0.10.0
 

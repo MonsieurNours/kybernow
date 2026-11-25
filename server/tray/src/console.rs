@@ -91,6 +91,8 @@ pub struct LocalState {
     /// Accès d'appareils que Kyber ne connaît pas encore : il redémarre de
     /// lui-même dès la fin de la session en cours (compte, appareil, donné ou retiré).
     pub pending_access: Vec<Value>,
+    /// Les personnes qui ont Admin ouvert à distance, par KyberNow Share (docs/comptes.md).
+    pub remote_admin: Vec<String>,
     /// Partage ouvert (KyberNow Share), depuis un appareil ou depuis le PC :
     /// origine, code, liens, écran, invités.
     pub share: Option<Value>,
@@ -188,6 +190,7 @@ impl Client {
             last: some(&body["activity"]["last"]),
             pair_requests: body["pair_requests"].as_array().cloned().unwrap_or_default(),
             pending_access: body["pending_access"].as_array().cloned().unwrap_or_default(),
+            remote_admin: body["remote_admin_sessions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
             share: some(&body["share"]).filter(|s| s["open"].as_bool() != Some(false)),
             share_enabled: body["share_enabled"].as_bool().unwrap_or(false),
             relay: some(&body["relay"]),

@@ -23,6 +23,13 @@ use crate::AppState;
 use crate::i18n::Msg;
 
 pub const COOKIE: &str = "kyber_admin_session";
+/// La session d'Admin ouverte à distance, par le relais (docs/comptes.md, « Admin depuis KyberNow Share ») :
+/// un cookie `__Host-` que la page d'une autre Station, sur une origine sœur, ne peut pas poser.
+pub const REMOTE_COOKIE: &str = "__Host-kyber_admin_session";
+/// Une session à distance se ferme après 30 minutes sans activité…
+pub const REMOTE_IDLE: Duration = Duration::from_secs(30 * 60);
+/// … et au plus 8 heures après son ouverture.
+pub const REMOTE_MAX: Duration = Duration::from_secs(8 * 3600);
 /// En-tête exigé sur toute requête qui modifie quelque chose : un site tiers ne
 /// peut pas l'ajouter sans requête CORS préalable, que nous n'autorisons pas.
 pub const CSRF_HEADER: &str = "x-kyber-admin";
@@ -48,6 +55,8 @@ pub struct Auth {
     password_hash: Mutex<Option<String>>,
     setup_code: Mutex<Option<String>>,
     sessions: Mutex<HashMap<String, Instant>>,
+    /// Les sessions ouvertes à distance : le nom de la personne, la dernière activité, l'échéance.
+    remote: Mutex<HashMap<String, (String, Instant, Instant)>>,
     /// Essais de connexion manqués, par adresse.
     failures: Mutex<HashMap<IpAddr, Failures>>,
     hashing: tokio::sync::Semaphore,
@@ -60,6 +69,7 @@ impl Auth {
             password_hash: Mutex::new(password_hash),
             setup_code: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
+            remote: Mutex::new(HashMap::new()),
             failures: Mutex::new(HashMap::new()),
             hashing: tokio::sync::Semaphore::new(HASH_PARALLELISM),
         });
@@ -172,6 +182,58 @@ impl Auth {
 
     pub fn close_session(&self, token: &str) {
         self.sessions.lock().unwrap().remove(token);
+        self.remote.lock().unwrap().remove(token);
+    }
+
+    /// Une session ouverte à distance, au nom de cette personne.
+    pub fn open_remote_session(&self, name: &str) -> String {
+        let token = self.open_session();
+        let now = Instant::now();
+        self.remote.lock().unwrap().insert(token.clone(), (name.to_string(), now, now + REMOTE_MAX));
+        token
+    }
+
+    /// La session à distance vaut-elle encore ? Elle compte alors comme une activité.
+    pub fn remote_session_valid(&self, token: &str) -> bool {
+        let now = Instant::now();
+        let ok = {
+            let mut remote = self.remote.lock().unwrap();
+            match remote.get_mut(token) {
+                Some((_, last, until)) if now < *until && now.duration_since(*last) < REMOTE_IDLE => {
+                    *last = now;
+                    true
+                }
+                Some(_) => {
+                    remote.remove(token);
+                    false
+                }
+                None => false,
+            }
+        };
+        if !ok {
+            self.sessions.lock().unwrap().remove(token);
+        }
+        ok && self.session_valid(token)
+    }
+
+    /// Ferme toutes les sessions à distance (« Admin à distance » coupé, Station détachée).
+    pub fn close_remote_sessions(&self) {
+        let tokens: Vec<String> = self.remote.lock().unwrap().drain().map(|(t, _)| t).collect();
+        let mut sessions = self.sessions.lock().unwrap();
+        for t in tokens {
+            sessions.remove(&t);
+        }
+    }
+
+    /// Les personnes qui ont Admin ouvert à distance en ce moment.
+    pub fn remote_names(&self) -> Vec<String> {
+        let now = Instant::now();
+        let mut remote = self.remote.lock().unwrap();
+        remote.retain(|_, (_, last, until)| now < *until && now.duration_since(*last) < REMOTE_IDLE);
+        let mut names: Vec<String> = remote.values().map(|(n, _, _)| n.clone()).collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     pub fn session_valid(&self, token: &str) -> bool {
@@ -203,6 +265,23 @@ pub fn session_token(headers: &HeaderMap) -> Option<String> {
         .flat_map(|v| v.split(';'))
         .filter_map(|c| c.trim().split_once('='))
         .find(|(k, _)| *k == COOKIE)
+        .map(|(_, v)| v.to_string())
+}
+
+/// Le cookie de la session à distance (par le relais, toujours en HTTPS).
+pub fn remote_session_cookie(token: &str) -> String {
+    format!("{REMOTE_COOKIE}={token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age={}", REMOTE_MAX.as_secs())
+}
+
+/// Le jeton de la session à distance de ce navigateur.
+pub fn remote_session_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|c| c.trim().split_once('='))
+        .find(|(k, _)| *k == REMOTE_COOKIE)
         .map(|(_, v)| v.to_string())
 }
 
@@ -244,7 +323,7 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
 /// compte de l'appareil hôte, secret de l'invité, ou code pour rejoindre
 /// (limité).
 fn is_public(path: &str) -> bool {
-    matches!(path, "/api/session" | "/api/login" | "/api/login/kybernow" | "/api/setup" | "/api/share")
+    matches!(path, "/api/session" | "/api/login" | "/api/login/kybernow" | "/api/login/kybernow/start" | "/api/setup" | "/api/share")
         || path.starts_with("/api/local/")
         || path.starts_with("/api/stream/")
         || path.starts_with("/api/share/")

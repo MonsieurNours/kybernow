@@ -16,6 +16,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     private var lend: Set<String> = []
     private var pair: Set<String> = []
+    /// « Admin depuis KyberNow Share » : les personnes qui ont Admin ouvert à distance.
+    private var remote: Set<String> = []
     /// « Accepter » ou « Refuser » : identifiant de la demande, accord, compte Steam.
     var onAnswer: ((String, Bool, String) -> Void)?
     /// Une notification cliquée : la page d'Admin.
@@ -29,6 +31,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.setNotificationCategories([
             UNNotificationCategory(identifier: "lend", actions: [accept, refuse], intentIdentifiers: [], options: []),
             UNNotificationCategory(identifier: "pair", actions: [], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: "remote", actions: [], intentIdentifiers: [], options: []),
         ])
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
@@ -41,6 +44,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             content.body = t((request["steam"] as? String) == "host" ? "notify.steamHost" : "notify.steamFriend")
             content.categoryIdentifier = "lend"
             content.userInfo = ["id": request["id"] as? String ?? "", "steam": request["steam"] as? String ?? "friend"]
+            return content
+        }
+        // Admin ouvert à distance (docs/comptes.md, « Admin depuis KyberNow Share ») : une fois par personne.
+        remote = sync(s.remoteAdmin.map { ["id": $0, "name": $0] }, known: remote, prefix: "remote") { who in
+            let content = UNMutableNotificationContent()
+            content.title = t("notify.remoteAdmin", ["name": who["name"] as? String ?? ""])
+            content.body = t("notify.remoteAdminText")
+            content.categoryIdentifier = "remote"
             return content
         }
         pair = sync(s.pairRequests, known: pair, prefix: "pair") { request in

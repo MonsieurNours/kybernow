@@ -146,6 +146,8 @@ pub enum Message<'a> {
     PasskeyAdded { name: &'a str, account: &'a str },
     /// Le compte a été supprimé (lot 1b).
     AccountDeleted,
+    /// Admin d'un ordinateur ouvert à distance (« Admin depuis KyberNow Share »).
+    AdminOpened { by: &'a str, computer: &'a str, date: &'a str },
 }
 
 /// Le code « 123 456 », plus facile à lire.
@@ -241,6 +243,24 @@ pub fn compose(to: &str, lang: Lang, message: Message<'_>) -> Mail {
                     "The password of your KyberNow account was just changed; the other sessions are closed.",
                 ),
                 check = tr("Ce n'était pas vous ? Choisissez-en un autre tout de suite :", "Wasn't you? Choose another one right away:"),
+            ),
+        ),
+        Message::AdminOpened { by, computer, date } => (
+            match lang {
+                Lang::Fr => t(lang, &format!("Admin de {computer} ouvert à distance"), ""),
+                Lang::En => format!("{computer}'s Admin opened remotely"),
+            },
+            format!(
+                "{hello}\n\n{what}\n\n{check}\n\n{sign}\n",
+                hello = tr("Bonjour,", "Hello,"),
+                what = match lang {
+                    Lang::Fr => t(lang, &format!("{} a ouvert Admin de {computer} le {date}, par KyberNow Share.", if by.is_empty() { "Quelqu'un" } else { by }), ""),
+                    Lang::En => format!("{} opened {computer}'s Admin on {date}, through KyberNow Share.", if by.is_empty() { "Someone" } else { by }),
+                },
+                check = tr(
+                    "Ce n'est pas normal ? Coupez « Admin à distance » dans Admin, sur l'ordinateur (Hors de chez vous).",
+                    "Not expected? Turn off \u{201c}Remote Admin\u{201d} in Admin, on the computer (Away from home).",
+                ),
             ),
         ),
         Message::NewDevice { device, computer, person, account } => {
@@ -390,6 +410,7 @@ mod tests {
             Message::OrgInvite { by: "Ana", org: "Les Lignes Claires", role: "Membre", has_account: false, link: "c" },
             Message::PasskeyAdded { name: "Chrome, Mac", account: "c" },
             Message::AccountDeleted,
+            Message::AdminOpened { by: "Camille", computer: "PC du salon", date: "25/11/2026" },
         ] {
             for lang in [Lang::Fr, Lang::En] {
                 let mail = compose("a@exemple.org", lang, m);

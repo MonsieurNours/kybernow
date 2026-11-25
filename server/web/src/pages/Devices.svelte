@@ -133,7 +133,7 @@
     }
   }
 
-  async function saveRelay(changes: { server?: string; remote_access?: boolean }) {
+  async function saveRelay(changes: { server?: string; remote_access?: boolean; remote_admin?: boolean }) {
     relaySaving = true
     try {
       relay = await api.setRelay(changes)
@@ -539,6 +539,29 @@
       <div class="set">
         <div><h3>{t('devices.away.access')}</h3><p>{t('devices.away.accessHelp')}</p></div>
         <Switch label={t('devices.away.access')} checked={relay.remote_access} disabled={relaySaving || !relay.server} onchange={(v) => saveRelay({ remote_access: v })} />
+      </div>
+      <!-- « Admin depuis KyberNow Share » (docs/comptes.md) : coupé au départ, ne s'allume que sur le réseau. -->
+      <div class="set">
+        <div>
+          <h3>{t('devices.away.remoteAdmin')}</h3>
+          <p>{t('devices.away.remoteAdminHelp')}</p>
+          {#if !relay.remote_admin_ready}
+            <p class="muted">{t('devices.away.remoteAdminNeedsAccount')}</p>
+          {:else if !relay.remote_access}
+            <p class="muted">{t('devices.away.remoteAdminNeedsAccess')}</p>
+          {:else if relay.via_relay && !relay.remote_admin}
+            <p class="muted">{t('devices.away.remoteAdminHere')}</p>
+          {/if}
+          {#if relay.remote_admin_sessions?.length}
+            <p class="muted">{t('devices.away.remoteAdminOpen', { names: relay.remote_admin_sessions.join(', ') })}</p>
+          {/if}
+        </div>
+        <Switch
+          label={t('devices.away.remoteAdmin')}
+          checked={!!relay.remote_admin}
+          disabled={relaySaving || (!relay.remote_admin && (!relay.remote_admin_ready || !relay.remote_access || !!relay.via_relay))}
+          onchange={(v) => saveRelay({ remote_admin: v })}
+        />
       </div>
     </section>
   {/if}

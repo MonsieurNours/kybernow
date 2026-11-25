@@ -1128,8 +1128,13 @@ fn passkey_unsupported(v: &View<'_>) -> String {
 
 /// Un formulaire de `navigator.credentials.get()` (connexion, confirmation), caché sans script.
 fn passkey_get_form(v: &View<'_>, path: &str, allow: &[String], label: &str) -> String {
-    let allow = if allow.is_empty() { String::new() } else { data_attr("allow", &allow.join(",")) };
     let action = if path == "/compte/supprimer" { "<input type=\"hidden\" name=\"action\" value=\"passkey\">\n" } else { "" };
+    passkey_get_form_with(v, path, allow, label, action)
+}
+
+/// Le même, avec des champs de plus.
+fn passkey_get_form_with(v: &View<'_>, path: &str, allow: &[String], label: &str, action: &str) -> String {
+    let allow = if allow.is_empty() { String::new() } else { data_attr("allow", &allow.join(",")) };
     format!(
         "<form method=\"post\" action=\"{path}{q}\" data-passkey=\"get\"{challenge}{allow} hidden>\n{csrf}\n{action}<button class=\"btn kn-primary\" type=\"submit\">{label}</button>\n{error}\n</form>",
         q = v.q(),
@@ -1451,7 +1456,8 @@ mod tests {
                 for part in page.split("src=\"").skip(1).chain(page.split("<link ").skip(1).map(|l| l.split("href=\"").nth(1).unwrap_or(""))) {
                     assert!(part.starts_with('/'), "{name} : ressource hors du relais");
                 }
-                assert!(!page.contains("https://"), "{name} : adresse absolue");
+                // Seule exception : « Ouvrir sur le réseau », vers l'adresse d'Admin sur le réseau de l'ordinateur.
+                assert!(!page.contains("https://") || name == "admin-reseau", "{name} : adresse absolue");
                 // Chaque formulaire est en POST, avec son jeton CSRF et la langue (sauf `/tv`, en GET, qui ne change rien).
                 for form in page.split("<form ").skip(1).filter(|f| !f.starts_with("method=\"get\" action=\"/compte/appareil\"")) {
                     assert!(form.starts_with("method=\"post\""), "{name} : formulaire en GET");

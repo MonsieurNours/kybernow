@@ -365,4 +365,38 @@ fn ouvrir_admin_sur_le_reseau_avec_le_droit_administrer() {
     // Un autre compte, sans droit : refusé.
     let mut bob = person(&w, "bob@exemple.org", "Bob", "192.0.2.16");
     assert_eq!(bob.get(&url).status, 400);
+    assert_eq!(bob.get(&format!("/compte/admin?id={st}&lang=fr")).status, 400);
+    // « Ouvrir Admin » de la console (docs/comptes.md, « Admin depuis KyberNow Share ») :
+    // sans nouvelles de la Station, hors ligne ; Admin à distance coupé, l'adresse sur le réseau.
+    assert_eq!(ana.get(&format!("/compte/admin?id={st}&lang=fr")).status, 400);
+    link.admin.lock().unwrap().insert(st.clone(), (vec!["https://192.168.1.20:8443".into()], false));
+    let page = ana.get(&format!("/compte/admin?id={st}&lang=fr"));
+    assert!(html(&page).contains("Admin à distance est coupé") && html(&page).contains("https://192.168.1.20:8443/api/login/kybernow/start?lang=fr"));
+    let remote = format!("https://{st}.share.test");
+    let remote_url = format!("/compte/ouvrir-admin?station={st}&nonce={nonce}&retour={}&lang=fr", remote.replace(':', "%3A").replace('/', "%2F"));
+    assert_eq!(ana.get(&remote_url).status, 400, "Admin à distance coupé : refusé");
+    // Allumé : la console mène au départ d'Admin par le relais.
+    link.admin.lock().unwrap().insert(st.clone(), (vec!["https://192.168.1.20:8443".into()], true));
+    assert_eq!(location(&ana.get(&format!("/compte/admin?id={st}&lang=fr"))), format!("{remote}/api/login/kybernow/start?lang=fr"));
+    // À distance : sans passkey, pas de confirmation ; la demande d'ouvrir est refusée.
+    let page = ana.get(&remote_url);
+    assert!(html(&page).contains("De n'importe où") && html(&page).contains("Ajoutez d&#39;abord une passkey") || html(&page).contains("Ajoutez d'abord une passkey"));
+    let r = ana.post("/compte/ouvrir-admin?lang=fr", &[("station", &st), ("nonce", nonce), ("retour", &remote), ("action", "ouvrir")]);
+    assert_eq!(r.status, 403);
+    assert!(!html(&r).contains("api/login/kybernow?token="));
+    // Avec une passkey : confirmée, vers Admin par le relais, avec un jeton `via: "relay"`.
+    let mut auth = Authenticator::new(ED25519, "https://share.test");
+    assert!(html(&ana.add_passkey(&auth)).contains("Passkey ajoutée"));
+    let extra = [("station", st.as_str()), ("nonce", nonce), ("retour", remote.as_str()), ("action", "ouvrir")];
+    let r = ana.passkey(&remote_url, "/compte/ouvrir-admin?lang=fr", &mut auth, &extra);
+    let target = between(html(&r), "content=\"0;url=", "\"").replace("&amp;", "&");
+    assert!(target.starts_with(&format!("{remote}/api/login/kybernow?token=")), "{target}");
+    // Un vérificateur neuf : le même `nonce` a déjà servi au jeton du réseau.
+    let fresh = Verifier::new("share.test", &st, &w.acc.stations.keys.key_set().keys);
+    let claims = fresh.verify(target.split("token=").nth(1).unwrap(), w.now() as u64, Use::Once).unwrap();
+    assert_eq!(claims.via.as_deref(), Some("relay"));
+    assert_eq!(claims.jti, nonce);
+    // L'adresse d'une autre Station par le relais : refusée.
+    let other = format!("https://{}.share.test", station(52));
+    assert_eq!(ana.post("/compte/ouvrir-admin?lang=fr", &[("station", &st), ("nonce", nonce), ("retour", &other), ("action", "ouvrir")]).status, 400);
 }

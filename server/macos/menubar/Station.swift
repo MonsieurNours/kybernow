@@ -207,6 +207,8 @@ struct Snapshot {
     var lendNotice: Double? { (lend?["notice"] as? [String: Any])?["at"] as? Double }
     /// Demandes d'accès d'un appareil (`id`, `name`).
     var pairRequests: [[String: Any]] { state?["pair_requests"] as? [[String: Any]] ?? [] }
+    /// Les personnes qui ont Admin ouvert à distance, par KyberNow Share.
+    var remoteAdmin: [String] { state?["remote_admin_sessions"] as? [String] ?? [] }
     /// Demandes d'emprunt en attente (`id`, `name`, `steam`).
     var lendRequests: [[String: Any]] { lend?["requests"] as? [[String: Any]] ?? [] }
     var inSession: Bool { live != nil || (state?["session"] as? Bool ?? false) }

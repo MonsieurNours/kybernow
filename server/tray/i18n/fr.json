@@ -167,6 +167,8 @@
     "setupCode": "Code d'initialisation : saisissez-le quand Admin s'ouvre, pour choisir un nouveau mot de passe.",
     "copyCode": "Copier le code",
     "copied": "Copié",
+    "remoteAdmin": "Admin est ouvert à distance par {name}",
+    "remoteAdminHint": "Par KyberNow Share. Ce n'est pas normal ? Coupez « Admin à distance » dans Admin, Hors de chez vous.",
     "pairRequest": "{name} demande l'accès",
     "pairHint": "Comparez le code affiché sur l'appareil avec celui d'Admin avant d'accepter.",
     "verify": "Vérifier dans Admin",

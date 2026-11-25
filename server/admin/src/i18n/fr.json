@@ -220,7 +220,10 @@
     "accountBlockedAll": "Compte KyberNow de {name} bloqué sur cet ordinateur",
     "accountUnblocked": "{name} débloqué",
     "stationRestartedNamed": "{name} a redémarré la Station (compte KyberNow)",
-    "stationUpdateNamed": "{name} a lancé la mise à jour vers {version} (compte KyberNow)"
+    "stationUpdateNamed": "{name} a lancé la mise à jour vers {version} (compte KyberNow)",
+    "accountAdminRemote": "{name} ouvre Admin à distance, par KyberNow Share",
+    "remoteAdminOn": "Admin à distance allumé",
+    "remoteAdminOff": "Admin à distance coupé"
   },
   "share": {
     "display": "Écran {n}",
@@ -292,6 +295,7 @@
     "webLoginExpired": "La connexion avec KyberNow a expiré : recommencez depuis la page de connexion d'Admin.",
     "badOrigin": "Adresse d'Admin illisible.",
     "alreadyAttached": "Cet ordinateur est déjà rattaché à un compte KyberNow : détachez-le d'abord dans Admin.",
-    "badEnrollToken": "Jeton d'enrôlement refusé : il est inconnu, révoqué, échu ou a déjà servi pour toutes ses Stations."
+    "badEnrollToken": "Jeton d'enrôlement refusé : il est inconnu, révoqué, échu ou a déjà servi pour toutes ses Stations.",
+    "remoteAdminOff": "Admin à distance est coupé sur cet ordinateur. Allumez-le dans Admin › Hors de chez vous, sur le réseau."
   }
 }

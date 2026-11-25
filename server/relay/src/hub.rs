@@ -57,6 +57,19 @@ pub struct StationPeer {
     /// Flux de la Station → (client, flux du client).
     flows: Mutex<HashMap<u64, (Weak<ClientPeer>, u64)>>,
     pending: Mutex<HashMap<u64, Pending>>,
+    /// Ses adresses d'Admin sur le réseau et « Admin à distance » (`hello`, `admin_status`), en mémoire seulement.
+    admin: Mutex<(Vec<String>, bool)>,
+}
+
+/// Les adresses d'Admin sur le réseau données par une Station : 4 au plus, `http(s)://hôte[:port]`.
+fn clean_admin_lan(list: Vec<String>) -> Vec<String> {
+    list.into_iter()
+        .filter(|a| {
+            a.len() <= 200
+                && a.strip_prefix("https://").or_else(|| a.strip_prefix("http://")).is_some_and(|rest| !rest.is_empty() && !rest.contains(['/', '?', '#', '@', ' ', '"', '<', '>']))
+        })
+        .take(4)
+        .collect()
 }
 
 struct Pending {
@@ -398,6 +411,7 @@ impl Hub {
             next_flow: AtomicU64::new(1),
             flows: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            admin: Mutex::new((clean_admin_lan(hello.admin_lan.clone()), hello.remote_admin)),
         });
         let old = self.stations.lock().unwrap().insert(id.clone(), peer.clone());
         if let Some(old) = old {
@@ -512,6 +526,16 @@ impl Hub {
                     let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
                 }
             },
+            // « Admin depuis KyberNow Share » (docs/comptes.md).
+            Msg::AdminStatus { admin_lan, remote_admin } => {
+                *peer.admin.lock().unwrap() = (clean_admin_lan(admin_lan), remote_admin);
+            }
+            Msg::AdminOpened { account, name } => {
+                if let Some(accounts) = self.accounts.clone() {
+                    let station = peer.id.clone();
+                    tokio::task::spawn_blocking(move || accounts.admin_opened(&station, &account, &name));
+                }
+            }
             Msg::Detach {} => {
                 if let Some(accounts) = self.accounts.clone() {
                     let station = peer.id.clone();
@@ -963,6 +987,10 @@ impl StationLink for Hub {
 
     fn send(&self, station: &str, msg: Msg) -> bool {
         self.station(station).is_some_and(|s| s.ctl.send(msg))
+    }
+
+    fn admin(&self, station: &str) -> Option<(Vec<String>, bool)> {
+        self.station(station).map(|s| s.admin.lock().unwrap().clone())
     }
 
     fn attest(&self, station: &str) -> Option<crate::accounts::stations::Attest> {

@@ -385,7 +385,9 @@
       "one": "And {n} more.",
       "other": "And {n} more."
     },
-    "seeRequest": "View request"
+    "seeRequest": "View request",
+    "remoteAdmin": "Admin opened remotely, through KyberNow Share.",
+    "remoteAdminSignOut": "Sign out"
   },
   "store": {
     "grant": "give access to {names}",
@@ -668,7 +670,13 @@
       "unreachablePlain": "Relay unreachable",
       "access": "Access away from home",
       "accessHelp": "Your paired devices open this computer through the relay when they are not on your network.",
-      "locked": "Access away from home blocked for 10 min after too many attempts."
+      "locked": "Access away from home blocked for 10 min after too many attempts.",
+      "remoteAdmin": "Remote Admin",
+      "remoteAdminHelp": "This computer's administrators open Admin from KyberNow Share, from anywhere, after a passkey. The relay sees what goes through, as for a guest in the browser.",
+      "remoteAdminNeedsAccount": "First attach this computer to a KyberNow account (KyberNow account), with “Accept KyberNow accounts”.",
+      "remoteAdminNeedsAccess": "First turn on “Access away from home”.",
+      "remoteAdminHere": "Can only be turned on here, on the network.",
+      "remoteAdminOpen": "Open remotely right now by {names}."
     }
   },
   "users": {

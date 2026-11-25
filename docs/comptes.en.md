@@ -91,7 +91,7 @@ Decided on 11/25/2026 with the mockup (https://claude.ai/artifact/KVvUYFTNCdRFRm
 
 ## Admin from KyberNow Share
 
-Decided with the author on 11/25/2026; **reverses a scoping decision** (“Not the whole Admin interface through the relay”, decisions table): with a new switch, off at the start, **all of Admin** opens from anywhere, through the relay, for an account with the Administer right. Specification to approve before the code.
+Decided with the author on 11/25/2026; **reverses a scoping decision** (“Not the whole Admin interface through the relay”, decisions table): with a new switch, off at the start, **all of Admin** opens from anywhere, through the relay, for an account with the Administer right. Approved and built on 11/25/2026 (tunnel, relay, Admin, Windows and Mac icon); not yet tried on a real Station.
 
 ### What the user sees
 
@@ -103,7 +103,7 @@ Decided with the author on 11/25/2026; **reverses a scoping decision** (“Not t
   - Station offline: the link is greyed out, “Offline”.
 - **Switch in Admin**, Away from home: “Remote Admin” (“This computer's administrators open Admin from KyberNow Share, from anywhere.”), **off at the start**; it needs “Access away from home” on and the Station attached to an account. It can only be turned on **on site** (Admin session on the network); it can be turned off from anywhere.
 - **Warnings at each remote opening**:
-  - a notification on the computer (the Station's icon, Windows and Mac): “Admin is open remotely by {name}.”;
+  - the computer says so: on Mac, a notification “Admin is open remotely by {name}”; on Windows, the icon's panel opens with the same line (the icon has no notifications); and Admin shows a banner “Admin opened remotely, through KyberNow Share.” to whoever opened it that way;
   - a line in Admin's feed and, for a family's or team's computer, in its log;
   - an email to the owners (and to a family's or team's administrators), when the relay sends emails: “{computer}'s Admin opened remotely by {name}, {date}, from {city or address}.”;
   - the Admin session opened through the relay **closes after 30 minutes of inactivity** (and 8 hours at most).

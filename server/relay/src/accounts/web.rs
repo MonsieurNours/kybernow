@@ -474,6 +474,7 @@ impl Accounts {
             ("/compte/organisation/jetons/creer", true) => org_pages::token_create(cx),
             ("/compte/organisation/jetons/revoquer", true) => org_pages::token_revoke(cx),
             ("/compte/ouvrir-admin", _) => admin_login::open_admin(cx, post),
+            ("/compte/admin", false) => admin_login::start(cx),
             // Lot 3 : les appareils connectés.
             ("/compte/connecter-appareil", _) => device_pages::consent(cx, post),
             ("/compte/appareil", _) => device_pages::approve(cx, post),

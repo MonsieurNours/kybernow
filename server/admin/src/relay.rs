@@ -96,6 +96,10 @@ pub struct RelaySettings {
     /// « Accès hors de chez vous » : coupé au départ.
     #[serde(default)]
     pub remote_access: bool,
+    /// « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share ») : coupé au départ ; ne
+    /// s'allume que sur le réseau.
+    #[serde(default)]
+    pub remote_admin: bool,
 }
 
 impl RelaySettings {
@@ -342,6 +346,13 @@ impl Relay {
 
     fn agent(&self) -> Option<Arc<Agent>> {
         self.running.lock().unwrap().as_ref().map(|r| r.agent.clone())
+    }
+
+    /// Admin vient d'être ouvert à distance : le relais l'écrit au journal et prévient les propriétaires.
+    pub fn admin_opened(&self, account: &str, name: &str) {
+        if let Some(agent) = self.agent() {
+            agent.admin_opened(account, name);
+        }
     }
 
     /// L'agent, s'il est joint au relais.
@@ -704,6 +715,10 @@ impl Relay {
         out["transport"] = json!(self.agent().and_then(|a| a.transport()).map(|t| t.as_str()));
         out["locked_until"] = json!(locked_until);
         out["sessions"] = json!(self.sessions(s));
+        // « Admin depuis KyberNow Share » : l'interrupteur, s'il peut servir (rattachée, comptes acceptés), qui l'utilise.
+        out["remote_admin"] = json!(settings.remote_admin);
+        out["remote_admin_ready"] = json!(crate::accounts::web_login_available(s));
+        out["remote_admin_sessions"] = json!(s.auth.remote_names());
         out
     }
 
@@ -823,7 +838,17 @@ async fn supervise_tick(s: &AppState, router: &Router) {
         }
     }
     s.relay.expire_grants();
+    // « Admin depuis KyberNow Share » : l'adresse d'Admin sur le réseau et l'interrupteur, pour la console.
+    if let Some(agent) = s.relay.agent() {
+        agent.admin_status(admin_lan(s), crate::accounts::remote_admin_on(s));
+    }
     sync_codes(s).await;
+}
+
+/// Les adresses d'Admin sur le réseau (`https://192.168.1.20:8443`).
+fn admin_lan(s: &AppState) -> Vec<String> {
+    let scheme = if s.secure_cookies { "https" } else { "http" };
+    crate::tls::lan_ip().map(|ip| vec![format!("{scheme}://{ip}:{}", s.listen_port)]).unwrap_or_default()
 }
 
 fn start(s: &AppState, router: &Router, relay: RelayAddr) {
@@ -1157,6 +1182,9 @@ enum Class {
     /// Un appareil invité (code et mot de passe d'une invitation), quand
     /// une invitation est ouverte et l'accès hors de chez vous actif.
     Invite,
+    /// La connexion à distance avec KyberNow (`/api/login/kybernow/start` et son retour), seulement avec
+    /// « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share »).
+    RemoteLogin,
     /// Jamais par le relais.
     Never,
 }
@@ -1165,6 +1193,7 @@ fn class_of(method: &Method, path: &str) -> Class {
     let read = method == Method::GET || method == Method::HEAD;
     match path {
         "/api/session" if read => return Class::Guest,
+        "/api/login/kybernow/start" | "/api/login/kybernow" if read => return Class::RemoteLogin,
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
         // L'ami d'un prêt (docs/pret.md) : code ou compte d'ami, puis son secret.
         "/api/lend/status" | "/api/lend/borrow" | "/api/lend/wait" | "/api/lend/beat" | "/api/lend/leave" => return Class::Lend,
@@ -1243,6 +1272,20 @@ fn strip_console_cookie(headers: &mut HeaderMap) {
 /// `relay_guard` : posé sur le `Router` que sert l'agent. N'ouvre que ce que
 /// docs/relais.md permet par le relais ; tout le reste : 403.
 pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> Response {
+    // « Admin à distance » : une session ouverte par le relais (jeton `via: "relay"`, passkey) ouvre tout
+    // Admin à ce navigateur ; son cookie `__Host-` devient le cookie de session pour la suite.
+    let browser = req.extensions().get::<Via>().is_some_and(|v| v.kind == StreamKind::AdminHttp);
+    if browser
+        && let Some(token) = crate::auth::remote_session_token(req.headers())
+        && crate::accounts::remote_admin_on(&s)
+        && s.auth.remote_session_valid(&token)
+    {
+        strip_console_cookie(req.headers_mut());
+        if let Ok(v) = HeaderValue::from_str(&format!("{}={token}", crate::auth::COOKIE)) {
+            req.headers_mut().append(header::COOKIE, v);
+        }
+        return next.run(req).await;
+    }
     strip_console_cookie(req.headers_mut());
     let path = req.uri().path().to_string();
     match class_of(req.method(), &path) {
@@ -1333,6 +1376,11 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
                 };
             }
         }
+        Class::RemoteLogin => {
+            if !browser || !crate::accounts::remote_admin_on(&s) {
+                return refusal(StatusCode::FORBIDDEN, "remote_admin_off", Msg::new("accounts.remoteAdminOff"));
+            }
+        }
         Class::Never => return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden")),
     }
     next.run(req).await
@@ -1346,13 +1394,22 @@ pub struct RelayBody {
     server: Option<String>,
     #[serde(default)]
     remote_access: Option<bool>,
+    #[serde(default)]
+    remote_admin: Option<bool>,
 }
 
-pub async fn get_relay(State(s): State<AppState>) -> Json<Value> {
-    Json(s.relay.status(&s))
+pub async fn get_relay(State(s): State<AppState>, via: Option<axum::Extension<Via>>) -> Json<Value> {
+    let mut status = s.relay.status(&s);
+    // Ouvert à distance : « Admin à distance » ne s'allume pas d'ici.
+    status["via_relay"] = json!(via.is_some());
+    Json(status)
 }
 
-pub async fn put_relay(State(s): State<AppState>, Json(body): Json<RelayBody>) -> Response {
+pub async fn put_relay(State(s): State<AppState>, via: Option<axum::Extension<Via>>, Json(body): Json<RelayBody>) -> Response {
+    // « Admin à distance » ne s'allume que sur le réseau ; il se coupe de partout.
+    if via.is_some() && body.remote_admin == Some(true) {
+        return refusal(StatusCode::FORBIDDEN, "network_only", Msg::new("accounts.networkOnly"));
+    }
     let server = match body.server.as_deref().map(normalize_server) {
         Some(Err(msg)) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": msg.text() }))).into_response(),
         Some(Ok(server)) => Some(server),
@@ -1366,11 +1423,23 @@ pub async fn put_relay(State(s): State<AppState>, Json(body): Json<RelayBody>) -
         if let Some(on) = body.remote_access {
             settings.relay.remote_access = on;
         }
+        if let Some(on) = body.remote_admin {
+            settings.relay.remote_admin = on;
+        }
     });
     if let Err(e) = saved {
         return crate::api::ApiError::from(e).into_response();
     }
     let after = s.settings.lock().unwrap().relay.clone();
+    if before.remote_admin != after.remote_admin {
+        tracing::info!("relais : Admin à distance {}", if after.remote_admin { "allumé" } else { "coupé" });
+        let key = if after.remote_admin { "events.remoteAdminOn" } else { "events.remoteAdminOff" };
+        s.activity.event("info", Msg::new(key));
+    }
+    // Admin à distance coupé (ou l'accès hors de chez vous) : les sessions à distance se ferment.
+    if !(after.remote_admin && after.remote_access) {
+        s.auth.close_remote_sessions();
+    }
     if before.server() != after.server() {
         tracing::info!("relais : adresse réglée à « {} »", after.server());
     }
@@ -1383,7 +1452,9 @@ pub async fn put_relay(State(s): State<AppState>, Json(body): Json<RelayBody>) -
         }
     }
     s.relay.wake();
-    Json(s.relay.status(&s)).into_response()
+    let mut status = s.relay.status(&s);
+    status["via_relay"] = json!(via.is_some());
+    Json(status).into_response()
 }
 
 /// Le `Router` servi par l'agent : le même que sur le réseau, sous [`guard`].
@@ -1586,7 +1657,7 @@ mod tests {
         let settings = RelaySettings::default();
         assert_eq!(settings.server(), DEFAULT_SERVER);
         assert!(settings.addr().is_some());
-        let off = RelaySettings { server: Some(String::new()), remote_access: true };
+        let off = RelaySettings { server: Some(String::new()), remote_access: true, remote_admin: false };
         assert!(off.addr().is_none());
     }
 
@@ -1796,12 +1867,73 @@ mod tests {
         s.settings.lock().unwrap().relay.remote_access = true;
         s.relay.grant_device(&Via { kind: StreamKind::AdminTls, client: "appareil".into() }, "mac-1");
         s.relay.grant_guest(&Via { kind: StreamKind::AdminTls, client: "invite".into() }, "g1");
-        let res = put_relay(State(s.clone()), Json(RelayBody { server: None, remote_access: Some(false) })).await;
+        let res = put_relay(State(s.clone()), None, Json(RelayBody { server: None, remote_access: Some(false), remote_admin: None })).await;
         assert_eq!(res.status(), StatusCode::OK);
         assert!(!s.relay.authorized("appareil"), "l'appareil joint encore Kyber par le relais");
         assert!(s.relay.authorized("invite"));
         assert_eq!(s.relay.granted_guest("invite").as_deref(), Some("g1"));
         assert_eq!(s.relay.granted_guest("appareil"), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// « Admin depuis KyberNow Share » (docs/comptes.md) : une session à distance ouvre tout Admin, au
+    /// navigateur seulement, avec « Admin à distance » ; l'interrupteur ne s'allume pas par le relais.
+    #[tokio::test]
+    async fn admin_a_distance_par_le_relais() {
+        let (s, dir) = console_state();
+        let _k = crate::accounts::attach_for_tests(&s);
+        s.settings.lock().unwrap().account.accept = true;
+        let router = router(s.clone());
+        let call = |method: Method, path: &str, cookie: Option<String>, kind: StreamKind, body: Option<Value>| {
+            let mut req = axum::http::Request::builder().method(method).uri(path).header("x-kyber-admin", "1").header(header::HOST, "abc.share.kybernow.app");
+            if let Some(c) = cookie {
+                req = req.header(header::COOKIE, c);
+            }
+            let body = match body {
+                Some(b) => {
+                    req = req.header(header::CONTENT_TYPE, "application/json");
+                    Body::from(b.to_string())
+                }
+                None => Body::empty(),
+            };
+            let mut req = req.body(body).unwrap();
+            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+            req.extensions_mut().insert(Via { kind, client: "c".into() });
+            tower::ServiceExt::oneshot(router.clone(), req)
+        };
+        let token = s.auth.open_remote_session("Léa Martin");
+        let remote = Some(format!("{}={token}", crate::auth::REMOTE_COOKIE));
+        // Coupé : rien, même avec la session ; ni le départ de la connexion.
+        assert_eq!(call(Method::GET, "/api/relay", remote.clone(), StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(call(Method::GET, "/api/login/kybernow/start", None, StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
+        // Allumé : tout Admin au navigateur qui a la session à distance.
+        s.settings.lock().unwrap().relay.remote_admin = true;
+        let token = s.auth.open_remote_session("Léa Martin");
+        let remote = Some(format!("{}={token}", crate::auth::REMOTE_COOKIE));
+        assert_eq!(call(Method::GET, "/api/relay", remote.clone(), StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::OK);
+        let res = call(Method::GET, "/api/session", remote.clone(), StreamKind::AdminHttp, None).await.unwrap();
+        let body: Value = serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!((body["authenticated"].as_bool(), body["remote_admin"].as_bool()), (Some(true), Some(true)), "{body}");
+        // Pas pour une app (TLS de bout en bout), ni avec le cookie ordinaire, qu'une origine sœur pourrait poser.
+        assert_eq!(call(Method::GET, "/api/relay", remote.clone(), StreamKind::AdminTls, None).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(call(Method::GET, "/api/relay", Some(format!("kyber_admin_session={token}")), StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
+        // Le départ : vers « Ouvrir Admin » chez le relais, avec l'adresse vue par le navigateur.
+        let res = call(Method::GET, "/api/login/kybernow/start?lang=fr", None, StreamKind::AdminHttp, None).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let to = res.headers()[header::LOCATION].to_str().unwrap().to_string();
+        assert!(to.starts_with("https://share.kybernow.app/compte/ouvrir-admin?station=") && to.contains("&retour=https%3A%2F%2Fabc.share.kybernow.app&lang=fr"), "{to}");
+        assert!(res.headers()[header::SET_COOKIE].to_str().unwrap().starts_with("__Host-kyber_admin_kn="));
+        // Un jeton sans passkey (`via` absent) n'ouvre pas de session à distance.
+        let res = call(Method::GET, "/api/login/kybernow?token=x", None, StreamKind::AdminHttp, None).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        // L'interrupteur ne s'allume pas par le relais ; il se coupe, et ferme les sessions à distance.
+        let on = call(Method::PUT, "/api/relay", remote.clone(), StreamKind::AdminHttp, Some(json!({ "remote_admin": true }))).await.unwrap();
+        assert_eq!(on.status(), StatusCode::FORBIDDEN);
+        let off = call(Method::PUT, "/api/relay", remote.clone(), StreamKind::AdminHttp, Some(json!({ "remote_admin": false }))).await.unwrap();
+        assert_eq!(off.status(), StatusCode::OK);
+        assert!(s.auth.remote_names().is_empty());
+        s.settings.lock().unwrap().relay.remote_admin = true;
+        assert_eq!(call(Method::GET, "/api/relay", remote, StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1842,7 +1974,7 @@ mod tests {
         assert_eq!(console_route(&s, "app", &ConsoleTarget::new("C0151B2DAE08", 997), true).map(|r| r.1.port()), Ok(997));
         assert_eq!(console_route(&s, "autre", &takion, false), Err(ConsoleRefusal::NotAuthorized), "un autre client du relais");
         // « Accès hors de chez vous » coupé : l'autorisation tombe tout de suite.
-        let res = put_relay(State(s.clone()), Json(RelayBody { server: None, remote_access: Some(false) })).await;
+        let res = put_relay(State(s.clone()), None, Json(RelayBody { server: None, remote_access: Some(false), remote_admin: None })).await;
         assert_eq!(res.status(), StatusCode::OK);
         assert!(!s.relay.console_authorized("app"));
         s.settings.lock().unwrap().relay.remote_access = true;

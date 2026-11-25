@@ -811,3 +811,20 @@ a.ka-pc:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--kn-signal)
 .ka-group-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
 .ka-sheet-split { justify-content: space-between; }
 .ka-sheet-split .btn-ghost { flex: 0 0 auto; }
+
+/* Admin depuis KyberNow Share : la carte mène à l'ordinateur (lien étendu), le raccourci « Admin » passe au-dessus. */
+.ka-pc-card { position: relative; }
+.ka-pc-card:hover { box-shadow: inset 0 0 0 1px var(--kn-signal-line), 0 20px 50px rgb(0 0 0 / .4); transform: translateY(-2px); }
+.ka-pc-card:has(.ka-pc-link:focus-visible) { box-shadow: inset 0 0 0 2px var(--kn-signal); }
+.ka-pc-link { color: inherit; text-decoration: none; }
+.ka-pc-link:focus-visible { outline: 0; }
+.ka-pc-link::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.ka-pc-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ka-admin-chip {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 10px; border-radius: 8px;
+  font-size: 12.5px; color: var(--kn-frost-2); text-decoration: none; background: var(--kn-ink-0); box-shadow: inset 0 0 0 1px var(--kn-line-2);
+  transition: color var(--kn-t-hover), box-shadow var(--kn-t-hover);
+}
+.ka-admin-chip .ka-ic { width: 14px; height: 14px; color: var(--kn-signal); }
+.ka-admin-chip:hover { color: var(--kn-frost); box-shadow: inset 0 0 0 1px var(--kn-signal-line); }
+.ka-pc-head .ka-pc-top { flex-wrap: wrap; }

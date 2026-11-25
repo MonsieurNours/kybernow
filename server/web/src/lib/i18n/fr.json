@@ -385,7 +385,9 @@
       "one": "Et {n} autre.",
       "other": "Et {n} autres."
     },
-    "seeRequest": "Voir la demande"
+    "seeRequest": "Voir la demande",
+    "remoteAdmin": "Admin ouvert à distance, par KyberNow Share.",
+    "remoteAdminSignOut": "Se déconnecter"
   },
   "store": {
     "grant": "donner l'accès à {names}",
@@ -668,7 +670,13 @@
       "unreachablePlain": "Relais injoignable",
       "access": "Accès hors de chez vous",
       "accessHelp": "Vos appareils appairés ouvrent cet ordinateur par le relais quand ils ne sont pas sur votre réseau.",
-      "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais."
+      "locked": "Accès hors de chez vous bloqué 10 min après trop d'essais.",
+      "remoteAdmin": "Admin à distance",
+      "remoteAdminHelp": "Les administrateurs de cet ordinateur ouvrent Admin depuis KyberNow Share, de n'importe où, après une passkey. Le relais voit ce qui passe, comme pour un invité dans le navigateur.",
+      "remoteAdminNeedsAccount": "Rattachez d'abord cet ordinateur à un compte KyberNow (Compte KyberNow), avec « Accepter les comptes KyberNow ».",
+      "remoteAdminNeedsAccess": "Allumez d'abord « Accès hors de chez vous ».",
+      "remoteAdminHere": "S'allume seulement ici, sur le réseau.",
+      "remoteAdminOpen": "Ouvert à distance en ce moment par {names}."
     }
   },
   "users": {

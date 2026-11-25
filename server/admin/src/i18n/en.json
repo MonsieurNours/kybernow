@@ -220,7 +220,10 @@
     "accountBlockedAll": "{name}'s KyberNow account blocked on this computer",
     "accountUnblocked": "{name} unblocked",
     "stationRestartedNamed": "{name} restarted the Station (KyberNow account)",
-    "stationUpdateNamed": "{name} started the update to {version} (KyberNow account)"
+    "stationUpdateNamed": "{name} started the update to {version} (KyberNow account)",
+    "accountAdminRemote": "{name} opens Admin remotely, through KyberNow Share",
+    "remoteAdminOn": "Remote Admin turned on",
+    "remoteAdminOff": "Remote Admin turned off"
   },
   "share": {
     "display": "Display {n}",
@@ -292,6 +295,7 @@
     "webLoginExpired": "Signing in with KyberNow expired: start again from Admin's sign-in page.",
     "badOrigin": "Unreadable Admin address.",
     "alreadyAttached": "This computer is already attached to a KyberNow account: detach it in Admin first.",
-    "badEnrollToken": "Enrollment token refused: it's unknown, revoked, expired or already used for all its Stations."
+    "badEnrollToken": "Enrollment token refused: it's unknown, revoked, expired or already used for all its Stations.",
+    "remoteAdminOff": "Remote Admin is off on this computer. Turn it on in Admin › Away from home, on the network."
   }
 }

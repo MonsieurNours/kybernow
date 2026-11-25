@@ -19,6 +19,8 @@ use crate::accounts::stations::{Attest, StationLink};
 pub(super) struct FakeLink {
     pub(super) online: Mutex<HashSet<String>>,
     sent: Mutex<Vec<(String, Msg)>>,
+    /// Les adresses d'Admin et « Admin à distance » de chaque Station.
+    pub(super) admin: Mutex<std::collections::HashMap<String, (Vec<String>, bool)>>,
 }
 
 impl StationLink for FakeLink {
@@ -36,6 +38,13 @@ impl StationLink for FakeLink {
 
     fn attest(&self, station: &str) -> Option<Attest> {
         self.online(station).then(|| Attest { station_key: "Y2xl".into(), admin_fp: format!("sha256:{station}"), sig: "c2ln".into() })
+    }
+
+    fn admin(&self, station: &str) -> Option<(Vec<String>, bool)> {
+        if !self.online(station) {
+            return None;
+        }
+        self.admin.lock().unwrap().get(station).cloned()
     }
 }
 

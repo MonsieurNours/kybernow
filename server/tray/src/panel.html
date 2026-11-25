@@ -523,6 +523,11 @@ function render() {
       <span class="hint">${esc(t('pairHint'))}</span>
       <div class="row"><button class="accept" data-cmd="openPairing">${esc(t('verify'))}</button><button data-cmd="pairAnswer" data-id="${esc(r.id)}" ${idle ? '' : 'disabled'}>${esc(t('refuse'))}</button></div>
     </div>`).join('')
+  // Admin ouvert à distance (docs/comptes.md, « Admin depuis KyberNow Share ») : qui, et comment le couper.
+  const remote = ((s.console && s.console.remoteAdmin) || []).map((name) => `<div class="wait" role="status">
+      <span class="lbl">${esc(t('remoteAdmin', { name }))}</span>
+      <span class="hint">${esc(t('remoteAdminHint'))}</span>
+    </div>`).join('')
   // Accès donné (ou retiré) pendant une session : Kyber redémarre de lui-même
   // dès qu'elle finit, sans couper personne.
   const pending = (s.console && s.console.pendingAccess) || []
@@ -532,7 +537,7 @@ function render() {
     </div>` : ''
   const version = (s.console && s.console.version) || s.version || ''
   const address = (s.console && s.console.address) || ''
-  root.innerHTML = `${hero(s)}${pair}${wait}${code}<div class="items">${items.join('')}<div class="sep"></div>
+  root.innerHTML = `${hero(s)}${remote}${pair}${wait}${code}<div class="items">${items.join('')}<div class="sep"></div>
     <div class="foot"><span class="mono">${esc([version, address].filter(Boolean).join(' · '))}</span><button data-cmd="quit">${esc(t('quit'))}</button></div></div>`
   requestAnimationFrame(() => send('size', { height: Math.ceil(root.getBoundingClientRect().height) }))
 }
