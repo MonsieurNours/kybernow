@@ -40,6 +40,10 @@ Measured on 25/11/2026, MacBook Pro M4 Max (40-core GPU), macOS 27.2.1; mean dec
 
 First-frame PSNR: 64 dB on Y (1440p 4:2:0), 56 dB on Y and 49 to 51 dB on chroma in 4:4:4 (same bitrate for three times the samples). When paced, the GPU clocks down between frames: a frame takes longer than back to back (1.3 ms against 0.6 to 1 ms). Not yet measured on an M1 chip or an Apple TV, nor with a stream from the Station.
 
+## The core
+
+`apps/core` knows PyroWave (format, capabilities, Station announcement, “Auto” rule when wired): see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”. The Mac app sends `pyrowave` in the decoder capabilities; it doesn't yet give `wired` (Ethernet cable) in the settings, nor the format screen: they'll come with the mock-ups.
+
 ## Waiting on the Station
 
 - The kyclient patch (codec identifier, `VideoCodec::PyroWave`): without it, Kyber never sends `pwv1` and the core doesn't ask for PyroWave.

@@ -660,7 +660,7 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// Ce que l'appareil décode (`Capabilities` du cœur).
     static func capabilitiesJSON(_ caps: DecoderCapabilities) -> [String: Any] {
-        ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1, "hdr": caps.hdr]
+        ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1, "hdr": caps.hdr, "pyrowave": caps.pyrowave]
     }
 
     /// La session du cœur a démarré (`kn_session_start`) : `onPhase` ira

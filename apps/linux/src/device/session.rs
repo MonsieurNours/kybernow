@@ -646,7 +646,7 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par la carte ou le processeur, le 4:4:4
 /// avec lui, l'AV1 par la carte.
 pub fn guest_capabilities(m: &Machine) -> Capabilities {
-    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: hdr_decodes(m) }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: hdr_decodes(m), pyrowave: false }
 }
 
 /// Le HDR possible sur cet appareil (`Capabilities::hdr` du cœur) : la voie du HDR ouverte (bureau Wayland avec la
@@ -707,7 +707,7 @@ pub fn core_profile(p: Profile) -> CoreProfile {
 /// (`Screens::capabilities`, docs/multi-ecrans.md).
 pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
     let yuv444 = host.settings.yuv444 && codec == "hevc";
-    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: hdr_decodes(m) }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: hdr_decodes(m), pyrowave: false }
 }
 
 /// Les réglages du flux : le profil ramené à ce que décode cette machine, le

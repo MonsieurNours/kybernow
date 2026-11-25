@@ -1695,6 +1695,9 @@ struct Worker {
     /// HDR (docs/hdr.md) : ce que la Station annonce (`GET /api/stream/info`,
     /// lu au début d'une session d'hôte quand un écran de l'appareil est HDR).
     station_hdr: Option<crate::console::HdrInfo>,
+    /// PyroWave (docs/pyrowave.md) : la Station le propose (`info.pyrowave`,
+    /// lu au début d'une session d'hôte quand il peut servir).
+    station_pyrowave: bool,
     /// HDR obtenu de la Station, par écran de l'appareil (index dans
     /// [`Screens::list`], 0 pour une session à un écran), et les valeurs HDR
     /// données avec lui.
@@ -1879,6 +1882,7 @@ impl Worker {
             giving_back: false,
             guest,
             station_hdr: None,
+            station_pyrowave: false,
             hdr_obtained: Vec::new(),
             hdr_luminance: Vec::new(),
             stream_hdr: Vec::new(),
@@ -2438,21 +2442,30 @@ impl Worker {
         }
     }
 
-    /// Lit ce que la Station annonce du HDR, au début d'une session d'hôte
-    /// dont un écran de l'appareil est HDR (sinon rien à demander).
+    /// Lit ce que la Station annonce du HDR et de PyroWave, au début d'une
+    /// session d'hôte dont un écran de l'appareil est HDR, ou qui pourrait
+    /// prendre PyroWave (choisi, ou « Auto » par câble) ; sinon rien à demander.
     fn read_station_hdr(&mut self, console: &Arc<Console>) -> Result<(), Failure> {
         let any_hdr = match &self.screens {
             Some(s) => s.list.iter().any(|d| d.hdr),
             None => self.params.screen_hdr,
         };
-        if !any_hdr {
+        let s = &self.params.settings;
+        let pyrowave = crate::profile::PYROWAVE_KYBER
+            && self.guest.is_none()
+            && self.capabilities().is_some_and(|c| c.pyrowave)
+            && (s.codec == Codec::PyroWave || (s.profile.is_some() && s.wired));
+        if !any_hdr && !pyrowave {
             return Ok(());
         }
         let c = console.clone();
         match self.step("HDR de la Station", INFO_WITHIN + STEP_MARGIN, move || c.info()) {
             Ok(Ok(i)) => {
-                info!("HDR de la Station : {:?}", i.hdr);
-                self.station_hdr = i.hdr;
+                info!("HDR de la Station : {:?} ; PyroWave : {}", i.hdr, i.pyrowave);
+                if any_hdr {
+                    self.station_hdr = i.hdr;
+                }
+                self.station_pyrowave = i.pyrowave;
             }
             Ok(Err(e)) => warn!("HDR : annonce de la Station illisible ({e}) : SDR"),
             Err(Cut::Late(_)) => warn!("HDR : annonce de la Station sans réponse : SDR"),
@@ -3320,6 +3333,10 @@ impl Worker {
     /// Réglages du flux en cours : ceux de la session, moins le repli.
     fn effective(&self) -> StreamSettings {
         let mut s = self.params.settings.clone();
+        if self.guest.is_none() {
+            let caps = self.capabilities().unwrap_or_default();
+            s = crate::profile::pyrowave_format(&s, caps, self.station_pyrowave, self.relay_tunnel.is_some());
+        }
         if self.fallback >= 2 {
             s.yuv444 = false;
         }
@@ -3332,22 +3349,24 @@ impl Worker {
     /// Débit du profil pour le flux en cours : sur la somme des pixels par
     /// seconde des écrans quand il y en a plusieurs.
     fn profile_bitrate(&self) -> u32 {
+        // Format effectif : PyroWave a son propre débit de base.
+        let settings = self.effective();
         if self.streams.len() > 1 {
             let rate: f64 = self
                 .streams
                 .iter()
                 .map(|s| f64::from(s.display.width.max(0)) * f64::from(s.display.height.max(0)) * f64::from(s.refresh.max(1)))
                 .sum();
-            return self.params.settings.bitrate_for_pixel_rate(rate);
+            return settings.bitrate_for_pixel_rate(rate);
         }
         // Un invité sur son image à part : le débit de cette image.
         if self.own_image()
             && let Some((w, h, f)) = self.share_image.as_ref().and_then(ShareImage::size)
         {
-            return self.params.settings.bitrate(w, h, f);
+            return settings.bitrate(w, h, f);
         }
         let m = self.stream_mode;
-        self.params.settings.bitrate(m.width, m.height, m.refresh)
+        settings.bitrate(m.width, m.height, m.refresh)
     }
 
     fn effective_bitrate(&self) -> u32 {
@@ -5069,7 +5088,7 @@ mod tests {
     }
 
     fn worker(profile: crate::profile::Profile, screens: Screens) -> (Worker, Arc<Recorder>) {
-        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let params = SessionParams {
             console_host: "192.0.2.1".into(),
             console_port: 9443,
@@ -5105,7 +5124,7 @@ mod tests {
         screens.list[0].hdr = true;
         let (mut w, rec) = worker(crate::profile::Profile::Bureau, screens);
         w.params.settings.hdr = true;
-        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true });
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true, pyrowave: false });
         w.station_hdr = Some(crate::console::HdrInfo { available: true, reason: None });
         (w, rec)
     }
@@ -5132,7 +5151,7 @@ mod tests {
         assert!(w.stream_hdr_for(0, &s) && !w.stream_hdr_for(1, &s));
         assert!(rec.notices.lock().unwrap().is_empty());
         // Le profil reste Bureau : le HDR ne le fait pas passer en Personnalisé.
-        assert_eq!(crate::screens::screens_profile(&w.params.settings, Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true })), Some(crate::profile::Profile::Bureau));
+        assert_eq!(crate::screens::screens_profile(&w.params.settings, Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true, pyrowave: false })), Some(crate::profile::Profile::Bureau));
     }
 
     #[test]
@@ -5245,7 +5264,7 @@ mod tests {
 
     #[test]
     fn hdr_de_l_invite_suit_son_ecran() {
-        let caps = crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true };
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true, pyrowave: false };
         let (mut w, _) = guest_with(joined(ShareRole::Spectator, Some("hevc"), Some("sha256:kk")), caps);
         let hevc = StreamSettings { codec: Codec::Hevc, yuv444: false, ..w.params.settings.clone() };
         assert!(!w.stream_hdr_for(0, &hevc), "écran SDR : image à part en SDR");
@@ -5268,7 +5287,7 @@ mod tests {
         assert!(!w.device_hdr(0));
         w.screens.as_mut().unwrap().list[0].hdr = true;
         w.params.settings.hdr = true;
-        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true });
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true, pyrowave: false });
         let s = w.effective();
         assert_eq!((s.codec, s.yuv444), (Codec::Hevc, false));
         // L'image suit le HDR que la Station a mis sur l'écran du prêt.
@@ -5479,7 +5498,7 @@ mod tests {
     fn borrower() -> (Worker, Arc<Recorder>) {
         let loan = crate::lend::Loan { target: share::ShareTarget { host: "127.0.0.1".into(), port: closed_port(), fingerprint: Some("sha256:ad".into()) }, borrowed: borrowed() };
         let device = DeviceInfo { id: "mac".into(), name: "Mac".into(), kind: "mac".into(), os: "macOS".into(), app: "test".into() };
-        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false });
+        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false });
         let mut params = SessionParams::borrower(&loan, device, settings, 2);
         params.recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), restart_station: true };
         // Même demandé par l'app : jamais pour un emprunt.
@@ -5636,7 +5655,7 @@ mod tests {
     }
 
     fn guest(role: ShareRole) -> (Worker, Arc<Recorder>) {
-        guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false })
+        guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false })
     }
 
     fn beat(role: ShareRole) -> ShareBeat {
@@ -6082,8 +6101,8 @@ mod tests {
             (w.params.settings.codec, w.params.settings.yuv444)
         };
         use crate::profile::{Capabilities, Codec};
-        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false };
-        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false, pyrowave: false };
+        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let h264 = Capabilities::default();
         assert_eq!(pick("hevc", true, hevc444), (Codec::Hevc, true), "le format de l'hôte, tel quel");
         assert_eq!(pick("hevc", true, hevc), (Codec::Hevc, false), "sans son 4:4:4 : image à part en 4:2:0");

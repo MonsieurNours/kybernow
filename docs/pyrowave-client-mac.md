@@ -40,6 +40,10 @@ Mesures du 25/11/2026, MacBook Pro M4 Max (GPU 40 cœurs), macOS 27.2.1 ; temps 
 
 PSNR de la première image : 64 dB en Y (1440p 4:2:0), 56 dB en Y et 49 à 51 dB en chroma en 4:4:4 (même débit pour trois fois plus d'échantillons). Cadencé, le GPU redescend en fréquence entre deux images : une image prend plus longtemps qu'à la chaîne (1,3 ms contre 0,6 à 1 ms). Pas encore mesuré sur une puce M1 ou une Apple TV, ni avec un flux de la Station.
 
+## Le cœur
+
+`apps/core` connaît PyroWave (format, capacités, annonce de la Station, règle d'« Auto » par câble) : voir [apps/core/README.md](../apps/core/README.md), « PyroWave ». L'app Mac envoie `pyrowave` dans les capacités du décodeur ; elle ne donne pas encore `wired` (câble Ethernet) dans les réglages, ni l'écran du format : ils viendront avec les maquettes.
+
 ## Ce qui attend la Station
 
 - Le correctif kyclient (identifiant de codec, `VideoCodec::PyroWave`) : sans lui, Kyber n'envoie jamais `pwv1` et le cœur ne demande pas PyroWave.

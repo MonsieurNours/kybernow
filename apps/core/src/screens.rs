@@ -786,7 +786,7 @@ mod tests {
     #[test]
     fn session_de_plus_en_fenetre_sur_cet_ecran() {
         use crate::profile::Capabilities;
-        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
         // « Tous les écrans » pour la première ; une session de plus prend « Cet écran ».
         let first = Screens { setting: DisplaysSetting::All, current: 2, capabilities: Some(caps), ..auteur() };
@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn personnalise_pour_le_nombre_d_ecrans() {
         use crate::profile::{Capabilities, Codec as C};
-        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
         // Les réglages du profil : le profil compte.
         assert_eq!(screens_profile(&bureau, Some(caps)), Some(Profile::Bureau));

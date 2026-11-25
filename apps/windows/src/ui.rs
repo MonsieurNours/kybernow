@@ -2633,7 +2633,7 @@ fn displays_spec(s: &Settings, info: Option<&Info>, lighten: bool, pc: &ThisPc) 
 
 /// Ce que ce PC décode (sonde de la carte graphique).
 fn capabilities(pc: &ThisPc) -> kybernow_core::profile::Capabilities {
-    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: pc.hdr }
+    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: pc.hdr, pyrowave: false }
 }
 
 /// La puce « HDR » (docs/hdr.md, `profile::hdr_state`) : `info`, ce que la
