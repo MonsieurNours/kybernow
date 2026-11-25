@@ -29,7 +29,7 @@ use kybernow_tunnel::msg::{ErrorCode, Msg};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
-use super::people::{parse_rights, rights_text};
+use super::people::{INVITE_SECS, RESEND_GAP_SECS, Resend, invite_live, parse_rights, rights_text};
 use super::stations::{Owner, clean_name};
 use super::store::{Account, Store};
 use super::{Accounts, random, token_hash};
@@ -225,6 +225,15 @@ pub struct Invite {
     pub email: String,
     pub role: Role,
     pub created_at: i64,
+    /// Son dernier envoi (création, remplacement, « Renvoyer l'invitation »).
+    pub sent_at: i64,
+}
+
+impl Invite {
+    /// Quand elle expire (30 jours après son dernier envoi).
+    pub fn expires_at(&self) -> i64 {
+        self.sent_at + INVITE_SECS
+    }
 }
 
 /// Un groupe et ses membres.
@@ -288,13 +297,18 @@ pub fn clean_org_name(name: &str) -> String {
 
 /// Les invitations d'organisation qui attendaient cette adresse passent au compte
 /// (dans la transaction de [`Store::claim_invitations`]).
-pub(super) fn claim_org_invites(conn: &Connection, account: i64, email: &str) -> Result<usize> {
+/// Les invitations expirées (30 jours) restent, sans passer.
+pub(super) fn claim_org_invites(conn: &Connection, account: i64, email: &str, now: i64) -> Result<usize> {
+    let live = invite_live("org_invites", "?3");
     let n = conn.execute(
-        "INSERT OR IGNORE INTO org_members (org, account, role, joined_at)
-         SELECT org, ?1, role, created_at FROM org_invites WHERE email = ?2",
-        params![account, email],
+        &format!(
+            "INSERT OR IGNORE INTO org_members (org, account, role, joined_at)
+             SELECT org, ?1, role, created_at FROM org_invites WHERE email = ?2 AND {live}"
+        ),
+        params![account, email, now],
     )?;
-    conn.execute("DELETE FROM org_invites WHERE email = ?1", [email])?;
+    let live2 = invite_live("org_invites", "?2");
+    conn.execute(&format!("DELETE FROM org_invites WHERE email = ?1 AND {live2}"), params![email, now])?;
     Ok(n)
 }
 
@@ -405,8 +419,12 @@ impl Store {
         Ok(out)
     }
 
-    /// Ajoute un membre (ou change son rôle).
+    /// Ajoute un membre (ou change son rôle) ; une invitation de son adresse (expirée) part.
     pub fn set_member(&self, org: i64, account: i64, role: Role, now: i64) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM org_invites WHERE org = ?1 AND email = (SELECT email FROM accounts WHERE id = ?2)",
+            params![org, account],
+        )?;
         self.conn.execute(
             "INSERT INTO org_members (org, account, role, joined_at) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(org, account) DO UPDATE SET role = excluded.role",
@@ -441,21 +459,53 @@ impl Store {
 
     // --- Invitations ------------------------------------------------------------
 
+    /// Invite une adresse sans compte ; une invitation en attente pour la même
+    /// adresse est remplacée (rôle, et envoyée de nouveau : 30 jours).
     pub fn invite_member(&self, org: i64, email: &str, role: Role, by: i64, now: i64) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO org_invites (org, email, role, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(org, email) DO UPDATE SET role = excluded.role",
+            "INSERT INTO org_invites (org, email, role, invited_by, created_at, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+             ON CONFLICT(org, email) DO UPDATE SET role = excluded.role, invited_by = excluded.invited_by, sent_at = excluded.sent_at",
             params![org, email, role.as_str(), by, now],
         )?;
         Ok(())
     }
 
     pub fn org_invites(&self, org: i64) -> Result<Vec<Invite>> {
-        let mut stmt = self.conn.prepare("SELECT id, email, role, created_at FROM org_invites WHERE org = ?1 ORDER BY created_at, id")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, email, role, created_at, COALESCE(sent_at, created_at) FROM org_invites WHERE org = ?1 ORDER BY created_at, id")?;
         let rows = stmt.query_map([org], |r| {
-            Ok(Invite { id: r.get(0)?, email: r.get(1)?, role: Role::parse(&r.get::<_, String>(2)?).unwrap_or(Role::Member), created_at: r.get(3)? })
+            Ok(Invite {
+                id: r.get(0)?,
+                email: r.get(1)?,
+                role: Role::parse(&r.get::<_, String>(2)?).unwrap_or(Role::Member),
+                created_at: r.get(3)?,
+                sent_at: r.get(4)?,
+            })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Une invitation en attente : `(adresse, rôle)`.
+    pub fn org_invite(&self, org: i64, id: i64) -> Result<Option<(String, Role)>> {
+        let row: Option<(String, String)> =
+            self.conn.query_row("SELECT email, role FROM org_invites WHERE id = ?1 AND org = ?2", params![id, org], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        Ok(row.map(|(e, r)| (e, Role::parse(&r).unwrap_or(Role::Member))))
+    }
+
+    /// « Renvoyer l'invitation » d'une famille ou d'une équipe : repart pour 30
+    /// jours (même expirée), une fois par heure au plus.
+    pub fn resend_org_invite(&self, org: i64, id: i64, now: i64) -> Result<Resend> {
+        let found: Option<(String, Option<i64>)> = self
+            .conn
+            .query_row("SELECT email, resent_at FROM org_invites WHERE id = ?1 AND org = ?2", params![id, org], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let Some((email, resent_at)) = found else { return Ok(Resend::Missing) };
+        if resent_at.is_some_and(|at| now - at < RESEND_GAP_SECS) {
+            return Ok(Resend::TooSoon);
+        }
+        self.conn.execute("UPDATE org_invites SET sent_at = ?2, resent_at = ?2 WHERE id = ?1", params![id, now])?;
+        Ok(Resend::Done(email))
     }
 
     /// Retire une invitation ; son adresse, si elle y était.
@@ -779,7 +829,7 @@ mod tests {
         s.invite_member(org.id, "c@exemple.org", Role::Admin, a, 20).unwrap();
         assert_eq!(s.org_invites(org.id).unwrap().len(), 1);
         let c = s.create_account("c@exemple.org", "C", "h", "fr", Some(30), 30).unwrap().unwrap();
-        assert_eq!(s.claim_invitations(c).unwrap(), 1);
+        assert_eq!(s.claim_invitations(c, 30).unwrap(), 1);
         assert_eq!(s.org_role(org.id, c).unwrap(), Some(Role::Admin));
         assert!(s.org_invites(org.id).unwrap().is_empty());
         // Le seul Propriétaire s'en va : l'Administrateur le devient.
@@ -791,6 +841,39 @@ mod tests {
         assert!(s.delete_account(c).unwrap());
         assert!(s.org(org.id).unwrap().is_none());
         assert!(s.station("st1").unwrap().is_none());
+    }
+
+    #[test]
+    fn invitations_d_organisation_expirees_remplacees_renvoyees() {
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let org = s.create_org("Org", Kind::Team, a, 10).unwrap();
+        let t0 = 1_000_000;
+        s.invite_member(org.id, "c@exemple.org", Role::Member, a, t0).unwrap();
+        s.invite_member(org.id, "c@exemple.org", Role::Admin, a, t0 + 100).unwrap();
+        let list = s.org_invites(org.id).unwrap();
+        assert_eq!(list.len(), 1, "remplacée, pas doublée");
+        assert_eq!((list[0].role, list[0].sent_at, list[0].expires_at()), (Role::Admin, t0 + 100, t0 + 100 + INVITE_SECS));
+        // Expirée : pas reprise, toujours là.
+        let later = t0 + 100 + INVITE_SECS;
+        let c = s.create_account("c@exemple.org", "C", "h", "fr", None, t0).unwrap().unwrap();
+        assert_eq!(s.claim_invitations(c, later).unwrap(), 0);
+        assert_eq!(s.org_role(org.id, c).unwrap(), None);
+        assert_eq!(s.org_invites(org.id).unwrap().len(), 1);
+        // Renvoyée : une fois par heure ; puis reprise.
+        let id = list[0].id;
+        assert_eq!(s.org_invite(org.id, id).unwrap(), Some(("c@exemple.org".to_string(), Role::Admin)));
+        assert_eq!(s.resend_org_invite(org.id, id, later).unwrap(), Resend::Done("c@exemple.org".into()));
+        assert_eq!(s.resend_org_invite(org.id, id, later + 10).unwrap(), Resend::TooSoon);
+        assert_eq!(s.resend_org_invite(org.id + 1, id, later + RESEND_GAP_SECS).unwrap(), Resend::Missing);
+        assert_eq!(s.claim_invitations(c, later + 20).unwrap(), 1);
+        assert_eq!(s.org_role(org.id, c).unwrap(), Some(Role::Admin));
+        assert!(s.org_invites(org.id).unwrap().is_empty());
+        // Ajouter un compte par `set_member` retire une invitation expirée de son adresse.
+        s.invite_member(org.id, "d@exemple.org", Role::Member, a, t0).unwrap();
+        let d = s.create_account("d@exemple.org", "D", "h", "fr", Some(later), later).unwrap().unwrap();
+        s.set_member(org.id, d, Role::Member, later).unwrap();
+        assert!(s.org_invites(org.id).unwrap().is_empty());
     }
 
     #[test]

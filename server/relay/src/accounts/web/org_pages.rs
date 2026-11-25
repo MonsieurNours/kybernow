@@ -14,7 +14,7 @@ use super::super::mail::Message;
 use super::super::orgs::{ENROLL_MAX_DAYS, ENROLL_MAX_STATIONS, Kind, Org, Role, clean_org_name, new_enroll_token};
 use super::super::pages::Notice;
 use super::super::pages::console::{self, DeployView, OrgComputer, OrgView, Tab, rights_words, role_name};
-use super::super::people::{Subject, rights_text};
+use super::super::people::{Resend, Subject, rights_text};
 use super::super::station_groups::GroupTarget;
 use super::super::store::Account;
 use super::console::{form_rights, parse_until, shell, signed_in};
@@ -114,6 +114,13 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
             group_targets,
             now: cx.now,
             log: if role.manages() || tab == Tab::Log { db.org_log_of(org.id, limit).unwrap_or_default() } else { Vec::new() },
+            // « Inviter un membre » : les personnes connues qui n'en font pas encore partie.
+            known: if manage {
+                let inside: Vec<String> = db.members(org.id).unwrap_or_default().into_iter().map(|m| m.email).collect();
+                db.known_people(account.id).unwrap_or_default().into_iter().filter(|(_, e)| !inside.contains(e)).collect()
+            } else {
+                Vec::new()
+            },
             shell: Default::default(),
         }
     };
@@ -210,10 +217,12 @@ pub(super) fn invite(cx: Cx<'_>) -> Reply {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
     }
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
+    // Déjà membre : refusé, en le nommant ; une invitation en attente pour la même adresse est remplacée.
     if let Some(t) = &target
         && acc.db().org_role(org.id, t.id).ok().flatten().is_some()
     {
-        return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
+        let name = if t.name.is_empty() { t.email.clone() } else { t.name.clone() };
+        return show(cx, &account, &org, role, Tab::Members, Some(Notice::AlreadyMember(name)));
     }
     let done = match &target {
         Some(t) => acc.db().set_member(org.id, t.id, wanted, cx.now),
@@ -227,18 +236,52 @@ pub(super) fn invite(cx: Cx<'_>) -> Reply {
         Some(t) => log(&cx, &org, &account, "membre_ajoute", json!({ "member": t.name, "role": wanted.as_str() })),
         None => log(&cx, &org, &account, "membre_invite", json!({ "email": email, "role": wanted.as_str() })),
     }
-    if cx.may_mail(&email) {
-        let lang = target.as_ref().map(lang_of).unwrap_or(cx.lang);
-        let link = match target {
-            Some(_) => cx.url(&format!("/compte/organisation?id={}&lang={}", org.public_id, lang.code())),
-            None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
-        };
-        let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
-        let role_word = role_name(lang, wanted);
-        cx.mail(&email, lang, Message::OrgInvite { by: &by, org: &org.name, role: &role_word, has_account: target.is_some(), link: &link });
-    }
+    send_invite(&cx, &account, &org, &email, target.as_ref(), wanted);
     let notice = if target.is_some() { Notice::MemberAdded } else { Notice::InviteSent };
     show(cx, &account, &org, role, Tab::Members, Some(notice))
+}
+
+/// L'e-mail « {nom} vous invite dans {famille ou équipe} », dans la langue de la personne (la page sinon).
+fn send_invite(cx: &Cx<'_>, account: &Account, org: &Org, email: &str, target: Option<&Account>, wanted: Role) {
+    if !cx.may_mail(email) {
+        return;
+    }
+    let lang = target.map(lang_of).unwrap_or(cx.lang);
+    let link = match target {
+        Some(_) => cx.url(&format!("/compte/organisation?id={}&lang={}", org.public_id, lang.code())),
+        None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
+    };
+    let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
+    let role_word = role_name(lang, wanted);
+    cx.mail(email, lang, Message::OrgInvite { by: &by, org: &org.name, role: &role_word, has_account: target.is_some(), link: &link });
+}
+
+/// `POST /compte/organisation/renvoyer` : « Renvoyer l'invitation » (`invitation`), même expirée ; une fois par heure.
+pub(super) fn resend(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let (org, role) = managed!(cx, account, Tab::Members);
+    let Ok(id) = cx.req.form("invitation").parse::<i64>() else { return show(cx, &account, &org, role, Tab::Members, None) };
+    let Some((_, wanted)) = acc.db().org_invite(org.id, id).ok().flatten() else { return show(cx, &account, &org, role, Tab::Members, None) };
+    let resent = acc.db().resend_org_invite(org.id, id, cx.now);
+    let email = match resent {
+        Ok(Resend::Done(email)) => email,
+        Ok(Resend::TooSoon) => return show(cx, &account, &org, role, Tab::Members, Some(Notice::ResentTooSoon)),
+        Ok(Resend::Missing) => return show(cx, &account, &org, role, Tab::Members, None),
+        Err(e) => {
+            tracing::warn!("renvoi d'une invitation : {e:#}");
+            return cx.failed();
+        }
+    };
+    // L'adresse a depuis un compte vérifié : l'invitation, de nouveau valable, passe à lui tout de suite.
+    let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
+    if let Some(t) = &target {
+        let _ = acc.db().claim_invitations(t.id, cx.now);
+    }
+    log(&cx, &org, &account, "invitation_renvoyee", json!({ "email": email, "role": wanted.as_str() }));
+    cx.audit(Some(account.id), "invitation_renvoyee");
+    send_invite(&cx, &account, &org, &email, target.as_ref(), wanted);
+    show(cx, &account, &org, role, Tab::Members, Some(Notice::InviteResent(email)))
 }
 
 /// `POST /compte/organisation/role` : changer le rôle d'un membre.

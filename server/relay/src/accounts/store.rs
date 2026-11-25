@@ -115,6 +115,9 @@ const MIGRATIONS: &[&str] = &[
     // 7 : liens d'accès et groupes d'ordinateurs (docs/comptes.md, « Regarder, liens d'accès et groupes
     // d'ordinateurs »), voir `super::links` et `super::station_groups`.
     super::links::MIGRATION,
+    // 8 : l'envoi des invitations, qui expirent après 30 jours (docs/comptes.md, « Invitations, ajout de
+    // membres et sessions »), voir `super::people`.
+    super::people::INVITES_MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -347,7 +350,7 @@ impl Store {
     /// L'adresse est vérifiée ; les invitations qui l'attendaient passent au compte (lots 4 et 5).
     pub fn set_verified(&self, id: i64, now: i64) -> Result<()> {
         self.conn.execute("UPDATE accounts SET verified_at = COALESCE(verified_at, ?2) WHERE id = ?1", params![id, now])?;
-        let claimed = self.claim_invitations(id)?;
+        let claimed = self.claim_invitations(id, now)?;
         if claimed > 0 {
             tracing::info!(invitations = claimed, "invitations reprises par un compte vérifié");
         }
@@ -775,6 +778,8 @@ impl Store {
         self.conn.execute("DELETE FROM webauthn_used WHERE expires_at <= ?1", [now])?;
         self.conn.execute("DELETE FROM email_tokens WHERE expires_at <= ?1", [now])?;
         self.conn.execute("DELETE FROM sessions WHERE expires_at <= ?1", [now])?;
+        // Les sessions d'appareil qui n'ont pas servi depuis 90 jours (docs/comptes.md, « Sessions »).
+        self.expire_idle_devices(now)?;
         self.conn.execute("DELETE FROM trusted_browsers WHERE expires_at <= ?1", [now])?;
         self.conn.execute("UPDATE audit SET ip = NULL WHERE ip IS NOT NULL AND at <= ?1", [now - AUDIT_IP_SECS])?;
         self.conn.execute("DELETE FROM audit WHERE at <= ?1", [now - AUDIT_SECS])?;
@@ -823,6 +828,29 @@ fn migrate(conn: &mut Connection, now: i64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_8_les_invitations_en_attente_repartent_pour_30_jours() {
+        // Une base en version 7, avec une invitation d'ordinateur et une d'organisation, anciennes.
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)").unwrap();
+        for (i, sql) in MIGRATIONS.iter().take(7).enumerate() {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO migrations (version, applied_at) VALUES (?1, 0)", [(i + 1) as i64]).unwrap();
+        }
+        conn.execute("INSERT INTO accounts (email, name, password, created_at, verified_at) VALUES ('a@exemple.org', 'A', 'h', 0, 0)", []).unwrap();
+        conn.execute("INSERT INTO organizations (public_id, name, created_at) VALUES ('org_x', 'Org', 0)", []).unwrap();
+        conn.execute("INSERT INTO grants (station, email, rights, created_at) VALUES ('st1', 'c@exemple.org', 'session', 100)", []).unwrap();
+        conn.execute("INSERT INTO grants (station, account, rights, created_at) VALUES ('st1', 1, 'session', 100)", []).unwrap();
+        conn.execute("INSERT INTO org_invites (org, email, role, created_at) VALUES (1, 'c@exemple.org', 'member', 100)", []).unwrap();
+        let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        migrate(&mut conn, before).unwrap();
+        let sent: Vec<Option<i64>> = conn.prepare("SELECT sent_at FROM grants ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert!(sent[0].is_some_and(|t| t >= before && t < before + 60), "invitation : l'heure de la migration");
+        assert_eq!(sent[1], None, "un droit donné à un compte n'est pas une invitation");
+        let org_sent: i64 = conn.query_row("SELECT sent_at FROM org_invites", [], |r| r.get(0)).unwrap();
+        assert!(org_sent >= before && org_sent < before + 60);
+    }
 
     #[test]
     fn migrations_appliquees_une_fois() {

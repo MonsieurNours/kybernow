@@ -19,8 +19,8 @@
 //! d'identification, Secret Service) : le cœur ne l'écrit nulle part. Elle
 //! donne la liste des ordinateurs du compte ([`computers`], avec l'empreinte
 //! d'Admin signée par la Station quand elle est connectée) et, pour ouvrir
-//! l'un d'eux, un jeton d'accès de 5 minutes ([`StationAccess`],
-//! `POST /v1/access`), redemandé toutes les 4 minutes et présenté à Admin
+//! l'un d'eux, un jeton d'accès de 2 minutes ([`StationAccess`],
+//! `POST /v1/access`), redemandé au bout de 90 secondes et présenté à Admin
 //! (`Authorization: KyberNow <jeton>`) sur le réseau comme par le relais.
 //! L'app peut être connectée à plusieurs comptes, sur plusieurs relais ; un
 //! même ordinateur n'apparaît qu'une fois à l'accueil ([`merge`]).
@@ -44,10 +44,14 @@ pub use kybernow_tunnel::{DEFAULT_RELAY, RelayAddr};
 pub const RETURN_URI: &str = "kybernow://compte";
 /// Le schéma à donner à `ASWebAuthenticationSession` (`callbackURLScheme`).
 pub const RETURN_SCHEME: &str = "kybernow";
-/// Un jeton d'accès est redemandé passé ce temps (il vaut 5 minutes).
+/// Un jeton d'accès est redemandé passé ce temps au plus (5 minutes pour un
+/// relais d'avant la 0.10) ; un jeton plus court l'est plus tôt, à
+/// [`EXPIRY_MARGIN`] de son échéance (2 minutes : au bout de 90 secondes).
 pub const RENEW_AFTER: Duration = Duration::from_secs(4 * 60);
-/// Marge avant l'échéance donnée par le relais (horloges, sommeil de l'appareil).
-const EXPIRY_MARGIN: u64 = 60;
+/// Marge avant l'échéance donnée par le relais (horloges, sommeil de
+/// l'appareil, appels en cours). 30 secondes : un jeton de 2 minutes sert 90
+/// secondes, et la Station tolère encore une minute d'écart d'horloge.
+const EXPIRY_MARGIN: u64 = 30;
 /// Délai d'un appel au relais.
 const CALL_TIMEOUT: Duration = Duration::from_secs(8);
 /// Demande d'un code de téléviseur : toutes les 5 secondes au moins.
@@ -874,8 +878,9 @@ struct Cached {
 }
 
 /// Les jetons d'accès d'un appareil pour une Station (`POST /v1/access`),
-/// valables 5 minutes : le même sert à tous les appels pendant 4 minutes,
-/// puis un autre est demandé ([`Self::token`]) ; redémarrer ou mettre à jour
+/// valables 2 minutes (5 avec un relais plus ancien) : le même sert à tous les
+/// appels jusqu'à 30 secondes de son échéance (4 minutes au plus), puis un
+/// autre est demandé ([`Self::token`]) ; redémarrer ou mettre à jour
 /// la Station en prend un à part, qui ne sert qu'une fois ([`Self::single_use`]).
 pub struct StationAccess {
     account: Account,
@@ -908,8 +913,9 @@ impl StationAccess {
         &self.station
     }
 
-    /// Le jeton en cours, ou un nouveau passé 4 minutes (ou à une minute de
-    /// son échéance : l'appareil a pu dormir). Bloquant au renouvellement.
+    /// Le jeton en cours, ou un nouveau passé son délai de renouvellement (ou
+    /// à 30 secondes de son échéance : l'appareil a pu dormir). Bloquant au
+    /// renouvellement.
     pub fn token(&self) -> Result<String, AccountError> {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(c) = cache.as_ref()
@@ -951,7 +957,7 @@ impl StationAccess {
         let lifetime = r.body.get("lifetime").and_then(Value::as_u64).unwrap_or(300);
         // Échéance selon le relais ; sans elle, celle de l'appareil.
         let expires = r.body.get("expires").and_then(Value::as_u64).unwrap_or(now_secs() + lifetime);
-        // Redemandé 4 minutes après, ou plus tôt pour un jeton plus court.
+        // Redemandé 30 secondes avant son échéance (90 secondes pour un jeton de 2 minutes), 4 minutes au plus.
         let renew = self.renew.min(Duration::from_secs(lifetime.saturating_sub(EXPIRY_MARGIN)));
         log::debug!("comptes : jeton d'accès pour {} ({} s)", self.station, lifetime);
         Ok(Cached { token, at: Instant::now(), expires, renew })

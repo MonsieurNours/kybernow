@@ -52,6 +52,49 @@ pub const MIGRATION: &str = r#"
     ALTER TABLE device_stations ADD COLUMN seen_at INTEGER NOT NULL DEFAULT 0;
 "#;
 
+/// La migration 8 de la base (`super::store`) : l'envoi des invitations
+/// (docs/comptes.md, « Invitations, ajout de membres et sessions »).
+///
+/// `sent_at` : le dernier envoi (création, remplacement ou « Renvoyer
+/// l'invitation ») ; l'invitation expire [`INVITE_SECS`] après. `resent_at` :
+/// le dernier « Renvoyer l'invitation » (une fois par heure au plus). Les
+/// invitations déjà en attente reçoivent l'heure de la migration : 30 jours
+/// pleins à partir de la mise à jour du relais, plutôt qu'une expiration
+/// soudaine de celles envoyées il y a plus d'un mois.
+pub const INVITES_MIGRATION: &str = r#"
+    ALTER TABLE grants ADD COLUMN sent_at INTEGER;
+    ALTER TABLE grants ADD COLUMN resent_at INTEGER;
+    ALTER TABLE org_invites ADD COLUMN sent_at INTEGER;
+    ALTER TABLE org_invites ADD COLUMN resent_at INTEGER;
+    UPDATE grants SET sent_at = CAST(strftime('%s', 'now') AS INTEGER) WHERE email IS NOT NULL;
+    UPDATE org_invites SET sent_at = CAST(strftime('%s', 'now') AS INTEGER);
+"#;
+
+/// Une invitation en attente expire après ce temps sans être reprise.
+pub const INVITE_SECS: i64 = 30 * 86_400;
+/// « Renvoyer l'invitation » : une fois par heure au plus, par invitation.
+pub const RESEND_GAP_SECS: i64 = 3600;
+
+/// Une invitation (d'ordinateur ou de famille ou d'équipe) en attente, pas expirée, en SQL :
+/// `sent_at` dans les [`INVITE_SECS`] avant `now` (le paramètre donné).
+pub(super) fn invite_live(alias: &str, now: &str) -> String {
+    format!("COALESCE({alias}.sent_at, {alias}.created_at) > {now} - {INVITE_SECS}")
+}
+
+/// Ce qu'a donné « Renvoyer l'invitation ».
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resend {
+    /// Renvoyée : son adresse (l'e-mail est à envoyer).
+    Done(String),
+    /// Déjà renvoyée il y a moins d'une heure.
+    TooSoon,
+    /// Pas d'invitation en attente sous ce numéro.
+    Missing,
+}
+
+/// Les suggestions d'adresses : ce nombre au plus.
+pub const KNOWN_MAX: usize = 200;
+
 /// Une venue sur une Station après ce temps sans jeton est une nouvelle ouverture (journal de l'organisation).
 pub const VISIT_GAP_SECS: i64 = 3600;
 
@@ -87,6 +130,8 @@ pub struct Grant {
     pub rights: Rights,
     pub expires_at: Option<i64>,
     pub created_at: i64,
+    /// Une invitation : son dernier envoi (sinon `created_at`).
+    pub sent_at: i64,
 }
 
 impl Grant {
@@ -94,15 +139,25 @@ impl Grant {
     pub fn expired(&self, now: i64) -> bool {
         self.expires_at.is_some_and(|e| e <= now)
     }
+
+    /// Une invitation : quand elle expire (30 jours après son dernier envoi).
+    pub fn invite_expires_at(&self) -> Option<i64> {
+        matches!(self.subject, Subject::Invite { .. }).then_some(self.sent_at + INVITE_SECS)
+    }
 }
 
 /// Un droit pas échu, vu depuis la base.
 const LIVE: &str = "(g.expires_at IS NULL OR g.expires_at > ?2)";
 
 impl Store {
-    /// Donne (ou change) les droits d'une personne sur une Station.
+    /// Donne (ou change) les droits d'une personne sur une Station ; une
+    /// invitation de son adresse sur la même Station (expirée) part.
     pub fn grant_person(&self, station: &str, account: i64, rights: &Rights, expires_at: Option<i64>, by: i64, now: i64) -> Result<i64> {
         let text = rights_text(rights);
+        self.conn.execute(
+            "DELETE FROM grants WHERE station = ?1 AND email IS NOT NULL AND email = (SELECT email FROM accounts WHERE id = ?2)",
+            params![station, account],
+        )?;
         let found: Option<i64> =
             self.conn.query_row("SELECT id FROM grants WHERE station = ?1 AND account = ?2", params![station, account], |r| r.get(0)).optional()?;
         if let Some(id) = found {
@@ -116,26 +171,46 @@ impl Store {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Invite une adresse sans compte (ou change l'invitation).
+    /// Invite une adresse sans compte ; une invitation en attente pour la même
+    /// adresse est remplacée (droits, échéance, et envoyée de nouveau : 30 jours).
     pub fn grant_invite(&self, station: &str, email: &str, rights: &Rights, expires_at: Option<i64>, by: i64, now: i64) -> Result<i64> {
         let text = rights_text(rights);
         let found: Option<i64> =
             self.conn.query_row("SELECT id FROM grants WHERE station = ?1 AND email = ?2", params![station, email], |r| r.get(0)).optional()?;
         if let Some(id) = found {
-            self.conn.execute("UPDATE grants SET rights = ?2, expires_at = ?3 WHERE id = ?1", params![id, text, expires_at])?;
+            self.conn.execute(
+                "UPDATE grants SET rights = ?2, expires_at = ?3, invited_by = ?4, sent_at = ?5 WHERE id = ?1",
+                params![id, text, expires_at, by, now],
+            )?;
             return Ok(id);
         }
         self.conn.execute(
-            "INSERT INTO grants (station, email, rights, expires_at, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO grants (station, email, rights, expires_at, invited_by, created_at, sent_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
             params![station, email, text, expires_at, by, now],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// « Renvoyer l'invitation » d'un ordinateur : repart pour 30 jours (même
+    /// expirée), une fois par heure au plus.
+    pub fn resend_grant_invite(&self, station: &str, id: i64, now: i64) -> Result<Resend> {
+        let found: Option<(Option<String>, Option<i64>)> = self
+            .conn
+            .query_row("SELECT email, resent_at FROM grants WHERE id = ?1 AND station = ?2", params![id, station], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let Some((Some(email), resent_at)) = found else { return Ok(Resend::Missing) };
+        if resent_at.is_some_and(|at| now - at < RESEND_GAP_SECS) {
+            return Ok(Resend::TooSoon);
+        }
+        self.conn.execute("UPDATE grants SET sent_at = ?2, resent_at = ?2 WHERE id = ?1", params![id, now])?;
+        Ok(Resend::Done(email))
+    }
+
     /// Les droits donnés sur une Station : personnes, invitations, organisations, groupes.
     pub fn grants_of(&self, station: &str) -> Result<Vec<Grant>> {
         let mut stmt = self.conn.prepare(
-            "SELECT g.id, g.station, g.account, a.name, a.email, g.email, g.org, o.name, g.grp, gr.name, og.name, g.rights, g.expires_at, g.created_at
+            "SELECT g.id, g.station, g.account, a.name, a.email, g.email, g.org, o.name, g.grp, gr.name, og.name, g.rights, g.expires_at, g.created_at,
+                    COALESCE(g.sent_at, g.created_at)
              FROM grants g
              LEFT JOIN accounts a ON a.id = g.account
              LEFT JOIN organizations o ON o.id = g.org
@@ -167,6 +242,7 @@ impl Store {
                 rights: parse_rights(&r.get::<_, String>(11)?),
                 expires_at: r.get(12)?,
                 created_at: r.get(13)?,
+                sent_at: r.get(14)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -228,22 +304,60 @@ impl Store {
 
     /// L'adresse vient d'être vérifiée : les invitations qui l'attendaient
     /// passent au compte (ordinateurs, et au lot 5 organisations). Le nombre
-    /// d'invitations reprises.
-    pub fn claim_invitations(&self, account: i64) -> Result<usize> {
+    /// d'invitations reprises. Une invitation expirée (30 jours) ne passe pas :
+    /// elle reste dans la liste jusqu'à ce qu'on la renvoie ou la retire.
+    pub fn claim_invitations(&self, account: i64, now: i64) -> Result<usize> {
         let Some(email) = self.conn.query_row("SELECT email FROM accounts WHERE id = ?1", [account], |r| r.get::<_, String>(0)).optional()? else {
             return Ok(0);
         };
+        let live = invite_live("grants", "?3");
         let tx = self.conn.unchecked_transaction()?;
         // Un droit déjà à ce compte sur la même Station l'emporte sur l'invitation.
         let n = tx.execute(
-            "UPDATE grants SET account = ?1, email = NULL WHERE email = ?2
-             AND NOT EXISTS (SELECT 1 FROM grants g2 WHERE g2.station = grants.station AND g2.account = ?1)",
-            params![account, email],
+            &format!(
+                "UPDATE grants SET account = ?1, email = NULL WHERE email = ?2 AND {live}
+                 AND NOT EXISTS (SELECT 1 FROM grants g2 WHERE g2.station = grants.station AND g2.account = ?1)"
+            ),
+            params![account, email, now],
         )?;
-        tx.execute("DELETE FROM grants WHERE email = ?1", [&email])?;
-        let m = super::orgs::claim_org_invites(&tx, account, &email)?;
+        let live2 = invite_live("grants", "?2");
+        tx.execute(&format!("DELETE FROM grants WHERE email = ?1 AND {live2}"), params![email, now])?;
+        let m = super::orgs::claim_org_invites(&tx, account, &email, now)?;
         tx.commit()?;
         Ok(n + m)
+    }
+
+    /// Les personnes que ce compte connaît déjà, `(nom, adresse)` par nom
+    /// (les suggestions de « Ajouter une personne » et « Inviter un membre ») :
+    /// les membres de ses familles et équipes, et ceux à qui il a ouvert un
+    /// ordinateur (les siens, ou par lui), comptes ou invitations. Personne
+    /// d'autre : la liste ne montre jamais un inconnu.
+    pub fn known_people(&self, account: i64) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.name, a.email FROM org_members m JOIN org_members me ON me.org = m.org AND me.account = ?1
+                 JOIN accounts a ON a.id = m.account WHERE m.account <> ?1 AND a.deleted_at IS NULL
+             UNION
+             SELECT a.name, a.email FROM grants g JOIN accounts a ON a.id = g.account
+                 WHERE g.account <> ?1 AND a.deleted_at IS NULL AND (g.invited_by = ?1 OR g.station IN (SELECT id FROM stations WHERE account = ?1))
+             UNION
+             SELECT '', g.email FROM grants g
+                 WHERE g.email IS NOT NULL AND (g.invited_by = ?1 OR g.station IN (SELECT id FROM stations WHERE account = ?1))
+             UNION
+             SELECT '', i.email FROM org_invites i JOIN org_members me ON me.org = i.org AND me.account = ?1",
+        )?;
+        let rows: Vec<(String, String)> = stmt.query_map([account], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        // Une adresse une fois, avec son nom s'il est connu.
+        let mut by_email: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        for (name, email) in rows {
+            let entry = by_email.entry(email).or_default();
+            if entry.is_empty() {
+                *entry = name;
+            }
+        }
+        let mut out: Vec<(String, String)> = by_email.into_iter().map(|(email, name)| (name, email)).collect();
+        out.sort_by(|a, b| (a.0.is_empty(), a.0.to_lowercase(), &a.1).cmp(&(b.0.is_empty(), b.0.to_lowercase(), &b.1)));
+        out.truncate(KNOWN_MAX);
+        Ok(out)
     }
 
     /// Note la venue d'un appareil sur une Station : `(première fois, nouvelle ouverture)`
@@ -352,7 +466,7 @@ mod tests {
         assert!(matches!(&list[1].subject, Subject::Invite { email } if email == "c@exemple.org"));
         let c = s.create_account("c@exemple.org", "C", "h", "fr", None, 50).unwrap().unwrap();
         assert!(s.granted_rights(c, "st1", 60).unwrap().is_empty(), "pas encore vérifiée");
-        assert_eq!(s.claim_invitations(c).unwrap(), 1);
+        assert_eq!(s.claim_invitations(c, 50).unwrap(), 1);
         assert_eq!(s.granted_rights(c, "st1", 60).unwrap(), rights(&[Right::Lend]));
         assert!(s.grants_of("st1").unwrap().iter().all(|g| !matches!(g.subject, Subject::Invite { .. })));
         // Retirer ; détacher efface les droits de la Station.
@@ -361,6 +475,73 @@ mod tests {
         assert!(s.granted_rights(b, "st1", 50).unwrap().is_empty());
         assert!(s.detach_station("st1", None).unwrap());
         assert!(s.grants_of("st1").unwrap().is_empty());
+    }
+
+    #[test]
+    fn invitations_expirees_et_renvoyees() {
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        s.attach_station("st1", "PC", a, a, 10).unwrap();
+        s.attach_station("st2", "PC 2", a, a, 10).unwrap();
+        let t0 = 1_000_000;
+        let g1 = s.grant_invite("st1", "c@exemple.org", &rights(&[Right::Lend]), None, a, t0).unwrap();
+        s.grant_invite("st2", "c@exemple.org", &rights(&[Right::Session]), None, a, t0 + 20 * 86_400).unwrap();
+        let g = s.grant("st1", g1).unwrap().unwrap();
+        assert_eq!((g.sent_at, g.invite_expires_at()), (t0, Some(t0 + INVITE_SECS)));
+        // Remplacée, pas doublée : mêmes numéro et adresse, nouveaux droits, envoyée de nouveau.
+        assert_eq!(s.grant_invite("st1", "c@exemple.org", &rights(&[Right::Share]), None, a, t0 + 60).unwrap(), g1);
+        let g = s.grant("st1", g1).unwrap().unwrap();
+        assert_eq!((g.rights.clone(), g.sent_at, s.grants_of("st1").unwrap().len()), (rights(&[Right::Share]), t0 + 60, 1));
+        // 31 jours plus tard, C vérifie son adresse : seule l'invitation encore valable passe ; l'autre reste.
+        let c = s.create_account("c@exemple.org", "C", "h", "fr", None, t0).unwrap().unwrap();
+        let later = t0 + 31 * 86_400;
+        assert_eq!(s.claim_invitations(c, later).unwrap(), 1);
+        assert!(s.granted_rights(c, "st1", later).unwrap().is_empty(), "expirée : pas reprise");
+        assert_eq!(s.granted_rights(c, "st2", later).unwrap(), rights(&[Right::Session]));
+        assert!(matches!(&s.grant("st1", g1).unwrap().unwrap().subject, Subject::Invite { email } if email == "c@exemple.org"), "toujours listée");
+        // Renvoyer : 30 jours de nouveau, une fois par heure ; une personne ne se renvoie pas.
+        assert_eq!(s.resend_grant_invite("st1", g1, later).unwrap(), Resend::Done("c@exemple.org".into()));
+        assert_eq!(s.resend_grant_invite("st1", g1, later + RESEND_GAP_SECS - 1).unwrap(), Resend::TooSoon);
+        assert_eq!(s.resend_grant_invite("st2", g1, later + RESEND_GAP_SECS).unwrap(), Resend::Missing, "pas sur cet ordinateur");
+        assert_eq!(s.resend_grant_invite("st1", g1, later + RESEND_GAP_SECS).unwrap(), Resend::Done("c@exemple.org".into()));
+        assert_eq!(s.grant("st1", g1).unwrap().unwrap().sent_at, later + RESEND_GAP_SECS);
+        let person = s.grants_of("st2").unwrap()[0].id;
+        assert_eq!(s.resend_grant_invite("st2", person, later + 2 * RESEND_GAP_SECS).unwrap(), Resend::Missing);
+        assert_eq!(s.claim_invitations(c, later + RESEND_GAP_SECS).unwrap(), 1, "renvoyée : elle passe");
+        assert_eq!(s.granted_rights(c, "st1", later + RESEND_GAP_SECS).unwrap(), rights(&[Right::Share]));
+        // Une invitation expirée de la même adresse part quand on donne le droit au compte.
+        s.grant_invite("st1", "d@exemple.org", &rights(&[Right::Lend]), None, a, t0).unwrap();
+        let d = s.create_account("d@exemple.org", "D", "h", "fr", Some(later), later).unwrap().unwrap();
+        s.grant_person("st1", d, &rights(&[Right::Session]), None, a, later).unwrap();
+        assert!(s.grants_of("st1").unwrap().iter().all(|g| !matches!(g.subject, Subject::Invite { .. })));
+    }
+
+    #[test]
+    fn personnes_connues_et_pas_d_inconnu() {
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "Ana", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let b = s.create_account("b@exemple.org", "Bob", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let c = s.create_account("c@exemple.org", "Cléo", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let x = s.create_account("x@exemple.org", "Inconnu", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let org = s.create_org("Famille", super::super::orgs::Kind::Family, a, 0).unwrap();
+        s.set_member(org.id, b, super::super::orgs::Role::Member, 0).unwrap();
+        s.invite_member(org.id, "paul@exemple.org", super::super::orgs::Role::Member, a, 0).unwrap();
+        s.attach_station("st1", "PC", a, a, 0).unwrap();
+        s.grant_person("st1", c, &rights(&[Right::Session]), None, a, 0).unwrap();
+        s.grant_invite("st1", "sam@exemple.org", &rights(&[Right::Session]), None, a, 0).unwrap();
+        // L'inconnu a son propre ordinateur, ouvert à Bob : Ana ne le voit pas.
+        s.attach_station("st9", "Autre", x, x, 0).unwrap();
+        s.grant_person("st9", b, &rights(&[Right::Session]), None, x, 0).unwrap();
+        let known = s.known_people(a).unwrap();
+        let emails: Vec<&str> = known.iter().map(|(_, e)| e.as_str()).collect();
+        assert_eq!(emails, vec!["b@exemple.org", "c@exemple.org", "paul@exemple.org", "sam@exemple.org"], "les noms d'abord, puis les adresses seules");
+        assert_eq!(known[0].0, "Bob");
+        // Bob : sa famille (Ana, l'invitation de Paul), pas l'inconnu qui lui a ouvert un ordinateur.
+        let emails: Vec<String> = s.known_people(b).unwrap().into_iter().map(|(_, e)| e).collect();
+        assert_eq!(emails, vec!["a@exemple.org".to_string(), "paul@exemple.org".to_string()]);
+        // L'inconnu connaît Bob (il le lui a ouvert), pas Ana.
+        let emails: Vec<String> = s.known_people(x).unwrap().into_iter().map(|(_, e)| e).collect();
+        assert_eq!(emails, vec!["b@exemple.org".to_string()]);
     }
 
     #[test]

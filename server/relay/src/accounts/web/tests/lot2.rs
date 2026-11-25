@@ -224,7 +224,8 @@ fn connecter_une_app_par_la_fenetre_du_systeme() {
     let jwt = access.body["token"].as_str().unwrap();
     let verifier = Verifier::new("share.test", &st, &w.acc.stations.keys.key_set().keys);
     let claims = verifier.verify(jwt, w.now() as u64, Use::Reusable).expect("jeton signé par la clé publiée");
-    assert_eq!(claims.exp - claims.iat, 300);
+    assert_eq!(claims.exp - claims.iat, 120, "2 minutes (docs/comptes.md, « Sessions »)");
+    assert_eq!(access.body["lifetime"], 120);
     assert_eq!(claims.name.device, "iPad de Léa");
     assert_eq!(claims.device, t.body["device"]["id"].as_str().unwrap());
     assert_eq!(claims.account, t.body["account"]["id"].as_str().unwrap());

@@ -20,6 +20,8 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - **Watch a computer.** A new right, “Watch”: the person sees your computer's screen, with no keyboard, mouse or controller, and without changing anything for you. You see them in the share panel and can remove them at any time.
 - **Single-use access links.** On a computer's page, create a link with the rights you choose and send it to one person: it works only once, expires if unused, and can be revoked in one click.
 - **Computer groups.** In a family or a team, put computers in a group and open it all at once: the rights apply to all its computers, including the ones you add later.
+- **Clearer invitations.** A pending invitation expires after 30 days; you see when it was sent and when it expires, and “Resend the invitation” sends it again. As you type an address, your family and colleagues are suggested, and the same person no longer shows up twice.
+- **Better protected accounts.** Access tokens to computers last 2 minutes, and a device unused for 90 days is signed out of your account.
 
 ## 0.10.0
 

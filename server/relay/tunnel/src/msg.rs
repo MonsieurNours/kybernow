@@ -626,6 +626,8 @@ mod tests {
             sig: None,
             codes: vec![],
             version: None,
+            admin_lan: vec![],
+            remote_admin: false,
         });
         assert_eq!(serde_json::to_string(&c).unwrap(), r#"{"t":"hello","v":1,"role":"client","station":"s","token":"t"}"#);
     }

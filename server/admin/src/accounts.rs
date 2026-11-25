@@ -55,7 +55,8 @@ pub const TEST_RELAY: &str = "essai.kybernow.invalid";
 /// La clé d'essai (PKCS#8 en DER), dans le dossier de données.
 pub const TEST_KEY_FILE: &str = "account-test.key";
 /// Durée de vie d'un jeton de Kyber donné à un compte qui ouvre une session :
-/// celle du jeton d'accès (Kyber ne le lit qu'à la connexion).
+/// celle du jeton d'accès, 2 minutes (Kyber ne le lit qu'à la connexion ; le
+/// signe de vie, toutes les 5 secondes, en donne un neuf).
 pub const KYBER_TOKEN_LIFETIME: i64 = access::LIFETIME_SECS as i64;
 /// Une entrée vue de nouveau est réécrite sur le disque au plus toutes les 5 min.
 const SAVE_SEEN_EVERY: u64 = 5 * 60;

@@ -93,7 +93,7 @@ impl View<'_> {
 }
 
 /// Un avis au-dessus d'un formulaire.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
     BadCredentials,
     /// Trop d'essais : réessayer dans ce nombre de minutes.
@@ -154,10 +154,19 @@ pub enum Notice {
     LinkRevoked,
     TooManyLinks,
     LinkAccepted,
+    /// Invitations, ajout de membres (docs/comptes.md, « Invitations, ajout de membres et sessions ») :
+    /// « {nom} avait déjà accès : ses droits sont mis à jour. »
+    AccessUpdated(String),
+    /// « {nom} en fait déjà partie. »
+    AlreadyMember(String),
+    /// « Invitation renvoyée à {adresse}. »
+    InviteResent(String),
+    /// « Invitation déjà renvoyée il y a moins d'une heure. »
+    ResentTooSoon,
 }
 
 impl Notice {
-    fn is_ok(self) -> bool {
+    fn is_ok(&self) -> bool {
         matches!(
             self,
             Notice::Resent
@@ -188,15 +197,18 @@ impl Notice {
                 | Notice::TokenRevoked
                 | Notice::LinkRevoked
                 | Notice::LinkAccepted
+                | Notice::AccessUpdated(_)
+                | Notice::InviteResent(_)
         )
     }
 
-    pub fn text(self, lang: Lang) -> String {
+    /// Le texte de l'avis, en HTML (un nom ou une adresse y est échappé).
+    pub fn text(&self, lang: Lang) -> String {
         let tr = |f: &str, e: &str| t(lang, f, e);
         match self {
             Notice::BadCredentials => tr("Adresse e-mail ou mot de passe incorrect.", "Incorrect email address or password."),
             Notice::TooMany(min) => {
-                let min = min.max(1);
+                let min = (*min).max(1);
                 match lang {
                     Lang::Fr => t(lang, &format!("Trop d'essais : réessayez dans {min} min."), ""),
                     Lang::En => format!("Too many attempts: try again in {min} min."),
@@ -211,7 +223,7 @@ impl Notice {
             ),
             Notice::BadEmail => tr("Cette adresse e-mail ne semble pas valide.", "This email address doesn't look valid."),
             Notice::NameMissing => tr("Entrez votre nom.", "Enter your name."),
-            Notice::Weak(w) => weak_text(lang, w),
+            Notice::Weak(w) => weak_text(lang, *w),
             Notice::PasswordChanged => tr("Mot de passe changé : connectez-vous avec le nouveau.", "Password changed: sign in with the new one."),
             Notice::Verified => tr("Adresse vérifiée : connectez-vous.", "Address verified: sign in."),
             Notice::BadPassword => tr("Mot de passe incorrect.", "Incorrect password."),
@@ -276,6 +288,19 @@ impl Notice {
             Notice::LinkRevoked => tr("Lien révoqué : il ne servira plus.", "Link revoked: it won't work anymore."),
             Notice::TooManyLinks => tr("Révoquez un lien avant d'en créer un autre.", "Revoke a link before creating another one."),
             Notice::LinkAccepted => tr("C'est fait : l'ordinateur est dans vos ordinateurs.", "Done: the computer is now in your computers."),
+            Notice::AccessUpdated(name) => match lang {
+                Lang::Fr => t(lang, &format!("{} avait déjà accès : ses droits sont mis à jour.", esc(name)), ""),
+                Lang::En => format!("{} already had access: their rights are updated.", esc(name)),
+            },
+            Notice::AlreadyMember(name) => match lang {
+                Lang::Fr => t(lang, &format!("{} en fait déjà partie.", esc(name)), ""),
+                Lang::En => format!("{} is already a member.", esc(name)),
+            },
+            Notice::InviteResent(email) => match lang {
+                Lang::Fr => t(lang, &format!("Invitation renvoyée à {}.", esc(email)), ""),
+                Lang::En => format!("Invitation resent to {}.", esc(email)),
+            },
+            Notice::ResentTooSoon => tr("Invitation déjà renvoyée il y a moins d'une heure.", "Invitation already resent less than an hour ago."),
         }
     }
 }
@@ -529,7 +554,7 @@ pub fn verify(v: &View<'_>, email: &str, notice: Option<Notice>, change: bool) -
             "",
             &format!(
                 "<input type=\"hidden\" name=\"action\" value=\"code\">\n{field}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
-                field = field(&v.tr("Code", "Code"), &code_input("code", notice.is_some_and(|n| !n.is_ok()))),
+                field = field(&v.tr("Code", "Code"), &code_input("code", notice.as_ref().is_some_and(|n| !n.is_ok()))),
                 submit = v.tr("Vérifier", "Verify"),
             ),
         );
@@ -621,7 +646,7 @@ pub fn code(v: &View<'_>, notice: Option<Notice>, recovery: bool) -> String {
 }
 
 /// L'état de « Mot de passe oublié ».
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Forgot {
     Form(Option<Notice>),
     /// La réponse, toujours la même.
@@ -727,6 +752,8 @@ pub struct AccountView {
     pub register: Option<Registration>,
     /// Lot 5 : ses organisations `(identifiant public, nom)`, pour la barre de la console.
     pub orgs: Vec<(String, String)>,
+    /// L'heure de la page (« Utilisé il y a {durée} »).
+    pub now: i64,
 }
 
 /// Un ordinateur rattaché, sur la page du compte.
@@ -768,6 +795,25 @@ pub struct Registration {
     pub display_name: String,
     /// Les passkeys déjà là (base64url) : l'authentificateur n'en crée pas une deuxième.
     pub exclude: Vec<String>,
+}
+
+/// Une durée écoulée, en mots : « 3 jours », `3 days` (« moins d'une minute » en dessous).
+pub fn duration_words(lang: Lang, secs: i64) -> String {
+    let secs = secs.max(0);
+    let (n, fr, en) = if secs < 60 {
+        return t(lang, "moins d'une minute", "less than a minute");
+    } else if secs < 3600 {
+        (secs / 60, "minute", "minute")
+    } else if secs < 86_400 {
+        (secs / 3600, "heure", "hour")
+    } else {
+        (secs / 86_400, "jour", "day")
+    };
+    let s = if n > 1 { "s" } else { "" };
+    match lang {
+        Lang::Fr => format!("{n} {fr}{s}"),
+        Lang::En => format!("{n} {en}{s}"),
+    }
 }
 
 /// Le jour d'une heure Unix (UTC) : `23/11/2026`, ou `Nov 23, 2026`.
@@ -849,7 +895,7 @@ pub fn account(v: &View<'_>, a: &AccountView, shell: &console::Shell, notice: Op
             format!("<div class=\"row\">{}<div class=\"ka-row-main\"><b>{}</b><small>{when}</small></div><div class=\"acts\">{act}</div></div>\n", console::ic("monitor"), esc(&s.device))
         })
         .collect();
-    let devices = devices_html(v, &a.devices);
+    let devices = devices_html(v, &a.devices, a.now);
     let sign_out = v.form(
         "/compte/deconnexion",
         "acct-inline",
@@ -926,7 +972,7 @@ pub fn recovery_codes(v: &View<'_>, codes: &[String], notice: Option<Notice>) ->
 // --- Lot 2 : ordinateurs rattachés ; lot 3 : appareils connectés -------------------------
 
 /// « Appareils connectés » sur la page du compte (rien tant qu'aucun ne l'est).
-fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
+fn devices_html(v: &View<'_>, devices: &[DeviceView], now: i64) -> String {
     if devices.is_empty() {
         return String::new();
     }
@@ -935,9 +981,10 @@ fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
         .map(|d| {
             let name = if d.name.is_empty() { v.tr("Appareil", "Device") } else { d.name.clone() };
             let how = if d.tv { v.tr("par un code", "with a code") } else { v.tr("par l'app", "from the app") };
+            let ago = duration_words(v.lang, now - d.seen_at);
             let when = match v.lang {
-                Lang::Fr => format!("Connecté {how} le {}, vu le {}", date(v.lang, d.created_at), date(v.lang, d.seen_at)),
-                Lang::En => format!("Connected {how} {}, last seen {}", date(v.lang, d.created_at), date(v.lang, d.seen_at)),
+                Lang::Fr => format!("Utilisé il y a {ago} · connecté {how} le {}", date(v.lang, d.created_at)),
+                Lang::En => format!("Used {ago} ago · connected {how} {}", date(v.lang, d.created_at)),
             };
             let close = v.form(
                 "/compte/appareils/deconnecter",
@@ -952,9 +999,10 @@ fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
         })
         .collect();
     format!(
-        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2><small>{}</small></div>\n<div class=\"ka-list\">\n{rows}</div>\n</section>\n",
+        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2><small>{}</small></div>\n<div class=\"ka-list\">\n{rows}</div>\n<p class=\"ka-muted ka-after\">{}</p>\n</section>\n",
         v.tr("Appareils connectés", "Connected devices"),
-        v.tr("Ils vous montrent vos ordinateurs", "They show you your computers")
+        v.tr("Ils vous montrent vos ordinateurs", "They show you your computers"),
+        v.tr("Un appareil qui ne sert pas pendant 90 jours est déconnecté.", "A device unused for 90 days is signed out."),
     )
 }
 
@@ -1329,13 +1377,17 @@ mod tests {
                 SessionView { id: 2, device: "Safari, iPhone".into(), created_at: 1_700_000_000, seen_at: 1_700_100_000, current: false },
             ],
             computers: vec![ComputerView { id: "st1".into(), name: "PC du <salon>".into(), attached_at: 1_700_000_000, online: true }],
-            devices: vec![DeviceView { id: 3, name: "Apple TV".into(), tv: true, created_at: 1_700_000_000, seen_at: 1_700_000_000 }],
+            devices: vec![
+                DeviceView { id: 3, name: "Apple TV".into(), tv: true, created_at: 1_700_000_000, seen_at: 1_700_000_000 },
+                DeviceView { id: 4, name: "iPad de Léa".into(), tv: false, created_at: 1_700_000_000, seen_at: 1_700_600_000 },
+            ],
             passkeys: vec![
                 PasskeyView { id: 7, name: "Chrome, Mac <i>".into(), created_at: 1_700_000_000, seen_at: None },
                 PasskeyView { id: 8, name: "Clé USB".into(), created_at: 1_700_000_000, seen_at: Some(1_700_100_000) },
             ],
             register: Some(registration()),
             orgs: vec![("org_abc".into(), "Les Lignes <Claires>".into())],
+            now: 1_700_604_000,
         };
         let mut pages = vec![
             ("connexion", sign_in(&v, "ana@exemple.org", Some(Notice::BadCredentials), true, true)),
@@ -1413,6 +1465,10 @@ mod tests {
             Notice::LinkRevoked,
             Notice::TooManyLinks,
             Notice::LinkAccepted,
+            Notice::AccessUpdated("Léa <b>".into()),
+            Notice::AlreadyMember("Paul".into()),
+            Notice::InviteResent("lea@exemple.fr".into()),
+            Notice::ResentTooSoon,
         ] {
             pages.push(("avis", sign_in(&v, "", Some(n), true, true)));
         }
@@ -1555,7 +1611,13 @@ mod tests {
         let computer = get("personnes");
         assert!(computer.contains("action=\"/compte/ordinateurs/detacher?lang=fr\"") && computer.contains(r#"name="id" value="st1""#));
         let page = get("compte");
-        assert!(page.contains("Appareils connectés") && page.contains("Connecté par un code le"));
+        assert!(page.contains("Appareils connectés") && page.contains("connecté par un code le"));
+        // « Utilisé il y a {durée} » et l'aide des 90 jours (docs/comptes.md, « Sessions »).
+        assert!(page.contains("Utilisé il y a 1 heure") && page.contains("Utilisé il y a 6 jours"), "{page}");
+        assert!(page.contains("Un appareil qui ne sert pas pendant 90 jours est déconnecté."));
+        assert_eq!(duration_words(Lang::Fr, 30), "moins d'une minute");
+        assert_eq!(duration_words(Lang::En, 2 * 86_400 + 5), "2 days");
+        assert_eq!(duration_words(Lang::Fr, 3 * 60), "3 minutes");
         let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa"), challenge: "" };
         let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1");
         assert!(consent.contains("Connecter KyberNow Link sur iPad de Léa\u{202F}?"));

@@ -30,11 +30,14 @@ use crate::id::{base32_lower, random_bytes};
 
 /// Version du format (`v`).
 pub const VERSION: u32 = 1;
-/// Durée de vie d'un jeton délivré par le relais : 5 minutes.
-pub const LIFETIME_SECS: u64 = 5 * 60;
-/// Durée de vie la plus longue acceptée par la Station (`exp - iat`) : un
-/// relais qui délivrerait des jetons plus longs est refusé.
-pub const MAX_LIFETIME_SECS: u64 = LIFETIME_SECS;
+/// Durée de vie d'un jeton délivré par le relais : 2 minutes (docs/comptes.md,
+/// « Sessions » ; 5 minutes jusqu'à la 0.10).
+pub const LIFETIME_SECS: u64 = 2 * 60;
+/// Durée de vie la plus longue acceptée par la Station (`exp - iat`) : 5
+/// minutes, pour qu'une Station à jour accepte encore les jetons d'un relais
+/// plus ancien ; un relais qui délivrerait des jetons plus longs est refusé.
+/// Indépendante de [`LIFETIME_SECS`].
+pub const MAX_LIFETIME_SECS: u64 = 5 * 60;
 /// Tolérance d'horloge entre le relais et la Station, dans les deux sens.
 pub const CLOCK_SKEW_SECS: u64 = 60;
 /// Le mot du schéma d'autorisation HTTP : `Authorization: KyberNow <jeton>`.
@@ -658,6 +661,20 @@ mod tests {
         // Sans tolérance.
         let strict = verifier(&s).with_skew(0);
         assert_eq!(strict.verify(&token, NOW + LIFETIME_SECS, Use::Reusable), Err(AccessError::Expired));
+    }
+
+    #[test]
+    fn jeton_d_un_relais_plus_ancien_accepte() {
+        // Les jetons de 2 minutes, et encore ceux de 5 minutes d'un relais plus ancien ; pas au-delà.
+        assert_eq!((LIFETIME_SECS, MAX_LIFETIME_SECS), (120, 300));
+        let s = signer();
+        let mut c = claims(&[Right::Session]);
+        c.exp = c.iat + MAX_LIFETIME_SECS;
+        let token = s.sign(&c);
+        assert!(verifier(&s).verify(&token, NOW + MAX_LIFETIME_SECS - 1, Use::Reusable).is_ok());
+        let mut c = claims(&[Right::Session]);
+        c.exp = c.iat + MAX_LIFETIME_SECS + 1;
+        assert_eq!(verifier(&s).verify(&s.sign(&c), NOW, Use::Reusable), Err(AccessError::NotYetValid));
     }
 
     #[test]

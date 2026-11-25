@@ -586,6 +586,44 @@ pub struct PersonRow {
     pub name: String,
     pub detail: String,
     pub rights: Rights,
+    /// Une invitation en attente : « Renvoyer l'invitation ».
+    pub resend: bool,
+}
+
+/// Sous l'adresse d'une invitation : « Invitation envoyée le {date} · expire le {date} », ou
+/// « Invitation expirée le {date} » (docs/comptes.md, « Invitations, ajout de membres et sessions »).
+pub fn invite_state(lang: Lang, sent_at: i64, now: i64) -> String {
+    let expires = sent_at + super::super::people::INVITE_SECS;
+    match (expires <= now, lang) {
+        (true, Lang::Fr) => t(lang, &format!("Invitation expirée le {}", date(lang, expires)), ""),
+        (true, Lang::En) => format!("Invitation expired on {}", date(lang, expires)),
+        (false, Lang::Fr) => t(lang, &format!("Invitation envoyée le {} · expire le {}", date(lang, sent_at), date(lang, expires)), ""),
+        (false, Lang::En) => format!("Invitation sent on {} · expires on {}", date(lang, sent_at), date(lang, expires)),
+    }
+}
+
+/// Les personnes déjà connues, pour le champ de l'adresse (`<datalist id="{id}">`) : « Prénom Nom · adresse »
+/// (le point médian des pages plutôt que le tiret cadratin, qu'elles n'emploient pas).
+pub fn known_datalist(id: &str, known: &[(String, String)]) -> String {
+    if known.is_empty() {
+        return String::new();
+    }
+    let options: String = known
+        .iter()
+        .map(|(name, email)| {
+            if name.is_empty() {
+                format!("<option value=\"{}\"></option>", esc(email))
+            } else {
+                format!("<option value=\"{}\">{} · {}</option>", esc(email), esc(name), esc(email))
+            }
+        })
+        .collect();
+    format!("<datalist id=\"{id}\">{options}</datalist>")
+}
+
+/// Le bouton « Renvoyer l'invitation ».
+fn resend_form(v: &View<'_>, path: &str, fields: &str) -> String {
+    v.form(path, "acct-inline", &format!("{fields}\n{}", small_button(&v.tr("Renvoyer l'invitation", "Resend the invitation"))))
 }
 
 /// La page d'un ordinateur.
@@ -616,6 +654,8 @@ pub struct PeopleView {
     /// Le formulaire « Créer un lien » tel qu'envoyé (droits, jours, fin de l'accès), et s'il faut le rouvrir.
     pub link_form: (Rights, i64, String),
     pub link_open: bool,
+    /// Les personnes déjà connues, `(nom, adresse)`, proposées dans « Ajouter une personne ».
+    pub known: Vec<(String, String)>,
     pub now: i64,
     pub shell: Shell,
 }
@@ -767,11 +807,11 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
         .iter()
         .map(|r| {
             let remove = match (p.manage, r.grant.filter(|_| r.group.is_none())) {
-                (true, Some(g)) => v.form(
-                    "/compte/ordinateur/retirer",
-                    "acct-inline",
-                    &format!("{}\n{}\n{}", hidden("id", &p.id), hidden("acces", &g.to_string()), small_button(&v.tr("Retirer", "Remove"))),
-                ),
+                (true, Some(g)) => {
+                    let fields = format!("{}\n{}", hidden("id", &p.id), hidden("acces", &g.to_string()));
+                    let resend = if r.resend { resend_form(v, "/compte/ordinateur/renvoyer", &fields) } else { String::new() };
+                    format!("{resend}{}", v.form("/compte/ordinateur/retirer", "acct-inline", &format!("{fields}\n{}", small_button(&v.tr("Retirer", "Remove")))))
+                }
                 _ => String::new(),
             };
             let tags = if r.grant.is_none() && r.group.is_none() {
@@ -857,8 +897,10 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
             email = field(
                 &v.tr("Son adresse e-mail", "Their email address"),
                 &format!(
-                    r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" placeholder="lea@exemple.fr" value="{}" required>"#,
-                    esc(email)
+                    r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" placeholder="lea@exemple.fr" value="{}"{} required>{}"#,
+                    esc(email),
+                    if p.known.is_empty() { "" } else { r#" list="connus""# },
+                    known_datalist("connus", &p.known),
                 ),
             ),
             rights = rights_tiles(v, &v.tr("Ce qu'elle peut faire", "What they can do"), rights, "ajout"),
@@ -869,7 +911,7 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
             cancel = v.tr("Annuler", "Cancel"),
             send = v.tr("Envoyer l'invitation", "Send the invitation"),
         );
-        let failed = !email.is_empty() && notice.is_some_and(|n| !n.is_ok());
+        let failed = !email.is_empty() && notice.as_ref().is_some_and(|n| !n.is_ok());
         sheets.push_str(&sheet(
             v,
             "ajouter",
@@ -932,11 +974,14 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
 
 /// Une personne (ou une famille, une équipe, un groupe) qui a accès à l'un de ses ordinateurs.
 #[derive(Debug, Clone)]
+/// Une personne n'y est qu'une fois, même ajoutée par son adresse sur un
+/// ordinateur et par son compte sur un autre.
 pub struct Granted {
     pub name: String,
     pub detail: String,
-    pub computer_id: String,
-    pub computer: String,
+    /// Les ordinateurs ouverts : `(identifiant, nom, échu)`.
+    pub computers: Vec<(String, String, bool)>,
+    /// Ses droits, tous ordinateurs confondus.
     pub rights: Rights,
 }
 
@@ -978,7 +1023,15 @@ pub fn all_people(v: &View<'_>, a: &AllPeopleView) -> String {
             .rows
             .iter()
             .map(|g| {
-                let detail = format!("<a href=\"/compte/ordinateur{q}&amp;id={}\">{}</a>{}", pct(&g.computer_id), esc(&g.computer), if g.detail.is_empty() { String::new() } else { format!(" · {}", esc(&g.detail)) });
+                let computers: Vec<String> = g
+                    .computers
+                    .iter()
+                    .map(|(id, name, expired)| {
+                        let expired = if *expired { format!(" ({})", v.tr("échu", "expired")) } else { String::new() };
+                        format!("<a href=\"/compte/ordinateur{q}&amp;id={}\">{}</a>{expired}", pct(id), esc(name))
+                    })
+                    .collect();
+                let detail = format!("{}{}", computers.join(", "), if g.detail.is_empty() { String::new() } else { format!(" · {}", esc(&g.detail)) });
                 row(&avatar(&g.name), &esc(&g.name), &detail, &format!("<span class=\"ka-tags\">{}</span>", rights_tags(v, &g.rights)))
             })
             .collect();
@@ -1255,6 +1308,8 @@ pub struct OrgView {
     /// « Ouvrir ce groupe » : `(valeur, libellé)` de toute la famille ou l'équipe, ses groupes, ses membres.
     pub group_targets: Vec<(String, String)>,
     pub log: Vec<LogLine>,
+    /// Les personnes déjà connues, `(nom, adresse)`, proposées dans « Inviter un membre ».
+    pub known: Vec<(String, String)>,
     pub now: i64,
     pub shell: Shell,
 }
@@ -1587,11 +1642,16 @@ pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
                 .iter()
                 .map(|i| {
                     let cancel = if o.manage {
-                        v.form("/compte/organisation/retirer", "acct-inline", &format!("{id_field}\n{}\n{}", hidden("invitation", &i.id.to_string()), small_button(&v.tr("Annuler", "Cancel"))))
+                        let fields = format!("{id_field}\n{}", hidden("invitation", &i.id.to_string()));
+                        format!(
+                            "{}{}",
+                            resend_form(v, "/compte/organisation/renvoyer", &fields),
+                            v.form("/compte/organisation/retirer", "acct-inline", &format!("{fields}\n{}", small_button(&v.tr("Annuler", "Cancel"))))
+                        )
                     } else {
                         String::new()
                     };
-                    row(&avatar(&i.email), &esc(&i.email), &format!("{} · {}", v.tr("Invitation envoyée", "Invitation sent"), role_name(v.lang, i.role)), &cancel)
+                    row(&avatar(&i.email), &esc(&i.email), &format!("{} · {}", esc(&invite_state(v.lang, i.sent_at, o.now)), role_name(v.lang, i.role)), &cancel)
                 })
                 .collect();
             if o.manage {
@@ -1599,7 +1659,11 @@ pub fn org(v: &View<'_>, o: &OrgView, notice: Option<Notice>) -> String {
                     "{id_field}\n{email}\n<div class=\"field\"><label class=\"mono-label\" for=\"role\">{role_l}</label>\n{role}</div>\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{send}</button></div>",
                     email = field(
                         &v.tr("Son adresse e-mail", "Their email address"),
-                        r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254" required>"#,
+                        &format!(
+                            r#"<input id="email" name="email" type="email" inputmode="email" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="254"{} required>{}"#,
+                            if o.known.is_empty() { "" } else { r#" list="connus""# },
+                            known_datalist("connus", &o.known),
+                        ),
                     ),
                     role_l = v.tr("Son rôle", "Their role"),
                     role = role_select(v, "role", Role::Member, o.role == Role::Owner).replacen("<select ", "<select id=\"role\" ", 1),
@@ -2218,7 +2282,7 @@ pub fn open_admin_go(v: &View<'_>, target: &str) -> String {
     let title = v.tr("Ouverture d'Admin", "Opening Admin");
     let card = format!(
         "<h1>{title}</h1>\n<p class=\"help\">{help}</p>\n<a class=\"btn kn-primary\" href=\"{target}\">{open}</a>",
-        help = v.tr("Admin s'ouvre ; sinon, ce bouton (le lien vaut 5 minutes).", "Admin is opening; otherwise, this button (the link is valid for 5 minutes)."),
+        help = v.tr("Admin s'ouvre ; sinon, ce bouton (le lien vaut 2 minutes).", "Admin is opening; otherwise, this button (the link is valid for 2 minutes)."),
         target = esc(target),
         open = v.tr("Ouvrir Admin", "Open Admin"),
     );
@@ -2317,6 +2381,10 @@ pub fn log_text(lang: Lang, l: &LogLine) -> String {
         ("membre_parti", Lang::En) => format!("{who} left the organization"),
         ("invitation_annulee", Lang::Fr) => fr(format!("{who} a annulé l'invitation de {}", d("email"))),
         ("invitation_annulee", Lang::En) => format!("{who} cancelled the invitation of {}", d("email")),
+        ("invitation_renvoyee", Lang::Fr) if !d("station").is_empty() => fr(format!("{who} a renvoyé l'invitation de {} à {}", d("to"), d("station"))),
+        ("invitation_renvoyee", Lang::En) if !d("station").is_empty() => format!("{who} resent {}'s invitation to {}", d("to"), d("station")),
+        ("invitation_renvoyee", Lang::Fr) => fr(format!("{who} a renvoyé l'invitation de {}", d("email"))),
+        ("invitation_renvoyee", Lang::En) => format!("{who} resent the invitation of {}", d("email")),
         ("groupe_cree", Lang::Fr) => fr(format!("{who} a créé le groupe {}", d("group"))),
         ("groupe_cree", Lang::En) => format!("{who} created the group {}", d("group")),
         ("groupe_supprime", Lang::Fr) => fr(format!("{who} a supprimé le groupe {}", d("group"))),
@@ -2451,9 +2519,25 @@ pub(super) mod tests {
             name: "PC du <salon>".into(),
             online: true,
             rows: vec![
-                PersonRow { grant: None, group: None, name: "Ana (vous)".into(), detail: "Propriétaire".into(), rights: Rights::new(Right::ALL) },
-                PersonRow { grant: Some(4), group: None, name: "Léa".into(), detail: "lea@exemple.fr · jusqu'au 31/12/2026".into(), rights: Rights::new([Right::Session]) },
-                PersonRow { grant: None, group: Some("Postes".into()), name: "Les Lignes Claires".into(), detail: t(v.lang, "Par le groupe Postes", "Through the group Postes"), rights: Rights::new([Right::View]) },
+                PersonRow { grant: None, group: None, name: "Ana (vous)".into(), detail: "Propriétaire".into(), rights: Rights::new(Right::ALL), resend: false },
+                PersonRow { grant: Some(4), group: None, name: "Léa".into(), detail: "lea@exemple.fr · jusqu'au 31/12/2026".into(), rights: Rights::new([Right::Session]), resend: false },
+                PersonRow {
+                    grant: Some(5),
+                    group: None,
+                    name: "sam@exemple.fr".into(),
+                    detail: invite_state(v.lang, 1_699_000_000, 1_700_000_000),
+                    rights: Rights::new([Right::Session]),
+                    resend: true,
+                },
+                PersonRow {
+                    grant: Some(6),
+                    group: None,
+                    name: "hugo@exemple.fr".into(),
+                    detail: invite_state(v.lang, 1_690_000_000, 1_700_000_000),
+                    rights: Rights::new([Right::Lend]),
+                    resend: true,
+                },
+                PersonRow { grant: None, group: Some("Postes".into()), name: "Les Lignes Claires".into(), detail: t(v.lang, "Par le groupe Postes", "Through the group Postes"), rights: Rights::new([Right::View]), resend: false },
             ],
             manage: true,
             can_detach: true,
@@ -2471,6 +2555,7 @@ pub(super) mod tests {
             new_link: None,
             link_form: (Rights::new([Right::Session]), 7, String::new()),
             link_open: false,
+            known: vec![("Léa Martin".into(), "lea@exemple.fr".into()), (String::new(), "sam@exemple.fr".into())],
             now: 1_700_000_000,
             shell: shell(),
         };
@@ -2499,6 +2584,7 @@ pub(super) mod tests {
             "membre_retire",
             "membre_parti",
             "invitation_annulee",
+            "invitation_renvoyee",
             "groupe_cree",
             "groupe_supprime",
             "groupe_membre_ajoute",
@@ -2534,7 +2620,10 @@ pub(super) mod tests {
             tab,
             me: 1,
             members: vec![member(1, Role::Owner), member(2, Role::Admin), member(3, Role::Member)],
-            invites: vec![Invite { id: 9, email: "paul@exemple.fr".into(), role: Role::Member, created_at: 1_700_000_000 }],
+            invites: vec![
+                Invite { id: 9, email: "paul@exemple.fr".into(), role: Role::Member, created_at: 1_700_000_000, sent_at: 1_699_900_000 },
+                Invite { id: 10, email: "zoe@exemple.fr".into(), role: Role::Admin, created_at: 1_690_000_000, sent_at: 1_690_000_000 },
+            ],
             groups: vec![Group { id: 3, name: "Graphistes".into(), members: vec![(3, "Membre 3".into())] }],
             computers: vec![
                 OrgComputer { id: "st3".into(), name: "Station de rendu".into(), online: true, access: t(v.lang, "Groupe Graphistes : Session", "Group Graphistes: Session"), admin: manage },
@@ -2568,6 +2657,7 @@ pub(super) mod tests {
             ],
             group_targets: vec![("org".into(), "Les Lignes Claires (toute l'équipe)".into()), ("grp:3".into(), "Groupe Graphistes".into()), ("compte:3".into(), "Membre 3".into())],
             log: kinds.iter().map(|k| line(k)).collect(),
+            known: vec![("Léa Martin".into(), "lea@exemple.fr".into())],
             now: 1_700_000_000,
             shell: shell(),
         };
@@ -2599,7 +2689,20 @@ pub(super) mod tests {
             shell: shell(),
         };
         let people_all = AllPeopleView {
-            rows: vec![Granted { name: "Léa".into(), detail: "lea@exemple.fr".into(), computer_id: "st1".into(), computer: "PC du <salon>".into(), rights: Rights::new([Right::Lend]) }],
+            rows: vec![
+                Granted {
+                    name: "Léa".into(),
+                    detail: "lea@exemple.fr".into(),
+                    computers: vec![("st1".into(), "PC du <salon>".into(), false), ("st2".into(), "Portable".into(), true)],
+                    rights: Rights::new([Right::Lend, Right::Session]),
+                },
+                Granted {
+                    name: "sam@exemple.fr".into(),
+                    detail: invite_state(v.lang, 1_700_000_000, 1_700_100_000),
+                    computers: vec![("st1".into(), "PC du <salon>".into(), false)],
+                    rights: Rights::new([Right::Session]),
+                },
+            ],
             computers: vec![("st1".into(), "PC du <salon>".into()), ("st2".into(), "Portable".into())],
             shell: shell(),
         };
@@ -2617,6 +2720,9 @@ pub(super) mod tests {
             ("ordinateurs", computers(v, &computers_view, Some(Notice::StationDetached))),
             ("ordinateurs/vide", computers(v, &ComputersView::default(), None)),
             ("personnes", people(v, &people_view, Some(Notice::PersonAdded))),
+            ("personnes/deja", people(v, &people_view, Some(Notice::AccessUpdated("Léa <b>".into())))),
+            ("personnes/renvoyee", people(v, &people_view, Some(Notice::InviteResent("sam@exemple.fr".into())))),
+            ("personnes/renvoi-trop-tot", people(v, &people_view, Some(Notice::ResentTooSoon))),
             ("personnes/lien-cree", people(v, &PeopleView { new_link: Some("https://share.test/compte/lien/kla_abcdefghijklmnopqrstuvwxyz234567".into()), ..people_view.clone() }, None)),
             ("personnes/lien-trop", people(v, &PeopleView { link_open: true, link_form: (Rights::new([Right::View]), 30, "2026-12-31".into()), ..people_view.clone() }, Some(Notice::TooManyLinks))),
             ("lien/connexion", link_sign_in(v, "/compte/lien/kla_x", "Ana <b>", "PC du <salon>")),
@@ -2626,6 +2732,7 @@ pub(super) mod tests {
             ("personnes/sans-gerer", people(v, &PeopleView { manage: false, admin_needs_2fa: true, my_rights: Rights::new([Right::Session]), ..people_view.clone() }, None)),
             ("organisation", org(v, &org_view(Tab::Members, Role::Owner, true), Some(Notice::OrgCreated))),
             ("organisation/membre", org(v, &org_view(Tab::Members, Role::Member, false), None)),
+            ("organisation/deja-membre", org(v, &org_view(Tab::Members, Role::Owner, true), Some(Notice::AlreadyMember("Membre 2".into())))),
             ("organisation/sans-2fa", org(v, &org_view(Tab::Members, Role::Admin, false), Some(Notice::NeedTwoFactor))),
             ("organisation/groupes", org(v, &org_view(Tab::Groups, Role::Admin, true), None)),
             ("organisation/ordinateurs", org(v, &org_view(Tab::Computers, Role::Owner, true), None)),
