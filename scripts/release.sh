@@ -620,17 +620,20 @@ arret() { [ -f "$RUN/arret" ]; }
 
 # etape <id> : attend ses dépendances, reprend le cache s'il est valable,
 # sinon construit (sortie dans $LOGS/<id>.log) ; un échec arrête les voies.
+# Rend toujours 0 (l'issue est dans $RUN/etat/<id>) : appelée dans un « || »,
+# set -e serait ignoré jusque dans la construction (piège de bash), et une
+# commande en échec n'arrêterait plus rien.
 etape() {
     local id=$1 d st key debut
-    arret && { etat "$id" annulee; return 1; }
+    arret && { etat "$id" annulee; return 0; }
     for d in $(deps_de "$id"); do
         while :; do
             st="$(etat_de "$d")"
-            case "$st" in faite | reprise) break ;; echec | annulee) etat "$id" annulee; return 1 ;; esac
+            case "$st" in faite | reprise) break ;; echec | annulee) etat "$id" annulee; return 0 ;; esac
             sleep 2
         done
     done
-    arret && { etat "$id" annulee; return 1; }
+    arret && { etat "$id" annulee; return 0; }
     key="$(empreinte_de "$id")"
     if cache_valide "$id" "$key"; then
         etat "$id" reprise
@@ -649,7 +652,7 @@ etape() {
     fi
     etat "$id" echec "$debut"
     touch "$RUN/arret"
-    return 1
+    return 0
 }
 
 # --- Constructions -----------------------------------------------------------
@@ -792,11 +795,11 @@ construire_link_os() {
 construire_station_linux() { cd "$(arbre_dir linux)"; server/linux/scripts/release-station.sh "$E"; }
 
 # --- Voies -------------------------------------------------------------------
-voie_autres() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape surcouche || true; etape station || true; etape windows || true; etape android || true; etape webos || true; }
-voie_apple() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape app_mac || true; etape tvos || true; etape ios || true; etape station_mac || true; }
-voie_notarisation() { etape notarisation || true; }
-voie_linux() { etape flatpak_aarch64 || true; etape flatpak_x86_64 || true; }
-voie_linux_os() { etape deb_pi || true; etape link_os || true; [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ] && { etape station_linux || true; }; true; }
+voie_autres() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape surcouche; etape station; etape windows; etape android; etape webos; }
+voie_apple() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape app_mac; etape tvos; etape ios; etape station_mac; }
+voie_notarisation() { etape notarisation; }
+voie_linux() { etape flatpak_aarch64; etape flatpak_x86_64; }
+voie_linux_os() { etape deb_pi; etape link_os; if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then etape station_linux; fi; }
 
 # --- Affichage ---------------------------------------------------------------
 SYM_attente="·" SYM_encours="▶" SYM_faite="✓" SYM_reprise="=" SYM_echec="✗" SYM_annulee="–"
@@ -854,7 +857,15 @@ voie_apple & PIDS+=($!)
 voie_notarisation & PIDS+=($!)
 voie_linux & PIDS+=($!)
 voie_linux_os & PIDS+=($!)
-arreter_voies() { touch "$RUN/arret"; kill "${PIDS[@]}" 2>/dev/null || true; }
+# Interruption : les voies et tout ce qu'elles ont lancé (les constructions
+# dans la VM, lancées par ssh, y finissent leur commande en cours).
+descendants() { local p; for p in $(pgrep -P "$1" 2>/dev/null); do descendants "$p"; echo "$p"; done; }
+arreter_voies() {
+    local p tous=()
+    touch "$RUN/arret"
+    for p in "${PIDS[@]}"; do tous+=($(descendants "$p") "$p"); done
+    kill ${tous[@]+"${tous[@]}"} 2>/dev/null || true
+}
 trap 'arreter_voies; echo; echo "Interrompu." >&2; rendre_verrous; exit 130' INT TERM
 while :; do
     afficher
