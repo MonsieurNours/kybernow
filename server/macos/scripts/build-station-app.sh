@@ -149,13 +149,18 @@ ditto "$GAMEPADS" "$APP/Contents/Helpers/KyberNow Manettes.app"
 cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
 # Moteur du client web (invités du navigateur, /link) : la version officielle
 # de Kyber 0.29, puis notre moteur par-dessus, comme la surcouche Windows.
-WEB_OFFICIAL="$MAIN/third_party/payload/kyber-0.29.0/webclient"
-WEB_ENGINE="$MAIN/third_party/kyber-web-out"
+# Ceux du third_party/ de cet arbre s'il les a (arbre de construction de
+# release.sh : le moteur de la Station Windows de la même version), sinon
+# ceux du dépôt principal.
+WEB_TP="$ROOT/third_party"
+[ -f "$WEB_TP/kyber-web-out/kyclient_wasm_bg.wasm" ] && [ -d "$WEB_TP/payload/kyber-0.29.0/webclient" ] || WEB_TP="$MAIN/third_party"
+WEB_OFFICIAL="$WEB_TP/payload/kyber-0.29.0/webclient"
+WEB_ENGINE="$WEB_TP/kyber-web-out"
 if [ -d "$WEB_OFFICIAL" ] && [ -f "$WEB_ENGINE/kyclient_wasm_bg.wasm" ]; then
     mkdir -p "$APP/Contents/Resources/webclient"
     cp -R "$WEB_OFFICIAL/." "$APP/Contents/Resources/webclient/"
     cp "$WEB_ENGINE/kyclient_wasm.js" "$WEB_ENGINE/kyclient_wasm_bg.wasm" "$APP/Contents/Resources/webclient/"
-    cp "$MAIN/third_party/payload/kyber-0.29.0/license.txt" "$APP/Contents/Resources/licenses/Kyber.txt" 2>/dev/null || true
+    cp "$WEB_TP/payload/kyber-0.29.0/license.txt" "$APP/Contents/Resources/licenses/Kyber.txt" 2>/dev/null || true
 else
     echo "    moteur web absent ($WEB_OFFICIAL, $WEB_ENGINE) : pas d'invité du navigateur" >&2
 fi
