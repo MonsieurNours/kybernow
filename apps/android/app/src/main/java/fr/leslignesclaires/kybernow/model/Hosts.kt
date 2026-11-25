@@ -224,6 +224,11 @@ data class Host(
      */
     val gamepads: Boolean = true,
     /**
+     * PyroWave annoncé par la Station (`pyrowave.available` de `info`), gardé avec l'ordinateur : nul avec une Station
+     * d'avant PyroWave (la valeur n'apparaît pas dans « Format vidéo »), faux quand elle ne le propose pas.
+     */
+    val pyrowave: Boolean? = null,
+    /**
      * Un compte KyberNow donne cet ordinateur (docs/comptes.md) : la clé du compte et la Station chez le relais. Sans
      * identifiant ([user] vide), l'ordinateur vient du compte seulement ([fromAccount]) : ni mot de passe ni appairage,
      * un jeton d'accès du relais à chaque appel ; avec, c'est un ordinateur appairé qui est aussi sur le compte (sa
@@ -260,6 +265,7 @@ data class Host(
         .put("settings", settings.json())
         .put("last", last?.json() ?: JSONObject.NULL).put("paired", paired)
         .put("relay", relay?.json() ?: JSONObject.NULL).put("gamepads", gamepads)
+        .put("pyrowave", pyrowave ?: JSONObject.NULL)
         .put("account", account?.json() ?: JSONObject.NULL)
 
     companion object {
@@ -283,6 +289,7 @@ data class Host(
             paired = o.optBoolean("paired"),
             relay = HostRelay.parse(o.optJSONObject("relay")),
             gamepads = o.optBoolean("gamepads", true),
+            pyrowave = if (o.has("pyrowave") && !o.isNull("pyrowave")) o.optBoolean("pyrowave") else null,
             account = HostAccount.parse(o.optJSONObject("account")),
         )
     }

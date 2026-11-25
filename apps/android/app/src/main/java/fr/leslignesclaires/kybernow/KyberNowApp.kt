@@ -107,6 +107,8 @@ class KyberNowApp : Application() {
         accounts = fr.leslignesclaires.kybernow.model.AccountManager(this)
         ps = fr.leslignesclaires.kybernow.playstation.PlayStations(this, fr.leslignesclaires.kybernow.playstation.PsStore(this), hosts)
         updates = fr.leslignesclaires.kybernow.update.Updates(this).also { it.start() }
+        // PyroWave : la sonde du lancement (device Vulkan, image de test), hors du fil principal.
+        Thread({ fr.leslignesclaires.kybernow.model.PyroWave.probe() }, "kybernow-pyrowave").start()
     }
 
     /** `fr` ou `en` : réglage de l'app (Auto / Français / English), sinon le système. */

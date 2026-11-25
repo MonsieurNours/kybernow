@@ -22,6 +22,8 @@ data class HostInfo(
     val ownDevice: Boolean = false,
     /** Le relais de la Station (`relay`, Station 0.8.0 et suivantes avec un relais réglé) ; nul sinon. */
     val relay: HostRelay? = null,
+    /** PyroWave proposé par la Station (`pyrowave.available`) ; nul avec une Station d'avant PyroWave (docs/pyrowave.md). */
+    val pyrowave: Boolean? = null,
     /** La réponse d'Admin en JSON, telle que le cœur la rend : [Share.availability] et [HostRelay.of] la relisent (`share`, `relay`). */
     val raw: String = "",
 ) {
@@ -41,6 +43,7 @@ data class HostInfo(
             wake = WakeTarget.parseList(o.optJSONArray("wake")),
             ownDevice = o.optJSONObject("account")?.optBoolean("own_device") ?: false,
             relay = HostRelay.parse(o.optJSONObject("relay")),
+            pyrowave = fr.leslignesclaires.kybernow.model.PyroWave.offered(o),
             raw = o.toString(),
         )
     }

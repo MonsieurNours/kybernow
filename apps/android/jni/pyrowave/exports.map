@@ -1,0 +1,6 @@
+{
+  global:
+    kn_pw_*;
+  local:
+    *;
+};

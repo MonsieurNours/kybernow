@@ -89,6 +89,7 @@ import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Profile
+import fr.leslignesclaires.kybernow.model.PyroWaveLink
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.FocusCard
@@ -160,6 +161,15 @@ class SessionUi(
      */
     var hdrState by mutableStateOf(HdrState.HIDDEN)
     var hdrChoice by mutableStateOf(true)
+    /**
+     * PyroWave (docs/link-ui.md, « PyroWave ») : choisi à la main pour cet ordinateur ([pyroChosen], hôte seulement),
+     * le réseau de l'appareil au début ([pyroLink] : câble ou Wi-Fi ; le relais se lit dans la route), le bandeau du
+     * début montré ([pyroBanner]) et déjà passé ([pyroBannerDone]).
+     */
+    var pyroChosen by mutableStateOf(false)
+    var pyroLink by mutableStateOf(PyroWaveLink.CABLE)
+    var pyroBanner by mutableStateOf(false)
+    var pyroBannerDone by mutableStateOf(false)
     var mouseMode by mutableStateOf(0)
     var directTouch by mutableStateOf(false)
     var remoteMouse by mutableStateOf(false)
@@ -239,6 +249,8 @@ interface SessionActions {
     fun setProfile(p: Profile)
     /** « HDR » coché ou non en session : gardé pour cet ordinateur, l'image est relancée. */
     fun setHdr(on: Boolean) {}
+    /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */
+    fun switchToHevc() {}
     fun setMouseMode(m: Int)
     fun setDirectTouch(on: Boolean)
     fun setRemoteMouse(on: Boolean)
@@ -500,6 +512,7 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
                 }
             }
         }
+        PyroBanner(ui)
         if (ui.menuOpen || ui.barOpen) restore?.let { (w, h) ->
             GlassButton(stringResource(R.string.session_restore, w, h), { ui.actions.restoreMode() })
         }
@@ -569,6 +582,8 @@ private fun PhoneBar(ui: SessionUi) {
                 }
                 // Par le relais (hors de chez vous) : la puce, dans la partie fixe comme « Partager ».
                 RouteChip(ui)
+                // PyroWave en Wi-Fi ou par le relais : la puce ambre, à côté.
+                PyroChip(ui)
                 // Un invité n'a rien à partager ; l'ami qui emprunte a « Prêté par {hôte} », le temps et « Rendre l'ordinateur ».
                 if (ui.borrower) LentItems(ui)
                 else if (!ui.guest && ui.console == null) {
@@ -931,6 +946,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
         if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
+        PyroTile(ui)
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
@@ -1088,6 +1104,7 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
         if (ui.console == null) {
             Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
             Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
+            PyroStats(ui, sec, video)
         }
         // « HDR » quand l'image l'est : en allumant et éteignant le HDR depuis la barre, on voit quelle étape change.
         video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}" + if (hdr && ui.console == null) " · HDR" else "", size = 11f) }

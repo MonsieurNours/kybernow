@@ -16,6 +16,12 @@ object Native {
     /** Journal vers logcat (`KyberNow`) et langue des messages du cœur. */
     @JvmStatic external fun init(language: String)
 
+    /**
+     * PyroWave (docs/pyrowave-client-android.md) : la sonde du lancement, hors du fil principal (device Vulkan,
+     * décodeur, image de test décodée et relue). `{"available": bool, "report": "GPU, chemin" ou la raison}`.
+     */
+    @JvmStatic external fun pyrowaveProbe(): String
+
     /** Horloge des mesures de Kyber (µs, CLOCK_MONOTONIC). */
     @JvmStatic external fun nowMicros(): Long
 
