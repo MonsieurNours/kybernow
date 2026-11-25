@@ -553,6 +553,8 @@ mod system {
             let out = match format() {
                 Format::Deb => Command::new("dpkg-query").args(["-W", "-f=${Version}", PACKAGE_NAME]).output(),
                 Format::Rpm => Command::new("rpm").args(["-q", "--qf", "%{VERSION}", PACKAGE_NAME]).output(),
+                // Installation dans le dossier de l'utilisateur : jamais le service root.
+                Format::Archive => return None,
             }
             .ok()?;
             out.status.success().then(|| plain_version(&String::from_utf8_lossy(&out.stdout))).flatten()
@@ -572,6 +574,7 @@ mod system {
                 Format::Rpm if downgrade => run(Command::new("rpm").args(["-Uvh", "--oldpackage"]).arg(package), log),
                 Format::Rpm if has("dnf") => run(Command::new("dnf").args(["install", "-y"]).arg(package), log),
                 Format::Rpm => run(Command::new("rpm").arg("-Uvh").arg(package), log),
+                Format::Archive => bail!("installation dans le dossier de l'utilisateur : kybernow-station-home, pas le service root"),
             }
         }
 
