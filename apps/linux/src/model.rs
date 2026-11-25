@@ -211,6 +211,9 @@ pub struct Host {
     pub gpu: Option<String>,
     #[serde(default)]
     pub av1: bool,
+    /// La Station propose PyroWave (`pyrowave` de `GET /api/stream/info`, docs/pyrowave.md) ; absent : non.
+    #[serde(default)]
+    pub pyrowave: bool,
     /// Adresse MAC saisie à la main (Réglages › Réseau, réglage avancé) :
     /// le réveil s'en sert quand la Station n'a pas donné ses cartes.
     #[serde(default)]
@@ -887,6 +890,7 @@ impl Store {
                     os: None,
                     gpu: None,
                     av1: false,
+                    pyrowave: false,
                     mac: None,
                     wake: Vec::new(),
                     relay,

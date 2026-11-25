@@ -114,6 +114,39 @@ static void *conv_rows(void *arg) {
     return NULL;
 }
 
+// Convertit en BGRA, sur quelques fils : BT.709 ou BT.601, plage limitée ou complète.
+static void convert444(const kn_conv *src, int width, int height, int bt709, int full, uint8_t *out, int out_stride) {
+    kn_conv base = *src;
+    double kr = bt709 ? 0.2126 : 0.299, kb = bt709 ? 0.0722 : 0.114, kg = 1.0 - kr - kb;
+    double ys = full ? 1.0 : 255.0 / 219.0, cs = full ? 1.0 : 255.0 / 224.0;
+    double rv = 2.0 * (1.0 - kr) * cs, bu = 2.0 * (1.0 - kb) * cs;
+    double gu = bu * kb / kg, gv = rv * kr / kg;
+    base.cy = (int)(ys * 16384 + 0.5);
+    base.crv = (int)(rv * 16384 + 0.5);
+    base.cbu = (int)(bu * 16384 + 0.5);
+    base.cgu = (int)(gu * 16384 + 0.5);
+    base.cgv = (int)(gv * 16384 + 0.5);
+    base.yoff = full ? 0 : 16;
+    base.out = out;
+    base.out_stride = out_stride;
+    base.width = width;
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    int n = ncpu > 4 ? 4 : ncpu < 1 ? 1 : (int)ncpu;
+    if ((size_t)width * height < 640 * 480) n = 1;
+    kn_conv parts[4];
+    pthread_t th[4];
+    int started[4] = {0};
+    for (int i = 0; i < n; i++) {
+        parts[i] = base;
+        parts[i].y0 = height * i / n;
+        parts[i].y1 = height * (i + 1) / n;
+        if (i > 0) started[i] = pthread_create(&th[i], NULL, conv_rows, &parts[i]) == 0;
+        if (i > 0 && !started[i]) conv_rows(&parts[i]);
+    }
+    conv_rows(&parts[0]);
+    for (int i = 1; i < n; i++) if (started[i]) pthread_join(th[i], NULL);
+}
+
 // Convertit l'image 4:4:4 `f` dans d->rgb. 0 : fait, < 0 : format inconnu.
 static int to_bgra(kn_decoder *d, const AVFrame *f, int bt709, int full) {
     kn_conv base = {0};
@@ -140,36 +173,18 @@ static int to_bgra(kn_decoder *d, const AVFrame *f, int bt709, int full) {
         d->rgb_size = d->rgb ? need : 0;
         if (!d->rgb) return -1;
     }
-    // BT.709 ou BT.601, plage limitée ou complète.
-    double kr = bt709 ? 0.2126 : 0.299, kb = bt709 ? 0.0722 : 0.114, kg = 1.0 - kr - kb;
-    double ys = full ? 1.0 : 255.0 / 219.0, cs = full ? 1.0 : 255.0 / 224.0;
-    double rv = 2.0 * (1.0 - kr) * cs, bu = 2.0 * (1.0 - kb) * cs;
-    double gu = bu * kb / kg, gv = rv * kr / kg;
-    base.cy = (int)(ys * 16384 + 0.5);
-    base.crv = (int)(rv * 16384 + 0.5);
-    base.cbu = (int)(bu * 16384 + 0.5);
-    base.cgu = (int)(gu * 16384 + 0.5);
-    base.cgv = (int)(gv * 16384 + 0.5);
-    base.yoff = full ? 0 : 16;
-    base.out = d->rgb;
-    base.out_stride = f->width * 4;
-    base.width = f->width;
-    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-    int n = ncpu > 4 ? 4 : ncpu < 1 ? 1 : (int)ncpu;
-    if ((size_t)f->width * f->height < 640 * 480) n = 1;
-    kn_conv parts[4];
-    pthread_t th[4];
-    int started[4] = {0};
-    for (int i = 0; i < n; i++) {
-        parts[i] = base;
-        parts[i].y0 = f->height * i / n;
-        parts[i].y1 = f->height * (i + 1) / n;
-        if (i > 0) started[i] = pthread_create(&th[i], NULL, conv_rows, &parts[i]) == 0;
-        if (i > 0 && !started[i]) conv_rows(&parts[i]);
-    }
-    conv_rows(&parts[0]);
-    for (int i = 1; i < n; i++) if (started[i]) pthread_join(th[i], NULL);
+    convert444(&base, f->width, f->height, bt709, full, d->rgb, f->width * 4);
     return 0;
+}
+
+// Une image 4:4:4 en trois plans 8 bits (PyroWave, src/native/pyrowave.c) en BGRA.
+void kn_yuv444_to_bgra(const uint8_t *y, const uint8_t *u, const uint8_t *v, int stride, int width, int height,
+                       int bt709, int full, uint8_t *out, int out_stride) {
+    kn_conv base = {0};
+    base.y = y; base.u = u; base.v = v;
+    base.ys = base.us = base.vs = stride;
+    base.step = 1;
+    convert444(&base, width, height, bt709, full, out, out_stride);
 }
 
 // Le format que FFmpeg propose : celui du décodeur matériel s'il est là,

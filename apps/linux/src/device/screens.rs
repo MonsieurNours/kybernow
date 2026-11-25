@@ -173,6 +173,7 @@ mod tests {
             os: None,
             gpu: None,
             av1: false,
+            pyrowave: false,
             mac: None,
             wake: Vec::new(),
             relay: None,

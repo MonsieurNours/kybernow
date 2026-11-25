@@ -414,6 +414,9 @@ pub struct Machine {
     pub hw_hevc444: bool,
     /// VA-API présent.
     pub vaapi: bool,
+    /// PyroWave décodé par la carte graphique (Vulkan), d'après la sonde du lancement (docs/pyrowave-client-linux.md) :
+    /// faux pendant la sonde, sur le Raspberry Pi et sans Vulkan 1.3 qui convienne.
+    pub pyrowave: bool,
     /// Écran : définition et fréquence (celles de la fenêtre).
     pub display: (u32, u32),
     pub refresh: u32,
@@ -494,6 +497,7 @@ impl Default for Machine {
             hw_av1: false,
             hw_hevc444: false,
             vaapi: true,
+            pyrowave: false,
             display: (1280, 800),
             refresh: 60,
             display_name: String::new(),
@@ -618,6 +622,9 @@ pub struct Stats {
     pub stages: [Option<f64>; 6],
     /// Un écran au moins de l'image est en HDR (`Second::hdr`) : « HDR » après le format.
     pub hdr: bool,
+    /// Images envoyées par l'ordinateur jamais montrées pendant la seconde (`Second::lost_frames`) : « Images
+    /// perdues » des statistiques en PyroWave, en part des images (avec `fps`).
+    pub lost_frames: u32,
 }
 
 impl Stats {
@@ -665,6 +672,8 @@ pub enum MenuItem {
     Quality,
     /// Par le relais : la tuile « Par le relais » (le chemin ; rien à choisir).
     Route,
+    /// PyroWave en Wi-Fi ou hors de chez soi : la tuile (la puce de la barre) qui fait « Passer en HEVC ».
+    PyroWaveHevc,
     /// Prêt de l'ordinateur, hôte : « Prêter l'ordinateur… ».
     Lend,
     /// Prêt de l'ordinateur, session d'emprunt : « Rendre l'ordinateur » (après sa confirmation).
@@ -1948,9 +1957,39 @@ pub struct SessionUi {
     pub pads_unavailable_said: bool,
     /// « HDR » dans la barre et le menu (`None` : pas de HDR proposé, écran SDR ou invité) : la puce de l'ordinateur.
     pub hdr: Option<HdrUi>,
+    /// PyroWave (docs/link-ui.md, « PyroWave ») : cet appareil joint l'ordinateur par câble (`system::wired_to`, au
+    /// début de la session) ; le bandeau du début (montré depuis, et déjà montré une fois) ; « Passer en HEVC »
+    /// choisi (pour cette session seulement) ; la définition ramenée (largeur, hauteur, Mbit/s), quand l'app le sait.
+    pub pw_wired: bool,
+    pub pw_banner: Option<Instant>,
+    pub pw_banner_seen: bool,
+    pub pw_hevc: bool,
+    pub lowered: Option<(u32, u32, u32)>,
 }
 
 impl SessionUi {
+    /// L'image est en PyroWave (le décodeur le dit) et risque de saccader : Wi-Fi ou relais. La puce ambre de la
+    /// barre, le bandeau et la tuile « Passer en HEVC » en dépendent. Jamais pour un invité (il prend l'image de l'hôte).
+    pub fn pyrowave_risk(&self) -> Option<crate::pyrowave::Risk> {
+        let pw = self.stats.as_ref().is_some_and(|s| s.decoder == "PyroWave");
+        if !pw || self.pw_hevc || self.guest.is_some() {
+            return None;
+        }
+        crate::pyrowave::Risk::of(self.via_relay(), self.pw_wired)
+    }
+
+    /// Le bandeau du début de session : une fois, dès la première seconde en PyroWave à risque ; 8 s, ou la croix.
+    pub fn pyrowave_seen(&mut self) {
+        if !self.pw_banner_seen && self.pyrowave_risk().is_some() {
+            self.pw_banner_seen = true;
+            self.pw_banner = Some(Instant::now());
+        }
+    }
+
+    pub fn pw_banner_visible(&self) -> bool {
+        self.pyrowave_risk().is_some() && self.pw_banner.is_some_and(|t| t.elapsed() < Duration::from_secs(crate::pyrowave::BANNER_SECONDS))
+    }
+
     /// Une session qui démarre : la connexion commence.
     pub fn new(id: SessionId, host: &str, name: &str, profile: Profile, light: bool, relative: bool, expected_screens: usize) -> Self {
         Self {
@@ -1999,6 +2038,11 @@ impl SessionUi {
             console: None,
             pads_unavailable_said: false,
             hdr: None,
+            pw_wired: true,
+            pw_banner: None,
+            pw_banner_seen: false,
+            pw_hevc: false,
+            lowered: None,
         }
     }
 
@@ -2501,6 +2545,9 @@ pub enum Target {
     BarProfile,
     /// « HDR », cochable, près du profil (écran HDR seulement).
     BarHdr,
+    /// Le bandeau PyroWave du début de session : « Passer en HEVC » et sa croix.
+    PwHevc,
+    PwClose,
     BarPick(Profile),
     BarKeys,
     BarShortcut(usize),
@@ -2699,6 +2746,8 @@ pub enum Action {
     SetProfile(SessionId, Profile),
     /// L'interrupteur « HDR » de la barre ou du menu de session (`Session::set_hdr`).
     SetHdr(SessionId, bool),
+    /// « Passer en HEVC » (bandeau PyroWave, tuile du menu) : l'image repart en HEVC, pour cette session seulement.
+    PyroWaveToHevc(SessionId),
     PadMouse(SessionId, bool),
     /// Le son coupé depuis le menu de session.
     Mute(SessionId, bool),
@@ -4383,6 +4432,13 @@ impl App {
             Target::WinClose => vec![Action::Quit],
             Target::BarProfile => self.toggle_bar_menu(BarMenu::Profile),
             Target::BarHdr => self.session_hdr(false),
+            Target::PwHevc => self.pyrowave_to_hevc(),
+            Target::PwClose => {
+                if let Some(s) = self.session_mut() {
+                    s.pw_banner = None;
+                }
+                Vec::new()
+            }
             Target::BarKeys => self.toggle_bar_menu(BarMenu::Keys),
             Target::BarComputers => self.toggle_bar_menu(BarMenu::Computers),
             Target::BarQuality => self.toggle_bar_menu(BarMenu::Quality),
@@ -5029,6 +5085,10 @@ impl App {
                 vec![Action::SetProfile(id, p), Action::Save]
             }
             MenuItem::Hdr => self.session_hdr(true),
+            MenuItem::PyroWaveHevc => {
+                s.menu = false;
+                self.pyrowave_to_hevc()
+            }
             MenuItem::Sound => {
                 s.muted = !s.muted;
                 vec![Action::Mute(id, s.muted)]
@@ -5650,13 +5710,24 @@ impl App {
                 let fps_off: Vec<bool> = fps.iter().map(|f| *f != 0 && *f > m.max_hz(height)).collect();
                 // Sur le Pi, 120 Hz n'existe qu'en 1080p : l'étiquette le dit.
                 let fps_tags: Vec<Option<Tag>> = fps.iter().map(|f| if pi.is_some_and(|p| p.generation >= 4) && *f == 120 { Tag::note("1080p") } else { None }).collect();
-                let codecs = ["auto", "hevc", "h264", "av1"];
-                let hevc = self.codec_for(h) == "hevc";
+                // PyroWave : seulement si l'ordinateur le propose (ou s'il était déjà choisi : sa raison le dit).
+                let pw_shown = h.pyrowave || st.codec == "pyrowave";
+                let mut codecs = vec!["auto", "hevc", "h264", "av1"];
+                let mut codec_labels: Vec<String> = vec!["Auto".into(), "HEVC".into(), "H.264".into(), "AV1".into()];
+                if pw_shown {
+                    codecs.push("pyrowave");
+                    codec_labels.push("PyroWave".into());
+                }
+                let pw = self.codec_for(h) == "pyrowave";
+                let hevc = self.codec_for(h) == "hevc" || pw;
                 let hdr = self.hdr_ui(h);
                 let hdr_lit = hdr.is_some_and(|u| u.lit());
-                let codec_off: Vec<bool> = codecs.iter().map(|c| *c != "auto" && !m.decodes(c)).collect();
+                let codec_off: Vec<bool> = codecs.iter().map(|c| *c != "auto" && if *c == "pyrowave" { !(m.pyrowave && h.pyrowave) } else { !m.decodes(c) }).collect();
                 let who = |hw: bool| if hw { Tag::hw(m.hw_name()) } else { Tag::cpu() };
-                let codec_tags = vec![None, who(m.hw_hevc), who(m.hw_h264), if m.hw_av1 { Tag::hw(m.hw_name()) } else { None }];
+                let mut codec_tags = vec![None, who(m.hw_hevc), who(m.hw_h264), if m.hw_av1 { Tag::hw(m.hw_name()) } else { None }];
+                if pw_shown {
+                    codec_tags.push(m.pyrowave.then(|| Tag::hw(m.hw_name())).flatten());
+                }
                 let display = ["auto", "vsync", "immediate", "vrr"];
                 let vrr_hint = match (pi, m.vrr) {
                     (Some(_), _) => tr("La sortie HDMI du Pi n'a pas de fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "The Pi's HDMI output has no variable refresh. Immediate: each frame as soon as it is decoded."),
@@ -5666,15 +5737,21 @@ impl App {
                 };
                 let br_labels: Vec<String> = BITRATES.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
                 let (res_hint, fps_hint, codec_hint) = picture_hints(m);
+                let (codec_hint, codec_warn) = self.pyrowave_codec_hint(h, codec_hint, pw_shown);
                 let res_row = choice(Setting::Resolution, tr("Définition", "Resolution"), res_hint, res_labels, res.iter().position(|v| *v == st.resolution).unwrap_or(0), res_off);
                 let mut fps_row = choice(Setting::Fps, tr("Fréquence", "Refresh rate"), fps_hint, fps_labels, fps.iter().position(|v| *v == st.fps).unwrap_or(0), fps_off);
                 if let RowKind::Choice { tags, .. } = &mut fps_row.kind {
                     *tags = fps_tags;
                 }
-                let mut codec_row = choice(Setting::Codec, tr("Format vidéo", "Video format"), codec_hint, vec!["Auto".into(), "HEVC".into(), "H.264".into(), "AV1".into()], codecs.iter().position(|v| *v == st.codec).unwrap_or(0), codec_off);
+                let mut codec_row = choice(Setting::Codec, tr("Format vidéo", "Video format"), codec_hint, codec_labels, codecs.iter().position(|v| *v == st.codec).unwrap_or(0), codec_off);
                 if let RowKind::Choice { tags, .. } = &mut codec_row.kind {
                     *tags = codec_tags;
                 }
+                // PyroWave en Wi-Fi ou par le relais : l'avertissement suit l'aide, la puce ambre le signale.
+                codec_row.tag = codec_warn.map(|r| Tag { text: match r {
+                    crate::pyrowave::Risk::Wifi => "Wi-Fi".into(),
+                    crate::pyrowave::Risk::Relay => tr("hors de chez vous", "away from home").into(),
+                }, kind: TagKind::Cpu });
                 let mut rows = vec![
                     res_row,
                     fps_row,
@@ -5696,7 +5773,7 @@ impl App {
                         Row {
                             setting: Setting::Yuv444,
                             label: tr("Texte net (4:4:4)", "Sharp text (4:4:4)").into(),
-                            hint: yuv444_hint(m, hevc),
+                            hint: if pw { crate::pyrowave::yuv444_help().into() } else { yuv444_hint(m, hevc) },
                             kind: RowKind::Toggle(st.yuv444 && hevc),
                             enabled: hevc,
                             tag: if hevc { who(m.hw_hevc444) } else { None },
@@ -6154,7 +6231,7 @@ impl App {
             // Ne rend pas le profil « Personnalisé » : `custom()` ne le regarde pas.
             Setting::Displays if enabled => st.displays = pick(&["auto", "this", "all"], i),
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
-            Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1"], i),
+            Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1", "pyrowave"], i),
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),
             Setting::Bitrate => st.mbps = BITRATES[i.min(BITRATES.len() - 1)],
             Setting::Audio => st.audio = pick(&["auto", "stereo", "5.1", "7.1", "computer"], i),
@@ -6311,6 +6388,48 @@ impl App {
         vec![Action::Save]
     }
 
+    /// « Passer en HEVC » : l'image de la session active repart en HEVC (le choix de l'ordinateur ne change pas).
+    pub fn pyrowave_to_hevc(&mut self) -> Vec<Action> {
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        if s.pyrowave_risk().is_none() {
+            return Vec::new();
+        }
+        s.pw_hevc = true;
+        s.pw_banner = None;
+        vec![Action::PyroWaveToHevc(s.id)]
+    }
+
+    /// Le format d'une session : HEVC après « Passer en HEVC », sinon celui de l'ordinateur (`codec_for`).
+    pub fn session_codec(&self, id: SessionId, h: &Host) -> &'static str {
+        if self.session_by(id).is_some_and(|s| s.pw_hevc) { "hevc" } else { self.codec_for(h) }
+    }
+
+    /// PyroWave dans « Format vidéo » (docs/link-ui.md, « PyroWave ») : l'aide selon le choix, et le risque à
+    /// signaler (Wi-Fi, relais) quand il est choisi. Par câble : l'interface réseau active de cet appareil
+    /// (la session, elle, regarde la route vers l'ordinateur : `system::wired_to`).
+    pub fn pyrowave_codec_hint(&self, h: &Host, base: String, shown: bool) -> (String, Option<crate::pyrowave::Risk>) {
+        use crate::pyrowave as pw;
+        let m = &self.machine;
+        let reason = pw::unavailable(&h.name, h.pyrowave, m.pyrowave);
+        match h.settings.codec.as_str() {
+            "pyrowave" => match reason {
+                Some(r) => (r, None),
+                None => {
+                    let risk = pw::Risk::of(self.station_via_relay(&h.id), self.net.kind == NetKind::Ethernet);
+                    let help = match risk {
+                        Some(r) => format!("{} {}", pw::chosen_help(), r.warning()),
+                        None => pw::chosen_help().into(),
+                    };
+                    (help, risk)
+                }
+            },
+            "auto" if reason.is_none() => (pw::auto_help(self.net.kind == NetKind::Ethernet && !self.station_via_relay(&h.id)).into(), None),
+            // Proposé par l'ordinateur, pas décodé ici : la raison de la valeur inactive après l'aide.
+            _ if shown && reason.is_some() => (format!("{base} {}", reason.unwrap_or_default()), None),
+            _ => (base, None),
+        }
+    }
+
     /// Le format choisi : celui demandé s'il est décodé (AV1 : si l'ordinateur
     /// l'encode aussi), sinon HEVC, que la carte ou le processeur décode.
     pub fn codec_for(&self, h: &Host) -> &'static str {
@@ -6319,6 +6438,8 @@ impl App {
         match h.settings.codec.as_str() {
             "h264" => "h264",
             "av1" if m.decodes("av1") && h.av1 => "av1",
+            // PyroWave : décodé ici (sonde) et proposé par l'ordinateur (`info.pyrowave`) ; sinon HEVC.
+            "pyrowave" if m.pyrowave && h.pyrowave => "pyrowave",
             "hevc" if hevc_ok => "hevc",
             _ if hevc_ok => "hevc",
             _ => "h264",
@@ -6524,6 +6645,7 @@ mod tests {
             os: None,
             gpu: None,
             av1: true,
+            pyrowave: false,
             mac: None,
             wake: Vec::new(),
             relay: None,
@@ -6664,6 +6786,83 @@ mod tests {
         app.adjust(Setting::Codec, 1); // → h264
         app.adjust(Setting::Codec, 1); // av1 indisponible → auto
         assert_eq!(app.selected().unwrap().settings.codec, "auto");
+    }
+
+    /// PyroWave dans « Format vidéo » (docs/link-ui.md, « PyroWave ») : la valeur seulement si l'ordinateur le
+    /// propose, inactive avec sa raison si cet appareil ne le décode pas ; les aides selon le choix et le câble.
+    #[test]
+    fn pyrowave_dans_format_video() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.store.hosts.push(host());
+        app.machine.hw_av1 = false;
+        app.settings_global = false;
+        app.section = 1; // Image
+        let codec_row = |app: &App| app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Codec).unwrap();
+        let options = |r: &Row| match &r.kind {
+            RowKind::Choice { options, disabled, .. } => (options.clone(), disabled.clone()),
+            _ => unreachable!(),
+        };
+        // L'ordinateur ne le propose pas : pas de valeur.
+        assert_eq!(options(&codec_row(&app)).0.len(), 4);
+        // Proposé, pas décodé ici : la valeur inactive, et sa raison dans l'aide.
+        app.store.hosts[0].pyrowave = true;
+        let (o, d) = options(&codec_row(&app));
+        assert_eq!((o[4].as_str(), d[4]), ("PyroWave", true));
+        assert!(codec_row(&app).hint.ends_with("Cet appareil ne sait pas décoder PyroWave."));
+        // Décodé : « Auto » dit ce qu'il prendra, selon le câble.
+        app.machine.pyrowave = true;
+        app.net.kind = NetKind::Ethernet;
+        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(true));
+        app.net.kind = NetKind::Wifi;
+        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(false));
+        // Choisi en Wi-Fi : l'aide, l'avertissement, la puce ambre ; le format de la session.
+        app.store.hosts[0].settings.codec = "pyrowave".into();
+        let r = codec_row(&app);
+        assert!(r.hint.starts_with(crate::pyrowave::chosen_help()) && r.hint.ends_with(crate::pyrowave::Risk::Wifi.warning()));
+        assert_eq!(r.tag.map(|t| t.kind), Some(TagKind::Cpu));
+        assert_eq!(app.codec_for(&app.store.hosts[0]), "pyrowave");
+        // Le texte net vaut avec PyroWave (son aide à lui).
+        let yuv = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Yuv444).unwrap();
+        assert!(yuv.enabled);
+        assert_eq!(yuv.hint, crate::pyrowave::yuv444_help());
+        // L'ordinateur ne le propose plus : la raison à son nom, et HEVC en session.
+        app.store.hosts[0].pyrowave = false;
+        assert_eq!(codec_row(&app).hint, format!("{} ne propose pas PyroWave.", app.store.hosts[0].name));
+        assert_eq!(app.codec_for(&app.store.hosts[0]), "hevc");
+        // Les valeurs se parcourent jusqu'à PyroWave quand il est possible.
+        app.store.hosts[0].pyrowave = true;
+        app.store.hosts[0].settings.codec = "h264".into();
+        app.adjust(Setting::Codec, 1); // h264 → (av1 indisponible) → pyrowave
+        assert_eq!(app.selected().unwrap().settings.codec, "pyrowave");
+    }
+
+    /// En session : la puce et le bandeau seulement en PyroWave, en Wi-Fi ou par le relais ; « Passer en HEVC » les
+    /// retire et relance l'image en HEVC pour la session.
+    #[test]
+    fn pyrowave_en_session() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        let mut s = SessionUi::new(1, "a", "A", Profile::Jeu, false, false, 1);
+        s.phase = Phase::Streaming;
+        s.stats = Some(Stats { decoder: "VA-API HEVC".into(), ..Default::default() });
+        s.pw_wired = false;
+        s.pyrowave_seen();
+        assert!(s.pyrowave_risk().is_none() && !s.pw_banner_visible());
+        s.stats = Some(Stats { decoder: "PyroWave".into(), ..Default::default() });
+        s.pyrowave_seen();
+        assert_eq!(s.pyrowave_risk(), Some(crate::pyrowave::Risk::Wifi));
+        assert!(s.pw_banner_visible());
+        app.set_session(Some(s));
+        assert_eq!(app.activate(Target::PwHevc), vec![Action::PyroWaveToHevc(1)]);
+        let s = app.session().unwrap();
+        assert!(s.pw_hevc && s.pyrowave_risk().is_none() && !s.pw_banner_visible());
+        assert_eq!(app.session_codec(1, &app.store.hosts[0]), "hevc");
+        // Par câble : rien à dire.
+        let mut s = SessionUi::new(2, "a", "A", Profile::Jeu, false, false, 1);
+        s.stats = Some(Stats { decoder: "PyroWave".into(), ..Default::default() });
+        s.pyrowave_seen();
+        assert!(s.pyrowave_risk().is_none() && !s.pw_banner_seen);
     }
 
     fn online(app: &mut App, id: &str, station: Option<StationLive>) {

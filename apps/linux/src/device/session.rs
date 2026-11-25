@@ -437,6 +437,7 @@ impl Platform for LinuxPlatform {
             fps: s.displayed as f64,
             mbps: s.bytes as f64 * 8.0 / 1e6,
             lost: s.lost_frames + s.holes,
+            lost_frames: s.lost_frames,
             codec: self.0.codec(),
             audio_ms: self.0.audio_ms(),
             chain: s.chain.map(|c| c.all()),
@@ -646,7 +647,7 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
 /// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par la carte ou le processeur, le 4:4:4
 /// avec lui, l'AV1 par la carte.
 pub fn guest_capabilities(m: &Machine) -> Capabilities {
-    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: hdr_decodes(m), pyrowave: false }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: m.decodes("hevc"), av1: m.decodes("av1"), hdr: hdr_decodes(m), pyrowave: m.pyrowave }
 }
 
 /// Le HDR possible sur cet appareil (`Capabilities::hdr` du cœur) : la voie du HDR ouverte (bureau Wayland avec la
@@ -707,7 +708,7 @@ pub fn core_profile(p: Profile) -> CoreProfile {
 /// (`Screens::capabilities`, docs/multi-ecrans.md).
 pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
     let yuv444 = host.settings.yuv444 && codec == "hevc";
-    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: hdr_decodes(m), pyrowave: false }
+    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1", hdr: hdr_decodes(m), pyrowave: m.pyrowave }
 }
 
 /// Les réglages du flux : le profil ramené à ce que décode cette machine, le
@@ -717,11 +718,15 @@ pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
 /// `restore`) et son débit suit la définition. « Personnalisé » ne sert qu'au
 /// nombre d'écrans, et c'est le cœur qui le décide (`screens::screens_profile`).
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), m: &Machine, light: bool) -> StreamSettings {
-    let yuv444 = host.settings.yuv444 && codec == "hevc";
+    // Le texte net vaut en HEVC et en PyroWave (presque sans coût : seul le débit monte).
+    let yuv444 = host.settings.yuv444 && matches!(codec, "hevc" | "pyrowave");
     let mut s = StreamSettings::for_profile(core_profile(profile), capabilities(host, codec, m));
     s.codec = match codec {
         "h264" => Codec::H264,
         "av1" => Codec::Av1,
+        // Choisi, décodé ici et proposé par l'ordinateur (`App::codec_for`) ; le cœur le garde ou revient à HEVC
+        // d'après ce que la Station annonce au début de la session (`profile::pyrowave_format`).
+        "pyrowave" => Codec::PyroWave,
         _ => Codec::Hevc,
     };
     s.yuv444 = yuv444;
@@ -818,6 +823,13 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         sh.send(SessionEvent::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
     });
     let recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), ..Recovery::default() };
+    let host_caps = Capabilities {
+        hevc: m.decodes("hevc"),
+        hevc444: settings.yuv444 && settings.codec == Codec::Hevc,
+        av1: settings.codec == Codec::Av1,
+        hdr: hdr_decodes(m),
+        pyrowave: m.pyrowave,
+    };
     let account = if guest.is_none() && loan.is_none() { super::accounts::access(&host.id) } else { None };
     let params = match (guest, loan, account) {
         // Un invité : la Station qui partage, le jeton de son partage, l'écran de l'hôte (`SessionParams::guest`).
@@ -863,7 +875,9 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             },
             screen_hdr: screen_hdr.is_some(),
             screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
-            capabilities: None,
+            // PyroWave : le cœur ne le prend que si l'app dit le décoder (une session à un écran ; à plusieurs, les
+            // capacités du plan des écrans).
+            capabilities: m.pyrowave.then_some(host_caps),
             account: Some(access),
         },
         (None, None, None) => SessionParams {
@@ -886,7 +900,9 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
             route: kybernow_core::session::Route::Auto(relay_route(host)),
             screen_hdr: screen_hdr.is_some(),
             screen_luminance: screen_hdr.map(super::hdr_wl::core_luminance),
-            capabilities: None,
+            // PyroWave : le cœur ne le prend que si l'app dit le décoder (une session à un écran ; à plusieurs, les
+            // capacités du plan des écrans).
+            capabilities: m.pyrowave.then_some(host_caps),
             account: None,
         },
     };
@@ -917,6 +933,7 @@ mod tests {
             os: None,
             gpu: None,
             av1: false,
+            pyrowave: false,
             mac: None,
             wake: Vec::new(),
             relay: None,

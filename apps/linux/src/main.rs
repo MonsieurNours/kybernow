@@ -14,6 +14,7 @@ mod i18n;
 mod model;
 mod preview;
 mod ps;
+mod pyrowave;
 mod ui;
 
 fn main() {
