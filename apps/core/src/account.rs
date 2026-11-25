@@ -959,8 +959,12 @@ impl StationAccess {
             return Err(AccountError::Other(String::from("jeton absent")));
         }
         let lifetime = r.body.get("lifetime").and_then(Value::as_u64).unwrap_or(300);
-        // Échéance selon le relais ; sans elle, celle de l'appareil.
-        let expires = r.body.get("expires").and_then(Value::as_u64).unwrap_or(now_secs() + lifetime);
+        // Échéance sur l'horloge de l'appareil, d'après la durée de vie : celle
+        // du relais (`expires`) ne vaut que si les deux horloges s'accordent ;
+        // un appareil en avance de plus de 90 s (Raspberry Pi sans horloge
+        // sauvegardée) redemandait un jeton à chaque appel. L'horloge murale
+        // compte le sommeil de l'appareil, contrairement à `Instant`.
+        let expires = now_secs() + lifetime;
         // Redemandé 30 secondes avant son échéance (90 secondes pour un jeton de 2 minutes), 4 minutes au plus.
         let renew = self.renew.min(Duration::from_secs(lifetime.saturating_sub(EXPIRY_MARGIN)));
         log::debug!("comptes : jeton d'accès pour {} ({} s)", self.station, lifetime);

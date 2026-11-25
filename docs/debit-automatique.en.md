@@ -52,7 +52,8 @@ Every second, the core gives the apps the bitrate it asks of the computer and wh
 
 ## Not done
 
-- Nothing warns of a link that is too weak. The target bitrate is given to the apps every second (below), but not shown in their statistics yet.
+- Nothing warns of a link that is too weak, apart from the target bitrate in the statistics (below; not in the LG TV app).
+- **AMD cards** (AMF encoder): the bitrate changes live since 0.11.1 (FFmpeg patch 0023 of 0026); **Intel** (Quick Sync): each change resets the encoder (a keyframe), which FFmpeg does on its own.
 - No lower resolution or frame rate: only the bitrate moves.
 - Error correction keeps its fixed 30 % share.
 - The browser's web client keeps its fixed bitrate, and doesn't show the “The network is saturated” banner with PyroWave.

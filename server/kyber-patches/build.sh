@@ -337,4 +337,6 @@ mkdir -p "$OVERLAY/webclient"
 cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$OVERLAY/webclient/"
 ls -lhR "$OVERLAY"
 # Empreinte des correctifs compilés, vérifiée par scripts/release.sh (à côté de la surcouche : pas livrée).
-cat "$HERE"/*.patch "$HERE/build.sh" "$HERE/pyrowave.sh" | shasum -a 256 | cut -d' ' -f1 > "$OVERLAY.stamp"
+# Avec les correctifs des apps qu'apply.sh repose après ceux du serveur
+# (0027 s'appuie sur 0005) : scripts/release.sh calcule la même empreinte.
+cat "$HERE"/*.patch "$HERE/build.sh" "$HERE/pyrowave.sh" "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/apps/webos/kyber-patches/*.patch | shasum -a 256 | cut -d' ' -f1 > "$OVERLAY.stamp"

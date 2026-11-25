@@ -339,12 +339,24 @@ fn jeton_d_acces_garde_quatre_minutes() {
 }
 
 #[test]
-fn jeton_d_acces_echu_selon_le_relais() {
-    // L'appareil a dormi : l'horloge monotone n'a pas avancé, l'échéance est passée.
-    let fake = Fake::new(|_, n| access_reply(n, now_secs() + 20));
+fn jeton_d_acces_echu_selon_sa_duree() {
+    // Un jeton de 20 secondes : déjà à moins de 30 secondes de son échéance
+    // (horloge murale de l'appareil, qui compte aussi son sommeil).
+    let fake = Fake::new(|_, n| reply(200, json!({ "token": format!("jeton-{n}"), "station": STATION, "rights": ["session"], "expires": now_secs() + 20, "lifetime": 20 })));
     let a = access(RENEW_AFTER, &fake);
     assert_eq!(a.token().unwrap(), "jeton-0");
     assert_eq!(a.token().unwrap(), "jeton-1", "à moins de 30 secondes de l'échéance");
+}
+
+#[test]
+fn jeton_d_acces_horloge_de_l_appareil_en_avance() {
+    // L'horloge de l'appareil a 10 minutes d'avance sur le relais : l'échéance
+    // donnée par le relais paraît passée, mais le jeton vaut ses 5 minutes.
+    let fake = Fake::new(|_, n| access_reply(n, now_secs().saturating_sub(600) + 300));
+    let a = access(RENEW_AFTER, &fake);
+    assert_eq!(a.token().unwrap(), "jeton-0");
+    assert_eq!(a.token().unwrap(), "jeton-0", "gardé : sa durée de vie compte, pas l'heure du relais");
+    assert_eq!(fake.calls().len(), 1);
 }
 
 #[test]

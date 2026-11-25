@@ -330,10 +330,10 @@ done
 
 # Ce que les arbres recompileront d'eux-mêmes (rien à faire ; dit pour la durée).
 STATION_STAMP="$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp"
-OVERLAY_WANT="$(cat server/kyber-patches/*.patch server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh | shasum -a 256 | cut -d' ' -f1)"
+OVERLAY_WANT="$(cat server/kyber-patches/*.patch server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch | shasum -a 256 | cut -d' ' -f1)"
 if [ "$(cat "$STATION_STAMP" 2>/dev/null)" = "$OVERLAY_WANT" ]; then ok "surcouche Kyber de l'arbre station-windows : correctifs actuels (empreinte)"
 else note "surcouche Kyber (Station Windows) à compiler dans son arbre : correctifs changés ou arbre neuf (automatique, long)"; fi
-mac_kyber_hash() { (cd "$1" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
+mac_kyber_hash() { (cd "$1" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh apps/macos/kyber-patches/*.patch apps/webos/kyber-patches/*.patch server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
 MAC_KYBER="$(arbre_dir station-mac)/third_party/kyber-desktop-macos/rootfs-arm64-macos"
 if [ -x "$MAC_KYBER/bin/kybernow-pyrowave-check" ] && [ "$(cat "$MAC_KYBER/.kybernow-patches" 2>/dev/null)" = "$(mac_kyber_hash "$ROOT")" ]; then
     ok "Station Mac : Kyber pour Mac de l'arbre compilé avec les correctifs actuels (empreinte, PyroWave)"
@@ -371,7 +371,6 @@ if CHECK="$(KYBERNOW_KYBER_HEAD=1 apps/linux/scripts/sources.sh "$FLATPAK_SRC/sr
     PATCH_FAIL=()
     for p in "$FLATPAK_SRC"/src/apps/macos/kyber-patches/*.patch "$FLATPAK_SRC"/src/server/kyber-patches/*-kyclient-*.patch "$FLATPAK_SRC"/src/apps/webos/kyber-patches/*.patch; do
         case "$(basename "$p")" in
-            *-kyclient-pyrowave.patch) continue ;;
             *-kyclient-*) depot=kyctl ;; *-kynput-*) depot=kynput ;; *-kynet-*) depot=kymux ;; *) PATCH_FAIL+=("$(basename "$p") (dépôt ?)"); continue ;;
         esac
         (cd "$FLATPAK_SRC/src/third_party/kyber-desktop/kysdk/$depot" && patch -p1 -s -f -F0 < "$p" > /dev/null 2>&1) || PATCH_FAIL+=("$(basename "$p")")
@@ -566,7 +565,7 @@ empreinte_de() {
     cat "$f"
 }
 
-entrees_surcouche() { chemins server/kyber-patches scripts/kyber-toolchain.sh; kyber_tetes station-windows kyber-desktop; kyber_tetes station-windows kyber-web; tp_id payload/kyber-0.29.0; }
+entrees_surcouche() { chemins server/kyber-patches apps/macos/kyber-patches apps/webos/kyber-patches scripts/kyber-toolchain.sh; kyber_tetes station-windows kyber-desktop; kyber_tetes station-windows kyber-web; tp_id payload/kyber-0.29.0; }
 entrees_station() { chemins $(server_sauf macos linux) scripts/kyber-toolchain.sh brand; echo "maj ${UPDATE_FLAGS[*]+"${UPDATE_FLAGS[*]}"}"; empreinte_de surcouche; tp_id payload/kyber-0.29.0; tp_id kyber-installer; }
 entrees_windows() { chemins "${COEUR[@]}" apps/windows apps/macos/PyroWave; empreinte_de surcouche; kyber_tetes windows-app kyber-desktop; tp_id rootfs-winarm64; tp_id "toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"; }
 entrees_android() { chemins "${COEUR[@]}" apps/android; kyber_tetes android kyber-desktop; tp_id opus-1.6.1; }
@@ -575,7 +574,7 @@ entrees_app_mac() { chemins "${COEUR[@]}" apps/macos apps/apple; kyber_tetes app
 entrees_notarisation() { echo "notariser $NOTARISER"; empreinte_de app_mac; }
 entrees_tvos() { chemins "${COEUR[@]}" apps/macos apps/apple apps/tvos; kyber_tetes apple kyber-desktop; }
 entrees_ios() { chemins "${COEUR[@]}" apps/macos apps/apple apps/ios; kyber_tetes apple kyber-desktop; }
-entrees_station_mac() { chemins $(server_sauf linux) scripts/kyber-toolchain.sh brand; echo "notariser $NOTARISER"; empreinte_de surcouche; kyber_tetes station-mac kyber-desktop-macos; tp_id payload/kyber-0.29.0; }
+entrees_station_mac() { chemins $(server_sauf linux) apps/macos/kyber-patches apps/webos/kyber-patches scripts/kyber-toolchain.sh brand; echo "notariser $NOTARISER"; empreinte_de surcouche; kyber_tetes station-mac kyber-desktop-macos; tp_id payload/kyber-0.29.0; }
 LINUX_ENTREES=(apps/linux apps/webos/kyber-patches LICENSE LICENSE.md)
 entrees_flatpak_aarch64() { chemins "${COEUR[@]}" "${LINUX_ENTREES[@]}"; kyber_tetes linux kyber-desktop; echo "$VM_TOOLS"; }
 entrees_flatpak_x86_64() { entrees_flatpak_aarch64; }

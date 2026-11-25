@@ -52,7 +52,8 @@ Chaque seconde, le cœur donne aux apps le débit qu'il demande à l'ordinateur 
 
 ## Ce qui n'est pas fait
 
-- Rien ne prévient d'une liaison trop faible. Le débit visé est donné aux apps chaque seconde (ci-dessous), mais pas encore montré dans leurs Statistiques.
+- Rien ne prévient d'une liaison trop faible, en dehors du débit visé des Statistiques (ci-dessous ; pas dans l'app des téléviseurs LG).
+- **Cartes AMD** (encodeur AMF) : le débit change en direct depuis la 0.11.1 (correctif FFmpeg 0023 de 0026) ; **Intel** (Quick Sync) : chaque changement remet l'encodeur à zéro (une image clé), ce que FFmpeg fait de lui-même.
 - Pas de baisse de définition ni de fréquence : seul le débit bouge.
 - La correction d'erreurs garde sa part fixe de 30 %.
 - Le client web du navigateur garde son débit fixe, et ne montre pas le bandeau « Le réseau sature » en PyroWave.
