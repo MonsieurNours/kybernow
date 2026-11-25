@@ -5,6 +5,7 @@
 #
 #   apps/apple/scripts/build-apple-mobile.sh tvos    → apps/tvos/Vendor
 #   apps/apple/scripts/build-apple-mobile.sh ios     → apps/ios/Vendor
+#   … tvos|ios --kyber-pyrowave                        Kyber demande PyroWave
 #
 #   Vendor/KyberNow.xcframework                   libkybernow.a par plateforme
 #   Vendor/KyberNow/include/kybernow/kybernow.h   en-tête (cbindgen)
@@ -18,15 +19,26 @@
 # aussi, et tout va dans la même bibliothèque ; l'en-tête de libkynput va dans
 # Vendor/include (module CKyber).
 #
+# PyroWave (docs/pyrowave-client-apple.md) : le décodeur est dans l'app
+# (KyberKit) et la capacité `pyrowave` part toujours au cœur. Mais le
+# correctif kyclient 0025 (`VideoCodec::PyroWave`, `fallback_codec`) et la
+# fonctionnalité `pyrowave` du cœur (`kyber-pyrowave` de kybernow-apple) ne
+# sont posés qu'avec --kyber-pyrowave, comme build-native.sh d'Android, tant
+# qu'ils ne sont pas allumés pour toutes les apps : third_party/ est partagé.
+# Sans eux, le cœur ne demande jamais PyroWave à Kyber.
+#
 # Cibles de rang 3 pour tvOS : Rust nightly et -Zbuild-std ; iOS : stable.
 # S'arrête à la première erreur sans toucher à Vendor/. Déploiement 18.0.
 set -euo pipefail
 
 PLATFORM="${1:-}"
+KYBER_PYROWAVE=0
+[ "${2:-}" = --kyber-pyrowave ] && KYBER_PYROWAVE=1
+[ $# -le 1 ] || [ "$KYBER_PYROWAVE" = 1 ] || { echo "Usage : $0 tvos|ios [--kyber-pyrowave]" >&2; exit 1; }
 case "$PLATFORM" in
     tvos) TARGETS=(aarch64-apple-tvos aarch64-apple-tvos-sim) ;;
     ios) TARGETS=(aarch64-apple-ios aarch64-apple-ios-sim) ;;
-    *) echo "Usage : $0 tvos|ios" >&2; exit 1 ;;
+    *) echo "Usage : $0 tvos|ios [--kyber-pyrowave]" >&2; exit 1 ;;
 esac
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -68,6 +80,20 @@ for target in "${TARGETS[@]}"; do
     }
 done
 
+FEATURES=()
+if [ "$KYBER_PYROWAVE" = 1 ]; then
+    patch="$ROOT/server/kyber-patches/0025-kyclient-pyrowave.patch"
+    repo="$KYBER/kysdk/kyctl"
+    if git -C "$repo" apply --check "$patch" 2>/dev/null; then
+        git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
+    elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
+        echo "Correctif $(basename "$patch") inapplicable :" >&2
+        git -C "$repo" apply --check "$patch" >&2 || true
+        exit 1
+    fi
+    FEATURES=(--features kyber-pyrowave)
+fi
+
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-mobile.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -86,10 +112,10 @@ for target in "${TARGETS[@]}"; do
     echo "==> kybernow-core + kybernow-apple ($target)"
     if needs_nightly "$target"; then
         (cd "$APPS" && cargo_quiet cargo +nightly cinstall -p kybernow-apple --target "$target" -Zbuild-std=std,panic_abort \
-            --release --library-type staticlib --prefix="$out")
+            --release --library-type staticlib --prefix="$out" ${FEATURES[@]+"${FEATURES[@]}"})
     else
         (cd "$APPS" && cargo_quiet cargo cinstall -p kybernow-apple --target "$target" \
-            --release --library-type staticlib --prefix="$out")
+            --release --library-type staticlib --prefix="$out" ${FEATURES[@]+"${FEATURES[@]}"})
     fi
     lib="$out/lib/libkybernow.a"
     [ -f "$lib" ] || { echo "libkybernow.a absente pour $target" >&2; exit 1; }
