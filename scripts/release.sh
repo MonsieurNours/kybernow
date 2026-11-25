@@ -528,6 +528,9 @@ deps_de() {
         station | windows | station_mac) echo surcouche ;;
         notarisation) echo app_mac ;;
         link_os) echo deb_pi ;;
+        # Le Flatpak x86_64 (Rosetta) après pi-gen : pendant pi-gen, rustc
+        # sous Rosetta a rendu une sortie vide (répétition du 25/11).
+        flatpak_x86_64) echo link_os ;;
     esac
 }
 
