@@ -21,7 +21,9 @@
 # Android 11 au moins (API 30, la Shield). NDK r27c (27.2.12479018) :
 # ANDROID_NDK_HOME, sinon $ANDROID_HOME/ndk/27.2.12479018, sinon le SDK
 # d'Android Studio (~/Library/Android/sdk sur Mac, ~/Android/Sdk sur Linux).
-# Chaque cible a son rootfs third_party/kyber-desktop/rootfs-<cible> :
+# Chaque cible a son rootfs third_party/kyber-desktop/rootfs-<cible> (ou
+# $KYBERNOW_ANDROID_ROOTFS/rootfs-<cible> : un rootfs à part, pour construire
+# sans toucher à celui que partagent les autres constructions) :
 # libkynput, libopus et leurs .pc (lus par kynput-sys et le cœur), et un
 # libvlc.pc sans bibliothèque. Les sources d'Opus 1.6.1 sont prises dans
 # third_party/opus-1.6.1 (clonées depuis GitHub si absentes).
@@ -52,6 +54,7 @@ KYBER="$THIRD_PARTY/kyber-desktop"
 KYSDK="$KYBER/kysdk"
 OPUS_SRC="$THIRD_PARTY/opus-1.6.1"
 JNILIBS="$HERE/app/src/main/jniLibs"
+ROOTFS_BASE="${KYBERNOW_ANDROID_ROOTFS:-$KYBER}"
 API=30
 NDK_VERSION=27.2.12479018
 . "$ROOT/scripts/kyber-toolchain.sh"
@@ -158,7 +161,7 @@ use_target() {
     export "RANLIB_$var=$LLVM/bin/llvm-ranlib"
     export "CARGO_TARGET_$(echo "$var" | tr '[:lower:]' '[:upper:]')_LINKER=$LLVM/bin/$triple-clang"
     export "BINDGEN_EXTRA_CLANG_ARGS_$var=--target=$triple --sysroot=$SYSROOT"
-    export PKG_CONFIG_LIBDIR="$KYBER/rootfs-$target/lib/pkgconfig"
+    export PKG_CONFIG_LIBDIR="$ROOTFS_BASE/rootfs-$target/lib/pkgconfig"
     export ANDROID_PLATFORM=$API ANDROID_NDK_HOME="$NDK"
 }
 
@@ -172,17 +175,34 @@ done
 
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP) : le cœur compile contre cette API de kyclient.
-for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
-        *-kyclient-*) repo="$KYSDK/kyctl" ;;
-        *-kynput-*) repo="$KYSDK/kynput" ;;
-        *-kynet-*) repo="$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
+repo_of() {
+    case "$(basename "$1")" in
+        *-kyclient-*) echo "$KYSDK/kyctl" ;;
+        *-kynput-*) echo "$KYSDK/kynput" ;;
+        *-kynet-*) echo "$KYSDK/kymux" ;;
+        *) echo "Dépôt inconnu pour $(basename "$1")" >&2; return 1 ;;
     esac
+}
+PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch)
+for i in "${!PATCHES[@]}"; do
+    patch="${PATCHES[$i]}"
+    case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
+    esac
+    repo="$(repo_of "$patch")" || exit 1
     if git -C "$repo" apply --check "$patch" 2>/dev/null; then
         git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
     elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
+        # Posé, mais recouvert par un correctif suivant du même dépôt déjà posé
+        # (0004 sur 0002 quand le client Windows a été construit) : rien à faire.
+        covered=""
+        for later in "${PATCHES[@]:$((i + 1))}"; do
+            [ "$(repo_of "$later")" = "$repo" ] && git -C "$repo" apply --reverse --check "$later" 2>/dev/null && { covered="$later"; break; }
+        done
+        if [ -n "$covered" ]; then
+            echo "    $(basename "$patch") déjà posé (sous $(basename "$covered"))"
+            continue
+        fi
         echo "Correctif $(basename "$patch") inapplicable :" >&2
         git -C "$repo" apply --check "$patch" >&2 || true
         exit 1
@@ -278,7 +298,7 @@ build_pyrowave() {
 
 build_target() {
     local target=$1 prefix started abi lib flags=()
-    prefix="$KYBER/rootfs-$target"
+    prefix="$ROOTFS_BASE/rootfs-$target"
     use_target "$target"
     ensure_kynput "$target" "$prefix"
     ensure_opus "$target" "$prefix"

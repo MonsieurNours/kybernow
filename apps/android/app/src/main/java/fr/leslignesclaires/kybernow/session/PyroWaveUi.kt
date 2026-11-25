@@ -121,7 +121,8 @@ internal fun PyroBanner(ui: SessionUi) {
         KnIcon(KnIcons.warning, tint = Kn.warn, size = 18f)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
             Body(pyroTitle(link), size = 14f, color = amberTitle, weight = 700)
-            Body(stringResource(R.string.pyrowave_may_stutter), size = 14f, color = amberText)
+            val lowered by ui.state.lowered.collectAsState()
+            Body(listOfNotNull(stringResource(R.string.pyrowave_may_stutter), lowered).joinToString(" "), size = 14f, color = amberText)
         }
         GlassButton(stringResource(R.string.pyrowave_switch_hevc), { ui.actions.switchToHevc() })
         val close = stringResource(R.string.session_close)
@@ -133,11 +134,11 @@ internal fun PyroBanner(ui: SessionUi) {
 
 /**
  * Les lignes PyroWave des statistiques : « Images perdues » (envoyées par l'ordinateur, jamais montrées, en % des
- * images de la seconde) et, quand l'image reçue est plus petite que l'écran de la session, « Définition ramenée à
- * {l} × {h} pour tenir dans {n} Mbit/s. » (le débit mesuré).
+ * images de la seconde) et « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » d'après le cœur
+ * (`Second::lowered`).
  */
 @Composable
-internal fun PyroStats(ui: SessionUi, sec: Second?, video: Pair<Int, Int>?) {
+internal fun PyroStats(ui: SessionUi, sec: Second?) {
     if (!pyroActive(ui)) return
     val locale = LocalConfiguration.current.locales[0]
     val lost = sec?.lostFrames ?: 0
@@ -147,9 +148,5 @@ internal fun PyroStats(ui: SessionUi, sec: Second?, video: Pair<Int, Int>?) {
         Mono(stringResource(R.string.stats_lost_frames) + " ", size = 11f)
         Mono(String.format(locale, "%.1f %%", pct), size = 11f, color = if (lost > 0) amberText else Kn.frost)
     }
-    val mode by ui.state.mode.collectAsState()
-    val m = mode
-    if (video != null && m != null && video.first < m.first && video.second < m.second) {
-        Mono(stringResource(R.string.pyrowave_lowered, video.first, video.second, Math.round(sec?.mbps ?: 0.0).toInt()), size = 11f, color = amberText)
-    }
+    sec?.lowered?.let { l -> Mono(stringResource(R.string.pyrowave_lowered, l.width, l.height, l.mbps), size = 11f, color = amberText) }
 }
