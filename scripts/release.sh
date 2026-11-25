@@ -440,15 +440,22 @@ hors_versions() {
 # ---------------------------------------------------------------------------
 step "Versions"
 T0=$(date +%s)
+VT="$(arbre_dir versions)"
 if [ "$RELAUNCH" = 1 ]; then
     COMMIT="$(git rev-parse "$VERSION_REF")"
     echo "    déjà alignées : $(git log -1 --format='%h « %s »' "$COMMIT")"
+elif [ "$MODE" = repetition ] && [ -e "$VT/.git" ] && [ "$(git -C "$VT" log -1 --format=%s)" = "KyberNow $VERSION" ] \
+    && [ "$(git -C "$VT" rev-parse HEAD~1)" = "$(git rev-parse HEAD)" ]; then
+    # Répétition relancée sur le même HEAD : le commit de version de la
+    # précédente est repris (même numéro de build des apps Apple : leurs
+    # étapes peuvent être reprises).
+    COMMIT="$(git -C "$VT" rev-parse HEAD)"
+    echo "    commit de version de la répétition précédente repris : $(git log -1 --format='%h « %s »' "$COMMIT")"
 else
     # Dans l'arbre « versions » (l'arbre de travail courant n'est pas touché) :
     # en publication, main avance ensuite jusqu'à ce commit ; en répétition, il
     # n'est sur aucune branche.
     arbre_preparer versions "$(git rev-parse HEAD)" > /dev/null
-    VT="$(arbre_dir versions)"
     BUILD=$(date +%Y%m%d%H%M)
     (
         cd "$VT"
