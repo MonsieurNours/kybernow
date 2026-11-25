@@ -2,7 +2,7 @@
 
 English · [Français](pyrowave-client-linux.md)
 
-Client section of [pyrowave.md](pyrowave.md) (the contract and the Station), to be merged into it. Covers the Linux app (`apps/linux`): desktop Linux, Steam Deck and SteamOS in the living room. The Raspberry Pi has no PyroWave (no suitable Vulkan 1.3, and the `--rpi` build leaves it out): the probe reports it unavailable. Interface rules: [link-ui.md](link-ui.md), “PyroWave”; Mac client: [pyrowave-client-mac.en.md](pyrowave-client-mac.en.md).
+Client section of [pyrowave.md](pyrowave.md) (the contract and the Station), to be merged into it. Covers the Linux app (`apps/linux`): desktop Linux, Steam Deck and SteamOS in the living room. The Raspberry Pi has no PyroWave yet: the library is built and shipped (`--rpi`), but the probe reports it unavailable; feasibility (Pi 5 likely with a patch, Pi 4 and Pi 3 impossible) in [pyrowave-client-pi.en.md](pyrowave-client-pi.en.md). Interface rules: [link-ui.md](link-ui.md), “PyroWave”; Mac client: [pyrowave-client-mac.en.md](pyrowave-client-mac.en.md).
 
 ## The library
 
@@ -10,7 +10,7 @@ Client section of [pyrowave.md](pyrowave.md) (the contract and the Station), to 
 - **Shared library, loaded at launch** (`dlopen`): next to the app (`<prefix>/lib`, `/app/lib` in the Flatpak), otherwise the build prefix, otherwise the system path; `KYBERNOW_PYROWAVE_LIB` forces one. Without it, PyroWave is unavailable and nothing else changes. The Vulkan loader is the runtime's (`libvulkan.so.1`, opened by volk inside Granite); no extra permission in the Flatpak (`--device=all` is already there).
 - **Requesting PyroWave from Kyber**: `build.sh --kyber-pyrowave` (and `flatpak.sh ARCH --kyber-pyrowave`) applies the Station's kyclient patch 0025 (`VideoCodec::PyroWave`, `fallback_codec`) and turns on the core's `pyrowave` feature (the app's `pyrowave` feature forwards it). Both go together; like the other apps, only on request until they are on everywhere. Without them, the app decodes PyroWave but never requests it.
 - **Shared Kyber SDK**: when the shared `third_party/` already carries another piece of work's patches (the branch's patches no longer apply), `KYBERNOW_KYBER_HEAD=1` makes `sources.sh` take the SDK as it is in its git repositories (HEAD of kysdk and its submodules), read-only; `build.sh` then applies the branch's patches.
-- `build.sh --rpi` does not build it: the Pi app takes `src/native/pyrowave_none.c` (the probe answers “unavailable”).
+- `build.sh --rpi` builds it too (the .deb and KyberNow Link OS ship it, [pyrowave-client-pi.en.md](pyrowave-client-pi.en.md)); the probe still refuses the Pi.
 
 ## Decoding (`src/native/pyrowave.c`, `src/device/video.rs`)
 

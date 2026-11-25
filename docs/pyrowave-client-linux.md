@@ -2,7 +2,7 @@
 
 [English](pyrowave-client-linux.en.md) · Français
 
-Section client de [pyrowave.md](pyrowave.md) (le contrat et la Station), à y fusionner. Concerne l'app Linux (`apps/linux`) : Linux de bureau, Steam Deck et SteamOS au salon. Le Raspberry Pi n'a pas PyroWave (pas de Vulkan 1.3 qui convienne, et la compilation `--rpi` ne l'inclut pas) : la sonde le dit indisponible. Règles d'interface : [link-ui.md](link-ui.md), « PyroWave » ; client Mac : [pyrowave-client-mac.md](pyrowave-client-mac.md).
+Section client de [pyrowave.md](pyrowave.md) (le contrat et la Station), à y fusionner. Concerne l'app Linux (`apps/linux`) : Linux de bureau, Steam Deck et SteamOS au salon. Le Raspberry Pi n'a pas encore PyroWave : la bibliothèque est compilée et livrée (`--rpi`), mais la sonde le dit indisponible ; faisabilité (Pi 5 probable avec un correctif, Pi 4 et Pi 3 impossibles) dans [pyrowave-client-pi.md](pyrowave-client-pi.md). Règles d'interface : [link-ui.md](link-ui.md), « PyroWave » ; client Mac : [pyrowave-client-mac.md](pyrowave-client-mac.md).
 
 ## La bibliothèque
 
@@ -10,7 +10,7 @@ Section client de [pyrowave.md](pyrowave.md) (le contrat et la Station), à y fu
 - **Bibliothèque partagée, chargée au lancement** (`dlopen`) : à côté de l'app (`<préfixe>/lib`, `/app/lib` dans le Flatpak), sinon le préfixe de compilation, sinon le chemin du système ; `KYBERNOW_PYROWAVE_LIB` en force une. Sans elle, PyroWave est indisponible et rien d'autre ne change. Le chargeur Vulkan est celui du runtime (`libvulkan.so.1`, ouvert par volk dans Granite) ; aucune autorisation de plus dans le Flatpak (`--device=all` y est déjà).
 - **Demander PyroWave à Kyber** : `build.sh --kyber-pyrowave` (et `flatpak.sh ARCH --kyber-pyrowave`) pose le correctif kyclient 0025 de la Station (`VideoCodec::PyroWave`, `fallback_codec`) et allume la fonctionnalité `pyrowave` du cœur (celle de l'app, `pyrowave`, la transmet). Les deux vont ensemble ; comme les autres apps, seulement sur demande tant qu'ils ne sont pas allumés partout. Sans eux, l'app décode PyroWave mais ne le demande jamais.
 - **SDK de Kyber partagé** : quand le `third_party/` partagé porte déjà les correctifs d'un autre travail (les correctifs de la branche ne s'y appliquent plus), `KYBERNOW_KYBER_HEAD=1` fait prendre à `sources.sh` le SDK tel qu'il est dans ses dépôts git (HEAD de kysdk et de ses sous-modules), en lecture seule ; `build.sh` y pose ensuite les correctifs de la branche.
-- `build.sh --rpi` ne le compile pas : l'app du Pi prend `src/native/pyrowave_none.c` (la sonde répond « indisponible »).
+- `build.sh --rpi` le compile aussi (le .deb et KyberNow Link OS le livrent, [pyrowave-client-pi.md](pyrowave-client-pi.md)) ; la sonde refuse encore le Pi.
 
 ## Décodage (`src/native/pyrowave.c`, `src/device/video.rs`)
 
