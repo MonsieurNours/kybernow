@@ -119,6 +119,20 @@ Raccourcis : ⌃⌥⌘ + lettre sur Mac, Ctrl+Alt+Maj + lettre sur Windows et Li
 - **Manette en souris** (apps de salon, téléphones et tablettes qui l'ont : A clic, L1 / R1 pour passer d'une fenêtre à l'autre, Start la touche ⊞) : face à un Mac, L1 / R1 tiennent ⌘ au lieu d'Alt (⇧ ⌘ ⇥ / ⌘ ⇥, ⌘ relâché un instant après la dernière pression, comme Alt), et Start envoie « ⌘ Espace » (Spotlight) au lieu de ⊞ seule.
 - **Apps d'Apple** (Mac, iPhone et iPad, Apple TV) : ⌘ part comme ⌘ face à un Mac (la touche ⊞ pour Kyber, que le Mac reçoit en ⌘) ; le réglage « Touche ⌘ envoyée comme Ctrl » (Mac) / « ⌘ envoyée comme Ctrl » (iPhone, iPad) n'est pas montré face à une Station Mac et ne s'y applique pas ; ce qui est gardé pour les PC ne change pas. Pas de « Ctrl agit comme ⌘ » : un clavier d'Apple a sa touche ⌘.
 
+**Mode immersif** / “Immersive mode” (apps Mac, Windows et Linux) : tout le clavier va à l'ordinateur, raccourcis du système compris : ⌘ ⇥, ⌘ Espace, ⌘ Q, ⌃ ← → et Mission Control sur Mac ; Alt+Tab, la touche ⊞, Ctrl+Échap et Alt+Échap sur Windows et Linux. Seuls restent à l'appareil les raccourcis de l'app (⌃⌥⌘ + lettre sur Mac, Ctrl+Alt+Maj + lettre sur Windows et Linux) et ce que le système ne laisse jamais prendre (Ctrl+Alt+Suppr, ⌥⌘Échap). Réglage de l'ordinateur, rubrique Commandes, gardé pour chaque ordinateur :
+
+| Élément | Français | English |
+|---|---|---|
+| Réglage | « Mode immersif » : « En plein écran » (par défaut), « Toujours », « Jamais » | “Immersive mode”: “In full screen”, “Always”, “Never” |
+| Aide (Windows, Linux) | « Alt+Tab, la touche ⊞ et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app. » | “Alt+Tab, the ⊞ key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.” |
+| Aide (Mac) | « ⌘ ⇥, ⌘ Espace et les autres raccourcis du Mac vont à l'ordinateur, et ⌘ y devient la touche ⊞. ⌃⌥⌘ + lettre reste à l'app. » ; face à une Station Mac : « ⌘ ⇥, ⌘ Espace et les autres raccourcis vont à l'ordinateur. ⌃⌥⌘ + lettre reste à l'app. » | “⌘ ⇥, ⌘ Space and the Mac's other shortcuts go to the computer, and ⌘ becomes the ⊞ key there. ⌃⌥⌘ + letter stays with the app.”; with a Mac Station: “⌘ ⇥, ⌘ Space and the other shortcuts go to the computer. ⌃⌥⌘ + letter stays with the app.” |
+| Autorisation manquante (Mac), sous le réglage | « Autorisez KyberNow Link dans Réglages Système › Confidentialité et sécurité › Accessibilité. » et le bouton « Ouvrir les réglages » | “Allow KyberNow Link in System Settings › Privacy & Security › Accessibility.”; “Open Settings” |
+
+- **Quand** : la fenêtre de la session est au premier plan et son image a le clavier (pas un menu, un panneau ou un champ de la barre). « En plein écran » : sa fenêtre est en plein écran (avec plusieurs écrans, toujours : les fenêtres le sont) ; « Toujours » : aussi dans une fenêtre ; « Jamais » : les raccourcis du système restent à l'appareil, même en plein écran. Le changement vaut tout de suite, en session aussi. On en sort en quittant le plein écran (raccourci F) ou en passant à une autre fenêtre à la souris.
+- **Pas de mode immersif** pour un invité sans le clavier et la souris (Alt+Tab revient au système quand l'hôte les reprend), ni pour une partie sur une console PlayStation (le clavier y tient lieu de manette).
+- **Mac** : le Mac ne laisse prendre ses raccourcis qu'à une app autorisée dans Accessibilité. La première fois que le mode devrait s'allumer, l'app le demande (fenêtre du système) ; tant que l'autorisation manque, rien ne change (comme « Jamais ») et le réglage le dit. En mode immersif, face à un PC, ⌘ part comme la touche ⊞ et Ctrl reste Ctrl : « Touche ⌘ envoyée comme Ctrl » ne s'y applique pas, et revient quand le mode s'éteint (les touches tenues sont relâchées au passage). Face à une Station Mac, ⌘ part déjà comme ⌘.
+- **Windows, Linux** : « En plein écran » est la règle d'avant ce réglage (le clavier n'était pris qu'en plein écran).
+
 **Manettes indisponibles** : une Station peut ne pas savoir créer de manettes (Station Mac tant qu'Apple n'a pas accordé son droit, voir `docs/station-macos.md`). Elle le dit dans `gamepads` de `GET /api/stream/info` : `{ "available": false, "reason": "entitlement" }` ; absent (Stations d'avant) : disponibles. Le cœur le lit (`Info::gamepads_available`), l'app le garde pour chaque ordinateur. Les manettes servent toujours à l'app (barre, menus, combinaison Start + Select + L1 + R1) ; l'ordinateur ne les voit pas.
 
 | Élément | Français | English |
@@ -471,6 +485,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Son | Sound | Auto ; Stéréo / Stereo ; 5.1 ; 7.1 ; Sur l'ordinateur / On the computer |
 | Manette vue par l'ordinateur | Controller seen by the computer | Xbox 360 ; Fidèle / As is |
 | Souris | Mouse | Auto ; Souris du bureau / Desktop mouse ; Souris des jeux / Game mouse |
+| Mode immersif | Immersive mode | En plein écran / In full screen ; Toujours / Always ; Jamais / Never (voir « Mode immersif ») |
 | Ctrl agit comme ⌘ | Ctrl acts as ⌘ | seulement face à une Station Mac, allumé par défaut (voir « Face à une Station Mac ») |
 | Presse-papiers partagé | Shared clipboard | |
 | Vibrations | Rumble | |
