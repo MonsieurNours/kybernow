@@ -4,7 +4,7 @@
 
 Section client de [pyrowave.md](pyrowave.md), pour l'app Linux sur Raspberry Pi (`apps/linux`) : le paquet .deb sur Raspberry Pi OS (bureau labwc) et l'image KyberNow Link OS (`apps/linux/os`, KMS/DRM sans compositeur). Client Linux de bureau : [pyrowave-client-linux.md](pyrowave-client-linux.md) ; règles d'interface : [link-ui.md](link-ui.md), « PyroWave ».
 
-**État (25/11/2026)** : étude faite d'après le code de PyroWave (a32b05e), celui de Mesa et du noyau de Raspberry Pi, et le dépôt de Raspberry Pi OS. La bibliothèque se compile pour le Pi et part dans le .deb et l'image, mais l'app la refuse encore sur le Pi (`system.rs`, `pyrowave_probe_start`) : rien ne change pour l'utilisateur tant que l'étape 2 (plus bas) n'est pas écrite. **Rien n'a tourné sur une carte.**
+**État (25/11/2026)** : étape 1 (étude d'après le code de PyroWave a32b05e, de Mesa et du noyau de Raspberry Pi, et le dépôt de Raspberry Pi OS ; compilation) et étape 2 (sonde du Pi, correctif du déquantificateur, chemin par fragments, interface) écrites. Vérifié dans la VM « KyberNow Linux » (plus bas). **Rien n'a tourné sur une carte** : la « Marche à suivre sur une carte » le fera.
 
 ## Verdict par carte
 
@@ -54,8 +54,8 @@ Conséquences :
 
 ## Compilation (étape 1, fait)
 
-- `apps/linux/scripts/build.sh` : l'étape 4 (PyroWave a32b05e, chemin Vulkan, `libpyrowave-shared.so.1`) se fait aussi avec `--rpi`. Les en-têtes posés dans le préfixe font compiler `pyrowave.c` au lieu de `pyrowave_none.c` (`build.rs`) ; l'app refuse toujours le Pi tant que l'étape 2 n'est pas écrite.
-- `apps/linux/scripts/deb.sh` : la bibliothèque part dans `/usr/lib/libpyrowave-shared.so.1` (réduite par `strip`, 1,1 Mo), ses dépendances sont lues sur elle (`libstdc++6`, `libgcc-s1`) ; Vulkan est ouvert par la bibliothèque elle-même (volk), donc `libvulkan1` et `mesa-vulkan-drivers` sont **recommandés** (installés par défaut par `apt install ./…deb`). Nouvelle option `--prefix DIR` (le préfixe des dépendances, passé à `build.sh`) ; `--no-build` prend aussi la bibliothèque du préfixe.
+- `apps/linux/scripts/build.sh` : l'étape 4 (PyroWave a32b05e, chemin Vulkan, `libpyrowave-shared.so.1`) se fait aussi avec `--rpi`. Les en-têtes posés dans le préfixe font compiler `pyrowave.c` au lieu de `pyrowave_none.c` (`build.rs`). Le déquantificateur y est corrigé (étape 2).
+- `apps/linux/scripts/deb.sh` : la bibliothèque part dans `/usr/lib/libpyrowave-shared.so.1` (réduite par `strip`, 1,1 Mo), ses dépendances sont lues sur elle (`libstdc++6`, `libgcc-s1`) ; Vulkan est ouvert par la bibliothèque elle-même (volk), donc `libvulkan1` et `mesa-vulkan-drivers` sont **recommandés** (installés par défaut par `apt install ./…deb`). Options `--prefix DIR` (le préfixe des dépendances, passé à `build.sh`) et `--kyber-pyrowave` (passée à `build.sh` : le correctif kyclient 0025 et la fonctionnalité `pyrowave` du cœur, sans lesquels l'app décode PyroWave mais ne le demande jamais) ; `--no-build` prend aussi la bibliothèque du préfixe.
 - **KyberNow Link OS** : Raspberry Pi OS Lite n'a ni `libvulkan1` ni `mesa-vulkan-drivers` (listes de paquets de pi-gen, stages 0 à 2) et notre stage installe le .deb sans les recommandations : `stage-kybernow/00-packages` ajoute `libvulkan1`, `mesa-vulkan-drivers` et `vulkan-tools` (`vulkaninfo`, pour le diagnostic). Le compte `kybernow` est déjà dans le groupe `render` (`/dev/dri/renderD128`).
 - **Vérifié le 25/11 dans la VM « KyberNow Linux »** (préfixe privé, pas `third_party`) : PyroWave compilé dans le préfixe du Pi (aarch64, `NEEDED` : libstdc++, libm, libgcc_s, libc) ; un .deb assemblé (`--no-build`, binaire du Pi d'une compilation précédente) avec la bibliothèque, `libstdc++6 (>= 12)` dans `Depends`, `libvulkan1, mesa-vulkan-drivers` dans `Recommends`. **Pas vérifié** : l'app elle-même (la branche `claude/pyrowave` ne compile pas aujourd'hui pour Linux : `build.sh` pose le correctif 0025, qui ajoute `fallback_codec` à kyclient, sans la fonctionnalité `pyrowave` du cœur, et l'app ne compile pas non plus avec elle ; travail en cours ailleurs), l'image (les paquets existent dans trixie).
 
@@ -75,25 +75,61 @@ Aujourd'hui, sur le Pi, l'image HEVC du décodeur V4L2 est recopiée par le proc
 
 **Ordre proposé** : d'abord la relecture actuelle (rien à écrire de plus pour l'affichage), pour mesurer sur une carte le décodage et la relecture en 1080p60 ; le plan DRM ensuite, d'autant plus vite que la relecture coûte (au-delà de 2 ms, elle seule justifie le plan).
 
-## Étape 2 (après la fusion du client Linux)
+## Étape 2 (écrite)
 
-1. **Correctif de PyroWave** (`r16f` du déquantificateur), posé par `build.sh` sur son propre clone (`$PREFIX/build/pyrowave`, jamais `third_party`), shaders régénérés par l'outil de l'amont (`slangmosh.sh`) ; pour tous les Linux (sans effet hors du Pi) ; à proposer à l'amont.
-2. **Sonde propre au Pi**, dans un processus à part (`kybernow --pyrowave-probe`, comme `pyrowave-device-validation` pour la Station Windows : un pilote qui plante n'emporte pas l'app) : modèle (`system::pi()`), Pi 5 / 500 / CM5 seulement ; Vulkan 1.3, pilote v3dv (`VK_DRIVER_ID_MESA_V3DV`), opérations de sous-groupe, puis l'image de test décodée par le chemin par fragments. Résultat gardé par version de Mesa et de l'app (pas de sonde à chaque lancement).
-3. **Chemin par fragments forcé** sur v3dv (`pyrowave.c`).
-4. **Interface** : PyroWave proposé dans Réglages › Image et le panneau « Ce Raspberry Pi » quand la sonde réussit, avec son étiquette ; sinon la valeur inactive et « Ce Raspberry Pi ne sait pas décoder PyroWave. » (« This Raspberry Pi can't decode PyroWave. ») : la formule `{cet appareil}` de link-ui, précisée.
-5. **Affichage** selon la proposition ci-dessus.
-6. **Marche à suivre** pour l'auteur sur une carte (Pi 5 et Pi 4), écrite avec l'étape 2.
+1. **Correctif de PyroWave** (`apps/linux/pyrowave/v3dv-dequant.py`, lancé par `build.sh` sur son clone, `$PREFIX/build/pyrowave`, jamais `third_party`) : `layout(r16f)` sur `uDequantImg` dans `wavelet_dequant.comp`, et le même changement dans le SPIR-V déjà compilé de `shaders/slangmosh.hpp`, en place et à taille égale (format de l'image `Unknown` → `R16f`, capacité `StorageImageWriteWithoutFormat` → `StorageImageExtendedFormats`, celle que glslang pose pour la source corrigée) : 6 mots dans les trois variantes, rien d'autre ne bouge, `spirv-val` les accepte. Le script vérifie la forme du SPIR-V et refuse s'il ne la reconnaît pas (autre commit). Pour tous les Linux : sans effet hors du Pi. `PYROWAVE_PATCHES` (`build.sh`) refait une bibliothèque compilée sans lui (`$PREFIX/lib/.pyrowave-v3dv-dequant-1`). Régénérer les shaders par l'outil de l'amont (`slangmosh.sh`) aurait demandé de compiler glslang et SPIRV-Tools de Granite.
+2. **Chemin par fragments forcé sur v3dv** (`pyrowave.c`, `fragment_path`) : le pilote est reconnu par `VkPhysicalDeviceDriverProperties` (`VK_DRIVER_ID_MESA_V3DV`) ; HDR10 refusé sur v3dv (le chemin par fragments n'a pas de sortie 10 bits). `KYBERNOW_PYROWAVE_FRAGMENT=1` (ou `0`) le force ailleurs, pour les essais.
+3. **Sonde** (`device/system.rs`, `pyrowave_probe_start`) :
+   - Pi 4, 400, CM4, Pi 3, Zero 2 W : indisponible sans rien essayer (journal : « PyroWave : indisponible sur Raspberry Pi 4 Model B (pas les opérations de sous-groupe de Vulkan (V3D 4.2) ; Raspberry Pi 5 seulement) ») ;
+   - Pi 5, 500, CM5 : d'abord **dans un processus à part**, `kybernow --pyrowave-probe` (30 s au plus ; il écrit « ok » ou « no », la carte et la raison), pour qu'un pilote qui plante n'emporte pas l'app. Son résultat est gardé dans `pyrowave-probe` (dossier de l'app : `/var/lib/kybernow/config/kybernow` sous Link OS, `~/.config/kybernow` sous Raspberry Pi OS) tant que la version de l'app et le pilote Vulkan (fichiers de `/usr/share/vulkan/icd.d` et `libvulkan_broadcom.so`, taille et date) ne changent pas. Réussie, la sonde est refaite dans l'app (le device et ses pipelines sont prêts avant la première session) ;
+   - partout, `pyrowave.c` vérifie aussi les opérations de sous-groupe et donne la raison (« opérations de sous-groupe manquantes (0x… au lieu de 0x7f…) ») ; la carte du journal dit le pilote (« V3D 7.1… (Vulkan 1.3, Mesa 26.2.7…) »).
+4. **Interface** ([link-ui.md](link-ui.md), « PyroWave ») : Réglages › Image › Format vidéo propose PyroWave quand l'ordinateur le propose ; son étiquette est « carte graphique » (sur le Pi aussi : V3D, pas le décodeur du Pi) ; la carte « Cet appareil » du Pi ajoute « PyroWave par la carte graphique ». Valeur inactive : « Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5. » (Pi 4, 3, Zero 2 W), « … : il lui faut Raspberry Pi OS « Trixie », à jour. » (Pi 5 sous Raspberry Pi OS), « Ce Raspberry Pi ne sait pas décoder PyroWave. » (Pi 5 sous Link OS). Captures : `--preview`, `rpi-46-pyrowave-carte`, `rpi-46b-pyrowave-image`, `rpi-46c-pyrowave-inactif-pi5`, `rpi-46d-pyrowave-inactif-pi4`.
+5. **Affichage** : la relecture par le processeur (la voie du Linux de bureau, rien de plus à écrire), comme le prévoit l'ordre de la proposition : elle se mesure sur une carte (le kit ci-dessous) ; le plan DRM vient ensuite si elle coûte plus de 2 ms en 1080p.
+6. **Demandé à Kyber** : seulement avec `--kyber-pyrowave` (`deb.sh`, `build.sh`), comme les autres apps tant que le correctif 0025 n'est pas allumé partout.
 
-## Vérifier une carte (avant l'étape 2)
+### Vérifié dans la VM (25/11/2026)
 
-Sur un Pi 5 sous Raspberry Pi OS trixie à jour (`sudo apt update && sudo apt full-upgrade`), ou sous KyberNow Link OS (SSH) :
+VM « KyberNow Linux » (Ubuntu 24.04 ARM64, lavapipe : pas de v3dv), préfixe privé du Pi (`build.sh --rpi --kyber-pyrowave --prefix …`) :
 
-```sh
-sudo apt install vulkan-tools          # déjà là dans Link OS
-vulkaninfo --summary                   # attendu : « V3D 7.1… », apiVersion 1.3, driverName v3dv, Mesa 25.3 ou après
-vulkaninfo | grep -A3 subgroupSupportedOperations   # attendu sur le Pi 5 : ARITHMETIC dans la liste ; sur le Pi 4 : BASIC seul
-vulkaninfo | grep shaderStorageImageWriteWithoutFormat   # attendu : false (d'où le correctif)
-```
+- l'app pour le Pi compile ; 153 tests de `kybernow-linux` passés ; le .deb assemblé (`/usr/lib/libpyrowave-shared.so.1` corrigée, `Recommends: … libvulkan1, mesa-vulkan-drivers`) ;
+- `kybernow --pyrowave-probe` : « no », « rendu logiciel seulement (llvmpipe …) », code 1 ; avec `KYBERNOW_PYROWAVE_CPU=1` : « ok », code 0 ;
+- le **chemin par fragments avec le déquantificateur corrigé** décode juste (`KYBERNOW_PYROWAVE_FRAGMENT=1`, flux de l'encodeur Metal du Mac) : 1920 × 1080 4:2:0, PSNR Y 57,1 dB (57,4 par le chemin en calcul) ; 1280 × 720 4:2:0, 51,8 dB ; 4:4:4, pixel du milieu juste ; image tronquée sautée, la suivante décodée. Les temps sont ceux du processeur (lavapipe), sans rapport avec le Pi.
+- Pas vérifiable sans carte : v3dv lui-même (que le SPIR-V corrigé y compile et y tourne), la vitesse, la relecture en mémoire hors cache, l'image KyberNow Link OS.
+
+## Marche à suivre sur une carte
+
+Un Raspberry Pi 5 (ou 500, CM5) relié par **Ethernet**, et un Pi 4 si vous en avez un (pour voir le refus). Une Station qui propose PyroWave (correctif 0025 et `[kyavserver] pyrowave`).
+
+**A. Préparer, sur le Mac et dans la VM**
+
+1. Les flux d'essai 1080p, sur le Mac : `apps/linux/tests/pyrowave/samples-mac.sh ~/pw-samples-1080 1920x1080 60`.
+2. Dans la VM : le paquet avec PyroWave demandé à Kyber, `apps/linux/scripts/deb.sh --kyber-pyrowave` (→ `apps/linux/dist/KyberNow-Link-RaspberryPi-arm64.deb`).
+3. Dans la VM : le kit de mesure, `apps/linux/tests/pyrowave/pi-kit.sh DOSSIER_DES_FLUX ~/pw-kit` (copier d'abord les flux du Mac dans la VM ; `--444` ajoute le 4:4:4, 370 Mo de plus).
+4. Pour Link OS : `apps/linux/os/build-image.sh` avec ce .deb (vider d'abord le cache de pi-gen s'il contient une image précédente).
+
+**B. Raspberry Pi OS (Trixie, 64 bits), sur le Pi 5**
+
+1. `sudo apt update && sudo apt full-upgrade`, puis redémarrer.
+2. `sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb vulkan-tools` (le paquet tire `libvulkan1` et `mesa-vulkan-drivers`).
+3. `vulkaninfo --summary` : attendu « V3D 7.1… », le pilote v3dv (`driverName`), `apiVersion = 1.3…`, Mesa 25.3 ou après. Noter la ligne `driverInfo`.
+4. `kybernow --pyrowave-probe; echo $?` : attendu « ok », la carte, puis `0`. Autre chose : copier la sortie complète (c'est la réponse à la question « le SPIR-V corrigé passe-t-il sur v3dv ? »).
+5. Le kit : `scp -r ~/pw-kit <utilisateur>@<pi>:` depuis la VM, puis sur le Pi `~/pw-kit/mesure.sh`. Noter pour chaque flux : PSNR, « décodage, relecture comprise, cadencé à 60 i/s : moyenne … médiane … maximum … ; à la chaîne : … i/s ». Pour comparer, la relecture seule n'est pas séparée : c'est la moyenne entière qui décide (sous 6 ms en 1080p60 : bon ; au-delà, le plan DRM).
+6. Lancer KyberNow Link depuis le menu, Réglages de l'app : la carte « Cet appareil » dit « PyroWave par la carte graphique ». Le journal (`~/.config/kybernow/kybernow.log`) : « PyroWave : la sonde à part a réussi » puis « PyroWave : prêt sur V3D 7.1… ».
+7. Réglages de l'ordinateur › Image › Format vidéo › PyroWave (étiquette « carte graphique »), puis une session par Ethernet : l'image, puis Statistiques (Décodage, Images perdues). Une session en Wi-Fi : le bandeau « PyroWave en Wi-Fi », « Passer en HEVC ».
+8. Relancer l'app : le journal dit « (gardée) » (pas de nouvelle sonde à part).
+
+**C. KyberNow Link OS, sur le Pi 5**
+
+1. Flasher l'image de A.4, démarrer, passer le premier démarrage.
+2. SSH (clé déposée sur `BOOTA`, voir le README de l'OS) : `vulkaninfo --summary`, `kybernow --pyrowave-probe; echo $?` (comme B.3 et B.4), `grep -i pyrowave /var/lib/kybernow/config/kybernow/kybernow.log`.
+3. À la manette : Réglages de l'ordinateur › Image › Format vidéo › PyroWave, une session par Ethernet, les statistiques.
+
+**D. Sur un Pi 4 (Raspberry Pi OS ou Link OS)**
+
+1. `kybernow --pyrowave-probe` n'est pas lancé par l'app : le journal dit « PyroWave : indisponible sur Raspberry Pi 4 Model B (pas les opérations de sous-groupe de Vulkan (V3D 4.2) ; Raspberry Pi 5 seulement) ».
+2. Format vidéo : PyroWave grisé, « Ce Raspberry Pi ne sait pas décoder PyroWave : il faut un Raspberry Pi 5. ». Lancé à la main, `kybernow --pyrowave-probe` doit dire « no » et « opérations de sous-groupe manquantes », sans planter.
+
+À rapporter : les sorties de B.3, B.4, B.5 et C.2, et ce qu'on voit en session (image juste ou non, saccades).
 
 ## Sources
 

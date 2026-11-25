@@ -91,12 +91,16 @@ fn device_card(app: &App) -> (&'static str, String, Vec<String>) {
             _ => tr("Réseau", "Network").into(),
         };
         let temp = m.temp_c.map(|t| format!(" · {} °C", t.round() as i32)).unwrap_or_default();
-        let lines = vec![
+        let mut lines = vec![
             format!("{} {} · {}", p.ram_gb, tr("Go", "GB"), m.os),
             decoders(m),
             format!("{} · {} {} Hz {}", p.hdmi(), Machine::height_label(p.max_height()), m.max_hz(p.max_height()), tr("au plus", "at most")),
             format!("{net}{temp}"),
         ];
+        // PyroWave (Pi 5, docs/pyrowave-client-pi.md) : par la carte graphique, pas par le décodeur du Pi.
+        if m.pyrowave {
+            lines.insert(2, tr("PyroWave par la carte graphique", "PyroWave by the graphics card").into());
+        }
         return (tr("Cet appareil", "This device"), p.model.clone(), lines);
     }
     let lines = machine_lines(m);

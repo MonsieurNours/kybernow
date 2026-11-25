@@ -38,6 +38,11 @@ fn main() {
         return;
     }
     #[cfg(feature = "device")]
+    if args.iter().any(|a| a == "--pyrowave-probe") {
+        // La sonde de PyroWave seule, dans ce processus (docs/pyrowave-client-pi.md).
+        std::process::exit(device::pyrowave_probe_child());
+    }
+    #[cfg(feature = "device")]
     if args.iter().any(|a| a == "--hdr-test") {
         device::hdr_test();
         return;

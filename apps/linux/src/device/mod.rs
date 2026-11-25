@@ -775,6 +775,11 @@ fn show_frame(w: &mut Win, f: &video::Frame, dirty: &mut bool) -> bool {
     w.video.upload(w.renderer, f)
 }
 
+/// `kybernow --pyrowave-probe` : la sonde de PyroWave seule (le Raspberry Pi la lance dans un processus à part).
+pub fn pyrowave_probe_child() -> i32 {
+    system::pyrowave_probe_child()
+}
+
 /// `--hdr-test` : la mire HDR sur la sous-surface d'une fenêtre Wayland (`hdr_wl::selftest`).
 pub fn hdr_test() {
     log_file::init();

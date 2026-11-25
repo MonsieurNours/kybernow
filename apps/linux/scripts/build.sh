@@ -162,9 +162,13 @@ fi
 #    elle, PyroWave est indisponible et rien d'autre ne change. Aussi pour le
 #    Raspberry Pi (--rpi : le .deb et KyberNow Link OS), où le pilote Vulkan
 #    est Mesa v3dv (docs/pyrowave-client-pi.md) ; c'est l'app qui décide, au
-#    lancement, si la carte sait le décoder.
+#    lancement, si la carte sait le décoder. Le déquantificateur y est corrigé
+#    (pyrowave/v3dv-dequant.py : image en r16f, que v3dv exige ; sans effet
+#    ailleurs) ; PYROWAVE_PATCHES nomme cette correction, une bibliothèque qui
+#    ne l'a pas est refaite.
 PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
-if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
+PYROWAVE_PATCHES=v3dv-dequant-1
+if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES" ]; then
     src="${PYROWAVE_SRC:-$PREFIX/build/pyrowave}"
     if [ ! -f "$src/.kybernow-$PYROWAVE_COMMIT" ]; then
         echo "==> sources de PyroWave ($PYROWAVE_COMMIT) et de Granite"
@@ -174,6 +178,7 @@ if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
             && ./checkout_granite.sh >/dev/null 2>&1)
         touch "$src/.kybernow-$PYROWAVE_COMMIT"
     fi
+    python3 "$HERE/pyrowave/v3dv-dequant.py" "$src" || exit 1
     echo "==> PyroWave dans $PREFIX"
     build="$PREFIX/build/pyrowave-build"
     rm -rf "$build" && mkdir -p "$build"
@@ -189,6 +194,7 @@ if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
     cp -r "$src/Granite/third_party/khronos/vulkan-headers/include/vulkan" "$src/Granite/third_party/khronos/vulkan-headers/include/vk_video" "$PREFIX/include/"
     install -Dm755 "$(readlink -f "$build/libpyrowave-shared.so.1")" "$PREFIX/lib/libpyrowave-shared.so.1"
     [ -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || { echo "libpyrowave-shared.so.1 absente" >&2; exit 1; }
+    rm -f "$PREFIX"/lib/.pyrowave-* && touch "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES"
 fi
 
 # VLC : jamais appelé (fonctions vides, build.rs).

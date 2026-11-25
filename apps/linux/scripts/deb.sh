@@ -2,8 +2,10 @@
 # Construit le paquet .deb de KyberNow Link pour Raspberry Pi OS (Debian 13
 # « trixie », arm64), sur un Linux arm64 (la VM « KyberNow Linux », ou un Pi) :
 #
-#   apps/linux/scripts/deb.sh [--check] [--no-build] [--prefix DIR]
+#   apps/linux/scripts/deb.sh [--check] [--no-build] [--kyber-pyrowave] [--prefix DIR]
 #
+#   --kyber-pyrowave  passé à build.sh : l'app demande PyroWave à Kyber (sans lui,
+#             le Pi 5 le décode mais ne le demande jamais)
 #   --prefix  préfixe des dépendances passé à build.sh (par défaut
 #             third_party/linux-<arch>-rpi) ; avec --no-build, où prendre
 #             libpyrowave-shared.so.1
@@ -27,12 +29,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 APPS="$(cd "$HERE/.." && pwd)"
 ROOT="$(cd "$APPS/.." && pwd)"
-CHECK=0 BUILD=1 PREFIX_ARGS=() PREFIX="$ROOT/third_party/linux-$(uname -m)-rpi"
+CHECK=0 BUILD=1 BUILD_ARGS=() PREFIX="$ROOT/third_party/linux-$(uname -m)-rpi"
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK=1 ;;
         --no-build) BUILD=0 ;;
-        --prefix) PREFIX_ARGS=(--prefix "$2"); PREFIX="$2"; shift ;;
+        --prefix) BUILD_ARGS+=(--prefix "$2"); PREFIX="$2"; shift ;;
+        --kyber-pyrowave) BUILD_ARGS+=(--kyber-pyrowave) ;;
         *) echo "option inconnue : $1" >&2; exit 2 ;;
     esac
     shift
@@ -51,7 +54,7 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/usr/bin"
 if [ "$BUILD" = 1 ]; then
-    "$HERE/scripts/build.sh" --rpi ${PREFIX_ARGS[@]+"${PREFIX_ARGS[@]}"} --install "$STAGE/usr"
+    "$HERE/scripts/build.sh" --rpi ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} --install "$STAGE/usr"
 else
     bin="${CARGO_TARGET_DIR:-$APPS/target}/release/kybernow"
     [ -f "$bin" ] || { echo "$bin absent : lancer sans --no-build" >&2; exit 1; }
