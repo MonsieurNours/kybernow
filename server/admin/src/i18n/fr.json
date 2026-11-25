@@ -64,6 +64,7 @@
     "sessionConflictNamed": "Un appareil est connecté ({name}) : l'installation coupera sa session",
     "unknownReason": "raison inconnue",
     "rolledBack": "La version précédente ({version}) a été remise en place.",
+    "rpmOstree": "La version {version} s'installe avec rpm-ostree sur cet ordinateur : sudo rpm-ostree install ./KyberNow-Station-Linux-<architecture>.rpm, puis redémarrez.",
     "undoFailed": "Le retour à la version précédente n'a pas abouti : la version {version} tourne peut-être à moitié remplacée. Vérifiez les dossiers kyber, admin et tray (et leurs .prev) dans {dir}, ou réinstallez avec KyberNow-Station-Setup.exe.",
     "notReplaced": "Les fichiers n'ont pas été remplacés.",
     "logLine": "\nJournal : {path}",
@@ -301,6 +302,9 @@
     "remoteAdminOff": "Admin à distance est coupé sur cet ordinateur. Allumez-le dans Admin › Hors de chez vous, sur le réseau."
   },
   "linux": {
+    "update": {
+      "undoFailed": "Le retour à la version précédente n'a pas abouti : la version {version} est peut-être à moitié installée. Réinstallez le paquet kybernow-station de la dernière version (github.com/MonsieurNours/kybernow/releases)."
+    },
     "station": {
       "windowsOnly": "redémarrer la Station n'est possible que sur une Station installée"
     },

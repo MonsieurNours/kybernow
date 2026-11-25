@@ -1,0 +1,15 @@
+# KyberNow Station pour Linux : l'icône près de l'horloge (AppIndicator), dans
+# la session graphique de l'utilisateur (docs/station-linux.md). « Fermer
+# l'icône » l'arrête jusqu'à la prochaine ouverture de session.
+[Unit]
+Description=KyberNow Station (icône)
+PartOf=graphical-session.target
+After=graphical-session.target kybernow-admin.service
+
+[Service]
+ExecStart=/usr/lib/kybernow-station/bin/kybernow-tray
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

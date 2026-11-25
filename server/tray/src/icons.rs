@@ -1,9 +1,9 @@
-//! Icônes de KyberNow Station dans la zone de notification, tirées de `kybernow.ico` à la taille
-//! demandée par Windows, avec une pastille selon l'état.
+//! Icônes de KyberNow Station dans la zone de notification (Windows) ou près
+//! de l'horloge (Linux), tirées de `kybernow.ico` à la taille demandée par
+//! Windows, avec une pastille selon l'état.
 
 use anyhow::{Context, Result};
 use tray_icon::Icon;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
 
 const ICO: &[u8] = include_bytes!("../../installer/resources/kybernow.ico");
 
@@ -14,17 +14,7 @@ const SESSION: [u8; 3] = [0x9a, 0x8c, 0xff];
 /// Pastille « démarrage ou arrêt en cours ».
 const BUSY: [u8; 3] = [0xf5, 0xb9, 0x42];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Look {
-    /// Station en marche, aucune session.
-    Running,
-    /// Un appareil est connecté.
-    Session,
-    /// Démarrage, arrêt ou redémarrage en cours.
-    Busy,
-    /// Station arrêtée : icône grisée.
-    Stopped,
-}
+pub use crate::status::Look;
 
 pub struct Icons {
     size: u32,
@@ -33,7 +23,15 @@ pub struct Icons {
 
 impl Icons {
     pub fn load() -> Result<Self> {
-        let size = (unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32).min(64);
+        // Windows : la taille demandée par le système ; Linux : l'indicateur
+        // (AppIndicator, StatusNotifierItem) la réduit lui-même.
+        #[cfg(windows)]
+        let size = {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON};
+            (unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32).min(64)
+        };
+        #[cfg(not(windows))]
+        let size = 64;
         let base = base_rgba(size)?;
         Ok(Icons { size, base })
     }

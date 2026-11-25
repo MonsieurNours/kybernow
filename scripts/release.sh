@@ -300,6 +300,15 @@ if CHECK="$(apps/linux/scripts/release-flatpaks.sh --check 2>&1)"; then ok "app 
 else problem "app Linux : ${CHECK##*$'\n'} (apps/linux/README.md, « Compiler »)"; fi
 if CHECK="$(apps/linux/os/release-image.sh --check 2>&1)"; then ok "KyberNow Link OS : ${CHECK##*$'\n'}"
 else problem "KyberNow Link OS : ${CHECK##*$'\n'} (apps/linux/os/README.md)"; fi
+# Station Linux : paquets .deb et .rpm (arm64 dans la même VM, x86_64 sur une
+# machine x86_64), publiés seulement avec KYBERNOW_STATION_LINUX=1 tant que
+# la Station Linux n'est pas annoncée.
+if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
+    if CHECK="$(server/linux/scripts/release-station.sh --check 2>&1)"; then ok "${CHECK##*$'\n'}"
+    else problem "${CHECK##*$'\n'} (docs/station-linux.md, « Compiler »)"; fi
+else
+    ok "Station Linux : pas dans cette version (KYBERNOW_STATION_LINUX=1 pour la publier)"
+fi
 
 # Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
 if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
@@ -509,6 +518,15 @@ step "App Linux, Steam Deck et SteamOS (KyberNow Link, Flatpak x86_64 et aarch64
 # l'app signale les nouvelles versions, Flatpak les installe.
 apps/linux/scripts/release-flatpaks.sh "$OUT"
 
+STATION_LINUX=()
+if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
+    step "KyberNow Station pour Linux (.deb et .rpm, arm64 et x86_64)"
+    # Admin d'une Station Linux s'y met à jour avec le paquet de son architecture.
+    server/linux/scripts/release-station.sh "$OUT"
+    STATION_LINUX=(KyberNow-Station-Linux-arm64.deb KyberNow-Station-Linux-arm64.rpm KyberNow-Station-Linux-x86_64.deb KyberNow-Station-Linux-x86_64.rpm
+        KyberNow-Station-Linux-aarch64.tar.xz KyberNow-Station-Linux-x86_64.tar.xz)
+fi
+
 step "KyberNow Link OS (image Raspberry Pi à flasher)"
 # Construite dans la même VM (pi-gen, long) ; l'app en OS cherche cette image
 # dans chaque version pour sa mise à jour A/B, et Raspberry Pi Imager la liste
@@ -605,7 +623,8 @@ step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
 (cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Station-Mac.dmg KyberNow-Station-Mac-update.zip "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk \
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz > SHA256SUMS)
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz \
+    ${STATION_LINUX[@]+"${STATION_LINUX[@]}"} > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
@@ -619,7 +638,7 @@ fi
 # ---------------------------------------------------------------------------
 step "Release GitHub en brouillon"
 FILES=()
-for f in "${ASSETS[@]}"; do FILES+=("dist/$TAG/$f"); done
+for f in "${ASSETS[@]}" ${STATION_LINUX[@]+"${STATION_LINUX[@]}"}; do FILES+=("dist/$TAG/$f"); done
 PRERELEASE=false
 [ "$BETA" = 1 ] && PRERELEASE=true
 if [ "$RELEASE_STATE" = draft ]; then

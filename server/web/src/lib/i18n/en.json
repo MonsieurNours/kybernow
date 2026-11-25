@@ -1606,7 +1606,8 @@
     },
     "system": {
       "update": {
-        "timeout": "The update did not complete within 5 minutes: see the log (journalctl --user -u kybernow-admin)."
+        "timeout": "The update did not complete within 5 minutes: see /var/lib/kybernow-station/update/<version>/update.log.",
+        "needsSetup": "This version is installed with its package (.deb or .rpm), to download."
       },
       "server": {
         "simulated": "(simulated outside a Station)",

@@ -910,6 +910,7 @@ dependencies = [
  "hyper-util",
  "jpeg-encoder",
  "kybernow-tunnel",
+ "libc",
  "mdns-sd",
  "mime_guess",
  "minisign",
