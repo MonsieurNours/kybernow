@@ -150,6 +150,12 @@ mkdir -p "$NATIVE_LIB"
 for lib in avcodec swresample avutil opus x264 vpl z; do
     [ -f "$ROOTFS/lib/lib$lib.a" ] && ln -s "$ROOTFS/lib/lib$lib.a" "$NATIVE_LIB/lib$lib.a"
 done
+# La libavcodec du serveur (x64) a aussi l'encodeur PyroWave de la Station :
+# il appelle libpyrowave-shared-1.dll, que l'app livre déjà pour son décodeur
+# (même commit). Sa bibliothèque d'import, faite avec elle par le build de la
+# Station, pour lier l'app ; la DLL ne dépend que de Windows (Vulkan est ouvert
+# à l'exécution).
+[ -f "$ROOTFS/lib/libpyrowave-shared.dll.a" ] && ln -s "$ROOTFS/lib/libpyrowave-shared.dll.a" "$NATIVE_LIB/libpyrowave-shared.dll.a"
 export KYBERNOW_NATIVE_PREFIX="$ROOTFS"
 export KYBERNOW_NATIVE_LIB="$NATIVE_LIB"
 

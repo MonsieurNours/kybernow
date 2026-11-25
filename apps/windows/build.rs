@@ -30,6 +30,11 @@ fn main() {
             println!("cargo:rustc-link-lib=static={lib}");
         }
     }
+    // L'encodeur PyroWave de la libavcodec du serveur (x64) : la DLL que l'app
+    // livre déjà (scripts/build.sh pose sa bibliothèque d'import ici).
+    if std::path::Path::new(&libdir).join("libpyrowave-shared.dll.a").exists() {
+        println!("cargo:rustc-link-lib=dylib=pyrowave-shared");
+    }
     for lib in ["mfuuid", "ole32", "strmiids", "user32", "gdi32", "uuid", "bcrypt"] {
         println!("cargo:rustc-link-lib=dylib={lib}");
     }
