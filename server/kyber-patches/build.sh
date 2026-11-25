@@ -162,6 +162,9 @@ THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_p
 # Repère du début : un binaire plus ancien n'a pas été produit par ce build.
 STARTED=$(mktemp -t kyber-build)
 trap 'rm -f "$STARTED"' EXIT
+# Une seule construction à la fois sur ces sources de Kyber (scripts/verrou.sh).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$THIRD_PARTY/kyber-desktop" "server/kyber-patches/build.sh" || exit 1
 
 KYMEDIA="$THIRD_PARTY/kyber-desktop/kysdk/kymedia"
 KYCTL="$THIRD_PARTY/kyber-desktop/kysdk/kyctl"

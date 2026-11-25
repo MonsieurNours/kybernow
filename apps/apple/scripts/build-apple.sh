@@ -61,6 +61,9 @@ cargo_quiet() {
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-apple.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
+# Une seule construction à la fois dans ce Vendor/ (scripts/verrou.sh).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$VENDOR" "apps/apple/scripts/build-apple.sh" || exit 1
 
 echo "==> kybernow-core + kybernow-apple ($TARGET)"
 (cd "$ROOT/apps" && cargo_quiet cargo cinstall -p kybernow-apple --target "$TARGET" --release \

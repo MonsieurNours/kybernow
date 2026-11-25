@@ -99,6 +99,9 @@ fi
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-mobile.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
+# Une seule construction à la fois dans ce Vendor/ (scripts/verrou.sh).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$VENDOR" "build-apple-mobile.sh" || exit 1
 
 LIBS=()
 for target in "${TARGETS[@]}"; do

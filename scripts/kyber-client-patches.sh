@@ -48,12 +48,42 @@ kyber_station_patches() {
     done
 }
 
+# État des dépôts que touchent ces correctifs (commit, modifications,
+# fichiers non suivis) : s'il est celui noté après la dernière pose des mêmes
+# correctifs, rien n'est réécrit (les dates des fichiers ne bougent pas, cargo
+# et meson ne recompilent pas tout).
+kyber_client_state() {
+    local kysdk=$1 r
+    for r in kyctl kymux kynput; do
+        echo "== $r"
+        git -C "$kysdk/$r" rev-parse HEAD
+        git -C "$kysdk/$r" diff HEAD --binary
+        (cd "$kysdk/$r" && git ls-files -o --exclude-standard -z | sort -z | while IFS= read -r -d '' f; do
+            echo "$f"; [ -f "$f" ] && cat "$f"
+        done)
+    done | { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi; } | cut -d' ' -f1
+}
+
 kyber_apply_client_patches() {
-    local kysdk=$1 patch repo f
+    local kysdk=$1 patch repo f want mark
     shift
+    # Une seule construction à la fois sur ces sources (scripts/verrou.sh) :
+    # rendu à la sortie du script.
+    if [ -f "$KYBER_CLIENT_PATCHES_ROOT/scripts/verrou.sh" ]; then
+        # shellcheck source=verrou.sh
+        . "$KYBER_CLIENT_PATCHES_ROOT/scripts/verrou.sh"
+        kyber_verrou_sortie "$(cd "$kysdk/.." && pwd -P)" || return 1
+    fi
     local station=()
     while IFS= read -r patch; do station+=("$patch"); done < <(kyber_station_patches)
     set -- ${station[@]+"${station[@]}"} "$@"
+    mark="$kysdk/../.kybernow-correctifs-apps"
+    want="$(for patch in "$@"; do basename "$patch"; cat "$patch"; done | { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi; } | cut -d' ' -f1)"
+    if [ "$(cat "$mark" 2>/dev/null)" = "$want $(kyber_client_state "$kysdk")" ]; then
+        echo "==> correctifs déjà posés ($# correctifs, sources inchangées depuis)"
+        return 0
+    fi
+    rm -f "$mark"
     for patch in "$@"; do
         repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
         for f in $(grep -h '^+++ b/' "$patch" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
@@ -74,6 +104,7 @@ kyber_apply_client_patches() {
         fi
         echo "==> $(basename "$patch") posé"
     done
+    echo "$want $(kyber_client_state "$kysdk")" > "$mark"
 }
 
 # libkynput installée dans un rootfs : refaite quand ses sources changent

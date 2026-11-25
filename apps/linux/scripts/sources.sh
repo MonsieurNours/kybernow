@@ -16,7 +16,9 @@ DEPS=0
 [ "${1:-}" = --deps ] && { DEPS=1; shift; }
 DEST="${1:?usage : sources.sh [--deps] DEST}"
 mkdir -p "$DEST/apps" "$DEST/third_party/kyber-desktop" "$DEST/brand/v2"
-R=(rsync -a --delete --exclude target/ --exclude 'builddir*/' --exclude node_modules/ --exclude '.git/')
+# Sans dist/ : apps/linux/dist garde les paquets et l'image de KyberNow Link OS
+# (plusieurs Go), que flatpak-builder recopiait et relisait à chaque construction.
+R=(rsync -a --delete --exclude target/ --exclude 'builddir*/' --exclude node_modules/ --exclude '.git/' --exclude /dist/)
 if [ "$DEPS" = 1 ]; then
     mkdir -p "$DEST/apps/linux/scripts" "$DEST/apps/linux/pyrowave"
     cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"
@@ -59,6 +61,8 @@ fi
 cp "$ROOT/third_party/kyber-desktop/"COPYING* "$DEST/third_party/kyber-desktop/" 2>/dev/null || true
 "${R[@]}" "$ROOT/brand/v2/app-icon" "$DEST/brand/v2/"
 # Clé publique des versions signées (mises à jour, apps/core/src/update.rs).
-install -Dm644 "$ROOT/server/admin/src/update/kybernow-release.pub" "$DEST/server/admin/src/update/kybernow-release.pub"
+# (mkdir + cp plutôt qu'install -D, absent de macOS : release.sh vérifie cette copie sur le Mac.)
+mkdir -p "$DEST/server/admin/src/update"
+cp "$ROOT/server/admin/src/update/kybernow-release.pub" "$DEST/server/admin/src/update/kybernow-release.pub"
 cp "$ROOT/LICENSE"* "$DEST/" 2>/dev/null || true
 echo "sources dans $DEST ($(du -sh "$DEST" | cut -f1))"

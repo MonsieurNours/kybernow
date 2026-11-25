@@ -77,8 +77,15 @@ kyber_apply_server_patches() {
             exit 1
         }
     done
-    REAPPLY=()
-    for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do REAPPLY=("$p" ${REAPPLY[@]+"${REAPPLY[@]}"}); done
+    # Puis ceux des apps : ceux qui étaient posés, et toujours ceux de
+    # apps/macos (tous les clients les posent) : le correctif serveur du stylet
+    # (0027-kynput) s'appuie sur celui des apps (0005-kynput, Pen). Sur des
+    # sources d'origine (arbre de construction de release.sh), rien ne les
+    # avait encore posés et kynput ne compilait pas.
+    REAPPLY=("$ROOT"/apps/macos/kyber-patches/*.patch)
+    for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do
+        case "$p" in "$ROOT"/apps/macos/*) ;; *) REAPPLY+=("$p") ;; esac
+    done
     for p in ${REAPPLY[@]+"${REAPPLY[@]}"}; do
         repo=$(client_repo_of "$p")
         if git -C "$repo" apply --check "$p" 2>/dev/null; then

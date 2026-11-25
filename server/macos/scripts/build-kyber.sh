@@ -50,6 +50,9 @@ kyber_toolchain_check rustc meson
 
 STARTED=$(mktemp -t kyber-build-macos)
 trap 'rm -f "$STARTED"' EXIT
+# Une seule construction à la fois sur ces sources (scripts/verrou.sh).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$KYBER_DIR" "server/macos/scripts/build-kyber.sh" || exit 1
 
 # Correctifs communs (Windows et Mac).
 HERE_PATCHES="$ROOT/server/kyber-patches"

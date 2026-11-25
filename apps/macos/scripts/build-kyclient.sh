@@ -83,6 +83,9 @@ app_closed() {
     fi
 }
 app_closed
+# Une seule construction à la fois dans ce Vendor/ (scripts/verrou.sh).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$OUT" "build-kyclient.sh" || exit 1
 
 # Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
 # retour reste celui de cargo.

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Construit l'image « KyberNow Link OS » depuis le Mac, dans la VM Parallels
 # « KyberNow Linux » (arm64, sudo sans mot de passe, pi-gen et ses outils),
-# qui voit ce dépôt en /media/psf/kyber-apps ; le paquet .deb doit déjà être
-# dans apps/linux/dist (release-flatpaks.sh le construit avant).
+# qui voit ce dépôt en /media/psf/kyber-apps (réglages : apps/linux/scripts/vm.sh) ;
+# le paquet .deb doit déjà être dans apps/linux/dist (release-flatpaks.sh le
+# construit avant).
 #
 #   apps/linux/os/release-image.sh [--check] [DOSSIER]
 #
@@ -12,9 +13,8 @@
 # Long : une bonne demi-heure (debootstrap, paquets, compression).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-VM="${KYBERNOW_LINUX_VM:-KyberNow Linux}"
-HOST="${KYBERNOW_LINUX_SSH:-kybernow-vm}"
-REPO="${KYBERNOW_LINUX_REPO:-/media/psf/kyber-apps}"
+. "$ROOT/apps/linux/scripts/vm.sh"
+REPO="$(vm_repo "$ROOT")"
 CHECK=0 DEST=""
 for a in "$@"; do
     case "$a" in
@@ -23,27 +23,22 @@ for a in "$@"; do
         *) DEST="$a" ;;
     esac
 done
-vm() { ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" "$@"; }
-if ! vm true 2>/dev/null; then
-    command -v prlctl >/dev/null || { echo "VM « $VM » injoignable par ssh ($HOST), et prlctl absent" >&2; exit 1; }
-    state="$(prlctl status "$VM" 2>/dev/null | awk '{print $NF}')"
-    case "$state" in
-        running) ;;
-        suspended | paused) prlctl resume "$VM" >/dev/null ;;
-        stopped) prlctl start "$VM" >/dev/null ;;
-        *) echo "VM « $VM » introuvable (prlctl status : ${state:-rien})" >&2; exit 1 ;;
-    esac
-    for _ in $(seq 60); do vm true 2>/dev/null && break; sleep 2; done
-    vm true 2>/dev/null || { echo "VM « $VM » démarrée mais injoignable par ssh ($HOST)" >&2; exit 1; }
-fi
+vm_demarrer
 vm "test -f '$REPO/apps/linux/os/build-image.sh'" || { echo "dépôt absent dans la VM : $REPO" >&2; exit 1; }
 vm "command -v debootstrap >/dev/null && command -v parted >/dev/null && command -v xz >/dev/null && sudo -n true" || { echo "pi-gen : debootstrap, parted, xz ou sudo sans mot de passe absents de la VM (apps/linux/os/README.md)" >&2; exit 1; }
-[ "$CHECK" = 1 ] && { echo "VM « $VM » prête pour l'image ($HOST, $REPO)"; exit 0; }
+# Chaque passage de pi-gen laisse son image de base (3,6 Go) dans
+# ~/kybernow-os/deploy : seule la plus récente sert (build-image.sh --ab-only),
+# les autres sont retirées.
+vm 'd=~/kybernow-os/deploy; [ -d "$d" ] || exit 0; ls -t "$d"/*KyberNow-Link-OS.img 2>/dev/null | tail -n +2 | while read -r f; do sudo -n rm -f "$f" "${f%.img}.info"; done' || true
+# pi-gen remplit le disque de la VM (son dossier work/) : 20 Go libres au moins.
+free_gb="$(vm "df -Pk ~ | awk 'NR==2 {print int(\$4/1048576)}'")"
+[ "${free_gb:-0}" -ge 20 ] || { echo "VM : ${free_gb:-?} Go libres, 20 au moins pour pi-gen (vider ~/kybernow-os/pi-gen/work : sudo rm -rf ~/kybernow-os/pi-gen/work)" >&2; exit 1; }
+[ "$CHECK" = 1 ] && { echo "VM « $VM_NAME » prête pour l'image ($VM_HOST, $REPO, $free_gb Go libres)"; exit 0; }
 
-echo "==> image KyberNow Link OS (VM « $VM », pi-gen : long)"
+echo "==> image KyberNow Link OS (VM « $VM_NAME », pi-gen : long)"
 rm -f "$ROOT/apps/linux/dist/KyberNow-Link-OS.img.xz" "$ROOT/apps/linux/dist/KyberNow-Link-OS.img.xz.info"
-vm "cd ~ && '$REPO/apps/linux/os/build-image.sh' > ~/os-image.log 2>&1" \
-    || { echo "échec ; journal dans la VM : ~/os-image.log" >&2; vm "tail -30 ~/os-image.log" >&2 || true; exit 1; }
+vm_lancer os-image.log "\"$REPO/apps/linux/os/build-image.sh\"" \
+    || { echo "échec ; journal dans la VM : ~/os-image.log" >&2; exit 1; }
 f="$ROOT/apps/linux/dist/KyberNow-Link-OS.img.xz"
 [ -s "$f" ] || { echo "$f absente après la construction" >&2; exit 1; }
 echo "    $(du -h "$f" | cut -f1) $f"
