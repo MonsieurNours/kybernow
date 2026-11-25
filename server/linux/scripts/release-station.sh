@@ -5,6 +5,8 @@
 #
 #   KyberNow-Station-Linux-arm64.deb    KyberNow-Station-Linux-arm64.rpm
 #   KyberNow-Station-Linux-x86_64.deb   KyberNow-Station-Linux-x86_64.rpm
+#   KyberNow-Station-Linux-aarch64.tar.xz, KyberNow-Station-Linux-x86_64.tar.xz
+#     (systèmes immuables, installées dans le dossier de l'utilisateur)
 #
 # Chaque architecture se construit sur un Linux de cette architecture, joint
 # par ssh, avec ce dépôt au même commit (build-kyber.sh puis package.sh) :
@@ -72,7 +74,8 @@ for arch in aarch64 x86_64; do
     [ -n "$deb" ] && [ -n "$rpm" ] || { echo "$host : .deb ou .rpm absent de $dist (rpmbuild ?)" >&2; exit 1; }
     scp -q "$host:$deb" "$OUT/KyberNow-Station-Linux-$name.deb"
     scp -q "$host:$rpm" "$OUT/KyberNow-Station-Linux-$name.rpm"
-    for f in "$OUT"/KyberNow-Station-Linux-$name.*; do
+    scp -q "$host:$dist/KyberNow-Station-Linux-$arch.tar.xz" "$OUT/"
+    for f in "$OUT"/KyberNow-Station-Linux-$name.* "$OUT/KyberNow-Station-Linux-$arch.tar.xz"; do
         echo "    $(du -h "$f" | cut -f1) $f"
         [ -z "$DEST" ] || cp "$f" "$DEST/"
     done

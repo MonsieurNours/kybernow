@@ -63,6 +63,12 @@ pub const ASSETS: [&str; 4] = [
     "KyberNow-Station-Linux-x86_64.rpm",
     "KyberNow-Station-Linux-arm64.rpm",
 ];
+/// Archives des systèmes immuables (Bazzite, Fedora Atomic, SteamOS), installées
+/// dans le dossier de l'utilisateur (`server/linux/immutable/make-archive.sh`).
+pub const ARCHIVES: [&str; 2] = ["KyberNow-Station-Linux-x86_64.tar.xz", "KyberNow-Station-Linux-aarch64.tar.xz"];
+/// Script d'installation dans le dossier de l'utilisateur, à côté d'Admin.
+pub const HOME_SCRIPT: &str = "kybernow-station-home";
+
 /// Fichier où le service root note la version gardée pour le retour arrière.
 const PREVIOUS: &str = "previous";
 
@@ -71,6 +77,8 @@ const PREVIOUS: &str = "previous";
 pub enum Format {
     Deb,
     Rpm,
+    /// Archive installée dans le dossier de l'utilisateur, sans root.
+    Archive,
 }
 
 /// Paquet publié pour une architecture (`uname -m` ou celle de Rust) et un format.
@@ -80,7 +88,60 @@ pub fn asset_name(arch: &str, format: Format) -> Option<&'static str> {
         "aarch64" | "arm64" => true,
         _ => return None,
     };
-    Some(ASSETS[usize::from(arm) + if format == Format::Rpm { 2 } else { 0 }])
+    Some(match format {
+        Format::Deb => ASSETS[usize::from(arm)],
+        Format::Rpm => ASSETS[usize::from(arm) + 2],
+        Format::Archive => ARCHIVES[usize::from(arm)],
+    })
+}
+
+/// `bin/` d'une Station installée dans le dossier de l'utilisateur
+/// (`…/kybernow-station/versions/<version>/bin/kyber-admin`), si `exe` en est une.
+pub fn home_bin_of(exe: &Path) -> Option<PathBuf> {
+    let bin = exe.parent()?;
+    let version = bin.parent()?;
+    let versions = version.parent()?;
+    let ok = bin.file_name()? == "bin" && versions.file_name()? == "versions" && !exe.starts_with("/usr");
+    ok.then(|| bin.to_path_buf())
+}
+
+/// Cet Admin tourne depuis une installation dans le dossier de l'utilisateur :
+/// ses mises à jour passent par `kybernow-station-home`, sans service root.
+pub fn home_bin() -> Option<PathBuf> {
+    static BIN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    BIN.get_or_init(|| std::env::current_exe().ok().and_then(|e| e.canonicalize().ok()).and_then(|e| home_bin_of(&e))).clone()
+}
+
+/// Version gardée par `kybernow-station-home` (lien `previous`, à côté de `versions`).
+pub fn home_previous(bin: &Path) -> Option<String> {
+    let base = bin.parent()?.parent()?.parent()?;
+    let target = fs::read_link(base.join("previous")).ok()?;
+    let v = target.file_name()?.to_string_lossy().to_string();
+    (valid_version(&v) && base.join("versions").join(&v).is_dir()).then_some(v)
+}
+
+/// Système ostree (Bazzite, Fedora Atomic) avec la Station en couche sous
+/// `/usr` (rpm-ostree) : rien ne s'y installe depuis Admin.
+pub fn ostree_layered() -> bool {
+    Path::new("/run/ostree-booted").exists() && home_bin().is_none()
+}
+
+/// Lance `kybernow-station-home update|rollback` (il se détache seul, par
+/// `systemd-run --user`), sortie dans `output`.
+pub fn run_home(bin: &Path, args: &[std::ffi::OsString], output: &Path) -> Result<()> {
+    let out = fs::File::create(output).with_context(|| format!("création de {}", output.display()))?;
+    let status = std::process::Command::new(bin.join(HOME_SCRIPT))
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(out.try_clone()?)
+        .stderr(out)
+        .status()
+        .with_context(|| format!("lancement de {}", bin.join(HOME_SCRIPT).display()))?;
+    if !status.success() {
+        let tail = fs::read_to_string(output).unwrap_or_default();
+        bail!("{HOME_SCRIPT} : {status}{}", tail.lines().last().map(|l| format!(" ({l})")).unwrap_or_default());
+    }
+    Ok(())
 }
 
 /// Format du paquet installé sur cet ordinateur : connu de dpkg, sinon .rpm
@@ -88,7 +149,9 @@ pub fn asset_name(arch: &str, format: Format) -> Option<&'static str> {
 pub fn format() -> Format {
     static FORMAT: std::sync::OnceLock<Format> = std::sync::OnceLock::new();
     *FORMAT.get_or_init(|| {
-        if Path::new("/var/lib/dpkg/info").join(format!("{PACKAGE_NAME}.list")).exists() {
+        if home_bin().is_some() {
+            Format::Archive
+        } else if Path::new("/var/lib/dpkg/info").join(format!("{PACKAGE_NAME}.list")).exists() {
             Format::Deb
         } else if Path::new("/usr/bin/rpm").exists() && !Path::new("/usr/bin/dpkg").exists() {
             Format::Rpm
@@ -160,6 +223,9 @@ impl Store {
 
 /// Version gardée pour le retour arrière, vue d'Admin.
 pub fn previous_version() -> Option<String> {
+    if let Some(bin) = home_bin() {
+        return home_previous(&bin);
+    }
     Store::system().previous(package())
 }
 
@@ -611,6 +677,25 @@ mod tests {
         assert_eq!(asset_name("arm64", Format::Rpm), Some("KyberNow-Station-Linux-arm64.rpm"));
         assert_eq!(asset_name("amd64", Format::Rpm), Some("KyberNow-Station-Linux-x86_64.rpm"));
         assert_eq!(asset_name("riscv64", Format::Deb), None);
+        assert_eq!(asset_name("arm64", Format::Archive), Some("KyberNow-Station-Linux-aarch64.tar.xz"));
+        assert_eq!(asset_name("x86_64", Format::Archive), Some("KyberNow-Station-Linux-x86_64.tar.xz"));
+    }
+
+    #[test]
+    fn a_home_install_is_recognised_with_its_previous_version() {
+        let dir = tmp("home");
+        let base = dir.join(".local/lib/kybernow-station");
+        for v in ["0.12.0", "0.13.0"] {
+            fs::create_dir_all(base.join("versions").join(v).join("bin")).unwrap();
+        }
+        let bin = home_bin_of(&base.join("versions/0.13.0/bin/kyber-admin")).unwrap();
+        assert_eq!(bin, base.join("versions/0.13.0/bin"));
+        assert_eq!(home_previous(&bin), None);
+        std::os::unix::fs::symlink(base.join("versions/0.12.0"), base.join("previous")).unwrap();
+        assert_eq!(home_previous(&bin).as_deref(), Some("0.12.0"));
+        assert!(home_bin_of(Path::new("/usr/lib/kybernow-station/bin/kyber-admin")).is_none());
+        assert!(home_bin_of(&dir.join("bin/kyber-admin")).is_none());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

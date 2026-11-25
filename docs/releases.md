@@ -15,6 +15,7 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 | `KyberNow-Station-Mac.dmg` | Installateur de la Station pour Mac : « Installer KyberNow Station » et « Désinstaller KyberNow Station », signés Developer ID et notarisés (`server/macos/scripts/build-station-app.sh`) |
 | `KyberNow-Station-Mac-update.zip` | Mise à jour d'une Station Mac déjà installée : l'app « KyberNow Station » entière, notarisée |
 | `KyberNow-Station-Linux-x86_64.deb`, `-arm64.deb`, `-x86_64.rpm`, `-arm64.rpm` | KyberNow Station pour Linux (docs/station-linux.md) : première installation (`sudo apt install ./…deb`, `sudo dnf install ./…rpm`) et mise à jour depuis Admin, par le paquet de son architecture et de son format. Publiés seulement avec `KYBERNOW_STATION_LINUX=1` |
+| `KyberNow-Station-Linux-x86_64.tar.xz`, `-aarch64.tar.xz` | KyberNow Station pour les systèmes immuables (Bazzite, Fedora Atomic, SteamOS), installée dans le dossier de l'utilisateur, et sa mise à jour depuis Admin (`kybernow-station-home`). Publiées avec les paquets |
 | `update.ps1` | Mise à jour à la main, sans Admin |
 | `KyberNow-Link-macOS.zip` | L'app Mac, « KyberNow Link.app » (première installation : la glisser dans Applications) ; archive du flux Sparkle |
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |

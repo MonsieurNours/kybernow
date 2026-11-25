@@ -523,7 +523,8 @@ if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
     step "KyberNow Station pour Linux (.deb et .rpm, arm64 et x86_64)"
     # Admin d'une Station Linux s'y met à jour avec le paquet de son architecture.
     server/linux/scripts/release-station.sh "$OUT"
-    STATION_LINUX=(KyberNow-Station-Linux-arm64.deb KyberNow-Station-Linux-arm64.rpm KyberNow-Station-Linux-x86_64.deb KyberNow-Station-Linux-x86_64.rpm)
+    STATION_LINUX=(KyberNow-Station-Linux-arm64.deb KyberNow-Station-Linux-arm64.rpm KyberNow-Station-Linux-x86_64.deb KyberNow-Station-Linux-x86_64.rpm
+        KyberNow-Station-Linux-aarch64.tar.xz KyberNow-Station-Linux-x86_64.tar.xz)
 fi
 
 step "KyberNow Link OS (image Raspberry Pi à flasher)"

@@ -189,7 +189,7 @@ pub fn newer(candidate: &str, than: &str) -> bool {
 impl Updater {
     pub fn new(data_dir: &Path) -> Self {
         let dir = data_dir.join("update");
-        let results = if cfg!(target_os = "linux") && !cfg!(test) { results_path() } else { dir.join(RESULT) };
+        let results = results_path(&dir);
         let mut state = State::default();
         if let Some(failure) = read_failure(&results) {
             let version = failure["version"].as_str().unwrap_or("?");
@@ -449,6 +449,20 @@ impl Updater {
         // puis la demande au service root (qui revérifie tout).
         #[cfg(target_os = "linux")]
         {
+            // Installation dans le dossier de l'utilisateur (systèmes immuables) :
+            // son script bascule lui-même, sans root.
+            if let Some(bin) = linux::home_bin() {
+                let args = vec![
+                    "update".into(),
+                    zip.into_os_string(),
+                    version.into(),
+                    "--result".into(),
+                    self.results.clone().into_os_string(),
+                    "--log".into(),
+                    dir.join("update.log").into_os_string(),
+                ];
+                return linux::run_home(&bin, &args, &dir.join("lancement.log")).map(|()| None);
+            }
             if let Err(e) = self.fetch_running_package() {
                 tracing::warn!("paquet de la version {} non téléchargé, pas de retour arrière possible : {e:#}", current());
             }
@@ -479,7 +493,19 @@ impl Updater {
         let result = std::fs::create_dir_all(&dir).map_err(anyhow::Error::from).and_then(|_| {
             // Linux : le service root remet la version qu'il a gardée.
             #[cfg(target_os = "linux")]
-            return linux::request(&linux::Request::Rollback).map(|()| None);
+            return match linux::home_bin() {
+                Some(bin) => {
+                    let args = vec![
+                        "rollback".into(),
+                        "--result".into(),
+                        self.results.clone().into_os_string(),
+                        "--log".into(),
+                        dir.join("update.log").into_os_string(),
+                    ];
+                    linux::run_home(&bin, &args, &dir.join("lancement.log")).map(|()| None)
+                }
+                None => linux::request(&linux::Request::Rollback).map(|()| None),
+            };
             #[cfg_attr(target_os = "linux", allow(unreachable_code))]
             self.launch(&dir, vec!["update".into(), "rollback".into()])
         });
@@ -559,6 +585,11 @@ fn verify_release(release: &mut Release, channel: Channel) {
     match verified {
         Ok(m) => {
             release.refusal = m.check(&release.version, channel, current()).err();
+            // Station en couche sur un système ostree : elle s'installe par rpm-ostree.
+            #[cfg(target_os = "linux")]
+            if release.refusal.is_none() && linux::ostree_layered() {
+                release.refusal = Some(Refusal::Setup(Msg::new("update.rpmOstree").with("version", release.version.as_str())));
+            }
             if release.refusal.is_none() && release.package.is_none() {
                 release.refusal =
                     Some(Refusal::Rejected(Msg::new("update.packageMissing").with("package", package()).with("version", release.version.as_str())));
@@ -651,12 +682,14 @@ fn release_from(v: &Value) -> Result<Release> {
 }
 
 
-/// `resultat.json` du service root des mises à jour (Linux).
-fn results_path() -> PathBuf {
-    #[cfg(target_os = "linux")]
-    return linux::Store::system().result();
-    #[cfg_attr(target_os = "linux", allow(unreachable_code))]
-    PathBuf::from(RESULT)
+/// `resultat.json` de l'applicateur : dans `dir`, sauf sous Linux avec le
+/// paquet du système, où l'écrit le service root dans son propre dossier.
+fn results_path(dir: &Path) -> PathBuf {
+    #[cfg(all(target_os = "linux", not(test)))]
+    if linux::home_bin().is_none() {
+        return linux::Store::system().result();
+    }
+    dir.join(RESULT)
 }
 
 /// Échec signalé par l'applicateur ou `update.ps1`, s'il y en a un. Un échec de la version qui

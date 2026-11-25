@@ -64,6 +64,7 @@
     "sessionConflictNamed": "A device is connected ({name}): installing will end its session",
     "unknownReason": "unknown reason",
     "rolledBack": "The previous version ({version}) has been put back.",
+    "rpmOstree": "Version {version} installs with rpm-ostree on this computer: sudo rpm-ostree install ./KyberNow-Station-Linux-<architecture>.rpm, then restart.",
     "undoFailed": "Going back to the previous version failed: version {version} may be half replaced. Check the kyber, admin and tray folders (and their .prev) in {dir}, or reinstall with KyberNow-Station-Setup.exe.",
     "notReplaced": "No files were replaced.",
     "logLine": "\nLog: {path}",
