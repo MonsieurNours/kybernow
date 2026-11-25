@@ -78,6 +78,29 @@ Admin donne `platform` : `linux` (`GET /api/session`) : l'interface et Admin rem
 - Données : `~/.local/share/kybernow/station/` (`admin/`, `kyber/`, `kyber-screens.toml`).
 - Paquet : `server/linux/scripts/package.sh` → `kybernow-station_<version>_<arch>.deb` et `kybernow-station-<version>.<arch>.rpm` (`/usr/lib/kybernow-station`, services, règle udev). À l'installation, les services sont activés pour tous les utilisateurs (`systemctl --global enable`) et la règle udev est chargée.
 
+### PyroWave
+
+Encodeur à part, en Vulkan (la bibliothèque PyroWave est en Vulkan), sur les images DMA-BUF de la capture PipeWire importées sans copie ; détail dans [pyrowave.md](pyrowave.md), « La Station Linux ».
+
+- `server/linux/scripts/pyrowave-linux.sh` (lancé par `build-kyber.sh` avant FFmpeg) compile `libpyrowave-shared.so` et `pyrowave-device-validation` dans le rootfs de Kyber ; correctifs Kyber Linux 0010 (encodeur FFmpeg `libpyrowave_vulkan`), 0011 (kyavserver, moteur libavconv) et 0012 (kycontroller le propose).
+- Admin (`pyrowave.rs`) vérifie une fois par lancement, en fond, la carte du nœud de rendu (`/dev/dri/renderD128`, `KYBERNOW_RENDER_NODE` pour un autre) : `pyrowave-device-validation --external --roundtrip --vid … --pid …` (Vulkan 1.3 qui convient, import des DMA-BUF et des descripteurs de synchronisation, aller-retour). `pyrowave.available` est vrai quand il réussit, sinon `reason: "vulkan"`.
+- Une capture sans DMA-BUF (machine virtuelle) passe par le processeur pour la conversion en YCbCr : PyroWave marche, plus lentement.
+
+### Débit en direct
+
+Le correctif commun 0026 couvre aussi VA-API (cartes AMD et Intel) : quand l'app change le débit (`/set_bitrate`), les paramètres du débit de l'encodeur (débit, mémoire HRD) suivent et partent avec l'image suivante, sans image clé ; avant, ils n'étaient envoyés qu'avec les images IDR (toutes les 10 s avec le GOP de 600 images). NVENC et VideoToolbox ne changent pas ([debit-automatique.md](debit-automatique.md)). x264 suit déjà un changement de débit de lui-même.
+
+### HDR
+
+La question : GNOME ou KDE peuvent-ils donner à un programme un écran virtuel en BT.2100 (PQ, couleurs BT.2020), comme l'écran virtuel HDR de la Station Windows ? **Pas encore**, ni l'un ni l'autre, et la Station Linux n'annonce donc pas le HDR (`hdr` faux : les apps restent en SDR). Étude du 25/11/2026, d'après les interfaces publiques des deux compositeurs et les rapports de développeurs ; à confirmer dans les VM :
+
+- **GNOME (Mutter 46 à 49)** : le HDR existe pour les écrans physiques qui l'annoncent (EDID), réglé dans Paramètres › Écrans. Un écran virtuel (`org.gnome.Mutter.ScreenCast`, `RecordVirtual`) n'a aucune propriété de couleur ni d'EDID : il reste en sRGB, et son flux PipeWire ne propose que des formats 8 bits, sans colorimétrie. Il faudrait un Mutter modifié (écran virtuel avec un mode de couleur, flux 10 bits annoncé en BT.2100) : hors de notre portée tant que Mutter ne le fait pas lui-même.
+- **KDE Plasma 6 (KWin)** : HDR et gestion des couleurs par écran depuis Plasma 6.0, pour les écrans qui l'annoncent. L'écran virtuel de `zkde_screencast_unstable_v1` (`stream_virtual_output`) n'en a pas les capacités (rien à allumer par `kscreen-doctor output.Virtual-KyberNow-1.hdr.enable`), et le greffon de capture de KWin ne propose que des formats DRM 8 bits : même un rendu HDR y serait ramené en SDR.
+- **Côté Kyber aussi** : la capture GStreamer de libavgrab ne sait pas lire d'images 10 bits (RGB 10 bits et P010 ne sont pas dans sa table des formats) ni les métadonnées HDR ; il faudrait l'équivalent Linux du correctif commun 0022 (P010 vers HEVC Main 10 en VA-API ou NVENC, métadonnées).
+- **Détour écarté** : capturer en KMS un écran physique HDR (kmsgrab) demande des droits root (`CAP_SYS_ADMIN`) et ne fait pas d'écran virtuel à la taille de l'appareil.
+
+À refaire quand Mutter ou KWin donneront un écran virtuel avec une description de couleur (protocole Wayland `wp_color_management_v1` côté compositeur, ou une propriété de `RecordVirtual`) et des flux PipeWire 10 bits. À vérifier dans les VM d'ici là : `kscreen-doctor -o` (lignes HDR et WCG de `Virtual-KyberNow-1`) et les formats du nœud PipeWire de l'écran virtuel (`pw-dump`).
+
 ## Correctifs Kyber propres à Linux
 
 Rangés dans `server/linux/kyber-patches`, posés après les correctifs communs par `server/linux/scripts/build-kyber.sh` (détail dans [kyber-changes.md](kyber-changes.md)) :
@@ -88,6 +111,9 @@ Rangés dans `server/linux/kyber-patches`, posés après les correctifs communs 
 | `0002-kynput-pointeur-wayland` | Pointeur absolu par uinput sous Wayland, clics et molette par lui tant qu'il tient le pointeur |
 | `0003-libavgrab-gstreamer-1-24` | Compile avec GStreamer 1.24 (Ubuntu 24.04), qui n'a pas `gst_message_get_details` |
 | `0004-kymedia-luac-5-4` | `luac` 5.4 compilé par Kyber quand le système n'en a pas (Fedora 45 : Lua 5.5), avec les sources de Lua |
+| `0010-kymedia-ffmpeg-pyrowave-vulkan` | Encodeur FFmpeg `libpyrowave_vulkan` : images DMA-BUF de la capture importées dans Vulkan, PyroWave sur la carte (voir « PyroWave ») |
+| `0011-kyavservice-pyrowave-linux` | kyavserver accepte PyroWave sous Linux, avec cet encodeur |
+| `0012-kycontroller-pyrowave-linux` | kycontroller propose PyroWave sur une Station Linux |
 
 ## Compiler
 

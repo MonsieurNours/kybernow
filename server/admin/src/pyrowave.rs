@@ -16,15 +16,22 @@
 //! `kybernow-pyrowave-check`, à côté d'Admin dans l'app (server/macos/pyrowave),
 //! le vérifie une fois par lancement d'Admin, en fond, dans un processus à
 //! part, avec un aller-retour d'une mire.
+//!
+//! Station Linux : le même outil de PyroWave, compilé pour Linux
+//! (`runtime/bin/pyrowave-device-validation`, server/linux/scripts/pyrowave-linux.sh),
+//! sur la carte du nœud de rendu de l'encodeur (`/dev/dri/renderD128`,
+//! `--vid`/`--pid` lus dans `/sys`) : Vulkan 1.3 qui convient, import des
+//! DMA-BUF de la capture PipeWire et des descripteurs de synchronisation,
+//! aller-retour. Une seule vérification par lancement d'Admin.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 /// Pourquoi la Station ne propose pas PyroWave (dans l'ordre) : `off` (réglé
-/// sur non), `windows` (ni une Station Windows ni une Station Mac), `vulkan`
-/// (Windows : pas de Vulkan 1.3 qui convient sur la carte, ou outil de
-/// vérification absent), `metal` (Mac : puce qui ne convient pas, encodeur
+/// sur non), `windows` (ni une Station Windows, ni Mac, ni Linux), `vulkan`
+/// (Windows et Linux : pas de Vulkan 1.3 qui convient sur la carte, ou outil
+/// de vérification absent), `metal` (Mac : puce qui ne convient pas, encodeur
 /// qui ne démarre pas, ou outil absent) ; `None` : proposé.
 pub fn unavailable(enabled: bool, kyber_dir: &Path) -> Option<&'static str> {
     if !enabled {
@@ -32,6 +39,9 @@ pub fn unavailable(enabled: bool, kyber_dir: &Path) -> Option<&'static str> {
     }
     if cfg!(target_os = "macos") {
         return (!metal_ok()).then_some("metal");
+    }
+    if cfg!(target_os = "linux") {
+        return (!vulkan_ok(kyber_dir, None)).then_some("vulkan");
     }
     if !cfg!(windows) {
         return Some("windows");
@@ -88,10 +98,14 @@ pub fn warm_up(kyber_dir: &Path) {
         std::thread::spawn(metal_ok);
         return;
     }
+    let dir = kyber_dir.to_path_buf();
+    if cfg!(target_os = "linux") {
+        std::thread::spawn(move || vulkan_ok(&dir, None));
+        return;
+    }
     if !cfg!(windows) {
         return;
     }
-    let dir = kyber_dir.to_path_buf();
     std::thread::spawn(move || {
         // La liste des cartes (et leur LUID) arrive juste après le démarrage.
         std::thread::sleep(std::time::Duration::from_secs(5));
@@ -163,7 +177,86 @@ fn run_validation(kyber_dir: &Path, luid: Option<u64>) -> bool {
     }
 }
 
-#[cfg(not(windows))]
+/// Station Linux : l'outil de la copie de Kyber, à côté d'Admin
+/// (`<dossier>/bin/kyber-admin` et `<dossier>/runtime/bin/…`, paquet comme
+/// Station d'essai), ou `KYBERNOW_PYROWAVE_VALIDATION`.
+#[cfg(target_os = "linux")]
+fn validation_tool() -> Option<std::path::PathBuf> {
+    std::env::var_os("KYBERNOW_PYROWAVE_VALIDATION")
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| Some(std::env::current_exe().ok()?.parent()?.parent()?.join("runtime/bin/pyrowave-device-validation")))
+        .filter(|p| p.is_file())
+}
+
+/// Le fournisseur et le modèle PCI d'un nœud de rendu (`/sys/class/drm/renderD128/device/vendor`, « 0x1002 »).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn render_node_ids(sys: &Path) -> Option<(u32, u32)> {
+    let read = |name: &str| -> Option<u32> {
+        let text = std::fs::read_to_string(sys.join(name)).ok()?;
+        u32::from_str_radix(text.trim().trim_start_matches("0x"), 16).ok()
+    };
+    Some((read("vendor")?, read("device")?))
+}
+
+/// Arguments de l'outil sous Linux : l'import des DMA-BUF et un aller-retour,
+/// sur la carte `ids` (la première carte Vulkan sinon).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn linux_validation_args(ids: Option<(u32, u32)>) -> Vec<String> {
+    let mut args = validation_args(None);
+    if let Some((vid, pid)) = ids {
+        args.extend(["--vid".to_string(), format!("{vid:x}"), "--pid".to_string(), format!("{pid:x}")]);
+    }
+    args
+}
+
+#[cfg(target_os = "linux")]
+fn run_validation(_kyber_dir: &Path, _luid: Option<u64>) -> bool {
+    let Some(tool) = validation_tool() else {
+        tracing::warn!("PyroWave : pyrowave-device-validation introuvable, pas proposé");
+        return false;
+    };
+    let node = std::env::var("KYBERNOW_RENDER_NODE").unwrap_or_else(|_| "renderD128".into());
+    let node = node.trim_start_matches("/dev/dri/").to_string();
+    let ids = render_node_ids(&Path::new("/sys/class/drm").join(&node).join("device"));
+    // L'outil peut rester bloqué dans un pilote : 20 s au plus, puis arrêté.
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let mut child = match Command::new(&tool).args(linux_validation_args(ids)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("PyroWave : {} ne se lance pas ({e}), pas proposé", tool.display());
+            return false;
+        }
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let code = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break s.code(),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let card = ids.map(|(v, d)| format!("{v:04x}:{d:04x}")).unwrap_or_else(|| "première carte Vulkan".into());
+    match code {
+        Some(0) => {
+            tracing::info!("PyroWave : Vulkan convient ({node}, {card})");
+            true
+        }
+        // 2 : pas de carte Vulkan 1.3 qui convient ; 3 : délai dépassé ;
+        // 4 : pas d'import DMA-BUF ; 5 : aller-retour faux.
+        code => {
+            tracing::warn!("PyroWave : Vulkan ne convient pas ({node}, {card}, code {code:?}), pas proposé");
+            false
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn run_validation(_kyber_dir: &Path, _luid: Option<u64>) -> bool {
     false
 }
@@ -257,10 +350,23 @@ mod tests {
         assert_eq!(max_mbps("n'importe", Some((Ethernet, 1000))), Some(800));
     }
 
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     #[test]
-    fn windows_or_mac_station_only() {
+    fn windows_mac_or_linux_station_only() {
         assert_eq!(unavailable(true, Path::new("nulle-part")), Some("windows"));
+    }
+
+    #[test]
+    fn linux_checks_the_card_of_the_render_node() {
+        let dir = std::env::temp_dir().join(format!("kn-pyrowave-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("vendor"), "0x1002\n").unwrap();
+        std::fs::write(dir.join("device"), "0x744c\n").unwrap();
+        assert_eq!(render_node_ids(&dir), Some((0x1002, 0x744c)));
+        assert_eq!(&linux_validation_args(Some((0x1002, 0x744c)))[4..], ["--vid", "1002", "--pid", "744c"]);
+        assert_eq!(linux_validation_args(None), ["--external", "--roundtrip", "--timeout", "15"]);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(render_node_ids(&dir), None);
     }
 
     #[cfg(target_os = "macos")]
