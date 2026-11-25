@@ -423,6 +423,19 @@ PRECHECK_S=$(( $(date +%s) - DEBUT_PUBLICATION ))
 # que Mac déverrouillé.
 caffeinate -dimsu -w $$ &
 
+# Fichiers lus sur l'entrée standard qui ne sont pas des fichiers de version.
+hors_versions() {
+    local f v keep
+    while read -r f; do
+        keep=0
+        for v in "${VERSION_FILES[@]}"; do
+            [ "$f" = "$v" ] && keep=1
+            [ "${f#"$v"/}" != "$f" ] && keep=1
+        done
+        [ "$keep" = 1 ] || echo "$f"
+    done
+}
+
 # ---------------------------------------------------------------------------
 step "Versions"
 T0=$(date +%s)
@@ -454,8 +467,7 @@ else
             (cd "$d" && xcodegen generate --quiet)
         done
         git --no-pager diff --stat -- "${VERSION_FILES[@]}"
-        EXTRA="$(git status --porcelain | grep -v '\.xcodeproj/xcshareddata/xcschemes/' | awk '{print $2}' | while read -r f; do
-            keep=0; for v in "${VERSION_FILES[@]}"; do case "$f" in "$v" | "$v"/*) keep=1 ;; esac; done; [ "$keep" = 1 ] || echo "$f"; done)"
+        EXTRA="$(git status --porcelain | grep -v '\.xcodeproj/xcshareddata/xcschemes/' | awk '{print $2}' | hors_versions)"
         [ -z "$EXTRA" ] || { echo "l'alignement des versions a modifié d'autres fichiers : $EXTRA" >&2; exit 1; }
         git add -- "${VERSION_FILES[@]}"
         git commit -q -m "KyberNow $VERSION"
