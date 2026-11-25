@@ -50,7 +50,7 @@ Sur le PC, sans ordinateur ni réseau : la sonde du lancement, puis une mire ani
 1. `apps/windows/scripts/build.sh`, puis copier `apps/windows/dist/x64/` sur le PC (ou l'installateur `KyberNow-Link-Setup.exe`, après `--arch arm64` et `build-installer.sh`).
 2. Dans un terminal, dans ce dossier : `kybernow.exe --probe`. Attendu : « PyroWave : carte graphique (Vulkan) » ; sinon la raison (DLL absente, pas de Vulkan, carte refusée, image de test fausse).
 3. `kybernow.exe --pyrowave-test`. Attendu : une ligne par cas, sans « ÉCHEC », PSNR de Y au-dessus de 40 dB environ, décodage de l'ordre de la milliseconde à 2 ms sur une carte de bureau, « image tronquée sautée, suivante décodée ». Garder la sortie et `%LOCALAPPDATA%\KyberNow\kybernow.log`.
-4. En session (une fois le correctif kyclient de la Station en place et la fonctionnalité `pyrowave` du cœur allumée) : « Format vidéo » › PyroWave, puis le journal (« PyroWave : device prêt », « PyroWave : décodeur … »), la barre (« PyroWave · carte graphique ») et les Statistiques. Débrancher le câble (Wi-Fi) : avertissement des réglages, bandeau et puce ; « Passer en HEVC ».
+4. En session (app construite par `build.sh --kyber-pyrowave` : correctif kyclient 0025 et fonctionnalité `pyrowave` du cœur ; Station qui propose PyroWave) : « Format vidéo » › PyroWave, puis le journal (« PyroWave : device prêt », « PyroWave : décodeur … »), la barre (« PyroWave · carte graphique ») et les Statistiques. Débrancher le câble (Wi-Fi) : avertissement des réglages, bandeau et puce ; « Passer en HEVC ».
 
 ### Dans la VM Windows ARM (Parallels)
 
@@ -58,6 +58,6 @@ Même chose avec `dist/arm64/`. La carte graphique virtuelle de Parallels ne don
 
 ## Ce qui attend
 
-- Le correctif kyclient de la Station et la fonctionnalité `pyrowave` du cœur (voir [apps/core/README.md](../apps/core/README.md), « PyroWave ») : sans eux, Kyber n'envoie jamais `pwv1`.
+- Le correctif kyclient 0025 et la fonctionnalité `pyrowave` du cœur allumés par défaut (aujourd'hui : `build.sh --kyber-pyrowave` ; voir [apps/core/README.md](../apps/core/README.md), « PyroWave ») : sans eux, Kyber n'envoie jamais `pwv1`.
 - L'annonce de la Station : le cœur lit `info.pyrowave` comme un booléen (`console::Info`), la Station l'écrit `{"available": …, "reason": …}` (notes de la session Station). Tel quel, la lecture de tout `GET /api/stream/info` échouerait face à une Station qui propose PyroWave : à aligner dans le cœur avant la fusion (l'interface Windows lit déjà les deux formes).
 - « Définition ramenée » : à donner par le cœur (`Stats::lowered` est prêt côté app).

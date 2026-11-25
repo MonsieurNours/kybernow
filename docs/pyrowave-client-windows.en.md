@@ -50,7 +50,7 @@ On the PC, with no computer and no network: the launch probe, then an animated t
 1. `apps/windows/scripts/build.sh`, then copy `apps/windows/dist/x64/` to the PC (or the `KyberNow-Link-Setup.exe` installer, after `--arch arm64` and `build-installer.sh`).
 2. In a terminal, in that folder: `kybernow.exe --probe`. Expected: “PyroWave : carte graphique (Vulkan)”; otherwise the reason (missing DLL, no Vulkan, card refused, wrong test frame).
 3. `kybernow.exe --pyrowave-test`. Expected: one line per case, no “ÉCHEC”, Y PSNR above roughly 40 dB, decoding around 1 to 2 ms on a desktop card, “image tronquée sautée, suivante décodée”. Keep the output and `%LOCALAPPDATA%\KyberNow\kybernow.log`.
-4. In a session (once the Station's kyclient patch is in and the core's `pyrowave` feature is on): “Video format” › PyroWave, then the log (“PyroWave : device prêt”, “PyroWave : décodeur …”), the bar (“PyroWave · graphics card”) and Statistics. Unplug the cable (Wi-Fi): settings warning, banner and chip; “Switch to HEVC”.
+4. In a session (app built with `build.sh --kyber-pyrowave`: kyclient patch 0025 and the core's `pyrowave` feature; Station offering PyroWave): “Video format” › PyroWave, then the log (“PyroWave : device prêt”, “PyroWave : décodeur …”), the bar (“PyroWave · graphics card”) and Statistics. Unplug the cable (Wi-Fi): settings warning, banner and chip; “Switch to HEVC”.
 
 ### In the Windows ARM VM (Parallels)
 
@@ -58,6 +58,6 @@ Same with `dist/arm64/`. Parallels' virtual graphics card probably doesn't provi
 
 ## What's waiting
 
-- The Station's kyclient patch and the core's `pyrowave` feature (see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”): without them, Kyber never sends `pwv1`.
+- Kyclient patch 0025 and the core's `pyrowave` feature on by default (today: `build.sh --kyber-pyrowave`; see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”): without them, Kyber never sends `pwv1`.
 - The Station's announcement: the core reads `info.pyrowave` as a boolean (`console::Info`), the Station writes it `{"available": …, "reason": …}` (Station session notes). As is, reading the whole `GET /api/stream/info` would fail against a Station that offers PyroWave: to align in the core before merging (the Windows interface already reads both forms).
 - “Resolution lowered”: to be given by the core (`Stats::lowered` is ready on the app side).

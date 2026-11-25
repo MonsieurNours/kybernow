@@ -5,6 +5,11 @@
 #   apps/windows/scripts/build.sh                 x64 (x86_64-pc-windows-gnu)
 #   apps/windows/scripts/build.sh --arch arm64    ARM64 (aarch64-pc-windows-gnullvm)
 #   apps/windows/scripts/build.sh --debug         sans optimisation
+#   apps/windows/scripts/build.sh --kyber-pyrowave
+#                                                 Kyber demande PyroWave
+#                                                 (correctif kyclient 0025 et
+#                                                 fonctionnalité pyrowave du
+#                                                 cœur, comme Android et Apple)
 #
 # Prérequis (docs/build-notes.md) : third_party/ en place, les correctifs
 # client appliqués par ce script ; pour x64, third_party/rootfs-win64 (FFmpeg,
@@ -31,10 +36,12 @@ KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
 
 PROFILE=release
 ARCH=x64
+KYBER_PYROWAVE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --debug) PROFILE=debug ;;
         --arch) ARCH="${2:-}"; shift ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift
@@ -90,8 +97,12 @@ kyber_toolchain_check rustc cargo-c
 
 # Correctifs client de KyberNow (paquets vers l'app, presse-papiers, tampon de
 # réception), les mêmes que pour les apps Apple.
+# Le correctif kyclient de PyroWave (0025) seulement avec --kyber-pyrowave :
+# third_party/ est partagé par toutes les apps, et le cœur sans sa
+# fonctionnalité `pyrowave` ne compile pas contre lui (`fallback_codec`).
 for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;
@@ -178,6 +189,7 @@ echo "==> Interface (ui/)"
 
 cargo_flags=(--target "$TARGET" -p kybernow-windows)
 [ "$PROFILE" = release ] && cargo_flags+=(--release)
+[ "$KYBER_PYROWAVE" = 1 ] && cargo_flags+=(--features kyber-pyrowave)
 echo "==> cargo build ($ARCH, $PROFILE)"
 (cd "$APPS" && cargo build "${cargo_flags[@]}" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; })
 
