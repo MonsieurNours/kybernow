@@ -453,6 +453,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             return
         }
         handle = Native.sessionStart(params.toString(), null, state, refresh)
+        if (handle != 0L) watchLink()
         if (handle == 0L) {
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
             g?.let(Share::leave)
@@ -604,6 +605,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (::haptics.isInitialized) haptics.stop()
         hdrWatch?.close()
         hdrWatch = null
+        linkWatch?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
+        linkWatch = null
         // La manette à l'écran n'existe qu'en session : sa place se libère.
         app.gamepads.setOnScreen(false)
         app.gamepads.stop()
@@ -758,6 +761,30 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.profile = p
         Native.sessionSetSettings(handle, settingsJson(p).toString())
         if (tv) resume()
+    }
+
+    /**
+     * PyroWave : le débit du lien de l'appareil (Wi-Fi négocié ; Ethernet inconnu) donné au cœur, qui en tire la
+     * définition ramenée ; redonné quand le réseau change pendant la session.
+     */
+    private var linkWatch: android.net.ConnectivityManager.NetworkCallback? = null
+    @Volatile private var linkSent = -1
+
+    private fun sendLink() {
+        val h = handle
+        val mbps = PyroWave.linkMbps(this)
+        if (h == 0L || mbps == linkSent) return
+        linkSent = mbps
+        Native.sessionSetLinkMbps(h, mbps)
+    }
+
+    private fun watchLink() {
+        sendLink()
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) = sendLink()
+            override fun onLost(network: android.net.Network) = sendLink()
+        }
+        if (runCatching { getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(cb) }.isSuccess) linkWatch = cb
     }
 
     /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */

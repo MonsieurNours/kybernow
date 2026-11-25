@@ -45,7 +45,12 @@ data class Second(
     val chain: DoubleArray?,
     /** L'image de cette seconde est en HDR. */
     val hdr: Boolean = false,
+    /** PyroWave : la définition ramenée en place (`Second::lowered` du cœur), nulle sans. */
+    val lowered: Lowered? = null,
 )
+
+/** PyroWave : définition ramenée à [width] × [height] à [refresh] Hz pour tenir dans [mbps] Mbit/s (docs/pyrowave.md). */
+data class Lowered(val width: Int, val height: Int, val refresh: Int, val mbps: Int)
 
 /**
  * L'avis d'un changement de droits d'un invité (docs/link-ui.md, « Droits changés »), `R.string.share_notice_…` ;
@@ -107,6 +112,8 @@ sealed class Capsule {
     data object PadsUnavailable : Capsule()
     /** « L'ordinateur n'a pas pu passer en HDR : image en SDR. » ; [text] : celui du cœur (vide : celui de l'app). */
     data class HdrRefused(val text: String) : Capsule()
+    /** PyroWave : la définition ramenée, le texte du cœur (docs/link-ui.md, « PyroWave »). */
+    data class ResolutionLowered(val text: String) : Capsule()
 }
 
 /**
@@ -158,6 +165,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val gameFullscreen = MutableStateFlow(false)
     /** HDR : l'image en cours est en HDR (le cœur le dit à chaque démarrage de l'image). */
     val hdr = MutableStateFlow(false)
+    /** PyroWave : le texte de la définition ramenée en place (avis du cœur), nul sans ; repris par le bandeau du début. */
+    val lowered = MutableStateFlow<String?>(null)
     val pointer = MutableStateFlow(PointerState(false, 0.0, 0.0, false, 0))
     val pointerShape = MutableStateFlow<Pair<Bitmap, Pair<Int, Int>>?>(null)
     /** La combinaison s'est formée : ouvrir le menu. */
@@ -297,6 +306,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             mbps = values[9] * 8 / 1_000_000,
             chain = chain,
             hdr = values.size > 17 && values[17] > 0.5,
+            lowered = if (values.size > 21 && values[18] > 0) Lowered(values[18].toInt(), values[19].toInt(), values[20].toInt(), values[21].toInt()) else null,
         )
     }
 
@@ -311,6 +321,12 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             5 -> show(Capsule.AdaptFailed(error ?: ""), 6000)
             6 -> restoreOffer.value = if (hasMode) width to height else null
             SessionListener.NOTICE_HDR_REFUSED -> show(Capsule.HdrRefused(error ?: ""), 6000)
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » (le texte du cœur) ; revenue : rien à dire.
+            SessionListener.NOTICE_RESOLUTION_LOWERED -> {
+                lowered.value = if (hasMode) error else null
+                if (hasMode) show(Capsule.ResolutionLowered(error ?: ""), 8000)
+                else main.post { if (capsule.value is Capsule.ResolutionLowered) capsule.value = null }
+            }
         }
     }
 
