@@ -32,6 +32,10 @@ pub const MAC_SETUP: &str = "KyberNow-Station-Mac.dmg";
 
 /// Installateur de la Station de ce système, quand aucun manifeste ne le nomme.
 pub fn default_setup() -> &'static str {
+    // Station Linux : le paquet installe aussi bien qu'il met à jour.
+    if cfg!(target_os = "linux") {
+        return super::package();
+    }
     if cfg!(target_os = "macos") { MAC_SETUP } else { SETUP }
 }
 
@@ -126,6 +130,12 @@ impl Manifest {
     /// La version publiée (`tag_name`) peut-elle s'installer ici, depuis
     /// Admin, sur le canal `channel`, par-dessus `installed` ?
     pub fn check(&self, tag_version: &str, channel: Channel, installed: &str) -> Result<(), Refusal> {
+        self.check_for(tag_version, channel, installed, super::package())
+    }
+
+    /// De même, pour le paquet `package` (le service root de la Station
+    /// Linux le nomme lui-même).
+    pub fn check_for(&self, tag_version: &str, channel: Channel, installed: &str, package: &str) -> Result<(), Refusal> {
         if self.version != tag_version {
             return Err(Refusal::Rejected(Msg::new("manifest.versionMismatch").with("version", self.version.as_str()).with("tag", tag_version)));
         }
@@ -150,7 +160,7 @@ impl Manifest {
                 Msg::new("manifest.requiresSetup").with("version", self.version.as_str()).with("setup", self.setup_installer()),
             ));
         }
-        if !self.files.contains_key(super::PACKAGE) {
+        if !self.files.contains_key(package) {
             return Err(Refusal::Rejected(Msg::new("manifest.noPackage").with("version", self.version.as_str())));
         }
         Ok(())
@@ -162,6 +172,9 @@ impl Manifest {
     pub fn setup_installer(&self) -> &'static str {
         if cfg!(target_os = "macos") {
             return MAC_SETUP;
+        }
+        if cfg!(target_os = "linux") {
+            return super::package();
         }
         if !self.files.contains_key(SETUP) && self.files.contains_key(LEGACY_SETUP) { LEGACY_SETUP } else { SETUP }
     }
@@ -231,6 +244,10 @@ pub mod tests {
         let mut files = BTreeMap::new();
         files.insert("kybernow-update.zip".to_string(), FileEntry { sha256: "ab".repeat(32), size: 42 });
         files.insert("KyberNow-Station-Mac-update.zip".to_string(), FileEntry { sha256: "ef".repeat(32), size: 42 });
+        // Paquets de la Station Linux (.deb, .rpm, x86_64 et arm64).
+        for name in ["KyberNow-Station-Linux-x86_64.deb", "KyberNow-Station-Linux-arm64.deb", "KyberNow-Station-Linux-x86_64.rpm", "KyberNow-Station-Linux-arm64.rpm"] {
+            files.insert(name.to_string(), FileEntry { sha256: "12".repeat(32), size: 42 });
+        }
         // Les deux noms de l'installateur, même fichier, pendant la transition.
         files.insert(SETUP.to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
         files.insert(LEGACY_SETUP.to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
@@ -275,7 +292,7 @@ pub mod tests {
         let m: Manifest = serde_json::from_str(text).unwrap();
         assert_eq!(m.channel, Channel::Beta);
         assert_eq!(m.files["kybernow-update.zip"].size, 4);
-        assert_eq!(m.setup_installer(), if cfg!(target_os = "macos") { MAC_SETUP } else { SETUP });
+        assert_eq!(m.setup_installer(), default_setup());
         let back: Manifest = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(back, m);
         assert_eq!(serde_json::to_value(Channel::Stable).unwrap(), "stable");
@@ -293,8 +310,8 @@ pub mod tests {
         assert_eq!((m.version.as_str(), m.channel, m.min_installer_version.as_str()), ("0.2.7", Channel::Beta, "0.2.6"));
         assert_eq!(m.files["kybernow-update.zip"].size, 15);
         assert!(m.files.contains_key("update.ps1"));
-        if cfg!(target_os = "macos") {
-            // Sans paquet Mac, la version ne s'installe pas depuis l'Admin d'un Mac.
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            // Sans paquet Mac (ni Linux), la version ne s'installe pas depuis l'Admin d'un Mac.
             assert!(matches!(m.check("0.2.7", Channel::Beta, "0.2.6"), Err(Refusal::Rejected(_))));
         } else {
             assert_eq!(m.check("0.2.7", Channel::Beta, "0.2.6"), Ok(()));
@@ -353,8 +370,7 @@ pub mod tests {
         old.min_installer_version = "0.2.10".into();
         match old.check("0.3.0", Channel::Stable, "0.2.9") {
             Err(Refusal::Setup(msg)) => {
-                let setup = if cfg!(target_os = "macos") { MAC_SETUP } else { SETUP };
-                assert!(msg.to_string().contains(&format!("réinstallez avec {setup}")), "{msg}")
+                assert!(msg.to_string().contains(&format!("réinstallez avec {}", default_setup())), "{msg}")
             }
             other => panic!("{other:?}"),
         }
@@ -365,13 +381,13 @@ pub mod tests {
         assert!(matches!(setup.check("0.3.0", Channel::Stable, "0.2.9"), Err(Refusal::Setup(_))));
 
         let mut empty = sample("0.3.0", Channel::Stable);
-        empty.files.remove(super::super::PACKAGE);
+        empty.files.remove(super::super::package());
         assert!(matches!(empty.check("0.3.0", Channel::Stable, "0.2.9"), Err(Refusal::Rejected(_))));
     }
 
     /// Manifeste d'une version publiée avant le renommage : seul l'ancien nom
     /// de l'installateur y figure, c'est lui que nomment les messages (Windows).
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     #[test]
     fn an_older_manifest_names_the_old_installer() {
         let mut old = sample("0.3.0", Channel::Stable);

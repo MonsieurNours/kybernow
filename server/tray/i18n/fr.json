@@ -109,7 +109,12 @@
       "one": "{n} demande",
       "other": "{n} demandes"
     },
-    "list": "{rest} et {last}"
+    "list": "{rest} et {last}",
+    "linux": {
+      "attention": "Une demande vous attend : ouvrez le menu de KyberNow Station ou Admin pour y répondre.",
+      "setupCode": "Mot de passe d'Admin effacé. Votre code d'initialisation : {code}\n\nAdmin vient de s'ouvrir : saisissez ce code pour choisir un nouveau mot de passe. Vos appareils et leurs comptes ne changent pas.",
+      "noSetupCode": "Admin n'a pas écrit de code d'initialisation ({path})."
+    }
   },
   "panel": {
     "ago": {

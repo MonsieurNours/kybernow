@@ -109,7 +109,12 @@
       "one": "{n} request",
       "other": "{n} requests"
     },
-    "list": "{rest} and {last}"
+    "list": "{rest} and {last}",
+    "linux": {
+      "attention": "A request is waiting for you: open the KyberNow Station menu or Admin to answer it.",
+      "setupCode": "Admin password cleared. Your setup code: {code}\n\nAdmin just opened: enter this code to choose a new password. Your devices and their accounts don't change.",
+      "noSetupCode": "Admin did not write a setup code ({path})."
+    }
   },
   "panel": {
     "ago": {

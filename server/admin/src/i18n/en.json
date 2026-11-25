@@ -301,6 +301,9 @@
     "remoteAdminOff": "Remote Admin is off on this computer. Turn it on in Admin › Away from home, on the network."
   },
   "linux": {
+    "update": {
+      "undoFailed": "Going back to the previous version failed: version {version} may be half installed. Reinstall the kybernow-station package of the latest version (github.com/MonsieurNours/kybernow/releases)."
+    },
     "station": {
       "windowsOnly": "restarting the Station is only possible on an installed Station"
     },

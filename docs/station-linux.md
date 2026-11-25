@@ -19,7 +19,7 @@ Un ordinateur sous Linux devient une Station comme un PC Windows ou un Mac : mê
 | Cartes et encodeurs | NVENC (NVIDIA), VA-API (AMD, Intel), x264 en secours, choisis selon la carte à l'installation ; images sans copie vers l'encodeur (DMA-BUF) ; PyroWave en Vulkan |
 | Entrées | uinput (X11 et Wayland), pas libei ; manettes Xbox par uinput, DualSense par uhid |
 | Verrouillage | Comme sur Mac : l'écran verrouillé de la session est diffusé ; après un redémarrage, il faut que la session s'ouvre toute seule (ouverture automatique) |
-| Services | Kyber, Admin (et plus tard l'icône) en services systemd de l'utilisateur, dans sa session graphique ; un service root à part pour appliquer les mises à jour |
+| Services | Kyber, Admin et l'icône en services systemd de l'utilisateur, dans sa session graphique ; un service root à part pour appliquer les mises à jour |
 | Son | Une sortie PipeWire « KyberNow » de 2, 6 ou 8 voies, choisie pendant la session, puis la sortie d'origine rendue (comme la sortie KyberNow du Mac) |
 | Moteur | Le serveur Linux de Kyber 0.29 (kycontroller, kyavserver avec le moteur libavconv, kynputserver), avec nos correctifs communs et des correctifs propres à Linux. Pas de moteur à nous |
 
@@ -76,7 +76,17 @@ Admin donne `platform` : `linux` (`GET /api/session`) : l'interface et Admin rem
 - `kybernow-admin.service` et `kybernow-kyber.service`, services systemd de l'utilisateur (`/usr/lib/systemd/user`), rattachés à sa session graphique : ils démarrent à l'ouverture de session et s'arrêtent avec elle. Admin pilote Kyber par `systemctl --user` (`linux.rs`), et redémarre la Station par systemd.
 - Premier démarrage : `kybernow-station-setup` (avant Admin) pose les réglages de Kyber pour Linux (moteur libavconv, capture GStreamer, fichier des écrans), un certificat propre à la Station, l'encodeur de la carte, le premier compte (votre nom d'utilisateur, mot de passe tiré au hasard dans `~/.local/share/kybernow/station/admin/mot-de-passe`).
 - Données : `~/.local/share/kybernow/station/` (`admin/`, `kyber/`, `kyber-screens.toml`).
-- Paquet : `server/linux/scripts/package.sh` → `kybernow-station_<version>_<arch>.deb` et `kybernow-station-<version>.<arch>.rpm` (`/usr/lib/kybernow-station`, services, règle udev). À l'installation, les services sont activés pour tous les utilisateurs (`systemctl --global enable`) et la règle udev est chargée.
+- Paquet : `server/linux/scripts/package.sh` → `kybernow-station_<version>_<arch>.deb` et `kybernow-station-<version>.<arch>.rpm` (`/usr/lib/kybernow-station`, services de l'utilisateur dont l'icône, socket et service root des mises à jour, règle udev). À l'installation, les services sont activés pour tous les utilisateurs (`systemctl --global enable`), le socket des mises à jour est ouvert et la règle udev est chargée ; une mise à jour du paquet garde tout cela (les scripts ne désactivent qu'à la désinstallation). Dépendances de l'icône : GTK 3 et AppIndicator (Ayatana ou l'ancien) ; recommandés : l'extension AppIndicator de GNOME, zenity ou kdialog, notify-send. Publication : `server/linux/scripts/release-station.sh` construit les quatre paquets sous leurs noms fixes (arm64 dans la VM, x86_64 sur une machine x86_64 jointe par ssh) ; `scripts/release.sh` les publie avec `KYBERNOW_STATION_LINUX=1` (voir [releases.md](releases.md)).
+
+### Mises à jour et icône
+
+- **Mises à jour** (jalon 6), comme sous Windows et sur Mac : même manifeste signé minisign, même vérification par Admin (signature par la clé compilée, version, canal, taille et empreinte du paquet), même page Mises à jour et mêmes boutons dans les apps. Le paquet est celui de l'architecture et du format installés : `KyberNow-Station-Linux-{x86_64,arm64}.{deb,rpm}` (`update/linux.rs`, format lu dans dpkg, sinon rpm).
+- Admin n'est jamais root. Il télécharge et vérifie dans `~/.local/share/kybernow/station/admin/update/<version>/`, puis dépose sa demande sur le socket `/run/kybernow-station/update.sock` (`kybernow-station-update.socket`, ouvert à tous). systemd lance alors, pour cette connexion, le service root `kybernow-station-update@.service` (`kyber-admin update serve`), qui ne croit rien de la demande : il lit le compte qui la fait (`SO_PEERCRED`), ne prend les fichiers que dans le dossier de mises à jour de ce compte, sans suivre de lien, les copie dans son dossier `/var/lib/kybernow-station/update/<version>/` et y revérifie tout (signature, version plus récente que le paquet installé, canal suivi par ce compte, `min_installer_version`, taille et empreinte). Il répond à Admin une fois la demande vérifiée, avant d'arrêter quoi que ce soit : un refus s'affiche dans Admin comme ailleurs.
+- Puis il arrête l'icône, Kyber et Admin de ce compte (`runuser … systemctl --user`), installe le paquet (`apt-get install` pour un .deb, qui prend les nouvelles dépendances, sinon `dpkg -i` ; `dnf install` pour un .rpm, sinon `rpm -Uvh`), relance les services et attend qu'Admin réponde dans la nouvelle version (60 s, à l'adresse de son réglage `listen`).
+- **Retour arrière.** Avant d'installer, Admin télécharge aussi le paquet de la version qui tourne (depuis sa version publiée, vérifié contre son manifeste signé) si le service root ne le garde pas déjà ; le service root le vérifie et le garde. Si Admin ne répond pas dans la nouvelle version, il réinstalle celui-là (`--allow-downgrades`, `rpm --oldpackage`). « Revenir à la version précédente » réinstalle de même la version gardée (`previous`), revérifiée ; seules les deux versions utiles restent dans `/var/lib/kybernow-station/update/`. Une Station installée à la main depuis une version qui ne publiait pas encore de paquets Linux (0.11.0 et avant) n'a pas de retour arrière pour sa première mise à jour : le journal le dit.
+- Résultat dans `/var/lib/kybernow-station/update/resultat.json` (lisible par tous, au même format), qu'Admin relit à son démarrage ; journal dans `<version>/update.log` à côté, et `journalctl -u 'kybernow-station-update@*'`.
+- **Icône près de l'horloge** : le même programme que sous Windows (`server/tray`, tao et tray-icon), compilé pour Linux (`src/linux.rs`), en service systemd de l'utilisateur `kybernow-tray.service`. Une icône AppIndicator (StatusNotifierItem) : KDE Plasma l'affiche de lui-même, GNOME avec l'extension AppIndicator (d'office sous Ubuntu, `gnome-shell-extension-appindicator`, recommandée par le paquet, ailleurs). Mêmes menus et textes (`tray.*`), même état et même pastille (`src/status.rs`, partagé avec Windows) ; un clic ouvre toujours le menu, et les pages du panneau de Windows s'ouvrent dans Admin (partage, prêt, mises à jour). Pas de « Démarrer avec l'ordinateur » : les services démarrent avec la session. « Réinitialiser le mot de passe d'Admin » se fait sans droits particuliers (Admin tourne avec votre compte) et montre le code d'initialisation. Confirmations et messages par zenity ou kdialog ; une demande nouvelle (appareil, invité, ami) donne une notification.
+- `kybernow-station-setup` pose `~/.local/share/kybernow/station/kybernow.json` (le port d'Admin), où Admin note l'empreinte de son certificat : l'icône ne parle qu'à ce certificat, comme sous Windows.
 
 ## Correctifs Kyber propres à Linux
 
@@ -100,13 +110,13 @@ sudo apt install build-essential cmake nasm bison flex pkg-config pipx lua5.4 py
   libva-dev libdrm-dev libgbm-dev libegl-dev libvulkan-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libpulse-dev libasound2-dev \
   libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-shape0-dev libxtst-dev \
-  libxkbcommon-dev libwayland-dev wayland-protocols libevdev-dev libudev-dev libinput-dev
+  libxkbcommon-dev libwayland-dev wayland-protocols libevdev-dev libudev-dev libinput-dev libgtk-3-dev
 # Fedora 42 et après (sans libplacebo-devel : Kyber compile la sienne)
 sudo dnf install gcc gcc-c++ cmake nasm bison flex pipx python3-jinja2 glslang spirv-tools clang-devel \
   openssl-devel libv4l-devel libcap-devel libvdpau-devel numactl-devel libva-devel libdrm-devel \
   mesa-libgbm-devel mesa-libEGL-devel vulkan-loader-devel gstreamer1-devel gstreamer1-plugins-base-devel \
   pipewire-devel pulseaudio-libs-devel alsa-lib-devel libxcb-devel libXtst-devel libXrandr-devel libxkbcommon-devel \
-  wayland-devel wayland-protocols-devel libevdev-devel systemd-devel libinput-devel dbus-devel rustup \
+  wayland-devel wayland-protocols-devel libevdev-devel systemd-devel libinput-devel dbus-devel rustup gtk3-devel \
   libXrandr-devel clang20-devel
 pipx install meson==1.11.2 && pipx inject meson jinja2
 cargo install cargo-c --version 0.10.15 --locked --features vendored-openssl && rustup toolchain install 1.89.0
@@ -140,7 +150,7 @@ Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux 
 3. **Écrans virtuels.** GNOME par Mutter et KDE Plasma 6 par KWin : **écrits et essayés dans les VM** (voir « Essais »).
 4. **Son.** Sortie PipeWire KyberNow : **écrit**.
 5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland : à faire.
-6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Icône près de l'horloge, applicateur des mises à jour (service root), mise à jour depuis Admin : à faire.
+6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Mises à jour depuis Admin et depuis les apps (service root par socket, retour arrière), icône près de l'horloge, paquets publiés : **écrits**, testés sur le Mac (tests d'Admin et de l'icône), pas encore essayés sous Linux (voir « Essais »).
 7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer), Prêt du PC (mode console dans la session de l'hôte, veille empêchée par `systemd-inhibit`), HDR (écran virtuel de GNOME en BT.2100 : GNOME ne le propose pas encore), PyroWave (Vulkan, import DMA-BUF), débit en direct en VA-API (à ajouter au correctif commun 0026) : à faire.
 8. **Systèmes immuables** (Bazzite, SteamOS). À faire.
 
@@ -167,4 +177,4 @@ Pièges trouvés en route : l'app choisit son écran dans la liste de Kyber dès
 
 Défauts trouvés et corrigés en route : une disposition sans écran virtuel désactivait les écrans sous KDE ; un écran virtuel refusé laissait Kyber sans écran ; le nom « Virtual-KyberNow-1 » de Plasma 6 n'était pas reconnu ; la sortie de `kscreen-doctor` de Plasma 6 (une propriété par ligne) n'était pas lue ; un écran rallumé était cherché sous son ancien objet.
 
-**Pas encore essayé** : une session depuis une app sous KDE, une session de bout en bout depuis une app KyberNow Link (image, son, latence), le clavier, le pointeur absolu et les clics sous Wayland, les manettes, VA-API et NVENC (aucune vraie carte graphique dans la VM), x86_64, Fedora, une machine réelle.
+**Pas encore essayé** : la mise à jour depuis Admin (socket, service root, apt et dnf, contrôle de santé, retour arrière), l'icône sous GNOME et KDE, la compilation de l'icône et du service root sous Linux ; une session depuis une app sous KDE, une session de bout en bout depuis une app KyberNow Link (image, son, latence), le clavier, le pointeur absolu et les clics sous Wayland, les manettes, VA-API et NVENC (aucune vraie carte graphique dans la VM), x86_64, Fedora, une machine réelle.

@@ -141,36 +141,6 @@ fn signature(app: &Path) -> Result<(String, String)> {
     Ok((field("TeamIdentifier="), field("Identifier=")))
 }
 
-/// Admin répond-il, dans la version attendue ?
-fn health(address: &str, version: &str, timeout: Duration) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(3)))
-        // Certificat d'Admin, auto-signé : seule la version compte ici.
-        .tls_config(ureq::tls::TlsConfig::builder().disable_verification(true).build())
-        .http_status_as_error(false)
-        .proxy(None)
-        .build()
-        .into();
-    let url = format!("https://{address}/api/session");
-    let mut last = String::from("aucune réponse");
-    while Instant::now() < deadline {
-        match agent.get(&url).call() {
-            Ok(mut resp) => {
-                let body: Value = resp.body_mut().read_to_vec().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-                match body["version"].as_str() {
-                    Some(v) if v == version => return Ok(()),
-                    Some(v) => last = format!("Admin répond en version {v}"),
-                    None => last = "réponse sans version".into(),
-                }
-            }
-            Err(e) => last = e.to_string(),
-        }
-        std::thread::sleep(Duration::from_secs(2));
-    }
-    bail!("KyberNow Admin ne répond pas en version {version} au bout de {} s ({last})", timeout.as_secs())
-}
-
 fn write_result(layout: &Layout, value: Value) {
     let _ = fs::create_dir_all(layout.updates());
     let _ = fs::write(layout.updates().join(RESULT), serde_json::to_vec_pretty(&value).unwrap_or_default());
@@ -225,7 +195,7 @@ fn swap_and_check(layout: &Layout, incoming: &Path, version: &str, log: &mut Jou
     start_all(log);
     let address = super::apply::console_address(layout);
     log.line(format!("==> Contrôle : Admin en version {version} sur {address}"));
-    match health(&address, version, HEALTH_TIMEOUT) {
+    match super::apply::admin_answers(&address, version, HEALTH_TIMEOUT) {
         Ok(()) => Ok(()),
         Err(e) => {
             log.line(format!("ERREUR : {e:#}"));
@@ -327,11 +297,13 @@ fn finish(layout: &Layout, version: &str, result: Result<()>, log: &mut Journal)
 pub fn run(action: Action, data_dir: &Path) -> Result<()> {
     let install = match &action {
         Action::Apply { install_dir, .. } | Action::Rollback { install_dir } => install_dir.clone().unwrap_or_else(installed_app),
+        Action::Serve => bail!("réservé à la Station Linux"),
     };
     let layout = Layout { install, data: data_dir.to_path_buf() };
     match action {
         Action::Apply { zip, version, .. } => apply(&layout, &zip, &version),
         Action::Rollback { .. } => rollback(&layout),
+        Action::Serve => unreachable!(),
     }
 }
 

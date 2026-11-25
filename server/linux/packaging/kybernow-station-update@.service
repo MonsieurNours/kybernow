@@ -1,0 +1,20 @@
+# KyberNow Station pour Linux : installe une mise à jour demandée par Admin
+# (kyber-admin update serve, la connexion en entrée standard) : paquet .deb
+# ou .rpm signé, services de l'utilisateur relancés, contrôle de santé,
+# retour arrière (docs/station-linux.md). Journal : journalctl -u
+# 'kybernow-station-update@*', et /var/lib/kybernow-station/update/<version>/update.log.
+[Unit]
+Description=KyberNow Station (installation d'une mise à jour)
+CollectMode=inactive-or-failed
+
+[Service]
+ExecStart=/usr/lib/kybernow-station/bin/kyber-admin update serve
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+StateDirectory=kybernow-station
+StateDirectoryMode=0755
+WorkingDirectory=/var/lib/kybernow-station
+# Le paquet installé remplace ce programme : il continue depuis l'ancien.
+KillMode=process
+TimeoutStopSec=15min

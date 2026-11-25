@@ -301,6 +301,9 @@
     "remoteAdminOff": "Admin à distance est coupé sur cet ordinateur. Allumez-le dans Admin › Hors de chez vous, sur le réseau."
   },
   "linux": {
+    "update": {
+      "undoFailed": "Le retour à la version précédente n'a pas abouti : la version {version} est peut-être à moitié installée. Réinstallez le paquet kybernow-station de la dernière version (github.com/MonsieurNours/kybernow/releases)."
+    },
     "station": {
       "windowsOnly": "redémarrer la Station n'est possible que sur une Station installée"
     },

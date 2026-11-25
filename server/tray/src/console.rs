@@ -31,7 +31,11 @@ fn record() -> Option<Value> {
     // Station Mac : `~/Library/Application Support/KyberNow/Station/kybernow.json`.
     #[cfg(target_os = "macos")]
     let json = env_dir("HOME", "/tmp").join("Library/Application Support/KyberNow/Station/kybernow.json");
-    #[cfg(not(target_os = "macos"))]
+    // Station Linux : `~/.local/share/kybernow/station/kybernow.json`
+    // (posé par kybernow-station-setup, empreinte notée par Admin).
+    #[cfg(target_os = "linux")]
+    let json = crate::linux::station_dir()?.join("kybernow.json");
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let json = env_dir("ProgramFiles", r"C:\Program Files").join(r"KyberNow\kybernow.json");
     serde_json::from_slice(&std::fs::read(json).ok()?).ok()
 }
@@ -62,6 +66,10 @@ pub fn local_token_path() -> Option<PathBuf> {
     if cfg!(target_os = "macos") {
         return std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/KyberNow/Station/admin/local-token"));
     }
+    // Station Linux : de même, dans les données d'Admin.
+    #[cfg(target_os = "linux")]
+    return crate::linux::station_dir().map(|d| d.join("admin").join("local-token"));
+    #[cfg_attr(target_os = "linux", allow(unreachable_code))]
     std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join(r"KyberNow\local-token"))
 }
 
