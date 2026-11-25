@@ -1579,5 +1579,89 @@
       "share": "Sharing",
       "admin": "Administer"
     }
+  },
+  "linux": {
+    "session": {
+      "keys": {
+        "winSub": "Activities"
+      }
+    },
+    "overview": {
+      "display": {
+        "noDriver": "Virtual display unavailable"
+      }
+    },
+    "devices": {
+      "card": {
+        "launchText": "An app opens on the computer as soon as the virtual display is ready, in your session. Already open, it comes back to the front."
+      },
+      "launch": {
+        "intro": "An app opens on the computer as soon as its display is ready: Steam Big Picture, a game, a spreadsheet… Apps and their icons come from the applications installed in your session.",
+        "loading": "Reading the applications…",
+        "readFailed": "The applications couldn't be read: {error}. Log in to the computer, then refresh.",
+        "allOf": "The computer's applications",
+        "emptyCatalogue": "No app found. Log in to the computer, then refresh."
+      }
+    },
+    "system": {
+      "update": {
+        "timeout": "The update did not complete within 5 minutes: see the log (journalctl --user -u kybernow-admin)."
+      },
+      "server": {
+        "simulated": "(simulated outside a Station)",
+        "trayTitle": "Kyber icon in the desktop bar"
+      },
+      "station": {
+        "timeout": "The Station did not restart within 3 minutes: see the log (journalctl --user -u kybernow-admin)."
+      },
+      "wake": {
+        "allowedHelp": "This card can turn the computer on when it is asleep. Your devices can wake it from the KyberNow Link app. After a full shutdown, it depends on the BIOS.",
+        "notAllowedHelp": "To let your devices turn this computer on, allow magic-packet wake on the network card (sudo ethtool -s <card> wol g, or the connection's settings) and in the BIOS.",
+        "unknownHelp": "Linux doesn't say whether this card can turn the computer on. To let your devices do it, allow magic-packet wake on the network card (sudo ethtool -s <card> wol g) and in the BIOS."
+      }
+    },
+    "imageSound": {
+      "hdrGamma": {
+        "srgb": "sRGB"
+      },
+      "pill": {
+        "simulated": "Simulated: no Station installed on this computer",
+        "driverUnavailable": "Virtual display unavailable",
+        "ready": "Ready · GNOME virtual display",
+        "readyVersion": "Ready · GNOME virtual display",
+        "readySound": "Ready · KyberNow sound output"
+      },
+      "display": {
+        "hdrWindows": "No HDR from a Linux Station yet.",
+        "hdrCheckProfile": "The desktop didn't take the profile: games see {seen} nits instead of {wanted}.",
+        "hdrCheckUnread": "The desktop doesn't give the virtual display's luminance.",
+        "hdrGammaHelp": "A setting for Windows Stations: nothing to choose on this computer.",
+        "failsafeHelp": "The virtual display goes away by itself if the Station stops, and the desktop turns your displays back on in their layout. You can also do it right away.",
+        "failsafeHelpSeconds": "The virtual display goes away by itself if the Station stops, and the desktop turns your displays back on in their layout. You can also do it right away."
+      },
+      "sound": {
+        "installSteam": "The KyberNow sound output couldn't be created: check that PipeWire (or PulseAudio) is running in your session. Without it, sound also comes out of the computer's speakers."
+      }
+    },
+    "lend": {
+      "warning": "Your friend plays in your session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
+      "page": {
+        "intro": "Lend the computer to a friend when you're not using it: they play from their device, with the apps you choose. At the end, everything goes back as before, and your session stays open.",
+        "switchHelp": "While lending is on, your session must stay open: the Station prevents sleep and automatic locking."
+      },
+      "apps": {
+        "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the applications installed in your session."
+      },
+      "admin": {
+        "settings": {
+          "session": "Your session"
+        },
+        "off": {
+          "title": "Lend your computer to a friend, simply",
+          "friendsText": "They borrow with their login when the computer is free, otherwise they ask you.",
+          "warning": "Your friend plays in your session, in console mode: they only see the apps you choose. A game can still read your files: lend to friends you trust."
+        }
+      }
+    }
   }
 }

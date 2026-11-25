@@ -58,6 +58,10 @@ Admin (`audio/mod.rs`, module `linux`) crée au début de la session une sortie 
 
 L'installation choisit celui de la carte (`kybernow-station-setup`) : NVIDIA → NVENC ; AMD ou Intel avec un nœud de rendu → VA-API ; sinon x264. Admin propose ces trois-là dans Réglages › Image (« VA-API — carte AMD ou Intel »).
 
+### Textes d'Admin
+
+Admin donne `platform` : `linux` (`GET /api/session`) : l'interface et Admin remplacent chaque texte propre à Windows (menu Démarrer, pilote SudoVDA, haut-parleurs de Steam, session Windows…) par sa version Linux, rangée sous `linux` dans les catalogues (`server/web/src/lib/i18n/`, `server/admin/src/i18n/`), et les textes des réglages de Kyber par `schema.linux.json` ([i18n.md](i18n.md)). Trouvé à la première session depuis le Mac (25/11/2026) : Admin parlait de Windows.
+
 ### Services et paquet
 
 - `kybernow-admin.service` et `kybernow-kyber.service`, services systemd de l'utilisateur (`/usr/lib/systemd/user`), rattachés à sa session graphique : ils démarrent à l'ouverture de session et s'arrêtent avec elle. Admin pilote Kyber par `systemctl --user` (`linux.rs`), et redémarre la Station par systemd.

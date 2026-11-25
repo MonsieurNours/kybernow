@@ -89,15 +89,22 @@ fn lookup<'a>(root: &'a Value, key: &str) -> Option<&'a str> {
     key.split('.').try_fold(root, |node, part| node.get(part))?.as_str()
 }
 
-/// Système de la Station (`/api/session`) : `macos` ou `windows`.
-pub const PLATFORM: &str = if cfg!(target_os = "macos") { "macos" } else { "windows" };
+/// Système de la Station (`/api/session`) : `macos`, `linux` ou `windows`.
+pub const PLATFORM: &str = if cfg!(target_os = "macos") {
+    "macos"
+} else if cfg!(target_os = "linux") {
+    "linux"
+} else {
+    "windows"
+};
 
 /// Texte brut de `key` (repli : français, puis la clé elle-même). Sur une
 /// Station Mac, la version Mac d'un texte propre à Windows (`macos.<clé>`)
 /// passe d'abord (docs/i18n.md).
 fn text(lang: Lang, key: &str) -> &str {
-    if cfg!(target_os = "macos") {
-        let mac = format!("macos.{key}");
+    // Station Linux : de même, sous `linux.<clé>`.
+    if cfg!(any(target_os = "macos", target_os = "linux")) {
+        let mac = format!("{PLATFORM}.{key}");
         if let Some(t) = lookup(catalog(lang), &mac).or_else(|| lookup(&FR, &mac)) {
             return t;
         }
@@ -327,8 +334,16 @@ pub fn localize_schema(lang: Lang, groups: Value, fields: Value) -> (Value, Valu
     if cfg!(target_os = "macos") {
         return patch_schema(&SCHEMA_MACOS[lang.code()], groups, fields);
     }
+    // Station Linux : de même (docs/station-linux.md).
+    if cfg!(target_os = "linux") {
+        return patch_schema(&SCHEMA_LINUX[lang.code()], groups, fields);
+    }
     (groups, fields)
 }
+
+/// Textes des réglages propres à Linux, par langue (`schema.linux.json`).
+static SCHEMA_LINUX: LazyLock<Value> =
+    LazyLock::new(|| serde_json::from_str(include_str!("i18n/schema.linux.json")).expect("i18n/schema.linux.json"));
 
 /// Textes des réglages propres au Mac, par langue (`schema.macos.json`).
 static SCHEMA_MACOS: LazyLock<Value> =

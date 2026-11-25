@@ -297,5 +297,15 @@
     "alreadyAttached": "This computer is already attached to a KyberNow account: detach it in Admin first.",
     "badEnrollToken": "Enrollment token refused: it's unknown, revoked, expired or already used for all its Stations.",
     "remoteAdminOff": "Remote Admin is off on this computer. Turn it on in Admin › Away from home, on the network."
+  },
+  "linux": {
+    "station": {
+      "windowsOnly": "restarting the Station is only possible on an installed Station"
+    },
+    "events": {
+      "displayKeepsTurningOn": "The desktop keeps turning one of the computer's displays back on: it stays on for the rest of the session",
+      "launchedAfterUnlock": "{app} opened for {name}, once the session was unlocked",
+      "launchLocked": "{app} wasn't opened for {name}: the session stayed locked for 2 minutes"
+    }
   }
 }

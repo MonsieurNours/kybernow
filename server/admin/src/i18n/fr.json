@@ -297,5 +297,15 @@
     "alreadyAttached": "Cet ordinateur est déjà rattaché à un compte KyberNow : détachez-le d'abord dans Admin.",
     "badEnrollToken": "Jeton d'enrôlement refusé : il est inconnu, révoqué, échu ou a déjà servi pour toutes ses Stations.",
     "remoteAdminOff": "Admin à distance est coupé sur cet ordinateur. Allumez-le dans Admin › Hors de chez vous, sur le réseau."
+  },
+  "linux": {
+    "station": {
+      "windowsOnly": "redémarrer la Station n'est possible que sur une Station installée"
+    },
+    "events": {
+      "displayKeepsTurningOn": "Le bureau rallume sans cesse un écran de l'ordinateur : il reste allumé pour le reste de la session",
+      "launchedAfterUnlock": "{app} ouvert pour {name}, une fois la session déverrouillée",
+      "launchLocked": "{app} n'a pas été ouvert pour {name} : la session est restée verrouillée pendant 2 minutes"
+    }
   }
 }
