@@ -1,4 +1,6 @@
 #!/bin/bash
+# Listes de chemins et de processus coupées en mots exprès (sans espaces).
+# shellcheck disable=SC2046,SC2207
 # Publie une version de KyberNow sur GitHub (github.com/MonsieurNours/kybernow).
 #
 #   scripts/release.sh X.Y.Z                  version stable
@@ -370,9 +372,9 @@ if CHECK="$(KYBERNOW_KYBER_HEAD=1 apps/linux/scripts/sources.sh "$FLATPAK_SRC/sr
     for p in "$FLATPAK_SRC"/src/apps/macos/kyber-patches/*.patch "$FLATPAK_SRC"/src/server/kyber-patches/*-kyclient-*.patch "$FLATPAK_SRC"/src/apps/webos/kyber-patches/*.patch; do
         case "$(basename "$p")" in
             *-kyclient-pyrowave.patch) continue ;;
-            *-kyclient-*) r=kyctl ;; *-kynput-*) r=kynput ;; *-kynet-*) r=kymux ;; *) PATCH_FAIL+=("$(basename "$p") (dépôt ?)"); continue ;;
+            *-kyclient-*) depot=kyctl ;; *-kynput-*) depot=kynput ;; *-kynet-*) depot=kymux ;; *) PATCH_FAIL+=("$(basename "$p") (dépôt ?)"); continue ;;
         esac
-        (cd "$FLATPAK_SRC/src/third_party/kyber-desktop/kysdk/$r" && patch -p1 -s -f -F0 < "$p" > /dev/null 2>&1) || PATCH_FAIL+=("$(basename "$p")")
+        (cd "$FLATPAK_SRC/src/third_party/kyber-desktop/kysdk/$depot" && patch -p1 -s -f -F0 < "$p" > /dev/null 2>&1) || PATCH_FAIL+=("$(basename "$p")")
     done
     if [ ${#MISSING[@]} -gt 0 ]; then problem "copie du Flatpak : manque ${MISSING[*]}"
     elif [ ${#PATCH_FAIL[@]} -gt 0 ]; then problem "copie du Flatpak : correctifs inapplicables sur les sources d'origine : ${PATCH_FAIL[*]}"
@@ -785,6 +787,7 @@ construire_station_mac() {
 # Flatpak et .deb dans la VM, depuis l'arbre « linux » : sources de Kyber du
 # Flatpak prises dans leurs dépôts git (d'origine), dossier de travail de
 # flatpak-builder propre à la publication.
+# shellcheck disable=SC2088  # le ~ est celui de la VM, développé là-bas
 export KYBERNOW_FLATPAK_WORK='~/.cache/kybernow-flatpak-publication'
 export KYBERNOW_KYBER_HEAD=1
 construire_flatpak_aarch64() { cd "$(arbre_dir linux)"; apps/linux/scripts/release-flatpaks.sh --seulement aarch64 "$E"; }
@@ -812,7 +815,9 @@ voie_linux() { etape flatpak_aarch64; etape flatpak_x86_64; }
 voie_linux_os() { etape deb_pi; etape link_os; if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then etape station_linux; fi; }
 
 # --- Affichage ---------------------------------------------------------------
+# shellcheck disable=SC2034  # lus par indirection (${!sym}, ${!nom})
 SYM_attente="·" SYM_encours="▶" SYM_faite="✓" SYM_reprise="=" SYM_echec="✗" SYM_annulee="–"
+# shellcheck disable=SC2034
 NOM_attente="en attente" NOM_encours="en cours" NOM_faite="refaite" NOM_reprise="reprise" NOM_echec="ÉCHEC" NOM_annulee="annulée"
 ligne_etape() {
     local id=$1 st d0 d1 s now
