@@ -1,0 +1,17 @@
+# KyberNow Station pour Linux : Admin, dans la session graphique de
+# l'utilisateur (docs/station-linux.md). Première initialisation au premier
+# démarrage (kybernow-station-setup), puis Admin, qui lance l'agent des écrans.
+[Unit]
+Description=KyberNow Station (Admin)
+PartOf=graphical-session.target
+After=graphical-session.target pipewire.service
+
+[Service]
+ExecStartPre=/usr/lib/kybernow-station/bin/kybernow-station-setup
+ExecStart=/usr/lib/kybernow-station/bin/kyber-admin --data-dir %h/.local/share/kybernow/station/admin --kyber-dir %h/.local/share/kybernow/station/kyber
+WorkingDirectory=%h
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

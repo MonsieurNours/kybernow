@@ -11,6 +11,8 @@ KyberNow Station, everything that runs on the Windows computer that streams the 
 | `tray/` | KyberNow Station's notification area icon, `kybernow-tray.exe` |
 | `installer/` | `KyberNow-Station-Setup.exe`, see [installer/README.en.md](installer/README.en.md) |
 | `kyber-patches/` | Server-side patches to Kyber and their build script |
+| `macos/` | KyberNow Station for Mac, see below and [docs/station-macos.en.md](../docs/station-macos.en.md) |
+| `linux/` | KyberNow Station for Linux: display agent, Linux-specific Kyber patches, build scripts, packages; see below and [docs/station-linux.en.md](../docs/station-linux.en.md) |
 | `relay/` | The KyberNow relay (Linux server, Docker image) and the tunnel crate shared with Admin and the apps' core, see [relay/README.en.md](relay/README.en.md) and [docs/relais.en.md](../docs/relais.en.md) |
 
 ## KyberNow Admin (`kyber-admin`)
@@ -200,6 +202,17 @@ Contract and milestone status: [docs/station-macos.en.md](../docs/station-macos.
 - **Pen** (Kyber Mac patch 0020): the Mac Station announces the pen; it arrives as a tablet for macOS (tip or eraser proximity, pressure, tilt, rotation; tip down: left click, pen button: right click), with the Accessibility permission like the mouse. Built, events checked by AppKit; not yet tried with a tablet ([docs/stylet.en.md](../docs/stylet.en.md), “Mac Station”).
 
 Test Station on this Mac: `server/macos/scripts/run-station.sh start|stop|status` (Admin and Kyber as session LaunchAgents, data in `~/Library/Application Support/KyberNow/station-essai`, see the script's header).
+
+## KyberNow Station for Linux (in progress)
+
+Contract and milestones: [docs/station-linux.en.md](../docs/station-linux.en.md). Admin is the same program; `linux.rs` decides at startup whether this machine is a **Station** (systemd knows the user service `kybernow-kyber.service`, or the one named by `KYBERNOW_KYBER_UNIT`) or a development machine (everything simulated). On a Station:
+
+- **Kyber** is driven by `systemctl --user` (`linux::Systemd`); restarting the Station restarts Kyber then Admin through systemd (`linux::restart_station`).
+- **Displays** (`display/linux.rs`): Admin starts the `kybernow-display` agent as soon as it starts (`server/linux/display-agent`, Rust, looked for next to `kyber-admin` or through `KYBERNOW_DISPLAY_AGENT`), same protocol as the Mac agent. The agent goes through Mutter (GNOME): virtual displays (`RecordVirtual`), capture of the computer's displays without a dialog (`RecordMonitor`), temporary layout (`ApplyMonitorsConfig`), and keeps the displays file Kyber reads (`~/.local/share/kybernow/station/kyber-screens.toml`, Linux Kyber patch 0001). Displays `linux:<Kyber identifier>` (101 for the first virtual display). The agent keeps running without a session. No HDR for now.
+- **Sound** (`audio/mod.rs`, `linux` module): a « KyberNow » PipeWire output (`pactl load-module module-null-sink`) with the device's channel count, default output for the session.
+- **Encoders** offered: VA-API, NVENC, x264; installation picks the card's.
+
+Test Station: `server/linux/scripts/run-station.sh start|stop|status` in the GNOME session (systemd user services, data in `~/.local/share/kybernow/station-essai`); Kyber through `server/linux/scripts/build-kyber.sh`, packages through `server/linux/scripts/package.sh`.
 
 ## Developing on the Mac
 

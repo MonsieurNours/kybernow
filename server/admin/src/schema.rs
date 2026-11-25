@@ -110,6 +110,14 @@ const PC_ENCODERS: &[Choice] = &[
     Choice { value: "x264", label: "x264 — processeur", hint: "Encodage par le processeur. Fonctionne partout, mais charge le processeur et ajoute de la latence." },
 ];
 
+/// Encodeurs d'une Station Linux (docs/station-linux.md) : celui de la carte
+/// graphique (VA-API pour AMD et Intel, NVENC pour NVIDIA), sinon x264.
+const LINUX_ENCODERS: &[Choice] = &[
+    Choice { value: "vaapi", label: "VA-API — carte AMD ou Intel", hint: "La puce d'encodage des cartes et processeurs graphiques AMD et Intel, par le pilote de Linux. Rapide, et laisse le reste de l'ordinateur libre." },
+    Choice { value: "nvenc", label: "NVENC — carte NVIDIA", hint: "La puce d'encodage dédiée des cartes NVIDIA. Très rapide, et n'enlève presque rien aux performances des jeux." },
+    Choice { value: "x264", label: "x264 — processeur", hint: "Encodage par le processeur. Fonctionne partout, mais charge le processeur et ajoute de la latence." },
+];
+
 /// Encodeurs d'une Station Mac (puce Apple).
 const MAC_ENCODERS: &[Choice] = &[
     Choice { value: "videotoolbox", label: "VideoToolbox — puce Apple", hint: "Le moteur d'encodage de la puce du Mac. Rapide, et laisse le reste de l'ordinateur libre." },
@@ -121,9 +129,24 @@ pub fn fields() -> Vec<Field> {
         Field {
             id: "video.encoder", group: "video",
             table: &["kyavserver"], key: "encoder",
-            kind: Kind::Enum { options: if cfg!(target_os = "macos") { MAC_ENCODERS } else { PC_ENCODERS } },
-            // Sur Mac : la puce Apple (docs/station-macos.md).
-            default: json!(if cfg!(target_os = "macos") { "videotoolbox" } else { "nvenc" }),
+            kind: Kind::Enum {
+                options: if cfg!(target_os = "macos") {
+                    MAC_ENCODERS
+                } else if cfg!(target_os = "linux") {
+                    LINUX_ENCODERS
+                } else {
+                    PC_ENCODERS
+                },
+            },
+            // Sur Mac : la puce Apple (docs/station-macos.md) ; sous Linux,
+            // l'installation choisit celui de la carte (docs/station-linux.md).
+            default: json!(if cfg!(target_os = "macos") {
+                "videotoolbox"
+            } else if cfg!(target_os = "linux") {
+                "vaapi"
+            } else {
+                "nvenc"
+            }),
             label: "Encodeur vidéo",
             help: "La puce ou le programme qui compresse chaque image avant de l'envoyer.",
             details: "Une image 4K brute pèse environ 25 Mo : impossible de l'envoyer telle quelle 60 fois par seconde. L'encodeur la compresse en quelques millisecondes. Un encodeur matériel (NVENC, AMF ou Quick Sync) le fait sans ralentir le reste de l'ordinateur. L'installation choisit celui de votre carte graphique : NVIDIA, sinon AMD, sinon Intel, sinon le processeur.",

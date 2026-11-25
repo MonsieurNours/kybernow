@@ -1,0 +1,71 @@
+#!/bin/bash
+# Première initialisation de KyberNow Station pour Linux, pour l'utilisateur
+# qui la lance (docs/station-linux.md) : réglages de Kyber pour Linux,
+# certificat propre à cette Station, comptes et clé JWT d'Admin.
+#
+# Lancée par le service d'Admin avant chaque démarrage (ExecStartPre) : ne
+# fait rien si la Station est déjà initialisée. Aussi par
+# server/linux/scripts/run-station.sh pour la Station d'essai.
+#
+# Variables :
+#   STATION_DIR      dossier de la Station (défaut : ~/.local/share/kybernow/station)
+#   KYBER_TEMPLATE   kyber_config.toml d'origine (défaut : à côté de Kyber)
+#   KYBERNOW_ADMIN   kyber-admin (défaut : à côté de ce script)
+#   KYBERNOW_PASSWORD  mot de passe du premier compte (sinon tiré au hasard,
+#                    écrit dans admin/mot-de-passe, lisible par vous seul)
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+BASE="${STATION_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station}"
+DATA="$BASE/admin"
+KYBER="$BASE/kyber"
+TEMPLATE="${KYBER_TEMPLATE:-$HERE/../runtime/share/kyber_config.toml}"
+ADMIN="${KYBERNOW_ADMIN:-$HERE/kyber-admin}"
+SCREENS="${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station/kyber-screens.toml"
+
+[ -f "$DATA/kyber-admin.toml" ] && exit 0
+
+# L'encodeur de la carte graphique : NVIDIA → NVENC ; AMD, Intel → VA-API
+# (s'il y a un nœud de rendu) ; sinon le processeur.
+encoder() {
+    local vendor
+    for vendor in /sys/class/drm/card*/device/vendor; do
+        [ -f "$vendor" ] && [ "$(cat "$vendor")" = 0x10de ] && { echo nvenc; return; }
+    done
+    for vendor in /sys/class/drm/card*/device/vendor; do
+        [ -f "$vendor" ] || continue
+        case "$(cat "$vendor")" in
+            0x1002 | 0x8086) ls /dev/dri/renderD* >/dev/null 2>&1 && { echo vaapi; return; } ;;
+        esac
+    done
+    echo x264
+}
+
+echo "Première initialisation de KyberNow Station ($BASE)"
+mkdir -p "$DATA" "$KYBER/log"
+chmod 700 "$BASE"
+cp "$TEMPLATE" "$KYBER/kyber_config.toml"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+    -subj "/CN=KyberNow Station" -keyout "$KYBER/kyber_key.pem" -out "$KYBER/kyber_cert.pem" 2>/dev/null
+chmod 600 "$KYBER/kyber_key.pem"
+python3 - "$KYBER/kyber_config.toml" "$KYBER" "$SCREENS" <<'EOF'
+import sys
+path, d, screens = sys.argv[1:]
+t = open(path).read()
+t = t.replace('#tls_cert = "/path/to/server_cert.pem"', 'tls_cert = "%s/kyber_cert.pem"' % d)
+t = t.replace('#tls_key = "/path/to/server_key.pem"', 'tls_key = "%s/kyber_key.pem"' % d)
+# Moteur libavconv, capture par PipeWire (GStreamer), écrans lus dans le
+# fichier tenu par l'agent des écrans (correctif Kyber Linux 0001).
+t = t.replace('#backend = "txproto"', 'backend = "libavconv"', 1)
+t = t.replace('#grab_backend = "nvfbc"', 'grab_backend = "gstreamer"', 1)
+t += '\n[kyavserver.gstreamer]\n# KyberNow Station pour Linux : écrans tenus par kybernow-display.\nsources_file = "%s"\n' % screens
+open(path, 'w').write(t)
+EOF
+password="${KYBERNOW_PASSWORD:-}"
+if [ -z "$password" ]; then
+    password=$(openssl rand -base64 12 | tr -d '/+=' | cut -c1-12)
+    (umask 077 && printf '%s\n' "$password" > "$DATA/mot-de-passe")
+    echo "Mot de passe tiré au hasard : $DATA/mot-de-passe"
+fi
+KYBERNOW_PASSWORD="$password" "$ADMIN" init --data-dir "$DATA" --kyber-dir "$KYBER" \
+    --user "$(id -un)" --kyber-port 8080 --encoder "$(encoder)"

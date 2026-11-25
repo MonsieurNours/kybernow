@@ -1,0 +1,19 @@
+[package]
+name = "kybernow-display-linux"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Écrans de KyberNow Station pour Linux (GNOME) : écrans virtuels et capture par Mutter, pilotés par KyberNow Admin"
+publish = false
+
+[[bin]]
+name = "kybernow-display"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[profile.release]
+strip = true
+lto = "thin"

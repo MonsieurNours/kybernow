@@ -162,7 +162,15 @@ async fn host_name_async(s: &AppState) -> String {
 
 /// `info.lend`.
 pub fn info(s: &AppState) -> Value {
-    json!({ "available": true, "enabled": enabled(s) })
+    json!({ "available": available(), "enabled": enabled(s) })
+}
+
+/// Le prêt existe ici. Pas encore sur une Station Linux : sans le mode console
+/// (le lanceur de l'ami), l'ami recevrait tout le bureau de l'hôte
+/// (docs/station-linux.md) ; les apps disent alors « Le prêt n'est pas
+/// possible sur cet ordinateur. ».
+pub fn available() -> bool {
+    !cfg!(target_os = "linux")
 }
 
 /// La vue du prêt (contrat), avec le nom de l'ordinateur et de l'hôte.
@@ -716,6 +724,9 @@ pub async fn borrow(
     Json(body): Json<BorrowBody>,
 ) -> Response {
     let via = via.map(|axum::Extension(v)| v);
+    if !available() {
+        return friend_error(StatusCode::FORBIDDEN, "forbidden");
+    }
     if let Err(wait) = s.lend.limits.count_try(peer.ip(), Instant::now()) {
         return too_many(wait);
     }

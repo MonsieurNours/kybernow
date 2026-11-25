@@ -1,0 +1,225 @@
+diff --git a/kyavservice/src/avconv/display_watcher.rs b/kyavservice/src/avconv/display_watcher.rs
+index e8acf32..c24b45a 100644
+--- a/kyavservice/src/avconv/display_watcher.rs
++++ b/kyavservice/src/avconv/display_watcher.rs
+@@ -110,3 +110,44 @@ pub(crate) fn spawn(
+ 
+     Some(WatcherHandle { join, shutdown })
+ }
++
++/// KyberNow (Station Linux) : surveille le fichier des sources GStreamer tenu
++/// par KyberNow Admin et annonce la nouvelle liste des écrans quand elle
++/// change (écran virtuel créé, retiré ou redimensionné).
++#[cfg(target_os = "linux")]
++pub(crate) fn spawn_sources_file(
++    path: std::path::PathBuf,
++    sender: EventSender<IpcApi>,
++) -> WatcherHandle {
++    const FILE_POLL: Duration = Duration::from_millis(250);
++    let shutdown = Arc::new(AtomicBool::new(false));
++    let shutdown_thread = Arc::clone(&shutdown);
++    let list = |path: &std::path::Path| {
++        crate::config::read_sources_file(path)
++            .iter()
++            .enumerate()
++            .map(|(idx, source)| displays::gstreamer_display(source, idx))
++            .collect::<Vec<_>>()
++    };
++    let join = thread::spawn(move || {
++        // `Display` ne se compare pas : on compare ce qui compte.
++        let key = |d: &[kyavservice_types::Display]| {
++            d.iter().map(|d| (d.id, d.name.clone(), d.width, d.height, d.x, d.y)).collect::<Vec<_>>()
++        };
++        let mut last = key(&list(&path));
++        info!("Watching GStreamer sources file {}", path.display());
++        loop {
++            thread::sleep(FILE_POLL);
++            if shutdown_thread.load(Ordering::SeqCst) {
++                return;
++            }
++            let displays = list(&path);
++            if key(&displays) != last {
++                info!("GStreamer sources changed; {} display(s) now listed", displays.len());
++                last = key(&displays);
++                sender.send(Event::DisplayListUpdated { displays });
++            }
++        }
++    });
++    WatcherHandle { join, shutdown }
++}
+diff --git a/kyavservice/src/avconv/displays.rs b/kyavservice/src/avconv/displays.rs
+index d6d6248..6141a38 100644
+--- a/kyavservice/src/avconv/displays.rs
++++ b/kyavservice/src/avconv/displays.rs
+@@ -99,15 +99,15 @@ pub(crate) fn collect_displays(sources: &GrabSourceSet) -> Vec<Display> {
+ }
+ 
+ #[cfg(target_os = "linux")]
+-fn gstreamer_display(source: &GstreamerVideoSource, idx: usize) -> Display {
++pub(crate) fn gstreamer_display(source: &GstreamerVideoSource, idx: usize) -> Display {
+     let (width, height) = source.output_size();
+     Display {
+-        id: idx as u32,
++        id: source.id.unwrap_or(idx as u32),
+         name: source.name.clone(),
+         width,
+         height,
+-        x: 0,
+-        y: 0,
++        x: source.x,
++        y: source.y,
+     }
+ }
+ 
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index 1683da5..ea586b0 100644
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -303,6 +303,16 @@ async fn handle_command(
+             #[cfg(not(target_os = "linux"))]
+             let display_watcher_enabled = true;
+ 
++            // KyberNow (Station Linux) : les écrans viennent du fichier tenu par
++            // KyberNow Admin ; on le surveille pour annoncer ses changements.
++            #[cfg(target_os = "linux")]
++            if display_watcher.is_none() {
++                if let Some(path) = config.gstreamer_sources_file().filter(|_| config.is_gstreamer()) {
++                    *display_watcher =
++                        Some(display_watcher::spawn_sources_file(path.to_path_buf(), sender.clone()));
++                }
++            }
++
+             if display_watcher.is_none() && display_watcher_enabled {
+                 #[cfg(target_os = "linux")]
+                 let backend = Some(config.grab_backend());
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index e4de631..ab31322 100644
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -158,6 +158,15 @@ pub(crate) struct GstreamerVideoSource {
+     pub(crate) codec: Option<VideoCodec>,
+     #[serde(default)]
+     pub(crate) mode: VideoSourceMode,
++    /// KyberNow (Station Linux) : place de l'écran sur le bureau, dans les
++    /// unités du bureau, pour le pointeur absolu (0, 0 par défaut).
++    /// KyberNow : identifiant de l'écran pour Kyber, stable tant que l'écran
++    /// existe (sinon son rang dans la liste).
++    pub(crate) id: Option<u32>,
++    #[serde(default)]
++    pub(crate) x: i32,
++    #[serde(default)]
++    pub(crate) y: i32,
+ }
+ 
+ #[cfg(target_os = "linux")]
+@@ -229,6 +238,56 @@ struct GstreamerConfig {
+     default_source: Option<String>,
+     #[serde(default)]
+     video_sources: Vec<GstreamerVideoSource>,
++    /// KyberNow (Station Linux) : fichier TOML de `[[video_sources]]` tenu à
++    /// jour par KyberNow Admin (écrans de l'ordinateur et écrans virtuels),
++    /// relu à chaque liste des écrans et à chaque image ; ses sources
++    /// remplacent `video_sources`.
++    sources_file: Option<PathBuf>,
++}
++
++/// KyberNow : contenu du fichier `sources_file`.
++#[cfg(target_os = "linux")]
++#[derive(Debug, Default, Deserialize)]
++struct SourcesFile {
++    #[serde(default)]
++    video_sources: Vec<GstreamerVideoSource>,
++}
++
++/// KyberNow : sources du fichier `path`, celles qui ne valent rien écartées
++/// (avec un avertissement). Fichier absent ou illisible : aucune source.
++#[cfg(target_os = "linux")]
++pub(crate) fn read_sources_file(path: &std::path::Path) -> Vec<GstreamerVideoSource> {
++    let text = match fs::read_to_string(path) {
++        Ok(text) => text,
++        Err(err) => {
++            if err.kind() != std::io::ErrorKind::NotFound {
++                warn!("GStreamer sources file {}: {err}", path.display());
++            }
++            return Vec::new();
++        }
++    };
++    let file: SourcesFile = match toml::from_str(&text) {
++        Ok(file) => file,
++        Err(err) => {
++            warn!("GStreamer sources file {}: {err}", path.display());
++            return Vec::new();
++        }
++    };
++    let mut names = HashSet::new();
++    file.video_sources
++        .into_iter()
++        .filter(|source| match Config::validate_gstreamer_source(source) {
++            Ok(()) if names.insert(source.name.clone()) => true,
++            Ok(()) => {
++                warn!("GStreamer sources file: duplicate source '{}'", source.name);
++                false
++            }
++            Err(err) => {
++                warn!("GStreamer sources file: {err}");
++                false
++            }
++        })
++        .collect()
+ }
+ 
+ /// Pointer moves forwarded per second by default (`cursor_move_rate`).
+@@ -434,7 +493,7 @@ impl Config {
+         }
+ 
+         let sources = self.gstreamer_sources_slice();
+-        if sources.is_empty() {
++        if sources.is_empty() && self.gstreamer_sources_file().is_none() {
+             return Err(ConfigError::Invalid(
+                 "GStreamer backend requires configured video_sources".to_string(),
+             ));
+@@ -474,26 +533,36 @@ impl Config {
+     /// Configured GStreamer sources in display-id order (empty unless the
+     /// GStreamer backend is selected).
+     #[cfg(target_os = "linux")]
+-    pub(crate) fn gstreamer_video_sources(&self) -> &[GstreamerVideoSource] {
+-        if self.is_gstreamer() {
+-            self.gstreamer_sources_slice()
+-        } else {
+-            &[]
++    pub(crate) fn gstreamer_video_sources(&self) -> Vec<GstreamerVideoSource> {
++        if !self.is_gstreamer() {
++            return Vec::new();
++        }
++        match self.gstreamer_sources_file() {
++            Some(path) => read_sources_file(path),
++            None => self.gstreamer_sources_slice().to_vec(),
+         }
+     }
+ 
++    /// KyberNow : fichier des sources tenu par KyberNow Admin, s'il y en a un.
++    #[cfg(target_os = "linux")]
++    pub(crate) fn gstreamer_sources_file(&self) -> Option<&std::path::Path> {
++        self.gstreamer.as_ref().and_then(|g| g.sources_file.as_deref())
++    }
++
+     #[cfg(target_os = "linux")]
+     pub(crate) fn gstreamer_video_source(
+         &self,
+         display_id: u32,
+-    ) -> Result<Option<&GstreamerVideoSource>> {
++    ) -> Result<Option<GstreamerVideoSource>> {
+         if !self.is_gstreamer() {
+             return Ok(None);
+         }
+ 
+         self.gstreamer_video_sources()
+-            .get(display_id as usize)
+-            .map(Some)
++            .into_iter()
++            .enumerate()
++            .find(|(idx, source)| source.id.unwrap_or(*idx as u32) == display_id)
++            .map(|(_, source)| Some(source))
+             .ok_or_else(|| {
+                 ConfigError::Invalid(format!("Unknown GStreamer display id {display_id}"))
+             })
