@@ -62,6 +62,7 @@ fn host(id: &str, name: &str, addr: &str) -> Host {
         os: Some("Windows 11 Pro 24H2".into()),
         gpu: Some("GeForce RTX 4070".into()),
         av1: true,
+        pyrowave: false,
         mac: None,
         wake: vec![WakeCard { mac: "3C:7C:3F:12:AB:CD".into(), ipv4: Some(addr.into()), kind: "ethernet".into(), armed: Some(true), ..Default::default() }],
         relay: None,
@@ -155,6 +156,7 @@ fn session(app: &App) -> SessionUi {
         // Le trajet d'une image : les mesures de l'ordinateur (capture, encodage, envoi, réseau) et de l'appareil.
         stages: Stats::stages(Some([0.8, 2.2, 0.4, 0.8, 1.3, 1.9]), None),
         hdr: false,
+        lost_frames: 0,
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
@@ -1227,6 +1229,8 @@ pub fn run(dir: &Path, lang: &str) {
         ps_shots(&mut app, &mut cv, &video, dir, prefix);
         // Le HDR (docs/hdr.md) : sur un écran HDR (bureau Wayland avec la gestion des couleurs).
         hdr_shots(&mut app, &mut cv, &video, dir, prefix);
+        // PyroWave (docs/link-ui.md, « PyroWave ») : Format vidéo, avertissements, bandeau, puce, statistiques.
+        pyrowave_shots(&mut app, &mut cv, &video, dir, prefix);
         // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
         account_shots(en, layout, &mut cv, dir, prefix);
     }
@@ -2712,6 +2716,86 @@ fn hdr_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix:
     app.screen_hdr = None;
     app.store.selected = selected;
     app.store.ps_consoles = consoles;
+    app.go(Screen::Home);
+}
+
+/// PyroWave (docs/link-ui.md, « PyroWave » ; docs/pyrowave-client-linux.md) : Réglages › Image avec PyroWave choisi
+/// par câble, en Wi-Fi (avertissement), par le relais ; « Auto » par câble et sans câble ; la valeur inactive (cet
+/// appareil ne le décode pas) ; le 4:4:4 avec PyroWave ; en session, le bandeau du début, la puce ambre de la barre
+/// (bureau) ou la tuile du menu (console), et les statistiques (« Images perdues », « Définition ramenée »).
+fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    use crate::app::NetKind;
+    let name = |n: &str| format!("{prefix}-{n}");
+    let desktop = app.layout == Layout::Desktop;
+    let (selected, net, machine) = (app.store.selected.clone(), app.net.clone(), app.machine.clone());
+    app.set_session(None);
+    app.pointer = None;
+    app.store.selected = Some("a".into());
+    app.machine.pyrowave = true;
+    let set = |app: &mut App, codec: &str, yuv444: bool| {
+        if let Some(h) = app.store.host_mut("a") {
+            h.pyrowave = true;
+            h.settings.codec = codec.into();
+            h.settings.yuv444 = yuv444;
+        }
+    };
+    app.net.kind = NetKind::Ethernet;
+    set(app, "pyrowave", true);
+    app.open_host_section(Section::Picture, Screen::Home);
+    app.focus = Target::Setting(crate::app::Setting::Codec);
+    shot(app, cv, None, dir, &name("45-pyrowave-cable"));
+    app.net.kind = NetKind::Wifi;
+    set(app, "pyrowave", false);
+    shot(app, cv, None, dir, &name("45b-pyrowave-wifi"));
+    set(app, "auto", false);
+    app.net.kind = NetKind::Ethernet;
+    shot(app, cv, None, dir, &name("45c-pyrowave-auto-cable"));
+    app.net.kind = NetKind::Wifi;
+    shot(app, cv, None, dir, &name("45d-pyrowave-auto-wifi"));
+    app.machine.pyrowave = false;
+    shot(app, cv, None, dir, &name("45e-pyrowave-inactif"));
+    app.machine.pyrowave = true;
+    // En session, PyroWave en Wi-Fi : le bandeau du début, la puce (barre) ou la tuile (menu), les statistiques.
+    set(app, "pyrowave", false);
+    let mut s = session(app);
+    if let Some(st) = s.stats.as_mut() {
+        st.decoder = "PyroWave".into();
+        st.mode = "2560 × 1440".into();
+        st.mbps = 312.0;
+        st.lost_frames = 1;
+        st.fps = 119.0;
+    }
+    s.pw_wired = false;
+    s.pyrowave_seen();
+    s.lowered = Some((1920, 1080, 300));
+    if desktop {
+        s.menu = false;
+        s.relative = false;
+        s.bar = true;
+        app.pointer = Some((700.0, 20.0));
+    }
+    s.show_stats = true;
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    if !desktop {
+        app.focus = Target::Menu(crate::app::MenuItem::PyroWaveHevc);
+    }
+    shot(app, cv, Some(video), dir, &name("45f-pyrowave-session-wifi"));
+    if let Some(s) = app.session_mut() {
+        s.menu = false;
+        s.show_stats = false;
+    }
+    app.pointer = None;
+    app.focus = Target::PwHevc;
+    shot(app, cv, Some(video), dir, &name("45g-pyrowave-bandeau"));
+    app.set_session(None);
+    app.store.selected = selected;
+    app.net = net;
+    app.machine = machine;
+    set(app, "auto", false);
+    if let Some(h) = app.store.host_mut("a") {
+        h.pyrowave = false;
+    }
     app.go(Screen::Home);
 }
 

@@ -79,6 +79,16 @@ Interface (docs/link-ui.md, « HDR »), seulement sur un écran HDR : la puce «
 
 Essais : `cargo test` (courbes et règles de `src/hdr.rs`, puce et réglages ; le shader contre la référence, sur la carte graphique par l'EGL sans surface de Mesa, en P010 et I010, les trois rendus, à 2/255 près ; sauté sans EGL), `tests/video/run.sh` (un flux HDR10 de x265 sort en 10 bits avec PQ, BT.2020 et ses métadonnées), captures `40-hdr-*`, et `kybernow --hdr-test` : la mire HDR (rampe de 0 à 1 000 cd/m², barres) sur la sous-surface d'une fenêtre Wayland, une bande d'interface semi-transparente par-dessus, pendant `KYBERNOW_HDR_TEST_SECONDS` secondes ; sans gestion des couleurs, l'écran est pris pour un écran SDR et la mire passe par la courbe vers le SDR.
 
+## PyroWave
+
+PyroWave (codec par ondelettes, intra seul, décodé par Vulkan ; [docs/pyrowave-client-linux.md](../../docs/pyrowave-client-linux.md)) est une valeur de plus de « Format vidéo », à côté de H.264, HEVC et AV1, sur le Linux de bureau, le Steam Deck et SteamOS ; pas sur le Raspberry Pi.
+
+- **Bibliothèque** : PyroWave (MIT) au commit de la Station (a32b05e), chemin Vulkan, l'API C de l'amont, compilée par `build.sh` (étape 4) en `libpyrowave-shared.so.1`, posée à côté de l'app (`/app/lib` dans le Flatpak) et chargée au lancement ; le chargeur Vulkan du runtime suffit.
+- **Décodage** (`src/native/pyrowave.c`) : à côté de FFmpeg, sur le fil de l'image ; device Vulkan propre, une image par paquet média, relue en I420 (SDR), I010 (HDR10, vers la sous-surface HDR) ou en trois plans 4:4:4 convertis en BGRA, puis montrée comme aujourd'hui. Image incomplète sautée, jamais d'image clé demandée ; le temps de décodage (relecture comprise) va aux statistiques.
+- **Sonde** au lancement (un fil) : device, décodeur, image de test décodée et relue. Indisponible sur le Pi, sans Vulkan 1.3 qui convienne, en rendu logiciel (`KYBERNOW_PYROWAVE_CPU=1` le permet pour les essais) ; `KYBERNOW_PYROWAVE=0` le coupe. « Auto » ne le prend que par câble (`system::wired_to` : l'interface vers l'ordinateur) ; le cœur ne le demande qu'avec sa fonctionnalité `pyrowave` (correctif kyclient de la Station).
+- **Interface** (bureau, Deck, salon) : « PyroWave » dans « Format vidéo » avec ses aides, l'avertissement Wi-Fi ou relais, la valeur inactive avec sa raison ; en session, le bandeau du début avec « Passer en HEVC », la puce ambre de la barre (au Deck et au salon : une tuile du menu), « Images perdues » et « Définition ramenée » dans les statistiques. Captures `45-pyrowave-*`.
+- Essai hors ligne : `tests/pyrowave/run.sh` (voir « Compiler ») ; essayé dans la VM sur lavapipe seulement (pas de Vulkan matériel dans la VM), jamais sur le Steam Deck.
+
 ## Raspberry Pi
 
 La même app, sur Raspberry Pi OS (Debian 13 « trixie », arm64), en paquet `.deb`, ou seule sur la carte avec KyberNow Link OS (plus bas) ; la décision est dans [PROJECT.md](../../PROJECT.md) (« Client Raspberry Pi »), maquettes : https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft.
@@ -127,11 +137,13 @@ apps/linux/
 │   │                    (FFmpeg), machine (DMI, VA-API, DRM), manettes, tâches de fond, journal ;
 │   │                    screens.rs : écrans de SDL au format du cœur, plan des écrans de la session ;
 │   │                    ps.rs : consoles PlayStation (recherche, association, partie, DualSense, envoi entre appareils)
-│   └── native/          decoder.c (FFmpeg : VA-API, V4L2 du Pi), display.c (VRR et modes par DRM)
+│   ├── pyrowave.rs      PyroWave dans l'interface : textes de link-ui, risques Wi-Fi et relais (sans SDL ni cœur)
+│   └── native/          decoder.c (FFmpeg : VA-API, V4L2 du Pi), pyrowave.c (PyroWave par Vulkan), display.c (VRR et modes par DRM)
 ├── flatpak/             manifeste, .desktop, AppStream, icône, licences
 ├── os/                  KyberNow Link OS : image Raspberry Pi (pi-gen, A/B, Plymouth, services), voir os/README.md
 ├── scripts/             build.sh (--rpi), sources.sh, flatpak.sh, release-flatpaks.sh, deb.sh, apt-repo.sh
-└── tests/video/         test hors ligne du décodeur (run.sh, check.c)
+├── tests/video/         test hors ligne du décodeur (run.sh, check.c)
+└── tests/pyrowave/      test hors ligne de PyroWave (run.sh, encode.c, check.c, samples-mac.sh)
 ```
 
 - **Interface** : dessinée en mémoire en *points* (ceux des maquettes : 1280 × 800 pour le bureau et le Deck, 1920 × 1080 pour le salon), multipliés par l'échelle de l'écran (HiDPI) ; le logo signé est tracé depuis les chemins de `brand/v2` (comme `Mark.svelte` de l'app Windows), net à toute taille.
@@ -153,7 +165,7 @@ cargo run --release -p kybernow-linux --no-default-features -- --preview /tmp/kn
 
 # Sur un Linux (Ubuntu 24.04 : build-essential pkg-config nasm clang libclang-dev
 # libsdl2-dev libva-dev libdrm-dev libopus-dev libwayland-dev libegl-dev libgles-dev,
-# Rust 1.89 ou après, cargo-c) :
+# cmake git libvulkan-dev, Rust 1.89 ou après, cargo-c) :
 apps/linux/scripts/build.sh                    # → apps/target/release/kybernow
 
 # Le Flatpak (flatpak-builder, runtime org.freedesktop.Platform 25.08,
@@ -171,6 +183,10 @@ apps/linux/scripts/apt-repo.sh [DOSSIER]       # → dist/apt (KYBERNOW_APT_GPG_
 
 # Le décodeur hors ligne (après build.sh ; ffmpeg et x265 génèrent les flux) :
 apps/linux/tests/video/run.sh [--hw]
+
+# PyroWave hors ligne (après build.sh ; l'encodeur Vulkan de l'amont, ou SAMPLES=DOSSIER
+# de flux faits sur un Mac par tests/pyrowave/samples-mac.sh ; KYBERNOW_PYROWAVE_CPU=1 en VM) :
+apps/linux/tests/pyrowave/run.sh [LARGEUR HAUTEUR] [IMAGES]
 
 # La mire HDR sur la sous-surface d'une fenêtre Wayland (voir « HDR ») :
 apps/target/release/kybernow --hdr-test
@@ -241,6 +257,7 @@ Les PS5 et PS4 de la maison, à côté des ordinateurs (contrat : [docs/playstat
 
 ## Pas encore essayé
 
+- PyroWave : rien n'a tourné sur une vraie carte graphique (la VM n'a que lavapipe) ni avec une Station qui le propose ; la marche à suivre sur le Steam Deck est dans [docs/pyrowave-client-linux.md](../../docs/pyrowave-client-linux.md), « À essayer sur le Steam Deck » (sonde, coût de la relecture en 1440p, session par câble et en Wi-Fi, « Passer en HEVC »).
 - HDR (voir « HDR ») : rien n'a tourné sur un vrai écran HDR (KDE Plasma 6.3 et après, GNOME 48 et après) ni avec une Station en HDR. Vérifié dans la VM Ubuntu 24.04 (Mesa virgl) : les tests, le décodeur hors ligne, et `--hdr-test` sous GNOME 46 (Wayland sans gestion des couleurs : sortie en 10 bits, environ 145 images par seconde) et sous Weston 13 sans écran (capture : la mire dans le trou de la fenêtre, la bande et le carré de l'interface par-dessus). À essayer : la description PQ acceptée par KWin et Mutter et l'image juste (noirs, blancs, couleurs), le blanc du bureau de Windows ancré au blanc de référence, l'EETF sur un écran plus faible que le flux, la fenêtre glissée vers un écran SDR et retour, VA-API Main 10 sur une carte AMD ou Intel, la latence face au SDR, plusieurs écrans dont un seul en HDR, une PS5 en HDR.
 - Sur le Steam Deck : une session de bout en bout (VA-API sur la puce Van Gogh, son PipeWire, manette et pavés par Steam Input, clavier de Steam), la latence, le passage en mode Jeu.
 - Sur un Linux de bureau avec une carte AMD ou Intel : VA-API en HEVC et AV1, VRR sur un écran FreeSync, souris des jeux sous Xwayland.

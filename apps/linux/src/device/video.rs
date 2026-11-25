@@ -11,6 +11,12 @@
 //! processeur) garde ses 10 bits et ce que le flux dit de sa couleur ; la
 //! fenêtre la donne à sa sous-surface HDR (`hdr_wl.rs`). Sans elle, `Screen`
 //! la ramène en 8 bits pour SDL (couleurs approchées : un repli).
+//!
+//! PyroWave (docs/pyrowave-client-linux.md, format `pwv1`) : un paquet de
+//! configuration de 16 octets (`KNPW`), puis chaque paquet média est une image
+//! entière, toujours clé ; `src/native/pyrowave.c` la décode par Vulkan et relit
+//! ses plans (I420, I010 en HDR10, BGRA en 4:4:4) dans le tampon de l'image.
+//! Une image incomplète ou illisible est sautée : jamais d'image clé demandée.
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -20,7 +26,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use kybernow_core::latency;
-use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
+use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
 
 use super::sdl;
 use super::session::Shared;
@@ -51,6 +57,67 @@ unsafe extern "C" {
     fn kn_decoder_send(d: *mut c_void, data: *const u8, len: c_int, pts: i64) -> c_int;
     fn kn_decoder_receive(d: *mut c_void, out: *mut KnFrame) -> c_int;
     fn kn_decoder_close(d: *mut c_void);
+    fn kn_pw_open(width: c_int, height: c_int, c444: c_int, hdr: c_int, err: *mut c_char, errlen: c_int) -> *mut c_void;
+    fn kn_pw_decode(d: *mut c_void, data: *const u8, len: usize, out: *const *mut u8, stride: *const c_int, bt709: c_int, full: c_int) -> c_int;
+    fn kn_pw_close(d: *mut c_void);
+    fn kn_pw_sequence_header(data: *const u8, len: usize, width: *mut c_int, height: *mut c_int, c444: *mut c_int) -> c_int;
+}
+
+/// Paquet de configuration PyroWave (16 octets, docs/pyrowave.md) : `"KNPW"` |
+/// version (1) | chroma (0 : 4:2:0, 1 : 4:4:4) | couleur (0 : SDR BT.709, 1 :
+/// HDR10 BT.2020 PQ) | plage (0 : pleine, 1 : réduite) | largeur u32 LE |
+/// hauteur u32 LE.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PwConfig {
+    pub c444: bool,
+    pub hdr: bool,
+    pub full_range: bool,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl PwConfig {
+    pub fn parse(b: &[u8]) -> Option<Self> {
+        if b.len() != 16 || &b[0..4] != b"KNPW" || b[4] != 1 || b[5] > 1 || b[6] > 1 || b[7] > 1 {
+            return None;
+        }
+        let u32le = |o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]);
+        Some(Self { c444: b[5] == 1, hdr: b[6] == 1, full_range: b[7] == 0, width: u32le(8), height: u32le(12) }).filter(|c| c.valid())
+    }
+
+    /// Repli sans paquet de configuration : l'en-tête de séquence du flux (définition et chroma ; SDR, plage
+    /// pleine, comme la Station en SDR).
+    fn from_stream(data: &[u8]) -> Option<Self> {
+        let (mut w, mut h, mut c) = (0, 0, 0);
+        (unsafe { kn_pw_sequence_header(data.as_ptr(), data.len(), &mut w, &mut h, &mut c) } == 1)
+            .then(|| Self { c444: c == 1, hdr: false, full_range: true, width: w as u32, height: h as u32 })
+            .filter(|c| c.valid())
+    }
+
+    fn valid(&self) -> bool {
+        (1..=16384).contains(&self.width) && (1..=16384).contains(&self.height) && (self.c444 || (self.width % 2 == 0 && self.height % 2 == 0))
+    }
+
+    /// Le format de l'image relue : I420 (SDR 4:2:0), I010 (HDR10), BGRA (4:4:4).
+    fn format(&self) -> Format {
+        match (self.c444, self.hdr) {
+            (true, _) => Format::Bgra,
+            (false, true) => Format::I010,
+            (false, false) => Format::I420,
+        }
+    }
+
+    pub fn bytes(&self) -> [u8; 16] {
+        let mut b = [0u8; 16];
+        b[0..4].copy_from_slice(b"KNPW");
+        b[4] = 1;
+        b[5] = self.c444 as u8;
+        b[6] = self.hdr as u8;
+        b[7] = (!self.full_range) as u8;
+        b[8..12].copy_from_slice(&self.width.to_le_bytes());
+        b[12..16].copy_from_slice(&self.height.to_le_bytes());
+        b
+    }
 }
 
 /// Événement SDL qui réveille la boucle principale : une image est prête.
@@ -218,6 +285,13 @@ struct Decoder {
     failed: bool,
     /// Les dernières métadonnées HDR10 vues (FFmpeg ne les met qu'à certaines images).
     meta: (f32, f32, f32, f32),
+    /// Le flux est en PyroWave (`pwv1`) : sa configuration et son décodeur (`pyrowave.c`).
+    pyrowave: bool,
+    pw_config: Option<PwConfig>,
+    pw: *mut c_void,
+    pw_open: Option<PwConfig>,
+    /// Images sautées (incomplètes, illisibles), pour le journal.
+    pw_skipped: u32,
 }
 
 impl Decoder {
@@ -238,13 +312,38 @@ impl Decoder {
             errors: 0,
             failed: false,
             meta: (0.0, 0.0, 0.0, 0.0),
+            pyrowave: false,
+            pw_config: None,
+            pw: std::ptr::null_mut(),
+            pw_open: None,
+            pw_skipped: 0,
         }
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
         while let Ok(m) = rx.recv() {
             match m {
+                Msg::Codec(FOURCC_PYROWAVE) => {
+                    self.close();
+                    self.pyrowave = true;
+                    self.pw_config = None;
+                    self.failed = false;
+                    self.shared.set_codec("PyroWave");
+                    log::info!("image : PyroWave");
+                }
+                Msg::Config(bytes) if self.pyrowave => self.pw_configure(&bytes),
+                Msg::Frame { pts, data, received, .. } if self.pyrowave => {
+                    // Le paquet de configuration peut arriver comme un paquet média (signature `KNPW`).
+                    if data.len() == 16 && data.starts_with(b"KNPW") {
+                        self.pw_configure(&data);
+                    } else {
+                        self.pw_frame(pts, &data, received);
+                    }
+                }
+                // Une image perdue est sautée : rien à demander, la suivante se décode seule.
+                Msg::Hole if self.pyrowave => {}
                 Msg::Codec(c) => {
+                    self.pyrowave = false;
                     self.meta = (0.0, 0.0, 0.0, 0.0);
                     self.codec = match c {
                         FOURCC_HEVC => 1,
@@ -279,6 +378,87 @@ impl Decoder {
             self.dec = std::ptr::null_mut();
         }
         self.loaded_config = None;
+        if !self.pw.is_null() {
+            unsafe { kn_pw_close(self.pw) };
+            self.pw = std::ptr::null_mut();
+        }
+        self.pw_open = None;
+    }
+
+    fn pw_configure(&mut self, bytes: &[u8]) {
+        match PwConfig::parse(bytes) {
+            Some(c) => {
+                if self.pw_config != Some(c) {
+                    log::info!("image : PyroWave {} × {}, {}, {}, plage {}", c.width, c.height, if c.c444 { "4:4:4" } else { "4:2:0" }, if c.hdr { "HDR10" } else { "SDR" }, if c.full_range { "pleine" } else { "réduite" });
+                }
+                self.pw_config = Some(c);
+            }
+            None => log::warn!("image : paquet de configuration PyroWave illisible ({} octets)", bytes.len()),
+        }
+    }
+
+    /// Une image PyroWave entière : décodée dans un tampon de l'image, ou sautée.
+    fn pw_frame(&mut self, pts: u64, data: &[u8], received: i64) {
+        if self.pw_config.is_none() {
+            if let Some(c) = PwConfig::from_stream(data) {
+                log::warn!("image : pas de paquet de configuration PyroWave, définition lue dans le flux ({} × {})", c.width, c.height);
+                self.pw_config = Some(c);
+            }
+        }
+        let Some(cfg) = self.pw_config else { return };
+        if self.pw.is_null() || self.pw_open != Some(cfg) {
+            self.close();
+            let mut err = [0 as c_char; 256];
+            let d = unsafe { kn_pw_open(cfg.width as c_int, cfg.height as c_int, cfg.c444 as c_int, cfg.hdr as c_int, err.as_mut_ptr(), err.len() as c_int) };
+            if d.is_null() {
+                let e = unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy().into_owned();
+                if !self.failed {
+                    log::error!("image : PyroWave : {e}");
+                    self.failed = true;
+                    self.shared.decoder_failed(&e);
+                }
+                return;
+            }
+            self.pw = d;
+            self.pw_open = Some(cfg);
+            self.failed = false;
+        }
+        let format = cfg.format();
+        let (w, h) = (cfg.width as usize, cfg.height as usize);
+        let mut out = self.latest.buffer().unwrap_or_else(|| empty_frame(format));
+        // Lignes serrées : I420 et I010 (largeur, puis moitié), BGRA (largeur × 4).
+        let (pitch, rows): ([usize; 3], [usize; 3]) = match format {
+            Format::Bgra => ([w * 4, 0, 0], [h, 0, 0]),
+            Format::I010 => ([w * 2, w, w], [h, h / 2, h / 2]),
+            _ => ([w, w / 2, w / 2], [h, h / 2, h / 2]),
+        };
+        for p in 0..3 {
+            out.planes[p].resize(pitch[p] * rows[p], 0);
+            out.pitch[p] = pitch[p];
+        }
+        let ptrs = [out.planes[0].as_mut_ptr(), out.planes[1].as_mut_ptr(), out.planes[2].as_mut_ptr()];
+        let strides = pitch.map(|p| p as c_int);
+        let r = unsafe { kn_pw_decode(self.pw, data.as_ptr(), data.len(), ptrs.as_ptr(), strides.as_ptr(), 1, cfg.full_range as c_int) };
+        if r != 1 {
+            self.pw_skipped += 1;
+            if self.pw_skipped <= 3 || self.pw_skipped % 100 == 0 {
+                log::warn!("image : PyroWave, image {} sautée ({}, {} en tout)", pts, if r == 0 { "incomplète" } else { "illisible" }, self.pw_skipped);
+            }
+            self.latest.give_back(out);
+            return;
+        }
+        out.width = cfg.width;
+        out.height = cfg.height;
+        out.format = format;
+        out.pts = pts;
+        out.received = received;
+        out.decoded = latency::now_micros();
+        out.bt709 = !cfg.hdr;
+        out.full_range = cfg.full_range;
+        out.pq = cfg.hdr;
+        (out.mastering_min, out.mastering_max, out.max_cll, out.max_fall) = (0.0, 0.0, 0.0, 0.0);
+        self.latest.put(out);
+        wake_main();
     }
 
     fn open(&mut self) -> Result<(), String> {
@@ -428,23 +608,7 @@ impl Decoder {
             5 => Format::I010,
             _ => Format::I420,
         };
-        let mut out = self.latest.buffer().unwrap_or_else(|| Frame {
-            width: 0,
-            height: 0,
-            format,
-            planes: [Vec::new(), Vec::new(), Vec::new()],
-            pitch: [0; 3],
-            pts: 0,
-            received: 0,
-            decoded: 0,
-            bt709: true,
-            full_range: false,
-            pq: false,
-            mastering_min: 0.0,
-            mastering_max: 0.0,
-            max_cll: 0.0,
-            max_fall: 0.0,
-        });
+        let mut out = self.latest.buffer().unwrap_or_else(|| empty_frame(format));
         let rows = |plane: usize| match (format, plane) {
             (_, 0) => h,
             (Format::Bgra, _) => 0,
@@ -493,6 +657,26 @@ impl Decoder {
         out.pq = f.pq != 0;
         (out.mastering_min, out.mastering_max, out.max_cll, out.max_fall) = self.meta;
         out
+    }
+}
+
+fn empty_frame(format: Format) -> Frame {
+    Frame {
+        width: 0,
+        height: 0,
+        format,
+        planes: [Vec::new(), Vec::new(), Vec::new()],
+        pitch: [0; 3],
+        pts: 0,
+        received: 0,
+        decoded: 0,
+        bt709: true,
+        full_range: false,
+        pq: false,
+        mastering_min: 0.0,
+        mastering_max: 0.0,
+        max_cll: 0.0,
+        max_fall: 0.0,
     }
 }
 
@@ -721,4 +905,25 @@ fn bt709_8(y: u16, cb: u16, cr: u16) -> [u8; 3] {
     let b = yn + 1.8556 * un;
     let g = (yn - 0.2126 * r - 0.0722 * b) / 0.7152;
     [r, g, b].map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8)
+}
+
+#[cfg(test)]
+mod pyrowave_tests {
+    use super::*;
+
+    #[test]
+    fn paquet_de_configuration_pyrowave() {
+        let c = PwConfig { c444: false, hdr: true, full_range: false, width: 2560, height: 1440 };
+        let b = c.bytes();
+        assert_eq!(&b[0..8], &[b'K', b'N', b'P', b'W', 1, 0, 1, 1]);
+        assert_eq!(PwConfig::parse(&b), Some(c));
+        assert_eq!(c.format(), Format::I010);
+        assert_eq!(PwConfig { c444: true, hdr: false, ..c }.format(), Format::Bgra);
+        // Version inconnue, taille fausse, 4:2:0 de taille impaire : refusés.
+        let mut v2 = b;
+        v2[4] = 2;
+        assert_eq!(PwConfig::parse(&v2), None);
+        assert_eq!(PwConfig::parse(&b[..15]), None);
+        assert_eq!(PwConfig::parse(&PwConfig { hdr: false, width: 1281, ..c }.bytes()), None);
+    }
 }

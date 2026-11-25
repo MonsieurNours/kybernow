@@ -79,6 +79,16 @@ Interface (docs/link-ui.en.md, “HDR”), only on an HDR screen: the “HDR” 
 
 Tests: `cargo test` (curves and rules of `src/hdr.rs`, chip and settings; the shader against the reference, on the graphics card through Mesa's surfaceless EGL, in P010 and I010, the three renderings, within 2/255; skipped without EGL), `tests/video/run.sh` (an HDR10 stream from x265 comes out in 10 bits with PQ, BT.2020 and its metadata), `40-hdr-*` screenshots, and `kybernow --hdr-test`: the HDR test pattern (ramp from 0 to 1,000 cd/m², bars) on the subsurface of a Wayland window, a semi-transparent interface band on top, for `KYBERNOW_HDR_TEST_SECONDS` seconds; without colour management, the screen is taken for an SDR screen and the pattern goes through the curve towards SDR.
 
+## PyroWave
+
+PyroWave (wavelet codec, intra only, decoded through Vulkan; [docs/pyrowave-client-linux.en.md](../../docs/pyrowave-client-linux.en.md)) is one more value of “Video format”, next to H.264, HEVC and AV1, on desktop Linux, the Steam Deck and SteamOS; not on the Raspberry Pi.
+
+- **Library**: PyroWave (MIT) at the Station's commit (a32b05e), Vulkan path, upstream's C API, built by `build.sh` (step 4) as `libpyrowave-shared.so.1`, placed next to the app (`/app/lib` in the Flatpak) and loaded at launch; the runtime's Vulkan loader is enough.
+- **Decoding** (`src/native/pyrowave.c`): next to FFmpeg, on the picture thread; its own Vulkan device, one frame per media packet, read back as I420 (SDR), I010 (HDR10, to the HDR subsurface) or three 4:4:4 planes converted to BGRA, then shown as today. Incomplete frame skipped, no keyframe ever requested; the decode time (read-back included) goes to the statistics.
+- **Probe** at launch (a thread): device, decoder, test frame decoded and read back. Unavailable on the Pi, without a suitable Vulkan 1.3, with software rendering (`KYBERNOW_PYROWAVE_CPU=1` allows it for tests); `KYBERNOW_PYROWAVE=0` turns it off. “Auto” only takes it by cable (`system::wired_to`: the interface towards the computer); the core only requests it with its `pyrowave` feature (the Station's kyclient patch).
+- **Interface** (desktop, Deck, living room): “PyroWave” in “Video format” with its help texts, the Wi-Fi or relay warning, the inactive value with its reason; in session, the start banner with “Switch to HEVC”, the bar's amber chip (Deck and living room: a menu tile), “Lost frames” and “Resolution lowered” in the statistics. Captures `45-pyrowave-*`.
+- Offline test: `tests/pyrowave/run.sh` (see “Building”); tried in the VM on lavapipe only (no hardware Vulkan in the VM), never on the Steam Deck.
+
 ## Raspberry Pi
 
 The same app, on Raspberry Pi OS (Debian 13 "trixie", arm64), as a `.deb` package, or alone on the card with KyberNow Link OS (below); the decision is in [PROJECT.en.md](../../PROJECT.en.md) ("Raspberry Pi client"), mock-ups: https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft.
@@ -127,10 +137,12 @@ apps/linux/
 │   │                    (FFmpeg), machine (DMI, VA-API, DRM), controllers, background jobs, log;
 │   │                    screens.rs: SDL's displays in the core's format, the session's display plan;
 │   │                    ps.rs: PlayStation consoles (search, pairing, game, DualSense, between devices)
-│   └── native/          decoder.c (FFmpeg: VA-API, the Pi's V4L2), display.c (VRR and modes through DRM)
+│   ├── pyrowave.rs      PyroWave in the interface: link-ui texts, Wi-Fi and relay risks (without SDL or the core)
+│   └── native/          pyrowave.c (PyroWave through Vulkan), decoder.c (FFmpeg: VA-API, the Pi's V4L2), display.c (VRR and modes through DRM)
 ├── flatpak/             manifest, .desktop, AppStream, icon, licences
 ├── os/                  KyberNow Link OS: Raspberry Pi image (pi-gen, A/B, Plymouth, services), see os/README.en.md
 ├── scripts/             build.sh (--rpi), sources.sh, flatpak.sh, release-flatpaks.sh, deb.sh, apt-repo.sh
+├── tests/pyrowave/      PyroWave offline test (run.sh, encode.c, check.c, samples-mac.sh)
 └── tests/video/         offline decoder test (run.sh, check.c)
 ```
 
@@ -153,7 +165,7 @@ cargo run --release -p kybernow-linux --no-default-features -- --preview /tmp/kn
 
 # On Linux (Ubuntu 24.04: build-essential pkg-config nasm clang libclang-dev
 # libsdl2-dev libva-dev libdrm-dev libopus-dev libwayland-dev libegl-dev libgles-dev,
-# Rust 1.89 or later, cargo-c):
+# cmake git libvulkan-dev, Rust 1.89 or later, cargo-c):
 apps/linux/scripts/build.sh                    # → apps/target/release/kybernow
 
 # The Flatpak (flatpak-builder, org.freedesktop.Platform 25.08 runtime,
@@ -171,6 +183,10 @@ apps/linux/scripts/apt-repo.sh [DIR]           # → dist/apt (KYBERNOW_APT_GPG_
 
 # The decoder, offline (after build.sh; ffmpeg and x265 generate the streams):
 apps/linux/tests/video/run.sh [--hw]
+
+# PyroWave offline (after build.sh; upstream's Vulkan encoder, or SAMPLES=FOLDER of
+# streams made on a Mac by tests/pyrowave/samples-mac.sh; KYBERNOW_PYROWAVE_CPU=1 in a VM):
+apps/linux/tests/pyrowave/run.sh [WIDTH HEIGHT] [FRAMES]
 
 # The HDR test pattern on a Wayland window's subsurface (see “HDR”):
 apps/target/release/kybernow --hdr-test
@@ -241,6 +257,7 @@ The home PS5s and PS4s, next to the computers (contract: [docs/playstation.en.md
 
 ## Not yet tried
 
+- PyroWave: nothing has run on a real graphics card (the VM only has lavapipe) nor with a Station that offers it; the steps for the Steam Deck are in [docs/pyrowave-client-linux.en.md](../../docs/pyrowave-client-linux.en.md), “To try on the Steam Deck” (probe, read-back cost at 1440p, session by cable and on Wi-Fi, “Switch to HEVC”).
 - HDR (see “HDR”): nothing has run on a real HDR screen (KDE Plasma 6.3 and later, GNOME 48 and later) nor with a Station in HDR. Checked in the Ubuntu 24.04 VM (Mesa virgl): the tests, the offline decoder, and `--hdr-test` under GNOME 46 (Wayland without colour management: 10-bit output, about 145 pictures per second) and under headless Weston 13 (screenshot: the pattern in the window's hole, the interface band and square on top). To try: the PQ description accepted by KWin and Mutter and a right picture (blacks, whites, colours), Windows' desktop white anchored to the reference white, the EETF on a screen dimmer than the stream, the window dragged to an SDR screen and back, VA-API Main 10 on an AMD or Intel card, latency against SDR, several screens with only one in HDR, a PS5 in HDR.
 - PlayStation consoles: see “PlayStation consoles” above (a real game, the DualSense, the relay).
 - On the Steam Deck: an end-to-end session (VA-API on the Van Gogh APU, PipeWire sound, controls and trackpads through Steam Input, Steam keyboard), latency, Gaming Mode.

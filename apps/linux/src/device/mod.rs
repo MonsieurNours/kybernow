@@ -67,6 +67,8 @@ pub enum Event {
         os: Option<String>,
         gpu: Option<String>,
         av1: bool,
+        /// La Station propose PyroWave (`info.pyrowave`, docs/pyrowave.md).
+        pyrowave: bool,
         virtual_display: Option<bool>,
         /// Écrans que la Station sait créer (multi-écrans ; 1 : une Station antérieure).
         max_screens: Option<usize>,
@@ -145,7 +147,7 @@ pub enum SessionEvent {
     Mode(Mode),
     /// `chain` : le trajet d'une image mesuré avec l'ordinateur (`Second::chain`, ses six étapes) ; `hdr` : un
     /// écran au moins de l'image est en HDR.
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool },
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool },
     Notice(String),
     /// Le pointeur de l'ordinateur sur l'écran `screen` de l'appareil (multi-écrans :
     /// une couche par écran ; la forme est celle de l'écran où il se trouve).
@@ -812,6 +814,8 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
+    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre.
+    system::pyrowave_probe_start();
     // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
     // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
     // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
@@ -965,6 +969,7 @@ pub fn run(args: &[String]) {
     let mut last_station_poll = Instant::now();
     let mut last_wake_poll = Instant::now();
     let mut last_net = Instant::now();
+    let mut pyrowave_known = false;
     // KyberNow Link OS : le son de l'allumage, ce qui se prépare, le nom CEC, l'état A/B.
     let mut chime: Option<u32> = None;
     let mut start_down: Option<Instant> = None;
@@ -1181,6 +1186,17 @@ pub fn run(args: &[String]) {
         if lives.is_empty() && last_update.elapsed() > Duration::from_secs(6 * 3600) {
             last_update = Instant::now();
             jobs::check_update(app.store.app.beta, tx.clone());
+        }
+        // La sonde de PyroWave a fini : « Format vidéo » le propose (ou dit pourquoi pas), le cœur le reçoit.
+        // Le cœur ne sait le demander qu'avec le correctif kyclient de la Station (fonctionnalité `pyrowave` du cœur,
+        // `PYROWAVE_KYBER`) : sans lui, l'app ne l'annonce pas (« Format vidéo » le dit indisponible).
+        if !pyrowave_known && let Some(ok) = system::pyrowave() {
+            pyrowave_known = true;
+            app.machine.pyrowave = ok && kybernow_core::profile::PYROWAVE_KYBER;
+            if ok && !kybernow_core::profile::PYROWAVE_KYBER {
+                log::info!("PyroWave : décodeur prêt, mais ce cœur ne sait pas encore le demander (fonctionnalité pyrowave éteinte)");
+            }
+            dirty = true;
         }
         if last_net.elapsed() > Duration::from_secs(5) && lives.is_empty() {
             last_net = Instant::now();
@@ -2542,7 +2558,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, pyrowave, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online {
                 Online::Online
@@ -2571,7 +2587,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             actions.extend(app.share_known(&id));
             if online && let Some(h) = app.store.host_mut(&id) {
                 // Les cartes du réveil : les nouvelles, sauf une liste vide (Station 0.4.9).
-                let mut changed = h.os != os || h.gpu != gpu || h.av1 != av1;
+                let mut changed = h.os != os || h.gpu != gpu || h.av1 != av1 || h.pyrowave != pyrowave;
                 if !wake.is_empty() && h.wake != wake {
                     h.wake = wake;
                     changed = true;
@@ -2579,6 +2595,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 h.os = os.or(h.os.take());
                 h.gpu = gpu.or(h.gpu.take());
                 h.av1 = av1;
+                h.pyrowave = pyrowave;
                 // Le relais de l'ordinateur : celui que sa Station donne, gardé pour le joindre hors de chez soi.
                 if h.relay != relay {
                     h.relay = relay;
@@ -2928,7 +2945,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 l.hz = m.refresh;
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, codec, audio_ms, chain, hdr } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr } => {
             let Some(l) = lives.get_mut(id) else { return };
             let local = Stats::local_medians(&l.local);
             l.local.clear();
@@ -2951,7 +2968,9 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                 }
                 let stages = Stats::stages(chain, local);
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr });
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames });
+                // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
+                s.pyrowave_seen();
             }
         }
         SessionEvent::Notice(n) => {
@@ -3277,8 +3296,24 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             let Some(h) = app.store.host(&host).cloned() else { return };
             if let Some(l) = lives.get_mut(id) {
                 let mode = session_mode_of(app, wins, l, &h);
-                let codec = app.codec_for(&h);
-                push_settings(l, session::settings(&h, p, codec, mode, &app.machine, light), session::capabilities(&h, codec, &app.machine));
+                let codec = app.session_codec(id, &h);
+                let mut settings = session::settings(&h, p, codec, mode, &app.machine, light);
+                settings.wired = l.settings.wired;
+                push_settings(l, settings, session::capabilities(&h, codec, &app.machine));
+            }
+        }
+        Action::PyroWaveToHevc(id) => {
+            // « Passer en HEVC » : les réglages de la session en HEVC (le cœur relance l'image), le choix de
+            // l'ordinateur reste PyroWave pour la prochaine session.
+            let Some((host, profile, light)) = app.session_by(id).map(|s| (s.host.clone(), s.profile, s.light)) else { return };
+            let Some(h) = app.store.host(&host).cloned() else { return };
+            if let Some(l) = lives.get_mut(id) {
+                log::info!("session : PyroWave → HEVC pour cette session");
+                let mode = session_mode_of(app, wins, l, &h);
+                // Sans le câble : « Auto » ne reprend pas PyroWave.
+                let mut settings = session::settings(&h, profile, "hevc", mode, &app.machine, light);
+                settings.wired = false;
+                push_settings(l, settings, session::capabilities(&h, "hevc", &app.machine));
             }
         }
         Action::SetHdr(id, on) => {
@@ -3294,8 +3329,10 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             if let Some(l) = lives.get_mut(id) {
                 let (w, hh, fps) = session_mode_of(app, wins, l, &h);
                 let fps = if on { fps.min(60) } else { fps };
-                let codec = app.codec_for(&h);
-                push_settings(l, session::settings(&h, profile, codec, (w, hh, fps), &app.machine, on), session::capabilities(&h, codec, &app.machine));
+                let codec = app.session_codec(id, &h);
+                let mut settings = session::settings(&h, profile, codec, (w, hh, fps), &app.machine, on);
+                settings.wired = l.settings.wired;
+                push_settings(l, settings, session::capabilities(&h, codec, &app.machine));
                 l.handle.session.set_mode(Mode { width: w, height: hh, refresh: fps });
             }
         }
@@ -3560,6 +3597,7 @@ fn borrower_host(loan: &lend::Loan, key: &str) -> crate::model::Host {
         os: None,
         gpu: None,
         av1: false,
+        pyrowave: false,
         mac: None,
         wake: Vec::new(),
         relay: None,
@@ -3593,6 +3631,7 @@ fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
         os: None,
         gpu: None,
         av1: false,
+        pyrowave: false,
         mac: None,
         wake: Vec::new(),
         relay: None,
@@ -3689,7 +3728,12 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         (None, None) => app.session_mode(&h),
     };
     // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
-    let settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
+    let mut settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
+    // « Auto » prend PyroWave seulement par câble (docs/link-ui.md, « PyroWave ») : l'interface qui mène à
+    // l'ordinateur. Pour le cœur, « Auto » est un profil ; l'app en garde toujours un (`session::settings`) : le
+    // câble n'est donné que si « Format vidéo » est sur Auto, sinon un HEVC choisi deviendrait PyroWave.
+    let wired = !visitor && !h.address.is_empty() && app.machine.pyrowave && system::wired_to(&h.address, h.port);
+    settings.wired = wired && h.settings.codec == "auto";
     // Un invité n'a jamais plusieurs écrans : l'écran du partage, un seul.
     let plan = if visitor { None } else { base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display)) };
     // « Cet écran » est celui où se trouve la fenêtre pendant la session : avec plusieurs écrans,
@@ -3770,6 +3814,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         None => SessionUi::new(id, &h.id, &h.name, profile, light, relative, plan.as_ref().map_or(1, Vec::len)),
     };
     ui.fullscreen = first && app.fullscreen;
+    ui.pw_wired = wired;
     // « HDR » dans la barre et le menu : la puce de l'ordinateur (hôte, emprunt) sur un écran HDR ; un invité n'en a pas.
     ui.hdr = match (&guest, &borrow_key) {
         (Some(_), _) => None,
@@ -4205,6 +4250,7 @@ mod tests {
             os: None,
             gpu: None,
             av1: false,
+            pyrowave: false,
             mac: None,
             wake: Vec::new(),
             relay: None,
