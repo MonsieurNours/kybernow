@@ -1,0 +1,454 @@
+#!/bin/bash
+# KyberNow Station installée dans le dossier de l'utilisateur, pour les
+# systèmes immuables (docs/station-linux.md, « Systèmes immuables ») :
+# installation, mise à jour, retour à la version précédente, retrait. Rien
+# sous /usr, aucun service root ; seule la règle udev de /dev/uinput demande
+# sudo, et seulement si /dev/uinput n'est pas déjà ouvert à l'utilisateur.
+#
+#   kybernow-station-home install <dossier de l'archive> [--no-sudo]
+#   kybernow-station-home update <archive.tar.xz> <version> [--result F] [--log F]
+#   kybernow-station-home rollback [--result F] [--log F]
+#   kybernow-station-home uninstall [--purge]
+#   kybernow-station-home status
+#
+# Disposition :
+#   ~/.local/lib/kybernow-station/versions/<version>/   contenu de l'archive
+#   ~/.local/lib/kybernow-station/current, previous     liens vers une version
+#   ~/.config/systemd/user/kybernow-*.service           services du paquet, chemins réécrits vers current
+#   ~/.local/share/applications/…display.desktop        droit de l'agent des écrans chez KWin (chemin réel)
+#   ~/.local/share/kybernow/station/                    données (les mêmes que celles du paquet)
+#
+# `update` et `rollback` sont lancés par Admin (applicateur des mises à jour,
+# après vérification de l'archive contre le manifeste signé) : ils se
+# détachent d'Admin (systemd-run --user), arrêtent les services, basculent
+# `current`, relancent, attendent qu'Admin réponde dans la version attendue
+# (60 s) et remettent l'autre version sinon. Résultat dans --result, au même
+# format que l'applicateur du Mac.
+#
+# Variables : KYBERNOW_HOME_DIR (défaut ~/.local/lib/kybernow-station),
+# KYBERNOW_ADMIN_ADDRESS (défaut : lu dans les réglages d'Admin, sinon
+# 127.0.0.1:9443).
+set -euo pipefail
+
+BASE="${KYBERNOW_HOME_DIR:-$HOME/.local/lib/kybernow-station}"
+VERSIONS="$BASE/versions"
+UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station"
+MARK="# KyberNow Station, installée dans le dossier de l'utilisateur (kybernow-station-home)"
+HEALTH_TIMEOUT="${KYBERNOW_HEALTH_TIMEOUT:-60}"
+UDEV_RULE=/etc/udev/rules.d/60-kybernow-uinput.rules
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+
+say() { printf '%s\n' "$*"; }
+warn() { printf '  ! %s\n' "$*" >&2; }
+die() { printf 'Erreur : %s\n' "$*" >&2; exit 1; }
+
+ARCH="$(uname -m)"; [ "$ARCH" = arm64 ] && ARCH=aarch64
+
+# ---------------------------------------------------------------- outils
+
+# Version d'un dossier de version (fichier VERSION de l'archive).
+version_of() { cat "$1/VERSION" 2>/dev/null || basename "$1"; }
+
+# Le dossier pointé par un lien (current, previous), vide s'il n'y en a pas.
+target_of() { [ -L "$BASE/$1" ] && readlink -f "$BASE/$1" || true; }
+
+# Lien posé d'un bloc (lien temporaire puis renommage).
+set_link() {
+    ln -sfn "$2" "$BASE/.$1.tmp"
+    mv -T "$BASE/.$1.tmp" "$BASE/$1"
+}
+
+our_units() { cat "$BASE/units.list" 2>/dev/null || true; }
+
+# Contrôle d'un dossier de version : complet, de cette architecture, glibc assez récente.
+check_version_dir() {
+    local dir="$1" arch glibc have
+    [ -x "$dir/bin/kyber-admin" ] && [ -x "$dir/runtime/bin/kycontroller" ] && [ -f "$dir/VERSION" ] \
+        || die "$dir : archive incomplète (kyber-admin, Kyber ou VERSION manquant)"
+    arch=$(awk -F= '$1 == "arch" {print $2}' "$dir/BUILD" 2>/dev/null)
+    [ -z "$arch" ] || [ "$arch" = "$ARCH" ] || die "cette archive est pour $arch, cet ordinateur est en $ARCH"
+    glibc=$(awk -F= '$1 == "glibc" {print $2}' "$dir/BUILD" 2>/dev/null)
+    have=$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{print $2}' || true)
+    if [ -n "$glibc" ] && [ -n "$have" ] && [ "$(printf '%s\n%s\n' "$glibc" "$have" | sort -V | head -1)" != "$glibc" ]; then
+        die "ce système a la glibc $have, la Station demande $glibc ou plus récente"
+    fi
+}
+
+# Services de l'utilisateur, copiés depuis ceux du paquet, chemins réécrits
+# vers `current` : une mise à jour n'a qu'à changer le lien.
+write_units() {
+    local dir="$1" f name list=""
+    mkdir -p "$UNITS"
+    for f in "$dir"/share/systemd-user/*.service; do
+        [ -f "$f" ] || continue
+        name=$(basename "$f")
+        { say "$MARK"; sed "s|/usr/lib/kybernow-station|$BASE/current|g" "$f"; } > "$UNITS/$name"
+        list="$list$name"$'\n'
+    done
+    [ -n "$list" ] || die "$dir : aucun service dans share/systemd-user"
+    printf '%s' "$list" > "$BASE/units.list"
+    # Greffon PipeWire de GStreamer : celui du système, sinon celui de l'archive.
+    local dropin="$UNITS/kybernow-kyber.service.d/kybernow-gst.conf"
+    if ! system_gst_pipewire && [ -d "$dir/runtime/gst-fallback" ]; then
+        mkdir -p "$(dirname "$dropin")"
+        printf '%s\n[Service]\nEnvironment=GST_PLUGIN_PATH=%s\n' "$MARK" "$BASE/current/runtime/gst-fallback" > "$dropin"
+    else
+        rm -f "$dropin"
+        rmdir "$(dirname "$dropin")" 2>/dev/null || true
+    fi
+    systemctl --user daemon-reload
+}
+
+# Fichier .desktop de KWin : son Exec doit être le chemin réel de l'agent
+# (KWin le compare au programme qui se connecte), d'où une réécriture à
+# chaque changement de version.
+write_desktop() {
+    local dir="$1" f real
+    real=$(readlink -f "$dir")
+    mkdir -p "$APPS"
+    for f in "$dir"/share/applications/*.desktop; do
+        [ -f "$f" ] || continue
+        { say "$MARK"; sed "s|/usr/lib/kybernow-station|$real|g" "$f"; } > "$APPS/$(basename "$f")"
+    done
+    command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" 2>/dev/null || true
+}
+
+stop_services() {
+    local units; units=$(our_units)
+    [ -n "$units" ] || units=$'kybernow-admin.service\nkybernow-kyber.service'
+    # shellcheck disable=SC2086
+    systemctl --user stop $units 2>/dev/null || true
+}
+
+start_services() {
+    local units; units=$(our_units)
+    # shellcheck disable=SC2086
+    systemctl --user enable $units >/dev/null 2>&1 || true
+    if systemctl --user is-active --quiet graphical-session.target; then
+        # shellcheck disable=SC2086
+        systemctl --user start $units
+        return 0
+    fi
+    return 1
+}
+
+admin_address() {
+    if [ -n "${KYBERNOW_ADMIN_ADDRESS:-}" ]; then say "$KYBERNOW_ADMIN_ADDRESS"; return; fi
+    local listen port
+    listen=$(sed -n 's/^listen *= *"\(.*\)"/\1/p' "$DATA/admin/kyber-admin.toml" 2>/dev/null | head -1 || true)
+    port="${listen##*:}"
+    case "$port" in ''|*[!0-9]*) port=9443 ;; esac
+    say "127.0.0.1:$port"
+}
+
+# Admin répond-il dans la version attendue ?
+health() {
+    local version="$1" deadline=$((SECONDS + HEALTH_TIMEOUT)) got="" address
+    address=$(admin_address)
+    while [ $SECONDS -lt $deadline ]; do
+        got=$(curl -sk --max-time 3 "https://$address/api/session" 2>/dev/null \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)
+        [ "$got" = "$version" ] && return 0
+        sleep 2
+    done
+    say "KyberNow Admin ne répond pas en version $version au bout de $HEALTH_TIMEOUT s (${got:+Admin répond en version }${got:-aucune réponse})"
+    return 1
+}
+
+# Garde la version en cours et la précédente, retire les autres.
+prune() {
+    local keep1 keep2 d
+    keep1=$(target_of current); keep2=$(target_of previous)
+    for d in "$VERSIONS"/*; do
+        [ -d "$d" ] || continue
+        d=$(readlink -f "$d")
+        [ "$d" = "$keep1" ] || [ "$d" = "$keep2" ] || rm -rf "$d"
+    done
+    rm -rf "$VERSIONS"/.staging-* 2>/dev/null || true
+}
+
+system_gst_pipewire() {
+    find /usr/lib /usr/lib64 -path '*gstreamer-1.0/libgstpipewire.so' 2>/dev/null | grep -q .
+}
+
+# Ce que la Station lance ou lit sur le système. Les manques sont dits,
+# avec la façon de les ajouter là où c'est possible.
+check_system() {
+    local missing="" c
+    for c in systemctl python3 openssl pactl pw-dump curl; do
+        command -v "$c" >/dev/null || missing="$missing $c"
+    done
+    [ -z "$missing" ] || warn "programmes absents :$missing"
+    if ! find /usr/lib /usr/lib64 -maxdepth 2 -name libgstreamer-1.0.so.0 2>/dev/null | grep -q .; then
+        warn "GStreamer est absent : la Station ne pourra pas lire l'écran."
+    fi
+    if ! system_gst_pipewire; then
+        if [ -d "$1/runtime/gst-fallback" ]; then
+            say "  Greffon PipeWire de GStreamer absent du système : celui de la Station sera utilisé."
+        else
+            warn "greffon PipeWire de GStreamer absent (Fedora Atomic : rpm-ostree install pipewire-gstreamer)."
+        fi
+    fi
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        *KDE*) command -v kscreen-doctor >/dev/null || warn "kscreen-doctor absent : la Station ne pourra pas disposer les écrans de KDE Plasma." ;;
+    esac
+    if [ -e /usr/lib/systemd/user/kybernow-admin.service ]; then
+        warn "le paquet KyberNow Station est aussi installé dans le système : les services de votre dossier passent devant. Retirez l'un des deux."
+    fi
+}
+
+# /dev/uinput (clavier, souris, manettes des appareils) : souvent déjà ouvert
+# à l'utilisateur par les règles de Steam (steam-devices). Sinon, la règle de
+# la Station dans /etc, qui reste d'une mise à jour du système à l'autre.
+input_access() {
+    local dir="$1" no_sudo="$2" rule needed=0
+    rule=$(ls "$dir"/share/udev/*.rules 2>/dev/null | head -1 || true)
+    [ -n "$rule" ] || return 0
+    [ -w /dev/uinput ] || needed=1
+    grep -q uhid "$rule" && [ -e /dev/uhid ] && [ ! -w /dev/uhid ] && needed=1
+    if [ $needed = 0 ]; then
+        say "  Entrées : /dev/uinput déjà accessible."
+        return 0
+    fi
+    local cmd="sudo install -m 644 '$rule' $UDEV_RULE && echo uinput | sudo tee /etc/modules-load.d/kybernow-uinput.conf >/dev/null && sudo modprobe uinput && sudo udevadm control --reload && sudo udevadm trigger --name-match=uinput"
+    if [ "$no_sudo" = 1 ] || [ ! -t 0 ]; then
+        warn "le clavier, la souris et les manettes de vos appareils ont besoin d'une règle udev. Dans un terminal :"
+        say "    $cmd"
+        return 0
+    fi
+    say "  Le clavier, la souris et les manettes de vos appareils passent par /dev/uinput, fermé pour l'instant."
+    say "  Une règle udev l'ouvre à l'utilisateur assis devant l'ordinateur : votre mot de passe est demandé une fois."
+    [ -x /usr/bin/steamos-session-select ] && say "  (SteamOS : sans mot de passe défini, lancez d'abord « passwd » dans Konsole.)"
+    if ! bash -c "$cmd"; then
+        warn "règle udev non posée. Plus tard, dans un terminal :"
+        say "    $cmd"
+    fi
+}
+
+# ---------------------------------------------------------------- install
+
+cmd_install() {
+    local src="${1:?dossier de l’archive}" no_sudo=0 version dest old
+    shift
+    [ "${1:-}" = --no-sudo ] && no_sudo=1
+    src=$(cd "$src" && pwd)
+    check_version_dir "$src"
+    version=$(version_of "$src")
+    say "KyberNow Station $version, installée dans $BASE"
+    mkdir -p "$VERSIONS"
+    check_system "$src"
+
+    old=$(target_of current)
+    stop_services
+    dest="$VERSIONS/$version"
+    if [ "$(readlink -f "$src")" != "$(readlink -f "$dest" 2>/dev/null || true)" ]; then
+        rm -rf "$VERSIONS/.staging-$version"
+        cp -a "$src" "$VERSIONS/.staging-$version"
+        rm -rf "$dest"
+        mv "$VERSIONS/.staging-$version" "$dest"
+    fi
+    if [ -n "$old" ] && [ "$old" != "$(readlink -f "$dest")" ] && [ -d "$old" ]; then
+        set_link previous "$old"
+    fi
+    set_link current "$dest"
+    write_units "$dest"
+    write_desktop "$dest"
+    input_access "$dest" "$no_sudo"
+    prune
+
+    if start_services; then
+        say "KyberNow Station est démarrée."
+        local i
+        for i in $(seq 1 30); do [ -f "$DATA/admin/kyber-admin.toml" ] && break; sleep 1; done
+    else
+        say "KyberNow Station démarrera à votre prochaine ouverture de session (dans le mode bureau, sur SteamOS)."
+    fi
+    local address; address=$(admin_address)
+    say "Admin : https://$(hostname -I 2>/dev/null | awk '{print $1}' | grep . || echo localhost):${address##*:}"
+    [ -f "$DATA/admin/mot-de-passe" ] && say "Mot de passe du premier compte ($(id -un)) : dans $DATA/admin/mot-de-passe"
+    return 0
+}
+
+# ---------------------------------------------------------------- update, rollback
+
+RESULT=""
+LOG=""
+
+parse_result_log() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --result) RESULT="$2"; shift 2 ;;
+            --log) LOG="$2"; shift 2 ;;
+            *) die "argument inconnu : $1" ;;
+        esac
+    done
+}
+
+write_result() {
+    [ -n "$RESULT" ] || return 0
+    mkdir -p "$(dirname "$RESULT")"
+    python3 - "$RESULT" "$@" <<'EOF'
+import json, os, sys
+path, version, ok, rolled_back, undo_failed, message, log = sys.argv[1:]
+value = {"version": version, "ok": ok == "1"}
+if ok != "1":
+    value.update(rolled_back=rolled_back == "1", undo_failed=undo_failed == "1", message=message)
+if log:
+    value["log"] = log
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(value, f, indent=2)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, path)
+EOF
+}
+
+# Se détacher d'Admin, que l'on va arrêter : une copie de ce script hors des
+# dossiers de version, lancée en unité systemd de l'utilisateur à part.
+detach() {
+    [ -n "${KYBERNOW_UPDATE_DETACHED:-}" ] && return 0
+    command -v systemd-run >/dev/null || return 0
+    mkdir -p "$BASE/.updater"
+    install -m 755 "$0" "$BASE/.updater/kybernow-station-home"
+    local env=(--setenv=KYBERNOW_UPDATE_DETACHED=1)
+    [ -n "${KYBERNOW_HOME_DIR:-}" ] && env+=(--setenv=KYBERNOW_HOME_DIR="$KYBERNOW_HOME_DIR")
+    [ -n "${KYBERNOW_ADMIN_ADDRESS:-}" ] && env+=(--setenv=KYBERNOW_ADMIN_ADDRESS="$KYBERNOW_ADMIN_ADDRESS")
+    systemctl --user reset-failed kybernow-station-update.service 2>/dev/null || true
+    systemd-run --user --collect --quiet --unit=kybernow-station-update "${env[@]}" \
+        "$BASE/.updater/kybernow-station-home" "$@"
+    say "Mise à jour lancée (journal : journalctl --user -u kybernow-station-update${LOG:+, et $LOG})"
+    exit 0
+}
+
+open_log() {
+    [ -n "$LOG" ] || return 0
+    mkdir -p "$(dirname "$LOG")"
+    exec >>"$LOG" 2>&1
+    say "--- $(date '+%Y-%m-%d %H:%M:%S') kybernow-station-home $*"
+}
+
+# Bascule vers `to` (dossier de version), contrôle de santé, retour à `from`
+# en cas d'échec. Écrit le résultat.
+switch_to() {
+    local to="$1" from="$2" version message
+    version=$(version_of "$to")
+    say "Arrêt des services"
+    stop_services
+    say "Bascule : $(basename "$from") → $(basename "$to")"
+    set_link current "$to"
+    write_units "$to"
+    write_desktop "$to"
+    start_services || say "Pas de session graphique ouverte : la version sera contrôlée à la prochaine ouverture."
+    if ! systemctl --user is-active --quiet graphical-session.target || message=$(health "$version"); then
+        set_link previous "$from"
+        say "Terminé : KyberNow Station $version."
+        write_result "$version" 1 0 0 "" "$LOG"
+        prune
+        return 0
+    fi
+    say "ERREUR : $message ; version $(version_of "$from") remise en place"
+    stop_services
+    set_link current "$from"
+    write_units "$from"
+    write_desktop "$from"
+    start_services || true
+    if health "$(version_of "$from")" >/dev/null; then
+        write_result "$version" 0 1 0 "$message ; version $(version_of "$from") remise en place" "$LOG"
+    else
+        say "ERREUR : le retour arrière n'a pas répondu non plus"
+        write_result "$version" 0 0 1 "$message ; retour arrière sans réponse d'Admin" "$LOG"
+    fi
+    return 1
+}
+
+cmd_update() {
+    local archive="${1:?archive}" version="${2:?version}" from staging top
+    shift 2
+    parse_result_log "$@"
+    archive=$(readlink -f "$archive")
+    detach update "$archive" "$version" "$@"
+    open_log update "$version"
+    from=$(target_of current)
+    [ -n "$from" ] || { write_result "$version" 0 0 0 "Station introuvable dans $BASE" "$LOG"; die "Station introuvable dans $BASE"; }
+    staging="$VERSIONS/.staging-$version"
+    rm -rf "$staging" && mkdir -p "$staging"
+    if ! tar -xJf "$archive" -C "$staging" --no-same-owner; then
+        rm -rf "$staging"
+        write_result "$version" 0 0 0 "archive illisible" "$LOG"
+        die "archive illisible : $archive"
+    fi
+    top=$(find "$staging" -mindepth 1 -maxdepth 1 -type d | head -1)
+    if [ -z "$top" ] || [ "$(version_of "$top")" != "$version" ] || ! (check_version_dir "$top"); then
+        rm -rf "$staging"
+        write_result "$version" 0 0 0 "l'archive n'est pas celle de KyberNow Station $version pour $ARCH" "$LOG"
+        die "l'archive n'est pas celle de KyberNow Station $version pour $ARCH"
+    fi
+    rm -rf "${VERSIONS:?}/${version:?}"
+    mv "$top" "$VERSIONS/$version"
+    rm -rf "$staging"
+    [ "$(readlink -f "$VERSIONS/$version")" = "$from" ] && { write_result "$version" 1 0 0 "" "$LOG"; return 0; }
+    switch_to "$(readlink -f "$VERSIONS/$version")" "$from"
+}
+
+cmd_rollback() {
+    local from to
+    parse_result_log "$@"
+    detach rollback "$@"
+    open_log rollback
+    from=$(target_of current); to=$(target_of previous)
+    [ -n "$to" ] && [ -d "$to" ] || { write_result "" 0 0 0 "aucune version précédente" "$LOG"; die "aucune version précédente"; }
+    switch_to "$to" "$from"
+}
+
+# ---------------------------------------------------------------- uninstall, status
+
+cmd_uninstall() {
+    local purge=0 u f
+    [ "${1:-}" = --purge ] && purge=1
+    stop_services
+    for u in $(our_units); do
+        systemctl --user disable "$u" >/dev/null 2>&1 || true
+        grep -qF "$MARK" "$UNITS/$u" 2>/dev/null && rm -f "$UNITS/$u"
+    done
+    rm -rf "$UNITS/kybernow-kyber.service.d/kybernow-gst.conf"
+    rmdir "$UNITS/kybernow-kyber.service.d" 2>/dev/null || true
+    for f in "$APPS"/fr.leslignesclaires.kybernow.*.desktop; do
+        [ -f "$f" ] && grep -qF "$MARK" "$f" && rm -f "$f"
+    done
+    systemctl --user daemon-reload 2>/dev/null || true
+    rm -rf "$BASE"
+    say "KyberNow Station est retirée de votre dossier."
+    if [ $purge = 1 ]; then
+        rm -rf "$DATA"
+        say "Réglages, comptes et appairages retirés ($DATA)."
+    else
+        say "Vos réglages, comptes et appairages restent dans $DATA (--purge pour les retirer)."
+    fi
+    if [ -f "$UDEV_RULE" ]; then
+        say "La règle udev reste dans le système. Pour la retirer :"
+        say "    sudo rm $UDEV_RULE /etc/modules-load.d/kybernow-uinput.conf && sudo udevadm control --reload"
+    fi
+}
+
+cmd_status() {
+    local cur prev
+    cur=$(target_of current); prev=$(target_of previous)
+    [ -n "$cur" ] || { say "KyberNow Station n'est pas installée dans $BASE."; exit 1; }
+    say "KyberNow Station $(version_of "$cur") ($cur)"
+    [ -n "$prev" ] && say "Version précédente : $(version_of "$prev")"
+    systemctl --user --no-pager status $(our_units) 2>/dev/null | grep -E "●|Active:" || true
+}
+
+case "${1:-}" in
+    install) shift; cmd_install "$@" ;;
+    update) shift; cmd_update "$@" ;;
+    rollback) shift; cmd_rollback "$@" ;;
+    uninstall) shift; cmd_uninstall "$@" ;;
+    status) cmd_status ;;
+    *) say "usage : $0 install <dossier> [--no-sudo] | update <archive> <version> [--result F] [--log F] | rollback [--result F] [--log F] | uninstall [--purge] | status" >&2; exit 2 ;;
+esac

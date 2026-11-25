@@ -78,6 +78,40 @@ Admin donne `platform` : `linux` (`GET /api/session`) : l'interface et Admin rem
 - Données : `~/.local/share/kybernow/station/` (`admin/`, `kyber/`, `kyber-screens.toml`).
 - Paquet : `server/linux/scripts/package.sh` → `kybernow-station_<version>_<arch>.deb` et `kybernow-station-<version>.<arch>.rpm` (`/usr/lib/kybernow-station`, services, règle udev). À l'installation, les services sont activés pour tous les utilisateurs (`systemctl --global enable`) et la règle udev est chargée.
 
+### Systèmes immuables (Bazzite, Fedora Atomic, SteamOS)
+
+Sur Bazzite, les Fedora Atomic (Silverblue, Kinoite…) et SteamOS, `/usr` est en lecture seule et remplacé d'un bloc à chaque mise à jour du système : le `.deb` et le `.rpm` n'y entrent pas tels quels. Trois voies étudiées (jalon 8, 25/11/2026) :
+
+| Voie | Bazzite, Fedora Atomic | SteamOS (mode Bureau) | Verdict |
+|---|---|---|---|
+| **rpm en couche** (`rpm-ostree install ./kybernow-station-….rpm`) | Possible avec le `.rpm` tel quel, pour tous les comptes ; redémarrage, chaque mise à jour du système recompose l'image (plus lente, et bloquée si une dépendance manque) ; Bazzite déconseille les couches. La Station ne peut pas se mettre à jour seule : `rpm -U` n'existe pas, il faut `rpm-ostree` (root, redémarrage) | Impossible : pacman est fermé, et ce qu'il installe est effacé à la mise à jour suivante | Toléré sur Fedora Atomic, pas proposé |
+| **Extension systemd-sysext** (image posée dans `/var/lib/extensions`, fusionnée sur `/usr`) | Possible (root, `extension-release` en `ID=_any`), refaite à chaque mise à jour de la Station | Possible en principe, mais root à chaque mise à jour, service `systemd-sysext` à activer, et `/var` est propre à chaque partition A/B : rien ne garantit que l'image suive une mise à jour de SteamOS | Non : root à chaque fois, et fragile sur SteamOS |
+| **Dossier de l'utilisateur** (`~/.local/lib/kybernow-station`) | Oui | Oui | **Retenue** |
+
+Pourquoi le dossier de l'utilisateur : tout ce dont la Station a besoin est déjà propre à l'utilisateur (services systemd `--user`, données dans `~/.local/share/kybernow/station`, son, écrans), le dossier personnel survit à toutes les mises à jour du système, et la mise à jour de la Station se fait sans mot de passe, comme sur le Mac. Ce qui reste, sans root ou avec :
+
+| Pièce | Sans root ? | Où |
+|---|---|---|
+| Kyber, Admin, l'agent des écrans | Oui | `~/.local/lib/kybernow-station/versions/<version>`, lien `current` (et `previous`) |
+| Services `--user` | Oui | `~/.config/systemd/user/kybernow-*.service` : ceux du paquet, `/usr/lib/kybernow-station` réécrit vers `…/current` (une mise à jour ne change que le lien) |
+| Droit de l'agent au protocole d'écrans de KWin | Oui | `~/.local/share/applications/fr.leslignesclaires.kybernow.station.display.desktop` (KWin lit les dossiers XDG de l'utilisateur, comme pour la Station d'essai) ; `Exec` est le chemin réel de l'agent, réécrit à chaque changement de version, parce que KWin le compare au programme qui se connecte |
+| Son (sortie PipeWire), écrans virtuels (Mutter, KWin), certificat, comptes | Oui | Rien de changé |
+| `/dev/uinput` (clavier, souris, manettes) | Souvent déjà ouvert | Les règles udev de Steam (`steam-devices`, présentes sur SteamOS et Bazzite) donnent déjà `uaccess` à `/dev/uinput`. Sinon, la règle de la Station dans `/etc/udev/rules.d` et `uinput` dans `/etc/modules-load.d`, avec sudo, une fois : `/etc` est modifiable et conservé d'une mise à jour à l'autre sur les deux systèmes. Sur SteamOS, il faut d'abord un mot de passe (`passwd`) |
+| Greffon PipeWire de GStreamer | Selon le système | Celui du système s'il existe ; sinon celui de la machine qui a compilé, joint à l'archive (`runtime/gst-fallback`, pris par `GST_PLUGIN_PATH` dans un complément du service de Kyber). Sur Fedora Atomic, `rpm-ostree install pipewire-gstreamer` reste possible |
+| Démarrage seul après un redémarrage | Réglage du système | Ouverture automatique de la session, comme ailleurs |
+
+**Archive** : `server/linux/immutable/make-archive.sh` range l'assemblage du paquet (ou un `.deb` déjà fait, lu aussi depuis un Mac) en `KyberNow-Station-Linux-<x86_64|aarch64>.tar.xz` : `install.sh`, `VERSION`, `BUILD` (architecture et glibc de la machine qui a compilé), `bin/` (avec `kybernow-station-home`), `runtime/`, `share/systemd-user`, `share/applications`, `share/udev`. `package.sh` l'appelle après le `.deb`. Les programmes demandent une glibc au moins aussi récente que celle de la machine qui a compilé : l'archive publiée se fait sur Ubuntu 24.04 (glibc 2.39, la plus ancienne des systèmes visés), jamais sur Fedora 45 ; l'installation refuse un système plus ancien en le disant.
+
+**Installation** : `./install.sh` dans le dossier extrait (`bin/kybernow-station-home install`) : contrôle de l'architecture et de la glibc, copie dans `versions/<version>`, lien `current`, services et `.desktop` écrits, programmes manquants signalés (`pactl`, `pw-dump`, GStreamer, `kscreen-doctor` sous KDE), règle udev seulement si `/dev/uinput` (ou `/dev/uhid`, si la règle le nomme) est fermé, services activés et démarrés dans la session graphique. Le premier démarrage est celui du paquet (`kybernow-station-setup`). Si le paquet est aussi installé dans le système, l'installation le signale : les services du dossier de l'utilisateur passent devant.
+
+**Mise à jour** (sans root) : Admin télécharge `KyberNow-Station-Linux-<arch>.tar.xz`, le vérifie contre le manifeste signé, puis lance `kybernow-station-home update <archive> <version> --result <…>/resultat.json --log <…>`. Le script se détache d'Admin (unité `kybernow-station-update` par `systemd-run --user`, copie de lui-même hors des dossiers de version), extrait dans `versions/`, contrôle la version, l'architecture et la glibc, arrête les services, bascule `current`, réécrit services et `.desktop`, relance, et attend qu'Admin réponde dans la nouvelle version (`/api/session`, 60 s). Sinon il remet l'autre version. Résultat au même format que l'applicateur du Mac (`version`, `ok`, `rolled_back`, `undo_failed`, `message`, `log`). Deux versions gardées : « Revenir à la version précédente » est `kybernow-station-home rollback`. Le choix du chemin (dossier de l'utilisateur ou paquet) revient à l'applicateur, selon l'endroit d'où tourne Admin ; sur un système ostree avec la Station en couche dans `/usr`, Admin annonce la nouvelle version sans l'installer.
+
+**Retrait** : `kybernow-station-home uninstall` (réglages, comptes et appairages gardés ; `--purge` pour les retirer). La règle udev, si elle a été posée, se retire avec la commande affichée.
+
+**SteamOS** : la Station tourne dans le mode Bureau (KDE Plasma). En mode Jeu, gamescope n'offre ni écran virtuel ni capture à l'agent : la Station n'y diffuse pas. Pour qu'elle soit là après un redémarrage, SteamOS doit démarrer en mode Bureau (`steamos-session-select plasma-persistent`). Même chose pour les images de Bazzite qui démarrent en mode Jeu (Bazzite Deck) ; les images de bureau de Bazzite (KDE, GNOME) sont comme une Fedora.
+
+**Pas essayé** : aucune VM ni machine Bazzite, Fedora Atomic ou SteamOS. Essayé sur le Mac avec des simulacres de `systemctl` et de `curl` : fabrication de l'archive (depuis un assemblage et depuis un `.deb`), installation, mise à jour réussie, mise à jour refusée par le contrôle de santé puis remise de l'ancienne version, archive d'une autre version refusée, retour à la version précédente, retrait. À vérifier sur une vraie machine : le contrôle d'accès de KWin avec le `.desktop` du dossier de l'utilisateur, `steam-devices` et `/dev/uinput`, le greffon GStreamer de secours, la glibc de SteamOS, `graphical-session.target` en mode Bureau et en mode Jeu.
+
 ## Correctifs Kyber propres à Linux
 
 Rangés dans `server/linux/kyber-patches`, posés après les correctifs communs par `server/linux/scripts/build-kyber.sh` (détail dans [kyber-changes.md](kyber-changes.md)) :
@@ -142,7 +176,7 @@ Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux 
 5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland : à faire.
 6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Icône près de l'horloge, applicateur des mises à jour (service root), mise à jour depuis Admin : à faire.
 7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer), Prêt du PC (mode console dans la session de l'hôte, veille empêchée par `systemd-inhibit`), HDR (écran virtuel de GNOME en BT.2100 : GNOME ne le propose pas encore), PyroWave (Vulkan, import DMA-BUF), débit en direct en VA-API (à ajouter au correctif commun 0026) : à faire.
-8. **Systèmes immuables** (Bazzite, SteamOS). À faire.
+8. **Systèmes immuables** (Bazzite, Fedora Atomic, SteamOS). Installation dans le dossier de l'utilisateur, sans root sauf la règle udev quand Steam ne l'a pas déjà, mise à jour sans mot de passe (`server/linux/immutable`) : **écrit**, essayé sur le Mac avec des simulacres, jamais sur ces systèmes (voir « Systèmes immuables »).
 
 ## Essais
 
