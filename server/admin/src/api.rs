@@ -150,6 +150,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/share/guest/{id}/{action}", post(share_api::host_guest_answer))
         .route("/api/share/join", post(share_api::join))
         .route("/api/share/wait", post(share_api::wait))
+        // Regarder (docs/comptes.md) : un compte KyberNow qui a le droit
+        // « Regarder », puis « Écran » de sa barre (secret de l'invité).
+        .route("/api/share/watch", post(share_api::watch))
+        .route("/api/share/watch/display", post(share_api::watch_display))
         // Prêt de l'ordinateur (docs/pret.md) : l'ami, l'hôte, les réglages.
         .route("/api/lend/status", post(lend_api::status))
         .route("/api/lend/borrow", post(lend_api::borrow))
@@ -946,7 +950,12 @@ async fn pairing(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 /// Ce que l'app affiche d'un ordinateur : nom, système, carte graphique,
 /// possibilités, la Station, et les cartes réseau pour le réveiller.
 async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    let user = stream_user(&s, &headers)?;
+    // Un compte KyberNow qui a seulement le droit « Regarder » lit aussi la
+    // carte de l'ordinateur (et `share.watch` : cette Station sait regarder).
+    let user = match crate::accounts::authorize(&s, &headers, None, Use::Reusable, false) {
+        Some(Ok(g)) if g.claims.rights.has(Right::View) && !g.claims.rights.has(Right::Session) => g.kyber_user(),
+        _ => stream_user(&s, &headers)?,
+    };
     // Compte créé pour un appareil par l'appairage par code : les apps
     // l'affichent comme « Accès propre à cet appareil ».
     let own_account = s.activity.own_accounts().iter().any(|(u, _)| *u == user);
@@ -979,7 +988,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         },
         "admin_version": env!("CARGO_PKG_VERSION"),
         // KyberNow Share : cette Station le connaît ; coupé avec `multi_client`.
-        "share": { "available": true, "enabled": share_api::enabled(&s) },
+        // `watch` : « Regarder » (droit `view` d'un compte KyberNow, `POST /api/share/watch`).
+        "share": { "available": true, "enabled": share_api::enabled(&s), "watch": true },
         "account": { "own_device": own_account },
         "station": station_info(&s),
         // Cartes Ethernet et Wi-Fi pour le réveil par le réseau (`wake.rs`),
@@ -2780,7 +2790,14 @@ mod tests {
     async fn the_host_heartbeat_carries_its_share_and_info_announces_it() {
         let c = console_with_account();
         let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
-        assert_eq!(info["share"], json!({ "available": true, "enabled": true }));
+        assert_eq!(info["share"], json!({ "available": true, "enabled": true, "watch": true }));
+        // Un compte qui n'a que « Regarder » lit aussi la carte ; sans droit utile, non.
+        let k = crate::accounts::attach_for_tests(&c.s);
+        let view = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::View]);
+        let Json(info) = stream_info(State(c.s.clone()), view).await.ok().unwrap();
+        assert_eq!(info["share"]["watch"], true);
+        let lend = crate::accounts::token_headers(&c.s, &k, "acc_lea", "dev_1", &[Right::Lend]);
+        assert!(stream_info(State(c.s.clone()), lend).await.is_err());
         c.s.activity.begin(Some(device("mac-1", "Mac")), "mac", None, None);
         let beat = || stream_heartbeat(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), None, Bytes::from(r#"{"device_id":"mac-1"}"#));
         let Json(v) = beat().await.ok().unwrap();

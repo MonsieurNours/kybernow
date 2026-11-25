@@ -19,7 +19,8 @@
 //!   une durée, un nombre de Stations, et des droits donnés à un groupe sur
 //!   chaque Station enrôlée. La Station le présente par sa connexion de
 //!   contrôle (`enroll`), le relais la rattache à l'organisation
-//!   ([`Accounts::enroll`]).
+//!   ([`Accounts::enroll`]) et, si le jeton le dit, la range dans un groupe
+//!   d'ordinateurs ([`super::station_groups`]).
 
 use anyhow::Result;
 use kybernow_tunnel::access::Rights;
@@ -260,6 +261,9 @@ pub struct EnrollToken {
     pub created_at: i64,
     pub expires_at: i64,
     pub revoked_at: Option<i64>,
+    /// Le groupe d'ordinateurs où ranger chaque Station enrôlée (« Ranger dans le groupe »).
+    pub sgroup: Option<i64>,
+    pub sgroup_name: Option<String>,
 }
 
 impl EnrollToken {
@@ -320,6 +324,7 @@ pub(super) fn before_account_deleted(conn: &Connection, account: i64) -> Result<
             None => {
                 conn.execute("DELETE FROM device_stations WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
                 conn.execute("DELETE FROM grants WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
+                conn.execute("DELETE FROM access_links WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
                 conn.execute("DELETE FROM organizations WHERE id = ?1", [org])?;
             }
         }
@@ -575,14 +580,15 @@ impl Store {
         max_stations: i64,
         grp: Option<i64>,
         rights: &Rights,
+        sgroup: Option<i64>,
         by: i64,
         now: i64,
         expires_at: i64,
     ) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO enroll_tokens (org, name, hash, hint, max_stations, grp, rights, created_by, created_at, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![org, name, hash, hint, max_stations, grp, rights_text(rights), by, now, expires_at],
+            "INSERT INTO enroll_tokens (org, name, hash, hint, max_stations, grp, rights, created_by, created_at, expires_at, sgroup)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![org, name, hash, hint, max_stations, grp, rights_text(rights), by, now, expires_at, sgroup],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -601,8 +607,8 @@ impl Store {
 
     fn enroll_query(&self, filter: &str, p: impl rusqlite::Params) -> Result<Vec<EnrollToken>> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT t.id, t.name, t.hint, t.max_stations, t.used, t.grp, g.name, t.rights, t.created_at, t.expires_at, t.revoked_at
-             FROM enroll_tokens t LEFT JOIN org_groups g ON g.id = t.grp {filter}"
+            "SELECT t.id, t.name, t.hint, t.max_stations, t.used, t.grp, g.name, t.rights, t.created_at, t.expires_at, t.revoked_at, t.sgroup, sg.name
+             FROM enroll_tokens t LEFT JOIN org_groups g ON g.id = t.grp LEFT JOIN station_groups sg ON sg.id = t.sgroup {filter}"
         ))?;
         let rows = stmt.query_map(p, |r| {
             Ok(EnrollToken {
@@ -617,6 +623,8 @@ impl Store {
                 created_at: r.get(8)?,
                 expires_at: r.get(9)?,
                 revoked_at: r.get(10)?,
+                sgroup: r.get(11)?,
+                sgroup_name: r.get(12)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -708,7 +716,11 @@ impl Accounts {
             if let Some(grp) = t.grp.filter(|_| !t.rights.is_empty()) {
                 db.grant_group(station, grp, &t.rights, 0, now)?;
             }
-            db.org_log(org, None, "station_enrolee", json!({ "station": name, "token": t.name }), None, now)?;
+            // « Ranger dans le groupe » : le groupe d'ordinateurs, s'il existe encore.
+            if let Some(sgroup) = t.sgroup {
+                db.set_station_group_member(org, sgroup, station, true)?;
+            }
+            db.org_log(org, None, "station_enrolee", json!({ "station": name, "token": t.name, "group": t.sgroup_name.clone().unwrap_or_default() }), None, now)?;
             Ok(())
         })();
         if let Err(e) = done {
@@ -788,7 +800,7 @@ mod tests {
         let org = s.create_org("Org", Kind::Team, a, 10).unwrap();
         let token = new_enroll_token();
         assert!(token.starts_with("kne_") && token.len() == 36);
-        let id = s.create_enroll_token(org.id, "Postes", &token_hash(&token), &token[..9], 2, None, &Rights::default(), a, 10, 100).unwrap();
+        let id = s.create_enroll_token(org.id, "Postes", &token_hash(&token), &token[..9], 2, None, &Rights::default(), None, a, 10, 100).unwrap();
         let (o, t) = s.enroll_by_hash(&token_hash(&token)).unwrap().unwrap();
         assert_eq!((o, t.id, t.refusal(50)), (org.id, id, None));
         assert_eq!(t.refusal(100), Some("expired"));

@@ -235,7 +235,9 @@
     "unknownGuest": "Cet invité n'est plus dans le partage.",
     "noShare": "Aucun partage en cours.",
     "otherShare": "Un autre partage est en cours sur cet ordinateur.",
-    "full": "Le partage est complet (quatre invités au plus)."
+    "full": "Le partage est complet (quatre invités au plus).",
+    "watchAccount": "Regarder demande un compte KyberNow.",
+    "watchLent": "{name} est prêté en ce moment."
   },
   "relay": {
     "badServer": "Adresse de relais illisible : {server}",

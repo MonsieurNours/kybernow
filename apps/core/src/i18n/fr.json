@@ -71,7 +71,17 @@
     "pending_full": "Trop de demandes en attente : réessayez dans un instant.",
     "share_stopped": "Ce partage est arrêté.",
     "lend_code": "Ce code sert à emprunter l'ordinateur.",
-    "invite_code": "Ce code sert à ajouter l'ordinateur : mettez à jour KyberNow Link."
+    "invite_code": "Ce code sert à ajouter l'ordinateur : mettez à jour KyberNow Link.",
+    "watch_action": "Regarder",
+    "watch_title": "Regarder {name}",
+    "watch_stop": "Arrêter de regarder",
+    "watch_screen": "Écran",
+    "watch_screen_item": "Écran {n} — {width} × {height}",
+    "watch_removed": "{host} vous a retiré.",
+    "watch_unsupported": "Cette Station ne permet pas encore de regarder : mettez-la à jour.",
+    "watch_lent": "{name} est prêté en ce moment.",
+    "watch_lent_unnamed": "L'ordinateur est prêté en ce moment.",
+    "watch_no_route": "l'ordinateur n'est pas sur ce réseau, et le relais ne le connaît pas encore"
   },
   "relay": {
     "unreachable": "Le relais ne répond pas.",

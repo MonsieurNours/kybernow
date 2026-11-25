@@ -1162,7 +1162,7 @@ async fn rattacher_une_station_par_sa_connexion_de_controle() {
         let far = i64::MAX / 2;
         accounts
             .db()
-            .create_enroll_token(org.id, "Postes", &hash, &token[..9], 1, None, &Default::default(), account.id, 0, far)
+            .create_enroll_token(org.id, "Postes", &hash, &token[..9], 1, None, &Default::default(), None, account.id, 0, far)
             .unwrap();
         match station.agent.enroll("kne_inconnu", "GRAPH-01").await {
             Err(TunnelError::Refused(code, Some(why))) => {

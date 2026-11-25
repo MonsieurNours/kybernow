@@ -10,7 +10,7 @@ use super::lot2::{api, attach, linked, station};
 use super::*;
 
 /// Un compte vérifié et son navigateur connecté.
-fn person(w: &World, email: &str, name: &str, ip: &str) -> Browser {
+pub(super) fn person(w: &World, email: &str, name: &str, ip: &str) -> Browser {
     w.acc.add_verified(email, name, PASSWORD).unwrap();
     let mut b = w.browser_at(ip);
     assert_eq!(location(&b.sign_in(email, PASSWORD)), "/compte/ordinateurs?lang=fr");
@@ -18,7 +18,7 @@ fn person(w: &World, email: &str, name: &str, ip: &str) -> Browser {
 }
 
 /// Active la double authentification dans ce navigateur (la session reste entière).
-fn with_totp(w: &World, b: &mut Browser, email: &str) {
+pub(super) fn with_totp(w: &World, b: &mut Browser, email: &str) {
     b.get("/compte/double-authentification?lang=fr");
     let code = w.totp_code(email, 0);
     let r = b.post("/compte/double-authentification?lang=fr", &[("code", &code)]);
@@ -26,12 +26,12 @@ fn with_totp(w: &World, b: &mut Browser, email: &str) {
 }
 
 /// Une session d'appareil (app) pour ce compte : son jeton porteur.
-fn device(w: &World, email: &str, name: &str) -> String {
+pub(super) fn device(w: &World, email: &str, name: &str) -> String {
     let account = w.acc.db().account_by_email(email).unwrap().unwrap();
     w.acc.open_device(&account, name, "app").unwrap()["token"].as_str().unwrap().to_string()
 }
 
-fn computers(w: &World, token: &str) -> Value {
+pub(super) fn computers(w: &World, token: &str) -> Value {
     let r = api(w, false, "/v1/computers", Some(token), Value::Null);
     assert_eq!(r.status, 200);
     r.body["computers"].clone()

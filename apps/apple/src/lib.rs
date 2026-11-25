@@ -1433,6 +1433,22 @@ pub unsafe extern "C" fn kn_session_screen_hdr_changed(s: *const KnSession, scre
     with(s, |s| s.screen_hdr_changed(screen as usize, hdr, luminance));
 }
 
+/// Regarder : « Écran » choisi dans la barre (`display` : un `id` de
+/// `joined.watch.screens`) ; la session se reconnecte sur cet écran (étapes
+/// « Premières images », `on_mode`). Sans effet hors d'une session de qui
+/// regarde, ou si `joined.watch.switch` est faux.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_watch_screen(s: *const KnSession, display: u32) {
+    with(s, |s| s.watch_screen(display));
+}
+
+/// Regarder : l'écran regardé (à cocher dans « Écran ») ; 0 hors d'une
+/// session de qui regarde.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_watch_display(s: *const KnSession) -> u32 {
+    with(s, |s| s.watch_display()).flatten().unwrap_or(0)
+}
+
 /// HDR : un écran au moins a été en HDR pendant la session (« HDR » de la
 /// dernière session, après le format).
 #[unsafe(no_mangle)]

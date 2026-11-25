@@ -10,7 +10,7 @@ use kybernow_core::console::Info;
 use kybernow_core::i18n;
 use kybernow_core::profile::Capabilities;
 use kybernow_core::screens::DeviceScreen;
-use kybernow_core::share::{self, DecoderCaps, Found, JoinRequest, ShareAvailability, ShareDisplay, ShareError, ShareImage, ShareQuality, ShareRole, ShareTarget};
+use kybernow_core::share::{self, DecoderCaps, Found, JoinRequest, ShareAvailability, ShareDisplay, ShareError, ShareImage, ShareQuality, ShareRole, ShareTarget, WatchRequest, WatchScreen};
 
 use crate::{KN_ERROR, KN_OK, KnConsole, console_result, failure, give, give_to, optional, text};
 
@@ -43,6 +43,15 @@ pub const KN_SHARE_LEND: i32 = 29;
 /// `kn_invite_redeem` avec le mot de passe de l'invitation ; `computer` :
 /// le nom de l'ordinateur (« Ajouter {ordinateur} »), vide s'il n'est pas dit.
 pub const KN_SHARE_INVITE: i32 = 33;
+/// « Regarder » (`kn_share_watch`, `kn_console_share_watch`) : Station qui
+/// ne sait pas encore regarder (« Cette Station ne permet pas encore de
+/// regarder : mettez-la à jour. »), ordinateur prêté (« {nom} est prêté en
+/// ce moment. »), partage coupé dans Admin. `error` : le texte à montrer ;
+/// les autres refus (comptes coupés, droit retiré…) : le texte d'Admin, avec
+/// le code d'un échec d'Admin.
+pub const KN_SHARE_WATCH_UNSUPPORTED: i32 = 34;
+pub const KN_SHARE_LENT: i32 = 35;
+pub const KN_SHARE_SHARING_OFF: i32 = 36;
 
 /// Rôle d'un invité (`on_share_role`, `kn_console_share_guest`) : deux
 /// droits indépendants, les manettes et le clavier et la souris. Aucun
@@ -88,6 +97,9 @@ fn share_failure(e: ShareError, out: *mut *mut c_char, error: *mut *mut c_char) 
         ShareError::Expired => KN_SHARE_EXPIRED,
         ShareError::PendingFull => KN_SHARE_PENDING_FULL,
         ShareError::Stopped => KN_SHARE_STOPPED,
+        ShareError::WatchUnsupported => KN_SHARE_WATCH_UNSUPPORTED,
+        ShareError::Lent { .. } => KN_SHARE_LENT,
+        ShareError::SharingOff => KN_SHARE_SHARING_OFF,
     };
     give_to(error, message);
     code
@@ -301,6 +313,90 @@ pub unsafe extern "C" fn kn_share_wait(pending_json: *const c_char, capabilities
         }
         Ok(None) => KN_SHARE_WAITING,
         Err(e) => share_failure(e, out, error),
+    }
+}
+
+// MARK: - Regarder (droit « Regarder » d'un compte KyberNow, docs/comptes.md)
+
+fn watch_answer(r: Result<Found, ShareError>, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    match r {
+        Ok(found) => {
+            give_to(out, serde_json::to_string(&found).unwrap_or_default());
+            KN_OK
+        }
+        Err(e) => share_failure(e, out, error),
+    }
+}
+
+/// « Regarder » un ordinateur du compte : `access_json` `{account, station}`
+/// (comme `kn_console_new_account`) ; `lan_json` `{host, port, fingerprint}`
+/// (Admin là où l'app le voit sur le réseau, nul sinon) ; `route_json` : par
+/// le relais (`kn_account_route`), nul sans ; `request_json` `{"app",
+/// "display" (facultatif : un `id` de `watch.screens`), "quality", "auto"}`
+/// (comme `kn_share_join`, sans code ni prénom) ; `capabilities_json` comme
+/// `kn_share_join`. Sur le réseau d'abord (1,5 s), sinon par le relais.
+/// `out` : `{"target", "joined"}` comme `kn_share_join` (`joined` va tel quel
+/// dans `guest.joined` de `kn_session_start`), avec `joined.watch` :
+/// `{"screens": [{id, index, width, height, refresh, primary}], "switch",
+/// "display"}`. Refus : `KN_SHARE_WATCH_UNSUPPORTED`, `KN_SHARE_LENT`,
+/// `KN_SHARE_SHARING_OFF`, `KN_SHARE_FULL`, `KN_SHARE_UNREADABLE`, sinon
+/// ceux d'Admin, des comptes et du relais. Bloquant (12 s au plus).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_watch(
+    access_json: *const c_char,
+    lan_json: *const c_char,
+    route_json: *const c_char,
+    request_json: *const c_char,
+    capabilities_json: *const c_char,
+    out: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    let (Ok(params), Ok(request)) = (
+        serde_json::from_str::<kybernow_core::account::AccessParams>(&text(access_json)),
+        serde_json::from_str::<WatchRequest>(&text(request_json)),
+    ) else {
+        give_to(error, "JSON illisible".to_string());
+        return KN_ERROR;
+    };
+    let lan = optional(lan_json).and_then(|l| serde_json::from_str::<ShareTarget>(&l).ok());
+    let route = optional(route_json).and_then(|r| serde_json::from_str::<kybernow_core::relay::RelayRoute>(&r).ok());
+    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    let access = kybernow_core::account::StationAccess::new(params);
+    watch_answer(share::watch_account(access, lan, route, &request, caps), out, error)
+}
+
+/// « Regarder » par une console d'un ordinateur du compte déjà ouverte
+/// (`kn_console_new_account`, sur le réseau ou par le relais) ; même
+/// `request_json`, `capabilities_json`, `out` et refus que `kn_share_watch`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_share_watch(c: *const KnConsole, request_json: *const c_char, capabilities_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    let Ok(request) = serde_json::from_str::<WatchRequest>(&text(request_json)) else { return KN_ERROR };
+    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    watch_answer(share::watch(&c.0, &request, caps), out, error)
+}
+
+/// « Regarder {nom} » : le titre des étapes de la connexion de qui regarde.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_watch_title(computer: *const c_char) -> *mut c_char {
+    give(share::watch_title(i18n::current(), &text(computer)))
+}
+
+/// Les mots de qui regarde, dans la langue de l'app : `action` « Regarder »
+/// (carte, menu de l'ordinateur), `stop` « Arrêter de regarder » (barre, à la
+/// place de « Quitter le partage »), `screen` « Écran » (barre).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_watch_word(word: *const c_char) -> *mut c_char {
+    give(share::watch_word(i18n::current(), &text(word)))
+}
+
+/// Une ligne du menu « Écran » (`screen_json` : un élément de
+/// `joined.watch.screens`) : « Écran 1 — 3840 × 2160 » ; nul si illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_share_watch_screen_label(screen_json: *const c_char) -> *mut c_char {
+    match serde_json::from_str::<WatchScreen>(&text(screen_json)) {
+        Ok(screen) => give(screen.label(i18n::current())),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 

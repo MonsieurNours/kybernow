@@ -296,6 +296,10 @@ pub struct Snapshot {
     pub display: ShareDisplay,
     pub opened_at: u64,
     pub guests: Vec<Guest>,
+    /// Ouvert pour regarder (droit « Regarder » d'un compte, docs/comptes.md) :
+    /// le prénom de qui l'a fait ouvrir. Pas de code à montrer (il ne fait
+    /// entrer personne) ; il se ferme quand son dernier invité part.
+    pub watch: Option<String>,
 }
 
 struct Open {
@@ -304,6 +308,7 @@ struct Open {
     display: ShareDisplay,
     opened_at: u64,
     guests: Vec<Guest>,
+    watch: Option<String>,
 }
 
 impl Open {
@@ -314,7 +319,12 @@ impl Open {
             display: self.display.clone(),
             opened_at: self.opened_at,
             guests: self.guests.clone(),
+            watch: self.watch.clone(),
         }
+    }
+
+    fn seated(&self) -> usize {
+        self.guests.iter().filter(|g| !g.pending).count()
     }
 }
 
@@ -412,6 +422,16 @@ pub enum Leave {
 pub struct RoleChange {
     pub guest: Guest,
     pub before: Role,
+}
+
+/// Changer l'écran d'un partage ouvert pour regarder (« Écran » de la barre).
+#[derive(Debug, PartialEq, Eq)]
+pub enum WatchDisplayError {
+    /// Invité inconnu (ou mauvais secret).
+    Unknown,
+    /// L'écran de ce partage ne se change pas d'ici : ouvert par l'hôte, par
+    /// le PC (« Partager un écran… »), ou depuis une session.
+    Fixed,
 }
 
 #[derive(Default)]
@@ -512,11 +532,14 @@ impl Share {
                 if o.guests.is_empty() {
                     o.display = display;
                 }
+                // Un partage ouvert pour regarder devient un partage
+                // ordinaire : son code se montre, il ne se ferme plus seul.
+                o.watch = None;
                 Ok((o.snapshot(), false))
             }
             Some(_) => Err(OpenError::Other),
             None => {
-                let open = Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new() };
+                let open = Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new(), watch: None };
                 let snapshot = open.snapshot();
                 s.open = Some(open);
                 Ok((snapshot, true))
@@ -749,7 +772,9 @@ impl Share {
         let refuse_key = if device.is_empty() { format!("ip:{}", peer.to_canonical()) } else { format!("device:{device}") };
         let refused = relay && s.refused.contains_key(&refuse_key);
         let open = match s.open.as_mut() {
-            Some(o) if same(&code, &o.code) => o,
+            // Un partage ouvert pour regarder n'a pas de code à montrer : le
+            // sien ne fait entrer personne.
+            Some(o) if o.watch.is_none() && same(&code, &o.code) => o,
             _ => return Err(JoinError::NoShare),
         };
         let secret = random_hex(32);
@@ -845,59 +870,63 @@ impl Share {
     /// même appareil reprend sa place. L'hôte le voit et peut le retirer
     /// comme tout invité.
     pub fn join_trusted(&self, name: &str, device: &str, app: &str, browser: bool, relay: bool) -> Result<Joined, JoinError> {
-        let now = Instant::now();
+        let (name, device, app) = trusted_fields(name, device, app)?;
         let mut s = self.state.lock().unwrap();
-        let name = clean(name, MAX_NAME);
-        let device = clean(device, MAX_DEVICE);
-        if name.is_empty() || device.is_empty() {
-            return Err(JoinError::BadRequest);
-        }
-        let app = if APPS.contains(&app) { app.to_string() } else { "other".to_string() };
         let Some(open) = s.open.as_mut() else { return Err(JoinError::NoShare) };
-        let secret = random_hex(32);
-        let cookie = browser.then(|| random_hex(32));
-        let (guest, new) = match open.guests.iter_mut().find(|g| g.device == device) {
-            Some(g) => {
-                g.secret = secret;
-                g.cookie = cookie;
-                g.name = name;
-                g.app = app;
-                g.last_beat = now;
-                g.last_beat_secs = now_secs();
-                // Une demande en attente du même appareil : le compte la vaut.
-                g.pending = false;
-                g.via_relay = relay;
-                (g.clone(), false)
-            }
-            None => {
-                if open.guests.iter().filter(|g| !g.pending).count() >= MAX_GUESTS {
-                    return Err(JoinError::Full);
-                }
-                let g = Guest {
-                    id: random_hex(8),
-                    secret,
-                    cookie,
-                    name,
-                    device,
-                    app,
-                    role: Role::Spectator,
-                    rev: 1,
-                    since: now_secs(),
-                    last_beat_secs: now_secs(),
-                    last_beat: now,
-                    quality: Quality::Auto,
-                    preset: Preset::Host,
-                    last_quality: None,
-                    pending: false,
-                    via_relay: relay,
-                    requested: now,
-                    refuse_key: String::new(),
-                };
-                open.guests.push(g.clone());
-                (g, true)
-            }
-        };
+        let (guest, new) = seat_trusted(open, name, device, app, browser, relay)?;
         Ok(Joined { guest, snapshot: open.snapshot(), new })
+    }
+
+    /// Regarder (droit « Regarder » d'un compte, docs/comptes.md) : rejoint
+    /// le partage ouvert comme [`Self::join_trusted`] ; sans partage, en ouvre
+    /// un pour lui (`origin`, `display`), sans code à montrer, qui se ferme
+    /// quand son dernier invité part ([`Self::close_empty_watch`]). Vrai en
+    /// second : ce partage vient d'être ouvert.
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_watch(&self, origin: Origin, display: ShareDisplay, name: &str, device: &str, app: &str, browser: bool, relay: bool) -> Result<(Joined, bool), JoinError> {
+        let (name, device, app) = trusted_fields(name, device, app)?;
+        let mut s = self.state.lock().unwrap();
+        let fresh = s.open.is_none();
+        if fresh {
+            s.open = Some(Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new(), watch: Some(name.clone()) });
+        }
+        let open = s.open.as_mut().expect("partage ouvert");
+        let (guest, new) = seat_trusted(open, name, device, app, browser, relay)?;
+        Ok((Joined { guest, snapshot: open.snapshot(), new }, fresh))
+    }
+
+    /// Un partage ouvert pour regarder dont le dernier invité est parti : il
+    /// se ferme (rendu comme [`Self::close`], sans invité à couper).
+    pub fn close_empty_watch(&self) -> Option<Snapshot> {
+        let mut s = self.state.lock().unwrap();
+        if !s.open.as_ref().is_some_and(|o| o.watch.is_some() && o.seated() == 0) {
+            return None;
+        }
+        let open = s.open.take()?;
+        let now = Instant::now();
+        for g in &open.guests {
+            s.ended.insert(g.id.clone(), Ended { secret: g.secret.clone(), end: End::Stopped, role: g.role, at: now });
+        }
+        drop(s);
+        self.changed.notify_waiters();
+        Some(open.snapshot())
+    }
+
+    /// « Écran » de la barre de qui regarde : l'écran du partage ouvert pour
+    /// regarder depuis le PC change (pour tous ses invités : leur signe de
+    /// vie suivant porte le nouvel écran et son jeton). Rend l'invité et
+    /// l'écran (inchangé s'il est déjà celui-là).
+    pub fn set_watch_display(&self, id: &str, secret: &str, display: ShareDisplay) -> Result<(Guest, ShareDisplay), WatchDisplayError> {
+        let mut s = self.state.lock().unwrap();
+        let open = s.open.as_mut().ok_or(WatchDisplayError::Unknown)?;
+        let guest = open.guests.iter().find(|g| g.id == id && !g.pending && same(secret, &g.secret)).cloned().ok_or(WatchDisplayError::Unknown)?;
+        if open.watch.is_none() || open.origin != Origin::Local {
+            return Err(WatchDisplayError::Fixed);
+        }
+        if open.display.id != display.id {
+            open.display = display;
+        }
+        Ok((guest, open.display.clone()))
     }
 
     /// Signe de vie d'un invité. `None` : inconnu (jamais venu, parti, ou
@@ -987,6 +1016,62 @@ impl Share {
             g.last_beat -= by;
         }
     }
+}
+
+/// Prénom, appareil et app d'un compte qui entre sans code (nettoyés).
+fn trusted_fields(name: &str, device: &str, app: &str) -> Result<(String, String, String), JoinError> {
+    let name = clean(name, MAX_NAME);
+    let device = clean(device, MAX_DEVICE);
+    if name.is_empty() || device.is_empty() {
+        return Err(JoinError::BadRequest);
+    }
+    let app = if APPS.contains(&app) { app.to_string() } else { "other".to_string() };
+    Ok((name, device, app))
+}
+
+/// Fait entrer un compte (sans code ni accord de l'hôte) : le même appareil
+/// reprend sa place, sinon un spectateur de plus s'il reste une place.
+fn seat_trusted(open: &mut Open, name: String, device: String, app: String, browser: bool, relay: bool) -> Result<(Guest, bool), JoinError> {
+    let now = Instant::now();
+    let secret = random_hex(32);
+    let cookie = browser.then(|| random_hex(32));
+    if let Some(g) = open.guests.iter_mut().find(|g| g.device == device) {
+        g.secret = secret;
+        g.cookie = cookie;
+        g.name = name;
+        g.app = app;
+        g.last_beat = now;
+        g.last_beat_secs = now_secs();
+        // Une demande en attente du même appareil : le compte la vaut.
+        g.pending = false;
+        g.via_relay = relay;
+        return Ok((g.clone(), false));
+    }
+    if open.seated() >= MAX_GUESTS {
+        return Err(JoinError::Full);
+    }
+    let g = Guest {
+        id: random_hex(8),
+        secret,
+        cookie,
+        name,
+        device,
+        app,
+        role: Role::Spectator,
+        rev: 1,
+        since: now_secs(),
+        last_beat_secs: now_secs(),
+        last_beat: now,
+        quality: Quality::Auto,
+        preset: Preset::Host,
+        last_quality: None,
+        pending: false,
+        via_relay: relay,
+        requested: now,
+        refuse_key: String::new(),
+    };
+    open.guests.push(g.clone());
+    Ok((g, true))
 }
 
 /// Le cookie d'invité d'une requête, s'il y en a un : `kybernow_guest` sur le
@@ -1305,5 +1390,83 @@ mod tests {
         assert_eq!(share.snapshot().unwrap().code, "424242");
         assert!(share.join("424242", "Léa", "ipad", "ios", peer(1), false).is_ok());
     }
-}
 
+    #[test]
+    fn regarder_ouvre_un_partage_sans_code_qui_se_ferme_seul() {
+        let share = Share::new();
+        let (lea, fresh) = share.open_watch(Origin::Local, display(5), "Léa", "kn-a", "ios", false, false).unwrap();
+        assert!(fresh && lea.new && share.local_open());
+        assert_eq!((lea.snapshot.watch.as_deref(), lea.guest.role, lea.snapshot.display.id), (Some("Léa"), Role::Spectator, 5));
+        // Son code ne fait entrer personne.
+        let code = lea.snapshot.code.clone();
+        assert_eq!(share.join(&code, "Max", "tv", "tvos", peer(1), false).unwrap_err(), JoinError::NoShare);
+        // Un deuxième spectateur rejoint le même partage.
+        let (max, fresh) = share.open_watch(Origin::Local, display(9), "Max", "kn-b", "tvos", false, true).unwrap();
+        assert!(!fresh && max.new && max.guest.via_relay);
+        assert_eq!(max.snapshot.display.id, 5, "l'écran ne change pas sous Léa");
+        // Le même appareil reprend sa place.
+        let (again, _) = share.open_watch(Origin::Local, display(5), "Léa", "kn-a", "ios", false, false).unwrap();
+        assert!(!again.new && again.guest.id == lea.guest.id);
+        // Encore un invité : le partage reste.
+        assert!(matches!(share.leave(&again.guest.id, again.guest.secret()), Leave::Left(_)));
+        assert!(share.close_empty_watch().is_none());
+        // Le dernier part : il se ferme.
+        assert!(matches!(share.leave(&max.guest.id, max.guest.secret()), Leave::Left(_)));
+        let closed = share.close_empty_watch().unwrap();
+        assert_eq!(closed.watch.as_deref(), Some("Léa"));
+        assert!(!share.is_open());
+    }
+
+    #[test]
+    fn regarder_un_partage_ouvert_et_le_rendre_ordinaire() {
+        let share = Share::new();
+        let (snap, _) = share.open(host(), display(3)).unwrap();
+        let (lea, fresh) = share.open_watch(Origin::Local, display(5), "Léa", "kn-a", "mac", false, false).unwrap();
+        assert!(!fresh && lea.snapshot.watch.is_none() && lea.snapshot.display.id == 3);
+        assert_eq!(lea.snapshot.code, snap.code);
+        // Un partage ordinaire ne se ferme pas quand ses invités partent.
+        share.leave(&lea.guest.id, lea.guest.secret());
+        assert!(share.close_empty_watch().is_none() && share.is_open());
+        share.close();
+        // Ouvert pour regarder depuis la session de l'hôte, puis « Partager » de l'hôte : il devient ordinaire.
+        let (lea, fresh) = share.open_watch(host(), display(3), "Léa", "kn-a", "mac", false, false).unwrap();
+        assert!(fresh && lea.snapshot.watch.is_some());
+        let (snap, fresh) = share.open(host(), display(3)).unwrap();
+        assert!(!fresh && snap.watch.is_none());
+        assert!(share.join(&snap.code, "Max", "tv", "tvos", peer(1), false).is_ok());
+    }
+
+    #[test]
+    fn regarder_un_partage_complet() {
+        let share = Share::new();
+        let code = share.open(Origin::Local, display(1)).unwrap().0.code;
+        for n in 0..MAX_GUESTS as u8 {
+            share.join(&code, "Invité", &format!("d{n}"), "ios", peer(n), false).unwrap();
+        }
+        assert_eq!(share.open_watch(Origin::Local, display(1), "Léa", "kn-a", "ios", false, false).unwrap_err(), JoinError::Full);
+        assert_eq!(share.open_watch(Origin::Local, display(1), " ", "kn-a", "ios", false, false).unwrap_err(), JoinError::BadRequest);
+    }
+
+    #[test]
+    fn changer_l_ecran_de_qui_regarde() {
+        let share = Share::new();
+        let (lea, _) = share.open_watch(Origin::Local, display(5), "Léa", "kn-a", "ios", false, false).unwrap();
+        assert_eq!(share.set_watch_display(&lea.guest.id, "faux", display(6)).unwrap_err(), WatchDisplayError::Unknown);
+        let (_, d) = share.set_watch_display(&lea.guest.id, lea.guest.secret(), display(6)).unwrap();
+        assert_eq!(d.id, 6);
+        // Le signe de vie suivant porte le nouvel écran.
+        match share.beat(&lea.guest.id, lea.guest.secret()) {
+            Some(Beat::Live { display, .. }) => assert_eq!(display.id, 6),
+            other => panic!("{other:?}"),
+        }
+        share.close();
+        // Ouvert depuis la session d'un hôte : l'écran est le sien.
+        let (lea, _) = share.open_watch(host(), display(3), "Léa", "kn-a", "ios", false, false).unwrap();
+        assert_eq!(share.set_watch_display(&lea.guest.id, lea.guest.secret(), display(6)).unwrap_err(), WatchDisplayError::Fixed);
+        share.close();
+        // Un partage ordinaire du PC : l'écran choisi par la personne qui l'utilise.
+        share.open(Origin::Local, display(1)).unwrap();
+        let (lea, _) = share.open_watch(Origin::Local, display(1), "Léa", "kn-a", "ios", false, false).unwrap();
+        assert_eq!(share.set_watch_display(&lea.guest.id, lea.guest.secret(), display(6)).unwrap_err(), WatchDisplayError::Fixed);
+    }
+}

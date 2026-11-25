@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::i18n::{self, Lang, tr};
-use crate::share::{JoinRequest, ShareAuto, ShareBeat, ShareError, ShareImage, ShareInfo, ShareJoined, ShareOpened, ShareQuality, ShareRole, ShareState};
+use crate::share::{JoinRequest, ShareAuto, ShareBeat, ShareError, ShareImage, ShareInfo, ShareJoined, ShareOpened, ShareQuality, ShareRole, ShareState, WatchRequest};
 use crate::wake::WakeTarget;
 
 #[derive(Debug)]
@@ -866,6 +866,11 @@ impl Console {
         &self.host
     }
 
+    /// Le port d'Admin sur le réseau de l'ordinateur (0 s'il est inconnu).
+    pub fn port(&self) -> u16 {
+        self.base.rsplit(':').next().and_then(|p| p.parse().ok()).unwrap_or(0)
+    }
+
     /// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`,
     /// une adresse IPv6 entre crochets). Son certificat est auto-signé : le
     /// navigateur demande de l'accepter la première fois.
@@ -1331,6 +1336,51 @@ impl Console {
         }
     }
 
+    // Regarder (droit « Regarder » d'un compte KyberNow, docs/comptes.md).
+
+    /// `POST /api/share/watch` avec le jeton d'accès du compte
+    /// ([`Self::account`]) : l'appareil entre en spectateur dans le partage
+    /// de l'ordinateur (ouvert pour lui s'il n'y en a pas). Voir
+    /// [`crate::share::watch`]. Un jeton échu est redemandé une fois.
+    pub fn share_watch(&self, req: &WatchRequest) -> std::result::Result<ShareJoined, ShareError> {
+        self.token_refused.store(false, std::sync::atomic::Ordering::Relaxed);
+        let first = self.share_watch_once(req);
+        if first.is_err() && self.token_refused.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            return self.share_watch_once(req);
+        }
+        first
+    }
+
+    fn share_watch_once(&self, req: &WatchRequest) -> std::result::Result<ShareJoined, ShareError> {
+        match self.request("POST", "api/share/watch", Duration::from_secs(10)).send_json(req) {
+            // Une Station d'avant 0.4.9 répond la page d'Admin (200, HTML) à
+            // une route qu'elle ne connaît pas.
+            Ok(resp) => {
+                let v: serde_json::Value = resp.into_json().map_err(|_| ShareError::WatchUnsupported)?;
+                let j: ShareJoined = serde_json::from_value(v).map_err(|e| ShareError::Other(ConsoleError::Invalid(e.to_string())))?;
+                if j.guest.is_empty() || j.secret.is_empty() { Err(ShareError::WatchUnsupported) } else { Ok(j) }
+            }
+            Err(ureq::Error::Status(status, resp)) => {
+                let body = resp.into_json::<serde_json::Value>().ok();
+                Err(watch_refusal(status, body.as_ref()).unwrap_or_else(|| ShareError::Other(self.refused(status, body))))
+            }
+            Err(e) => Err(ShareError::Other(self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())))),
+        }
+    }
+
+    /// « Écran » de qui regarde (`POST /api/share/watch/display`, secret de
+    /// l'invité) : rend la réponse d'un signe de vie, avec le nouvel écran et
+    /// un jeton de Kyber qui le porte. Refus : 409 (`fixed` : l'écran de ce
+    /// partage ne se change pas), 404 (`unknown_display`, `unknown_guest`),
+    /// 429 (un changement par seconde).
+    pub fn share_watch_display(&self, guest: &str, secret: &str, display: u32) -> Result<ShareBeat> {
+        let r = self
+            .request("POST", "api/share/watch/display", Duration::from_secs(10))
+            .set("x-kybernow-guest", secret)
+            .send_json(serde_json::json!({ "guest": guest, "display": display }));
+        self.read(r)
+    }
+
     /// L'invité quitte le partage.
     pub fn share_leave(&self, guest: &str, secret: &str) -> Result<()> {
         let r = self
@@ -1395,6 +1445,29 @@ fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>
             ShareError::Other(ConsoleError::Http { status, message })
         }
     }
+}
+
+/// Un refus de `POST /api/share/watch` que le cœur dit avec ses mots
+/// (docs/link-ui.md, « Regarder, fin et refus ») ; `None` : le texte d'Admin.
+/// Une route inconnue (404 sans `code` : Station d'avant « Regarder ») :
+/// [`ShareError::WatchUnsupported`].
+fn watch_refusal(status: u16, body: Option<&serde_json::Value>) -> Option<ShareError> {
+    let code = body.and_then(|v| v.get("code")).and_then(|c| c.as_str());
+    match (status, code) {
+        (404 | 405, None) => Some(ShareError::WatchUnsupported),
+        (409, Some("lent")) => {
+            let name = body.and_then(|v| v.get("computer")).and_then(|c| c.as_str()).unwrap_or_default().to_string();
+            Some(ShareError::Lent { name })
+        }
+        (409, Some("disabled")) => Some(ShareError::SharingOff),
+        (409, Some("full")) => Some(ShareError::Full),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn watch_refusal_for_tests(status: u16, body: &serde_json::Value) -> Option<ShareError> {
+    watch_refusal(status, Some(body))
 }
 
 #[cfg(test)]
@@ -1846,6 +1919,69 @@ mod tests {
         let c = Console::account("127.0.0.1", port, access(Tokens { closed: true, ..Default::default() }), None);
         assert!(matches!(c.info(), Err(ConsoleError::Account(AccountError::SignedOut))));
         assert_eq!(ConsoleError::Account(AccountError::SignedOut).text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+    }
+
+    /// Regarder (docs/comptes.md) : `POST /api/share/watch` avec le jeton du
+    /// compte ; la réponse est celle de `join`, avec les écrans ; un jeton
+    /// échu est redemandé ; les refus que le cœur dit avec ses mots.
+    #[test]
+    fn regarder_avec_le_jeton_du_compte() {
+        let joined = r#"{"guest":"g1","secret":"s1","role":"spectator","host":"PC-SALON","computer":"PC-SALON","kyber":{"port":12345,"fingerprint":"sha256:aa","token":"jwt","expires":120},"display":{"id":7,"width":3840,"height":2160,"refresh":60},"codec":"hevc","yuv444":false,"beat":5,"watch":{"screens":[{"id":7,"index":1,"label":"Écran 1","width":3840,"height":2160,"refresh":60,"primary":true},{"id":8,"index":2,"label":"Écran 2","width":1920,"height":1080,"refresh":60,"primary":false}],"switch":true,"display":7}}"#;
+        let (port, seen) = fake_admin(vec![
+            (401, r#"{"error":"Jeton échu.","code":"token_expired"}"#),
+            (200, joined),
+            (409, r#"{"error":"PC-SALON est prêté en ce moment.","code":"lent","computer":"PC-SALON"}"#),
+            (409, r#"{"error":"Le partage est coupé…","code":"disabled"}"#),
+            (403, r#"{"error":"Ce compte n'a pas ce droit sur cet ordinateur (view).","code":"no_right"}"#),
+            (404, ""),
+            (200, r#"{"role":"spectator","token":"jwt2","expires":120,"end":null,"display":{"id":8,"width":1920,"height":1080,"refresh":60}}"#),
+        ]);
+        let c = Console::account("127.0.0.1", port, access(Tokens::default()), None);
+        assert_eq!(c.port(), port);
+        let req = WatchRequest { app: "mac".into(), ..Default::default() };
+        let j = c.share_watch(&req).unwrap();
+        assert_eq!((j.guest.as_str(), j.display.id, j.kyber.token.as_str()), ("g1", 7, "jwt"));
+        let w = j.watch.unwrap();
+        assert!(w.switch && w.menu() && w.screens.len() == 2);
+        assert_eq!(w.screens[1].label(Lang::Fr), "Écran 2 — 1920 × 1080");
+        assert_eq!(w.screens[0].label(Lang::En), "Screen 1 — 3840 × 2160");
+        match c.share_watch(&req) {
+            Err(e @ ShareError::Lent { .. }) => {
+                assert_eq!(e.text(Lang::Fr), "PC-SALON est prêté en ce moment.");
+                assert_eq!(e.text(Lang::En), "PC-SALON is lent right now.");
+                assert_eq!(e.kind(), "lent");
+            }
+            other => panic!("{other:?}"),
+        }
+        let off = c.share_watch(&req).unwrap_err();
+        assert!(matches!(off, ShareError::SharingOff));
+        assert_eq!(off.text(Lang::Fr), "Le partage est coupé sur cet ordinateur (Admin › Appareils Link).");
+        assert_eq!(off.text(Lang::En), "Sharing is turned off on this computer (Admin › Link devices).");
+        // Un autre refus : le texte d'Admin.
+        match c.share_watch(&req) {
+            Err(ShareError::Other(ConsoleError::Http { status: 403, message })) => assert_eq!(message, "Ce compte n'a pas ce droit sur cet ordinateur (view)."),
+            other => panic!("{other:?}"),
+        }
+        // Une Station qui ne connaît pas la route.
+        let old = c.share_watch(&req).unwrap_err();
+        assert!(matches!(old, ShareError::WatchUnsupported));
+        assert_eq!(old.text(Lang::Fr), "Cette Station ne permet pas encore de regarder : mettez-la à jour.");
+        assert_eq!(old.text(Lang::En), "This Station can't be watched yet: update it.");
+        // « Écran » : la réponse d'un signe de vie.
+        let b = Console::guest("127.0.0.1", port, None).share_watch_display("g1", "s1", 8).unwrap();
+        assert_eq!((b.display.unwrap().id, b.token.as_deref()), (8, Some("jwt2")));
+        let seen = seen.lock().unwrap().clone();
+        assert!(seen[0].0.starts_with("POST /api/share/watch ") && seen[6].0.starts_with("POST /api/share/watch/display"), "{seen:?}");
+        assert_eq!((seen[0].1.as_str(), seen[1].1.as_str(), seen[6].1.as_str()), ("KyberNow jeton-0", "KyberNow jeton-1", ""));
+        // Les mots de la barre et de la carte.
+        assert_eq!(crate::share::watch_title(Lang::Fr, "PC-SALON"), "Regarder PC-SALON");
+        assert_eq!(crate::share::watch_title(Lang::En, "PC-SALON"), "Watching PC-SALON");
+        assert_eq!(crate::share::watch_word(Lang::Fr, "stop"), "Arrêter de regarder");
+        assert_eq!(crate::share::watch_word(Lang::En, "screen"), "Screen");
+        assert_eq!(crate::share::watch_word(Lang::Fr, "action"), "Regarder");
+        assert_eq!(crate::share::ShareEnd::Removed.text_watching(Lang::Fr, "Matthieu"), "Matthieu vous a retiré.");
+        assert_eq!(crate::share::ShareEnd::Removed.text_watching(Lang::En, "Matthieu"), "Matthieu removed you.");
+        assert_eq!(crate::share::ShareEnd::Stopped.text_watching(Lang::Fr, "Matthieu"), "Matthieu a arrêté le partage.");
     }
 
     #[test]

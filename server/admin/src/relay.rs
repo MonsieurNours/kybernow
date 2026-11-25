@@ -905,7 +905,8 @@ async fn sync_codes(s: &AppState) {
     let Some(agent) = s.relay.joined_agent() else { return };
     // Le code du partage et celui du prêt (docs/pret.md, « Codes »).
     // … et ceux des invitations (docs/invitations.md).
-    let wanted: Vec<String> = s.share.snapshot().map(|snap| snap.code).into_iter().chain(s.lend.code_value()).chain(s.invites.codes()).collect();
+    // Un partage ouvert pour regarder n'a pas de code à tenir.
+    let wanted: Vec<String> = s.share.snapshot().filter(|snap| snap.watch.is_none()).map(|snap| snap.code).into_iter().chain(s.lend.code_value()).chain(s.invites.codes()).collect();
     for held in agent.codes() {
         if !wanted.contains(&held) {
             agent.release(&held);
@@ -1195,6 +1196,9 @@ fn class_of(method: &Method, path: &str) -> Class {
         "/api/session" if read => return Class::Guest,
         "/api/login/kybernow/start" | "/api/login/kybernow" if read => return Class::RemoteLogin,
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
+        // « Écran » de qui regarde : le secret de l'invité, comme `quality`
+        // (`/api/share/watch` lui-même demande le jeton d'un compte : `Device`).
+        "/api/share/watch/display" => return Class::Guest,
         // L'ami d'un prêt (docs/pret.md) : code ou compte d'ami, puis son secret.
         "/api/lend/status" | "/api/lend/borrow" | "/api/lend/wait" | "/api/lend/beat" | "/api/lend/leave" => return Class::Lend,
         // L'appareil invité (docs/invitations.md) : code, puis mot de passe.
@@ -1498,7 +1502,7 @@ mod tests {
     fn la_garde_ne_laisse_passer_que_le_partage_et_les_appareils() {
         let get = Method::GET;
         let post = Method::POST;
-        for (m, p) in [(&post, "/api/share/join"), (&post, "/api/share/wait"), (&post, "/api/share/beat"), (&post, "/api/share/quality"), (&post, "/api/share/leave"), (&get, "/api/session"), (&get, "/link/"), (&get, "/link/kyclient_wasm.js"), (&get, "/assets/link-1.js"), (&get, "/favicon.svg")] {
+        for (m, p) in [(&post, "/api/share/join"), (&post, "/api/share/wait"), (&post, "/api/share/beat"), (&post, "/api/share/quality"), (&post, "/api/share/leave"), (&post, "/api/share/watch/display"), (&get, "/api/session"), (&get, "/link/"), (&get, "/link/kyclient_wasm.js"), (&get, "/assets/link-1.js"), (&get, "/favicon.svg")] {
             assert_eq!(class_of(m, p), Class::Guest, "{m} {p}");
         }
         for p in ["/api/lend/status", "/api/lend/borrow", "/api/lend/wait", "/api/lend/beat", "/api/lend/leave"] {
@@ -1517,7 +1521,7 @@ mod tests {
         for p in ["/session/login", "/ws", "/kymux/start_mux", "/websocket/video"] {
             assert_eq!(class_of(&post, p), Class::Kyber, "{p}");
         }
-        for (m, p) in [(&get, "/api/stream/info"), (&post, "/api/stream/prepare"), (&post, "/api/stream/heartbeat"), (&get, "/api/share"), (&post, "/api/share/open"), (&post, "/api/share/guest/ab12/accept"), (&Method::DELETE, "/api/share"), (&get, "/api/consoles"), (&post, "/api/consoles/beat")] {
+        for (m, p) in [(&get, "/api/stream/info"), (&post, "/api/stream/prepare"), (&post, "/api/stream/heartbeat"), (&get, "/api/share"), (&post, "/api/share/open"), (&post, "/api/share/watch"), (&post, "/api/share/guest/ab12/accept"), (&Method::DELETE, "/api/share"), (&get, "/api/consoles"), (&post, "/api/consoles/beat")] {
             assert_eq!(class_of(m, p), Class::Device, "{m} {p}");
         }
         for (m, p) in [

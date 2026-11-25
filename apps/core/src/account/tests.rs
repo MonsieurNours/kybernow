@@ -241,6 +241,12 @@ fn ordinateurs_du_compte() {
     assert_eq!(list.len(), 3);
     assert_eq!((list[0].name.as_str(), list[0].admin_fp.as_deref(), list[0].online), ("PC du salon", Some("sha256:aa:bb"), true));
     assert!(list[0].can("admin") && list[0].mine && list[0].account == "share.kybernow.app|acc_lea");
+    // « Regarder » : le droit `view` ; seul, il remplace « Se connecter ».
+    assert!(!list[0].can_watch() && !list[0].watch_only());
+    let viewer = AccountComputer { rights: vec!["view".into()], ..list[0].clone() };
+    assert!(viewer.can_watch() && viewer.watch_only());
+    let both = AccountComputer { rights: vec!["view".into(), "session".into()], ..list[0].clone() };
+    assert!(both.can_watch() && !both.watch_only());
     assert_eq!(list[1].admin_fp, None);
     assert_eq!((list[2].station.as_str(), list[2].online), (STATION, false));
     // L'empreinte vue une fois est gardée quand la Station se déconnecte.

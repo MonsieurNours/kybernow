@@ -452,6 +452,96 @@ pub struct JoinRequest {
     pub auto: Option<ShareAuto>,
 }
 
+// MARK: - Regarder (droit « Regarder » d'un compte KyberNow)
+
+/// Corps de `POST /api/share/watch` (docs/comptes.md, « Regarder ») : un
+/// ordinateur d'un compte KyberNow dont le compte a le droit `view` (ou
+/// `session`). Tout est facultatif.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WatchRequest {
+    /// `mac`, `windows`, `linux`, `ios`, `tvos`, `android`, `webos`.
+    #[serde(default)]
+    pub app: String,
+    /// L'écran voulu (`WatchScreen::id`) si la Station ouvre un partage du
+    /// PC pour regarder ; absent : l'écran principal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<u32>,
+    /// « Qualité de l'image » (retenue par l'app, comme pour un invité).
+    #[serde(default)]
+    pub quality: ShareQuality,
+    /// Pour « Auto » : ce que l'appareil sait afficher et décoder ([`auto_quality`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<ShareAuto>,
+}
+
+/// Un écran de l'ordinateur, pour « Écran » de la barre de qui regarde
+/// (`watch.screens` de la réponse de `POST /api/share/watch`).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct WatchScreen {
+    /// Identifiant de Kyber, à donner à [`crate::session::Session::watch_screen`].
+    #[serde(default)]
+    pub id: u32,
+    /// « Écran {n} » : 1 pour le premier de la liste.
+    #[serde(default)]
+    pub index: u32,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    #[serde(default)]
+    pub refresh: u32,
+    /// L'écran principal du PC (en tête de liste).
+    #[serde(default)]
+    pub primary: bool,
+}
+
+impl WatchScreen {
+    /// Une ligne du menu « Écran » : « Écran 1 — 3840 × 2160 » (docs/link-ui.md).
+    pub fn label(&self, lang: Lang) -> String {
+        tr(lang, "share.watch_screen_item", &[("n", &self.index.to_string()), ("width", &self.width.to_string()), ("height", &self.height.to_string())])
+    }
+}
+
+/// Ce que dit la Station à qui regarde (`watch` de la réponse) : les écrans à
+/// choisir, et si l'on peut en changer.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ShareWatch {
+    /// L'écran principal d'abord ; un seul quand `switch` est faux.
+    #[serde(default)]
+    pub screens: Vec<WatchScreen>,
+    /// Vrai : la Station a ouvert un partage du PC pour regarder, « Écran »
+    /// en change (pour tous ceux qui le regardent). Faux : le partage d'un
+    /// hôte, ou un partage déjà ouvert : l'écran est le sien.
+    #[serde(default)]
+    pub switch: bool,
+    /// L'écran regardé au départ.
+    #[serde(default)]
+    pub display: u32,
+}
+
+impl ShareWatch {
+    /// La barre montre « Écran » et sa liste : on peut en changer, et il y en a plusieurs.
+    pub fn menu(&self) -> bool {
+        self.switch && self.screens.len() > 1
+    }
+}
+
+/// « Regarder {nom} » : le titre des étapes de la connexion de qui regarde.
+pub fn watch_title(lang: Lang, computer: &str) -> String {
+    tr(lang, "share.watch_title", &[("name", computer)])
+}
+
+/// Les mots de la barre de qui regarde : `stop` « Arrêter de regarder » (à la
+/// place de « Quitter le partage »), `screen` « Écran », `action` « Regarder »
+/// (carte et menu de l'ordinateur).
+pub fn watch_word(lang: Lang, word: &str) -> String {
+    match word {
+        "stop" => tr(lang, "share.watch_stop", &[]),
+        "screen" => tr(lang, "share.watch_screen", &[]),
+        _ => tr(lang, "share.watch_action", &[]),
+    }
+}
+
 // MARK: - Qualité de l'image d'un invité
 
 /// La « Qualité de l'image » qu'un invité demande (docs/link-ui.md). L'image
@@ -843,6 +933,11 @@ pub struct ShareJoined {
     /// session y passe aussi (Admin et Kyber par le tunnel).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<RelayRoute>,
+    /// Regarder ([`watch`]) : les écrans à choisir ; absent pour un invité
+    /// venu avec un code. Sa session est alors celle de qui regarde (titre
+    /// « Regarder {nom} », « Arrêter de regarder », « Écran »).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watch: Option<ShareWatch>,
 }
 
 fn five() -> u64 {
@@ -877,6 +972,7 @@ impl std::fmt::Debug for ShareJoined {
             .field("image", &self.image)
             .field("auto", &self.auto)
             .field("route", &self.route)
+            .field("watch", &self.watch)
             .finish()
     }
 }
@@ -956,6 +1052,15 @@ impl ShareEnd {
             Self::Unreadable { format } => tr(lang, "share.unreadable", &[("format", format)]),
         }
     }
+
+    /// Le texte de la fin pour qui regarde (« Regarder, fin et refus ») :
+    /// « {hôte} vous a retiré. » ; les autres comme [`Self::text`].
+    pub fn text_watching(&self, lang: Lang, host: &str) -> String {
+        match self {
+            Self::Removed => tr(lang, "share.watch_removed", &[("host", host)]),
+            other => other.text(lang, host),
+        }
+    }
 }
 
 /// `end` du signe de vie : `stopped`, `removed` ; une autre valeur (Station
@@ -1005,8 +1110,19 @@ pub enum ShareError {
     /// pris, le nom de l'ordinateur. L'app demande le mot de passe et ajoute
     /// l'ordinateur avec [`crate::invite::redeem`].
     Invite(Box<crate::invite::InviteCode>),
+    /// Regarder : une Station qui ne connaît pas `POST /api/share/watch`
+    /// (avant 0.10) : « Cette Station ne permet pas encore de regarder :
+    /// mettez-la à jour. »
+    WatchUnsupported,
+    /// Regarder : l'ordinateur est prêté (409 `lent`) : « {nom} est prêté en
+    /// ce moment. » (`name` : le nom de l'ordinateur donné par la Station).
+    Lent { name: String },
+    /// Regarder : le partage est coupé dans Admin (409 `disabled`) : « Le
+    /// partage est coupé sur cet ordinateur (Admin › Appareils Link). »
+    SharingOff,
     /// Le reste : Admin injoignable, certificat changé, réponse illisible,
-    /// relais muet (`ConsoleError::Relay`).
+    /// relais muet (`ConsoleError::Relay`) ; pour Regarder, les refus des
+    /// comptes et les autres : le texte d'Admin.
     Other(ConsoleError),
 }
 
@@ -1023,13 +1139,17 @@ impl ShareError {
             Self::Stopped => tr(lang, "share.share_stopped", &[]),
             Self::Lend(_) => tr(lang, "share.lend_code", &[]),
             Self::Invite(_) => tr(lang, "share.invite_code", &[]),
+            Self::WatchUnsupported => tr(lang, "share.watch_unsupported", &[]),
+            Self::Lent { name } if !name.trim().is_empty() => tr(lang, "share.watch_lent", &[("name", name)]),
+            Self::Lent { .. } => tr(lang, "share.watch_lent_unnamed", &[]),
+            Self::SharingOff => tr(lang, "share.disabled", &[]),
             Self::Other(e) => e.text(lang),
         }
     }
 
     /// Nom stable pour les ponts : `no_share`, `full`, `too_many`,
     /// `unreadable`, `refused`, `expired`, `pending_full`, `stopped`, `lend`,
-    /// `invite`, `other`.
+    /// `invite`, `watch_unsupported`, `lent`, `disabled`, `other`.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::NoShare => "no_share",
@@ -1042,6 +1162,9 @@ impl ShareError {
             Self::Stopped => "stopped",
             Self::Lend(_) => "lend",
             Self::Invite(_) => "invite",
+            Self::WatchUnsupported => "watch_unsupported",
+            Self::Lent { .. } => "lent",
+            Self::SharingOff => "disabled",
             Self::Other(_) => "other",
         }
     }
@@ -1311,6 +1434,81 @@ pub fn leave(found: &Found) {
     if let Err(e) = console.share_leave(&found.joined.guest, &found.joined.secret) {
         log::warn!("partage : départ non confirmé ({})", e.text(Lang::Fr));
     }
+}
+
+// MARK: - Regarder
+
+/// « Regarder » un ordinateur d'un compte KyberNow (docs/comptes.md) :
+/// `console` est la console de cet ordinateur ([`Console::account`], sur le
+/// réseau ou par le relais avec [`Console::with_relay`]). La Station fait
+/// entrer l'appareil en spectateur dans le partage ouvert, ou en ouvre un
+/// pour lui. Rend la Station et sa réponse, comme [`join`] : la session
+/// s'ouvre avec [`crate::session::SessionParams::guest`] (par le relais si
+/// la console y passe), `joined.watch` donne les écrans. `caps` : le format
+/// vérifié comme [`join_checked`] (repart avec [`ShareError::Unreadable`]).
+/// Refus : [`ShareError::WatchUnsupported`] (Station trop ancienne),
+/// [`ShareError::Lent`], [`ShareError::SharingOff`], [`ShareError::Full`],
+/// sinon [`ShareError::Other`] avec le texte d'Admin (comptes coupés, droit
+/// retiré, appareil bloqué, connexion en cours…). Bloquant (10 s au plus).
+pub fn watch(console: &Console, req: &WatchRequest, caps: Option<Capabilities>) -> Result<Found, ShareError> {
+    let mut joined = console.share_watch(req)?;
+    joined.auto = req.auto.clone();
+    joined.route = console.relay().cloned();
+    if joined.watch.is_none() {
+        joined.watch = Some(ShareWatch { display: joined.display.id, ..Default::default() });
+    }
+    let target = match &joined.route {
+        Some(route) => relay_target(route),
+        None => ShareTarget { host: console.host().to_string(), port: console.port(), fingerprint: console.fingerprint_seen() },
+    };
+    let found = Found { target, joined };
+    if let Some(caps) = caps
+        && let Err(e) = guest_format(found.joined.codec.as_deref(), found.joined.yuv444, caps)
+    {
+        leave(&found);
+        return Err(e);
+    }
+    log::info!("regarder : spectateur sur {} (partage de {})", found.joined.computer, found.joined.host_name());
+    Ok(found)
+}
+
+/// [`watch`] pour un ordinateur du compte, par où il répond : sur son réseau
+/// (`lan` : Admin là où l'app le voit, son empreinte), sinon par le relais du
+/// compte (`route` : [`crate::account::AccountComputer::route`]), comme une
+/// session d'un compte (`Route::Auto`) : Admin qui répond en 1,5 s sur le
+/// réseau, même par un refus, est pris ; `KYBERNOW_RELAY` est suivi. La
+/// session d'invité passe ensuite par le même chemin. Bloquant.
+pub fn watch_account(
+    access: std::sync::Arc<crate::account::StationAccess>,
+    lan: Option<ShareTarget>,
+    route: Option<RelayRoute>,
+    req: &WatchRequest,
+    caps: Option<Capabilities>,
+) -> Result<Found, ShareError> {
+    use crate::relay::RelayMode;
+    let mode = RelayMode::current();
+    let route = route.filter(|_| mode != RelayMode::Off);
+    let lan = lan.filter(|t| !t.host.trim().is_empty() && t.port != 0).filter(|_| mode != RelayMode::Force || route.is_none());
+    if let Some(t) = lan {
+        let direct = Console::account(&t.host, t.port, access.clone(), t.fingerprint.clone());
+        let reachable = match (&route, direct.info_within(crate::session::DIRECT_PROBE)) {
+            (None, _) | (_, Ok(_)) | (_, Err(ConsoleError::Http { .. })) => true,
+            (_, Err(e @ ConsoleError::CertificateChanged { .. })) => return Err(ShareError::Other(e)),
+            (_, Err(ConsoleError::Account(e))) => return Err(ShareError::Other(ConsoleError::Account(e))),
+            (_, Err(e)) => {
+                log::info!("regarder : ordinateur sans réponse sur le réseau ({}) : par le relais", e.text(Lang::Fr));
+                false
+            }
+        };
+        if reachable {
+            return watch(&direct, req, caps);
+        }
+    }
+    let Some(route) = route else {
+        return Err(ShareError::Other(ConsoleError::Network(tr(i18n::current(), "share.watch_no_route", &[]))));
+    };
+    let console = Console::account(&route.station, 0, access, Some(route.admin_fp.clone())).with_relay(Some(route));
+    watch(&console, req, caps)
 }
 
 // MARK: - Rejoindre hors de chez soi (docs/relais.md)

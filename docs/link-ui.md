@@ -226,6 +226,7 @@ Un partage ouvert se voit dans la barre (pastille « 2 invités » / “2 guests
 | Aide de la carte (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
 | Choix de l'écran | « Choisissez l'écran à partager. » ; « Recherche des écrans… » ; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
 | Partage d'un appareil | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
+| Partage ouvert pour regarder (droit « Regarder » d'un compte, [comptes.md](comptes.md)) | « Ouvert pour {prénom}, qui regarde avec son compte. » à la place du code, du lien, du QR code et de leur aide ; ni « Nouveau code » ni demande ; la liste des invités et « Arrêter le partage » comme d'habitude ; il se ferme seul quand son dernier invité part. « Partager » (hôte) ou « Partager un écran… » (PC) sur ce partage le rend ordinaire : le code revient | “Opened for {name}, who is watching with their account.” |
 | Liste | « Participants » quand l'hôte y figure ; « {nom} · Hôte » | “Participants”; “{name} · Host” |
 | Arrêté | « Partage arrêté. » | “Sharing stopped.” |
 | En-tête d'Admin, haut du panneau | « Partage en cours · {n} invités » ; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |

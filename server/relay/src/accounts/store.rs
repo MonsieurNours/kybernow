@@ -112,6 +112,9 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE organizations ADD COLUMN kind TEXT NOT NULL DEFAULT 'team';
     ALTER TABLE accounts ADD COLUMN welcomed_at INTEGER;
     "#,
+    // 7 : liens d'accès et groupes d'ordinateurs (docs/comptes.md, « Regarder, liens d'accès et groupes
+    // d'ordinateurs »), voir `super::links` et `super::station_groups`.
+    super::links::MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -732,6 +735,8 @@ impl Store {
         tx.execute("DELETE FROM device_stations WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
         // Lots 4 et 5 : les droits donnés sur ses Stations ; ses organisations gardent un Propriétaire.
         tx.execute("DELETE FROM grants WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
+        // Migration 7 : les liens d'accès de ses Stations.
+        tx.execute("DELETE FROM access_links WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
         super::orgs::before_account_deleted(&tx, account)?;
         let n = tx.execute("DELETE FROM accounts WHERE id = ?1", [account])?;
         tx.commit()?;
@@ -776,6 +781,9 @@ impl Store {
         // Lot 4 : les invitations échues n'attendent plus ; lot 5 : le journal des organisations.
         self.conn.execute("DELETE FROM grants WHERE expires_at IS NOT NULL AND expires_at <= ?1", [now - AUDIT_IP_SECS])?;
         self.sweep_orgs(now)?;
+        // Migration 7 : les liens d'accès fermés depuis un moment, les droits échus des groupes d'ordinateurs.
+        self.sweep_links(now)?;
+        self.conn.execute("DELETE FROM group_grants WHERE expires_at IS NOT NULL AND expires_at <= ?1", [now - AUDIT_IP_SECS])?;
         Ok(())
     }
 }

@@ -5,7 +5,10 @@
 //! "error": "…"}` ; « Rejoindre » ajoute ses refus : 20 aucun partage avec ce
 //! code, 21 complet, 22 trop d'essais, 23 format de l'image illisible ; 29 un
 //! code de prêt, 33 un code d'invitation (`value` : de quoi emprunter, ou
-//! ajouter l'ordinateur avec `inviteRedeem`).
+//! ajouter l'ordinateur avec `inviteRedeem`). « Regarder » (`shareWatch`,
+//! `consoleShareWatch`) : 34 Station qui ne sait pas encore regarder, 35
+//! ordinateur prêté, 36 partage coupé dans Admin, 21 complet ; les autres
+//! refus avec le texte d'Admin.
 
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jlong, jstring};
@@ -16,7 +19,7 @@ use kybernow_core::profile::Capabilities;
 use kybernow_core::share::{self, Found, JoinRequest, ShareAvailability, ShareError, ShareRole, ShareTarget};
 
 use kybernow_core::screens::DeviceScreen;
-use kybernow_core::share::{DecoderCaps, ShareDisplay, ShareImage, ShareQuality};
+use kybernow_core::share::{DecoderCaps, ShareDisplay, ShareImage, ShareQuality, WatchRequest, WatchScreen};
 
 use crate::exports::{console, envelope, give, handle, optional, string, Env};
 
@@ -48,6 +51,9 @@ fn share_envelope(r: Result<Found, ShareError>) -> String {
         ShareError::Stopped => 28,
         ShareError::Lend(_) => 29,
         ShareError::Invite(_) => 33,
+        ShareError::WatchUnsupported => 34,
+        ShareError::Lent { .. } => 35,
+        ShareError::SharingOff => 36,
         ShareError::Other(_) => 1,
     };
     serde_json::json!({ "code": code, "error": e.to_string(), "kind": e.kind() }).to_string()
@@ -344,4 +350,86 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShar
     let Some(c) = console(h) else { return std::ptr::null_mut() };
     let s = envelope(c.share_close());
     give(&mut env, &s)
+}
+
+// MARK: - Regarder (droit « Regarder » d'un compte KyberNow, docs/comptes.md)
+
+/// « Regarder » un ordinateur du compte (comme `kn_share_watch`) : `access`
+/// `{account, station}`, `lan` `{host, port, fingerprint}` ou nul, `route`
+/// (`accountRoute`) ou nul, `request` `{app, display?, quality, auto?}`,
+/// `capabilities` ou nul. `value` : `{target, joined}` (avec `joined.watch` :
+/// `{screens, switch, display}`). Bloquant (12 s au plus), hors du fil principal.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWatch(
+    mut env: Env,
+    _: JClass,
+    access: JString,
+    lan: JString,
+    route: JString,
+    request: JString,
+    capabilities: JString,
+) -> jstring {
+    let (access, request) = (string(&mut env, &access), string(&mut env, &request));
+    let (lan, route, caps) = (optional(&mut env, &lan), optional(&mut env, &route), optional(&mut env, &capabilities));
+    let s = match (serde_json::from_str::<kybernow_core::account::AccessParams>(&access), serde_json::from_str::<WatchRequest>(&request)) {
+        (Ok(params), Ok(req)) => {
+            let lan = lan.and_then(|l| serde_json::from_str::<ShareTarget>(&l).ok());
+            let route = route.and_then(|r| serde_json::from_str::<kybernow_core::relay::RelayRoute>(&r).ok());
+            let caps = caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+            share_envelope(share::watch_account(kybernow_core::account::StationAccess::new(params), lan, route, &req, caps))
+        }
+        (Err(e), _) => bad(e),
+        (_, Err(e)) => bad(e),
+    };
+    give(&mut env, &s)
+}
+
+/// « Regarder » par la console d'un ordinateur du compte (`consoleNewAccount`) ; même `value` que `shareWatch`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareWatch(mut env: Env, _: JClass, h: jlong, request: JString, capabilities: JString) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let (request, caps) = (string(&mut env, &request), optional(&mut env, &capabilities));
+    let caps = caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+    let s = match serde_json::from_str::<WatchRequest>(&request) {
+        Ok(req) => share_envelope(share::watch(c, &req, caps)),
+        Err(e) => bad(e),
+    };
+    give(&mut env, &s)
+}
+
+/// « Regarder {nom} » (titre des étapes de la connexion).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWatchTitle(mut env: Env, _: JClass, computer: JString) -> jstring {
+    let computer = string(&mut env, &computer);
+    give(&mut env, &share::watch_title(i18n::current(), &computer))
+}
+
+/// `action` « Regarder », `stop` « Arrêter de regarder », `screen` « Écran ».
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWatchWord(mut env: Env, _: JClass, word: JString) -> jstring {
+    let word = string(&mut env, &word);
+    give(&mut env, &share::watch_word(i18n::current(), &word))
+}
+
+/// Une ligne du menu « Écran » (« Écran 1 — 3840 × 2160 ») ; nul si illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWatchScreenLabel(mut env: Env, _: JClass, screen: JString) -> jstring {
+    match serde_json::from_str::<WatchScreen>(&string(&mut env, &screen)) {
+        Ok(s) => give(&mut env, &s.label(i18n::current())),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Session de qui regarde : « Écran » choisi (`display` : un `id` de `joined.watch.screens`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionWatchScreen(_: Env, _: JClass, h: jlong, display: jlong) {
+    if let Some(h) = handle(h) {
+        h.session.watch_screen(display as u32);
+    }
+}
+
+/// Session de qui regarde : l'écran regardé (0 hors d'une telle session).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionWatchDisplay(_: Env, _: JClass, h: jlong) -> jlong {
+    handle(h).and_then(|h| h.session.watch_display()).map_or(0, jlong::from)
 }

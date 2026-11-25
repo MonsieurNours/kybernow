@@ -1,6 +1,7 @@
 //! La console du lot 5 (docs/comptes.md, « Flotte (organisations) ») :
 //! créer une organisation, sa page (membres et rôles, invitations, groupes,
-//! ordinateurs, journal) et « Déployer des Stations » (jetons d'enrôlement).
+//! ordinateurs et leurs groupes, journal) et « Déployer des Stations » (jetons
+//! d'enrôlement, « Ranger dans le groupe »).
 //!
 //! Gérer demande d'être Propriétaire ou Administrateur **avec la double
 //! authentification** ; seul un Propriétaire nomme ou retire un Propriétaire,
@@ -13,9 +14,10 @@ use super::super::mail::Message;
 use super::super::orgs::{ENROLL_MAX_DAYS, ENROLL_MAX_STATIONS, Kind, Org, Role, clean_org_name, new_enroll_token};
 use super::super::pages::Notice;
 use super::super::pages::console::{self, DeployView, OrgComputer, OrgView, Tab, rights_words, role_name};
-use super::super::people::Subject;
+use super::super::people::{Subject, rights_text};
+use super::super::station_groups::GroupTarget;
 use super::super::store::Account;
-use super::console::{form_rights, shell, signed_in};
+use super::console::{form_rights, parse_until, shell, signed_in};
 use super::device_pages::sign_in_first;
 use super::{Cx, Reply, lang_of, normalize_email, token_hash};
 
@@ -83,6 +85,18 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
             })
             .collect();
         let limit = if tab == Tab::Log { 200 } else { 8 };
+        let members = db.members(org.id).unwrap_or_default();
+        let groups = db.groups(org.id).unwrap_or_default();
+        // « Ouvrir ce groupe » : toute la famille ou l'équipe, ses groupes de personnes, ses membres.
+        let mut group_targets = vec![(
+            "org".to_string(),
+            match org.kind {
+                Kind::Family => crate::pages::t(cx.lang, &format!("{} (toute la famille)", org.name), &format!("{} (the whole family)", org.name)),
+                Kind::Team => crate::pages::t(cx.lang, &format!("{} (toute l'équipe)", org.name), &format!("{} (the whole team)", org.name)),
+            },
+        )];
+        group_targets.extend(groups.iter().map(|g| (format!("grp:{}", g.id), crate::pages::t(cx.lang, &format!("Groupe {}", g.name), &format!("Group {}", g.name)))));
+        group_targets.extend(members.iter().map(|m| (format!("compte:{}", m.account), if m.name.is_empty() { m.email.clone() } else { m.name.clone() })));
         OrgView {
             id: org.public_id.clone(),
             name: org.name.clone(),
@@ -92,10 +106,13 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
             needs_2fa: role.manages() && !manage,
             tab,
             me: account.id,
-            members: db.members(org.id).unwrap_or_default(),
+            members,
             invites: db.org_invites(org.id).unwrap_or_default(),
-            groups: db.groups(org.id).unwrap_or_default(),
+            groups,
             computers,
+            station_groups: db.station_groups(org.id).unwrap_or_default(),
+            group_targets,
+            now: cx.now,
             log: if role.manages() || tab == Tab::Log { db.org_log_of(org.id, limit).unwrap_or_default() } else { Vec::new() },
             shell: Default::default(),
         }
@@ -369,6 +386,7 @@ fn deploy_page(cx: Cx<'_>, account: &Account, org: &Org, new_token: Option<Strin
             role: db.org_role(org.id, account.id).ok().flatten().unwrap_or(Role::Member),
             tokens,
             groups: db.groups(org.id).unwrap_or_default().into_iter().map(|g| (g.id, g.name)).collect(),
+            station_groups: db.station_group_names(org.id).unwrap_or_default(),
             new_token,
             relay: acc.relay_name(),
             now: cx.now,
@@ -414,9 +432,17 @@ pub(super) fn token_create(cx: Cx<'_>) -> Reply {
     if grp.is_some() && rights.is_empty() {
         return deploy_page(cx, &account, &org, None, Some(Notice::NoRights));
     }
+    // « Ranger dans le groupe » : un groupe d'ordinateurs de l'équipe.
+    let sgroup = match cx.req.form("groupe_ordinateurs") {
+        "" => None,
+        g => match g.parse::<i64>().ok().filter(|g| acc.db().station_group_name(org.id, *g).ok().flatten().is_some()) {
+            Some(g) => Some(g),
+            None => return deploy_page(cx, &account, &org, None, Some(Notice::NotAllowed)),
+        },
+    };
     let token = new_enroll_token();
     let hint: String = token.chars().take(9).collect();
-    let created = acc.db().create_enroll_token(org.id, &name, &token_hash(&token), &hint, count, grp, &rights, account.id, cx.now, cx.now + days * 86_400);
+    let created = acc.db().create_enroll_token(org.id, &name, &token_hash(&token), &hint, count, grp, &rights, sgroup, account.id, cx.now, cx.now + days * 86_400);
     if let Err(e) = created {
         tracing::warn!("jeton d'enrôlement : {e:#}");
         return cx.failed();
@@ -438,4 +464,120 @@ pub(super) fn token_revoke(cx: Cx<'_>) -> Reply {
     let name = acc.db().enroll_tokens(org.id).unwrap_or_default().into_iter().find(|t| t.id == id).map(|t| t.name).unwrap_or_default();
     log(&cx, &org, &account, "jeton_revoque", json!({ "token": name }));
     deploy_page(cx, &account, &org, None, Some(Notice::TokenRevoked))
+}
+
+// --- Groupes d'ordinateurs ---------------------------------------------------------
+
+/// Le groupe d'ordinateurs du formulaire (`groupe`), s'il est à cette organisation : `(id, nom)`.
+fn sgroup_of(cx: &Cx<'_>, org: &Org) -> Option<(i64, String)> {
+    let id = cx.req.form("groupe").parse::<i64>().ok()?;
+    let name = cx.acc.db().station_group_name(org.id, id).ok().flatten()?;
+    Some((id, name))
+}
+
+/// `POST /compte/organisation/groupes-ordinateurs/creer` : `nom`.
+pub(super) fn sgroup_create(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    let name = clean_org_name(cx.req.form("nom"));
+    if name.is_empty() {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::OrgNameMissing));
+    }
+    let created = cx.acc.db().create_station_group(org.id, &name, cx.now);
+    match created {
+        Ok(Some(_)) => {
+            log(&cx, &org, &account, "groupe_ordinateurs_cree", json!({ "group": name }));
+            show(cx, &account, &org, role, Tab::Computers, Some(Notice::GroupCreated))
+        }
+        Ok(None) => show(cx, &account, &org, role, Tab::Computers, Some(Notice::GroupTaken)),
+        Err(_) => cx.failed(),
+    }
+}
+
+/// `POST /compte/organisation/groupes-ordinateurs/supprimer` : `groupe` (ses droits donnés partent avec lui).
+pub(super) fn sgroup_delete(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    let Some((id, name)) = sgroup_of(&cx, &org) else { return show(cx, &account, &org, role, Tab::Computers, None) };
+    if !cx.acc.db().delete_station_group(org.id, id).unwrap_or(false) {
+        return show(cx, &account, &org, role, Tab::Computers, None);
+    }
+    log(&cx, &org, &account, "groupe_ordinateurs_supprime", json!({ "group": name }));
+    show(cx, &account, &org, role, Tab::Computers, Some(Notice::GroupDeleted))
+}
+
+/// `POST /compte/organisation/groupes-ordinateurs/ordinateur` : `groupe`, `ordinateur`, `action` (`ajouter`, `retirer`).
+pub(super) fn sgroup_station(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    let Some((id, name)) = sgroup_of(&cx, &org) else { return show(cx, &account, &org, role, Tab::Computers, None) };
+    let station = cx.req.form("ordinateur").to_string();
+    let inside = cx.req.form("action") == "ajouter";
+    // Seulement un ordinateur de la famille ou de l'équipe (vérifié par la base aussi).
+    let row = acc.db().station(&station).ok().flatten().filter(|s| s.org == Some(org.id));
+    let Some(row) = row else { return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NotAllowed)) };
+    if !acc.db().set_station_group_member(org.id, id, &row.id, inside).unwrap_or(false) {
+        return show(cx, &account, &org, role, Tab::Computers, None);
+    }
+    let kind = if inside { "groupe_ordinateurs_ajoute" } else { "groupe_ordinateurs_retire" };
+    log(&cx, &org, &account, kind, json!({ "station": row.name, "group": name }));
+    show(cx, &account, &org, role, Tab::Computers, Some(Notice::GroupChanged))
+}
+
+/// `POST /compte/organisation/groupes-ordinateurs/ouvrir` : `groupe`, `a` (`org`, `grp:<n>`, `compte:<n>`), droits, `fin`.
+pub(super) fn sgroup_open(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    let Some((id, name)) = sgroup_of(&cx, &org) else { return show(cx, &account, &org, role, Tab::Computers, None) };
+    let rights = form_rights(&cx);
+    if rights.is_empty() {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NoRights));
+    }
+    let Some(until) = parse_until(cx.req.form("fin"), cx.now) else {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::BadDate));
+    };
+    // À qui : toute l'organisation, un de ses groupes de personnes, un de ses membres.
+    let target = cx.req.form("a").to_string();
+    let found = {
+        let db = acc.db();
+        match target.split_once(':') {
+            None if target == "org" => Some((GroupTarget::Org(org.id), org.name.clone())),
+            Some(("grp", g)) => g.parse::<i64>().ok().and_then(|g| db.group_name(org.id, g).ok().flatten().map(|n| (GroupTarget::People(g), n))),
+            Some(("compte", a)) => a
+                .parse::<i64>()
+                .ok()
+                .filter(|a| db.org_role(org.id, *a).ok().flatten().is_some())
+                .and_then(|a| db.account(a).ok().flatten())
+                .map(|a| (GroupTarget::Member(a.id), if a.name.is_empty() { a.email } else { a.name })),
+            _ => None,
+        }
+    };
+    let Some((to, to_name)) = found else { return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NotAllowed)) };
+    if let Err(e) = acc.db().grant_station_group(id, to, &rights, until, account.id, cx.now) {
+        tracing::warn!("ouvrir un groupe d'ordinateurs : {e:#}");
+        return cx.failed();
+    }
+    cx.audit(Some(account.id), "groupe_ordinateurs_ouvert");
+    log(&cx, &org, &account, "groupe_ordinateurs_ouvert", json!({ "group": name, "to": to_name, "rights": rights_text(&rights) }));
+    show(cx, &account, &org, role, Tab::Computers, Some(Notice::AccessChanged))
+}
+
+/// `POST /compte/organisation/groupes-ordinateurs/retirer` : `groupe`, `acces`.
+pub(super) fn sgroup_remove(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    let Ok(grant) = cx.req.form("acces").parse::<i64>() else { return show(cx, &account, &org, role, Tab::Computers, None) };
+    let removed = acc.db().delete_group_grant(org.id, grant).ok().flatten();
+    let Some(removed) = removed else { return show(cx, &account, &org, role, Tab::Computers, None) };
+    let to = match removed.subject {
+        Subject::Person { name, email, .. } => if name.is_empty() { email } else { name },
+        Subject::Invite { email } => email,
+        Subject::Org { name, .. } => name,
+        Subject::Group { name, .. } => name,
+    };
+    log(&cx, &org, &account, "groupe_ordinateurs_ferme", json!({ "group": removed.group_name, "to": to }));
+    show(cx, &account, &org, role, Tab::Computers, Some(Notice::AccessRemoved))
 }

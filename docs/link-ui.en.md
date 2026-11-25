@@ -226,6 +226,7 @@ An open share shows in the bar (a « 2 invités » / “2 guests” chip, from o
 | Card help (Admin) | « Montrez un écran de cet ordinateur à quelqu'un sur votre réseau : il le voit, entend le son, et peut jouer si vous le laissez. Vous continuez d'utiliser l'ordinateur normalement. » | “Show one of this computer's screens to someone on your network: they see it, hear the sound, and can play if you let them. You keep using the computer as usual.” |
 | Choice of display | « Choisissez l'écran à partager. »; « Recherche des écrans… »; « Annuler » | “Choose the screen to share.”; “Looking for screens…”; “Cancel” |
 | A device's share | « Ouvert depuis la session de {nom}. » | “Opened from {name}'s session.” |
+| Share opened for watching (an account's “Watch” right, [comptes.en.md](comptes.en.md)) | « Ouvert pour {prénom}, qui regarde avec son compte. » instead of the code, link, QR code and their help; no “New code”, no requests; the guest list and “Stop sharing” as usual; it closes by itself when its last guest leaves. “Share” (host) or “Share a screen…” (PC) on this share makes it an ordinary one: the code comes back | “Opened for {name}, who is watching with their account.” |
 | List | « Participants » when the host is in it; « {nom} · Hôte » | “Participants”; “{name} · Host” |
 | Stopped | « Partage arrêté. » | “Sharing stopped.” |
 | Admin's header, top of the panel | « Partage en cours · {n} invités »; « Partage en cours » | “Sharing · {n} guests”; “Sharing” |

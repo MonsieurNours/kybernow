@@ -235,7 +235,9 @@
     "unknownGuest": "This guest is no longer in the share.",
     "noShare": "No share in progress.",
     "otherShare": "Another share is in progress on this computer.",
-    "full": "This share is full (four guests at most)."
+    "full": "This share is full (four guests at most).",
+    "watchAccount": "Watching needs a KyberNow account.",
+    "watchLent": "{name} is lent right now."
   },
   "relay": {
     "badServer": "Unreadable relay address: {server}",

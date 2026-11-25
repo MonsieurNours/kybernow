@@ -17,16 +17,22 @@
 //! console (« Ordinateurs », « Personnes », « Organisation », « Déployer des
 //! Stations ») est dans `web/console.rs` et `web/org_pages.rs`.
 //!
+//! Migration 7 : les liens d'accès ([`links`], `web/link_pages.rs`) et les
+//! groupes d'ordinateurs ([`station_groups`], onglet « Ordinateurs » de
+//! `web/org_pages.rs`).
+//!
 //! Tout ici est synchrone : le relais appelle [`Accounts::handle`] hors de
 //! l'exécuteur (`spawn_blocking`), quelques requêtes à la fois ([`Accounts::gate`]),
 //! parce qu'Argon2 prend du temps et de la mémoire exprès.
 
 pub mod devices;
+pub mod links;
 pub mod mail;
 pub mod orgs;
 pub mod pages;
 pub mod people;
 pub mod password;
+pub mod station_groups;
 pub mod stations;
 pub mod store;
 pub mod totp;

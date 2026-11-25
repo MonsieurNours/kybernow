@@ -21,17 +21,22 @@ fn next_ok(path: &str) -> bool {
 
 /// Retient la page où revenir après la connexion.
 pub(super) fn set_next(cx: &mut Cx<'_>, path: &str) {
+    set_next_for(cx, path, NEXT_SECS);
+}
+
+/// Retient la page où revenir, pour ce temps (un lien d'accès : le temps de créer un compte et de vérifier l'adresse).
+pub(super) fn set_next_for(cx: &mut Cx<'_>, path: &str, secs: i64) {
     if !next_ok(path) {
         return;
     }
     let value = b64(path.as_bytes());
-    let exp = cx.now + NEXT_SECS;
+    let exp = cx.now + secs;
     let sig = cx.acc.keys.sign(format!("suite:{value}.{exp}").as_bytes());
-    cx.cookies.push(set_cookie(NEXT_COOKIE, &format!("{value}.{exp}.{sig}"), Some(NEXT_SECS)));
+    cx.cookies.push(set_cookie(NEXT_COOKIE, &format!("{value}.{exp}.{sig}"), Some(secs)));
 }
 
 /// La suite retenue (et l'efface), si elle vaut encore.
-fn take_next(cx: &mut Cx<'_>) -> Option<String> {
+pub(super) fn take_next(cx: &mut Cx<'_>) -> Option<String> {
     let raw = cx.req.cookie(NEXT_COOKIE)?.to_string();
     cx.cookies.push(clear_cookie(NEXT_COOKIE));
     let mut parts = raw.split('.');

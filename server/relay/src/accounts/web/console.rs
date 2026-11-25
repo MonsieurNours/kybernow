@@ -233,7 +233,7 @@ fn station_of(cx: &Cx<'_>, account: &Account, post: bool) -> Option<StationRow> 
     cx.acc.standing(account, &row).map(|_| row)
 }
 
-fn not_found(cx: Cx<'_>) -> Reply {
+pub(super) fn not_found(cx: Cx<'_>) -> Reply {
     let page = crate::pages::not_found(cx.lang);
     cx.page(404, page)
 }
@@ -242,10 +242,19 @@ fn not_found(cx: Cx<'_>) -> Reply {
 pub(super) fn people(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let Some(station) = station_of(&cx, &account, false) else { return not_found(cx) };
-    people_page(cx, &account, &station, None, None)
+    people_page(cx, &account, &station, None, Kept::default())
 }
 
-fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Option<Notice>, form: Option<(String, Rights, String)>) -> Reply {
+/// Ce que la page d'un ordinateur garde d'un formulaire : « Ajouter une personne » tel qu'envoyé,
+/// le lien d'accès tout juste créé (montré une seule fois), « Créer un lien » tel qu'envoyé.
+#[derive(Default)]
+pub(super) struct Kept {
+    pub form: Option<(String, Rights, String)>,
+    pub new_link: Option<String>,
+    pub link_form: Option<(Rights, i64, String)>,
+}
+
+pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Option<Notice>, kept: Kept) -> Reply {
     let acc = cx.acc;
     let Some(standing) = acc.standing(account, station) else { return not_found(cx) };
     let mut rows = Vec::new();
@@ -259,12 +268,13 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
                 } else {
                     db.account(owner).ok().flatten().map(|a| a.name).unwrap_or_default()
                 };
-                rows.push(PersonRow { grant: None, name, detail: cx.tr("Propriétaire : tout", "Owner: everything"), rights: all.clone() });
+                rows.push(PersonRow { grant: None, group: None, name, detail: cx.tr("Propriétaire : tout", "Owner: everything"), rights: all.clone() });
             }
             (None, Some(org)) => {
                 let name = db.org(org).ok().flatten().map(|o| o.name).unwrap_or_default();
                 rows.push(PersonRow {
                     grant: None,
+                    group: None,
                     name,
                     detail: cx.tr("Propriétaires et administrateurs", "Owners and administrators"),
                     rights: all.clone(),
@@ -286,7 +296,26 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
             };
             detail.extend(until);
             detail.extend(expired);
-            rows.push(PersonRow { grant: Some(g.id), name, detail: detail.join(" · "), rights: g.rights.clone() });
+            rows.push(PersonRow { grant: Some(g.id), group: None, name, detail: detail.join(" · "), rights: g.rights.clone() });
+        }
+        // Les droits venus d'un groupe d'ordinateurs : « Par le groupe {groupe} », sans « Retirer ».
+        for g in db.group_grants_on(&station.id).unwrap_or_default() {
+            let name = match &g.subject {
+                Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+                Subject::Invite { email } => email.clone(),
+                Subject::Org { name, .. } => name.clone(),
+                Subject::Group { name, org_name, .. } => format!("{org_name} › {name}"),
+            };
+            let mut detail = vec![match cx.lang {
+                Lang::Fr => t(cx.lang, &format!("Par le groupe {}", g.group_name), ""),
+                Lang::En => format!("Through the group {}", g.group_name),
+            }];
+            detail.extend(g.expires_at.map(|e| match cx.lang {
+                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", date(cx.lang, e - 1)), ""),
+                Lang::En => format!("until {}", date(cx.lang, e - 1)),
+            }));
+            detail.extend(g.expired(cx.now).then(|| cx.tr("échu", "expired")));
+            rows.push(PersonRow { grant: None, group: Some(g.group_name.clone()), name, detail: detail.join(" · "), rights: g.rights.clone() });
         }
     }
     // Ouvrir à : les organisations dont il est membre, et leurs groupes.
@@ -309,6 +338,8 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
     } else {
         Vec::new()
     };
+    // La base n'est pas gardée pendant la construction de la vue (`shell` la prend aussi).
+    let links = if standing.manage { acc.db().access_links(&station.id, 20).unwrap_or_default() } else { Vec::new() };
     let view = PeopleView {
         id: station.id.clone(),
         name: station.name.clone(),
@@ -319,8 +350,13 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
         my_rights: standing.rights.clone(),
         admin_needs_2fa: standing.admin_needs_2fa,
         targets,
-        form: form.unwrap_or_else(|| (String::new(), Rights::new([Right::Session, Right::Share]), String::new())),
+        form: kept.form.unwrap_or_else(|| (String::new(), Rights::new([Right::Session, Right::Share]), String::new())),
         admin: standing.rights.has(Right::Admin),
+        links,
+        new_link: kept.new_link,
+        link_open: kept.link_form.is_some(),
+        link_form: kept.link_form.unwrap_or_else(|| (Rights::new([Right::Session]), 7, String::new())),
+        now: cx.now,
         shell: shell(&cx, account),
     };
     let page = console::people(&cx.view(), &view, notice);
@@ -328,12 +364,12 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
 }
 
 /// La Station d'un formulaire de gestion : il faut gérer ses accès.
-fn managed_station(cx: &Cx<'_>, account: &Account) -> Option<StationRow> {
+pub(super) fn managed_station(cx: &Cx<'_>, account: &Account) -> Option<StationRow> {
     station_of(cx, account, true).filter(|s| cx.acc.can_manage(account, s))
 }
 
 /// Une ligne au journal de l'organisation propriétaire, s'il y en a une.
-fn log_rights(cx: &Cx<'_>, account: &Account, station: &StationRow, kind: &str, to: &str, rights: &Rights) {
+pub(super) fn log_rights(cx: &Cx<'_>, account: &Account, station: &StationRow, kind: &str, to: &str, rights: &Rights) {
     if let Some(org) = station.org {
         let detail = json!({ "station": station.name, "to": to, "rights": super::super::people::rights_text(rights) });
         let _ = cx.acc.db().org_log(org, Some(account), kind, detail, Some(&cx.ip()), cx.now);
@@ -350,21 +386,21 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     let until_text = cx.req.form("fin").to_string();
     let form = Some((typed.clone(), rights.clone(), until_text.clone()));
     let Some(email) = normalize_email(&typed) else {
-        return people_page(cx, &account, &station, Some(Notice::BadEmail), form);
+        return people_page(cx, &account, &station, Some(Notice::BadEmail), Kept { form, ..Kept::default() });
     };
     if rights.is_empty() {
-        return people_page(cx, &account, &station, Some(Notice::NoRights), form);
+        return people_page(cx, &account, &station, Some(Notice::NoRights), Kept { form, ..Kept::default() });
     }
     let Some(until) = parse_until(&until_text, cx.now) else {
-        return people_page(cx, &account, &station, Some(Notice::BadDate), form);
+        return people_page(cx, &account, &station, Some(Notice::BadDate), Kept { form, ..Kept::default() });
     };
     // Quiconque gère les accès peut donner tous les droits (il les a lui-même) ; pas à soi, ni au propriétaire.
     if email == account.email {
-        return people_page(cx, &account, &station, Some(Notice::NotAllowed), form);
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
     if target.as_ref().is_some_and(|t| station.account == Some(t.id)) {
-        return people_page(cx, &account, &station, Some(Notice::NotAllowed), form);
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
     let done = match &target {
         Some(t) => acc.db().grant_person(&station.id, t.id, &rights, until, account.id, cx.now),
@@ -395,7 +431,7 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
         );
     }
     let notice = if target.is_some() { Notice::PersonAdded } else { Notice::InviteSent };
-    people_page(cx, &account, &station, Some(notice), None)
+    people_page(cx, &account, &station, Some(notice), Kept::default())
 }
 
 /// `POST /compte/ordinateur/ouvrir` : ouvrir à une organisation (`org_…`) ou à un groupe (`org_…:<n>`).
@@ -405,27 +441,27 @@ pub(super) fn open_to(cx: Cx<'_>) -> Reply {
     let Some(station) = managed_station(&cx, &account) else { return not_found(cx) };
     let rights = form_rights(&cx);
     if rights.is_empty() {
-        return people_page(cx, &account, &station, Some(Notice::NoRights), None);
+        return people_page(cx, &account, &station, Some(Notice::NoRights), Kept::default());
     }
     let target = cx.req.form("a").to_string();
     let (org_id, grp) = match target.split_once(':') {
         Some((o, g)) => match g.parse::<i64>() {
             Ok(g) => (o.to_string(), Some(g)),
-            Err(_) => return people_page(cx, &account, &station, Some(Notice::NotAllowed), None),
+            Err(_) => return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept::default()),
         },
         None => (target.clone(), None),
     };
     // Seulement une organisation dont il est membre.
     let org = acc.db().org_by_public(&org_id).ok().flatten();
     let Some(org) = org.filter(|o| acc.db().org_role(o.id, account.id).ok().flatten().is_some()) else {
-        return people_page(cx, &account, &station, Some(Notice::NotAllowed), None);
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept::default());
     };
     // Le nom du groupe d'abord : la base n'est pas gardée pendant le `match`.
     let group = grp.and_then(|g| acc.db().group_name(org.id, g).ok().flatten());
     let done = match grp {
         Some(g) => match group {
             Some(name) => acc.db().grant_group(&station.id, g, &rights, account.id, cx.now).map(|_| format!("{} › {name}", org.name)),
-            None => return people_page(cx, &account, &station, Some(Notice::NotAllowed), None),
+            None => return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept::default()),
         },
         None => acc.db().grant_org(&station.id, org.id, &rights, account.id, cx.now).map(|_| org.name.clone()),
     };
@@ -439,7 +475,7 @@ pub(super) fn open_to(cx: Cx<'_>) -> Reply {
     cx.audit(Some(account.id), "ordinateur_ouvert_a_une_organisation");
     let detail = json!({ "station": station.name, "to": to, "rights": super::super::people::rights_text(&rights) });
     let _ = acc.db().org_log(org.id, Some(&account), "droits_donnes", detail, Some(&cx.ip()), cx.now);
-    people_page(cx, &account, &station, Some(Notice::AccessChanged), None)
+    people_page(cx, &account, &station, Some(Notice::AccessChanged), Kept::default())
 }
 
 /// `POST /compte/ordinateur/retirer` : retirer un accès.
@@ -447,11 +483,11 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
     let Some(station) = managed_station(&cx, &account) else { return not_found(cx) };
-    let Ok(id) = cx.req.form("acces").parse::<i64>() else { return people_page(cx, &account, &station, None, None) };
+    let Ok(id) = cx.req.form("acces").parse::<i64>() else { return people_page(cx, &account, &station, None, Kept::default()) };
     let grant = acc.db().grant(&station.id, id).ok().flatten();
-    let Some(grant) = grant else { return people_page(cx, &account, &station, None, None) };
+    let Some(grant) = grant else { return people_page(cx, &account, &station, None, Kept::default()) };
     if !acc.db().delete_grant(&station.id, id).unwrap_or(false) {
-        return people_page(cx, &account, &station, None, None);
+        return people_page(cx, &account, &station, None, Kept::default());
     }
     cx.audit(Some(account.id), "acces_retire");
     let to = match &grant.subject {
@@ -467,7 +503,7 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
     {
         let _ = acc.db().org_log(org, Some(&account), "droits_retires", json!({ "station": station.name, "to": to }), Some(&cx.ip()), cx.now);
     }
-    people_page(cx, &account, &station, Some(Notice::AccessRemoved), None)
+    people_page(cx, &account, &station, Some(Notice::AccessRemoved), Kept::default())
 }
 
 #[cfg(test)]

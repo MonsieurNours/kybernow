@@ -207,6 +207,21 @@ pub unsafe extern "C" fn kn_account_origin(computer_json: *const c_char, several
     }
 }
 
+/// « Regarder » est proposé pour cet ordinateur du compte (droit `view`) :
+/// sur la carte si `kn_account_watch_only`, sinon dans son menu. Faux pour un
+/// JSON illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_can_watch(computer_json: *const c_char) -> bool {
+    serde_json::from_str::<AccountComputer>(&text(computer_json)).is_ok_and(|c| c.can_watch())
+}
+
+/// Le droit `view` sans `session` : la carte propose « Regarder » à la place
+/// de « Se connecter » (`kn_share_watch`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_watch_only(computer_json: *const c_char) -> bool {
+    serde_json::from_str::<AccountComputer>(&text(computer_json)).is_ok_and(|c| c.watch_only())
+}
+
 /// La pastille d'un ordinateur appairé (« Appairé »), quand un compte est connecté.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_account_origin_paired() -> *mut c_char {
