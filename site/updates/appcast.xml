@@ -3,6 +3,39 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.11.0</title>
+            <pubDate>Wed, 25 Nov 2026 21:57:04 +0100</pubDate>
+            <sparkle:version>202611252129</sparkle:version>
+            <sparkle:shortVersionString>0.11.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+PyroWave, the automatic bitrate, the pen, “Watch” and the new account features. This version also includes everything the 0.10.0 beta brought: KyberNow accounts, invitations and the priority given to the picture on the graphics card.
+
+- **An account space that's easier to get to grips with.** On your KyberNow account's page, a menu on the left stays in place from one page to the next: your computers, the people you open them to, your families and teams, your account. A welcome tour guides you step by step (protect your account, attach your computer, open it to your loved ones), and a “Getting started” card shows what's left to do.
+- **Families and teams.** You create a family (home, the kids) or a team (a studio, a company): the same rights, clearer words, and a diagram that explains groups. Rights are now called “Open the desktop”, “Borrow to play”, “Join your shares” and “Administer”, each with an example.
+- **Open Admin from KyberNow Share.** On your account page, an “Open Admin” button next to each computer you administer: one click, a passkey, and Admin opens already signed in. At home, it goes through the network; from anywhere, first turn on “Remote Admin” in Admin › Away from home (off at the start). At each remote opening, the computer says so, the owners see it in the log, and the session closes after 30 minutes without activity.
+- **Clearer emails.** KyberNow Share's emails (verification code, forgotten password, invitations, new device, passkey…) now carry the KyberNow look: the logo, a heading, the essentials in a box and a button to act. Links go straight to share.kybernow.app, with no detour through a tracking service.
+- **Immersive mode (Mac, PC, Linux).** The whole keyboard goes to the computer, system shortcuts included: ⌘ ⇥, ⌘ Space and Mission Control on Mac, Alt+Tab and the ⊞ key on PC and Linux. In the computer's settings, Controls section, “Immersive mode”: “In full screen” (default), “Always” (in a window too) or “Never”. The app's shortcuts (⌃⌥⌘ + letter, Ctrl+Alt+Shift + letter) stay with the app. On Mac, the mode asks once for the Accessibility permission, and ⌘ becomes the ⊞ key there with a PC.
+- **Linux: a computer's settings close again.** The “› {name}” link at the top of the window takes you back to the home screen again (the click used to move the window).
+- **Linux: the session bar in a window.** It opens more easily when the session is not full screen, and a click on its measures opens the detailed statistics, as on Mac and PC. Ctrl+Alt+Shift+S opens them too.
+- **A bitrate that adapts to your network.** With the “Auto” bitrate, the app lowers the bitrate when the network is saturated (busy Wi-Fi, shared connection) and raises it again as soon as things are smooth. A passing spike changes nothing, and a bitrate set by hand stays as it is. The Station changes bitrate smoothly, without a frozen picture.
+- **PyroWave, the lowest latency at home.** A new picture format, encoded and decoded in a fraction of a millisecond, to pick in “Video format”. It needs a lot of bitrate (about 300 Mbit/s at 1080p): it is made for your home network, preferably by cable, and “Auto” only picks it by cable. If the bitrate isn't enough, the app lowers the resolution rather than sharpness and tells you; if the network is saturated, it offers to switch to HEVC.
+- **Mac: macOS Game Mode.** In full screen, KyberNow Link turns on Game Mode: your Mac gives the session priority, quiets background tasks and responds faster to Bluetooth controllers and AirPods. Mostly useful with PyroWave in 4K. To turn it off: the controller icon in the menu bar, “Turn Off Game Mode”.
+- **Pen pressure.** Draw on your computer with your tablet's or iPad's pen: pressure, tilt, the eraser and the pen button reach the computer, as with a tablet plugged into it. On a Windows or Mac Station, with the apps for Mac, Windows, Linux, iPad and Android; not in the browser yet.
+- **Watch a computer.** A new right, “Watch”: the person sees your computer's screen, with no keyboard, mouse or controller, and without changing anything for you. You see them in the share panel and can remove them at any time.
+- **Single-use access links.** On a computer's page, create a link with the rights you choose and send it to one person: it works only once, expires if unused, and can be revoked in one click.
+- **Computer groups.** In a family or a team, put computers in a group and open it all at once: the rights apply to all its computers, including the ones you add later.
+- **Clearer invitations.** A pending invitation expires after 30 days; you see when it was sent and when it expires, and “Resend the invitation” sends it again. As you type an address, your family and colleagues are suggested, and the same person no longer shows up twice.
+- **Better protected accounts.** Access tokens to computers last 2 minutes, and a device unused for 90 days is signed out of your account.
+- **Your settings follow you.** With your KyberNow account, each computer's profile, format, bitrate, HDR and immersive mode go from one device to the next (switch in Settings › Accounts).
+- **Move a computer** from one family or team to another, or to you: a preview first shows who loses access, and you can keep the access given to people.
+- **The target bitrate in Statistics**: “42 / 60 Mbit/s · lowered, network saturated”, with its line on the bitrate graph, to see the automatic bitrate at work.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.11.0/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.11.0/KyberNow-Link-macOS.zip" length="51263029" type="application/octet-stream" sparkle:edSignature="K50BTeTs8FWLtMi4OSjo4Tp3Yzfcl+QvJoqQpxEXLlsi64jA900Whu+r97dAlCJRWYdFVthOICGjv0z23xGaAA=="/>
+        </item>
+        <item>
             <title>0.10.0</title>
             <pubDate>Wed, 25 Nov 2026 11:19:42 +0100</pubDate>
             <sparkle:channel>beta</sparkle:channel>
