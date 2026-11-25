@@ -2,7 +2,7 @@
 
 English · [Français](confidentialite.md)
 
-> **Draft for review by a lawyer.** This text is not in force and must not be published as it stands. It describes what the relay actually keeps according to the specification ([comptes.en.md](../comptes.en.md), section "Data kept by the relay") and [relais.en.md](../relais.en.md); if the code changes, this text must change with it. Passages in brackets await information or a decision; the "For the lawyer" notes are removed from the published version. Version 0.1 of 23/11/2026. The French version prevails.
+> **Draft for review by a lawyer.** This text is not in force and must not be published as it stands. It describes what the relay actually keeps according to the specification ([comptes.en.md](../comptes.en.md), section "Data kept by the relay") and [relais.en.md](../relais.en.md); if the code changes, this text must change with it. Passages in brackets await information or a decision; the "For the lawyer" notes are removed from the published version. Version 0.2 of 25/11/2026. The French version prevails.
 
 This policy explains which personal data the **KyberNow service** (accounts, the console and the public relay `share.kybernow.app`) processes, why, for how long, who sees it, and how to exercise your rights. It supplements the [terms of use](conditions.en.md).
 
@@ -120,7 +120,7 @@ We do not use your data for advertising, profiling or automated decisions about 
 
 | Processor | Task | Where |
 |---|---|---|
-| `[TO COMPLETE: email provider]` | Sending the service's emails (recipient address, message content) | European Union `[TO CHECK: country, and no transfer outside the EU by this provider or its own processors]` |
+| SendGrid, by Twilio Inc. | Sending the service's emails (recipient address, message content) | United States (see section 6) |
 | `[TO COMPLETE: relay host or internet provider, if the relay is no longer on Les Lignes Claires' hardware]` | Hosting the relay | France |
 | `[TO COMPLETE: backup storage, if external]` | Keeping encrypted backups of the database | `[TO COMPLETE]` |
 
@@ -130,7 +130,7 @@ We do not sell or rent your data, and we give it to no one else.
 
 ## 6. Transfers outside the European Union
 
-The relay is in France; the email provider is in the European Union. We do not transfer your data outside the European Union. Should this change, this policy would say so beforehand, with the safeguard used (adequacy decision or the European Commission's standard contractual clauses).
+The relay is in France. The service's emails are sent through SendGrid, by Twilio Inc., in the United States: your email address and the message content are passed to it for sending, nothing else. Twilio is certified under the EU-U.S. Data Privacy Framework, recognised by the European Commission's adequacy decision of 10 July 2023; its data processing agreement also includes the Commission's standard contractual clauses, which would apply should that framework fall. No other data leaves the European Union. Should another transfer be added, this policy would say so beforehand, with the safeguard used.
 
 When you open a computer from another country, the connection goes through the relay in France: it is you who route it there, not us.
 

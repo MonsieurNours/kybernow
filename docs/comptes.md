@@ -430,7 +430,7 @@ SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans S
 
 ## Juridique et magasins
 
-- **RGPD** (Les Lignes Claires, responsable du traitement) : registre des traitements, politique de confidentialité du service (relais public), conditions d'utilisation, contrat de sous-traitance pour les organisations, notification d'une fuite sous 72 h, prestataire d'e-mails dans l'UE.
+- **RGPD** (Les Lignes Claires, responsable du traitement) : registre des traitements, politique de confidentialité du service (relais public), conditions d'utilisation, contrat de sous-traitance pour les organisations, notification d'une fuite sous 72 h, prestataire d'e-mails : SendGrid (Twilio, États-Unis, cadre UE–États-Unis et clauses contractuelles types).
 - **App Store** : connexion dans l'app, création et suppression sur le site (pas de création dans l'app) ; pas de Sign in with Apple (ni Google ni autre connexion tierce) ; un **compte de démonstration** dans les notes de l'App Review, plus simple que l'invitation.
 - **Payant, plus tard** : abonnement vendu dans l'app iOS = achat intégré d'Apple (3.1.1) ; offre vendue directement aux organisations = possible hors achat intégré (3.1.3(c)).
 

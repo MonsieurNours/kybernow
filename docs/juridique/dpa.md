@@ -166,6 +166,6 @@ Fait le `[date]`, ou accepté en ligne le `[date]` par `[nom du Propriétaire]`.
 
 | Sous-traitant | Adresse | Tâche | Lieu des données |
 |---|---|---|---|
-| `[À COMPLÉTER : prestataire d'e-mails]` | `[À COMPLÉTER]` | Envoi des e-mails du service (adresse, nom, contenu) | `[À COMPLÉTER : pays de l'UE]` |
+| SendGrid, de Twilio Inc. | San Francisco, Californie, États-Unis | Envoi des e-mails du service (adresse, nom, contenu) | États-Unis (cadre UE–États-Unis ; à défaut, clauses contractuelles types) |
 | `[À COMPLÉTER : stockage des sauvegardes, s'il est externe]` | `[À COMPLÉTER]` | Garde des sauvegardes chiffrées | `[À COMPLÉTER]` |
 | `[À COMPLÉTER : hébergeur, si le relais quitte le matériel des Lignes Claires]` | `[À COMPLÉTER]` | Hébergement du relais | France |

@@ -166,6 +166,6 @@ Made on `[date]`, or accepted online on `[date]` by `[name of the Owner]`.
 
 | Sub-processor | Address | Task | Data location |
 |---|---|---|---|
-| `[TO COMPLETE: email provider]` | `[TO COMPLETE]` | Sending the service's emails (address, name, content) | `[TO COMPLETE: EU country]` |
+| SendGrid, by Twilio Inc. | San Francisco, California, United States | Sending the service's emails (address, name, content) | United States (EU-U.S. Data Privacy Framework; failing that, standard contractual clauses) |
 | `[TO COMPLETE: backup storage, if external]` | `[TO COMPLETE]` | Keeping encrypted backups | `[TO COMPLETE]` |
 | `[TO COMPLETE: host, if the relay leaves Les Lignes Claires' hardware]` | `[TO COMPLETE]` | Hosting the relay | France |

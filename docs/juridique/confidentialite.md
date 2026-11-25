@@ -2,7 +2,7 @@
 
 [English](confidentialite.en.md) · Français
 
-> **Brouillon à faire relire par un juriste.** Ce texte n'est pas en vigueur et ne doit pas être publié tel quel. Il décrit ce que le relais garde réellement d'après le cadrage ([comptes.md](../comptes.md), section « Données gardées par le relais ») et [relais.md](../relais.md) ; si le code change, ce texte doit changer avec lui. Les passages entre crochets attendent une information ou une décision ; les notes « Pour le juriste » disparaissent de la version publiée. Version 0.1 du 23/11/2026.
+> **Brouillon à faire relire par un juriste.** Ce texte n'est pas en vigueur et ne doit pas être publié tel quel. Il décrit ce que le relais garde réellement d'après le cadrage ([comptes.md](../comptes.md), section « Données gardées par le relais ») et [relais.md](../relais.md) ; si le code change, ce texte doit changer avec lui. Les passages entre crochets attendent une information ou une décision ; les notes « Pour le juriste » disparaissent de la version publiée. Version 0.2 du 25/11/2026.
 
 Cette politique dit quelles données personnelles le **service KyberNow** traite (les comptes, la console et le relais public `share.kybernow.app`), pourquoi, combien de temps, qui les voit, et comment exercer vos droits. Elle complète les [conditions d'utilisation](conditions.md).
 
@@ -120,7 +120,7 @@ Nous n'utilisons pas vos données pour de la publicité, du profilage ou des dé
 
 | Sous-traitant | Tâche | Où |
 |---|---|---|
-| `[À COMPLÉTER : prestataire d'e-mails]` | Envoyer les e-mails du service (adresse du destinataire, contenu du message) | Union européenne `[À VÉRIFIER : pays, et absence de transfert hors UE chez ce prestataire et ses propres sous-traitants]` |
+| SendGrid, de Twilio Inc. | Envoyer les e-mails du service (adresse du destinataire, contenu du message) | États-Unis (voir la section 6) |
 | `[À COMPLÉTER : hébergeur ou fournisseur d'accès du relais, si le relais n'est plus sur le matériel des Lignes Claires]` | Héberger le relais | France |
 | `[À COMPLÉTER : stockage des sauvegardes, s'il est externe]` | Garder les sauvegardes chiffrées de la base | `[À COMPLÉTER]` |
 
@@ -130,7 +130,7 @@ Nous ne vendons ni ne louons vos données, et ne les donnons à personne d'autre
 
 ## 6. Transferts hors de l'Union européenne
 
-Le relais est en France ; le prestataire d'e-mails est dans l'Union européenne. Nous ne transférons pas vos données hors de l'Union européenne. Si cela devait changer, cette politique le dirait avant, avec la garantie employée (décision d'adéquation ou clauses contractuelles types de la Commission européenne).
+Le relais est en France. Les e-mails du service partent par SendGrid, de Twilio Inc., aux États-Unis : votre adresse e-mail et le contenu du message y sont transmis pour l'envoi, rien d'autre. Twilio est certifiée au cadre de protection des données UE–États-Unis (*EU-U.S. Data Privacy Framework*), reconnu par la décision d'adéquation de la Commission européenne du 10 juillet 2023 ; son accord de traitement des données reprend aussi les clauses contractuelles types de la Commission, qui s'appliqueraient si ce cadre tombait. Aucune autre donnée ne quitte l'Union européenne. Si un autre transfert devait s'ajouter, cette politique le dirait avant, avec la garantie employée.
 
 Quand vous ouvrez un ordinateur depuis un autre pays, la connexion passe par le relais en France : c'est vous qui la faites passer, pas nous.
 

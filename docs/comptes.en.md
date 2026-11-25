@@ -421,7 +421,7 @@ SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self
 
 ## Legal and stores
 
-- **GDPR** (Les Lignes Claires, data controller): record of processing activities, the service's privacy policy (public relay), terms of use, data processing agreement for organizations, breach notification within 72 h, email provider in the EU.
+- **GDPR** (Les Lignes Claires, data controller): record of processing activities, the service's privacy policy (public relay), terms of use, data processing agreement for organizations, breach notification within 72 h, email provider: SendGrid (Twilio, United States, EU-U.S. Data Privacy Framework and standard contractual clauses).
 - **App Store**: sign-in in the app, creation and deletion on the site (no creation in the app); no Sign in with Apple (nor Google nor any other third-party sign-in); a **demo account** in the App Review notes, simpler than the invitation.
 - **Paid, later**: a subscription sold in the iOS app = Apple in-app purchase (3.1.1); a plan sold directly to organizations = possible outside in-app purchase (3.1.3(c)).
 
