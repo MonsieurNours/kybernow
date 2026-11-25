@@ -417,7 +417,86 @@ public final class StreamView: NSView {
         return CGPoint(x: p.x, y: bounds.height - p.y)
     }
 
+    // MARK: - Stylet (docs/link-ui.md, « Stylet »)
+
+    /// La tablette dit quel bout approche (pointe ou gomme) ; le stylet est
+    /// près de la surface jusqu'à sa sortie de proximité.
+    private var penEraser = false
+    private var penNear = false
+    /// Le stylet est parti en stylet à l'ordinateur : ses clics ne repartent
+    /// pas en souris.
+    private var penSent = false
+    private var penContact = false
+    private var penBarrel = false
+
+    public override func tabletProximity(with event: NSEvent) {
+        penEraser = event.pointingDeviceType == .eraser
+        penNear = event.isEnteringProximity
+        if !penNear, penSent {
+            _ = sendPen(event, near: false)
+            penSent = false
+        }
+    }
+
+    /// Un événement de souris qui vient du stylet.
+    private func fromPen(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+             .rightMouseDown, .rightMouseUp, .rightMouseDragged, .otherMouseDown, .otherMouseUp, .otherMouseDragged:
+            return event.subtype == .tabletPoint
+        case .tabletPoint:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Envoie l'état du stylet ; `false` : il part en souris.
+    private func sendPen(_ event: NSEvent, near: Bool = true) -> Bool {
+        guard let input, let layout, !relative.active else { return false }
+        let p = convert(event.locationInWindow, from: nil)
+        var local = kynput_Position(x: p.x, y: bounds.height - p.y)
+        var host = kynput_Position(x: 0, y: 0)
+        guard kynput_video_layout_local_to_host(layout, &local, false, &host) else { return false }
+        let x = Int16(clamping: Int(host.x.rounded())), y = Int16(clamping: Int(host.y.rounded()))
+        // Sur la bande du haut (la barre), le stylet est à l'app : l'ordinateur le voit partir.
+        let inRange = near && !inReservedBand(event)
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged: penContact = true
+        case .leftMouseUp, .mouseMoved: penContact = false
+        case .rightMouseDown, .rightMouseDragged: penBarrel = true
+        case .rightMouseUp: penBarrel = false
+        default: break
+        }
+        if !near { penContact = false; penBarrel = false }
+        let tablet = event.type == .tabletProximity ? nil : event
+        var pen = InputPipeline.Pen()
+        pen.inRange = inRange
+        pen.contact = inRange && penContact
+        pen.pressure = tablet.map { $0.pressure } ?? 0
+        if let tablet {
+            // NSEvent : -1 à 1 de chaque côté, Y positif vers soi ; 64° au plus (Wacom).
+            if tablet.tilt != .zero { pen.tilt = (Float(tablet.tilt.x) * 64, Float(tablet.tilt.y) * 64) }
+            if tablet.rotation != 0 { pen.rotation = tablet.rotation }
+        }
+        pen.eraser = penEraser
+        // Le bouton du stylet : le clic droit que la tablette en fait.
+        pen.barrel = inRange && penBarrel
+        return input.pen(on: screenIndex, x: x, y: y, pen)
+    }
+
+    /// Le stylet passe par `sendPen` ; vrai s'il est parti en stylet.
+    private func handledAsPen(_ event: NSEvent) -> Bool {
+        guard fromPen(event) else { return false }
+        onPointerMoved?(spot(inWindow: event.locationInWindow))
+        penSent = sendPen(event)
+        return penSent
+    }
+
+    public override func tabletPoint(with event: NSEvent) { _ = handledAsPen(event) }
+
     private func sendPosition(_ event: NSEvent) {
+        if handledAsPen(event) { return }
         if relative.active {
             relative.appKitMoved(dx: event.deltaX, dy: event.deltaY)
             return
@@ -445,13 +524,25 @@ public final class StreamView: NSView {
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if !relative.active, inReservedBand(event) { return }
+        if handledAsPen(event) { return }
         sendPosition(event)
         mouseButton(.left, pressed: true)
     }
 
-    public override func mouseUp(with event: NSEvent) { mouseButton(.left, pressed: false) }
-    public override func rightMouseDown(with event: NSEvent) { sendPosition(event); mouseButton(.right, pressed: true) }
-    public override func rightMouseUp(with event: NSEvent) { mouseButton(.right, pressed: false) }
+    public override func mouseUp(with event: NSEvent) {
+        if handledAsPen(event) { return }
+        mouseButton(.left, pressed: false)
+    }
+
+    public override func rightMouseDown(with event: NSEvent) {
+        if handledAsPen(event) { return }
+        sendPosition(event); mouseButton(.right, pressed: true)
+    }
+
+    public override func rightMouseUp(with event: NSEvent) {
+        if handledAsPen(event) { return }
+        mouseButton(.right, pressed: false)
+    }
 
     private func otherButton(_ event: NSEvent) -> InputPipeline.MouseButton? {
         switch event.buttonNumber {

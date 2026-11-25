@@ -1,0 +1,464 @@
+diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
+--- a/kynput/src/capi/mod.rs
++++ b/kynput/src/capi/mod.rs
+@@ -825,8 +825,9 @@
+ 
+-/// KyberNow: whether this build's host side injects pens (Windows: a
+-/// synthetic pen, see `windows/host_pen.rs`). A host that does tells each
+-/// client so (`PenAvailable`).
++/// KyberNow: whether this build's host side injects pens (Windows: a
++/// synthetic pen, see `windows/host_pen.rs`; macOS: tablet events, see
++/// `macos/host_keyboard_mouse.rs`). A host that does tells each client so
++/// (`PenAvailable`).
+ #[unsafe(no_mangle)]
+ pub extern "C" fn kynput_host_pen_available() -> bool {
+-    cfg!(target_os = "windows")
++    cfg!(any(target_os = "windows", target_os = "macos"))
+ }
+diff --git a/kynput/src/macos/host_keyboard_mouse.rs b/kynput/src/macos/host_keyboard_mouse.rs
+--- a/kynput/src/macos/host_keyboard_mouse.rs
++++ b/kynput/src/macos/host_keyboard_mouse.rs
+@@ -2,12 +2,12 @@
+ use std::sync::Arc;
+ 
+ use keycode::{KeyMap, KeyMapping};
+-use log::{error, info, warn};
++use log::{debug, error, info, warn};
+ 
+ use crate::pipeline::{InputConsumerHandle, InputHandler};
+ use crate::utils::threaded_consumer::{ThreadedConsumer, ThreadedConsumerBackend};
+ use crate::{
+-    Display, KeyboardKey, MouseButton, MouseButtonType, MouseMove, MousePosition, MouseWheel,
++    Display, KeyboardKey, MouseButton, MouseButtonType, MouseMove, MousePosition, MouseWheel, Pen,
+ };
+ use crate::{Error, Result};
+ use crate::{HostConfig, InputConsumer, InputPacket, InputType, Modifiers, Payload};
+@@ -69,6 +69,60 @@
+     source: Option<CGEventSource>,
+     last_click: Option<(MouseButtonType, std::time::Instant, CGPoint, i64)>,
+     warned_access: bool,
++    /// KyberNow (correctif Mac 0016) : le stylet de l'app.
++    pen: PenState,
++    /// Essais : les événements sont gardés ici au lieu de partir.
++    #[cfg(test)]
++    posted: Vec<CGEvent>,
++}
++
++// KyberNow (server/macos/kyber-patches/0016) : stylet (paquet `Pen`,
++// docs/stylet.md).
++//
++// Comme une tablette sur le Mac : l'approche et le départ sont des événements
++// de proximité (`kCGEventTabletProximity`, pointe ou gomme), le reste des
++// événements de souris de sous-type tablette (`kCGEventMouseSubtypeTabletPoint`)
++// qui portent la pression, l'inclinaison et la rotation : survol en
++// `MouseMoved`, pointe posée en clic gauche glissé. Le bouton du stylet est
++// un clic droit, comme le fait le pilote d'une tablette : appuyé en survol ou
++// pointe posée, tenu jusqu'à ce que le bouton et la pointe soient relâchés.
++// Les logiciels qui ne connaissent pas les tablettes y voient une souris.
++
++/// Identifiant du stylet, le même dans la proximité et les points.
++const PEN_DEVICE_ID: i64 = 0x4b4e;
++/// Identifiant de l'outil : le même pour la pointe et la gomme (un seul stylet).
++const PEN_UNIQUE_ID: i64 = 0x4b4e_0001;
++/// `NSPointingDeviceType` : pointe et gomme.
++const POINTER_TYPE_PEN: i64 = 1;
++const POINTER_TYPE_ERASER: i64 = 3;
++/// `kCGEventMouseSubtypeTabletPoint`.
++const SUBTYPE_TABLET_POINT: i64 = 1;
++/// Ce que le stylet donne (`NX_TABLET_CAPABILITY_*`) : identifiant, X, Y,
++/// boutons, inclinaison X et Y, pression, rotation.
++const PEN_CAPABILITIES: i64 = 0x0001 | 0x0002 | 0x0004 | 0x0040 | 0x0080 | 0x0100 | 0x0400 | 0x2000;
++/// Inclinaison de macOS (−1 à 1) à son maximum, en degrés (celle des tablettes
++/// Wacom ; l'app Mac fait la conversion inverse).
++const PEN_MAX_TILT: f64 = 64.0;
++/// Pression en contact, au moins (à 0, un logiciel de dessin ne trace rien).
++const PEN_MIN_PRESSURE: f64 = 1.0 / 1024.0;
++
++#[derive(Default)]
++struct PenState {
++    /// Près de la surface : `Some(gomme)`.
++    near: Option<bool>,
++    /// Le bouton de souris que le stylet tient (gauche : pointe, droit : bouton du stylet).
++    held: Option<MouseButtonType>,
++}
++
++/// Le bouton que le stylet doit tenir, d'après celui qu'il tient déjà.
++fn pen_button(held: Option<MouseButtonType>, contact: bool, barrel: bool) -> Option<MouseButtonType> {
++    match held {
++        Some(MouseButtonType::Left) if contact => held,
++        Some(MouseButtonType::Right) if contact || barrel => held,
++        _ if barrel => Some(MouseButtonType::Right),
++        _ if contact => Some(MouseButtonType::Left),
++        _ => None,
++    }
+ }
+ 
+ use core_graphics::display::CGDisplay;
+@@ -211,6 +265,9 @@
+             source,
+             last_click: None,
+             warned_access: false,
++            pen: PenState::default(),
++            #[cfg(test)]
++            posted: Vec::new(),
+         }))
+     }
+ 
+@@ -243,6 +300,9 @@
+             warn!("macOS refuse les événements de Kyber : autoriser « KyberNow Station » dans Réglages > Confidentialité et sécurité > Accessibilité");
+             self.warned_access = true;
+         }
++        #[cfg(test)]
++        self.posted.push(event.clone());
++        #[cfg(not(test))]
+         event.post(CGEventTapLocation::HID);
+     }
+ 
+@@ -299,12 +359,20 @@
+             return Ok(());
+         };
+         cg.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, button_number(event.button));
+-        // Double et triple clic : même bouton, assez tôt et assez près du précédent.
++        let clicks = self.click_state(event.button, event.pressed);
++        cg.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
++        cg.set_flags(self.flags());
++        self.post(&cg);
++        Ok(())
++    }
++
++    /// Double et triple clic : même bouton, assez tôt et assez près du précédent.
++    fn click_state(&mut self, button: MouseButtonType, pressed: bool) -> i64 {
+         let now = std::time::Instant::now();
+-        let clicks = if event.pressed {
++        if pressed {
+             let n = match self.last_click {
+                 Some((b, t, p, n))
+-                    if b == event.button
++                    if b == button
+                         && now.duration_since(t) <= MULTI_CLICK_TIME
+                         && (p.x - self.position.x).abs() <= MULTI_CLICK_DISTANCE
+                         && (p.y - self.position.y).abs() <= MULTI_CLICK_DISTANCE =>
+@@ -313,14 +381,157 @@
+                 }
+                 _ => 1,
+             };
+-            self.last_click = Some((event.button, now, self.position, n));
++            self.last_click = Some((button, now, self.position, n));
+             n
+         } else {
+             self.last_click.map_or(1, |(_, _, _, n)| n)
++        }
++    }
++
++    /// KyberNow : entrée ou sortie de proximité du stylet (pointe ou gomme).
++    fn pen_proximity_event(&self, eraser: bool, enter: bool) -> Option<CGEvent> {
++        let event = CGEvent::new(self.source()?).ok()?;
++        event.set_type(CGEventType::TabletProximity);
++        unsafe { CGEventSetLocation(raw(&event), self.position) };
++        let fields = [
++            (EventField::TABLET_PROXIMITY_EVENT_VENDOR_ID, 0),
++            (EventField::TABLET_PROXIMITY_EVENT_TABLET_ID, 1),
++            (EventField::TABLET_PROXIMITY_EVENT_POINTER_ID, 1),
++            (EventField::TABLET_PROXIMITY_EVENT_DEVICE_ID, PEN_DEVICE_ID),
++            (EventField::TABLET_PROXIMITY_EVENT_SYSTEM_TABLET_ID, 1),
++            (EventField::TABLET_PROXIMITY_EVENT_VENDOR_POINTER_TYPE, 0),
++            (EventField::TABLET_PROXIMITY_EVENT_VENDOR_POINTER_SERIAL_NUMBER, 1),
++            (EventField::TABLET_PROXIMITY_EVENT_VENDOR_UNIQUE_ID, PEN_UNIQUE_ID),
++            (EventField::TABLET_PROXIMITY_EVENT_CAPABILITY_MASK, PEN_CAPABILITIES),
++            (
++                EventField::TABLET_PROXIMITY_EVENT_POINTER_TYPE,
++                if eraser { POINTER_TYPE_ERASER } else { POINTER_TYPE_PEN },
++            ),
++            (EventField::TABLET_PROXIMITY_EVENT_ENTER_PROXIMITY, i64::from(enter)),
++        ];
++        for (field, value) in fields {
++            event.set_integer_value_field(field, value);
++        }
++        event.set_flags(self.flags());
++        Some(event)
++    }
++
++    /// KyberNow : un point du stylet à `self.position`, en événement de souris
++    /// de sous-type tablette.
++    fn pen_point_event(&self, kind: CGEventType, button: Option<MouseButtonType>, pen: &Pen, dx: i64, dy: i64) -> Option<CGEvent> {
++        let event = CGEvent::new_mouse_event(self.source()?, kind, self.position, CGMouseButton::Left).ok()?;
++        // Le sous-type d'abord : il dit à macOS comment lire les champs qui suivent.
++        event.set_integer_value_field(EventField::MOUSE_EVENT_SUB_TYPE, SUBTYPE_TABLET_POINT);
++        if let Some(b) = button {
++            event.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, button_number(b));
++        }
++        event.set_integer_value_field(EventField::MOUSE_EVENT_DELTA_X, dx);
++        event.set_integer_value_field(EventField::MOUSE_EVENT_DELTA_Y, dy);
++        let contact = pen.has(Pen::CONTACT);
++        let pressure = if contact { f64::from(pen.pressure_fraction()).max(PEN_MIN_PRESSURE) } else { 0.0 };
++        let tilt = |degrees: i8| (f64::from(degrees) / PEN_MAX_TILT).clamp(-1.0, 1.0);
++        let buttons = i64::from(contact) | if pen.has(Pen::BARREL) { 2 } else { 0 };
++        event.set_double_value_field(EventField::MOUSE_EVENT_PRESSURE, pressure);
++        event.set_integer_value_field(EventField::TABLET_EVENT_POINT_X, self.position.x.round() as i64);
++        event.set_integer_value_field(EventField::TABLET_EVENT_POINT_Y, self.position.y.round() as i64);
++        event.set_integer_value_field(EventField::TABLET_EVENT_POINT_BUTTONS, buttons);
++        event.set_double_value_field(EventField::TABLET_EVENT_POINT_PRESSURE, pressure);
++        event.set_double_value_field(EventField::TABLET_EVENT_TILT_X, tilt(pen.tilt_x));
++        event.set_double_value_field(EventField::TABLET_EVENT_TILT_Y, tilt(pen.tilt_y));
++        event.set_double_value_field(EventField::TABLET_EVENT_ROTATION, f64::from(pen.rotation));
++        event.set_integer_value_field(EventField::TABLET_EVENT_DEVICE_ID, PEN_DEVICE_ID);
++        event.set_flags(self.flags());
++        Some(event)
++    }
++
++    /// KyberNow : bouton du stylet appuyé ou relâché (clic, double clic compris).
++    fn post_pen_button(&mut self, button: MouseButtonType, pressed: bool, pen: &Pen) {
++        self.buttons.update(button, pressed);
++        let (down, up, _) = button_types(button);
++        let clicks = self.click_state(button, pressed);
++        let Some(event) = self.pen_point_event(if pressed { down } else { up }, Some(button), pen, 0, 0) else {
++            warn!("Failed to create pen button event");
++            return;
+         };
+-        cg.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
+-        cg.set_flags(self.flags());
+-        self.post(&cg);
++        event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
++        info!("Pen {:?} button {}", button, if pressed { "down" } else { "up" });
++        self.post(&event);
++    }
++
++    /// KyberNow : le stylet quitte la surface (bouton relâché, sortie de proximité).
++    fn pen_leave(&mut self, pen: &Pen) {
++        let Some(eraser) = self.pen.near.take() else { return };
++        if let Some(button) = self.pen.held.take() {
++            let lifted = Pen { pressure: 0, flags: Pen::IN_RANGE, ..*pen };
++            self.post_pen_button(button, false, &lifted);
++        }
++        match self.pen_proximity_event(eraser, false) {
++            Some(event) => self.post(&event),
++            None => warn!("Failed to create pen proximity event"),
++        }
++        info!("Pen left ({})", if eraser { "eraser" } else { "tip" });
++    }
++
++    /// KyberNow : un paquet `Pen` de l'app (état complet du stylet).
++    fn inject_pen(&mut self, pen: &Pen) -> Result<()> {
++        let in_range = pen.has(Pen::IN_RANGE);
++        let eraser = pen.has(Pen::ERASER);
++        // Parti, ou l'autre bout du stylet : sortie de proximité d'abord.
++        if self.pen.near.is_some_and(|e| !in_range || e != eraser) {
++            self.pen_leave(pen);
++        }
++        if !in_range {
++            return Ok(());
++        }
++        let Some(display) = self.displays.get(&pen.display_id) else {
++            warn!("Got a Pen on unknown Display ID {}", pen.display_id);
++            return Ok(());
++        };
++        let Some((origin, scale)) = locate(display) else {
++            warn!("Display {} ({}x{} at {},{}) not found among the active displays", display.id, display.width, display.height, display.x, display.y);
++            return Ok(());
++        };
++        let target = CGPoint::new(origin.x + f64::from(pen.x) / scale, origin.y + f64::from(pen.y) / scale);
++        let (dx, dy) = ((target.x - self.position.x).round() as i64, (target.y - self.position.y).round() as i64);
++        self.position = target;
++
++        if self.pen.near.is_none() {
++            match self.pen_proximity_event(eraser, true) {
++                Some(event) => self.post(&event),
++                None => warn!("Failed to create pen proximity event"),
++            }
++            self.pen.near = Some(eraser);
++            info!("Pen near ({})", if eraser { "eraser" } else { "tip" });
++        }
++
++        let contact = pen.has(Pen::CONTACT);
++        let wanted = pen_button(self.pen.held, contact, pen.has(Pen::BARREL));
++        if wanted != self.pen.held {
++            if let Some(button) = self.pen.held.take() {
++                self.post_pen_button(button, false, pen);
++            }
++            if let Some(button) = wanted {
++                // La position d'abord : l'appui se fait là où est le stylet.
++                if dx != 0 || dy != 0 {
++                    if let Some(event) = self.pen_point_event(CGEventType::MouseMoved, None, pen, dx, dy) {
++                        self.post(&event);
++                    }
++                }
++                self.post_pen_button(button, true, pen);
++                self.pen.held = Some(button);
++            }
++            return Ok(());
++        }
++        let (kind, button) = match self.pen.held {
++            Some(b) => (button_types(b).2, Some(b)),
++            None => (CGEventType::MouseMoved, None),
++        };
++        let Some(event) = self.pen_point_event(kind, button, pen, dx, dy) else {
++            warn!("Failed to create pen event");
++            return Ok(());
++        };
++        debug!("Pen at {:.0},{:.0} pressure {} tilt {},{} rotation {} flags {:#x}", target.x, target.y, pen.pressure, pen.tilt_x, pen.tilt_y, pen.rotation, pen.flags);
++        self.post(&event);
+         Ok(())
+     }
+ 
+@@ -379,6 +590,7 @@
+             Payload::MouseMove(ref event) => self.inject_move(event),
+             Payload::MousePosition(ref position) => self.inject_position(position),
+             Payload::MouseWheel(ref event) => self.inject_wheel(event),
++            Payload::Pen(ref pen) => self.inject_pen(pen),
+             _ => {
+                 error!("Unexpected packet type {:?}", pkt.get_type());
+                 Err(Error::InvalidType)
+@@ -439,7 +651,153 @@
+                 InputType::MousePosition,
+                 InputType::MouseMove,
+                 InputType::MouseWheel,
++                InputType::Pen,
+             ],
+         })
+     }
+ }
++
++#[cfg(test)]
++mod pen_tests {
++    use super::*;
++
++    #[test]
++    fn pen_button_choice() {
++        use MouseButtonType::{Left, Right};
++        assert_eq!(pen_button(None, false, false), None);
++        assert_eq!(pen_button(None, true, false), Some(Left));
++        assert_eq!(pen_button(None, true, true), Some(Right));
++        assert_eq!(pen_button(None, false, true), Some(Right));
++        // La pointe posée garde le clic gauche, le bouton du stylet appuyé ensuite n'y change rien.
++        assert_eq!(pen_button(Some(Left), true, true), Some(Left));
++        assert_eq!(pen_button(Some(Left), false, false), None);
++        // Le clic droit tient tant que le bouton ou la pointe le tient.
++        assert_eq!(pen_button(Some(Right), true, false), Some(Right));
++        assert_eq!(pen_button(Some(Right), false, false), None);
++    }
++
++    /// Un Backend sur l'écran principal, sans autorisation ni envoi.
++    fn backend() -> (Backend, u32) {
++        let main = CGDisplay::main();
++        let b = main.bounds();
++        let scale = main.pixels_wide() as f64 / b.size.width;
++        let display = Display {
++            id: 7,
++            x: (b.origin.x * scale) as i32,
++            y: (b.origin.y * scale) as i32,
++            width: main.pixels_wide() as i32,
++            height: main.pixels_high() as i32,
++        };
++        let backend = Backend {
++            modifiers: Modifiers::default(),
++            position: CGPoint::new(0.0, 0.0),
++            buttons: Default::default(),
++            displays: HashMap::from([(display.id, display)]),
++            source: CGEventSource::new(CGEventSourceStateID::Private).ok(),
++            last_click: None,
++            warned_access: true,
++            pen: PenState::default(),
++            posted: Vec::new(),
++        };
++        (backend, 7)
++    }
++
++    fn kinds(events: &[CGEvent]) -> Vec<u32> {
++        events.iter().map(|e| e.get_type() as u32).collect()
++    }
++
++    #[test]
++    fn pen_stroke() {
++        let (mut b, id) = backend();
++        let mut pen = Pen::new(id, 100, 80);
++        pen.flags |= Pen::TILT | Pen::ROTATION;
++        pen.tilt_x = 32;
++        pen.tilt_y = -64;
++        pen.rotation = 90;
++        b.inject_pen(&pen).unwrap(); // approche
++        pen.flags |= Pen::CONTACT;
++        pen.pressure = Pen::MAX_PRESSURE / 2;
++        b.inject_pen(&pen).unwrap(); // pointe posée
++        pen.x += 10;
++        b.inject_pen(&pen).unwrap(); // trait
++        pen.flags &= !Pen::CONTACT;
++        pen.pressure = 0;
++        b.inject_pen(&pen).unwrap(); // pointe levée
++        pen.flags = 0;
++        b.inject_pen(&pen).unwrap(); // départ
++        let t = |k: CGEventType| k as u32;
++        assert_eq!(
++            kinds(&b.posted),
++            [
++                t(CGEventType::TabletProximity),
++                t(CGEventType::MouseMoved),
++                t(CGEventType::LeftMouseDown),
++                t(CGEventType::LeftMouseDragged),
++                t(CGEventType::LeftMouseUp),
++                t(CGEventType::TabletProximity),
++            ]
++        );
++        let p = &b.posted;
++        assert_eq!(p[0].get_integer_value_field(EventField::TABLET_PROXIMITY_EVENT_ENTER_PROXIMITY), 1);
++        assert_eq!(p[0].get_integer_value_field(EventField::TABLET_PROXIMITY_EVENT_POINTER_TYPE), POINTER_TYPE_PEN);
++        assert_eq!(p[5].get_integer_value_field(EventField::TABLET_PROXIMITY_EVENT_ENTER_PROXIMITY), 0);
++        let down = &p[2];
++        assert_eq!(down.get_integer_value_field(EventField::MOUSE_EVENT_SUB_TYPE), SUBTYPE_TABLET_POINT);
++        assert!((down.get_double_value_field(EventField::TABLET_EVENT_POINT_PRESSURE) - 0.5).abs() < 0.01);
++        assert!((down.get_double_value_field(EventField::TABLET_EVENT_TILT_X) - 0.5).abs() < 0.01);
++        assert!((down.get_double_value_field(EventField::TABLET_EVENT_TILT_Y) + 1.0).abs() < 0.01);
++        assert!((down.get_double_value_field(EventField::TABLET_EVENT_ROTATION) - 90.0).abs() < 0.01);
++        assert_eq!(down.get_integer_value_field(EventField::TABLET_EVENT_DEVICE_ID), PEN_DEVICE_ID);
++        assert_eq!(p[4].get_double_value_field(EventField::TABLET_EVENT_POINT_PRESSURE), 0.0);
++        assert!(!b.buttons.left);
++    }
++
++    #[test]
++    fn pen_flipped_and_flushed() {
++        let (mut b, id) = backend();
++        let mut pen = Pen::new(id, 50, 50);
++        pen.flags |= Pen::CONTACT;
++        b.inject_pen(&pen).unwrap();
++        // La gomme sans passer par le départ : la pointe est levée et sort d'abord.
++        pen.flags |= Pen::ERASER;
++        b.inject_pen(&pen).unwrap();
++        // « Tout relâcher » du serveur d'entrées : flags à 0.
++        b.inject_pen(&Pen { pressure: 0, flags: 0, ..pen }).unwrap();
++        let t = |k: CGEventType| k as u32;
++        assert_eq!(
++            kinds(&b.posted),
++            [
++                t(CGEventType::TabletProximity),
++                t(CGEventType::MouseMoved),
++                t(CGEventType::LeftMouseDown),
++                t(CGEventType::LeftMouseUp),
++                t(CGEventType::TabletProximity),
++                t(CGEventType::TabletProximity),
++                t(CGEventType::LeftMouseDown),
++                t(CGEventType::LeftMouseUp),
++                t(CGEventType::TabletProximity),
++            ]
++        );
++        assert_eq!(b.posted[5].get_integer_value_field(EventField::TABLET_PROXIMITY_EVENT_POINTER_TYPE), POINTER_TYPE_ERASER);
++        // Une pression nulle en contact devient la plus petite.
++        assert!(b.posted[2].get_double_value_field(EventField::TABLET_EVENT_POINT_PRESSURE) > 0.0);
++        assert!(b.pen.near.is_none() && b.pen.held.is_none() && !b.buttons.left);
++    }
++
++    #[test]
++    fn barrel_hover_is_right_click() {
++        let (mut b, id) = backend();
++        let mut pen = Pen::new(id, 50, 50);
++        b.inject_pen(&pen).unwrap();
++        pen.flags |= Pen::BARREL;
++        b.inject_pen(&pen).unwrap();
++        pen.flags &= !Pen::BARREL;
++        b.inject_pen(&pen).unwrap();
++        let t = |k: CGEventType| k as u32;
++        assert_eq!(
++            kinds(&b.posted),
++            [t(CGEventType::TabletProximity), t(CGEventType::MouseMoved), t(CGEventType::RightMouseDown), t(CGEventType::RightMouseUp)]
++        );
++        assert_eq!(b.posted[2].get_integer_value_field(EventField::TABLET_EVENT_POINT_BUTTONS), 2);
++    }
++}

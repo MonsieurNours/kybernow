@@ -17,6 +17,9 @@
 //!   Wayland de SDL) ; le code des protocoles `color-management-v1` et
 //!   `viewporter` (wayland-protocols 1.45) est déjà produit par wayland-scanner
 //!   dans `src/native/wayland`.
+//! - stylet (`src/native/pen.c`) : `tablet-v2` (wayland-protocols 1.45, même
+//!   dossier) et XInput2, dont seuls les en-têtes servent à la compilation
+//!   (libX11 et libXi sont chargées à l'exécution, comme par SDL).
 
 use std::path::PathBuf;
 use std::{env, fs};
@@ -69,6 +72,8 @@ fn main() {
         .file("src/native/wayland_hdr.c")
         .file("src/native/wayland/color-management-v1.c")
         .file("src/native/wayland/viewporter.c")
+        .file("src/native/pen.c")
+        .file("src/native/wayland/tablet-v2.c")
         .include(prefix.join("include"))
         .flag_if_supported("-Wno-deprecated-declarations")
         .opt_level(2)
@@ -94,6 +99,8 @@ fn main() {
     if v4l2_request {
         println!("cargo:rustc-link-arg=-ludev");
     }
+    // Stylet sous X11 (src/native/pen.c) : libX11 et libXi chargées à l'exécution.
+    println!("cargo:rustc-link-arg=-ldl");
     println!("cargo:rustc-link-arg=-lm");
     println!("cargo:rustc-link-arg=-lpthread");
     // aarch64 : GCC compile les opérations atomiques de FFmpeg en appels à

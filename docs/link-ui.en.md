@@ -133,6 +133,15 @@ Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and
 - **Mac**: the Mac only lets an app allowed in Accessibility take its shortcuts. The first time the mode should turn on, the app asks for it (system window); while the permission is missing, nothing changes (as with “Never”) and the setting says so. In immersive mode, with a PC, ⌘ goes as the ⊞ key and Ctrl stays Ctrl: “⌘ key sent as Ctrl” does not apply there, and comes back when the mode turns off (held keys are released on the way). With a Mac Station, ⌘ already goes as ⌘.
 - **Windows, Linux**: “In full screen” is the rule from before this setting (the keyboard was only taken in full screen).
 
+**Pen** / « Stylet » (every app where a pen exists: graphics tablet on Mac, Windows and Linux; Apple Pencil on iPad; Android stylus; web client, through Pointer Events; details in [stylet.en.md](stylet.en.md)): the computer gets a real pen, not a mouse. It has pressure, tilt, rotation (when the device gives it), the eraser end, the pen button and hover (the pen just above the surface, not touching it). Drawing apps use them for the stroke's width and opacity; apps that know nothing of pens see a left click, as with a pen plugged into the computer.
+
+- **Always**: no setting, nothing in the bar, no new text. The pen follows the desktop mouse; with the game mouse (captured pointer), it stays a mouse as before.
+- **Older Station** (which does not know the pen): the pen stays a mouse at an absolute position, as before, with no notice. The Station says it can take a pen within kynput itself (a “pen available” message when the app arrives), so a share guest and a borrowing friend get it too, without reading `/api/stream/info`.
+- **Rights**: the pen is the mouse; a guest has it with “the keyboard and mouse”, a spectator does not.
+- **Several displays**: the pen goes to the display of the window it writes in, like the mouse. The pointer bar also opens when the pen hovers against the top edge.
+- **Buttons**: whatever the computer does with them (on a PC, pen button held and tip down: right click; on a Mac, whatever the drawing app sets). The eraser end erases in apps that know it.
+- **Touch** (iPad, Android): the pen always writes where it touches, whatever the touch mode (trackpad or direct touch); the finger keeps its mode. The Apple Pencil's double tap or squeeze (switch tool) stays with the iPad.
+
 **Controllers unavailable**: a Station may not be able to create controllers (a Mac Station until Apple grants its entitlement, see `docs/station-macos.en.md`). It says so in `gamepads` of `GET /api/stream/info`: `{ "available": false, "reason": "entitlement" }`; absent (older Stations): available. The core reads it (`Info::gamepads_available`), the app keeps it for each computer. Controllers still drive the app (bar, menus, Start + Select + L1 + R1 combination); the computer does not see them.
 
 | Element | Français | English |

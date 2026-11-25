@@ -38,15 +38,20 @@ use std::time::Duration;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::{
+    FEEDBACK_PEN_BARRELVISUALIZATION, FEEDBACK_PEN_DOUBLETAP, FEEDBACK_PEN_PRESSANDHOLD, FEEDBACK_PEN_RIGHTTAP, FEEDBACK_PEN_TAP,
+    SetWindowFeedbackSetting,
+};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Input::*;
+use windows::Win32::UI::Input::Pointer::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use kybernow_core::focus::FocusId;
 use kybernow_core::i18n::Lang;
-use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PointerLayer, ScreenTarget, Shape};
+use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PenInput, PointerLayer, ScreenTarget, Shape};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::session::{Session, Status, StreamScreen};
@@ -465,6 +470,10 @@ pub struct ScreenWin {
     active: AtomicBool,
     /// Le pointeur est dans la zone du bord haut et la minuterie court.
     edge_armed: AtomicBool,
+    /// Stylet : sa position dans la fenêtre pendant qu'il la survole (pour la
+    /// barre au bord haut), et les gestes de Windows Ink coupés sur elle.
+    pen_hover: Mutex<Option<(i32, i32)>>,
+    pen_quiet: AtomicBool,
     /// HDR : l'écran de ce PC où la fenêtre se trouvait au dernier relevé
     /// (`HMONITOR`), et l'état HDR dit au cœur pour elle (docs/hdr.md).
     last_monitor: AtomicIsize,
@@ -1293,6 +1302,8 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
         shown: AtomicBool::new(false),
         active: AtomicBool::new(false),
         edge_armed: AtomicBool::new(false),
+        pen_hover: Mutex::new(None),
+        pen_quiet: AtomicBool::new(false),
         last_monitor: AtomicIsize::new(0),
         reported_hdr: Mutex::new(screen),
     });
@@ -1856,7 +1867,7 @@ fn mouse_button_held() -> bool {
 /// elle s'ouvre devient la fenêtre active (le clavier y va, la barre s'y pose).
 fn edge_fired(app: &App, win: &ScreenWin) {
     edge_cancel(win);
-    if app.edge_ready() && app.in_front() && !mouse_button_held() && cursor_in_edge_zone(win) {
+    if app.edge_ready() && app.in_front() && !mouse_button_held() && (cursor_in_edge_zone(win) || pen_in_edge_zone(win)) {
         unsafe {
             // Une autre fenêtre de la même app : Windows l'accepte.
             let _ = SetForegroundWindow(win.hwnd());
@@ -1883,20 +1894,157 @@ fn mouse_position(app: &App, win: &Arc<ScreenWin>, lparam: LPARAM) {
     unsafe {
         let _ = ClientToScreen(win.hwnd(), &mut p);
     }
-    let target = app.window_at(p).unwrap_or_else(|| win.clone());
-    if target.hwnd != win.hwnd {
-        unsafe {
-            let _ = ScreenToClient(target.hwnd(), &mut p);
-        }
-    } else {
-        p = POINT { x, y };
+    let (target, _, hx, hy) = host_point(app, win, p);
+    input.mouse_on(target.index(), hx, hy);
+}
+
+/// Un point de ce PC (coordonnées de l'écran) vers l'ordinateur : la fenêtre
+/// qui est vraiment dessous (celle de `win` si aucune), le point dans cette
+/// fenêtre et en pixels de son écran de l'ordinateur.
+fn host_point(app: &App, win: &Arc<ScreenWin>, screen: POINT) -> (Arc<ScreenWin>, POINT, i16, i16) {
+    let target = app.window_at(screen).unwrap_or_else(|| win.clone());
+    let mut p = screen;
+    unsafe {
+        let _ = ScreenToClient(target.hwnd(), &mut p);
     }
     let host = target.host_size();
     let r = video_rect(target.shared.client_size(), host);
     let (vw, vh) = ((r.right - r.left).max(1), (r.bottom - r.top).max(1));
     let hx = ((p.x - r.left) as i64 * host.0 as i64 / vw as i64).clamp(0, host.0 as i64 - 1);
     let hy = ((p.y - r.top) as i64 * host.1 as i64 / vh as i64).clamp(0, host.1 as i64 - 1);
-    input.mouse_on(target.index(), hx.min(i16::MAX as i64) as i16, hy.min(i16::MAX as i64) as i16);
+    (target, p, hx.min(i16::MAX as i64) as i16, hy.min(i16::MAX as i64) as i16)
+}
+
+/// Le dernier message de stylet est parti en stylet : les messages de souris
+/// que Windows tire du stylet ne repartent pas (docs/stylet.md).
+static PEN_AS_PEN: AtomicBool = AtomicBool::new(false);
+
+/// `WM_TABLET_QUERYSYSTEMGESTURESTATUS` (tpcshrd.h), hors de la partie de
+/// `windows` qu'on lie.
+const WM_TABLET_QUERYSYSTEMGESTURESTATUS: u32 = 0x02CC;
+
+/// Ce message de souris vient du stylet (signature `MI_WP_SIGNATURE` de
+/// `GetMessageExtraInfo`, sans le bit 0x80 du toucher) pendant que le stylet
+/// part en stylet.
+fn mouse_from_pen() -> bool {
+    PEN_AS_PEN.load(Ordering::Relaxed) && unsafe { GetMessageExtraInfo().0 as u32 & 0xFFFF_FF80 } == 0xFF51_5700
+}
+
+/// `WM_POINTER*` : un stylet part en stylet (pression, inclinaison, rotation,
+/// gomme, bouton, survol) quand l'ordinateur l'a annoncé et en souris du
+/// bureau. Rend `false` pour tout autre pointeur (toucher), face à une
+/// Station d'avant, en souris des jeux ou pour un invité sans le clavier et la
+/// souris : `DefWindowProc` en fait alors la souris, comme avant.
+fn pen_message(app: &App, win: &Arc<ScreenWin>, msg: u32, wparam: WPARAM) -> bool {
+    let id = (wparam.0 & 0xFFFF) as u32;
+    let mut kind = POINTER_INPUT_TYPE::default();
+    if unsafe { GetPointerType(id, &mut kind) }.is_err() || kind != PT_PEN {
+        return false;
+    }
+    let as_pen = pen_send(app, win, msg, id);
+    PEN_AS_PEN.store(as_pen, Ordering::Relaxed);
+    as_pen
+}
+
+fn pen_send(app: &App, win: &Arc<ScreenWin>, msg: u32, id: u32) -> bool {
+    let Some(input) = app.input() else { return false };
+    if !app.keyboard_mouse() || !input.pen_available() {
+        return false;
+    }
+    let mut info = POINTER_PEN_INFO::default();
+    if unsafe { GetPointerPenInfo(id, &mut info) }.is_err() {
+        return false;
+    }
+    // Windows regroupe les mouvements entre deux messages : tous partent, du
+    // plus ancien au plus récent (le trait suit le stylet, pas la cadence des
+    // messages).
+    let mut states = vec![info];
+    let count = info.pointerInfo.historyCount;
+    if msg == WM_POINTERUPDATE && count > 1 {
+        let mut n = count.min(64);
+        let mut history = vec![POINTER_PEN_INFO::default(); n as usize];
+        if unsafe { GetPointerPenInfoHistory(id, &mut n, Some(history.as_mut_ptr())) }.is_ok() && n > 0 {
+            history.truncate(n as usize);
+            history.reverse();
+            states = history;
+        }
+    }
+    let leaving = msg == WM_POINTERLEAVE || msg == WM_POINTERCAPTURECHANGED;
+    if !win.pen_quiet.swap(true, Ordering::Relaxed) {
+        quiet_pen_gestures(win.hwnd());
+    }
+    let mut sent = true;
+    for state in &states {
+        let pen = pen_input(state, leaving);
+        let (target, client, hx, hy) = host_point(app, win, state.pointerInfo.ptPixelLocation);
+        sent = input.pen_on(Some(target.index()), hx, hy, &pen);
+        // La barre au pointeur s'ouvre aussi au survol contre le bord haut.
+        *target.pen_hover.lock().unwrap() = (pen.in_range && !pen.contact).then_some((client.x, client.y));
+        if target.hwnd != win.hwnd {
+            *win.pen_hover.lock().unwrap() = None;
+        }
+        let buttons = if pen.contact { 0x01 } else { 0 };
+        if pen.in_range {
+            edge_pointer(app, &target, WPARAM(buttons), LPARAM(((client.y as u16 as isize) << 16) | (client.x as u16 as isize)));
+        } else {
+            edge_cancel(&target);
+        }
+    }
+    sent
+}
+
+/// Un état du stylet de Windows au format du cœur : pression 0-1024,
+/// inclinaison et rotation quand le stylet les donne, gomme (`INVERTED` près
+/// de la surface, `ERASER` en contact), bouton du stylet.
+fn pen_input(info: &POINTER_PEN_INFO, leaving: bool) -> PenInput {
+    let flags = info.pointerInfo.pointerFlags;
+    let canceled = flags.0 & POINTER_FLAG_CANCELED.0 != 0;
+    let in_range = !leaving && !canceled && flags.0 & (POINTER_FLAG_INRANGE.0 | POINTER_FLAG_INCONTACT.0) != 0;
+    let contact = in_range && flags.0 & POINTER_FLAG_INCONTACT.0 != 0;
+    let pressure = if info.penMask & PEN_MASK_PRESSURE != 0 {
+        info.pressure.min(1024) as f32 / 1024.0
+    } else if contact {
+        // Stylet sans pression : à moitié, comme les Pointer Events.
+        0.5
+    } else {
+        0.0
+    };
+    let tilt = (info.penMask & (PEN_MASK_TILT_X | PEN_MASK_TILT_Y) != 0).then_some((info.tiltX as f32, info.tiltY as f32));
+    let rotation = (info.penMask & PEN_MASK_ROTATION != 0).then_some(info.rotation as f32);
+    PenInput {
+        in_range,
+        contact,
+        pressure,
+        tilt,
+        rotation,
+        eraser: info.penFlags & (PEN_FLAG_ERASER | PEN_FLAG_INVERTED) != 0,
+        barrel: info.penFlags & PEN_FLAG_BARREL != 0,
+    }
+}
+
+/// Plus de gestes de Windows Ink sur la fenêtre (ondes au toucher, appui long
+/// qui fait un clic droit, double toucher) : c'est l'ordinateur qui reçoit le
+/// stylet. Seulement quand il part en stylet : face à une Station d'avant,
+/// l'appui long reste le clic droit de Windows, comme avant.
+fn quiet_pen_gestures(hwnd: HWND) {
+    let off: i32 = 0;
+    for feedback in [
+        FEEDBACK_PEN_BARRELVISUALIZATION,
+        FEEDBACK_PEN_TAP,
+        FEEDBACK_PEN_DOUBLETAP,
+        FEEDBACK_PEN_PRESSANDHOLD,
+        FEEDBACK_PEN_RIGHTTAP,
+    ] {
+        unsafe {
+            let _ = SetWindowFeedbackSetting(hwnd, feedback, 0, std::mem::size_of::<i32>() as u32, Some(&off as *const i32 as *const _));
+        }
+    }
+}
+
+/// Le stylet survole la zone du bord haut de cette fenêtre.
+fn pen_in_edge_zone(win: &ScreenWin) -> bool {
+    let at = *win.pen_hover.lock().unwrap();
+    at.is_some_and(|(x, y)| in_edge_zone(win, x, y))
 }
 
 fn mouse_button(app: &App, hwnd: HWND, button: MouseButtonType, pressed: bool) {
@@ -2396,7 +2544,30 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 LRESULT(0)
             }
             WM_SYSCHAR | WM_CHAR => LRESULT(0),
+            // Stylet (docs/stylet.md) : parti en stylet, ou laissé à
+            // DefWindowProc, qui en fait la souris.
+            WM_POINTERUPDATE | WM_POINTERDOWN | WM_POINTERUP | WM_POINTERLEAVE | WM_POINTERCAPTURECHANGED => {
+                if pen_message(&app, &win, msg, wparam) {
+                    return LRESULT(0);
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            // Appui long, toucher du bouton, gestes rapides de Tablet PC :
+            // coupés pendant que le stylet part en stylet.
+            WM_TABLET_QUERYSYSTEMGESTURESTATUS => {
+                if app.keyboard_mouse() && app.input().is_some_and(|i| i.pen_available()) {
+                    // TABLET_DISABLE_PRESSANDHOLD | PENTAPFEEDBACK | PENBARRELFEEDBACK | FLICKS
+                    return LRESULT(0x0001_0019);
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+            WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDOWN | WM_MBUTTONUP
+                if mouse_from_pen() =>
+            {
+                LRESULT(0)
+            }
             WM_MOUSEMOVE => {
+                *win.pen_hover.lock().unwrap() = None;
                 mouse_position(&app, &win, lparam);
                 edge_pointer(&app, &win, wparam, lparam);
                 LRESULT(0)

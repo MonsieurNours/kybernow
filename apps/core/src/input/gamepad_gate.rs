@@ -28,7 +28,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, Weak};
 
-use kynput_rs::{Packet, RouterHook, RouterHookPacketResult};
+use kynput_rs::{ControlEvent, Packet, RouterHook, RouterHookControlResult, RouterHookPacketResult};
 use kynput_sys as sys;
 
 use super::pad_combo::{PadButton, PadCombo, PadId, PadKey};
@@ -158,7 +158,7 @@ impl Filtered {
     }
 }
 
-/// Le hook branché sur le routeur.
+/// Le hook branché sur le routeur (toujours, à la création de la chaîne).
 pub(crate) struct GateHook {
     pub(crate) pipeline: Weak<InputPipeline>,
 }
@@ -179,6 +179,16 @@ impl RouterHook for GateHook {
             p.navigate(key);
         }
         RouterHookPacketResult { process_event: f.pass }
+    }
+
+    /// Annonces de l'ordinateur : il reçoit les stylets.
+    fn on_control_event(&self, msg: &ControlEvent) -> RouterHookControlResult {
+        if *msg == ControlEvent::PenAvailable
+            && let Some(p) = self.pipeline.upgrade()
+        {
+            p.on_pen_available();
+        }
+        RouterHookControlResult { generated_events: None }
     }
 }
 

@@ -423,6 +423,191 @@ interface PointerOut {
     }
 }
 
+/** Ce que le stylet envoie à l'ordinateur : le cœur ([native]), ou un relevé dans les tests. */
+interface PenOut {
+    /** État complet du stylet ; `false` : il part en souris (voir [Native.inputPen]). */
+    fun pen(x: Double, y: Double, s: PenSample): Boolean
+
+    companion object {
+        fun native(handle: () -> Long) = object : PenOut {
+            override fun pen(x: Double, y: Double, s: PenSample) =
+                Native.inputPen(handle(), x, y, s.inRange, s.contact, s.pressure, s.hasTilt, s.tilt, s.orientation, s.eraser, s.barrel)
+        }
+    }
+}
+
+/** Un état du stylet lu dans un [MotionEvent]. */
+data class PenSample(
+    val inRange: Boolean,
+    val contact: Boolean,
+    val pressure: Float,
+    val hasTilt: Boolean,
+    val tilt: Float,
+    val orientation: Float,
+    val eraser: Boolean,
+    val barrel: Boolean,
+)
+
+/**
+ * Stylet d'Android (docs/link-ui.md, « Stylet » ; docs/stylet.md) : outil `TOOL_TYPE_STYLUS` ou `TOOL_TYPE_ERASER`.
+ * Il écrit là où il touche, quel que soit le mode du doigt (pavé tactile ou toucher direct) : pression, inclinaison
+ * (`AXIS_TILT`, `AXIS_ORIENTATION`), bout gomme, bouton du stylet (`BUTTON_STYLUS_PRIMARY`) et survol
+ * (`ACTION_HOVER_*`). Les positions groupées d'un `ACTION_MOVE` (historique) partent toutes. Face à une Station
+ * d'avant (ou en souris des jeux), le cœur rend `false` : souris à cet endroit et clic gauche, comme avant.
+ */
+class StylusInput(
+    private val out: PenOut,
+    private val mouse: PointerOut,
+    private val toHost: (Float, Float) -> Pair<Double, Double>?,
+) {
+    /** Le geste en cours a commencé par le stylet : il est tout entier au stylet (un doigt posé en plus n'y fait rien). */
+    private var owned = false
+    /** Le stylet qui touche : son identifiant de pointeur dans le geste en cours. */
+    private var pointerId = -1
+    /** Le stylet est parti en souris (Station d'avant) : son clic gauche est tenu. */
+    private var mouseDown = false
+    /** Le stylet survole l'image (dernier survol envoyé à l'ordinateur). */
+    private var hovering = false
+    /** Dernier état envoyé, et où : le départ remis à plus tard part de là. */
+    private var last: Triple<Double, Double, PenSample>? = null
+    private val main = Handler(Looper.getMainLooper())
+    /**
+     * Le stylet s'en va, un peu plus tard : Android envoie `HOVER_EXIT` juste avant `ACTION_DOWN`, et `ACTION_UP` juste
+     * avant `HOVER_ENTER`. Sans ce délai, l'ordinateur verrait le stylet partir et revenir à chaque trait.
+     */
+    private val leave = Runnable { leaveNow() }
+
+    /** Le geste qui commence est celui d'un stylet, ou celui en cours l'était. */
+    fun claims(e: MotionEvent): Boolean = owned || (e.actionMasked == MotionEvent.ACTION_DOWN && isPen(e, 0))
+
+    /** Contact : `ACTION_DOWN`, `MOVE`, `UP`, `CANCEL` d'un geste commencé par le stylet. */
+    fun onTouch(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (!isPen(e, 0)) return false
+                main.removeCallbacks(leave)
+                owned = true
+                pointerId = e.getPointerId(0)
+                send(e, 0, -1, contact = true, inRange = true)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val i = e.findPointerIndex(pointerId)
+                if (i < 0) return true
+                for (h in 0 until e.historySize) send(e, i, h, contact = true, inRange = true)
+                send(e, i, -1, contact = true, inRange = true)
+            }
+            MotionEvent.ACTION_POINTER_UP -> if (e.getPointerId(e.actionIndex) == pointerId) lift(e, e.actionIndex)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val i = e.findPointerIndex(pointerId)
+                if (i >= 0) lift(e, i)
+                if (e.actionMasked == MotionEvent.ACTION_CANCEL) leaveNow()
+                pointerId = -1
+                owned = false
+            }
+        }
+        return true
+    }
+
+    /** Survol : `ACTION_HOVER_ENTER`, `MOVE`, `EXIT` du stylet tout près de l'écran. */
+    fun onHover(e: MotionEvent): Boolean {
+        if (!isPen(e, 0)) return false
+        when (e.actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                main.removeCallbacks(leave)
+                hovering = true
+                for (h in 0 until e.historySize) send(e, 0, h, contact = false, inRange = true)
+                send(e, 0, -1, contact = false, inRange = true)
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                hovering = false
+                main.removeCallbacks(leave)
+                main.postDelayed(leave, LEAVE_MS)
+            }
+            else -> return false
+        }
+        return true
+    }
+
+    /** Le survol n'est plus pour l'ordinateur (barre, menu) : le stylet qui survolait s'en va, là où il est. */
+    fun away() {
+        if (!hovering || pointerId >= 0) return
+        hovering = false
+        leaveNow()
+    }
+
+    /** Geste abandonné (droit repris) : le cœur lève déjà le stylet, rien ne repart. */
+    fun cancel() {
+        main.removeCallbacks(leave)
+        last = null
+        owned = false
+        pointerId = -1
+        mouseDown = false
+        hovering = false
+    }
+
+    /** Levé : la pointe ne touche plus, le stylet reste tout près ; s'il ne survole pas, il s'en va peu après. */
+    private fun lift(e: MotionEvent, i: Int) {
+        send(e, i, -1, contact = false, inRange = true)
+        pointerId = -1
+        main.removeCallbacks(leave)
+        main.postDelayed(leave, LEAVE_MS)
+    }
+
+    /** Le stylet s'en va, là où il était. */
+    private fun leaveNow() {
+        main.removeCallbacks(leave)
+        val (x, y, s) = last ?: return
+        last = null
+        deliver(x, y, s.copy(inRange = false, contact = false, pressure = 0f))
+    }
+
+    /** Un état du stylet (`h` : position de l'historique, −1 : l'actuelle) vers l'ordinateur, en stylet ou en souris. */
+    private fun send(e: MotionEvent, i: Int, h: Int, contact: Boolean, inRange: Boolean) {
+        val x = if (h < 0) e.getX(i) else e.getHistoricalX(i, h)
+        val y = if (h < 0) e.getY(i) else e.getHistoricalY(i, h)
+        val (hx, hy) = toHost(x, y) ?: return
+        fun axis(a: Int) = if (h < 0) e.getAxisValue(a, i) else e.getHistoricalAxisValue(a, i, h)
+        val pressure = if (h < 0) e.getPressure(i) else e.getHistoricalPressure(i, h)
+        val sample = PenSample(
+            inRange = inRange,
+            contact = contact,
+            pressure = pressure,
+            hasTilt = e.device?.getMotionRange(MotionEvent.AXIS_TILT) != null,
+            tilt = axis(MotionEvent.AXIS_TILT),
+            orientation = axis(MotionEvent.AXIS_ORIENTATION),
+            eraser = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER,
+            barrel = (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0,
+        )
+        deliver(hx, hy, sample)
+    }
+
+    private fun deliver(hx: Double, hy: Double, sample: PenSample) {
+        val inRange = sample.inRange
+        val contact = sample.contact
+        last = if (inRange) Triple(hx, hy, sample) else null
+        if (out.pen(hx, hy, sample)) return
+        if (!inRange && !mouseDown) return
+        mouse.moveTo(hx, hy)
+        if (contact != mouseDown) {
+            mouseDown = contact
+            mouse.button(0, contact)
+        }
+    }
+
+    companion object {
+        private const val LEAVE_MS = 120L
+
+        /** Le premier pointeur de l'événement est un stylet (pointe ou gomme). */
+        fun isPen(e: MotionEvent): Boolean = isPen(e, 0)
+
+        private fun isPen(e: MotionEvent, i: Int): Boolean {
+            if (i < 0 || i >= e.pointerCount) return false
+            val t = e.getToolType(i)
+            return t == MotionEvent.TOOL_TYPE_STYLUS || t == MotionEvent.TOOL_TYPE_ERASER
+        }
+    }
+}
+
 /**
  * Au doigt. Pavé tactile : un doigt déplace le pointeur de l'ordinateur,
  * toucher = clic, deux doigts = clic droit, deux doigts qui glissent =

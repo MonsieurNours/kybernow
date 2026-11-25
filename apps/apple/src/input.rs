@@ -498,6 +498,63 @@ pub unsafe extern "C" fn kn_input_mouse_on(i: *const KnInput, screen: u32, x: i1
     with(i, |p| p.mouse_on(screen as usize, x, y));
 }
 
+/// Un état du stylet (docs/link-ui.md, « Stylet ») : tablette graphique sur
+/// Mac, Apple Pencil sur iPad.
+#[repr(C)]
+pub struct KnPen {
+    /// Près de la surface (survol ou contact) ; faux : le stylet s'en va.
+    pub in_range: bool,
+    /// La pointe (ou la gomme) touche.
+    pub contact: bool,
+    /// Pression, de 0 à 1.
+    pub pressure: f32,
+    /// Inclinaison en degrés (-90 à 90 ; X vers la droite, Y vers soi).
+    pub tilt_x: f32,
+    pub tilt_y: f32,
+    pub has_tilt: bool,
+    /// Rotation en degrés (0 à 360).
+    pub rotation: f32,
+    pub has_rotation: bool,
+    /// Le bout gomme sert.
+    pub eraser: bool,
+    /// Le bouton du stylet est tenu.
+    pub barrel: bool,
+}
+
+/// Le stylet à (`x`, `y`) de l'écran `screen` de l'appareil (négatif :
+/// l'écran principal), en pixels de l'écran de l'ordinateur. `false` : il
+/// part en souris (ordinateur qui ne le reçoit pas, souris des jeux) ; l'app
+/// envoie alors la position et les clics comme avant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_input_pen(i: *const KnInput, screen: i32, x: i16, y: i16, pen: *const KnPen) -> bool {
+    let (Some(i), Some(pen)) = (unsafe { i.as_ref() }, unsafe { pen.as_ref() }) else { return false };
+    let input = kybernow_core::input::PenInput {
+        in_range: pen.in_range,
+        contact: pen.contact,
+        pressure: pen.pressure,
+        tilt: pen.has_tilt.then_some((pen.tilt_x, pen.tilt_y)),
+        rotation: pen.has_rotation.then_some(pen.rotation),
+        eraser: pen.eraser,
+        barrel: pen.barrel,
+    };
+    i.pipeline.pen_on((screen >= 0).then_some(screen as usize), x, y, &input)
+}
+
+/// Inclinaison X / Y (degrés) d'après l'altitude et l'azimut en radians
+/// (Apple Pencil), voir `tilt_from_altitude_azimuth` du cœur.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pen_tilt(altitude: f32, azimuth: f32, tilt_x: *mut f32, tilt_y: *mut f32) {
+    let (tx, ty) = kybernow_core::input::tilt_from_altitude_azimuth(altitude, azimuth);
+    unsafe {
+        if let Some(t) = tilt_x.as_mut() {
+            *t = tx;
+        }
+        if let Some(t) = tilt_y.as_mut() {
+            *t = ty;
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_mouse_move(i: *const KnInput, dx: i16, dy: i16) {
     with(i, |p| p.mouse_move(dx, dy));
