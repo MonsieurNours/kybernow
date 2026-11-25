@@ -102,7 +102,11 @@ kyber_verrou_sortie() {
     local cible=$1 avant
     kyber_verrou_tenu "$cible" && return 0
     kyber_verrou_prendre "$cible" "${2:-${0##*/}}" || return 1
-    avant="$(trap -p EXIT | sed "s/^trap -- '//; s/' EXIT\$//")"
+    # Le trap existant, relu tel que bash l'a écrit (guillemets compris).
+    avant="$(trap -p EXIT)"
+    if [ -n "$avant" ]; then eval "set -- $avant"; avant="$3"; fi
+    KYBER_VERROUS_SORTIE="${KYBER_VERROUS_SORTIE:-}kyber_verrou_rendre $(printf '%q' "$cible"); "
     # shellcheck disable=SC2064
-    trap "${avant:+$avant; }kyber_verrou_rendre '$cible'" EXIT
+    trap "${avant:+$avant
+}$KYBER_VERROUS_SORTIE" EXIT
 }

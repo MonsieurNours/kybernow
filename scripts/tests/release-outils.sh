@@ -33,6 +33,19 @@ mkdir "$T/pid.verrou"
 printf 'pid=%s\ndebut=Thu Jan  1 00:00:00 1970\nmachine=%s\n' "$$" "$(hostname -s)" > "$T/pid.verrou/qui"
 MSG="pid réutilisé (autre date de démarrage) : repris" vrai kyber_verrou_prendre "$T/pid" essai
 
+# Rendu à la sortie, avec un trap existant plein de guillemets (piège du 25/11).
+cat > "$T/sortie.sh" << FIN
+set -euo pipefail
+. "$ROOT/scripts/verrou.sh"
+trap 'rm -rf "$T/x"; echo "trap d'"'"'avant"' EXIT
+mkdir "$T/x"
+kyber_verrou_sortie "$T/s1"
+kyber_verrou_sortie "$T/s 2"
+FIN
+SORTIE="$(bash "$T/sortie.sh" 2>&1)"
+MSG="verrous rendus à la sortie, trap d'avant gardé" vrai test "$SORTIE" = "trap d'avant"
+MSG="… et les dossiers des verrous ont disparu" faux test -e "$T/s1.verrou" -o -e "$T/s 2.verrou" -o -e "$T/x"
+
 echo "== sources de Kyber : origine et état noté"
 . "$ROOT/scripts/arbres.sh"
 KD="$T/arbre/third_party/kyber-desktop"
