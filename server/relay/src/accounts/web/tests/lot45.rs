@@ -203,7 +203,7 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     assert!(html(&r).contains("Activez d'abord la double authentification"));
     assert_eq!(computers(&w, &hugo)[0]["rights"], json!(["session"]), "sans double authentification : les droits donnés seulement");
     with_totp(&w, &mut hugo_b, "hugo@exemple.org");
-    assert_eq!(computers(&w, &hugo)[0]["rights"], json!(["session", "lend", "share", "admin"]));
+    assert_eq!(computers(&w, &hugo)[0]["rights"], json!(["view", "session", "lend", "share", "admin"]));
     // Un Administrateur ne touche pas au Propriétaire ; le dernier Propriétaire reste.
     let r = hugo_b.post("/compte/organisation/role?lang=fr", &[("id", &id), ("compte", "1"), ("role", "member")]);
     assert!(html(&r).contains("Vous ne pouvez pas faire cela ici"));

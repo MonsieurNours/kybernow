@@ -213,7 +213,7 @@ fn connecter_une_app_par_la_fenetre_du_systeme() {
     let list = api(&w, false, "/v1/computers", Some(&token), Value::Null);
     assert_eq!(list.body["computers"][0]["station"], st.as_str());
     // Lot 4 : sans double authentification, pas de droit Administrer, même sur le sien.
-    assert_eq!(list.body["computers"][0]["rights"], json!(["session", "lend", "share"]));
+    assert_eq!(list.body["computers"][0]["rights"], json!(["view", "session", "lend", "share"]));
     assert_eq!(list.body["computers"][0]["online"], true);
     // Connectée : l'empreinte d'Admin attestée, pour l'épingler dans l'app.
     assert_eq!(list.body["computers"][0]["admin_fp"], format!("sha256:{st}"));

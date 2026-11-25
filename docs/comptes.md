@@ -74,6 +74,32 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 - Les droits se donnent à une personne ou à un groupe. Le journal de l'organisation dit qui a ouvert quoi, quand, d'où, et chaque changement de droits.
 - Double authentification **obligatoire** pour les Propriétaires et Administrateurs d'une organisation, et pour tout compte qui a le droit Administrer.
 
+### Regarder, liens d'accès et groupes d'ordinateurs
+
+Décidé le 25/11/2026.
+
+**Regarder** (droit `view`, « Regarder » / “Watch”) : voir l'écran d'un ordinateur sans le prendre en main : ni clavier, ni souris, ni manette, ni presse-papiers.
+- Phrase du droit : « Voir l'écran de l'ordinateur, sans clavier, souris ni manette. » ; exemple : « Votre fils qui veut vous montrer sa partie ». Anglais : “See the computer's screen, with no keyboard, mouse or controller.” ; “Your son who wants to show you his game”.
+- C'est le **vrai écran**, tel quel : pas d'écran virtuel, rien ne change pour la personne qui utilise l'ordinateur. Regarder passe par le partage (KyberNow Share) : la personne rejoint le partage ouvert de l'ordinateur comme un invité **spectateur** ; s'il n'y en a pas, la Station en ouvre un pour elle, de l'écran principal du PC, ou de la session en cours si quelqu'un est connecté. Ce partage n'a pas de code à montrer ; il se ferme quand le dernier spectateur part.
+- **Plusieurs écrans** : la barre propose « Écran » et la liste des écrans du PC ; en changer relance l'image sur l'autre écran.
+- **L'hôte le sait** : le fil d'Admin dit « {prénom} regarde votre écran », le panneau du partage (Admin, icône, barre de session) la montre comme tout invité, avec « Retirer » ; l'hôte peut aussi lui donner les manettes ou le clavier, comme à tout invité.
+- **Refus** : ordinateur prêté (« {nom} est prêté en ce moment. »), partage coupé dans Admin, comptes coupés, Station trop ancienne (« Cette Station ne permet pas encore de regarder : mettez-la à jour. »).
+- Avec le droit « Ouvrir le bureau », la carte garde « Se connecter » ; « Regarder » est alors dans le menu de l'ordinateur.
+
+**Liens d'accès** (« Liens d'accès » / “Access links”, page d'un ordinateur, pour qui gère ses accès) : ouvrir l'ordinateur à quelqu'un dont on n'a pas l'adresse, par un lien à **usage unique**.
+- Créer : les droits (les mêmes tuiles), « Le lien sert pendant » 1, 7 (proposé) ou 30 jours, et « Accès jusqu'au (facultatif) ». Le lien (`https://{relais}/compte/lien/kla_…`) est **montré une seule fois**, avec « Copier le lien » et « Envoyez-le à une seule personne : il sert une fois et n'est montré qu'ici. » ; le relais n'en garde que l'empreinte. Dix liens en attente au plus par ordinateur (« Révoquez un lien avant d'en créer un autre. »).
+- Ouvrir le lien : sans être connecté, la page propose de se connecter ou de créer un compte, puis revient au lien ; connecté : « {nom} vous ouvre {ordinateur} », les droits en mots, l'échéance éventuelle, « Accepter ». Accepter donne ces droits au compte (ajoutés à ceux qu'il a déjà sur cet ordinateur, l'échéance la plus lointaine l'emporte), et le lien est **utilisé** : il ne sert plus à personne. Le propriétaire qui ouvre son propre lien : « C'est votre ordinateur : ce lien est pour quelqu'un d'autre. », le lien reste en attente.
+- Liste : « En attente · jusqu'au {date} », « Utilisé par {nom} le {date} », « Expiré », « Révoqué » ; « Révoquer » (« Révoquer ce lien ? Il ne servira plus. »). Révoquer un lien déjà utilisé ne retire pas l'accès : on le retire dans « Qui y a accès ».
+- Refus à l'ouverture : « Ce lien a déjà servi. », « Ce lien a expiré. », « Ce lien a été révoqué. », « Ce lien est illisible. ».
+- Journal : création, utilisation (qui) et révocation, au journal de la famille ou de l'équipe pour un de ses ordinateurs, et au journal du compte.
+
+**Groupes d'ordinateurs** (famille ou équipe, onglet « Ordinateurs ») : une **liste d'ordinateurs** de la famille ou de l'équipe, choisis à la main (« Postes de l'atelier »).
+- Créer (« Nom »), ajouter ou retirer un ordinateur, supprimer le groupe (« Supprimer le groupe « {nom} » ? Les droits donnés sur ce groupe partent avec lui. »). Un ordinateur peut être dans plusieurs groupes ; un ordinateur qui quitte la famille ou l'équipe quitte ses groupes.
+- **Ouvrir un groupe** : à toute la famille ou l'équipe, à un de ses groupes de personnes, ou à un de ses membres, avec des droits et une échéance facultative. Ces droits valent pour tous les ordinateurs du groupe, **présents et à venir**, et s'ajoutent à ceux donnés ordinateur par ordinateur.
+- Sur la page d'un ordinateur, « Qui y a accès » montre aussi les droits venus d'un groupe : « Par le groupe {groupe} », sans « Retirer » (on les change sur le groupe).
+- **Déployer** : un jeton d'enrôlement peut ranger d'office les ordinateurs enrôlés dans un groupe d'ordinateurs (« Ranger dans le groupe »).
+- Gérer les groupes d'ordinateurs : les Propriétaires et Administrateurs, avec la double authentification.
+
 ## L'espace du compte
 
 Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). La console du relais (`/compte/…`) devient une appli : un **menu latéral fixe** et une **colonne de contenu de largeur constante** (920 px), quelle que soit la page ; au téléphone (moins de 880 px), le menu devient une **barre d'onglets en bas**.

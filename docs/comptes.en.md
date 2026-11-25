@@ -74,6 +74,32 @@ This document is the framing, to be approved before the mockup and the code. Sta
 - Rights are given to a person or to a group. The organization's log says who opened what, when, from where, and every change of rights.
 - Two-factor authentication **mandatory** for an organization's Owners and Administrators, and for any account with the Administer right.
 
+### Watch, access links and computer groups
+
+Decided on 25/11/2026.
+
+**Watch** (right `view`, “Watch” / « Regarder »): see a computer's screen without taking it over: no keyboard, mouse, controller or clipboard.
+- The right's sentence: “See the computer's screen, with no keyboard, mouse or controller.”; example: “Your son who wants to show you his game”.
+- It is the **real screen**, as it is: no virtual display, nothing changes for the person using the computer. Watching goes through sharing (KyberNow Share): the person joins the computer's open share as a **spectator** guest; if there is none, the Station opens one for them, of the PC's main screen, or of the session in progress if someone is connected. That share has no code to show; it closes when the last spectator leaves.
+- **Several screens**: the bar offers “Screen” and the list of the PC's screens; changing it restarts the picture on the other screen.
+- **The host knows**: Admin's feed says “{name} is watching your screen”, the share panel (Admin, tray icon, session bar) shows them like any guest, with “Remove”; the host can also give them the controllers or the keyboard, like any guest.
+- **Refusals**: computer lent (“{name} is lent right now.”), sharing turned off in Admin, accounts turned off, Station too old (“This Station can't be watched yet: update it.”).
+- With the “Open the desktop” right, the card keeps “Connect”; “Watch” is then in the computer's menu.
+
+**Access links** (“Access links”, a computer's page, for whoever manages its access): open the computer to someone whose address you don't have, through a **single-use** link.
+- Create: the rights (the same tiles), “The link works for” 1, 7 (suggested) or 30 days, and “Access until (optional)”. The link (`https://{relay}/compte/lien/kla_…`) is **shown only once**, with “Copy link” and “Send it to one person: it works once and is only shown here.”; the relay keeps only its hash. Ten pending links at most per computer (“Revoke a link before creating another one.”).
+- Opening the link: signed out, the page offers to sign in or create an account, then comes back to the link; signed in: “{name} is opening {computer} to you”, the rights in words, the end date if any, “Accept”. Accepting gives these rights to the account (added to the ones it already has on this computer, the latest end date wins), and the link is **used**: it no longer works for anyone. The owner opening their own link: “This is your computer: this link is for someone else.”, the link stays pending.
+- List: “Pending · until {date}”, “Used by {name} on {date}”, “Expired”, “Revoked”; “Revoke” (“Revoke this link? It will no longer work.”). Revoking a used link doesn't remove the access: remove it in “Who has access”.
+- Refusals on opening: “This link has already been used.”, “This link has expired.”, “This link has been revoked.”, “This link can't be read.”.
+- Log: creation, use (who) and revocation, in the family's or team's log for one of its computers, and in the account's log.
+
+**Computer groups** (family or team, “Computers” tab): a **list of computers** of the family or team, chosen by hand (“Studio workstations”).
+- Create (“Name”), add or remove a computer, delete the group (“Delete the group “{name}”? The rights given on this group go with it.”). A computer can be in several groups; a computer leaving the family or team leaves its groups.
+- **Open a group**: to the whole family or team, to one of its groups of people, or to one of its members, with rights and an optional end date. These rights apply to every computer in the group, **present and future**, and add to the ones given computer by computer.
+- On a computer's page, “Who has access” also shows the rights coming from a group: “Through the group {group}”, with no “Remove” (they are changed on the group).
+- **Deploy**: an enrollment token can put the enrolled computers straight into a computer group (“Put in the group”).
+- Managing computer groups: Owners and Administrators, with two-factor authentication.
+
 ## The account space
 
 Decided on 11/25/2026 with the mockup (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). The relay's console (`/compte/…`) becomes an app: a **fixed side menu** and a **content column of constant width** (920 px), whatever the page; on a phone (under 880 px), the menu becomes a **tab bar at the bottom**.

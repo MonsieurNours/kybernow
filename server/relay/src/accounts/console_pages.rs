@@ -84,6 +84,7 @@ pub const SPRITE: &str = r##"<svg class="ka-sprite" aria-hidden="true"><defs>
 <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
 <symbol id="i-desk" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 8h6M7 11h10"/><path d="M9 20h6"/></symbol>
 <symbol id="i-pad" viewBox="0 0 24 24"><path d="M6 9h12a3 3 0 0 1 3 3v2a3 3 0 0 1-5.2 2l-1-1H9.2l-1 1A3 3 0 0 1 3 14v-2a3 3 0 0 1 3-3z"/><path d="M8 11v3M6.5 12.5h3M16 12h.01M18 13.5h.01"/></symbol>
 <symbol id="i-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.3 10.8l7.4-3.6M8.3 13.2l7.4 3.6"/></symbol>
@@ -297,6 +298,7 @@ fn sheet(v: &View<'_>, id: &str, eyebrow: &str, title: &str, body: &str, open: b
 /// Le nom d'un droit, tel que la console le montre.
 pub fn right_name(lang: Lang, r: Right) -> String {
     match r {
+        Right::View => t(lang, "Regarder", "Watch"),
         Right::Session => t(lang, "Ouvrir le bureau", "Open the desktop"),
         Right::Lend => t(lang, "Emprunter pour jouer", "Borrow to play"),
         Right::Share => t(lang, "Rejoindre vos partages", "Join your shares"),
@@ -320,6 +322,7 @@ pub fn role_name(lang: Lang, role: Role) -> String {
 
 fn right_icon(r: Right) -> &'static str {
     match r {
+        Right::View => "eye",
         Right::Session => "desk",
         Right::Lend => "pad",
         Right::Share => "share",
@@ -329,6 +332,7 @@ fn right_icon(r: Right) -> &'static str {
 
 fn right_help(v: &View<'_>, r: Right) -> String {
     match r {
+        Right::View => v.tr("Voir l'écran de l'ordinateur, sans clavier, souris ni manette.", "See the computer's screen, with no keyboard, mouse or controller."),
         Right::Session => v.tr("Se connecter à l'ordinateur et l'utiliser comme vous, de n'importe où.", "Connect to the computer and use it like you, from anywhere."),
         Right::Lend => v.tr("Jouer aux apps que vous avez permises dans Admin, quand l'ordinateur est libre.", "Play the apps you allowed in Admin, when the computer is free."),
         Right::Share => v.tr("Entrer dans un partage que vous ouvrez, sans taper de code.", "Join a share you open, without typing a code."),
@@ -341,6 +345,7 @@ fn right_help(v: &View<'_>, r: Right) -> String {
 
 fn right_example(v: &View<'_>, r: Right) -> String {
     match r {
+        Right::View => v.tr("Votre fils qui veut vous montrer sa partie.", "Your son who wants to show you his game."),
         Right::Session => v.tr("Votre conjoint qui reprend ses fichiers depuis le portable.", "Your partner picking up their files from the laptop."),
         Right::Lend => v.tr("Votre neveu qui joue le mercredi après-midi.", "Your nephew playing on Wednesday afternoons."),
         Right::Share => v.tr("Un ami qui vous rejoint pour une partie à deux.", "A friend joining you for a two-player game."),
@@ -348,7 +353,7 @@ fn right_example(v: &View<'_>, r: Right) -> String {
     }
 }
 
-/// Les quatre droits, en tuiles à cocher (`session`, `lend`, `share`, `admin`).
+/// Les cinq droits, en tuiles à cocher (`view`, `session`, `lend`, `share`, `admin`).
 fn rights_tiles(v: &View<'_>, legend: &str, checked: &Rights, prefix: &str) -> String {
     let tiles: String = Right::ALL
         .iter()
