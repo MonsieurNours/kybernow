@@ -15,9 +15,9 @@ diff --git a/subprojects/packagefiles/ffmpeg/patches/0023-avcodec-debit-en-direc
 new file mode 100644
 --- /dev/null
 +++ b/subprojects/packagefiles/ffmpeg/patches/0023-avcodec-debit-en-direct.patch
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,272 @@
 +From: KyberNow
-+Subject: [PATCH] avcodec: bitrate changed live (NVENC, VideoToolbox, VAAPI)
++Subject: [PATCH] avcodec: bitrate changed live (NVENC, VideoToolbox, VAAPI, AMF)
 +
 +NVENC: a bitrate change no longer resets the encoder nor forces a key
 +frame, and a VBV buffer the caller did not change follows the bitrate.
@@ -205,3 +205,86 @@ new file mode 100644
 +     VAEncMiscParameterFrameRate   fr_params;
 +     VAEncMiscParameterBufferMaxFrameSize mfs_params;
 + #if VA_CHECK_VERSION(0, 36, 0)
++diff --git a/libavcodec/amfenc.h b/libavcodec/amfenc.h
++--- a/libavcodec/amfenc.h
+++++ b/libavcodec/amfenc.h
++@@ -50,6 +50,7 @@
++     wchar_t             *av_frame_property_name;
++ 
++     int                 hwsurfaces_in_queue;
+++    int64_t             kn_applied_bit_rate; ///< KyberNow : débit donné à l'encodeur (0 : pas encore lu)
++     int                 hwsurfaces_in_queue_max;
++     int                 query_timeout_supported;
++ 
++diff --git a/libavcodec/amfenc.c b/libavcodec/amfenc.c
++--- a/libavcodec/amfenc.c
+++++ b/libavcodec/amfenc.c
++@@ -414,6 +414,59 @@
++     return res;
++ }
++ 
+++/* KyberNow : un débit changé pendant l'encodage (avctx->bit_rate, comme le
+++ * font les deux moteurs de Kyber à /set_bitrate) passe à l'encodeur sans le
+++ * remettre à zéro ni forcer d'image clé ; AMF accepte ces propriétés en cours
+++ * de session. Le débit de crête suit dans la même proportion quand
+++ * l'appelant ne l'a pas fixé (rc_max_rate). */
+++static void kn_amf_update_bitrate(AVCodecContext *avctx)
+++{
+++    AMFEncoderContext *ctx = avctx->priv_data;
+++    const wchar_t *target, *peak;
+++    AMFVariantStruct var;
+++    AMF_RESULT res;
+++    int64_t old = ctx->kn_applied_bit_rate, new_peak = 0;
+++
+++    switch (avctx->codec->id) {
+++    case AV_CODEC_ID_H264:
+++        target = AMF_VIDEO_ENCODER_TARGET_BITRATE;
+++        peak   = AMF_VIDEO_ENCODER_PEAK_BITRATE;
+++        break;
+++    case AV_CODEC_ID_HEVC:
+++        target = AMF_VIDEO_ENCODER_HEVC_TARGET_BITRATE;
+++        peak   = AMF_VIDEO_ENCODER_HEVC_PEAK_BITRATE;
+++        break;
+++    case AV_CODEC_ID_AV1:
+++        target = AMF_VIDEO_ENCODER_AV1_TARGET_BITRATE;
+++        peak   = AMF_VIDEO_ENCODER_AV1_PEAK_BITRATE;
+++        break;
+++    default:
+++        return;
+++    }
+++    if (old <= 0) {
+++        ctx->kn_applied_bit_rate = avctx->bit_rate;
+++        return;
+++    }
+++    if (avctx->bit_rate <= 0 || avctx->bit_rate == old)
+++        return;
+++    if (!avctx->rc_max_rate) {
+++        AMFVariantInit(&var);
+++        if (ctx->encoder->pVtbl->GetProperty(ctx->encoder, peak, &var) == AMF_OK &&
+++            var.type == AMF_VARIANT_INT64 && var.int64Value > 0)
+++            new_peak = av_rescale(var.int64Value, avctx->bit_rate, old);
+++    }
+++    AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, target, avctx->bit_rate);
+++    if (res != AMF_OK) {
+++        av_log(avctx, AV_LOG_WARNING, "bitrate change refused by AMF (%d)\n", res);
+++        ctx->kn_applied_bit_rate = avctx->bit_rate;
+++        return;
+++    }
+++    if (new_peak > 0)
+++        AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, peak, new_peak);
+++    av_log(avctx, AV_LOG_VERBOSE, "avg bitrate change: %"PRId64" -> %"PRId64"\n", old, (int64_t)avctx->bit_rate);
+++    ctx->kn_applied_bit_rate = avctx->bit_rate;
+++}
+++
++ static int amf_submit_frame(AVCodecContext *avctx, AVFrame    *frame, AMFSurface **surface_resubmit)
++ {
++     AMFEncoderContext      *ctx = avctx->priv_data;
++@@ -424,6 +477,8 @@
++     int                     ret;
++     int                     hw_surface = 0;
++     int                     output_delay = FFMAX(ctx->max_b_frames, 0) + ((avctx->flags & AV_CODEC_FLAG_LOW_DELAY) ? 0 : 1);
+++
+++    kn_amf_update_bitrate(avctx);
++ 
++ // prepare surface from frame
++     switch (frame->format) {
