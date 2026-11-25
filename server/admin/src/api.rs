@@ -1503,6 +1503,32 @@ async fn stream_prepare(
             (started.applied, None, started.hdr)
         }
     };
+    // Station Linux : Kyber apprend les écrans virtuels par le fichier que
+    // tient l'agent des écrans (relu toutes les 250 ms). L'app choisit son
+    // écran dans la liste de Kyber dès la réponse : on attend qu'elle les
+    // ait, 2 s au plus (sinon l'app prenait l'écran d'avant, refusé).
+    if cfg!(target_os = "linux") {
+        let mut names: Vec<&str> = applied["gdi_name"].as_str().into_iter().collect();
+        if let Some(list) = applied["screens"].as_array() {
+            names.extend(list.iter().filter_map(|v| v["gdi_name"].as_str()));
+        }
+        let wanted: Vec<u32> = names.iter().map(|n| crate::display::kyber_display_id(n)).collect();
+        if !wanted.is_empty() {
+            let started = std::time::Instant::now();
+            loop {
+                let known = crate::share_api::kyber_display_ids(&s).await.unwrap_or_default();
+                if wanted.iter().all(|id| known.contains(id)) {
+                    tracing::info!("écrans de la session connus de Kyber en {} ms", started.elapsed().as_millis());
+                    break;
+                }
+                if started.elapsed() > std::time::Duration::from_secs(2) {
+                    tracing::warn!("Kyber ne liste pas encore les écrans {wanted:?} (il a {known:?})");
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
+    }
     // Modes des écrans pris, le principal en premier (fil d'événements).
     let taken: Vec<ModeInfo> = screens
         .iter()

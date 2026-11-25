@@ -417,7 +417,7 @@ async fn kyber_stream(s: &AppState, display: u32) -> Option<(String, bool)> {
 }
 
 /// Les écrans que Kyber sait capturer (sa liste, sans compte), s'il répond.
-async fn kyber_display_ids(s: &AppState) -> Option<Vec<u32>> {
+pub(crate) async fn kyber_display_ids(s: &AppState) -> Option<Vec<u32>> {
     let (status, v) = crate::kyber_proxy::kyber_call(s, Method::GET, "/enumerate_displays", None).await.ok()?;
     if !status.is_success() {
         return None;
