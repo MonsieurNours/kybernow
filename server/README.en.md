@@ -216,6 +216,8 @@ Contract and milestones: [docs/station-linux.en.md](../docs/station-linux.en.md)
 
 Test Station: `server/linux/scripts/run-station.sh start|stop|status` in the GNOME session (systemd user services, data in `~/.local/share/kybernow/station-essai`); Kyber through `server/linux/scripts/build-kyber.sh`, packages through `server/linux/scripts/package.sh`.
 
+Immutable systems (Bazzite, Fedora Atomic, SteamOS): `KyberNow-Station-Linux-<arch>.tar.xz` archive installed in the user's folder by `server/linux/immutable` (building, installation, update, removal), see “Immutable systems” in [docs/station-linux.en.md](../docs/station-linux.en.md). Installation for users: [linux/INSTALLATION.en.md](linux/INSTALLATION.en.md).
+
 ## Developing on the Mac
 
 ```bash
