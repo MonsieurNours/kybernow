@@ -1,0 +1,942 @@
+diff --git a/kynput/src/linux/host_gamepad.rs b/kynput/src/linux/host_gamepad.rs
+index 4dbeb3a..d695015 100644
+--- a/kynput/src/linux/host_gamepad.rs
++++ b/kynput/src/linux/host_gamepad.rs
+@@ -20,6 +20,7 @@
+ 
+ use std::collections::HashMap;
+ use std::sync::{Arc, Mutex, Weak};
++use std::os::fd::AsRawFd;
+ use std::thread;
+ 
+ use evdev_rs::{InputEvent as EvdevEvent, TimeVal, UInputDevice, enums::*};
+@@ -33,6 +34,7 @@ use log::{debug, error, info, warn};
+ use mio::unix::SourceFd;
+ use mio::{Events, Interest, Poll, Token};
+ 
++use crate::linux::uhid_gamepad::DualSense;
+ use crate::linux::uinput_generated::gamepad::DESC;
+ use crate::linux::utils::eventfd_waker::Waker;
+ use crate::linux::utils::uinput_utils::plug_device;
+@@ -46,6 +48,16 @@ const QUEUE_TOKEN: Token = Token(0);
+ const STOP_TOKEN: Token = Token(1);
+ const UINPUT_TOKEN_OFFSET: usize = 2;
+ 
++/// KyberNow (correctif Linux 0005) : manettes Sony que l'appareil peut
++/// annoncer (DualShock 3 et 4, DualSense et DualSense Edge), comme la Station
++/// Windows (`windows/host_gamepad`) et la Station Mac.
++const SONY_VENDOR: u16 = 0x054c;
++const SONY_PRODUCTS: &[u16] = &[0x0268, 0x05c4, 0x0ba0, 0x09cc, 0x0ce6, 0x0df2];
++
++fn is_playstation(vendor_id: Option<u16>, product_id: Option<u16>) -> bool {
++    vendor_id == Some(SONY_VENDOR) && product_id.is_some_and(|p| SONY_PRODUCTS.contains(&p))
++}
++
+ // Linux input documentation: https://elixir.bootlin.com/linux/v5.16.10/source/include/uapi/linux/input.h#L296
+ // Linux feedback documentation: https://elixir.bootlin.com/linux/v5.16.10/source/include/uapi/linux/uinput.h#L172
+ 
+@@ -210,7 +222,9 @@ impl Device {
+         // should not be used and have unspecified results."
+         //
+         // It should be safe to cast to i16
+-        let duration = if effect.replay.length <= i16::MAX as u16 {
++        // KyberNow : 0 veut dire « sans fin » pour Linux (et SDL donne 0xFFFF) :
++        // -1, « pas de durée », comme les autres Stations.
++        let duration = if effect.replay.length > 0 && effect.replay.length <= i16::MAX as u16 {
+             effect.replay.length as i16
+         } else {
+             -1
+@@ -239,21 +253,38 @@ impl Device {
+             ))
+     }
+ 
++    /// KyberNow : mio prévient une fois pour tout ce qui attend (epoll en
++    /// mode front) : on lit jusqu'à ce que le noyau n'ait plus rien, sans
++    /// quoi un effet resterait en attente jusqu'au suivant.
+     fn process_fd(&mut self) -> Result<()> {
+-        let mut event: input_event = unsafe { std::mem::zeroed() };
+-
+-        let ret = unsafe {
+-            libc::read(
+-                self.raw_fd,
+-                &mut event as *mut _ as *mut _,
+-                std::mem::size_of::<input_event>(),
+-            )
+-        };
+-        if ret == -1 {
+-            let err = std::io::Error::last_os_error();
+-            warn!("Feedback read failed: {:?}", err);
+-            return Err(err.into());
++        loop {
++            let mut event: input_event = unsafe { std::mem::zeroed() };
++
++            let ret = unsafe {
++                libc::read(
++                    self.raw_fd,
++                    &mut event as *mut _ as *mut _,
++                    std::mem::size_of::<input_event>(),
++                )
++            };
++            if ret == -1 {
++                let err = std::io::Error::last_os_error();
++                match err.kind() {
++                    std::io::ErrorKind::WouldBlock => return Ok(()),
++                    std::io::ErrorKind::Interrupted => continue,
++                    _ => {
++                        warn!("Feedback read failed: {:?}", err);
++                        return Err(err.into());
++                    }
++                }
++            }
++            if let Err(err) = self.process_event(&event) {
++                warn!("Gamepad {} feedback event not handled: {err:?}", self.id);
++            }
+         }
++    }
++
++    fn process_event(&mut self, event: &input_event) -> Result<()> {
+ 
+         match event.type_ as c_int {
+             EV_UINPUT => match event.code as c_int {
+@@ -269,7 +300,7 @@ impl Device {
+                 Some(EV_FF::FF_GAIN) => {
+                     debug!("EV_FF::FF_GAIN");
+                 }
+-                _ => self.handle_ff(&event)?,
++                _ => self.handle_ff(event)?,
+             },
+             _ => {
+                 warn!("Unexpected event {}", event.type_);
+@@ -286,6 +317,12 @@ struct Backend {
+ 
+     consumer: Weak<dyn InputConsumer>,
+     devices: HashMap<u32, Device>,
++    /// KyberNow : manettes PlayStation, en DualSense par uhid.
++    dualsenses: HashMap<u32, DualSense>,
++    /// « Toutes les manettes en Xbox 360 » (réglage d'Admin).
++    force_xbox: bool,
++    /// uhid a déjà refusé : les manettes PlayStation passent en Xbox sans réessayer.
++    uhid_failed: bool,
+ }
+ 
+ impl Backend {
+@@ -293,12 +330,19 @@ impl Backend {
+         poll: Poll,
+         queue: Arc<BlockingQueue<InputPacket>>,
+         consumer: Weak<dyn InputConsumer>,
++        force_xbox: bool,
+     ) -> Result<Self> {
++        if force_xbox {
++            info!("All gamepads plugged as Xbox 360 controllers");
++        }
+         Ok(Self {
+             poll,
+             queue,
+             consumer,
+             devices: HashMap::new(),
++            dualsenses: HashMap::new(),
++            force_xbox,
++            uhid_failed: false,
+         })
+     }
+ 
+@@ -319,8 +363,20 @@ impl Backend {
+                     token => {
+                         let id = (usize::from(token) - UINPUT_TOKEN_OFFSET) as u32;
+ 
++                        // KyberNow : une erreur sur une manette ne doit pas
++                        // arrêter toutes les autres (le fil s'arrêtait).
+                         if let Some(device) = self.devices.get_mut(&id) {
+-                            device.process_fd()?;
++                            if let Err(err) = device.process_fd() {
++                                error!("Gamepad {id}: {err:?}");
++                            }
++                        } else if let Some(pad) = self.dualsenses.get_mut(&id) {
++                            match pad.process() {
++                                Ok(Some((large_motor, small_motor))) => {
++                                    self.send_rumble(id, large_motor, small_motor);
++                                }
++                                Ok(None) => {}
++                                Err(err) => error!("DualSense {id}: {err:?}"),
++                            }
+                         } else {
+                             warn!("Trying to process an unknown device (id={})", id);
+                         }
+@@ -332,18 +388,68 @@ impl Backend {
+         Ok(())
+     }
+ 
+-    fn handle_plug(&mut self, id: u32) -> Result<()> {
+-        if self.devices.contains_key(&id) {
++    fn send_rumble(&self, id: u32, large_motor: u16, small_motor: u16) {
++        let Some(consumer) = self.consumer.upgrade() else { return };
++        // Comme les autres Stations : sans durée, jusqu'à la suivante.
++        let pkt = InputPacket::new(
++            InputTarget::Client,
++            Payload::GamepadEvent(GamepadEvent::Rumble { id, large_motor, small_motor, duration: -1 }),
++        );
++        if let Err(err) = consumer.consume(pkt) {
++            warn!("Rumble of gamepad {id} not sent: {err:?}");
++        }
++    }
++
++    /// KyberNow : une manette PlayStation de l'appareil devient une DualSense
++    /// (uhid), sauf avec « Toutes les manettes en Xbox 360 » ; si uhid n'est
++    /// pas là (module absent, droits), une manette Xbox.
++    fn plug_dualsense(&mut self, id: u32) -> bool {
++        if self.uhid_failed {
++            return false;
++        }
++        let pad = match DualSense::plug(id) {
++            Ok(pad) => pad,
++            Err(err) => {
++                warn!(
++                    "DualSense {id} not plugged ({}: {err}); Xbox 360 controller instead",
++                    crate::linux::uhid_gamepad::UHID_PATH
++                );
++                self.uhid_failed = true;
++                return false;
++            }
++        };
++        let raw_fd = pad.file().as_raw_fd();
++        let token = Token(id as usize + UINPUT_TOKEN_OFFSET);
++        if let Err(err) = self.poll.registry().register(&mut SourceFd(&raw_fd), token, Interest::READABLE) {
++            error!("DualSense {id} not watched: {err:?}");
++            return false;
++        }
++        info!("Plug DualSense gamepad {id}");
++        self.dualsenses.insert(id, pad);
++        true
++    }
++
++    fn handle_plug(&mut self, id: u32, vendor_id: Option<u16>, product_id: Option<u16>) -> Result<()> {
++        if self.devices.contains_key(&id) || self.dualsenses.contains_key(&id) {
+             warn!("Trying to plug an already plugged gamepad (id: {})", id);
+             return Err(Error::Rejected);
+         }
+ 
+-        info!("Plug gamepad {}", id);
++        if !self.force_xbox && is_playstation(vendor_id, product_id) && self.plug_dualsense(id) {
++            return Ok(());
++        }
++
++        info!("Plug gamepad {} (device {:04x?}:{:04x?})", id, vendor_id, product_id);
+ 
+         let device = plug_device("Xbox 360 Controller", &DESC)?;
+         let raw_fd = device
+             .as_fd()
+             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
++        // KyberNow : lecture sans attente (voir `Device::process_fd`).
++        unsafe {
++            let flags = libc::fcntl(raw_fd, libc::F_GETFL);
++            libc::fcntl(raw_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
++        }
+ 
+         // Register to event loop to get rumble notifications
+         let token = Token(id as usize + UINPUT_TOKEN_OFFSET);
+@@ -361,7 +467,7 @@ impl Backend {
+     fn handle_unplug(&mut self, id: u32) -> Result<()> {
+         info!("Unplug gamepad {}", id);
+ 
+-        let ret = self.devices.remove(&id);
++        let ret = self.devices.remove(&id).map(|_| ()).or(self.dualsenses.remove(&id).map(|_| ()));
+         if ret.is_none() {
+             warn!("Tried to remove unknown gamepad {}", id);
+         }
+@@ -371,8 +477,8 @@ impl Backend {
+ 
+     fn handle_control(&mut self, event: &GamepadControl) -> Result<()> {
+         match event {
+-            GamepadControl::Plug { id, .. } => {
+-                self.handle_plug(*id)?;
++            GamepadControl::Plug { id, vendor_id, product_id } => {
++                self.handle_plug(*id, *vendor_id, *product_id)?;
+             }
+             GamepadControl::Unplug { id } => {
+                 self.handle_unplug(*id)?;
+@@ -387,6 +493,8 @@ impl Backend {
+             GamepadEvent::Button { id, type_, pressed } => {
+                 if let Some(device) = self.devices.get_mut(id) {
+                     device.inject_button(type_, pressed)?;
++                } else if let Some(pad) = self.dualsenses.get_mut(id) {
++                    pad.set_button(*type_, *pressed)?;
+                 } else {
+                     warn!("Got Button for unknown gamepad {}", id);
+                     return Err(Error::Rejected);
+@@ -395,6 +503,8 @@ impl Backend {
+             GamepadEvent::Axis { id, type_, value } => {
+                 if let Some(device) = self.devices.get_mut(id) {
+                     device.inject_axis(type_, value)?;
++                } else if let Some(pad) = self.dualsenses.get_mut(id) {
++                    pad.set_axis(*type_, *value)?;
+                 } else {
+                     warn!("Got Axis for unknown gamepad {}", id);
+                     return Err(Error::Rejected);
+@@ -446,7 +556,8 @@ pub struct HostGamepadHandler {
+ }
+ 
+ impl HostGamepadHandler {
+-    pub fn new(consumer: Weak<dyn InputConsumer>) -> Result<Self> {
++    /// `force_xbox` : « Toutes les manettes en Xbox 360 » (`gamepad_force_xbox360`).
++    pub fn new(consumer: Weak<dyn InputConsumer>, force_xbox: bool) -> Result<Self> {
+         let queue = Arc::new(BlockingQueue::new());
+ 
+         let poll = Poll::new()?;
+@@ -456,7 +567,7 @@ impl HostGamepadHandler {
+         let thread_queue = queue.clone();
+ 
+         let join_handle = thread::spawn(move || {
+-            let mut backend = Backend::new(poll, thread_queue, consumer)?;
++            let mut backend = Backend::new(poll, thread_queue, consumer, force_xbox)?;
+             backend.run()
+         });
+ 
+@@ -530,12 +641,21 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn playstation_models() {
++        assert!(is_playstation(Some(0x054c), Some(0x0ce6)));
++        assert!(is_playstation(Some(0x054c), Some(0x05c4)));
++        assert!(!is_playstation(Some(0x054c), Some(0x1234)));
++        assert!(!is_playstation(Some(0x045e), Some(0x0b13)));
++        assert!(!is_playstation(None, None));
++    }
++
+     #[test]
+     fn start_stop() {
+         let consumer = Arc::new(Consumer::new());
+         let input_consumer: Arc<dyn InputConsumer> = consumer.clone();
+ 
+-        let handler = Arc::new(HostGamepadHandler::new(Arc::downgrade(&input_consumer)).unwrap());
++        let handler = Arc::new(HostGamepadHandler::new(Arc::downgrade(&input_consumer), false).unwrap());
+         handler.clone().start().unwrap();
+         thread::sleep(time::Duration::from_millis(100));
+         handler.clone().stop().unwrap();
+@@ -546,7 +666,7 @@ mod tests {
+         let consumer = Arc::new(Consumer::new());
+         let input_consumer: Arc<dyn InputConsumer> = consumer.clone();
+ 
+-        let handler = Arc::new(HostGamepadHandler::new(Arc::downgrade(&input_consumer)).unwrap());
++        let handler = Arc::new(HostGamepadHandler::new(Arc::downgrade(&input_consumer), false).unwrap());
+         handler.clone().start().unwrap();
+ 
+         let inputs = [
+diff --git a/kynput/src/linux/mod.rs b/kynput/src/linux/mod.rs
+index 9773d59..cb91f29 100644
+--- a/kynput/src/linux/mod.rs
++++ b/kynput/src/linux/mod.rs
+@@ -28,6 +28,7 @@ pub mod host_keyboard;
+ pub mod host_mouse;
+ pub mod host_mouse_position;
+ pub mod pipeline_config;
++mod uhid_gamepad;
+ mod uinput_generated;
+ pub mod utils;
+ 
+diff --git a/kynput/src/linux/pipeline_config.rs b/kynput/src/linux/pipeline_config.rs
+index b92b7c4..68da020 100644
+--- a/kynput/src/linux/pipeline_config.rs
++++ b/kynput/src/linux/pipeline_config.rs
+@@ -42,9 +42,11 @@ impl InputPipelineConfigBuilder for PipelineConfigBuilder {
+         service_config: &ServiceConfig,
+     ) -> Option<InputPipelineConfig> {
+         let mouse_handler_host_config = host_config.clone();
++        // KyberNow (correctif Linux 0005) : « Toutes les manettes en Xbox 360 ».
++        let gamepad_force_xbox360 = service_config.gamepad_force_xbox360;
+ 
+         let mut builders: Vec<InputHandlerBuilder> = vec![
+-            Box::new(|router| Ok(Arc::new(HostGamepadHandler::new(router)?))),
++            Box::new(move |router| Ok(Arc::new(HostGamepadHandler::new(router, gamepad_force_xbox360)?))),
+             Box::new(|_router| {
+                 Ok(Arc::new(HostKeyboardHandler::new(
+                     HostKeyboardConfig::default(),
+diff --git a/kynput/src/linux/uhid_gamepad.rs b/kynput/src/linux/uhid_gamepad.rs
+new file mode 100644
+index 0000000..abe1de4
+--- /dev/null
++++ b/kynput/src/linux/uhid_gamepad.rs
+@@ -0,0 +1,560 @@
++// Project Kyber: uhid_gamepad.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow (Station Linux, correctif 0005) : une manette PlayStation de
++//! l'appareil devient une DualSense de l'ordinateur, par `/dev/uhid`.
++//!
++//! uhid crée un vrai appareil HID ; le pilote `hid-playstation` de Linux le
++//! prend comme une DualSense branchée en USB (054C:0CE6) : manette, capteurs
++//! et pavé tactile pour evdev, `hidraw` pour SDL et Steam. Les jeux y voient
++//! une DualSense (icônes, gâchettes), et ses vibrations nous reviennent dans
++//! ses rapports de sortie (0x02), que nous renvoyons à l'appareil.
++//!
++//! - Rapports : ceux d'une DualSense en USB (descripteur relevé sur une
++//!   CFI-ZCT1W), comme la Station Mac (correctif Mac 0011).
++//! - `hid-playstation` lit trois rapports de fonction à l'ouverture
++//!   (calibrage 0x05, appairage 0x09, micrologiciel 0x20) : nous y répondons
++//!   (`UHID_GET_REPORT`). Il refuse deux manettes de même adresse MAC (rapport
++//!   0x09) : chacune a la sienne, tirée de son numéro.
++//! - La lumière et les gâchettes adaptatives ne reviennent pas à l'appareil :
++//!   le protocole de Kyber ne porte que la vibration.
++//!
++//! Ce fichier n'utilise que `std` : ses tests passent aussi hors de Linux.
++
++use std::fs::{File, OpenOptions};
++use std::io::{ErrorKind, Read, Write};
++use std::os::unix::fs::OpenOptionsExt;
++use std::time::Instant;
++
++use crate::{GamepadAxis, GamepadButton};
++
++pub(crate) const UHID_PATH: &str = "/dev/uhid";
++
++// linux/uhid.h
++const UHID_DESTROY: u32 = 1;
++const UHID_START: u32 = 2;
++const UHID_STOP: u32 = 3;
++const UHID_OPEN: u32 = 4;
++const UHID_CLOSE: u32 = 5;
++const UHID_OUTPUT: u32 = 6;
++const UHID_GET_REPORT: u32 = 9;
++const UHID_GET_REPORT_REPLY: u32 = 10;
++const UHID_CREATE2: u32 = 11;
++const UHID_INPUT2: u32 = 12;
++const UHID_SET_REPORT: u32 = 13;
++const UHID_SET_REPORT_REPLY: u32 = 14;
++const UHID_DATA_MAX: usize = 4096;
++/// `struct uhid_event` (packée) : type, puis la plus grande des variantes,
++/// `uhid_create2_req` (128 + 64 + 64 + 2 + 2 + 4 × 4 + 4096).
++pub(crate) const UHID_EVENT_SIZE: usize = 4 + 128 + 64 + 64 + 2 + 2 + 16 + UHID_DATA_MAX;
++const BUS_USB: u16 = 0x03;
++const EIO: u16 = 5;
++
++/// État d'une manette, tel que l'appareil l'envoie (conventions de SDL :
++/// axes de -32768 à 32767, Y vers le bas, gâchettes de 0 à 32767).
++#[derive(Default)]
++pub(crate) struct PadState {
++    buttons: u16,
++    axes: [i16; 6],
++    seq: u8,
++}
++
++impl PadState {
++    pub(crate) fn pressed(&self, b: GamepadButton) -> bool {
++        self.buttons & (1 << b as u16) != 0
++    }
++
++    pub(crate) fn set(&mut self, b: GamepadButton, pressed: bool) {
++        if pressed {
++            self.buttons |= 1 << b as u16;
++        } else {
++            self.buttons &= !(1 << b as u16);
++        }
++    }
++
++    pub(crate) fn set_axis(&mut self, a: GamepadAxis, value: i16) {
++        self.axes[a as usize] = value;
++    }
++
++    fn axis(&self, a: GamepadAxis) -> i16 {
++        self.axes[a as usize]
++    }
++
++    /// Croix directionnelle : 0 = haut, puis sens horaire (7 = haut-gauche),
++    /// `None` au repos ; haut et bas (ou gauche et droite) ensemble s'annulent.
++    fn hat(&self) -> Option<u8> {
++        let dy = self.pressed(GamepadButton::DPadDown) as i8 - self.pressed(GamepadButton::DPadUp) as i8;
++        let dx = self.pressed(GamepadButton::DPadRight) as i8 - self.pressed(GamepadButton::DPadLeft) as i8;
++        match (dx, dy) {
++            (0, -1) => Some(0),
++            (1, -1) => Some(1),
++            (1, 0) => Some(2),
++            (1, 1) => Some(3),
++            (0, 1) => Some(4),
++            (-1, 1) => Some(5),
++            (-1, 0) => Some(6),
++            (-1, -1) => Some(7),
++            _ => None,
++        }
++    }
++
++    fn stick8(v: i16) -> u8 {
++        ((v as i32 + 32768) >> 8) as u8
++    }
++
++    fn trigger8(v: i16) -> u8 {
++        (v.max(0) as u32 * 255 / i16::MAX as u32) as u8
++    }
++
++    /// Rapport 0x01 d'une DualSense en USB (64 octets). `timestamp` : horloge
++    /// des capteurs, en tiers de microseconde.
++    pub(crate) fn dualsense_report(&mut self, timestamp: u32) -> [u8; 64] {
++        use GamepadButton as B;
++        let mut r = [0u8; 64];
++        r[0] = 0x01;
++        r[1] = Self::stick8(self.axis(GamepadAxis::LeftX));
++        r[2] = Self::stick8(self.axis(GamepadAxis::LeftY));
++        r[3] = Self::stick8(self.axis(GamepadAxis::RightX));
++        r[4] = Self::stick8(self.axis(GamepadAxis::RightY));
++        let l2 = Self::trigger8(self.axis(GamepadAxis::TriggerLeft));
++        let r2 = Self::trigger8(self.axis(GamepadAxis::TriggerRight));
++        r[5] = l2;
++        r[6] = r2;
++        self.seq = self.seq.wrapping_add(1);
++        r[7] = self.seq;
++        let bit = |b: GamepadButton, v: u8| if self.pressed(b) { v } else { 0 };
++        // Boutons de l'appareil nommés comme ceux d'une manette Xbox : A en
++        // bas (croix), B à droite (rond), X à gauche (carré), Y en haut (triangle).
++        r[8] = self.hat().unwrap_or(8) | bit(B::X, 0x10) | bit(B::A, 0x20) | bit(B::B, 0x40) | bit(B::Y, 0x80);
++        r[9] = bit(B::LeftShoulder, 0x01)
++            | bit(B::RightShoulder, 0x02)
++            | if l2 > 0 { 0x04 } else { 0 }
++            | if r2 > 0 { 0x08 } else { 0 }
++            | bit(B::Back, 0x10)
++            | bit(B::Start, 0x20)
++            | bit(B::LeftStick, 0x40)
++            | bit(B::RightStick, 0x80);
++        r[10] = bit(B::Guide, 0x01);
++        r[28..32].copy_from_slice(&timestamp.to_le_bytes());
++        // Pavé tactile : deux points inactifs (bit haut levé).
++        r[33] = 0x80;
++        r[37] = 0x80;
++        // Batterie pleine, hors charge.
++        r[53] = 0x2a;
++        r[54] = 0x0c;
++        r
++    }
++}
++
++/// Vibration lue dans un rapport de sortie 0x02 d'une DualSense en USB
++/// (numéro du rapport en tête, tel que uhid le donne) : (gros moteur, petit
++/// moteur), de 0 à 65535 ; `None` si le rapport ne parle pas de vibration
++/// (lumière, voyants, gâchettes seulement).
++pub(crate) fn rumble_from_output(data: &[u8]) -> Option<(u16, u16)> {
++    if data.len() < 5 || data[0] != 0x02 {
++        return None;
++    }
++    // valid_flag0 : vibration « compatible » (0x01) ou choix des moteurs (0x02).
++    if data[1] & 0x03 == 0 {
++        return None;
++    }
++    let scale = |v: u8| (v as u32 * 65535 / 255) as u16;
++    // motor_right (petit, aigu), puis motor_left (gros, grave).
++    Some((scale(data[4]), scale(data[3])))
++}
++
++/// Rapport de fonction demandé par `hid-playstation` (ou SDL) ; `None` :
++/// inconnu, on répond par une erreur.
++pub(crate) fn feature_report(rnum: u8, pad: u32) -> Option<Vec<u8>> {
++    match rnum {
++        0x05 => Some(DUALSENSE_CALIBRATION.to_vec()),
++        0x09 => {
++            let mut r = DUALSENSE_PAIRING.to_vec();
++            // Adresse MAC (octets 1 à 6, poids faible d'abord) : une par manette,
++            // sans quoi le pilote refuse la deuxième (« Duplicate device »).
++            // 02 en tête : adresse administrée localement.
++            let id = pad.to_le_bytes();
++            r[1..7].copy_from_slice(&[id[0], id[1], id[2], id[3], 0x4b, 0x02]);
++            Some(r)
++        }
++        0x20 => Some(DUALSENSE_FIRMWARE.to_vec()),
++        _ => None,
++    }
++}
++
++fn event(kind: u32) -> Vec<u8> {
++    let mut e = vec![0u8; UHID_EVENT_SIZE];
++    e[0..4].copy_from_slice(&kind.to_ne_bytes());
++    e
++}
++
++/// `UHID_CREATE2` d'une DualSense en USB.
++pub(crate) fn create_event(pad: u32) -> Vec<u8> {
++    let mut e = event(UHID_CREATE2);
++    let name = b"Sony Interactive Entertainment DualSense Wireless Controller";
++    e[4..4 + name.len()].copy_from_slice(name);
++    let phys = format!("kybernow/gamepad{pad}");
++    e[132..132 + phys.len()].copy_from_slice(phys.as_bytes());
++    let uniq = format!("KyberNow-{pad}");
++    e[196..196 + uniq.len()].copy_from_slice(uniq.as_bytes());
++    let o = 260;
++    e[o..o + 2].copy_from_slice(&(DUALSENSE_DESCRIPTOR.len() as u16).to_ne_bytes());
++    e[o + 2..o + 4].copy_from_slice(&BUS_USB.to_ne_bytes());
++    e[o + 4..o + 8].copy_from_slice(&0x054cu32.to_ne_bytes());
++    e[o + 8..o + 12].copy_from_slice(&0x0ce6u32.to_ne_bytes());
++    e[o + 12..o + 16].copy_from_slice(&0x0100u32.to_ne_bytes());
++    // country : 0
++    e[o + 20..o + 20 + DUALSENSE_DESCRIPTOR.len()].copy_from_slice(&DUALSENSE_DESCRIPTOR);
++    e
++}
++
++/// `UHID_INPUT2` : un rapport d'entrée.
++pub(crate) fn input_event(report: &[u8]) -> Vec<u8> {
++    let mut e = event(UHID_INPUT2);
++    e[4..6].copy_from_slice(&(report.len() as u16).to_ne_bytes());
++    e[6..6 + report.len()].copy_from_slice(report);
++    e
++}
++
++fn get_report_reply(id: u32, data: Option<&[u8]>) -> Vec<u8> {
++    let mut e = event(UHID_GET_REPORT_REPLY);
++    e[4..8].copy_from_slice(&id.to_ne_bytes());
++    match data {
++        Some(d) => {
++            e[10..12].copy_from_slice(&(d.len() as u16).to_ne_bytes());
++            e[12..12 + d.len()].copy_from_slice(d);
++        }
++        None => e[8..10].copy_from_slice(&EIO.to_ne_bytes()),
++    }
++    e
++}
++
++fn set_report_reply(id: u32) -> Vec<u8> {
++    let mut e = event(UHID_SET_REPORT_REPLY);
++    e[4..8].copy_from_slice(&id.to_ne_bytes());
++    e
++}
++
++/// Ce que le noyau nous dit d'une manette.
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) enum Incoming {
++    Started,
++    Stopped,
++    Opened,
++    Closed,
++    Output(Vec<u8>),
++    GetReport { id: u32, rnum: u8 },
++    SetReport { id: u32 },
++    Other(u32),
++}
++
++pub(crate) fn parse(e: &[u8]) -> Option<Incoming> {
++    if e.len() < 12 {
++        return None;
++    }
++    let u32_at = |o: usize| u32::from_ne_bytes([e[o], e[o + 1], e[o + 2], e[o + 3]]);
++    let u16_at = |o: usize| u16::from_ne_bytes([e[o], e[o + 1]]) as usize;
++    Some(match u32_at(0) {
++        UHID_START => Incoming::Started,
++        UHID_STOP => Incoming::Stopped,
++        UHID_OPEN => Incoming::Opened,
++        UHID_CLOSE => Incoming::Closed,
++        UHID_OUTPUT if e.len() >= 4 + UHID_DATA_MAX + 2 => {
++            let size = u16_at(4 + UHID_DATA_MAX).min(UHID_DATA_MAX);
++            Incoming::Output(e[4..4 + size].to_vec())
++        }
++        UHID_GET_REPORT => Incoming::GetReport { id: u32_at(4), rnum: e[8] },
++        UHID_SET_REPORT => Incoming::SetReport { id: u32_at(4) },
++        other => Incoming::Other(other),
++    })
++}
++
++/// Une DualSense de l'ordinateur, tenue par `/dev/uhid` : fermer le fichier
++/// la débranche.
++pub(crate) struct DualSense {
++    pad: u32,
++    file: File,
++    state: PadState,
++    started: bool,
++    born: Instant,
++    /// Dernière vibration renvoyée (une vibration nulle ne part qu'après une vraie).
++    rumble: (u16, u16),
++}
++
++impl DualSense {
++    pub(crate) fn plug(pad: u32) -> std::io::Result<Self> {
++        let mut file = OpenOptions::new()
++            .read(true)
++            .write(true)
++            .custom_flags(0o4000 /* O_NONBLOCK */)
++            .open(UHID_PATH)?;
++        file.write_all(&create_event(pad))?;
++        Ok(Self { pad, file, state: PadState::default(), started: false, born: Instant::now(), rumble: (0, 0) })
++    }
++
++    pub(crate) fn file(&self) -> &File {
++        &self.file
++    }
++
++    pub(crate) fn set_button(&mut self, b: GamepadButton, pressed: bool) -> std::io::Result<()> {
++        self.state.set(b, pressed);
++        self.send_report()
++    }
++
++    pub(crate) fn set_axis(&mut self, a: GamepadAxis, value: i16) -> std::io::Result<()> {
++        self.state.set_axis(a, value);
++        self.send_report()
++    }
++
++    fn send_report(&mut self) -> std::io::Result<()> {
++        // Avant UHID_START, le noyau refuse les rapports : l'état part au démarrage.
++        if !self.started {
++            return Ok(());
++        }
++        let ts = (self.born.elapsed().as_micros() as u64 * 3) as u32;
++        let report = self.state.dualsense_report(ts);
++        self.file.write_all(&input_event(&report))
++    }
++
++    /// Lit tout ce que le noyau a pour nous ; rend la nouvelle vibration s'il
++    /// y en a une à renvoyer à l'appareil.
++    pub(crate) fn process(&mut self) -> std::io::Result<Option<(u16, u16)>> {
++        let mut rumble = None;
++        let mut buf = vec![0u8; UHID_EVENT_SIZE];
++        loop {
++            let n = match self.file.read(&mut buf) {
++                Ok(n) => n,
++                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
++                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
++                Err(e) => return Err(e),
++            };
++            match parse(&buf[..n]) {
++                Some(Incoming::Started) => {
++                    log::info!("DualSense {} started by the kernel", self.pad);
++                    self.started = true;
++                    self.send_report()?;
++                }
++                Some(Incoming::Stopped) => self.started = false,
++                Some(Incoming::GetReport { id, rnum }) => {
++                    let report = feature_report(rnum, self.pad);
++                    if report.is_none() {
++                        log::debug!("DualSense {}: unknown feature report {rnum:#04x}", self.pad);
++                    }
++                    self.file.write_all(&get_report_reply(id, report.as_deref()))?;
++                }
++                Some(Incoming::SetReport { id }) => self.file.write_all(&set_report_reply(id))?,
++                Some(Incoming::Output(data)) => {
++                    if let Some(r) = rumble_from_output(&data)
++                        && r != self.rumble
++                    {
++                        self.rumble = r;
++                        rumble = Some(r);
++                    }
++                }
++                Some(Incoming::Opened | Incoming::Closed | Incoming::Other(_)) | None => {}
++            }
++        }
++        Ok(rumble)
++    }
++}
++
++impl Drop for DualSense {
++    fn drop(&mut self) {
++        let _ = self.file.write_all(&event(UHID_DESTROY));
++    }
++}
++
++// Descripteur d'une DualSense en USB (CFI-ZCT1W, 273 octets), relevé par
++// github.com/nondebug/dualsense ; le même que la Station Mac.
++const DUALSENSE_DESCRIPTOR: [u8; 273] = [
++    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35,
++    0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x06, 0x81, 0x02, 0x06,
++    0x00, 0xff, 0x09, 0x20, 0x95, 0x01, 0x81, 0x02, 0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07,
++    0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00, 0x05,
++    0x09, 0x19, 0x01, 0x29, 0x0f, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0f, 0x81, 0x02, 0x06,
++    0x00, 0xff, 0x09, 0x21, 0x95, 0x0d, 0x81, 0x02, 0x06, 0x00, 0xff, 0x09, 0x22, 0x15, 0x00, 0x26,
++    0xff, 0x00, 0x75, 0x08, 0x95, 0x34, 0x81, 0x02, 0x85, 0x02, 0x09, 0x23, 0x95, 0x2f, 0x91, 0x02,
++    0x85, 0x05, 0x09, 0x33, 0x95, 0x28, 0xb1, 0x02, 0x85, 0x08, 0x09, 0x34, 0x95, 0x2f, 0xb1, 0x02,
++    0x85, 0x09, 0x09, 0x24, 0x95, 0x13, 0xb1, 0x02, 0x85, 0x0a, 0x09, 0x25, 0x95, 0x1a, 0xb1, 0x02,
++    0x85, 0x20, 0x09, 0x26, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x21, 0x09, 0x27, 0x95, 0x04, 0xb1, 0x02,
++    0x85, 0x22, 0x09, 0x40, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x80, 0x09, 0x28, 0x95, 0x3f, 0xb1, 0x02,
++    0x85, 0x81, 0x09, 0x29, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x82, 0x09, 0x2a, 0x95, 0x09, 0xb1, 0x02,
++    0x85, 0x83, 0x09, 0x2b, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0x84, 0x09, 0x2c, 0x95, 0x3f, 0xb1, 0x02,
++    0x85, 0x85, 0x09, 0x2d, 0x95, 0x02, 0xb1, 0x02, 0x85, 0xa0, 0x09, 0x2e, 0x95, 0x01, 0xb1, 0x02,
++    0x85, 0xe0, 0x09, 0x2f, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf0, 0x09, 0x30, 0x95, 0x3f, 0xb1, 0x02,
++    0x85, 0xf1, 0x09, 0x31, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf2, 0x09, 0x32, 0x95, 0x0f, 0xb1, 0x02,
++    0x85, 0xf4, 0x09, 0x35, 0x95, 0x3f, 0xb1, 0x02, 0x85, 0xf5, 0x09, 0x36, 0x95, 0x03, 0xb1, 0x02,
++    0xc0,
++];
++
++// Rapports de fonction lus à l'ouverture : calibrage des capteurs (0x05,
++// 41 octets), appairage (0x09, 20 octets), micrologiciel (0x20, 64 octets).
++// Valeurs d'inputtino (github.com/games-on-whales/inputtino, MIT), qui les
++// sert au même pilote Linux.
++const DUALSENSE_CALIBRATION: [u8; 41] = [
++    0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x27, 0xf0, 0xd8, 0x10, 0x27, 0xf0, 0xd8, 0x10,
++    0x27, 0xf0, 0xd8, 0xf4, 0x01, 0xf4, 0x01, 0x10, 0x27, 0xf0, 0xd8, 0x10, 0x27, 0xf0, 0xd8, 0x10,
++    0x27, 0xf0, 0xd8, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00,
++];
++const DUALSENSE_PAIRING: [u8; 20] = [
++    0x09, 0x74, 0xe7, 0xd6, 0x3a, 0x53, 0x35, 0x08, 0x25, 0x00, 0x1e, 0x00, 0xee, 0x74, 0xd0, 0xbc,
++    0x00, 0x00, 0x00, 0x00,
++];
++const DUALSENSE_FIRMWARE: [u8; 64] = [
++    0x20, 0x4a, 0x75, 0x6e, 0x20, 0x31, 0x39, 0x20, 0x32, 0x30, 0x32, 0x33, 0x31, 0x34, 0x3a, 0x34,
++    0x37, 0x3a, 0x33, 0x34, 0x03, 0x00, 0x44, 0x00, 0x08, 0x02, 0x00, 0x01, 0x36, 0x00, 0x00, 0x01,
++    0xc1, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x01, 0x00, 0x00,
++    0x14, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++];
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn pad(buttons: &[GamepadButton]) -> PadState {
++        let mut s = PadState::default();
++        for b in buttons {
++            s.set(*b, true);
++        }
++        s
++    }
++
++    #[test]
++    fn event_size_matches_the_kernel() {
++        // sizeof(struct uhid_event) sous Linux (x86_64 et arm64).
++        assert_eq!(UHID_EVENT_SIZE, 4380 - 4);
++    }
++
++    #[test]
++    fn create_event_layout() {
++        let e = create_event(7);
++        assert_eq!(e.len(), UHID_EVENT_SIZE);
++        assert_eq!(&e[0..4], &11u32.to_ne_bytes());
++        assert!(e[4..132].starts_with(b"Sony Interactive Entertainment DualSense"));
++        assert!(e[196..260].starts_with(b"KyberNow-7\0"));
++        assert_eq!(&e[260..262], &273u16.to_ne_bytes(), "rd_size");
++        assert_eq!(&e[262..264], &3u16.to_ne_bytes(), "bus USB");
++        assert_eq!(&e[264..268], &0x054cu32.to_ne_bytes());
++        assert_eq!(&e[268..272], &0x0ce6u32.to_ne_bytes());
++        assert_eq!(&e[280..283], &[0x05, 0x01, 0x09], "descripteur");
++        assert_eq!(e[280 + 272], 0xc0);
++    }
++
++    #[test]
++    fn input_event_layout() {
++        let mut s = PadState::default();
++        let e = input_event(&s.dualsense_report(0));
++        assert_eq!(&e[0..4], &12u32.to_ne_bytes());
++        assert_eq!(&e[4..6], &64u16.to_ne_bytes());
++        assert_eq!(e[6], 0x01, "numéro du rapport");
++    }
++
++    #[test]
++    fn parse_kernel_events() {
++        let mut e = event(UHID_GET_REPORT);
++        e[4..8].copy_from_slice(&42u32.to_ne_bytes());
++        e[8] = 0x09;
++        assert_eq!(parse(&e), Some(Incoming::GetReport { id: 42, rnum: 0x09 }));
++
++        let mut e = event(UHID_OUTPUT);
++        e[4..9].copy_from_slice(&[0x02, 0x03, 0x00, 0x40, 0xff]);
++        e[4 + UHID_DATA_MAX..4 + UHID_DATA_MAX + 2].copy_from_slice(&63u16.to_ne_bytes());
++        let Some(Incoming::Output(data)) = parse(&e) else { panic!("rapport de sortie") };
++        assert_eq!(data.len(), 63);
++        assert_eq!(rumble_from_output(&data), Some((65535, 0x40 * 257)));
++
++        assert_eq!(parse(&event(UHID_START)), Some(Incoming::Started));
++        assert_eq!(parse(&[0; 3]), None);
++    }
++
++    #[test]
++    fn get_report_reply_layout() {
++        let r = feature_report(0x05, 0).unwrap();
++        let e = get_report_reply(9, Some(&r));
++        assert_eq!(&e[0..4], &10u32.to_ne_bytes());
++        assert_eq!(&e[4..8], &9u32.to_ne_bytes());
++        assert_eq!(&e[8..10], &0u16.to_ne_bytes(), "pas d'erreur");
++        assert_eq!(&e[10..12], &41u16.to_ne_bytes());
++        assert_eq!(e[12], 0x05);
++        let e = get_report_reply(9, None);
++        assert_eq!(&e[8..10], &EIO.to_ne_bytes());
++    }
++
++    #[test]
++    fn each_pad_has_its_own_mac() {
++        let a = feature_report(0x09, 1).unwrap();
++        let b = feature_report(0x09, 2).unwrap();
++        assert_eq!((a.len(), a[0]), (20, 0x09));
++        assert_ne!(&a[1..7], &b[1..7]);
++        assert_eq!(feature_report(0x20, 0).unwrap().len(), 64);
++        assert_eq!(feature_report(0x42, 0), None);
++    }
++
++    #[test]
++    fn dualsense_at_rest() {
++        let r = PadState::default().dualsense_report(0);
++        assert_eq!(&r[..7], &[0x01, 0x80, 0x80, 0x80, 0x80, 0, 0]);
++        assert_eq!(r[8], 0x08, "croix au repos");
++        assert_eq!((r[9], r[10]), (0, 0));
++        assert_eq!((r[33], r[37]), (0x80, 0x80), "pavé tactile non touché");
++    }
++
++    #[test]
++    fn dualsense_buttons_and_axes() {
++        use GamepadButton as B;
++        let mut s = pad(&[B::A, B::Y, B::DPadUp, B::DPadRight, B::Start, B::Guide, B::RightStick]);
++        s.set_axis(GamepadAxis::LeftX, i16::MIN);
++        s.set_axis(GamepadAxis::LeftY, i16::MAX);
++        s.set_axis(GamepadAxis::TriggerRight, i16::MAX);
++        let r = s.dualsense_report(0);
++        assert_eq!((r[1], r[2]), (0x00, 0xff));
++        assert_eq!(r[6], 0xff);
++        assert_eq!(r[8], 0x01 | 0x20 | 0x80, "haut-droite, croix, triangle");
++        assert_eq!(r[9], 0x08 | 0x20 | 0x80, "R2, Options, R3");
++        assert_eq!(r[10], 0x01, "PS");
++        assert_eq!(s.dualsense_report(0)[7], r[7].wrapping_add(1), "numéro de rapport");
++    }
++
++    #[test]
++    fn opposite_directions_cancel() {
++        use GamepadButton as B;
++        assert_eq!(pad(&[B::DPadUp, B::DPadDown]).hat(), None);
++        assert_eq!(pad(&[B::DPadDown, B::DPadLeft]).hat(), Some(5));
++    }
++
++    #[test]
++    fn rumble_reports() {
++        let mut ds = vec![0u8; 63];
++        ds[0] = 0x02;
++        ds[1] = 0x02; // choix des moteurs (pilote Linux)
++        ds[3] = 0x40; // petit moteur
++        ds[4] = 0xff; // gros moteur
++        assert_eq!(rumble_from_output(&ds), Some((65535, 0x40 * 257)));
++        ds[1] = 0x00;
++        ds[2] = 0x04; // lumière seulement
++        assert_eq!(rumble_from_output(&ds), None);
++        assert_eq!(rumble_from_output(&[0x05, 0x03, 0, 0, 0]), None, "autre rapport");
++    }
++
++    #[test]
++    fn descriptor_size() {
++        assert_eq!(DUALSENSE_DESCRIPTOR.len(), 273);
++    }
++}
+diff --git a/kynput/tests/inputs_inject_acquire.rs b/kynput/tests/inputs_inject_acquire.rs
+index 01c66db..ba53b4e 100644
+--- a/kynput/tests/inputs_inject_acquire.rs
++++ b/kynput/tests/inputs_inject_acquire.rs
+@@ -138,7 +138,7 @@ mod platform {
+                         HostMouseConfig::default().with_listener(host_mouse_listener),
+                     )?))
+                 }),
+-                Box::new(|router| Ok(Arc::new(HostGamepadHandler::new(router)?))),
++                Box::new(|router| Ok(Arc::new(HostGamepadHandler::new(router, false)?))),
+             ],
+         };
+ 
+@@ -360,7 +360,7 @@ mod platform {
+             target: InputTarget::Host,
+             builders: vec![
+                 Box::new(|_router| Ok(Arc::new(HostKeyboardMouseHandler::new()?))),
+-                Box::new(|router| Ok(Arc::new(HostGamepadHandler::new(router)?))),
++                Box::new(|router| Ok(Arc::new(HostGamepadHandler::new(router, false)?))),
+             ],
+         };
+ 

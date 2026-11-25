@@ -59,6 +59,24 @@ kynputserver injects keyboard, mouse and controllers through `/dev/uinput`, on X
 
 **Absolute pointer on Wayland** (Linux Kyber patch 0002): on Wayland, no program can place the pointer (XTest only moves Xwayland's). kynput therefore plugs a second uinput device, « KyberNow pointeur », with two absolute axes and a mouse's buttons: udev classes it as an absolute mouse (like a virtual machine's tablet) and the compositor spreads it over its whole desktop. Its axes cover the box around the displays the Station announces (places written by the agent). While it holds the pointer, clicks and wheel go through it (GNOME does not apply another mouse's clicks in that case); a relative move (captured pointer, games) hands back to the relative mouse. On X11, nothing changes (XTest).
 
+### Controllers
+
+Linux Kyber patch 0005. As on Windows and the Mac, a PlayStation controller on the device (Sony: DualShock 3 and 4, DualSense, DualSense Edge) becomes a DualSense on the computer, any other an Xbox 360 controller; Admin's “All controllers as Xbox 360” setting (`gamepad_force_xbox360`) makes them all Xbox.
+
+- **DualSense through uhid** (`kynput/src/linux/uhid_gamepad.rs`): `/dev/uhid` creates a real HID device, a DualSense plugged in over USB (054C:0CE6, descriptor taken from a CFI-ZCT1W, the same as the Mac Station). Linux's `hid-playstation` driver takes it as a real one: controller, sensors and touchpad for evdev, `hidraw` for SDL and Steam; games see a DualSense (PlayStation icons). kynput answers the three reports the driver reads when it opens it (calibration, pairing, firmware), with one MAC address per controller (the driver refuses two controllers with the same address). Rumble comes back in the controller's output reports (0x02) and goes to the device, with no duration, as on the other Stations. The light bar, player LEDs and adaptive triggers do not come back: Kyber's protocol only carries rumble.
+- **Xbox 360 through uinput** (already in Kyber, completed): Linux's “endless” rumble (length 0, or 0xFFFF from SDL) sent with no duration; all rumble feedback read at once (the thread read one per wake-up and an effect could wait for the next one); an error on one controller no longer stops all the others.
+- **Without uhid** (module missing, permissions): the PlayStation controller becomes an Xbox 360 one, with a warning in kynput's log. The package must open `/dev/uhid` to the user like `/dev/uinput` (`uaccess` udev rule, `uhid` module loaded), and these DualSenses' `hidraw` for SDL and Steam.
+
+kynput's log: “Plug DualSense gamepad 1”, “DualSense 1 started by the kernel”, or “Plug gamepad 1 (device …)” for an Xbox one.
+
+### Pen
+
+Linux Kyber patch 0006, following common patch 0027 ([stylet.en.md](stylet.en.md), “Linux Station”): the Station announces the pen (`PenAvailable`) and receives it as a uinput graphics tablet, « KyberNow stylet » (`BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `BTN_TOUCH`, `BTN_STYLUS`, `ABS_PRESSURE`, `ABS_TILT_X/Y`), created at the pen's first packet. udev classes it as a tablet, libinput hands it to the compositor (Wayland: `tablet-v2`, X11: XInput2): pressure, tilt, eraser, button and hover in Krita, GIMP or Inkscape. It covers the box of the announced displays, like the absolute pointer. Rotation does not go through (libinput only reads it on some Wacom pens).
+
+### Clipboard
+
+Linux Kyber patch 0007. On Wayland, a program without a window can neither read nor set the clipboard; Kyber's X11 route (Xwayland) depends on what the compositor copies between X11 and Wayland (KWin only does it while an X11 window has the keyboard). kynput therefore uses the clipboard managers' protocol when the compositor offers it: `ext-data-control-v1` (KDE Plasma 6), otherwise `zwlr-data-control-unstable-v1` (Plasma 5, KWin up to 6.4). Text and HTML, same rights as the other Stations (copy to the device, paste from the device). GNOME offers neither: the Station stays on X11 there, whose clipboard Mutter copies to Wayland and back, and the log says so (“Wayland compositor without data-control (GNOME): clipboard through X11 (Xwayland)”). `KYBERNOW_CLIPBOARD=x11` forces X11 (troubleshooting).
+
 ### Sound
 
 Admin (`audio/mod.rs`, `linux` module) creates at the start of the session a « KyberNow » output (PipeWire's `module-null-sink`, through `pactl`) with the device's channel count (2, 6 or 8, PulseAudio order), makes it the default output and moves the playing sounds to it: nothing comes out of the computer's speakers. Kyber captures the default output's monitor. At the end: original output given back, sounds moved back, module removed (and removed at startup if one was left by an interrupted session).
@@ -109,6 +127,9 @@ Kept in `server/linux/kyber-patches`, applied after the common patches by `serve
 | `0002-kynput-pointeur-wayland` | Absolute pointer through uinput on Wayland, clicks and wheel through it while it holds the pointer |
 | `0003-libavgrab-gstreamer-1-24` | Builds with GStreamer 1.24 (Ubuntu 24.04), which lacks `gst_message_get_details` |
 | `0004-kymedia-luac-5-4` | A 5.4 `luac` built by Kyber when the system has none (Fedora 45: Lua 5.5), from Lua's sources |
+| `0005-kynput-manettes-linux` | The device's PlayStation controller as a DualSense through uhid (rumble sent back), the others as Xbox 360 through uinput; “All controllers as Xbox 360” honoured; endless Xbox rumble, read at once |
+| `0006-kynput-stylet-linux` | Pen as a uinput graphics tablet (pressure, tilt, eraser, button, hover); the Station announces it (`PenAvailable`) |
+| `0007-kynput-presse-papiers-wayland` | Clipboard through `ext-data-control-v1` (or `zwlr-data-control`) on Wayland when the compositor offers it (KDE); otherwise X11 through Xwayland (GNOME) |
 
 ## Building
 
@@ -152,7 +173,7 @@ Pitfalls met:
 
 ## What the KyberNow Link apps see
 
-Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR, PyroWave, pen, lending) is not announced, and the apps behave as with a Station that does not have it.
+Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR, PyroWave, lending) is not announced, and the apps behave as with a Station that does not have it.
 
 ## Breakdown
 
@@ -160,7 +181,7 @@ Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station�
 2. **Admin on Linux.** systemd service, Station recognised, restart, encoders: **written**. Wake on LAN (`/sys`, `ethtool`), home preview (one frame of the display's PipeWire stream), graphics card (`/sys/class/drm`, PCI database, NVML, `amdgpu`), app at session start (`.desktop` files, systemd services, Steam Big Picture), Auto mouse for X11 games (Xwayland): **written and tested on the Mac** (source parsing), not yet tried in a VM or on a real machine.
 3. **Virtual displays.** GNOME through Mutter and KDE Plasma 6 through KWin: **written and tried in the VMs** (see “Tests”).
 4. **Sound.** KyberNow PipeWire output: **written**.
-5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland: to do.
+5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland (data-control): **written** (patches 0005 to 0007, built for Linux and unit tests on the Mac on 25/11/2026), not tried on Linux yet.
 6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Updates from Admin and from the apps (root service through a socket, rollback), tray icon by the clock, published packages: **written**, tested on the Mac (Admin and tray tests), not tried on Linux yet (see "Tests").
 7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try), PC lending (console mode in the host's session, sleep prevented by `systemd-inhibit`), HDR (GNOME virtual display in BT.2100: GNOME does not offer it yet), PyroWave (Vulkan, DMA-BUF import), live bitrate with VA-API (to add to common patch 0026): to do.
 8. **Immutable systems** (Bazzite, SteamOS). To do.
@@ -188,4 +209,4 @@ Pitfalls found on the way: the app picks its display from Kyber's list as soon a
 
 Defects found and fixed on the way: a layout without a virtual display disabled the displays on KDE; a refused virtual display left Kyber without a display; Plasma 6's “Virtual-KyberNow-1” name wasn't recognised; Plasma 6's `kscreen-doctor` output (one property per line) wasn't read; a display turned back on was looked up under its old object.
 
-**Not tried yet**: updating from Admin (socket, root service, apt and dnf, health check, rollback), the tray icon on GNOME and KDE, building the tray icon and root service on Linux; a session from an app on KDE, an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.
+**Not tried yet**: updating from Admin (socket, root service, apt and dnf, health check, rollback), the tray icon on GNOME and KDE, building the tray icon and root service on Linux; a session from an app on KDE, an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers (Xbox and DualSense), the pen, the clipboard on Wayland, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.

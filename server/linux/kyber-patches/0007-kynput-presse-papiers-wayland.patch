@@ -1,0 +1,853 @@
+diff --git a/kynput/Cargo.toml b/kynput/Cargo.toml
+index 78d1e4f..9bd130e 100644
+--- a/kynput/Cargo.toml
++++ b/kynput/Cargo.toml
+@@ -35,6 +35,11 @@ input-linux-sys = "0.9"
+ libc = "0.2.153"
+ mio = "1.1"
+ users = { version = "0.11.0", features = [] }
++# KyberNow (correctif Linux 0007) : presse-papiers sous Wayland (data-control),
++# en Rust seul (sans libwayland).
++wayland-client = "0.31"
++wayland-protocols = { version = "0.32.6", features = ["client", "staging"] }
++wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+ x11 = "2.21.0"
+ xcb = { version = "1.7.0", features = ["render", "x11", "xtest", "xfixes"] }
+ 
+diff --git a/kynput/src/linux/clipboard.rs b/kynput/src/linux/clipboard.rs
+index 81e30aa..0121318 100644
+--- a/kynput/src/linux/clipboard.rs
++++ b/kynput/src/linux/clipboard.rs
+@@ -768,6 +768,33 @@ impl ClipboardHandler {
+         let thread_queue = queue.clone();
+ 
+         let join_handle = thread::spawn(move || {
++            // KyberNow (correctif Linux 0007) : sous Wayland, le presse-papiers
++            // de la Station passe par data-control quand le compositeur
++            // l'offre (KDE) ; sinon (GNOME), par X11 et Xwayland.
++            let mut poll = poll;
++            if target == InputTarget::Client && super::wl_clipboard::wanted() {
++                match super::wl_clipboard::Backend::new(
++                    poll,
++                    thread_queue.clone(),
++                    target,
++                    remote.clone(),
++                    allow_read,
++                    allow_write,
++                ) {
++                    Ok(mut backend) => return backend.run(),
++                    Err((returned, reason)) => {
++                        poll = returned;
++                        match reason {
++                            super::wl_clipboard::Unavailable::NoDataControl => info!(
++                                "Wayland compositor without data-control (GNOME): clipboard through X11 (Xwayland)"
++                            ),
++                            super::wl_clipboard::Unavailable::NoConnection(err) => {
++                                warn!("Wayland clipboard unavailable ({err}): clipboard through X11")
++                            }
++                        }
++                    }
++                }
++            }
+             let mut backend =
+                 Backend::new(poll, thread_queue, target, remote, allow_read, allow_write)?;
+             backend.run()
+diff --git a/kynput/src/linux/mod.rs b/kynput/src/linux/mod.rs
+index 90e4ebc..ac26c5d 100644
+--- a/kynput/src/linux/mod.rs
++++ b/kynput/src/linux/mod.rs
+@@ -33,6 +33,7 @@ pub mod pipeline_config;
+ mod uhid_gamepad;
+ mod uinput_generated;
+ pub mod utils;
++mod wl_clipboard;
+ 
+ pub use client_cursor::ClientCursorHandler;
+ pub use clipboard::ClipboardHandler;
+diff --git a/kynput/src/linux/wl_clipboard.rs b/kynput/src/linux/wl_clipboard.rs
+new file mode 100644
+index 0000000..60bb33d
+--- /dev/null
++++ b/kynput/src/linux/wl_clipboard.rs
+@@ -0,0 +1,781 @@
++// Project Kyber: wl_clipboard.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow (Station Linux, correctif 0007) : le presse-papiers sous Wayland.
++//!
++//! Sous Wayland, un programme sans fenêtre ne peut ni lire ni poser le
++//! presse-papiers (seule l'application qui a le clavier le peut). Le passage
++//! par X11 (Xwayland) de `clipboard.rs` dépend de ce que le compositeur
++//! recopie entre X11 et Wayland : KWin ne le fait que quand une fenêtre X11 a
++//! le clavier. Les compositeurs qui le permettent offrent aux gestionnaires
++//! de presse-papiers un protocole à part, « data-control » :
++//! `ext-data-control-v1` (KDE Plasma 6, wlroots récents), et avant lui
++//! `zwlr-data-control-unstable-v1` (Plasma 5, KWin jusqu'à 6.4, Sway…).
++//! Celui-ci prend le premier des deux qui est là ; GNOME (Mutter) n'offre ni
++//! l'un ni l'autre : on reste sur X11, dont Mutter recopie le presse-papiers
++//! vers Wayland et retour, et le journal le dit.
++//!
++//! Mêmes messages et mêmes droits que `clipboard.rs` (copie vers l'appareil,
++//! collage depuis l'appareil), texte et HTML.
++//!
++//! - Presse-papiers de l'ordinateur changé : événement `selection` avec une
++//!   offre et ses types (`text/plain;charset=utf-8`, `text/html`…) ;
++//!   l'appareil reçoit `Change`, puis demande les données (`DataRequest`),
++//!   lues par un tube (`receive`).
++//! - Presse-papiers de l'appareil : une source à nous (`set_selection`) qui
++//!   annonce les types ; une application qui colle demande (`send`, avec le
++//!   bout d'un tube) : on demande les données à l'appareil (`DataRequest`) et
++//!   on les écrit dans le tube à leur arrivée. Notre source porte en plus un
++//!   type à nous, qui la fait reconnaître quand elle nous revient en offre.
++//! - `KYBERNOW_CLIPBOARD=x11` : rester sur X11 (dépannage).
++
++use std::collections::{HashMap, VecDeque};
++use std::io::{ErrorKind, Read, Write};
++use std::os::fd::{AsFd, AsRawFd, OwnedFd};
++use std::sync::{Arc, Mutex, Weak};
++use std::time::{Duration, Instant};
++
++use log::{debug, error, info, warn};
++use mio::unix::SourceFd;
++use mio::{Events, Interest, Poll, Token};
++use wayland_client::backend::{ObjectId, WaylandError};
++use wayland_client::globals::{GlobalListContents, registry_queue_init};
++use wayland_client::protocol::{wl_registry, wl_seat::WlSeat};
++use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, event_created_child};
++use wayland_protocols::ext::data_control::v1::client::{
++    ext_data_control_device_v1 as ext_device, ext_data_control_manager_v1 as ext_manager,
++    ext_data_control_offer_v1 as ext_offer, ext_data_control_source_v1 as ext_source,
++};
++use wayland_protocols_wlr::data_control::v1::client::{
++    zwlr_data_control_device_v1 as wlr_device, zwlr_data_control_manager_v1 as wlr_manager,
++    zwlr_data_control_offer_v1 as wlr_offer, zwlr_data_control_source_v1 as wlr_source,
++};
++
++use crate::ClipboardEvent;
++use crate::types::{ClipboardData, ClipboardFormat, MAX_CLIPBOARD_SIZE};
++use crate::{InputConsumer, InputPacket, InputTarget, Payload, Result};
++
++const QUEUE_TOKEN: Token = Token(0);
++const STOP_TOKEN: Token = Token(1);
++const WAYLAND_TOKEN: Token = Token(2);
++
++/// Type à nous, ajouté à notre source pour la reconnaître.
++const OWN_MIME: &str = "application/x-kybernow-station";
++/// Types du texte, du préféré au moins bon (à la lecture) ; tous annoncés.
++const TEXT_MIMES: &[&str] = &["text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING", "TEXT"];
++const HTML_MIMES: &[&str] = &["text/html"];
++/// Lecture du presse-papiers de l'ordinateur : au plus ce temps.
++const READ_TIMEOUT: Duration = Duration::from_secs(2);
++/// Collage en attente des données de l'appareil : au plus ce temps.
++const PASTE_TIMEOUT: Duration = Duration::from_secs(30);
++
++fn mimes_of(format: ClipboardFormat) -> &'static [&'static str] {
++    match format {
++        ClipboardFormat::Text => TEXT_MIMES,
++        ClipboardFormat::Html => HTML_MIMES,
++    }
++}
++
++/// Format d'un type demandé par une application.
++fn format_of(mime: &str) -> Option<ClipboardFormat> {
++    if TEXT_MIMES.contains(&mime) {
++        Some(ClipboardFormat::Text)
++    } else if HTML_MIMES.contains(&mime) {
++        Some(ClipboardFormat::Html)
++    } else {
++        None
++    }
++}
++
++/// Formats que l'appareil peut recevoir, d'après les types d'une offre.
++fn formats_of(mimes: &[String]) -> Vec<ClipboardFormat> {
++    let mut formats = vec![];
++    for format in [ClipboardFormat::Text, ClipboardFormat::Html] {
++        if mimes.iter().any(|m| mimes_of(format).contains(&m.as_str())) {
++            formats.push(format);
++        }
++    }
++    formats
++}
++
++/// Type à demander pour lire `format` dans une offre.
++fn best_mime(mimes: &[String], format: ClipboardFormat) -> Option<String> {
++    mimes_of(format).iter().find(|m| mimes.iter().any(|o| o == *m)).map(|m| m.to_string())
++}
++
++/// Ce bureau est une session Wayland (et l'on ne demande pas X11).
++pub(crate) fn wanted() -> bool {
++    let forced_x11 = std::env::var("KYBERNOW_CLIPBOARD").is_ok_and(|v| v == "x11");
++    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
++    wayland && !forced_x11
++}
++
++// Les deux protocoles ont les mêmes requêtes et les mêmes événements : de
++// petites énumérations les rendent interchangeables.
++
++enum Manager {
++    Ext(ext_manager::ExtDataControlManagerV1),
++    Wlr(wlr_manager::ZwlrDataControlManagerV1),
++}
++
++enum Device {
++    Ext(ext_device::ExtDataControlDeviceV1),
++    Wlr(wlr_device::ZwlrDataControlDeviceV1),
++}
++
++#[derive(Clone)]
++enum Offer {
++    Ext(ext_offer::ExtDataControlOfferV1),
++    Wlr(wlr_offer::ZwlrDataControlOfferV1),
++}
++
++enum Source {
++    Ext(ext_source::ExtDataControlSourceV1),
++    Wlr(wlr_source::ZwlrDataControlSourceV1),
++}
++
++impl Manager {
++    fn name(&self) -> &'static str {
++        match self {
++            Manager::Ext(_) => "ext-data-control-v1",
++            Manager::Wlr(_) => "zwlr-data-control-unstable-v1",
++        }
++    }
++
++    fn device(&self, seat: &WlSeat, qh: &QueueHandle<State>) -> Device {
++        match self {
++            Manager::Ext(m) => Device::Ext(m.get_data_device(seat, qh, ())),
++            Manager::Wlr(m) => Device::Wlr(m.get_data_device(seat, qh, ())),
++        }
++    }
++
++    fn source(&self, qh: &QueueHandle<State>) -> Source {
++        match self {
++            Manager::Ext(m) => Source::Ext(m.create_data_source(qh, ())),
++            Manager::Wlr(m) => Source::Wlr(m.create_data_source(qh, ())),
++        }
++    }
++}
++
++impl Device {
++    fn set_selection(&self, source: &Source) {
++        match (self, source) {
++            (Device::Ext(d), Source::Ext(s)) => d.set_selection(Some(s)),
++            (Device::Wlr(d), Source::Wlr(s)) => d.set_selection(Some(s)),
++            _ => {}
++        }
++    }
++}
++
++impl Offer {
++    fn id(&self) -> ObjectId {
++        match self {
++            Offer::Ext(o) => o.id(),
++            Offer::Wlr(o) => o.id(),
++        }
++    }
++
++    fn receive(&self, mime: String, fd: std::os::fd::BorrowedFd) {
++        match self {
++            Offer::Ext(o) => o.receive(mime, fd),
++            Offer::Wlr(o) => o.receive(mime, fd),
++        }
++    }
++
++    fn destroy(&self) {
++        match self {
++            Offer::Ext(o) => o.destroy(),
++            Offer::Wlr(o) => o.destroy(),
++        }
++    }
++}
++
++impl Source {
++    fn id(&self) -> ObjectId {
++        match self {
++            Source::Ext(s) => s.id(),
++            Source::Wlr(s) => s.id(),
++        }
++    }
++
++    fn offer(&self, mime: &str) {
++        match self {
++            Source::Ext(s) => s.offer(mime.to_string()),
++            Source::Wlr(s) => s.offer(mime.to_string()),
++        }
++    }
++
++    fn destroy(&self) {
++        match self {
++            Source::Ext(s) => s.destroy(),
++            Source::Wlr(s) => s.destroy(),
++        }
++    }
++}
++
++/// Ce que les événements de Wayland laissent au fil du presse-papiers.
++enum Happened {
++    /// Nouveau presse-papiers de l'ordinateur (`None` : vidé).
++    Selection(Option<Offer>),
++    /// Une application colle depuis notre source.
++    Send { source: ObjectId, mime: String, fd: OwnedFd },
++    /// Notre source n'est plus le presse-papiers.
++    Cancelled(ObjectId),
++    /// Le compositeur retire l'appareil de données.
++    Finished,
++}
++
++#[derive(Default)]
++struct State {
++    /// Types de chaque offre, reçus avant son événement `selection`.
++    offers: HashMap<ObjectId, Vec<String>>,
++    happened: Vec<Happened>,
++}
++
++impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for State {
++    fn event(
++        _: &mut Self,
++        _: &wl_registry::WlRegistry,
++        _: wl_registry::Event,
++        _: &GlobalListContents,
++        _: &Connection,
++        _: &QueueHandle<Self>,
++    ) {
++    }
++}
++
++impl Dispatch<WlSeat, ()> for State {
++    fn event(_: &mut Self, _: &WlSeat, _: wayland_client::protocol::wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
++}
++
++/// Mêmes événements pour les deux protocoles.
++macro_rules! data_control {
++    ($manager:ident :: $Manager:ident, $device:ident :: $Device:ident, $offer:ident :: $Offer:ident,
++     $source:ident :: $Source:ident, $Variant:ident) => {
++        impl Dispatch<$manager::$Manager, ()> for State {
++            fn event(_: &mut Self, _: &$manager::$Manager, _: $manager::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
++        }
++
++        impl Dispatch<$device::$Device, ()> for State {
++            fn event(
++                state: &mut Self,
++                _: &$device::$Device,
++                event: $device::Event,
++                _: &(),
++                _: &Connection,
++                _: &QueueHandle<Self>,
++            ) {
++                match event {
++                    $device::Event::DataOffer { id } => {
++                        state.offers.insert(id.id(), vec![]);
++                    }
++                    $device::Event::Selection { id } => {
++                        state.happened.push(Happened::Selection(id.map(Offer::$Variant)));
++                    }
++                    // Sélection primaire (clic du milieu) : pas pour nous.
++                    $device::Event::PrimarySelection { id: Some(offer) } => {
++                        state.offers.remove(&offer.id());
++                        offer.destroy();
++                    }
++                    $device::Event::Finished => state.happened.push(Happened::Finished),
++                    _ => {}
++                }
++            }
++
++            event_created_child!(State, $device::$Device, [
++                $device::EVT_DATA_OFFER_OPCODE => ($offer::$Offer, ()),
++            ]);
++        }
++
++        impl Dispatch<$offer::$Offer, ()> for State {
++            fn event(
++                state: &mut Self,
++                offer: &$offer::$Offer,
++                event: $offer::Event,
++                _: &(),
++                _: &Connection,
++                _: &QueueHandle<Self>,
++            ) {
++                if let $offer::Event::Offer { mime_type } = event {
++                    state.offers.entry(offer.id()).or_default().push(mime_type);
++                }
++            }
++        }
++
++        impl Dispatch<$source::$Source, ()> for State {
++            fn event(
++                state: &mut Self,
++                source: &$source::$Source,
++                event: $source::Event,
++                _: &(),
++                _: &Connection,
++                _: &QueueHandle<Self>,
++            ) {
++                match event {
++                    $source::Event::Send { mime_type, fd } => {
++                        state.happened.push(Happened::Send { source: source.id(), mime: mime_type, fd })
++                    }
++                    $source::Event::Cancelled => state.happened.push(Happened::Cancelled(source.id())),
++                    _ => {}
++                }
++            }
++        }
++    };
++}
++
++data_control!(
++    ext_manager::ExtDataControlManagerV1,
++    ext_device::ExtDataControlDeviceV1,
++    ext_offer::ExtDataControlOfferV1,
++    ext_source::ExtDataControlSourceV1,
++    Ext
++);
++data_control!(
++    wlr_manager::ZwlrDataControlManagerV1,
++    wlr_device::ZwlrDataControlDeviceV1,
++    wlr_offer::ZwlrDataControlOfferV1,
++    wlr_source::ZwlrDataControlSourceV1,
++    Wlr
++);
++
++/// Presse-papiers de l'ordinateur en ce moment.
++struct Selection {
++    offer: Offer,
++    mimes: Vec<String>,
++}
++
++/// Une application attend les données de l'appareil.
++struct PendingSend {
++    format: ClipboardFormat,
++    fd: OwnedFd,
++    deadline: Instant,
++}
++
++pub(crate) struct Backend {
++    poll: Poll,
++    queue: Arc<Mutex<VecDeque<InputPacket>>>,
++    conn: Connection,
++    events: EventQueue<State>,
++    state: State,
++    manager: Manager,
++    device: Device,
++    target: InputTarget,
++    remote: Weak<dyn InputConsumer>,
++    allow_read: bool,
++    allow_write: bool,
++    /// Presse-papiers de l'ordinateur, s'il vient d'une autre application.
++    selection: Option<Selection>,
++    /// Notre source, quand le presse-papiers vient de l'appareil.
++    source: Option<Source>,
++    pending: Vec<PendingSend>,
++}
++
++/// Pourquoi on reste sur X11.
++pub(crate) enum Unavailable {
++    /// Pas de connexion au compositeur.
++    NoConnection(String),
++    /// Le compositeur n'offre pas data-control (GNOME).
++    NoDataControl,
++}
++
++impl Backend {
++    /// En cas d'échec, `poll` est rendu pour le passage par X11.
++    #[allow(clippy::result_large_err)]
++    pub(crate) fn new(
++        poll: Poll,
++        queue: Arc<Mutex<VecDeque<InputPacket>>>,
++        target: InputTarget,
++        remote: Weak<dyn InputConsumer>,
++        allow_read: bool,
++        allow_write: bool,
++    ) -> std::result::Result<Self, (Poll, Unavailable)> {
++        let conn = match Connection::connect_to_env() {
++            Ok(conn) => conn,
++            Err(err) => return Err((poll, Unavailable::NoConnection(err.to_string()))),
++        };
++        let (globals, mut events) = match registry_queue_init::<State>(&conn) {
++            Ok(g) => g,
++            Err(err) => return Err((poll, Unavailable::NoConnection(err.to_string()))),
++        };
++        let qh = events.handle();
++        let manager = if let Ok(m) = globals.bind::<ext_manager::ExtDataControlManagerV1, _, _>(&qh, 1..=1, ()) {
++            Manager::Ext(m)
++        } else if let Ok(m) = globals.bind::<wlr_manager::ZwlrDataControlManagerV1, _, _>(&qh, 1..=2, ()) {
++            Manager::Wlr(m)
++        } else {
++            return Err((poll, Unavailable::NoDataControl));
++        };
++        let seat = match globals.bind::<WlSeat, _, _>(&qh, 1..=8, ()) {
++            Ok(seat) => seat,
++            Err(err) => return Err((poll, Unavailable::NoConnection(format!("no seat: {err}")))),
++        };
++        let device = manager.device(&seat, &qh);
++        let mut state = State::default();
++        // Le presse-papiers déjà là ne part pas vers l'appareil (comme X11).
++        if let Err(err) = events.roundtrip(&mut state) {
++            return Err((poll, Unavailable::NoConnection(err.to_string())));
++        }
++
++        let fd = conn.backend().poll_fd().as_raw_fd();
++        if let Err(err) = poll.registry().register(&mut SourceFd(&fd), WAYLAND_TOKEN, Interest::READABLE) {
++            return Err((poll, Unavailable::NoConnection(err.to_string())));
++        }
++        info!("Clipboard through Wayland ({})", manager.name());
++
++        let mut backend = Self {
++            poll,
++            queue,
++            conn,
++            events,
++            state,
++            manager,
++            device,
++            target,
++            remote,
++            allow_read,
++            allow_write,
++            selection: None,
++            source: None,
++            pending: vec![],
++        };
++        // L'état de départ, sans l'annoncer.
++        for happened in std::mem::take(&mut backend.state.happened) {
++            if let Happened::Selection(offer) = happened {
++                backend.take_selection(offer);
++            }
++        }
++        Ok(backend)
++    }
++
++    pub(crate) fn run(&mut self) -> Result<()> {
++        let mut events = Events::with_capacity(8);
++        loop {
++            let timeout = self
++                .pending
++                .iter()
++                .map(|p| p.deadline.saturating_duration_since(Instant::now()))
++                .min();
++            self.poll.poll(&mut events, timeout)?;
++            for event in events.iter() {
++                match event.token() {
++                    STOP_TOKEN => return Ok(()),
++                    QUEUE_TOKEN => self.process_queue()?,
++                    WAYLAND_TOKEN => {
++                        if !self.read_wayland()? {
++                            warn!("Wayland connection closed: clipboard stopped");
++                            return Ok(());
++                        }
++                    }
++                    _ => {}
++                }
++            }
++            let now = Instant::now();
++            let before = self.pending.len();
++            self.pending.retain(|p| p.deadline > now);
++            if self.pending.len() < before {
++                warn!("Clipboard data request timed out");
++            }
++            self.conn.flush().map_err(wayland_error)?;
++        }
++    }
++
++    /// Lit et traite les événements de Wayland ; `false` : connexion perdue.
++    fn read_wayland(&mut self) -> Result<bool> {
++        loop {
++            self.events.dispatch_pending(&mut self.state).map_err(|e| io_error(e.to_string()))?;
++            let Some(guard) = self.events.prepare_read() else { continue };
++            match guard.read() {
++                Ok(_) => {}
++                Err(WaylandError::Io(e)) if e.kind() == ErrorKind::WouldBlock => break,
++                Err(WaylandError::Io(e)) if e.kind() == ErrorKind::Interrupted => {}
++                Err(err) => {
++                    error!("Wayland: {err}");
++                    return Ok(false);
++                }
++            }
++        }
++        self.events.dispatch_pending(&mut self.state).map_err(|e| io_error(e.to_string()))?;
++        for happened in std::mem::take(&mut self.state.happened) {
++            match happened {
++                Happened::Selection(offer) => {
++                    if self.take_selection(offer) && self.allow_read {
++                        let formats = self.selection.as_ref().map(|s| formats_of(&s.mimes)).unwrap_or_default();
++                        if !formats.is_empty() {
++                            self.send_pkt(Payload::Clipboard(ClipboardEvent::Change { formats }))?;
++                        }
++                    }
++                }
++                Happened::Send { source, mime, fd } => self.on_send(source, &mime, fd)?,
++                Happened::Cancelled(id) => {
++                    if self.source.as_ref().is_some_and(|s| s.id() == id) {
++                        info!("Clipboard ownership transferred to another application");
++                        if let Some(source) = self.source.take() {
++                            source.destroy();
++                        }
++                    }
++                }
++                Happened::Finished => {
++                    warn!("Wayland data device finished: clipboard stopped");
++                    return Ok(false);
++                }
++            }
++        }
++        Ok(true)
++    }
++
++    /// Retient le nouveau presse-papiers ; `true` s'il vient d'une autre
++    /// application (pas de notre source).
++    fn take_selection(&mut self, offer: Option<Offer>) -> bool {
++        if let Some(old) = self.selection.take() {
++            old.offer.destroy();
++        }
++        let Some(offer) = offer else { return false };
++        let mimes = self.state.offers.remove(&offer.id()).unwrap_or_default();
++        if mimes.iter().any(|m| m == OWN_MIME) {
++            offer.destroy();
++            return false;
++        }
++        debug!("Local clipboard changed: {mimes:?}");
++        self.selection = Some(Selection { offer, mimes });
++        true
++    }
++
++    fn process_queue(&mut self) -> Result<()> {
++        let packets: Vec<_> = self.queue.lock()?.drain(..).collect();
++        for pkt in packets {
++            let Payload::Clipboard(event) = pkt.payload else {
++                error!("Unexpected packet type {:?}", pkt.get_type());
++                continue;
++            };
++            match event {
++                ClipboardEvent::Change { formats } if self.allow_write => self.on_remote_change(&formats),
++                ClipboardEvent::Data(data) if self.allow_write => self.on_remote_data(data),
++                ClipboardEvent::DataUnavailable { format } if self.allow_write => {
++                    self.pending.retain(|p| p.format != format);
++                }
++                ClipboardEvent::DataRequest { format } if self.allow_read => self.on_data_request(format)?,
++                _ => {}
++            }
++        }
++        self.conn.flush().map_err(wayland_error)?;
++        Ok(())
++    }
++
++    /// L'appareil a un nouveau presse-papiers : notre source le devient ici.
++    fn on_remote_change(&mut self, formats: &[ClipboardFormat]) {
++        if formats.is_empty() {
++            return;
++        }
++        let source = self.manager.source(&self.events.handle());
++        for format in formats {
++            for mime in mimes_of(*format) {
++                source.offer(mime);
++            }
++        }
++        source.offer(OWN_MIME);
++        self.device.set_selection(&source);
++        if let Some(old) = self.source.replace(source) {
++            old.destroy();
++        }
++        // Les collages d'avant attendaient l'ancien presse-papiers.
++        self.pending.clear();
++    }
++
++    /// Une application colle depuis notre source.
++    fn on_send(&mut self, source: ObjectId, mime: &str, fd: OwnedFd) -> Result<()> {
++        if !self.source.as_ref().is_some_and(|s| s.id() == source) {
++            return Ok(());
++        }
++        let Some(format) = format_of(mime) else {
++            debug!("Paste of unknown type {mime}");
++            return Ok(());
++        };
++        let asked = self.pending.iter().any(|p| p.format == format);
++        self.pending.push(PendingSend { format, fd, deadline: Instant::now() + PASTE_TIMEOUT });
++        if !asked {
++            self.send_pkt(Payload::Clipboard(ClipboardEvent::DataRequest { format }))?;
++        }
++        Ok(())
++    }
++
++    /// Données de l'appareil : écrites à chaque application qui les attend.
++    fn on_remote_data(&mut self, data: ClipboardData) {
++        let (format, bytes) = match data {
++            ClipboardData::Text(s) => (ClipboardFormat::Text, s.into_bytes()),
++            ClipboardData::Html(s) => (ClipboardFormat::Html, s.into_bytes()),
++        };
++        let (ready, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending).into_iter().partition(|p| p.format == format);
++        self.pending = waiting;
++        if ready.is_empty() {
++            return;
++        }
++        // L'application lit à son rythme : écrire hors du fil du presse-papiers.
++        let bytes = Arc::new(bytes);
++        for p in ready {
++            let bytes = bytes.clone();
++            std::thread::spawn(move || {
++                let mut file = std::fs::File::from(p.fd);
++                if let Err(err) = file.write_all(&bytes) {
++                    debug!("Paste not written: {err}");
++                }
++            });
++        }
++    }
++
++    /// L'appareil demande le presse-papiers de l'ordinateur.
++    fn on_data_request(&mut self, format: ClipboardFormat) -> Result<()> {
++        let data = self.read_local(format);
++        let event = match data {
++            Some(mut data) => {
++                if data.is_too_large() {
++                    warn!("Clipboard data too large ({} bytes, max {}), truncating", data.size(), MAX_CLIPBOARD_SIZE);
++                    data.truncate();
++                }
++                ClipboardEvent::Data(data)
++            }
++            None => ClipboardEvent::DataUnavailable { format },
++        };
++        self.send_pkt(Payload::Clipboard(event))
++    }
++
++    fn read_local(&mut self, format: ClipboardFormat) -> Option<ClipboardData> {
++        let selection = self.selection.as_ref()?;
++        let mime = best_mime(&selection.mimes, format)?;
++        let (mut reader, writer) = match std::io::pipe() {
++            Ok(p) => p,
++            Err(err) => {
++                warn!("Clipboard pipe: {err}");
++                return None;
++            }
++        };
++        selection.offer.receive(mime, writer.as_fd());
++        drop(writer);
++        if let Err(err) = self.conn.flush() {
++            warn!("Wayland flush: {err}");
++            return None;
++        }
++        let bytes = read_with_deadline(&mut reader, Instant::now() + READ_TIMEOUT)?;
++        let text = String::from_utf8_lossy(&bytes).into_owned();
++        Some(match format {
++            ClipboardFormat::Text => ClipboardData::Text(text),
++            ClipboardFormat::Html => ClipboardData::Html(text),
++        })
++    }
++
++    fn send_pkt(&self, payload: Payload) -> Result<()> {
++        if let Some(consumer) = self.remote.upgrade() {
++            consumer.consume(InputPacket::new(self.target, payload))?;
++        }
++        Ok(())
++    }
++}
++
++/// Lit un tube jusqu'à sa fin, au plus `MAX_CLIPBOARD_SIZE` + 1 octets (la
++/// suite est coupée par `truncate`), sans dépasser `deadline`.
++fn read_with_deadline(reader: &mut std::io::PipeReader, deadline: Instant) -> Option<Vec<u8>> {
++    let mut bytes = vec![];
++    let mut buf = [0u8; 16 * 1024];
++    loop {
++        let left = deadline.saturating_duration_since(Instant::now());
++        if left.is_zero() {
++            warn!("Clipboard read timed out");
++            return None;
++        }
++        let mut pfd = libc::pollfd { fd: reader.as_raw_fd(), events: libc::POLLIN, revents: 0 };
++        let ret = unsafe { libc::poll(&mut pfd, 1, left.as_millis().min(i32::MAX as u128) as i32) };
++        if ret < 0 {
++            if std::io::Error::last_os_error().kind() == ErrorKind::Interrupted {
++                continue;
++            }
++            return None;
++        }
++        if ret == 0 {
++            continue;
++        }
++        match reader.read(&mut buf) {
++            Ok(0) => return Some(bytes),
++            Ok(n) => {
++                bytes.extend_from_slice(&buf[..n]);
++                if bytes.len() > MAX_CLIPBOARD_SIZE {
++                    return Some(bytes);
++                }
++            }
++            Err(e) if e.kind() == ErrorKind::Interrupted => {}
++            Err(err) => {
++                warn!("Clipboard read: {err}");
++                return None;
++            }
++        }
++    }
++}
++
++fn io_error(msg: String) -> crate::Error {
++    std::io::Error::other(msg).into()
++}
++
++fn wayland_error(err: WaylandError) -> crate::Error {
++    io_error(err.to_string())
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn mimes(m: &[&str]) -> Vec<String> {
++        m.iter().map(|s| s.to_string()).collect()
++    }
++
++    #[test]
++    fn formats_from_offers() {
++        assert_eq!(formats_of(&mimes(&["text/html", "text/plain;charset=utf-8"])), vec![
++            ClipboardFormat::Text,
++            ClipboardFormat::Html
++        ]);
++        assert_eq!(formats_of(&mimes(&["UTF8_STRING"])), vec![ClipboardFormat::Text]);
++        assert!(formats_of(&mimes(&["image/png"])).is_empty());
++    }
++
++    #[test]
++    fn best_mime_prefers_utf8() {
++        let m = mimes(&["text/plain", "UTF8_STRING", "text/plain;charset=utf-8"]);
++        assert_eq!(best_mime(&m, ClipboardFormat::Text).as_deref(), Some("text/plain;charset=utf-8"));
++        assert_eq!(best_mime(&mimes(&["STRING"]), ClipboardFormat::Text).as_deref(), Some("STRING"));
++        assert_eq!(best_mime(&m, ClipboardFormat::Html), None);
++    }
++
++    #[test]
++    fn requested_types() {
++        assert_eq!(format_of("text/plain"), Some(ClipboardFormat::Text));
++        assert_eq!(format_of("text/html"), Some(ClipboardFormat::Html));
++        assert_eq!(format_of(OWN_MIME), None);
++    }
++
++    #[test]
++    fn pipe_read_with_deadline() {
++        let (mut r, mut w) = std::io::pipe().unwrap();
++        w.write_all(b"bonjour").unwrap();
++        drop(w);
++        assert_eq!(read_with_deadline(&mut r, Instant::now() + Duration::from_secs(1)).as_deref(), Some(&b"bonjour"[..]));
++
++        // Un écrivain qui ne finit pas : abandon à l'échéance.
++        let (mut r, _w) = std::io::pipe().unwrap();
++        assert_eq!(read_with_deadline(&mut r, Instant::now() + Duration::from_millis(50)), None);
++    }
++}

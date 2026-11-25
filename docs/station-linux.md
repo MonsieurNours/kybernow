@@ -59,6 +59,24 @@ kynputserver injecte le clavier, la souris et les manettes par `/dev/uinput`, so
 
 **Pointeur absolu sous Wayland** (correctif Kyber Linux 0002) : sous Wayland, aucun programme ne peut placer le pointeur (XTest ne déplace que celui de Xwayland). kynput branche donc un second appareil uinput, « KyberNow pointeur », à deux axes absolus et aux boutons d'une souris : udev le classe en souris absolue (comme la tablette d'une machine virtuelle) et le compositeur l'étend sur tout son bureau. Ses axes couvrent la boîte autour des écrans que la Station annonce (places écrites par l'agent). Tant qu'il tient le pointeur, les clics et la molette passent par lui (GNOME n'applique pas les clics d'une autre souris dans ce cas) ; un mouvement relatif (pointeur capturé, jeux) rend la main à la souris relative. Sous X11, rien ne change (XTest).
 
+### Manettes
+
+Correctif Kyber Linux 0005. Comme sous Windows et sur Mac, une manette PlayStation de l'appareil (Sony : DualShock 3 et 4, DualSense, DualSense Edge) devient une DualSense de l'ordinateur, toute autre une manette Xbox 360 ; le réglage « Toutes les manettes en Xbox 360 » d'Admin (`gamepad_force_xbox360`) les fait toutes Xbox.
+
+- **DualSense par uhid** (`kynput/src/linux/uhid_gamepad.rs`) : `/dev/uhid` crée un vrai appareil HID, une DualSense branchée en USB (054C:0CE6, descripteur relevé sur une CFI-ZCT1W, le même que la Station Mac). Le pilote `hid-playstation` de Linux la prend comme une vraie : manette, capteurs et pavé tactile pour evdev, `hidraw` pour SDL et Steam ; les jeux y voient une DualSense (icônes PlayStation). kynput répond aux trois rapports que le pilote lit à l'ouverture (calibrage, appairage, micrologiciel), avec une adresse MAC par manette (le pilote refuse deux manettes de même adresse). Les vibrations reviennent dans les rapports de sortie de la manette (0x02) et partent à l'appareil, sans durée, comme sur les autres Stations. La lumière, les voyants et les gâchettes adaptatives ne reviennent pas : le protocole de Kyber ne porte que la vibration.
+- **Xbox 360 par uinput** (déjà dans Kyber, complété) : vibrations « sans fin » de Linux (durée 0, ou 0xFFFF chez SDL) envoyées sans durée ; tous les retours de vibration lus d'un coup (le fil n'en lisait qu'un par réveil et un effet pouvait attendre le suivant) ; une erreur sur une manette n'arrête plus toutes les autres.
+- **Sans uhid** (module absent, droits) : la manette PlayStation devient une Xbox 360, avec un avertissement au journal de kynput. Le paquet doit ouvrir `/dev/uhid` à l'utilisateur comme `/dev/uinput` (règle udev `uaccess`, module `uhid` chargé), et les `hidraw` de ces DualSense pour SDL et Steam.
+
+Journal de kynput : « Plug DualSense gamepad 1 », « DualSense 1 started by the kernel », ou « Plug gamepad 1 (device …) » pour une Xbox.
+
+### Stylet
+
+Correctif Kyber Linux 0006, à la suite du correctif commun 0027 ([stylet.md](stylet.md), « Station Linux ») : la Station annonce le stylet (`PenAvailable`) et le reçoit en tablette graphique uinput, « KyberNow stylet » (`BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `BTN_TOUCH`, `BTN_STYLUS`, `ABS_PRESSURE`, `ABS_TILT_X/Y`), créée au premier paquet du stylet. udev la classe en tablette, libinput la donne au compositeur (Wayland : `tablet-v2`, X11 : XInput2) : pression, inclinaison, gomme, bouton et survol dans Krita, GIMP ou Inkscape. Elle couvre la boîte des écrans annoncés, comme le pointeur absolu. La rotation ne passe pas (libinput ne la lit que sur certains stylets Wacom).
+
+### Presse-papiers
+
+Correctif Kyber Linux 0007. Sous Wayland, un programme sans fenêtre ne peut ni lire ni poser le presse-papiers ; le passage par X11 (Xwayland) de Kyber dépend de ce que le compositeur recopie entre X11 et Wayland (KWin ne le fait que quand une fenêtre X11 a le clavier). kynput passe donc par le protocole des gestionnaires de presse-papiers quand le compositeur l'offre : `ext-data-control-v1` (KDE Plasma 6), sinon `zwlr-data-control-unstable-v1` (Plasma 5, KWin jusqu'à 6.4). Texte et HTML, mêmes droits que les autres Stations (copie vers l'appareil, collage depuis l'appareil). GNOME n'offre ni l'un ni l'autre : la Station y reste sur X11, dont Mutter recopie le presse-papiers vers Wayland et retour, et le journal le dit (« Wayland compositor without data-control (GNOME): clipboard through X11 (Xwayland) »). `KYBERNOW_CLIPBOARD=x11` force X11 (dépannage).
+
 ### Son
 
 Admin (`audio/mod.rs`, module `linux`) crée au début de la session une sortie « KyberNow » (`module-null-sink` de PipeWire, par `pactl`) au nombre de voies de l'appareil (2, 6 ou 8, ordre de PulseAudio), en fait la sortie par défaut et y déplace les sons en cours : rien ne sort des haut-parleurs de l'ordinateur. Kyber capture le retour de la sortie par défaut. À la fin : sortie d'origine rendue, sons ramenés, module retiré (et retiré au démarrage s'il restait d'une session interrompue).
@@ -109,6 +127,9 @@ Rangés dans `server/linux/kyber-patches`, posés après les correctifs communs 
 | `0002-kynput-pointeur-wayland` | Pointeur absolu par uinput sous Wayland, clics et molette par lui tant qu'il tient le pointeur |
 | `0003-libavgrab-gstreamer-1-24` | Compile avec GStreamer 1.24 (Ubuntu 24.04), qui n'a pas `gst_message_get_details` |
 | `0004-kymedia-luac-5-4` | `luac` 5.4 compilé par Kyber quand le système n'en a pas (Fedora 45 : Lua 5.5), avec les sources de Lua |
+| `0005-kynput-manettes-linux` | Manette PlayStation de l'appareil en DualSense par uhid (vibrations renvoyées), les autres en Xbox 360 par uinput ; « Toutes les manettes en Xbox 360 » respecté ; vibrations Xbox sans fin et lues d'un coup |
+| `0006-kynput-stylet-linux` | Stylet en tablette graphique uinput (pression, inclinaison, gomme, bouton, survol) ; la Station l'annonce (`PenAvailable`) |
+| `0007-kynput-presse-papiers-wayland` | Presse-papiers par `ext-data-control-v1` (ou `zwlr-data-control`) sous Wayland quand le compositeur l'offre (KDE) ; sinon X11 par Xwayland (GNOME) |
 
 ## Compiler
 
@@ -152,7 +173,7 @@ Pièges rencontrés :
 
 ## Ce que voient les apps KyberNow Link
 
-Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux ») : un PC, dont le système est le nom de la distribution. Ce qui n'est pas encore là (HDR, PyroWave, stylet, prêt) n'est pas annoncé, et les apps font comme avec une Station qui ne l'a pas.
+Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux ») : un PC, dont le système est le nom de la distribution. Ce qui n'est pas encore là (HDR, PyroWave, prêt) n'est pas annoncé, et les apps font comme avec une Station qui ne l'a pas.
 
 ## Découpage
 
@@ -160,7 +181,7 @@ Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux 
 2. **Admin sous Linux.** Service systemd, Station reconnue, redémarrage, encodeurs : **écrit**. Réveil par le réseau (`/sys`, `ethtool`), aperçu de l'accueil (une image du flux PipeWire de l'écran), carte graphique (`/sys/class/drm`, base PCI, NVML, `amdgpu`), app au début de la session (fichiers `.desktop`, services systemd, Steam Big Picture), souris Auto pour les jeux X11 (Xwayland) : **écrit et testé sur le Mac** (lecture des sources), pas encore essayé dans une VM ni sur une machine réelle.
 3. **Écrans virtuels.** GNOME par Mutter et KDE Plasma 6 par KWin : **écrits et essayés dans les VM** (voir « Essais »).
 4. **Son.** Sortie PipeWire KyberNow : **écrit**.
-5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland : à faire.
+5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland (data-control) : **écrits** (correctifs 0005 à 0007, compilés pour Linux et essais unitaires sur le Mac le 25/11/2026), pas encore essayés sous Linux.
 6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Mises à jour depuis Admin et depuis les apps (service root par socket, retour arrière), icône près de l'horloge, paquets publiés : **écrits**, testés sur le Mac (tests d'Admin et de l'icône), pas encore essayés sous Linux (voir « Essais »).
 7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer), Prêt du PC (mode console dans la session de l'hôte, veille empêchée par `systemd-inhibit`), HDR (écran virtuel de GNOME en BT.2100 : GNOME ne le propose pas encore), PyroWave (Vulkan, import DMA-BUF), débit en direct en VA-API (à ajouter au correctif commun 0026) : à faire.
 8. **Systèmes immuables** (Bazzite, SteamOS). À faire.
@@ -188,4 +209,4 @@ Pièges trouvés en route : l'app choisit son écran dans la liste de Kyber dès
 
 Défauts trouvés et corrigés en route : une disposition sans écran virtuel désactivait les écrans sous KDE ; un écran virtuel refusé laissait Kyber sans écran ; le nom « Virtual-KyberNow-1 » de Plasma 6 n'était pas reconnu ; la sortie de `kscreen-doctor` de Plasma 6 (une propriété par ligne) n'était pas lue ; un écran rallumé était cherché sous son ancien objet.
 
-**Pas encore essayé** : la mise à jour depuis Admin (socket, service root, apt et dnf, contrôle de santé, retour arrière), l'icône sous GNOME et KDE, la compilation de l'icône et du service root sous Linux ; une session depuis une app sous KDE, une session de bout en bout depuis une app KyberNow Link (image, son, latence), le clavier, le pointeur absolu et les clics sous Wayland, les manettes, VA-API et NVENC (aucune vraie carte graphique dans la VM), x86_64, Fedora, une machine réelle.
+**Pas encore essayé** : la mise à jour depuis Admin (socket, service root, apt et dnf, contrôle de santé, retour arrière), l'icône sous GNOME et KDE, la compilation de l'icône et du service root sous Linux ; une session depuis une app sous KDE, une session de bout en bout depuis une app KyberNow Link (image, son, latence), le clavier, le pointeur absolu et les clics sous Wayland, les manettes (Xbox et DualSense), le stylet, le presse-papiers sous Wayland, VA-API et NVENC (aucune vraie carte graphique dans la VM), x86_64, Fedora, une machine réelle.
