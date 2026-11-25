@@ -1,0 +1,38 @@
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -116,6 +116,10 @@
+      * (ScreenCaptureKit in PQ, 10-bit 4:2:0), 2 = the SDR image of an HDR
+      * display (ScreenCaptureKit's default capture), 0 = SDR. */
+     int hdr;
++    /* KyberNow (server/macos/kyber-patches/0019): "pyrowave_nv12" option of
++     * kyavservice (0017): NV12 BT.709 full range from ScreenCaptureKit, that
++     * the PyroWave encoder takes as is (4:2:0 SDR at the device's size). */
++    int pyrowave_nv12;
+     int hdr_frames; /* KyberNow (0010): frames since the last level log */
+     int hdr_top;    /* brightest 10-bit level to log (-1: none pending) */
+     double hdr_nits;
+@@ -1046,6 +1050,12 @@
+         [capture->streamConfiguration setPixelFormat:kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange];
+         [capture->streamConfiguration setColorSpaceName:kCGColorSpaceITUR_2100_PQ];
+     }
++    /* KyberNow (0019): PyroWave in 4:2:0 SDR, no conversion on its side. */
++    if (capture->pyrowave_nv12 && capture->hdr != 1) {
++        [capture->streamConfiguration setPixelFormat:kCVPixelFormatType_420YpCbCr8BiPlanarFullRange];
++        [capture->streamConfiguration setColorMatrix:kCGDisplayStreamYCbCrMatrix_ITU_R_709_2];
++        sp_log(entry, SP_LOG_INFO, "Capture: NV12 BT.709 full range for PyroWave\n");
++    }
+     /* KyberNow (0008): no more frames than the guest's image needs. */
+     if (capture->max_framerate > 0)
+         [capture->streamConfiguration setMinimumFrameInterval:
+@@ -1341,6 +1351,11 @@
+     if (hdr_opt)
+         capture->hdr = (int)strtol(hdr_opt->value, NULL, 10);
+ 
++    /* KyberNow (0019): "pyrowave_nv12" option of kyavservice (0017). */
++    AVDictionaryEntry *nv12_opt = av_dict_get(opts, "pyrowave_nv12", NULL, 0);
++    if (nv12_opt)
++        capture->pyrowave_nv12 = (int)strtol(nv12_opt->value, NULL, 10);
++
+     /* KyberNow (0008): "max_framerate" option of kyavservice (0007). */
+     AVDictionaryEntry *max_fr = av_dict_get(opts, "max_framerate", NULL, 0);
+     if (max_fr)

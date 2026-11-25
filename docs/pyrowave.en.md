@@ -4,7 +4,7 @@ English · [Français](pyrowave.md)
 
 [PyroWave](https://github.com/Themaister/pyrowave) (MIT licence) is a wavelet picture format computed in Vulkan on the graphics card: every frame stands alone (no reference frame), encoding and decoding take about 0.1 to 0.25 ms, at the cost of a high bitrate (200 Mbit/s and more). It is one more format for the local network, next to H.264, HEVC and AV1, with no change to the existing streams.
 
-Milestone 1: Windows Station (this document) and Mac client (`apps/core`, Mac decoder). The visible texts (Admin, apps) are provisional, waiting for the mock-ups.
+Milestone 1: Windows Station (this document) and Mac client (`apps/core`, Mac decoder); then the Mac Station (Metal encoder, section [The Mac Station](#the-mac-station)). The visible texts (Admin, apps) are provisional, waiting for the mock-ups.
 
 ## Shared contract
 
@@ -20,10 +20,10 @@ All apps and the Station follow it.
 
 ## What the Station announces and accepts
 
-1. **Announcement**: KyberNow Admin's `GET /api/stream/info` carries `"pyrowave": { "available": true }`, or `{ "available": false, "reason": … }` with, in this order: `off` (setting `[kyavserver] pyrowave = false`), `windows` (Mac Station), `vulkan` (no suitable Vulkan 1.3 on the encoding graphics card). An older Station lacks this field: apps then never ask for PyroWave.
+1. **Announcement**: KyberNow Admin's `GET /api/stream/info` carries `"pyrowave": { "available": true }`, or `{ "available": false, "reason": … }` with, in this order: `off` (setting `[kyavserver] pyrowave = false`), `windows` (neither Windows nor Mac), `vulkan` (no suitable Vulkan 1.3 on the encoding graphics card), `metal` (Mac Station: unsuitable chip or encoder that does not start, [The Mac Station](#the-mac-station)). An older Station lacks this field: apps then never ask for PyroWave.
 2. **Vulkan**: once per graphics card, in the background at start-up, Admin runs PyroWave's tool `pyrowave-device-validation.exe --external --roundtrip --timeout 15 --luid <card>` (Kyber's folder): Vulkan 1.3 with the features PyroWave needs, import of D3D11 textures and fences, an encode then decode round trip. A separate process: a crashing driver does not take Admin down. The result is kept while Admin runs; another card gets checked in turn.
 3. **Request**: the app asks for `codec: "PyroWave"` in the start request, with `fallback_codec` (its usual format, H.264 without it). kyclient's Rust API has `VideoSessionConfig::fallback_codec`, the C API `kyclient_video_session_config_set_fallback_codec`.
-4. **Acceptance**: kycontroller keeps PyroWave only if the Station offers it (Windows and `[kyavserver] pyrowave` true or missing), otherwise it takes the fallback format (log: "PyroWave not offered by this Station: HEVC instead"). kyavserver checks again (H.264 otherwise). The client reads the format that arrives in the stream's codec packet.
+4. **Acceptance**: kycontroller keeps PyroWave only if the Station offers it (Windows or Mac, and `[kyavserver] pyrowave` true or missing), otherwise it takes the fallback format (log: "PyroWave not offered by this Station: HEVC instead"). kyavserver checks again (H.264 otherwise). The client reads the format that arrives in the stream's codec packet.
 5. **Encoder**: PyroWave does not depend on `[kyavserver] encoder` (NVENC, AMF, Quick Sync or x264): the chosen H.264/HEVC encoder stays the one of the other streams.
 6. **Maximum bitrate**: `pyrowave.max_mbps` (Mbit/s), present when known: Admin's “Maximum bitrate” setting (`video.pyrowave_max_mbps`, `[kyavserver] pyrowave_max_mbps` read by Admin only: `auto` by default, `300`, `500`, `800`); on Auto, from the Station's network port (`TransmitLinkSpeed` of the first card with an address, Ethernet and the gateway's card first, read again every minute): 80% of its speed on Ethernet, 50% on Wi-Fi (advertised radio rate), rounded down to 50 Mbit/s (1 Gbit/s → 800, 2.5 Gbit/s → 2000, 100 Mbit/s → 50). Unknown port: missing, no cap from the computer.
 
@@ -44,7 +44,7 @@ App rule ([link-ui.en.md](link-ui.en.md), “PyroWave”): when the bitrate Pyro
 - **Both engines**: txproto (`create_pyrowave` in `txproto/video.rs`, capture linked straight to the encoder) and libavconv (`encoder_names`, `null` filter). `encode.c` and `enc.c` need no change: the encoder declares itself hardware on D3D11 frames, they give it the capture's frames context.
 - **Several displays**: one encoder per display, as for the other formats; each opens its Vulkan device on its display's graphics card.
 - **A guest's own scaled-down image** (KyberNow Share): PyroWave scales the image down itself (`out_width`, `out_height` options) instead of `scale_d3d11`; rate capped by the capture (txproto), the encoder's `fps` set to it for the frame budget.
-- **Setting**: `[kyavserver] pyrowave` (true by default), Admin key `video.pyrowave`, Windows only (provisional texts, marked `TODO textes pyrowave`). “Maximum bitrate”: `video.pyrowave_max_mbps` (see the announcement, item 6), Windows only; the mock-up's Auto help (“here {n} Mbit/s”) is still to be done in Admin's PyroWave card.
+- **Setting**: `[kyavserver] pyrowave` (true by default), Admin key `video.pyrowave`, Windows and Mac (provisional texts, marked `TODO textes pyrowave`). “Maximum bitrate”: `video.pyrowave_max_mbps` (see the announcement, item 6), Windows and Mac; the mock-up's Auto help (“here {n} Mbit/s”) is still to be done in Admin's PyroWave card.
 - **Overlay**: `libpyrowave-shared-1.dll` and `pyrowave-device-validation.exe` in `third_party/payload/kyber-overlay/`, hence in the installer and the updates.
 
 ## Trying it on the PC
@@ -66,6 +66,50 @@ For the report: the program's whole output, and the engine set in Admin.
 
 Then, once the Station is installed with the overlay (and with a client that knows how to ask): `GET /api/stream/info` says `"pyrowave": { "available": true }`; a PyroWave session writes "PyroWave encoder 3840x2160 4:2:0, SDR (BT.709, full) …" to kyavserver's log, and the "Timing in ms … libpyrowave" line every 5 s.
 
+## The Mac Station
+
+- **Library**: `libkn-pyrowave-metal.a` (`server/macos/pyrowave/build.sh`), the Metal port of PyroWave vendored in `apps/macos/PyroWave` (commit `a32b05e`, the same as the Mac app's decoder) and KyberNow's conversion (`kn_pyrowave_metal.mm`, C interface in `kn_pyrowave_metal.h`), as a static library linked into `libtxproto.dylib` (FFmpeg is static there). No new dylib in the app: only the system's Metal, IOSurface and `libc++`. `build-kyber.sh` builds it into the rootfs before FFmpeg, with `kn-pyrowave-metal.pc`, and extracts FFmpeg again when its wrap changes (as `build.sh` does on Windows).
+- **FFmpeg encoder `libpyrowave_metal`** (Mac patch 0016, `libavcodec/libpyrowave_metal_enc.c`): same options and same contract as `libpyrowave`. It takes ScreenCaptureKit's VideoToolbox frames (`CVPixelBuffer` on an IOSurface) without any CPU copy; txproto hands it the capture's frames context (`encode.c` unchanged). Depending on the frame:
+  - **NV12** (4:2:0 SDR at the device's resolution, the usual case): ScreenCaptureKit delivers BT.709 full-range NV12 (`pyrowave_nv12` capture option, Mac patches 0017 and 0019), which the Metal port reads as is: no conversion;
+  - **BGRA** (4:4:4, or a guest's scaled-down image): a Metal compute pass converts it to BT.709 full-range YCbCr in three R8 planes on IOSurfaces (average of 2 × 2 pixels for 4:2:0 chroma; scaling by linear sampling on the way), which the port then reads;
+  - **P010** (the capture's HDR10, Mac patch 0010: PQ, BT.2020, limited range, white already raised): as is; scaled down on the GPU as P010 for a guest.
+  PyroWave's encoder has its own Metal queue: the conversion is waited for before it (`waitUntilCompleted`), which costs about 1 ms at 60 fps when the GPU is idle; hence the capture's NV12 in the usual case.
+- **The engine**: txproto only (libavconv has no Mac capture), same `create_pyrowave` as on Windows (Mac patch 0017). kycontroller offers PyroWave on Mac (0018).
+- **Several displays**: one encoder per display, all on the chip (a single GPU).
+- **A guest's own scaled-down image**: scaled by the encoder (`out_width`, `out_height`), rate capped by ScreenCaptureKit (Mac patch 0008).
+- **Chip**: Apple7 family or later (`pyrowave_device_is_supported`: every M chip, the only ones the Mac Station runs on). `gpu_priority` is accepted without effect (Metal has no queue priority to set).
+- **Admin**: `kybernow-pyrowave-check` (next to Admin in the app, `KYBERNOW_PYROWAVE_CHECK` for another path) checks once per launch, in the background, that the chip fits and that the encoder starts (round trip of a 256 × 256 test pattern encoded then decoded); code 0 good, 2 chip, 4 encoder, 5 wrong round trip. Otherwise `reason: "metal"`. “PyroWave” and “Maximum bitrate” settings as on Windows; on Auto, the Mac's port: negotiated Ethernet speed (`ifconfig`, `media` line), or the Wi-Fi radio rate (`system_profiler SPAirPortDataType`, read at most every 5 minutes) when Wi-Fi is the port in use.
+- **Package** (`build-station-app.sh`, notarized as before): `kybernow-pyrowave-check` added to `Contents/MacOS`, signed with the same entitlements as the other executables (hardened runtime; Metal asks for no other); the encoder is in `libtxproto.dylib`, already there. `run-kyber.sh package` puts the tool in Kyber's app, `run-station.sh` next to Admin. Nothing else changes for notarization.
+- **kyavserver's log**: "PyroWave encoder 3840x2160 4:2:0, SDR (BT.709, full), input 3840x2160 nv12 … on Apple M4 Max (Metal)" when it opens, then every 600 frames the average size and the conversion and encode times; "Capture: NV12 BT.709 full range for PyroWave" on the capture side.
+
+## Test on the Mac
+
+`server/macos/pyrowave/capture-test.sh` (after `build-kyber.sh`, with the same `KYBER_DIR`): `capture-test.m` captures a display through ScreenCaptureKit as txproto does (NV12, BGRA or PQ P010), feeds the frames to the Station's `libpyrowave_metal` FFmpeg encoder at 60 fps (the latest frame, changed or not), writes the packets, then the Mac app's decoding bench (`apps/macos/tests/pyrowave/bench`, `VideoDecoder` then the Metal decoder) decodes them: times, PSNR of the first frame against what the encoder saw, truncated frame skipped. The terminal needs the “Screen Recording” permission.
+
+Measurements of 25/11/2026 (M4 Max, macOS 27.2, main display captured at the requested resolution, 1.2 bits per pixel at 60 fps, other builds running on the Mac): the Station's time per frame, from handing the frame to the encoder to the packet being ready (mean, 95th percentile), and paced decoding by the Mac app.
+
+| Case | Encode | Decode (Mac app) | PSNR Y / Cb / Cr |
+|---|---|---|---|
+| 1440p 4:2:0 SDR, capture's NV12 | 1.7 ms (1.8) | 1.2 ms | 52 / 73 / 73 dB |
+| 1440p 4:2:0 SDR, converted BGRA | 3.0 ms (5.1) | 1.7 ms | 51 / 66 / 65 dB |
+| 1440p 4:4:4 SDR | 3.0 ms (3.7) | 1.7 ms | 51 / 65 / 63 dB |
+| 1440p 4:2:0 HDR10 (P010) | 1.7 ms (2.3) | 1.2 ms | 57 / 57 / 57 dB |
+| 4K 4:2:0 SDR, capture's NV12 | 2.5 ms (4.3) | 2.4 ms | 61 / 83 / 82 dB |
+| 4K 4:2:0 SDR, converted BGRA | 4.2 ms (6.0) | 2.2 ms | 61 / 67 / 67 dB |
+| 4K 4:4:4 SDR | 5.4 ms (7.1) | 2.5 ms | 61 / 67 / 64 dB |
+| 4K 4:2:0 HDR10 (P010) | 2.2 to 5.2 ms (depending on the run) | 1.5 to 2.1 ms | 60 / 57 / 56 dB |
+| 1080p guest (4K scaled down), SDR / HDR10 | 2.3 / 2.8 ms | 1.1 / 1.2 ms | — |
+
+The PSNR compares with the YCbCr the encoder received (computed separately for BGRA): it measures PyroWave at that bitrate, not the conversion. Breakdown for BGRA at 4K 4:2:0 (encoder log, 600 frames): conversion 1.9 ms, of which 0.1 to 0.3 ms of GPU, the rest being the wait between the two queues and the GPU waking up; encode 2.3 ms. Back to back (GPU at full clock), the same frame: conversion 0.7 ms, encode 1.1 ms. Bitrate kept: every frame fills its budget (`bitrate / 8 / fps`) within a few bytes. Admin's check: "PyroWave sur Apple M4 Max : 24528 octets, PSNR 55.2 dB", code 0.
+
+**Real Mac Station → Mac app session**: not done (the author's installed Station and a test Mac app were running on this Mac). Steps:
+
+1. Kyber with PyroWave: `KYBER_DIR=<private copy> server/macos/scripts/build-kyber.sh` (a copy of `third_party/kyber-desktop-macos` made with `cp -cR`, without its `rootfs-arm64-macos` nor `kysdk/kymedia/builddir-macos`).
+2. Station: `KYBER_DIR=<private copy> server/macos/scripts/build-station-app.sh` (Developer ID signed, not notarized), then install `server/macos/dist/KyberNow Station.app` with the .dmg's installer (or, without touching the installed Station, a test Station: stop the installed Admin with `launchctl bootout gui/$(id -u)/fr.leslignesclaires.kybernow.station.admin`, then `KYBER_DIR=<private copy> server/macos/scripts/run-station.sh`, which puts `kybernow-pyrowave-check` next to Admin).
+3. Check the announcement: `curl -sk -u <account> https://<mac>:<Admin port>/api/stream/info | jq .pyrowave` → `{"available": true, "max_mbps": …}`; Admin's log: "PyroWave : la puce convient".
+4. Mac app: built with the kyclient 0025 patch applied and the core's `pyrowave` feature (see [pyrowave-client-mac.en.md](pyrowave-client-mac.en.md)), on a device connected by cable or with “Video format” set to PyroWave.
+5. Expected in kyavserver's log (in `~/Library/Logs/KyberNow`, or the test Station's `kyber/log/kyber.log`): "Capture: NV12 BT.709 full range for PyroWave", "PyroWave encoder … (Metal)", then every 600 frames "PyroWave: 600 frames … conversion 0.00 ms, encode … ms". Also try 4:4:4 (sharp text), HDR10, two displays and a Share guest.
+
 ## Test status
 
 | What | Status |
@@ -77,3 +121,6 @@ Then, once the Station is installed with the overlay (and with a client that kno
 | A whole session to the Mac | to try, with the Mac decoder |
 | HDR10 (P010), 4:4:4, a guest's scaled-down image in a session, several displays, libavconv engine | to try |
 | Lowered resolution (core) and “Maximum bitrate” (Admin) | unit tests passed on the Mac (25/11/2026: core 357, Admin 323); never seen in a session (the core needs the kyclient patch); port speed read by Windows never tried |
+| Mac Station: `libpyrowave_metal` encoder and Kyber built | `build-kyber.sh` on a private copy (25/11/2026); kyavservice tests on the Mac (33 of 34: the failure, `rtp_start_audio_error_reports_audio_pipeline_type`, waits for an RTP audio event, unrelated) and kycontroller (111), Admin (324) |
+| Mac Station: encoding a real capture, decoded by the Mac app | **done** (25/11/2026, [Test on the Mac](#test-on-the-mac)): 1440p and 4K, 4:2:0 and 4:4:4, SDR and HDR10, 1080p guest |
+| Mac Station: whole session, several displays, installed Admin | to try (steps above); port speed read on the Mac tried by the tests only |

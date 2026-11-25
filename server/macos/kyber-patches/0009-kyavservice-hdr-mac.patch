@@ -1,17 +1,17 @@
 --- a/kyavservice/src/hdr.rs
 +++ b/kyavservice/src/hdr.rs
-@@ -68,7 +68,10 @@
-     } else if !matches!(
-         encoder,
-         VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
--    ) {
-+    ) && !(cfg!(target_os = "macos") && matches!(encoder, VideoEncoder::VIDEOTOOLBOX))
-+    {
+@@ -69,8 +69,10 @@
+         && !matches!(
+             encoder,
+             VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
+-        )
++        ) && !(cfg!(target_os = "macos") && matches!(encoder, VideoEncoder::VIDEOTOOLBOX))
+     {
 +        // KyberNow (server/macos/kyber-patches/0009): VideoToolbox too, on a
 +        // Mac Station (ScreenCaptureKit's 10-bit PQ capture).
+         // KyberNow (0025): PyroWave encodes the P010 capture whatever the
+         // configured encoder.
          Some(format!(
-             "HDR refused with the {encoder:?} encoder (NVENC, AMF or Quick Sync only): SDR image"
-         ))
 --- a/kyavservice/src/txproto/run.rs
 +++ b/kyavservice/src/txproto/run.rs
 @@ -246,7 +246,8 @@
