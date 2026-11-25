@@ -100,8 +100,14 @@ Kyber normally draws the image and plays the sound with VLC. KyberNow Link decod
 - Output followed during the session (`kAudioHardwarePropertyDefaultOutputDevice`): AirPods connected or an HDMI display chosen, the unit is recreated on the new output, its latency and effective buffer size read again (log `son : sortie changée …`), the sound-image offset stays right. Fewer channels at the output than in the stream (5.1 or 7.1 to headphones): downmix, L + 0.7 C + 0.7 surround L (and rear L), same on the right, LFE dropped (an index mapping would send the centre into the right ear). 7.1 layout (Vorbis order: L, C, R, side L, side R, rear L, rear R, LFE): sides `LeftSurround`/`RightSurround`, rears `RearSurroundLeft`/`RearSurroundRight`, as in Core Audio's MPEG 7.1 C layout. To check with a channel identification clip on a 7.1 amplifier.
 - Sound and image each leave as soon as they are ready. The bar shows the offset (sound = buffer + output latency, image = reception → screen), imperceptible below 45 ms. Bluetooth headphones add 150 to 250 ms on the sound side.
 
+**PyroWave** (`PyroWaveDecoder`, [docs/pyrowave-client-mac.en.md](../../docs/pyrowave-client-mac.en.md))
+- Wavelet codec, intra only (every frame is a keyframe), 200 Mbit/s and up: almost no compression delay, made for an Ethernet cable. Decoded on the GPU by PyroWave's Metal port (`PyroWave/upstream`, MIT licence, at the commit pinned in `PyroWave/COMMIT`, refreshed by `scripts/vendor-pyrowave.sh`), compiled into KyberKit (module `CPyroWave`): nothing to rebuild in `Vendor/`.
+- `VideoDecoder` hands packets of the `pwv1` format to `PyroWaveDecoder`: 16-byte configuration packet (`KNPW`: chroma, colour, range, resolution) → decoder (re)created; each media packet is a whole frame, decoded into a two-plane `CVPixelBuffer` of the same format as VideoToolbox's (8-bit for SDR, 10-bit for HDR10), tagged BT.709 or BT.2020 / PQ: the Metal renderer shows it as is, HDR included. A lost or incomplete frame is skipped, no keyframe is ever requested.
+- Decode time (packet handed over → GPU done) reported to the statistics as for VideoToolbox. Measured on an M4 Max: 1.3 to 1.8 ms at 1440p, 1.9 to 3.2 ms at 4K (4:2:0 to 4:4:4).
+- Waiting for the Station's kyclient patch (codec identifier): the Station doesn't send it yet.
+
 **Machine capabilities** (`DecoderCapabilities`, `DisplayInfo`)
-- At launch, off the main thread: H.264, HEVC and AV1 hardware decoders, plus a real decode of a 64 × 64 HEVC 4:4:4 frame, requiring hardware (20 to 80 ms), and the Metal pipeline compiled.
+- At launch, off the main thread: H.264, HEVC and AV1 hardware decoders, plus a real decode of a 64 × 64 HEVC 4:4:4 frame, requiring hardware (20 to 80 ms), and the Metal pipeline compiled. PyroWave: the port's pipelines compiled and a 128 × 128 test frame decoded then read back (≈ 55 ms; Apple7 GPUs and later, i.e. M1 and A14; `DecoderCapabilities.pyrowave`).
 - The profiles are brought down to them: without hardware 4:4:4, 4:2:0 with a third more bitrate; without HEVC, H.264 with half as much again. The settings grey out what the machine cannot decode.
 - Display: the panel's real pixels, taken from its display modes (native mode), up to 7680 × 4320, and 4096 wide at most in H.264 (NVENC limit). In “more space” mode, macOS draws larger than the panel then scales down: a 4K display set to 3008 × 1692 points draws 6016 × 3384, and those extra pixels are not requested from the computer. The picture is not drawn at that size either: `MetalSurface` sets its buffer to the panel's pixels (`ScreenPixels.panelRatio`, 3840 / 6016 ≈ 0.64; log `image aux pixels de la dalle`, read again when the display or its mode changes) and Core Animation stretches it to the view's frame. Less work for every frame, and no 6K FP16 buffer left for the compositor to scale down: on a 4K display at 160 Hz in HDR set to 3008 × 1692, opening the statistics froze the screen (test of 03/11/2026, 0.9.2), and not at native resolution. “4K at most” option, maximum refresh rate, variable refresh rate or not.
 
@@ -266,6 +272,7 @@ apps/macos/
 │   ├── LatencyReporting   # what the renderer tells the core's latency tracker
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AV1                # reading the AV1 sequence header (av1C description)
+│   ├── PyroWaveDecoder    # PyroWave (pwv1): configuration packet, Metal decoding into CVPixelBuffer, probe
 │   ├── Language           # the app's language (French or English), KyberKit's catalog
 │   ├── AudioPlayerCore    # Core Audio output; Opus, adaptive buffer, drift and downmix in the core
 │   ├── InputCore          # inputs through the core: input chain, pointer, mouse rules, keyboard
@@ -293,8 +300,9 @@ apps/macos/
 │   ├── SessionScreens     # several displays: a surface (view, renderer, connection background) and a window per display
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # KyberNow patches to libkyclient and libkynput
-├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh, sign-release.sh, check-strings.py, app-icon.py, phosphor-icons.mjs
-├── tests/                 # offline tests (video, screen)
+├── PyroWave/              # PyroWave's Metal port (upstream/, pinned COMMIT, CPyroWave module), compiled into KyberKit
+├── scripts/               # vendor-kyber.sh, vendor-pyrowave.sh, build-kyclient.sh, embed-kyber.sh, sign-release.sh, check-strings.py, app-icon.py, phosphor-icons.mjs
+├── tests/                 # offline tests (video, PyroWave, screen)
 └── Vendor/                # built Kyber SDK, and the Rust core (libkybernow, CKyberNow); ignored by git
 ```
 
@@ -337,6 +345,7 @@ Xcode puts the profile in the app (`Contents/embedded.provisionprofile`) and add
 
 ```bash
 apps/macos/tests/video/run.sh   # HEVC, H.264 and AV1 streams generated by ffmpeg: decoding, timing, rendered colours, recovery after a loss
+apps/macos/tests/pyrowave/run.sh  # PyroWave: test pattern encoded by the port's Metal encoder, decoded at 1440p and 4K, 4:2:0 and 4:4:4, SDR and HDR10: timing, PSNR, truncated frame skipped, launch probe
 apps/macos/tests/screen/run.sh  # window for 2 × 2.5 s: the session surface really shows the frames (presentedTime), commit → screen delay with and without the “one frame in flight” guard
 apps/macos/tests/fullscreen/run.sh  # several displays: another display's window, frames received while it is occluded then a full-screen transition with no new frame: the frame is rendered, redrawn, shown at the full-screen size and whole (`run.sh 5120x2880 444`: a 5K in 4:4:4, `&8v4` frames like a Studio Display)
 ```

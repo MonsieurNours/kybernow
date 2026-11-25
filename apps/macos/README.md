@@ -100,8 +100,14 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow Link les dé
 - Sortie suivie en cours de session (`kAudioHardwarePropertyDefaultOutputDevice`) : AirPods branchés ou écran HDMI choisi, l'unité est recréée sur la nouvelle sortie, sa latence et la taille de tampon effective relues (journal `son : sortie changée …`), l'écart son-image reste juste. Moins de voies à la sortie que dans le flux (5.1 ou 7.1 vers un casque) : mixage descendant, G + 0,7 C + 0,7 surround G (et arrière G), idem à droite, LFE ignoré (un mappage par index enverrait le centre dans l'oreille droite). Disposition 7.1 (ordre Vorbis : G, C, D, latéral G, latéral D, arrière G, arrière D, LFE) : latérales `LeftSurround`/`RightSurround`, arrières `RearSurroundLeft`/`RearSurroundRight`, comme la disposition MPEG 7.1 C de Core Audio. À vérifier avec un clip d'identification des voies sur un ampli 7.1.
 - Son et image partent chacun dès qu'ils sont prêts. La barre montre l'écart (son = tampon + latence de la sortie, image = réception → écran), imperceptible sous 45 ms. Un casque Bluetooth ajoute 150 à 250 ms côté son.
 
+**PyroWave** (`PyroWaveDecoder`, [docs/pyrowave-client-mac.md](../../docs/pyrowave-client-mac.md))
+- Codec par ondelettes, intra seul (chaque image est une image clé), de 200 Mbit/s et plus : presque aucun délai de compression, fait pour un câble Ethernet. Décodé sur le GPU par le port Metal de PyroWave (`PyroWave/upstream`, licence MIT, au commit épinglé de `PyroWave/COMMIT`, repris par `scripts/vendor-pyrowave.sh`), compilé dans KyberKit (module `CPyroWave`) : rien à recompiler dans `Vendor/`.
+- `VideoDecoder` passe les paquets du format `pwv1` à `PyroWaveDecoder` : paquet de configuration de 16 octets (`KNPW` : chroma, couleur, plage, définition) → décodeur (re)créé ; chaque paquet média est une image entière, décodée dans un `CVPixelBuffer` bi-plan du même format que ceux de VideoToolbox (8 bits en SDR, 10 bits en HDR10), étiqueté BT.709 ou BT.2020 / PQ : le rendu Metal l'affiche tel quel, HDR compris. Une image perdue ou incomplète est sautée, jamais d'image clé demandée.
+- Temps de décodage (de la remise du paquet à la fin du GPU) remonté aux statistiques comme pour VideoToolbox. Mesuré sur M4 Max : 1,3 à 1,8 ms en 1440p, 1,9 à 3,2 ms en 4K (4:2:0 à 4:4:4).
+- En attente du correctif kyclient de la Station (identifiant de codec) : la Station ne l'envoie pas encore.
+
 **Capacités de la machine** (`DecoderCapabilities`, `DisplayInfo`)
-- Au lancement, hors du fil principal : décodeurs matériels H.264, HEVC et AV1, plus un vrai décodage d'une image HEVC 4:4:4 de 64 × 64 en exigeant le matériel (20 à 80 ms), et le pipeline Metal compilé.
+- Au lancement, hors du fil principal : décodeurs matériels H.264, HEVC et AV1, plus un vrai décodage d'une image HEVC 4:4:4 de 64 × 64 en exigeant le matériel (20 à 80 ms), et le pipeline Metal compilé. PyroWave : pipelines du port compilés et une image de test de 128 × 128 décodée puis relue (≈ 55 ms ; GPU Apple7 et suivants, soit M1 et A14 ; `DecoderCapabilities.pyrowave`).
 - Les profils s'y ramènent : sans 4:4:4 matériel, 4:2:0 avec un tiers de débit en plus ; sans HEVC, H.264 avec moitié plus. Les réglages grisent ce que la machine ne décode pas.
 - Écran : les pixels réels de la dalle, pris dans ses modes d'affichage (mode natif), jusqu'à 7680 × 4320, et 4096 de large au plus en H.264 (limite de NVENC). En mode « plus d'espace », macOS dessine plus grand que la dalle puis réduit : un 4K réglé en 3008 × 1692 points dessine 6016 × 3384, et ces pixels en trop ne sont pas demandés à l'ordinateur. L'image n'est pas non plus dessinée à cette taille : `MetalSurface` règle son tampon sur les pixels de la dalle (`ScreenPixels.panelRatio`, 3840 / 6016 ≈ 0,64 ; journal `image aux pixels de la dalle`, relu quand l'écran ou son mode change) et Core Animation l'étire au cadre de la vue. Moins de travail à chaque image, et plus de tampon 6K en FP16 à réduire par le compositeur : sur un 4K à 160 Hz en HDR réglé en 3008 × 1692, ouvrir les statistiques avait gelé l'écran (essai du 03/11/2026, 0.9.2), et pas en définition native. Option « Au plus 4K », fréquence maximale, fréquence variable ou non.
 
@@ -266,6 +272,7 @@ apps/macos/
 │   ├── LatencyReporting   # ce que le rendu dit au suivi de latence du cœur
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AV1                # lecture de l'en-tête de séquence AV1 (description av1C)
+│   ├── PyroWaveDecoder    # PyroWave (pwv1) : paquet de configuration, décodage Metal vers CVPixelBuffer, sonde
 │   ├── Language           # langue de l'app (français ou anglais), catalogue de KyberKit
 │   ├── AudioPlayerCore    # sortie Core Audio ; Opus, tampon adaptatif, dérive et mixage dans le cœur
 │   ├── InputCore          # entrées par le cœur : chaîne d'entrées, pointeur, règles de souris, clavier
@@ -293,8 +300,9 @@ apps/macos/
 │   ├── SessionScreens     # multi-écrans : une surface (vue, rendu, fond de la connexion) et une fenêtre par écran
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
-├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh, sign-release.sh, check-strings.py, app-icon.py, phosphor-icons.mjs
-├── tests/                 # tests hors ligne (vidéo, écran)
+├── PyroWave/              # port Metal de PyroWave (upstream/, COMMIT épinglé, module CPyroWave), compilé dans KyberKit
+├── scripts/               # vendor-kyber.sh, vendor-pyrowave.sh, build-kyclient.sh, embed-kyber.sh, sign-release.sh, check-strings.py, app-icon.py, phosphor-icons.mjs
+├── tests/                 # tests hors ligne (vidéo, PyroWave, écran)
 └── Vendor/                # SDK Kyber compilé, et le cœur Rust (libkybernow, CKyberNow) ; ignoré par git
 ```
 
@@ -337,6 +345,7 @@ Xcode met le profil dans l'app (`Contents/embedded.provisionprofile`) et y ajout
 
 ```bash
 apps/macos/tests/video/run.sh   # flux HEVC, H.264 et AV1 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
+apps/macos/tests/pyrowave/run.sh  # PyroWave : mire encodée par l'encodeur Metal du port, décodée en 1440p et 4K, 4:2:0 et 4:4:4, SDR et HDR10 : temps, PSNR, image tronquée sautée, sonde du lancement
 apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session montre vraiment les images (presentedTime), délai commit → écran avec et sans la garde « une image en vol »
 apps/macos/tests/fullscreen/run.sh  # multi-écrans : fenêtre d'un autre écran, images reçues pendant qu'elle est occultée puis passage en plein écran sans nouvelle image : l'image est rendue, redessinée, montrée à la taille du plein écran et entière (`run.sh 5120x2880 444` : un 5K en 4:4:4, images `&8v4` comme un Studio Display)
 ```

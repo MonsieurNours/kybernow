@@ -164,6 +164,10 @@ pub struct Info {
     pub gpu: Option<String>,
     #[serde(default)]
     pub av1: bool,
+    /// La Station propose PyroWave (docs/pyrowave.md) : carte « PyroWave »
+    /// d'Admin allumée et encodeur prêt. Absent (Station d'avant) : non.
+    #[serde(default)]
+    pub pyrowave: bool,
     #[serde(default)]
     pub admin_version: Option<String>,
     #[serde(default)]

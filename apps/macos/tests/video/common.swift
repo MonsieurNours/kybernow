@@ -65,3 +65,6 @@ func temporalUnits(_ path: String) -> [[UInt8]] {
     }
     return units.filter { !$0.isEmpty }
 }
+
+/// Catalogue de KyberKit (Language.swift dans l'app) : celui du test.
+extension Bundle { static let kyberKit = Bundle.main }

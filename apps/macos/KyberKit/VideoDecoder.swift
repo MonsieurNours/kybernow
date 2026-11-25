@@ -13,6 +13,10 @@
 // session perdue (veille, changement de carte graphique) est recréée tout
 // de suite, sans attendre la relance du flux.
 //
+// PyroWave (`pwv1`, docs/pyrowave.md) ne passe pas par VideoToolbox : les
+// paquets vont à `PyroWaveDecoder` (GPU, Metal), qui sort les mêmes images.
+// Chaque image y est une image clé : une perte ne demande rien.
+//
 // Indépendant d'AppKit : sert tel quel sur iOS et tvOS.
 
 import CoreMedia
@@ -32,6 +36,7 @@ final class VideoDecoder {
         case h264 = 0x6832_3634 // 'h264'
         case hevc = 0x6832_3635 // 'h265'
         case av1 = 0x0061_7631 // 'av1'
+        case pyrowave = 0x7077_7631 // 'pwv1'
     }
 
     /// Image prête (fil du décodeur).
@@ -69,6 +74,8 @@ final class VideoDecoder {
     private var pendingRecovery = false
     /// Reprise après une erreur de sortie (prend `lock`), hors du fil de VideoToolbox.
     private let recovery = DispatchQueue(label: "fr.leslignesclaires.kybernow.decoder-recovery", qos: .userInteractive)
+    /// Flux PyroWave : son décodeur (créé au premier passage en `pwv1`).
+    private var pyrowave: PyroWaveDecoder?
 
     deinit { reset() }
 
@@ -77,11 +84,24 @@ final class VideoDecoder {
     func setCodec(_ fourcc: UInt32) {
         lock.lock()
         defer { lock.unlock() }
-        guard let c = Codec(rawValue: fourcc), c != codec || session == nil else { return }
+        guard let c = Codec(rawValue: fourcc) else { return }
+        // Même format, décodeur déjà prêt : rien à refaire.
+        if c == codec, c == .pyrowave ? pyrowave != nil : session != nil { return }
         codec = c
         parameterSets.removeAll()
         av1Sequence = nil
         reset()
+        if c == .pyrowave {
+            let decoder = pyrowave ?? PyroWaveDecoder()
+            decoder.onFrame = { [weak self] frame in self?.deliver(frame) }
+            pyrowave = decoder
+            waitingKey = false
+            out.lock()
+            lastDelivered = nil
+            out.unlock()
+        } else {
+            pyrowave?.invalidate()
+        }
         KyberLog.video.notice("codec \(String(describing: c), privacy: .public)")
     }
 
@@ -89,6 +109,15 @@ final class VideoDecoder {
         let received = mach_absolute_time()
         lock.lock()
         defer { lock.unlock() }
+        if codec == .pyrowave {
+            // Paquet de configuration (16 octets du contrat) ou image entière.
+            if isConfig || PyroWaveConfig(data) != nil {
+                pyrowave?.configure(data)
+            } else {
+                pyrowave?.decode(data, pts: pts, received: received)
+            }
+            return
+        }
         var changed = false
         // L'échantillon à décoder, construit une fois la session prête.
         let makeSample: (CMVideoFormatDescription) -> CMSampleBuffer?
@@ -228,6 +257,7 @@ final class VideoDecoder {
     func flush() {
         lock.lock()
         if let session { VTDecompressionSessionWaitForAsynchronousFrames(session) }
+        pyrowave?.flush()
         lock.unlock()
         recovery.sync {}
     }
@@ -236,7 +266,8 @@ final class VideoDecoder {
     func dataLost() {
         lock.lock()
         defer { lock.unlock() }
-        guard session != nil else { return }
+        // PyroWave : l'image suivante se décode seule, rien à demander.
+        guard codec != .pyrowave, session != nil else { return }
         markLost()
     }
 
@@ -265,6 +296,7 @@ final class VideoDecoder {
         lock.lock()
         defer { lock.unlock() }
         reset()
+        pyrowave?.invalidate()
     }
 
     private func reset() {

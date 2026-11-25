@@ -1,0 +1,6 @@
+// API C du port Metal de PyroWave, vue de Swift (KyberKit). Les sources sont
+// compilées dans KyberKit (project.yml) : rien à lier en plus.
+module CPyroWave {
+    header "../upstream/pyrowave_metal.h"
+    export *
+}

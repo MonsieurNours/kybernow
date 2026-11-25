@@ -1154,7 +1154,7 @@ pub struct KnSession {
 /// HDR (docs/hdr.md) : `screen_hdr` et `screen_luminance` (l'écran de
 /// l'appareil d'une session à un écran, sans `screens`, est HDR, et ses
 /// valeurs ; avec `screens`, leurs `hdr` et `luminance`) et
-/// `capabilities` (`{hevc, hevc444, av1, hdr}` : le décodeur ; absent, l'app
+/// `capabilities` (`{hevc, hevc444, av1, hdr, pyrowave}` : le décodeur ; absent, l'app
 /// répond du décodeur). La session envoie `hdr` à la Station et à Kyber
 /// quand le choix est allumé et possible (`kn_hdr_state`), impose alors
 /// 4:2:0 et HEVC ou AV1, et dit les écrans en HDR par `on_hdr`.
@@ -1401,7 +1401,7 @@ pub unsafe extern "C" fn kn_session_hdr_used(s: *const KnSession) -> bool {
 /// `kn_console_info` (`hdr` : `{available, reason}` ; absent : Station
 /// d'avant le HDR) ; `settings_json` : les réglages de la session (même JSON
 /// que `settings` de `kn_session_start` ; seul le format compte) ;
-/// `capabilities_json` : `{hevc, hevc444, av1, hdr}` ; `screen_hdr` : l'écran
+/// `capabilities_json` : `{hevc, hevc444, av1, hdr, pyrowave}` ; `screen_hdr` : l'écran
 /// de l'appareil est HDR. Rend `{"shown", "available", "reason", "kind"}` :
 /// `shown` faux, aucune trace du HDR ; `available` faux, puce inactive avec
 /// `reason` (texte de link-ui dans la langue de l'app) et `kind` (`off`,

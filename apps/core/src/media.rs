@@ -14,6 +14,8 @@ use kyclient::media_sink::{MediaPacket, MediaPacketKind, PacketSink};
 pub const FOURCC_H264: u32 = 0x6832_3634;
 pub const FOURCC_HEVC: u32 = 0x6832_3635;
 pub const FOURCC_AV1: u32 = 0x0061_7631;
+/// PyroWave (docs/pyrowave.md), « pwv1 ».
+pub const FOURCC_PYROWAVE: u32 = 0x7077_7631;
 pub const FOURCC_OPUS: u32 = 0x6F70_7573;
 
 #[derive(Debug)]

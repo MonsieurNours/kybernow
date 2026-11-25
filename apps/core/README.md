@@ -14,7 +14,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/i18n.rs` | Langue (détection, choix), catalogues de textes, notes de version par langue ([docs/i18n.md](../../docs/i18n.md)) |
 | `src/session.rs` | Déroulé d'une session sur un fil dédié, dernier recours de la connexion (ci-dessous) ; ce que la plateforme fournit : `Platform` |
 | `src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), avec leur source chez Kyber (`PacketHandler::packet_from`), en-tête Opus |
-| `src/profile.rs` | Profils, format, débit selon les pixels par seconde ; puce HDR (`hdr_state`, ci-dessous) |
+| `src/profile.rs` | Profils, format, débit selon les pixels par seconde ; puce HDR (`hdr_state`, ci-dessous) ; PyroWave (`pyrowave_format`, ci-dessous) |
 | `src/invite.rs` | Invitations ([docs/invitations.md](../../docs/invitations.md)) : le code d'invitation trouvé par « Rejoindre » (`ShareError::Invite`), le mot de passe envoyé (`redeem`), l'ordinateur à garder (`Invited`) |
 | `src/lend.rs` | Prêt de l'ordinateur (ci-dessous) : l'ami (statut, emprunt par un code ou un compte, attente, départ, invitation), la vue de l'hôte |
 | `src/relay.rs` | Relais (ci-dessous) : tunnel vers une Station (Admin et Kyber sur la boucle locale), cache, code chez le relais, présence, chemin d'une session |
@@ -294,6 +294,16 @@ Un ami emprunte le PC de l'hôte, que la Station passe en mode console. Contrat 
 - `Console::lend_state`, `lend_code(durée, LendSteam)`, `lend_cancel_code`, `lend_answer(id, accepter, steam)`, `lend_take_back(tout_de_suite)` rendent la vue du prêt : `LendView { available, enabled, computer, host, state, borrower, notice, requests, code }`. Le code de séance (`LendCodeView`) porte `relay`, comme la vue du partage (`ShareRelay` : `connecting`, `joined`, `unreachable`), avec `relay_joined()` et `relay_connecting()`. Chaque demande (`LendRequest`) porte aussi `steam` (le compte proposé) et `slot` (demande d'un créneau : prêtée dans 2 min sans réponse).
 - La même vue arrive avec le signe de vie de l'hôte : `HeartbeatReply::lend`, puis `Platform::on_lend(Option<&LendView>)` quand elle change.
 - `Info::lend` : `LendInfo { available, enabled }`, absent pour une Station antérieure.
+
+## PyroWave (`src/profile.rs`, `src/session.rs`, `src/console.rs`, `src/share.rs`)
+
+Contrat : [docs/pyrowave.md](../../docs/pyrowave.md) ; client Mac : [docs/pyrowave-client-mac.md](../../docs/pyrowave-client-mac.md) ; règles des apps : [docs/link-ui.md](../../docs/link-ui.md), « PyroWave ».
+
+- **Format** : `Codec::PyroWave` (`"pyrowave"` ou `"pwv1"` dans les réglages, libellé « PyroWave », `media::FOURCC_PYROWAVE` = `0x7077_7631`). `Capabilities::pyrowave` : l'app l'a décodé au lancement (absent du JSON : non). `Info::pyrowave` (`GET /api/stream/info`) : la Station le propose (absent : non ; nom du champ à confirmer avec la Station). `StreamSettings::wired` (`SettingsJson.wired`, absent : `false`) : l'appareil est relié par câble au réseau de l'ordinateur, donné par l'app.
+- **Choix** : `profile::pyrowave_format(&réglages, caps, proposé, par_le_relais)`. PyroWave choisi à la main reste s'il est proposé et décodé (Wi-Fi et relais compris : les apps avertissent), sinon HEVC (AV1, H.264 selon l'appareil). « Auto » (un profil) le prend seulement par câble, hors relais, s'il est proposé et décodé : 4:4:4 en Bureau et Max (presque sans coût en PyroWave), débit de base `PYROWAVE_MBPS` (800 Mbit/s en 4K60, ≈ 280 en 1080p60) ou `PYROWAVE_MBPS_444` (1 200), provisoires. En HDR, PyroWave reste, en 4:2:0 (`hdr_format`).
+- **Session** : `read_station_hdr` lit aussi `info.pyrowave` quand PyroWave peut servir (choisi, ou Auto par câble, appareil qui le décode) ; `effective()` applique `pyrowave_format` (pas pour un invité, qui prend le format de l'hôte) et le débit du profil suit le format effectif. KyberNow Share : un invité lit PyroWave si `caps.pyrowave`.
+- **En attente du correctif kyclient de la Station** : `VideoCodec::PyroWave` n'existe dans kyclient qu'avec lui. Fonctionnalité Cargo `pyrowave` (éteinte par défaut) : `profile::PYROWAVE_KYBER` ; sans elle, `pyrowave_format` ne choisit jamais PyroWave et `Codec::PyroWave.kyber()` vaudrait HEVC. À allumer (par défaut) quand le correctif sera dans `kyber-desktop`.
+- Testé : `cargo test -p kybernow-core profile` (`pyrowave_choisi_ou_auto_par_cable`, `capacites_et_annonce_sans_pyrowave` ; la moitié « avec Kyber » se vérifie avec `--features pyrowave` une fois le correctif posé).
 
 ## HDR (`src/profile.rs`, `src/session.rs`, `src/console.rs`, `src/screens.rs`)
 
