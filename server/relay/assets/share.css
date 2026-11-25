@@ -226,8 +226,11 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 
 /* Accueil du relais : le logo, la saisie du code, deux liens. */
 .solo { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
-.solo-in { width: 100%; max-width: 460px; padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 28px; }
+.solo-in { width: 100%; max-width: 460px; padding: 40px 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; }
 .solo-logo { display: block; width: 260px; max-width: 72%; height: auto; }
+/* Logo dans un lien : la largeur réduite se prend sur le lien, l'image le remplit (sinon elle reste à gauche du lien). */
+.acct-logo { display: block; max-width: 72%; }
+.acct-logo .solo-logo { max-width: 100%; }
 .solo .join { width: 100%; }
 .solo .join h1 { text-wrap: balance; font-family: var(--kn-font-display); font-stretch: 125%; font-weight: 640; font-size: clamp(24px, 2.6vw, 30px); line-height: 1.1; letter-spacing: -.025em; }
 .solo-links { display: flex; gap: 24px; font-size: 15px; }
@@ -237,7 +240,6 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 /* ---- Comptes (/compte/…) : le logo, une carte, des formulaires (docs/comptes.md, « Lot 1 ») ---- */
 .acct { max-width: 480px; gap: 24px; }
 .acct-wide { max-width: 640px; }
-.acct-logo { display: block; }
 .acct-card {
   width: 100%; padding: 32px; border-radius: var(--kn-r-card);
   background: var(--kn-ink-2); box-shadow: inset 0 0 0 1px var(--kn-line-2), 0 40px 80px rgb(0 0 0 / .45);
