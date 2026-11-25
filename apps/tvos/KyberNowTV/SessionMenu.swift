@@ -57,6 +57,14 @@ struct SessionMenu: View {
                 VStack(alignment: .trailing, spacing: 10) {
                     Theme.eyebrow(String(localized: "Statistiques"))
                     statsStrip
+                    // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+                    if let l = session.stats?.lowered {
+                        HStack(spacing: 10) {
+                            Icon("monitor", size: 20).foregroundStyle(Theme.warn)
+                            Text(PyroWaveText.lowered(width: l.width, height: l.height, mbps: l.mbps))
+                        }
+                        .font(Theme.sans(18)).foregroundStyle(Theme.warnText)
+                    }
                     // Trajet d'une image : où partent les millisecondes (le HDR les change-t-il ?).
                     FramePath(stats: session.stats)
                 }
