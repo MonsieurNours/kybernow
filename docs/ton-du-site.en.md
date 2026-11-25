@@ -18,7 +18,7 @@ French uses **"vous"** everywhere. The visitor is often the subject of the sente
 - Everyday words: "the TV", "your PC" or "your computer", "the picture", "the sound", "the controller".
 - Concrete: devices, rooms of the house, moments ("in the evening, on the sofa", "at a hotel", "on the train"). An example beats an adjective.
 - Warm means attentive, not chummy: no slang, no emoji, no strings of exclamation marks, no forced jokes.
-- Honest: KyberNow is in beta, some apps are still installed by hand (Apple TV, iPhone, LG TVs), some have not been tried on real hardware. Say it plainly, without apologising and without hiding it.
+- A showcase, honest about facts: KyberNow is in beta (before 1.0), some apps are still installed by hand (Apple TV, iPhone, LG TVs), some features have real limits (PyroWave needs a lot of bandwidth and a cable, not in the browser yet…). Say it plainly, without apologising and without hiding it. On the other hand, the site presents every feature as a working feature: never "not yet tried", "brand new" as a warning, "tried in a virtual machine" or "under emulation", "your feedback will help", "thresholds not yet checked on a real network". What remains to be tried lives in the docs (docs/, the apps' READMEs) and on GitHub, not on the site.
 
 ## Never write again
 
@@ -51,14 +51,14 @@ Also avoid: starting a sentence with "And" or "Or", ellipses, rhetorical questio
 
 ## What KyberNow brings (the messages to get across)
 
-In order of importance for the general public, always with facts checked in the code and docs (PROJECT.md, ROADMAP.md, the apps' READMEs): nothing "tested" that hasn't been, no sample figure presented as a measurement.
+In order of importance for the general public, always with facts taken from the code and docs (PROJECT.md, ROADMAP.md, the apps' READMEs): the site presents features as working features, the testing status is read in the docs and on GitHub; no invented feature, no sample figure presented as a measurement.
 
 1. Your PC on all your screens: the TV, the Mac, the tablet, the phone, the Steam Deck, a browser. For playing as well as working.
 2. As responsive as a plugged-in screen: very low latency thanks to the Kyber engine, a picture at each screen's resolution and refresh rate.
 3. It holds up: if the network wobbles, the picture is repaired and the app reconnects on its own (ten reconnection attempts, a second apart, on every app).
 4. The controller handles a lot, with nothing to add: the app chosen per device opens at the start of the session (Steam Big Picture, Playnite…), the PC sees the controller as an Xbox pad, the TV and Steam Deck apps are fully driven by controller (which can also act as a mouse), the right-sized screen is created on its own. These are well-known remote play irritations, sorted without add-ons. Don't write "everything by controller in every app": the Windows app and the browser have no controller navigation, Mac and iPhone only the session menu.
 5. Free, open source, no account and no subscription, everything is encrypted. At home, nothing goes through a server; away from home, KyberNow's relay passes the connection without being able to read the picture or the keystrokes in the apps (the browser is the exception), and what it does see (addresses, bitrates, share codes) is said plainly.
-6. In beta: already used every day, and we say so openly.
+6. In beta: already used every day, and we say so openly, in the "Why beta?" FAQ, without listing feature by feature what hasn't been tried yet.
 
 ## Typographic conventions (FR)
 

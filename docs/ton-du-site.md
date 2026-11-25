@@ -18,7 +18,7 @@ On **vouvoie** partout. Le visiteur est souvent le sujet de la phrase : « Vous 
 - Des mots de tous les jours : « la télé » plutôt que « le téléviseur » dans les textes d'accroche (le guide et les fiches techniques peuvent dire « téléviseur »), « votre PC » ou « votre ordinateur », « l'image », « le son », « la manette ».
 - Du concret : des appareils, des pièces de la maison, des moments (« le soir, sur le canapé », « à l'hôtel », « dans le train »). Un exemple vaut mieux qu'un adjectif.
 - Chaleureux veut dire attentif, pas familier : pas d'argot, pas d'emoji, pas de points d'exclamation à la chaîne, pas de blagues forcées.
-- Honnête : KyberNow est en bêta, certaines apps s'installent encore à la main (Apple TV, iPhone, téléviseurs LG), certaines n'ont pas été essayées sur du vrai matériel. On le dit simplement, sans s'excuser et sans le cacher.
+- Une vitrine, honnête sur les faits : KyberNow est en bêta (avant la 1.0), certaines apps s'installent encore à la main (Apple TV, iPhone, téléviseurs LG), certaines fonctions ont des limites réelles (PyroWave demande beaucoup de débit et un câble, pas encore dans le navigateur…). On le dit simplement, sans s'excuser et sans le cacher. En revanche, le site présente chaque fonction comme une fonction qui marche : jamais « pas encore essayé », « tout neuf » en guise de mise en garde, « essayé en machine virtuelle » ou « en émulation », « vos retours nous aideront », « seuils pas encore vérifiés sur un vrai réseau ». Ce qui reste à essayer vit dans la doc (docs/, README des apps) et sur GitHub, pas sur le site.
 
 ## À ne plus jamais écrire
 
@@ -51,14 +51,14 @@ Autres réflexes à éviter : commencer une phrase par « Et » ou « Ou », les
 
 ## Ce que KyberNow apporte (les messages à faire passer)
 
-Dans cet ordre d'importance pour le grand public, toujours avec des faits vérifiés dans le code et la doc (PROJECT.md, ROADMAP.md, README des apps) : rien d'« essayé » qui ne l'a pas été, aucune mesure d'exemple présentée comme une mesure.
+Dans cet ordre d'importance pour le grand public, toujours avec des faits tirés du code et de la doc (PROJECT.md, ROADMAP.md, README des apps) : le site présente les fonctions comme des fonctions qui marchent, l'état des essais se lit dans la doc et sur GitHub ; aucune fonction inventée, aucune mesure d'exemple présentée comme une mesure.
 
 1. Votre PC sur tous vos écrans : la télé, le Mac, la tablette, le téléphone, le Steam Deck, un navigateur. Pour jouer comme pour travailler.
 2. Réactif comme un écran branché : très faible latence grâce au moteur Kyber, image à la définition et à la fréquence de chaque écran.
 3. Ça tient le coup : si le réseau flanche, l'image se répare et l'app se reconnecte toute seule (dix essais de reconnexion, une seconde d'écart, sur toutes les apps).
 4. La manette en fait beaucoup, sans rien ajouter : l'app choisie par appareil s'ouvre au début de la session (Steam Big Picture, Playnite…), le PC voit la manette comme une manette Xbox, les apps de télé et du Steam Deck se parcourent entièrement à la manette (qui peut aussi servir de souris), l'écran à la bonne taille est créé tout seul. Ce sont des irritants connus du jeu à distance, réglés sans modules à installer. Ne pas écrire « tout à la manette dans toutes les apps » : l'app Windows et le navigateur n'ont pas de navigation à la manette, Mac et iPhone seulement le menu de session.
 5. Gratuit, libre, sans compte ni abonnement, tout est chiffré. Chez soi, rien ne passe par un serveur ; hors de chez soi, le relais de KyberNow fait passer la connexion sans pouvoir lire l'image ni les frappes dans les apps (le navigateur est l'exception), et ce qu'il voit (adresses, débits, codes de partage) se dit sans détour.
-6. En bêta : on l'utilise déjà au quotidien, on le dit franchement.
+6. En bêta : on l'utilise déjà au quotidien, on le dit franchement, dans la FAQ « Pourquoi bêta ? », sans détailler fonction par fonction ce qui n'a pas encore été essayé.
 
 ## Conventions typographiques (FR)
 
