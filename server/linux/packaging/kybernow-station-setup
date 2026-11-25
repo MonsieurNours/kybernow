@@ -23,7 +23,20 @@ TEMPLATE="${KYBER_TEMPLATE:-$HERE/../runtime/share/kyber_config.toml}"
 ADMIN="${KYBERNOW_ADMIN:-$HERE/kyber-admin}"
 SCREENS="${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station/kyber-screens.toml"
 
-[ -f "$DATA/kyber-admin.toml" ] && exit 0
+# Fiche de la Station, sans secret (comme sous Windows et sur Mac) : le port
+# d'Admin pour l'icône près de l'horloge ; Admin y note l'empreinte de son
+# certificat à chaque démarrage. Posée aussi sur une Station déjà initialisée.
+record() {
+    [ -f "$BASE/kybernow.json" ] && return 0
+    local port=9443 listen
+    listen=$(sed -n 's/^listen *= *"\(.*\)"/\1/p' "$DATA/kyber-admin.toml" 2>/dev/null | head -1)
+    [ -n "$listen" ] && port="${listen##*:}"
+    case "$port" in '' | *[!0-9]*) port=9443 ;; esac
+    mkdir -p "$BASE"
+    printf '{\n  "console_port": %s\n}\n' "$port" > "$BASE/kybernow.json"
+}
+
+[ -f "$DATA/kyber-admin.toml" ] && { record; exit 0; }
 
 # L'encodeur de la carte graphique : NVIDIA → NVENC ; AMD, Intel → VA-API
 # (s'il y a un nœud de rendu) ; sinon le processeur.
@@ -67,5 +80,6 @@ if [ -z "$password" ]; then
     (umask 077 && printf '%s\n' "$password" > "$DATA/mot-de-passe")
     echo "Mot de passe tiré au hasard : $DATA/mot-de-passe"
 fi
+record
 KYBERNOW_PASSWORD="$password" "$ADMIN" init --data-dir "$DATA" --kyber-dir "$KYBER" \
     --user "$(id -un)" --kyber-port 8080 --encoder "$(encoder)"

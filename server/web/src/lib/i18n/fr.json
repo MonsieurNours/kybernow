@@ -1612,7 +1612,8 @@
     },
     "system": {
       "update": {
-        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez le journal (journalctl --user -u kybernow-admin)."
+        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez /var/lib/kybernow-station/update/<version>/update.log.",
+        "needsSetup": "Cette version s'installe avec son paquet (.deb ou .rpm), à télécharger."
       },
       "server": {
         "simulated": "(simulé hors Station)",
