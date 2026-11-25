@@ -188,10 +188,13 @@ const MOUSE_RULES: MouseModeRules = MouseModeRules { needs_hidden_pointer: true 
 struct HitAreas {
     enabled: bool,
     drag: (i32, i32, i32, i32),
+    /// Les éléments de l'interface dans la zone de déplacement (le fil d'Ariane des réglages) : un clic y va à
+    /// l'app, pas au déplacement de la fenêtre.
+    holes: Vec<(i32, i32, i32, i32)>,
     size: (i32, i32),
 }
 
-static HIT: Mutex<HitAreas> = Mutex::new(HitAreas { enabled: false, drag: (0, 0, 0, 0), size: (0, 0) });
+static HIT: Mutex<HitAreas> = Mutex::new(HitAreas { enabled: false, drag: (0, 0, 0, 0), holes: Vec::new(), size: (0, 0) });
 
 extern "C" fn hit_test(_win: *mut sdl::SDL_Window, p: *const sdl::SDL_Point, _data: *mut c_void) -> c_int {
     let Ok(h) = HIT.try_lock() else { return sdl::HITTEST_NORMAL };
@@ -213,8 +216,8 @@ extern "C" fn hit_test(_win: *mut sdl::SDL_Window, p: *const sdl::SDL_Point, _da
         (_, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOM,
         _ => {}
     }
-    let (dx, dy, dw, dh) = h.drag;
-    if x >= dx && x < dx + dw && y >= dy && y < dy + dh { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
+    let inside = |(rx, ry, rw, rh): (i32, i32, i32, i32)| x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+    if inside(h.drag) && !h.holes.iter().any(|r| inside(*r)) { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
 }
 
 /// Une fenêtre SDL de l'app, avec son rendu, sa texture d'interface, sa
@@ -238,6 +241,9 @@ struct Win {
     fullscreen: bool,
     /// Cachée : la fenêtre de l'app quand les sessions qui restent ont chacune la leur.
     hidden: bool,
+    /// Le clavier saisi par la fenêtre (mode immersif : Alt+Tab, la touche ⊞… vont à l'ordinateur), tel que
+    /// `sync_keyboard_grab` l'a posé.
+    grab: bool,
     /// Les éléments choisissables du dernier dessin de cette fenêtre : un clic dans une fenêtre
     /// s'adresse à ses éléments, pas à ceux de la fenêtre de la session active.
     hits: Vec<(Target, Rect)>,
@@ -282,6 +288,7 @@ impl Win {
             extra: false,
             fullscreen: false,
             hidden: false,
+            grab: false,
             hits: Vec::new(),
             cv: Canvas::new(),
             ui: std::ptr::null_mut(),
@@ -477,7 +484,7 @@ const APP_TITLE: &str = "KyberNow Link";
 
 /// Une fenêtre plein écran de plus, sur l'écran de l'appareil `display` (multi-écrans).
 /// Même titre que celle de la session. Elle s'affiche tout de suite (le fond de la connexion).
-fn create_extra(display: &Display, screen: usize, premul: c_int, grab_keyboard: bool, title: &str) -> Option<Win> {
+fn create_extra(display: &Display, screen: usize, premul: c_int, title: &str) -> Option<Win> {
     let title = CString::new(title.replace('\0', "")).unwrap_or_default();
     let at = sdl::windowpos_centered_display(display.sdl);
     let flags = sdl::SDL_WINDOW_SHOWN | sdl::SDL_WINDOW_FULLSCREEN_DESKTOP | sdl::SDL_WINDOW_ALLOW_HIGHDPI;
@@ -494,7 +501,6 @@ fn create_extra(display: &Display, screen: usize, premul: c_int, grab_keyboard: 
         unsafe { sdl::SDL_DestroyWindow(window) };
         return None;
     }
-    unsafe { sdl::SDL_SetWindowKeyboardGrab(window, grab_keyboard as c_int) };
     let mut w = Win::new(window, renderer, premul, screen, (display.w.max(1), display.h.max(1)));
     w.vsync = false;
     log::info!("écran {} ({}) : fenêtre ouverte, {} × {}", screen, display.name, w.out_size.0, w.out_size.1);
@@ -546,7 +552,7 @@ fn plan_screens(plan: &[kybernow_core::screens::PlannedScreen]) -> Vec<usize> {
 /// Ferme et ouvre les fenêtres de plus de cette session pour qu'il y en ait une par écran voulu
 /// (`wanted`, l'écran principal compris), et que sa fenêtre principale montre l'écran
 /// `primary`. Le reste ne bouge pas.
-fn sync_windows(wins: &mut Wins, session: SessionId, title: &str, wanted: &[usize], primary: usize, devices: &screens::Detected, grab_keyboard: bool) {
+fn sync_windows(wins: &mut Wins, session: SessionId, title: &str, wanted: &[usize], primary: usize, devices: &screens::Detected) {
     if let Some(m) = wins.main_of(session) {
         wins.list[m].screen = primary;
     }
@@ -565,7 +571,7 @@ fn sync_windows(wins: &mut Wins, session: SessionId, title: &str, wanted: &[usiz
             continue;
         }
         if let Some(d) = devices.grouped.get(s)
-            && let Some(mut w) = create_extra(d, s, premul, grab_keyboard, title)
+            && let Some(mut w) = create_extra(d, s, premul, title)
         {
             w.session = Some(session);
             w.extra = true;
@@ -1107,6 +1113,7 @@ pub fn run(args: &[String]) {
             dirty = true;
         }
         raise_active(&app, &wins, &mut raised);
+        sync_keyboard_grab(&app, &lives, &mut wins);
         // Les consoles PlayStation : recherches, partie (images, statistiques, barre).
         if ps.tick(&mut app, &mut wins, !lives.is_empty()) {
             dirty = true;
@@ -1386,7 +1393,7 @@ fn route_ps(a: Action, ps: &mut ps::Runtime, app: &mut App, pads: &mut pads::Pad
         Action::ToggleMouse(id) if ps.owns(id) => ps.toggle_mouse(app, pads),
         Action::Mute(id, on) if ps.owns(id) => ps.mute(on),
         Action::ToggleFullscreen(Some(id)) if ps.owns(id) => {
-            toggle_fullscreen(app, lives, wins, Some(id));
+            toggle_fullscreen(app, wins, Some(id));
             ps.remember_fullscreen(app);
         }
         // Une console d'abord (1,5 s), puis la Station comme avant (`ps::PsEvent::Probed`).
@@ -1426,6 +1433,31 @@ fn stop_all(lives: &Lives, wins: &Wins) {
         }
     }
     log::info!("fin de l'app : {} session(s) terminée(s) en {} ms", lives.0.len(), started.elapsed().as_millis());
+}
+
+/// Mode immersif (docs/link-ui.md) : chaque fenêtre de session saisit le clavier (Alt+Tab, la touche ⊞, Ctrl+Échap
+/// vont à l'ordinateur) quand sa session l'envoie et que le réglage de l'ordinateur le veut : « En plein écran »
+/// (fenêtre en plein écran, celles d'un écran de plus et le salon le sont), « Toujours », « Jamais ». Pas pendant
+/// un menu de la barre ni un panneau du partage. SDL ne saisit que la fenêtre qui a le clavier : passer à une
+/// autre fenêtre le rend au système. Les fenêtres sans session (l'accueil, une partie PlayStation) ne sont pas
+/// touchées ici.
+fn sync_keyboard_grab(app: &App, lives: &Lives, wins: &mut Wins) {
+    for wi in 0..wins.list.len() {
+        let w = &wins.list[wi];
+        let Some(id) = w.session else { continue };
+        let want = lives.get(id).is_some()
+            && app.session_by(id).is_some_and(|s| s.running() && s.keyboard_mouse() && s.bar_menu.is_none() && !s.share_overlay())
+            && match app.immersive_of(id) {
+                "never" => false,
+                "always" => true,
+                _ => w.extra || app.layout.console() || if wi == 0 { app.fullscreen } else { w.fullscreen },
+            };
+        if want != w.grab {
+            log::info!("mode immersif : clavier {} (fenêtre {wi})", if want { "saisi" } else { "rendu au système" });
+            unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, want as c_int) };
+            wins.list[wi].grab = want;
+        }
+    }
 }
 
 /// La fenêtre de la session active passe devant quand l'activation ne vient pas d'elle : « Afficher »,
@@ -1478,9 +1510,12 @@ fn update_hit_areas(app: &App, win: &Win) {
     let mut h = HIT.lock().unwrap();
     h.size = win.win_size;
     h.enabled = app.layout == Layout::Desktop && !app.fullscreen && !app.maximized_or_session();
+    h.holes.clear();
     if let Some(r) = ui::title_drag_area(app, cv.w) {
         let d = cv.k / win.density();
-        h.drag = ((r.x * d) as i32, (r.y * d) as i32, (r.w * d) as i32, (r.h * d) as i32);
+        let px = |r: &crate::app::Rect| ((r.x * d) as i32, (r.y * d) as i32, (r.w * d).ceil() as i32, (r.h * d).ceil() as i32);
+        h.drag = px(&r);
+        h.holes = win.hits.iter().filter(|(_, b)| b.y < r.y + r.h).map(|(_, b)| px(b)).collect();
     } else {
         h.drag = (0, 0, 0, 0);
     }
@@ -1823,7 +1858,6 @@ fn take_over_main_window(app: &mut App, l: &mut Live, wins: &mut Wins, primary: 
         l.placed = Some(primary);
     }
     app.fullscreen = true;
-    unsafe { sdl::SDL_SetWindowKeyboardGrab(window, 1) };
 }
 
 /// Le cœur annonce les écrans de la session (au démarrage de l'image, ou l'un d'eux a changé de
@@ -1852,7 +1886,7 @@ fn follow_screens(app: &mut App, l: &mut Live, wins: &mut Wins) {
         if (wanted.len() >= 2 || wins.prev.is_some()) && wins.list[0].session == Some(l.id) {
             take_over_main_window(app, l, wins, primary);
         }
-        sync_windows(wins, l.id, &title, &wanted, primary, &l.devices, true);
+        sync_windows(wins, l.id, &title, &wanted, primary, &l.devices);
     }
     log::info!("écrans de la session : {} pris, {} non créé(s)", st.streams.len(), st.not_created.len());
 }
@@ -2165,14 +2199,20 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             }
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris), O (ordinateur
-            // suivant) ; ils visent la session de la fenêtre active.
-            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O) {
+            // suivant), S (statistiques) ; ils visent la session de la fenêtre active.
+            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_S) {
                 if down && !repeat {
                     match sc {
                         sdl::SC_D => actions.extend(routed.map(Action::Disconnect)),
                         sdl::SC_F => actions.push(Action::ToggleFullscreen(routed)),
                         sdl::SC_M => actions.extend(routed.map(Action::ToggleMouse)),
                         sdl::SC_O => actions.push(Action::NextSession),
+                        sdl::SC_S => {
+                            if let Some(s) = routed.and_then(|id| app.session_by_mut(id)) {
+                                s.toggle_stats();
+                            }
+                            *dirty = true;
+                        }
                         _ => {}
                     }
                     if let Some(p) = &input {
@@ -2392,7 +2432,10 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             if down && b == 1 {
                 let (ux, uy) = to_ui(&wins.list[wi], app.layout, x, y);
                 // Double clic sur la barre de titre : agrandir.
-                if ev.u8(18) == 2 && ui::title_drag_area(app, wins.list[wi].cv.w).is_some_and(|r| r.contains(ux, uy)) {
+                if ev.u8(18) == 2
+                    && ui::title_drag_area(app, wins.list[wi].cv.w).is_some_and(|r| r.contains(ux, uy))
+                    && !wins.list[wi].hits.iter().any(|(_, r)| r.contains(ux, uy))
+                {
                     actions.push(Action::Maximize);
                     return;
                 }
@@ -3005,13 +3048,8 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::Guests(view) => app.share_guests(id, view),
         SessionEvent::ShareRole { role, previous } => {
             app.share_role_changed(id, role, previous);
-            // Le clavier saisi par une fenêtre en plein écran (les raccourcis du système vont alors à l'ordinateur)
-            // ne l'est que pour un rôle qui l'envoie : Alt+Tab revient au système quand le clavier est repris.
-            if let Some(wi) = wins.main_of(id)
-                && (if wi == 0 { app.fullscreen } else { wins.list[wi].fullscreen } || app.layout.console())
-            {
-                unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.list[wi].window, role.kbm() as c_int) };
-            }
+            // Le clavier saisi (mode immersif) suit le rôle : `sync_keyboard_grab` le rend au système quand le clavier
+            // est repris (Alt+Tab revient au système).
             // Un rôle sans clavier ni souris rend la souris des jeux (`session_tick` la coupe) et la manette en souris.
             if !role.kbm() {
                 if let Some(l) = lives.get_mut(id) {
@@ -3130,7 +3168,7 @@ fn show_session(app: &mut App, lives: &Lives, wins: &Wins, id: SessionId) {
 /// Plein écran de la fenêtre d'une session (la fenêtre de l'app hors session). En plein écran pendant la
 /// session, les raccourcis du système vont à l'ordinateur. Plusieurs écrans : pas de « Plein écran » (les
 /// fenêtres restent en plein écran).
-fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<SessionId>) {
+fn toggle_fullscreen(app: &mut App, wins: &mut Wins, id: Option<SessionId>) {
     if app.layout.console() {
         return;
     }
@@ -3139,7 +3177,6 @@ fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<S
         let window = wins.app().window;
         unsafe {
             sdl::SDL_SetWindowFullscreen(window, if app.fullscreen { sdl::SDL_WINDOW_FULLSCREEN_DESKTOP } else { 0 });
-            sdl::SDL_SetWindowKeyboardGrab(window, (app.fullscreen && !lives.is_empty()) as c_int);
         }
         return;
     };
@@ -3152,8 +3189,6 @@ fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<S
     let window = wins.list[wi].window;
     unsafe {
         sdl::SDL_SetWindowFullscreen(window, if on { sdl::SDL_WINDOW_FULLSCREEN_DESKTOP } else { 0 });
-        // Le clavier n'est saisi que pour une session qui l'envoie (pas un invité sans le clavier et la souris).
-        sdl::SDL_SetWindowKeyboardGrab(window, (on && lives.get(id).is_some() && app.session_by(id).is_some_and(SessionUi::keyboard_mouse)) as c_int);
     }
     if wi == 0 {
         app.fullscreen = on;
@@ -3246,7 +3281,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 app.maximized = true;
             }
         },
-        Action::ToggleFullscreen(id) => toggle_fullscreen(app, lives, wins, id),
+        Action::ToggleFullscreen(id) => toggle_fullscreen(app, wins, id),
         Action::ToggleMouse(id) => {
             if let (Some(l), Some(s)) = (lives.get_mut(id), app.session_by(id)) {
                 l.mouse = if s.relative { MouseMode::Desktop } else { MouseMode::Game };
@@ -3846,13 +3881,10 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     // ensuite le cœur annonce ce qu'il a pris et les fenêtres le suivent (`follow_screens`).
     if let Some(plan) = plan.as_deref() {
         take_over_main_window(app, &mut l, wins, plan[0].device);
-        sync_windows(wins, id, &title, &plan_screens(plan), plan[0].device, &l.devices, true);
+        sync_windows(wins, id, &title, &plan_screens(plan), plan[0].device, &l.devices);
     }
-    // Le clavier n'est saisi que pour une session qui l'envoie : un invité arrive en spectateur (rien à envoyer),
-    // Alt+Tab et les raccourcis du système restent au système ; l'hôte lui donne le clavier plus tard (`ShareRole`).
-    if first && !visitor && (app.fullscreen || app.layout.console()) {
-        unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.app().window, 1) };
-    }
+    // Le clavier saisi (mode immersif) : `sync_keyboard_grab`, d'après le réglage, le plein écran et le rôle (un
+    // invité arrive en spectateur, sans rien à envoyer : Alt+Tab reste au système).
     log::info!(
         "session : {} ({}, {} × {} à {} Hz, {codec}, {}, {} écran{}{})",
         h.name,
@@ -3984,6 +4016,7 @@ fn reap(app: &mut App, lives: &mut Lives, wins: &mut Wins) -> bool {
 fn end_windows(wins: &mut Wins, session: SessionId) {
     for w in wins.list.iter_mut().filter(|w| w.session == Some(session)) {
         unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, 0) };
+        w.grab = false;
         w.video.reset();
         w.hint_key = None;
         w.present = true;
@@ -4002,6 +4035,7 @@ fn release_app_window(wins: &mut Wins) {
     w.extra = false;
     sdl::set_title(w.window, APP_TITLE);
     unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, 0) };
+    w.grab = false;
     w.set_vsync(true);
     w.video.reset();
     w.hint_key = None;
@@ -4089,7 +4123,7 @@ mod tests {
         wins.list[0].session = Some(1);
 
         // Les trois écrans du plan : la fenêtre de l'app et deux fenêtres de plus.
-        sync_windows(&mut wins, 1, "A · KyberNow Link", &[0, 1, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A · KyberNow Link", &[0, 1, 2], 0, &devices);
         assert_eq!(wins.list.len(), 3);
         assert_eq!(wins.list.iter().map(|w| w.screen).collect::<Vec<_>>(), vec![0, 1, 2]);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.extra)).collect::<Vec<_>>(), vec![(Some(1), false), (Some(1), true), (Some(1), true)]);
@@ -4163,20 +4197,20 @@ mod tests {
         wins.close_extras(1);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.extra)).collect::<Vec<_>>(), vec![(Some(1), false), (Some(2), false)]);
         // Des écrans de l'appareil dont la place a changé : leur fenêtre se ferme, les autres restent.
-        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.screen)).collect::<Vec<_>>(), vec![(Some(1), 0), (Some(2), 0), (Some(1), 1), (Some(1), 2)]);
         wins.close_extras_where(1, |w| w.screen == 2);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.screen)).collect::<Vec<_>>(), vec![(Some(1), 0), (Some(2), 0), (Some(1), 1)]);
         let kept = wins.list[2].id;
-        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices);
         assert_eq!((wins.list.len(), wins.list[2].id), (4, kept), "la fenêtre qui reste n'est pas refaite");
         // Moins d'écrans (Station qui n'en crée plus que deux, profil Jeu) : les fenêtres de plus se ferment.
-        sync_windows(&mut wins, 1, "A", &[0, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0, 2], 0, &devices);
         assert_eq!(wins.list.iter().filter(|w| w.session == Some(1)).map(|w| w.screen).collect::<Vec<_>>(), vec![0, 2]);
-        sync_windows(&mut wins, 1, "A", &[0], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0], 0, &devices);
         assert_eq!(wins.list.iter().filter(|w| w.session == Some(1)).count(), 1);
         // L'écran principal devient un autre écran de l'appareil : la fenêtre principale le montre ; la seconde session ne bouge pas.
-        sync_windows(&mut wins, 1, "A", &[1, 0], 1, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[1, 0], 1, &devices);
         assert_eq!(wins.list.iter().filter(|w| w.session == Some(1)).map(|w| w.screen).collect::<Vec<_>>(), vec![1, 0]);
         assert_eq!(wins.main_of(2).map(|i| wins.list[i].id), Some(b_id));
         wins.forget_frames(1);

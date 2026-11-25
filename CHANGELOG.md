@@ -11,6 +11,9 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 - **Un espace du compte plus simple à prendre en main.** Sur la page de votre compte KyberNow, un menu à gauche reste en place d'une page à l'autre : vos ordinateurs, les personnes à qui vous les ouvrez, vos familles et équipes, votre compte. Un tour d'accueil vous guide pas à pas (protéger votre compte, rattacher votre ordinateur, l'ouvrir à vos proches), et une carte « Pour bien démarrer » montre ce qu'il reste à faire.
 - **Familles et équipes.** Vous créez une famille (la maison, les enfants) ou une équipe (un atelier, une entreprise) : les mêmes droits, des mots plus clairs, et un schéma qui explique les groupes. Les droits s'appellent maintenant « Ouvrir le bureau », « Emprunter pour jouer », « Rejoindre vos partages » et « Administrer », chacun avec un exemple.
+- **Mode immersif (Mac, PC, Linux).** Tout le clavier va à l'ordinateur, raccourcis du système compris : ⌘ ⇥, ⌘ Espace et Mission Control sur Mac, Alt+Tab et la touche ⊞ sur PC et sous Linux. Dans les réglages de l'ordinateur, rubrique Commandes, « Mode immersif » : « En plein écran » (par défaut), « Toujours » (aussi dans une fenêtre) ou « Jamais ». Les raccourcis de l'app (⌃⌥⌘ + lettre, Ctrl+Alt+Maj + lettre) restent à l'app. Sur Mac, le mode demande une fois l'autorisation Accessibilité, et ⌘ y devient la touche ⊞ face à un PC.
+- **Linux : les réglages d'un ordinateur se referment.** Le lien « › {nom} » en haut de la fenêtre ramène de nouveau à l'accueil (le clic déplaçait la fenêtre).
+- **Linux : la barre de session dans une fenêtre.** Elle s'ouvre plus facilement quand la session n'est pas en plein écran, et un clic sur ses mesures ouvre les statistiques détaillées, comme sur Mac et PC. Ctrl+Alt+Maj+S les ouvre aussi.
 
 ## 0.10.0
 

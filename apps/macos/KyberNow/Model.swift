@@ -76,6 +76,22 @@ enum ScreensChoice: String, Codable, CaseIterable {
     }
 }
 
+/// Mode immersif (docs/link-ui.md) : tout le clavier, raccourcis du Mac
+/// compris, va à l'ordinateur.
+enum ImmersiveChoice: String, Codable, CaseIterable {
+    case fullScreen
+    case always
+    case never
+
+    var label: String {
+        switch self {
+        case .fullScreen: return String(localized: "En plein écran")
+        case .always: return String(localized: "Toujours")
+        case .never: return String(localized: "Jamais")
+        }
+    }
+}
+
 enum MouseChoice: String, Codable, CaseIterable {
     /// Mode jeu quand un jeu est en plein écran sur l'ordinateur.
     case auto
@@ -201,6 +217,8 @@ struct ConnectionSettings: Codable, Hashable {
     var transport: Transport = .fast
     var autoReconnect = true
     var commandAsControl = true
+    /// Mode immersif : En plein écran, Toujours, Jamais.
+    var immersive: ImmersiveChoice = .fullScreen
     var audio: AudioChoice = .auto
     /// Synchro verticale : sans elle, chaque image s'affiche dès qu'elle est
     /// décodée, quitte à couper l'écran en deux (déchirure).
@@ -337,7 +355,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
+        case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
     }
 
@@ -355,6 +373,7 @@ extension ConnectionSettings {
         transport = (try? c.decodeIfPresent(Transport.self, forKey: .transport)) ?? transport
         autoReconnect = (try? c.decodeIfPresent(Bool.self, forKey: .autoReconnect)) ?? autoReconnect
         commandAsControl = (try? c.decodeIfPresent(Bool.self, forKey: .commandAsControl)) ?? commandAsControl
+        immersive = (try? c.decodeIfPresent(ImmersiveChoice.self, forKey: .immersive)) ?? immersive
         audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
         vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
         limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K

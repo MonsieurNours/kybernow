@@ -1817,6 +1817,20 @@ mod tests {
         }
     }
 
+    /// Un clic sur les mesures de la barre ouvre « Statistiques », un second les ferme (docs/link-ui.md).
+    #[test]
+    fn bar_measures_open_statistics() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session_mut().unwrap().bar = true;
+        app.hits = ui::draw(&app, &mut cv);
+        let r = app.hits.iter().find(|(t, _)| *t == Target::BarStats).map(|(_, r)| *r).expect("les mesures sont une cible");
+        app.pointer_click(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        assert!(app.session().unwrap().show_stats);
+        app.hits = ui::draw(&app, &mut cv);
+        app.pointer_click(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        assert!(!app.session().unwrap().show_stats);
+    }
+
     /// La zone d'ouverture est celle de la barre : sa largeur réelle, centrée, à 2
     /// points du bord haut ; la barre reste ouverte sur son rectangle (petite marge).
     #[test]
@@ -1828,13 +1842,18 @@ mod tests {
         let painted: Vec<u32> = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 30).unwrap().alpha() > 0).collect();
         let (left, right) = (*painted.first().unwrap() as f32, *painted.last().unwrap() as f32 + 1.0);
         assert!(left > 100.0 && right < 1180.0 && ((left + right) / 2.0 - 640.0).abs() < 1.0, "centrée, plus étroite que la fenêtre");
-        let s = app.session().cloned().unwrap();
+        let mut s = app.session().cloned().unwrap();
         let w = cv.w;
+        s.fullscreen = true;
         for y in [0.0, 1.0, 2.0] {
             assert!(ui::at_bar_edge(&mut cv, &app, &s, w, left + 2.0, y) && ui::at_bar_edge(&mut cv, &app, &s, w, right - 2.0, y));
             assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &app, &s, w, right + 2.0, y));
         }
-        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "plein écran : au-delà de 2 points, pas contre le bord");
+        // Dans une fenêtre, le bord touche la barre de titre du système : 8 points.
+        s.fullscreen = false;
+        assert!(ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 7.5), "fenêtre : 8 points");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 8.5), "fenêtre : au-delà de 8 points, pas contre le bord");
         // Rester ouverte : sur la barre (même hors de ses boutons) et 8 points autour, pas plus loin.
         let none: Vec<(Target, crate::app::Rect)> = Vec::new();
         assert!(ui::over_bar(&mut cv, &app, &s, w, &none, 640.0, 30.0));

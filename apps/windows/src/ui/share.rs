@@ -525,6 +525,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             title_stats: false,
             // Un invité ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
             control_as_command: false,
+            // Pas de réglages de l'ordinateur : la règle d'avant le réglage (plein écran).
+            immersive: "fullscreen".into(),
             layout,
         },
         events.clone(),

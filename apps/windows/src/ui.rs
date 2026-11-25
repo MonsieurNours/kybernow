@@ -1710,6 +1710,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
         }
     }
     let ctrl_command = settings.ctrl_command;
+    let immersive = settings.immersive.clone();
     let hdr = settings.hdr_on();
     let hdr_before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
@@ -1725,6 +1726,8 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
     let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
     state.with_session(&id, |r| r.host.set_control_as_command(on));
+    // « Mode immersif » : tout de suite aussi.
+    state.with_session(&id, |r| r.host.set_immersive(&immersive));
     emit_computers(&app);
     Ok(())
 }
@@ -3180,6 +3183,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             title_stats: false,
             layout,
             control_as_command,
+            immersive: s.immersive.clone(),
         },
         events.clone(),
     );
