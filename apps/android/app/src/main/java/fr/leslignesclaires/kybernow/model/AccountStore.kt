@@ -172,6 +172,27 @@ class AccountManager(private val app: KyberNowApp) {
 
     fun account(key: String): StoredAccount? = store.account(key)
 
+    /**
+     * Réglages synchronisés (docs/comptes.md) : lus au lancement et à chaque rafraîchissement (avec les ordinateurs), et
+     * juste avant une session ; envoyés quand la personne change un réglage d'un ordinateur du compte.
+     */
+    val settings = SettingsSync(app, app.hosts, { app.decoders }, ::account, scope, signedOut = ::signedOut)
+
+    init {
+        app.hosts.onSettingsChanged = settings::changed
+    }
+
+    /**
+     * Juste avant d'ouvrir une session sur un ordinateur du compte : ses réglages du compte, attendus [waitMs] au plus ;
+     * un relais lent ou muet ne retarde pas plus la session, qui part avec les réglages locaux.
+     */
+    suspend fun syncBeforeSession(h: Host, waitMs: Long = 1500) {
+        val a = h.account?.let { store.account(it.key) } ?: return
+        if (!settings.enabled.value) return
+        val job = scope.launch { settings.sync(a) }
+        kotlinx.coroutines.withTimeoutOrNull(waitMs) { job.join() }
+    }
+
     // MARK: - Ordinateurs des comptes
 
     /**
@@ -188,6 +209,8 @@ class AccountManager(private val app: KyberNowApp) {
             }
         }
         syncHosts()
+        // Les réglages synchronisés, une fois les ordinateurs à l'accueil (ceux d'un compte arrivé à l'instant compris).
+        for (a in accounts.value) settings.sync(a)
     }
 
     /**
@@ -339,6 +362,7 @@ class AccountManager(private val app: KyberNowApp) {
 
     private fun forget(key: String) {
         store.remove(key)
+        settings.forgetAccount(key)
         syncHosts()
     }
 }

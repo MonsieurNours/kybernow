@@ -16,6 +16,14 @@
 // - Un ordinateur du compte est un `Host` (`account`), sans mot de passe : ses
 //   réglages et ses statistiques sont gardés comme ceux des autres ; il ne
 //   part ni dans iCloud ni vers l'Apple TV (HostStore.save).
+// - Réglages synchronisés (docs/comptes.md, « Réglages synchronisés » ;
+//   apps/core/README.md) : le profil, le format, le 4:4:4, le débit, le HDR et,
+//   sur Mac, le mode immersif de chaque ordinateur du compte (et d'un appairé
+//   qu'un compte donne aussi) suivent la personne. Lus avec la liste des
+//   ordinateurs et avant une session, appliqués quand ils sont plus récents
+//   que ceux déjà appliqués ; envoyés (les clés changées seulement) quand un
+//   de ces réglages change (`HostStore.update`). Interrupteur dans les
+//   réglages de l'app, allumé par défaut, gardé sur l'appareil.
 // - La création, le mot de passe et la suppression du compte se font sur la
 //   page du compte (App Store, règle 5.1.1(v)) : l'app n'en crée pas.
 
@@ -154,6 +162,15 @@ final class AccountStore: ObservableObject {
     @Published private(set) var origins: [UUID: String] = [:]
     /// L'échange du retour de la fenêtre : « Connexion au compte… ».
     @Published private(set) var signingIn = false
+    /// « Synchroniser les réglages des ordinateurs » : allumé par défaut,
+    /// gardé sur cet appareil (jamais synchronisé). Coupé : ni lecture ni envoi.
+    @Published var syncSettings: Bool {
+        didSet {
+            guard syncSettings != oldValue else { return }
+            defaults.set(syncSettings, forKey: Self.syncKey)
+            if syncSettings { Task { await refreshAll(force: true) } }
+        }
+    }
     /// Un avis bref (« Connecté à {compte}. », un refus du cœur) : l'app le montre.
     var onNotice: ((String) -> Void)?
 
@@ -177,9 +194,27 @@ final class AccountStore: ObservableObject {
 
     private static let keysKey = "accounts"
     private static let computersKey = "accountComputers"
+    private static let syncKey = "accountSyncSettings"
+    private static let syncedKey = "accountSyncedSettings"
+    private static let appliedKey = "accountSyncedApplied"
+    private static let pendingKey = "accountSyncedPending"
+
+    // Réglages synchronisés, par compte (`KyberAccount.key`) puis par Station.
+    /// La dernière liste lue du relais (ou rendue par un envoi).
+    private var synced: [String: [SyncedSettings]] = [:]
+    /// Le `updated_at` déjà appliqué (ou envoyé) de chaque ordinateur.
+    private var applied: [String: [String: Int64]] = [:]
+    /// Les changements pas encore reçus par le relais (relais muet) : renvoyés
+    /// au rafraîchissement suivant, avant d'appliquer ce qui arrive.
+    private var pending: [String: [String: SyncedKeys]] = [:]
+    /// Un envoi en cours par ordinateur (`compte\u{1F}station`).
+    private var pushing: Set<String> = []
+    /// Des réglages reçus sont écrits : `HostStore.update` ne les renvoie pas.
+    private var applyingSynced = false
 
     init(hosts: HostStore) {
         self.hosts = hosts
+        syncSettings = UserDefaults.standard.object(forKey: Self.syncKey) as? Bool ?? true
         hosts.accounts = self
         // Démonstration : ni Trousseau ni relais.
         guard !hosts.demo else { return }
@@ -229,6 +264,21 @@ final class AccountStore: ObservableObject {
         if let data = defaults.data(forKey: Self.computersKey), let list = try? JSONDecoder().decode([AccountComputer].self, from: data) {
             computers = Dictionary(grouping: list.filter { c in accounts.contains { $0.key == c.account } }, by: \.account)
         }
+        if let raw = defaults.dictionary(forKey: Self.syncedKey) as? [String: [String]] {
+            synced = raw.mapValues { $0.compactMap(SyncedSettings.init(json:)) }
+        }
+        if let data = defaults.data(forKey: Self.appliedKey), let a = try? JSONDecoder().decode([String: [String: Int64]].self, from: data) {
+            applied = a
+        }
+        if let data = defaults.data(forKey: Self.pendingKey), let p = try? JSONDecoder().decode([String: [String: SyncedKeys]].self, from: data) {
+            pending = p
+        }
+    }
+
+    private func saveSynced() {
+        defaults.set(synced.mapValues { $0.map(\.json) }, forKey: Self.syncedKey)
+        if let data = try? JSONEncoder().encode(applied) { defaults.set(data, forKey: Self.appliedKey) }
+        if let data = try? JSONEncoder().encode(pending) { defaults.set(data, forKey: Self.pendingKey) }
     }
 
     private func saveKeys() {
@@ -261,8 +311,13 @@ final class AccountStore: ObservableObject {
         AccountKeychain.delete(account.key)
         accounts.removeAll { $0.key == account.key }
         computers[account.key] = nil
+        // Ses réglages synchronisés partent avec lui (les réglages locaux restent).
+        synced[account.key] = nil
+        applied[account.key] = nil
+        pending[account.key] = nil
         saveKeys()
         saveComputers()
+        saveSynced()
         sync()
     }
 
@@ -298,6 +353,8 @@ final class AccountStore: ObservableObject {
             computers[account.key] = Accounts.rememberFingerprints(fresh: fresh, known: computers[account.key] ?? [])
             saveComputers()
             sync()
+            // Les réglages synchronisés, avec la liste.
+            await refreshSettings(account)
         } catch let e as AccountError where e.failure == .signedOut {
             // La session de l'appareil est fermée (page du compte, nouveau mot de passe).
             guard self.account(account.key) != nil else { return }
@@ -433,6 +490,7 @@ final class AccountStore: ObservableObject {
             if notify { onNotice?(ShareText.sentence(message)) }
         case .unknownComputer:
             computers[c.account]?.removeAll { $0.same(c) }
+            forgetSettings(account: c.account, station: c.station)
             saveComputers()
             sync()
             if notify { onNotice?(ShareText.sentence(message)) }
@@ -447,6 +505,159 @@ final class AccountStore: ObservableObject {
         guard host.account != nil, let c = computer(for: host), let account = account(c.account),
               let access = Accounts.access(account, station: c.station) else { return nil }
         return SessionEngine.AccountSession(access: access, relay: Relay.mode == .off ? nil : Accounts.route(c), onNetwork: isOnNetwork(host))
+    }
+
+    // MARK: Réglages synchronisés (docs/comptes.md, « Réglages synchronisés »)
+
+    /// Les réglages du compte pour cet ordinateur sont lus et appliqués juste
+    /// avant sa session (`beforeSession`).
+    func syncsBeforeSession(_ host: Host) -> Bool {
+        syncSettings && !hosts.demo && computer(for: host) != nil
+    }
+
+    /// Juste avant d'ouvrir une session sur un ordinateur du compte : ses
+    /// réglages relus et appliqués, 1,5 s au plus ; sans réponse, la session
+    /// part avec les réglages locaux (ce qui arrive plus tard s'applique
+    /// quand même, pour la suivante).
+    func beforeSession(_ host: Host) async {
+        guard syncsBeforeSession(host), let c = computer(for: host), let account = account(c.account) else { return }
+        let gate = OnceGate()
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            Task {
+                await self.refreshSettings(account)
+                if gate.take() { done.resume() }
+            }
+            Task {
+                try? await Task.sleep(for: .milliseconds(1500))
+                if gate.take() { done.resume() }
+            }
+        }
+    }
+
+    /// Lit les réglages du compte (après avoir renvoyé ce qui attendait) et
+    /// applique ceux qui sont plus récents que ceux déjà appliqués. Un refus
+    /// du relais garde les réglages locaux sans rien dire.
+    private func refreshSettings(_ account: KyberAccount) async {
+        guard syncSettings, !hosts.demo else { return }
+        for station in (pending[account.key] ?? [:]).keys { await push(account, station: station) }
+        let list: [SyncedSettings]
+        do {
+            list = try await Accounts.fetchSettings(account)
+        } catch let e as AccountError where e.failure == .signedOut {
+            guard self.account(account.key) != nil else { return }
+            forget(account)
+            onNotice?(AccountText.text(e))
+            return
+        } catch let e as AccountError where e.failure == .noAccounts {
+            // Relais d'avant les réglages synchronisés : rien à dire.
+            return
+        } catch {
+            KyberLog.app.notice("comptes : réglages synchronisés non relus (\(error.localizedDescription, privacy: .public))")
+            return
+        }
+        guard syncSettings, self.account(account.key) != nil else { return }
+        synced[account.key] = list
+        // Un ordinateur qui n'est plus au compte : ses réglages gardés sont oubliés.
+        let known = Set((computers[account.key] ?? []).map(\.station))
+        applied[account.key] = applied[account.key]?.filter { known.contains($0.key) }
+        pending[account.key] = pending[account.key]?.filter { known.contains($0.key) }
+        for s in list where known.contains(s.station) && s.updatedAt > (applied[account.key]?[s.station] ?? .min) {
+            // Un changement d'ici pas encore reçu : il part d'abord.
+            guard pending[account.key]?[s.station] == nil else { continue }
+            applied[account.key, default: [:]][s.station] = s.updatedAt
+            apply(s.known, account: account.key, station: s.station)
+        }
+        saveSynced()
+    }
+
+    /// Les clés reçues écrites dans les réglages locaux des ordinateurs de
+    /// l'accueil qui sont cette Station de ce compte ; jamais renvoyées (une
+    /// valeur que cet appareil ne sait pas prendre reste au relais).
+    private func apply(_ keys: SyncedKeys, account: String, station: String) {
+        guard !keys.isEmpty else { return }
+        for host in hosts.hosts {
+            guard let c = computer(for: host), c.account == account, c.station == station else { continue }
+            var h = host
+            h.settings.applySynced(keys)
+            guard h.settings != host.settings else { continue }
+            KyberLog.app.notice("comptes : réglages de \(host.name, privacy: .public) reçus du compte")
+            applyingSynced = true
+            hosts.update(h)
+            applyingSynced = false
+        }
+    }
+
+    /// Un réglage synchronisé changé ici pour un ordinateur du compte
+    /// (`HostStore.update`) : les clés changées partent au relais ; la
+    /// première fois pour cet ordinateur, toutes.
+    func settingsChanged(from old: Host, to new: Host) {
+        guard syncSettings, !applyingSynced, !hosts.demo, let c = computer(for: new), let account = account(c.account) else { return }
+        let changed = old.settings.syncedChanges(to: new.settings)
+        guard !changed.isEmpty else { return }
+        var keys = pending[account.key]?[c.station] ?? SyncedKeys()
+        if synced[account.key]?.first(where: { $0.station == c.station }) == nil,
+           let all = Accounts.allKeys(new.settings.syncedBase, immersive: new.settings.syncedImmersive) {
+            keys.merge(all)
+        }
+        keys.merge(changed)
+        pending[account.key, default: [:]][c.station] = keys
+        saveSynced()
+        Task { await push(account, station: c.station) }
+    }
+
+    /// Envoie ce qui attend pour cet ordinateur, un envoi à la fois (un
+    /// changement arrivé pendant l'envoi part juste après).
+    private func push(_ account: KyberAccount, station: String) async {
+        let id = account.key + "\u{1F}" + station
+        guard !pushing.contains(id) else { return }
+        pushing.insert(id)
+        defer { pushing.remove(id) }
+        while let keys = pending[account.key]?[station], !keys.isEmpty {
+            let last = synced[account.key]?.first { $0.station == station }
+            do {
+                let fresh = try await Accounts.putSettings(account, station: station, last: last, keys: keys)
+                guard self.account(account.key) != nil else { return }
+                var list = synced[account.key] ?? []
+                list.removeAll { $0.station == station }
+                list.append(fresh)
+                synced[account.key] = list
+                applied[account.key, default: [:]][station] = fresh.updatedAt
+                if pending[account.key]?[station] == keys { pending[account.key]?[station] = nil }
+            } catch let e as AccountError {
+                switch e.failure {
+                case .signedOut:
+                    guard self.account(account.key) != nil else { return }
+                    forget(account)
+                    onNotice?(AccountText.text(e))
+                    return
+                case .unknownComputer:
+                    forgetSettings(account: account.key, station: station)
+                case .unreachable:
+                    // Relais muet : le changement reste, renvoyé au rafraîchissement suivant.
+                    KyberLog.app.notice("comptes : réglages pas envoyés, relais muet")
+                default:
+                    // Relais sans réglages synchronisés, valeurs refusées : les réglages locaux restent.
+                    pending[account.key]?[station] = nil
+                    if e.failure != .noAccounts {
+                        KyberLog.app.notice("comptes : réglages refusés par le relais (\(e.message, privacy: .public))")
+                    }
+                }
+                saveSynced()
+                return
+            } catch {
+                saveSynced()
+                return
+            }
+        }
+        saveSynced()
+    }
+
+    /// Les réglages gardés d'un ordinateur qui n'est plus au compte.
+    private func forgetSettings(account: String, station: String) {
+        synced[account]?.removeAll { $0.station == station }
+        applied[account]?[station] = nil
+        pending[account]?[station] = nil
+        saveSynced()
     }
 
     // MARK: Regarder (docs/comptes.md, « Regarder, liens d'accès et groupes d'ordinateurs »)
@@ -540,6 +751,103 @@ final class AccountStore: ObservableObject {
         }
     }
     #endif
+}
+
+/// Le premier des deux (réponse ou délai) passe, l'autre non.
+@MainActor
+private final class OnceGate {
+    private var done = false
+
+    func take() -> Bool {
+        defer { done = true }
+        return !done
+    }
+}
+
+// MARK: - Réglages synchronisés d'un ordinateur
+
+extension ImmersiveChoice {
+    /// La valeur du compte (`immersive`) : `fullscreen`, `always`, `never`.
+    var syncedKey: String {
+        switch self {
+        case .fullScreen: return "fullscreen"
+        case .always: return "always"
+        case .never: return "never"
+        }
+    }
+
+    init?(syncedKey: String) {
+        guard let c = Self.allCases.first(where: { $0.syncedKey == syncedKey }) else { return nil }
+        self = c
+    }
+}
+
+extension ConnectionSettings {
+    /// Les réglages de session tels que le cœur les lit (`settings` de
+    /// `kn_session_start`), pour les réglages synchronisés.
+    var syncedBase: SessionEngine.Settings {
+        SessionEngine.Settings(profile: profile?.rawValue, codec: codec, yuv444: yuv444, mbps: bitrateMbps,
+                               reliable: transport == .reliable, hdr: hdr)
+    }
+
+    /// Le mode immersif à synchroniser : sur Mac seulement (l'Apple TV,
+    /// l'iPhone et l'iPad ne l'envoient ni ne le touchent).
+    var syncedImmersive: String? {
+        #if os(macOS)
+        return immersive.syncedKey
+        #else
+        return nil
+        #endif
+    }
+
+    /// Les clés changées de `self` à `new` (apps/core/README.md, « Réglages
+    /// synchronisés », 4) : un profil → `profile` ; « Personnalisé » → le
+    /// profil nul, le format, le 4:4:4 et le débit ; le format, le 4:4:4 ou
+    /// le débit d'un réglage personnalisé → la clé et le profil nul ; le HDR ;
+    /// le mode immersif (Mac).
+    func syncedChanges(to new: ConnectionSettings) -> SyncedKeys {
+        var k = SyncedKeys()
+        if new.profile != profile {
+            if let p = new.profile {
+                k.profile = .some(p.rawValue)
+            } else {
+                k.profile = .some(nil)
+                (k.codec, k.yuv444, k.mbps) = (new.codec, new.yuv444, new.bitrateMbps)
+            }
+        } else if new.profile == nil {
+            if new.codec != codec { k.codec = new.codec }
+            if new.yuv444 != yuv444 { k.yuv444 = new.yuv444 }
+            if new.bitrateMbps != bitrateMbps { k.mbps = new.bitrateMbps }
+            if k.codec != nil || k.yuv444 != nil || k.mbps != nil { k.profile = .some(nil) }
+        }
+        if new.hdr != hdr { k.hdr = new.hdr }
+        #if os(macOS)
+        if new.immersive != immersive { k.immersive = new.immersive.syncedKey }
+        #endif
+        return k
+    }
+
+    /// Les clés reçues du compte, ramenées à ce que cet appareil décode (le
+    /// cœur, `Accounts.apply`) : un profil prend ses réglages sur cet
+    /// appareil (et son transport), sinon le format, le 4:4:4 et le débit ;
+    /// le HDR ; le mode immersif sur Mac.
+    mutating func applySynced(_ keys: SyncedKeys) {
+        if keys.profile != nil || keys.codec != nil || keys.yuv444 != nil || keys.mbps != nil || keys.hdr != nil,
+           let r = Accounts.apply(keys, to: syncedBase) {
+            if let p = r.profile.flatMap(Profile.init(rawValue:)) {
+                if keys.profile != nil || profile != p { apply(p) }
+            } else {
+                profile = nil
+            }
+            codec = r.codec
+            yuv444 = r.yuv444
+            bitrateMbps = min(max(r.mbps, Self.minBitrate), Self.maxBitrate)
+            hdr = r.hdr
+        }
+        #if os(macOS)
+        if let i = keys.immersive.flatMap(ImmersiveChoice.init(syncedKey:)) { immersive = i }
+        #endif
+    }
 }
 
 extension HostStore {

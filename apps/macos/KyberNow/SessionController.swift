@@ -2364,6 +2364,8 @@ final class SessionController: NSObject, ObservableObject {
                 s.latencyMs = 11.5 + Double.random(in: 0 ... 1.6)
                 s.fps = 60 + Double.random(in: -0.4 ... 0.4)
                 s.mbps = pyrowave == nil ? 80 + Double.random(in: -3 ... 3) : 290 + Double.random(in: -8 ... 8)
+                s.target = pyrowave == nil ? TargetBitrate(bitrate: 80_000_000, profile: 80_000_000, reason: 0)
+                    : TargetBitrate(bitrate: 320_000_000, profile: 320_000_000, reason: 3)
                 s.width = 2560
                 s.height = 1440
                 s.format = "4:2:0 8 bits"

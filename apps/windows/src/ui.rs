@@ -66,6 +66,9 @@ mod invite;
 // Comptes KyberNow : connexion par la page du relais, comptes gardés, leurs
 // ordinateurs à l'accueil, ouverts avec le jeton d'accès (docs/comptes.md).
 mod account;
+// Réglages synchronisés par le compte : lus avec les ordinateurs des comptes et
+// avant une session, envoyés quand la personne les change (docs/comptes.md).
+mod synced;
 // Consoles PlayStation : recherche, comptes PSN, association, partie et sa
 // barre, réglages, envoi entre appareils (docs/playstation.md).
 mod playstation;
@@ -403,6 +406,10 @@ pub struct Prefs {
     /// absent : « Auto ».
     #[serde(skip_serializing_if = "Option::is_none")]
     pub share_quality: Option<ShareQuality>,
+    /// « Synchroniser les réglages des ordinateurs » (comptes KyberNow) ;
+    /// absent : allumé.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_settings: Option<bool>,
 }
 
 /// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
@@ -806,11 +813,16 @@ struct AppInfo {
     battery: &'static str,
     /// « Ouvrir à l'ouverture de session », tel que Windows le fera.
     open_at_login: bool,
+    /// « Synchroniser les réglages des ordinateurs » et son aide (textes du cœur).
+    sync_settings: bool,
+    sync_settings_title: String,
+    sync_settings_help: String,
 }
 
 #[tauri::command(async)]
 fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
     let prefs = state.prefs.lock().unwrap().clone();
+    let (sync_title, sync_help) = kybernow_core::account::sync_settings_texts(i18n::lang());
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         channel: prefs.channel,
@@ -820,6 +832,9 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
         arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
         battery: battery_choice(&state),
         open_at_login: login::enabled(),
+        sync_settings: prefs.sync_settings.unwrap_or(true),
+        sync_settings_title: sync_title.clone(),
+        sync_settings_help: sync_help.clone(),
     }
 }
 
@@ -1718,13 +1733,15 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     let ctrl_command = settings.ctrl_command;
     let immersive = settings.immersive.clone();
     let hdr = settings.hdr_on();
-    let hdr_before = state.with_store(|s| {
+    let before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
-        let before = c.settings.hdr_on();
-        c.settings = settings;
+        let before = std::mem::replace(&mut c.settings, settings);
         s.save();
         Ok::<_, String>(before)
     })?;
+    let hdr_before = before.hdr_on();
+    // Réglages synchronisés : les clés changées partent au relais du compte.
+    synced::changed(&app, &id, &before);
     // « HDR » changé dans les réglages pendant sa session : tout de suite.
     if hdr != hdr_before {
         apply_hdr(&app, &id, hdr);
@@ -3066,6 +3083,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         first
     };
     let _launching = Launching { app: &app, id: id.clone() };
+    // Réglages synchronisés : ceux du compte, s'ils arrivent vite.
+    synced::before_session(&app, &id);
     let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
@@ -3375,15 +3394,17 @@ fn session_hdr(app: AppHandle, id: String, on: bool) -> Result<(), String> {
     if !state.in_session(&id) {
         return Err(t("errors.no_session", &[]));
     }
-    let saved = state.with_store(|s| match s.get_mut(&id) {
+    let before = state.with_store(|s| match s.get_mut(&id) {
         Some(c) => {
+            let before = c.settings.clone();
             c.settings.hdr = Some(on);
             s.save();
-            true
+            Some(before)
         }
-        None => false,
+        None => None,
     });
-    if saved {
+    if let Some(before) = before {
+        synced::changed(&app, &id, &before);
         emit_computers(&app);
     }
     if apply_hdr(&app, &id, on) { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
@@ -3413,7 +3434,7 @@ fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), St
         return Err(t("errors.no_session", &[]));
     };
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
-    let c = save_profile(&state, &id, &profile)?;
+    let c = save_profile(&app, &id, &profile)?;
     emit_computers(&app);
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
@@ -3481,9 +3502,11 @@ fn pyrowave_link(relayed: bool, wired: bool) -> Option<&'static str> {
 }
 
 /// Le profil d'un ordinateur, retouches effacées (comme l'accueil).
-fn save_profile(state: &UiState, id: &str, profile: &str) -> Result<Computer, String> {
-    state.with_store(|s| {
+fn save_profile(app: &AppHandle, id: &str, profile: &str) -> Result<Computer, String> {
+    let state = app.state::<UiState>();
+    let (c, before) = state.with_store(|s| {
         let c = s.get_mut(id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+        let before = c.settings.clone();
         c.settings.profile = profile.into();
         c.settings.codec = None;
         c.settings.yuv444 = None;
@@ -3491,8 +3514,11 @@ fn save_profile(state: &UiState, id: &str, profile: &str) -> Result<Computer, St
         c.settings.reliable = None;
         let c = c.clone();
         s.save();
-        Ok::<_, String>(c)
-    })
+        Ok::<_, String>((c, before))
+    })?;
+    // Réglages synchronisés : `{profile}` part au relais du compte.
+    synced::changed(app, id, &before);
+    Ok(c)
 }
 
 /// Un profil choisi sur l'accueil ou dans le menu de l'icône : enregistré
@@ -3505,7 +3531,7 @@ fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String
     if state.in_session(&id) {
         return session_profile(app.clone(), id, profile);
     }
-    save_profile(&state, &id, &profile)?;
+    save_profile(&app, &id, &profile)?;
     emit_computers(&app);
     Ok(())
 }
@@ -4152,6 +4178,7 @@ pub fn run(args: Vec<String>) {
             set_channel,
             set_language,
             set_battery,
+            synced::set_sync_settings,
             install_update,
             poll_now,
             station_restart,

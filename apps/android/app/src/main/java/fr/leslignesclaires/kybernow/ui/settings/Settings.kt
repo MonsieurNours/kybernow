@@ -965,6 +965,10 @@ data class AppSettingsState(
     val accounts: List<fr.leslignesclaires.kybernow.core.AccountSummary> = emptyList(),
     /** Le retour de la page de connexion s'échange contre le compte : « Connexion au compte… ». */
     val signingIn: Boolean = false,
+    /** « Synchroniser les réglages des ordinateurs » (docs/comptes.md) : allumé par défaut, gardé sur l'appareil. */
+    val syncSettings: Boolean = true,
+    /** Son titre et son aide, du cœur ; nuls : ceux de l'app. */
+    val syncTexts: Pair<String, String>? = null,
 )
 
 class AppSettingsActions(
@@ -983,6 +987,8 @@ class AppSettingsActions(
     val signIn: () -> Unit = {},
     /** « Ajouter un compte » : le relais d'abord. */
     val addAccount: () -> Unit = {},
+    /** « Synchroniser les réglages des ordinateurs ». */
+    val setSyncSettings: (Boolean) -> Unit = {},
 )
 
 @Composable
@@ -992,13 +998,15 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     val stored by app.accounts.accounts.collectAsState()
     val accounts = remember(stored) { stored.map { fr.leslignesclaires.kybernow.core.Accounts.summary(it) } }
     val signingIn by app.accounts.signingIn.collectAsState()
+    val syncSettings by app.accounts.settings.enabled.collectAsState()
+    val syncTexts = remember { fr.leslignesclaires.kybernow.core.Accounts.syncSettingsTexts() }
     val screen = remember { Screen.of(context) }
     val audio = remember { AudioOutput.current(context) }
     val update by app.updates.state.collectAsState()
     val beta by app.updates.beta.collectAsState()
     val language = AppCompatDelegate.getApplicationLocales().let { if (it.isEmpty) "auto" else it[0]!!.language }
     AppSettingsContent(
-        AppSettingsState(language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn),
+        AppSettingsState(language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn, syncSettings = syncSettings, syncTexts = syncTexts),
         AppSettingsActions(
             setLanguage = { v -> AppCompatDelegate.setApplicationLocales(if (v == "auto") LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(v)) },
             gamepads = onGamepads,
@@ -1010,6 +1018,11 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             signOut = { a -> app.accounts.signOut(a.key) },
             signIn = onSignIn,
             addAccount = onAddAccount,
+            setSyncSettings = { on ->
+                app.accounts.settings.setEnabled(on)
+                // Rallumé : les réglages du compte arrivent tout de suite.
+                if (on) app.accounts.refresh()
+            },
         ),
     )
 }
@@ -1032,7 +1045,10 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
         ) { v -> actions.setLanguage(v) }
 
         Section(stringResource(R.string.account_section))
-        fr.leslignesclaires.kybernow.ui.account.AccountsRows(state.accounts, state.signingIn, actions.manageAccount, actions.signOut, actions.signIn, actions.addAccount)
+        fr.leslignesclaires.kybernow.ui.account.AccountsRows(
+            state.accounts, state.signingIn, actions.manageAccount, actions.signOut, actions.signIn, actions.addAccount,
+            state.syncSettings, state.syncTexts, actions.setSyncSettings,
+        )
 
         Section(stringResource(R.string.app_settings_device))
         InfoRow(stringResource(R.string.app_settings_device_name), state.deviceName, state.deviceOs)

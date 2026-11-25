@@ -139,7 +139,23 @@ struct StatsPanel: View {
                   values: latencies, floorTop: budget * 1.6, guide: budget, guideLabel: String(localized: "1 image"),
                   marks: losses, format: { Moment.ms($0) }, lit: true)
             Curve(title: String(localized: "Débit"), value: stats.map { Self.mbps($0.mbps) } ?? "—",
-                  values: history.map { $0.mbps }, floorTop: 10, format: Self.mbps, lit: false)
+                  values: history.map { $0.mbps }, floorTop: 10, targets: history.map { $0.target?.mbps },
+                  format: Self.mbps, lit: false)
+            // Débit visé (docs/link-ui.md, « Statistiques ») : rien sans.
+            if let target = stats?.target {
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    HStack(spacing: 5) {
+                        TargetDash().frame(width: 12, height: 1)
+                        Text(TargetBitrate.label).font(Theme.sans(11.5)).foregroundStyle(Theme.faint)
+                    }
+                    Spacer(minLength: 0)
+                    Text(target.text).font(Theme.mono(11)).foregroundStyle(Theme.text2)
+                        .multilineTextAlignment(.trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, -6)
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 
@@ -357,6 +373,8 @@ private struct Curve: View {
     var guideLabel: String?
     /// Secondes avec des pertes : repères sous la courbe.
     var marks: [Int] = []
+    /// Débit visé de chaque seconde : un trait en escalier (nil : pas de trait).
+    var targets: [Double?] = []
     var format: (Double) -> String
     var lit: Bool
 
@@ -364,7 +382,7 @@ private struct Curve: View {
 
     var body: some View {
         let known = values.compactMap { $0 }
-        let top = max(floorTop, (known.max() ?? 0) * 1.15)
+        let top = max(floorTop, (known.max() ?? 0) * 1.15, (targets.compactMap { $0 }.max() ?? 0) * 1.1)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(Theme.sans(12, .medium)).foregroundStyle(Theme.text2)
@@ -394,6 +412,20 @@ private struct Curve: View {
                     g.move(to: CGPoint(x: 0, y: y(guide)))
                     g.addLine(to: CGPoint(x: size.width, y: y(guide)))
                     ctx.stroke(g, with: .color(Color.white.opacity(0.22)), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                }
+                // Débit visé : un palier par seconde, coupé là où il manque.
+                if targets.contains(where: { $0 != nil }) {
+                    var t = Path()
+                    var open = false
+                    for (i, v) in targets.enumerated() {
+                        guard let v else { open = false; continue }
+                        let cx = CGFloat(Self.slots - targets.count + i) * step
+                        let left = max(0, cx - step / 2), right = min(size.width, cx + step / 2)
+                        if open { t.addLine(to: CGPoint(x: left, y: y(v))) } else { t.move(to: CGPoint(x: left, y: y(v))) }
+                        t.addLine(to: CGPoint(x: right, y: y(v)))
+                        open = true
+                    }
+                    ctx.stroke(t, with: .color(TargetDash.color), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
                 }
                 // Courbe, coupée là où la mesure manque.
                 var line = Path(), area = Path()
@@ -458,6 +490,21 @@ private struct Curve: View {
     }
 }
 
+/// Le trait du débit visé, dans la courbe et devant sa ligne.
+private struct TargetDash: View {
+    static let color = Theme.accentLight.opacity(0.75)
+
+    var body: some View {
+        Canvas { ctx, size in
+            var p = Path()
+            p.move(to: CGPoint(x: 0, y: size.height / 2))
+            p.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+            ctx.stroke(p, with: .color(Self.color), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 private struct Triangle: Shape {
     func path(in r: CGRect) -> Path {
         Path { p in
@@ -497,6 +544,9 @@ struct StatsPanelPreview: View {
             s.skipped = i % 4 == 0 ? 1 : 0
             s.rttMs = 0.6
             s.mbps = 62 + sin(Double(i) / 2) * 9
+            // Débit visé : baissé par le débit automatique autour de la perte.
+            let lowered = (17 ... 22).contains(i)
+            s.target = TargetBitrate(bitrate: lowered ? 42_000_000 : 60_000_000, profile: 60_000_000, reason: lowered ? 1 : 0)
             return s
         }
         var audio = AudioStats()

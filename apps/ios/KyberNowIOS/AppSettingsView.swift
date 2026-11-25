@@ -155,6 +155,12 @@ private struct AppSettingsContent: View {
                 .padding(.horizontal, 14)
             }
         }
+        // Réglages synchronisés : seulement avec un compte connecté.
+        if !accounts.accounts.isEmpty {
+            SettingsToggleRow(title: Accounts.syncSettingsTitle, note: Accounts.syncSettingsHelp, on: accounts.syncSettings) {
+                accounts.syncSettings.toggle()
+            }
+        }
         Button { addingAccount = true } label: {
             HStack(spacing: 12) {
                 SettingsLabel(title: AccountText.add, note: AccountText.sectionHelp)

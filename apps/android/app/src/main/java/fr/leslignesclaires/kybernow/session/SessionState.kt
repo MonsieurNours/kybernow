@@ -47,7 +47,30 @@ data class Second(
     val hdr: Boolean = false,
     /** PyroWave : la définition ramenée en place (`Second::lowered` du cœur), nulle sans. */
     val lowered: Lowered? = null,
+    /** Le débit visé (`Second::target` du cœur) : la ligne « Débit visé » et le trait de la courbe ; nul sans (invité sur l'image de l'hôte). */
+    val target: TargetBitrate? = null,
 )
+
+/**
+ * Le débit demandé à l'ordinateur pendant la seconde (docs/debit-automatique.md) : [bitrate] et [profile] en bit/s,
+ * [reason] le code du cœur (`TargetReason::code` : 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de
+ * l'app, 5 repli). Le texte de la ligne est celui du cœur ([fr.leslignesclaires.kybernow.core.Native.targetBitrateText]).
+ */
+data class TargetBitrate(val bitrate: Long, val profile: Long, val reason: Int) {
+    val mbps get() = bitrate / 1_000_000.0
+
+    companion object {
+        /** Valeurs 22 à 24 de `onSecond` (−1 sans, ou absentes d'un cœur plus ancien). */
+        fun of(values: DoubleArray): TargetBitrate? =
+            if (values.size > 24 && values[22] >= 0 && values[24] >= 0) TargetBitrate(values[22].toLong(), values[23].toLong().coerceAtLeast(0), values[24].toInt()) else null
+    }
+}
+
+/** Une seconde de la courbe « Débit » des Statistiques : le débit reçu et le débit visé (Mbit/s, nul sans). */
+data class BitratePoint(val mbps: Double, val target: Double?)
+
+/** La courbe « Débit » : les 30 dernières secondes. */
+internal const val HISTORY_SECONDS = 30
 
 /** PyroWave : définition ramenée à [width] × [height] à [refresh] Hz pour tenir dans [mbps] Mbit/s (docs/pyrowave.md). */
 data class Lowered(val width: Int, val height: Int, val refresh: Int, val mbps: Int)
@@ -167,6 +190,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val hdr = MutableStateFlow(false)
     /** PyroWave : le texte de la définition ramenée en place (avis du cœur), nul sans ; repris par le bandeau du début. */
     val lowered = MutableStateFlow<String?>(null)
+    /** Les 30 dernières secondes du débit et du débit visé : la courbe « Débit » des Statistiques. */
+    val bitrateHistory = MutableStateFlow<List<BitratePoint>>(emptyList())
     /** PyroWave : le réseau sature depuis 5 s (avis du cœur, une fois par session) ; le bandeau « Le réseau sature ». */
     val strained = MutableStateFlow(false)
     val pointer = MutableStateFlow(PointerState(false, 0.0, 0.0, false, 0))
@@ -311,7 +336,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             chain = chain,
             hdr = values.size > 17 && values[17] > 0.5,
             lowered = if (values.size > 21 && values[18] > 0) Lowered(values[18].toInt(), values[19].toInt(), values[20].toInt(), values[21].toInt()) else null,
-        )
+            target = TargetBitrate.of(values),
+        ).also { s -> bitrateHistory.value = (bitrateHistory.value + BitratePoint(s.mbps, s.target?.mbps)).takeLast(HISTORY_SECONDS) }
     }
 
     override fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?) {

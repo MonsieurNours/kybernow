@@ -386,6 +386,15 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
     // La base n'est pas gardée pendant la construction de la vue (`shell` la prend aussi).
     let links = if standing.manage { acc.db().access_links(&station.id, 20).unwrap_or_default() } else { Vec::new() };
     let known = if standing.manage { acc.db().known_people(account.id).unwrap_or_default() } else { Vec::new() };
+    // « Déplacer… » : vers « Moi » et les familles et équipes qu'il gère (docs/comptes.md, « Déplacer un ordinateur »).
+    let moves: Vec<(String, String)> = acc
+        .move_destinations(account, station)
+        .into_iter()
+        .map(|d| match d {
+            super::super::moves::Dest::Me => ("moi".to_string(), cx.tr("Moi", "Me")),
+            super::super::moves::Dest::Org(o) => (o.public_id, o.name),
+        })
+        .collect();
     let view = PeopleView {
         id: station.id.clone(),
         name: station.name.clone(),
@@ -403,6 +412,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         link_open: kept.link_form.is_some(),
         link_form: kept.link_form.unwrap_or_else(|| (Rights::new([Right::Session]), 7, String::new())),
         known,
+        moves,
         now: cx.now,
         shell: shell(&cx, account),
     };

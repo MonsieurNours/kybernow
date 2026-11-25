@@ -295,7 +295,7 @@ final class AppModel: ObservableObject {
 
     /// `mobileDataOK` : l'accord est donné (alerte de l'accueil), la session
     /// part même en données mobiles.
-    func connect(_ id: UUID, mobileDataOK: Bool = false) {
+    func connect(_ id: UUID, mobileDataOK: Bool = false, synced: Bool = false) {
         guard session == nil, let host = store.host(id) else { return }
         if !mobileDataOK, !prefs.allowCellular, onMobileData {
             watchAfterMobileData = nil
@@ -310,6 +310,14 @@ final class AppModel: ObservableObject {
         // Le droit « Regarder » seul : « Se connecter » n'est pas proposé, on regarde.
         if store.watchOnly(host) {
             watch(id, mobileDataOK: true)
+            return
+        }
+        // Ordinateur du compte : ses réglages synchronisés relus juste avant (1,5 s au plus).
+        if !synced, let accounts = store.accounts, accounts.syncsBeforeSession(host) {
+            Task {
+                await accounts.beforeSession(host)
+                connect(id, mobileDataOK: true, synced: true)
+            }
             return
         }
         selected = id

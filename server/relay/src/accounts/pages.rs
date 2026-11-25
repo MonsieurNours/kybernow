@@ -163,6 +163,11 @@ pub enum Notice {
     InviteResent(String),
     /// « Invitation déjà renvoyée il y a moins d'une heure. »
     ResentTooSoon,
+    /// Déplacer un ordinateur (docs/comptes.md, « Réglages synchronisés et déplacer un ordinateur ») :
+    /// « {ordinateur} est maintenant à {destination}. »
+    Moved(String, String),
+    /// « Vous ne gérez pas {destination}. »
+    NotManager(String),
 }
 
 impl Notice {
@@ -199,6 +204,7 @@ impl Notice {
                 | Notice::LinkAccepted
                 | Notice::AccessUpdated(_)
                 | Notice::InviteResent(_)
+                | Notice::Moved(..)
         )
     }
 
@@ -301,6 +307,14 @@ impl Notice {
                 Lang::En => format!("Invitation resent to {}.", esc(email)),
             },
             Notice::ResentTooSoon => tr("Invitation déjà renvoyée il y a moins d'une heure.", "Invitation already resent less than an hour ago."),
+            Notice::Moved(computer, dest) => match lang {
+                Lang::Fr => t(lang, &format!("{} est maintenant à {}.", esc(computer), esc(dest)), ""),
+                Lang::En => format!("{} now belongs to {}.", esc(computer), esc(dest)),
+            },
+            Notice::NotManager(dest) => match lang {
+                Lang::Fr => t(lang, &format!("Vous ne gérez pas {}.", esc(dest)), ""),
+                Lang::En => format!("You don't manage {}.", esc(dest)),
+            },
         }
     }
 }
@@ -1469,6 +1483,8 @@ mod tests {
             Notice::AlreadyMember("Paul".into()),
             Notice::InviteResent("lea@exemple.fr".into()),
             Notice::ResentTooSoon,
+            Notice::Moved("PC".into(), "L'atelier".into()),
+            Notice::NotManager("L'atelier".into()),
         ] {
             pages.push(("avis", sign_in(&v, "", Some(n), true, true)));
         }

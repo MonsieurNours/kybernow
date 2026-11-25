@@ -120,6 +120,22 @@ Décidé le 25/11/2026.
 - Une **session d'appareil** (une app connectée au compte) **expire après 90 jours sans servir** : l'app dit « Ce compte a été déconnecté de cet appareil : reconnectez-vous. », comme après une déconnexion depuis la page du compte.
 - « Compte et sécurité », liste des appareils : « Utilisé il y a {durée} » ; aide « Un appareil qui ne sert pas pendant 90 jours est déconnecté. » / “Used {duration} ago”; “A device unused for 90 days is signed out.”.
 
+### Réglages synchronisés et déplacer un ordinateur
+
+Décidé le 25/11/2026.
+
+**Réglages synchronisés** : les réglages d'un ordinateur du compte suivent la personne d'un appareil à l'autre.
+- Ce qui suit : le **profil** (Auto, Jeu, Bureau…), le **format vidéo**, le **débit**, le **texte net (4:4:4)**, le **HDR** et le **mode immersif** de chaque ordinateur. Ce qui reste sur l'appareil : son écran et sa définition, son son, ses manettes, ses raccourcis, ses préférences d'app.
+- Gardés par le relais, par compte et par ordinateur (un petit objet, 4 Ko au plus) ; le dernier changement l'emporte. Un appareil les lit en démarrant, à chaque rafraîchissement du compte et avant une session ; il les envoie quand on change un de ces réglages. Une valeur qu'un appareil ne sait pas appliquer (format qu'il ne décode pas, HDR sans écran HDR, mode immersif sur un téléviseur) est gardée telle quelle, mais l'appareil applique ce qu'il peut, comme aujourd'hui.
+- Pour un ordinateur à la fois appairé et dans un compte (même Station), les réglages du compte valent aussi.
+- Réglages de l'app, section « Comptes » : « Synchroniser les réglages des ordinateurs » (allumé par défaut), aide « Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils. » / “Sync computer settings”; “Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.”.
+- Supprimés avec le compte ; un ordinateur détaché ou qui n'est plus ouvert au compte perd les siens.
+
+**Déplacer un ordinateur** (page d'un ordinateur, « Déplacer… » / “Move…”) : vers vous, ou vers une famille ou une équipe que vous gérez, depuis vous ou depuis une famille ou une équipe que vous gérez (Propriétaire ou Administrateur, double authentification, des deux côtés).
+- Choisir la destination, puis un **aperçu** « Ce qui change » / “What changes” : « Perdent l'accès : » les familles, équipes et groupes de l'ancien propriétaire et les accès venus d'un groupe d'ordinateurs ; « Quitte les groupes d'ordinateurs : {groupes} » ; « Liens en attente annulés : {n} ». Une case « Garder les accès donnés à des personnes » / “Keep the access given to people” (cochée) garde les droits donnés une par une à des personnes ; décochée, ils partent aussi.
+- Bouton « Déplacer {ordinateur} » / “Move {computer}”, puis l'avis « {ordinateur} est maintenant à {destination}. » / “{computer} now belongs to {destination}.”. Le journal des deux côtés le note ; la Station l'apprend comme un rattachement (Admin montre le nouveau propriétaire).
+- Refus : « Vous ne gérez pas {destination}. », « Activez d'abord la double authentification. ».
+
 ## L'espace du compte
 
 Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). La console du relais (`/compte/…`) devient une appli : un **menu latéral fixe** et une **colonne de contenu de largeur constante** (920 px), quelle que soit la page ; au téléphone (moins de 880 px), le menu devient une **barre d'onglets en bas**.
@@ -338,6 +354,7 @@ Fait côté relais (console, API, base) et côté Admin ; les apps sont décrite
 | `GET/POST /compte/lien/kla_…` | « {nom} vous ouvre {ordinateur} » : sans être connecté, « Se connecter » et « Créer un compte » (puis retour ici) ; connecté, les droits, l'échéance et « Accepter » (le POST) ; les refus |
 | `POST /compte/organisation/groupes-ordinateurs/creer`, `/supprimer`, `/ordinateur`, `/ouvrir`, `/retirer` | Onglet « Ordinateurs » (Propriétaires et Administrateurs ; panneaux `#groupe-ordinateurs`, `#ordinateurs-<n>`, `#supprimer-ordinateurs-<n>`) : `nom` ; `groupe` ; `groupe`, `ordinateur`, `action` (`ajouter`, `retirer`) ; `groupe`, `a` (`org`, `grp:<n>`, `compte:<n>`), droits, `fin` ; `groupe`, `acces` |
 | `GET/POST /compte/ouvrir-admin` | « Ouvrir Admin de {ordinateur} ? » (`station`, `nonce`, `retour`) |
+| `POST /compte/ordinateur/deplacer` | « Déplacer… » : `id`, `vers` (`moi`, `org_…`) → « Ce qui change » ; `action=deplacer`, `garder` (`1`) → le déplacement (voir « Réglages synchronisés et déplacer un ordinateur (migration 9) ») |
 
 La barre de la console (« Ordinateurs », chaque organisation, « Compte ») est aussi en haut de `/compte`. Le détachement depuis « Personnes » revient à « Ordinateurs ».
 
@@ -356,6 +373,22 @@ La barre de la console (« Ordinateurs », chaque organisation, « Compte ») es
 - Migration 8 : `grants.sent_at`, `grants.resent_at`, `org_invites.sent_at`, `org_invites.resent_at` (l'envoi des invitations). Les invitations déjà en attente reçoivent l'heure de la migration : 30 jours pleins à partir de la mise à jour du relais, plutôt qu'une expiration soudaine de celles envoyées il y a plus d'un mois.
 - Migration 7 : `access_links` (Station, empreinte, début du lien, droits, `link_expires_at`, `access_expires_at`, `created_by`, `created_at`, `used_by`, `used_at`, `revoked_at`) ; `station_groups` (organisation, nom unique dans l'organisation), `station_group_members` (groupe, Station) ; `group_grants` (groupe d'ordinateurs, et `account`, `org` ou `grp`, droits, échéance, `invited_by`) : une table à part, `grants` reste « les droits donnés sur une Station » ; `enroll_tokens.sgroup` (« Ranger dans le groupe »). Pas de clé étrangère vers `stations` (comme `grants`) : détacher ou rattacher à un autre propriétaire efface les lignes de la Station.
 - Code : `server/relay/src/accounts/people.rs` (droits donnés, droits d'un compte, invitations et leur envoi, migration 8, suggestions), `orgs.rs` (organisations, journal, jetons, `enroll`), `links.rs` (liens d'accès, migration 7), `station_groups.rs` (groupes d'ordinateurs), `console_pages.rs` (pages), `web/console.rs`, `web/org_pages.rs` (et les groupes d'ordinateurs), `web/link_pages.rs` (liens d'accès), `web/admin_login.rs` ; essais : `web/tests/lot6.rs`, `web/tests/invitations.rs` ; Admin : `accounts.rs` (connexion avec KyberNow, enrôlement), `lend_api.rs` (prêt avec un compte) ; interface : `server/web/src/pages/Login.svelte`.
+
+### Réglages synchronisés et déplacer un ordinateur (migration 9)
+
+Fait côté relais le 25/11/2026 (le cœur et les apps lisent et écrivent les réglages de leur côté).
+
+- **Base** : migration 9, `computer_settings` (`account` → `accounts` avec `ON DELETE CASCADE`, `station`, `"values"` : le JSON tel qu'envoyé, `updated_at` ; clé `(account, station)`, index sur `station`). Pas de clé étrangère vers `stations`, comme `grants`.
+- **API des appareils** (session d'appareil, `Authorization: Bearer …`, comme `/v1/computers`) :
+  - `GET /v1/settings` → `200 {"settings":[{"station":"<id>","updated_at":<unix>,"values":{…}}]}`, seulement les ordinateurs sur lesquels le compte a des droits à cet instant (ceux de `/v1/computers`) ; les lignes des autres sont effacées à cette lecture.
+  - `PUT /v1/settings/<station>` `{"values":{…}}` → `200 {"updated_at":<unix>}` ; le dernier l'emporte ; les valeurs sont gardées telles quelles (une clé inconnue reste, pour les apps plus récentes). `404 {"error":"unknown_station"}` sans droit (ou identifiant illisible), `400 {"error":"bad_values"}` si `values` n'est pas un objet, `413 {"error":"too_large"}` au-delà de 4096 octets une fois sérialisé, `401 bad_session` sans session, `405` pour une autre méthode.
+  - Clés connues : `profile` (texte, ou `null` pour Auto), `codec` (texte), `yuv444` (booléen), `mbps` (nombre), `hdr` (booléen), `immersive` (`"fullscreen"`, `"always"`, `"never"`).
+- **Ménage** : avec le compte (clé étrangère ; et les lignes des autres comptes sur ses ordinateurs, ou sur ceux d'une famille ou d'une équipe qui part avec lui) ; toutes les lignes d'un ordinateur détaché (console ou Admin) ou rattaché à un autre propriétaire ; après un déplacement, celles des comptes qui n'y ont plus droit ; à la lecture (`GET`) et au ménage périodique du relais (toutes les 30 s), celles d'un ordinateur que le compte ne voit plus. L'export des données les porte (`synced_settings`).
+- **Déplacer** : `POST /compte/ordinateur/deplacer` (`id`, `vers` = `moi` ou `org_…`) rend « Ce qui change » ; avec `action=deplacer` (et `garder=1`, la case) il déplace. Le panneau `#deplacer` de la page d'un ordinateur choisit la destination : « Moi » (sauf s'il est déjà à vous) et les familles et équipes dont on est Propriétaire ou Administrateur, sauf la propriétaire actuelle. « Déplacer… » est proposé à son propriétaire et aux Propriétaires et Administrateurs de sa famille ou de son équipe (pas à qui a seulement le droit Administrer) ; sans double authentification, le refus le dit. Côté Admin (`accounts::on_attached`), un `attached` non demandé est pris quand le relais est le même et que ses clés sont celles déjà épinglées : seul le propriétaire affiché change.
+- **Ce qui part** (une transaction, `moves.rs`) : les droits donnés à des familles, équipes ou groupes, **sauf ceux donnés à la destination ou à l'un de ses groupes** (ils gardent un sens chez elle) ; ses groupes d'ordinateurs (et les accès qui en venaient) ; les liens en attente (révoqués, ils restent dans la liste) ; les droits donnés à des personnes et les invitations si la case est décochée ; le droit donné au nouveau propriétaire (une personne), qui a désormais tout ; les premières venues des appareils (le nouveau propriétaire est prévenu de chaque appareil, comme après un rattachement). `enrolled_by` est remis à rien. L'aperçu est calculé des mêmes données.
+- **Journaux** : `ordinateur_deplace {station, from, to}` au journal de l'ancienne et de la nouvelle famille ou équipe ; `ordinateur_deplace` au journal du compte de qui déplace (la personne d'un côté, c'est lui).
+- **La Station** : le relais lui envoie `attached` (sans `req`) avec le nouveau `owner`, comme après « Rattacher ». **À faire dans Admin** : aujourd'hui, `on_attached` ignore un `attached` non demandé dont le propriétaire change (seules les clés et les noms du même propriétaire suivent) ; pour qu'Admin montre le nouveau propriétaire, il faut l'accepter quand le relais est le même et les clés sont celles déjà épinglées. Le jeton d'accès ne dépend pas du propriétaire : les accès marchent sans ce changement.
+- **Code** : `server/relay/src/accounts/settings.rs` (migration 9, API), `moves.rs` (aperçu, déplacement), `web/move_pages.rs`, `console_pages.rs` (`move_preview`, panneau `#deplacer`) ; essais : `web/tests/deplacer.rs`.
 
 ### Installateurs
 
@@ -412,6 +445,7 @@ Maquette : rangée « Installateurs ». Code : `server/installer/src/account.rs`
 | Droits donnés (personne ou adresse invitée, droits, échéance) | Personnes ajoutées | Jusqu'au retrait ou au détachement ; une invitation échue part après 7 jours |
 | Organisations, membres, invitations, groupes, droits | Flotte | Vie de l'organisation |
 | Jetons d'enrôlement (empreinte, début, nombre) | Déployer une flotte | Vie de l'organisation |
+| Réglages synchronisés (par compte et par ordinateur, 4 Ko au plus) | Les réglages qui suivent la personne | Tant que le compte a des droits sur l'ordinateur |
 | Journal (accès, changements ; journal de l'organisation) | Sécurité, flotte | 12 mois (adresses IP : 7 jours) |
 | Adresses IP | Sécurité, limites | Quelques jours (journaux), comme aujourd'hui |
 

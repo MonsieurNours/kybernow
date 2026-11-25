@@ -24,6 +24,9 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - **Computer groups.** In a family or a team, put computers in a group and open it all at once: the rights apply to all its computers, including the ones you add later.
 - **Clearer invitations.** A pending invitation expires after 30 days; you see when it was sent and when it expires, and “Resend the invitation” sends it again. As you type an address, your family and colleagues are suggested, and the same person no longer shows up twice.
 - **Better protected accounts.** Access tokens to computers last 2 minutes, and a device unused for 90 days is signed out of your account.
+- **Your settings follow you.** With your KyberNow account, each computer's profile, format, bitrate, HDR and immersive mode go from one device to the next (switch in Settings › Accounts).
+- **Move a computer** from one family or team to another, or to you: a preview first shows who loses access, and you can keep the access given to people.
+- **The target bitrate in Statistics**: “42 / 60 Mbit/s · lowered, network saturated”, with its line on the bitrate graph, to see the automatic bitrate at work.
 
 ## 0.10.0
 

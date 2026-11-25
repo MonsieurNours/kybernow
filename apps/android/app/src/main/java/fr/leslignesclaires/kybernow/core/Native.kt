@@ -224,6 +224,25 @@ object Native {
      */
     @JvmStatic external fun consoleNewAccount(host: String, port: Int, pinned: String?, accessJson: String, routeJson: String?): Long
 
+    // Réglages synchronisés (docs/comptes.md, « Réglages synchronisés » ; apps/core/README.md). Réponses comme les
+    // autres appels des comptes (`{"code", "value"}`) ; 70 oublier le compte, 71 l'ordinateur n'est plus au compte,
+    // 77 relais d'avant les réglages synchronisés (garder les réglages locaux sans rien dire).
+    /** Les réglages de tous les ordinateurs du compte : `value` `[{station, updated_at, values}]`. Bloquant. */
+    @JvmStatic external fun accountSettingsFetch(accountJson: String): String
+    /**
+     * Envoie les clés changées (`values`, `{profile, codec, yuv444, mbps, hdr, immersive}` facultatives) posées sur
+     * `last` (le dernier `{station, updated_at, values}` connu, nul sinon) : `value`, le nouveau à garder. Bloquant.
+     */
+    @JvmStatic external fun accountSettingsPut(accountJson: String, station: String, lastJson: String?, valuesJson: String): String
+    /** Les clés connues et vérifiées d'un `{station, updated_at, values}` : `value` `{profile, codec, yuv444, mbps, hdr, immersive}`. */
+    @JvmStatic external fun accountSettingsKnown(syncedJson: String): String
+    /** Les clés à envoyer d'après des réglages de session (`settings` de [sessionStart]) et le mode immersif (nul ici). */
+    @JvmStatic external fun accountSettingsFromStream(settingsJson: String, immersive: String?): String
+    /** Les réglages de session `base` avec les clés reçues, ramenés à ce que l'appareil décode (`caps`) : `value`, le JSON de `base`. */
+    @JvmStatic external fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String): String
+    /** « Synchroniser les réglages des ordinateurs » et son aide : `[titre, aide]` en JSON. */
+    @JvmStatic external fun accountSyncSettingsTexts(): String
+
     // Mises à jour de l'app (réseau : jamais sur le fil principal).
     /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */
     @JvmStatic external fun updateCheck(current: String, beta: Boolean): String
@@ -263,6 +282,13 @@ object Native {
     @JvmStatic external fun sessionRestoreMode(handle: Long)
     /** [médiane, p95] en ms, ou nul sans mesure. */
     @JvmStatic external fun sessionLatency(handle: Long): DoubleArray?
+    /**
+     * La ligne « Débit visé » des Statistiques (valeurs 22 à 24 de [SessionListener.onSecond] : débit demandé et du
+     * profil en bit/s, raison) : « 42 / 60 Mbit/s · baissé, réseau saturé » ; nul pour une raison inconnue.
+     */
+    @JvmStatic external fun targetBitrateText(bitrate: Long, profile: Long, reason: Int): String?
+    /** Le libellé de la ligne : « Débit visé » / “Target bitrate”. */
+    @JvmStatic external fun targetBitrateLabel(): String
 
     // HDR (docs/hdr.md).
     /** Le choix « HDR » changé en session (barre, menu) : l'image est relancée, [SessionListener.onHdr] suit. */
@@ -381,7 +407,9 @@ interface SessionListener {
      * Mesures de la seconde : latence (ms, −1 sans), aller-retour (ms, −1),
      * montrées, mesurées, rejetées, images perdues, trous, demandes d'image
      * clé, paquets perdus, octets, chaîne présente (1/0), puis capture,
-     * encodage, envoi, réseau, décodage, affichage (ms), puis l'image en HDR (1/0).
+     * encodage, envoi, réseau, décodage, affichage (ms), puis l'image en HDR (1/0) ; 18 à 21 la définition
+     * ramenée de PyroWave ; 22 à 24 le débit visé (demandé et du profil en bit/s, raison `TargetReason::code` :
+     * 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de l'app, 5 repli ; −1 sans).
      */
     fun onSecond(values: DoubleArray)
     /**

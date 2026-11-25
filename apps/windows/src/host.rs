@@ -86,6 +86,11 @@ pub struct Stats {
     /// Statistiques, d'après `Second::lowered` du cœur.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lowered: Option<(u32, u32, u32)>,
+    /// « Débit visé » sous « Débit » (docs/link-ui.md, « Statistiques »),
+    /// d'après `Second::target` du cœur ; `None` avant l'image, et pour un
+    /// invité sur l'image de l'hôte.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<crate::target::TargetLine>,
 }
 
 /// Bilan d'une session terminée.
@@ -656,6 +661,7 @@ impl Platform for WinPlatform {
             audio_buffer_ms: audio.map(|a| a.buffer_ms),
             audio_output_ms: audio.map(|a| a.output_ms),
             lowered: second.lowered.map(|l| (l.width, l.height, l.mbps)),
+            target: second.target.as_ref().map(|t| crate::target::TargetLine::new(t, crate::i18n::lang())),
         });
     }
     fn on_notice(&self, notice: &kybernow_core::session::Notice) {

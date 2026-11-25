@@ -629,9 +629,23 @@ pub struct Stats {
     /// (`Lowered::text` : « Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s. ») ; ligne des
     /// Statistiques. Un texte : l'interface se compile sans le cœur (captures).
     pub lowered: Option<String>,
+    /// Le débit des 30 dernières secondes, en Mbit/s, et le débit visé de chacune (`Second::target`, `None` : pas
+    /// de débit visé cette seconde) : la courbe « Débit » et son trait (docs/link-ui.md, « Statistiques »).
+    pub bitrate_history: Vec<(f64, Option<f64>)>,
+    /// La ligne « Débit visé » sous « Débit » : son libellé et son texte, déjà dits par le cœur
+    /// (`TargetBitrate::label`, `text` : « 42 / 60 Mbit/s · baissé, réseau saturé »). `None` : pas de ligne.
+    pub target: Option<(String, String)>,
 }
 
 impl Stats {
+    /// La seconde `mbps` (et son débit visé) ajoutée à la courbe du débit, 30 secondes au plus.
+    pub fn push_bitrate(history: &mut Vec<(f64, Option<f64>)>, mbps: f64, target: Option<f64>) {
+        history.push((mbps, target));
+        if history.len() > 30 {
+            history.remove(0);
+        }
+    }
+
     /// Les six étapes : celles de l'ordinateur (`Second::chain`) quand il les envoie ; sinon, l'appareil garde
     /// ses propres temps de décodage et d'affichage (`local`, médianes de la seconde, comme sur Mac).
     pub fn stages(chain: Option<[f64; 6]>, local: Option<(f64, f64)>) -> [Option<f64>; 6] {
@@ -2349,6 +2363,8 @@ pub enum Setting {
     AccountManage(u8),
     AccountSignOut(u8),
     AccountAdd,
+    /// « Synchroniser les réglages des ordinateurs » (avec un compte connecté).
+    SyncSettings,
 }
 
 /// Une rubrique des réglages.
@@ -3524,16 +3540,7 @@ impl App {
     /// débit, 4:4:4 en Jeu, transport fiable hors Bureau) revient au profil.
     pub fn set_profile(&mut self, id: &str, p: Profile) {
         if let Some(h) = self.store.host_mut(id) {
-            let st = &mut h.settings;
-            st.profile = p;
-            st.codec = "auto".into();
-            st.mbps = 0;
-            if p == Profile::Jeu {
-                st.yuv444 = false;
-            }
-            if p != Profile::Bureau {
-                st.reliable = false;
-            }
+            h.settings.pick_profile(p);
         }
     }
 

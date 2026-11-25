@@ -11844,22 +11844,6 @@
         }
       }
     },
-    "cible %lld" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "target %lld"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cible %lld"
-          }
-        }
-      }
-    },
     "depuis %@" : {
       "localizations" : {
         "en" : {

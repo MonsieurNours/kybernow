@@ -95,12 +95,25 @@
     if (info) info.language = l
     try {
       setLang(await invoke<string>('set_language', { language: l }))
+      // Les textes du cœur (« Synchroniser les réglages des ordinateurs ») suivent la langue.
+      info = await invoke<AppInfo>('app_info')
     } catch (e) {
       error = String(e)
     }
   }
 
   const check = () => run(() => invoke<Update | null>('check_update'))
+
+  /** « Synchroniser les réglages des ordinateurs » (comptes KyberNow) : gardé sur ce PC. */
+  async function syncSettings(on: boolean) {
+    if (info) info.sync_settings = on
+    try {
+      const now = await invoke<boolean>('set_sync_settings', { on })
+      if (info) info.sync_settings = now
+    } catch (e) {
+      accountError = String(e)
+    }
+  }
 
   /** Ouvrir à l'ouverture de session : l'état rendu est celui que Windows suivra. */
   async function openAtLogin(on: boolean) {
@@ -278,6 +291,14 @@
             <button class="ghost" type="button" onclick={() => ((adding = null), (accountError = null))}>{t('common.cancel')}</button>
           </div>
         </form>
+      {/if}
+
+      {#if accounts.length > 0 && info}
+        <div class="line">
+          <span>{info.sync_settings_title}</span>
+          <Switch label={info.sync_settings_title} checked={info.sync_settings} onchange={syncSettings} />
+        </div>
+        <p class="help">{info.sync_settings_help}</p>
       {/if}
 
       {#if accountError || signInError}<div class="error">{accountError ?? signInError}</div>{/if}

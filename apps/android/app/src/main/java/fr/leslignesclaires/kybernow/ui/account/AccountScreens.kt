@@ -353,6 +353,7 @@ fun AccountRelayContent(typing: Boolean, error: String?, onDefault: () -> Unit, 
 fun AccountsRows(
     accounts: List<AccountSummary>, signingIn: Boolean,
     onManage: (AccountSummary) -> Unit, onSignOut: (AccountSummary) -> Unit, onSignIn: () -> Unit, onAdd: () -> Unit,
+    syncSettings: Boolean = true, syncTexts: Pair<String, String>? = null, onSyncSettings: (Boolean) -> Unit = {},
 ) {
     val s = LocalScale.current
     if (accounts.isEmpty()) {
@@ -365,6 +366,9 @@ fun AccountsRows(
     if (accounts.isNotEmpty()) {
         if (signingIn) Body(stringResource(R.string.account_signing_in), size = 14f, color = Kn.frost2)
         GlassButton(stringResource(R.string.account_add), onAdd, leading = { KnIcon(KnIcons.plus, size = 16f); Spacer(Modifier.width(6.dp)) })
+        // Réglages synchronisés (docs/comptes.md) : les textes du cœur ; allumé par défaut, gardé sur l'appareil.
+        val (title, help) = syncTexts ?: (stringResource(R.string.account_sync_settings) to stringResource(R.string.account_sync_settings_help))
+        fr.leslignesclaires.kybernow.ui.settings.SwitchRow(title, help, syncSettings) { onSyncSettings(it) }
     }
     Body(stringResource(R.string.account_section_help), size = 13f, color = Kn.muted)
 }

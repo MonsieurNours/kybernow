@@ -15,6 +15,7 @@ mod model;
 mod preview;
 mod ps;
 mod pyrowave;
+mod synced;
 mod ui;
 
 fn main() {

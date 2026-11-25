@@ -339,6 +339,7 @@ pub(super) fn before_account_deleted(conn: &Connection, account: i64) -> Result<
                 conn.execute("DELETE FROM device_stations WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
                 conn.execute("DELETE FROM grants WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
                 conn.execute("DELETE FROM access_links WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
+                conn.execute("DELETE FROM computer_settings WHERE station IN (SELECT id FROM stations WHERE org = ?1)", [org])?;
                 conn.execute("DELETE FROM organizations WHERE id = ?1", [org])?;
             }
         }

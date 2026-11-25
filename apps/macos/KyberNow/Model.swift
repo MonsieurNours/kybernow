@@ -753,8 +753,11 @@ final class HostStore: ObservableObject {
 
     func update(_ host: Host) {
         guard let i = hosts.firstIndex(where: { $0.id == host.id }) else { return }
+        let old = hosts[i]
         hosts[i] = host
         save()
+        // Réglages synchronisés d'un ordinateur du compte (Accounts.swift) : les clés changées partent au relais.
+        if old.settings != host.settings { accounts?.settingsChanged(from: old, to: host) }
     }
 
     func host(_ id: UUID) -> Host? {

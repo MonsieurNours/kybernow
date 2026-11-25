@@ -443,6 +443,7 @@ impl Platform for LinuxPlatform {
             chain: s.chain.map(|c| c.all()),
             hdr: s.hdr,
             lowered: s.lowered,
+            target: s.target,
         });
     }
 

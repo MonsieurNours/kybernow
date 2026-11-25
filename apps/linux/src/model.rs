@@ -129,6 +129,20 @@ impl HostSettings {
     pub fn custom(&self) -> bool {
         self.codec != "auto" || self.mbps != 0 || (self.yuv444 && self.profile == Profile::Jeu) || (self.reliable && self.profile != Profile::Bureau)
     }
+
+    /// Choisit un profil : ce qui s'en écartait (format, débit, 4:4:4 en Jeu, transport fiable hors Bureau) revient
+    /// au profil. Choisi ici, ou reçu d'un autre appareil (réglages synchronisés, `crate::synced`).
+    pub fn pick_profile(&mut self, p: Profile) {
+        self.profile = p;
+        self.codec = "auto".into();
+        self.mbps = 0;
+        if p == Profile::Jeu {
+            self.yuv444 = false;
+        }
+        if p != Profile::Bureau {
+            self.reliable = false;
+        }
+    }
 }
 
 /// La dernière session d'au moins 3 s (Réglages de l'ordinateur ›
@@ -307,11 +321,14 @@ pub struct AppSettings {
     /// KyberNow Share, prêt : l'avertissement de confiance (« Votre ami joue dans votre session Windows… ») est dit
     /// dans le panneau « Prêter l'ordinateur… » jusqu'au premier code créé, puis plus (« une fois », docs/link-ui.md).
     pub lend_warned: bool,
+    /// Comptes KyberNow : « Synchroniser les réglages des ordinateurs » (Réglages de l'app › Comptes), allumé par
+    /// défaut, gardé sur cet appareil seulement (docs/comptes.md, « Réglages synchronisés »).
+    pub sync_settings: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true }
     }
 }
 
@@ -625,6 +642,10 @@ pub struct Store {
     pub accounts: Vec<KnAccount>,
     pub account_computers: Vec<KnComputer>,
     pub account_hosts: Vec<AccountHost>,
+    /// Réglages synchronisés (`crate::synced`) : ceux que le relais garde pour chaque ordinateur des comptes (la base
+    /// des envois, et le dernier changement déjà appliqué ici), et les changements qu'il n'a pas encore reçus.
+    pub synced: Vec<crate::synced::SyncedEntry>,
+    pub sync_pending: Vec<crate::synced::PendingSync>,
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
@@ -866,6 +887,7 @@ impl Store {
     pub fn forget_account(&mut self, key: &str) -> Vec<String> {
         self.accounts.retain(|a| a.key() != key);
         self.account_computers.retain(|c| c.account != key);
+        self.sync_forget_account(key);
         let gone: Vec<String> = self.account_hosts.iter().filter(|a| a.account == key).map(|a| a.id.clone()).collect();
         for id in &gone {
             self.remove(id);

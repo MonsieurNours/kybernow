@@ -440,7 +440,21 @@ class HostStore(private val context: Context) {
         if (selectedId == null || i < 0) selectedId = h.id
     }
 
+    /**
+     * Les réglages d'un ordinateur changés par la personne (avant, après) : les réglages synchronisés d'un ordinateur
+     * du compte partent au relais ([SettingsSync.changed]).
+     */
+    var onSettingsChanged: ((Host, Host) -> Unit)? = null
+
     fun update(id: String, f: (Host) -> Host) {
+        val before = get(id)
+        save(_hosts.value.map { if (it.id == id) f(it) else it })
+        val after = get(id)
+        if (before != null && after != null && before.settings != after.settings) onSettingsChanged?.invoke(before, after)
+    }
+
+    /** Les réglages reçus du compte ([SettingsSync]) : écrits sans repartir au relais. */
+    fun applySynced(id: String, f: (Host) -> Host) {
         save(_hosts.value.map { if (it.id == id) f(it) else it })
     }
 

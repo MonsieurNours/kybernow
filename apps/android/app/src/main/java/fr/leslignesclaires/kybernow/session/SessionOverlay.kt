@@ -1164,6 +1164,9 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
         route?.let { Mono(stringResource(R.string.stats_path, routeLabel(it.transport)), size = 11f) }
         if (ui.console == null) {
             Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
+            // Sous « Débit » : la courbe des 30 dernières secondes, le trait du débit visé et la ligne « Débit visé ».
+            val history by ui.state.bitrateHistory.collectAsState()
+            BitrateStats(history, sec?.target)
             Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
             PyroStats(ui, sec)
         }

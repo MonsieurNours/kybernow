@@ -133,6 +133,12 @@ pub struct Second {
     /// PyroWave : la définition ramenée en place (docs/pyrowave.md), posée
     /// par la session ; ligne « Définition ramenée » des Statistiques.
     pub lowered: Option<crate::pyrowave::Lowered>,
+    /// Le débit demandé à l'ordinateur et ce qui le fixe, posé par la
+    /// session (Statistiques, ligne « Débit visé » et trait sur la courbe
+    /// du débit ; texte : [`crate::adaptive::TargetBitrate::text`]). `None`
+    /// avant l'image, ou pour un invité sur l'image de l'hôte (l'hôte en
+    /// règle le débit).
+    pub target: Option<crate::adaptive::TargetBitrate>,
 }
 
 /// Étapes d'une image sur l'ordinateur (µs, son horloge).

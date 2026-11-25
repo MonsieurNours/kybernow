@@ -44,6 +44,19 @@ public enum Core {
     }
 }
 
+extension TargetBitrate {
+    /// La ligne « Débit visé » dans la langue de l'app : « 42 / 60 Mbit/s ·
+    /// baissé, réseau saturé », « 60 Mbit/s · Auto »… (`kn_target_bitrate_text`).
+    public var text: String {
+        Core.take(kn_target_bitrate_text(bitrate, profile, reason)) ?? ""
+    }
+
+    /// Le libellé de la ligne : « Débit visé » / “Target bitrate”.
+    public static var label: String {
+        Core.take(kn_target_bitrate_label()) ?? ""
+    }
+}
+
 extension KyberLog {
     static let core = Logger(subsystem: "fr.leslignesclaires.kybernow", category: "core")
 }

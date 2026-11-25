@@ -100,6 +100,7 @@ fn access(account: &Account, station: &str) -> Arc<StationAccess> {
 /// de l'appareil a été fermée ailleurs, l'accueil le dit.
 fn forget(app: &AppHandle, key: &str, told: bool) {
     store::delete_account(key);
+    super::synced::forget_account(key);
     if let Some(list) = ACCOUNTS.lock().unwrap().as_mut() {
         list.retain(|a| a.key() != key);
     }
@@ -246,6 +247,8 @@ pub fn sync(app: &AppHandle) {
     }
     apply(app, fresh);
     emit_accounts(app);
+    // Les réglages synchronisés, en même temps que les ordinateurs.
+    super::synced::fetch_all(app);
     SYNCING.store(false, Ordering::Release);
 }
 
@@ -261,7 +264,7 @@ pub fn sync_soon(app: &AppHandle, force: bool) {
 }
 
 /// Un ordinateur appairé tel que `account::merge` le compare.
-fn paired_of(c: &Computer) -> Paired {
+pub(super) fn paired_of(c: &Computer) -> Paired {
     Paired { id: c.id.clone(), fingerprint: c.fingerprint.clone(), station: c.relay.as_ref().map(|r| r.id.clone()).filter(|s| !s.is_empty()) }
 }
 

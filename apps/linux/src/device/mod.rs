@@ -152,7 +152,8 @@ pub enum SessionEvent {
     /// `chain` : le trajet d'une image mesuré avec l'ordinateur (`Second::chain`, ses six étapes) ; `hdr` : un
     /// écran au moins de l'image est en HDR.
     /// `lowered` : PyroWave, la définition ramenée (`Second::lowered`).
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered> },
+    /// `target` : le débit visé (`Second::target`), pour la ligne « Débit visé » et le trait de la courbe du débit.
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered>, target: Option<kybernow_core::adaptive::TargetBitrate> },
     Notice(String),
     /// PyroWave : le réseau sature (`Notice::PyroWaveStrained`, une fois par session) : le bandeau « Le réseau
     /// sature » avec « Passer en HEVC ».
@@ -974,6 +975,7 @@ pub fn run(args: &[String]) {
     jobs::discover(tx.clone());
     // Comptes KyberNow : l'accueil d'après la liste gardée, puis les listes à jour du relais.
     accounts::sync(&mut app);
+    app.sync_baseline();
     accounts::refresh(&app, &tx);
     let mut last_accounts = Instant::now();
     // Les consoles PlayStation : recherche, association, parties ; les noms des touches de ce clavier.
@@ -2840,7 +2842,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         // Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (l'accueil refait quand ils arrivent).
         Event::Account(e) => {
-            if accounts::handle(e, app, actions) {
+            if accounts::handle(e, app, actions, tx) {
                 accounts::sync(app);
             }
         }
@@ -3071,7 +3073,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 app.watch_display(id, l.handle.session.watch_display());
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered, target } => {
             let Some(l) = lives.get_mut(id) else { return };
             let local = Stats::local_medians(&l.local);
             l.local.clear();
@@ -3096,8 +3098,13 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                 }
                 let stages = Stats::stages(chain, local);
-                let lowered = lowered.map(|l| l.text(kybernow_core::i18n::current()));
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered });
+                let lang = kybernow_core::i18n::current();
+                let lowered = lowered.map(|l| l.text(lang));
+                // « Débit » : la courbe des 30 dernières secondes et le trait du débit visé ; la ligne « Débit visé ».
+                let mut bitrate_history = s.stats.as_ref().map(|s| s.bitrate_history.clone()).unwrap_or_default();
+                Stats::push_bitrate(&mut bitrate_history, mbps, target.map(|t| t.bitrate as f64 / 1e6));
+                let target = target.map(|t| (kybernow_core::adaptive::TargetBitrate::label(lang), t.text(lang)));
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered, bitrate_history, target });
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();
             }
@@ -3313,7 +3320,11 @@ fn toggle_fullscreen(app: &mut App, wins: &mut Wins, id: Option<SessionId>) {
 #[allow(clippy::too_many_arguments)]
 fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, pairing: &mut Vec<Arc<AtomicBool>>, quit: &mut bool) {
     match a {
-        Action::Save => app.store.save(),
+        // Réglages synchronisés : les clés changées des ordinateurs des comptes partent aussi.
+        Action::Save => {
+            app.store.save();
+            accounts::push(app, tx);
+        }
         // Pris avant (`route_ps`).
         Action::Ps(_) => {}
         Action::Quit => {
@@ -3407,7 +3418,12 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 open_url("steam://open/keyboard");
             }
         }
-        Action::Connect { host, profile } => connect(app, lives, wins, tx, &host, profile),
+        // Un ordinateur d'un compte : ses réglages synchronisés sont relus d'abord (1,5 s au plus).
+        Action::Connect { host, profile } => {
+            if !accounts::before_session(app, tx, &host, profile) {
+                connect(app, lives, wins, tx, &host, profile)
+            }
+        }
         Action::ShowSession(id) => show_session(app, lives, wins, id),
         Action::NextSession => {
             if let Some(id) = focus::next(lives) {

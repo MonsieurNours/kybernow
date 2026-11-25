@@ -16,6 +16,149 @@ use crate::latency::Second;
 /// le remonte de toute façon.
 pub const FLOOR: u32 = 5_000_000;
 
+/// Pourquoi le débit visé est ce qu'il est (Statistiques, ligne « Débit
+/// visé », docs/link-ui.md). Quand plusieurs raisons jouent, c'est celle qui
+/// fixe la valeur : le plafond de l'app, puis le repli, puis le débit
+/// automatique, puis la nature du réglage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetReason {
+    /// Un profil, au débit du profil (pas baissé).
+    Auto,
+    /// Le débit automatique l'a baissé sous celui du profil.
+    Lowered,
+    /// Débit réglé à la main (« Personnalisé »).
+    Manual,
+    /// PyroWave avec un profil : le débit automatique est en pause.
+    PyroWavePaused,
+    /// L'app plafonne le débit (`Session::set_bitrate_cap` : fenêtre
+    /// cachée, app en arrière-plan).
+    AppCapped,
+    /// Flux allégé après un repli (`Recovery::fallback_bitrate`).
+    Fallback,
+}
+
+impl TargetReason {
+    /// Code des ponts (C, JNI) : 0 Auto, 1 baissé, 2 à la main, 3 PyroWave,
+    /// 4 plafond de l'app, 5 repli.
+    pub fn code(self) -> u32 {
+        match self {
+            Self::Auto => 0,
+            Self::Lowered => 1,
+            Self::Manual => 2,
+            Self::PyroWavePaused => 3,
+            Self::AppCapped => 4,
+            Self::Fallback => 5,
+        }
+    }
+
+    pub fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Auto,
+            1 => Self::Lowered,
+            2 => Self::Manual,
+            3 => Self::PyroWavePaused,
+            4 => Self::AppCapped,
+            5 => Self::Fallback,
+            _ => return None,
+        })
+    }
+}
+
+/// Le débit que la session demande à l'ordinateur, et pourquoi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TargetBitrate {
+    /// Débit demandé à Kyber, en bit/s.
+    pub bitrate: u32,
+    /// Débit du profil (ou réglé à la main), en bit/s, avant le débit
+    /// automatique, le repli et le plafond de l'app ; PyroWave : celui dont
+    /// l'image a besoin.
+    pub profile: u32,
+    pub reason: TargetReason,
+}
+
+/// Ce qui fixe le débit d'une session, dans l'ordre où la session
+/// l'applique ([`TargetBitrate::compute`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TargetInputs {
+    /// Débit du profil, ou réglé à la main (bit/s).
+    pub base: u32,
+    /// Le débit automatique joue : son débit pour `base`.
+    pub adaptive: Option<u32>,
+    /// Plafond du repli (flux allégé), bit/s.
+    pub fallback_cap: Option<u32>,
+    /// Plafond de l'app (fenêtre cachée), bit/s.
+    pub app_cap: Option<u32>,
+    /// Pas de profil : débit réglé à la main.
+    pub manual: bool,
+    /// PyroWave avec un profil : débit automatique en pause.
+    pub pyrowave_paused: bool,
+}
+
+impl TargetBitrate {
+    /// Le débit visé et la raison qui le fixe : la dernière étape qui l'a
+    /// baissé l'emporte (plafond de l'app, puis repli, puis débit
+    /// automatique) ; sinon la nature du réglage (PyroWave en pause, à la
+    /// main, Auto).
+    pub fn compute(i: TargetInputs) -> Self {
+        let mut b = i.base;
+        let mut reason = if i.pyrowave_paused {
+            TargetReason::PyroWavePaused
+        } else if i.manual {
+            TargetReason::Manual
+        } else {
+            TargetReason::Auto
+        };
+        if let Some(a) = i.adaptive
+            && a < b
+        {
+            b = a;
+            reason = TargetReason::Lowered;
+        }
+        if let Some(cap) = i.fallback_cap
+            && cap < b
+        {
+            b = cap;
+            reason = TargetReason::Fallback;
+        }
+        if let Some(cap) = i.app_cap
+            && cap < b
+        {
+            b = cap;
+            reason = TargetReason::AppCapped;
+        }
+        Self { bitrate: b, profile: i.base, reason }
+    }
+
+    /// Mbit/s arrondis, comme les Statistiques les montrent.
+    pub fn mbps(bitrate: u32) -> u32 {
+        (bitrate + 500_000) / 1_000_000
+    }
+
+    /// La ligne « Débit visé » des Statistiques : « 42 / 60 Mbit/s · baissé,
+    /// réseau saturé », « 60 Mbit/s · Auto », « 80 Mbit/s · réglé à la
+    /// main », « 320 Mbit/s · PyroWave, Auto en pause », « 20 Mbit/s ·
+    /// fenêtre cachée », « 15 Mbit/s · flux allégé ».
+    pub fn text(&self, lang: crate::i18n::Lang) -> String {
+        let target = Self::mbps(self.bitrate).to_string();
+        let profile = Self::mbps(self.profile).to_string();
+        let key = match self.reason {
+            TargetReason::Auto => "bitrate.target_auto",
+            TargetReason::Lowered => "bitrate.target_lowered",
+            TargetReason::Manual => "bitrate.target_manual",
+            TargetReason::PyroWavePaused => "bitrate.target_pyrowave",
+            TargetReason::AppCapped => "bitrate.target_capped",
+            TargetReason::Fallback => "bitrate.target_fallback",
+        };
+        crate::i18n::tr(lang, key, &[("target", &target), ("profile", &profile)])
+    }
+
+    /// Le libellé de la ligne : « Débit visé » / “Target bitrate”.
+    pub fn label(lang: crate::i18n::Lang) -> String {
+        crate::i18n::tr(lang, "bitrate.target_label", &[])
+    }
+}
+
 /// Fenêtre où l'on cherche l'aller-retour du réseau au repos.
 const BASE_WINDOW: usize = 10;
 /// Aller-retour au-dessus du repos qui annonce une file qui se remplit : le
@@ -311,5 +454,50 @@ mod tests {
         let s = Second { holes: 2, ..sec(2.0, 0, 60) };
         a.second(&s, NEED);
         assert_eq!(a.second(&s, NEED), Some(0.7));
+    }
+
+    #[test]
+    fn debit_vise_et_sa_raison() {
+        use crate::i18n::Lang;
+        let m = |v: u32| v * 1_000_000;
+        let base = TargetInputs { base: m(60), adaptive: Some(m(60)), ..Default::default() };
+        let t = TargetBitrate::compute(base);
+        assert_eq!((t.bitrate, t.profile, t.reason), (m(60), m(60), TargetReason::Auto));
+        assert_eq!(t.text(Lang::Fr), "60 Mbit/s · Auto");
+        assert_eq!(t.text(Lang::En), "60 Mbit/s · Auto");
+        // Baissé par le débit automatique.
+        let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(42)), ..base });
+        assert_eq!((t.bitrate, t.reason), (m(42), TargetReason::Lowered));
+        assert_eq!(t.text(Lang::Fr), "42 / 60 Mbit/s · baissé, réseau saturé");
+        assert_eq!(t.text(Lang::En), "42 / 60 Mbit/s · lowered, network saturated");
+        // À la main, PyroWave en pause.
+        let t = TargetBitrate::compute(TargetInputs { base: m(80), manual: true, ..Default::default() });
+        assert_eq!(t.reason, TargetReason::Manual);
+        assert_eq!(t.text(Lang::Fr), "80 Mbit/s · réglé à la main");
+        assert_eq!(t.text(Lang::En), "80 Mbit/s · set by hand");
+        let t = TargetBitrate::compute(TargetInputs { base: m(320), pyrowave_paused: true, ..Default::default() });
+        assert_eq!(t.reason, TargetReason::PyroWavePaused);
+        assert_eq!(t.text(Lang::Fr), "320 Mbit/s · PyroWave, Auto en pause");
+        assert_eq!(t.text(Lang::En), "320 Mbit/s · PyroWave, Auto paused");
+        // Plafond de l'app, repli : celui qui fixe la valeur l'emporte.
+        let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(42)), fallback_cap: Some(m(15)), app_cap: Some(m(20)), ..base });
+        assert_eq!((t.bitrate, t.reason), (m(15), TargetReason::Fallback));
+        assert_eq!(t.text(Lang::Fr), "15 Mbit/s · flux allégé");
+        assert_eq!(t.text(Lang::En), "15 Mbit/s · lightened stream");
+        let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(42)), fallback_cap: Some(m(30)), app_cap: Some(m(20)), ..base });
+        assert_eq!((t.bitrate, t.reason), (m(20), TargetReason::AppCapped));
+        assert_eq!(t.text(Lang::Fr), "20 Mbit/s · fenêtre cachée");
+        assert_eq!(t.text(Lang::En), "20 Mbit/s · window hidden");
+        // Un plafond au-dessus du débit ne fixe rien.
+        let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(42)), fallback_cap: Some(m(50)), app_cap: Some(m(42)), ..base });
+        assert_eq!((t.bitrate, t.reason), (m(42), TargetReason::Lowered));
+        let t = TargetBitrate::compute(TargetInputs { manual: true, app_cap: Some(m(90)), ..base });
+        assert_eq!(t.reason, TargetReason::Manual);
+        assert_eq!(TargetBitrate::label(Lang::Fr), "Débit visé");
+        assert_eq!(TargetBitrate::label(Lang::En), "Target bitrate");
+        for c in 0..6 {
+            assert_eq!(TargetReason::from_code(c).map(TargetReason::code), Some(c));
+        }
+        assert_eq!(TargetReason::from_code(6), None);
     }
 }

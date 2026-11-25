@@ -1195,6 +1195,8 @@ final class SessionController: ObservableObject {
                 s.latencyMs = 8.4 + Double(i % 7) * 0.4
                 s.fps = 120
                 s.mbps = pyrowave == nil ? 46 : 290
+                s.target = pyrowave == nil ? TargetBitrate(bitrate: 60_000_000, profile: 60_000_000, reason: 0)
+                    : TargetBitrate(bitrate: 320_000_000, profile: 320_000_000, reason: 3)
                 s.format = "4:2:0 8 bits"
                 s.width = 2622
                 s.height = 1206

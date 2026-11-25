@@ -44,6 +44,27 @@ impl Codec {
         }
     }
 
+    /// Nom du format dans les JSON (réglages des ponts, réglages
+    /// synchronisés) : `h264`, `hevc`, `av1`, `pyrowave`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::H264 => "h264",
+            Self::Hevc => "hevc",
+            Self::Av1 => "av1",
+            Self::PyroWave => "pyrowave",
+        }
+    }
+
+    /// L'appareil sait le décoder (H.264 : toujours).
+    pub fn decodable(self, caps: Capabilities) -> bool {
+        match self {
+            Self::H264 => true,
+            Self::Hevc => caps.hevc,
+            Self::Av1 => caps.av1,
+            Self::PyroWave => caps.pyrowave,
+        }
+    }
+
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "h264" | "h.264" | "avc" => Some(Self::H264),
@@ -81,6 +102,15 @@ impl Profile {
             Self::Jeu => "Jeu",
             Self::Bureau => "Bureau",
             Self::Max => "Max",
+        }
+    }
+
+    /// Nom du profil dans les JSON : `jeu`, `bureau`, `max`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Jeu => "jeu",
+            Self::Bureau => "bureau",
+            Self::Max => "max",
         }
     }
 
@@ -208,6 +238,20 @@ impl StreamSettings {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let wire: SettingsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
         wire.settings()
+    }
+
+    /// Les réglages dans le JSON de [`Self::from_json`] (`profile` nul :
+    /// personnalisé).
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "profile": self.profile.map(Profile::key),
+            "codec": self.codec.key(),
+            "yuv444": self.yuv444,
+            "mbps": self.mbps,
+            "reliable": self.reliable,
+            "hdr": self.hdr,
+            "wired": self.wired,
+        })
     }
 
     pub fn label(&self) -> &'static str {

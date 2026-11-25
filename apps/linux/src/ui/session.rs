@@ -1262,6 +1262,37 @@ fn frame_path_row(cv: &mut Canvas, b: &StatsBox, st: &crate::app::Stats, draw: b
 /// Hauteur de la rangée du salon, depuis le haut de la rubrique.
 const ROW_H: f32 = 124.0;
 
+/// Place de la courbe du débit dans le panneau (courbe et marge).
+const BITRATE_GRAPH_H: f32 = 40.0;
+
+/// La courbe du débit sur les 30 dernières secondes, et le trait du débit visé seconde par seconde (rien là où la
+/// seconde n'en a pas) ; l'échelle prend le plus haut des deux.
+fn bitrate_graph(cv: &mut Canvas, x: f32, y: f32, w: f32, h: f32, hist: &[(f64, Option<f64>)]) {
+    let max = hist.iter().map(|(m, t)| m.max(t.unwrap_or(0.0))).fold(1.0f64, f64::max) * 1.1;
+    let n = hist.len().max(2) - 1;
+    let px = |i: usize| x + i as f32 * w / n as f32;
+    let py = |v: f64| y + h - (v / max) as f32 * h;
+    cv.rect(x, y + h, w, 1.0, LINE);
+    // Le débit visé : un trait par suite de secondes qui en ont un.
+    let mut run: Vec<(f32, f32)> = Vec::new();
+    for (i, (_, t)) in hist.iter().enumerate() {
+        match t {
+            Some(t) => run.push((px(i), py(*t))),
+            None => {
+                if run.len() >= 2 {
+                    cv.polyline(&run, 1.0, SPECTRE.alpha(0.7));
+                }
+                run.clear();
+            }
+        }
+    }
+    if run.len() >= 2 {
+        cv.polyline(&run, 1.0, SPECTRE.alpha(0.7));
+    }
+    let pts: Vec<(f32, f32)> = hist.iter().enumerate().map(|(i, (m, _))| (px(i), py(*m))).collect();
+    cv.polyline(&pts, 1.5, FROST);
+}
+
 fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let st = s.stats.clone().unwrap_or_default();
     let tv = app.layout == Layout::Tv;
@@ -1274,7 +1305,10 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let pw = st.decoder == "PyroWave";
     let lowered_lines = st.lowered.as_deref().map_or(0, |t| cv.line_count(Text::new(Font::Mono, 11.5 * u, MUTED), t, w - 32.0 * u));
     let extra = if pw { 1.0 + lowered_lines as f32 } else { 0.0 };
-    let h = end - y + 24.0 * u + (3.0 + extra) * 19.0 * u + 24.0 * u;
+    // « Débit » : sa courbe sur les 30 dernières secondes (avec le trait du débit visé), puis la ligne « Débit visé ».
+    let graph = st.bitrate_history.len() >= 2;
+    let extra = extra + if st.target.is_some() { 1.0 } else { 0.0 };
+    let h = end - y + 24.0 * u + (3.0 + extra) * 19.0 * u + if graph { BITRATE_GRAPH_H * u } else { 0.0 } + 24.0 * u;
     cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 214));
     cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE);
     let ix = x + 16.0 * u;
@@ -1300,6 +1334,15 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let hdr = if st.hdr { " · HDR" } else { "" };
     cv.text_fit(ix, yy, mono, &format!("{}{hdr} · {:.0} {} · {:.0} Mbit/s", st.mode, st.fps, tr("i/s", "fps"), st.mbps), w - 32.0 * u);
     yy += 19.0 * u;
+    if graph {
+        bitrate_graph(cv, ix, yy - 8.0 * u, w - 32.0 * u, (BITRATE_GRAPH_H - 10.0) * u, &st.bitrate_history);
+        yy += BITRATE_GRAPH_H * u;
+    }
+    if let Some((label, text)) = &st.target {
+        let colon = if crate::i18n::english() { ":" } else { " :" };
+        cv.text_fit(ix, yy, mono, &format!("{label}{colon} {text}"), w - 32.0 * u);
+        yy += 19.0 * u;
+    }
     let audio = st.audio_ms.map(|a| format!(" · {} {} ms", tr("son", "sound"), decimal(a, 0))).unwrap_or_default();
     cv.text_fit(ix, yy, mono, &format!("{}{audio}", st.decoder), w - 32.0 * u);
     yy += 19.0 * u;

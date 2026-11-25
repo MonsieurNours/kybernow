@@ -47,7 +47,7 @@ use crate::console::{
     ScreenMode, StationError,
 };
 use crate::i18n::{self, Lang};
-use crate::adaptive::{AdaptiveBitrate, Load};
+use crate::adaptive::{AdaptiveBitrate, Load, TargetBitrate, TargetInputs};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, packet_sink};
 use crate::profile::{Capabilities, Codec, HdrLuminance, SettingsJson, StreamSettings};
@@ -3574,19 +3574,37 @@ impl Worker {
     }
 
     fn effective_bitrate(&self) -> u32 {
-        let mut b = self.pyrowave_bitrate(self.profile_bitrate());
-        if self.auto_bitrate() {
-            b = self.adaptive.bitrate(b);
+        self.target_bitrate().bitrate
+    }
+
+    /// Le débit demandé à l'ordinateur et ce qui le fixe (Statistiques,
+    /// « Débit visé ») : débit du profil (PyroWave : celui dont l'image a
+    /// besoin), débit automatique, repli, plafond de l'app, dans cet ordre.
+    fn target_bitrate(&self) -> TargetBitrate {
+        let base = self.pyrowave_bitrate(self.profile_bitrate());
+        let auto = self.auto_bitrate();
+        let fallback_cap = if self.fallback >= 1 { self.params.recovery.fallback_bitrate } else { None };
+        TargetBitrate::compute(TargetInputs {
+            base,
+            adaptive: auto.then(|| self.adaptive.bitrate(base)),
+            fallback_cap,
+            app_cap: self.bitrate_cap,
+            manual: self.params.settings.profile.is_none(),
+            pyrowave_paused: !auto
+                && self.params.settings.profile.is_some()
+                && !self.visitor()
+                && self.effective().codec == Codec::PyroWave,
+        })
+    }
+
+    /// Le débit visé de la seconde, pour les Statistiques : seulement quand
+    /// la session règle le débit de l'image en cours (pas un invité sur
+    /// l'image de l'hôte) et que l'image passe.
+    fn stats_target(&self) -> Option<TargetBitrate> {
+        if self.streaming.is_none() || self.guest.is_some() && !self.own_image() {
+            return None;
         }
-        if self.fallback >= 1 {
-            if let Some(cap) = self.params.recovery.fallback_bitrate {
-                b = b.min(cap);
-            }
-        }
-        if let Some(cap) = self.bitrate_cap {
-            b = b.min(cap);
-        }
-        b
+        Some(self.target_bitrate())
     }
 
     /// PyroWave (docs/pyrowave.md) : un profil reçoit au moins le débit
@@ -3925,6 +3943,7 @@ impl Worker {
                 let mut second = self.latency.drain();
                 second.hdr = self.streaming.is_some() && self.stream_hdr.iter().any(|h| *h);
                 second.lowered = self.lowered;
+                second.target = self.stats_target();
                 *self.last_latency.lock().unwrap() = second.latency_ms;
                 self.platform.on_latency(second.latency_ms);
                 self.adapt_bitrate(&second);
@@ -6211,6 +6230,7 @@ mod tests {
         w.streaming = Some(display(7, 0, 0, 1920, 1080));
         assert!(!w.auto_bitrate());
         let before = w.effective_bitrate();
+        assert_eq!(w.stats_target().map(|t| (t.bitrate, t.reason)), Some((before, crate::adaptive::TargetReason::PyroWavePaused)));
         for _ in 0..PYROWAVE_STRAIN - 1 {
             w.adapt_bitrate(&charge);
         }
@@ -6239,9 +6259,18 @@ mod tests {
             w.adapt_bitrate(&charge(2.0));
         }
         assert_eq!(w.effective_bitrate(), need);
+        use crate::adaptive::TargetReason;
+        assert_eq!(w.stats_target().map(|t| (t.bitrate, t.profile, t.reason)), Some((need, need, TargetReason::Auto)));
         w.adapt_bitrate(&charge(60.0));
         w.adapt_bitrate(&charge(60.0));
         assert!(w.effective_bitrate() < need, "{} < {need}", w.effective_bitrate());
+        let lowered = w.effective_bitrate();
+        assert_eq!(w.stats_target().map(|t| (t.bitrate, t.profile, t.reason)), Some((lowered, need, TargetReason::Lowered)));
+        // Repli (flux allégé) sous le débit baissé : c'est lui qui fixe le débit.
+        w.params.recovery.fallback_bitrate = Some(6_000_000);
+        w.fallback = 1;
+        assert_eq!(w.stats_target().map(|t| (t.bitrate, t.reason)), Some((6_000_000, TargetReason::Fallback)));
+        w.fallback = 0;
         // En pause sous un plafond de l'app (fenêtre cachée).
         let before = w.adaptive.share();
         w.bitrate_cap = Some(20_000_000);
@@ -6249,6 +6278,13 @@ mod tests {
             w.adapt_bitrate(&charge(60.0));
         }
         assert_eq!(w.adaptive.share(), before);
+        // Le plafond au-dessus du débit baissé ne le fixe pas ; en dessous, si.
+        assert_eq!(w.stats_target().map(|t| t.reason), Some(if lowered < 20_000_000 { TargetReason::Lowered } else { TargetReason::AppCapped }));
+        w.bitrate_cap = Some(8_000_000);
+        assert_eq!(w.stats_target().map(|t| (t.bitrate, t.reason)), Some((8_000_000, TargetReason::AppCapped)));
+        // Sans image : rien à montrer.
+        w.streaming = None;
+        assert_eq!(w.stats_target(), None);
         // Débit réglé à la main : jamais touché.
         let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
         w.params.settings.profile = None;
@@ -6258,6 +6294,7 @@ mod tests {
             w.adapt_bitrate(&charge(rtt));
         }
         assert_eq!(w.effective_bitrate(), fixed);
+        assert_eq!(w.stats_target().map(|t| (t.bitrate, t.reason)), Some((fixed, TargetReason::Manual)));
     }
 
     #[test]
@@ -6632,6 +6669,11 @@ mod tests {
         w.apply_bitrate();
         assert!(w.refused.lock().unwrap().contains(&HostOnly::Bitrate));
         w.refused.lock().unwrap().clear();
+        // Statistiques : pas de débit visé, l'hôte le règle.
+        let streaming = w.streaming.take();
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        assert_eq!(w.stats_target(), None);
+        w.streaming = streaming;
         // Son image à part : annoncée sans avis, débit et images clés à lui.
         let mut b = beat(ShareRole::Spectator);
         b.image = Some(own(1920, 1080, 60, R::Asked));

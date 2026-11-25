@@ -260,10 +260,19 @@ fn tv_hash(normalized: &str) -> Vec<u8> {
     token_hash(&format!("tv:{normalized}"))
 }
 
+/// La méthode d'une requête d'API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiMethod {
+    Get,
+    Post,
+    /// `PUT /v1/settings/<station>` (réglages synchronisés).
+    Put,
+}
+
 /// Une requête d'API (`/v1/…`) déjà lue.
 #[derive(Debug, Clone)]
 pub struct ApiRequest {
-    pub post: bool,
+    pub method: ApiMethod,
     pub path: String,
     /// Le jeton porteur (`Authorization: Bearer …`).
     pub bearer: Option<String>,
@@ -279,17 +288,19 @@ pub struct ApiReply {
     pub retry_after: Option<u64>,
 }
 
-fn reply(status: u16, body: Value) -> ApiReply {
+pub(super) fn reply(status: u16, body: Value) -> ApiReply {
     ApiReply { status, body, retry_after: None }
 }
 
-fn error(status: u16, code: &str) -> ApiReply {
+pub(super) fn error(status: u16, code: &str) -> ApiReply {
     reply(status, json!({ "error": code }))
 }
 
-/// Les chemins de l'API des appareils.
+/// Les chemins de l'API des appareils (et des réglages synchronisés, [`super::settings`]).
 pub fn is_api_path(path: &str) -> bool {
     matches!(path, "/v1/devices/code" | "/v1/devices/poll" | "/v1/devices/token" | "/v1/devices/revoke" | "/v1/computers" | "/v1/access")
+        || path == super::settings::SETTINGS_PATH
+        || path.starts_with("/v1/settings/")
 }
 
 /// Le texte d'un champ du corps JSON.
@@ -343,7 +354,7 @@ impl Accounts {
     }
 
     /// L'appareil du jeton porteur, et son compte (vérifié).
-    fn bearer_device(&self, bearer: Option<&str>) -> Option<(Device, Account)> {
+    pub(super) fn bearer_device(&self, bearer: Option<&str>) -> Option<(Device, Account)> {
         let token = bearer?.trim();
         if token.is_empty() || token.len() > 128 {
             return None;
@@ -368,9 +379,17 @@ impl Accounts {
         Some((device, account))
     }
 
-    /// Sert une requête de l'API des appareils (`/v1/devices/…`, `/v1/computers`, `/v1/access`).
+    /// Sert une requête de l'API des appareils (`/v1/devices/…`, `/v1/computers`, `/v1/access`, `/v1/settings`).
     pub fn api(&self, req: &ApiRequest) -> ApiReply {
-        match (req.path.as_str(), req.post) {
+        if req.path == super::settings::SETTINGS_PATH || req.path.starts_with("/v1/settings/") {
+            return self.api_settings(req);
+        }
+        let post = match req.method {
+            ApiMethod::Post => true,
+            ApiMethod::Get => false,
+            ApiMethod::Put => return error(405, "method_not_allowed"),
+        };
+        match (req.path.as_str(), post) {
             ("/v1/devices/code", true) => self.api_tv_code(req),
             ("/v1/devices/poll", true) => self.api_poll(req),
             ("/v1/devices/token", true) => self.api_token(req),

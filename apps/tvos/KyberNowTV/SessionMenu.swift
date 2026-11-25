@@ -57,6 +57,16 @@ struct SessionMenu: View {
                 VStack(alignment: .trailing, spacing: 10) {
                     Theme.eyebrow(String(localized: "Statistiques"))
                     statsStrip
+                    // « Débit visé » (docs/link-ui.md, « Statistiques ») : le texte du cœur ; rien sans.
+                    // L'Apple TV n'a pas de courbe du débit : la ligne seule.
+                    if let target = session.stats?.target {
+                        HStack(spacing: 14) {
+                            Text(TargetBitrate.label).foregroundStyle(Theme.muted)
+                            Text(verbatim: target.text).font(Theme.mono(18)).foregroundStyle(Theme.text2)
+                        }
+                        .font(Theme.sans(18))
+                        .accessibilityElement(children: .combine)
+                    }
                     // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
                     if let l = session.stats?.lowered {
                         HStack(spacing: 10) {

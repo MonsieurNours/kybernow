@@ -11,7 +11,7 @@ use kybernow_tunnel::msg::Msg;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::accounts::devices::{ApiReply, ApiRequest};
+use crate::accounts::devices::{ApiMethod, ApiReply, ApiRequest};
 use crate::accounts::stations::{Attest, StationLink};
 
 /// Les Stations « connectées » et ce qu'on leur a envoyé.
@@ -66,7 +66,12 @@ pub(super) fn station(n: u8) -> String {
 }
 
 pub(super) fn api(w: &World, post: bool, path: &str, bearer: Option<&str>, body: Value) -> ApiReply {
-    w.acc.api(&ApiRequest { post, path: path.into(), bearer: bearer.map(str::to_string), body, ip: "192.0.2.10".parse().unwrap() })
+    let method = if post { ApiMethod::Post } else { ApiMethod::Get };
+    api_with(w, method, path, bearer, body)
+}
+
+pub(super) fn api_with(w: &World, method: ApiMethod, path: &str, bearer: Option<&str>, body: Value) -> ApiReply {
+    w.acc.api(&ApiRequest { method, path: path.into(), bearer: bearer.map(str::to_string), body, ip: "192.0.2.10".parse().unwrap() })
 }
 
 /// Une personne connectée dans son navigateur.

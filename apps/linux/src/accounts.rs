@@ -105,6 +105,9 @@ pub struct AccountsUi {
     /// La pastille d'origine de chaque ordinateur de l'accueil (`Host::id`), calculée par le pilote
     /// (`AccountComputer::origin`, `origin_paired`) ; vide sans compte connecté (pas de pastille).
     pub origins: HashMap<String, String>,
+    /// Réglages synchronisés : ce qui a été lu, appliqué ou envoyé pour chaque ordinateur de l'accueil, la base des
+    /// comparaisons qui disent quoi envoyer (`crate::synced`).
+    pub sync_base: HashMap<String, crate::synced::Tracked>,
 }
 
 /// « Connecté à {compte}. »
@@ -509,6 +512,11 @@ impl App {
                 Vec::new()
             }
             Setting::AccountAdd => self.account_add(),
+            // Rallumé : les réglages du relais sont relus (ce qui est plus récent s'applique).
+            Setting::SyncSettings => {
+                self.store.app.sync_settings = !self.store.app.sync_settings;
+                if self.store.app.sync_settings { vec![Action::Save, Action::AccountsRefresh] } else { vec![Action::Save] }
+            }
             _ => return None,
         })
     }
@@ -539,6 +547,8 @@ impl App {
             rows.push(button(Setting::AccountManage(i as u8), tr("Gérer le compte", "Manage account"), ButtonStyle::Ghost));
             rows.push(button(Setting::AccountSignOut(i as u8), tr("Se déconnecter", "Sign out"), ButtonStyle::Danger));
         }
+        // Réglages synchronisés : allumé par défaut, gardé sur cet appareil.
+        rows.push(row(Setting::SyncSettings, sync_settings_title().into(), sync_settings_help().into(), RowKind::Toggle(self.store.app.sync_settings)));
         let text = tr("Ajouter un compte", "Add an account");
         rows.push(row(Setting::AccountAdd, text.into(), accounts_help().into(), RowKind::Button { text: text.into(), style: ButtonStyle::Ghost }));
         rows
@@ -551,6 +561,20 @@ impl App {
             _ => None,
         }
     }
+}
+
+/// « Synchroniser les réglages des ordinateurs » (`account::sync_settings_texts` du cœur, recopié : l'interface se
+/// compile sans lui).
+pub fn sync_settings_title() -> &'static str {
+    tr("Synchroniser les réglages des ordinateurs", "Sync computer settings")
+}
+
+/// L'aide de l'interrupteur des réglages synchronisés.
+pub fn sync_settings_help() -> &'static str {
+    tr(
+        "Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils.",
+        "Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.",
+    )
 }
 
 /// L'aide de la rubrique « Comptes ».

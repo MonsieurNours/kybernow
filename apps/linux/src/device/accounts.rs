@@ -11,20 +11,25 @@
 //!   5 minutes) ; `sync` refait l'accueil (`merge` avec les appairés, pastilles `origin` / `origin_paired`) et le
 //!   registre des ordinateurs des comptes (`console`, `access`), par lequel passent les sondes, la Station, le partage,
 //!   le prêt et la session.
+//! - **Réglages synchronisés** (`crate::synced`, apps/core/README.md, « Réglages synchronisés ») : `refresh` envoie
+//!   aussi les changements en attente puis lit les réglages du compte (`put_settings`, `fetch_settings`) ; `push`, après
+//!   chaque réglage gardé, envoie les clés changées ; `before_session` relit juste avant une session sur un ordinateur
+//!   d'un compte, 1,5 s au plus (au-delà, la session part avec les réglages locaux et la lecture s'applique en arrivant).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
-use kybernow_core::account::{self, AccessParams, Account, AccountComputer, AccountError, Paired, StationAccess};
+use kybernow_core::account::{self, AccessParams, Account, AccountComputer, AccountError, Paired, StationAccess, SyncedSettings, SyncedValues};
 use kybernow_core::console::Console;
 use kybernow_core::relay::RelayRoute;
 
 use super::Event;
 use crate::accounts::{SignInFail, TvCodeUi};
 use crate::app::App;
-use crate::model::{Host, KnAccount, KnComputer};
+use crate::model::{Host, KnAccount, KnComputer, Profile};
+use crate::synced::{Fetched, Push, SyncKeys};
 
 /// Ce que le pilote renvoie à la boucle.
 pub enum AccountEvent {
@@ -36,6 +41,18 @@ pub enum AccountEvent {
     BrowserFailed { attempt: u32, message: String },
     /// Les ordinateurs d'un compte (empreintes d'Admin déjà gardées), ou la session de l'appareil fermée.
     Computers { key: String, result: Result<Vec<KnComputer>, AccountError> },
+    /// Réglages synchronisés d'un compte : les envois faits, puis la lecture (`None` : pas lue) ; `connect` : la
+    /// session qui attendait cette lecture (`before_session`).
+    Settings { key: String, sent: Vec<Sent>, fetched: Option<Result<Vec<Fetched>, AccountError>>, connect: Option<(String, Profile)> },
+    /// La lecture d'avant une session tarde : la session part avec les réglages locaux.
+    ConnectNow { host: String, profile: Profile },
+}
+
+/// Un envoi de réglages fait : les clés envoyées, et ce que le relais garde désormais (`updated_at`, `values`).
+pub struct Sent {
+    pub station: String,
+    pub keys: SyncKeys,
+    pub result: Result<(u64, serde_json::Map<String, serde_json::Value>), AccountError>,
 }
 
 pub fn to_core(a: &KnAccount) -> Option<Account> {
@@ -202,6 +219,156 @@ pub fn refresh(app: &App, tx: &Sender<Event>) {
             })
             .ok();
     }
+    // Réglages synchronisés : les envois en attente, puis la lecture, compte par compte.
+    if app.sync_on() {
+        for key in app.store.accounts.iter().map(|a| a.key()) {
+            settings_job(app, &key, tx, None);
+        }
+    }
+}
+
+// MARK: - Réglages synchronisés
+
+/// Les ordinateurs dont un envoi est en cours (compte, Station) : un seul à la fois, le suivant part à sa réponse.
+static IN_FLIGHT: Mutex<Option<HashSet<(String, String)>>> = Mutex::new(None);
+/// Les ordinateurs dont la session attend la lecture d'avant session ; ceux dont la lecture est faite (la session part
+/// sans relire).
+static WAITING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+static READY: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Ce qu'une session attend au plus de la lecture des réglages.
+const BEFORE_SESSION: std::time::Duration = std::time::Duration::from_millis(1500);
+
+fn set_insert(set: &Mutex<Option<HashSet<String>>>, v: &str) -> bool {
+    set.lock().unwrap().get_or_insert_with(HashSet::new).insert(v.to_string())
+}
+
+fn set_remove(set: &Mutex<Option<HashSet<String>>>, v: &str) -> bool {
+    set.lock().unwrap().as_mut().is_some_and(|s| s.remove(v))
+}
+
+/// L'envoi de cet ordinateur a sa réponse.
+fn done(account: &str, station: &str) {
+    if let Some(f) = IN_FLIGHT.lock().unwrap().as_mut() {
+        f.remove(&(account.to_string(), station.to_string()));
+    }
+}
+
+fn keys_to_core(k: &SyncKeys) -> Option<SyncedValues> {
+    serde_json::to_value(k).ok().and_then(|v| serde_json::from_value(v).ok())
+}
+
+fn keys_from_core(v: &SyncedValues) -> SyncKeys {
+    serde_json::to_value(v).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+}
+
+/// Le débit du profil au mode de la session (Mbit/s) : un réglage personnalisé dont le débit est « Auto » l'envoie.
+fn auto_mbps(app: &App, h: &Host) -> u32 {
+    let s = super::stream_settings(app, h, h.settings.profile, false);
+    let (w, hh, fps) = app.session_mode(h);
+    s.bitrate(w, hh, fps) / 1_000_000
+}
+
+/// Un envoi (`PUT /v1/settings/<station>`), posé sur les dernières valeurs lues.
+fn put(core: &Account, p: &Push) -> Sent {
+    let last = p.last.as_ref().map(|l| SyncedSettings { station: l.station.clone(), updated_at: l.updated_at, values: l.values.clone() });
+    let result = match keys_to_core(&p.keys) {
+        Some(values) => account::put_settings(core, &p.station, last.as_ref(), &values).map(|s| (s.updated_at, s.values)),
+        None => Err(AccountError::Other("réglages illisibles".into())),
+    };
+    Sent { station: p.station.clone(), keys: p.keys.clone(), result }
+}
+
+/// La lecture (`GET /v1/settings`), lue par le cœur (`known`).
+fn fetch(core: &Account) -> Result<Vec<Fetched>, AccountError> {
+    account::fetch_settings(core).map(|list| list.iter().map(|s| Fetched { station: s.station.clone(), updated_at: s.updated_at, values: s.values.clone(), known: keys_from_core(&s.known()) }).collect())
+}
+
+/// Les envois en attente d'un compte, puis sa lecture, sur un fil ; `connect` : la session qui attend.
+fn settings_job(app: &App, key: &str, tx: &Sender<Event>, connect: Option<(String, Profile, Arc<AtomicBool>)>) {
+    let Some(core) = app.store.account(key).and_then(to_core) else { return };
+    let pushes: Vec<Push> = app.store.pushes(key).into_iter().filter(|p| IN_FLIGHT.lock().unwrap().get_or_insert_with(HashSet::new).insert((p.account.clone(), p.station.clone()))).collect();
+    let (key, tx) = (key.to_string(), tx.clone());
+    std::thread::Builder::new()
+        .name("account-settings".into())
+        .spawn(move || {
+            // Ce que le relais n'a pas reçu part avant de lire ce qui arrive.
+            let sent: Vec<Sent> = pushes.iter().map(|p| put(&core, p)).collect();
+            let fetched = fetch(&core);
+            if let Err(e) = &fetched {
+                log::info!("comptes : réglages de {} non lus ({})", core.account.id, e.kind());
+            }
+            // La session qui attend part avec cette lecture, sauf si elle est déjà partie sans elle.
+            let connect = connect.and_then(|(host, profile, claimed)| (!claimed.swap(true, Ordering::SeqCst)).then_some((host, profile)));
+            let _ = tx.send(Event::Account(AccountEvent::Settings { key, sent, fetched: Some(fetched), connect }));
+        })
+        .ok();
+}
+
+/// Après un réglage gardé : les clés changées des ordinateurs des comptes partent (un envoi à la fois par
+/// ordinateur ; le suivant part à la réponse du précédent).
+pub fn push(app: &mut App, tx: &Sender<Event>) {
+    let pushes = app.sync_changes(&auto_mbps);
+    if pushes.is_empty() {
+        return;
+    }
+    app.store.save();
+    send_pushes(app, pushes, tx);
+}
+
+fn send_pushes(app: &App, pushes: Vec<Push>, tx: &Sender<Event>) {
+    for p in pushes {
+        if !IN_FLIGHT.lock().unwrap().get_or_insert_with(HashSet::new).insert((p.account.clone(), p.station.clone())) {
+            continue;
+        }
+        let Some(core) = app.store.account(&p.account).and_then(to_core) else {
+            done(&p.account, &p.station);
+            continue;
+        };
+        let tx = tx.clone();
+        std::thread::Builder::new()
+            .name("account-settings-put".into())
+            .spawn(move || {
+                let sent = put(&core, &p);
+                let _ = tx.send(Event::Account(AccountEvent::Settings { key: p.account.clone(), sent: vec![sent], fetched: None, connect: None }));
+            })
+            .ok();
+    }
+}
+
+/// Juste avant une session sur un ordinateur d'un compte : la lecture des réglages, 1,5 s au plus ; la session part à
+/// sa réponse (`AccountEvent::Settings`) ou au bout de l'attente (`ConnectNow`). Rend vrai quand la session attend.
+pub fn before_session(app: &App, tx: &Sender<Event>, host: &str, profile: Profile) -> bool {
+    if set_remove(&READY, host) || !app.sync_on() {
+        return false;
+    }
+    let Some((key, _)) = app.store.sync_target(host) else { return false };
+    // Déjà en attente (deux appuis) : la même lecture sert.
+    if !set_insert(&WAITING, host) {
+        return true;
+    }
+    let claimed = Arc::new(AtomicBool::new(false));
+    settings_job(app, &key, tx, Some((host.to_string(), profile, claimed.clone())));
+    let (tx, host) = (tx.clone(), host.to_string());
+    std::thread::Builder::new()
+        .name("account-settings-wait".into())
+        .spawn(move || {
+            std::thread::sleep(BEFORE_SESSION);
+            if !claimed.swap(true, Ordering::SeqCst) {
+                log::info!("comptes : réglages pas encore lus, la session part avec les réglages de l'appareil");
+                let _ = tx.send(Event::Account(AccountEvent::ConnectNow { host, profile }));
+            }
+        })
+        .ok();
+    true
+}
+
+/// La session qui attendait part : avec le profil de l'ordinateur tel qu'il est maintenant (reçu, peut-être).
+fn connect_now(app: &App, host: String, profile: Profile, actions: &mut Vec<crate::app::Action>) {
+    set_remove(&WAITING, &host);
+    set_insert(&READY, &host);
+    let profile = app.store.host(&host).map_or(profile, |h| h.settings.profile);
+    actions.push(crate::app::Action::Connect { host, profile });
 }
 
 /// Un ordinateur d'un compte, tel que le pilote le joint : le jeton d'accès (gardé 4 minutes, partagé par les sondes,
@@ -324,7 +491,7 @@ pub fn session_failed(app: &mut App, host: &str, error: &str) -> Vec<crate::app:
 }
 
 /// Ce que la boucle fait d'une réponse du pilote ; rend vrai quand l'accueil est à refaire (`sync`).
-pub fn handle(e: AccountEvent, app: &mut App, actions: &mut Vec<crate::app::Action>) -> bool {
+pub fn handle(e: AccountEvent, app: &mut App, actions: &mut Vec<crate::app::Action>, tx: &Sender<Event>) -> bool {
     match e {
         AccountEvent::Code { attempt, result } => {
             app.account_code(attempt, result);
@@ -358,5 +525,55 @@ pub fn handle(e: AccountEvent, app: &mut App, actions: &mut Vec<crate::app::Acti
             // Relais muet, autre refus : la liste gardée reste.
             Err(_) => false,
         },
+        AccountEvent::Settings { key, sent, fetched, connect } => {
+            let mut save = false;
+            let mut again = Vec::new();
+            for s in sent {
+                done(&key, &s.station);
+                match s.result {
+                    Ok((updated_at, values)) => {
+                        app.store.sync_sent(&key, &s.station, &s.keys, updated_at, values);
+                        save = true;
+                        // Changé encore pendant l'envoi : le reste part.
+                        if let Some(keys) = app.store.pending(&key, &s.station).cloned() {
+                            again.push(Push { account: key.clone(), station: s.station.clone(), keys, last: app.store.synced(&key, &s.station).cloned() });
+                        }
+                    }
+                    // L'ordinateur n'est plus au compte : ses réglages gardés sont oubliés (les locaux restent).
+                    Err(AccountError::UnknownComputer) => {
+                        app.store.sync_forget(&key, &s.station);
+                        save = true;
+                    }
+                    Err(AccountError::SignedOut) => actions.extend(app.account_signed_out(&key, AccountError::SignedOut.text(lang()))),
+                    // Relais muet : le changement attend le rafraîchissement suivant.
+                    Err(AccountError::Unreachable(_)) => {}
+                    // Relais d'avant les réglages synchronisés (sans rien dire), trop gros, refusé : pas d'autre essai.
+                    Err(e) => {
+                        log::info!("comptes : réglages de {} pas gardés par le relais ({})", s.station, e.kind());
+                        app.store.drop_sent(&key, &s.station, &s.keys);
+                        save = true;
+                    }
+                }
+            }
+            // La session d'appareil fermée est dite par la liste des ordinateurs ; les autres refus, sans rien dire.
+            if let Some(Ok(list)) = fetched
+                && app.sync_on()
+                && app.sync_fetched(&key, list)
+            {
+                save = true;
+            }
+            if save {
+                actions.push(crate::app::Action::Save);
+            }
+            send_pushes(app, again, tx);
+            if let Some((host, profile)) = connect {
+                connect_now(app, host, profile, actions);
+            }
+            false
+        }
+        AccountEvent::ConnectNow { host, profile } => {
+            connect_now(app, host, profile, actions);
+            false
+        }
     }
 }

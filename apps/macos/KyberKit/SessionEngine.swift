@@ -1250,6 +1250,9 @@ public final class SessionEngine: @unchecked Sendable {
         if s.lowered {
             second.lowered = LoweredMode(width: Int(s.lowered_width), height: Int(s.lowered_height), refresh: Int(s.lowered_refresh), mbps: Int(s.lowered_mbps))
         }
+        if s.has_target {
+            second.target = TargetBitrate(bitrate: s.target_bitrate, profile: s.target_profile, reason: s.target_reason)
+        }
         lock.lock()
         lastSecond = second
         lock.unlock()

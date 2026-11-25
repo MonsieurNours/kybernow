@@ -362,11 +362,19 @@ final class AppModel: ObservableObject {
 
     // MARK: - Session
 
-    func connect(_ id: UUID) {
+    func connect(_ id: UUID, synced: Bool = false) {
         guard session == nil, consoleSession == nil, let host = store.host(id) else { return }
         // Le droit « Regarder » seul : « Se connecter » n'est pas proposé, on regarde.
         if store.watchOnly(host) {
             watch(id)
+            return
+        }
+        // Ordinateur du compte : ses réglages synchronisés relus juste avant (1,5 s au plus).
+        if !synced, let accounts = store.accounts, accounts.syncsBeforeSession(host) {
+            Task {
+                await accounts.beforeSession(host)
+                connect(id, synced: true)
+            }
             return
         }
         selected = id

@@ -552,6 +552,7 @@ fn les_essais_reussis_ne_comptent_pas() {
 }
 
 // Lot 2 (rattachement) et moitié relais du lot 3 (appareils) : à part, pour ne pas mêler les fusions.
+mod deplacer;
 mod invitations;
 mod lot2;
 mod lot45;
