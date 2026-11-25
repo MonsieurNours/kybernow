@@ -37,6 +37,8 @@ Reste pour finir le jalon : une image sur un autre appareil (les apps KyberNow p
 
 **Jalon 8, écrit (04/11/2026)** : les apps KyberNow Link face à un Mac, règles dans [link-ui.md](link-ui.md) (« Face à une Station Mac », « Manettes indisponibles »). Toutes les apps (Windows, Linux et Link OS, téléviseurs LG, Android, client web, Mac, iPhone et iPad, Apple TV) : touches du Mac à la place de celles d'un PC (menu « Touches », tuiles du salon, touches au-dessus du clavier à l'écran : « ⌃ », « ⌥ », « ⌘ », « ⌥ ⌘ Échap ») ; « Ctrl agit comme ⌘ » partout où un clavier de PC peut taper (échange du cœur ; le client web le refait lui-même) ; dans les apps d'Apple, ⌘ part comme ⌘ et « ⌘ envoyée comme Ctrl » n'est pas montré ; manette en souris (Android, Apple TV) : L1 / R1 avec ⌘, Start en « ⌘ Espace » ; « Manettes indisponibles sur cet ordinateur » à l'accueil des apps de salon et en avis bref, d'après `gamepads` de `/api/stream/info` (`Info::gamepads_available` du cœur). Compilé et testé sur le Mac (cœur, Windows pour x64, Android, Linux et LG sans leur partie appareil, client web, trois apps d'Apple sur simulateur) ; pas encore essayé face à la Station.
 
+**PyroWave, écrit (25/11/2026)** : la Station Mac propose PyroWave comme la Station Windows ([pyrowave.md](pyrowave.md#la-station-mac)). Encodeur FFmpeg `libpyrowave_metal` (correctifs Mac 0016 à 0019) sur le port Metal de PyroWave, le même que le décodeur de l'app Mac : images de ScreenCaptureKit sans copie par le processeur, NV12 BT.709 pleine plage livré par la capture en 4:2:0 SDR, conversion sur le GPU pour le 4:4:4 et l'image d'un invité, P010 tel quel en HDR10. Admin vérifie la puce et l'encodeur par `kybernow-pyrowave-check` (`reason: "metal"` sinon), « PyroWave » et « Débit maximal » dans Image et son, Auto d'après la prise du Mac. **Essayé** sur une capture réelle du M4 Max décodée par l'app Mac : 1,7 ms par image en 1440p, 2,5 ms en 4K (4:2:0 SDR) ; pas encore en session.
+
 ## Choix
 
 | Sujet | Choix |
@@ -64,7 +66,7 @@ Reste pour finir le jalon : une image sur un autre appareil (les apps KyberNow p
 |---|---|---|
 | Services | Services `kyber` et `kyber-admin` (SYSTEM), agents lancés dans la session de l'utilisateur | Kyber, Admin et l'icône en LaunchAgents de la session de l'utilisateur (`~/Library/LaunchAgents`), tous dans l'app KyberNow Station |
 | Capture | DXGI / WGC (txproto) | ScreenCaptureKit (txproto, existe) ; HDR par `captureDynamicRange` (macOS 15) |
-| Encodeur | NVENC, AMF, QSV | VideoToolbox. Pas d'AV1 à l'encodage sur les puces Apple connues ; 4:4:4 en HEVC à vérifier par puce |
+| Encodeur | NVENC, AMF, QSV ; PyroWave en Vulkan | VideoToolbox. Pas d'AV1 à l'encodage sur les puces Apple connues ; 4:4:4 en HEVC à vérifier par puce. PyroWave par le port Metal (`libpyrowave_metal`) |
 | Écran virtuel | SudoVDA + API CCD | `CGVirtualDisplay` dans l'agent ; écrans physiques éteints ou recopiés (API privée de configuration des écrans, à choisir aux essais) ; l'écran disparaît de lui-même si l'agent meurt, ce qui fait le filet de sécurité |
 | Son | Haut-parleurs de Steam, `IPolicyConfig` | Plug-in Core Audio « KyberNow » (2, 6 ou 8 voies) choisi comme sortie le temps de la session, sortie d'origine rendue à la fin ; Kyber le lit en entrée Core Audio (correctif txproto) |
 | Clavier, souris | kynput (SendInput) | kynput Mac repris (0002) : `CGEvent`, mouvements relatifs pour les jeux, défilement fin ; touches système (0005 : ⌃⌘Q et ⇧⌘Q refusés aux invités et aux emprunts, comme Win+L et Ctrl+Alt+Suppr sous Windows) ; autorisation Accessibilité |

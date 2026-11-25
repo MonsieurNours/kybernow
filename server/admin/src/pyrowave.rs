@@ -10,18 +10,28 @@
 //! à part (un pilote qui plante n'emporte pas Admin), avec un aller-retour
 //! d'encodage et de décodage. Le résultat est gardé pour chaque carte, le
 //! temps qu'Admin tourne.
+//!
+//! Station Mac : la puce Apple doit être de la famille Apple7 ou plus (toutes
+//! les puces M) et l'encodeur Metal de la Station doit démarrer :
+//! `kybernow-pyrowave-check`, à côté d'Admin dans l'app (server/macos/pyrowave),
+//! le vérifie une fois par lancement d'Admin, en fond, dans un processus à
+//! part, avec un aller-retour d'une mire.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 /// Pourquoi la Station ne propose pas PyroWave (dans l'ordre) : `off` (réglé
-/// sur non), `windows` (pas une Station Windows), `vulkan` (pas de Vulkan
-/// 1.3 qui convient sur la carte, ou outil de vérification absent) ;
-/// `None` : proposé.
+/// sur non), `windows` (ni une Station Windows ni une Station Mac), `vulkan`
+/// (Windows : pas de Vulkan 1.3 qui convient sur la carte, ou outil de
+/// vérification absent), `metal` (Mac : puce qui ne convient pas, encodeur
+/// qui ne démarre pas, ou outil absent) ; `None` : proposé.
 pub fn unavailable(enabled: bool, kyber_dir: &Path) -> Option<&'static str> {
     if !enabled {
         return Some("off");
+    }
+    if cfg!(target_os = "macos") {
+        return (!metal_ok()).then_some("metal");
     }
     if !cfg!(windows) {
         return Some("windows");
@@ -74,6 +84,10 @@ pub fn max_mbps(setting: &str, link: Option<(crate::wake::Kind, u32)>) -> Option
 /// Vérifie la carte une fois au démarrage d'Admin, en fond : la première
 /// demande d'`info` n'attend pas l'outil.
 pub fn warm_up(kyber_dir: &Path) {
+    if cfg!(target_os = "macos") {
+        std::thread::spawn(metal_ok);
+        return;
+    }
     if !cfg!(windows) {
         return;
     }
@@ -154,6 +168,71 @@ fn run_validation(_kyber_dir: &Path, _luid: Option<u64>) -> bool {
     false
 }
 
+/// Station Mac : `kybernow-pyrowave-check` dit-il que la puce convient et
+/// que l'encodeur démarre ? Une fois par lancement d'Admin (la puce ne
+/// change pas) ; appel bloquant la première fois (1 s environ, 20 s au plus).
+fn metal_ok() -> bool {
+    static OK: OnceLock<bool> = OnceLock::new();
+    *OK.get_or_init(|| match check_tool() {
+        Some(tool) => run_check(&tool),
+        None => {
+            tracing::warn!("PyroWave : kybernow-pyrowave-check introuvable, pas proposé");
+            false
+        }
+    })
+}
+
+/// `KYBERNOW_PYROWAVE_CHECK`, sinon l'outil à côté d'Admin (Contents/MacOS de
+/// l'app KyberNow Station).
+fn check_tool() -> Option<std::path::PathBuf> {
+    std::env::var_os("KYBERNOW_PYROWAVE_CHECK")
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| Some(std::env::current_exe().ok()?.parent()?.join("kybernow-pyrowave-check")))
+        .filter(|p| p.is_file())
+}
+
+fn run_check(tool: &Path) -> bool {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let mut child = match Command::new(tool).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("PyroWave : {} ne se lance pas ({e}), pas proposé", tool.display());
+            return false;
+        }
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let mut said = String::new();
+    if let Some(mut out) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut out, &mut said);
+    }
+    let said = said.trim();
+    match status.and_then(|s| s.code()) {
+        Some(0) => {
+            tracing::info!("PyroWave : la puce convient ({said})");
+            true
+        }
+        // 2 : puce qui ne convient pas ; 4 : encodeur qui ne démarre pas ;
+        // 5 : aller-retour faux ; None : délai dépassé ou plantage.
+        code => {
+            tracing::warn!("PyroWave : pas proposé (code {code:?} : {said})");
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,10 +257,19 @@ mod tests {
         assert_eq!(max_mbps("n'importe", Some((Ethernet, 1000))), Some(800));
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     #[test]
-    fn windows_station_only() {
+    fn windows_or_mac_station_only() {
         assert_eq!(unavailable(true, Path::new("nulle-part")), Some("windows"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_mac_without_the_check_tool_does_not_offer_it() {
+        // Les tests tournent sans l'outil à côté d'eux : « metal ».
+        if check_tool().is_none() {
+            assert_eq!(unavailable(true, Path::new("nulle-part")), Some("metal"));
+        }
     }
 
     #[test]

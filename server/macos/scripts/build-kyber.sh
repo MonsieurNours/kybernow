@@ -15,7 +15,14 @@
 # compilation utilise en même temps (une publication en cours, par exemple).
 #
 # Sortie : $KYBER_DIR/rootfs-arm64-macos (bin/kycontroller, bin/kyavserver,
-# bin/kynputserver, lib/*.dylib). Le script s'arrête à la première erreur.
+# bin/kynputserver, lib/*.dylib ; bin/kybernow-pyrowave-check, la
+# vérification PyroWave d'Admin). Le script s'arrête à la première erreur.
+#
+# KYBER_PATCH_ONLY=1 : poser les correctifs, sans compiler (pour écrire un
+# correctif sur l'état d'après les autres). Une copie privée des sources
+# (par exemple `cp -cR third_party/kyber-desktop-macos <dossier>` sur APFS,
+# sans son rootfs-arm64-macos ni kysdk/kymedia/builddir-macos, qui pointent
+# vers l'original) se compile avec KYBER_DIR=<dossier>.
 #
 # Prérequis (Homebrew) : meson ninja nasm cmake bison pkg-config ; Rust
 # (scripts/kyber-toolchain.sh) avec la cible aarch64-apple-darwin ; cargo-c.
@@ -126,11 +133,32 @@ for p in "$ROOT"/server/macos/crates/*.patch; do
 done
 shopt -u nullglob
 
+[ -n "${KYBER_PATCH_ONLY:-}" ] && { echo "==> Correctifs posés (KYBER_PATCH_ONLY)"; exit 0; }
+
+# PyroWave (docs/pyrowave.md, « La Station Mac ») : le port Metal et la
+# conversion de KyberNow en bibliothèque statique, dans le rootfs avant
+# FFmpeg (son configure la trouve par pkg-config : encodeur
+# libpyrowave_metal, correctif Mac 0016), et l'outil de vérification d'Admin.
+echo "==> PyroWave Metal"
+"$ROOT/server/macos/pyrowave/build.sh" "$OUT"
+
+# FFmpeg est extrait une fois par meson, avec les correctifs du wrap de ce
+# moment-là : quand le wrap ou ses fichiers changent (0025 et le correctif
+# Mac 0016 y ajoutent les encodeurs PyroWave), il faut l'extraire et le
+# configurer à nouveau (comme server/kyber-patches/build.sh pour Windows).
+FFMPEG_STAMP="$KYMEDIA/subprojects/FFmpeg-n8.1/.kybernow-wrap"
+FFMPEG_WRAP=$(cat "$KYMEDIA/subprojects/ffmpeg.wrap" $(find "$KYMEDIA/subprojects/packagefiles/ffmpeg" -type f | sort) | shasum -a 256 | cut -d' ' -f1)
+if [ -d "$KYMEDIA/subprojects/FFmpeg-n8.1" ] && [ "$(cat "$FFMPEG_STAMP" 2>/dev/null)" != "$FFMPEG_WRAP" ]; then
+    echo "==> FFmpeg : wrap changé, nouvelle extraction"
+    rm -rf "$KYMEDIA/subprojects/FFmpeg-n8.1" "$KYMEDIA/builddir-macos/subprojects/FFmpeg-n8.1"
+fi
+
 echo "==> Compilation (txproto, kyavserver, kynput, kycontroller)"
 cd "$KYBER_DIR"
 ./build-macos.sh -a arm64 -o "$OUT" server
+echo "$FFMPEG_WRAP" > "$FFMPEG_STAMP"
 
-for f in bin/kycontroller bin/kyavserver bin/kynputserver; do
+for f in bin/kycontroller bin/kyavserver bin/kynputserver bin/kybernow-pyrowave-check; do
     [ -x "$OUT/$f" ] || { echo "$OUT/$f introuvable" >&2; exit 1; }
     [ "$OUT/$f" -nt "$STARTED" ] || { echo "$OUT/$f n'a pas été produit par ce build" >&2; exit 1; }
 done

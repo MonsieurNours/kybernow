@@ -37,6 +37,8 @@ Left to finish the milestone: a picture on another device (KyberNow apps go thro
 
 **Milestone 8, written (2026-11-04)**: KyberNow Link apps with a Mac, rules in [link-ui.en.md](link-ui.en.md) (“With a Mac Station”, “Controllers unavailable”). Every app (Windows, Linux and Link OS, LG TVs, Android, web client, Mac, iPhone and iPad, Apple TV): the Mac's keys instead of a PC's (“Keys” menu, living-room tiles, keys above the on-screen keyboard: « ⌃ », « ⌥ », « ⌘ », « ⌥ ⌘ Échap »); “Ctrl acts as ⌘” wherever a PC keyboard can type (the core's swap; the web client does it itself); in Apple apps, ⌘ goes as ⌘ and “⌘ sent as Ctrl” is not shown; controller as mouse (Android, Apple TV): L1 / R1 with ⌘, Start as “⌘ Space”; “Controllers unavailable on this computer” on the living-room apps' home and as a brief notice, from `gamepads` in `/api/stream/info` (the core's `Info::gamepads_available`). Built and tested on the Mac (core, Windows for x64, Android, Linux and LG without their device part, web client, the three Apple apps on simulator); not yet tried against the Station.
 
+**PyroWave, written (2026-11-25)**: the Mac Station offers PyroWave like the Windows Station ([pyrowave.en.md](pyrowave.en.md#the-mac-station)). FFmpeg encoder `libpyrowave_metal` (Mac patches 0016 to 0019) on PyroWave's Metal port, the same as the Mac app's decoder: ScreenCaptureKit frames without any CPU copy, BT.709 full-range NV12 delivered by the capture in 4:2:0 SDR, conversion on the GPU for 4:4:4 and a guest's image, P010 as is in HDR10. Admin checks the chip and the encoder with `kybernow-pyrowave-check` (`reason: "metal"` otherwise), “PyroWave” and “Maximum bitrate” in Picture and sound, Auto from the Mac's port. **Tried** on a real capture of the M4 Max decoded by the Mac app: 1.7 ms per frame at 1440p, 2.5 ms at 4K (4:2:0 SDR); not yet in a session.
+
 ## Choices
 
 | Topic | Choice |
@@ -64,7 +66,7 @@ Left to finish the milestone: a picture on another device (KyberNow apps go thro
 |---|---|---|
 | Services | `kyber` and `kyber-admin` services (SYSTEM), agents started in the user's session | Kyber, Admin and the icon as LaunchAgents of the user's session (`~/Library/LaunchAgents`), all inside the KyberNow Station app |
 | Capture | DXGI / WGC (txproto) | ScreenCaptureKit (txproto, exists); HDR through `captureDynamicRange` (macOS 15) |
-| Encoder | NVENC, AMF, QSV | VideoToolbox. No AV1 encoding on known Apple chips; HEVC 4:4:4 to check per chip |
+| Encoder | NVENC, AMF, QSV; PyroWave on Vulkan | VideoToolbox. No AV1 encoding on known Apple chips; HEVC 4:4:4 to check per chip. PyroWave through the Metal port (`libpyrowave_metal`) |
 | Virtual display | SudoVDA + CCD API | `CGVirtualDisplay` in the agent; physical displays switched off one at a time (private display configuration API); the display goes away by itself if the agent dies, which is the safety net |
 | Sound | Steam's speakers, `IPolicyConfig` | "KyberNow" Core Audio plug-in (2, 6 or 8 channels) set as output for the session, original output restored at the end; Kyber reads it as a Core Audio input (txproto patch) |
 | Keyboard, mouse | kynput (SendInput) | Mac kynput reworked (0002): `CGEvent`, relative moves for games, fine scrolling; system keys (0005: ⌃⌘Q and ⇧⌘Q refused to guests and borrowers, like Win+L and Ctrl+Alt+Del on Windows); Accessibility permission |

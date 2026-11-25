@@ -508,11 +508,12 @@ mod mac {
         let default_if = run("/sbin/route", &["-n", "get", "default"])
             .lines()
             .find_map(|l| l.trim().strip_prefix("interface: ").map(str::to_string));
-        let mut cards: Vec<(bool, Card)> = ports(&run("/usr/sbin/networksetup", &["-listallhardwareports"]))
+        let mut cards: Vec<(bool, (String, Card))> = ports(&run("/usr/sbin/networksetup", &["-listallhardwareports"]))
             .into_iter()
             .filter_map(|(port, device, mac)| {
                 let kind = kind_of(&port)?;
-                let (ip, bcast) = ipv4(&run("/sbin/ifconfig", &[&device]))?;
+                let text = run("/sbin/ifconfig", &[&device]);
+                let (ip, bcast) = ipv4(&text)?;
                 let card = Card {
                     mac,
                     ipv4: Some(ip.to_string()),
@@ -520,14 +521,68 @@ mod mac {
                     kind,
                     armed: womp,
                     name: port,
-                    link_mbps: None,
+                    // PyroWave en Auto (`pyrowave.rs`) : vitesse négociée de
+                    // l'Ethernet ; le Wi-Fi plus bas, s'il est la prise retenue.
+                    link_mbps: if kind == Kind::Ethernet { ethernet_mbps(&text) } else { None },
                 };
-                Some((default_if.as_deref() == Some(device.as_str()), card))
+                Some((default_if.as_deref() == Some(device.as_str()), (device, card)))
             })
             .collect();
         // La carte de la route par défaut, puis l'Ethernet, puis le Wi-Fi.
-        cards.sort_by_key(|(default, c)| (!default, c.kind));
-        cards.into_iter().map(|(_, c)| c).collect()
+        cards.sort_by_key(|(default, (_, c))| (!default, c.kind));
+        if let Some((_, (device, card))) = cards.first_mut()
+            && card.kind == Kind::Wifi
+        {
+            card.link_mbps = wifi_mbps(device);
+        }
+        cards.into_iter().map(|(_, (_, c))| c).collect()
+    }
+
+    /// Vitesse négociée d'une prise Ethernet, d'après la ligne `media` de
+    /// `ifconfig` (« autoselect (2500Base-T <full-duplex>) » → 2500,
+    /// « 10GBase-T » → 10000) ; `None` : pas de lien ou inconnue.
+    pub(super) fn ethernet_mbps(text: &str) -> Option<u32> {
+        let line = text.lines().map(str::trim).find(|l| l.starts_with("media:"))?;
+        let token = line.split('(').nth(1)?.split([' ', ')', '<']).next()?.to_ascii_lowercase();
+        let speed = &token[..token.find("base")?];
+        match speed.strip_suffix('g') {
+            Some(g) => g.parse::<u32>().ok().map(|g| g * 1000),
+            None => speed.parse().ok(),
+        }
+        .filter(|m| *m > 0)
+    }
+
+    /// Débit radio du Wi-Fi `device` (`spairport_network_rate` de
+    /// `system_profiler SPAirPortDataType -json`, comme le débit annoncé par
+    /// la borne sous Windows). `system_profiler` met plusieurs secondes :
+    /// relu au plus toutes les 5 minutes.
+    fn wifi_mbps(device: &str) -> Option<u32> {
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
+        static CACHE: Mutex<Option<(Instant, String, Option<u32>)>> = Mutex::new(None);
+        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, dev, rate)) = cache.as_ref()
+            && dev == device
+            && at.elapsed() < Duration::from_secs(300)
+        {
+            return *rate;
+        }
+        let rate = wifi_rate(&run("/usr/sbin/system_profiler", &["SPAirPortDataType", "-json"]), device);
+        *cache = Some((Instant::now(), device.to_string(), rate));
+        rate
+    }
+
+    pub(super) fn wifi_rate(json: &str, device: &str) -> Option<u32> {
+        let v: serde_json::Value = serde_json::from_str(json).ok()?;
+        v["SPAirPortDataType"].as_array()?.iter().find_map(|x| {
+            x["spairport_airport_interfaces"].as_array()?.iter().find_map(|i| {
+                (i["_name"].as_str() == Some(device))
+                    .then(|| i["spairport_current_network_information"]["spairport_network_rate"].as_u64())
+                    .flatten()
+                    .and_then(|r| u32::try_from(r).ok())
+                    .filter(|r| *r > 0)
+            })
+        })
     }
 }
 
@@ -680,7 +735,22 @@ mod tests {
 mod mac_tests {
     use std::net::Ipv4Addr;
 
-    use super::mac::{ipv4, ports};
+    use super::mac::{ethernet_mbps, ipv4, ports, wifi_rate};
+
+    #[test]
+    fn reads_the_port_speed() {
+        let eth = "en8: flags=8863<UP>\n\tmedia: autoselect (2500Base-T <full-duplex>)\n\tstatus: active\n";
+        assert_eq!(ethernet_mbps(eth), Some(2500));
+        assert_eq!(ethernet_mbps("\tmedia: autoselect (1000baseT <full-duplex,flow-control>)\n"), Some(1000));
+        assert_eq!(ethernet_mbps("\tmedia: autoselect (10GBase-T <full-duplex>)\n"), Some(10_000));
+        assert_eq!(ethernet_mbps("\tmedia: autoselect (100baseTX <full-duplex>)\n"), Some(100));
+        assert_eq!(ethernet_mbps("\tmedia: autoselect\n\tstatus: active\n"), None);
+        assert_eq!(ethernet_mbps("\tmedia: autoselect (none)\n"), None);
+        let wifi = r#"{"SPAirPortDataType":[{"spairport_airport_interfaces":[{"_name":"en0","spairport_current_network_information":{"spairport_network_phymode":"802.11ax","spairport_network_rate":1201}},{"_name":"awdl0"}]}]}"#;
+        assert_eq!(wifi_rate(wifi, "en0"), Some(1201));
+        assert_eq!(wifi_rate(wifi, "en1"), None);
+        assert_eq!(wifi_rate("pas du json", "en0"), None);
+    }
 
     #[test]
     fn reads_the_hardware_ports() {
