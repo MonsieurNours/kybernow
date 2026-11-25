@@ -11,6 +11,9 @@ Corrections de la 0.11.0.
 
 - **PyroWave fonctionne dans les apps.** En 0.11.0, les apps ne le demandaient jamais à la Station : « {ordinateur} ne propose pas PyroWave » s'affichait même avec une carte graphique qui convient.
 - **Admin depuis KyberNow Share, chez vous.** La page du compte propose de nouveau « Ouvrir sur le réseau » quand Admin à distance est coupé : la Station redonne son adresse sur le réseau au relais dès que la connexion est prête.
+- **Regarder sur les téléviseurs LG.** Un ordinateur qu'on peut seulement regarder propose « Regarder » au lieu de « Se connecter », comme dans les autres apps.
+- **Le débit automatique sur les cartes AMD.** La Station change de débit en direct, sans à-coup, comme avec les cartes NVIDIA.
+- **Moins d'appels au relais** quand l'horloge d'un appareil est en avance.
 
 ## 0.11.0
 

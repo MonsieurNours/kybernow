@@ -10,6 +10,9 @@ Fixes for 0.11.0.
 
 - **PyroWave works in the apps.** In 0.11.0, the apps never asked the Station for it: “{computer} doesn't offer PyroWave” showed even with a suitable graphics card.
 - **Admin from KyberNow Share, at home.** The account page offers “Open on the network” again when Remote Admin is off: the Station gives the relay its network address again as soon as the connection is ready.
+- **Watch on LG TVs.** A computer you can only watch offers “Watch” instead of “Connect”, as in the other apps.
+- **Automatic bitrate on AMD cards.** The Station changes bitrate live, smoothly, as with NVIDIA cards.
+- **Fewer calls to the relay** when a device's clock runs ahead.
 
 ## 0.11.0
 
