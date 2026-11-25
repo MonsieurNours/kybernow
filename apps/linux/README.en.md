@@ -144,7 +144,7 @@ apps/linux/
 │   └── native/          pyrowave.c (PyroWave through Vulkan), decoder.c (FFmpeg: VA-API, the Pi's V4L2), display.c (VRR and modes through DRM)
 ├── flatpak/             manifest, .desktop, AppStream, icon, licences
 ├── os/                  KyberNow Link OS: Raspberry Pi image (pi-gen, A/B, Plymouth, services), see os/README.en.md
-├── scripts/             build.sh (--rpi), sources.sh, flatpak.sh, release-flatpaks.sh, deb.sh, apt-repo.sh
+├── scripts/             build.sh (--rpi), sources.sh, flatpak.sh, release-flatpaks.sh, vm.sh, deb.sh, apt-repo.sh
 ├── tests/pyrowave/      PyroWave offline test (run.sh, encode.c, check.c, samples-mac.sh)
 └── tests/video/         offline decoder test (run.sh, check.c)
 ```
@@ -176,8 +176,10 @@ apps/linux/scripts/build.sh                    # → apps/target/release/kyberno
 apps/linux/scripts/flatpak.sh                  # → apps/linux/dist/KyberNow-Link-Linux-<arch>.flatpak
 apps/linux/scripts/flatpak.sh x86_64           # from an ARM machine: Rosetta or qemu-user-static
 
-# From the Mac, both Flatpaks then the Pi's .deb in the "KyberNow Linux" VM (what release.sh does):
-apps/linux/scripts/release-flatpaks.sh [--check] [DIR]
+# From the Mac, both Flatpaks then the Pi's .deb in the "KyberNow Linux" VM (what release.sh
+# does, one part per step with --seulement; the VM is started without a window, settings in
+# scripts/vm.sh; the tree's path in the VM is derived, worktrees included):
+apps/linux/scripts/release-flatpaks.sh [--check] [--seulement aarch64,x86_64,deb] [DIR]
 
 # Raspberry Pi, on an arm64 Linux (the VM, or a Pi; libudev-dev as well):
 apps/linux/scripts/build.sh --rpi              # Raspberry Pi's FFmpeg, HEVC V4L2 request decoder
