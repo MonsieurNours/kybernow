@@ -440,6 +440,19 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
 
     @objc private func hovered(_ g: UIHoverGestureRecognizer) {
         guard !touchesSuspended, let input, !isRelative else { return }
+        // Apple Pencil au-dessus de l'écran (iPad qui le permet) : le survol du stylet.
+        if g.zOffset > 0 || (pencilHovering && (g.state == .ended || g.state == .cancelled)) {
+            pencilHovering = g.state != .ended && g.state != .cancelled
+            guard imageHost == nil, let p = hostPoint(g.location(in: self)) else { return }
+            let x = Int16(clamping: Int(p.x.rounded())), y = Int16(clamping: Int(p.y.rounded()))
+            var pen = InputPipeline.Pen()
+            pen.inRange = pencilHovering
+            pen.tilt = InputPipeline.Pen.tilt(altitude: g.altitudeAngle, azimuth: g.azimuthAngle(in: self))
+            if !input.pen(on: nil, x: x, y: y, pen), pencilHovering {
+                input.mouse(x: x, y: y)
+            }
+            return
+        }
         if !mouseSeen {
             mouseSeen = true
             updatePointerLayer()
@@ -455,6 +468,72 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         }
         if let p = hostPoint(g.location(in: self)) {
             input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
+        }
+    }
+
+    // MARK: - Apple Pencil (docs/link-ui.md, « Stylet »)
+
+    /// Le Pencil qui touche l'écran : il écrit là où il touche, quel que soit
+    /// le mode du toucher (les gestes du doigt ne le reçoivent pas).
+    private var pencilTouch: UITouch?
+    /// Le Pencil survole l'écran (iPad qui le permet).
+    private var pencilHovering = false
+    /// Le Pencil est parti en souris (Station d'avant) : son clic est tenu.
+    private var pencilMouseDown = false
+
+    public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if pencilTouch == nil, let t = touches.first(where: { $0.type == .pencil }) {
+            pencilTouch = t
+            pencil(t, contact: true)
+        }
+        super.touchesBegan(touches, with: event)
+    }
+
+    public override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let t = pencilTouch, touches.contains(t) {
+            // Toutes les positions lues depuis la dernière image (jusqu'à 240 par seconde).
+            for c in event?.coalescedTouches(for: t) ?? [t] {
+                pencil(c, contact: true)
+            }
+        }
+        super.touchesMoved(touches, with: event)
+    }
+
+    public override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let t = pencilTouch, touches.contains(t) {
+            pencil(t, contact: false)
+            pencilTouch = nil
+        }
+        super.touchesEnded(touches, with: event)
+    }
+
+    public override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let t = pencilTouch, touches.contains(t) {
+            pencil(t, contact: false)
+            pencilTouch = nil
+        }
+        super.touchesCancelled(touches, with: event)
+    }
+
+    /// Un état du Pencil vers l'ordinateur : en stylet, ou en souris à cet
+    /// endroit (Station qui ne connaît pas le stylet, souris des jeux).
+    private func pencil(_ t: UITouch, contact: Bool) {
+        guard !touchesSuspended, let input, !isRelative, imageHost == nil, let p = hostPoint(t.location(in: self)) else { return }
+        let x = Int16(clamping: Int(p.x.rounded())), y = Int16(clamping: Int(p.y.rounded()))
+        var pen = InputPipeline.Pen()
+        // Levé, le Pencil part ; s'il survole encore, le survol le ramène.
+        pen.inRange = contact
+        pen.contact = contact
+        pen.pressure = t.maximumPossibleForce > 0 ? Float(t.force / t.maximumPossibleForce) : 1
+        pen.tilt = InputPipeline.Pen.tilt(altitude: t.altitudeAngle, azimuth: t.azimuthAngle(in: self))
+        if #available(iOS 17.5, *), t.rollAngle != 0 {
+            pen.rotation = Float(t.rollAngle * 180 / .pi)
+        }
+        if input.pen(on: nil, x: x, y: y, pen) { return }
+        input.mouse(x: x, y: y)
+        if contact != pencilMouseDown {
+            pencilMouseDown = contact
+            input.mouseButton(.left, pressed: contact)
         }
     }
 

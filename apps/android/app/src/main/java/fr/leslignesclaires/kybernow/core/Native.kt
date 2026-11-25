@@ -263,6 +263,15 @@ object Native {
     @JvmStatic external fun inputText(handle: Long, text: String)
     @JvmStatic external fun pointerMoveBy(handle: Long, dx: Double, dy: Double)
     @JvmStatic external fun pointerMoveTo(handle: Long, x: Double, y: Double)
+    /**
+     * Stylet (docs/link-ui.md, « Stylet »), état complet, en pixels de l'écran de l'ordinateur. `tilt` et `orientation` :
+     * `AXIS_TILT` et `AXIS_ORIENTATION` en radians, lus si `hasTilt`. `false` : le stylet part en souris (Station
+     * d'avant, souris des jeux), l'app envoie la position et le clic gauche.
+     */
+    @JvmStatic external fun inputPen(
+        handle: Long, x: Double, y: Double, inRange: Boolean, contact: Boolean, pressure: Float,
+        hasTilt: Boolean, tilt: Float, orientation: Float, eraser: Boolean, barrel: Boolean,
+    ): Boolean
     @JvmStatic external fun inputMouseMove(handle: Long, dx: Int, dy: Int)
     /** 0 gauche, 1 droit, 2 milieu, 3 précédent, 4 suivant. */
     @JvmStatic external fun inputMouseButton(handle: Long, button: Int, pressed: Boolean)

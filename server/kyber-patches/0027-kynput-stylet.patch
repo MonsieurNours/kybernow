@@ -1,0 +1,581 @@
+diff --git a/kynput-rs/src/lib.rs b/kynput-rs/src/lib.rs
+index ee44e8d..1208a26 100644
+--- a/kynput-rs/src/lib.rs
++++ b/kynput-rs/src/lib.rs
+@@ -1703,3 +1703,9 @@ pub fn init_logger() {
+         )
+     };
+ }
++
++/// KyberNow: whether this computer's kynput injects pens (see
++/// [`ControlEvent::PenAvailable`]).
++pub fn host_pen_available() -> bool {
++    unsafe { sys::kynput_host_pen_available() }
++}
+diff --git a/kynput/Cargo.toml b/kynput/Cargo.toml
+index 32d05e0..78d1e4f 100644
+--- a/kynput/Cargo.toml
++++ b/kynput/Cargo.toml
+@@ -65,8 +65,10 @@ features = [
+     "Win32_System_StationsAndDesktops",
+     "Win32_System_SystemServices",
+     "Win32_System_Threading",
++    "Win32_UI_Controls",
+     "Win32_UI_Input",
+     "Win32_UI_Input_KeyboardAndMouse",
++    "Win32_UI_Input_Pointer",
+     "Win32_UI_WindowsAndMessaging",
+ ]
+ 
+diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
+index ca128ee..d701d06 100644
+--- a/kynput/src/capi/mod.rs
++++ b/kynput/src/capi/mod.rs
+@@ -822,6 +822,14 @@ pub extern "C" fn kynput_mouse_position_y(position: &MousePosition) -> i16 {
+     position.y
+ }
+ 
++/// KyberNow: whether this build's host side injects pens (Windows: a
++/// synthetic pen, see `windows/host_pen.rs`). A host that does tells each
++/// client so (`PenAvailable`).
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_host_pen_available() -> bool {
++    cfg!(target_os = "windows")
++}
++
+ #[unsafe(no_mangle)]
+ pub extern "C" fn kynput_mouse_wheel_unref(mouse_wheel: Option<Box<MouseWheel>>) {
+     drop(mouse_wheel);
+diff --git a/kynput/src/windows/host_keyboard_mouse.rs b/kynput/src/windows/host_keyboard_mouse.rs
+index f392367..2b8c7ef 100644
+--- a/kynput/src/windows/host_keyboard_mouse.rs
++++ b/kynput/src/windows/host_keyboard_mouse.rs
+@@ -35,10 +35,11 @@ use windows_sys::Win32::{
+ use crate::pipeline::{InputConsumerHandle, InputHandler};
+ use crate::types::UnicodeInput;
+ use crate::utils::event_loop::{self, EventLoopConsumer, EventLoopControl};
++use crate::windows::host_pen::{self, HostPen};
+ use crate::windows::utils::{KeyboardRepeatSettings, KeyboardSettingsMonitor};
+ use crate::windows::{check_win32_error, last_win32_error, utils::Event};
+ use crate::{
+-    Display, KeyboardKey, MouseButton, MouseButtonType, MouseMove, MousePosition, MouseWheel,
++    Display, KeyboardKey, MouseButton, MouseButtonType, MouseMove, MousePosition, MouseWheel, Pen,
+ };
+ use crate::{Error, Result};
+ use crate::{HostConfig, InputConsumer, InputPacket, InputType, Modifiers, Payload};
+@@ -149,6 +150,9 @@ struct Backend {
+     modifiers: Modifiers,
+     sas_event: Option<Event>,
+     key_repeat: Option<KeyRepeatManager>,
++    /// KyberNow: the synthetic pen, created at the first pen packet.
++    pen: Option<HostPen>,
++    pen_failed: bool,
+ }
+ 
+ fn get_virtualscreen() -> Display {
+@@ -207,9 +211,55 @@ impl Backend {
+             } else {
+                 None
+             },
++            pen: None,
++            pen_failed: false,
+         })
+     }
+ 
++    /// After ERROR_ACCESS_DENIED: the input desktop changed (UAC, lock
++    /// screen), the thread follows it.
++    fn switch_desktop(&mut self) {
++        unsafe { CloseDesktop(self.desktop) };
++        self.desktop = unsafe { OpenInputDesktop(0, 0, GENERIC_ALL) };
++        unsafe { SetThreadDesktop(self.desktop) };
++    }
++
++    /// KyberNow: a pen from the client (see `host_pen.rs`).
++    fn inject_pen(&mut self, pen: &Pen) -> Result<()> {
++        let Some(display) = self.displays.get(&pen.display_id) else {
++            warn!("Got a Pen on unknown Display ID {}", pen.display_id);
++            return Ok(());
++        };
++        let (x, y) = host_pen::screen_position(display, pen);
++        if self.pen.is_none() {
++            if self.pen_failed || !pen.has(Pen::IN_RANGE) {
++                return Ok(());
++            }
++            self.pen = HostPen::create();
++            self.pen_failed = self.pen.is_none();
++        }
++        let Some(host_pen) = self.pen.as_mut() else {
++            return Ok(());
++        };
++        if !host_pen.inject(pen, x, y) {
++            self.switch_desktop();
++            if let Some(host_pen) = self.pen.as_mut() {
++                host_pen.inject(pen, x, y);
++            }
++        }
++        Ok(())
++    }
++
++    /// When something must be done again: a held key's repeat, the pen.
++    fn next_deadline(&self) -> Option<Duration> {
++        let keys = self.key_repeat.as_ref().and_then(|kr| kr.next_deadline());
++        let pen = self.pen.as_ref().and_then(|pen| pen.next_deadline());
++        match (keys, pen) {
++            (Some(a), Some(b)) => Some(a.min(b)),
++            (a, b) => a.or(b),
++        }
++    }
++
+     fn send_inputs(&mut self, inputs: &mut [INPUT]) -> Result<()> {
+         let count = inputs.len() as u32;
+         let mut ret = unsafe {
+@@ -546,6 +596,7 @@ impl Backend {
+             Payload::MousePosition(ref position) => self.inject_position(position),
+             Payload::MouseWheel(ref event) => self.inject_wheel(event),
+             Payload::Unicode(ref unicode) => self.inject_unicode(unicode),
++            Payload::Pen(ref pen) => self.inject_pen(pen),
+             _ => {
+                 error!("Unexpected packet type {:?}", pkt.get_type());
+                 Err(Error::InvalidType)
+@@ -573,6 +624,17 @@ impl Backend {
+     }
+ 
+     fn on_timeout(&mut self) -> Result<()> {
++        // KyberNow: the pen near the surface is injected again.
++        if self.pen.as_ref().and_then(|pen| pen.next_deadline()) == Some(Duration::ZERO) {
++            let repeated = self.pen.as_mut().is_none_or(|pen| pen.repeat());
++            if !repeated {
++                self.switch_desktop();
++                if let Some(pen) = self.pen.as_mut() {
++                    pen.repeat();
++                }
++            }
++        }
++
+         // Process key repeats
+         if let Some(scancode) = self.key_repeat.as_mut().and_then(|kr| kr.process_repeats()) {
+             let key = KeyboardKey::new(scancode, true);
+@@ -636,8 +698,7 @@ impl HostKeyboardMouseHandler {
+         let mut backend = Backend::create(host_config, key_repeat_enabled)?;
+ 
+         loop {
+-            let event = if let Some(kr) = backend.key_repeat.as_ref() {
+-                let timeout = kr.next_deadline().unwrap_or(Duration::MAX);
++            let event = if let Some(timeout) = backend.next_deadline() {
+                 let Ok(event) = consumer.poll_timeout(timeout) else {
+                     backend.on_timeout()?;
+                     continue;
+@@ -692,6 +753,7 @@ impl InputHandler for HostKeyboardMouseHandler {
+                 InputType::MouseMove,
+                 InputType::MouseWheel,
+                 InputType::Unicode,
++                InputType::Pen,
+             ],
+         })
+     }
+diff --git a/kynput/src/windows/host_pen.rs b/kynput/src/windows/host_pen.rs
+new file mode 100644
+index 0000000..10a6cec
+--- /dev/null
++++ b/kynput/src/windows/host_pen.rs
+@@ -0,0 +1,179 @@
++// Project Kyber: host_pen.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow: a synthetic pen (Windows 10 1809 and later), fed with the
++//! client's [`Pen`] packets: pressure, tilt, rotation, eraser and barrel
++//! button reach drawing apps through Windows Ink, and apps that know nothing
++//! of pens get the mouse Windows makes from it.
++
++use std::time::{Duration, Instant};
++
++use log::{info, warn};
++use windows_sys::Win32::{
++    Foundation::*,
++    UI::{Controls::*, Input::Pointer::*, WindowsAndMessaging::*},
++};
++
++use crate::{Display, Pen};
++
++/// Windows lets a synthetic pen go when it is not updated for a while: the
++/// last state is injected again at this pace while the pen is near.
++pub(crate) const REPEAT: Duration = Duration::from_millis(50);
++
++/// Windows' pen pressure goes from 0 to 1024.
++const WINDOWS_MAX_PRESSURE: u32 = 1024;
++
++pub(crate) struct HostPen {
++    device: HSYNTHETICPOINTERDEVICE,
++    /// The last pen state injected while near the surface (screen pixels,
++    /// in contact or not), to send its transitions and repeat it.
++    last: Option<(POINTER_PEN_INFO, bool)>,
++    last_at: Instant,
++}
++
++impl HostPen {
++    pub(crate) fn create() -> Option<Self> {
++        let device = unsafe { CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_DEFAULT) };
++        if device == 0 {
++            warn!("CreateSyntheticPointerDevice(PT_PEN) failed: {}", unsafe { GetLastError() });
++            return None;
++        }
++        info!("Synthetic pen created");
++        Some(Self {
++            device,
++            last: None,
++            last_at: Instant::now(),
++        })
++    }
++
++    /// When the pen must be injected again (see [`REPEAT`]).
++    pub(crate) fn next_deadline(&self) -> Option<Duration> {
++        self.last
++            .as_ref()
++            .map(|_| REPEAT.saturating_sub(self.last_at.elapsed()))
++    }
++
++    /// Injects `pen` at (`x`, `y`) in virtual screen pixels. Returns false
++    /// when Windows refused it (another desktop: the caller switches and
++    /// tries again).
++    pub(crate) fn inject(&mut self, pen: &Pen, x: i32, y: i32) -> bool {
++        let in_range = pen.has(Pen::IN_RANGE);
++        let contact = in_range && pen.has(Pen::CONTACT);
++        let was_contact = self.last.as_ref().is_some_and(|(_, contact)| *contact);
++
++        let mut flags = if contact && !was_contact {
++            POINTER_FLAG_DOWN
++        } else if !contact && was_contact {
++            POINTER_FLAG_UP
++        } else {
++            POINTER_FLAG_UPDATE
++        };
++        if in_range {
++            flags |= POINTER_FLAG_INRANGE | POINTER_FLAG_PRIMARY;
++        }
++        if contact {
++            flags |= POINTER_FLAG_INCONTACT | POINTER_FLAG_FIRSTBUTTON;
++        }
++
++        let mut pen_flags = PEN_FLAG_NONE;
++        if pen.has(Pen::BARREL) {
++            pen_flags |= PEN_FLAG_BARREL;
++        }
++        if pen.has(Pen::ERASER) {
++            // The eraser end near the surface is "inverted"; touching, it
++            // erases.
++            pen_flags |= if contact { PEN_FLAG_ERASER } else { PEN_FLAG_INVERTED };
++        }
++        let mut pen_mask = PEN_MASK_PRESSURE;
++        if pen.has(Pen::TILT) {
++            pen_mask |= PEN_MASK_TILT_X | PEN_MASK_TILT_Y;
++        }
++        if pen.has(Pen::ROTATION) {
++            pen_mask |= PEN_MASK_ROTATION;
++        }
++
++        let mut info: POINTER_PEN_INFO = unsafe { std::mem::zeroed() };
++        info.pointerInfo.pointerType = PT_PEN;
++        info.pointerInfo.pointerFlags = flags;
++        info.pointerInfo.ptPixelLocation = POINT { x, y };
++        info.penFlags = pen_flags;
++        info.penMask = pen_mask;
++        info.pressure = if contact {
++            // A touching pen never weighs 0: Windows Ink would draw nothing.
++            (pen.pressure as u32 * WINDOWS_MAX_PRESSURE / Pen::MAX_PRESSURE as u32).max(1)
++        } else {
++            0
++        };
++        info.rotation = pen.rotation as u32 % 360;
++        info.tiltX = pen.tilt_x.clamp(-90, 90) as i32;
++        info.tiltY = pen.tilt_y.clamp(-90, 90) as i32;
++
++        if !self.send(&info) {
++            return false;
++        }
++        self.last = in_range.then(|| {
++            // Repeats are updates of the same state.
++            let mut repeat = info;
++            repeat.pointerInfo.pointerFlags &= !(POINTER_FLAG_DOWN | POINTER_FLAG_UP);
++            repeat.pointerInfo.pointerFlags |= POINTER_FLAG_UPDATE;
++            (repeat, contact)
++        });
++        self.last_at = Instant::now();
++        true
++    }
++
++    /// Injects the last state again (see [`REPEAT`]).
++    pub(crate) fn repeat(&mut self) -> bool {
++        let Some((info, _)) = self.last else {
++            return true;
++        };
++        self.last_at = Instant::now();
++        self.send(&info)
++    }
++
++    fn send(&self, info: &POINTER_PEN_INFO) -> bool {
++        let input = POINTER_TYPE_INFO {
++            r#type: PT_PEN,
++            Anonymous: POINTER_TYPE_INFO_0 { penInfo: *info },
++        };
++        let ok = unsafe { InjectSyntheticPointerInput(self.device, &input, 1) } != 0;
++        if !ok {
++            let err = unsafe { GetLastError() };
++            if err != ERROR_ACCESS_DENIED {
++                warn!("InjectSyntheticPointerInput failed: {err}");
++                // Only a desktop switch is worth trying again.
++                return true;
++            }
++        }
++        ok
++    }
++}
++
++impl Drop for HostPen {
++    fn drop(&mut self) {
++        unsafe { DestroySyntheticPointerDevice(self.device) };
++    }
++}
++
++/// The pen's position in virtual screen pixels, from its position on one of
++/// the captured displays.
++pub(crate) fn screen_position(display: &Display, pen: &Pen) -> (i32, i32) {
++    (display.x + pen.x as i32, display.y + pen.y as i32)
++}
+diff --git a/kynput/src/windows/mod.rs b/kynput/src/windows/mod.rs
+index 348d93e..35e6bef 100644
+--- a/kynput/src/windows/mod.rs
++++ b/kynput/src/windows/mod.rs
+@@ -28,6 +28,7 @@ pub mod clipboard;
+ pub mod host_cursor;
+ pub mod host_gamepad;
+ pub mod host_keyboard_mouse;
++mod host_pen;
+ pub mod pipeline_config;
+ mod utils;
+ 
+diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
+index 81ecd1a..f9a5366 100644
+--- a/kynputservice/src/pipeline_state.rs
++++ b/kynputservice/src/pipeline_state.rs
+@@ -53,6 +53,12 @@ pub struct State {
+     /// KyberNow: packets injected by `set_rights`, let through once whatever
+     /// the rights (releases sent after a right was withdrawn).
+     injected: Vec<kynput_rs::Packet>,
++    /// KyberNow: the client's pen while it is near the surface, to lift it
++    /// and let it go when the keys are flushed or the mouse taken back.
++    pen: Option<kynput_rs::Pen>,
++    /// KyberNow: this computer injects pens: clients are told so when they
++    /// connect (`PenAvailable`); otherwise they send a pen as a mouse.
++    pen_available: bool,
+ }
+ 
+ impl State {
+@@ -65,6 +71,8 @@ impl State {
+             rights,
+             plugs: HashMap::new(),
+             injected: Vec::new(),
++            pen: None,
++            pen_available: kynput_rs::host_pen_available(),
+         }
+     }
+ 
+@@ -80,7 +88,8 @@ impl State {
+             | InputType::MouseMove
+             | InputType::MousePosition
+             | InputType::MouseButton
+-            | InputType::MouseWheel => self.rights.keyboard_mouse,
++            | InputType::MouseWheel
++            | InputType::Pen => self.rights.keyboard_mouse,
+             InputType::GamepadControl | InputType::GamepadEvent => self.rights.gamepads,
+             InputType::Clipboard => self.rights.clipboard,
+             InputType::Cursor | InputType::ControlEvent => true,
+@@ -288,6 +297,12 @@ impl State {
+ 
+                 Ok(())
+             }
++            kynput_rs::InputType::Pen => {
++                // KyberNow: the pen is remembered while near the surface.
++                self.pen = kynput_rs::Pen::from_packet(pkt)
++                    .filter(|pen| pen.has(kynput_rs::Pen::IN_RANGE));
++                Ok(())
++            }
+             kynput_rs::InputType::Cursor => {
+                 if let Some(cursor) = kynput_rs::Cursor::from_packet(pkt) {
+                     debug!("Cache cursor");
+@@ -312,12 +327,16 @@ impl State {
+     }
+ 
+     fn on_client_connected(&self) -> Option<Vec<kynput_rs::Packet>> {
+-        if self.cursors.is_empty() {
++        // KyberNow: the client learns that this computer takes pens.
++        let pen = self.pen_available.then(|| {
++            kynput_rs::ControlEvent::PenAvailable.to_packet(kynput_rs::InputTarget::Client)
++        });
++        if self.cursors.is_empty() && pen.is_none() {
+             return None;
+         }
+ 
+         info!("Send {} cursors", self.cursors.len());
+-        Some(self.cursors.values().cloned().collect())
++        Some(self.cursors.values().cloned().chain(pen).collect())
+     }
+ 
+     fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
+@@ -358,6 +377,16 @@ impl State {
+             generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
+         }
+ 
++        // KyberNow: the pen is lifted and let go where it was.
++        if let Some(pen) = self.pen.take() {
++            let gone = kynput_rs::Pen {
++                pressure: 0,
++                flags: 0,
++                ..pen
++            };
++            generated_events.push(gone.to_packet(kynput_rs::InputTarget::Host));
++        }
++
+         generated_events
+     }
+ 
+@@ -398,6 +427,8 @@ impl State {
+             kynput_rs::ControlEvent::ClientConnected => self.on_client_connected(),
+             kynput_rs::ControlEvent::ClientDisconnected => None,
+             kynput_rs::ControlEvent::FlushKeys => self.on_flush_keys(),
++            // KyberNow: the host's own announcement, never a client's.
++            kynput_rs::ControlEvent::PenAvailable => None,
+         };
+ 
+         Ok(kynput_rs::RouterHookControlResult { generated_events })
+@@ -418,6 +449,16 @@ impl ServerPipelineState {
+         }
+     }
+ 
++    /// KyberNow: with pens injected or not, whatever this build does.
++    #[cfg(test)]
++    fn with_pen(rights: InputRights, pen_available: bool) -> Self {
++        let mut state = State::new(rights);
++        state.pen_available = pen_available;
++        ServerPipelineState {
++            state: Arc::new(Mutex::new(state)),
++        }
++    }
++
+     /// KyberNow: applies new rights. The returned packets must be injected
+     /// into the pipeline (its input sink) by the caller: the hook sees them
+     /// and takes the state lock again.
+@@ -582,7 +623,7 @@ mod tests {
+ 
+     #[test]
+     fn cursor_sync() {
+-        let state = ServerPipelineState::new(InputRights::ALL);
++        let state = ServerPipelineState::with_pen(InputRights::ALL, false);
+ 
+         let ret_process_true = RouterHookPacketResult {
+             process_event: true,
+@@ -611,7 +652,7 @@ mod tests {
+ 
+     #[test]
+     fn cursor_sync_keeps_shape_on_move() {
+-        let state = ServerPipelineState::new(InputRights::ALL);
++        let state = ServerPipelineState::with_pen(InputRights::ALL, false);
+ 
+         let shape = Cursor {
+             display_id: 43,
+@@ -647,6 +688,79 @@ mod tests {
+         );
+     }
+ 
++    // KyberNow: pens.
++
++    fn pen(flags: u8) -> Packet {
++        kynput_rs::Pen {
++            display_id: 1,
++            x: 30,
++            y: 40,
++            pressure: if flags & kynput_rs::Pen::CONTACT != 0 { 900 } else { 0 },
++            flags,
++            ..Default::default()
++        }
++        .to_packet(InputTarget::Host)
++    }
++
++    fn lifted() -> Packet {
++        kynput_rs::Pen {
++            display_id: 1,
++            x: 30,
++            y: 40,
++            ..Default::default()
++        }
++        .to_packet(InputTarget::Host)
++    }
++
++    #[test]
++    fn a_host_with_pens_tells_each_client() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        let ret = state.on_control_event(&ControlEvent::ClientConnected);
++        assert_eq!(
++            ret.generated_events,
++            Some(vec![
++                ControlEvent::PenAvailable.to_packet(InputTarget::Client)
++            ])
++        );
++
++        let without = ServerPipelineState::with_pen(InputRights::ALL, false);
++        let ret = without.on_control_event(&ControlEvent::ClientConnected);
++        assert_eq!(ret.generated_events, None);
++    }
++
++    #[test]
++    fn the_pen_is_the_mouse() {
++        let down = pen(kynput_rs::Pen::IN_RANGE | kynput_rs::Pen::CONTACT);
++        let state = ServerPipelineState::with_pen(PLAYER, true);
++        assert!(!state.on_packet(&down).process_event);
++        let state = ServerPipelineState::with_pen(KEYBOARD, true);
++        assert!(state.on_packet(&down).process_event);
++    }
++
++    #[test]
++    fn a_flush_lifts_the_pen() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        state.on_packet(&pen(kynput_rs::Pen::IN_RANGE | kynput_rs::Pen::CONTACT));
++        let ret = state.on_control_event(&ControlEvent::FlushKeys);
++        assert_eq!(ret.generated_events, Some(vec![lifted()]));
++
++        // Gone: nothing to lift.
++        state.on_packet(&pen(kynput_rs::Pen::IN_RANGE));
++        state.on_packet(&pen(0));
++        let ret = state.on_control_event(&ControlEvent::FlushKeys);
++        assert_eq!(ret.generated_events, None);
++    }
++
++    #[test]
++    fn taking_the_mouse_back_lifts_the_pen() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        state.on_packet(&pen(kynput_rs::Pen::IN_RANGE));
++        let released = state.set_rights(PLAYER);
++        assert_eq!(released, vec![lifted()]);
++        // The injected lift passes once.
++        assert!(state.on_packet(&lifted()).process_event);
++    }
++
+     // KyberNow: rights of a share guest.
+ 
+     const PLAYER: InputRights = InputRights {

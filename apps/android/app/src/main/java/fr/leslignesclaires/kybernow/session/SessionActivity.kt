@@ -113,6 +113,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private lateinit var pads: PadRouter
     private lateinit var remote: RemoteRouter
     private lateinit var touch: TouchInput
+    private lateinit var stylus: StylusInput
     private lateinit var haptics: Haptics
     private val main = Handler(Looper.getMainLooper())
 
@@ -239,6 +240,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             keyboardOpen = { ui.keyboardOpen }
             onFold = { openKeyboard(false) }
         }
+        stylus = StylusInput(PenOut.native { handle }, PointerOut.native { handle }, ::viewToHost)
 
         val root = FrameLayout(this)
         surfaceView = SurfaceView(this).apply {
@@ -247,7 +249,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             isFocusableInTouchMode = true
             // La manette à l'écran prend les doigts au-dessus (vue d'interface) : l'image ne sert plus de souris.
             // Un invité sans le clavier et la souris : l'image ne sert pas de souris (rien ne partirait).
-            setOnTouchListener { _, e -> if (!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) false else if (ui.padShown || !ui.keyboardMouseAllowed()) true else touch.onTouch(e) }
+            // Le stylet passe avant le doigt : il écrit là où il touche, quel que soit le mode du toucher (link-ui, « Stylet »).
+            setOnTouchListener { _, e ->
+                if (stylus.claims(e)) {
+                    if (ui.keyboardMouseAllowed()) stylus.onTouch(e) else true
+                } else if (!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) false
+                else if (ui.padShown || !ui.keyboardMouseAllowed()) true else touch.onTouch(e)
+            }
             setOnCapturedPointerListener { _, e -> capturedMouse(e) }
         }
         root.addView(surfaceView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
@@ -915,6 +923,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             pads.mouse.stop()
             // Un geste au doigt en cours (maintien pour glisser, toucher direct) ne doit rien envoyer après coup.
             touch.cancel()
+            stylus.cancel()
             if (relative) { relative = false; surfaceView.releasePointerCapture() }
             if (handle != 0L) Native.inputReleaseAll(handle)
             pointerView.place(0f, 0f, false)
@@ -1380,6 +1389,15 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (event.isFromSource(InputDevice.SOURCE_JOYSTICK) && event.action == MotionEvent.ACTION_MOVE) {
             if (!pads.captured && !ui.anythingModal() && padsRouted() && pads.motion(event)) return true
             return super.dispatchGenericMotionEvent(event)
+        }
+        // Survol du stylet (tout près de l'écran, sans le toucher) : sur l'image seulement, pas sous la barre ou un menu.
+        // Barre ou menu ouverts : le stylet qui survolait l'image s'en va (les menus prennent le survol).
+        if (event.isFromSource(InputDevice.SOURCE_CLASS_POINTER) && StylusInput.isPen(event)) {
+            if (!ui.covering && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
+                if (stylus.onHover(event)) return true
+            } else {
+                stylus.away()
+            }
         }
         if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
             if (!mouseSeen) {

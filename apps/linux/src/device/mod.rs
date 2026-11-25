@@ -23,6 +23,7 @@ mod log_file;
 mod media;
 mod os;
 mod pads;
+mod pen;
 mod ps;
 pub mod sdl;
 mod screens;
@@ -288,7 +289,11 @@ impl Win {
         let mut w = Win {
             window,
             renderer,
-            id: unsafe { sdl::SDL_GetWindowID(window) },
+            id: {
+                // Le stylet suit chaque fenêtre de l'app (une fois ouvert).
+                pen::watch(window, true);
+                unsafe { sdl::SDL_GetWindowID(window) }
+            },
             screen,
             session: None,
             extra: false,
@@ -394,6 +399,7 @@ impl Win {
                 sdl::SDL_FreeCursor(self.sys_cursor);
             }
             sdl::SDL_DestroyRenderer(self.renderer);
+            pen::watch(self.window, false);
             sdl::SDL_DestroyWindow(self.window);
         }
     }
@@ -923,6 +929,8 @@ pub fn run(args: &[String]) {
     hdr_wl::set_active(wins.list[0].hdr.is_some());
     log_devices(&devices);
     video::FRAME_EVENT.store(unsafe { sdl::SDL_RegisterEvents(1) }, Ordering::Relaxed);
+    // Le stylet d'une tablette graphique (docs/link-ui.md, « Stylet ») : son fil réveille la boucle comme une image.
+    pen::open(window, video::FRAME_EVENT.load(Ordering::Relaxed));
 
     // L'app.
     let mut app = App::new(store, layout);
@@ -1036,6 +1044,8 @@ pub fn run(args: &[String]) {
                 }
             }
         }
+        // Stylet : ses états partent à l'ordinateur de la session active.
+        handle_pen(&app, &lives, &wins);
         // Manette en souris : déplacement continu (la session active).
         if let Some(s) = app.session()
             && s.pad_mouse
@@ -2034,6 +2044,47 @@ fn host_point(win: &Win, l: &Live, x: i32, y: i32) -> Option<(i16, i16)> {
     Some((hx as i16, hy as i16))
 }
 
+/// Le stylet est parti en stylet (docs/link-ui.md, « Stylet ») : la souris que SDL en tire (X11), ou que l'app
+/// rejoue (Wayland, `which` à [`pen::PEN_WHICH`]), ne va pas aussi à l'ordinateur.
+fn pen_holds_mouse(which: u32) -> bool {
+    pen::claimed() && (!pen::replays_mouse() || which == pen::PEN_WHICH)
+}
+
+/// Les états du stylet arrivés depuis le dernier tour : à l'ordinateur de la session active, sur l'écran de sa
+/// fenêtre, quand la session est à l'image en souris du bureau ; sinon (et face à une Station d'avant) le stylet
+/// reste une souris. Sur la barre ouverte, le stylet est à l'app : l'ordinateur le voit partir.
+fn handle_pen(app: &App, lives: &Lives, wins: &Wins) {
+    for ev in pen::poll() {
+        let Some(wi) = wins.index_of(ev.window_id) else { continue };
+        let win = &wins.list[wi];
+        let routed = win.session.filter(|s| Some(*s) == app.active_id());
+        let mut sent = false;
+        if let Some(id) = routed
+            && let Some(s) = app.session_by(id)
+            && app.screen == Screen::Session
+            && !s.menu
+            && !s.keys
+            && !s.share_panel
+            && !s.relative
+            && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
+            && let Some(l) = lives.get(id)
+            && let Some(p) = l.handle.shared.current_input()
+        {
+            let (x, y) = (ev.x.round() as i32, ev.y.round() as i32);
+            let (ux, uy) = to_ui(win, app.layout, x, y);
+            let on_bar = s.bar_menu.is_some() || (s.bar && win.hits.iter().any(|(_, r)| r.contains(ux, uy)));
+            let input = if on_bar { kybernow_core::input::PenInput::default() } else { ev.input() };
+            if let Some((hx, hy)) = host_point(win, l, x, y) {
+                sent = pen::send(&p, win.screen, hx, hy, &input);
+            }
+        }
+        if sent {
+            pen::claim(ev.in_range != 0);
+        }
+        pen::replay_if_needed(&ev);
+    }
+}
+
 /// Le bouton de la souris de SDL (1 gauche, 2 milieu, 3 droit, 4 et 5 latéraux) pour kynput.
 fn mouse_button(b: u8) -> MouseButtonType {
     match b {
@@ -2141,6 +2192,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
     }
     match kind {
         sdl::SDL_QUIT => {
+            log::info!("arrêt demandé par le système (SDL_QUIT)");
             // Quitter l'app termine toutes les sessions.
             for s in &app.sessions {
                 actions.push(Action::Disconnect(s.id));
@@ -2395,6 +2447,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                     }
                 }
                 if let (Some(p), Some(l)) = (&input, lives.get(id))
+                    && !pen_holds_mouse(ev.motion().4)
                     && let Some((hx, hy)) = host_point(&wins.list[wi], l, x, y)
                 {
                     // Multi-écrans : la position part avec l'écran de cette fenêtre.
@@ -2444,6 +2497,10 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                     return;
                 }
                 if let Some(p) = input {
+                    // Le stylet parti en stylet : ses clics ne repartent pas en souris.
+                    if pen_holds_mouse(which) {
+                        return;
+                    }
                     if !relative
                         && let Some(l) = lives.get(id)
                         && let Some((hx, hy)) = host_point(&wins.list[wi], l, x, y)
@@ -3241,6 +3298,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
         // Pris avant (`route_ps`).
         Action::Ps(_) => {}
         Action::Quit => {
+            log::info!("arrêt demandé dans l'app");
             // Quitter l'app termine toutes les sessions.
             for l in lives.iter() {
                 l.handle.session.stop();

@@ -216,6 +216,14 @@ pub struct InputPipeline {
     /// Manettes que l'ordinateur fait vibrer par cette chaîne (arrêtées
     /// quand elle passe derrière).
     rumbling: Mutex<HashSet<PadId>>,
+    /// Stylet (docs/link-ui.md, « Stylet ») : l'ordinateur l'a annoncé
+    /// (`PenAvailable`, à l'arrivée des entrées) ; sinon il part en souris.
+    pen_available: AtomicBool,
+    /// La pointe touchait au dernier envoi : ses changements partent sûrement.
+    pen_contact: AtomicBool,
+    /// Le stylet était près de la surface au dernier envoi : la souris de
+    /// l'appareil qui reprend le fait d'abord partir.
+    pen_in_range: AtomicBool,
 }
 
 /// Les axes d'une tranche de 4 ms partent ensemble.
@@ -321,8 +329,16 @@ impl InputPipeline {
                 pads_allowed: AtomicBool::new(true),
                 clipboard_allowed: AtomicBool::new(true),
                 connected: AtomicBool::new(false),
+                pen_available: AtomicBool::new(false),
+                pen_contact: AtomicBool::new(false),
+                pen_in_range: AtomicBool::new(false),
             }
         });
+        // Le hook du routeur : annonces de l'ordinateur (stylet) et, une fois
+        // posée, la combinaison des manettes SDL.
+        if let Err(e) = this.kynput.set_hook(Box::new(GateHook { pipeline: Arc::downgrade(&this) })) {
+            log::warn!("{}kynput : hook refusé ({e:?})", this.label.prefix());
+        }
         let weak = Arc::downgrade(&this);
         CREATED.with(|c| {
             if let Some(list) = c.borrow_mut().as_mut() {
@@ -349,7 +365,7 @@ impl InputPipeline {
 
         // Entrées que la chaîne ne produit pas elle-même : déclarées ici,
         // envoyées par l'app (ou par le lecteur de manettes du cœur).
-        let mut wanted = vec![InputType::Keyboard, InputType::MousePosition, InputType::MouseMove, InputType::MouseButton, InputType::MouseWheel];
+        let mut wanted = vec![InputType::Keyboard, InputType::MousePosition, InputType::MouseMove, InputType::MouseButton, InputType::MouseWheel, InputType::Pen];
         if app_pads {
             wanted.extend([InputType::GamepadControl, InputType::GamepadEvent]);
         }
@@ -490,15 +506,21 @@ impl InputPipeline {
     /// manette peut être prise par l'app ([`Self::set_gamepad_captured`]).
     /// Une fois par chaîne ; sans effet avec `gamepads_from_app`.
     pub fn install_gamepad_gate(self: &Arc<Self>) {
-        if self.gate.set(GamepadGate::default()).is_err() {
-            return;
+        // Le hook est posé à la création de la chaîne : il lit la barrière.
+        let _ = self.gate.set(GamepadGate::default());
+    }
+
+    /// L'ordinateur reçoit les stylets (`PenAvailable`).
+    pub(crate) fn on_pen_available(&self) {
+        if !self.pen_available.swap(true, Ordering::SeqCst) {
+            log::info!("{}stylet : l'ordinateur le reçoit", self.label.prefix());
         }
-        let hook = GateHook {
-            pipeline: Arc::downgrade(self),
-        };
-        if let Err(e) = self.kynput.set_hook(Box::new(hook)) {
-            log::warn!("{}kynput : hook des manettes refusé ({e:?})", self.label.prefix());
-        }
+    }
+
+    /// Le stylet part en stylet (ordinateur qui l'annonce, souris du
+    /// bureau) ; sinon l'app le traite en souris, comme avant.
+    pub fn pen_available(&self) -> bool {
+        self.pen_available.load(Ordering::SeqCst) && !self.is_relative()
     }
 
     pub(crate) fn gamepad_gate(&self) -> Option<&GamepadGate> {
@@ -907,7 +929,47 @@ impl InputPipeline {
         if !self.kbm_ok() {
             return;
         }
+        self.pen_leaves(display_id, x, y);
         self.once(OwnedPacket::from_packet(MousePosition { display_id, x, y }.to_packet(InputTarget::Host)), "position");
+    }
+
+    /// Stylet (docs/link-ui.md, « Stylet ») à (`x`, `y`) de l'écran
+    /// `screen` de l'appareil (`None` : l'écran principal), en pixels de
+    /// l'écran de l'ordinateur. Rend `false` quand le stylet doit partir en
+    /// souris ([`Self::pen_available`] faux) : l'app envoie alors sa position
+    /// et ses clics comme avant. Les changements de contact partent
+    /// sûrement, les déplacements une fois (le suivant rattrape).
+    pub fn pen_on(&self, screen: Option<usize>, x: i16, y: i16, pen: &super::PenInput) -> bool {
+        if !self.pen_available() {
+            return false;
+        }
+        let _switch = self.switch.lock().unwrap();
+        let was = self.pen_contact.load(Ordering::SeqCst);
+        // Session derrière une autre, droit repris : rien ne part, sauf le
+        // stylet levé s'il touchait.
+        let gone = super::PenInput::default();
+        let pen = if self.kbm_ok() { pen } else if was { &gone } else { return true };
+        let contact = pen.in_range && pen.contact;
+        let display_id = screen.and_then(|s| self.screen_display_id(s)).unwrap_or(self.display_id);
+        let packet = OwnedPacket::from_packet(pen.to_kynput(display_id, x, y).to_packet(InputTarget::Host));
+        self.pen_contact.store(contact, Ordering::SeqCst);
+        self.pen_in_range.store(pen.in_range, Ordering::SeqCst);
+        if contact != was || !pen.in_range {
+            self.reliably(packet, "stylet");
+        } else {
+            self.once(packet, "stylet");
+        }
+        true
+    }
+
+    /// La souris de l'appareil reprend : le stylet resté près de la surface
+    /// part d'abord, là où va la souris.
+    fn pen_leaves(&self, display_id: u32, x: i16, y: i16) {
+        if self.pen_in_range.swap(false, Ordering::SeqCst) {
+            self.pen_contact.store(false, Ordering::SeqCst);
+            let gone = super::PenInput::default().to_kynput(display_id, x, y);
+            self.reliably(OwnedPacket::from_packet(gone.to_packet(InputTarget::Host)), "stylet");
+        }
     }
 
     pub fn mouse_button(&self, button: MouseButtonType, pressed: bool) {
@@ -1642,6 +1704,53 @@ mod tests {
         b.pipeline.stop();
         b.pipeline.key(0x1E, true);
         assert_eq!(b.host.received().len(), 3, "arrêté : plus rien ne part");
+    }
+
+    #[test]
+    fn stylet() {
+        use crate::input::PenInput;
+        let b = Bench::new();
+        let down = PenInput { in_range: true, contact: true, pressure: 1.0, ..Default::default() };
+        let hover = PenInput { in_range: true, ..Default::default() };
+        // Ordinateur qui ne l'a pas annoncé : l'app le traite en souris.
+        assert!(!b.pipeline.pen_available());
+        assert!(!b.pipeline.pen_on(None, 10, 0, &down));
+        assert!(b.host.received().is_empty());
+        // Annoncé : il part en stylet, sur l'écran de la fenêtre.
+        b.pipeline.on_pen_available();
+        assert!(b.pipeline.pen_on(None, 10, 0, &hover));
+        assert!(b.pipeline.pen_on(None, 11, 0, &down));
+        assert!(b.pipeline.pen_on(None, 12, 0, &down));
+        assert!(b.pipeline.pen_on(None, 13, 0, &hover));
+        assert!(b.pipeline.pen_on(None, 14, 0, &PenInput::default()));
+        assert_eq!(
+            b.host.received(),
+            ["stylet 10 sur 1 survol", "stylet 11 sur 1 posé 65535", "stylet 12 sur 1 posé 65535", "stylet 13 sur 1 survol", "stylet 14 sur 1 parti"]
+        );
+        b.host.clear();
+        b.pipeline.set_screens(vec![ScreenTarget { screen: 0, display_id: 7, host_size: (3456, 2234), pointer: None }]);
+        assert!(b.pipeline.pen_on(Some(0), 20, 0, &hover));
+        assert_eq!(b.host.received(), ["stylet 20 sur 7 survol"]);
+        b.pipeline.set_screens(Vec::new());
+        // Souris des jeux : en souris, comme avant.
+        b.host.clear();
+        b.pipeline.set_relative(true);
+        assert!(!b.pipeline.pen_on(None, 30, 0, &down));
+        b.pipeline.set_relative(false);
+        // Droit repris pendant qu'il touche : levé, puis plus rien.
+        assert!(b.pipeline.pen_on(None, 40, 0, &down));
+        b.pipeline.set_rights(InputRights { keyboard_mouse: false, ..InputRights::ALL });
+        b.host.clear();
+        assert!(b.pipeline.pen_on(None, 41, 0, &down));
+        assert!(b.pipeline.pen_on(None, 42, 0, &down));
+        assert_eq!(b.host.received(), ["stylet 41 sur 1 parti"]);
+        // La souris reprend pendant que le stylet survole : il part d'abord.
+        b.pipeline.set_rights(InputRights::ALL);
+        assert!(b.pipeline.pen_on(None, 50, 0, &hover));
+        b.host.clear();
+        b.pipeline.mouse(60, 0);
+        b.pipeline.mouse(61, 0);
+        assert_eq!(b.host.received(), ["stylet 60 sur 1 parti", "position 60", "position 61"]);
     }
 
     #[test]

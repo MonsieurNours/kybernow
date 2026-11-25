@@ -1,0 +1,501 @@
+diff --git a/kynput-rs/src/lib.rs b/kynput-rs/src/lib.rs
+index 1208a26..22a10ec 100644
+--- a/kynput-rs/src/lib.rs
++++ b/kynput-rs/src/lib.rs
+@@ -62,6 +62,8 @@ pub enum InputType {
+     ControlEvent,
+     Clipboard,
+     Unicode,
++    /// KyberNow: a pen.
++    Pen,
+ }
+ 
+ impl InputType {
+@@ -78,6 +80,7 @@ impl InputType {
+             sys::kynput_InputType_KYNPUT_INPUT_TYPE_CONTROL_EVENT => Some(Self::ControlEvent),
+             sys::kynput_InputType_KYNPUT_INPUT_TYPE_CLIPBOARD => Some(Self::Clipboard),
+             sys::kynput_InputType_KYNPUT_INPUT_TYPE_UNICODE => Some(Self::Unicode),
++            sys::kynput_InputType_KYNPUT_INPUT_TYPE_PEN => Some(Self::Pen),
+ 
+             _ => None,
+         }
+@@ -96,6 +99,7 @@ impl InputType {
+             Self::ControlEvent => sys::kynput_InputType_KYNPUT_INPUT_TYPE_CONTROL_EVENT,
+             Self::Clipboard => sys::kynput_InputType_KYNPUT_INPUT_TYPE_CLIPBOARD,
+             Self::Unicode => sys::kynput_InputType_KYNPUT_INPUT_TYPE_UNICODE,
++            Self::Pen => sys::kynput_InputType_KYNPUT_INPUT_TYPE_PEN,
+         }
+     }
+ }
+@@ -712,6 +716,8 @@ pub enum ControlEvent {
+     ClientConnected,
+     ClientDisconnected,
+     FlushKeys,
++    /// KyberNow: the host injects pens ([`Pen`]); sent to each client.
++    PenAvailable,
+ }
+ 
+ impl ControlEvent {
+@@ -722,6 +728,7 @@ impl ControlEvent {
+                 sys::kynput_ControlEvent_KYNPUT_CONTROL_EVENT_CLIENT_DISCONNECTED
+             }
+             Self::FlushKeys => sys::kynput_ControlEvent_KYNPUT_CONTROL_EVENT_FLUSH_KEYS,
++            Self::PenAvailable => sys::kynput_ControlEvent_KYNPUT_CONTROL_EVENT_PEN_AVAILABLE,
+         }
+     }
+ 
+@@ -734,6 +741,7 @@ impl ControlEvent {
+                 Some(Self::ClientDisconnected)
+             }
+             sys::kynput_ControlEvent_KYNPUT_CONTROL_EVENT_FLUSH_KEYS => Some(Self::FlushKeys),
++            sys::kynput_ControlEvent_KYNPUT_CONTROL_EVENT_PEN_AVAILABLE => Some(Self::PenAvailable),
+             _ => None,
+         }
+     }
+@@ -1153,6 +1161,90 @@ impl Unicode {
+     }
+ }
+ 
++/// KyberNow: a pen's whole state (graphics tablet, Apple Pencil, stylus);
++/// see kynput's `types/pen.rs`. Sent only to a host that announced
++/// [`ControlEvent::PenAvailable`].
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct Pen {
++    /// Same display and coordinates as [`MousePosition`].
++    pub display_id: u32,
++    pub x: i16,
++    pub y: i16,
++    /// 0 to [`Pen::MAX_PRESSURE`] (0 while hovering).
++    pub pressure: u16,
++    /// Degrees, -90 to 90: X to the right, Y toward the user.
++    pub tilt_x: i8,
++    pub tilt_y: i8,
++    /// Degrees, 0 to 359, with [`Pen::ROTATION`].
++    pub rotation: u16,
++    pub flags: u8,
++}
++
++impl Pen {
++    pub const MAX_PRESSURE: u16 = 65535;
++    /// The tip (or the eraser) touches the surface.
++    pub const CONTACT: u8 = 1 << 0;
++    /// The pen is near the surface; without it, the pen left.
++    pub const IN_RANGE: u8 = 1 << 1;
++    /// The eraser end is in use.
++    pub const ERASER: u8 = 1 << 2;
++    /// The pen's button is held.
++    pub const BARREL: u8 = 1 << 3;
++    /// Tilt given by the device.
++    pub const TILT: u8 = 1 << 4;
++    /// Rotation given by the device.
++    pub const ROTATION: u8 = 1 << 5;
++
++    pub fn has(&self, flag: u8) -> bool {
++        self.flags & flag != 0
++    }
++
++    /// Pressure from a fraction (clamped to 0..=1).
++    pub fn pressure_from_fraction(fraction: f32) -> u16 {
++        (fraction.clamp(0.0, 1.0) * Self::MAX_PRESSURE as f32).round() as u16
++    }
++
++    pub fn from_packet(pkt: &Packet) -> Option<Self> {
++        let mut pen = sys::kynput_Pen {
++            display_id: 0,
++            x: 0,
++            y: 0,
++            pressure: 0,
++            tilt_x: 0,
++            tilt_y: 0,
++            rotation: 0,
++            flags: 0,
++        };
++        if !unsafe { sys::kynput_pen_from_packet(pkt.to_ptr(), &mut pen) } {
++            return None;
++        }
++        Some(Pen {
++            display_id: pen.display_id,
++            x: pen.x,
++            y: pen.y,
++            pressure: pen.pressure,
++            tilt_x: pen.tilt_x,
++            tilt_y: pen.tilt_y,
++            rotation: pen.rotation,
++            flags: pen.flags,
++        })
++    }
++
++    pub fn to_packet(self, target: InputTarget) -> Packet {
++        let pen = sys::kynput_Pen {
++            display_id: self.display_id,
++            x: self.x,
++            y: self.y,
++            pressure: self.pressure,
++            tilt_x: self.tilt_x,
++            tilt_y: self.tilt_y,
++            rotation: self.rotation,
++            flags: self.flags,
++        };
++        Packet::from_ptr_mut(unsafe { sys::kynput_pen_to_packet(target.to_u32(), pen) })
++    }
++}
++
+ #[derive(Clone, Debug)]
+ pub struct MouseButton {
+     pub button: MouseButtonType,
+diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
+index b2608d2..b74f753 100644
+--- a/kynput/src/capi/mod.rs
++++ b/kynput/src/capi/mod.rs
+@@ -1595,6 +1595,31 @@ pub extern "C" fn kynput_control_event_to_packet(
+     ))
+ }
+ 
++// KyberNow: pens (graphics tablet, Apple Pencil, stylus). A client sends them
++// only once the host sent `PenAvailable`; see `types/pen.rs`.
++
++pub type Pen = crate::types::Pen;
++
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_pen_to_packet(target: InputTarget, pen: Pen) -> Box<InputPacket> {
++    Box::new(crate::InputPacket::new(target, crate::Payload::Pen(pen)))
++}
++
++/// Copies the pen of a `Pen` packet into `out` (false for another packet).
++///
++/// # Safety
++/// `out` must point to a writable `kynput_Pen`.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn kynput_pen_from_packet(packet: &InputPacket, out: *mut Pen) -> bool {
++    match &packet.payload {
++        crate::Payload::Pen(pen) if !out.is_null() => {
++            unsafe { *out = *pen };
++            true
++        }
++        _ => false,
++    }
++}
++
+ pub type RectSize = crate::video_layout::Size;
+ 
+ pub type Position = crate::video_layout::Position;
+diff --git a/kynput/src/lib.rs b/kynput/src/lib.rs
+index 2cd2a3e..37bfebd 100644
+--- a/kynput/src/lib.rs
++++ b/kynput/src/lib.rs
+@@ -132,7 +132,7 @@ pub use router::{
+ pub use types::{
+     ClipboardEvent, ControlEvent, Cursor, CursorData, CursorFormat, GamepadAxis, GamepadButton,
+     GamepadControl, GamepadEvent, GamepadId, InputDeviceType, InputType, InputTypeMetadata,
+-    KeyboardKey, MouseButton, MouseButtonType, MouseMove, MousePosition, MouseWheel, UnicodeInput,
++    KeyboardKey, MouseButton, MouseButtonType, MouseMove, MousePosition, MouseWheel, Pen, UnicodeInput,
+ };
+ pub use utils::blocking_queue::BlockingQueue;
+ 
+diff --git a/kynput/src/packet.rs b/kynput/src/packet.rs
+index 6bf167f..7ced689 100644
+--- a/kynput/src/packet.rs
++++ b/kynput/src/packet.rs
+@@ -20,7 +20,7 @@
+ 
+ use crate::types::{
+     ClipboardEvent, ControlEvent, Cursor, GamepadControl, GamepadEvent, InputEvent, InputType,
+-    KeyboardKey, MouseButton, MouseMove, MousePosition, MouseWheel, UnicodeInput,
++    KeyboardKey, MouseButton, MouseMove, MousePosition, MouseWheel, Pen, UnicodeInput,
+ };
+ use crate::{Error, Result};
+ 
+@@ -54,6 +54,8 @@ pub enum Payload {
+     ControlEvent(ControlEvent),
+     Clipboard(ClipboardEvent),
+     Unicode(UnicodeInput),
++    /// KyberNow: a pen.
++    Pen(Pen),
+ }
+ 
+ impl Payload {
+@@ -70,6 +72,7 @@ impl Payload {
+             Payload::ControlEvent(_) => InputType::ControlEvent,
+             Payload::Clipboard(_) => InputType::Clipboard,
+             Payload::Unicode(_) => InputType::Unicode,
++            Payload::Pen(_) => InputType::Pen,
+         }
+     }
+ 
+@@ -86,6 +89,7 @@ impl Payload {
+             Payload::ControlEvent(v) => v,
+             Payload::Clipboard(v) => v,
+             Payload::Unicode(v) => v,
++            Payload::Pen(v) => v,
+         }
+     }
+ 
+@@ -111,6 +115,7 @@ impl Payload {
+             InputType::ControlEvent => Payload::ControlEvent(ControlEvent::deserialize(buf)?),
+             InputType::Clipboard => Payload::Clipboard(ClipboardEvent::deserialize(buf)?),
+             InputType::Unicode => Payload::Unicode(UnicodeInput::deserialize(buf)?),
++            InputType::Pen => Payload::Pen(Pen::deserialize(buf)?),
+         };
+ 
+         Ok(payload)
+diff --git a/kynput/src/types/control_event.rs b/kynput/src/types/control_event.rs
+index ebc8fb1..201bc10 100644
+--- a/kynput/src/types/control_event.rs
++++ b/kynput/src/types/control_event.rs
+@@ -33,6 +33,10 @@ pub enum ControlEvent {
+     ClientConnected,
+     ClientDisconnected,
+     FlushKeys,
++    /// KyberNow: sent by a host that injects pens ([`crate::Pen`]) to each
++    /// client that connects. Older clients drop it (unknown value); a client
++    /// that never gets it sends a pen as an absolute mouse.
++    PenAvailable,
+ }
+ 
+ impl ControlEvent {
+@@ -43,6 +47,7 @@ impl ControlEvent {
+             0 => Some(ControlEvent::ClientConnected),
+             1 => Some(ControlEvent::ClientDisconnected),
+             2 => Some(ControlEvent::FlushKeys),
++            3 => Some(ControlEvent::PenAvailable),
+             _ => None,
+         }
+     }
+@@ -70,6 +75,7 @@ mod tests {
+             ControlEvent::ClientConnected,
+             ControlEvent::ClientDisconnected,
+             ControlEvent::FlushKeys,
++            ControlEvent::PenAvailable,
+         ];
+ 
+         for e in event_list {
+diff --git a/kynput/src/types/mod.rs b/kynput/src/types/mod.rs
+index bd19241..0937915 100644
+--- a/kynput/src/types/mod.rs
++++ b/kynput/src/types/mod.rs
+@@ -40,6 +40,7 @@ mod mouse_button;
+ mod mouse_move;
+ mod mouse_position;
+ mod mouse_wheel;
++mod pen;
+ mod unicode;
+ 
+ pub use clipboard::{ClipboardData, ClipboardEvent, ClipboardFormat, MAX_CLIPBOARD_SIZE};
+@@ -51,6 +52,7 @@ pub use mouse_button::{MouseButton, MouseButtonType};
+ pub use mouse_move::MouseMove;
+ pub use mouse_position::MousePosition;
+ pub use mouse_wheel::MouseWheel;
++pub use pen::Pen;
+ pub use unicode::UnicodeInput;
+ 
+ /// Base trait for all input types
+@@ -82,6 +84,8 @@ pub enum InputType {
+     ControlEvent,
+     Clipboard,
+     Unicode,
++    /// KyberNow: a pen ([`Pen`]).
++    Pen,
+ }
+ 
+ impl InputType {
+@@ -101,6 +105,7 @@ impl InputType {
+             8 => Some(InputType::ControlEvent),
+             9 => Some(InputType::Clipboard),
+             10 => Some(InputType::Unicode),
++            11 => Some(InputType::Pen),
+             _ => None,
+         }
+     }
+@@ -118,6 +123,7 @@ impl InputType {
+             InputType::ControlEvent => ControlEvent::FILTERABLE,
+             InputType::Clipboard => ClipboardEvent::FILTERABLE,
+             InputType::Unicode => UnicodeInput::FILTERABLE,
++            InputType::Pen => Pen::FILTERABLE,
+         }
+     }
+ }
+@@ -140,6 +146,7 @@ fn converters() {
+         InputType::GamepadEvent,
+         InputType::ControlEvent,
+         InputType::Unicode,
++        InputType::Pen,
+     ];
+ 
+     for v in &values {
+diff --git a/kynput/src/types/pen.rs b/kynput/src/types/pen.rs
+new file mode 100644
+index 0000000..6987e93
+--- /dev/null
++++ b/kynput/src/types/pen.rs
+@@ -0,0 +1,171 @@
++// Project Kyber: pen.rs
++// Copyright © 2022-2026 Kyber SAS
++// SPDX-License-Identifier: LicenseRef-Kyber-Commercial OR AGPL-3.0-or-later
++//
++// This file is both under dual license: AGPLv3 and a Commercial one.
++//
++// ----
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! KyberNow: a pen (graphics tablet, Apple Pencil, stylus).
++//!
++//! A client only sends it once the host said it takes pens
++//! ([`crate::ControlEvent::PenAvailable`]); otherwise the pen stays an
++//! absolute mouse ([`crate::MousePosition`] and the left button).
++
++use bytes::{Buf, BufMut, BytesMut};
++
++use crate::types::InputEvent;
++use crate::{Error, Result};
++
++/// Size of a serialized [`Pen`].
++const SIZE: usize = 4 + 2 + 2 + 2 + 1 + 1 + 2 + 1;
++
++/// A pen's state: each event carries all of it (no delta), so that a lost or
++/// filtered packet is fixed by the next one.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[repr(C)]
++pub struct Pen {
++    /// Same display and coordinates as [`crate::MousePosition`].
++    pub display_id: u32,
++    pub x: i16,
++    pub y: i16,
++    /// 0 to [`Pen::MAX_PRESSURE`] (0 while hovering).
++    pub pressure: u16,
++    /// Tilt in degrees, -90 to 90: positive X to the right, positive Y
++    /// toward the user (Windows' and Pointer Events' convention).
++    pub tilt_x: i8,
++    pub tilt_y: i8,
++    /// Rotation (twist) in degrees, 0 to 359, with [`Pen::ROTATION`].
++    pub rotation: u16,
++    /// [`Pen::CONTACT`], [`Pen::IN_RANGE`]…
++    pub flags: u8,
++}
++
++impl Pen {
++    pub const FILTERABLE: bool = true;
++
++    pub const MAX_PRESSURE: u16 = 65535;
++
++    /// The tip (or the eraser) touches the surface.
++    pub const CONTACT: u8 = 1 << 0;
++    /// The pen is near the surface (hovering or touching). Without it, the
++    /// pen left: the host lifts it and lets it go.
++    pub const IN_RANGE: u8 = 1 << 1;
++    /// The eraser end is the one in use.
++    pub const ERASER: u8 = 1 << 2;
++    /// The pen's (first) button is held.
++    pub const BARREL: u8 = 1 << 3;
++    /// `tilt_x` and `tilt_y` are given by the device.
++    pub const TILT: u8 = 1 << 4;
++    /// `rotation` is given by the device.
++    pub const ROTATION: u8 = 1 << 5;
++
++    pub fn new(display_id: u32, x: i16, y: i16) -> Self {
++        Self {
++            display_id,
++            x,
++            y,
++            pressure: 0,
++            tilt_x: 0,
++            tilt_y: 0,
++            rotation: 0,
++            flags: Self::IN_RANGE,
++        }
++    }
++
++    pub fn has(&self, flag: u8) -> bool {
++        self.flags & flag != 0
++    }
++
++    /// Pressure as a fraction, 0 to 1.
++    pub fn pressure_fraction(&self) -> f32 {
++        self.pressure as f32 / Self::MAX_PRESSURE as f32
++    }
++
++    /// Pressure from a fraction (clamped to 0..=1).
++    pub fn pressure_from_fraction(fraction: f32) -> u16 {
++        (fraction.clamp(0.0, 1.0) * Self::MAX_PRESSURE as f32).round() as u16
++    }
++
++    pub fn deserialize(data: &[u8]) -> Result<Self> {
++        if data.len() < SIZE {
++            return Err(Error::InvalidType);
++        }
++        let mut buf = BytesMut::from(data);
++
++        Ok(Pen {
++            display_id: buf.get_u32(),
++            x: buf.get_i16(),
++            y: buf.get_i16(),
++            pressure: buf.get_u16(),
++            tilt_x: buf.get_i8().clamp(-90, 90),
++            tilt_y: buf.get_i8().clamp(-90, 90),
++            rotation: buf.get_u16() % 360,
++            flags: buf.get_u8(),
++        })
++    }
++}
++
++impl InputEvent for Pen {
++    fn serialize(&self) -> Vec<u8> {
++        let mut buf = BytesMut::with_capacity(SIZE);
++        buf.put_u32(self.display_id);
++        buf.put_i16(self.x);
++        buf.put_i16(self.y);
++        buf.put_u16(self.pressure);
++        buf.put_i8(self.tilt_x);
++        buf.put_i8(self.tilt_y);
++        buf.put_u16(self.rotation);
++        buf.put_u8(self.flags);
++
++        buf.to_vec()
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn serialize_deserialize() {
++        let pen = Pen {
++            display_id: 3,
++            x: 812,
++            y: -4,
++            pressure: 40000,
++            tilt_x: -35,
++            tilt_y: 60,
++            rotation: 271,
++            flags: Pen::CONTACT | Pen::IN_RANGE | Pen::BARREL | Pen::TILT | Pen::ROTATION,
++        };
++
++        let data = pen.serialize();
++        assert_eq!(data.len(), SIZE);
++        assert_eq!(Pen::deserialize(&data).unwrap(), pen);
++    }
++
++    #[test]
++    fn short_packet_is_refused() {
++        assert!(Pen::deserialize(&[0; SIZE - 1]).is_err());
++    }
++
++    #[test]
++    fn pressure_fraction() {
++        assert_eq!(Pen::pressure_from_fraction(1.5), Pen::MAX_PRESSURE);
++        assert_eq!(Pen::pressure_from_fraction(-1.0), 0);
++        let half = Pen::pressure_from_fraction(0.5);
++        assert!((Pen { pressure: half, ..Pen::new(0, 0, 0) }.pressure_fraction() - 0.5).abs() < 1e-4);
++    }
++}

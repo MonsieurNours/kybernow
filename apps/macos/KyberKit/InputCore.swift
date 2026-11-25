@@ -598,6 +598,42 @@ final class InputPipeline: @unchecked Sendable {
     /// pixels de son écran de l'ordinateur.
     func mouse(on index: Int, x: Int16, y: Int16) { kn_input_mouse_on(core, UInt32(index), x, y) }
     func mouseMove(dx: Int16, dy: Int16) { kn_input_mouse_move(core, dx, dy) }
+
+    /// Stylet (docs/link-ui.md, « Stylet ») à (`x`, `y`) de l'écran `index`
+    /// de l'appareil (nil : le principal). `false` : il part en souris (Station
+    /// qui ne le reçoit pas, souris des jeux) ; la position et les clics
+    /// partent alors comme avant.
+    func pen(on index: Int?, x: Int16, y: Int16, _ pen: Pen) -> Bool {
+        var c = KnPen(in_range: pen.inRange, contact: pen.contact, pressure: pen.pressure,
+                      tilt_x: pen.tilt?.x ?? 0, tilt_y: pen.tilt?.y ?? 0, has_tilt: pen.tilt != nil,
+                      rotation: pen.rotation ?? 0, has_rotation: pen.rotation != nil,
+                      eraser: pen.eraser, barrel: pen.barrel)
+        return kn_input_pen(core, Int32(index ?? -1), x, y, &c)
+    }
+
+    /// Un état du stylet : tablette graphique (Mac), Apple Pencil (iPad).
+    struct Pen {
+        /// Près de la surface (survol ou contact) ; faux : le stylet s'en va.
+        var inRange = true
+        /// La pointe (ou la gomme) touche.
+        var contact = false
+        /// De 0 à 1.
+        var pressure: Float = 0
+        /// Degrés, -90 à 90 : X vers la droite, Y vers soi.
+        var tilt: (x: Float, y: Float)?
+        /// Degrés, 0 à 360.
+        var rotation: Float?
+        var eraser = false
+        /// Le bouton du stylet est tenu.
+        var barrel = false
+
+        /// Inclinaison d'après l'altitude et l'azimut (radians, Apple Pencil).
+        static func tilt(altitude: CGFloat, azimuth: CGFloat) -> (x: Float, y: Float) {
+            var x: Float = 0, y: Float = 0
+            kn_pen_tilt(Float(altitude), Float(azimuth), &x, &y)
+            return (x, y)
+        }
+    }
     func mouseButton(_ button: MouseButton, pressed: Bool) { kn_input_mouse_button(core, button.core, pressed) }
     func wheel(dx: Float, dy: Float) { kn_input_wheel(core, dx, dy) }
     /// Touche par son scancode, notée pour « tout relâcher ».

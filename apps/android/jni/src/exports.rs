@@ -582,6 +582,48 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pointerMove
     h.shared.pointer.move_by(x - cx, y - cy);
 }
 
+/// Stylet (docs/link-ui.md, « Stylet » ; docs/stylet.md) à (`x`, `y`) de
+/// l'écran de l'ordinateur, état complet. `tilt` et `orientation` : axes
+/// `AXIS_TILT` (0 debout, π/2 à plat) et `AXIS_ORIENTATION` (direction de la
+/// pointe, 0 vers le haut, sens horaire) d'Android, en radians, lus seulement
+/// si `has_tilt`. Rend `false` quand le stylet doit partir en souris
+/// (Station d'avant, souris des jeux) : l'app envoie alors la position et le
+/// clic gauche, comme avant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputPen(
+    _: Env,
+    _: JClass,
+    h: jlong,
+    x: jdouble,
+    y: jdouble,
+    in_range: jboolean,
+    contact: jboolean,
+    pressure: jfloat,
+    has_tilt: jboolean,
+    tilt: jfloat,
+    orientation: jfloat,
+    eraser: jboolean,
+    barrel: jboolean,
+) -> jboolean {
+    let clamp = |v: jdouble| v.round().clamp(i16::MIN as f64, i16::MAX as f64) as i16;
+    let pen = kybernow_core::input::PenInput {
+        in_range: in_range != 0,
+        contact: contact != 0,
+        pressure: if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 },
+        // La pointe vers `orientation` : le stylet penche à l'opposé.
+        // Azimut du cœur : 0 vers la droite, sens horaire, d'où + π/2.
+        tilt: (has_tilt != 0 && tilt.is_finite() && orientation.is_finite()).then(|| {
+            kybernow_core::input::tilt_from_altitude_azimuth(std::f32::consts::FRAC_PI_2 - tilt, orientation + std::f32::consts::FRAC_PI_2)
+        }),
+        rotation: None,
+        eraser: eraser != 0,
+        barrel: barrel != 0,
+    };
+    let mut sent = false;
+    input(h, |p| sent = p.pen_on(None, clamp(x), clamp(y), &pen));
+    jbool(sent)
+}
+
 /// Souris relative (jeux, pointeur capturé).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputMouseMove(_: Env, _: JClass, h: jlong, dx: jint, dy: jint) {

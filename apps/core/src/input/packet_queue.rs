@@ -280,6 +280,17 @@ pub(crate) mod tests {
                 format!("clic {:?} {}", b.button, state(b.pressed, "", ""))
             }
             InputType::Unicode => format!("texte {}", Unicode::from_packet(&p).unwrap().character),
+            InputType::Pen => {
+                let pen = kynput_rs::Pen::from_packet(&p).unwrap();
+                let state = if pen.has(kynput_rs::Pen::CONTACT) {
+                    format!("posé {}", pen.pressure)
+                } else if pen.has(kynput_rs::Pen::IN_RANGE) {
+                    "survol".into()
+                } else {
+                    "parti".into()
+                };
+                format!("stylet {} sur {} {state}", pen.x, pen.display_id)
+            }
             InputType::ControlEvent => "relâchement général".into(),
             InputType::GamepadControl => format!("{:?}", kynput_rs::GamepadControl::from_packet(&p).unwrap()),
             InputType::GamepadEvent => {
