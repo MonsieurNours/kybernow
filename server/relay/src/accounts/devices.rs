@@ -17,7 +17,7 @@
 //!   `POST /v1/devices/poll` toutes les 5 secondes.
 //!
 //! Avec sa session, l'appareil liste les ordinateurs du compte
-//! (`GET /v1/computers`) et demande un jeton d'accès signé (5 min) pour l'un
+//! (`GET /v1/computers`) et demande un jeton d'accès signé (2 min) pour l'un
 //! d'eux (`POST /v1/access {station}`). Le premier jeton d'un appareil pour une
 //! Station envoie un e-mail au propriétaire et met une ligne au journal
 //! (garde-fou 4, « Avis à chaque nouvel appareil »).
@@ -46,6 +46,10 @@ use crate::pages::Lang;
 
 /// Le code du retour vers l'app : 5 minutes.
 pub const RETURN_SECS: i64 = 5 * 60;
+/// Une session d'appareil qui ne sert pas pendant ce temps (`seen_at`) est
+/// déconnectée : refusée comme un appareil déconnecté (`401 bad_session`),
+/// puis effacée (docs/comptes.md, « Sessions »).
+pub const DEVICE_IDLE_SECS: i64 = 90 * 86_400;
 /// Le code d'un téléviseur : 10 minutes.
 pub const TV_SECS: i64 = 10 * 60;
 /// L'appareil demande où en est son code au plus toutes les 5 secondes.
@@ -158,6 +162,11 @@ impl Store {
     /// Déconnecte un appareil du compte ; faux s'il n'est pas à lui.
     pub fn revoke_device(&self, id: i64, account: i64) -> Result<bool> {
         Ok(self.conn.execute("DELETE FROM devices WHERE id = ?1 AND account = ?2", params![id, account])? == 1)
+    }
+
+    /// Efface les sessions d'appareil qui n'ont pas servi depuis [`DEVICE_IDLE_SECS`] ; leur nombre.
+    pub fn expire_idle_devices(&self, now: i64) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM devices WHERE seen_at <= ?1", [now - DEVICE_IDLE_SECS])?)
     }
 
     /// Déconnecte tous les appareils du compte (nouveau mot de passe).
@@ -341,11 +350,18 @@ impl Accounts {
         }
         let db = self.db();
         let device = db.device_by_token(&token_hash(token)).ok()??;
+        let now = self.now();
+        // 90 jours sans servir : déconnecté, comme depuis la page du compte.
+        if now - device.seen_at >= DEVICE_IDLE_SECS {
+            if db.revoke_device(device.id, device.account).unwrap_or(false) {
+                let _ = db.audit(Some(device.account), "appareil_expire", None, now);
+            }
+            return None;
+        }
         let account = db.account(device.account).ok()??;
         if !account.verified() {
             return None;
         }
-        let now = self.now();
         if now - device.seen_at > 300 {
             let _ = db.touch_device(device.id, now);
         }

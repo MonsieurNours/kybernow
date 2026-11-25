@@ -9,9 +9,11 @@ use kybernow_tunnel::access::{Right, Rights};
 use serde_json::json;
 
 use super::super::mail::Message;
-use super::super::pages::console::{self, AllPeopleView, ComputerCard, ComputersView, FamiliesView, Granted, NavOrg, OrgCard, PeopleView, PersonRow, Shell, Start, Welcome, rights_words};
+use super::super::pages::console::{
+    self, AllPeopleView, ComputerCard, ComputersView, FamiliesView, Granted, NavOrg, OrgCard, PeopleView, PersonRow, Shell, Start, Welcome, invite_state, rights_words,
+};
 use super::super::pages::{Notice, date};
-use super::super::people::Subject;
+use super::super::people::{Grant, Resend, Subject};
 use super::super::stations::StationRow;
 use super::super::store::Account;
 use super::device_pages::sign_in_first;
@@ -29,7 +31,9 @@ pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
     let managed = managed_stations(cx, account);
     let db = cx.acc.db();
     let orgs = db.orgs_of(account.id).unwrap_or_default();
-    let people: usize = managed.iter().map(|s| db.grants_of(&s.id).map(|g| g.len()).unwrap_or(0)).sum();
+    drop(db);
+    let people = people_rows(cx, &managed).len();
+    let db = cx.acc.db();
     Shell {
         name: account.name.clone(),
         email: account.email.clone(),
@@ -143,25 +147,64 @@ fn subject_words(cx: &Cx<'_>, subject: &Subject) -> (String, String) {
     }
 }
 
-/// `GET /compte/personnes` : ceux à qui il a ouvert ses ordinateurs.
+/// Ceux à qui ces ordinateurs sont ouverts, chacun une fois (« Personnes ») :
+/// une personne par son compte, ou par son adresse tant qu'elle n'a pas de
+/// compte vérifié (une invitation dont l'adresse a depuis un compte vérifié
+/// va avec ce compte) ; une famille, une équipe, un groupe.
+pub(super) fn people_rows(cx: &Cx<'_>, stations: &[StationRow]) -> Vec<Granted> {
+    let db = cx.acc.db();
+    let mut keys: Vec<String> = Vec::new();
+    let mut rows: Vec<Granted> = Vec::new();
+    for s in stations {
+        for g in db.grants_of(&s.id).unwrap_or_default() {
+            let (key, name, detail) = match &g.subject {
+                Subject::Invite { email } => match db.account_by_email(email).ok().flatten().filter(|a| a.verified()) {
+                    Some(a) => (format!("compte:{}", a.id), if a.name.is_empty() { a.email.clone() } else { a.name.clone() }, a.email.clone()),
+                    None => (format!("adresse:{email}"), email.clone(), invite_state(cx.lang, g.sent_at, cx.now)),
+                },
+                Subject::Person { account, .. } => {
+                    let (name, detail) = subject_words(cx, &g.subject);
+                    (format!("compte:{account}"), name, detail)
+                }
+                Subject::Org { org, .. } => {
+                    let (name, detail) = subject_words(cx, &g.subject);
+                    (format!("org:{org}"), name, detail)
+                }
+                Subject::Group { grp, .. } => {
+                    let (name, detail) = subject_words(cx, &g.subject);
+                    (format!("groupe:{grp}"), name, detail)
+                }
+            };
+            let computer = (s.id.clone(), s.name.clone(), g.expired(cx.now));
+            match keys.iter().position(|k| *k == key) {
+                Some(i) => {
+                    let row = &mut rows[i];
+                    // Le compte l'emporte sur l'invitation : son nom et son adresse.
+                    if matches!(g.subject, Subject::Person { .. }) {
+                        row.name = name;
+                        row.detail = detail;
+                    }
+                    if !row.computers.iter().any(|c| c.0 == computer.0) {
+                        row.computers.push(computer);
+                    }
+                    row.rights = Rights::new(row.rights.iter().chain(g.rights.iter()));
+                }
+                None => {
+                    keys.push(key);
+                    rows.push(Granted { name, detail, computers: vec![computer], rights: g.rights.clone() });
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// `GET /compte/personnes` : ceux à qui il a ouvert ses ordinateurs, chacun une fois.
 pub(super) fn all_people(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let mine = managed_stations(&cx, &account);
-    let view = {
-        let db = cx.acc.db();
-        let mut rows = Vec::new();
-        for s in &mine {
-            for g in db.grants_of(&s.id).unwrap_or_default() {
-                let (name, mut detail) = subject_words(&cx, &g.subject);
-                if g.expired(cx.now) {
-                    detail = format!("{detail} · {}", cx.tr("échu", "expired"));
-                }
-                rows.push(Granted { name, detail, computer_id: s.id.clone(), computer: s.name.clone(), rights: g.rights.clone() });
-            }
-        }
-        AllPeopleView { rows, computers: mine.into_iter().map(|s| (s.id, s.name)).collect(), shell: Shell::default() }
-    };
-    let view = AllPeopleView { shell: shell(&cx, &account), ..view };
+    let rows = people_rows(&cx, &mine);
+    let view = AllPeopleView { rows, computers: mine.into_iter().map(|s| (s.id, s.name)).collect(), shell: shell(&cx, &account) };
     let page = console::all_people(&cx.view(), &view);
     cx.page(200, page)
 }
@@ -268,7 +311,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
                 } else {
                     db.account(owner).ok().flatten().map(|a| a.name).unwrap_or_default()
                 };
-                rows.push(PersonRow { grant: None, group: None, name, detail: cx.tr("Propriétaire : tout", "Owner: everything"), rights: all.clone() });
+                rows.push(PersonRow { grant: None, group: None, name, detail: cx.tr("Propriétaire : tout", "Owner: everything"), rights: all.clone(), resend: false });
             }
             (None, Some(org)) => {
                 let name = db.org(org).ok().flatten().map(|o| o.name).unwrap_or_default();
@@ -278,6 +321,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
                     name,
                     detail: cx.tr("Propriétaires et administrateurs", "Owners and administrators"),
                     rights: all.clone(),
+                    resend: false,
                 });
             }
             _ => {}
@@ -290,13 +334,14 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
             let expired = g.expired(cx.now).then(|| cx.tr("échu", "expired"));
             let (name, mut detail) = match &g.subject {
                 Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, vec![email.clone()]),
-                Subject::Invite { email } => (email.clone(), vec![cx.tr("Invitation envoyée, pas encore de compte", "Invitation sent, no account yet")]),
+                Subject::Invite { email } => (email.clone(), vec![invite_state(cx.lang, g.sent_at, cx.now)]),
                 Subject::Org { name, .. } => (name.clone(), vec![cx.tr("Tous ses membres", "All its members")]),
                 Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), vec![cx.tr("Groupe", "Group")]),
             };
             detail.extend(until);
             detail.extend(expired);
-            rows.push(PersonRow { grant: Some(g.id), group: None, name, detail: detail.join(" · "), rights: g.rights.clone() });
+            let resend = matches!(g.subject, Subject::Invite { .. });
+            rows.push(PersonRow { grant: Some(g.id), group: None, name, detail: detail.join(" · "), rights: g.rights.clone(), resend });
         }
         // Les droits venus d'un groupe d'ordinateurs : « Par le groupe {groupe} », sans « Retirer ».
         for g in db.group_grants_on(&station.id).unwrap_or_default() {
@@ -315,7 +360,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
                 Lang::En => format!("until {}", date(cx.lang, e - 1)),
             }));
             detail.extend(g.expired(cx.now).then(|| cx.tr("échu", "expired")));
-            rows.push(PersonRow { grant: None, group: Some(g.group_name.clone()), name, detail: detail.join(" · "), rights: g.rights.clone() });
+            rows.push(PersonRow { grant: None, group: Some(g.group_name.clone()), name, detail: detail.join(" · "), rights: g.rights.clone(), resend: false });
         }
     }
     // Ouvrir à : les organisations dont il est membre, et leurs groupes.
@@ -340,6 +385,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
     };
     // La base n'est pas gardée pendant la construction de la vue (`shell` la prend aussi).
     let links = if standing.manage { acc.db().access_links(&station.id, 20).unwrap_or_default() } else { Vec::new() };
+    let known = if standing.manage { acc.db().known_people(account.id).unwrap_or_default() } else { Vec::new() };
     let view = PeopleView {
         id: station.id.clone(),
         name: station.name.clone(),
@@ -356,6 +402,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         new_link: kept.new_link,
         link_open: kept.link_form.is_some(),
         link_form: kept.link_form.unwrap_or_else(|| (Rights::new([Right::Session]), 7, String::new())),
+        known,
         now: cx.now,
         shell: shell(&cx, account),
     };
@@ -402,6 +449,11 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     if target.as_ref().is_some_and(|t| station.account == Some(t.id)) {
         return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
+    // Déjà là ? Une personne qui a déjà un accès à cet ordinateur : ses droits changent ; une
+    // invitation en attente pour la même adresse : remplacée (docs/comptes.md, « Ajouter quelqu'un »).
+    let had_access = target.as_ref().is_some_and(|t| {
+        acc.db().grants_of(&station.id).unwrap_or_default().iter().any(|g| matches!(g.subject, Subject::Person { account, .. } if account == t.id))
+    });
     let done = match &target {
         Some(t) => acc.db().grant_person(&station.id, t.id, &rights, until, account.id, cx.now),
         None => acc.db().grant_invite(&station.id, &email, &rights, until, account.id, cx.now),
@@ -410,28 +462,65 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
         tracing::warn!("ajout d'une personne : {e:#}");
         return cx.failed();
     }
-    cx.audit(Some(account.id), "personne_ajoutee");
+    cx.audit(Some(account.id), if had_access { "droits_changes" } else { "personne_ajoutee" });
     let to = target.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| email.clone());
     log_rights(&cx, &account, &station, "droits_donnes", &to, &rights);
-    tracing::info!(station = %station.id, compte = target.is_some(), "personne ajoutée à un ordinateur");
-    // L'e-mail, dans la langue de la personne (la page sinon).
-    if cx.may_mail(&email) {
-        let lang = target.as_ref().map(lang_of).unwrap_or(cx.lang);
-        let link = match target {
-            Some(_) => cx.url(&format!("/compte/ordinateurs?lang={}", lang.code())),
-            None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
-        };
-        let words = rights_words(lang, &rights);
-        let until = until.map(|e| date(lang, e - 1));
-        let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
-        cx.mail(
-            &email,
-            lang,
-            Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), link: &link },
-        );
-    }
-    let notice = if target.is_some() { Notice::PersonAdded } else { Notice::InviteSent };
+    tracing::info!(station = %station.id, compte = target.is_some(), deja = had_access, "personne ajoutée à un ordinateur");
+    send_shared(&cx, &account, &station, &email, target.as_ref(), &rights, until);
+    let notice = match &target {
+        Some(t) if had_access => Notice::AccessUpdated(if t.name.is_empty() { t.email.clone() } else { t.name.clone() }),
+        Some(_) => Notice::PersonAdded,
+        None => Notice::InviteSent,
+    };
     people_page(cx, &account, &station, Some(notice), Kept::default())
+}
+
+/// L'e-mail « {nom} vous a ouvert {ordinateur} », dans la langue de la personne (la page sinon).
+fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str, target: Option<&Account>, rights: &Rights, until: Option<i64>) {
+    if !cx.may_mail(email) {
+        return;
+    }
+    let lang = target.map(lang_of).unwrap_or(cx.lang);
+    let link = match target {
+        Some(_) => cx.url(&format!("/compte/ordinateurs?lang={}", lang.code())),
+        None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
+    };
+    let words = rights_words(lang, rights);
+    let until = until.map(|e| date(lang, e - 1));
+    let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
+    cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), link: &link });
+}
+
+/// `POST /compte/ordinateur/renvoyer` : « Renvoyer l'invitation » (`acces`), même expirée ; une fois par heure.
+pub(super) fn resend(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let Some(station) = managed_station(&cx, &account) else { return not_found(cx) };
+    let Ok(id) = cx.req.form("acces").parse::<i64>() else { return people_page(cx, &account, &station, None, Kept::default()) };
+    let grant: Option<Grant> = acc.db().grant(&station.id, id).ok().flatten().filter(|g| matches!(g.subject, Subject::Invite { .. }));
+    let Some(grant) = grant else { return people_page(cx, &account, &station, None, Kept::default()) };
+    let resent = acc.db().resend_grant_invite(&station.id, id, cx.now);
+    let email = match resent {
+        Ok(Resend::Done(email)) => email,
+        Ok(Resend::TooSoon) => return people_page(cx, &account, &station, Some(Notice::ResentTooSoon), Kept::default()),
+        Ok(Resend::Missing) => return people_page(cx, &account, &station, None, Kept::default()),
+        Err(e) => {
+            tracing::warn!("renvoi d'une invitation : {e:#}");
+            return cx.failed();
+        }
+    };
+    // L'adresse a depuis un compte vérifié : l'invitation, de nouveau valable, passe à lui tout de suite.
+    let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
+    if let Some(t) = &target {
+        let _ = acc.db().claim_invitations(t.id, cx.now);
+    }
+    cx.audit(Some(account.id), "invitation_renvoyee");
+    if let Some(org) = station.org {
+        let detail = json!({ "station": station.name, "to": email });
+        let _ = acc.db().org_log(org, Some(&account), "invitation_renvoyee", detail, Some(&cx.ip()), cx.now);
+    }
+    send_shared(&cx, &account, &station, &email, target.as_ref(), &grant.rights, grant.expires_at);
+    people_page(cx, &account, &station, Some(Notice::InviteResent(email)), Kept::default())
 }
 
 /// `POST /compte/ordinateur/ouvrir` : ouvrir à une organisation (`org_…`) ou à un groupe (`org_…:<n>`).

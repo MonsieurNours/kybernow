@@ -212,11 +212,12 @@ pub(super) fn approve(cx: Cx<'_>, post: bool) -> Reply {
     cx.page(200, page)
 }
 
-/// Les appareils connectés, pour la page du compte.
-pub(super) fn devices(db: &Store, account: i64) -> Vec<DeviceView> {
+/// Les appareils connectés, pour la page du compte (pas ceux qui n'ont pas servi depuis 90 jours).
+pub(super) fn devices(db: &Store, account: i64, now: i64) -> Vec<DeviceView> {
     db.devices_of(account)
         .unwrap_or_default()
         .into_iter()
+        .filter(|d| now - d.seen_at < super::super::devices::DEVICE_IDLE_SECS)
         .map(|d| DeviceView { id: d.id, name: d.name, tv: d.kind == "tv", created_at: d.created_at, seen_at: d.seen_at })
         .collect()
 }

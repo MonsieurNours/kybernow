@@ -463,6 +463,7 @@ impl Accounts {
             ("/compte/ordinateur/ajouter", true) => console::add(cx),
             ("/compte/ordinateur/ouvrir", true) => console::open_to(cx),
             ("/compte/ordinateur/retirer", true) => console::remove(cx),
+            ("/compte/ordinateur/renvoyer", true) => console::resend(cx),
             // Liens d'accès et groupes d'ordinateurs (docs/comptes.md, « Regarder, liens d'accès et groupes d'ordinateurs »).
             ("/compte/ordinateur/liens/creer", true) => link_pages::create(cx),
             ("/compte/ordinateur/liens/revoquer", true) => link_pages::revoke(cx),
@@ -473,6 +474,7 @@ impl Accounts {
             ("/compte/organisation/inviter", true) => org_pages::invite(cx),
             ("/compte/organisation/role", true) => org_pages::set_role(cx),
             ("/compte/organisation/retirer", true) => org_pages::remove(cx),
+            ("/compte/organisation/renvoyer", true) => org_pages::resend(cx),
             ("/compte/organisation/quitter", true) => org_pages::leave(cx),
             ("/compte/organisation/groupes/creer", true) => org_pages::group_create(cx),
             ("/compte/organisation/groupes/supprimer", true) => org_pages::group_delete(cx),
@@ -556,10 +558,11 @@ fn account_page(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
             recovery_left: db.recovery_codes_left(account.id).unwrap_or(0),
             sessions,
             computers: attach_pages::computers(&db, &cx.acc.stations, account.id),
-            devices: device_pages::devices(&db, account.id),
+            devices: device_pages::devices(&db, account.id, cx.now),
             passkeys: Vec::new(),
             register: None,
             orgs: db.orgs_of(account.id).unwrap_or_default().into_iter().map(|(o, _)| (o.public_id, o.name)).collect(),
+            now: cx.now,
         }
     };
     let view = AccountView { passkeys: passkeys::views(&cx, account.id), register: cx.registration(&account), ..view };

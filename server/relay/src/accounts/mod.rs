@@ -357,7 +357,7 @@ impl Accounts {
         let db = self.db();
         let id = db.create_account(&email, name.trim(), &hash, "fr", Some(now), now)?.context("cette adresse a déjà un compte")?;
         // Lots 4 et 5 : les invitations qui attendaient cette adresse.
-        db.claim_invitations(id)?;
+        db.claim_invitations(id, now)?;
         db.audit(Some(id), "compte_cree_par_l_administrateur", None, now)?;
         Ok(id)
     }

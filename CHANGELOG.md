@@ -21,6 +21,8 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - **Regarder un ordinateur.** Un nouveau droit, « Regarder » : la personne voit l'écran de votre ordinateur, sans clavier, souris ni manette, et sans rien changer pour vous. Vous la voyez dans le panneau du partage et pouvez la retirer à tout moment.
 - **Des liens d'accès à usage unique.** Sur la page d'un ordinateur, créez un lien avec les droits de votre choix et envoyez-le à une seule personne : il ne sert qu'une fois, expire s'il n'a pas servi, et se révoque d'un clic.
 - **Des groupes d'ordinateurs.** Dans une famille ou une équipe, rangez des ordinateurs dans un groupe et ouvrez-le d'un coup : les droits valent pour tous ses ordinateurs, y compris ceux que vous ajouterez ensuite.
+- **Invitations plus claires.** Une invitation en attente expire après 30 jours ; vous voyez quand elle a été envoyée et quand elle expire, et « Renvoyer l'invitation » la relance. En tapant une adresse, vos proches et vos collègues sont proposés, et une même personne n'apparaît plus deux fois.
+- **Comptes mieux protégés.** Les jetons d'accès aux ordinateurs durent 2 minutes, et un appareil qui ne sert pas pendant 90 jours est déconnecté de votre compte.
 
 ## 0.10.0
 

@@ -5,7 +5,7 @@
 //! Admin envoie le navigateur ici : `GET /compte/ouvrir-admin?station=…&nonce=…&retour=<adresse d'Admin>`.
 //! Connecté (double authentification faite), avec le droit Administrer sur
 //! cette Station, on confirme « Ouvrir Admin de {ordinateur} ? » ; le relais
-//! délivre un jeton d'accès (5 min) dont le `jti` est le `nonce` d'Admin
+//! délivre un jeton d'accès (2 min) dont le `jti` est le `nonce` d'Admin
 //! (lié au cookie du navigateur chez Admin), et renvoie vers
 //! `<retour>/api/login/kybernow?token=…`. Admin le vérifie (clé épinglée,
 //! droit Administrer, usage unique, `jti` = son `nonce`) et ouvre sa session.

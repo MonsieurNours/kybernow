@@ -341,10 +341,29 @@ fn jeton_d_acces_garde_quatre_minutes() {
 #[test]
 fn jeton_d_acces_echu_selon_le_relais() {
     // L'appareil a dormi : l'horloge monotone n'a pas avancé, l'échéance est passée.
-    let fake = Fake::new(|_, n| access_reply(n, now_secs() + 30));
+    let fake = Fake::new(|_, n| access_reply(n, now_secs() + 20));
     let a = access(RENEW_AFTER, &fake);
     assert_eq!(a.token().unwrap(), "jeton-0");
-    assert_eq!(a.token().unwrap(), "jeton-1", "à moins d'une minute de l'échéance");
+    assert_eq!(a.token().unwrap(), "jeton-1", "à moins de 30 secondes de l'échéance");
+}
+
+#[test]
+fn jeton_d_acces_de_deux_minutes() {
+    // Le relais donne des jetons de 2 minutes (docs/comptes.md, « Sessions ») :
+    // gardé 90 secondes, encore valable une bonne minute de plus pour la Station.
+    let fake = Fake::new(|_, n| {
+        reply(200, json!({ "token": format!("jeton-{n}"), "station": STATION, "rights": ["session"], "expires": now_secs() + 120, "lifetime": 120 }))
+    });
+    let a = access(RENEW_AFTER, &fake);
+    assert_eq!(a.token().unwrap(), "jeton-0");
+    assert_eq!(a.token().unwrap(), "jeton-0", "gardé tant qu'il vaut plus de 30 secondes");
+    let renew = a.cache.lock().unwrap().as_ref().map(|c| c.renew);
+    assert_eq!(renew, Some(Duration::from_secs(90)));
+    // Un relais plus ancien (5 minutes) : 4 minutes, comme avant.
+    let old = Fake::new(|_, n| access_reply(n, now_secs() + 300));
+    let b = access(RENEW_AFTER, &old);
+    b.token().unwrap();
+    assert_eq!(b.cache.lock().unwrap().as_ref().map(|c| c.renew), Some(RENEW_AFTER));
 }
 
 #[test]

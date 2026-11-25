@@ -9,7 +9,7 @@
 //! Share ([`Console::guest`], son jeton dans `x-kybernow-guest`) ; pour un
 //! ordinateur d'un compte KyberNow ([`Console::account`], docs/comptes.md), le
 //! jeton d'accès du relais (`Authorization: KyberNow <jeton>`), redemandé
-//! toutes les 4 minutes et après un refus `401 token_expired`. Certificat :
+//! avant son échéance (90 secondes) et après un refus `401 token_expired`. Certificat :
 //! auto-signé, épinglé par son empreinte (`sha256:aa:bb:…`, SHA-256 du
 //! certificat DER).
 
@@ -570,7 +570,7 @@ pub struct Prepared {
     /// Le HDR obtenu pour chaque écran, dans l'ordre de `screens` (un seul
     /// élément pour un écran). Absent (Station d'avant le HDR) : SDR partout.
     pub hdr: Vec<bool>,
-    /// Un compte KyberNow (docs/comptes.md) : le jeton de Kyber (5 minutes)
+    /// Un compte KyberNow (docs/comptes.md) : le jeton de Kyber (2 minutes, renouvelé par le signe de vie)
     /// sous le compte `kn-account-…`, à la place du compte Basic.
     pub kyber_token: Option<KyberToken>,
 }
