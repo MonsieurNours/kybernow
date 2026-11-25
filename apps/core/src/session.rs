@@ -1695,7 +1695,7 @@ struct Worker {
     /// HDR (docs/hdr.md) : ce que la Station annonce (`GET /api/stream/info`,
     /// lu au début d'une session d'hôte quand un écran de l'appareil est HDR).
     station_hdr: Option<crate::console::HdrInfo>,
-    /// PyroWave (docs/pyrowave.md) : la Station le propose (`info.pyrowave`,
+    /// PyroWave (docs/pyrowave.md) : la Station le propose (`info.pyrowave.available`,
     /// lu au début d'une session d'hôte quand il peut servir).
     station_pyrowave: bool,
     /// HDR obtenu de la Station, par écran de l'appareil (index dans
@@ -2461,11 +2461,11 @@ impl Worker {
         let c = console.clone();
         match self.step("HDR de la Station", INFO_WITHIN + STEP_MARGIN, move || c.info()) {
             Ok(Ok(i)) => {
-                info!("HDR de la Station : {:?} ; PyroWave : {}", i.hdr, i.pyrowave);
+                info!("HDR de la Station : {:?} ; PyroWave : {:?}", i.hdr, i.pyrowave);
+                self.station_pyrowave = i.pyrowave_offered();
                 if any_hdr {
                     self.station_hdr = i.hdr;
                 }
-                self.station_pyrowave = i.pyrowave;
             }
             Ok(Err(e)) => warn!("HDR : annonce de la Station illisible ({e}) : SDR"),
             Err(Cut::Late(_)) => warn!("HDR : annonce de la Station sans réponse : SDR"),
@@ -4489,6 +4489,12 @@ impl Worker {
                 VideoSessionConfig {
                     display_id: screen.display.id,
                     codec: s.codec.kyber(),
+                    // PyroWave : le format que la Station prend si elle ne le
+                    // propose plus (correctif 0025) ; l'app suit alors le
+                    // paquet de codec, comme toujours.
+                    #[cfg(feature = "pyrowave")]
+                    fallback_codec: (s.codec == Codec::PyroWave)
+                        .then(|| crate::profile::pyrowave_fallback(self.capabilities().unwrap_or_default()).kyber()),
                     yuv444: s.yuv444,
                     hdr,
                     intra_refresh: None,
