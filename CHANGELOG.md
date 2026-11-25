@@ -7,7 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.11.0
 
-Bêta : PyroWave, le débit automatique, le stylet, « Regarder » et les nouveautés des comptes. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
+PyroWave, le débit automatique, le stylet, « Regarder » et les nouveautés des comptes. Cette version reprend aussi tout ce qu'apportait la bêta 0.10.0 : les comptes KyberNow, les invitations et la priorité donnée à l'image sur la carte graphique.
 
 - **Un espace du compte plus simple à prendre en main.** Sur la page de votre compte KyberNow, un menu à gauche reste en place d'une page à l'autre : vos ordinateurs, les personnes à qui vous les ouvrez, vos familles et équipes, votre compte. Un tour d'accueil vous guide pas à pas (protéger votre compte, rattacher votre ordinateur, l'ouvrir à vos proches), et une carte « Pour bien démarrer » montre ce qu'il reste à faire.
 - **Familles et équipes.** Vous créez une famille (la maison, les enfants) ou une équipe (un atelier, une entreprise) : les mêmes droits, des mots plus clairs, et un schéma qui explique les groupes. Les droits s'appellent maintenant « Ouvrir le bureau », « Emprunter pour jouer », « Rejoindre vos partages » et « Administrer », chacun avec un exemple.

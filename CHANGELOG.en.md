@@ -6,7 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.11.0
 
-Beta: PyroWave, the automatic bitrate, the pen, “Watch” and the new account features. It is only offered to Stations and apps set to receive beta versions.
+PyroWave, the automatic bitrate, the pen, “Watch” and the new account features. This version also includes everything the 0.10.0 beta brought: KyberNow accounts, invitations and the priority given to the picture on the graphics card.
 
 - **An account space that's easier to get to grips with.** On your KyberNow account's page, a menu on the left stays in place from one page to the next: your computers, the people you open them to, your families and teams, your account. A welcome tour guides you step by step (protect your account, attach your computer, open it to your loved ones), and a “Getting started” card shows what's left to do.
 - **Families and teams.** You create a family (home, the kids) or a team (a studio, a company): the same rights, clearer words, and a diagram that explains groups. Rights are now called “Open the desktop”, “Borrow to play”, “Join your shares” and “Administer”, each with an example.
