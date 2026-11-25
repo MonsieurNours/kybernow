@@ -5,6 +5,7 @@ import { langHeaders, t } from '../lib/i18n/index.svelte'
 import type { Mode } from './device'
 import { viaRelay } from './plan'
 import { deviceId } from './prefs'
+import type { StationPyroWave } from './pyrowave/rules'
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const { res, data } = await request(method, path, body)
@@ -124,6 +125,9 @@ export interface Info {
   /** Manettes : `available` faux quand la Station ne sait pas en créer (Station Mac sans le droit
    * d'Apple, `reason` « entitlement ») ; absent (Stations d'avant) : disponibles. */
   gamepads?: { available: boolean; reason?: string | null }
+  /** PyroWave (docs/pyrowave.md) : absent avant la Station qui le connaît (jamais demandé alors) ;
+   * `reason` : `off`, `windows`, `vulkan` ; `max_mbps` : le plafond de débit, quand il est connu. */
+  pyrowave?: StationPyroWave
 }
 
 /** Écran que reçoit un invité (celui du partage). */

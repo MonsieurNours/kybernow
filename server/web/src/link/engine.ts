@@ -12,8 +12,11 @@ export interface CodecSupport {
 export interface StreamSettings {
   /** kymux : WebTransport (QUIC) ; websocket : par la console, quand WebTransport ne marche pas. */
   protocol: 'kymux' | 'websocket'
-  /** `av1` : jamais demandé (le moteur ne le lit pas) ; un invité demande celui de l'hôte s'il le lit, sinon H.264 (`share.ts`). */
-  codec: 'h264' | 'hevc' | 'av1'
+  /** `av1` : jamais demandé (le moteur ne le lit pas) ; un invité demande celui de l'hôte s'il le lit, sinon H.264 (`share.ts`).
+   * `pyrowave` : décodé par la page en WebGPU (pyrowave/live.ts), moteur corrigé (0025-kyctlweb) seulement. */
+  codec: 'h264' | 'hevc' | 'av1' | 'pyrowave'
+  /** Avec PyroWave : le format que prend l'ordinateur s'il ne le propose plus. */
+  fallbackCodec?: 'h264' | 'hevc'
   yuv444: boolean
   bitrate: number
   reliable: boolean
@@ -142,6 +145,14 @@ export function isFixedEngine(): boolean {
   return fixed
 }
 
+let pyrowaveEngine = false
+
+/** Le moteur chargé passe-t-il les paquets PyroWave à la page (correctif 0025-kyctlweb) ? On le
+ * reconnaît au réglage `fallback_codec` de sa configuration. `false` tant qu'il n'est pas chargé. */
+export function engineKnowsPyroWave(): boolean {
+  return pyrowaveEngine
+}
+
 /** Charge le moteur une fois (fichier JS + WebAssembly). */
 export function loadEngine(): Promise<Wasm> {
   if (!modulePromise) {
@@ -150,6 +161,11 @@ export function loadEngine(): Promise<Wasm> {
     modulePromise = import(/* @vite-ignore */ url).then(async (m) => {
       await m.default()
       fixed = detectFixed(m)
+      try {
+        pyrowaveEngine = !!Object.getOwnPropertyDescriptor(m.StreamingConfigBuilder?.prototype ?? {}, 'fallback_codec')?.set
+      } catch {
+        pyrowaveEngine = false
+      }
       return m
     })
     modulePromise.catch(() => (modulePromise = null))
@@ -269,6 +285,7 @@ export class Engine {
     }
     b.bitrate = s.bitrate
     b.codec = s.codec
+    if (s.codec === 'pyrowave') b.fallback_codec = s.fallbackCodec ?? 'h264'
     b.yuv444 = s.yuv444
     b.audio = s.audio
     // Les entrées s'ouvrent toujours : la page filtre selon le rôle d'un

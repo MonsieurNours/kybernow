@@ -487,6 +487,7 @@ Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “
 - **Bitrate too high** for the computer's ceiling or the measured bitrate: the app lowers the resolution (then the refresh rate), never sharpness, and says so.
 - **Through the relay**: allowed, warning only, no bitrate cap at the relay.
 - A lost frame is skipped; Statistics add “Lost frames”.
+- **Web client** ([pyrowave-client-web.en.md](pyrowave-client-web.en.md)): a browser can't tell whether it is connected by cable, so **Auto never picks PyroWave**; Auto's help says so when the computer offers it. Picked by hand, it is always warned: the “unknown network” text (below, instead of the Wi-Fi one, which would claim a Wi-Fi the browser can't see), or the relay one. Start banner with “Switch to {format}” (Auto's format: HEVC, or H.264 if this browser doesn't decode HEVC). Amber chip only through the relay: on an unknown network, nothing says there is a problem. Inactive value (“PyroWave” greyed out, its reason in the help and on hover); a PyroWave choice that is no longer offered is kept, “Auto” checked applies. For the host only (a guest, a friend: Auto's format). “PyroWave decoding” joins the Statistics, with “Lost frames”.
 
 | Where | English |
 |---|---|
@@ -501,6 +502,12 @@ Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “
 | Statistics, extra line | “Lost frames” “0.8%” |
 | Sharp text (4:4:4) with PyroWave | help: “With PyroWave, almost free: only the bitrate goes up.” |
 | Inactive value | “{name} doesn't offer PyroWave.”; “{this device} can't decode PyroWave.” |
+| Web client, Auto help (computer offers it), after the format's | “Pick PyroWave yourself: a browser can't tell whether this device is connected by cable.” |
+| Web client, warning under the choice, unknown network (**proposed**, instead of the Wi-Fi one) | “This browser can't tell whether you're connected by cable. Without an Ethernet cable, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
+| Web client, start banner, unknown network (**proposed**) | title “PyroWave, unknown network”; “Without an Ethernet cable, the picture may stutter.”; button “Switch to {format}” |
+| Web client, after “Switch to {format}” | “Picture restarted in {format} for this session.” |
+| Web client, session Statistics, extra line | “PyroWave decoding” “4.1 ms” |
+| Web client, “This browser” (Settings' Statistics section) | “PyroWave decoded by the graphics card (WebGPU)”; “PyroWave: not in this browser” |
 | Admin, “PyroWave” card (Picture and sound) | title “PyroWave”, subtitle “An almost delay-free picture, for devices connected by cable.”; chip “Ready · {GPU}” or “Unavailable”; switch “Offer PyroWave”, help “Your devices can pick it in “Video format”. On “Auto”, they use it by themselves when connected to your network by cable.” |
 | Admin, “Maximum bitrate” | Auto; 300; 500; 800 Mbit/s; Auto help: “Auto: based on this computer's network port, here {n} Mbit/s. Above that, your devices lower the resolution rather than sharpness.” |
 | Admin, card warning | “PyroWave compresses little: it sends 5 to 10 times more data than HEVC. On Wi-Fi or away from home, the picture may stutter; your devices warn you first.” |

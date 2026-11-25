@@ -11,6 +11,7 @@
   import { backend, type Info, type Live, type Preview } from './backend'
   import { supportedCodecs, type CodecSupport } from './engine'
   import { choose, preferredProtocol } from './plan'
+  import { offer } from './pyrowave/state.svelte'
   import { canFullscreen, deviceKind, isIsolated, measureRefresh, screenMode } from './device'
   import { isCustom, pickProfile, PROFILES, type Prefs, type Profile } from './prefs'
   import Mark from '../lib/Mark.svelte'
@@ -48,7 +49,8 @@
 
   const kind = deviceKind()
   const mode = $derived(screenMode(refresh))
-  const plan = $derived(codecs ? choose(prefs, mode, codecs) : null)
+  // PyroWave : jamais pris par Auto ; offert si l'ordinateur le propose et que ce navigateur le décode.
+  const plan = $derived(codecs ? choose(prefs, mode, codecs, undefined, offer(info)) : null)
   // Lu une fois le moteur chargé (avec les formats) : corrigé, il change le transport en tactile.
   const protocol = $derived(codecs ? preferredProtocol() : null)
   const blocked = $derived(!isIsolated ? 'isolation' : codecError ? 'engine' : null)
@@ -57,9 +59,11 @@
   const status = $derived(codecError ? 'offline' : codecs || !isIsolated ? 'online' : 'searching')
 
   /** L'écran que la session demandera : celui de cet appareil, si l'ordinateur sait en créer un. */
+  /** Avec PyroWave, la définition ramenée s'il le faut (docs/pyrowave.md, « Définition ramenée »). */
+  const shown = $derived(plan?.pyrowave?.mode ?? mode)
   const displayText = $derived(
     prefs.virtualDisplay && info?.virtual_display.available !== false
-      ? t('web.home.displaySized', { width: mode.width, height: mode.height, refresh: mode.refresh })
+      ? t('web.home.displaySized', { width: shown.width, height: shown.height, refresh: shown.refresh })
       : t('web.home.displaysAsIs'),
   )
 
