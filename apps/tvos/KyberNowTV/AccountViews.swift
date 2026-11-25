@@ -264,7 +264,7 @@ struct AccountsView: View {
     /// « Se déconnecter », à confirmer.
     @State private var signingOut: KyberAccount?
 
-    enum Target: Hashable { case back, add, manage(String), signOut(String) }
+    enum Target: Hashable { case back, add, sync, manage(String), signOut(String) }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -292,6 +292,8 @@ struct AccountsView: View {
                 ForEach(accounts.accounts) { a in
                     row(a)
                 }
+                // Réglages synchronisés : seulement avec un compte connecté.
+                if !accounts.accounts.isEmpty { syncRow }
                 Button { app.showAccountCode(from: .accounts) } label: {
                     HStack(spacing: 14) {
                         Icon("plus", size: 26, bold: true)
@@ -352,6 +354,26 @@ struct AccountsView: View {
         .padding(.horizontal, 24).padding(.vertical, 14)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.04)))
         .focusSection()
+    }
+
+    /// « Synchroniser les réglages des ordinateurs » (allumé par défaut, gardé sur cette Apple TV).
+    private var syncRow: some View {
+        Button { accounts.syncSettings.toggle() } label: {
+            HStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: Accounts.syncSettingsTitle).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
+                    Text(verbatim: Accounts.syncSettingsHelp).font(Theme.sans(19)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Toggle2(on: accounts.syncSettings)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 14)
+            .frame(minHeight: 88)
+        }
+        .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
+        .focused($focus, equals: .sync)
+        .accessibilityValue(accounts.syncSettings ? Text("Activé") : Text("Désactivé"))
     }
 
     /// « Gérer le compte » : la page du compte, par le QR code et son adresse.

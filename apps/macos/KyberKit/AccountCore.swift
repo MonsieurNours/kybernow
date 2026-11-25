@@ -376,6 +376,55 @@ public enum Accounts {
         return AccountAccess(json: text)
     }
 
+    // MARK: Réglages synchronisés (docs/comptes.md, « Réglages synchronisés »)
+
+    /// « Synchroniser les réglages des ordinateurs » (réglages de l'app, section « Comptes »).
+    public static var syncSettingsTitle: String { Core.take(kn_account_sync_settings_title()) ?? "" }
+    /// L'aide de l'interrupteur.
+    public static var syncSettingsHelp: String { Core.take(kn_account_sync_settings_help()) ?? "" }
+
+    /// Les réglages synchronisés de tous les ordinateurs du compte.
+    /// `signedOut` : oublier le compte ; `noAccounts` : relais sans réglages
+    /// synchronisés, garder les réglages locaux sans rien dire. Bloquant.
+    public static func fetchSettings(_ account: KyberAccount) async throws -> [SyncedSettings] {
+        let json = account.json
+        return try await blocking { out, error in kn_account_settings_fetch(json, out, error) } read: { text in
+            (AccountJSON.decodeAny(text) as? [Any]).map { $0.compactMap { AccountJSON.string(from: $0).flatMap(SyncedSettings.init(json:)) } }
+        }
+    }
+
+    /// Envoie les clés changées d'un ordinateur, posées sur `last` (les
+    /// dernières lues ou envoyées pour lui ; nil s'il n'en a pas). Rend les
+    /// réglages à garder à la place de `last`. `unknownComputer` : oublier
+    /// ceux de cet ordinateur. Bloquant.
+    public static func putSettings(_ account: KyberAccount, station: String, last: SyncedSettings?, keys: SyncedKeys) async throws -> SyncedSettings {
+        let (json, lastJSON, values) = (account.json, last?.json, keys.json)
+        return try await blocking { out, error in kn_account_settings_put(json, station, lastJSON, values, out, error) } read: { SyncedSettings(json: $0) }
+    }
+
+    /// Toutes les clés d'après les réglages de l'app pour un ordinateur (le
+    /// premier envoi, quand le relais n'a rien pour lui) ; `immersive` :
+    /// `fullscreen`, `always`, `never`, nil sans mode immersif.
+    public static func allKeys(_ settings: SessionEngine.Settings, immersive: String?) -> SyncedKeys? {
+        guard let base = AccountJSON.string(from: settings.json) else { return nil }
+        return Core.take(kn_account_settings_from_stream(base, immersive)).flatMap(SyncedKeys.init(json:))
+    }
+
+    /// Les réglages de session de l'app avec ces clés, ramenés à ce que cet
+    /// appareil décode (un profil prend ses réglages sur cet appareil ;
+    /// personnalisé, le format s'il se décode, le 4:4:4 s'il existe, le
+    /// débit ; le HDR tel quel). Nil pour un JSON illisible.
+    public static func apply(_ keys: SyncedKeys, to base: SessionEngine.Settings) -> SessionEngine.Settings? {
+        guard let baseJSON = AccountJSON.string(from: base.json),
+              let caps = AccountJSON.string(from: SessionEngine.capabilitiesJSON(.current)),
+              let text = Core.take(kn_account_settings_apply(keys.json, baseJSON, caps)),
+              let j = AccountJSON.object(text),
+              let codec = (j["codec"] as? String).flatMap(VideoCodec.init(rawValue:)) else { return nil }
+        return SessionEngine.Settings(profile: j["profile"] as? String, codec: codec, yuv444: j["yuv444"] as? Bool ?? false,
+                                      mbps: (j["mbps"] as? NSNumber)?.intValue ?? base.mbps, reliable: j["reliable"] as? Bool ?? base.reliable,
+                                      hdr: j["hdr"] as? Bool ?? base.hdr, wired: j["wired"] as? Bool ?? base.wired)
+    }
+
     // MARK: Appels bloquants
 
     /// Un appel bloquant du pont, sur une file à part : `out` lu par `read`,
@@ -394,6 +443,90 @@ public enum Accounts {
         guard result.status == KN_OK else { throw AccountError(status: result.status, message: result.message) }
         guard let value = read(result.out ?? "") else { throw AccountError(.other, result.message) }
         return value
+    }
+}
+
+/// Les réglages synchronisés d'un ordinateur du compte, tels que le relais
+/// les garde (`{station, updated_at, values}`, clés inconnues comprises) : à
+/// garder avec le compte, rendus tels quels à `putSettings`. Rien de secret.
+public struct SyncedSettings: Sendable, Equatable {
+    /// L'identifiant de la Station chez le relais.
+    public let station: String
+    /// Dernier changement (secondes Unix, horloge du relais).
+    public let updatedAt: Int64
+    /// Le JSON du cœur, tel quel.
+    public let json: String
+
+    public init?(json text: String) {
+        guard let j = AccountJSON.object(text), let station = j["station"] as? String, !station.isEmpty else { return nil }
+        self.station = station
+        updatedAt = (j["updated_at"] as? NSNumber)?.int64Value ?? 0
+        json = text
+    }
+
+    /// Les clés connues, vérifiées par le cœur : une valeur illisible pour
+    /// cet appareil compte comme absente (elle reste au relais).
+    public var known: SyncedKeys {
+        Core.take(kn_account_settings_known(json)).flatMap(SyncedKeys.init(json:)) ?? SyncedKeys()
+    }
+}
+
+/// Les clés synchronisées d'un ordinateur (toutes facultatives) : `profile`
+/// (`jeu`, `bureau`, `max` ; `.some(nil)` : personnalisé), `codec`,
+/// `yuv444`, `mbps`, `hdr`, `immersive` (`fullscreen`, `always`, `never`).
+public struct SyncedKeys: Sendable, Equatable, Codable {
+    public var profile: String??
+    public var codec: VideoCodec?
+    public var yuv444: Bool?
+    public var mbps: Int?
+    public var hdr: Bool?
+    public var immersive: String?
+
+    public init() {}
+
+    init?(json text: String) {
+        guard let j = AccountJSON.object(text) else { return nil }
+        if let p = j["profile"] { profile = .some(p as? String) }
+        codec = (j["codec"] as? String).flatMap(VideoCodec.init(rawValue:))
+        yuv444 = j["yuv444"] as? Bool
+        mbps = (j["mbps"] as? NSNumber)?.intValue
+        hdr = j["hdr"] as? Bool
+        immersive = j["immersive"] as? String
+    }
+
+    public var isEmpty: Bool { self == SyncedKeys() }
+
+    /// Les clés de `other` posées sur celles-ci (deux changements à renvoyer).
+    public mutating func merge(_ other: SyncedKeys) {
+        if let p = other.profile { profile = .some(p) }
+        if let c = other.codec { codec = c }
+        if let y = other.yuv444 { yuv444 = y }
+        if let m = other.mbps { mbps = m }
+        if let h = other.hdr { hdr = h }
+        if let i = other.immersive { immersive = i }
+    }
+
+    /// En JSON, les absentes omises, `"profile": null` pour personnalisé.
+    var json: String {
+        var j: [String: Any] = [:]
+        if let p = profile { j["profile"] = p ?? NSNull() }
+        if let codec { j["codec"] = codec.rawValue }
+        if let yuv444 { j["yuv444"] = yuv444 }
+        if let mbps { j["mbps"] = mbps }
+        if let hdr { j["hdr"] = hdr }
+        if let immersive { j["immersive"] = immersive }
+        return AccountJSON.string(from: j) ?? "{}"
+    }
+
+    // Gardées sur l'appareil (un changement à renvoyer) : le même JSON.
+    public init(from decoder: Decoder) throws {
+        let text = try decoder.singleValueContainer().decode(String.self)
+        self = SyncedKeys(json: text) ?? SyncedKeys()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(json)
     }
 }
 
@@ -424,6 +557,10 @@ enum AccountJSON {
     static func string(from value: Any) -> String? {
         guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    static func decodeAny(_ text: String) -> Any? {
+        text.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) }
     }
 
     static func decode<T: Decodable>(_ type: T.Type, _ text: String) -> T? {

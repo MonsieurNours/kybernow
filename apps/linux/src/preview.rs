@@ -158,6 +158,9 @@ fn session(app: &App) -> SessionUi {
         hdr: false,
         lost_frames: 0,
         lowered: None,
+        // Le débit des dernières secondes, et le débit visé : baissé par le débit automatique, puis remonté.
+        bitrate_history: [31.0, 30.2, 32.5, 29.8, 24.1, 21.7, 22.4, 26.0, 29.5, 30.8, 31.4, 31.0].iter().zip([60.0, 60.0, 60.0, 60.0, 42.0, 42.0, 42.0, 50.0, 60.0, 60.0, 60.0, 60.0]).map(|(m, t)| (*m, Some(t))).collect(),
+        target: Some((crate::i18n::tr("Débit visé", "Target bitrate").into(), crate::i18n::tr("60 Mbit/s · Auto", "60 Mbit/s · Auto").into())),
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));

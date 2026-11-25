@@ -295,7 +295,14 @@ class MainActivity : AppCompatActivity() {
      * réseau d'abord, le relais sinon.
      */
     private fun connect(h: Host) {
-        model.connect(h.id) { open -> startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_HOST, open.id)) }
+        model.connect(h.id) { open ->
+            // Un ordinateur du compte : ses réglages synchronisés d'abord (un instant au plus, jamais un refus).
+            if (open.account == null) startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_HOST, open.id))
+            else lifecycleScope.launch {
+                KyberNowApp.instance.accounts.syncBeforeSession(open)
+                startActivity(Intent(this@MainActivity, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_HOST, open.id))
+            }
+        }
     }
 
     private fun wake(h: Host) = model.wake(h.id)

@@ -69,10 +69,27 @@ struct SessionStatsView: View {
     }
 
     /// Débit visé par les réglages pour le mode de la session.
-    private var targetMbps: Int {
-        let s = session.host.settings
-        let mode = DeviceDisplay.mode(for: s)
-        return s.bitrate(width: stats?.width ?? mode.width, height: stats?.height ?? mode.height, refresh: mode.refresh)
+    /// Débit visé de chaque seconde (le trait de la courbe du débit).
+    private var targets: [Double?] { history.map { $0.target?.mbps } }
+
+    /// « Débit visé » sous la courbe du débit (docs/link-ui.md,
+    /// « Statistiques ») : le texte du cœur ; rien sans.
+    @ViewBuilder private var targetLine: some View {
+        if let target = stats?.target {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 5) {
+                    StatsTargetDash().frame(width: 12, height: 1)
+                    StatsLabel(text: TargetBitrate.label)
+                }
+                Spacer(minLength: 6)
+                Text(verbatim: target.text)
+                    .font(Theme.mono(10))
+                    .foregroundStyle(Theme.text2)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 
     private var stages: [StatsStage] {
@@ -237,7 +254,8 @@ struct SessionStatsView: View {
             StatsCurve(title: String(localized: "Débit · 30 s"),
                        caption: stats.map { StatsFormat.mbps($0.mbps) } ?? "—",
                        values: history.map { $0.mbps }, floorTop: 10, guide: nil, marks: [],
-                       fill: true, height: 30)
+                       fill: true, height: 30, targets: targets)
+            targetLine
         }
     }
 
@@ -322,9 +340,10 @@ struct SessionStatsView: View {
                        values: latencies, floorTop: budget * 1.6, guide: budget, marks: lossMarks,
                        fill: false, height: 62)
             StatsCurve(title: String(localized: "Débit · 30 s"),
-                       caption: (stats.map { StatsFormat.mbps($0.mbps) } ?? "—") + " · " + String(localized: "cible \(targetMbps)"),
+                       caption: stats.map { StatsFormat.mbps($0.mbps) } ?? "—",
                        values: history.map { $0.mbps }, floorTop: 10, guide: nil, marks: [],
-                       fill: true, height: 32)
+                       fill: true, height: 32, targets: targets)
+            targetLine
         }
     }
 
@@ -553,12 +572,14 @@ private struct StatsCurve: View {
     let marks: [Int]
     let fill: Bool
     let height: CGFloat
+    /// Débit visé de chaque seconde : un trait en escalier (nil : pas de trait).
+    var targets: [Double?] = []
 
     private static let slots = 30
 
     var body: some View {
         let known = values.compactMap { $0 }
-        let top = max(floorTop, (known.max() ?? 0) * 1.15)
+        let top = max(floorTop, (known.max() ?? 0) * 1.15, (targets.compactMap { $0 }.max() ?? 0) * 1.1)
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
                 StatsLabel(text: title)
@@ -581,6 +602,20 @@ private struct StatsCurve: View {
                     g.move(to: CGPoint(x: 0, y: y(guide)))
                     g.addLine(to: CGPoint(x: size.width, y: y(guide)))
                     ctx.stroke(g, with: .color(Color.white.opacity(0.14)), style: StrokeStyle(lineWidth: 1, dash: [2, 4]))
+                }
+                // Débit visé : un palier par seconde, coupé là où il manque.
+                if targets.contains(where: { $0 != nil }) {
+                    var t = Path()
+                    var open = false
+                    for (i, v) in targets.enumerated() {
+                        guard let v else { open = false; continue }
+                        let cx = CGFloat(Self.slots - targets.count + i) * step
+                        let left = max(0, cx - step / 2), right = min(size.width, cx + step / 2)
+                        if open { t.addLine(to: CGPoint(x: left, y: y(v))) } else { t.move(to: CGPoint(x: left, y: y(v))) }
+                        t.addLine(to: CGPoint(x: right, y: y(v)))
+                        open = true
+                    }
+                    ctx.stroke(t, with: .color(StatsTargetDash.color), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
                 }
                 // Courbe, coupée là où la mesure manque.
                 var line = Path(), area = Path()
@@ -629,6 +664,21 @@ private struct StatsCurve: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
         .accessibilityValue(Text(verbatim: caption))
+    }
+}
+
+/// Le trait du débit visé, dans la courbe et devant sa ligne.
+private struct StatsTargetDash: View {
+    static let color = Theme.accentLight.opacity(0.75)
+
+    var body: some View {
+        Canvas { ctx, size in
+            var p = Path()
+            p.move(to: CGPoint(x: 0, y: size.height / 2))
+            p.addLine(to: CGPoint(x: size.width, y: size.height / 2))
+            ctx.stroke(p, with: .color(Self.color), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+        }
+        .accessibilityHidden(true)
     }
 }
 

@@ -251,6 +251,19 @@ private struct AccountsCard: View {
                 .buttonStyle(GhostButton(height: 34))
             }
             if adding, !accounts.signingIn { relayChoice }
+            // Réglages synchronisés : seulement avec un compte connecté.
+            if !accounts.accounts.isEmpty {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verbatim: Accounts.syncSettingsTitle).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                        Text(verbatim: Accounts.syncSettingsHelp)
+                            .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Switch(isOn: $accounts.syncSettings, label: Accounts.syncSettingsTitle)
+                }
+            }
             Text(AccountText.sectionHelp)
                 .font(Theme.sans(12)).foregroundStyle(Theme.faint)
                 .fixedSize(horizontal: false, vertical: true)

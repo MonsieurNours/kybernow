@@ -472,6 +472,12 @@ impl Platform for AndroidPlatform {
             s.lowered.map_or(0.0, |l| l.height as f64),
             s.lowered.map_or(0.0, |l| l.refresh as f64),
             s.lowered.map_or(0.0, |l| l.mbps as f64),
+            // Débit visé (-1 sans) : demandé, du profil (bit/s), raison
+            // (`TargetReason::code` : 0 Auto, 1 baissé, 2 à la main, 3 PyroWave
+            // en pause, 4 plafond de l'app, 5 repli) ; texte : `targetBitrateText`.
+            s.target.map_or(-1.0, |t| t.bitrate as f64),
+            s.target.map_or(-1.0, |t| t.profile as f64),
+            s.target.map_or(-1.0, |t| t.reason.code() as f64),
         ];
         self.0.listener.with(|env, obj| {
             let a = env.new_double_array(values.len() as i32)?;

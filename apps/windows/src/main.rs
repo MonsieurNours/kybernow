@@ -72,7 +72,8 @@ mod notice;
 mod pasteboard;
 #[cfg(windows)]
 mod pc;
-#[cfg(windows)]
+// Ce que la session demande (se teste sur le Mac, avec les réglages synchronisés).
+#[cfg_attr(not(windows), allow(dead_code))]
 mod plan;
 // PyroWave (docs/pyrowave-client-windows.md) : décodeur Vulkan sur les
 // textures de Direct3D 11 ; son paquet de configuration se teste sur le Mac.
@@ -108,8 +109,16 @@ mod system;
 // de rôle (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
 mod sharing;
+// Statistiques : la ligne « Débit visé » et le trait de sa courbe (se teste
+// sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod target;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod text;
+// Réglages synchronisés par le compte : ce qui part, ce qui s'applique, ce qui
+// reste à renvoyer (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod synced;
 #[cfg(windows)]
 mod tray;
 #[cfg(windows)]

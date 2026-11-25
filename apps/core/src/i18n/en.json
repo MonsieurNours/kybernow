@@ -156,6 +156,17 @@
     "origin_account": "Account",
     "origin_account_relay": "Account · {relay}",
     "origin_shared": "Opened by {name}",
-    "origin_paired": "Paired"
+    "origin_paired": "Paired",
+    "sync_settings": "Sync computer settings",
+    "sync_settings_help": "Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices."
+  },
+  "bitrate": {
+    "target_label": "Target bitrate",
+    "target_lowered": "{target} / {profile} Mbit/s · lowered, network saturated",
+    "target_auto": "{target} Mbit/s · Auto",
+    "target_manual": "{target} Mbit/s · set by hand",
+    "target_pyrowave": "{target} Mbit/s · PyroWave, Auto paused",
+    "target_capped": "{target} Mbit/s · window hidden",
+    "target_fallback": "{target} Mbit/s · lightened stream"
   }
 }

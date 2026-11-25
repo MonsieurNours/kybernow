@@ -434,6 +434,16 @@ pub fn on_attached(s: &AppState, a: Attached) {
         }
         return;
     }
+    let moved = current.attached() && !current.test && current.relay.as_deref() == Some(relay.as_str()) && !keys.valid().is_empty() && keys.valid() == current.keys;
+    if moved && !asked {
+        // Déplacé dans la console (docs/comptes.md, « Déplacer un ordinateur ») :
+        // même relais, mêmes clés déjà épinglées, autre propriétaire. Seul le
+        // propriétaire affiché change ; les clés et l'accès restent.
+        if s.update_settings(|st| st.account.owner = Some(owner)).is_ok() {
+            tracing::info!("comptes : nouveau propriétaire (ordinateur déplacé dans la console du relais {relay})");
+        }
+        return;
+    }
     if !asked {
         // Personne n'a demandé de rattachement ici : jamais pris.
         tracing::warn!("comptes : rattachement non demandé, ignoré (relais {relay})");
@@ -1465,6 +1475,14 @@ mod tests {
         // Un autre propriétaire sans « Se connecter » : ignoré.
         on_attached(&s, attached_msg(&k2, "acc_bob"));
         assert_eq!(view(&s)["owner"]["id"], "acc_lea");
+        // Déplacé dans la console : même relais, mêmes clés épinglées, autre propriétaire : pris.
+        let mut moved = attached_msg(&k, "org_atelier");
+        moved.keys.push(k2.public_key().clone());
+        moved.owner.kind = "organization".into();
+        on_attached(&s, moved);
+        let v = view(&s);
+        assert_eq!(v["owner"]["id"], "org_atelier");
+        assert_eq!(v["keys"].as_array().unwrap().len(), 2, "les clés ne changent pas");
         // Détachée dans la console : `detached`.
         on_detached(&s);
         assert!(!view(&s)["attached"].as_bool().unwrap());

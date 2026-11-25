@@ -25,8 +25,12 @@
 //! L'app peut être connectée à plusieurs comptes, sur plusieurs relais ; un
 //! même ordinateur n'apparaît qu'une fois à l'accueil ([`merge`]).
 //!
+//! Les réglages de chaque ordinateur du compte suivent la personne d'un
+//! appareil à l'autre ([`settings`] : [`fetch_settings`], [`put_settings`]).
+//!
 //! Ce module ne dépend que de `serde`, `ureq`, `kybernow-tunnel` et des
-//! catalogues du cœur ([`crate::i18n`]) : ses essais tournent sans Kyber.
+//! catalogues du cœur ([`crate::i18n`]), et [`settings`] des réglages de
+//! session ([`crate::profile`]) : ses essais tournent sans Kyber.
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -962,6 +966,20 @@ impl StationAccess {
         log::debug!("comptes : jeton d'accès pour {} ({} s)", self.station, lifetime);
         Ok(Cached { token, at: Instant::now(), expires, renew })
     }
+}
+
+// MARK: - Réglages synchronisés
+
+#[path = "account/settings.rs"]
+pub mod settings;
+
+pub use settings::{SyncedSettings, SyncedValues, fetch_settings, put_settings};
+
+/// L'interrupteur des réglages de l'app, section « Comptes » (allumé par
+/// défaut, gardé sur l'appareil) : « Synchroniser les réglages des
+/// ordinateurs » et son aide.
+pub fn sync_settings_texts(lang: Lang) -> (String, String) {
+    (tr(lang, "account.sync_settings", &[]), tr(lang, "account.sync_settings_help", &[]))
 }
 
 /// L'heure de l'appareil, en secondes Unix.

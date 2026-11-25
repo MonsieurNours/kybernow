@@ -289,6 +289,10 @@ export type AppInfo = {
   arch: string
   battery: Battery
   open_at_login: boolean
+  /** « Synchroniser les réglages des ordinateurs » (comptes KyberNow ; allumé par défaut) et ses textes, ceux du cœur. */
+  sync_settings: boolean
+  sync_settings_title: string
+  sync_settings_help: string
 }
 
 /**
@@ -345,6 +349,12 @@ export type Summary = { error: string | null; median_ms: number | null; p95_ms: 
 export type Stats = {
   /** PyroWave : définition ramenée pour tenir dans le débit [largeur, hauteur, Mbit/s] (pas encore donnée par le cœur). */
   lowered?: [number, number, number] | null
+  /**
+   * « Débit visé » sous « Débit » (docs/link-ui.md « Statistiques ») : le débit demandé à l'ordinateur
+   * (Mbit/s, niveau du trait sur la courbe), la ligne et son libellé, textes du cœur. Absent avant l'image
+   * et pour un invité sur l'image de l'hôte.
+   */
+  target?: { mbps: number; text: string; label: string } | null
   latency_ms: number | null
   fps: number
   /** Définition de l'écran principal. */

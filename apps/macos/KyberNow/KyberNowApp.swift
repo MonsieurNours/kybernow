@@ -281,6 +281,14 @@ final class AppModel: ObservableObject {
             watch(host)
             return
         }
+        // Ordinateur du compte : ses réglages synchronisés relus juste avant (1,5 s au plus).
+        if let accounts = store.accounts, accounts.syncsBeforeSession(host), sessions.session(for: host.id) == nil {
+            Task {
+                await accounts.beforeSession(host)
+                openSession(store.host(host.id) ?? host)
+            }
+            return
+        }
         openSession(host)
     }
 

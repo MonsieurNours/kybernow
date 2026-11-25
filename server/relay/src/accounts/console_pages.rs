@@ -10,6 +10,7 @@
 use kybernow_tunnel::access::{Right, Rights};
 
 use super::super::links::{AccessLink, LINK_DAYS, LinkState};
+use super::super::moves::MovePlan;
 use super::super::orgs::{EnrollToken, Group, Invite, Kind, LogLine, Member, Role};
 use super::super::station_groups::StationGroup;
 use super::{Notice, Registration, View, date, esc, field, notice_html, passkey_create_form_with, passkey_get_form_with, passkey_unsupported, pct};
@@ -656,6 +657,8 @@ pub struct PeopleView {
     pub link_open: bool,
     /// Les personnes déjà connues, `(nom, adresse)`, proposées dans « Ajouter une personne ».
     pub known: Vec<(String, String)>,
+    /// « Déplacer… » : les destinations `(valeur, libellé)` (`moi`, `org_…`) ; vide, pas de « Déplacer… ».
+    pub moves: Vec<(String, String)>,
     pub now: i64,
     pub shell: Shell,
 }
@@ -871,6 +874,44 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
             &format!("<a class=\"btn btn-ghost btn-sm\" href=\"#ouvrir\">{}</a>", v.tr("Ouvrir", "Open")),
         ));
     }
+    if !p.moves.is_empty() {
+        on_pc.push_str(&row(
+            &ic("arrow"),
+            &v.tr("Déplacer…", "Move…"),
+            &v.tr("Vers vous, ou vers une famille ou une équipe que vous gérez.", "To you, or to a family or team you manage."),
+            &format!("<a class=\"btn btn-ghost btn-sm\" href=\"#deplacer\">{}</a>", v.tr("Déplacer…", "Move…")),
+        ));
+        let choices: String = p
+            .moves
+            .iter()
+            .enumerate()
+            .map(|(i, (val, label))| {
+                format!("<label class=\"check\"><input type=\"radio\" name=\"vers\" value=\"{}\"{}> {}</label>\n", esc(val), if i == 0 { " checked" } else { "" }, esc(label))
+            })
+            .collect();
+        let inner = format!(
+            "{id}\n<fieldset class=\"field\">\n<legend class=\"mono-label\">{to}</legend>\n{choices}</fieldset>\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"#\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\">{next}</button></div>",
+            id = hidden("id", &p.id),
+            to = v.tr("Vers", "To"),
+            cancel = v.tr("Annuler", "Cancel"),
+            next = v.tr("Voir ce qui change", "See what changes"),
+        );
+        sheets.push_str(&sheet(
+            v,
+            "deplacer",
+            &p.name,
+            &v.tr("Déplacer…", "Move…"),
+            &format!(
+                "<p class=\"ka-muted\">{}</p>\n{}",
+                v.tr(
+                    "Choisissez où le ranger : la page suivante montre ce qui change avant de déplacer.",
+                    "Choose where it goes: the next page shows what changes before moving.",
+                ),
+                v.form("/compte/ordinateur/deplacer", "", &inner)
+            ),
+            false,
+        ));
+    }
     if p.can_detach {
         on_pc.push_str(&row(
             &ic("close"),
@@ -968,6 +1009,100 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
         notice = notice_html(v.lang, notice),
     );
     frame(v, &p.shell, Here::Computers, &p.name, "/compte/ordinateur", &page)
+}
+
+// --- Déplacer un ordinateur ---------------------------------------------------------------
+
+/// « Ce qui change » avant de déplacer un ordinateur.
+#[derive(Debug, Clone)]
+pub struct MoveView {
+    pub id: String,
+    pub name: String,
+    /// La destination : `moi` ou `org_…`, et son nom (« vous », « L'atelier »).
+    pub dest: String,
+    pub dest_name: String,
+    pub plan: MovePlan,
+    pub shell: Shell,
+}
+
+/// Une liste de noms, en mots : « A, B et C ».
+fn names_list(lang: Lang, names: &[String]) -> String {
+    let names: Vec<String> = names.iter().map(|n| esc(n)).collect();
+    match names.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} {} {last}", rest.join(", "), t(lang, "et", "and")),
+    }
+}
+
+/// `POST /compte/ordinateur/deplacer` : « Ce qui change », puis « Déplacer {ordinateur} ».
+pub fn move_preview(v: &View<'_>, m: &MoveView) -> String {
+    let q = v.q();
+    let fr = |s: String| t(v.lang, &s, "");
+    let plan = &m.plan;
+    let item = |icon: &str, html: String| format!("<div class=\"row\">{}<div class=\"ka-row-main\"><b>{html}</b></div></div>\n", ic(icon));
+    let mut items = String::new();
+    if !plan.losing.is_empty() {
+        let list = names_list(v.lang, &plan.losing);
+        items.push_str(&item("close", match v.lang {
+            Lang::Fr => fr(format!("Perdent l'accès : {list}")),
+            Lang::En => format!("Lose access: {list}"),
+        }));
+    }
+    if !plan.station_groups.is_empty() {
+        let list = names_list(v.lang, &plan.station_groups);
+        items.push_str(&item("out", match v.lang {
+            Lang::Fr => fr(format!("Quitte les groupes d'ordinateurs : {list}")),
+            Lang::En => format!("Leaves the computer groups: {list}"),
+        }));
+    }
+    if plan.pending_links > 0 {
+        let n = plan.pending_links;
+        items.push_str(&item("share", match v.lang {
+            Lang::Fr => fr(format!("Liens en attente annulés : {n}")),
+            Lang::En => format!("Pending links cancelled: {n}"),
+        }));
+    }
+    if items.is_empty() {
+        items.push_str(&item("check", v.tr("Personne d'autre ne perd l'accès.", "No one else loses access.")));
+    }
+    let keep = if plan.people.is_empty() {
+        hidden("garder", "1")
+    } else {
+        format!(
+            "<label class=\"check\"><input type=\"checkbox\" name=\"garder\" value=\"1\" checked> {keep}</label>\n<p class=\"hint\">{who}</p>",
+            keep = v.tr("Garder les accès donnés à des personnes", "Keep the access given to people"),
+            who = match v.lang {
+                Lang::Fr => fr(format!("{} : décochée, leur accès part aussi.", names_list(v.lang, &plan.people))),
+                Lang::En => format!("{}: unticked, their access goes too.", names_list(v.lang, &plan.people)),
+            },
+        )
+    };
+    let title = match v.lang {
+        Lang::Fr => fr(format!("Déplacer {}", esc(&m.name))),
+        Lang::En => format!("Move {}", esc(&m.name)),
+    };
+    let to = match v.lang {
+        Lang::Fr => fr(format!("Vers {}. La Station l'apprend comme un rattachement : Admin montre le nouveau propriétaire.", esc(&m.dest_name))),
+        Lang::En => format!("To {}. The Station learns it like an attachment: Admin shows the new owner.", esc(&m.dest_name)),
+    };
+    let q_id = format!("{q}&amp;id={}", esc(&m.id));
+    let inner = format!(
+        "{id}\n{dest}\n{keep}\n<div class=\"ka-sheet-actions\"><a class=\"btn btn-ghost\" href=\"/compte/ordinateur{q_id}\">{cancel}</a><button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"deplacer\">{title}</button></div>",
+        id = hidden("id", &m.id),
+        dest = hidden("vers", &m.dest),
+        cancel = v.tr("Annuler", "Cancel"),
+    );
+    let page = format!(
+        "<nav class=\"ka-crumbs\"><a href=\"/compte/ordinateurs{q}\">{computers}</a><span>/</span><a href=\"/compte/ordinateur{q}&amp;id={id}\">{name}</a><span>/</span><span>{moving}</span></nav>\n{head}<section class=\"ka-section\">\n<div class=\"ka-list\">\n{items}</div>\n</section>\n<section class=\"ka-section\">\n{form}\n</section>\n",
+        computers = v.tr("Ordinateurs", "Computers"),
+        id = esc(&m.id),
+        name = esc(&m.name),
+        moving = v.tr("Déplacer…", "Move…"),
+        head = head(&title, &v.tr("Ce qui change", "What changes"), &to, ""),
+        form = v.form("/compte/ordinateur/deplacer", "", &inner),
+    );
+    frame(v, &m.shell, Here::Computers, &v.tr("Ce qui change", "What changes"), "/compte/ordinateurs", &page)
 }
 
 // --- Personnes -------------------------------------------------------------------------
@@ -2435,6 +2570,8 @@ pub fn log_text(lang: Lang, l: &LogLine) -> String {
         ("groupe_ordinateurs_ouvert", Lang::En) => format!("{who} gave {} to {} on the computer group {}", rights(), d("to"), d("group")),
         ("groupe_ordinateurs_ferme", Lang::Fr) => fr(format!("{who} a retiré l'accès de {} au groupe d'ordinateurs {}", d("to"), d("group"))),
         ("groupe_ordinateurs_ferme", Lang::En) => format!("{who} removed {}'s access to the computer group {}", d("to"), d("group")),
+        ("ordinateur_deplace", Lang::Fr) => fr(format!("{who} a déplacé {} de {} vers {}", d("station"), d("from"), d("to"))),
+        ("ordinateur_deplace", Lang::En) => format!("{who} moved {} from {} to {}", d("station"), d("from"), d("to")),
         (kind, _) => kind.to_string(),
     }
 }
@@ -2556,7 +2693,21 @@ pub(super) mod tests {
             link_form: (Rights::new([Right::Session]), 7, String::new()),
             link_open: false,
             known: vec![("Léa Martin".into(), "lea@exemple.fr".into()), (String::new(), "sam@exemple.fr".into())],
+            moves: vec![("org_abc".into(), "Les Lignes Claires".into()), ("org_fam".into(), "Famille Martin".into())],
             now: 1_700_000_000,
+            shell: shell(),
+        };
+        let move_view = MoveView {
+            id: "st1".into(),
+            name: "PC du <salon>".into(),
+            dest: "org_abc".into(),
+            dest_name: "Les Lignes Claires".into(),
+            plan: MovePlan {
+                losing: vec!["Famille Martin".into(), "Les Lignes Claires › Graphistes".into()],
+                station_groups: vec!["Postes de l'atelier".into()],
+                pending_links: 2,
+                people: vec!["Léa".into(), "sam@exemple.fr".into()],
+            },
             shell: shell(),
         };
         let member = |id: i64, role: Role| Member {
@@ -2609,6 +2760,7 @@ pub(super) mod tests {
             "groupe_ordinateurs_retire",
             "groupe_ordinateurs_ouvert",
             "groupe_ordinateurs_ferme",
+            "ordinateur_deplace",
         ];
         let org_view = |tab: Tab, role: Role, manage: bool| OrgView {
             id: "org_abc".into(),
@@ -2723,6 +2875,10 @@ pub(super) mod tests {
             ("personnes/deja", people(v, &people_view, Some(Notice::AccessUpdated("Léa <b>".into())))),
             ("personnes/renvoyee", people(v, &people_view, Some(Notice::InviteResent("sam@exemple.fr".into())))),
             ("personnes/renvoi-trop-tot", people(v, &people_view, Some(Notice::ResentTooSoon))),
+            ("personnes/deplace", people(v, &people_view, Some(Notice::Moved("PC du <salon>".into(), "Les Lignes Claires".into())))),
+            ("personnes/deplacer-refus", people(v, &people_view, Some(Notice::NotManager("Famille <Martin>".into())))),
+            ("deplacer", move_preview(v, &move_view)),
+            ("deplacer/rien", move_preview(v, &MoveView { dest: "moi".into(), dest_name: t(v.lang, "vous", "you"), plan: MovePlan::default(), ..move_view.clone() })),
             ("personnes/lien-cree", people(v, &PeopleView { new_link: Some("https://share.test/compte/lien/kla_abcdefghijklmnopqrstuvwxyz234567".into()), ..people_view.clone() }, None)),
             ("personnes/lien-trop", people(v, &PeopleView { link_open: true, link_form: (Rights::new([Right::View]), 30, "2026-12-31".into()), ..people_view.clone() }, Some(Notice::TooManyLinks))),
             ("lien/connexion", link_sign_in(v, "/compte/lien/kla_x", "Ana <b>", "PC du <salon>")),

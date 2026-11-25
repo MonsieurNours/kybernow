@@ -14,15 +14,21 @@
 //!   une session s'ouvre avec `account` dans le JSON de `kn_session_start`
 //!   (`{"account": <compte>, "station": "<identifiant>"}`).
 //!
+//! - réglages synchronisés : `kn_account_settings_fetch`,
+//!   `kn_account_settings_put`, `kn_account_settings_known`,
+//!   `kn_account_settings_from_stream`, `kn_account_settings_apply`
+//!   (apps/core/README.md, « Réglages synchronisés »).
+//!
 //! Refus : `KN_ACCOUNT_*` (`AccountError::code` du cœur), le texte à montrer
 //! dans `error` ; `KN_ERROR` pour un JSON illisible. Appels bloquants : hors
 //! du fil principal.
 
 use std::ffi::c_char;
 
-use kybernow_core::account::{self, AccessParams, Account, AccountComputer, AccountError, Paired, SignIn, TvCode, TvPoll};
+use kybernow_core::account::{self, AccessParams, Account, AccountComputer, AccountError, Paired, SignIn, SyncedSettings, SyncedValues, TvCode, TvPoll};
 use kybernow_core::console::Console;
 use kybernow_core::i18n;
+use kybernow_core::profile::{Capabilities, StreamSettings};
 use kybernow_core::relay::RelayRoute;
 
 use crate::{KN_ERROR, KN_OK, KnConsole, give, give_to, optional, text};
@@ -256,6 +262,104 @@ pub unsafe extern "C" fn kn_console_new_account(
     let access = account::StationAccess::new(params);
     let console = Console::account(&text(host), port, access, optional(pinned)).with_relay(route);
     Box::into_raw(Box::new(KnConsole(console)))
+}
+
+// MARK: - Réglages synchronisés
+
+/// Les réglages synchronisés de tous les ordinateurs du compte (docs/comptes.md,
+/// « Réglages synchronisés ») : `out` `[{station, updated_at, values}]`, à
+/// garder avec le compte (le dernier connu de chaque ordinateur sert à
+/// `kn_account_settings_put`). `KN_ACCOUNT_SIGNED_OUT` : oublier le compte ;
+/// `KN_ACCOUNT_NO_ACCOUNTS` : relais sans réglages synchronisés, garder les
+/// réglages locaux sans rien dire. Bloquant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_settings_fetch(account_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let a: Account = match parse(account_json, error) {
+        Ok(a) => a,
+        Err(c) => return c,
+    };
+    answer(account::fetch_settings(&a), out, error)
+}
+
+/// Envoie les réglages d'un ordinateur : `values_json` les clés changées
+/// (`{profile, codec, yuv444, mbps, hdr, immersive}`, toutes facultatives ;
+/// `"profile": null` : personnalisé), posées sur `last_json` (le dernier
+/// `{station, updated_at, values}` connu de cet ordinateur, nul s'il n'y en a
+/// pas : les clés que l'app ne connaît pas y restent). `out` : le nouveau
+/// `{station, updated_at, values}` à garder à la place. `KN_ACCOUNT_UNKNOWN_COMPUTER` :
+/// l'ordinateur n'est plus au compte, oublier ses réglages gardés. Bloquant.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_settings_put(
+    account_json: *const c_char,
+    station: *const c_char,
+    last_json: *const c_char,
+    values_json: *const c_char,
+    out: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    let a: Account = match parse(account_json, error) {
+        Ok(a) => a,
+        Err(c) => return c,
+    };
+    let values: SyncedValues = match parse(values_json, error) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    let last = optional(last_json).and_then(|l| serde_json::from_str::<SyncedSettings>(&l).ok());
+    answer(account::put_settings(&a, &text(station), last.as_ref(), &values), out, error)
+}
+
+/// Les clés connues d'un `{station, updated_at, values}`, vérifiées :
+/// `{profile, codec, yuv444, mbps, hdr, immersive}`, une clé absente ou
+/// illisible omise, `"profile": null` pour personnalisé. Nul pour un JSON
+/// illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_settings_known(synced_json: *const c_char) -> *mut c_char {
+    match serde_json::from_str::<SyncedSettings>(&text(synced_json)) {
+        Ok(s) => give(serde_json::to_string(&s.known()).unwrap_or_default()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Les clés à envoyer d'après les réglages de session de l'app pour cet
+/// ordinateur (`settings_json`, le JSON de `settings` de
+/// `kn_session_start`) et son mode immersif (`fullscreen`, `always`,
+/// `never` ; nul : pas envoyé). Nul pour un JSON illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_settings_from_stream(settings_json: *const c_char, immersive: *const c_char) -> *mut c_char {
+    match StreamSettings::from_json(&text(settings_json)) {
+        Ok(s) => give(serde_json::to_string(&SyncedValues::from_stream(&s).with_immersive(optional(immersive).as_deref())).unwrap_or_default()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Les réglages de session de l'app (`base_json`, comme `settings` de
+/// `kn_session_start`) avec les clés synchronisées (`values_json`, de
+/// `kn_account_settings_known`), ramenés à ce que l'appareil décode
+/// (`caps_json`, `{hevc, hevc444, av1, hdr, pyrowave}`) : un profil prend
+/// ses réglages sur cet appareil ; personnalisé, le format s'il se décode,
+/// le 4:4:4 s'il existe, le débit ; le HDR tel quel. Rend le même JSON que
+/// `base_json` ; nul pour un JSON illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_account_settings_apply(values_json: *const c_char, base_json: *const c_char, caps_json: *const c_char) -> *mut c_char {
+    let Ok(values) = serde_json::from_str::<SyncedValues>(&text(values_json)) else { return std::ptr::null_mut() };
+    let Ok(base) = StreamSettings::from_json(&text(base_json)) else { return std::ptr::null_mut() };
+    let caps = serde_json::from_str::<Capabilities>(&text(caps_json)).unwrap_or_default();
+    give(values.apply_to(&base, caps).to_json().to_string())
+}
+
+/// « Synchroniser les réglages des ordinateurs » (réglages de l'app, section
+/// « Comptes » ; allumé par défaut, gardé sur l'appareil).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_account_sync_settings_title() -> *mut c_char {
+    give(account::sync_settings_texts(i18n::current()).0)
+}
+
+/// L'aide de l'interrupteur : « Le profil, le format, le débit, le HDR et le
+/// mode immersif de chaque ordinateur vous suivent sur vos appareils. »
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_account_sync_settings_help() -> *mut c_char {
+    give(account::sync_settings_texts(i18n::current()).1)
 }
 
 #[cfg(test)]

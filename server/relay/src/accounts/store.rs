@@ -118,6 +118,9 @@ const MIGRATIONS: &[&str] = &[
     // 8 : l'envoi des invitations, qui expirent après 30 jours (docs/comptes.md, « Invitations, ajout de
     // membres et sessions »), voir `super::people`.
     super::people::INVITES_MIGRATION,
+    // 9 : les réglages synchronisés, par compte et par ordinateur (docs/comptes.md, « Réglages synchronisés et
+    // déplacer un ordinateur »), voir `super::settings`.
+    super::settings::MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -725,6 +728,12 @@ impl Store {
             "opened_to_me": opened,
             "organizations": orgs,
             "devices": devices,
+            // Migration 9 : les réglages synchronisés, par ordinateur.
+            "synced_settings": self
+                .settings_of(account)?
+                .into_iter()
+                .map(|s| json!({ "station": s.station, "values": s.values, "updated_at": iso(s.updated_at) }))
+                .collect::<Vec<_>>(),
             "audit": audit,
         })))
     }
@@ -740,6 +749,8 @@ impl Store {
         tx.execute("DELETE FROM grants WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
         // Migration 7 : les liens d'accès de ses Stations.
         tx.execute("DELETE FROM access_links WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
+        // Migration 9 : les réglages des autres comptes sur ses Stations (les siens partent avec le compte).
+        tx.execute("DELETE FROM computer_settings WHERE station IN (SELECT id FROM stations WHERE account = ?1)", [account])?;
         super::orgs::before_account_deleted(&tx, account)?;
         let n = tx.execute("DELETE FROM accounts WHERE id = ?1", [account])?;
         tx.commit()?;
@@ -789,6 +800,8 @@ impl Store {
         // Migration 7 : les liens d'accès fermés depuis un moment, les droits échus des groupes d'ordinateurs.
         self.sweep_links(now)?;
         self.conn.execute("DELETE FROM group_grants WHERE expires_at IS NOT NULL AND expires_at <= ?1", [now - AUDIT_IP_SECS])?;
+        // Migration 9 : les réglages synchronisés des ordinateurs détachés ou qui ne sont plus ouverts au compte.
+        self.sweep_settings(now)?;
         Ok(())
     }
 }

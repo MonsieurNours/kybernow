@@ -464,6 +464,7 @@ impl Accounts {
             ("/compte/ordinateur/ouvrir", true) => console::open_to(cx),
             ("/compte/ordinateur/retirer", true) => console::remove(cx),
             ("/compte/ordinateur/renvoyer", true) => console::resend(cx),
+            ("/compte/ordinateur/deplacer", true) => move_pages::deplacer(cx),
             // Liens d'accès et groupes d'ordinateurs (docs/comptes.md, « Regarder, liens d'accès et groupes d'ordinateurs »).
             ("/compte/ordinateur/liens/creer", true) => link_pages::create(cx),
             ("/compte/ordinateur/liens/revoquer", true) => link_pages::revoke(cx),
@@ -1086,6 +1087,7 @@ mod attach_pages;
 mod console;
 mod device_pages;
 mod link_pages;
+mod move_pages;
 mod org_pages;
 // Lot 1b : des modules enfants, pour se servir du contexte ([`Cx`]).
 #[path = "passkeys.rs"]

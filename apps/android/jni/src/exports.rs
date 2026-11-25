@@ -456,6 +456,25 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionHdrU
     jbool(handle(h).is_some_and(|h| h.session.hdr_used()))
 }
 
+/// La ligne « Débit visé » des Statistiques (valeurs 22 à 24 de `onSecond` :
+/// débit demandé et du profil en bit/s, raison), dans la langue de l'app ;
+/// `null` pour une raison inconnue.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_targetBitrateText(mut env: Env, _: JClass, bitrate: jlong, profile: jlong, reason: jint) -> jstring {
+    use kybernow_core::adaptive::{TargetBitrate, TargetReason};
+    let clamp = |v: jlong| v.clamp(0, u32::MAX as jlong) as u32;
+    match TargetReason::from_code(reason.max(0) as u32) {
+        Some(reason) => give(&mut env, &TargetBitrate { bitrate: clamp(bitrate), profile: clamp(profile), reason }.text(i18n::current())),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Le libellé de la ligne : « Débit visé » / “Target bitrate”.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_targetBitrateLabel(mut env: Env, _: JClass) -> jstring {
+    give(&mut env, &kybernow_core::adaptive::TargetBitrate::label(i18n::current()))
+}
+
 /// La puce « HDR » de l'accueil, la ligne de Réglages › Image et celle de la
 /// barre (`profile::hdr_state`) : `{"shown", "available", "reason", "kind"}`
 /// (`reason` : le texte de link-ui dans la langue de l'app). `info_json` :

@@ -25,8 +25,27 @@ public struct LatencySecond: Sendable {
     public var bytes = 0
     /// PyroWave : la définition ramenée en place (`KnSecond.lowered`), nil sinon.
     public var lowered: LoweredMode?
+    /// Débit visé de la seconde (`KnSecond.has_target`), nil sans.
+    public var target: TargetBitrate?
 
     public init() {}
+}
+
+/// Débit visé (Statistiques, ligne « Débit visé » sous « Débit » et trait
+/// sur la courbe du débit ; docs/link-ui.md) : ce que la session demande à
+/// l'ordinateur, le débit du profil (ou réglé à la main), en bit/s, et la
+/// raison (`KN_TARGET_*`). Le texte vient du cœur (`text`, `label`).
+public struct TargetBitrate: Sendable, Equatable {
+    public var bitrate: UInt32
+    public var profile: UInt32
+    public var reason: UInt32
+
+    public init(bitrate: UInt32, profile: UInt32, reason: UInt32) {
+        (self.bitrate, self.profile, self.reason) = (bitrate, profile, reason)
+    }
+
+    /// Le débit visé en Mbit/s (le trait de la courbe).
+    public var mbps: Double { Double(bitrate) / 1_000_000 }
 }
 
 /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : la définition que le

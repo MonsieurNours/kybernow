@@ -49,7 +49,14 @@
     return { pts, y: (v: number) => 38 - (v / top) * 36 }
   }
   const latency = $derived(curve(seconds.map((s) => s.latency_ms), budget * 1.6))
-  const bitrate = $derived(curve(seconds.map((s) => s.mbps ?? 0), 10))
+  /** Le débit et, en trait, le débit visé (seconde par seconde, même échelle). */
+  const bitrate = $derived(curve(seconds.map((s) => s.mbps ?? 0), Math.max(10, ...seconds.map((s) => s.target?.mbps ?? 0))))
+  const targetPts = $derived(
+    seconds
+      .map((s, i) => (s.target ? `${seconds.length > 1 ? (i / (seconds.length - 1)) * 352 : 0},${bitrate.y(s.target.mbps)}` : null))
+      .filter(Boolean)
+      .join(' '),
+  )
 
   const codec = $derived(stats?.decoder ?? '')
   /**
@@ -111,8 +118,10 @@
       <div class="curve">
         <div class="ctitle"><span>{t('stats.bitrate')}</span><span class="mono">{mbps(stats.mbps ?? 0)}</span></div>
         <svg viewBox="0 0 352 40" preserveAspectRatio="none" aria-hidden="true">
+          {#if targetPts}<polyline points={targetPts} class="target" />{/if}
           <polyline points={bitrate.pts} class="line" />
         </svg>
+        {#if stats.target}<div class="tline"><span>{stats.target.label}</span><span class="mono">{stats.target.text}</span></div>{/if}
       </div>
     </div>
     <hr />
@@ -284,6 +293,29 @@
     stroke: rgb(255 255 255 / 0.25);
     stroke-dasharray: 2 3;
     vector-effect: non-scaling-stroke;
+  }
+
+  /* Débit visé : un trait plus clair que la courbe, en tirets. */
+  .target {
+    fill: none;
+    stroke: rgb(201 193 255 / 0.55);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .tline {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .tline .mono {
+    font-size: 10.5px;
+    color: var(--text);
+    text-align: right;
   }
 
   .glabel {

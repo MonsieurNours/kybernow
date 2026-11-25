@@ -45,9 +45,13 @@ The app sends the new bitrate through Kyber's `/set_bitrate`, which hands it to 
 
 Without this patch (older Station), automatic bitrate still works, but each change costs a keyframe on NVENC and has no effect on the Mac Station.
 
+## In the statistics: the target bitrate
+
+Every second, the core gives the apps the bitrate it asks of the computer and what sets it (`Second::target`, `adaptive::TargetBitrate`); the statistics show it under “Bitrate” (“Target bitrate” line and a line on the graph, [link-ui.en.md](link-ui.en.md)). When several things apply, the one that sets the value is told, in the order the session applies them: the app's cap (“20 Mbit/s · window hidden”), then the fallback (“15 Mbit/s · lightened stream”), then automatic bitrate (“42 / 60 Mbit/s · lowered, network saturated”); otherwise the kind of setting: “320 Mbit/s · PyroWave, Auto paused”, “80 Mbit/s · set by hand”, “60 Mbit/s · Auto”. A cap above the bitrate sets nothing. API and bridges: [apps/core/README.en.md](../apps/core/README.en.md#target-bitrate-in-the-statistics-srcadaptivers-srcsessionrs-srclatencyrs).
+
 ## Not done
 
-- Nothing shown in the apps: the current bitrate doesn't appear in the statistics yet, and nothing warns of a link that is too weak.
+- Nothing warns of a link that is too weak. The target bitrate is given to the apps every second (below), but not shown in their statistics yet.
 - No lower resolution or frame rate: only the bitrate moves.
 - Error correction keeps its fixed 30 % share.
 - The browser's web client keeps its fixed bitrate, and doesn't show the “The network is saturated” banner with PyroWave.
@@ -55,4 +59,4 @@ Without this patch (older Station), automatic bitrate still works, but each chan
 
 ## Tests
 
-`cargo test -p kybernow-core adaptive` (the logic: clean home network, growing queue, isolated Wi-Fi spike, heavy losses, still desktop, floor, climbing back, careful climb, no picture, new path, holes) and `… debit_automatique` (the session: profile only, paused under an app cap, bitrate set by hand untouched). The FFmpeg patch is built for the Mac (VideoToolbox) and for Windows (NVENC, cross-compiled), not yet tried on a Station.
+`cargo test -p kybernow-core adaptive` (the logic: clean home network, growing queue, isolated Wi-Fi spike, heavy losses, still desktop, floor, climbing back, careful climb, no picture, new path, holes) and `… debit_automatique` (the session: profile only, paused under an app cap, bitrate set by hand untouched, target bitrate and its reason), `… debit_vise` (reasons, precedence, texts). The FFmpeg patch is built for the Mac (VideoToolbox) and for Windows (NVENC, cross-compiled), not yet tried on a Station.

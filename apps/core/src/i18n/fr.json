@@ -156,6 +156,17 @@
     "origin_account": "Compte",
     "origin_account_relay": "Compte · {relay}",
     "origin_shared": "Ouvert par {name}",
-    "origin_paired": "Appairé"
+    "origin_paired": "Appairé",
+    "sync_settings": "Synchroniser les réglages des ordinateurs",
+    "sync_settings_help": "Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils."
+  },
+  "bitrate": {
+    "target_label": "Débit visé",
+    "target_lowered": "{target} / {profile} Mbit/s · baissé, réseau saturé",
+    "target_auto": "{target} Mbit/s · Auto",
+    "target_manual": "{target} Mbit/s · réglé à la main",
+    "target_pyrowave": "{target} Mbit/s · PyroWave, Auto en pause",
+    "target_capped": "{target} Mbit/s · fenêtre cachée",
+    "target_fallback": "{target} Mbit/s · flux allégé"
   }
 }

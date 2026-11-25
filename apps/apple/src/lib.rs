@@ -659,6 +659,46 @@ pub struct KnSecond {
     pub lowered_height: u32,
     pub lowered_refresh: u32,
     pub lowered_mbps: u32,
+    /// Débit visé (Statistiques, ligne « Débit visé » et trait sur la courbe
+    /// du débit ; docs/link-ui.md) : `target_bitrate` demandé à l'ordinateur
+    /// et `target_profile` du profil (ou réglé à la main), en bit/s ;
+    /// `target_reason` : `KN_TARGET_*`. Texte : `kn_target_bitrate_text`.
+    /// Faux avant l'image ou pour un invité sur l'image de l'hôte.
+    pub has_target: bool,
+    pub target_bitrate: u32,
+    pub target_profile: u32,
+    pub target_reason: u32,
+}
+
+/// Débit visé : un profil, au débit du profil (« 60 Mbit/s · Auto »).
+pub const KN_TARGET_AUTO: u32 = 0;
+/// Baissé par le débit automatique (« 42 / 60 Mbit/s · baissé, réseau saturé »).
+pub const KN_TARGET_LOWERED: u32 = 1;
+/// Réglé à la main (« 80 Mbit/s · réglé à la main »).
+pub const KN_TARGET_MANUAL: u32 = 2;
+/// PyroWave, débit automatique en pause (« 320 Mbit/s · PyroWave, Auto en pause »).
+pub const KN_TARGET_PYROWAVE_PAUSED: u32 = 3;
+/// Plafonné par l'app, `kn_session_set_bitrate_cap` (« 20 Mbit/s · fenêtre cachée »).
+pub const KN_TARGET_APP_CAPPED: u32 = 4;
+/// Flux allégé après un repli (« 15 Mbit/s · flux allégé »).
+pub const KN_TARGET_FALLBACK: u32 = 5;
+
+/// La ligne « Débit visé » des Statistiques, dans la langue de l'app, pour
+/// `target_bitrate`, `target_profile` et `target_reason` de `KnSecond`. Nul
+/// pour une raison inconnue. À libérer par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_target_bitrate_text(bitrate: u32, profile: u32, reason: u32) -> *mut c_char {
+    match kybernow_core::adaptive::TargetReason::from_code(reason) {
+        Some(reason) => give(kybernow_core::adaptive::TargetBitrate { bitrate, profile, reason }.text(i18n::current())),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Le libellé de la ligne : « Débit visé » / “Target bitrate”. À libérer
+/// par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_target_bitrate_label() -> *mut c_char {
+    give(kybernow_core::adaptive::TargetBitrate::label(i18n::current()))
 }
 
 impl From<&Second> for KnSecond {
@@ -684,6 +724,10 @@ impl From<&Second> for KnSecond {
             lowered_height: s.lowered.map_or(0, |l| l.height),
             lowered_refresh: s.lowered.map_or(0, |l| l.refresh),
             lowered_mbps: s.lowered.map_or(0, |l| l.mbps),
+            has_target: s.target.is_some(),
+            target_bitrate: s.target.map_or(0, |t| t.bitrate),
+            target_profile: s.target.map_or(0, |t| t.profile),
+            target_reason: s.target.map_or(0, |t| t.reason.code()),
         }
     }
 }

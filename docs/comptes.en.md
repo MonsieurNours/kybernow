@@ -345,6 +345,7 @@ Done on the relay side (console, API, database) and on the Admin side; the apps 
 | `GET/POST /compte/lien/kla_…` | “{name} opens {computer} to you”: signed out, “Sign in” and “Create an account” (then back here); signed in, the rights, the end date and “Accept” (the POST); the refusals |
 | `POST /compte/organisation/groupes-ordinateurs/creer`, `/supprimer`, `/ordinateur`, `/ouvrir`, `/retirer` | “Computers” tab (Owners and Administrators; `#groupe-ordinateurs`, `#ordinateurs-<n>`, `#supprimer-ordinateurs-<n>` panels): `nom`; `groupe`; `groupe`, `ordinateur`, `action` (`ajouter`, `retirer`); `groupe`, `a` (`org`, `grp:<n>`, `compte:<n>`), rights, `fin`; `groupe`, `acces` |
 | `GET/POST /compte/ouvrir-admin` | “Open Admin of {computer}?” (`station`, `nonce`, `retour`) |
+| `POST /compte/ordinateur/deplacer` | “Move…”: `id`, `vers` (`moi`, `org_…`) → “What changes”; `action=deplacer`, `garder` (`1`) → the move (see “Synced settings and moving a computer (migration 9)”) |
 
 The console bar (“Computers”, each organization, “Account”) is also at the top of `/compte`. Detaching from “People” goes back to “Computers”.
 
@@ -363,6 +364,22 @@ The console bar (“Computers”, each organization, “Account”) is also at t
 - Migration 8: `grants.sent_at`, `grants.resent_at`, `org_invites.sent_at`, `org_invites.resent_at` (sending invitations). Invitations already pending get the migration's time: a full 30 days from the relay's update, rather than a sudden expiry of those sent more than a month ago.
 - Migration 7: `access_links` (Station, hash, start of the link, rights, `link_expires_at`, `access_expires_at`, `created_by`, `created_at`, `used_by`, `used_at`, `revoked_at`); `station_groups` (organization, name unique within the organization), `station_group_members` (group, Station); `group_grants` (computer group, and `account`, `org` or `grp`, rights, end date, `invited_by`): a separate table, `grants` stays “the rights given on a Station”; `enroll_tokens.sgroup` (“File in the group”). No foreign key to `stations` (like `grants`): detaching or attaching to another owner erases the Station's rows.
 - Code: `server/relay/src/accounts/people.rs` (given rights, an account's rights, invitations and their sending, migration 8, suggestions), `orgs.rs` (organizations, log, tokens, `enroll`), `links.rs` (access links, migration 7), `station_groups.rs` (computer groups), `console_pages.rs` (pages), `web/console.rs`, `web/org_pages.rs` (and computer groups), `web/link_pages.rs` (access links), `web/admin_login.rs`; tests: `web/tests/lot6.rs`, `web/tests/invitations.rs`; Admin: `accounts.rs` (sign in with KyberNow, enrollment), `lend_api.rs` (lending with an account); interface: `server/web/src/pages/Login.svelte`.
+
+### Synced settings and moving a computer (migration 9)
+
+Done on the relay side on 11/25/2026 (the core and the apps read and write the settings on their side).
+
+- **Database**: migration 9, `computer_settings` (`account` → `accounts` with `ON DELETE CASCADE`, `station`, `"values"`: the JSON as sent, `updated_at`; key `(account, station)`, index on `station`). No foreign key to `stations`, like `grants`.
+- **Device API** (device session, `Authorization: Bearer …`, like `/v1/computers`):
+  - `GET /v1/settings` → `200 {"settings":[{"station":"<id>","updated_at":<unix>,"values":{…}}]}`, only the computers the account has rights on at that moment (those of `/v1/computers`); the other rows are deleted on that read.
+  - `PUT /v1/settings/<station>` `{"values":{…}}` → `200 {"updated_at":<unix>}`; the last one wins; values are kept as given (an unknown key stays, for newer apps). `404 {"error":"unknown_station"}` without a right (or an unreadable id), `400 {"error":"bad_values"}` if `values` isn't an object, `413 {"error":"too_large"}` above 4096 bytes once serialized, `401 bad_session` without a session, `405` for another method.
+  - Known keys: `profile` (text, or `null` for Auto), `codec` (text), `yuv444` (boolean), `mbps` (number), `hdr` (boolean), `immersive` (`"fullscreen"`, `"always"`, `"never"`).
+- **Cleanup**: with the account (foreign key; and other accounts' rows on its computers, or on those of a family or team that goes with it); all rows of a computer detached (console or Admin) or attached to another owner; after a move, those of the accounts that no longer have rights on it; on read (`GET`) and at the relay's periodic cleanup (every 30 s), those of a computer the account no longer sees. The data export carries them (`synced_settings`).
+- **Moving**: `POST /compte/ordinateur/deplacer` (`id`, `vers` = `moi` or `org_…`) renders “What changes”; with `action=deplacer` (and `garder=1`, the box) it moves. The `#deplacer` panel of a computer's page picks the destination: “Me” (unless it's already yours) and the families and teams one is Owner or Administrator of, except the current owner. “Move…” is offered to its owner and to the Owners and Administrators of its family or team (not to someone who only has the Administer right); without two-factor authentication, the refusal says so. On Admin's side (`accounts::on_attached`), an unrequested `attached` is taken when the relay is the same and its keys are the ones already pinned: only the displayed owner changes.
+- **What goes** (one transaction, `moves.rs`): rights given to families, teams or groups, **except those given to the destination or one of its groups** (they still make sense there); its computer groups (and the access that came from them); pending links (revoked, they stay in the list); rights given to people and invitations if the box is unchecked; the right given to the new owner (a person), who now has everything; the devices' first visits (the new owner is told about each device, as after an attachment). `enrolled_by` is cleared. The preview is computed from the same data.
+- **Logs**: `ordinateur_deplace {station, from, to}` in the log of the old and the new family or team; `ordinateur_deplace` in the account log of whoever moves (the person on one side is them).
+- **The Station**: the relay sends it `attached` (without `req`) with the new `owner`, as after “Attach”. **To do in Admin**: today `on_attached` ignores an unrequested `attached` whose owner changes (only the same owner's keys and names follow); for Admin to show the new owner, it must accept it when the relay is the same and the keys are those already pinned. The access token doesn't depend on the owner: access works without this change.
+- **Code**: `server/relay/src/accounts/settings.rs` (migration 9, API), `moves.rs` (preview, move), `web/move_pages.rs`, `console_pages.rs` (`move_preview`, `#deplacer` panel); tests: `web/tests/deplacer.rs`.
 
 ### Installers
 
@@ -419,6 +436,7 @@ Gaps of this step:
 | Given rights (person or invited address, rights, end date) | Added people | Until removed or detached; an expired invitation goes after 7 days |
 | Organizations, members, invitations, groups, rights | Fleet | Lifetime of the organization |
 | Enrollment tokens (hash, start, number) | Deploying a fleet | Lifetime of the organization |
+| Synced settings (per account and per computer, 4 KB at most) | Settings that follow the person | As long as the account has rights on the computer |
 | Log (accesses, changes; organization log) | Security, fleet | 12 months (IP addresses: 7 days) |
 | IP addresses | Security, limits | A few days (logs), as today |
 

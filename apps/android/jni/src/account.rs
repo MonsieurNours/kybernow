@@ -16,13 +16,18 @@
 //! refusé, 75 annulé, 76 trop d'essais, 77 relais sans comptes, 78 adresse du
 //! relais illisible, 79 relais muet, 80 le reste ; 1 : JSON illisible.
 //! Appels bloquants : hors du fil principal.
+//!
+//! Réglages synchronisés : `accountSettingsFetch`, `accountSettingsPut`,
+//! `accountSettingsKnown`, `accountSettingsFromStream`,
+//! `accountSettingsApply`, `accountSyncSettingsTexts`.
 
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 
-use kybernow_core::account::{self, AccessParams, Account, AccountComputer, AccountError, Paired, SignIn, TvCode, TvPoll};
+use kybernow_core::account::{self, AccessParams, Account, AccountComputer, AccountError, Paired, SignIn, SyncedSettings, SyncedValues, TvCode, TvPoll};
 use kybernow_core::console::Console;
 use kybernow_core::i18n;
+use kybernow_core::profile::{Capabilities, StreamSettings};
 use kybernow_core::relay::RelayRoute;
 
 use crate::exports::{give, optional, string, Env};
@@ -214,4 +219,86 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleNewA
     let Ok(params) = serde_json::from_str::<AccessParams>(&access) else { return 0 };
     let console = Console::account(&host, port as u16, account::StationAccess::new(params), pinned).with_relay(route);
     Box::into_raw(Box::new(console)) as jlong
+}
+
+// MARK: - Réglages synchronisés (apps/core/README.md, « Réglages synchronisés »)
+
+/// Les réglages synchronisés de tous les ordinateurs du compte : `value`
+/// `[{station, updated_at, values}]`, à garder avec le compte. 70 : oublier le
+/// compte ; 77 : relais sans réglages synchronisés, garder les réglages
+/// locaux sans rien dire. Bloquant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSettingsFetch(mut env: Env, _: JClass, account_json: JString) -> jstring {
+    let a = string(&mut env, &account_json);
+    let s = with::<Account>(&a, |a| envelope(account::fetch_settings(&a)));
+    give(&mut env, &s)
+}
+
+/// Envoie les réglages d'un ordinateur : `values` les clés changées
+/// (`{profile, codec, yuv444, mbps, hdr, immersive}`, facultatives ;
+/// `"profile": null` : personnalisé), posées sur `last` (le dernier
+/// `{station, updated_at, values}` connu, `null` sinon). `value` : le nouveau
+/// `{station, updated_at, values}` à garder. 71 : l'ordinateur n'est plus au
+/// compte, oublier ses réglages. Bloquant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSettingsPut(
+    mut env: Env,
+    _: JClass,
+    account_json: JString,
+    station: JString,
+    last: JString,
+    values: JString,
+) -> jstring {
+    let (a, station, values) = (string(&mut env, &account_json), string(&mut env, &station), string(&mut env, &values));
+    let last = optional(&mut env, &last).and_then(|l| serde_json::from_str::<SyncedSettings>(&l).ok());
+    let s = with::<Account>(&a, |a| with::<SyncedValues>(&values, |v| envelope(account::put_settings(&a, &station, last.as_ref(), &v))));
+    give(&mut env, &s)
+}
+
+/// Les clés connues d'un `{station, updated_at, values}`, vérifiées : `value`
+/// `{profile, codec, yuv444, mbps, hdr, immersive}` (absentes omises,
+/// `"profile": null` pour personnalisé).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSettingsKnown(mut env: Env, _: JClass, synced: JString) -> jstring {
+    let synced = string(&mut env, &synced);
+    let s = with::<SyncedSettings>(&synced, |s| envelope::<_>(Ok(s.known())));
+    give(&mut env, &s)
+}
+
+/// Les clés à envoyer d'après les réglages de session de l'app (`settings`,
+/// le JSON de `sessionStart`) et son mode immersif (`fullscreen`, `always`,
+/// `never` ; `null` : pas envoyé) : `value` `{profile, codec, yuv444, mbps,
+/// hdr, immersive}`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSettingsFromStream(mut env: Env, _: JClass, settings: JString, immersive: JString) -> jstring {
+    let (settings, immersive) = (string(&mut env, &settings), optional(&mut env, &immersive));
+    let s = match StreamSettings::from_json(&settings) {
+        Ok(st) => envelope::<_>(Ok(SyncedValues::from_stream(&st).with_immersive(immersive.as_deref()))),
+        Err(e) => bad(e),
+    };
+    give(&mut env, &s)
+}
+
+/// Les réglages de session de l'app (`base`, comme `settings` de
+/// `sessionStart`) avec les clés synchronisées (`values`), ramenés à ce que
+/// l'appareil décode (`caps`, `{hevc, hevc444, av1, hdr, pyrowave}`) : `value`,
+/// le même JSON que `base`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSettingsApply(mut env: Env, _: JClass, values: JString, base: JString, caps: JString) -> jstring {
+    let (values, base, caps) = (string(&mut env, &values), string(&mut env, &base), string(&mut env, &caps));
+    let caps = serde_json::from_str::<Capabilities>(&caps).unwrap_or_default();
+    let s = with::<SyncedValues>(&values, |v| match StreamSettings::from_json(&base) {
+        Ok(b) => envelope::<_>(Ok(v.apply_to(&b, caps).to_json())),
+        Err(e) => bad(e),
+    });
+    give(&mut env, &s)
+}
+
+/// « Synchroniser les réglages des ordinateurs » et son aide (réglages de
+/// l'app, section « Comptes » ; allumé par défaut, gardé sur l'appareil) :
+/// `[titre, aide]` en JSON.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_accountSyncSettingsTexts(mut env: Env, _: JClass) -> jstring {
+    let (title, help) = account::sync_settings_texts(i18n::current());
+    give(&mut env, &serde_json::json!([title, help]).to_string())
 }

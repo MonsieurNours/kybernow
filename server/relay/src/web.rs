@@ -30,7 +30,7 @@ use kybernow_tunnel::lookup::is_code;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 
-use crate::accounts::devices::{self, ApiRequest};
+use crate::accounts::devices::{self, ApiMethod, ApiRequest};
 use crate::accounts::{Accounts, web as account_web};
 use crate::assets;
 use crate::hub::{Hub, VERSION};
@@ -308,12 +308,13 @@ async fn account_page(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAdd
     r
 }
 
-/// L'API des appareils (`/v1/devices/…`, `/v1/computers`, `/v1/access`) :
+/// L'API des appareils (`/v1/devices/…`, `/v1/computers`, `/v1/access`, `/v1/settings`) :
 /// JSON de 16 Kio au plus, jeton porteur, servie hors de l'exécuteur.
 async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
-    let post = match *req.method() {
-        hyper::Method::GET => false,
-        hyper::Method::POST => true,
+    let method = match *req.method() {
+        hyper::Method::GET => ApiMethod::Get,
+        hyper::Method::POST => ApiMethod::Post,
+        hyper::Method::PUT => ApiMethod::Put,
         _ => return json(StatusCode::METHOD_NOT_ALLOWED, serde_json::json!({ "error": "method_not_allowed" })),
     };
     let bearer = req
@@ -324,7 +325,7 @@ async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr)
         .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
         .map(|(_, token)| token.trim().to_string());
     let path = req.uri().path().to_string();
-    let body = if post {
+    let body = if method != ApiMethod::Get {
         match http_body_util::Limited::new(req.into_body(), MAX_FORM_BYTES).collect().await {
             Ok(b) => {
                 let bytes = b.to_bytes();
@@ -342,7 +343,7 @@ async fn device_api(accounts: Arc<Accounts>, req: Request<Incoming>, ip: IpAddr)
     } else {
         serde_json::Value::Null
     };
-    let request = ApiRequest { post, path, bearer, body, ip };
+    let request = ApiRequest { method, path, bearer, body, ip };
     let Ok(_permit) = accounts.gate.acquire().await else { return json(StatusCode::SERVICE_UNAVAILABLE, serde_json::json!({ "error": "unavailable" })) };
     let worker = accounts.clone();
     let reply = match tokio::task::spawn_blocking(move || worker.api(&request)).await {

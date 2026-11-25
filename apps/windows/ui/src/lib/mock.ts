@@ -476,6 +476,7 @@ const notesFor = (lang: string) => {
 let language: 'auto' | 'fr' | 'en' = 'auto'
 let battery: 'alleger' | 'garder' = 'alleger'
 let openAtLogin = true
+let syncSettings = true
 /** Fin du suivi de la Station, comme `follow_loop` de l'app. */
 const outcome = (o: StationOutcome) => {
   change(o.id, (c) => (c.station_pending = null))
@@ -1243,7 +1244,23 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const code = flags.get('rejoindre')
     return { kind: 'join', link: code ? `kybernow://join?host=192.168.1.77&port=31544&code=${code}` : null }
   },
-  app_info: () => ({ version: '0.5.0', channel: 'stable', language, lang: i18n.lang, update: update(), arch: 'x64', battery, open_at_login: openAtLogin }),
+  app_info: () => ({
+    version: '0.5.0',
+    channel: 'stable',
+    language,
+    lang: i18n.lang,
+    update: update(),
+    arch: 'x64',
+    battery,
+    open_at_login: openAtLogin,
+    sync_settings: syncSettings,
+    sync_settings_title: i18n.lang === 'fr' ? 'Synchroniser les réglages des ordinateurs' : 'Sync computer settings',
+    sync_settings_help:
+      i18n.lang === 'fr'
+        ? 'Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils.'
+        : "Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.",
+  }),
+  set_sync_settings: (a) => (syncSettings = Boolean(a.on)),
   set_open_at_login: (a) => (openAtLogin = Boolean(a.on)),
   set_profile: (a) => {
     computers = computers.map((c) => (c.id === a.id ? { ...c, settings: { ...c.settings, profile: a.profile as string, codec: null, yuv444: null, mbps: null, reliable: null } } : c))
@@ -1762,7 +1779,7 @@ export function mockTauri() {
         }
         if (name === 'stats' && psBarFlag) return () => {}
         if (name === 'stats') {
-          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `${pyroFlag && !pyroHevc ? 'PyroWave' : 'HEVC'} · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false, refresh: 120, mbps: 70 + Math.random() * 15, lost_frames: Math.random() < 0.1 ? 1 : 0, lost_packets: Math.random() < 0.2 ? 3 : 0, keyframes: 0, measured_pct: 98, rejected: 0, audio_channels: 2, audio_buffer_ms: 14 + Math.random() * 3, audio_output_ms: 10 } }), 1000)
+          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `${pyroFlag && !pyroHevc ? 'PyroWave' : 'HEVC'} · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false, refresh: 120, mbps: 70 + Math.random() * 15, target: { mbps: 80, text: '80 Mbit/s · Auto', label: i18n.lang === 'fr' ? 'Débit visé' : 'Target bitrate' }, lost_frames: Math.random() < 0.1 ? 1 : 0, lost_packets: Math.random() < 0.2 ? 3 : 0, keyframes: 0, measured_pct: 98, rejected: 0, audio_channels: 2, audio_buffer_ms: 14 + Math.random() * 3, audio_output_ms: 10 } }), 1000)
           return () => clearInterval(timer)
         }
         return () => {}

@@ -413,3 +413,133 @@ fn textes_et_codes() {
     assert_eq!(AccountError::Denied.text(Lang::En), "Sign-in declined on the phone.");
     assert_eq!(AccountError::TooMany { seconds: None }.text(Lang::Fr), "Trop d'essais : réessayez dans 15 min.");
 }
+
+// MARK: - Réglages synchronisés
+
+fn caps_all() -> crate::profile::Capabilities {
+    crate::profile::Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: true }
+}
+
+#[test]
+fn reglages_synchronises_lus() {
+    let body = json!({ "settings": [
+        { "station": STATION, "updated_at": 1795000000, "values": {
+            "profile": "bureau", "codec": "hevc", "yuv444": true, "mbps": 90, "hdr": false, "immersive": "always", "futur": { "x": 1 } } },
+        { "station": "zyxwvutsrqponmlkjihgfedcba", "updated_at": 1795000100, "values": {
+            "profile": null, "codec": "vp9", "mbps": 80.4, "immersive": "plus-tard" } },
+        { "station": "pas-une-station", "values": {} },
+        { "pas": "lisible" },
+    ]});
+    let fake = Fake::new(move |c, _| {
+        assert_eq!((c.method.as_str(), c.path.as_str(), c.bearer.as_deref()), ("GET", "/v1/settings", Some("session-de-l-appareil")));
+        reply(200, body.clone())
+    });
+    let list = settings::fetch_settings_with(&*fake, &account()).unwrap();
+    assert_eq!(list.len(), 2);
+    let a = settings::find(&list, STATION).unwrap();
+    assert_eq!(a.updated_at, 1795000000);
+    let k = a.known();
+    assert_eq!(k.profile, Some(Some("bureau".to_string())));
+    assert_eq!(k.profile(), Some(Some(crate::profile::Profile::Bureau)));
+    assert_eq!((k.codec.as_deref(), k.yuv444, k.mbps, k.hdr, k.immersive.as_deref()), (Some("hevc"), Some(true), Some(90), Some(false), Some("always")));
+    // Personnalisé ; format et mode immersif inconnus : absents, gardés au relais.
+    let b = settings::find(&list, "zyxwvutsrqponmlkjihgfedcba").unwrap().known();
+    assert_eq!((b.profile.clone(), b.codec.clone(), b.mbps, b.immersive.clone()), (Some(None), None, Some(80), None));
+    // En JSON pour les ponts : « profile » nul dit personnalisé, les absentes sont omises.
+    assert_eq!(serde_json::to_value(&b).unwrap(), json!({ "profile": null, "mbps": 80 }));
+    let back: SyncedValues = serde_json::from_value(json!({ "profile": null, "mbps": 80 })).unwrap();
+    assert_eq!(back, b);
+    let none: SyncedValues = serde_json::from_value(json!({ "mbps": 80 })).unwrap();
+    assert_eq!(none.profile, None);
+    // Session fermée ; relais d'avant les réglages synchronisés.
+    let closed = Fake::new(|_, _| reply(401, json!({ "error": "bad_session" })));
+    assert_eq!(settings::fetch_settings_with(&*closed, &account()), Err(AccountError::SignedOut));
+    let old = Fake::new(|_, _| reply(404, Value::Null));
+    assert_eq!(settings::fetch_settings_with(&*old, &account()), Err(AccountError::NoAccounts));
+}
+
+#[test]
+fn reglages_synchronises_envoyes() {
+    let fake = Fake::new(|c, n| match n {
+        0 => {
+            assert_eq!((c.method.as_str(), c.path.as_str(), c.bearer.as_deref()), ("PUT", format!("/v1/settings/{STATION}").as_str(), Some("session-de-l-appareil")));
+            // Les clés inconnues de l'app restent ; les siennes changent.
+            assert_eq!(
+                c.body,
+                Some(json!({ "values": { "profile": null, "codec": "av1", "yuv444": false, "mbps": 80, "hdr": true, "immersive": "never", "futur": 3 } }))
+            );
+            reply(200, json!({ "updated_at": 1795000500 }))
+        }
+        1 => reply(404, json!({ "error": "unknown_station" })),
+        2 => reply(413, json!({ "error": "too_large" })),
+        _ => reply(400, json!({ "error": "bad_values" })),
+    });
+    let last = SyncedSettings {
+        station: STATION.into(),
+        updated_at: 1,
+        values: json!({ "profile": "jeu", "codec": "hevc", "immersive": "always", "futur": 3 }).as_object().unwrap().clone(),
+    };
+    let custom = crate::profile::StreamSettings { profile: None, codec: crate::profile::Codec::Av1, yuv444: false, mbps: 80, reliable: false, hdr: true, wired: false };
+    let values = SyncedValues::from_stream(&custom).with_immersive(Some("never"));
+    let new = settings::put_settings_with(&*fake, &account(), STATION, Some(&last), &values).unwrap();
+    assert_eq!(new.updated_at, 1795000500);
+    assert_eq!(new.values.get("futur"), Some(&json!(3)));
+    assert_eq!(new.known().profile, Some(None));
+    assert_eq!(settings::put_settings_with(&*fake, &account(), STATION, Some(&new), &values), Err(AccountError::UnknownComputer));
+    assert!(matches!(settings::put_settings_with(&*fake, &account(), STATION, None, &values), Err(AccountError::Other(e)) if e.contains("too_large")));
+    assert!(matches!(settings::put_settings_with(&*fake, &account(), STATION, None, &values), Err(AccountError::Other(e)) if e.contains("bad_values")));
+    // Un identifiant illisible ne part pas.
+    assert_eq!(settings::put_settings_with(&*fake, &account(), "pc", None, &values), Err(AccountError::UnknownComputer));
+    assert_eq!(fake.calls().len(), 4);
+    // Les réglages d'un autre ordinateur ne servent pas de base.
+    let mut other = last.clone();
+    other.station = "zyxwvutsrqponmlkjihgfedcba".into();
+    let only = Fake::new(|c, _| {
+        assert_eq!(c.body.as_ref().and_then(|b| b["values"].get("futur")), None);
+        reply(200, json!({ "updated_at": 2 }))
+    });
+    settings::put_settings_with(&*only, &account(), STATION, Some(&other), &SyncedValues { hdr: Some(false), ..Default::default() }).unwrap();
+}
+
+#[test]
+fn reglages_synchronises_appliques() {
+    use crate::profile::{Capabilities, Codec, Profile, StreamSettings};
+    let caps = caps_all();
+    let jeu = StreamSettings::for_profile(Profile::Jeu, caps);
+    let base = StreamSettings { hdr: true, wired: true, ..jeu.clone() };
+    // Un profil : ses réglages sur cet appareil, pas ceux reçus.
+    let v = SyncedValues { profile: Some(Some("bureau".into())), codec: Some("av1".into()), mbps: Some(12), ..Default::default() };
+    let s = v.apply_to(&base, caps);
+    let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
+    assert_eq!((s.profile, s.codec, s.yuv444, s.mbps, s.reliable), (Some(Profile::Bureau), bureau.codec, bureau.yuv444, bureau.mbps, bureau.reliable));
+    assert!(s.hdr && s.wired, "HDR et câble gardés");
+    // Personnalisé : format décodable, 4:4:4 s'il existe, débit ; HDR reçu.
+    let v = SyncedValues { profile: Some(None), codec: Some("hevc".into()), yuv444: Some(true), mbps: Some(150), hdr: Some(false), ..Default::default() };
+    let s = v.apply_to(&base, caps);
+    assert_eq!((s.profile, s.codec, s.yuv444, s.mbps, s.hdr), (None, Codec::Hevc, true, 150, false));
+    // Un appareil qui ne décode ni l'AV1 ni le 4:4:4 : le format d'avant, 4:2:0.
+    let h264 = Capabilities::default();
+    let small = StreamSettings::for_profile(Profile::Jeu, h264);
+    let v = SyncedValues { profile: Some(None), codec: Some("av1".into()), yuv444: Some(true), mbps: Some(40), ..Default::default() };
+    let s = v.apply_to(&small, h264);
+    assert_eq!((s.profile, s.codec, s.yuv444, s.mbps), (None, Codec::H264, false, 40));
+    // Profil absent : la base reste (son profil), seul le HDR change.
+    let s = SyncedValues { hdr: Some(false), mbps: Some(5), ..Default::default() }.apply_to(&base, caps);
+    assert_eq!((s.profile, s.mbps, s.hdr), (Some(Profile::Jeu), jeu.mbps, false));
+    // Aller-retour : les réglages d'une app donnent les mêmes réglages ailleurs
+    // (le transport n'est pas synchronisé).
+    let custom = StreamSettings { profile: None, codec: Codec::Hevc, yuv444: true, mbps: 120, reliable: true, hdr: false, wired: false };
+    assert_eq!(SyncedValues::from_stream(&custom).apply_to(&base, caps).to_json(), StreamSettings { wired: true, reliable: base.reliable, ..custom.clone() }.to_json(), "transport et câble : ceux de l'appareil");
+    assert_eq!(StreamSettings::from_json(&custom.to_json().to_string()).unwrap().to_json(), custom.to_json());
+    // Textes de l'interrupteur.
+    assert_eq!(
+        sync_settings_texts(Lang::Fr),
+        (
+            "Synchroniser les réglages des ordinateurs".to_string(),
+            "Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils.".to_string()
+        )
+    );
+    assert_eq!(sync_settings_texts(Lang::En).0, "Sync computer settings");
+    assert_eq!(sync_settings_texts(Lang::En).1, "Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.");
+    assert_eq!(SyncedValues::default().with_immersive(Some("parfois")).immersive, None);
+}

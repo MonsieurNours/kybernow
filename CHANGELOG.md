@@ -24,6 +24,9 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - **Des groupes d'ordinateurs.** Dans une famille ou une équipe, rangez des ordinateurs dans un groupe et ouvrez-le d'un coup : les droits valent pour tous ses ordinateurs, y compris ceux que vous ajouterez ensuite.
 - **Invitations plus claires.** Une invitation en attente expire après 30 jours ; vous voyez quand elle a été envoyée et quand elle expire, et « Renvoyer l'invitation » la relance. En tapant une adresse, vos proches et vos collègues sont proposés, et une même personne n'apparaît plus deux fois.
 - **Comptes mieux protégés.** Les jetons d'accès aux ordinateurs durent 2 minutes, et un appareil qui ne sert pas pendant 90 jours est déconnecté de votre compte.
+- **Vos réglages vous suivent.** Avec votre compte KyberNow, le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur passent d'un appareil à l'autre (interrupteur dans Réglages › Comptes).
+- **Déplacer un ordinateur** d'une famille ou d'une équipe à une autre, ou vers vous : un aperçu montre d'abord qui perd l'accès, et vous gardez si vous le voulez les accès donnés à des personnes.
+- **Le débit visé dans les Statistiques** : « 42 / 60 Mbit/s · baissé, réseau saturé », avec son trait sur la courbe du débit, pour voir le débit automatique agir.
 
 ## 0.10.0
 

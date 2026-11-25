@@ -45,9 +45,13 @@ L'app envoie le nouveau débit par `/set_bitrate` de Kyber, qui le passe à l'en
 
 Sans ce correctif (Station plus ancienne), le débit automatique fonctionne quand même, mais chaque changement coûte une image clé sur NVENC et reste sans effet sur la Station Mac.
 
+## Dans les Statistiques : le débit visé
+
+Chaque seconde, le cœur donne aux apps le débit qu'il demande à l'ordinateur et ce qui le fixe (`Second::target`, `adaptive::TargetBitrate`) ; les Statistiques le montrent sous « Débit » (ligne « Débit visé » et trait sur la courbe, [link-ui.md](link-ui.md)). Quand plusieurs choses jouent, c'est celle qui fixe la valeur qui est dite, dans l'ordre où la session les applique : le plafond de l'app (« 20 Mbit/s · fenêtre cachée »), puis le repli (« 15 Mbit/s · flux allégé »), puis le débit automatique (« 42 / 60 Mbit/s · baissé, réseau saturé ») ; sinon la nature du réglage : « 320 Mbit/s · PyroWave, Auto en pause », « 80 Mbit/s · réglé à la main », « 60 Mbit/s · Auto ». Un plafond au-dessus du débit ne fixe rien. API et ponts : [apps/core/README.md](../apps/core/README.md#débit-visé-dans-les-statistiques-srcadaptivers-srcsessionrs-srclatencyrs).
+
 ## Ce qui n'est pas fait
 
-- Pas d'affichage dans les apps : le débit en cours n'apparaît pas encore dans les statistiques, et rien ne prévient d'une liaison trop faible.
+- Rien ne prévient d'une liaison trop faible. Le débit visé est donné aux apps chaque seconde (ci-dessous), mais pas encore montré dans leurs Statistiques.
 - Pas de baisse de définition ni de fréquence : seul le débit bouge.
 - La correction d'erreurs garde sa part fixe de 30 %.
 - Le client web du navigateur garde son débit fixe, et ne montre pas le bandeau « Le réseau sature » en PyroWave.
@@ -55,4 +59,4 @@ Sans ce correctif (Station plus ancienne), le débit automatique fonctionne quan
 
 ## Tests
 
-`cargo test -p kybernow-core adaptive` (le calcul : réseau local propre, file qui monte, pic de Wi-Fi isolé, pertes lourdes, bureau immobile, plancher, remontée, remontée prudente, aucune image, nouveau chemin, trous) et `… debit_automatique` (la session : profil seulement, pause sous un plafond de l'app, débit réglé à la main intact). Le correctif FFmpeg est compilé pour le Mac (VideoToolbox) et pour Windows (NVENC, compilation croisée), pas encore essayé sur une Station.
+`cargo test -p kybernow-core adaptive` (le calcul : réseau local propre, file qui monte, pic de Wi-Fi isolé, pertes lourdes, bureau immobile, plancher, remontée, remontée prudente, aucune image, nouveau chemin, trous) et `… debit_automatique` (la session : profil seulement, pause sous un plafond de l'app, débit réglé à la main intact, débit visé et sa raison), `… debit_vise` (raisons, priorités, textes). Le correctif FFmpeg est compilé pour le Mac (VideoToolbox) et pour Windows (NVENC, compilation croisée), pas encore essayé sur une Station.

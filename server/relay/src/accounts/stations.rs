@@ -296,6 +296,8 @@ impl Store {
             // Ses liens d'accès, et ses groupes d'ordinateurs : elle quitte la famille ou l'équipe.
             tx.execute("DELETE FROM access_links WHERE station = ?1", [id])?;
             tx.execute("DELETE FROM station_group_members WHERE station = ?1", [id])?;
+            // Migration 9 : les réglages synchronisés de cet ordinateur.
+            tx.execute("DELETE FROM computer_settings WHERE station = ?1", [id])?;
         }
         tx.execute(
             "INSERT INTO stations (id, name, owner_kind, account, org, attached_by, attached_at, enrolled_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -338,6 +340,8 @@ impl Store {
             // Migration 7 : ses liens d'accès et ses groupes d'ordinateurs.
             self.conn.execute("DELETE FROM access_links WHERE station = ?1", [id])?;
             self.conn.execute("DELETE FROM station_group_members WHERE station = ?1", [id])?;
+            // Migration 9 : les réglages synchronisés.
+            self.conn.execute("DELETE FROM computer_settings WHERE station = ?1", [id])?;
         }
         Ok(n > 0)
     }

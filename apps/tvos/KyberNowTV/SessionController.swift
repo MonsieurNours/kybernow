@@ -1001,6 +1001,7 @@ final class SessionController: ObservableObject {
             stats.latencyMs = 9.1
             stats.fps = 60
             stats.mbps = 78
+            stats.target = TargetBitrate(bitrate: 60_000_000, profile: 60_000_000, reason: 0)
             stats.format = self.hdrOn ? "4:2:0 10 bits" : "4:2:0 8 bits"
             stats.decodeMs = 2.1
             stats.displayMs = 7.4
@@ -1018,6 +1019,7 @@ final class SessionController: ObservableObject {
                 self.host.settings.codec = .pyrowave
                 self.receivedCodec = .pyrowave
                 stats.mbps = 290
+                stats.target = TargetBitrate(bitrate: 320_000_000, profile: 320_000_000, reason: 3)
                 stats.decodeMs = 0.9
                 stats.lostFrames = 1
                 self.lossWindow = Array(repeating: (60, 0), count: 24) + [(59, 1), (60, 0), (58, 2), (60, 0), (59, 1), (60, 0)]

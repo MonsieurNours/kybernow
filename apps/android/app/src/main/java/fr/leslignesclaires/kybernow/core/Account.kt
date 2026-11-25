@@ -328,6 +328,22 @@ object Accounts {
         return true
     }
 
+    // MARK: - Réglages synchronisés (docs/comptes.md, « Réglages synchronisés et déplacer un ordinateur »)
+
+    /** Les réglages de tous les ordinateurs du compte (`[{station, updated_at, values}]`). Hors du fil principal. */
+    suspend fun settingsFetch(account: StoredAccount): AccountReply<List<JSONObject>> =
+        withContext(Dispatchers.IO) { read(Native.accountSettingsFetch(account.json)) { v -> (v as? JSONArray)?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } } }
+
+    /** Envoie les clés changées d'un ordinateur, posées sur les dernières connues ([last]) : les réglages à garder. Hors du fil principal. */
+    suspend fun settingsPut(account: StoredAccount, station: String, last: JSONObject?, values: JSONObject): AccountReply<JSONObject> =
+        withContext(Dispatchers.IO) { read(Native.accountSettingsPut(account.json, station, last?.toString(), values.toString())) { it as? JSONObject } }
+
+    /** « Synchroniser les réglages des ordinateurs » et son aide, du cœur ; nul sans bibliothèque native. */
+    fun syncSettingsTexts(): Pair<String, String>? = runCatching {
+        val a = JSONArray(Native.accountSyncSettingsTexts())
+        a.getString(0) to a.getString(1)
+    }.getOrNull()
+
     /** `access` de [Native.consoleNewAccount] : `{account: <le compte entier>, station}`. */
     fun access(account: StoredAccount, station: String): String = JSONObject().put("account", JSONObject(account.json)).put("station", station).toString()
 }
