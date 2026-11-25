@@ -145,6 +145,7 @@ step() { STEP="$1"; echo; echo "==> $1"; }
 on_error() {
     echo >&2
     echo "Échec pendant « $STEP » (ligne $1)." >&2
+    declare -F rendre_verrous > /dev/null && rendre_verrous
     if [ "$MODE" = release ]; then
         echo "Corrigez puis relancez : scripts/release.sh $VERSION$([ "$BETA" = 1 ] && echo " --beta")" \
             "(le commit de version, les étapes réussies et le brouillon sont repris)." >&2

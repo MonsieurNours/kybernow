@@ -104,7 +104,7 @@ arbre_copier() {
             | xargs -0 grep -lF -e "$src" -e "$vsrc" 2>/dev/null \
             | while IFS= read -r f; do
                 sed -i '' -e "s|$src|$dst|g" -e "s|$vsrc|$vdst|g" "$f"
-            done
+            done || true
     else
         rm -f "$dst.tmp"
         cp -c "$src" "$dst.tmp" 2>/dev/null || cp "$src" "$dst.tmp"
