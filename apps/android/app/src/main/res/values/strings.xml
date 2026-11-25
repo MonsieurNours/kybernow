@@ -114,6 +114,20 @@
     <string name="settings_444_yes">Desktop and Max profiles</string>
     <string name="settings_444_no">Not on this device</string>
     <string name="settings_444_hdr">HDR doesn\'t exist in 4:4:4.</string>
+    <string name="pyrowave_help_chosen">Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable.</string>
+    <string name="pyrowave_help_auto_wired">Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.</string>
+    <string name="pyrowave_help_auto_wifi">Auto: HEVC. PyroWave is only used when this device is connected by cable.</string>
+    <string name="pyrowave_warn_wifi">On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you\'re not sure.</string>
+    <string name="pyrowave_warn_relay">Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you\'re not sure.</string>
+    <string name="pyrowave_wifi">PyroWave on Wi-Fi</string>
+    <string name="pyrowave_away">PyroWave away from home</string>
+    <string name="pyrowave_may_stutter">The picture may stutter.</string>
+    <string name="pyrowave_switch_hevc">Switch to HEVC</string>
+    <string name="pyrowave_lowered" formatted="true">Resolution lowered to %1$d × %2$d to fit in %3$d Mbit/s.</string>
+    <string name="pyrowave_444_help">With PyroWave, almost free: only the bitrate goes up.</string>
+    <string name="pyrowave_not_offered" formatted="true">%1$s doesn\'t offer PyroWave.</string>
+    <string name="pyrowave_no_decoder">This device can\'t decode PyroWave.</string>
+    <string name="stats_lost_frames">Lost frames</string>
     <string name="hdr">HDR</string>
     <string name="hdr_on">HDR, on</string>
     <string name="hdr_off">HDR, off</string>

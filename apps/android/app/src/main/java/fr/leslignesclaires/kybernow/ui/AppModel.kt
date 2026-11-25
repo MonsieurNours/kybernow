@@ -277,8 +277,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             val relay = if (i.relay == null) null else HostRelay.of(i, h.fingerprint) ?: h.relay
             // Les manettes de l'ordinateur (Station Mac : indisponibles tant qu'Apple n'a pas accordé son droit), gardées avec lui.
             val gamepads = Native.gamepadsAvailable(i.raw)
-            if (i.os != h.os || i.gpu != h.gpu || i.av1 != h.av1 || i.virtualDisplay != h.virtualDisplay || wake != h.wake || paired != h.paired || relay != h.relay || gamepads != h.gamepads) {
-                store.update(h.id) { it.copy(os = i.os, gpu = i.gpu, av1 = i.av1, virtualDisplay = i.virtualDisplay, wake = wake, paired = paired, relay = relay, gamepads = gamepads) }
+            if (i.os != h.os || i.gpu != h.gpu || i.av1 != h.av1 || i.virtualDisplay != h.virtualDisplay || wake != h.wake || paired != h.paired || relay != h.relay || gamepads != h.gamepads || i.pyrowave != h.pyrowave) {
+                store.update(h.id) { it.copy(os = i.os, gpu = i.gpu, av1 = i.av1, virtualDisplay = i.virtualDisplay, wake = wake, paired = paired, relay = relay, gamepads = gamepads, pyrowave = i.pyrowave) }
             }
             // Pas encore d'image : l'aperçu d'Admin (jamais pendant une session).
             if (!store.imageFile(h.id).exists()) fetchPreview(h, password)

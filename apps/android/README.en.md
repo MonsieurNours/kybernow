@@ -94,6 +94,7 @@ Text differences: the “No console found…” help points to the “Address”
 - **TV game mode**: `Window.setPreferMinimalPostProcessing(true)` (ALLM over HDMI) when the display allows it.
 - **VRR**: Android gives apps no control over HDMI VRR and the Shield has none. On a variable refresh rate display (120 Hz phones and tablets), each frame goes out as soon as it is decoded, the newest replacing the others.
 - **Decoding** (`jni/src/video.rs`): packets from patch 0001 go to MediaCodec (the format's hardware decoder, `low-latency`, real-time priority, the Qualcomm, Exynos and Amlogic vendor keys that turn off frame reordering, retried without them if refused), rendered straight to the surface. The parameter sets are put in front of the keyframe that starts a decoder (no `csd-0`, whatever the format); a loss waits for the next keyframe, requested again by the core; a new surface rebuilds the decoder. Profiles brought down to what the device really decodes (MediaCodecList at launch): the Shield decodes HEVC and H.264, not AV1 nor 4:4:4.
+- **PyroWave** ([docs/pyrowave-client-android.en.md](../../docs/pyrowave-client-android.en.md), texts from [link-ui](../../docs/link-ui.en.md#pyrowave)): alongside MediaCodec, decoded with Vulkan (`libkybernow_pyrowave.so`, PyroWave at commit a32b05e, arm64-v8a and x86_64) and presented on the same `SurfaceView` through a Vulkan swapchain, YCbCr → RGB conversion from the colour and range of the `KNPW` packet, HDR10 PQ when the surface accepts it; an incomplete frame is skipped, no keyframe ever requested. Launch probe (Vulkan 1.3, decoder, test frame: `pyrowave` in the capabilities), Ethernet cable (`wired`) for “Auto”. “PyroWave” in Video format when the Station announces it, Wi-Fi or relay warning, banner with “Switch to HEVC”, amber chip, “Lost frames”. Unavailable on the Shield (Android 11: Vulkan loader 1.1), on armeabi-v7a and on the emulator (gfxstream).
 - **HDR** ([docs/hdr.en.md](../../docs/hdr.en.md), texts from [link-ui](../../docs/link-ui.en.md#hdr)): on an HDR screen only, the home “HDR” chip next to the profile (on the first time, kept for each computer, apart from the profile; inactive with the core's reason, `profile::hdr_state` through `Native.hdrState`), the “… display … in HDR” line, the switch in Settings › Picture (“Sharp text (4:4:4)” dimmed, “HDR doesn't exist in 4:4:4.”), “HDR” in the bar (near the profile) and as a tile in the TV menu, for the host as for the friend borrowing the computer (never for a guest: their HDR follows their screen), “HDR” in the statistics and the last session, and the notice “The computer couldn't switch to HDR: picture in SDR.”. On an SDR screen, no trace of it. `model/Hdr.kt`:
   - **Screen**: HDR when its HDR types include HDR10 (`Display.Mode.getSupportedHdrTypes` on Android 14, `Display.getHdrCapabilities` before); the screen's values from `HdrCapabilities` (maximum, average, minimum brightness; a maximum at 0 or missing, common behind the Shield: the core's defaults; desktop white at 203 nits, which Android doesn't give), given to the Station at the start of the session and in the borrow request. The screen is watched (`DisplayManager.DisplayListener`): a TV that turns HDR off makes the home chip disappear and, in a session, brings the picture back to SDR (`Native.sessionScreenHdrChanged`), then to HDR, without a message.
   - **Decoder**: HDR if a hardware decoder announces the HDR10 profile of the format the session will use (HEVC Main 10 HDR10, AV1 Main 10 HDR10; the core's `Capabilities.hdr`); H.264 picked by hand: “HDR needs the HEVC or AV1 format.”.
@@ -118,6 +119,8 @@ The game's rumble reaches the core (`InputPlatform::rumble`) and is played on th
 ```
 apps/android/
 ├── jni/                 kybernow-android crate → libkybernow.so (JNI bridge, MediaCodec, AAudio; PlayStation consoles: playstation.rs)
+│   └── pyrowave/        libkybernow_pyrowave.so (CMake: PyroWave, Vulkan device, swapchain) and the kn_pyrowave_test test tool
+├── tests/pyrowave/      offline PyroWave test on the connected device (run.sh)
 ├── app/                 the app (Kotlin, Jetpack Compose)
 │   └── src/main/java/fr/leslignesclaires/kybernow/
 │       ├── core/        Native (JNI functions), SessionListener, ConsoleClient (Admin), DeviceIdentity, Share (KyberNow Share), Lend (lending the computer), Invite (invitations), Account (KyberNow accounts), Relay (a session's path, presence at the relay)
@@ -141,7 +144,7 @@ apps/android/
 
 ```sh
 # Once: Rust targets, cargo-c, NDK r27c (Android Studio › SDK Manager › SDK Tools › NDK (Side by side)
-# 27.2.12479018, or ANDROID_NDK_HOME), Android SDK (platform 36), JDK 17 or later, cmake and Ninja (libopus).
+# 27.2.12479018, or ANDROID_NDK_HOME), Android SDK (platform 36), JDK 17 or later, cmake and Ninja (libopus, PyroWave).
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-c --version 0.10.15 --locked
 
@@ -149,6 +152,9 @@ cargo install cargo-c --version 0.10.15 --locked
 apps/android/scripts/build-native.sh                     # all three ABIs
 apps/android/scripts/build-native.sh --target aarch64-linux-android
 apps/android/scripts/build-native.sh --check             # cargo check only; --debug: unoptimised (honours CARGO_TARGET_DIR)
+# --no-pyrowave: without PyroWave; --kyber-pyrowave: applies kyclient patch 0025 and turns PyroWave on in the core
+# PyroWave on the connected device (probe, upstream encoding, decoding and display):
+apps/android/tests/pyrowave/run.sh
 
 # The app:
 cd apps/android

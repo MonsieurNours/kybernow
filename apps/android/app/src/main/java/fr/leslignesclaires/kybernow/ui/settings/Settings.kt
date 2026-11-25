@@ -60,6 +60,10 @@ import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.HostSettings
 import fr.leslignesclaires.kybernow.model.Profile
+import fr.leslignesclaires.kybernow.model.PyroWave
+import fr.leslignesclaires.kybernow.model.PyroWaveBlock
+import fr.leslignesclaires.kybernow.model.PyroWaveChoice
+import fr.leslignesclaires.kybernow.model.PyroWaveLink
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.ui.AppModel
 import fr.leslignesclaires.kybernow.ui.Body
@@ -123,17 +127,30 @@ fun Section(title: String) {
     Eyebrow(title, color = Kn.spectre)
 }
 
-/** Une rangée de choix : libellé, aide, et les options en pastilles. */
+/**
+ * Une rangée de choix : libellé, aide, et les options en pastilles. [disabled] : les valeurs inactives (estompées,
+ * leur raison dans l'aide) ; [below] : ce qui suit l'aide (l'avertissement de PyroWave).
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun <T> ChoiceRow(label: String, help: String?, options: List<Pair<T, String>>, selected: T, enabled: Boolean = true, onSelect: (T) -> Unit) {
+fun <T> ChoiceRow(
+    label: String,
+    help: String?,
+    options: List<Pair<T, String>>,
+    selected: T,
+    enabled: Boolean = true,
+    disabled: Set<T> = emptySet(),
+    below: (@Composable () -> Unit)? = null,
+    onSelect: (T) -> Unit,
+) {
     val s = LocalScale.current
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         Body(label, size = 16f, color = if (enabled) Kn.frost else Kn.frost2)
         help?.let { Body(it, size = 13f, color = Kn.muted) }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-            options.forEach { (v, l) -> GlassButton(l, { onSelect(v) }, selected = v == selected, enabled = enabled) }
+            options.forEach { (v, l) -> GlassButton(l, { onSelect(v) }, selected = v == selected, enabled = enabled && v !in disabled) }
         }
+        below?.invoke()
     }
 }
 
@@ -233,6 +250,8 @@ data class HostSettingsState(
     val mac: Boolean = false,
     /** L'interrupteur « HDR » de Réglages › Image (absent sur un écran SDR). */
     val hdr: HdrState = HdrState.HIDDEN,
+    /** PyroWave dans « Format vidéo » (absent avec une Station d'avant PyroWave), docs/link-ui.md, « PyroWave ». */
+    val pyrowave: PyroWaveChoice = PyroWaveChoice.HIDDEN,
 )
 
 /** Ce que les réglages d'un ordinateur demandent à l'app. */
@@ -294,7 +313,8 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
         else -> Rubric.PICTURE
     }
     val mac = remember(host.os) { Native.stationIsMac(host.os ?: "") }
-    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac, hdr = hdr), actions, start)
+    val pyrowave = PyroWaveChoice.of(host, PyroWave.decodes, PyroWave.wired(context), st.away)
+    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac, hdr = hdr, pyrowave = pyrowave), actions, start)
 }
 
 /**
@@ -438,9 +458,20 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
         stringResource(if (state.host.virtualDisplay) R.string.settings_virtual_display_help else R.string.settings_virtual_display_none),
         set.virtualDisplay && state.host.virtualDisplay, enabled = state.host.virtualDisplay,
     ) { v -> actions.update { it.copy(virtualDisplay = v) } }
+    // PyroWave (docs/link-ui.md, « PyroWave ») : seulement quand l'ordinateur l'annonce ; inactif avec sa raison ;
+    // choisi hors câble, l'avertissement Wi-Fi ou relais sous le choix.
+    val pw = state.pyrowave
+    val pyroChosen = set.codec == "pyrowave" && pw.usable
+    val pyroAuto = set.codec == "auto" && pw.usable && pw.link == PyroWaveLink.CABLE
     ChoiceRow(
-        stringResource(R.string.settings_codec), stringResource(R.string.settings_codec_help),
-        listOfNotNull("auto" to auto, if (d.hevc != null) "hevc" to "HEVC" else null, "h264" to "H.264", if (d.av1 != null && state.host.av1) "av1" to "AV1" else null), set.codec,
+        stringResource(R.string.settings_codec), codecHelp(set.codec, pw, state.host.name),
+        listOfNotNull(
+            "auto" to auto, if (d.hevc != null) "hevc" to "HEVC" else null, "h264" to "H.264", if (d.av1 != null && state.host.av1) "av1" to "AV1" else null,
+            if (pw.shown) "pyrowave" to "PyroWave" else null,
+        ),
+        set.codec,
+        disabled = if (pw.usable) emptySet() else setOf("pyrowave"),
+        below = if (pyroChosen && pw.link != PyroWaveLink.CABLE) ({ PyroWarning(pw.link) }) else null,
     ) { v -> actions.update { it.copy(codec = v) } }
     ChoiceRow(
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
@@ -451,7 +482,7 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
     val hdrOn = state.hdr.on(set.hdr)
     InfoRow(
         stringResource(R.string.settings_444), stringResource(if (d.hevc444) R.string.settings_444_yes else R.string.settings_444_no),
-        stringResource(if (hdrOn) R.string.settings_444_hdr else R.string.settings_444_help), enabled = !hdrOn,
+        stringResource(if (hdrOn) R.string.settings_444_hdr else if (pyroChosen || pyroAuto) R.string.pyrowave_444_help else R.string.settings_444_help), enabled = !hdrOn,
     )
     // HDR : seulement sur un écran HDR ; à part du profil (jamais « Personnalisé ») ; inactif avec la raison du cœur.
     if (state.hdr.shown) {
@@ -471,6 +502,41 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
             stringResource(if (screen.minimalPostProcessing) R.string.settings_game_mode_help else R.string.settings_game_mode_unsupported),
             set.gameMode && screen.minimalPostProcessing, enabled = screen.minimalPostProcessing,
         ) { v -> actions.update { it.copy(gameMode = v) } }
+    }
+}
+
+/** L'aide de « Format vidéo » : celle de PyroWave quand il compte (choisi, ou « Auto » qui peut le prendre), la raison d'une valeur inactive. */
+@Composable
+private fun codecHelp(codec: String, pw: PyroWaveChoice, name: String): String {
+    val reason = when (pw.block) {
+        PyroWaveBlock.NOT_OFFERED -> stringResource(R.string.pyrowave_not_offered, name)
+        PyroWaveBlock.NO_DECODER -> stringResource(R.string.pyrowave_no_decoder)
+        null -> null
+    }
+    val help = when {
+        codec == "pyrowave" && pw.usable -> stringResource(R.string.pyrowave_help_chosen)
+        codec == "auto" && pw.usable && pw.link == PyroWaveLink.CABLE -> stringResource(R.string.pyrowave_help_auto_wired)
+        codec == "auto" && pw.usable -> stringResource(R.string.pyrowave_help_auto_wifi)
+        else -> stringResource(R.string.settings_codec_help)
+    }
+    return if (reason != null) "$help $reason" else help
+}
+
+/** L'avertissement ambre sous le choix : PyroWave en Wi-Fi, ou hors de chez vous (par le relais). */
+@Composable
+private fun PyroWarning(link: PyroWaveLink) {
+    val s = LocalScale.current
+    Row(
+        Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xFF1E1A12), RoundedCornerShape(10.dp))
+            .border(1.dp, androidx.compose.ui.graphics.Color(0xFF4A3A1E), RoundedCornerShape(10.dp)).padding(s.dp(12f)),
+        verticalAlignment = Alignment.Top,
+    ) {
+        KnIcon(KnIcons.warning, tint = Kn.warn, size = 16f)
+        Spacer(Modifier.width(s.dp(10f)))
+        Body(
+            stringResource(if (link == PyroWaveLink.RELAY) R.string.pyrowave_warn_relay else R.string.pyrowave_warn_wifi),
+            size = 13f, color = androidx.compose.ui.graphics.Color(0xFFEAD7A8),
+        )
     }
 }
 

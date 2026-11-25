@@ -69,6 +69,16 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut en
     i18n::set_current(Lang::from_tag(&tag));
 }
 
+/// PyroWave (docs/pyrowave-client-android.md) : la sonde du lancement, hors
+/// du fil principal (device Vulkan, décodeur, image de test décodée et
+/// relue). JSON `{"available": bool, "report": "GPU, chemin" ou la raison}`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pyrowaveProbe(mut env: Env, _: JClass) -> jstring {
+    let (available, report) = crate::pyrowave::probe();
+    log::info!("PyroWave : {} ({report})", if available { "disponible" } else { "indisponible" });
+    give(&mut env, &serde_json::json!({ "available": available, "report": report }).to_string())
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_nowMicros(_: Env, _: JClass) -> jlong {
     latency::now_micros()
