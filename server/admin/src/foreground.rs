@@ -7,6 +7,9 @@
 //! temps de la session et écrit l'état toutes les 400 ms dans
 //! `foreground/state.json`. Il s'arrête de lui-même quand `foreground/run`
 //! disparaît ou n'est plus rafraîchi (le signal de vie de l'app le touche).
+//! Sur Mac et sur une Station Linux, Admin vit déjà dans la session : l'agent
+//! est Admin lui-même. Sous Linux (Wayland), seules les fenêtres X11
+//! (Xwayland : jeux de Steam et Proton) sont vues (`linux_screen.rs`).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -188,7 +191,13 @@ pub fn probe() -> Value {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+/// Station Linux : la fenêtre X11 active (jeux par Xwayland), `linux_screen.rs`.
+#[cfg(target_os = "linux")]
+pub fn probe() -> Value {
+    crate::linux_screen::probe()
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn probe() -> Value {
     json!({ "fullscreen": false, "game": false, "exe": null, "d3d": false })
 }
