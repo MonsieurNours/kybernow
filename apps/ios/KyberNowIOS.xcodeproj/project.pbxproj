@@ -15,6 +15,7 @@
 		045E458A3A55633A568AC3D1 /* PlayStationSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD69181BE50E83AE3DF7CB04 /* PlayStationSession.swift */; };
 		06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */; };
 		0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6252F747ADD2695330E7860 /* ScreenPadLogic.swift */; };
+		0DBE5820E7D2E259EFABCD6D /* pyrowave_bitstream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 85AB88A76316A54F8E3A2F1D /* pyrowave_bitstream.cpp */; };
 		0E7898AA1D72BAD6801ED2FF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */; };
 		107AEFB5CC68D0181C5D3412 /* Lend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12873856FE243A1B653ADFD4 /* Lend.swift */; };
 		111ADB04F81302886F897C97 /* PlayStation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C81BE51F581BDDEB7CA26D63 /* PlayStation.swift */; };
@@ -38,8 +39,10 @@
 		420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */; };
 		47C37D332CD0B56F626DCB89 /* PlayStationSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7ED34E62CB7D180D7EE6F2A /* PlayStationSettings.swift */; };
 		4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C061F9A3683E8F0952178D5A /* SessionEngine.swift */; };
+		50285EC8D793EA615CE2608A /* PyroWaveDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 882EFF24BC854CDF3B71DB93 /* PyroWaveDecoder.swift */; };
 		523DECF3B68F3B51B2E41970 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FCC6D0F079A62951A979AFFB /* libiconv.tbd */; };
 		54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */; };
+		5B8FF1569490F358E421AEFD /* pyrowave_common.mm in Sources */ = {isa = PBXBuildFile; fileRef = E3D818E5A38E5B48DAACECBE /* pyrowave_common.mm */; };
 		6044180EED63D7C090C56C5A /* KeymapIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */; };
 		60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFEE158257746E0783DAB51 /* VideoPipeline.swift */; };
 		644211D9653E7804B75A37CD /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D24E60CD6CB22677E5A6149 /* Theme.swift */; };
@@ -59,6 +62,7 @@
 		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
 		8A7C0B26C6A3CC163BB66686 /* HDRDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919619F97C936324087E9B51 /* HDRDemo.swift */; };
 		8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6E1351863BB088A8938F59 /* Model.swift */; };
+		8B498571ED551E28B08DC23B /* pyrowave_decoder.mm in Sources */ = {isa = PBXBuildFile; fileRef = 29819801C7C104DAE8FF81B2 /* pyrowave_decoder.mm */; };
 		8D3AB8F32FBC7D00A49FC9E1 /* HDR.swift in Sources */ = {isa = PBXBuildFile; fileRef = D331E985159AA4E9325D7B46 /* HDR.swift */; };
 		8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15AA9F9EFA3E6C151832988 /* LinkUI.swift */; };
 		948D97D7ADAA3A9AAB0A310F /* AccountCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2A882F8116B9EEFC430402 /* AccountCore.swift */; };
@@ -139,6 +143,7 @@
 		216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
 		25D44B7B7CC32E4F400A995C /* Backdrops.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backdrops.swift; sourceTree = "<group>"; };
 		2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
+		29819801C7C104DAE8FF81B2 /* pyrowave_decoder.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = pyrowave_decoder.mm; sourceTree = "<group>"; };
 		2A6E1351863BB088A8938F59 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		2BB7B0671210C532F6EDFD65 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
 		2C0CE22A2224056B9FD056FE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -168,7 +173,9 @@
 		7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		7D8BB04C66D705435D022452 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffViews.swift; sourceTree = "<group>"; };
+		85AB88A76316A54F8E3A2F1D /* pyrowave_bitstream.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = pyrowave_bitstream.cpp; sourceTree = "<group>"; };
 		87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
+		882EFF24BC854CDF3B71DB93 /* PyroWaveDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveDecoder.swift; sourceTree = "<group>"; };
 		8ACCD81A8B16FC7E417CA554 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
@@ -210,6 +217,7 @@
 		DE9798DFB50233072B5736FF /* TouchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TouchRules.swift; sourceTree = "<group>"; };
 		DEB71BF963EE2CBC44C8D23D /* PlayStationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSync.swift; sourceTree = "<group>"; };
 		DF18C6379CA4387A4D910236 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		E3D818E5A38E5B48DAACECBE /* pyrowave_common.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = pyrowave_common.mm; sourceTree = "<group>"; };
 		E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCore.swift; sourceTree = "<group>"; };
 		EAFEE158257746E0783DAB51 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
 		ECBF1456A4F19E45D580937C /* PlayStationCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationCloud.swift; sourceTree = "<group>"; };
@@ -243,6 +251,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0618D8F065A90435B05FAEC5 /* upstream */ = {
+			isa = PBXGroup;
+			children = (
+				85AB88A76316A54F8E3A2F1D /* pyrowave_bitstream.cpp */,
+				E3D818E5A38E5B48DAACECBE /* pyrowave_common.mm */,
+				29819801C7C104DAE8FF81B2 /* pyrowave_decoder.mm */,
+			);
+			name = upstream;
+			path = ../macos/PyroWave/upstream;
+			sourceTree = "<group>";
+		};
 		5AD28C426876BD101E7F88A1 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -338,6 +357,7 @@
 				DF0EFC5C7A79F3D817D93FDB /* KyberNow */,
 				8B5382BAC00E1221D59723CF /* KyberNowIOS */,
 				6EBEA8F4058725822887FE37 /* KyberNowTV */,
+				0618D8F065A90435B05FAEC5 /* upstream */,
 				DD110D8757AAEA985C5BDBB1 /* Frameworks */,
 				5AD28C426876BD101E7F88A1 /* Products */,
 			);
@@ -407,6 +427,7 @@
 				BBA048343AC7B500A33C2331 /* LendCore.swift */,
 				C4F5C6D95599975901557ED5 /* Localizable.xcstrings */,
 				E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */,
+				882EFF24BC854CDF3B71DB93 /* PyroWaveDecoder.swift */,
 				33BFA98ADC8A49589A10B603 /* RelayCore.swift */,
 				C061F9A3683E8F0952178D5A /* SessionEngine.swift */,
 				DC436DE0AD11DE6B0C09E612 /* ShareCore.swift */,
@@ -606,6 +627,7 @@
 				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
 				3AF2A47B1780A6EF38E902EF /* PlayStationCore.swift in Sources */,
 				EFBB54B2A3267D21FD5F7228 /* PlayStationKeyMouse.swift in Sources */,
+				50285EC8D793EA615CE2608A /* PyroWaveDecoder.swift in Sources */,
 				FBD75728DEE3B6F7452B074C /* RelayCore.swift in Sources */,
 				4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */,
 				FBDB346D99F1EDA2A3F86258 /* ShareCore.swift in Sources */,
@@ -615,6 +637,9 @@
 				02594DD6D18BFE82BCB4798A /* VideoDecoder.swift in Sources */,
 				60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */,
 				FB877C0A30DB14192EF203A4 /* VideoRenderer.swift in Sources */,
+				0DBE5820E7D2E259EFABCD6D /* pyrowave_bitstream.cpp in Sources */,
+				5B8FF1569490F358E421AEFD /* pyrowave_common.mm in Sources */,
+				8B498571ED551E28B08DC23B /* pyrowave_decoder.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -632,6 +657,8 @@
 		28BBC0FE38A00CDA2E37EE32 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_IDENTITY = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEFINES_MODULE = YES;
@@ -652,7 +679,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.KyberKit;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include $(SRCROOT)/../macos/PyroWave/module";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
@@ -840,6 +867,8 @@
 		DE752B558B889DADA3714B77 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_ENABLE_OBJC_ARC = YES;
 				CODE_SIGN_IDENTITY = "";
 				CURRENT_PROJECT_VERSION = 1;
 				DEFINES_MODULE = YES;
@@ -860,7 +889,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.KyberKit;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include $(SRCROOT)/../macos/PyroWave/module";
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
