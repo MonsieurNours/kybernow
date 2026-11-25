@@ -38,7 +38,7 @@ Mesures du 25/11/2026, MacBook Pro M4 Max (GPU 40 cœurs), macOS 27.2.1 ; temps 
 | 3840 × 2160 | 4:2:0 | 596 Mbit/s | 2,04 ms (2,08 ; 5,0) | 1,88 ms (1,87 ; 5,7) | 665 à 710 i/s |
 | 3840 × 2160 | 4:4:4 | 597 Mbit/s | 2,88 ms (2,94 ; 5,7) | 3,18 ms (3,15 ; 5,8) | 540 à 550 i/s |
 
-PSNR de la première image : 64 dB en Y (1440p 4:2:0), 56 dB en Y et 49 à 51 dB en chroma en 4:4:4 (même débit pour trois fois plus d'échantillons). Cadencé, le GPU redescend en fréquence entre deux images : une image prend plus longtemps qu'à la chaîne (1,3 ms contre 0,6 à 1 ms). Pas encore mesuré sur une puce M1 ou une Apple TV, ni avec un flux de la Station.
+PSNR de la première image : 64 dB en Y (1440p 4:2:0), 56 dB en Y et 49 à 51 dB en chroma en 4:4:4 (même débit pour trois fois plus d'échantillons). Cadencé, le GPU redescend en fréquence entre deux images : une image prend plus longtemps qu'à la chaîne (1,3 ms contre 0,6 à 1 ms). Une seconde passe, la machine occupée par ailleurs, donne de 1,3 à 4 ms en moyenne et jusqu'à 17 ms au pire en 1440p, 1,4 à 2,5 ms en 4K : le GPU partagé compte plus que la définition. Pas encore mesuré sur une puce M1 ou une Apple TV, ni avec un flux de la Station.
 
 ## Le cœur
 

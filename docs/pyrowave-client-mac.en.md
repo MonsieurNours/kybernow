@@ -38,7 +38,7 @@ Measured on 25/11/2026, MacBook Pro M4 Max (40-core GPU), macOS 27.2.1; mean dec
 | 3840 × 2160 | 4:2:0 | 596 Mbit/s | 2.04 ms (2.08; 5.0) | 1.88 ms (1.87; 5.7) | 665 to 710 fps |
 | 3840 × 2160 | 4:4:4 | 597 Mbit/s | 2.88 ms (2.94; 5.7) | 3.18 ms (3.15; 5.8) | 540 to 550 fps |
 
-First-frame PSNR: 64 dB on Y (1440p 4:2:0), 56 dB on Y and 49 to 51 dB on chroma in 4:4:4 (same bitrate for three times the samples). When paced, the GPU clocks down between frames: a frame takes longer than back to back (1.3 ms against 0.6 to 1 ms). Not yet measured on an M1 chip or an Apple TV, nor with a stream from the Station.
+First-frame PSNR: 64 dB on Y (1440p 4:2:0), 56 dB on Y and 49 to 51 dB on chroma in 4:4:4 (same bitrate for three times the samples). When paced, the GPU clocks down between frames: a frame takes longer than back to back (1.3 ms against 0.6 to 1 ms). A second pass, with the machine busy elsewhere, gives 1.3 to 4 ms on average and up to 17 ms worst case at 1440p, 1.4 to 2.5 ms at 4K: the shared GPU matters more than the resolution. Not yet measured on an M1 chip or an Apple TV, nor with a stream from the Station.
 
 ## The core
 
