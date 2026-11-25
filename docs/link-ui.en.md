@@ -124,7 +124,7 @@ Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and
 | Element | Français | English |
 |---|---|---|
 | Setting | « Mode immersif » : « En plein écran » (default), « Toujours », « Jamais » | “Immersive mode”: “In full screen”, “Always”, “Never” |
-| Help (Windows, Linux) | « Alt+Tab, la touche ⊞ et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app. » | “Alt+Tab, the ⊞ key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.” |
+| Help (Windows, Linux) | « Alt+Tab, la touche ⊞ et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app. » (Linux, whose font lacks the ⊞ sign, writes “the Windows key”, as its “Keys” menu does) | “Alt+Tab, the ⊞ key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.” |
 | Help (Mac) | « ⌘ ⇥, ⌘ Espace et les autres raccourcis du Mac vont à l'ordinateur, et ⌘ y devient la touche ⊞. ⌃⌥⌘ + lettre reste à l'app. »; with a Mac Station: « ⌘ ⇥, ⌘ Espace et les autres raccourcis vont à l'ordinateur. ⌃⌥⌘ + lettre reste à l'app. » | “⌘ ⇥, ⌘ Space and the Mac's other shortcuts go to the computer, and ⌘ becomes the ⊞ key there. ⌃⌥⌘ + letter stays with the app.”; with a Mac Station: “⌘ ⇥, ⌘ Space and the other shortcuts go to the computer. ⌃⌥⌘ + letter stays with the app.” |
 | Missing permission (Mac), under the setting | « Autorisez KyberNow Link dans Réglages Système › Confidentialité et sécurité › Accessibilité. » and the button « Ouvrir les réglages » | “Allow KyberNow Link in System Settings › Privacy & Security › Accessibility.”; “Open Settings” |
 

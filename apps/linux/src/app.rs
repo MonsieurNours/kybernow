@@ -5785,8 +5785,8 @@ impl App {
                         Setting::Immersive,
                         tr("Mode immersif", "Immersive mode"),
                         tr(
-                            "Alt+Tab, la touche ⊞ et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app.",
-                            "Alt+Tab, the ⊞ key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.",
+                            "Alt+Tab, la touche Windows et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app.",
+                            "Alt+Tab, the Windows key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.",
                         )
                         .into(),
                         vec![tr("En plein écran", "In full screen").into(), tr("Toujours", "Always").into(), tr("Jamais", "Never").into()],
@@ -5801,8 +5801,8 @@ impl App {
                         Setting::CtrlCommand,
                         tr("Ctrl agit comme ⌘", "Ctrl acts as ⌘"),
                         tr(
-                            "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.",
-                            "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.",
+                            "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche Windows devient ⌃.",
+                            "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The Windows key becomes ⌃.",
                         )
                         .into(),
                         st.ctrl_command.unwrap_or(true),
