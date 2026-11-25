@@ -25,7 +25,7 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | What is managed where | **The relay's web console** (everything, fleet included) and **Admin** (attach the Station, switch, accesses seen and blocked); the apps sign in and show the account's computers |
 | Legal | Les Lignes Claires, data controller |
 | Schedule | **Everything, before the first App Store submission** |
-| Administer | Manage the computer's access in the console, restart and update the Station from the app, **including through the relay**; open Admin on the network (below). Not the whole Admin interface through the relay |
+| Administer | Manage the computer's access in the console, restart and update the Station from the app, **including through the relay**; open Admin on the network (below); **all of Admin from anywhere** with “Remote Admin”, off at the start (“Admin from KyberNow Share”, decided on 11/25/2026) |
 | Sharing with an account | A person with the Sharing right **joins without the host's approval**; the host sees them and can remove them |
 | Admin on the network | Admin's password stays; **an account with the Administer right also opens Admin** (“Sign in with KyberNow”, on the network only) |
 | Person and organization | A computer attached to a person can be **opened to an organization** or one of its groups, like to a person |
@@ -88,6 +88,48 @@ Decided on 11/25/2026 with the mockup (https://claude.ai/artifact/KVvUYFTNCdRFRm
 - **Transitions**: pages go from one to the next with the browser's transitions (`@view-transition`): the menu stays, the content slides; the tour's steps slide from right to left. `prefers-reduced-motion` turns them off. Still no script, except `passkey.js`.
 - **After signing in**, the space opens on “Computers” (`/compte/ordinateurs`), no longer on the account page.
 - **Seeing the pages without a relay**: `KN_PAGES_DIR=<folder> cargo test ecrire_les_pages -- --ignored` (in `server/relay`) writes every page, in French and English, with the relay's files; `python3 -m http.server` serves them.
+
+## Admin from KyberNow Share
+
+Decided with the author on 11/25/2026; **reverses a scoping decision** (“Not the whole Admin interface through the relay”, decisions table): with a new switch, off at the start, **all of Admin** opens from anywhere, through the relay, for an account with the Administer right. Specification to approve before the code.
+
+### What the user sees
+
+- **The “Open Admin” link**, for whoever has the Administer right (owner, or owner and administrator of the family or team, with two-factor authentication): in the header of a computer's page (button), on its card in “Computers” (small “Admin” shortcut), and on each row of a family's or team's “Computers” tab.
+- **One click, already signed in**: the link leads to “Open {computer}'s Admin?”, then “Confirm with a passkey”; Admin opens, signed in, without its password.
+- **Where it works**:
+  - “Remote Admin” on at the Station: everywhere, through `https://<id>.share.kybernow.app`;
+  - off: only on the computer's network, through its local address; the page says so (“Remote Admin is off on {computer}: this link only works at home, on the same network. Turn it on in Admin › Away from home.”) and still offers “Open on the network”.
+  - Station offline: the link is greyed out, “Offline”.
+- **Switch in Admin**, Away from home: “Remote Admin” (“This computer's administrators open Admin from KyberNow Share, from anywhere.”), **off at the start**; it needs “Access away from home” on and the Station attached to an account. It can only be turned on **on site** (Admin session on the network); it can be turned off from anywhere.
+- **Warnings at each remote opening**:
+  - a notification on the computer (the Station's icon, Windows and Mac): “Admin is open remotely by {name}.”;
+  - a line in Admin's feed and, for a family's or team's computer, in its log;
+  - an email to the owners (and to a family's or team's administrators), when the relay sends emails: “{computer}'s Admin opened remotely by {name}, {date}, from {city or address}.”;
+  - the Admin session opened through the relay **closes after 30 minutes of inactivity** (and 8 hours at most).
+- **Passkey required** remotely: each opening must be confirmed with a passkey, even when already signed in. An account without a passkey sees “Add a passkey to your account first: it protects opening Admin remotely.” On the network, the rule stays today's (two-factor authentication done).
+- **All of Admin** remotely: the same pages and settings as on the network, including Admin's password, the ports, the certificate, the attached account and uninstalling. One common-sense exception: “Remote Admin” can't be turned on remotely.
+
+### How
+
+- **Local address**: the Station gives the relay, in `hello` (and `admin_status` when they change), its Admin addresses on the network (`admin_lan`: `["https://192.168.1.20:8443", "https://pc-salon.local:8443"]`) and `remote_admin` (the switch). The relay keeps them **in memory only**, for the connected Station, and shows them only to an account that manages it (`/v1/computers` carries them for those accounts; the console too). No database, no log.
+- **Start**: the console leads to `GET /compte/admin?id=<station>` (relay): it checks the Administer right and two-factor authentication, then sends to Admin's start:
+  - remotely: `https://<id>.share.kybernow.app/api/login/kybernow/start`;
+  - on the network: `<admin_lan>/api/login/kybernow/start`.
+- **Admin**: `GET /api/login/kybernow/start` (new) draws the `nonce` (cookie `kyber_admin_kn`, or `__Host-kyber_admin_kn` through the relay) and sends to `https://<relay>/compte/ouvrir-admin?station=…&nonce=…&retour=<its origin>`, like today's “Sign in with KyberNow” button.
+- **Relay, `/compte/ouvrir-admin`**: `retour` is either a local network address (today's rule), or **exactly** `https://<id>.<relay domain>[:public port]` of this Station (new). For the latter: Station connected with `remote_admin` true, and a **passkey assertion** on the confirmation page (challenge bound to the browser, as for “Delete the account”). The token issued also carries `via: "relay"` (5 minutes, single use, `jti` = `nonce`).
+- **Admin, through the relay** (`Via::Relay { kind: admin_http }`): the guard opens **all** of the Admin session's routes to a session opened by `/api/login/kybernow` **through the relay** with a `via: "relay"` token, `remote_admin` on, Administer right. Otherwise nothing changes (“Admin's guard by path”, relais.md). Session cookie through the relay: `__Host-kyber_admin_session` (`Secure`, `HttpOnly`, `SameSite=Strict`, no `Domain`). Inactivity: 30 minutes; 8 hours at most. Turning “Remote Admin” off closes these sessions at once; detaching the Station too.
+- **Exception**: `PUT /api/relay` that would turn `remote_admin` on is refused through the relay (`403 network_only`).
+- **Warnings**: Admin records `admin_distance_ouvert {account, name}` in its feed, shows the notification through the icon (`/api/local/state` carries `remote_admin_sessions`), and tells the relay `admin_opened {account}`; the relay writes to the family's or team's log and sends the email (`Message::AdminOpened`), at most one per account per hour.
+- **Trust**: in the browser, the relay decrypts the traffic (relais.md, “The relay doesn't see…”): its operator could see Admin's pages. Say so at the switch (“The relay sees what goes through, as for a guest in the browser.”) and in the public relay's terms.
+
+### Texts
+
+See the French table above (both languages).
+
+### Tests to plan
+
+Relay: another Station's `retour` refused; `remote_admin` false, no passkey or another account's assertion refused; local addresses shown only to managers. Admin: without a `via: "relay"` token, nothing more through the relay than today; remote session closed at 30 minutes, when the switch is turned off, on detaching; `remote_admin` can't be turned on through the relay. On the real Windows and Mac Station: notification, email, log.
 
 ## Architecture
 

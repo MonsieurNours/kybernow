@@ -25,7 +25,7 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 | Où se gère quoi | **Console web du relais** (tout, flotte comprise) et **Admin** (rattacher la Station, interrupteur, accès vus et bloqués) ; les apps se connectent et montrent les ordinateurs du compte |
 | Juridique | Les Lignes Claires, responsable du traitement |
 | Calendrier | **Tout, avant la première soumission à l'App Store** |
-| Administrer | Gérer les accès de l'ordinateur dans la console, redémarrer et mettre à jour la Station depuis l'app, **y compris par le relais** ; ouvrir Admin sur le réseau (ci-dessous). Pas l'interface d'Admin entière par le relais |
+| Administrer | Gérer les accès de l'ordinateur dans la console, redémarrer et mettre à jour la Station depuis l'app, **y compris par le relais** ; ouvrir Admin sur le réseau (ci-dessous) ; **tout Admin de n'importe où** avec « Admin à distance », coupé au départ (« Admin depuis KyberNow Share », décidé le 25/11/2026) |
 | Partage avec un compte | La personne qui a le droit Partage **entre sans l'accord de l'hôte** ; l'hôte la voit et peut la retirer |
 | Admin sur le réseau | Le mot de passe d'Admin reste ; **un compte qui a le droit Administrer ouvre aussi Admin** (« Se connecter avec KyberNow », sur le réseau seulement) |
 | Personne et organisation | Un ordinateur rattaché à une personne peut être **ouvert à une organisation** ou à l'un de ses groupes, comme à une personne |
@@ -88,6 +88,57 @@ Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRF
 - **Transitions** : les pages passent de l'une à l'autre par les transitions du navigateur (`@view-transition`) : le menu reste, le contenu glisse ; les étapes du tour glissent de droite à gauche. `prefers-reduced-motion` les coupe. Toujours aucun script, sauf `passkey.js`.
 - **Après la connexion**, l'espace s'ouvre sur « Ordinateurs » (`/compte/ordinateurs`), plus sur la page du compte.
 - **Voir les pages sans relais** : `KN_PAGES_DIR=<dossier> cargo test ecrire_les_pages -- --ignored` (dans `server/relay`) écrit toutes les pages, en français et en anglais, avec les fichiers du relais ; `python3 -m http.server` les sert.
+
+## Admin depuis KyberNow Share
+
+Décidé avec l'auteur le 25/11/2026 ; **revient sur une décision du cadrage** (« Pas l'interface d'Admin entière par le relais », tableau des décisions) : avec un nouvel interrupteur, coupé au départ, **tout Admin** s'ouvre de n'importe où, par le relais, pour un compte qui a le droit Administrer. Spécification à valider avant le code.
+
+### Ce que voit l'utilisateur
+
+- **Le lien « Ouvrir Admin »**, pour qui a le droit Administrer (propriétaire, ou propriétaire et administrateur de la famille ou de l'équipe, avec la double authentification) : dans l'en-tête de la page d'un ordinateur (bouton), sur sa carte dans « Ordinateurs » (petit raccourci « Admin »), et sur chaque ligne de l'onglet « Ordinateurs » d'une famille ou d'une équipe.
+- **Un clic, déjà connecté** : le lien mène à « Ouvrir Admin de {ordinateur} ? », puis « Confirmer avec une passkey » ; Admin s'ouvre, session ouverte, sans son mot de passe.
+- **Où ça marche** :
+  - « Admin à distance » allumé sur la Station : partout, par `https://<id>.share.kybernow.app` ;
+  - coupé : seulement sur le réseau de l'ordinateur, par son adresse locale ; la page le dit (« Admin à distance est coupé sur {ordinateur} : ce lien ne marche que chez vous, sur le même réseau. Allumez-le dans Admin › Hors de chez vous. ») et propose quand même « Ouvrir sur le réseau ».
+  - Station hors ligne : le lien est grisé, « Hors ligne ».
+- **Interrupteur dans Admin**, Hors de chez vous : « Admin à distance » (« Les administrateurs de cet ordinateur ouvrent Admin depuis KyberNow Share, de n'importe où. »), **coupé au départ** ; il demande « Accès hors de chez vous » allumé et la Station rattachée à un compte. Il ne s'allume que **sur place** (session d'Admin sur le réseau) ; il se coupe de partout.
+- **Avertissements à chaque ouverture à distance** :
+  - une notification sur l'ordinateur (icône de la Station, Windows et Mac) : « Admin est ouvert à distance par {nom}. » ;
+  - une ligne dans le fil d'Admin et, pour l'ordinateur d'une famille ou d'une équipe, dans son journal ;
+  - un e-mail aux propriétaires (et aux administrateurs d'une famille ou d'une équipe), quand le relais envoie des e-mails : « Admin de {ordinateur} ouvert à distance par {nom}, {date}, depuis {ville ou adresse}. » ;
+  - la session d'Admin ouverte par le relais **se ferme après 30 minutes sans activité** (et au plus 8 heures).
+- **Passkey exigée** à distance : il faut confirmer par une passkey à chaque ouverture, même déjà connecté. Un compte sans passkey voit « Ajoutez d'abord une passkey à votre compte : elle protège l'ouverture d'Admin à distance. » Sur le réseau, la règle reste celle d'aujourd'hui (double authentification faite).
+- **Tout Admin** à distance : les mêmes pages et réglages que sur le réseau, y compris le mot de passe d'Admin, les ports, le certificat, le compte rattaché et la désinstallation. Une seule exception, de bon sens : « Admin à distance » ne s'allume pas à distance.
+
+### Comment
+
+- **Adresse locale** : la Station donne au relais, dans `hello` (et `admin_status` quand elles changent), ses adresses d'Admin sur le réseau (`admin_lan`: `["https://192.168.1.20:8443", "https://pc-salon.local:8443"]`) et `remote_admin` (l'interrupteur). Le relais les garde **en mémoire seulement**, pour la Station connectée, et ne les montre qu'à un compte qui la gère (`/v1/computers` les porte pour ces comptes ; la console aussi). Ni base, ni journal.
+- **Départ** : la console mène à `GET /compte/admin?id=<station>` (relais) : il vérifie le droit Administrer et la double authentification, puis renvoie vers le départ d'Admin :
+  - à distance : `https://<id>.share.kybernow.app/api/login/kybernow/start` ;
+  - sur le réseau : `<admin_lan>/api/login/kybernow/start`.
+- **Admin** : `GET /api/login/kybernow/start` (nouveau) tire le `nonce` (cookie `kyber_admin_kn`, ou `__Host-kyber_admin_kn` par le relais) et renvoie vers `https://<relais>/compte/ouvrir-admin?station=…&nonce=…&retour=<son origine>`, comme le bouton « Se connecter avec KyberNow » d'aujourd'hui.
+- **Relais, `/compte/ouvrir-admin`** : `retour` est soit une adresse du réseau local (règle d'aujourd'hui), soit **exactement** `https://<id>.<domaine du relais>[:port public]` de cette Station (nouveau). Pour celle-ci : Station connectée avec `remote_admin` vrai, et **assertion de passkey** sur la page de confirmation (défi lié au navigateur, comme pour « Supprimer le compte »). Le jeton délivré porte `via: "relay"` en plus (5 minutes, usage unique, `jti` = `nonce`).
+- **Admin, par le relais** (`Via::Relay { kind: admin_http }`) : la garde ouvre **toutes** les routes de la session d'Admin à une session ouverte par `/api/login/kybernow` **par le relais** avec un jeton `via: "relay"`, `remote_admin` allumé, droit Administrer. Sinon, rien ne change (« Garde d'Admin selon la voie », relais.md). Cookie de session par le relais : `__Host-kyber_admin_session` (`Secure`, `HttpOnly`, `SameSite=Strict`, sans `Domain`). Inactivité : 30 minutes ; au plus 8 heures. Couper « Admin à distance » ferme aussitôt ces sessions ; détacher la Station aussi.
+- **Exception** : `PUT /api/relay` qui allumerait `remote_admin` est refusé par le relais (`403 network_only`).
+- **Avertissements** : Admin note `admin_distance_ouvert {compte, nom}` dans son fil, montre la notification par l'icône (`/api/local/state` porte `remote_admin_sessions`), et dit au relais `admin_opened {account}` ; le relais écrit au journal de la famille ou de l'équipe et envoie l'e-mail (`Message::AdminOpened`), au plus un par compte et par heure.
+- **Confiance** : par le navigateur, le relais déchiffre le trafic (relais.md, « Le relais ne voit pas… ») : son exploitant pourrait voir les pages d'Admin. Le dire à l'interrupteur (« Le relais voit ce qui passe, comme pour un invité dans le navigateur. ») et dans les conditions du relais public.
+
+### Textes
+
+| Où | Français | English |
+|---|---|---|
+| Console, bouton | « Ouvrir Admin » ; raccourci des cartes : « Admin » | “Open Admin”; card shortcut: “Admin” |
+| Console, confirmation | « Ouvrir Admin de {ordinateur} ? » ; « De n'importe où, par KyberNow Share. » ou « Sur le réseau de l'ordinateur. » ; « Confirmer avec une passkey » ; « Annuler » | “Open {computer}'s Admin?”; “From anywhere, through KyberNow Share.” or “On the computer's network.”; “Confirm with a passkey”; “Cancel” |
+| Console, coupé | « Admin à distance est coupé sur {ordinateur} : ce lien ne marche que chez vous, sur le même réseau. Allumez-le dans Admin › Hors de chez vous. » ; « Ouvrir sur le réseau » | “Remote Admin is off on {computer}: this link only works at home, on the same network. Turn it on in Admin › Away from home.”; “Open on the network” |
+| Console, sans passkey | « Ajoutez d'abord une passkey à votre compte : elle protège l'ouverture d'Admin à distance. » | “Add a passkey to your account first: it protects opening Admin remotely.” |
+| Admin, interrupteur | « Admin à distance » ; « Les administrateurs de cet ordinateur ouvrent Admin depuis KyberNow Share, de n'importe où. Le relais voit ce qui passe, comme pour un invité dans le navigateur. » ; « S'allume seulement ici, sur le réseau. » | “Remote Admin”; “This computer's administrators open Admin from KyberNow Share, from anywhere. The relay sees what goes through, as for a guest in the browser.”; “Can only be turned on here, on the network.” |
+| Admin, bandeau à distance | « Admin ouvert à distance, par KyberNow Share. » ; « Se déconnecter » | “Admin opened remotely, through KyberNow Share.”; “Sign out” |
+| Notification (icône) | « Admin est ouvert à distance par {nom}. » | “Admin is open remotely by {name}.” |
+| E-mail | « Admin de {ordinateur} ouvert à distance » ; « {nom} a ouvert Admin de {ordinateur} le {date}, depuis {lieu}. Ce n'est pas normal ? Coupez « Admin à distance » dans Admin, sur l'ordinateur. » | “{computer}'s Admin opened remotely”; “{name} opened {computer}'s Admin on {date}, from {place}. Not expected? Turn off “Remote Admin” in Admin, on the computer.” |
+
+### Essais à prévoir
+
+Relais : `retour` d'une autre Station refusé ; `remote_admin` faux, passkey absente ou assertion d'un autre compte refusées ; adresses locales montrées aux seuls gérants. Admin : sans jeton `via: "relay"`, rien de plus par le relais qu'aujourd'hui ; session à distance fermée à 30 minutes, à l'interrupteur coupé, au détachement ; `remote_admin` ne s'allume pas par le relais. Sur la vraie Station Windows et Mac : notification, e-mail, journal.
 
 ## Architecture
 
