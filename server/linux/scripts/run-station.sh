@@ -116,6 +116,12 @@ RestartSec=2
 [Install]
 WantedBy=graphical-session.target
 EOF
+    # KDE Plasma : le droit de l'agent au protocole d'écrans de KWin, pour
+    # cette copie de l'agent (comme le fichier que pose le paquet).
+    local apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    mkdir -p "$apps"
+    sed "s|^Exec=.*|Exec=$BIN/kybernow-display|" "$ROOT/server/linux/packaging/fr.leslignesclaires.kybernow.station.display.desktop" \
+        > "$apps/fr.leslignesclaires.kybernow.station.display.desktop"
     systemctl --user daemon-reload
 }
 

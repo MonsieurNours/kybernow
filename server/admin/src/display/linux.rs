@@ -1,12 +1,12 @@
-//! Écrans d'une Station Linux (docs/station-linux.md) : bureau GNOME.
+//! Écrans d'une Station Linux (docs/station-linux.md) : bureaux GNOME et KDE Plasma.
 //!
 //! Admin lance l'agent `kybernow-display` (`server/linux/display-agent`,
 //! Rust) dès son démarrage et lui parle par lignes JSON, avec le même
-//! protocole que l'agent du Mac (`display/mac.rs`). L'agent passe par
-//! Mutter : écrans virtuels (`RecordVirtual`), capture des écrans de
-//! l'ordinateur sans le dialogue du partage d'écran (`RecordMonitor`), et
-//! disposition temporaire du bureau (`ApplyMonitorsConfig`). Il tient aussi
-//! le fichier des écrans que Kyber lit (correctif Kyber Linux 0001).
+//! protocole que l'agent du Mac (`display/mac.rs`). L'agent passe par le
+//! compositeur du bureau (Mutter sous GNOME, KWin sous KDE) : écrans
+//! virtuels, capture des écrans de l'ordinateur sans le dialogue du partage
+//! d'écran, et disposition temporaire du bureau. Il tient aussi le fichier
+//! des écrans que Kyber lit (correctif Kyber Linux 0001).
 //!
 //! Différence avec le Mac : l'agent reste en marche tant qu'Admin tourne,
 //! même sans session, puisque c'est lui qui tient la capture des écrans de
@@ -65,15 +65,28 @@ pub struct LinuxBackend {
     agent: Mutex<Option<Agent>>,
     created: Mutex<[Option<u32>; MAX_SCREENS]>,
     watched: Mutex<Vec<u32>>,
+    /// Bureau que l'agent a trouvé (« GNOME », « KDE »).
+    desktop: Mutex<String>,
 }
 
 impl LinuxBackend {
     pub fn new(path: PathBuf) -> Self {
-        let backend =
-            Self { path, agent: Mutex::new(None), created: Mutex::new([None; MAX_SCREENS]), watched: Mutex::new(Vec::new()) };
+        let backend = Self {
+            path,
+            agent: Mutex::new(None),
+            created: Mutex::new([None; MAX_SCREENS]),
+            watched: Mutex::new(Vec::new()),
+            desktop: Mutex::new(String::new()),
+        };
         // Kyber a besoin de ses écrans dès son démarrage : l'agent tout de suite.
-        if let Err(e) = backend.call(json!({ "cmd": "ping" }), true) {
-            tracing::warn!("agent des écrans (kybernow-display) : {e:#}");
+        match backend.call(json!({ "cmd": "ping" }), true) {
+            Ok(Some(v)) => {
+                let desktop = v["desktop"].as_str().unwrap_or_default().to_string();
+                tracing::info!("agent des écrans prêt, bureau : {desktop}");
+                *backend.desktop.lock().unwrap() = desktop;
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!("agent des écrans (kybernow-display) : {e:#}"),
         }
         backend
     }
@@ -158,7 +171,13 @@ fn mode_of(v: &Value) -> Mode {
 
 impl Backend for LinuxBackend {
     fn driver(&self) -> Result<Value> {
-        Ok(json!({ "version": "Mutter ScreenCast (GNOME)", "watchdog_seconds": 0, "agent": self.path }))
+        let desktop = self.desktop.lock().unwrap().clone();
+        let version = match desktop.as_str() {
+            "GNOME" => "Mutter ScreenCast (GNOME)",
+            "KDE" => "KWin zkde_screencast (KDE Plasma)",
+            _ => "Linux",
+        };
+        Ok(json!({ "version": version, "watchdog_seconds": 0, "agent": self.path, "desktop": desktop }))
     }
     fn windows_workarounds(&self) -> bool {
         false
@@ -251,8 +270,8 @@ impl Backend for LinuxBackend {
             })
             .collect())
     }
-    /// Pas encore de HDR depuis une Station Linux : GNOME ne met pas ses
-    /// écrans virtuels en BT.2100 (docs/station-linux.md, « HDR »).
+    /// Pas encore de HDR depuis une Station Linux : ni GNOME ni KDE ne mettent
+    /// leurs écrans virtuels en BT.2100 pour un programme (docs/station-linux.md).
     fn set_hdr(&self, asks: &[hdr::HdrAsk]) -> Result<Vec<hdr::HdrSeen>> {
         Ok(asks
             .iter()

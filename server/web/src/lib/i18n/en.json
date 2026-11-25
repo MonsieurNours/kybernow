@@ -1627,8 +1627,8 @@
       "pill": {
         "simulated": "Simulated: no Station installed on this computer",
         "driverUnavailable": "Virtual display unavailable",
-        "ready": "Ready · GNOME virtual display",
-        "readyVersion": "Ready · GNOME virtual display",
+        "ready": "Ready · desktop virtual display",
+        "readyVersion": "Ready · desktop virtual display",
         "readySound": "Ready · KyberNow sound output"
       },
       "display": {

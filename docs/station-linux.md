@@ -42,7 +42,15 @@ GNOME ne laisse aucun programme lire l'écran directement : tout passe par Mutte
 - **Identifiants** : `linux:101` pour le premier écran virtuel (101, 102… pour Kyber), `linux:1`, `linux:2`… pour ceux de l'ordinateur.
 - **Filet de sécurité** : les écrans virtuels vivent avec la connexion de l'agent au bus de la session ; si l'agent ou Admin s'arrête, GNOME les retire et revient à sa disposition enregistrée.
 
-**KDE Plasma** : à faire. KWin crée des écrans virtuels pour un programme qui y a droit (`zkde_screencast_unstable_v1`, `stream_virtual_output`) ; la Station devra s'y déclarer. D'ici là, sous KDE, Admin trouve l'agent mais Mutter n'est pas là : pas d'écran virtuel.
+### Écrans (KDE Plasma)
+
+L'agent choisit son bureau au démarrage : GNOME si Mutter est sur le bus de la session, sinon KDE si KWin lui donne son protocole de capture (`KYBERNOW_DESKTOP=gnome|kde` pour forcer). Sous KDE (`kde.rs`) :
+
+- **Écrans virtuels** : protocole Wayland de KWin `zkde_screencast_unstable_v1` (version 2 et après, Plasma 5.25 et après), `stream_virtual_output` : KWin crée l'écran « KyberNow-1 » (« KyberNow-2 »…) à la taille donnée (en points, avec l'échelle : 2 dès 2 048 pixels de large) et son flux PipeWire arrive avec l'événement `created`. KWin fixe la taille à la création : un changement de définition en session refait l'écran.
+- **Écrans de l'ordinateur** : `stream_output` sur leur `wl_output` (nommé par la version 4 de `wl_output`), sans le dialogue du portail.
+- **Droit au protocole** : KWin ne le donne qu'à un programme déclaré dans un fichier `.desktop` dont `Exec` est l'agent et qui nomme l'interface (`X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1`). Le paquet pose `/usr/share/applications/fr.leslignesclaires.kybernow.station.display.desktop` ; la Station d'essai, sa copie dans `~/.local/share/applications`. Sans lui, l'agent le dit dans le journal d'Admin.
+- **Disposition** : `kscreen-doctor` (activer, placer, échelle, priorité ; les écrans absents de la disposition sont désactivés) ; places en points. La liste est lue dans sa sortie texte (`-o`) : `kscreen-doctor -j` plante sous Plasma 5.27.
+- **Filet de sécurité** : les écrans virtuels vivent avec la connexion Wayland de l'agent ; s'il s'arrête, KWin les retire.
 
 ### Clavier, souris, pointeur
 
@@ -112,12 +120,12 @@ Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux 
 
 1. **Kyber sous Linux.** Compilé avec nos correctifs pour x86_64 et arm64 (`build-kyber.sh`), sans le lecteur VLC. **Fait dans la VM arm64 (25/11/2026).**
 2. **Admin sous Linux.** Service systemd, Station reconnue, redémarrage, encodeurs : **écrit**. Réveil par le réseau (ethtool), aperçu de l'accueil, nom de la carte graphique, app au début de la session (fichiers `.desktop`, Steam) : **à faire**.
-3. **Écrans virtuels.** GNOME par Mutter : **écrit et essayé dans la VM** (voir « Essais »). KDE : à faire.
+3. **Écrans virtuels.** GNOME par Mutter : **écrit et essayé dans la VM** (voir « Essais »). KDE par KWin : **écrit** ; capture et droit d'accès essayés sous KWin 5.27, écran virtuel pas encore (voir « Essais »).
 4. **Son.** Sortie PipeWire KyberNow : **écrit**.
 5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland : à faire.
 6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Icône près de l'horloge, applicateur des mises à jour (service root), mise à jour depuis Admin : à faire.
 7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer), Prêt du PC (mode console dans la session de l'hôte, veille empêchée par `systemd-inhibit`), HDR (écran virtuel de GNOME en BT.2100 : GNOME ne le propose pas encore), PyroWave (Vulkan, import DMA-BUF), débit en direct en VA-API (à ajouter au correctif commun 0026) : à faire.
-8. **KDE Plasma 6, systèmes immuables.** À faire.
+8. **Systèmes immuables** (Bazzite, SteamOS). À faire.
 
 ## Essais
 
@@ -133,4 +141,6 @@ Tout dans la VM Parallels « KyberNow Linux » (Ubuntu 24.04 arm64, GNOME 46 sou
 
 Pièges trouvés en route : l'app choisit son écran dans la liste de Kyber dès la réponse de `prepare`, avant que Kyber ait relu le fichier des écrans (« Unknown GStreamer display id 1 », première session depuis le Mac) : sur une Station Linux, `prepare` attend que Kyber liste les écrans créés (2 s au plus, 266 ms mesurés) ; `pipewiresrc path=<n>` attend le numéro de série du nœud (le premier essai tombait sur un autre nœud, « not-negotiated », ou sur rien) ; Admin arrête une session sans signal de vie de l'app (5 s) ; la disposition d'avant, remise juste après le retrait d'un écran virtuel, était refusée (« stale information ») : l'agent réessaie avec l'état suivant ; GNOME de la VM est en disposition « physique ».
 
-**Pas encore essayé** : une session de bout en bout depuis une app KyberNow Link (image, son, latence), le clavier, le pointeur absolu et les clics sous Wayland, les manettes, VA-API et NVENC (aucune vraie carte graphique dans la VM), x86_64, KDE, Fedora, une machine réelle.
+**KDE (25/11/2026)**, sous un KWin 5.27 sans écran lancé à côté de GNOME dans la VM (`kwin_wayland --virtual`, Plasma 6 n'existe pas pour Ubuntu 24.04) : l'agent trouve le protocole (version 3), capture l'écran de KWin (flux négocié en 1920 × 1080 BGRx) et lit sa disposition par `kscreen-doctor` ; le contrôle d'accès de KWin refuse le protocole sans le fichier `.desktop` et le donne avec. **L'écran virtuel n'a pas pu être essayé** : ce KWin sans écran le refuse (« Could not find output ») ; seul le moteur DRM d'une vraie session Plasma sait en créer. Deux défauts trouvés et corrigés en route : une disposition sans écran virtuel désactivait les écrans sous KDE, et un écran virtuel refusé laissait Kyber sans écran.
+
+**Pas encore essayé** : une vraie session Plasma 6 (écran virtuel, disposition appliquée, session depuis une app), une session de bout en bout depuis une app KyberNow Link (image, son, latence), le clavier, le pointeur absolu et les clics sous Wayland, les manettes, VA-API et NVENC (aucune vraie carte graphique dans la VM), x86_64, Fedora, une machine réelle.

@@ -42,7 +42,15 @@ GNOME lets no program read the screen directly: everything goes through Mutter, 
 - **Identifiers**: `linux:101` for the first virtual display (101, 102… for Kyber), `linux:1`, `linux:2`… for the computer's.
 - **Safety net**: virtual displays live with the agent's session-bus connection; if the agent or Admin stops, GNOME removes them and goes back to its saved layout.
 
-**KDE Plasma**: to do. KWin creates virtual displays for a program entitled to them (`zkde_screencast_unstable_v1`, `stream_virtual_output`); the Station will have to declare itself. Until then, on KDE, Admin finds the agent but Mutter is not there: no virtual display.
+### Displays (KDE Plasma)
+
+The agent picks its desktop at startup: GNOME if Mutter is on the session bus, otherwise KDE if KWin gives it its capture protocol (`KYBERNOW_DESKTOP=gnome|kde` to force). On KDE (`kde.rs`):
+
+- **Virtual displays**: KWin's Wayland protocol `zkde_screencast_unstable_v1` (version 2 and later, Plasma 5.25 and later), `stream_virtual_output`: KWin creates the display “KyberNow-1” (“KyberNow-2”…) at the given size (in points, with the scale: 2 from 2,048 pixels wide) and its PipeWire stream comes with the `created` event. KWin sets the size at creation: a resolution change during the session remakes the display.
+- **The computer's displays**: `stream_output` on their `wl_output` (named by version 4 of `wl_output`), without the portal's dialog.
+- **Right to the protocol**: KWin only gives it to a program declared in a `.desktop` file whose `Exec` is the agent and which names the interface (`X-KDE-Wayland-Interfaces=zkde_screencast_unstable_v1`). The package installs `/usr/share/applications/fr.leslignesclaires.kybernow.station.display.desktop`; the test Station, its copy in `~/.local/share/applications`. Without it, the agent says so in Admin's log.
+- **Layout**: `kscreen-doctor` (enable, place, scale, priority; displays left out of the layout are disabled); places in points. The list is read from its text output (`-o`): `kscreen-doctor -j` crashes on Plasma 5.27.
+- **Safety net**: virtual displays live with the agent's Wayland connection; if it stops, KWin removes them.
 
 ### Keyboard, mouse, pointer
 
@@ -112,12 +120,12 @@ Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station�
 
 1. **Kyber on Linux.** Built with our patches for x86_64 and arm64 (`build-kyber.sh`), without the VLC player. **Done in the arm64 VM (25/11/2026).**
 2. **Admin on Linux.** systemd service, Station recognised, restart, encoders: **written**. Wake on LAN (ethtool), home preview, graphics card name, app at session start (`.desktop` files, Steam): **to do**.
-3. **Virtual displays.** GNOME through Mutter: **written and tried in the VM** (see “Tests”). KDE: to do.
+3. **Virtual displays.** GNOME through Mutter: **written and tried in the VM** (see “Tests”). KDE through KWin: **written**; capture and access right tried on KWin 5.27, virtual display not yet (see “Tests”).
 4. **Sound.** KyberNow PipeWire output: **written**.
 5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland: to do.
 6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Tray icon, update applier (root service), update from Admin: to do.
 7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try), PC lending (console mode in the host's session, sleep prevented by `systemd-inhibit`), HDR (GNOME virtual display in BT.2100: GNOME does not offer it yet), PyroWave (Vulkan, DMA-BUF import), live bitrate with VA-API (to add to common patch 0026): to do.
-8. **KDE Plasma 6, immutable systems.** To do.
+8. **Immutable systems** (Bazzite, SteamOS). To do.
 
 ## Tests
 
@@ -133,4 +141,6 @@ Everything in the « KyberNow Linux » Parallels VM (Ubuntu 24.04 arm64, GNOME 4
 
 Pitfalls found on the way: the app picks its display from Kyber's list as soon as `prepare` answers, before Kyber has reread the displays file (“Unknown GStreamer display id 1”, first session from the Mac): on a Linux Station, `prepare` waits until Kyber lists the created displays (2 s at most, 266 ms measured); `pipewiresrc path=<n>` expects the node's serial number (the first try landed on another node, “not-negotiated”, or on nothing); Admin ends a session without the app's heartbeat (5 s); the previous layout, given back right after a virtual display was removed, was refused (“stale information”): the agent retries with the next state; the VM's GNOME uses the “physical” layout.
 
-**Not tried yet**: an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers, VA-API and NVENC (no real graphics card in the VM), x86_64, KDE, Fedora, a real machine.
+**KDE (25/11/2026)**, on a headless KWin 5.27 started next to GNOME in the VM (`kwin_wayland --virtual`, Plasma 6 doesn't exist for Ubuntu 24.04): the agent finds the protocol (version 3), captures KWin's display (stream negotiated at 1920 × 1080 BGRx) and reads its layout through `kscreen-doctor`; KWin's access control refuses the protocol without the `.desktop` file and gives it with it. **The virtual display could not be tried**: this headless KWin refuses it (“Could not find output”); only the DRM backend of a real Plasma session can create one. Two defects found and fixed on the way: a layout without a virtual display disabled the displays on KDE, and a refused virtual display left Kyber without a display.
+
+**Not tried yet**: a real Plasma 6 session (virtual display, layout applied, session from an app), an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.

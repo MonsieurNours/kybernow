@@ -13,6 +13,7 @@
 #   /usr/lib/kybernow-station/runtime/   Kyber (bin, lib, share/kyber_config.toml)
 #   /usr/lib/systemd/user/               kybernow-admin.service, kybernow-kyber.service
 #   /usr/lib/udev/rules.d/               60-kybernow-uinput.rules
+#   /usr/share/applications/             fr.leslignesclaires.kybernow.station.display.desktop (KDE)
 #
 # Sortie : server/linux/dist/kybernow-station_<version>_<arch>.deb, et
 # kybernow-station-<version>.<arch>.rpm si rpmbuild est là.
@@ -41,7 +42,7 @@ echo "==> Assemblage"
 TREE="$WORK/tree"
 LIB="$TREE/usr/lib/kybernow-station"
 install -d "$LIB/bin" "$LIB/runtime/share" "$TREE/usr/lib/systemd/user" "$TREE/usr/lib/udev/rules.d" \
-    "$TREE/usr/share/doc/kybernow-station"
+    "$TREE/usr/share/doc/kybernow-station" "$TREE/usr/share/applications"
 install -m 755 "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" \
     "$ROOT/server/linux/packaging/kybernow-station-setup" "$LIB/bin/"
 cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
@@ -52,6 +53,8 @@ install -m 644 "$KYBER_DIR/kyber_config.toml" "$LIB/runtime/share/kyber_config.t
 install -m 644 "$ROOT/server/linux/packaging/kybernow-admin.service" "$ROOT/server/linux/packaging/kybernow-kyber.service" \
     "$TREE/usr/lib/systemd/user/"
 install -m 644 "$ROOT/server/linux/packaging/60-kybernow-uinput.rules" "$TREE/usr/lib/udev/rules.d/"
+# KDE Plasma : le droit de l'agent au protocole d'écrans de KWin.
+install -m 644 "$ROOT/server/linux/packaging/fr.leslignesclaires.kybernow.station.display.desktop" "$TREE/usr/share/applications/"
 install -m 644 "$ROOT/LICENSE" "$TREE/usr/share/doc/kybernow-station/copyright" 2>/dev/null || true
 SIZE_KB=$(du -sk "$TREE" | cut -f1)
 
@@ -85,6 +88,7 @@ Architecture: $DEB_ARCH
 Maintainer: Les Lignes Claires <info@leslignesclaires.fr>
 Installed-Size: $SIZE_KB
 Depends: $DEB_DEPENDS
+Recommends: libkf6screen-bin | libkf5screen-bin
 Section: net
 Priority: optional
 Homepage: https://kybernow.app
@@ -113,6 +117,7 @@ Summary: KyberNow Station : votre ordinateur sur tous vos appareils
 License: AGPL-3.0-or-later
 URL: https://kybernow.app
 Requires: $RPM_REQUIRES
+Recommends: libkscreen
 AutoReqProv: no
 %define _build_id_links none
 %define __strip /bin/true
@@ -135,6 +140,7 @@ $(printf '%s' "$PRERM" | sed 1d)
 /usr/lib/systemd/user/kybernow-admin.service
 /usr/lib/systemd/user/kybernow-kyber.service
 /usr/lib/udev/rules.d/60-kybernow-uinput.rules
+/usr/share/applications/fr.leslignesclaires.kybernow.station.display.desktop
 /usr/share/doc/kybernow-station
 EOF
     rpmbuild --quiet --define "_topdir $WORK/rpm" -bb "$WORK/rpm/SPECS/kybernow-station.spec"

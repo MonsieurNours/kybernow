@@ -17,47 +17,37 @@
 //   hdr        {"id"} → {"supported", "active"}
 //   ping
 //
-// Tout passe par Mutter, le compositeur de GNOME, sur le bus de la session :
+// Deux bureaux, choisis au démarrage (`KYBERNOW_DESKTOP=gnome|kde` pour
+// forcer) : GNOME, par Mutter (`gnome.rs`), et KDE Plasma, par KWin
+// (`kde.rs`). Le reste est commun :
 //
-// - Écrans virtuels : `org.gnome.Mutter.ScreenCast`, `RecordVirtual` (une
-//   session de capture par écran : Mutter ne démarre pas un flux ajouté
-//   après `Start`). Mutter crée l'écran quand un lecteur se branche au flux
-//   PipeWire, à la taille que ce lecteur négocie : c'est la capture de Kyber
-//   (pipewiresrc), qui demande la définition de l'appareil.
-// - Écrans de l'ordinateur : la même API, `RecordMonitor`, sans le dialogue
-//   du portail de partage d'écran (la Station n'est pas dans un bac à
-//   sable) ; enregistrés seulement quand il n'y a pas d'écran virtuel.
+// - Écrans virtuels créés par le compositeur, capturés par PipeWire ; les
+//   écrans de l'ordinateur capturés sans dialogue, seulement quand il n'y a
+//   pas d'écran virtuel (partage depuis le PC, session sans écran virtuel).
 // - Kyber lit la liste des écrans dans un fichier TOML que l'agent tient à
 //   jour (`[[video_sources]]`, correctif Kyber Linux 0001) : identifiant,
-//   nœud PipeWire, taille, place sur le bureau.
-// - Disposition : `org.gnome.Mutter.DisplayConfig`, `ApplyMonitorsConfig`
-//   en mode temporaire (jamais enregistré). Pendant la session, seuls les
-//   écrans virtuels restent sur le bureau, le principal en premier, comme
-//   sous Windows ; les écrans de l'ordinateur reviennent à la fin, avec la
-//   disposition d'avant. Les écrans virtuels n'apparaissent qu'avec le
-//   premier flux : la disposition attend qu'ils soient là (un fil à part,
-//   tant qu'elle n'est pas appliquée).
+//   flux PipeWire (son numéro de série), taille, place sur le bureau.
+// - Disposition temporaire pendant la session : seuls les écrans virtuels
+//   restent sur le bureau, le principal en premier, comme sous Windows ; les
+//   écrans de l'ordinateur reviennent à la fin, avec la disposition d'avant.
+//   Un écran virtuel n'apparaît parfois qu'avec le premier flux (GNOME) : la
+//   disposition attend qu'il soit là (un fil à part).
 //
-// Filet de sécurité : les écrans virtuels vivent avec la connexion au bus de
-// ce processus ; s'il s'arrête, Mutter les retire et revient à la
-// disposition enregistrée de l'utilisateur.
+// Filet de sécurité : les écrans virtuels vivent avec la connexion de cet
+// agent au compositeur ; s'il s'arrête, le compositeur les retire et revient
+// à la disposition enregistrée de l'utilisateur.
 
-use std::collections::HashMap;
+
+mod gnome;
+mod kde;
+
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use zbus::blocking::{Connection, Proxy};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as ZValue};
-
-const SC_DEST: &str = "org.gnome.Mutter.ScreenCast";
-const SC_PATH: &str = "/org/gnome/Mutter/ScreenCast";
-const SC_SESSION: &str = "org.gnome.Mutter.ScreenCast.Session";
-const SC_STREAM: &str = "org.gnome.Mutter.ScreenCast.Stream";
-const DC_DEST: &str = "org.gnome.Mutter.DisplayConfig";
-const DC_PATH: &str = "/org/gnome/Mutter/DisplayConfig";
+use zbus::zvariant::OwnedObjectPath;
 
 /// Identifiant Kyber d'un écran virtuel : 101 pour le principal, 102…
 const VIRTUAL_ID_BASE: u32 = 101;
@@ -68,12 +58,72 @@ const MAX_SCREENS: usize = 4;
 const HIDPI_FROM_WIDTH: u32 = 2048;
 
 type Result<T> = std::result::Result<T, String>;
-type Props = HashMap<String, OwnedValue>;
-type Spec = (String, String, String, String);
-type ModeT = (String, i32, i32, f64, f64, Vec<f64>, Props);
-type MonitorT = (Spec, Vec<ModeT>, Props);
-type LogicalT = (i32, i32, f64, u32, bool, Vec<Spec>, Props);
-type StateT = (u32, Vec<MonitorT>, Vec<LogicalT>, Props);
+
+/// Un écran tel que le bureau le montre.
+#[derive(Clone, Debug)]
+pub struct Mon {
+    /// Connecteur (« HDMI-A-1 », « Meta-0 », « KyberNow-1 »).
+    pub connector: String,
+    /// Écran virtuel de la Station.
+    pub virt: bool,
+    /// Sur le bureau en ce moment.
+    pub enabled: bool,
+    /// Place, dans les unités du bureau.
+    pub x: i32,
+    pub y: i32,
+    /// Mode courant, en pixels.
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    pub scale: f64,
+    pub primary: bool,
+    /// Échelles que le bureau accepte pour ce mode.
+    pub scales: Vec<f64>,
+}
+
+/// Un écran dans une disposition à appliquer.
+#[derive(Clone, Debug)]
+pub struct Place {
+    pub connector: String,
+    pub x: i32,
+    pub y: i32,
+    pub scale: f64,
+    pub primary: bool,
+}
+
+/// Comment rendre une capture : session de Mutter, ou flux de KWin.
+pub enum CastKey {
+    Mutter(OwnedObjectPath),
+    Kde(u32),
+}
+
+/// Une capture du compositeur et son flux PipeWire.
+pub struct Cast {
+    pub key: CastKey,
+    pub node: u32,
+    /// Numéro de série PipeWire du nœud, pour `pipewiresrc target-object`.
+    pub serial: String,
+}
+
+/// Création des écrans et des captures (fil principal).
+pub trait Recorder {
+    /// Un écran virtuel ; son connecteur s'il est connu tout de suite.
+    fn virtual_output(&mut self, slot: usize, width: u32, height: u32, hidpi: bool) -> Result<(Cast, Option<String>)>;
+    fn monitor(&mut self, connector: &str) -> Result<Cast>;
+    fn stop(&mut self, cast: &Cast);
+    /// Lit les événements en attente du compositeur.
+    fn pump(&mut self) {}
+}
+
+/// Lecture et disposition des écrans (fil principal et fil de la disposition).
+pub trait Desk: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn monitors(&self) -> Result<Vec<Mon>>;
+    /// Places en pixels (sinon en points : pixels divisés par l'échelle).
+    fn physical_units(&self) -> Result<bool>;
+    /// Ces écrans, à ces places ; les autres quittent le bureau.
+    fn apply(&self, places: &[Place]) -> Result<()>;
+}
 
 fn err<E: std::fmt::Display>(what: &str) -> impl FnOnce(E) -> String + '_ {
     move |e| format!("{what} : {e}")
@@ -83,12 +133,22 @@ fn log(msg: &str) {
     eprintln!("kybernow-display : {msg}");
 }
 
-/// Une session de capture de Mutter et le nœud PipeWire de son flux.
-struct Cast {
-    session: OwnedObjectPath,
-    node: u32,
-    /// Numéro de série PipeWire du nœud, pour `pipewiresrc target-object`.
-    serial: String,
+/// Numéro de série PipeWire (`object.serial`) du nœud `node` : c'est lui
+/// que `pipewiresrc` attend (`target-object`) ; l'identifiant que donne le
+/// compositeur peut désigner un autre nœud une fois les identifiants
+/// réutilisés. Lu par `pw-dump` ; sans lui, l'identifiant.
+fn serial_of(node: u32) -> String {
+    let out = std::process::Command::new("pw-dump").arg(node.to_string()).output();
+    let serial = out.ok().and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok()).and_then(|v| {
+        v.as_array()?.iter().find(|o| o["id"].as_u64() == Some(u64::from(node))).and_then(|o| {
+            let s = &o["info"]["props"]["object.serial"];
+            s.as_u64().map(|n| n.to_string()).or_else(|| s.as_str().map(str::to_string))
+        })
+    });
+    serial.unwrap_or_else(|| {
+        log(&format!("numéro de série du nœud PipeWire {node} introuvable (pw-dump) : identifiant gardé"));
+        node.to_string()
+    })
 }
 
 struct Virtual {
@@ -97,7 +157,7 @@ struct Virtual {
     height: u32,
     refresh: u32,
     hidpi: bool,
-    /// Place sur le bureau (unités de GNOME), une fois la disposition faite.
+    /// Place sur le bureau, une fois la disposition faite.
     place: (i32, i32),
 }
 
@@ -131,11 +191,9 @@ struct LayoutScreen {
 struct Shared {
     /// Disposition à appliquer dès que les écrans virtuels sont là.
     pending: Option<Layout>,
-    /// Disposition appliquée (la même, une fois en place).
-    applied: Option<Layout>,
     /// Disposition des écrans de l'ordinateur d'avant la session.
-    saved: Option<Vec<LogicalT>>,
-    /// Connecteur de chaque écran virtuel, une fois vu par GNOME (« Meta-0 »).
+    saved: Option<Vec<Place>>,
+    /// Connecteur de chaque écran virtuel (« Meta-0 », « KyberNow-1 »).
     connectors: [Option<String>; MAX_SCREENS],
     /// Place de chaque écran virtuel sur le bureau.
     places: [Option<(i32, i32)>; MAX_SCREENS],
@@ -143,12 +201,113 @@ struct Shared {
     dirty: bool,
 }
 
-struct Agent {
-    conn: Connection,
-    virtuals: Vec<Option<Virtual>>,
-    physicals: Vec<Physical>,
-    shared: Arc<Mutex<Shared>>,
-    file: PathBuf,
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    Gnome,
+    Kde,
+}
+
+fn new_desk(kind: Kind) -> Result<Arc<dyn Desk>> {
+    Ok(match kind {
+        Kind::Gnome => Arc::new(gnome::Gnome::new()?),
+        Kind::Kde => Arc::new(kde::KdeDesk),
+    })
+}
+
+/// Le bureau : `KYBERNOW_DESKTOP` s'il le dit, sinon GNOME si Mutter est là,
+/// sinon KDE si KWin donne son protocole de capture.
+fn detect() -> Result<(Kind, Box<dyn Recorder>)> {
+    let wanted = std::env::var("KYBERNOW_DESKTOP").unwrap_or_default().to_lowercase();
+    if wanted != "kde" && (wanted == "gnome" || gnome::present()) {
+        return Ok((Kind::Gnome, Box::new(gnome::Gnome::new()?)));
+    }
+    match kde::Kde::new() {
+        Ok(k) => Ok((Kind::Kde, Box::new(k))),
+        Err(e) if wanted == "kde" => Err(e),
+        Err(e) => Err(format!("ni GNOME ni KDE : pas d'écran virtuel ici ({e})")),
+    }
+}
+
+/// Échelle la plus proche de `want` parmi celles que le bureau propose.
+fn nearest_scale(scales: &[f64], want: f64) -> f64 {
+    scales.iter().copied().min_by(|a, b| (a - want).abs().total_cmp(&(b - want).abs())).unwrap_or(1.0)
+}
+
+/// Applique `layout` si tous ses écrans virtuels sont sur le bureau. Rend
+/// vrai une fois appliquée.
+fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Result<bool> {
+    // Aucun écran virtuel en place : rien à disposer (sous KDE, une
+    // disposition vide désactiverait tous les écrans).
+    if layout.screens.is_empty() {
+        return Ok(true);
+    }
+    let mons = desk.monitors()?;
+    let physical = desk.physical_units()?;
+    let mut sh = shared.lock().unwrap();
+    // Connecteurs des écrans virtuels : ceux déjà connus, puis les nouveaux
+    // par taille, dans l'ordre des rangs (GNOME les nomme à leur arrivée).
+    let virtuals: Vec<&Mon> = mons.iter().filter(|m| m.virt).collect();
+    for ls in &layout.screens {
+        let taken: Vec<String> = sh.connectors.iter().flatten().cloned().collect();
+        if sh.connectors[ls.slot].as_ref().is_some_and(|c| virtuals.iter().any(|m| &m.connector == c)) {
+            continue;
+        }
+        let found = virtuals.iter().find(|m| !taken.contains(&m.connector) && m.width == ls.width && m.height == ls.height);
+        let found = found.or_else(|| virtuals.iter().find(|m| !taken.contains(&m.connector)));
+        sh.connectors[ls.slot] = found.map(|m| m.connector.clone());
+    }
+    if layout.screens.iter().any(|ls| sh.connectors[ls.slot].is_none()) {
+        return Ok(false);
+    }
+    let others: Vec<&Mon> = mons.iter().filter(|m| !m.virt && m.enabled).collect();
+    if sh.saved.is_none() {
+        sh.saved = Some(
+            others
+                .iter()
+                .map(|m| Place { connector: m.connector.clone(), x: m.x, y: m.y, scale: m.scale, primary: m.primary })
+                .collect(),
+        );
+    }
+    // Écrans virtuels : à leur place (pixels de l'appareil, ramenés en
+    // points si le bureau compte en points), le principal en premier.
+    let mut chosen = Vec::new();
+    for ls in &layout.screens {
+        let connector = sh.connectors[ls.slot].clone().unwrap();
+        let monitor = virtuals.iter().find(|m| m.connector == connector).unwrap();
+        let scale = nearest_scale(&monitor.scales, if ls.hidpi { 2.0 } else { 1.0 });
+        chosen.push((ls, connector, scale));
+    }
+    // Une place en pixels se ramène à l'échelle de l'écran qu'elle touche
+    // (à gauche ou au-dessus), sinon à la sienne.
+    let to_units = |v: i32, own: f64, edge: &dyn Fn(&LayoutScreen) -> i32| -> i32 {
+        if physical || v == 0 {
+            return v;
+        }
+        let touching = chosen.iter().find(|(o, ..)| edge(o) == v).map_or(own, |c| c.2);
+        (v as f64 / touching).round() as i32
+    };
+    let mut places = Vec::new();
+    let mut right = 0;
+    for (i, (ls, connector, scale)) in chosen.iter().enumerate() {
+        let x = to_units(ls.x, *scale, &|o: &LayoutScreen| o.x + o.width as i32);
+        let y = to_units(ls.y, *scale, &|o: &LayoutScreen| o.y + o.height as i32);
+        let width = if physical { ls.width as i32 } else { (ls.width as f64 / scale).round() as i32 };
+        right = right.max(x + width);
+        sh.places[ls.slot] = Some((x, y));
+        places.push(Place { connector: connector.clone(), x, y, scale: *scale, primary: i == 0 });
+    }
+    // Prêt de l'ordinateur : les écrans de l'ordinateur restent, à droite.
+    if layout.keep_others {
+        let left = others.iter().map(|m| m.x).min().unwrap_or(0);
+        for m in &others {
+            places.push(Place { connector: m.connector.clone(), x: right + m.x - left, y: m.y, scale: m.scale, primary: false });
+        }
+    }
+    desk.apply(&places)?;
+    sh.dirty = true;
+    let kept = if layout.keep_others { others.len() } else { 0 };
+    log(&format!("disposition de la session appliquée ({} écran(s) virtuel(s), {kept} de l'ordinateur gardé(s))", layout.screens.len()));
+    Ok(true)
 }
 
 fn screens_file() -> PathBuf {
@@ -163,236 +322,41 @@ fn screens_file() -> PathBuf {
     data.join("kybernow/station/kyber-screens.toml")
 }
 
-fn dc(conn: &Connection) -> Result<Proxy<'static>> {
-    Proxy::new(conn, DC_DEST, DC_PATH, DC_DEST).map_err(err("DisplayConfig"))
-}
-
-fn current_state(conn: &Connection) -> Result<StateT> {
-    dc(conn)?.call("GetCurrentState", &()).map_err(err("GetCurrentState"))
-}
-
-fn prop_bool(props: &Props, key: &str) -> bool {
-    props.get(key).and_then(|v| bool::try_from(v).ok()).unwrap_or(false)
-}
-
-fn current_mode(monitor: &MonitorT) -> Option<&ModeT> {
-    monitor.1.iter().find(|m| prop_bool(&m.6, "is-current"))
-}
-
-fn is_virtual(connector: &str) -> bool {
-    connector.starts_with("Meta-")
-}
-
-/// Échelle la plus proche de `want` parmi celles que GNOME propose pour ce mode.
-fn nearest_scale(mode: &ModeT, want: f64) -> f64 {
-    mode.5.iter().copied().min_by(|a, b| (a - want).abs().total_cmp(&(b - want).abs())).unwrap_or(1.0)
-}
-
-fn record(conn: &Connection, connector: Option<&str>) -> Result<Cast> {
-    let sc = Proxy::new(conn, SC_DEST, SC_PATH, SC_DEST).map_err(err("ScreenCast"))?;
-    let none: HashMap<&str, ZValue> = HashMap::new();
-    let session: OwnedObjectPath = sc.call("CreateSession", &(none,)).map_err(err("CreateSession"))?;
-    let sp = Proxy::new(conn, SC_DEST, session.clone(), SC_SESSION).map_err(err("session"))?;
-    // Le pointeur reste hors de l'image : chaque appareil dessine le sien.
-    let mut opts: HashMap<&str, ZValue> = HashMap::new();
-    opts.insert("cursor-mode", ZValue::U32(0));
-    let stream: OwnedObjectPath = match connector {
-        Some(c) => sp.call("RecordMonitor", &(c, opts)).map_err(err("RecordMonitor"))?,
-        None => {
-            // Écran « de plateforme » : GNOME y met sa barre et ses fenêtres
-            // comme sur un vrai écran (Mutter 44 et après ; sinon sans).
-            let mut platform = opts.clone();
-            platform.insert("is-platform", ZValue::Bool(true));
-            match sp.call("RecordVirtual", &(platform,)) {
-                Ok(s) => s,
-                Err(_) => sp.call("RecordVirtual", &(opts,)).map_err(err("RecordVirtual"))?,
-            }
-        }
-    };
-    let st = Proxy::new(conn, SC_DEST, stream, SC_STREAM).map_err(err("flux"))?;
-    let mut added = st.receive_signal("PipeWireStreamAdded").map_err(err("PipeWireStreamAdded"))?;
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let node = added.next().and_then(|m| m.body().deserialize::<u32>().ok());
-        let _ = tx.send(node);
-    });
-    sp.call::<_, _, ()>("Start", &()).map_err(err("Start"))?;
-    let node = rx
-        .recv_timeout(Duration::from_secs(5))
-        .ok()
-        .flatten()
-        .ok_or_else(|| "Mutter n'a pas donné de flux PipeWire en 5 s".to_string())?;
-    Ok(Cast { session, node, serial: serial_of(node) })
-}
-
-/// Numéro de série PipeWire (`object.serial`) du nœud `node` : c'est lui
-/// que `pipewiresrc` attend (`target-object`) ; l'identifiant que donne
-/// Mutter peut désigner un autre nœud une fois les identifiants réutilisés.
-/// Lu par `pw-dump` ; sans lui, l'identifiant.
-fn serial_of(node: u32) -> String {
-    let out = std::process::Command::new("pw-dump").arg(node.to_string()).output();
-    let serial = out.ok().and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok()).and_then(|v| {
-        v.as_array()?.iter().find(|o| o["id"].as_u64() == Some(u64::from(node))).and_then(|o| {
-            let s = &o["info"]["props"]["object.serial"];
-            s.as_u64().map(|n| n.to_string()).or_else(|| s.as_str().map(str::to_string))
-        })
-    });
-    serial.unwrap_or_else(|| {
-        log(&format!("numéro de série du nœud PipeWire {node} introuvable (pw-dump) : identifiant gardé"));
-        node.to_string()
-    })
-}
-
-fn stop(conn: &Connection, cast: &Cast) {
-    if let Ok(sp) = Proxy::new(conn, SC_DEST, cast.session.clone(), SC_SESSION) {
-        let _ = sp.call::<_, _, ()>("Stop", &());
-    }
-}
-
-/// Applique `layout` si tous ses écrans virtuels sont visibles pour GNOME.
-/// Rend vrai une fois appliquée.
-fn apply_layout(conn: &Connection, shared: &Mutex<Shared>, layout: &Layout) -> Result<bool> {
-    let (serial, monitors, logical, props) = current_state(conn)?;
-    // Disposition « physique » (`layout-mode` 2, celle des écrans à
-    // échelles fractionnaires) : places en pixels ; « logique » (1) : en
-    // pixels divisés par l'échelle de l'écran voisin.
-    let physical = props.get("layout-mode").and_then(|v| u32::try_from(v).ok()) == Some(2);
-    let mut sh = shared.lock().unwrap();
-    // Connecteurs des écrans virtuels : ceux déjà attribués, puis les
-    // nouveaux « Meta-* » par taille, dans l'ordre des rangs.
-    let virtuals: Vec<&MonitorT> = monitors.iter().filter(|m| is_virtual(&m.0.0)).collect();
-    for ls in &layout.screens {
-        let taken: Vec<String> = sh.connectors.iter().flatten().cloned().collect();
-        if sh.connectors[ls.slot].as_ref().is_some_and(|c| virtuals.iter().any(|m| &m.0.0 == c)) {
-            continue;
-        }
-        let found = virtuals.iter().find(|m| {
-            !taken.contains(&m.0.0)
-                && current_mode(m).or(m.1.first()).is_some_and(|md| md.1 as u32 == ls.width && md.2 as u32 == ls.height)
-        });
-        let found = found.or_else(|| virtuals.iter().find(|m| !taken.contains(&m.0.0)));
-        sh.connectors[ls.slot] = found.map(|m| m.0.0.clone());
-    }
-    if layout.screens.iter().any(|ls| sh.connectors[ls.slot].is_none()) {
-        return Ok(false);
-    }
-    if sh.saved.is_none() {
-        sh.saved = Some(logical.iter().filter(|l| l.5.iter().all(|s| !is_virtual(&s.0))).cloned().collect());
-    }
-    // Écrans virtuels : à leur place (pixels de l'appareil ramenés à
-    // l'échelle de GNOME), le principal en premier et principal.
-    let mut out: Vec<(i32, i32, f64, u32, bool, Vec<(String, String, HashMap<String, ZValue>)>)> = Vec::new();
-    let mut chosen = Vec::new();
-    for ls in &layout.screens {
-        let connector = sh.connectors[ls.slot].clone().unwrap();
-        let monitor = virtuals.iter().find(|m| m.0.0 == connector).unwrap();
-        let mode = current_mode(monitor).or(monitor.1.first()).ok_or("écran virtuel sans mode")?;
-        let scale = nearest_scale(mode, if ls.hidpi { 2.0 } else { 1.0 });
-        chosen.push((ls, connector, mode.0.clone(), scale));
-    }
-    // En disposition logique, une place en pixels se ramène à l'échelle de
-    // l'écran qu'elle touche (à gauche ou au-dessus), sinon à la sienne.
-    let to_units = |v: i32, own: f64, edge: &dyn Fn(&LayoutScreen) -> i32| -> i32 {
-        if physical || v == 0 {
-            return v;
-        }
-        let touching = chosen.iter().find(|(o, ..)| edge(o) == v).map_or(own, |c| c.3);
-        (v as f64 / touching).round() as i32
-    };
-    let mut right = 0;
-    for (i, (ls, connector, mode_id, scale)) in chosen.iter().enumerate() {
-        let x = to_units(ls.x, *scale, &|o: &LayoutScreen| o.x + o.width as i32);
-        let y = to_units(ls.y, *scale, &|o: &LayoutScreen| o.y + o.height as i32);
-        let width = if physical { ls.width as i32 } else { (ls.width as f64 / scale).round() as i32 };
-        right = right.max(x + width);
-        sh.places[ls.slot] = Some((x, y));
-        out.push((x, y, *scale, 0, i == 0, vec![(connector.clone(), mode_id.clone(), HashMap::new())]));
-    }
-    // Prêt de l'ordinateur : les écrans de l'ordinateur restent, à droite.
-    let mut kept = 0;
-    if layout.keep_others {
-        let left = logical.iter().filter(|l| l.5.iter().all(|s| !is_virtual(&s.0))).map(|l| l.0).min().unwrap_or(0);
-        for l in logical.iter().filter(|l| l.5.iter().all(|s| !is_virtual(&s.0))) {
-            let specs = l
-                .5
-                .iter()
-                .filter_map(|s| {
-                    let m = monitors.iter().find(|m| m.0 == *s)?;
-                    Some((s.0.clone(), current_mode(m)?.0.clone(), HashMap::new()))
-                })
-                .collect::<Vec<_>>();
-            if !specs.is_empty() {
-                kept += 1;
-                out.push((right + l.0 - left, l.1, l.2, l.3, false, specs));
-            }
-        }
-    }
-    let none: HashMap<&str, ZValue> = HashMap::new();
-    dc(conn)?
-        .call::<_, _, ()>("ApplyMonitorsConfig", &(serial, 1u32, out, none))
-        .map_err(err("ApplyMonitorsConfig"))?;
-    sh.dirty = true;
-    log(&format!("disposition de la session appliquée ({} écran(s) virtuel(s), {kept} de l'ordinateur gardé(s))", layout.screens.len()));
-    Ok(true)
-}
-
-/// Remet la disposition d'avant la session (mode temporaire, comme
-/// `isolate` ; GNOME garde la sienne, enregistrée, pour la suite).
-fn apply_saved(conn: &Connection, saved: &[LogicalT]) -> Result<()> {
-    let (serial, monitors, _, _) = current_state(conn)?;
-    let out: Vec<(i32, i32, f64, u32, bool, Vec<(String, String, HashMap<String, ZValue>)>)> = saved
-        .iter()
-        .filter_map(|l| {
-            let specs: Vec<_> = l
-                .5
-                .iter()
-                .filter_map(|s| {
-                    let m = monitors.iter().find(|m| m.0 == *s)?;
-                    let mode = current_mode(m).or_else(|| m.1.iter().find(|md| prop_bool(&md.6, "is-preferred")))?;
-                    Some((s.0.clone(), mode.0.clone(), HashMap::new()))
-                })
-                .collect();
-            (!specs.is_empty()).then(|| (l.0, l.1, l.2, l.3, l.4, specs))
-        })
-        .collect();
-    if out.is_empty() {
-        return Ok(());
-    }
-    let none: HashMap<&str, ZValue> = HashMap::new();
-    dc(conn)?
-        .call::<_, _, ()>("ApplyMonitorsConfig", &(serial, 1u32, out, none))
-        .map_err(err("ApplyMonitorsConfig"))
+struct Agent {
+    recorder: Box<dyn Recorder>,
+    desk: Arc<dyn Desk>,
+    kind: Kind,
+    virtuals: Vec<Option<Virtual>>,
+    physicals: Vec<Physical>,
+    shared: Arc<Mutex<Shared>>,
+    file: PathBuf,
 }
 
 impl Agent {
     fn new() -> Result<Self> {
-        let conn = Connection::session().map_err(err("bus de la session"))?;
-        let agent = Self {
-            conn,
+        let (kind, recorder) = detect()?;
+        Ok(Self {
+            recorder,
+            desk: new_desk(kind)?,
+            kind,
             virtuals: (0..MAX_SCREENS).map(|_| None).collect(),
             physicals: Vec::new(),
             shared: Arc::new(Mutex::new(Shared::default())),
             file: screens_file(),
-        };
-        Ok(agent)
+        })
     }
 
-    /// Fil de la disposition : applique celle qui attend ses écrans, et
-    /// réécrit le fichier des sources quand les places changent.
+    /// Fil de la disposition : applique celle qui attend ses écrans.
     fn spawn_layout_thread(&self) -> Result<()> {
-        let conn = Connection::session().map_err(err("bus de la session"))?;
+        let desk = new_desk(self.kind)?;
         let shared = Arc::clone(&self.shared);
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_millis(250));
                 let pending = shared.lock().unwrap().pending.clone();
                 if let Some(layout) = pending {
-                    match apply_layout(&conn, &shared, &layout) {
-                        Ok(true) => {
-                            let mut sh = shared.lock().unwrap();
-                            sh.pending = None;
-                            sh.applied = Some(layout);
-                        }
+                    match apply_layout(desk.as_ref(), &shared, &layout) {
+                        Ok(true) => shared.lock().unwrap().pending = None,
                         Ok(false) => {}
                         Err(e) => log(&format!("disposition : {e}")),
                     }
@@ -403,6 +367,7 @@ impl Agent {
     }
 
     fn handle(&mut self, req: &Value) -> Result<Value> {
+        self.recorder.pump();
         match req["cmd"].as_str() {
             Some("create") => self.create(req),
             Some("remove") => {
@@ -419,7 +384,7 @@ impl Agent {
             Some("hdr") => Ok(json!({ "supported": false, "active": false })),
             Some("ping") => {
                 self.ensure_sources()?;
-                Ok(json!({}))
+                Ok(json!({ "desktop": self.desk.name() }))
             }
             _ => Err("requête inconnue".into()),
         }
@@ -435,8 +400,25 @@ impl Agent {
         self.remove_virtual(slot);
         // Les écrans de l'ordinateur ne sont plus capturés pendant la session.
         self.stop_physicals();
-        let cast = record(&self.conn, None)?;
-        log(&format!("écran virtuel {} : {width} × {height} à {refresh} Hz, flux PipeWire {} (série {})", slot + 1, cast.node, cast.serial));
+        let (cast, connector) = match self.recorder.virtual_output(slot, width, height, hidpi) {
+            Ok(made) => made,
+            Err(e) => {
+                // Kyber garde les écrans de l'ordinateur s'il n'y a pas
+                // d'autre écran virtuel.
+                if self.virtuals.iter().all(Option::is_none) {
+                    let _ = self.ensure_sources();
+                }
+                return Err(e);
+            }
+        };
+        log(&format!(
+            "écran virtuel {} ({}) : {width} × {height} à {refresh} Hz, flux PipeWire {} (série {})",
+            slot + 1,
+            self.desk.name(),
+            cast.node,
+            cast.serial
+        ));
+        self.shared.lock().unwrap().connectors[slot] = connector;
         self.virtuals[slot] = Some(Virtual { cast, width, height, refresh, hidpi, place: (0, 0) });
         self.write_sources();
         Ok(json!({ "id": VIRTUAL_ID_BASE + slot as u32 }))
@@ -444,7 +426,7 @@ impl Agent {
 
     fn remove_virtual(&mut self, slot: usize) {
         if let Some(v) = self.virtuals.get_mut(slot).and_then(Option::take) {
-            stop(&self.conn, &v.cast);
+            self.recorder.stop(&v.cast);
             let mut sh = self.shared.lock().unwrap();
             sh.connectors[slot] = None;
             sh.places[slot] = None;
@@ -481,14 +463,9 @@ impl Agent {
         let layout = Layout { screens, keep_others };
         // Compté avant la disposition, qui les retire du bureau.
         let disabled = if keep_others { 0 } else { self.physical_count() };
-        // Déjà visibles (changement de disposition en cours de session) :
-        // tout de suite ; sinon, dès que le premier flux les fait apparaître.
-        match apply_layout(&self.conn, &self.shared, &layout) {
-            Ok(true) => {
-                let mut sh = self.shared.lock().unwrap();
-                sh.pending = None;
-                sh.applied = Some(layout);
-            }
+        // Déjà visibles : tout de suite ; sinon, dès qu'ils apparaissent.
+        match apply_layout(self.desk.as_ref(), &self.shared, &layout) {
+            Ok(true) => self.shared.lock().unwrap().pending = None,
             Ok(false) => self.shared.lock().unwrap().pending = Some(layout),
             Err(e) => {
                 log(&format!("disposition : {e}"));
@@ -503,27 +480,12 @@ impl Agent {
         let saved = {
             let mut sh = self.shared.lock().unwrap();
             sh.pending = None;
-            sh.applied = None;
             sh.saved.take()
         };
-        if let Some(saved) = saved {
-            // Un écran virtuel qui vient de partir change encore la
-            // configuration de GNOME un instant : « stale information ».
-            // On réessaie avec l'état suivant (une seconde au plus).
-            let mut tries = 0;
-            loop {
-                match apply_saved(&self.conn, &saved) {
-                    Ok(()) => break,
-                    Err(e) if e.contains("stale") && tries < 5 => {
-                        tries += 1;
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
-                    Err(e) => {
-                        log(&format!("disposition d'avant la session : {e}"));
-                        break;
-                    }
-                }
-            }
+        if let Some(saved) = saved
+            && let Err(e) = self.desk.apply(&saved)
+        {
+            log(&format!("disposition d'avant la session : {e}"));
         }
         if self.virtuals.iter().all(Option::is_none) {
             // Sans session, Kyber capture les écrans de l'ordinateur.
@@ -536,7 +498,7 @@ impl Agent {
 
     fn state(&mut self, req: &Value) -> Result<Value> {
         self.sync_places();
-        let (_, monitors, logical, _) = current_state(&self.conn)?;
+        let mons = self.desk.monitors()?;
         let sh = self.shared.lock().unwrap();
         let modes: Vec<Value> = req["ids"]
             .as_array()
@@ -549,36 +511,42 @@ impl Agent {
                 let Some(v) = self.virtuals.get(slot).and_then(Option::as_ref) else {
                     return json!({ "width": 0, "height": 0, "refresh": 0 });
                 };
-                // Pas encore vu par GNOME (pas de flux) : le mode demandé.
-                let shown = sh.connectors[slot]
-                    .as_ref()
-                    .and_then(|c| monitors.iter().find(|m| &m.0.0 == c))
-                    .and_then(current_mode);
+                // Pas encore sur le bureau (pas de flux) : le mode demandé.
+                let shown = sh.connectors[slot].as_ref().and_then(|c| mons.iter().find(|m| &m.connector == c && m.enabled));
                 match shown {
-                    Some(m) => json!({ "width": m.1, "height": m.2, "refresh": m.3.round() as u32 }),
+                    Some(m) => json!({ "width": m.width, "height": m.height, "refresh": m.refresh }),
                     None => json!({ "width": v.width, "height": v.height, "refresh": v.refresh }),
                 }
             })
             .collect();
-        let others = logical.iter().filter(|l| l.5.iter().all(|s| !is_virtual(&s.0))).count();
+        let displays = mons.iter().filter(|m| m.enabled).count();
+        let others = mons.iter().filter(|m| m.enabled && !m.virt).count();
         // Disposition en attente : les écrans de l'ordinateur s'éteindront
         // avec elle, Admin n'a rien à réparer.
         let others = if sh.pending.is_some() { 0 } else { others };
-        Ok(json!({ "modes": modes, "displays": logical.len(), "others": others }))
+        Ok(json!({ "modes": modes, "displays": displays, "others": others }))
     }
 
     fn set_mode(&mut self, req: &Value) -> Result<Value> {
         let id = uint(req, "id")?;
         let slot = id.wrapping_sub(VIRTUAL_ID_BASE) as usize;
         let (width, height, refresh) = (uint(req, "width")?, uint(req, "height")?, uint(req, "refresh")?);
+        let hidpi = req["hidpi"].as_bool();
+        if self.kind == Kind::Kde {
+            // KWin fixe la taille d'un écran virtuel à sa création : un
+            // nouvel écran, au même rang, à la nouvelle taille.
+            let hidpi = hidpi.or(self.virtuals.get(slot).and_then(Option::as_ref).map(|v| v.hidpi)).unwrap_or(width >= HIDPI_FROM_WIDTH);
+            self.create(&json!({ "slot": slot, "width": width, "height": height, "refresh": refresh, "hidpi": hidpi }))?;
+            return Ok(json!({ "width": width, "height": height, "refresh": refresh }));
+        }
         let v = self.virtuals.get_mut(slot).and_then(Option::as_mut).ok_or("écran virtuel inconnu")?;
-        // La taille d'un écran virtuel de GNOME est celle que la capture
+        // GNOME : la taille d'un écran virtuel est celle que la capture
         // négocie : la nouvelle taille va au fichier des sources, que Kyber
         // relit (son flux suivant la demande, et GNOME suit).
         v.width = width;
         v.height = height;
         v.refresh = refresh;
-        if let Some(h) = req["hidpi"].as_bool() {
+        if let Some(h) = hidpi {
             v.hidpi = h;
         }
         self.write_sources();
@@ -586,37 +554,30 @@ impl Agent {
     }
 
     fn physical_count(&self) -> usize {
-        current_state(&self.conn)
-            .map(|(_, _, logical, _)| logical.iter().filter(|l| l.5.iter().all(|s| !is_virtual(&s.0))).count())
-            .unwrap_or(0)
+        self.desk.monitors().map(|m| m.iter().filter(|m| m.enabled && !m.virt).count()).unwrap_or(0)
     }
 
-    /// Écrans de l'ordinateur allumés, en pixels de leur mode, places en
-    /// unités du bureau de GNOME.
+    /// Écrans de l'ordinateur allumés, en pixels de leur mode, places dans
+    /// les unités du bureau.
     fn physical_displays(&self) -> Result<Vec<Value>> {
-        let (_, monitors, logical, _) = current_state(&self.conn)?;
-        let mut list = Vec::new();
-        let mut connectors: Vec<&str> = monitors.iter().map(|m| m.0.0.as_str()).filter(|c| !is_virtual(c)).collect();
+        let mons = self.desk.monitors()?;
+        let mut connectors: Vec<&str> = mons.iter().filter(|m| !m.virt).map(|m| m.connector.as_str()).collect();
         connectors.sort();
-        for l in &logical {
-            for spec in &l.5 {
-                if is_virtual(&spec.0) {
-                    continue;
-                }
-                let Some(m) = monitors.iter().find(|m| m.0 == *spec) else { continue };
-                let Some(mode) = current_mode(m) else { continue };
-                let id = 1 + connectors.iter().position(|c| *c == spec.0).unwrap_or(0) as u32;
-                list.push(json!({ "id": id, "name": spec.0, "x": l.0, "y": l.1, "width": mode.1, "height": mode.2,
-                                  "refresh": mode.3.round() as u32, "primary": l.4,
-                                  "listed_width": (mode.1 as f64 / l.2).round() as i32,
-                                  "listed_height": (mode.2 as f64 / l.2).round() as i32 }));
-            }
-        }
-        Ok(list)
+        Ok(mons
+            .iter()
+            .filter(|m| m.enabled && !m.virt)
+            .map(|m| {
+                let id = 1 + connectors.iter().position(|c| *c == m.connector).unwrap_or(0) as u32;
+                json!({ "id": id, "name": m.connector, "x": m.x, "y": m.y, "width": m.width, "height": m.height,
+                        "refresh": m.refresh, "primary": m.primary,
+                        "listed_width": (m.width as f64 / m.scale).round() as i32,
+                        "listed_height": (m.height as f64 / m.scale).round() as i32 })
+            })
+            .collect())
     }
 
     /// Sans écran virtuel : les écrans de l'ordinateur, capturés pour Kyber
-    /// (une session de capture par écran), le fichier des sources à jour.
+    /// (une capture par écran), le fichier des sources à jour.
     fn ensure_sources(&mut self) -> Result<()> {
         if self.virtuals.iter().any(Option::is_some) {
             self.write_sources();
@@ -634,7 +595,7 @@ impl Agent {
             self.stop_physicals();
             for d in &displays {
                 let name = d["name"].as_str().unwrap_or_default().to_string();
-                match record(&self.conn, Some(&name)) {
+                match self.recorder.monitor(&name) {
                     Ok(cast) => self.physicals.push(Physical {
                         id: d["id"].as_u64().unwrap_or(1) as u32,
                         name,
@@ -652,8 +613,8 @@ impl Agent {
     }
 
     fn stop_physicals(&mut self) {
-        for p in self.physicals.drain(..) {
-            stop(&self.conn, &p.cast);
+        for p in std::mem::take(&mut self.physicals) {
+            self.recorder.stop(&p.cast);
         }
     }
 
@@ -726,6 +687,7 @@ fn main() {
     let mut agent = match Agent::new() {
         Ok(a) => a,
         Err(e) => {
+            log(&e);
             println!("{}", json!({ "ok": false, "error": e }));
             std::process::exit(1);
         }
@@ -738,7 +700,12 @@ fn main() {
     if let Err(e) = agent.ensure_sources() {
         log(&format!("écrans de l'ordinateur : {e}"));
     }
-    log(&format!("prêt en {} ms, fichier des écrans : {}", started.elapsed().as_millis(), agent.file.display()));
+    log(&format!(
+        "prêt en {} ms ({}), fichier des écrans : {}",
+        started.elapsed().as_millis(),
+        agent.desk.name(),
+        agent.file.display()
+    ));
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {

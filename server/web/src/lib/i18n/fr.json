@@ -1627,8 +1627,8 @@
       "pill": {
         "simulated": "Simulé : pas de Station installée sur cet ordinateur",
         "driverUnavailable": "Écran virtuel indisponible",
-        "ready": "Prêt · écran virtuel de GNOME",
-        "readyVersion": "Prêt · écran virtuel de GNOME",
+        "ready": "Prêt · écran virtuel du bureau",
+        "readyVersion": "Prêt · écran virtuel du bureau",
         "readySound": "Prêt · sortie son KyberNow"
       },
       "display": {
