@@ -6,6 +6,7 @@ import type { CodecSupport, StreamSettings } from './engine'
 import { hasWebTransport, isFirefox, isTouch, isWebKit, type Mode } from './device'
 import { engineInputs } from './inputs'
 import type { Prefs } from './prefs'
+import { plan as pyrowavePlan, warning as pyrowaveWarning, type PyroWavePlan, type Warning } from './pyrowave/rules'
 
 /** Pourquoi l'image passe par WebSocket dans ce navigateur. */
 export type WebSocketReason = 'relay' | 'touch' | 'webkit' | 'firefox' | 'unsupported'
@@ -66,18 +67,57 @@ export interface Plan extends StreamSettings {
   mbps: number
   /** Le profil voulait le 4:4:4 mais ce navigateur ne le décode pas. */
   lost444: boolean
+  /** PyroWave choisi : la définition à demander (ramenée ou non), et l'avertissement à montrer. */
+  pyrowave: (PyroWavePlan & { warning: Warning }) | null
 }
 
-export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: 'kymux' | 'websocket' = preferredProtocol()): Plan {
+/** PyroWave pour ce choix : offert par l'ordinateur et décodé par ce navigateur
+ * (`usable`), plafond de débit de la Station (`max_mbps`). */
+export interface PyroWaveOffer {
+  usable: boolean
+  stationMax: number | null
+}
+
+/** Débit réglable à la main avec PyroWave (il lui en faut bien plus qu'à HEVC). */
+export const MAX_MBPS_PYROWAVE = 1000
+
+export function choose(
+  p: Prefs,
+  mode: Mode,
+  codecs: CodecSupport[],
+  protocol: 'kymux' | 'websocket' = preferredProtocol(),
+  pyro: PyroWaveOffer | null = null,
+): Plan {
   const hevc = codecs.find((c) => c.codec === 'hevc')
   const h264 = codecs.find((c) => c.codec === 'h264')
   // Auto : HEVC si la carte graphique le décode, sauf dans Firefox (H.264).
+  // Jamais PyroWave : un navigateur ne sait pas s'il est relié par câble.
   let codec: 'h264' | 'hevc' = p.codec === 'h264' ? 'h264' : p.codec === 'hevc' ? 'hevc' : hevc?.hardware && !isFirefox ? 'hevc' : 'h264'
   if (codec === 'hevc' && !hevc) codec = 'h264'
   const support = codec === 'hevc' ? hevc : h264
   // Bureau et Max : texte net (4:4:4) quand ce navigateur le décode.
   const want444 = p.profile === 'bureau' || p.profile === 'max'
   const yuv444 = want444 && !!support?.yuv444
+  const reliable = p.transport === 'fiable' || (p.transport === 'auto' && p.profile === 'bureau')
+
+  // PyroWave choisi soi-même : décodé par la page (WebGPU), 4:4:4 compris ; le format
+  // d'Auto sert de repli si l'ordinateur ne le propose plus. Le débit suit la définition.
+  if (p.codec === 'pyrowave' && pyro?.usable) {
+    const pw = pyrowavePlan(mode, want444, pyro.stationMax, p.bitrate)
+    return {
+      protocol,
+      codec: 'pyrowave',
+      fallbackCodec: codec,
+      yuv444: want444,
+      bitrate: pw.mbps * 1_000_000,
+      mbps: pw.mbps,
+      reliable,
+      audio: p.audio,
+      clipboard: p.clipboard,
+      lost444: false,
+      pyrowave: { ...pw, warning: pyrowaveWarning(viaRelay()) },
+    }
+  }
 
   let mbps = baseMbps(p)
   if (want444 && !yuv444) mbps += Math.round(mbps / 3)
@@ -87,7 +127,6 @@ export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: '
   if (p.bitrate) mbps = p.bitrate
   mbps = Math.min(Math.max(mbps, MIN_MBPS), MAX_MBPS)
 
-  const reliable = p.transport === 'fiable' || (p.transport === 'auto' && p.profile === 'bureau')
   return {
     protocol,
     codec,
@@ -98,5 +137,6 @@ export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: '
     audio: p.audio,
     clipboard: p.clipboard,
     lost444: want444 && !yuv444,
+    pyrowave: null,
   }
 }

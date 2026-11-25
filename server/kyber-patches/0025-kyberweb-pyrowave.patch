@@ -1,0 +1,124 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 9d18ff4..9675dad 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -60,6 +60,8 @@ pub async fn supported_video_codecs() -> JsResult<js_sys::Array> {
+             player::VideoCodec::H264 => "h264",
+             player::VideoCodec::HEVC => "hevc",
+             player::VideoCodec::AV1 => continue,
++            // KyberNow (0025): decoded by the page (WebGPU), which probes it itself.
++            player::VideoCodec::PyroWave => continue,
+         };
+ 
+         reflect::set(&js_config, "codec", codec.into())?;
+@@ -83,6 +85,9 @@ pub struct StreamingConfig {
+     pub display_index: usize,
+     protocol: StreamingProtocol,
+     codec: VideoCodec,
++    /// KyberNow (0025): with `codec` PyroWave, the codec the Station uses if
++    /// it doesn't offer PyroWave after all.
++    fallback_codec: Option<VideoCodec>,
+     pub yuv444: bool,
+     pub software_decode: bool,
+     pub audio: bool,
+@@ -105,6 +110,7 @@ impl StreamingConfig {
+             display_index: self.display_index,
+             protocol: self.protocol.clone(),
+             codec: self.codec.clone(),
++            fallback_codec: self.fallback_codec,
+             yuv444: self.yuv444,
+             software_decode: self.software_decode,
+             audio: self.audio,
+@@ -162,6 +168,7 @@ pub struct StreamingConfigBuilder {
+     kymux_video: String,
+     kymux_audio: String,
+     codec: String,
++    fallback_codec: String,
+     pub yuv444: bool,
+     pub software_decode: bool,
+     pub audio: bool,
+@@ -187,6 +194,7 @@ impl StreamingConfigBuilder {
+             kymux_video: "reliable".to_string(),
+             kymux_audio: "reliable".to_string(),
+             codec: "h264".to_string(),
++            fallback_codec: "h264".to_string(),
+             yuv444: false,
+             software_decode: false,
+             audio: true,
+@@ -221,6 +229,13 @@ impl StreamingConfigBuilder {
+         self.codec = value.to_string();
+     }
+ 
++    /// KyberNow (0025): with codec `pyrowave`, `h264` or `hevc`: the codec
++    /// the Station uses if it doesn't offer PyroWave after all.
++    #[wasm_bindgen(setter)]
++    pub fn set_fallback_codec(&mut self, value: &str) {
++        self.fallback_codec = value.to_string();
++    }
++
+     /// Set gamepad blocklist from JavaScript array of GamepadBlocklistEntry.
+     ///
+     /// Examples:
+@@ -251,6 +266,7 @@ impl StreamingConfigBuilder {
+             kymux_video: self.kymux_video.clone(),
+             kymux_audio: self.kymux_audio.clone(),
+             codec: self.codec.clone(),
++            fallback_codec: self.fallback_codec.clone(),
+             yuv444: self.yuv444,
+             software_decode: self.software_decode,
+             audio: self.audio,
+@@ -269,11 +285,20 @@ impl StreamingConfigBuilder {
+     pub fn build(&self) -> std::result::Result<StreamingConfig, JsValue> {
+         let protocol = Self::build_protocol(&self.protocol, &self.kymux_video, &self.kymux_audio)?;
+         let codec = Self::build_codec(&self.codec)?;
++        let fallback_codec = if codec == VideoCodec::PyroWave {
++            match Self::build_codec(&self.fallback_codec)? {
++                VideoCodec::PyroWave => return Err(JsValue::from("Invalid fallback codec: pyrowave")),
++                c => Some(c),
++            }
++        } else {
++            None
++        };
+         let config = StreamingConfig {
+             bitrate: self.bitrate,
+             display_index: self.display_index,
+             protocol,
+             codec,
++            fallback_codec,
+             yuv444: self.yuv444,
+             software_decode: self.software_decode,
+             audio: self.audio,
+@@ -335,6 +360,7 @@ impl StreamingConfigBuilder {
+         let codec = match codec {
+             "h264" => VideoCodec::H264,
+             "hevc" => VideoCodec::HEVC,
++            "pyrowave" => VideoCodec::PyroWave,
+             _ => {
+                 return Err(JsValue::from(format!("Invalid codec: {codec}")));
+             }
+@@ -634,6 +660,7 @@ impl Client {
+             display_id,
+             yuv444: config.yuv444,
+             intra_refresh: config.intra_refresh,
++            fallback_codec: config.fallback_codec,
+             player: kyclient::VideoPlayerConfig {
+                 canvas: canvas.into(),
+                 software_decode: config.software_decode,
+@@ -684,7 +711,16 @@ impl Client {
+         // Check that requested configuration is supported
+         let supported_video_codecs = player::supported_video_codecs(config.software_decode).await;
+ 
+-        let codec = player::VideoCodec::from(config.codec);
++        // KyberNow (0025): PyroWave is decoded by the page (WebGPU) if it
++        // installed its decoder; the fallback codec must be playable too.
++        if config.codec == VideoCodec::PyroWave {
++            let bridge = js_sys::Reflect::get(&js_sys::global(), &"__kybernowPyroWave".into())
++                .unwrap_or(JsValue::UNDEFINED);
++            if bridge.is_undefined() || bridge.is_null() {
++                return Err(js_sys::Error::new("No decoding support for PyroWave"));
++            }
++        }
++        let codec = player::VideoCodec::from(config.fallback_codec.unwrap_or(config.codec));
+         let supported_codec = supported_video_codecs.iter().find(|supported_config| {
+             codec == supported_config.codec && config.yuv444 == supported_config.yuv444
+         });

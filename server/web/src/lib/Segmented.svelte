@@ -1,4 +1,4 @@
-<!-- Choix exclusif en pastilles. -->
+<!-- Choix exclusif en pastilles. Une pastille peut être inactive (`disabled`), avec sa raison (`title`). -->
 <script lang="ts" generics="T extends string">
   let {
     options,
@@ -6,12 +6,12 @@
     label,
     disabled = false,
     onchange,
-  }: { options: { value: T; label: string }[]; value: T; label: string; disabled?: boolean; onchange: (v: T) => void } = $props()
+  }: { options: { value: T; label: string; disabled?: boolean; title?: string }[]; value: T; label: string; disabled?: boolean; onchange: (v: T) => void } = $props()
 </script>
 
 <div class="seg" role="group" aria-label={label}>
   {#each options as o (o.value)}
-    <button type="button" aria-pressed={o.value === value} {disabled} onclick={() => o.value !== value && onchange(o.value)}>{o.label}</button>
+    <button type="button" aria-pressed={o.value === value} disabled={disabled || !!o.disabled} title={o.title} onclick={() => o.value !== value && onchange(o.value)}>{o.label}</button>
   {/each}
 </div>
 
@@ -42,6 +42,11 @@
 
   button:hover:not([aria-pressed='true']):not(:disabled) {
     color: var(--text);
+  }
+
+  button:disabled:not([aria-pressed='true']) {
+    opacity: 0.45;
+    cursor: default;
   }
 
   button[aria-pressed='true'] {

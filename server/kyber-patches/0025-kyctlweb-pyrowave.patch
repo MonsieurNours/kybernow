@@ -1,0 +1,234 @@
+diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
+index 855a7ab..fad6175 100644
+--- a/kyclient/src/kymux_backend/host_service.rs
++++ b/kyclient/src/kymux_backend/host_service.rs
+@@ -74,6 +74,7 @@ pub(crate) async fn start_stream(
+                     codec: config.codec.into(),
+                     yuv444: config.yuv444,
+                     intra_refresh: config.intra_refresh,
++                    fallback_codec: config.fallback_codec.map(Into::into),
+                 })
+                 .collect(),
+         )
+diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+index e808c4f..b59fb3f 100644
+--- a/kyclient/src/lib.rs
++++ b/kyclient/src/lib.rs
+@@ -836,6 +836,9 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): PyroWave (docs/pyrowave.md), only from a Station
++    /// that announces it; decoded by the page in WebGPU.
++    PyroWave,
+ }
+ 
+ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
+@@ -844,6 +847,7 @@ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
+             VideoCodec::H264 => Self::H264,
+             VideoCodec::HEVC => Self::HEVC,
+             VideoCodec::AV1 => Self::AV1,
++            VideoCodec::PyroWave => Self::PyroWave,
+         }
+     }
+ }
+@@ -869,6 +873,9 @@ pub struct VideoSessionConfig {
+     pub codec: VideoCodec,
+     pub yuv444: bool,
+     pub intra_refresh: Option<bool>,
++    /// KyberNow (0025): with `codec` PyroWave, the codec the Station uses if
++    /// it doesn't offer PyroWave after all (`None`: H.264).
++    pub fallback_codec: Option<VideoCodec>,
+     pub player: VideoPlayerConfig,
+ }
+ 
+@@ -935,6 +942,9 @@ impl StreamingSessionConfig {
+                 info!("\t\tcodec: {:?}", config.codec);
+                 info!("\t\tyuv444: {}", config.yuv444);
+                 info!("\t\tintra_refresh: {:?}", config.intra_refresh);
++                if let Some(fallback) = config.fallback_codec {
++                    info!("\t\tfallback_codec: {fallback:?}");
++                }
+                 info!("\t\tvideo_buffer: {:}", config.player.video_buffer);
+             }
+         } else {
+diff --git a/kyclient/src/platform/web/mod.rs b/kyclient/src/platform/web/mod.rs
+index 42c3c72..1b12b54 100644
+--- a/kyclient/src/platform/web/mod.rs
++++ b/kyclient/src/platform/web/mod.rs
+@@ -84,6 +84,7 @@ impl From<VideoCodec> for player::VideoCodec {
+             VideoCodec::H264 => player::VideoCodec::H264,
+             VideoCodec::HEVC => player::VideoCodec::HEVC,
+             VideoCodec::AV1 => player::VideoCodec::AV1,
++            VideoCodec::PyroWave => player::VideoCodec::PyroWave,
+         }
+     }
+ }
+diff --git a/kyctl-common/src/enums.rs b/kyctl-common/src/enums.rs
+index f3ca6c0..4e0f8cd 100644
+--- a/kyctl-common/src/enums.rs
++++ b/kyctl-common/src/enums.rs
+@@ -25,6 +25,9 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): PyroWave (docs/pyrowave.md). Asked for only when
++    /// the Station announces it: an older Station refuses an unknown codec.
++    PyroWave,
+ }
+ 
+ #[derive(Clone, Debug, Deserialize, Serialize)]
+diff --git a/kyctl-common/src/kymux.rs b/kyctl-common/src/kymux.rs
+index 657785c..f26174c 100644
+--- a/kyctl-common/src/kymux.rs
++++ b/kyctl-common/src/kymux.rs
+@@ -87,6 +87,11 @@ pub struct StartRequestVideo {
+     pub yuv444: bool,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub intra_refresh: Option<bool>,
++    /// KyberNow (0025): with `codec` PyroWave, the codec the Station uses
++    /// if it doesn't offer PyroWave after all (`None`: H.264). The stream's
++    /// codec packet says which one came.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub fallback_codec: Option<VideoCodec>,
+ }
+ 
+ #[derive(Debug, Deserialize, Serialize)]
+diff --git a/kywebplayer/src/packet.rs b/kywebplayer/src/packet.rs
+index d32616d..1795183 100644
+--- a/kywebplayer/src/packet.rs
++++ b/kywebplayer/src/packet.rs
+@@ -22,6 +22,8 @@ pub const CODEC_H264: u32 = 0x68323634;
+ pub const CODEC_H265: u32 = 0x68323635;
+ #[allow(unused)]
+ pub const CODEC_AV1: u32 = 0x00617631;
++/// KyberNow (0025): PyroWave, "pwv1" (docs/pyrowave.md).
++pub const CODEC_PWV1: u32 = 0x70777631;
+ #[allow(unused)]
+ pub const CODEC_OPUS: u32 = 0x6F707573;
+ 
+diff --git a/kywebplayer/src/video/decoder.rs b/kywebplayer/src/video/decoder.rs
+index c1d830d..3b8338e 100644
+--- a/kywebplayer/src/video/decoder.rs
++++ b/kywebplayer/src/video/decoder.rs
+@@ -69,6 +69,10 @@ pub struct VideoDecoder {
+     yuv444: bool,
+     metrics: bool,
+     supported_video_codecs: Vec<VideoDecoderConfig>,
++    /// KyberNow (0025): with the PyroWave codec, the page's WebGPU decoder
++    /// (`globalThis.__kybernowPyroWave.create(output)`, docs/pyrowave-client-web.md)
++    /// instead of WebCodecs. It hands its frames to the same output callback.
++    pyrowave: Option<JsValue>,
+ }
+ 
+ pub struct VideoDecoderCallbacks {
+@@ -92,6 +96,11 @@ impl VideoDecoder {
+         let output_closure = Closure::wrap(cbs.output);
+         let error_closure = Closure::wrap(cbs.error);
+         let video_decoder = Self::create_web_decoder(&output_closure, &error_closure)?;
++        let pyrowave = if kymux_codec == packet::CODEC_PWV1 {
++            Some(Self::create_pyrowave(&output_closure)?)
++        } else {
++            None
++        };
+ 
+         Ok(Self {
+             listener,
+@@ -111,9 +120,51 @@ impl VideoDecoder {
+             yuv444,
+             metrics,
+             supported_video_codecs,
++            pyrowave,
+         })
+     }
+ 
++    /// KyberNow (0025): the page's PyroWave decoder, which calls `output`
++    /// with a VideoFrame for each frame it decodes. No decoder (the page
++    /// didn't install one, no WebGPU): the stream cannot be played.
++    fn create_pyrowave(
++        output_closure: &Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
++    ) -> Result<JsValue, JsValue> {
++        let bridge = js_sys::Reflect::get(&js_sys::global(), &"__kybernowPyroWave".into())?;
++        if bridge.is_undefined() || bridge.is_null() {
++            return Err(JsError::new("No PyroWave decoder in this page").into());
++        }
++        let create = js_sys::Reflect::get(&bridge, &"create".into())?.dyn_into::<js_sys::Function>()?;
++        let decoder = create.call1(&bridge, output_closure.as_ref())?;
++        if decoder.is_undefined() || decoder.is_null() {
++            return Err(JsError::new("PyroWave decoder refused").into());
++        }
++        info!("Video decoder: PyroWave (WebGPU)");
++        Ok(decoder)
++    }
++
++    /// KyberNow (0025): a PyroWave frame (always a whole image, marked key)
++    /// or its configuration packet (`KNPW`). A lost or incomplete frame is
++    /// only skipped by the page: never ask for a keyframe.
++    fn send_pyrowave(&self, decoder: &JsValue, packet: MediaPacket) -> Result<bool, JsValue> {
++        let header = &packet.header;
++        if !header.is_config && self.metrics {
++            self.listener.on_event(VideoPlayerEvent::Metric {
++                pts: header.pts,
++                ts: Instant::now().raw_us() as i64,
++                data: VideoPlayerMetric::FrameDecoding,
++            });
++        }
++        let push = js_sys::Reflect::get(decoder, &"push".into())?.dyn_into::<js_sys::Function>()?;
++        let submitted = push.call3(
++            decoder,
++            &packet.data,
++            &JsValue::from_f64(header.pts as f64),
++            &JsValue::from_bool(header.is_config),
++        )?;
++        Ok(submitted.as_bool().unwrap_or(false))
++    }
++
+     fn create_web_decoder(
+         output_closure: &Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
+         error_closure: &Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
+@@ -170,6 +221,7 @@ impl VideoDecoder {
+             packet::CODEC_H264 => Some(VideoCodec::H264),
+             packet::CODEC_H265 => Some(VideoCodec::HEVC),
+             packet::CODEC_AV1 => Some(VideoCodec::AV1),
++            packet::CODEC_PWV1 => Some(VideoCodec::PyroWave),
+             _ => None,
+         }
+     }
+@@ -203,6 +255,9 @@ impl VideoDecoder {
+     /// Hands a packet to the decoder. Returns whether a frame was submitted
+     /// for decoding (it will come out of the output callback).
+     pub fn send_packet(&mut self, packet: MediaPacket) -> Result<bool, JsValue> {
++        if let Some(decoder) = &self.pyrowave {
++            return self.send_pyrowave(decoder, packet);
++        }
+         if self.failed.replace(false) {
+             self.reset()?;
+         }
+@@ -308,6 +363,14 @@ impl Drop for VideoDecoder {
+     fn drop(&mut self) {
+         info!("Close video decoder");
+ 
++        if let Some(decoder) = self.pyrowave.take() {
++            if let Ok(close) = js_sys::Reflect::get(&decoder, &"close".into())
++                .and_then(|f| f.dyn_into::<js_sys::Function>())
++            {
++                let _ = close.call0(&decoder);
++            }
++        }
++
+         let ret = self.video_decoder.close();
+         if let Err(err) = ret {
+             warn!("Failed to close video deocder: {err:?}");
+diff --git a/kywebplayer/src/video/mod.rs b/kywebplayer/src/video/mod.rs
+index f06f0fc..6a9582c 100644
+--- a/kywebplayer/src/video/mod.rs
++++ b/kywebplayer/src/video/mod.rs
+@@ -32,6 +32,8 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): decoded by the page (WebGPU), not by WebCodecs.
++    PyroWave,
+ }
+ 
+ #[derive(Clone, Debug)]
