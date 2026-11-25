@@ -81,7 +81,7 @@ Tests: `cargo test` (curves and rules of `src/hdr.rs`, chip and settings; the sh
 
 ## PyroWave
 
-PyroWave (wavelet codec, intra only, decoded through Vulkan; [docs/pyrowave-client-linux.en.md](../../docs/pyrowave-client-linux.en.md)) is one more value of “Video format”, next to H.264, HEVC and AV1, on desktop Linux, the Steam Deck and SteamOS; not on the Raspberry Pi.
+PyroWave (wavelet codec, intra only, decoded through Vulkan; [docs/pyrowave-client-linux.en.md](../../docs/pyrowave-client-linux.en.md)) is one more value of “Video format”, next to H.264, HEVC and AV1, on desktop Linux, the Steam Deck and SteamOS; not on the Raspberry Pi yet (library shipped, probe refusing it: [docs/pyrowave-client-pi.en.md](../../docs/pyrowave-client-pi.en.md)).
 
 - **Library**: PyroWave (MIT) at the Station's commit (a32b05e), Vulkan path, upstream's C API, built by `build.sh` (step 4) as `libpyrowave-shared.so.1`, placed next to the app (`/app/lib` in the Flatpak) and loaded at launch; the runtime's Vulkan loader is enough.
 - **Decoding** (`src/native/pyrowave.c`): next to FFmpeg, on the picture thread; its own Vulkan device, one frame per media packet, read back as I420 (SDR), I010 (HDR10, to the HDR subsurface) or three 4:4:4 planes converted to BGRA, then shown as today. Incomplete frame skipped, no keyframe ever requested; the decode time (read-back included) goes to the statistics.

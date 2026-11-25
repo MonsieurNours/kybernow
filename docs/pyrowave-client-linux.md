@@ -2,13 +2,13 @@
 
 [English](pyrowave-client-linux.en.md) · Français
 
-Section client de [pyrowave.md](pyrowave.md) (le contrat et la Station), à y fusionner. Concerne l'app Linux (`apps/linux`) : Linux de bureau, Steam Deck et SteamOS au salon. Le Raspberry Pi n'a pas PyroWave (pas de Vulkan 1.3 qui convienne, et la compilation `--rpi` ne l'inclut pas) : la sonde le dit indisponible. Règles d'interface : [link-ui.md](link-ui.md), « PyroWave » ; client Mac : [pyrowave-client-mac.md](pyrowave-client-mac.md).
+Section client de [pyrowave.md](pyrowave.md) (le contrat et la Station), à y fusionner. Concerne l'app Linux (`apps/linux`) : Linux de bureau, Steam Deck et SteamOS au salon. Le Raspberry Pi n'a pas encore PyroWave : la bibliothèque est compilée et livrée (`--rpi`), mais la sonde le dit indisponible ; faisabilité (Pi 5 probable avec un correctif, Pi 4 et Pi 3 impossibles) dans [pyrowave-client-pi.md](pyrowave-client-pi.md). Règles d'interface : [link-ui.md](link-ui.md), « PyroWave » ; client Mac : [pyrowave-client-mac.md](pyrowave-client-mac.md).
 
 ## La bibliothèque
 
 - [PyroWave](https://github.com/Themaister/pyrowave) (licence MIT), chemin **Vulkan**, au commit de la Station et du Mac (a32b05e, `apps/macos/PyroWave/COMMIT`), avec la partie de [Granite](https://github.com/Themaister/Granite) (MIT) que prend `checkout_granite.sh`. `apps/linux/scripts/build.sh` (étape 4) le récupère par git, le compile par CMake (cible `pyrowave-shared`, l'API C `pyrowave.h`) et pose `libpyrowave-shared.so.1`, `pyrowave.h` et les en-têtes de Vulkan de Granite dans le préfixe. Une trentaine de secondes ; le module des dépendances du Flatpak le met en cache avec FFmpeg et libkynput.
 - **Bibliothèque partagée, chargée au lancement** (`dlopen`) : à côté de l'app (`<préfixe>/lib`, `/app/lib` dans le Flatpak), sinon le préfixe de compilation, sinon le chemin du système ; `KYBERNOW_PYROWAVE_LIB` en force une. Sans elle, PyroWave est indisponible et rien d'autre ne change. Le chargeur Vulkan est celui du runtime (`libvulkan.so.1`, ouvert par volk dans Granite) ; aucune autorisation de plus dans le Flatpak (`--device=all` y est déjà).
-- `build.sh --rpi` ne le compile pas : l'app du Pi prend `src/native/pyrowave_none.c` (la sonde répond « indisponible »).
+- `build.sh --rpi` le compile aussi (le .deb et KyberNow Link OS le livrent, [pyrowave-client-pi.md](pyrowave-client-pi.md)) ; la sonde refuse encore le Pi.
 
 ## Décodage (`src/native/pyrowave.c`, `src/device/video.rs`)
 

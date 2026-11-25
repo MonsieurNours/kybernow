@@ -8,7 +8,8 @@
 #   2. libkynput (statique, cargo cinstall) dans le préfixe ;
 #   3. FFmpeg 7.1.1 réduit au décodage H.264, HEVC et AV1, VA-API et V4L2 M2M
 #      compris (statique, LGPL 2.1) dans le préfixe ;
-#   4. PyroWave (Vulkan, API C, bibliothèque partagée ; pas avec --rpi) ;
+#   4. PyroWave (Vulkan, API C, bibliothèque partagée ; aussi avec --rpi, pour
+#      le Pi 4 et le Pi 5 en Vulkan par Mesa v3dv : docs/pyrowave-client-pi.md) ;
 #   5. l'app (cargo build -p kybernow-linux).
 #
 # Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--prefix DIR] [--install DIR]
@@ -149,9 +150,12 @@ fi
 #    Vulkan, au commit de la Station (apps/macos/PyroWave/COMMIT), avec la
 #    partie de Granite que prend checkout_granite.sh ; bibliothèque partagée
 #    (libpyrowave-shared.so.1), chargée par l'app au lancement (dlopen) : sans
-#    elle, PyroWave est indisponible et rien d'autre ne change. Pas sur le Pi.
+#    elle, PyroWave est indisponible et rien d'autre ne change. Aussi pour le
+#    Raspberry Pi (--rpi : le .deb et KyberNow Link OS), où le pilote Vulkan
+#    est Mesa v3dv (docs/pyrowave-client-pi.md) ; c'est l'app qui décide, au
+#    lancement, si la carte sait le décoder.
 PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
-if [ "$RPI" = 0 ] && [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
+if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
     src="${PYROWAVE_SRC:-$PREFIX/build/pyrowave}"
     if [ ! -f "$src/.kybernow-$PYROWAVE_COMMIT" ]; then
         echo "==> sources de PyroWave ($PYROWAVE_COMMIT) et de Granite"
