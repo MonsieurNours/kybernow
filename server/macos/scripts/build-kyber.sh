@@ -162,4 +162,7 @@ for f in bin/kycontroller bin/kyavserver bin/kynputserver bin/kybernow-pyrowave-
     [ -x "$OUT/$f" ] || { echo "$OUT/$f introuvable" >&2; exit 1; }
     [ "$OUT/$f" -nt "$STARTED" ] || { echo "$OUT/$f n'a pas été produit par ce build" >&2; exit 1; }
 done
+# Empreinte des correctifs de ce build, comparée par scripts/release.sh
+# (mac_kyber_hash : mêmes fichiers, même ordre).
+(cd "$ROOT" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1) > "$OUT/.kybernow-patches"
 echo "==> Serveur Kyber pour Mac : $OUT"

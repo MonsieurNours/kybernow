@@ -201,6 +201,8 @@ The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Statio
 
 **Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused. If the failure came after step 5, the feed commit is at the head with the version commit right below it: it is recognised, the app is rebuilt and the feed redone (the archive changed, and so did its signature); its commit is replaced if it has not been pushed yet, followed by a new one otherwise.
 
+**Resuming the builds**: each successful build step records, in `dist/.etapes-vX.Y.Z/`, the version commit it comes from and the fingerprint of its files. On a re-run, a step already done on the same commit, whose files haven't changed, is skipped (“étape sautée (reprise)”); if the version commit changed (a fix since the failure), everything is rebuilt, so that the published files all come from the tagged commit. Notarisation, feeds, checksums and the release are always redone. **Logs**: each build writes all its output to `dist/.journaux-vX.Y.Z/<name>.log`; the screen keeps errors without progress lines, and a failure shows the end of the log (an error written to standard output, like the linker's, used to go unnoticed). **Mac Station check**: its Kyber must carry the current patches' fingerprint (`rootfs-arm64-macos/.kybernow-patches`, written by `server/macos/scripts/build-kyber.sh`) and the PyroWave check (`kybernow-pyrowave-check`); without a fingerprint, it must be newer than the patches.
+
 **Checked before publishing**:
 
 | Check | If it fails |
