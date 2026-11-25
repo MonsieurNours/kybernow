@@ -130,10 +130,10 @@ object Hdr {
         else -> false
     }
 
-    /** `{hevc, hevc444, av1, hdr}` : ce que l'appareil décode, pour le cœur. */
+    /** `{hevc, hevc444, av1, hdr, pyrowave}` : ce que l'appareil décode, pour le cœur (PyroWave : la sonde du lancement). */
     fun capabilities(host: Host, decoders: Decoders): JSONObject = JSONObject()
         .put("hevc", decoders.hevc != null).put("hevc444", decoders.hevc444).put("av1", decoders.av1 != null && host.av1)
-        .put("hdr", decodes(host, decoders))
+        .put("hdr", decodes(host, decoders)).put("pyrowave", PyroWave.decodes)
 
     /**
      * Les réglages que le cœur regarde pour la puce : le format que la session demandera, et le profil sauf avec

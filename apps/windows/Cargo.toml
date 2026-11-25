@@ -11,6 +11,13 @@ build = "build.rs"
 name = "kybernow"
 path = "src/main.rs"
 
+[features]
+# Kyber demande PyroWave : correctif kyclient 0025 (`VideoCodec::PyroWave`,
+# `fallback_codec`) et fonctionnalité `pyrowave` du cœur, posés ensemble par
+# scripts/build.sh --kyber-pyrowave, comme Android et les apps Apple, tant
+# qu'ils ne sont pas allumés pour toutes les apps (third_party/ est partagé).
+kyber-pyrowave = ["kybernow-core/pyrowave"]
+
 [dependencies]
 kybernow-core = { path = "../core" }
 log = { version = "0.4", features = ["std"] }
@@ -77,6 +84,9 @@ features = [
     "Foundation",
     "UI_Notifications",
     "Win32_UI_Shell_PropertiesSystem",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
 ]
 
 [build-dependencies]

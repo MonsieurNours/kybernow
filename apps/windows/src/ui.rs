@@ -1710,6 +1710,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
         }
     }
     let ctrl_command = settings.ctrl_command;
+    let immersive = settings.immersive.clone();
     let hdr = settings.hdr_on();
     let hdr_before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
@@ -1725,6 +1726,8 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
     let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
     state.with_session(&id, |r| r.host.set_control_as_command(on));
+    // « Mode immersif » : tout de suite aussi.
+    state.with_session(&id, |r| r.host.set_immersive(&immersive));
     emit_computers(&app);
     Ok(())
 }
@@ -1793,6 +1796,9 @@ struct UiEvents {
     pads_off: bool,
     /// « Manettes indisponibles sur cet ordinateur. » déjà dit dans cette session.
     pads_told: std::sync::atomic::AtomicBool,
+    /// PyroWave en Wi-Fi ou par le relais : le bandeau du début de session
+    /// déjà montré (une fois par session).
+    pyrowave_told: std::sync::atomic::AtomicBool,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -1862,6 +1868,15 @@ struct BarShown {
     route: Option<relais::RouteView>,
     /// La puce « HDR » (écran HDR seulement, jamais pour un invité).
     hdr: Option<BarHdr>,
+    /// PyroWave (docs/link-ui.md) : ce PC rejoint l'ordinateur par câble ;
+    /// la barre en tire la puce ambre « PyroWave en Wi-Fi » quand l'image est
+    /// en PyroWave (format des mesures) sans câble.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wired: Option<bool>,
+    /// L'avis est le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`) :
+    /// titre, « Passer en HEVC » et croix, 8 s.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notice_kind: Option<&'static str>,
     /// Une partie sur console PlayStation : la barre de la partie (son, souris,
     /// réglages, plein écran, veille, « Se déconnecter »).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1896,6 +1911,8 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         notice_icon: None,
         route,
         hdr: None,
+        wired: None,
+        notice_kind: None,
         console: Some(console),
     }
 }
@@ -2019,6 +2036,7 @@ impl HostEvents for UiEvents {
         let _ = self.app.emit_to("bar", "stats", StatsEvent { id: &self.id, stats: s });
         *self.stats.lock().unwrap() = Some(s.clone());
         self.tell_pads_off();
+        self.tell_pyrowave(s);
         tray::refresh();
     }
 
@@ -2453,6 +2471,25 @@ impl UiEvents {
     /// Une fois par session, à l'image montrée avec une manette branchée (ou
     /// dès que la première se branche) : l'ordinateur ne la verra pas
     /// (docs/link-ui.md, « Manettes indisponibles »). Vu à chaque mesure.
+    /// PyroWave choisi et la session en Wi-Fi ou par le relais : le bandeau du
+    /// début de session (docs/link-ui.md « PyroWave »), une fois, à la
+    /// première seconde de PyroWave à l'écran ; « Passer en HEVC » relance
+    /// l'image en HEVC pour cette session.
+    fn tell_pyrowave(&self, s: &Stats) {
+        use std::sync::atomic::Ordering;
+        if self.pyrowave_told.load(Ordering::Relaxed) || !s.decoder.starts_with("PyroWave") || !self.spot.lock().unwrap().shown {
+            return;
+        }
+        let relayed = self.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay);
+        let wired = self.sent.lock().unwrap().settings.wired;
+        let Some(kind) = pyrowave_link(relayed, wired) else { return };
+        if self.pyrowave_told.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        log::info!("[{}] PyroWave {} : bandeau", self.connexion.name, if relayed { "par le relais" } else { "en Wi-Fi" });
+        share::panel_notice(&self.app, &self.id, &self.connexion.name, &t("pyrowave.banner_text", &[]), kind);
+    }
+
     fn tell_pads_off(&self) {
         use std::sync::atomic::Ordering;
         if !self.pads_off || self.pads_told.load(Ordering::Relaxed) || !self.spot.lock().unwrap().shown {
@@ -2633,7 +2670,7 @@ fn displays_spec(s: &Settings, info: Option<&Info>, lighten: bool, pc: &ThisPc) 
 
 /// Ce que ce PC décode (sonde de la carte graphique).
 fn capabilities(pc: &ThisPc) -> kybernow_core::profile::Capabilities {
-    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: pc.hdr }
+    kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1, hdr: pc.hdr, pyrowave: pc.pyrowave }
 }
 
 /// La puce « HDR » (docs/hdr.md, `profile::hdr_state`) : `info`, ce que la
@@ -3052,7 +3089,9 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         let (layout, follow) = follow_layout(&state, spec);
         (layout, Some(follow))
     };
-    let (settings, mode, label) = session_plan(&c, &pc, lighten, follow.as_ref().map(|f| f.mode));
+    let (mut settings, mode, label) = session_plan(&c, &pc, lighten, follow.as_ref().map(|f| f.mode));
+    // PyroWave (docs/link-ui.md « PyroWave ») : « Auto » le prend seulement par câble.
+    settings.wired = !host.is_empty() && system::wired_to(&host);
     let plan = screens::session_plan_for(&layout.screens(), &settings, s.virtual_display);
     // HDR : l'écran de la session (« Cet écran », ou dès qu'un des écrans pris l'est) ;
     // le cœur relit chaque écran dans les écrans de ce PC.
@@ -3159,6 +3198,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         route: route.clone(),
         pads_off: info.as_ref().is_some_and(|i| !i.gamepads_available()),
         pads_told: std::sync::atomic::AtomicBool::new(false),
+        pyrowave_told: std::sync::atomic::AtomicBool::new(false),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3180,6 +3220,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             title_stats: false,
             layout,
             control_as_command,
+            immersive: s.immersive.clone(),
         },
         events.clone(),
     );
@@ -3342,7 +3383,9 @@ fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), St
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
     // Les réglages du profil seulement : la taille de l'écran ne change pas.
-    let (settings, _, label) = session_plan(&c, &pc, lighten, None);
+    let (mut settings, _, label) = session_plan(&c, &pc, lighten, None);
+    // Le câble ne change pas avec le profil.
+    settings.wired = sent.lock().unwrap().settings.wired;
     sent.lock().unwrap().settings = settings.clone();
     // Un profil choisi remet ses réglages (`save_profile`) : plus de « Personnalisé ».
     let shown = BarLabel { label, profile, custom: false };
@@ -3350,6 +3393,56 @@ fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), St
     let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.clone(), label: shown });
     let applied = state.with_session(&id, |r| r.host.set_settings(settings)).unwrap_or(false);
     if applied { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
+}
+
+/// PyroWave (« Format vidéo » des réglages) : ce PC joint l'ordinateur `id`
+/// par câble (Ethernet), pour les aides d'« Auto » et l'avertissement Wi-Fi.
+#[tauri::command(async)]
+fn computer_wired(app: AppHandle, id: String) -> bool {
+    let state = app.state::<UiState>();
+    let host = state.with_store(|s| s.get(&id).map(|c| c.host.clone())).unwrap_or_default();
+    !host.is_empty() && system::wired_to(&host)
+}
+
+/// « Passer en HEVC » du bandeau de PyroWave (docs/link-ui.md) : l'image
+/// repart en HEVC pour cette session seulement (le choix de l'ordinateur
+/// reste PyroWave) ; le cœur relance l'image.
+#[tauri::command(async)]
+fn session_hevc(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<UiState>();
+    let Some((bar, sent)) = state.with_session(&id, |r| (r.bar.clone(), r.sent.clone())) else {
+        return Err(t("errors.no_session", &[]));
+    };
+    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
+    let settings = {
+        let mut sent = sent.lock().unwrap();
+        sent.settings.codec = kybernow_core::profile::Codec::Hevc;
+        // 4:4:4 en HEVC seulement si la carte le décode.
+        sent.settings.yuv444 = sent.settings.yuv444 && pc.hevc444;
+        sent.settings.clone()
+    };
+    let shown = {
+        let mut b = bar.lock().unwrap();
+        b.label = format!("{} · {}{}", settings.label(), settings.codec.label(), if settings.yuv444 { " 4:4:4" } else { "" });
+        b.custom = true;
+        b.clone()
+    };
+    let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.clone(), label: shown });
+    log::info!("PyroWave : « Passer en HEVC » pour cette session");
+    let applied = state.with_session(&id, |r| r.host.set_settings(settings)).unwrap_or(false);
+    if applied { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
+}
+
+/// Le bandeau de PyroWave à montrer : `pyrowave_relay` par le relais,
+/// `pyrowave_wifi` sans câble ; rien par câble sur le réseau de l'ordinateur.
+fn pyrowave_link(relayed: bool, wired: bool) -> Option<&'static str> {
+    if relayed {
+        Some("pyrowave_relay")
+    } else if !wired {
+        Some("pyrowave_wifi")
+    } else {
+        None
+    }
 }
 
 /// Le profil d'un ordinateur, retouches effacées (comme l'accueil).
@@ -3569,6 +3662,8 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         notice_icon: icon,
         route,
         hdr: bar_hdr(&state, id),
+        wired: state.with_session(id, |r| r.sent.lock().unwrap().settings.wired),
+        notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay"].into_iter().find(|k| *k == p)),
         console: None,
     };
     let _ = app.emit_to("bar", "bar-shown", shown);
@@ -3998,6 +4093,8 @@ pub fn run(args: Vec<String>) {
             set_open_at_login,
             displays_info,
             session_hdr,
+            session_hevc,
+            computer_wired,
             fond_state,
             share::share_defaults,
             share::share_link_code,

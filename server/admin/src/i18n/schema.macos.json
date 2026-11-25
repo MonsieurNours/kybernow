@@ -29,6 +29,12 @@
         "help": "Présente chaque manette au Mac comme une manette Xbox sans fil.",
         "details": "Par défaut, une manette PlayStation devient une DualSense sur le Mac, et toute autre manette une manette Xbox sans fil. Ce réglage fait passer toutes les manettes pour une manette Xbox, que certains jeux reconnaissent mieux.",
         "advice": "Activez-le seulement si un jeu ne détecte pas votre manette."
+      },
+      "video.pyrowave": {
+        "details": "Texte provisoire. PyroWave est un format d'image très rapide à encoder et à décoder, pour le réseau local ; il demande beaucoup de débit. Encodé par la puce Apple du Mac ; proposé seulement si elle le permet (famille Apple7 ou plus : toutes les puces M)."
+      },
+      "video.pyrowave_max_mbps": {
+        "details": "PyroWave envoie beaucoup de données. Ce plafond, annoncé à vos appareils, leur fait baisser la définition (puis la fréquence) pour y tenir, au lieu de rendre l'image floue. En Auto, il suit la prise réseau du Mac (Ethernet, ou débit du Wi-Fi)."
       }
     }
   },
@@ -62,6 +68,12 @@
         "help": "Presents every gamepad to the Mac as an Xbox Wireless Controller.",
         "details": "By default, a PlayStation gamepad becomes a DualSense on the Mac, and any other gamepad an Xbox Wireless Controller. This setting makes every gamepad pass for an Xbox controller, which some games recognise better.",
         "advice": "Turn it on only if a game does not detect your gamepad."
+      },
+      "video.pyrowave": {
+        "details": "Provisional text. PyroWave is a picture format that is very fast to encode and decode, for the local network; it needs a lot of bandwidth. Encoded by the Mac's Apple chip; offered only if it allows it (Apple7 family or later: every M chip)."
+      },
+      "video.pyrowave_max_mbps": {
+        "details": "PyroWave sends a lot of data. This cap, announced to your devices, makes them lower the resolution (then the refresh rate) to fit in it, instead of blurring the picture. On Auto, it follows the Mac's network port (Ethernet, or the Wi-Fi rate)."
       }
     }
   }

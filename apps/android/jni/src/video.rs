@@ -11,6 +11,12 @@
 //! placé devant chaque image clé qui démarre un décodeur : MediaCodec le lit
 //! dans le flux, sans `csd-0`, quel que soit le format. Une perte fait
 //! attendre la prochaine image clé (redemandée par le cœur).
+//!
+//! PyroWave (`pwv1`, docs/pyrowave-client-android.md) passe à côté de
+//! MediaCodec : décodé par Vulkan et présenté sur la même surface par une
+//! swapchain (`crate::pyrowave`), sur ce même fil. Chaque image est une image
+//! clé : une image incomplète est sautée, jamais d'image clé demandée ; si
+//! plusieurs attendent, seule la plus récente est décodée.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,9 +30,10 @@ use ndk::media::media_codec::{DequeuedInputBufferResult, DequeuedOutputBufferInf
 use ndk::media::media_format::MediaFormat;
 
 use kybernow_core::latency;
-use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
+use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
 
 use crate::media::MediaHost;
+use crate::pyrowave::{PwConfig, PwSession, Shown};
 
 const BUFFER_FLAG_KEY_FRAME: u32 = 1;
 
@@ -128,6 +135,13 @@ struct DecodeLoop {
     lost_reported: bool,
     last_request: Option<Instant>,
     received: Received,
+    /// PyroWave : la session d'affichage Vulkan (ouverte à la première image),
+    /// le dernier paquet de configuration, un échec d'ouverture (réessayé avec
+    /// la surface suivante) et le format dont le nom a été donné à Kotlin.
+    pw: Option<PwSession>,
+    pw_config: Option<PwConfig>,
+    pw_failed: bool,
+    pw_announced: Option<PwConfig>,
 }
 
 impl DecodeLoop {
@@ -142,18 +156,59 @@ impl DecodeLoop {
             lost_reported: false,
             last_request: None,
             received: Arc::new(Mutex::new(VecDeque::with_capacity(64))),
+            pw: None,
+            pw_config: None,
+            pw_failed: false,
+            pw_announced: None,
         }
     }
 
+    fn pyrowave(&self) -> bool {
+        self.fourcc == FOURCC_PYROWAVE
+    }
+
     fn run(mut self, rx: Receiver<Msg>) {
-        while let Ok(m) = rx.recv() {
+        let mut pending: VecDeque<Msg> = VecDeque::new();
+        loop {
+            let m = match pending.pop_front() {
+                Some(m) => m,
+                None => match rx.recv() {
+                    Ok(m) => m,
+                    Err(_) => break,
+                },
+            };
+            // PyroWave : seule la plus récente des images en attente est
+            // décodée (les autres comptent parmi les images perdues).
+            let m = match m {
+                Msg::Frame { .. } if self.pyrowave() => {
+                    let mut latest = m;
+                    while let Ok(next) = rx.try_recv() {
+                        if matches!(next, Msg::Frame { .. }) {
+                            latest = next;
+                        } else {
+                            pending.push_back(next);
+                            break;
+                        }
+                    }
+                    latest
+                }
+                m => m,
+            };
             match m {
                 Msg::Codec(c) => {
                     self.fourcc = c;
                     self.decoder = None;
                     self.config.clear();
                     self.waiting_key = true;
+                    self.pw = None;
+                    self.pw_config = None;
+                    self.pw_failed = false;
+                    self.pw_announced = None;
                 }
+                Msg::Config(bytes) if self.pyrowave() => match PwConfig::parse(&bytes) {
+                    Some(c) => self.pw_config = Some(c),
+                    None => log::warn!("PyroWave : paquet de configuration illisible ({} octets)", bytes.len()),
+                },
                 Msg::Config(bytes) => {
                     if !self.in_config {
                         self.config.clear();
@@ -161,11 +216,18 @@ impl DecodeLoop {
                     self.config.extend_from_slice(&bytes);
                     self.in_config = true;
                 }
+                Msg::Frame { pts, data, received, .. } if self.pyrowave() => self.pyrowave_frame(pts, data, received),
                 Msg::Frame { key, pts, data, received } => {
                     self.in_config = false;
                     self.frame(key, pts, data, received);
                 }
+                // PyroWave : chaque image se décode seule, rien à attendre ni à demander.
+                Msg::Hole if self.pyrowave() => {}
                 Msg::Hole => self.lost(),
+                Msg::Surface if self.pyrowave() => {
+                    self.pw = None;
+                    self.pw_failed = false;
+                }
                 Msg::Surface => {
                     self.decoder = None;
                     self.waiting_key = true;
@@ -175,6 +237,72 @@ impl DecodeLoop {
             }
         }
         self.decoder = None;
+        self.pw = None;
+    }
+
+    /// Une image PyroWave : session d'affichage ouverte sur la surface au
+    /// besoin, décodeur au format du paquet de configuration (ou, faute de lui,
+    /// à la taille de la session en SDR), puis décodage et présentation.
+    fn pyrowave_frame(&mut self, pts: u64, data: Vec<u8>, received: i64) {
+        // Paquet de configuration reconnu à sa signature (s'il arrive sans `is_config`).
+        if data.len() == PwConfig::SIZE
+            && let Some(c) = PwConfig::parse(&data)
+        {
+            self.pw_config = Some(c);
+            return;
+        }
+        if self.pw.is_none() {
+            if self.pw_failed {
+                return;
+            }
+            let Some(window) = self.host.window() else { return };
+            match PwSession::open(window) {
+                Ok(s) => self.pw = Some(s),
+                Err(e) => {
+                    log::error!("PyroWave : affichage impossible ({e})");
+                    self.pw_failed = true;
+                    return;
+                }
+            }
+        }
+        let config = self.pw_config.unwrap_or_else(|| {
+            let (w, h) = self.host.video_size();
+            PwConfig::fallback(w, h)
+        });
+        let luminance = if config.hdr { self.host.hdr_luminance() } else { None };
+        let Some(pw) = self.pw.as_mut() else { return };
+        if !pw.configure(config, luminance) {
+            log::error!("PyroWave : décodeur impossible pour {config:?}");
+            self.pw = None;
+            self.pw_failed = true;
+            return;
+        }
+        if self.pw_announced != Some(config) {
+            self.pw_announced = Some(config);
+            let name = pw.describe();
+            log::info!("image : décodeur {name} ({} × {})", config.width, config.height);
+            self.host.listener().with(|env, obj| {
+                let n = env.new_string(&name)?;
+                env.call_method(obj, "onDecoder", "(Ljava/lang/String;)V", &[JValue::Object(&n)]).map(|_| ())
+            });
+            self.host.decoded_size(config.width, config.height);
+            self.host
+                .listener()
+                .void("onVideoSize", "(II)V", &[JValue::Int(config.width as i32), JValue::Int(config.height as i32)]);
+        }
+        match pw.frame(&data) {
+            Shown::Shown => {
+                // Rendu GPU terminé et présenté : l'écran la montre au balayage suivant.
+                let decoded = latency::now_micros();
+                self.host.frame_displayed(pts, received, decoded, decoded + self.host.frame_period_micros());
+            }
+            // Jamais montrée : comptée parmi les images perdues.
+            Shown::Skipped => {}
+            Shown::Lost => {
+                log::warn!("PyroWave : surface ou GPU perdu, affichage refait à l'image suivante");
+                self.pw = None;
+            }
+        }
     }
 
     fn request_keyframe(&mut self) {

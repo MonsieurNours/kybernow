@@ -31,7 +31,7 @@
 //! (Raw Input, réenregistré à chaque activation) suivent la fenêtre active.
 
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -381,10 +381,16 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     if apps().iter().any(|a| a.grabbed.lock().unwrap().contains(&k.vkCode)) {
         return true;
     }
-    // La session active, en plein écran au premier plan. Sans verrou d'une
+    // La session active au premier plan, selon son « Mode immersif » : en plein
+    // écran (la règle d'avant ce réglage), toujours, ou jamais. Sans verrou d'une
     // fenêtre ici : `set_fullscreen` tient le sien pendant SetWindowPos.
     let Some((app, win)) = foreground_app() else { return false };
-    if !win.fullscreen_now.load(Ordering::Relaxed) {
+    let immersive = match app.immersive.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => win.fullscreen_now.load(Ordering::Relaxed),
+    };
+    if !immersive {
         return false;
     }
     // Un invité sans le clavier et la souris : rien ne part, les raccourcis
@@ -537,6 +543,8 @@ pub struct App {
     /// « Ctrl agit comme ⌘ » (face à une Station Mac) : donné à chaque chaîne
     /// d'entrées, qui échange Ctrl et ⊞ des touches tapées.
     control_as_command: AtomicBool,
+    /// « Mode immersif » : 0 en plein écran, 1 toujours, 2 jamais (lu par le crochet du clavier).
+    immersive: AtomicU8,
     pub closing: AtomicBool,
     pub error: Mutex<Option<String>>,
     pub events: Arc<dyn HostEvents>,
@@ -655,6 +663,7 @@ impl App {
             mouse_mode: Mutex::new(MouseMode::Auto),
             keyboard_mouse: AtomicBool::new(true),
             control_as_command: AtomicBool::new(false),
+            immersive: AtomicU8::new(0),
             closing: AtomicBool::new(false),
             error: Mutex::new(None),
             events,
@@ -727,6 +736,18 @@ impl App {
         if let Some(input) = self.input() {
             input.set_control_as_command(on);
         }
+    }
+
+    /// « Mode immersif » : `fullscreen`, `always`, `never` (docs/link-ui.md).
+    pub fn set_immersive(&self, mode: &str) {
+        self.immersive.store(
+            match mode {
+                "always" => 1,
+                "never" => 2,
+                _ => 0,
+            },
+            Ordering::Relaxed,
+        );
     }
 
     pub fn control_as_command(&self) -> bool {

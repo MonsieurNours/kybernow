@@ -36,6 +36,13 @@ fn main() {
         panic!("libopus introuvable pour Android ({e}) : lancez apps/android/scripts/build-native.sh");
     }
     println!("cargo:rerun-if-changed={}", vlc_rs.display());
+    // PyroWave : libkybernow_pyrowave.so, construite par build-native.sh.
+    println!("cargo:rerun-if-env-changed=KYBERNOW_PYROWAVE_LIB");
+    if env::var_os("CARGO_FEATURE_PYROWAVE").is_some() {
+        let dir = env::var("KYBERNOW_PYROWAVE_LIB")
+            .expect("KYBERNOW_PYROWAVE_LIB : dossier de libkybernow_pyrowave.so (apps/android/scripts/build-native.sh)");
+        println!("cargo:rustc-link-search=native={dir}");
+    }
 }
 
 /// Les noms `libvlc_*` déclarés par les blocs `extern` de vlc-rs.

@@ -164,6 +164,44 @@ pub fn fields() -> Vec<Field> {
             caution: None,
             unit: None,
         },
+        // TODO textes pyrowave : libellés provisoires, en attente de la
+        // maquette (docs/pyrowave.md). Proposé aux apps seulement si la
+        // carte graphique a un Vulkan 1.3 qui convient, ou sur Mac si la puce
+        // Apple fait tourner l'encodeur Metal (pyrowave.rs ; texte Mac dans
+        // i18n/schema.macos.json).
+        Field {
+            id: "video.pyrowave", group: "video",
+            table: &["kyavserver"], key: "pyrowave",
+            kind: Kind::Bool,
+            default: json!(true),
+            label: "PyroWave (provisoire)",
+            help: "Texte provisoire : proposer le format PyroWave aux appareils.",
+            details: "Texte provisoire. PyroWave est un format d'image très rapide à encoder et à décoder, pour le réseau local ; il demande beaucoup de débit. Proposé seulement si la carte graphique le permet.",
+            advice: "Texte provisoire : laissez activé.",
+            caution: None,
+            unit: None,
+        },
+        // PyroWave, « Débit maximal » (docs/link-ui.md, carte « PyroWave » ;
+        // docs/pyrowave.md) : annoncé aux apps (`pyrowave.max_mbps` d'`info`),
+        // qui baissent la définition au-delà. Lu par Admin seul (kyavserver
+        // ignore la clé). Windows et Mac, comme `video.pyrowave`.
+        Field {
+            id: "video.pyrowave_max_mbps", group: "video",
+            table: &["kyavserver"], key: "pyrowave_max_mbps",
+            kind: Kind::Enum { options: &[
+                Choice { value: "auto", label: "Auto", hint: "Selon la prise réseau de cet ordinateur : 80 % de sa vitesse en Ethernet, la moitié en Wi-Fi." },
+                Choice { value: "300", label: "300 Mbit/s", hint: "" },
+                Choice { value: "500", label: "500 Mbit/s", hint: "" },
+                Choice { value: "800", label: "800 Mbit/s", hint: "" },
+            ]},
+            default: json!("auto"),
+            label: "Débit maximal",
+            help: "Au-delà, vos appareils baissent la définition plutôt que la netteté.",
+            details: "PyroWave envoie beaucoup de données. Ce plafond, annoncé à vos appareils, leur fait baisser la définition (puis la fréquence) pour y tenir, au lieu de rendre l'image floue. En Auto, il suit la prise réseau de cet ordinateur.",
+            advice: "Gardez Auto.",
+            caution: None,
+            unit: None,
+        },
         Field {
             id: "video.minimum_bitrate", group: "video",
             table: &["kyavserver"], key: "minimum_bitrate",

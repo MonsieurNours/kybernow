@@ -1,0 +1,36 @@
+diff --git a/subprojects/txproto/src/packet_sink.c b/subprojects/txproto/src/packet_sink.c
+index c94bd6d..69a8949 100644
+--- a/subprojects/txproto/src/packet_sink.c
++++ b/subprojects/txproto/src/packet_sink.c
+@@ -6,6 +6,7 @@
+ #include <libavutil/time.h>
+ 
+ #include <stdatomic.h>
++#include <string.h>
+ #include <unistd.h>
+ 
+ #include <libtxproto/fifo_packet.h>
+@@ -19,6 +20,8 @@
+ #define KYMUX_CODEC_H265 UINT32_C(0x68323635)
+ #define KYMUX_CODEC_AV1  UINT32_C(0x00617631)
+ #define KYMUX_CODEC_OPUS UINT32_C(0x6F707573)
++/* KyberNow (0025): PyroWave, "pwv1" (docs/pyrowave.md). */
++#define KYMUX_CODEC_PYROWAVE UINT32_C(0x70777631)
+ 
+ #define KYMUX_PTS_MASK UINT64_C(0x1FFFFFFFFFFFFFFF)
+ #define KYMUX_FLAG_KYMEDIA UINT64_C(0x8000000000000000)
+@@ -36,7 +39,13 @@ static uint32_t get_kymux_codec(enum AVCodecID id) {
+         case AV_CODEC_ID_H265: return KYMUX_CODEC_H265;
+         case AV_CODEC_ID_AV1:  return KYMUX_CODEC_AV1;
+         case AV_CODEC_ID_OPUS: return KYMUX_CODEC_OPUS;
+-        default: return 0;
++        default:
++            /* KyberNow (0025): AV_CODEC_ID_PYROWAVE comes from the FFmpeg
++             * patch of the Windows build; known by its name, so that FFmpeg
++             * without it still builds. */
++            if (!strcmp(avcodec_get_name(id), "pyrowave"))
++                return KYMUX_CODEC_PYROWAVE;
++            return 0;
+     }
+ }
+ 

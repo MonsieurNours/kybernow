@@ -79,6 +79,16 @@ Interface (docs/link-ui.en.md, “HDR”), only on an HDR screen: the “HDR” 
 
 Tests: `cargo test` (curves and rules of `src/hdr.rs`, chip and settings; the shader against the reference, on the graphics card through Mesa's surfaceless EGL, in P010 and I010, the three renderings, within 2/255; skipped without EGL), `tests/video/run.sh` (an HDR10 stream from x265 comes out in 10 bits with PQ, BT.2020 and its metadata), `40-hdr-*` screenshots, and `kybernow --hdr-test`: the HDR test pattern (ramp from 0 to 1,000 cd/m², bars) on the subsurface of a Wayland window, a semi-transparent interface band on top, for `KYBERNOW_HDR_TEST_SECONDS` seconds; without colour management, the screen is taken for an SDR screen and the pattern goes through the curve towards SDR.
 
+## PyroWave
+
+PyroWave (wavelet codec, intra only, decoded through Vulkan; [docs/pyrowave-client-linux.en.md](../../docs/pyrowave-client-linux.en.md)) is one more value of “Video format”, next to H.264, HEVC and AV1, on desktop Linux, the Steam Deck and SteamOS; on the Raspberry Pi 5 only ([docs/pyrowave-client-pi.en.md](../../docs/pyrowave-client-pi.en.md)).
+
+- **Library**: PyroWave (MIT) at the Station's commit (a32b05e), Vulkan path, upstream's C API, built by `build.sh` (step 4) as `libpyrowave-shared.so.1`, placed next to the app (`/app/lib` in the Flatpak) and loaded at launch; the runtime's Vulkan loader is enough.
+- **Decoding** (`src/native/pyrowave.c`): next to FFmpeg, on the picture thread; its own Vulkan device, one frame per media packet, read back as I420 (SDR), I010 (HDR10, to the HDR subsurface) or three 4:4:4 planes converted to BGRA, then shown as today. Incomplete frame skipped, no keyframe ever requested; the decode time (read-back included) goes to the statistics.
+- **Probe** at launch (a thread): device, decoder, test frame decoded and read back. Unavailable on the Pi 4, 3 and Zero 2 W (the Pi 5: probe in a separate process, `kybernow --pyrowave-probe`, result kept), without a suitable Vulkan 1.3, with software rendering (`KYBERNOW_PYROWAVE_CPU=1` allows it for tests); `KYBERNOW_PYROWAVE=0` turns it off. “Auto” only takes it by cable (`system::wired_to`: the interface towards the computer); the core only requests it with its `pyrowave` feature and the Station's kyclient patch 0025: `build.sh --kyber-pyrowave` (or `flatpak.sh ARCH --kyber-pyrowave`). `KYBERNOW_KYBER_HEAD=1`: `sources.sh` takes the Kyber SDK from its git repositories, when the shared `third_party/` carries another piece of work's patches.
+- **Interface** (desktop, Deck, living room): “PyroWave” in “Video format” with its help texts, the Wi-Fi or relay warning, the inactive value with its reason; in session, the start banner with “Switch to HEVC”, the bar's amber chip (Deck and living room: a menu tile), “Lost frames” and “Resolution lowered” (from the core, also as a capsule) in the statistics. Captures `45-pyrowave-*`.
+- Offline test: `tests/pyrowave/run.sh` (see “Building”); tried in the VM on lavapipe only (no hardware Vulkan in the VM), never on the Steam Deck.
+
 ## Raspberry Pi
 
 The same app, on Raspberry Pi OS (Debian 13 "trixie", arm64), as a `.deb` package, or alone on the card with KyberNow Link OS (below); the decision is in [PROJECT.en.md](../../PROJECT.en.md) ("Raspberry Pi client"), mock-ups: https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft.
@@ -100,7 +110,7 @@ Opus decoded by the core's engine (adaptive buffer, loss concealment, clock drif
 
 ## Inputs
 
-- **Keyboard**: SDL's USB scancodes converted to Windows scancodes (the `keycode` crate table, kynput's); in full screen during the session the keyboard is grabbed (Alt+Tab, Super… go to the computer). App shortcuts: Ctrl+Alt+Shift + D, F, M, O (next computer).
+- **Keyboard**: SDL's USB scancodes converted to Windows scancodes (the `keycode` crate table, kynput's); **immersive mode** (docs/link-ui.en.md, computer setting “In full screen”, “Always”, “Never”): the session window grabs the keyboard (`SDL_SetWindowKeyboardGrab`; Alt+Tab, Super… go to the computer) when its session sends it, except during a bar menu or the share panel; a single function decides at each turn (`device::sync_keyboard_grab`), from the setting as it is now (a change applies at once); SDL only grabs the window that has the keyboard. App shortcuts: Ctrl+Alt+Shift + D, F, M, O (next computer), S (statistics).
 - **Mouse**: absolute position mapped to the computer's screen (the window's, with several displays); **game mouse** (relative, `SDL_SetRelativeMouseMode`) when a game is full screen on the computer and hides its pointer (Auto, core rules), or forced; holding Esc for a second releases it. The computer's pointer becomes the system pointer at the picture's scale (desktop), or is drawn by the app (game mouse, console).
 - **Steam Deck trackpads and touchscreen**: mouse through Steam Input; a touch at the top of the screen opens the menu.
 - **Controllers**: SDL GameController, four players, rumble (and triggers), announced once per link (by the core's single reader, to every session with several computers; buttons and axes only go to the active session); Steam Input presents the Deck's controls as an Xbox controller. Controller as mouse (left stick, RT faster, LT finer, right stick wheel, A / B / X clicks). L1 + R1 + Start + Select: menu.
@@ -127,15 +137,17 @@ apps/linux/
 │   │                    (FFmpeg), machine (DMI, VA-API, DRM), controllers, background jobs, log;
 │   │                    screens.rs: SDL's displays in the core's format, the session's display plan;
 │   │                    ps.rs: PlayStation consoles (search, pairing, game, DualSense, between devices)
-│   └── native/          decoder.c (FFmpeg: VA-API, the Pi's V4L2), display.c (VRR and modes through DRM)
+│   ├── pyrowave.rs      PyroWave in the interface: link-ui texts, Wi-Fi and relay risks (without SDL or the core)
+│   └── native/          pyrowave.c (PyroWave through Vulkan), decoder.c (FFmpeg: VA-API, the Pi's V4L2), display.c (VRR and modes through DRM)
 ├── flatpak/             manifest, .desktop, AppStream, icon, licences
 ├── os/                  KyberNow Link OS: Raspberry Pi image (pi-gen, A/B, Plymouth, services), see os/README.en.md
 ├── scripts/             build.sh (--rpi), sources.sh, flatpak.sh, release-flatpaks.sh, deb.sh, apt-repo.sh
+├── tests/pyrowave/      PyroWave offline test (run.sh, encode.c, check.c, samples-mac.sh)
 └── tests/video/         offline decoder test (run.sh, check.c)
 ```
 
 - **Interface**: drawn in memory in *points* (the mock-ups': 1280 × 800 for desktop and Deck, 1920 × 1080 for the living room), multiplied by the screen scale (HiDPI); the signed logo is traced from the `brand/v2` paths (like the Windows app's `Mark.svelte`), sharp at any size.
-- **Desktop window**: borderless; the app's title bar drags the window, the edges resize it (`SDL_SetWindowHitTest`), double-click maximises. SDL2 uses X11 (Xwayland on GNOME and KDE, gamescope on the Deck), except when a screen is in HDR under a compositor with colour management (see “HDR”); `KYBERNOW_VIDEO=wayland` tries Wayland. The window class is the app ID (`fr.leslignesclaires.kybernow`).
+- **Desktop window**: borderless; the app's title bar drags the window, the edges resize it (`SDL_SetWindowHitTest`), double-click maximises; its elements (the settings' “› {name}” breadcrumb, which goes back home) are left out of the drag area (`HitAreas::holes`, from the last drawing's targets): otherwise the window manager took the click for a move (settings impossible to leave with the mouse, reported under Cinnamon, reproduced in the VM on 25/11/2026). **Session bar in a window**: it opens on an 8-point band against the top edge of the picture (2 in full screen), as that edge touches the system's title bar; its measures (latency, curve, picture) are an element (`Target::BarStats`) that opens or closes “Statistics”, as on Mac and Windows. **Tried in a session** (25/11/2026, VM to a Windows 11 PC, session in a window): the bar opens with the pointer 5 points from the edge, a click on the measures opens “Statistics”; immersive mode: “In full screen” (released in a window, grabbed in full screen, released on the way back), “Always” (grabbed in a window), “Never” (never grabbed), from the log (“mode immersif : clavier saisi”). Alt+Tab itself could not be tried: the VM runs GNOME Wayland, where simulated keys do not reach the window manager. SDL2 uses X11 (Xwayland on GNOME and KDE, gamescope on the Deck), except when a screen is in HDR under a compositor with colour management (see “HDR”); `KYBERNOW_VIDEO=wayland` tries Wayland. The window class is the app ID (`fr.leslignesclaires.kybernow`).
 - **kynput**: client only, with the webOS patch (`apps/webos/kyber-patches/0001`, `--cfg kybernow_webos`): without the server's input injection (libinput, libevdev, X11).
 - **VLC**: kyvlcplayer references libvlc, never called: `build.rs` compiles an empty function per `libvlc_*` function, as on Android, iOS and webOS.
 
@@ -153,7 +165,7 @@ cargo run --release -p kybernow-linux --no-default-features -- --preview /tmp/kn
 
 # On Linux (Ubuntu 24.04: build-essential pkg-config nasm clang libclang-dev
 # libsdl2-dev libva-dev libdrm-dev libopus-dev libwayland-dev libegl-dev libgles-dev,
-# Rust 1.89 or later, cargo-c):
+# cmake git libvulkan-dev, Rust 1.89 or later, cargo-c):
 apps/linux/scripts/build.sh                    # → apps/target/release/kybernow
 
 # The Flatpak (flatpak-builder, org.freedesktop.Platform 25.08 runtime,
@@ -171,6 +183,10 @@ apps/linux/scripts/apt-repo.sh [DIR]           # → dist/apt (KYBERNOW_APT_GPG_
 
 # The decoder, offline (after build.sh; ffmpeg and x265 generate the streams):
 apps/linux/tests/video/run.sh [--hw]
+
+# PyroWave offline (after build.sh; upstream's Vulkan encoder, or SAMPLES=FOLDER of
+# streams made on a Mac by tests/pyrowave/samples-mac.sh; KYBERNOW_PYROWAVE_CPU=1 in a VM):
+apps/linux/tests/pyrowave/run.sh [WIDTH HEIGHT] [FRAMES]
 
 # The HDR test pattern on a Wayland window's subsurface (see “HDR”):
 apps/target/release/kybernow --hdr-test
@@ -241,6 +257,7 @@ The home PS5s and PS4s, next to the computers (contract: [docs/playstation.en.md
 
 ## Not yet tried
 
+- PyroWave: nothing has run on a real graphics card (the VM only has lavapipe) nor with a Station that offers it; the steps for the Steam Deck are in [docs/pyrowave-client-linux.en.md](../../docs/pyrowave-client-linux.en.md), “To try on the Steam Deck” (probe, read-back cost at 1440p, session by cable and on Wi-Fi, “Switch to HEVC”).
 - HDR (see “HDR”): nothing has run on a real HDR screen (KDE Plasma 6.3 and later, GNOME 48 and later) nor with a Station in HDR. Checked in the Ubuntu 24.04 VM (Mesa virgl): the tests, the offline decoder, and `--hdr-test` under GNOME 46 (Wayland without colour management: 10-bit output, about 145 pictures per second) and under headless Weston 13 (screenshot: the pattern in the window's hole, the interface band and square on top). To try: the PQ description accepted by KWin and Mutter and a right picture (blacks, whites, colours), Windows' desktop white anchored to the reference white, the EETF on a screen dimmer than the stream, the window dragged to an SDR screen and back, VA-API Main 10 on an AMD or Intel card, latency against SDR, several screens with only one in HDR, a PS5 in HDR.
 - PlayStation consoles: see “PlayStation consoles” above (a real game, the DualSense, the relay).
 - On the Steam Deck: an end-to-end session (VA-API on the Van Gogh APU, PipeWire sound, controls and trackpads through Steam Input, Steam keyboard), latency, Gaming Mode.

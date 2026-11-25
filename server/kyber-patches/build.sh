@@ -110,6 +110,28 @@
 #         (REALTIME, HIGH si Windows la refuse) ; autre valeur : high et un
 #         avertissement ; option de capture des deux moteurs ; la ligne
 #         « GPU priority … » du journal dit le réglage puis la classe obtenue
+#   0025  PyroWave (docs/pyrowave.md), format d'image de plus à côté de
+#         H.264, HEVC et AV1 (cinq fichiers). 0025-kymedia-ffmpeg-pyrowave :
+#         encodeur FFmpeg libpyrowave (AV_CODEC_ID_PYROWAVE) qui prend les
+#         images D3D11 de la capture sans copie par le processeur (copie sur
+#         la carte dans une texture partagée avec Vulkan, même carte par son
+#         LUID, fence D3D11 partagée, pyrowave_encoder_encode_gpu_scaled :
+#         BGRA en SDR, P010 en HDR10, image réduite d'un invité) ;
+#         libpyrowave-shared-1.dll compilée par pyrowave.sh (commit épinglé).
+#         0025-kyavservice : VideoCodec::PyroWave, encodeur choisi quel que
+#         soit [kyavserver] encoder, dans les deux moteurs, identifiant kymux
+#         0x70777631 (« pwv1 ») ; 0025-txproto : le même dans packet_sink.c ;
+#         [kyavserver] pyrowave (vrai par défaut). 0025-kyclient : variante
+#         PyroWave côté client (kyctl-common, kyclient et son API C,
+#         kyclient-rs) et fallback_codec de la requête de démarrage ;
+#         0025-kycontroller : PyroWave seulement si la Station le propose,
+#         sinon le format de repli du client. Moteur web
+#         (docs/pyrowave-client-web.md) : 0025-kyctlweb (copie du moteur web
+#         seulement) : PyroWave et fallback_codec dans kyctl-common et
+#         kyclient, et kywebplayer passe les paquets « pwv1 » au décodeur
+#         WebGPU de la page (globalThis.__kybernowPyroWave) au lieu de
+#         WebCodecs ; 0025-kyberweb : codec « pyrowave » et fallback_codec
+#         dans la configuration JS de l'image
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
@@ -119,6 +141,7 @@
 # third_party/kyber-desktop (avec Jinja dans
 # kysdk/kymedia/subprojects/libplacebo-*/3rdparty, voir docs/build-notes.md).
 # Versions vérifiées : scripts/kyber-toolchain.sh (une autre est signalée).
+# PyroWave : cmake et git (sources téléchargées par pyrowave.sh).
 #
 # Sortie : third_party/payload/kyber-overlay/. Le script s'arrête à la première
 # erreur (correctif inapplicable, compilation ratée) sans toucher à la surcouche
@@ -194,8 +217,38 @@ check_fresh() {
 kyber_apply_server_patches
 cd "$KYMEDIA"
 
+# PyroWave (0025) : la bibliothèque, dans le rootfs avant FFmpeg qui s'y lie.
+# shellcheck source=pyrowave.sh
+. "$HERE/pyrowave.sh"
+pyrowave_fetch
+pyrowave_build
+# FFmpeg est extrait une fois par meson, avec les correctifs du wrap de ce
+# moment-là : quand le wrap ou ses fichiers changent (0025 y ajoute
+# l'encodeur PyroWave), il faut l'extraire et le configurer à nouveau.
+FFMPEG_STAMP="$KYMEDIA/subprojects/FFmpeg-n8.1/.kybernow-wrap"
+FFMPEG_WRAP=$(cat "$KYMEDIA/subprojects/ffmpeg.wrap" $(find "$KYMEDIA/subprojects/packagefiles/ffmpeg" -type f | sort) | shasum -a 256 | cut -d' ' -f1)
+if [ -d "$KYMEDIA/subprojects/FFmpeg-n8.1" ] && [ "$(cat "$FFMPEG_STAMP" 2>/dev/null)" != "$FFMPEG_WRAP" ]; then
+    echo "==> FFmpeg : wrap changé, nouvelle extraction"
+    rm -rf "$KYMEDIA/subprojects/FFmpeg-n8.1" "$KYMEDIA/builddir-win32/subprojects/FFmpeg-n8.1"
+fi
+
 echo "==> Compilation (dépendances, txproto, kyavserver)"
 ./build-win32.sh -w -o "$ROOTFS"
+echo "$FFMPEG_WRAP" > "$FFMPEG_STAMP"
+
+echo "==> Essai PyroWave (pyrowave-capture-test.exe, pas livré)"
+# Capture DXGI → images D3D11 → encodeur libpyrowave → décodage de contrôle :
+# docs/pyrowave.md, « Essai sur le PC ». À côté de la DLL, hors surcouche.
+PYROWAVE_TEST="$THIRD_PARTY/pyrowave/test-win64"
+mkdir -p "$PYROWAVE_TEST"
+# shellcheck disable=SC2046  # options de pkg-config, mot à mot
+x86_64-w64-mingw32-gcc -O2 -o "$PYROWAVE_TEST/pyrowave-capture-test.exe" "$HERE/tools/pyrowave-capture-test.c" \
+    -I"$ROOTFS/include" -I"$ROOTFS/include/pyrowave" \
+    $(PKG_CONFIG_LIBDIR="$ROOTFS/lib/pkgconfig" pkg-config --static --libs libavcodec libavutil) \
+    -L"$ROOTFS/lib" -lpyrowave-shared -ld3d11 -ldxgi -static-libgcc
+x86_64-w64-mingw32-strip --strip-debug "$PYROWAVE_TEST/pyrowave-capture-test.exe"
+cp "$ROOTFS/bin/libpyrowave-shared-1.dll" "$ROOTFS/bin/pyrowave-device-validation.exe" \
+    "$MINGW/bin/libwinpthread-1.dll" "$PYROWAVE_TEST/"
 
 echo "==> Contrôleur (kycontroller.exe, mêmes options que la version officielle)"
 (cd "$KYCTL" && cargo_quiet cargo build -p kycontroller --target x86_64-pc-windows-gnu --release \
@@ -259,6 +312,12 @@ rm -rf "$OVERLAY" "$OVERLAY.stamp" && mkdir -p "$OVERLAY"
 for f in kyavserver.exe libtxproto-0.dll liblua.dll libspirv-cross-c-shared.dll; do
     cp "$ROOTFS/bin/$f" "$OVERLAY/"
 done
+# PyroWave (0025) : la bibliothèque (runtime C++ en statique) que charge
+# libtxproto-0.dll, et l'outil par lequel Admin vérifie le Vulkan de la carte.
+for f in libpyrowave-shared-1.dll pyrowave-device-validation.exe; do
+    [ -f "$ROOTFS/bin/$f" ] || { echo "$ROOTFS/bin/$f introuvable (pyrowave.sh)" >&2; exit 1; }
+    cp "$ROOTFS/bin/$f" "$OVERLAY/"
+done
 cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 # Runtime MinGW (UCRT) de la chaîne kyavserver : aucun autre binaire de Kyber
 # n'utilise ces DLL, on peut remplacer celles de la version officielle.
@@ -270,4 +329,4 @@ mkdir -p "$OVERLAY/webclient"
 cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$OVERLAY/webclient/"
 ls -lhR "$OVERLAY"
 # Empreinte des correctifs compilés, vérifiée par scripts/release.sh (à côté de la surcouche : pas livrée).
-cat "$HERE"/*.patch "$HERE/build.sh" | shasum -a 256 | cut -d' ' -f1 > "$OVERLAY.stamp"
+cat "$HERE"/*.patch "$HERE/build.sh" "$HERE/pyrowave.sh" | shasum -a 256 | cut -d' ' -f1 > "$OVERLAY.stamp"

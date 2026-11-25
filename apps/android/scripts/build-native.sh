@@ -10,6 +10,8 @@
 #   apps/android/scripts/build-native.sh --target <cible>     une seule
 #   apps/android/scripts/build-native.sh --check              cargo check seul
 #   apps/android/scripts/build-native.sh --debug              sans optimisation
+#   apps/android/scripts/build-native.sh --no-pyrowave        sans PyroWave
+#   apps/android/scripts/build-native.sh --kyber-pyrowave     Kyber demande PyroWave
 #
 #   aarch64-linux-android       arm64-v8a : téléphones, tablettes, Shield, Google TV Streamer
 #   armv7-linux-androideabi     armeabi-v7a : Chromecast avec Google TV et
@@ -19,10 +21,24 @@
 # Android 11 au moins (API 30, la Shield). NDK r27c (27.2.12479018) :
 # ANDROID_NDK_HOME, sinon $ANDROID_HOME/ndk/27.2.12479018, sinon le SDK
 # d'Android Studio (~/Library/Android/sdk sur Mac, ~/Android/Sdk sur Linux).
-# Chaque cible a son rootfs third_party/kyber-desktop/rootfs-<cible> :
+# Chaque cible a son rootfs third_party/kyber-desktop/rootfs-<cible> (ou
+# $KYBERNOW_ANDROID_ROOTFS/rootfs-<cible> : un rootfs à part, pour construire
+# sans toucher à celui que partagent les autres constructions) :
 # libkynput, libopus et leurs .pc (lus par kynput-sys et le cœur), et un
 # libvlc.pc sans bibliothèque. Les sources d'Opus 1.6.1 sont prises dans
 # third_party/opus-1.6.1 (clonées depuis GitHub si absentes).
+#
+# PyroWave (docs/pyrowave-client-android.md) : arm64-v8a et x86_64 ont aussi
+# libkybernow_pyrowave.so (PyroWave au commit épinglé de
+# server/kyber-patches/pyrowave.sh, sources dans third_party/pyrowave, Granite
+# partiel, et le pont Vulkan d'apps/android/jni/pyrowave), construite par CMake
+# avec la chaîne du NDK et le glslc du NDK ; libkybernow.so s'y lie
+# (fonctionnalité `pyrowave` de kybernow-android). armeabi-v7a : sans PyroWave
+# (la sonde dit « indisponible »).
+# Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
+# `fallback_codec`) et la fonctionnalité `pyrowave` du cœur vont ensemble
+# (apps/core/README.md, « PyroWave ») : seulement avec --kyber-pyrowave, tant
+# qu'ils ne sont pas allumés pour toutes les apps (kyber-desktop est partagé).
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
 # sans toucher aux bibliothèques déjà en place.
@@ -38,6 +54,7 @@ KYBER="$THIRD_PARTY/kyber-desktop"
 KYSDK="$KYBER/kysdk"
 OPUS_SRC="$THIRD_PARTY/opus-1.6.1"
 JNILIBS="$HERE/app/src/main/jniLibs"
+ROOTFS_BASE="${KYBERNOW_ANDROID_ROOTFS:-$KYBER}"
 API=30
 NDK_VERSION=27.2.12479018
 . "$ROOT/scripts/kyber-toolchain.sh"
@@ -46,11 +63,15 @@ ALL_TARGETS=(aarch64-linux-android armv7-linux-androideabi x86_64-linux-android)
 TARGETS=()
 COMMAND=build
 PROFILE=release
+PYROWAVE=1
+KYBER_PYROWAVE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGETS+=("${2:-}"); shift ;;
         --check) COMMAND=check ;;
         --debug) PROFILE=debug ;;
+        --no-pyrowave) PYROWAVE=0 ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift
@@ -140,7 +161,7 @@ use_target() {
     export "RANLIB_$var=$LLVM/bin/llvm-ranlib"
     export "CARGO_TARGET_$(echo "$var" | tr '[:lower:]' '[:upper:]')_LINKER=$LLVM/bin/$triple-clang"
     export "BINDGEN_EXTRA_CLANG_ARGS_$var=--target=$triple --sysroot=$SYSROOT"
-    export PKG_CONFIG_LIBDIR="$KYBER/rootfs-$target/lib/pkgconfig"
+    export PKG_CONFIG_LIBDIR="$ROOTFS_BASE/rootfs-$target/lib/pkgconfig"
     export ANDROID_PLATFORM=$API ANDROID_NDK_HOME="$NDK"
 }
 
@@ -154,16 +175,34 @@ done
 
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP) : le cœur compile contre cette API de kyclient.
-for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-*) repo="$KYSDK/kyctl" ;;
-        *-kynput-*) repo="$KYSDK/kynput" ;;
-        *-kynet-*) repo="$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
+repo_of() {
+    case "$(basename "$1")" in
+        *-kyclient-*) echo "$KYSDK/kyctl" ;;
+        *-kynput-*) echo "$KYSDK/kynput" ;;
+        *-kynet-*) echo "$KYSDK/kymux" ;;
+        *) echo "Dépôt inconnu pour $(basename "$1")" >&2; return 1 ;;
     esac
+}
+PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch)
+for i in "${!PATCHES[@]}"; do
+    patch="${PATCHES[$i]}"
+    case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
+    esac
+    repo="$(repo_of "$patch")" || exit 1
     if git -C "$repo" apply --check "$patch" 2>/dev/null; then
         git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
     elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
+        # Posé, mais recouvert par un correctif suivant du même dépôt déjà posé
+        # (0004 sur 0002 quand le client Windows a été construit) : rien à faire.
+        covered=""
+        for later in "${PATCHES[@]:$((i + 1))}"; do
+            [ "$(repo_of "$later")" = "$repo" ] && git -C "$repo" apply --reverse --check "$later" 2>/dev/null && { covered="$later"; break; }
+        done
+        if [ -n "$covered" ]; then
+            echo "    $(basename "$patch") déjà posé (sous $(basename "$covered"))"
+            continue
+        fi
         echo "Correctif $(basename "$patch") inapplicable :" >&2
         git -C "$repo" apply --check "$patch" >&2 || true
         exit 1
@@ -222,14 +261,51 @@ Cflags:
 EOF
 }
 
+# PyroWave : sources au commit épinglé (pyrowave_fetch de la Station).
+if [ "$PYROWAVE" = 1 ]; then
+    . "$ROOT/server/kyber-patches/pyrowave.sh"
+    pyrowave_fetch
+fi
+
+# libkybernow_pyrowave.so pour une cible (arm64-v8a, x86_64) : dans
+# target/pyrowave-android/<abi>/, puis sans symboles dans jniLibs/<abi>/.
+# Rend vrai si elle est prête (la cible se lie alors à elle).
+build_pyrowave() {
+    local target=$1 abi build glslc
+    [ "$PYROWAVE" = 1 ] || return 1
+    case "$target" in
+        aarch64-linux-android|x86_64-linux-android) ;;
+        *) rm -f "$JNILIBS/$(abi_of "$target")/libkybernow_pyrowave.so"; return 1 ;;
+    esac
+    abi="$(abi_of "$target")"
+    build="${CARGO_TARGET_DIR:-$APPS/target}/pyrowave-android/$abi"
+    glslc="$NDK/shader-tools/$HOST_TAG/glslc"
+    [ -x "$glslc" ] || { echo "glslc du NDK absent : $glslc" >&2; exit 1; }
+    command -v cmake >/dev/null && command -v ninja >/dev/null || { echo "cmake et ninja nécessaires (brew install cmake ninja)" >&2; exit 1; }
+    echo "==> PyroWave ($abi)"
+    cmake -S "$HERE/jni/pyrowave" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release -Wno-dev \
+        -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI="$abi" \
+        -DANDROID_PLATFORM=$API -DANDROID_STL=c++_static \
+        -DPYROWAVE_DIR="$THIRD_PARTY/pyrowave" -DGLSLC="$glslc" >/dev/null
+    cmake --build "$build" --target kybernow_pyrowave kn_pyrowave_test | { grep -E 'error|FAILED' || true; }
+    [ -f "$build/libkybernow_pyrowave.so" ] || { echo "libkybernow_pyrowave.so ($abi) non construite" >&2; exit 1; }
+    mkdir -p "$JNILIBS/$abi"
+    "$LLVM/bin/llvm-strip" --strip-all -o "$JNILIBS/$abi/libkybernow_pyrowave.so.new" "$build/libkybernow_pyrowave.so"
+    mv "$JNILIBS/$abi/libkybernow_pyrowave.so.new" "$JNILIBS/$abi/libkybernow_pyrowave.so"
+    export KYBERNOW_PYROWAVE_LIB="$build"
+    echo "    $abi/libkybernow_pyrowave.so ($(du -h "$JNILIBS/$abi/libkybernow_pyrowave.so" | cut -f1))"
+}
+
 build_target() {
     local target=$1 prefix started abi lib flags=()
-    prefix="$KYBER/rootfs-$target"
+    prefix="$ROOTFS_BASE/rootfs-$target"
     use_target "$target"
     ensure_kynput "$target" "$prefix"
     ensure_opus "$target" "$prefix"
     ensure_libvlc_pc "$prefix"
     [ "$PROFILE" = release ] && flags+=(--release)
+    if build_pyrowave "$target"; then flags+=(--features pyrowave); fi
+    [ "$KYBER_PYROWAVE" = 1 ] && flags+=(--features kyber-pyrowave)
     echo "==> cargo $COMMAND kybernow-android ($target, API $API, $PROFILE)"
     started=$(date +%s)
     (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-android --lib "${flags[@]}" --target "$target")

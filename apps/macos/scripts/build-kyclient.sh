@@ -12,6 +12,9 @@
 # correctif de la Station, posés aussi par son build.sh, car kycontroller lit
 # le même kyctl-common) :
 # 0022-kyclient : HDR par écran (VideoSessionConfig.hdr, requête de démarrage).
+# 0025-kyclient-pyrowave : seulement avec --kyber-pyrowave (ou
+#                 KYBER_PYROWAVE=1), comme build-apple.sh : sans la
+#                 fonctionnalité pyrowave, le cœur ne compile pas avec lui.
 #
 # libkynput est construite sans son lecteur de manettes SDL : les manettes
 # sont lues une seule fois pour toutes les sessions de l'app par le cœur
@@ -41,10 +44,19 @@ OUT="$HERE/Vendor"
 
 # Empreinte de ce qui fait les bibliothèques client : correctifs, ce script,
 # versions des outils.
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-0}"
+STAMP_ONLY=0
+for arg in "$@"; do
+    case "$arg" in
+        --stamp) STAMP_ONLY=1 ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        *) echo "Option inconnue : $arg" >&2; exit 1 ;;
+    esac
+done
 stamp() {
-    cat "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh" | shasum -a 256 | cut -d' ' -f1
+    { cat "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh"; echo "pyrowave=$KYBER_PYROWAVE"; } | shasum -a 256 | cut -d' ' -f1
 }
-if [ "${1:-}" = --stamp ]; then
+if [ "$STAMP_ONLY" = 1 ]; then
     stamp
     exit 0
 fi
@@ -81,6 +93,7 @@ cargo_quiet() {
 # Chaque correctif vise le dépôt nommé après son numéro.
 for patch in "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;

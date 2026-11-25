@@ -443,6 +443,7 @@ object Share {
      * sinon un format qu'il lit (une image à part) : le format de l'hôte ne refuse plus personne.
      */
     private fun capabilities(d: Decoders) = JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null)
+        .put("pyrowave", fr.leslignesclaires.kybernow.model.PyroWave.decodes)
 
     /**
      * Le `request` de « Rejoindre » : `{code, name, device, app, quality}` et `auto` (ce que l'appareil sait afficher et

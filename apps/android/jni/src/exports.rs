@@ -69,6 +69,16 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut en
     i18n::set_current(Lang::from_tag(&tag));
 }
 
+/// PyroWave (docs/pyrowave-client-android.md) : la sonde du lancement, hors
+/// du fil principal (device Vulkan, décodeur, image de test décodée et
+/// relue). JSON `{"available": bool, "report": "GPU, chemin" ou la raison}`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pyrowaveProbe(mut env: Env, _: JClass) -> jstring {
+    let (available, report) = crate::pyrowave::probe();
+    log::info!("PyroWave : {} ({report})", if available { "disponible" } else { "indisponible" });
+    give(&mut env, &serde_json::json!({ "available": available, "report": report }).to_string())
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_nowMicros(_: Env, _: JClass) -> jlong {
     latency::now_micros()
@@ -377,6 +387,15 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetB
     }
     h.session.set_bitrate_cap((bg && cap > 0).then_some(cap as u32));
     h.session.set_hidden(bg);
+}
+
+/// PyroWave (docs/pyrowave.md, « Définition ramenée ») : débit du lien vers
+/// l'ordinateur, en Mbit/s (0 : inconnu).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetLinkMbps(_: Env, _: JClass, h: jlong, mbps: jint) {
+    if let Some(h) = handle(h) {
+        h.session.set_link_mbps((mbps > 0).then_some(mbps as u32));
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -693,11 +712,12 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_profileSett
     use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
     let p = string(&mut env, &profile);
     let profile = Profile::parse(&p).unwrap_or(Profile::Jeu);
-    let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false });
+    let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false, pyrowave: false });
     let codec = match s.codec {
         Codec::H264 => "h264",
         Codec::Hevc => "hevc",
         Codec::Av1 => "av1",
+        Codec::PyroWave => "pyrowave",
     };
     let json = serde_json::json!({
         "profile": p.to_lowercase(),

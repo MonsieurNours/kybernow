@@ -155,6 +155,17 @@
   /** L'icône de la capsule d'un avis (`gamepad` : « Manettes indisponibles sur cet ordinateur. ») ; sinon celle d'un écran. */
   let noticeIcon = $state<string | null>(null)
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * PyroWave (docs/link-ui.md « PyroWave ») : l'avis est le bandeau du début de session (`pyrowave_wifi`,
+   * `pyrowave_relay`), avec « Passer en HEVC » et une croix ; il repart après 8 s.
+   */
+  let noticeKind = $state<'pyrowave_wifi' | 'pyrowave_relay' | null>(null)
+  /** Ce PC rejoint l'ordinateur par câble (session d'hôte) ; nul : on ne sait pas. */
+  let wired = $state<boolean | null>(null)
+  /** La puce ambre « PyroWave en Wi-Fi » / « PyroWave hors de chez vous » : l'image est en PyroWave (format des mesures) sans câble ou par le relais. */
+  const pyroLink = $derived(
+    stats?.decoder?.startsWith('PyroWave') ? (route?.via_relay ? ('relay' as const) : wired === false ? ('wifi' as const) : null) : null,
+  )
   /** L'heure, pour « depuis 3 min » dans la liste des invités (revue toutes les 30 s). */
   let now = $state(Date.now())
   /** Plusieurs écrans : « Plein écran » n'est pas proposé, les fenêtres y restent. */
@@ -199,6 +210,10 @@
     notice_opens_share?: boolean
     notice_opens_lend?: boolean
     notice_icon?: string | null
+    /** Le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`). */
+    notice_kind?: 'pyrowave_wifi' | 'pyrowave_relay' | null
+    /** Ce PC rejoint l'ordinateur par câble (puce de PyroWave). */
+    wired?: boolean | null
     route?: RouteView | null
     /** La puce « HDR » (écran HDR seulement). */
     hdr?: BarHdr | null
@@ -369,6 +384,14 @@
       // Une demande à rejoindre arrive pendant que la barre est ouverte : l'avis « {prénom} demande à rejoindre. », sauf
       // panneau de « Partager » ouvert (il montre la demande, l'avis ne le ferme pas).
       listen<ShareRequestEvent>('share-request', (e) => {
+        // Le bandeau de PyroWave : seulement en capsule (barre ouverte, la puce ambre le dit déjà).
+        if (e.panel === 'pyrowave_wifi' || e.panel === 'pyrowave_relay') {
+          if (e.id === id && view === 'capsule') {
+            showNotice(e.text, null, 8000)
+            noticeKind = e.panel
+          }
+          return
+        }
         const panel = e.panel ?? 'share'
         // Barre ouverte : pas de capsule (la pastille « 1 demande » le dit) ; capsule déjà là : elle passe à la nouvelle demande.
         if (e.id !== id || guest || borrow || view !== 'capsule') return
@@ -447,6 +470,7 @@
         multi = !!s.multi
         keepSound = !!s.keep_sound
         hdr = s.hdr ?? null
+        wired = s.wired ?? null
         sessionCount = s.sessions ?? 1
         refusal = null
         // Par où passe cette session (puce « Par le relais »).
@@ -476,8 +500,9 @@
           view = 'capsule'
           held = false
           inside = false
-          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : null)
+          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : null, s.notice_kind ? 8000 : 4000)
           noticeIcon = s.notice_icon ?? null
+          noticeKind = s.notice_kind ?? null
         } else {
           view = 'bar'
           clearNotice()
@@ -744,7 +769,7 @@
   }
 
   /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
-  function showNotice(text: string, panel: 'share' | 'lend' | null = null) {
+  function showNotice(text: string, panel: 'share' | 'lend' | null = null, ms = 4000) {
     clearNotice()
     notice = text
     noticePanel = panel
@@ -752,8 +777,26 @@
       noticeTimer = null
       notice = null
       noticePanel = null
+      noticeKind = null
       if (view === 'capsule' || (!inside && !menu)) invoke('bar_hide', { id, focus: false })
-    }, 4000)
+    }, ms)
+  }
+
+  /** La croix du bandeau de PyroWave : il repart tout de suite. */
+  function closeBanner() {
+    clearNotice()
+    if (view === 'capsule') invoke('bar_hide', { id, focus: false })
+  }
+
+  /** « Passer en HEVC » : l'image repart en HEVC pour cette session (le choix de l'ordinateur reste). */
+  async function switchToHevc() {
+    const session = id
+    closeBanner()
+    try {
+      await invoke('session_hevc', { id: session })
+    } catch (e) {
+      showNotice(String(e))
+    }
   }
 
   function clearNotice() {
@@ -762,6 +805,7 @@
     notice = null
     noticePanel = null
     noticeIcon = null
+    noticeKind = null
   }
 
   /** Choisir l'avis d'une demande à rejoindre : le panneau de « Partager » s'ouvre, où « Accepter » et « Refuser » attendent. */
@@ -1187,6 +1231,11 @@
   {#if route?.via_relay}
     <span class="chip still relay" class:tcp={route.transport === 'relay_tcp'} role="img" aria-label={t('relay.via')} title={routeTitle}>{@render chipBody('globe', t('relay.via'))}</span>
   {/if}
+  {#if pyroLink}
+    <!-- PyroWave en Wi-Fi ou par le relais : la puce ambre (docs/link-ui.md « PyroWave ») ; son texte reste en barre étroite. -->
+    {@const text = t(pyroLink === 'relay' ? 'pyrowave.banner_relay' : 'pyrowave.banner_wifi')}
+    <span class="chip still pyro" role="img" aria-label={text} title={text}>{@render chipBody(pyroLink === 'relay' ? 'globe' : 'wifi', text, false, true)}</span>
+  {/if}
 {/snippet}
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
@@ -1202,7 +1251,16 @@
 
 {#if view === 'capsule'}
   <!-- Un avis bref seul, en haut de l'image ; celui d'une demande se choisit et ouvre son panneau. -->
-  {#if notice && noticePanel}
+  {#if notice && noticeKind}
+    <!-- Le bandeau de PyroWave (Wi-Fi ou relais) : titre, texte, « Passer en HEVC », croix. -->
+    <div class="capsule banner" role="status" bind:this={bar}>
+      <Icon name={noticeKind === 'pyrowave_relay' ? 'globe' : 'wifi'} size={15} stroke={1.8} />
+      <strong>{t(noticeKind === 'pyrowave_relay' ? 'pyrowave.banner_relay' : 'pyrowave.banner_wifi')}</strong>
+      <span>{notice}</span>
+      <button class="switch" onclick={switchToHevc}>{t('pyrowave.switch_hevc')}</button>
+      <button class="x" aria-label={t('common.close')} title={t('common.close')} onclick={closeBanner}>✕</button>
+    </div>
+  {:else if notice && noticePanel}
     <button class="capsule choice" aria-live="polite" onclick={openShareFromNotice} bind:this={bar}>
       <Icon name={noticePanel === 'lend' ? 'key' : 'share'} size={15} stroke={1.8} />{notice}
     </button>
@@ -1676,6 +1734,64 @@
   .chip.play :global(svg),
   .chip.relay :global(svg) {
     color: var(--signal);
+  }
+
+  /* PyroWave en Wi-Fi ou par le relais : ambre. */
+  .chip.pyro {
+    background: rgb(245 184 65 / 0.12);
+    box-shadow: inset 0 0 0 1px rgb(245 184 65 / 0.4);
+  }
+
+  .chip.pyro :global(svg),
+  .chip.pyro .ctext {
+    color: var(--warn);
+  }
+
+  /* Le bandeau de PyroWave : titre, texte, « Passer en HEVC », croix. */
+  .capsule.banner {
+    height: 44px;
+    border-color: rgb(245 184 65 / 0.55);
+  }
+
+  .capsule.banner :global(svg) {
+    color: var(--warn);
+  }
+
+  .capsule.banner strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .capsule.banner .switch {
+    height: 28px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 7px;
+    background: rgb(109 91 255 / 0.25);
+    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.55);
+    color: #fff;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  .capsule.banner .switch:hover {
+    background: rgb(109 91 255 / 0.4);
+  }
+
+  .capsule.banner .x {
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .capsule.banner .x:hover {
+    color: var(--text);
   }
 
   .chip.relay.tcp :global(svg),

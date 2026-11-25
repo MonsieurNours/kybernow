@@ -70,6 +70,27 @@
         }
       }
     },
+    "video.pyrowave": {
+      "label": "PyroWave (provisional)",
+      "help": "Provisional text: offer the PyroWave format to devices.",
+      "details": "Provisional text. PyroWave is a picture format that is very fast to encode and decode, for the local network; it needs a lot of bandwidth. Offered only if the graphics card allows it.",
+      "advice": "Provisional text: keep it on."
+    },
+    "video.pyrowave_max_mbps": {
+      "label": "Maximum bitrate",
+      "help": "Above that, your devices lower the resolution rather than sharpness.",
+      "details": "PyroWave sends a lot of data. This cap, announced to your devices, makes them lower the resolution (then the refresh rate) to fit in it, instead of blurring the picture. On Auto, it follows this computer's network port.",
+      "advice": "Keep Auto.",
+      "options": {
+        "auto": {
+          "label": "Auto",
+          "hint": "Based on this computer's network port: 80% of its speed on Ethernet, half on Wi-Fi."
+        },
+        "300": { "label": "300 Mbit/s", "hint": "" },
+        "500": { "label": "500 Mbit/s", "hint": "" },
+        "800": { "label": "800 Mbit/s", "hint": "" }
+      }
+    },
     "video.gpu_priority": {
       "label": "GPU priority",
       "help": "How the capture and the encoding share the graphics card with a game.",

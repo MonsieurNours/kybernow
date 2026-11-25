@@ -506,6 +506,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         route: route.clone(),
         pads_off: false,
         pads_told: AtomicBool::new(false),
+        pyrowave_told: AtomicBool::new(false),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
@@ -525,6 +526,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             title_stats: false,
             // Un invité ne connaît pas le système de l'ordinateur : Ctrl reste Ctrl.
             control_as_command: false,
+            // Pas de réglages de l'ordinateur : la règle d'avant le réglage (plein écran).
+            immersive: "fullscreen".into(),
             layout,
         },
         events.clone(),
@@ -795,6 +798,8 @@ fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option
             show_bar_notice(&a, &id, hwnd, true, Some(text), panel, icon);
         } else {
             let launch = match panel {
+                // Le bandeau de PyroWave n'ouvre aucun panneau.
+                Some(p) if p.starts_with("pyrowave") => "kybernow://open".to_string(),
                 Some(p) => format!("kybernow://{p}?id={id}"),
                 None => "kybernow://open".to_string(),
             };

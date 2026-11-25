@@ -67,6 +67,8 @@ pub enum Event {
         os: Option<String>,
         gpu: Option<String>,
         av1: bool,
+        /// La Station propose PyroWave (`info.pyrowave`, docs/pyrowave.md).
+        pyrowave: bool,
         virtual_display: Option<bool>,
         /// Écrans que la Station sait créer (multi-écrans ; 1 : une Station antérieure).
         max_screens: Option<usize>,
@@ -145,7 +147,8 @@ pub enum SessionEvent {
     Mode(Mode),
     /// `chain` : le trajet d'une image mesuré avec l'ordinateur (`Second::chain`, ses six étapes) ; `hdr` : un
     /// écran au moins de l'image est en HDR.
-    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool },
+    /// `lowered` : PyroWave, la définition ramenée (`Second::lowered`).
+    Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered> },
     Notice(String),
     /// Le pointeur de l'ordinateur sur l'écran `screen` de l'appareil (multi-écrans :
     /// une couche par écran ; la forme est celle de l'écran où il se trouve).
@@ -188,10 +191,13 @@ const MOUSE_RULES: MouseModeRules = MouseModeRules { needs_hidden_pointer: true 
 struct HitAreas {
     enabled: bool,
     drag: (i32, i32, i32, i32),
+    /// Les éléments de l'interface dans la zone de déplacement (le fil d'Ariane des réglages) : un clic y va à
+    /// l'app, pas au déplacement de la fenêtre.
+    holes: Vec<(i32, i32, i32, i32)>,
     size: (i32, i32),
 }
 
-static HIT: Mutex<HitAreas> = Mutex::new(HitAreas { enabled: false, drag: (0, 0, 0, 0), size: (0, 0) });
+static HIT: Mutex<HitAreas> = Mutex::new(HitAreas { enabled: false, drag: (0, 0, 0, 0), holes: Vec::new(), size: (0, 0) });
 
 extern "C" fn hit_test(_win: *mut sdl::SDL_Window, p: *const sdl::SDL_Point, _data: *mut c_void) -> c_int {
     let Ok(h) = HIT.try_lock() else { return sdl::HITTEST_NORMAL };
@@ -213,8 +219,8 @@ extern "C" fn hit_test(_win: *mut sdl::SDL_Window, p: *const sdl::SDL_Point, _da
         (_, _, _, true) => return sdl::HITTEST_RESIZE_BOTTOM,
         _ => {}
     }
-    let (dx, dy, dw, dh) = h.drag;
-    if x >= dx && x < dx + dw && y >= dy && y < dy + dh { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
+    let inside = |(rx, ry, rw, rh): (i32, i32, i32, i32)| x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+    if inside(h.drag) && !h.holes.iter().any(|r| inside(*r)) { sdl::HITTEST_DRAGGABLE } else { sdl::HITTEST_NORMAL }
 }
 
 /// Une fenêtre SDL de l'app, avec son rendu, sa texture d'interface, sa
@@ -238,6 +244,9 @@ struct Win {
     fullscreen: bool,
     /// Cachée : la fenêtre de l'app quand les sessions qui restent ont chacune la leur.
     hidden: bool,
+    /// Le clavier saisi par la fenêtre (mode immersif : Alt+Tab, la touche ⊞… vont à l'ordinateur), tel que
+    /// `sync_keyboard_grab` l'a posé.
+    grab: bool,
     /// Les éléments choisissables du dernier dessin de cette fenêtre : un clic dans une fenêtre
     /// s'adresse à ses éléments, pas à ceux de la fenêtre de la session active.
     hits: Vec<(Target, Rect)>,
@@ -282,6 +291,7 @@ impl Win {
             extra: false,
             fullscreen: false,
             hidden: false,
+            grab: false,
             hits: Vec::new(),
             cv: Canvas::new(),
             ui: std::ptr::null_mut(),
@@ -477,7 +487,7 @@ const APP_TITLE: &str = "KyberNow Link";
 
 /// Une fenêtre plein écran de plus, sur l'écran de l'appareil `display` (multi-écrans).
 /// Même titre que celle de la session. Elle s'affiche tout de suite (le fond de la connexion).
-fn create_extra(display: &Display, screen: usize, premul: c_int, grab_keyboard: bool, title: &str) -> Option<Win> {
+fn create_extra(display: &Display, screen: usize, premul: c_int, title: &str) -> Option<Win> {
     let title = CString::new(title.replace('\0', "")).unwrap_or_default();
     let at = sdl::windowpos_centered_display(display.sdl);
     let flags = sdl::SDL_WINDOW_SHOWN | sdl::SDL_WINDOW_FULLSCREEN_DESKTOP | sdl::SDL_WINDOW_ALLOW_HIGHDPI;
@@ -494,7 +504,6 @@ fn create_extra(display: &Display, screen: usize, premul: c_int, grab_keyboard: 
         unsafe { sdl::SDL_DestroyWindow(window) };
         return None;
     }
-    unsafe { sdl::SDL_SetWindowKeyboardGrab(window, grab_keyboard as c_int) };
     let mut w = Win::new(window, renderer, premul, screen, (display.w.max(1), display.h.max(1)));
     w.vsync = false;
     log::info!("écran {} ({}) : fenêtre ouverte, {} × {}", screen, display.name, w.out_size.0, w.out_size.1);
@@ -546,7 +555,7 @@ fn plan_screens(plan: &[kybernow_core::screens::PlannedScreen]) -> Vec<usize> {
 /// Ferme et ouvre les fenêtres de plus de cette session pour qu'il y en ait une par écran voulu
 /// (`wanted`, l'écran principal compris), et que sa fenêtre principale montre l'écran
 /// `primary`. Le reste ne bouge pas.
-fn sync_windows(wins: &mut Wins, session: SessionId, title: &str, wanted: &[usize], primary: usize, devices: &screens::Detected, grab_keyboard: bool) {
+fn sync_windows(wins: &mut Wins, session: SessionId, title: &str, wanted: &[usize], primary: usize, devices: &screens::Detected) {
     if let Some(m) = wins.main_of(session) {
         wins.list[m].screen = primary;
     }
@@ -565,7 +574,7 @@ fn sync_windows(wins: &mut Wins, session: SessionId, title: &str, wanted: &[usiz
             continue;
         }
         if let Some(d) = devices.grouped.get(s)
-            && let Some(mut w) = create_extra(d, s, premul, grab_keyboard, title)
+            && let Some(mut w) = create_extra(d, s, premul, title)
         {
             w.session = Some(session);
             w.extra = true;
@@ -772,6 +781,11 @@ fn show_frame(w: &mut Win, f: &video::Frame, dirty: &mut bool) -> bool {
     w.video.upload(w.renderer, f)
 }
 
+/// `kybernow --pyrowave-probe` : la sonde de PyroWave seule (le Raspberry Pi la lance dans un processus à part).
+pub fn pyrowave_probe_child() -> i32 {
+    system::pyrowave_probe_child()
+}
+
 /// `--hdr-test` : la mire HDR sur la sous-surface d'une fenêtre Wayland (`hdr_wl::selftest`).
 pub fn hdr_test() {
     log_file::init();
@@ -812,6 +826,8 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
+    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre.
+    system::pyrowave_probe_start();
     // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
     // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
     // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
@@ -965,6 +981,7 @@ pub fn run(args: &[String]) {
     let mut last_station_poll = Instant::now();
     let mut last_wake_poll = Instant::now();
     let mut last_net = Instant::now();
+    let mut pyrowave_known = false;
     // KyberNow Link OS : le son de l'allumage, ce qui se prépare, le nom CEC, l'état A/B.
     let mut chime: Option<u32> = None;
     let mut start_down: Option<Instant> = None;
@@ -1107,6 +1124,7 @@ pub fn run(args: &[String]) {
             dirty = true;
         }
         raise_active(&app, &wins, &mut raised);
+        sync_keyboard_grab(&app, &lives, &mut wins);
         // Les consoles PlayStation : recherches, partie (images, statistiques, barre).
         if ps.tick(&mut app, &mut wins, !lives.is_empty()) {
             dirty = true;
@@ -1181,6 +1199,17 @@ pub fn run(args: &[String]) {
         if lives.is_empty() && last_update.elapsed() > Duration::from_secs(6 * 3600) {
             last_update = Instant::now();
             jobs::check_update(app.store.app.beta, tx.clone());
+        }
+        // La sonde de PyroWave a fini : « Format vidéo » le propose (ou dit pourquoi pas), le cœur le reçoit.
+        // Le cœur ne sait le demander qu'avec le correctif kyclient de la Station (fonctionnalité `pyrowave` du cœur,
+        // `PYROWAVE_KYBER`) : sans lui, l'app ne l'annonce pas (« Format vidéo » le dit indisponible).
+        if !pyrowave_known && let Some(ok) = system::pyrowave() {
+            pyrowave_known = true;
+            app.machine.pyrowave = ok && kybernow_core::profile::PYROWAVE_KYBER;
+            if ok && !kybernow_core::profile::PYROWAVE_KYBER {
+                log::info!("PyroWave : décodeur prêt, mais ce cœur ne sait pas encore le demander (fonctionnalité pyrowave éteinte)");
+            }
+            dirty = true;
         }
         if last_net.elapsed() > Duration::from_secs(5) && lives.is_empty() {
             last_net = Instant::now();
@@ -1386,7 +1415,7 @@ fn route_ps(a: Action, ps: &mut ps::Runtime, app: &mut App, pads: &mut pads::Pad
         Action::ToggleMouse(id) if ps.owns(id) => ps.toggle_mouse(app, pads),
         Action::Mute(id, on) if ps.owns(id) => ps.mute(on),
         Action::ToggleFullscreen(Some(id)) if ps.owns(id) => {
-            toggle_fullscreen(app, lives, wins, Some(id));
+            toggle_fullscreen(app, wins, Some(id));
             ps.remember_fullscreen(app);
         }
         // Une console d'abord (1,5 s), puis la Station comme avant (`ps::PsEvent::Probed`).
@@ -1426,6 +1455,31 @@ fn stop_all(lives: &Lives, wins: &Wins) {
         }
     }
     log::info!("fin de l'app : {} session(s) terminée(s) en {} ms", lives.0.len(), started.elapsed().as_millis());
+}
+
+/// Mode immersif (docs/link-ui.md) : chaque fenêtre de session saisit le clavier (Alt+Tab, la touche ⊞, Ctrl+Échap
+/// vont à l'ordinateur) quand sa session l'envoie et que le réglage de l'ordinateur le veut : « En plein écran »
+/// (fenêtre en plein écran, celles d'un écran de plus et le salon le sont), « Toujours », « Jamais ». Pas pendant
+/// un menu de la barre ni un panneau du partage. SDL ne saisit que la fenêtre qui a le clavier : passer à une
+/// autre fenêtre le rend au système. Les fenêtres sans session (l'accueil, une partie PlayStation) ne sont pas
+/// touchées ici.
+fn sync_keyboard_grab(app: &App, lives: &Lives, wins: &mut Wins) {
+    for wi in 0..wins.list.len() {
+        let w = &wins.list[wi];
+        let Some(id) = w.session else { continue };
+        let want = lives.get(id).is_some()
+            && app.session_by(id).is_some_and(|s| s.running() && s.keyboard_mouse() && s.bar_menu.is_none() && !s.share_overlay())
+            && match app.immersive_of(id) {
+                "never" => false,
+                "always" => true,
+                _ => w.extra || app.layout.console() || if wi == 0 { app.fullscreen } else { w.fullscreen },
+            };
+        if want != w.grab {
+            log::info!("mode immersif : clavier {} (fenêtre {wi})", if want { "saisi" } else { "rendu au système" });
+            unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, want as c_int) };
+            wins.list[wi].grab = want;
+        }
+    }
 }
 
 /// La fenêtre de la session active passe devant quand l'activation ne vient pas d'elle : « Afficher »,
@@ -1478,9 +1532,12 @@ fn update_hit_areas(app: &App, win: &Win) {
     let mut h = HIT.lock().unwrap();
     h.size = win.win_size;
     h.enabled = app.layout == Layout::Desktop && !app.fullscreen && !app.maximized_or_session();
+    h.holes.clear();
     if let Some(r) = ui::title_drag_area(app, cv.w) {
         let d = cv.k / win.density();
-        h.drag = ((r.x * d) as i32, (r.y * d) as i32, (r.w * d) as i32, (r.h * d) as i32);
+        let px = |r: &crate::app::Rect| ((r.x * d) as i32, (r.y * d) as i32, (r.w * d).ceil() as i32, (r.h * d).ceil() as i32);
+        h.drag = px(&r);
+        h.holes = win.hits.iter().filter(|(_, b)| b.y < r.y + r.h).map(|(_, b)| px(b)).collect();
     } else {
         h.drag = (0, 0, 0, 0);
     }
@@ -1823,7 +1880,6 @@ fn take_over_main_window(app: &mut App, l: &mut Live, wins: &mut Wins, primary: 
         l.placed = Some(primary);
     }
     app.fullscreen = true;
-    unsafe { sdl::SDL_SetWindowKeyboardGrab(window, 1) };
 }
 
 /// Le cœur annonce les écrans de la session (au démarrage de l'image, ou l'un d'eux a changé de
@@ -1852,7 +1908,7 @@ fn follow_screens(app: &mut App, l: &mut Live, wins: &mut Wins) {
         if (wanted.len() >= 2 || wins.prev.is_some()) && wins.list[0].session == Some(l.id) {
             take_over_main_window(app, l, wins, primary);
         }
-        sync_windows(wins, l.id, &title, &wanted, primary, &l.devices, true);
+        sync_windows(wins, l.id, &title, &wanted, primary, &l.devices);
     }
     log::info!("écrans de la session : {} pris, {} non créé(s)", st.streams.len(), st.not_created.len());
 }
@@ -2165,14 +2221,20 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             }
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris), O (ordinateur
-            // suivant) ; ils visent la session de la fenêtre active.
-            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O) {
+            // suivant), S (statistiques) ; ils visent la session de la fenêtre active.
+            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_S) {
                 if down && !repeat {
                     match sc {
                         sdl::SC_D => actions.extend(routed.map(Action::Disconnect)),
                         sdl::SC_F => actions.push(Action::ToggleFullscreen(routed)),
                         sdl::SC_M => actions.extend(routed.map(Action::ToggleMouse)),
                         sdl::SC_O => actions.push(Action::NextSession),
+                        sdl::SC_S => {
+                            if let Some(s) = routed.and_then(|id| app.session_by_mut(id)) {
+                                s.toggle_stats();
+                            }
+                            *dirty = true;
+                        }
                         _ => {}
                     }
                     if let Some(p) = &input {
@@ -2392,7 +2454,10 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             if down && b == 1 {
                 let (ux, uy) = to_ui(&wins.list[wi], app.layout, x, y);
                 // Double clic sur la barre de titre : agrandir.
-                if ev.u8(18) == 2 && ui::title_drag_area(app, wins.list[wi].cv.w).is_some_and(|r| r.contains(ux, uy)) {
+                if ev.u8(18) == 2
+                    && ui::title_drag_area(app, wins.list[wi].cv.w).is_some_and(|r| r.contains(ux, uy))
+                    && !wins.list[wi].hits.iter().any(|(_, r)| r.contains(ux, uy))
+                {
                     actions.push(Action::Maximize);
                     return;
                 }
@@ -2542,7 +2607,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, wins: &mut Wins, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>, tx: &Sender<Event>) {
     match e {
-        Event::HostInfo { id, online, away, relay, os, gpu, av1, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr } => {
+        Event::HostInfo { id, online, away, relay, os, gpu, av1, pyrowave, virtual_display, max_screens, station, wake, own_device, share, lend, lend_view, gamepads, hdr } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online {
                 Online::Online
@@ -2571,7 +2636,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             actions.extend(app.share_known(&id));
             if online && let Some(h) = app.store.host_mut(&id) {
                 // Les cartes du réveil : les nouvelles, sauf une liste vide (Station 0.4.9).
-                let mut changed = h.os != os || h.gpu != gpu || h.av1 != av1;
+                let mut changed = h.os != os || h.gpu != gpu || h.av1 != av1 || h.pyrowave != pyrowave;
                 if !wake.is_empty() && h.wake != wake {
                     h.wake = wake;
                     changed = true;
@@ -2579,6 +2644,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
                 h.os = os.or(h.os.take());
                 h.gpu = gpu.or(h.gpu.take());
                 h.av1 = av1;
+                h.pyrowave = pyrowave;
                 // Le relais de l'ordinateur : celui que sa Station donne, gardé pour le joindre hors de chez soi.
                 if h.relay != relay {
                     h.relay = relay;
@@ -2928,7 +2994,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 l.hz = m.refresh;
             }
         }
-        SessionEvent::Second { latency_ms, fps, mbps, lost, codec, audio_ms, chain, hdr } => {
+        SessionEvent::Second { latency_ms, fps, mbps, lost, lost_frames, codec, audio_ms, chain, hdr, lowered } => {
             let Some(l) = lives.get_mut(id) else { return };
             let local = Stats::local_medians(&l.local);
             l.local.clear();
@@ -2951,7 +3017,10 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                 }
                 let stages = Stats::stages(chain, local);
-                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr });
+                let lowered = lowered.map(|l| l.text(kybernow_core::i18n::current()));
+                s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered });
+                // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
+                s.pyrowave_seen();
             }
         }
         SessionEvent::Notice(n) => {
@@ -3005,13 +3074,8 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::Guests(view) => app.share_guests(id, view),
         SessionEvent::ShareRole { role, previous } => {
             app.share_role_changed(id, role, previous);
-            // Le clavier saisi par une fenêtre en plein écran (les raccourcis du système vont alors à l'ordinateur)
-            // ne l'est que pour un rôle qui l'envoie : Alt+Tab revient au système quand le clavier est repris.
-            if let Some(wi) = wins.main_of(id)
-                && (if wi == 0 { app.fullscreen } else { wins.list[wi].fullscreen } || app.layout.console())
-            {
-                unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.list[wi].window, role.kbm() as c_int) };
-            }
+            // Le clavier saisi (mode immersif) suit le rôle : `sync_keyboard_grab` le rend au système quand le clavier
+            // est repris (Alt+Tab revient au système).
             // Un rôle sans clavier ni souris rend la souris des jeux (`session_tick` la coupe) et la manette en souris.
             if !role.kbm() {
                 if let Some(l) = lives.get_mut(id) {
@@ -3130,7 +3194,7 @@ fn show_session(app: &mut App, lives: &Lives, wins: &Wins, id: SessionId) {
 /// Plein écran de la fenêtre d'une session (la fenêtre de l'app hors session). En plein écran pendant la
 /// session, les raccourcis du système vont à l'ordinateur. Plusieurs écrans : pas de « Plein écran » (les
 /// fenêtres restent en plein écran).
-fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<SessionId>) {
+fn toggle_fullscreen(app: &mut App, wins: &mut Wins, id: Option<SessionId>) {
     if app.layout.console() {
         return;
     }
@@ -3139,7 +3203,6 @@ fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<S
         let window = wins.app().window;
         unsafe {
             sdl::SDL_SetWindowFullscreen(window, if app.fullscreen { sdl::SDL_WINDOW_FULLSCREEN_DESKTOP } else { 0 });
-            sdl::SDL_SetWindowKeyboardGrab(window, (app.fullscreen && !lives.is_empty()) as c_int);
         }
         return;
     };
@@ -3152,8 +3215,6 @@ fn toggle_fullscreen(app: &mut App, lives: &Lives, wins: &mut Wins, id: Option<S
     let window = wins.list[wi].window;
     unsafe {
         sdl::SDL_SetWindowFullscreen(window, if on { sdl::SDL_WINDOW_FULLSCREEN_DESKTOP } else { 0 });
-        // Le clavier n'est saisi que pour une session qui l'envoie (pas un invité sans le clavier et la souris).
-        sdl::SDL_SetWindowKeyboardGrab(window, (on && lives.get(id).is_some() && app.session_by(id).is_some_and(SessionUi::keyboard_mouse)) as c_int);
     }
     if wi == 0 {
         app.fullscreen = on;
@@ -3246,7 +3307,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 app.maximized = true;
             }
         },
-        Action::ToggleFullscreen(id) => toggle_fullscreen(app, lives, wins, id),
+        Action::ToggleFullscreen(id) => toggle_fullscreen(app, wins, id),
         Action::ToggleMouse(id) => {
             if let (Some(l), Some(s)) = (lives.get_mut(id), app.session_by(id)) {
                 l.mouse = if s.relative { MouseMode::Desktop } else { MouseMode::Game };
@@ -3277,8 +3338,24 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             let Some(h) = app.store.host(&host).cloned() else { return };
             if let Some(l) = lives.get_mut(id) {
                 let mode = session_mode_of(app, wins, l, &h);
-                let codec = app.codec_for(&h);
-                push_settings(l, session::settings(&h, p, codec, mode, &app.machine, light), session::capabilities(&h, codec, &app.machine));
+                let codec = app.session_codec(id, &h);
+                let mut settings = session::settings(&h, p, codec, mode, &app.machine, light);
+                settings.wired = l.settings.wired;
+                push_settings(l, settings, session::capabilities(&h, codec, &app.machine));
+            }
+        }
+        Action::PyroWaveToHevc(id) => {
+            // « Passer en HEVC » : les réglages de la session en HEVC (le cœur relance l'image), le choix de
+            // l'ordinateur reste PyroWave pour la prochaine session.
+            let Some((host, profile, light)) = app.session_by(id).map(|s| (s.host.clone(), s.profile, s.light)) else { return };
+            let Some(h) = app.store.host(&host).cloned() else { return };
+            if let Some(l) = lives.get_mut(id) {
+                log::info!("session : PyroWave → HEVC pour cette session");
+                let mode = session_mode_of(app, wins, l, &h);
+                // Sans le câble : « Auto » ne reprend pas PyroWave.
+                let mut settings = session::settings(&h, profile, "hevc", mode, &app.machine, light);
+                settings.wired = false;
+                push_settings(l, settings, session::capabilities(&h, "hevc", &app.machine));
             }
         }
         Action::SetHdr(id, on) => {
@@ -3294,8 +3371,10 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             if let Some(l) = lives.get_mut(id) {
                 let (w, hh, fps) = session_mode_of(app, wins, l, &h);
                 let fps = if on { fps.min(60) } else { fps };
-                let codec = app.codec_for(&h);
-                push_settings(l, session::settings(&h, profile, codec, (w, hh, fps), &app.machine, on), session::capabilities(&h, codec, &app.machine));
+                let codec = app.session_codec(id, &h);
+                let mut settings = session::settings(&h, profile, codec, (w, hh, fps), &app.machine, on);
+                settings.wired = l.settings.wired;
+                push_settings(l, settings, session::capabilities(&h, codec, &app.machine));
                 l.handle.session.set_mode(Mode { width: w, height: hh, refresh: fps });
             }
         }
@@ -3560,6 +3639,7 @@ fn borrower_host(loan: &lend::Loan, key: &str) -> crate::model::Host {
         os: None,
         gpu: None,
         av1: false,
+        pyrowave: false,
         mac: None,
         wake: Vec::new(),
         relay: None,
@@ -3593,6 +3673,7 @@ fn guest_host(found: &share::Found, title: &str) -> crate::model::Host {
         os: None,
         gpu: None,
         av1: false,
+        pyrowave: false,
         mac: None,
         wake: Vec::new(),
         relay: None,
@@ -3689,7 +3770,12 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         (None, None) => app.session_mode(&h),
     };
     // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
-    let settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
+    let mut settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
+    // « Auto » prend PyroWave seulement par câble (docs/link-ui.md, « PyroWave ») : l'interface qui mène à
+    // l'ordinateur. Pour le cœur, « Auto » est un profil ; l'app en garde toujours un (`session::settings`) : le
+    // câble n'est donné que si « Format vidéo » est sur Auto, sinon un HEVC choisi deviendrait PyroWave.
+    let wired = !visitor && !h.address.is_empty() && app.machine.pyrowave && system::wired_to(&h.address, h.port);
+    settings.wired = wired && h.settings.codec == "auto";
     // Un invité n'a jamais plusieurs écrans : l'écran du partage, un seul.
     let plan = if visitor { None } else { base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display)) };
     // « Cet écran » est celui où se trouve la fenêtre pendant la session : avec plusieurs écrans,
@@ -3770,6 +3856,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         None => SessionUi::new(id, &h.id, &h.name, profile, light, relative, plan.as_ref().map_or(1, Vec::len)),
     };
     ui.fullscreen = first && app.fullscreen;
+    ui.pw_wired = wired;
     // « HDR » dans la barre et le menu : la puce de l'ordinateur (hôte, emprunt) sur un écran HDR ; un invité n'en a pas.
     ui.hdr = match (&guest, &borrow_key) {
         (Some(_), _) => None,
@@ -3846,13 +3933,10 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     // ensuite le cœur annonce ce qu'il a pris et les fenêtres le suivent (`follow_screens`).
     if let Some(plan) = plan.as_deref() {
         take_over_main_window(app, &mut l, wins, plan[0].device);
-        sync_windows(wins, id, &title, &plan_screens(plan), plan[0].device, &l.devices, true);
+        sync_windows(wins, id, &title, &plan_screens(plan), plan[0].device, &l.devices);
     }
-    // Le clavier n'est saisi que pour une session qui l'envoie : un invité arrive en spectateur (rien à envoyer),
-    // Alt+Tab et les raccourcis du système restent au système ; l'hôte lui donne le clavier plus tard (`ShareRole`).
-    if first && !visitor && (app.fullscreen || app.layout.console()) {
-        unsafe { sdl::SDL_SetWindowKeyboardGrab(wins.app().window, 1) };
-    }
+    // Le clavier saisi (mode immersif) : `sync_keyboard_grab`, d'après le réglage, le plein écran et le rôle (un
+    // invité arrive en spectateur, sans rien à envoyer : Alt+Tab reste au système).
     log::info!(
         "session : {} ({}, {} × {} à {} Hz, {codec}, {}, {} écran{}{})",
         h.name,
@@ -3984,6 +4068,7 @@ fn reap(app: &mut App, lives: &mut Lives, wins: &mut Wins) -> bool {
 fn end_windows(wins: &mut Wins, session: SessionId) {
     for w in wins.list.iter_mut().filter(|w| w.session == Some(session)) {
         unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, 0) };
+        w.grab = false;
         w.video.reset();
         w.hint_key = None;
         w.present = true;
@@ -4002,6 +4087,7 @@ fn release_app_window(wins: &mut Wins) {
     w.extra = false;
     sdl::set_title(w.window, APP_TITLE);
     unsafe { sdl::SDL_SetWindowKeyboardGrab(w.window, 0) };
+    w.grab = false;
     w.set_vsync(true);
     w.video.reset();
     w.hint_key = None;
@@ -4089,7 +4175,7 @@ mod tests {
         wins.list[0].session = Some(1);
 
         // Les trois écrans du plan : la fenêtre de l'app et deux fenêtres de plus.
-        sync_windows(&mut wins, 1, "A · KyberNow Link", &[0, 1, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A · KyberNow Link", &[0, 1, 2], 0, &devices);
         assert_eq!(wins.list.len(), 3);
         assert_eq!(wins.list.iter().map(|w| w.screen).collect::<Vec<_>>(), vec![0, 1, 2]);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.extra)).collect::<Vec<_>>(), vec![(Some(1), false), (Some(1), true), (Some(1), true)]);
@@ -4163,20 +4249,20 @@ mod tests {
         wins.close_extras(1);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.extra)).collect::<Vec<_>>(), vec![(Some(1), false), (Some(2), false)]);
         // Des écrans de l'appareil dont la place a changé : leur fenêtre se ferme, les autres restent.
-        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.screen)).collect::<Vec<_>>(), vec![(Some(1), 0), (Some(2), 0), (Some(1), 1), (Some(1), 2)]);
         wins.close_extras_where(1, |w| w.screen == 2);
         assert_eq!(wins.list.iter().map(|w| (w.session, w.screen)).collect::<Vec<_>>(), vec![(Some(1), 0), (Some(2), 0), (Some(1), 1)]);
         let kept = wins.list[2].id;
-        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0, 1, 2], 0, &devices);
         assert_eq!((wins.list.len(), wins.list[2].id), (4, kept), "la fenêtre qui reste n'est pas refaite");
         // Moins d'écrans (Station qui n'en crée plus que deux, profil Jeu) : les fenêtres de plus se ferment.
-        sync_windows(&mut wins, 1, "A", &[0, 2], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0, 2], 0, &devices);
         assert_eq!(wins.list.iter().filter(|w| w.session == Some(1)).map(|w| w.screen).collect::<Vec<_>>(), vec![0, 2]);
-        sync_windows(&mut wins, 1, "A", &[0], 0, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[0], 0, &devices);
         assert_eq!(wins.list.iter().filter(|w| w.session == Some(1)).count(), 1);
         // L'écran principal devient un autre écran de l'appareil : la fenêtre principale le montre ; la seconde session ne bouge pas.
-        sync_windows(&mut wins, 1, "A", &[1, 0], 1, &devices, false);
+        sync_windows(&mut wins, 1, "A", &[1, 0], 1, &devices);
         assert_eq!(wins.list.iter().filter(|w| w.session == Some(1)).map(|w| w.screen).collect::<Vec<_>>(), vec![1, 0]);
         assert_eq!(wins.main_of(2).map(|i| wins.list[i].id), Some(b_id));
         wins.forget_frames(1);
@@ -4205,6 +4291,7 @@ mod tests {
             os: None,
             gpu: None,
             av1: false,
+            pyrowave: false,
             mac: None,
             wake: Vec::new(),
             relay: None,

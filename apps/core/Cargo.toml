@@ -45,6 +45,12 @@ spake2 = "0.4"
 # son propre lecteur SDL. SDL2 est trouvée par pkg-config (build.rs), sinon
 # l'exécutable final la lie lui-même.
 sdl = []
+# PyroWave (docs/pyrowave.md) : le format de Kyber `VideoCodec::PyroWave`
+# vient du correctif kyclient de la Station. Sans cette fonctionnalité (tant
+# que le correctif n'est pas dans kyber-desktop), le cœur connaît PyroWave
+# (format, capacités, annonce de la Station, règle d'« Auto ») mais ne le
+# demande jamais à Kyber : `profile::PYROWAVE_KYBER`.
+pyrowave = []
 
 # Essais du relais sur la boucle locale (faux relais, faux Admin).
 [dev-dependencies]

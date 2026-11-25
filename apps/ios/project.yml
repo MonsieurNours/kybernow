@@ -55,6 +55,12 @@ targets:
       # Les manettes d'une partie sur console, données au cœur (GamepadBridge).
       - path: ../tvos/KyberKitTV/ConsolePads.swift
       - path: KyberKitIOS
+      # PyroWave (docs/pyrowave.md) : le port Metal, à un commit épinglé
+      # (apps/macos/PyroWave/COMMIT, apps/macos/scripts/vendor-pyrowave.sh), compilé dans KyberKit ;
+      # Swift le voit par le module CPyroWave (apps/macos/PyroWave/module).
+      - path: ../macos/PyroWave/upstream/pyrowave_common.mm
+      - path: ../macos/PyroWave/upstream/pyrowave_decoder.mm
+      - path: ../macos/PyroWave/upstream/pyrowave_bitstream.cpp
     dependencies:
       # Le cœur Rust, son pont C, libkynput, libopus et les fonctions vides de VLC.
       - framework: Vendor/KyberNow.xcframework
@@ -66,8 +72,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
         GENERATE_INFOPLIST_FILE: YES
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include $(SRCROOT)/../macos/PyroWave/module
         SKIP_INSTALL: YES
+        # Port Metal de PyroWave : ARC, C++17 (comme son CMakeLists.txt).
+        CLANG_ENABLE_OBJC_ARC: YES
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
         OTHER_LDFLAGS: -Wl,-dead_strip
   KyberNowIOS:
     type: application

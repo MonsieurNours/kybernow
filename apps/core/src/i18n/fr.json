@@ -113,6 +113,9 @@
     "state_locked": "Verrouillé",
     "state_off": "Prêt coupé"
   },
+  "pyrowave": {
+    "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s."
+  },
   "hdr": {
     "off": "L'ordinateur ne propose pas le HDR.",
     "windows": "Le HDR demande Windows 11 24H2 sur l'ordinateur.",

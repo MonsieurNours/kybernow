@@ -145,7 +145,19 @@
       "guideDirect": "Tap to click where your finger is, touch and hold to right-click. Slide with two fingers to scroll.",
       "gotIt": "Got it"
     },
-    "textInput": "Typing to the computer"
+    "textInput": "Typing to the computer",
+    "pyrowave": {
+      "titleNetwork": "PyroWave, unknown network",
+      "textNetwork": "Without an Ethernet cable, the picture may stutter.",
+      "titleRelay": "PyroWave away from home",
+      "textRelay": "The picture may stutter.",
+      "switch": "Switch to {format}",
+      "close": "Close",
+      "switched": "Picture restarted in {format} for this session.",
+      "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
+      "lost": "Lost frames",
+      "decode": "PyroWave decoding"
+    }
   },
   "web": {
     "app": {
@@ -238,7 +250,15 @@
       "rotateTitle": "Turn your phone before connecting.",
       "rotate": "The computer then creates a display at its size, in landscape.",
       "homeScreenTitle": "Add this page to your Home Screen.",
-      "homeScreen": "It then opens full screen, without the browser bar."
+      "homeScreen": "It then opens full screen, without the browser bar.",
+      "pyrowaveHelp": "Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable.",
+      "pyrowaveAutoNote": "Pick PyroWave yourself: a browser can't tell whether this device is connected by cable.",
+      "pyrowaveWarnNetwork": "This browser can't tell whether you're connected by cable. Without an Ethernet cable, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.",
+      "pyrowaveWarnRelay": "Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.",
+      "pyrowave444": "With PyroWave, almost free: only the bitrate goes up.",
+      "pyrowaveStation": "{name} doesn't offer PyroWave.",
+      "pyrowaveBrowser": "This browser can't decode PyroWave.",
+      "pyrowaveLowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s."
     },
     "device": {
       "browser": "Browser",
@@ -296,7 +316,9 @@
       "keysMenu": "System shortcuts from the Keys menu",
       "text444": "Sharp text (4:4:4)",
       "text444Missing": "Sharp text (4:4:4): not in this browser",
-      "display": "This screen: {width} × {height} at {refresh} Hz"
+      "display": "This screen: {width} × {height} at {refresh} Hz",
+      "pyrowave": "PyroWave decoded by the graphics card (WebGPU)",
+      "pyrowaveMissing": "PyroWave: not in this browser"
     },
     "station": {
       "version": "KyberNow Station {version}",

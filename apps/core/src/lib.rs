@@ -21,6 +21,7 @@ pub mod lend;
 pub mod media;
 pub mod playstation;
 pub mod profile;
+pub mod pyrowave;
 pub mod relay;
 pub mod screens;
 pub mod share;

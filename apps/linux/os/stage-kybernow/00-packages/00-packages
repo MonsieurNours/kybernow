@@ -14,3 +14,6 @@ libegl-mesa0
 libgles2
 libgbm1
 libgl1-mesa-dri
+libvulkan1
+mesa-vulkan-drivers
+vulkan-tools

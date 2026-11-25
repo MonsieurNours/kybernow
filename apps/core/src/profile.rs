@@ -7,7 +7,22 @@ pub enum Codec {
     H264,
     Hevc,
     Av1,
+    /// PyroWave (docs/pyrowave.md) : ondelettes, intra seul, 200 Mbit/s et
+    /// plus. Seulement si la Station le propose et que l'appareil le décode
+    /// ([`pyrowave_format`]).
+    PyroWave,
 }
+
+/// Kyber sait demander PyroWave (correctif kyclient de la Station, fonctionnalité
+/// `pyrowave` du cœur). Sans lui, [`pyrowave_format`] ne le choisit jamais.
+pub const PYROWAVE_KYBER: bool = cfg!(feature = "pyrowave");
+
+/// Débit de base de PyroWave pour un profil, calé sur la 4K à 60 Hz comme
+/// les autres (même règle des pixels par seconde : ≈ 280 Mbit/s en 1080p60,
+/// docs/link-ui.md) ; 4:4:4 : moitié plus. Provisoire, à régler sur des
+/// flux de la Station ; le plafond de l'ordinateur passe avant.
+pub const PYROWAVE_MBPS: u32 = 800;
+pub const PYROWAVE_MBPS_444: u32 = 1200;
 
 impl Codec {
     /// Code du format dans les paquets de Kyber (`media::FOURCC_*`).
@@ -16,6 +31,7 @@ impl Codec {
             Self::H264 => crate::media::FOURCC_H264,
             Self::Hevc => crate::media::FOURCC_HEVC,
             Self::Av1 => crate::media::FOURCC_AV1,
+            Self::PyroWave => crate::media::FOURCC_PYROWAVE,
         }
     }
 
@@ -24,6 +40,7 @@ impl Codec {
             Self::H264 => "H.264",
             Self::Hevc => "HEVC",
             Self::Av1 => "AV1",
+            Self::PyroWave => "PyroWave",
         }
     }
 
@@ -32,6 +49,7 @@ impl Codec {
             "h264" | "h.264" | "avc" => Some(Self::H264),
             "hevc" | "h265" | "h.265" => Some(Self::Hevc),
             "av1" => Some(Self::Av1),
+            "pyrowave" | "pwv1" => Some(Self::PyroWave),
             _ => None,
         }
     }
@@ -41,6 +59,11 @@ impl Codec {
             Self::H264 => kyclient::VideoCodec::H264,
             Self::Hevc => kyclient::VideoCodec::HEVC,
             Self::Av1 => kyclient::VideoCodec::AV1,
+            #[cfg(feature = "pyrowave")]
+            Self::PyroWave => kyclient::VideoCodec::PyroWave,
+            // Jamais choisi sans le correctif (PYROWAVE_KYBER) : HEVC par sûreté.
+            #[cfg(not(feature = "pyrowave"))]
+            Self::PyroWave => kyclient::VideoCodec::HEVC,
         }
     }
 }
@@ -90,6 +113,9 @@ pub struct Capabilities {
     /// HDR (docs/hdr.md) : le décodeur lit le HEVC Main 10 ou l'AV1 10 bits
     /// et l'app sait afficher une image PQ / BT.2020.
     pub hdr: bool,
+    /// PyroWave (docs/pyrowave.md) : l'app l'a décodé au lancement (une
+    /// image de test). Absent du JSON d'une app qui ne le connaît pas : non.
+    pub pyrowave: bool,
 }
 
 /// Réglages d'une session en JSON ([`StreamSettings::from_json`]).
@@ -105,6 +131,10 @@ pub struct SettingsJson {
     /// Le choix « HDR » de l'app pour cet ordinateur (absent : `false`).
     #[serde(default)]
     pub hdr: bool,
+    /// L'appareil est relié par câble (Ethernet) au réseau de l'ordinateur
+    /// (absent : `false`) : « Auto » prend alors PyroWave ([`pyrowave_format`]).
+    #[serde(default)]
+    pub wired: bool,
 }
 
 impl SettingsJson {
@@ -117,6 +147,7 @@ impl SettingsJson {
             mbps: self.mbps,
             reliable: self.reliable,
             hdr: self.hdr,
+            wired: self.wired,
         })
     }
 }
@@ -136,6 +167,10 @@ pub struct StreamSettings {
     /// fait jamais passer en « Personnalisé ». La session ne s'en sert que si
     /// [`hdr_state`] le permet ; elle impose alors 4:2:0 et HEVC ou AV1.
     pub hdr: bool,
+    /// L'appareil est relié par câble au réseau de l'ordinateur (donné par
+    /// l'app pour la session) : « Auto » (un profil) prend alors PyroWave si
+    /// l'ordinateur le propose ([`pyrowave_format`]).
+    pub wired: bool,
 }
 
 impl StreamSettings {
@@ -162,12 +197,14 @@ impl StreamSettings {
             mbps,
             reliable,
             hdr: false,
+            wired: false,
         }
     }
 
     /// Réglages en JSON, comme les donnent les ponts des apps (C, JNI) :
     /// `profile` (`jeu`, `bureau`, `max` ; absent : personnalisé), `codec`
-    /// (`h264`, `hevc`, `av1`), `yuv444`, `mbps`, `reliable`, `hdr`.
+    /// (`h264`, `hevc`, `av1`, `pyrowave`), `yuv444`, `mbps`, `reliable`,
+    /// `hdr`, `wired`.
     pub fn from_json(json: &str) -> Result<Self, String> {
         let wire: SettingsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
         wire.settings()
@@ -352,12 +389,59 @@ pub fn hdr_block(station: Option<&crate::console::HdrInfo>, settings: &StreamSet
 
 /// Le format d'une image HDR : 4:2:0 toujours ; « Auto » (le format d'un
 /// profil) et H.264 passent à HEVC, ou à l'AV1 si l'appareil ne lit pas le
-/// HEVC ; HEVC et AV1 restent.
+/// HEVC ; HEVC, AV1 et PyroWave restent.
 pub fn hdr_format(settings: &StreamSettings, caps: Capabilities) -> StreamSettings {
     let mut s = settings.clone();
     s.yuv444 = false;
     if s.codec == Codec::H264 {
         s.codec = if !caps.hevc && caps.av1 { Codec::Av1 } else { Codec::Hevc };
+    }
+    s
+}
+
+/// Le format à la place de PyroWave : HEVC, sinon AV1, sinon H.264. C'est
+/// aussi le repli donné à Kyber avec PyroWave (`fallback_codec`, correctif
+/// 0025), que la Station prend si elle ne le propose plus.
+pub fn pyrowave_fallback(caps: Capabilities) -> Codec {
+    if caps.hevc {
+        Codec::Hevc
+    } else if caps.av1 {
+        Codec::Av1
+    } else {
+        Codec::H264
+    }
+}
+
+/// Le format PyroWave d'une session (docs/link-ui.md, « PyroWave »).
+/// `offered` : la Station le propose ([`crate::console::Info::pyrowave_offered`]) ; `relayed` : la
+/// session passe par le relais.
+/// - Choisi à la main (format sans profil) : gardé si la Station le propose
+///   et que l'appareil le décode (Wi-Fi et relais compris : les apps
+///   avertissent), sinon HEVC (AV1, H.264 selon l'appareil).
+/// - « Auto » (un profil) : PyroWave seulement par câble, sur le réseau de
+///   l'ordinateur (pas par le relais), s'il est proposé et décodé ; le
+///   4:4:4 du profil revient (presque sans coût en PyroWave) et le débit
+///   passe à [`PYROWAVE_MBPS`] ou [`PYROWAVE_MBPS_444`]. Sinon, inchangé.
+/// - Jamais sans [`PYROWAVE_KYBER`].
+pub fn pyrowave_format(settings: &StreamSettings, caps: Capabilities, offered: bool, relayed: bool) -> StreamSettings {
+    let possible = PYROWAVE_KYBER && offered && caps.pyrowave;
+    let mut s = settings.clone();
+    if s.codec == Codec::PyroWave {
+        if !possible {
+            s.codec = pyrowave_fallback(caps);
+            s.yuv444 = s.yuv444 && s.codec == Codec::Hevc && caps.hevc444;
+        }
+        return s;
+    }
+    if let Some(profile) = s.profile
+        && possible
+        && s.wired
+        && !relayed
+    {
+        let yuv444 = matches!(profile, Profile::Bureau | Profile::Max);
+        s.codec = Codec::PyroWave;
+        s.yuv444 = yuv444;
+        s.mbps = if yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS };
     }
     s
 }
@@ -373,10 +457,79 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pyrowave_choisi_ou_auto_par_cable() {
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: true };
+        let jeu = StreamSettings { wired: true, ..StreamSettings::for_profile(Profile::Jeu, all) };
+        let bureau = StreamSettings { wired: true, ..StreamSettings::for_profile(Profile::Bureau, all) };
+        let choisi = StreamSettings { profile: None, codec: Codec::PyroWave, yuv444: true, mbps: 500, ..jeu.clone() };
+        let sans = Capabilities { pyrowave: false, ..all };
+        assert_eq!(Codec::parse("pyrowave"), Some(Codec::PyroWave));
+        assert_eq!(Codec::parse("PWV1"), Some(Codec::PyroWave));
+        assert_eq!(Codec::PyroWave.fourcc(), 0x7077_7631);
+        // Jamais proposé, jamais décodé, ou Station muette : HEVC (son 4:4:4 s'il le lit).
+        for (caps, offered) in [(sans, true), (all, false)] {
+            let s = pyrowave_format(&choisi, caps, offered, false);
+            assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::Hevc, true, 500));
+            assert_eq!(pyrowave_format(&jeu, caps, offered, false).codec, Codec::Hevc);
+        }
+        let no444 = Capabilities { hevc444: false, pyrowave: false, ..all };
+        assert_eq!(pyrowave_format(&choisi, no444, true, false).yuv444, false);
+        if !PYROWAVE_KYBER {
+            // Sans le correctif kyclient : jamais demandé à Kyber.
+            assert_eq!(pyrowave_format(&choisi, all, true, false).codec, Codec::Hevc);
+            assert_eq!(pyrowave_format(&jeu, all, true, false).codec, Codec::Hevc);
+            return;
+        }
+        // Choisi à la main : gardé tel quel, Wi-Fi et relais compris.
+        let s = pyrowave_format(&choisi, all, true, true);
+        assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, true, 500));
+        let wifi = StreamSettings { wired: false, ..choisi.clone() };
+        assert_eq!(pyrowave_format(&wifi, all, true, false).codec, Codec::PyroWave);
+        // Auto : par câble, sur le réseau de l'ordinateur seulement.
+        let s = pyrowave_format(&jeu, all, true, false);
+        assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, false, PYROWAVE_MBPS));
+        let s = pyrowave_format(&bureau, all, true, false);
+        assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, true, PYROWAVE_MBPS_444));
+        assert_eq!(pyrowave_format(&jeu, all, true, true).codec, Codec::Hevc, "par le relais");
+        assert_eq!(pyrowave_format(&StreamSettings { wired: false, ..jeu.clone() }, all, true, false).codec, Codec::Hevc, "Wi-Fi");
+        // HDR : PyroWave reste, en 4:2:0.
+        let hdr = hdr_format(&pyrowave_format(&bureau, all, true, false), all);
+        assert_eq!((hdr.codec, hdr.yuv444), (Codec::PyroWave, false));
+        // Débit d'Auto : ≈ 280 Mbit/s en 1080p60 (docs/link-ui.md).
+        let mbps = pyrowave_format(&jeu, all, true, false).bitrate(1920, 1080, 60) / 1_000_000;
+        assert!((270..=300).contains(&mbps), "{mbps}");
+    }
+
+    #[test]
+    fn capacites_et_annonce_sans_pyrowave() {
+        let c: Capabilities = serde_json::from_str(r#"{"hevc":true,"hevc444":true,"av1":false,"hdr":true}"#).unwrap();
+        assert!(!c.pyrowave, "app d'avant PyroWave");
+        let c: Capabilities = serde_json::from_str(r#"{"hevc":true,"pyrowave":true}"#).unwrap();
+        assert!(c.pyrowave);
+        let s = StreamSettings::from_json(r#"{"profile":"jeu","codec":"pyrowave","mbps":600,"wired":true}"#).unwrap();
+        assert_eq!((s.codec, s.wired), (Codec::PyroWave, true));
+        assert!(!StreamSettings::from_json(r#"{"codec":"hevc","mbps":60}"#).unwrap().wired);
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc"}"#).unwrap();
+        assert!(!info.pyrowave_offered(), "Station d'avant PyroWave");
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":true}}"#).unwrap();
+        assert!(info.pyrowave_offered());
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":false,"reason":"vulkan"}}"#).unwrap();
+        assert!(!info.pyrowave_offered());
+        assert_eq!(info.pyrowave.and_then(|p| p.reason).as_deref(), Some("vulkan"));
+        // « Débit maximal » d'Admin : absent avec une Station d'avant.
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":true,"max_mbps":500}}"#).unwrap();
+        assert_eq!(info.pyrowave.and_then(|p| p.max_mbps), Some(500));
+        let info: crate::console::Info = serde_json::from_str(r#"{"hostname":"pc","pyrowave":{"available":true}}"#).unwrap();
+        assert_eq!(info.pyrowave.and_then(|p| p.max_mbps), None);
+        assert_eq!(pyrowave_fallback(Capabilities { hevc: false, av1: true, ..Capabilities::default() }), Codec::Av1);
+        assert_eq!(pyrowave_fallback(Capabilities::default()), Codec::H264);
+    }
+
+    #[test]
     fn puce_hdr_et_raisons_dans_l_ordre() {
         use crate::console::{HdrInfo, Info};
         use crate::i18n::Lang;
-        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true };
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: false };
         let jeu = StreamSettings::for_profile(Profile::Jeu, all);
         let on = Info { hdr: Some(HdrInfo { available: true, reason: None }), ..Info::default() };
         let state = hdr_state(&on, &jeu, all, true);
@@ -440,7 +593,7 @@ mod tests {
 
     #[test]
     fn format_d_une_image_hdr() {
-        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true };
+        let all = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: false };
         let bureau = StreamSettings::for_profile(Profile::Bureau, all);
         assert!(bureau.yuv444);
         let s = hdr_format(&bureau, all);
@@ -457,13 +610,13 @@ mod tests {
 
     #[test]
     fn debits_comme_sur_mac() {
-        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let jeu = StreamSettings::for_profile(Profile::Jeu, caps);
         assert_eq!(jeu.bitrate(3840, 2160, 60), 60_000_000);
         assert_eq!(jeu.bitrate(2560, 1440, 60), 33_000_000);
         assert_eq!(jeu.bitrate(1920, 1080, 60), 24_000_000);
         assert_eq!(jeu.bitrate(3840, 2160, 120), 101_000_000);
-        let bureau = StreamSettings::for_profile(Profile::Bureau, Capabilities { hevc: true, hevc444: false, av1: false, hdr: false });
+        let bureau = StreamSettings::for_profile(Profile::Bureau, Capabilities { hevc: true, hevc444: false, av1: false, hdr: false, pyrowave: false });
         assert!(!bureau.yuv444);
         assert_eq!(bureau.mbps, 120);
         let h264 = StreamSettings::for_profile(Profile::Jeu, Capabilities::default());

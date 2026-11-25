@@ -50,14 +50,23 @@ targets:
       # La session, la console, la latence, les entrées et le son sont dans
       # le cœur Rust (apps/core, pont apps/apple : docs/coeur-apple.md).
       - path: KyberKit
+      # PyroWave (docs/pyrowave.md) : le port Metal, à un commit épinglé
+      # (PyroWave/COMMIT, scripts/vendor-pyrowave.sh), compilé dans KyberKit ;
+      # Swift le voit par le module CPyroWave (PyroWave/module).
+      - path: PyroWave/upstream/pyrowave_common.mm
+      - path: PyroWave/upstream/pyrowave_decoder.mm
+      - path: PyroWave/upstream/pyrowave_bitstream.cpp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
         GENERATE_INFOPLIST_FILE: YES
         # Vendor/KyberNow : en-tête du cœur (CKyberNow), produit par apps/apple/scripts/build-apple.sh.
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include $(SRCROOT)/PyroWave/module
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/Frameworks
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../../.."
+        # Port Metal de PyroWave : ARC, C++17 (comme son CMakeLists.txt).
+        CLANG_ENABLE_OBJC_ARC: YES
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
         SKIP_INSTALL: YES
   KyberNow:
     type: application

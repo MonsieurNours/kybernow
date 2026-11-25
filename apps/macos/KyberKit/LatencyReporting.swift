@@ -23,8 +23,23 @@ public struct LatencySecond: Sendable {
     /// Aller-retour réseau (dernière mesure), en millisecondes.
     public var rttMs: Double?
     public var bytes = 0
+    /// PyroWave : la définition ramenée en place (`KnSecond.lowered`), nil sinon.
+    public var lowered: LoweredMode?
 
     public init() {}
+}
+
+/// PyroWave (docs/pyrowave.md, « Définition ramenée ») : la définition que le
+/// cœur a demandée à l'ordinateur pour tenir dans `mbps`.
+public struct LoweredMode: Sendable, Equatable {
+    public var width: Int
+    public var height: Int
+    public var refresh: Int
+    public var mbps: Int
+
+    public init(width: Int, height: Int, refresh: Int, mbps: Int) {
+        (self.width, self.height, self.refresh, self.mbps) = (width, height, refresh, mbps)
+    }
 }
 
 /// Temps de chaque étape d'une image, en millisecondes (médianes de la seconde).

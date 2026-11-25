@@ -292,6 +292,9 @@ impl Platform for WebOsPlatform {
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
             Notice::HdrRefused => kybernow_core::profile::hdr_refused_text(kybernow_core::i18n::current()),
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
+            Notice::ResolutionLowered { lowered: Some(l) } => l.text(kybernow_core::i18n::current()),
+            Notice::ResolutionLowered { lowered: None } => return,
         };
         self.0.send(Event::Notice(msg));
     }
@@ -481,7 +484,7 @@ pub fn auto_quality(tv: &crate::app::TvInfo) -> share::ShareAuto {
 /// plus : il reçoit une image qu'il lit, `share::guest_format`) : le HEVC par le décodeur du téléviseur (jamais en
 /// 4:4:4), l'AV1 s'il l'a.
 pub fn guest_capabilities(av1: bool) -> Capabilities {
-    Capabilities { hevc: true, hevc444: false, av1, hdr: false }
+    Capabilities { hevc: true, hevc444: false, av1, hdr: false, pyrowave: false }
 }
 
 struct InputCallbacks(Arc<Shared>);
@@ -600,7 +603,7 @@ pub fn set_hdr(handle: &Handle, ask: HdrAsk) {
 /// (HEVC, pas de 4:4:4), le format et le transport choisis, le débit
 /// plafonné par le réseau, le HDR.
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), cap_mbps: u32, hdr: HdrAsk) -> StreamSettings {
-    let caps = hdr_capabilities(Capabilities { hevc: true, hevc444: false, av1: codec == "av1", hdr: false }, hdr);
+    let caps = hdr_capabilities(Capabilities { hevc: true, hevc444: false, av1: codec == "av1", hdr: false, pyrowave: false }, hdr);
     let mut s = StreamSettings::for_profile(core_profile(profile), caps);
     s.codec = match codec {
         "h264" => Codec::H264,

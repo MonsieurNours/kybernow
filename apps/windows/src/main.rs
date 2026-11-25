@@ -74,6 +74,14 @@ mod pasteboard;
 mod pc;
 #[cfg(windows)]
 mod plan;
+// PyroWave (docs/pyrowave-client-windows.md) : décodeur Vulkan sur les
+// textures de Direct3D 11 ; son paquet de configuration se teste sur le Mac.
+#[cfg(windows)]
+mod pyrowave;
+#[cfg(windows)]
+mod pyrowave_test;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod pyrowave_config;
 // Le relais : route d'un ordinateur, relais d'un code, présence, chemin d'une
 // session, textes des refus (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]

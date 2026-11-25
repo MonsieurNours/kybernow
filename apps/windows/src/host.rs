@@ -81,6 +81,11 @@ pub struct Stats {
     pub audio_channels: u16,
     pub audio_buffer_ms: Option<f64>,
     pub audio_output_ms: Option<f64>,
+    /// PyroWave (docs/link-ui.md) : la définition ramenée pour tenir dans le
+    /// débit (largeur, hauteur, Mbit/s), ligne « Définition ramenée » des
+    /// Statistiques, d'après `Second::lowered` du cœur.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lowered: Option<(u32, u32, u32)>,
 }
 
 /// Bilan d'une session terminée.
@@ -224,6 +229,8 @@ pub struct HostOptions {
     /// « Ctrl agit comme ⌘ » au départ (face à une Station Mac,
     /// `keymap::control_as_command`) ; ensuite [`SessionHost::set_control_as_command`].
     pub control_as_command: bool,
+    /// « Mode immersif » au départ (`fullscreen`, `always`, `never`) ; ensuite [`SessionHost::set_immersive`].
+    pub immersive: String,
 }
 
 pub struct SessionHost {
@@ -408,6 +415,13 @@ impl SessionHost {
     pub fn set_control_as_command(&self, on: bool) {
         if let Some(a) = self.app() {
             a.set_control_as_command(on);
+        }
+    }
+
+    /// « Mode immersif » changé dans les réglages pendant la session : tout de suite.
+    pub fn set_immersive(&self, mode: &str) {
+        if let Some(a) = self.app() {
+            a.set_immersive(mode);
         }
     }
 
@@ -620,12 +634,21 @@ impl Platform for WinPlatform {
             audio_channels: audio.map_or(self.audio_channels, |a| a.channels as u16),
             audio_buffer_ms: audio.map(|a| a.buffer_ms),
             audio_output_ms: audio.map(|a| a.output_ms),
+            lowered: second.lowered.map(|l| (l.width, l.height, l.mbps)),
         });
     }
     fn on_notice(&self, notice: &kybernow_core::session::Notice) {
-        if matches!(notice, kybernow_core::session::Notice::HdrRefused) {
-            log::warn!("HDR : refusé par l'ordinateur, image en SDR");
-            self.events.notice(&kybernow_core::profile::hdr_refused_text(crate::i18n::lang()));
+        match notice {
+            kybernow_core::session::Notice::HdrRefused => {
+                log::warn!("HDR : refusé par l'ordinateur, image en SDR");
+                self.events.notice(&kybernow_core::profile::hdr_refused_text(crate::i18n::lang()));
+            }
+            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+            kybernow_core::session::Notice::ResolutionLowered { lowered: Some(l) } => {
+                log::info!("PyroWave : définition ramenée à {}×{} ({} Mbit/s)", l.width, l.height, l.mbps);
+                self.events.notice(&l.text(crate::i18n::lang()));
+            }
+            _ => {}
         }
     }
     fn on_game_fullscreen(&self, game: bool) {
@@ -718,6 +741,7 @@ fn run(
         opts.title_stats,
     );
     app.set_control_as_command(opts.control_as_command);
+    app.set_immersive(&opts.immersive);
     app.set_mouse_mode(match opts.mouse {
         None => MouseMode::Auto,
         Some(true) => MouseMode::Game,

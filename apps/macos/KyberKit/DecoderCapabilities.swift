@@ -4,7 +4,8 @@
 // 4:4:4 : on décode pour de bon une petite image HEVC 4:4:4 (64 × 64), en
 // exigeant le décodeur matériel. Ainsi l'app ne propose que ce que la
 // machine affiche sans peine, sur n'importe quel Mac, iPhone, iPad ou
-// Apple TV (le même code sert partout).
+// Apple TV (le même code sert partout). PyroWave, décodé par le GPU, est
+// vérifié de même : une image de test décodée et relue.
 
 import CoreMedia
 import Foundation
@@ -20,6 +21,9 @@ public struct DecoderCapabilities: Sendable {
     public let av1: Bool
     /// HEVC Main 10 décodé en matériel (HDR, docs/hdr.md).
     public let hevc10: Bool
+    /// PyroWave décodé sur le GPU (docs/pyrowave.md) : GPU Apple7 et
+    /// suivants (A14, M1), vérifié en décodant une image de test.
+    public let pyrowave: Bool
 
     /// L'appareil décode le HDR : HEVC Main 10, ou AV1 (les décodeurs AV1
     /// d'Apple lisent le profil Main, 10 bits compris) ; le rendu sait
@@ -35,7 +39,8 @@ public struct DecoderCapabilities: Sendable {
     public static let current = DecoderCapabilities.probe()
 
     /// À appeler au lancement, hors du fil principal : sonde les décodeurs
-    /// (20 à 80 ms, dont le décodage 4:4:4) et compile le pipeline Metal du
+    /// (20 à 80 ms, dont le décodage 4:4:4 ; PyroWave compile ses pipelines,
+    /// voir docs/pyrowave.md) et compile le pipeline Metal du
     /// rendu (30 à 150 ms), pour que ni l'accueil ni le premier flux
     /// n'attendent.
     public static func prepare() {
@@ -50,7 +55,18 @@ public struct DecoderCapabilities: Sendable {
         if h264 { parts.append("H.264") }
         if av1 { parts.append("AV1") }
         if hdr { parts.append("HDR") }
+        if pyrowave { parts.append("PyroWave") }
         return parts.isEmpty ? String(localized: "aucun décodeur matériel", bundle: .kyberKit) : parts.joined(separator: ", ")
+    }
+
+    /// Simulateur (sans la famille Apple7) : `-demoPyroWaveDecodes YES` le
+    /// compte comme décodant PyroWave, pour voir l'interface (captures).
+    private static var demoPyroWave: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        return UserDefaults.standard.bool(forKey: "demoPyroWaveDecodes")
+        #else
+        return false
+        #endif
     }
 
     private static func probe() -> DecoderCapabilities {
@@ -59,7 +75,8 @@ public struct DecoderCapabilities: Sendable {
             hevc: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC),
             hevc444: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) && decodes(sample444),
             av1: VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1),
-            hevc10: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) && decodes(sampleMain10)
+            hevc10: VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) && decodes(sampleMain10),
+            pyrowave: PyroWaveDecoder.probe() || demoPyroWave
         )
         KyberLog.video.notice("décodeurs matériels : \(caps.summary, privacy: .public)")
         return caps

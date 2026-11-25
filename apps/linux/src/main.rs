@@ -14,6 +14,7 @@ mod i18n;
 mod model;
 mod preview;
 mod ps;
+mod pyrowave;
 mod ui;
 
 fn main() {
@@ -35,6 +36,11 @@ fn main() {
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("KyberNow Link {}", env!("CARGO_PKG_VERSION"));
         return;
+    }
+    #[cfg(feature = "device")]
+    if args.iter().any(|a| a == "--pyrowave-probe") {
+        // La sonde de PyroWave seule, dans ce processus (docs/pyrowave-client-pi.md).
+        std::process::exit(device::pyrowave_probe_child());
     }
     #[cfg(feature = "device")]
     if args.iter().any(|a| a == "--hdr-test") {

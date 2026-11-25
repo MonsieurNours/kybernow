@@ -58,6 +58,8 @@ import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.LastSession
 import fr.leslignesclaires.kybernow.model.Profile
+import fr.leslignesclaires.kybernow.model.PyroWave
+import fr.leslignesclaires.kybernow.model.PyroWaveLink
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.ScreenMode
 import fr.leslignesclaires.kybernow.model.SessionMode
@@ -216,6 +218,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
+            // PyroWave choisi à la main hors câble : le bandeau du début et la puce de la barre (docs/link-ui.md).
+            pyroChosen = hostSession && host.settings.codec == "pyrowave"
+            pyroLink = if (PyroWave.wired(this@SessionActivity)) PyroWaveLink.CABLE else PyroWaveLink.WIFI
             hdrChoice = host.settings.hdr
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
@@ -293,7 +298,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val d = app.decoders
         val base = JSONObject(Native.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1))
         val set = host.settings
-        when (set.codec) {
+        when (if (hevcInstead) "hevc" else set.codec) {
+            // PyroWave (docs/pyrowave.md) : le cœur le garde si la Station le propose et que l'appareil le décode,
+            // sinon HEVC ; « Passer en HEVC » le remplace pour cette session seulement.
+            "pyrowave" -> base.put("codec", "pyrowave")
             "hevc" -> if (d.hevc != null) base.put("codec", "hevc")
             "h264" -> base.put("codec", "h264").put("yuv444", false)
             "av1" -> if (d.av1 != null && host.av1) base.put("codec", "av1").put("yuv444", false)
@@ -302,6 +310,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (set.transport != "auto") base.put("reliable", set.reliable)
         // Le choix « HDR » de cet ordinateur ; le cœur ne s'en sert que sur un écran HDR, quand la Station le propose.
         base.put("hdr", Hdr.wanted(host))
+        // Relié par câble : « Auto » (un profil) prend PyroWave quand l'ordinateur le propose (`profile::pyrowave_format`).
+        base.put("wired", PyroWave.wired(this))
         return base
     }
 
@@ -391,7 +401,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 .put("clipboard", false)
                 .put("combo", host.settings.combo)
                 .put("recovery", JSONObject().put("watch_image", true))
-                .put("guest", JSONObject().put("joined", g.joined).put("capabilities", JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null).put("hdr", Hdr.decodes(host, d))))
+                .put("guest", JSONObject().put("joined", g.joined).put("capabilities", JSONObject().put("hevc", d.hevc != null).put("hevc444", d.hevc444).put("av1", d.av1 != null).put("hdr", Hdr.decodes(host, d)).put("pyrowave", PyroWave.decodes)))
                 // Un invité à écran HDR reçoit le HDR quand l'hôte est en HDR (sinon une image à part en SDR).
                 .putHdr()
         } else if (l != null) {
@@ -443,6 +453,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             return
         }
         handle = Native.sessionStart(params.toString(), null, state, refresh)
+        if (handle != 0L) watchLink()
         if (handle == 0L) {
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
             g?.let(Share::leave)
@@ -594,6 +605,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (::haptics.isInitialized) haptics.stop()
         hdrWatch?.close()
         hdrWatch = null
+        linkWatch?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
+        linkWatch = null
         // La manette à l'écran n'existe qu'en session : sa place se libère.
         app.gamepads.setOnScreen(false)
         app.gamepads.stop()
@@ -748,6 +761,40 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.profile = p
         Native.sessionSetSettings(handle, settingsJson(p).toString())
         if (tv) resume()
+    }
+
+    /**
+     * PyroWave : le débit du lien de l'appareil (Wi-Fi négocié ; Ethernet inconnu) donné au cœur, qui en tire la
+     * définition ramenée ; redonné quand le réseau change pendant la session.
+     */
+    private var linkWatch: android.net.ConnectivityManager.NetworkCallback? = null
+    @Volatile private var linkSent = -1
+
+    private fun sendLink() {
+        val h = handle
+        val mbps = PyroWave.linkMbps(this)
+        if (h == 0L || mbps == linkSent) return
+        linkSent = mbps
+        Native.sessionSetLinkMbps(h, mbps)
+    }
+
+    private fun watchLink() {
+        sendLink()
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) = sendLink()
+            override fun onLost(network: android.net.Network) = sendLink()
+        }
+        if (runCatching { getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(cb) }.isSuccess) linkWatch = cb
+    }
+
+    /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */
+    private var hevcInstead = false
+
+    override fun switchToHevc() {
+        if (hevcInstead) return
+        hevcInstead = true
+        ui.pyroBanner = false
+        Native.sessionSetSettings(handle, settingsJson(ui.profile).toString())
     }
 
     override fun setHdr(on: Boolean) {

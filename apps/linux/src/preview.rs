@@ -62,6 +62,7 @@ fn host(id: &str, name: &str, addr: &str) -> Host {
         os: Some("Windows 11 Pro 24H2".into()),
         gpu: Some("GeForce RTX 4070".into()),
         av1: true,
+        pyrowave: false,
         mac: None,
         wake: vec![WakeCard { mac: "3C:7C:3F:12:AB:CD".into(), ipv4: Some(addr.into()), kind: "ethernet".into(), armed: Some(true), ..Default::default() }],
         relay: None,
@@ -155,6 +156,8 @@ fn session(app: &App) -> SessionUi {
         // Le trajet d'une image : les mesures de l'ordinateur (capture, encodage, envoi, réseau) et de l'appareil.
         stages: Stats::stages(Some([0.8, 2.2, 0.4, 0.8, 1.3, 1.9]), None),
         hdr: false,
+        lost_frames: 0,
+        lowered: None,
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
@@ -1227,6 +1230,8 @@ pub fn run(dir: &Path, lang: &str) {
         ps_shots(&mut app, &mut cv, &video, dir, prefix);
         // Le HDR (docs/hdr.md) : sur un écran HDR (bureau Wayland avec la gestion des couleurs).
         hdr_shots(&mut app, &mut cv, &video, dir, prefix);
+        // PyroWave (docs/link-ui.md, « PyroWave ») : Format vidéo, avertissements, bandeau, puce, statistiques.
+        pyrowave_shots(&mut app, &mut cv, &video, dir, prefix);
         // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
         account_shots(en, layout, &mut cv, dir, prefix);
     }
@@ -1249,6 +1254,7 @@ pub fn run(dir: &Path, lang: &str) {
     shot(&mut app, &mut cv, None, dir, "rpi-07h-reglages-station");
     app.open_settings(true, Screen::Home);
     shot(&mut app, &mut cv, None, dir, "rpi-08-reglages-app");
+    pi_pyrowave_shots(&mut app, &mut cv, dir);
 
     os_shots(en, dir);
 }
@@ -1472,6 +1478,36 @@ fn os_shots(en: bool, dir: &Path) {
     app.layout = Layout::Desktop;
     app.open_host_section(Section::Station, Screen::Home);
     shot(&mut app, &mut cv, None, dir, "os-bureau-07h-reglages-station");
+}
+
+/// PyroWave sur le Raspberry Pi (docs/pyrowave-client-pi.md) : la carte « Cet appareil » d'un Pi 5 qui le décode,
+/// Réglages › Image avec PyroWave choisi (étiquette « carte graphique »), puis la valeur inactive et sa raison sur un
+/// Pi 5 sous un système trop ancien, et sur un Pi 4.
+fn pi_pyrowave_shots(app: &mut App, cv: &mut Canvas, dir: &Path) {
+    let machine = app.machine.clone();
+    app.machine.pyrowave = true;
+    if let Some(h) = app.store.host_mut("a") {
+        h.pyrowave = true;
+        h.settings.codec = "pyrowave".into();
+    }
+    app.open_settings(true, Screen::Home);
+    shot(app, cv, None, dir, "rpi-46-pyrowave-carte");
+    app.open_host_section(Section::Picture, Screen::Home);
+    app.focus = Target::Setting(crate::app::Setting::Codec);
+    shot(app, cv, None, dir, "rpi-46b-pyrowave-image");
+    app.machine.pyrowave = false;
+    shot(app, cv, None, dir, "rpi-46c-pyrowave-inactif-pi5");
+    if let Some(p) = app.machine.pi.as_mut() {
+        p.model = "Raspberry Pi 4 Model B".into();
+        p.generation = 4;
+    }
+    shot(app, cv, None, dir, "rpi-46d-pyrowave-inactif-pi4");
+    app.machine = machine;
+    if let Some(h) = app.store.host_mut("a") {
+        h.pyrowave = false;
+        h.settings.codec = "auto".into();
+    }
+    app.focus = Target::Connect;
 }
 
 /// La machine de démonstration devient un Raspberry Pi 5 (8 Go, Raspberry Pi
@@ -1817,6 +1853,20 @@ mod tests {
         }
     }
 
+    /// Un clic sur les mesures de la barre ouvre « Statistiques », un second les ferme (docs/link-ui.md).
+    #[test]
+    fn bar_measures_open_statistics() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session_mut().unwrap().bar = true;
+        app.hits = ui::draw(&app, &mut cv);
+        let r = app.hits.iter().find(|(t, _)| *t == Target::BarStats).map(|(_, r)| *r).expect("les mesures sont une cible");
+        app.pointer_click(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        assert!(app.session().unwrap().show_stats);
+        app.hits = ui::draw(&app, &mut cv);
+        app.pointer_click(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        assert!(!app.session().unwrap().show_stats);
+    }
+
     /// La zone d'ouverture est celle de la barre : sa largeur réelle, centrée, à 2
     /// points du bord haut ; la barre reste ouverte sur son rectangle (petite marge).
     #[test]
@@ -1828,13 +1878,18 @@ mod tests {
         let painted: Vec<u32> = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 30).unwrap().alpha() > 0).collect();
         let (left, right) = (*painted.first().unwrap() as f32, *painted.last().unwrap() as f32 + 1.0);
         assert!(left > 100.0 && right < 1180.0 && ((left + right) / 2.0 - 640.0).abs() < 1.0, "centrée, plus étroite que la fenêtre");
-        let s = app.session().cloned().unwrap();
+        let mut s = app.session().cloned().unwrap();
         let w = cv.w;
+        s.fullscreen = true;
         for y in [0.0, 1.0, 2.0] {
             assert!(ui::at_bar_edge(&mut cv, &app, &s, w, left + 2.0, y) && ui::at_bar_edge(&mut cv, &app, &s, w, right - 2.0, y));
             assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &app, &s, w, right + 2.0, y));
         }
-        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 2.5), "plein écran : au-delà de 2 points, pas contre le bord");
+        // Dans une fenêtre, le bord touche la barre de titre du système : 8 points.
+        s.fullscreen = false;
+        assert!(ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 7.5), "fenêtre : 8 points");
+        assert!(!ui::at_bar_edge(&mut cv, &app, &s, w, 640.0, 8.5), "fenêtre : au-delà de 8 points, pas contre le bord");
         // Rester ouverte : sur la barre (même hors de ses boutons) et 8 points autour, pas plus loin.
         let none: Vec<(Target, crate::app::Rect)> = Vec::new();
         assert!(ui::over_bar(&mut cv, &app, &s, w, &none, 640.0, 30.0));
@@ -2712,6 +2767,97 @@ fn hdr_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix:
     app.screen_hdr = None;
     app.store.selected = selected;
     app.store.ps_consoles = consoles;
+    app.go(Screen::Home);
+}
+
+/// PyroWave (docs/link-ui.md, « PyroWave » ; docs/pyrowave-client-linux.md) : Réglages › Image avec PyroWave choisi
+/// par câble, en Wi-Fi (avertissement), par le relais ; « Auto » par câble et sans câble ; la valeur inactive (cet
+/// appareil ne le décode pas) ; le 4:4:4 avec PyroWave ; en session, le bandeau du début, la puce ambre de la barre
+/// (bureau) ou la tuile du menu (console), et les statistiques (« Images perdues », « Définition ramenée »).
+fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    use crate::app::NetKind;
+    let name = |n: &str| format!("{prefix}-{n}");
+    let desktop = app.layout == Layout::Desktop;
+    let (selected, net, machine) = (app.store.selected.clone(), app.net.clone(), app.machine.clone());
+    app.set_session(None);
+    app.pointer = None;
+    app.store.selected = Some("a".into());
+    app.machine.pyrowave = true;
+    let set = |app: &mut App, codec: &str, yuv444: bool| {
+        if let Some(h) = app.store.host_mut("a") {
+            h.pyrowave = true;
+            h.settings.codec = codec.into();
+            h.settings.yuv444 = yuv444;
+        }
+    };
+    app.net.kind = NetKind::Ethernet;
+    set(app, "pyrowave", true);
+    app.open_host_section(Section::Picture, Screen::Home);
+    app.focus = Target::Setting(crate::app::Setting::Codec);
+    shot(app, cv, None, dir, &name("45-pyrowave-cable"));
+    app.net.kind = NetKind::Wifi;
+    set(app, "pyrowave", false);
+    shot(app, cv, None, dir, &name("45b-pyrowave-wifi"));
+    set(app, "auto", false);
+    app.net.kind = NetKind::Ethernet;
+    shot(app, cv, None, dir, &name("45c-pyrowave-auto-cable"));
+    app.net.kind = NetKind::Wifi;
+    shot(app, cv, None, dir, &name("45d-pyrowave-auto-wifi"));
+    app.machine.pyrowave = false;
+    shot(app, cv, None, dir, &name("45e-pyrowave-inactif"));
+    app.machine.pyrowave = true;
+    // En session, PyroWave en Wi-Fi : le bandeau du début, la puce (barre) ou la tuile (menu), les statistiques.
+    set(app, "pyrowave", false);
+    let mut s = session(app);
+    if let Some(st) = s.stats.as_mut() {
+        st.decoder = "PyroWave".into();
+        st.mode = "2560 × 1440".into();
+        st.mbps = 312.0;
+        st.lost_frames = 1;
+        st.fps = 119.0;
+    }
+    s.pw_wired = false;
+    s.pyrowave_seen();
+    if let Some(st) = s.stats.as_mut() {
+        st.lowered = Some(crate::pyrowave::lowered(1920, 1080, 300));
+    }
+    // Le cœur le dit aussi en capsule, au moment où il ramène la définition (`Notice::ResolutionLowered`).
+    s.notice = Some((crate::pyrowave::lowered(1920, 1080, 300), Instant::now()));
+    if desktop {
+        s.menu = false;
+        s.relative = false;
+        s.bar = true;
+        app.pointer = Some((700.0, 20.0));
+    }
+    s.show_stats = true;
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    if !desktop {
+        app.focus = Target::Menu(crate::app::MenuItem::PyroWaveHevc);
+    }
+    shot(app, cv, Some(video), dir, &name("45f-pyrowave-session-wifi"));
+    if let Some(s) = app.session_mut() {
+        s.menu = false;
+        s.show_stats = false;
+    }
+    app.pointer = None;
+    app.focus = Target::PwHevc;
+    shot(app, cv, Some(video), dir, &name("45g-pyrowave-bandeau"));
+    // Les statistiques seules (à la manette, le menu les cachait) : « Images perdues », « Définition ramenée ».
+    if let Some(s) = app.session_mut() {
+        s.show_stats = true;
+        s.pw_banner = None;
+        s.notice = None;
+    }
+    shot(app, cv, Some(video), dir, &name("45h-pyrowave-statistiques"));
+    app.set_session(None);
+    app.store.selected = selected;
+    app.net = net;
+    app.machine = machine;
+    set(app, "auto", false);
+    if let Some(h) = app.store.host_mut("a") {
+        h.pyrowave = false;
+    }
     app.go(Screen::Home);
 }
 

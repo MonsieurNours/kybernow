@@ -204,6 +204,12 @@ pub fn encoding() -> bool {
     recent || nvenc_sessions().unwrap_or(0) > 0
 }
 
+/// LUID de la première carte (celle qui encode), pour PyroWave
+/// (`pyrowave.rs`) ; `None` tant que DXGI ne l'a pas donné, ou hors Windows.
+pub fn encoding_luid() -> Option<u64> {
+    shared().lock().unwrap().adapters.first().and_then(|a| a.luid)
+}
+
 /// Appel bloquant : à lancer dans `spawn_blocking`.
 pub fn status() -> Option<GpuStatus> {
     let mut devices = {

@@ -47,6 +47,9 @@ final class SessionManager: ObservableObject {
             guard let window = note.object as? NSWindow else { return }
             MainActor.assumeIsolated { self?.windowBecameKey(window) }
         }
+        // Mode immersif : la session qui a le clavier le prend, raccourcis du Mac compris.
+        ImmersiveKeyboard.shared.target = { [weak self] in self?.all.lazy.compactMap(\.immersiveView).first }
+        ImmersiveKeyboard.shared.anySessionWants = { [weak self] in self?.all.contains(where: \.immersiveWanted) == true }
     }
 
     var isEmpty: Bool { all.isEmpty }
@@ -160,6 +163,7 @@ final class SessionManager: ObservableObject {
         if activeID != active?.host.id { activeID = active?.host.id }
         for session in all { session.focusChanged(active: session === active) }
         objectWillChange.send()
+        ImmersiveKeyboard.shared.check()
     }
 
     // MARK: Fins

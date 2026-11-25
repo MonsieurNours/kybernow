@@ -164,6 +164,11 @@ pub struct Info {
     pub gpu: Option<String>,
     #[serde(default)]
     pub av1: bool,
+    /// PyroWave de la Station (docs/pyrowave.md) ; `None` avec une Station
+    /// d'avant PyroWave : ne jamais le demander (elle refuserait le format).
+    /// Voir [`Info::pyrowave_offered`].
+    #[serde(default)]
+    pub pyrowave: Option<PyroWaveInfo>,
     #[serde(default)]
     pub admin_version: Option<String>,
     #[serde(default)]
@@ -208,6 +213,11 @@ pub struct Info {
 }
 
 impl Info {
+    /// La Station propose PyroWave : `pyrowave.available` (absent : non).
+    pub fn pyrowave_offered(&self) -> bool {
+        self.pyrowave.as_ref().is_some_and(|p| p.available)
+    }
+
     /// L'ordinateur crée les manettes de l'appareil (docs/link-ui.md,
     /// « Manettes indisponibles ») : vrai sans le champ (Stations d'avant).
     pub fn gamepads_available(&self) -> bool {
@@ -227,6 +237,23 @@ pub struct GamepadsInfo {
 
 fn gamepads_yes() -> bool {
     true
+}
+
+/// `pyrowave` de `GET /api/stream/info` (docs/pyrowave.md), même forme que `hdr`.
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+pub struct PyroWaveInfo {
+    /// La Station propose PyroWave (carte d'Admin allumée, encodeur prêt).
+    #[serde(default)]
+    pub available: bool,
+    /// Sinon pourquoi : `off` (réglage d'Admin), `windows`, `vulkan`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// « Débit maximal » d'Admin, en Mbit/s : réglé (300, 500, 800), ou en
+    /// « Auto » d'après la prise réseau de la Station. Absent (Station plus
+    /// ancienne, prise inconnue) : pas de plafond de l'ordinateur. Au-delà,
+    /// les apps baissent la définition ([`crate::pyrowave`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mbps: Option<u32>,
 }
 
 /// `hdr` de `GET /api/stream/info`.

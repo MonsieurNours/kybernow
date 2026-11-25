@@ -1,0 +1,144 @@
+diff --git a/kyclient-rs/src/lib.rs b/kyclient-rs/src/lib.rs
+index 804634f..e264c6b 100644
+--- a/kyclient-rs/src/lib.rs
++++ b/kyclient-rs/src/lib.rs
+@@ -131,6 +131,8 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): PyroWave (docs/pyrowave.md).
++    PyroWave,
+ }
+ 
+ impl VideoCodec {
+@@ -139,6 +141,7 @@ impl VideoCodec {
+             sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_H264 => Some(Self::H264),
+             sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_HEVC => Some(Self::HEVC),
+             sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_AV1 => Some(Self::AV1),
++            sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_PYRO_WAVE => Some(Self::PyroWave),
+             _ => None,
+         }
+     }
+@@ -148,6 +151,7 @@ impl VideoCodec {
+             Self::H264 => sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_H264,
+             Self::HEVC => sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_HEVC,
+             Self::AV1 => sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_AV1,
++            Self::PyroWave => sys::kyclient_VideoCodec_KYCLIENT_VIDEO_CODEC_PYRO_WAVE,
+         }
+     }
+ }
+@@ -689,6 +693,11 @@ impl VideoSessionConfig {
+         unsafe { sys::kyclient_video_session_config_set_hdr(self.ptr, hdr) }
+     }
+ 
++    /// KyberNow (0025): the codec the Station uses instead of PyroWave.
++    pub fn set_fallback_codec(&self, codec: VideoCodec) {
++        unsafe { sys::kyclient_video_session_config_set_fallback_codec(self.ptr, codec.to_u32()) }
++    }
++
+     pub fn set_intra_refresh(&self, intra_refresh: bool) {
+         unsafe { sys::kyclient_video_session_config_set_intra_refresh(self.ptr, intra_refresh) }
+     }
+diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
+index 88d13f7..f2743a3 100644
+--- a/kyclient/src/capi.rs
++++ b/kyclient/src/capi.rs
+@@ -834,6 +834,7 @@ pub unsafe extern "C" fn kyclient_video_session_config_default(
+             yuv444: false,
+             hdr: false,
+             intra_refresh: None,
++            fallback_codec: None,
+             player: (*player).config.clone(),
+         };
+ 
+@@ -914,6 +915,16 @@ pub extern "C" fn kyclient_video_session_config_set_codec(
+     config.config.codec = codec;
+ }
+ 
++/// KyberNow (0025): with the PyroWave codec, the codec the Station uses if it
++/// doesn't offer PyroWave after all (H.264 when never set).
++#[unsafe(no_mangle)]
++pub extern "C" fn kyclient_video_session_config_set_fallback_codec(
++    config: &mut VideoSessionConfig,
++    codec: VideoCodec,
++) {
++    config.config.fallback_codec = Some(codec);
++}
++
+ #[unsafe(no_mangle)]
+ pub extern "C" fn kyclient_video_session_config_set_intra_refresh(
+     config: &mut VideoSessionConfig,
+diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
+index 365d6b1..7187cf3 100644
+--- a/kyclient/src/kymux_backend/host_service.rs
++++ b/kyclient/src/kymux_backend/host_service.rs
+@@ -75,6 +75,7 @@ pub(crate) async fn start_stream(
+                     yuv444: config.yuv444,
+                     hdr: config.hdr,
+                     intra_refresh: config.intra_refresh,
++                    fallback_codec: config.fallback_codec.map(Into::into),
+                 })
+                 .collect(),
+         )
+diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+index c6e70c8..26a11ab 100644
+--- a/kyclient/src/lib.rs
++++ b/kyclient/src/lib.rs
+@@ -833,6 +833,9 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): PyroWave (docs/pyrowave.md), only from a Station
++    /// that announces it. C: KYCLIENT_VIDEO_CODEC_PYRO_WAVE.
++    PyroWave,
+ }
+ 
+ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
+@@ -841,6 +844,7 @@ impl From<VideoCodec> for kyctl_common::enums::VideoCodec {
+             VideoCodec::H264 => Self::H264,
+             VideoCodec::HEVC => Self::HEVC,
+             VideoCodec::AV1 => Self::AV1,
++            VideoCodec::PyroWave => Self::PyroWave,
+         }
+     }
+ }
+@@ -868,6 +872,9 @@ pub struct VideoSessionConfig {
+     /// KyberNow: HDR10 for this display (PQ, BT.2020, 10-bit 4:2:0).
+     pub hdr: bool,
+     pub intra_refresh: Option<bool>,
++    /// KyberNow (0025): with `codec` PyroWave, the codec the Station uses if
++    /// it doesn't offer PyroWave after all (`None`: H.264).
++    pub fallback_codec: Option<VideoCodec>,
+     pub player: VideoPlayerConfig,
+ }
+ 
+diff --git a/kyctl-common/src/enums.rs b/kyctl-common/src/enums.rs
+index f3ca6c0..4e0f8cd 100644
+--- a/kyctl-common/src/enums.rs
++++ b/kyctl-common/src/enums.rs
+@@ -25,6 +25,9 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): PyroWave (docs/pyrowave.md). Asked for only when
++    /// the Station announces it: an older Station refuses an unknown codec.
++    PyroWave,
+ }
+ 
+ #[derive(Clone, Debug, Deserialize, Serialize)]
+diff --git a/kyctl-common/src/kymux.rs b/kyctl-common/src/kymux.rs
+index 5950328..972fb4d 100644
+--- a/kyctl-common/src/kymux.rs
++++ b/kyctl-common/src/kymux.rs
+@@ -91,6 +91,11 @@ pub struct StartRequestVideo {
+     pub hdr: bool,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub intra_refresh: Option<bool>,
++    /// KyberNow (0025): with `codec` PyroWave, the codec the Station uses
++    /// if it doesn't offer PyroWave after all (`None`: H.264). The stream's
++    /// codec packet says which one came.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub fallback_codec: Option<VideoCodec>,
+ }
+ 
+ #[derive(Debug, Deserialize, Serialize)]

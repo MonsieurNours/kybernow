@@ -8,10 +8,18 @@
 #   2. libkynput (statique, cargo cinstall) dans le préfixe ;
 #   3. FFmpeg 7.1.1 réduit au décodage H.264, HEVC et AV1, VA-API et V4L2 M2M
 #      compris (statique, LGPL 2.1) dans le préfixe ;
-#   4. l'app (cargo build -p kybernow-linux).
+#   4. PyroWave (Vulkan, API C, bibliothèque partagée ; aussi avec --rpi, pour
+#      le Pi 4 et le Pi 5 en Vulkan par Mesa v3dv : docs/pyrowave-client-pi.md) ;
+#   5. l'app (cargo build -p kybernow-linux).
 #
-# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--prefix DIR] [--install DIR]
-#   --deps-only  s'arrête après libkynput et FFmpeg (module du Flatpak mis en cache)
+# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--kyber-pyrowave] [--prefix DIR] [--install DIR]
+#   --kyber-pyrowave  le correctif kyclient de PyroWave (server/kyber-patches/0025,
+#             `VideoCodec::PyroWave`, `fallback_codec`) et la fonctionnalité
+#             `pyrowave` du cœur, qui vont ensemble (apps/core/README.md,
+#             « PyroWave ») : sans eux, l'app décode PyroWave mais ne le demande
+#             jamais. Comme les autres apps, seulement sur demande tant qu'ils ne
+#             sont pas allumés partout (le SDK de Kyber est partagé).
+#   --deps-only  s'arrête après libkynput, FFmpeg et PyroWave (module du Flatpak mis en cache)
 #   --rpi     Raspberry Pi : le FFmpeg de Raspberry Pi (jc-kynesim/rpi-ffmpeg,
 #             branche dev/7.1.1/rpi_import_1) à la place du 7.1.1 officiel, avec
 #             le hwaccel HEVC V4L2 « request » (rpivid, Pi 4 et 5), les images
@@ -21,7 +29,7 @@
 #   --prefix  où poser libkynput et FFmpeg (par défaut third_party/linux-<arch>)
 #   --install où copier l'app (bin/kybernow), sinon elle reste dans apps/target
 #
-# Dépendances (Ubuntu/Debian) : build-essential pkg-config nasm clang libclang-dev
+# Dépendances (Ubuntu/Debian) : build-essential pkg-config nasm clang libclang-dev cmake git libvulkan-dev
 # libsdl2-dev libva-dev libdrm-dev libopus-dev libwayland-dev libegl-dev libgles-dev
 # (et libudev-dev pour --rpi),
 # Rust 1.89 ou après et cargo-c. Dans le SDK de freedesktop : extensions rust-stable et llvm.
@@ -38,12 +46,14 @@ PROFILE=release
 INSTALL=""
 DEPS_ONLY=0
 RPI=0
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-0}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) COMMAND=check ;;
         --debug) PROFILE=debug ;;
         --deps-only) DEPS_ONLY=1 ;;
         --rpi) RPI=1 ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         --prefix) PREFIX="$2"; shift ;;
         --install) INSTALL="$2"; shift ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
@@ -64,6 +74,7 @@ cargo_quiet() {
 # 1. Correctifs.
 for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$APPS"/webos/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;
@@ -144,6 +155,48 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
     [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
 fi
 
+# 4. PyroWave (docs/pyrowave-client-linux.md) : l'API C de l'amont, chemin
+#    Vulkan, au commit de la Station (apps/macos/PyroWave/COMMIT), avec la
+#    partie de Granite que prend checkout_granite.sh ; bibliothèque partagée
+#    (libpyrowave-shared.so.1), chargée par l'app au lancement (dlopen) : sans
+#    elle, PyroWave est indisponible et rien d'autre ne change. Aussi pour le
+#    Raspberry Pi (--rpi : le .deb et KyberNow Link OS), où le pilote Vulkan
+#    est Mesa v3dv (docs/pyrowave-client-pi.md) ; c'est l'app qui décide, au
+#    lancement, si la carte sait le décoder. Le déquantificateur y est corrigé
+#    (pyrowave/v3dv-dequant.py : image en r16f, que v3dv exige ; sans effet
+#    ailleurs) ; PYROWAVE_PATCHES nomme cette correction, une bibliothèque qui
+#    ne l'a pas est refaite.
+PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
+PYROWAVE_PATCHES=v3dv-dequant-1
+if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES" ]; then
+    src="${PYROWAVE_SRC:-$PREFIX/build/pyrowave}"
+    if [ ! -f "$src/.kybernow-$PYROWAVE_COMMIT" ]; then
+        echo "==> sources de PyroWave ($PYROWAVE_COMMIT) et de Granite"
+        rm -rf "$src" && mkdir -p "$src"
+        (cd "$src" && git init -q && git remote add origin https://github.com/Themaister/pyrowave \
+            && git fetch -q --depth 1 origin "$PYROWAVE_COMMIT" && git checkout -q FETCH_HEAD \
+            && ./checkout_granite.sh >/dev/null 2>&1)
+        touch "$src/.kybernow-$PYROWAVE_COMMIT"
+    fi
+    python3 "$HERE/pyrowave/v3dv-dequant.py" "$src" || exit 1
+    echo "==> PyroWave dans $PREFIX"
+    build="$PREFIX/build/pyrowave-build"
+    rm -rf "$build" && mkdir -p "$build"
+    if ! (cd "$build" && cmake -S "$src" -B . -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+        -DCMAKE_INSTALL_LIBDIR=lib > "$build/cmake.log" 2>&1 \
+        && cmake --build . --target pyrowave-shared -j"$JOBS" >> "$build/cmake.log" 2>&1); then
+        tail -40 "$build/cmake.log" >&2
+        echo "PyroWave non construit (journal : $build/cmake.log)" >&2
+        exit 1
+    fi
+    install -Dm644 "$src/pyrowave.h" "$PREFIX/include/pyrowave/pyrowave.h"
+    # Les en-têtes de Vulkan de Granite (ceux avec lesquels PyroWave est compilé).
+    cp -r "$src/Granite/third_party/khronos/vulkan-headers/include/vulkan" "$src/Granite/third_party/khronos/vulkan-headers/include/vk_video" "$PREFIX/include/"
+    install -Dm755 "$(readlink -f "$build/libpyrowave-shared.so.1")" "$PREFIX/lib/libpyrowave-shared.so.1"
+    [ -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || { echo "libpyrowave-shared.so.1 absente" >&2; exit 1; }
+    rm -f "$PREFIX"/lib/.pyrowave-* && touch "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES"
+fi
+
 # VLC : jamais appelé (fonctions vides, build.rs).
 if [ ! -f "$PREFIX/lib/pkgconfig/libvlc.pc" ]; then
     cat > "$PREFIX/lib/pkgconfig/libvlc.pc" <<'PC'
@@ -157,14 +210,15 @@ fi
 
 [ "$DEPS_ONLY" = 1 ] && { echo "==> dépendances prêtes dans $PREFIX"; exit 0; }
 
-# 4. L'app.
+# 5. L'app.
 export KYBERNOW_PREFIX="$PREFIX"
 export KYBERNOW_V4L2_REQUEST="$RPI"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export CARGO_PROFILE_RELEASE_STRIP=false
 flags=()
 [ "$PROFILE" = release ] && flags+=(--release)
-echo "==> cargo $COMMAND kybernow-linux ($ARCH, $PROFILE)"
+[ "$KYBER_PYROWAVE" = 1 ] && flags+=(--features pyrowave)
+echo "==> cargo $COMMAND kybernow-linux ($ARCH, $PROFILE$([ "$KYBER_PYROWAVE" = 1 ] && echo ', PyroWave demandé à Kyber' || true))"
 started=$(date +%s)
 (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-linux "${flags[@]}")
 [ "$COMMAND" = build ] || { echo "    vérifié ($(( $(date +%s) - started )) s)"; exit 0; }
@@ -174,4 +228,9 @@ echo "    $bin ($(du -h "$bin" | cut -f1), $(( $(date +%s) - started )) s)"
 if [ -n "$INSTALL" ]; then
     install -Dm755 "$bin" "$INSTALL/bin/kybernow"
     echo "    → $INSTALL/bin/kybernow"
+    # PyroWave à côté de l'app : <préfixe>/lib, où l'app le cherche d'abord.
+    if [ -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
+        install -Dm755 "$PREFIX/lib/libpyrowave-shared.so.1" "$INSTALL/lib/libpyrowave-shared.so.1"
+        echo "    → $INSTALL/lib/libpyrowave-shared.so.1"
+    fi
 fi

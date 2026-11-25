@@ -2,7 +2,7 @@
 
 export type Profile = 'jeu' | 'bureau' | 'max'
 export type Transport = 'auto' | 'fiable' | 'rapide'
-export type Codec = 'auto' | 'h264' | 'hevc'
+export type Codec = 'auto' | 'h264' | 'hevc' | 'pyrowave'
 export type TouchMode = 'trackpad' | 'direct'
 export type MouseMode = 'auto' | 'bureau' | 'jeu'
 

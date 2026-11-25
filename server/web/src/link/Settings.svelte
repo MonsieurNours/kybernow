@@ -17,7 +17,8 @@
   import { stationIsMac } from './keyswap'
   import type { CodecSupport } from './engine'
   import type { Plan } from './plan'
-  import { MAX_MBPS, MIN_MBPS, websocketReason } from './plan'
+  import { MAX_MBPS, MAX_MBPS_PYROWAVE, MIN_MBPS, viaRelay, websocketReason } from './plan'
+  import { whyUnavailable } from './pyrowave/state.svelte'
   import { isCustom, pickProfile, PROFILES, type Codec, type MouseMode, type Prefs, type TouchMode, type Transport } from './prefs'
   import Stats from './Stats.svelte'
   import StationPanel from './StationPanel.svelte'
@@ -47,6 +48,24 @@
   } = $props()
 
   const custom = $derived(isCustom(prefs))
+  /** PyroWave dans « Format vidéo » (docs/link-ui.md, « PyroWave ») : montré seulement quand
+   * l'ordinateur le connaît, inactif avec sa raison s'il ne le propose pas ou que ce navigateur ne le
+   * décode pas ; jamais pris par Auto (un navigateur ne sait pas s'il est relié par câble). */
+  const pyroKnown = $derived(!!info?.pyrowave)
+  const pyroWhy = $derived(pyroKnown ? whyUnavailable(info) : null)
+  const pyroReason = $derived(
+    pyroWhy === 'station' ? t('web.settings.pyrowaveStation', { name: hostname }) : pyroWhy === 'browser' ? t('web.settings.pyrowaveBrowser') : '',
+  )
+  // Choisi mais plus offert : le choix est gardé (il revient avec l'ordinateur qui le propose), Auto s'applique.
+  const pyroChosen = $derived(prefs.codec === 'pyrowave' && !!plan?.pyrowave)
+  const formatHelp = $derived.by(() => {
+    if (pyroChosen) return t('web.settings.pyrowaveHelp')
+    const auto = isFirefox ? t('web.settings.formatFirefox') : t('web.settings.formatAuto')
+    if (!pyroKnown) return auto
+    if (pyroReason) return `${auto} ${pyroReason}`
+    return prefs.codec === 'auto' ? `${auto} ${t('web.settings.pyrowaveAutoNote')}` : auto
+  })
+  const formatName = (p: Plan) => (p.codec === 'pyrowave' ? 'PyroWave' : p.codec === 'hevc' ? 'HEVC' : 'H.264')
   /** « Ctrl agit comme ⌘ » : face à une Station Mac, pour un clavier de PC (un clavier d'Apple a sa touche ⌘). */
   const controlAsCommand = $derived(stationIsMac(info?.os) && !isAppleDevice)
   const rubrics = $derived([
@@ -142,17 +161,26 @@
         <Switch checked={prefs.fullscreen} label={t('web.settings.fullscreen')} onchange={(v) => (prefs.fullscreen = v)} />
       </div>
       <div class="stack">
-        <div class="text"><span>{t('web.settings.format')}</span><span class="sub">{isFirefox ? t('web.settings.formatFirefox') : t('web.settings.formatAuto')}</span></div>
+        <div class="text"><span>{t('web.settings.format')}</span><span class="sub">{formatHelp}</span></div>
         <Segmented
           label={t('web.settings.format')}
           options={[
             { value: 'auto', label: t('web.settings.auto') },
             { value: 'hevc', label: 'HEVC' },
             { value: 'h264', label: 'H.264' },
+            ...(pyroKnown ? [{ value: 'pyrowave' as Codec, label: 'PyroWave', disabled: !!pyroWhy, title: pyroReason || undefined }] : []),
           ]}
-          value={prefs.codec}
-          onchange={(v: Codec) => (prefs.codec = v)}
+          value={prefs.codec === 'pyrowave' && (!pyroKnown || pyroWhy) ? 'auto' : prefs.codec}
+          onchange={(v: Codec) => {
+            prefs.codec = v
+            // Le débit réglé à la main pour HEVC serait un plafond bien trop bas pour PyroWave.
+            if (v === 'pyrowave' && prefs.bitrate !== null && prefs.bitrate <= MAX_MBPS) prefs.bitrate = null
+          }}
         />
+        {#if pyroChosen && plan?.pyrowave}
+          <p class="warn">{plan.pyrowave.warning === 'relay' || viaRelay() ? t('web.settings.pyrowaveWarnRelay') : t('web.settings.pyrowaveWarnNetwork')}</p>
+          {#if plan.yuv444}<p class="sub">{t('web.settings.pyrowave444')}</p>{/if}
+        {/if}
       </div>
       <div class="stack">
         <div class="text">
@@ -170,11 +198,14 @@
         />
         {#if prefs.bitrate}
           <div class="slider">
-            <input type="range" min={MIN_MBPS} max={MAX_MBPS} step="5" bind:value={prefs.bitrate} aria-label={t('web.settings.bitrateAria')} />
+            <input type="range" min={MIN_MBPS} max={pyroChosen ? MAX_MBPS_PYROWAVE : MAX_MBPS} step={pyroChosen ? 50 : 5} bind:value={prefs.bitrate} aria-label={t('web.settings.bitrateAria')} />
             <span class="mono value">{prefs.bitrate} Mbit/s</span>
           </div>
         {:else if plan}
-          <p class="mono value">{plan.mbps} Mbit/s · {plan.codec === 'hevc' ? 'HEVC' : 'H.264'}{plan.yuv444 ? ' 4:4:4' : ''}</p>
+          <p class="mono value">{plan.mbps} Mbit/s · {formatName(plan)}{plan.yuv444 ? ' 4:4:4' : ''}</p>
+        {/if}
+        {#if plan?.pyrowave?.lowered}
+          <p class="sub">{t('web.settings.pyrowaveLowered', { width: plan.pyrowave.lowered.width, height: plan.pyrowave.lowered.height, mbps: plan.pyrowave.lowered.mbps })}</p>
         {/if}
       </div>
     </section>
@@ -486,6 +517,17 @@
   .sub {
     font-size: 12px;
     color: var(--faint);
+  }
+
+  /* Avertissement d'un choix PyroWave (docs/link-ui.md, « PyroWave »). */
+  .warn {
+    font-size: 12px;
+    line-height: 1.45;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--warn-bg);
+    box-shadow: inset 0 0 0 1px var(--warn-line);
+    color: var(--warn-text);
   }
 
   .slider {

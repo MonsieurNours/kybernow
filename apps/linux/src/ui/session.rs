@@ -75,16 +75,25 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 if !view.main {
                     return;
                 }
+                // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session (8 s, ou la croix).
+                // Au bureau, la capsule passe sous le bandeau (« Définition ramenée » peut arriver en même temps).
+                let mut drop = 0.0;
+                if s.pw_banner_visible() && s.console.is_none() {
+                    pyrowave_banner(app, cv, f, s);
+                    if app.layout == Layout::Desktop {
+                        drop = PW_BANNER_H + 10.0;
+                    }
+                }
                 if let Phase::Reconnecting { attempt, max } = s.phase {
-                    capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), true);
+                    capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), true, drop);
                 } else if let Some((n, t)) = &s.notice
                     && t.elapsed().as_secs_f32() < 4.0
                 {
                     // Les manettes indisponibles : avec l'icône de manette.
                     if n == crate::app::pads_unavailable_notice() {
-                        capsule_icon(app, cv, n, Icon::Gamepad);
+                        capsule_icon(app, cv, n, Icon::Gamepad, drop);
                     } else {
-                        capsule(app, cv, n, false);
+                        capsule(app, cv, n, false, drop);
                     }
                 }
             }
@@ -385,6 +394,8 @@ pub(super) const BAR_H: f32 = 46.0;
 /// Le pointeur ouvre la barre à 2 points au plus du bord haut ; il la garde
 /// ouverte à 8 points au plus de son rectangle.
 const BAR_EDGE: f32 = 2.0;
+/// La même bande, session dans une fenêtre.
+const BAR_EDGE_WINDOW: f32 = 8.0;
 const BAR_MARGIN: f32 = 8.0;
 /// Le trait qui signale l'endroit (celui de l'app Mac : capsule blanche à 35 %,
 /// 220 × 3 points) et la hauteur du bandeau qui le contient.
@@ -472,6 +483,8 @@ struct BarLayout {
     route: Option<(String, f32)>,
     /// « HDR », cochable, après le profil (écran HDR seulement) : son état et sa largeur.
     hdr: Option<(crate::app::HdrUi, f32)>,
+    /// PyroWave en Wi-Fi ou par le relais : la puce ambre (« PyroWave en Wi-Fi ») et sa largeur.
+    pw: Option<(String, f32)>,
     total: f32,
 }
 
@@ -535,11 +548,16 @@ impl BarLayout {
             (t, w)
         });
         let hdr = s.hdr.map(|u| (u, cv.text_width(Text::new(Font::Semibold, 13.0, FROST), "HDR") + 40.0));
-        let others = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
+        let pw = s.pyrowave_risk().map(|r| {
+            let t = r.chip().to_string();
+            let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
+            (t, w)
+        });
+        let others = pw.as_ref().map_or(0.0, |(_, pw)| pw + 8.0) + 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, pw, total }
     }
 }
 
@@ -557,7 +575,10 @@ fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
 /// Le pointeur est contre le bord haut, dans la zone centrée de la largeur de
 /// la barre : l'endroit où elle s'ouvre (après un quart de seconde).
 pub fn at_bar_edge(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, ux: f32, uy: f32) -> bool {
-    if uy > BAR_EDGE {
+    // Dans une fenêtre, le bord haut de l'image touche la barre de titre du système : le pointeur qui la
+    // vise en sort vite. Une bande plus haute, comme le trait qui la signale.
+    let edge = if s.fullscreen { BAR_EDGE } else { BAR_EDGE_WINDOW };
+    if uy > edge {
         return false;
     }
     let r = bar_rect(cv, app, s, w);
@@ -596,13 +617,24 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, route, hdr, pw, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
     cv.rrect_stroke(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, 1.0, LINE_2);
     let cy = h / 2.0;
     let mut x = x0 + 16.0;
+    // Les mesures (symbole, latence, courbe, image) : un clic ouvre « Statistiques » (docs/link-ui.md).
+    {
+        let mr = Rect::new(x - 8.0, cy - 15.0, 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 13.0 + info_w + 12.0, 30.0);
+        let (focused, hover) = f.state(Target::BarStats, mr);
+        if hover || focused || s.show_stats {
+            cv.rrect(mr.x, mr.y, mr.w, mr.h, 7.0, Rgba(227, 237, 240, if s.show_stats { 26 } else { 16 }));
+        }
+        if focused {
+            cv.neon(mr.x, mr.y, mr.w, mr.h, 7.0, 1.0);
+        }
+    }
     // Le symbole allumé : un flux est en cours.
     cv.glow(x + 8.0, cy, 14.0, 14.0, HALO.alpha(0.5));
     cv.mark(x, cy - 8.0, 16.0, FROST, SPECTRE, Some(CORE));
@@ -677,6 +709,13 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         cv.rrect(rr.x, rr.y, rr.w, rr.h, 12.0, FLAT.alpha(0.22));
         cv.text(rr.x + rr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), label);
         x += rw + 8.0;
+    }
+    // PyroWave en Wi-Fi ou hors de chez soi : la puce ambre (docs/link-ui.md, « PyroWave »).
+    if let Some((label, pww)) = &pw {
+        let rr = Rect::new(x, cy - 12.0, *pww, 24.0);
+        cv.rrect(rr.x, rr.y, rr.w, rr.h, 12.0, WARN.alpha(0.24));
+        cv.text(rr.x + rr.w / 2.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST).align(Align::Center), label);
+        x += pww + 8.0;
     }
     // Un invité : « Qualité de l'image », une puce qui montre la qualité reçue (« 1080p · 60 Hz ») et ouvre les
     // cinq choix, comme le profil d'un hôte.
@@ -934,13 +973,13 @@ fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title
 }
 
 /// Capsule en haut (bureau) ou en bas (manette).
-fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool) {
+fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool, drop: f32) {
     let u = unit(app.layout);
     let style = Text::new(Font::Regular, 13.0 * u, MUTED);
     let h = 34.0 * u;
     let w = cv.text_width(style, msg) + 46.0 * u;
     let x = (cv.w - w) / 2.0;
-    let y = if app.layout == Layout::Desktop { 70.0 } else { cv.h - 90.0 * u };
+    let y = if app.layout == Layout::Desktop { 70.0 + drop } else { cv.h - 90.0 * u };
     cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, 220));
     cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2);
     widgets::dot(cv, x + 18.0 * u, y + h / 2.0, 3.5 * u, if busy { WARN } else { SPECTRE }, true);
@@ -948,17 +987,59 @@ fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool) {
 }
 
 /// La même capsule, avec une icône à la place du point.
-fn capsule_icon(app: &App, cv: &mut Canvas, msg: &str, icon: Icon) {
+fn capsule_icon(app: &App, cv: &mut Canvas, msg: &str, icon: Icon, drop: f32) {
     let u = unit(app.layout);
     let style = Text::new(Font::Regular, 13.0 * u, MUTED);
     let h = 34.0 * u;
     let w = cv.text_width(style, msg) + 54.0 * u;
     let x = (cv.w - w) / 2.0;
-    let y = if app.layout == Layout::Desktop { 70.0 } else { cv.h - 90.0 * u };
+    let y = if app.layout == Layout::Desktop { 70.0 + drop } else { cv.h - 90.0 * u };
     cv.rrect(x, y, w, h, h / 2.0, Rgba(9, 13, 18, 220));
     cv.rrect_stroke(x, y, w, h, h / 2.0, 1.0, LINE_2);
     cv.icon(&icon, x + 14.0 * u, y + (h - 16.0 * u) / 2.0, 16.0 * u, 1.6, SPECTRE);
     cv.text(x + 40.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
+}
+
+// MARK: - PyroWave
+
+/// La hauteur du bandeau PyroWave, en points.
+const PW_BANNER_H: f32 = 62.0;
+
+/// Le bandeau du début d'une session PyroWave en Wi-Fi ou par le relais (docs/link-ui.md, « PyroWave ») : en haut,
+/// sous la barre ; titre (la puce), « L'image peut saccader. », « Passer en HEVC » et la croix. Au Deck et au salon
+/// aussi (le toucher le prend ; à la manette, la tuile du menu fait de même) ; il part seul au bout de 8 s.
+fn pyrowave_banner(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    let Some(risk) = s.pyrowave_risk() else { return };
+    let u = unit(app.layout);
+    let title = Text::new(Font::Semibold, 14.0 * u, FROST);
+    let body = Text::new(Font::Regular, 13.0 * u, MUTED);
+    let bh = 34.0 * u;
+    let pad = 16.0 * u;
+    let text_w = cv.text_width(title, risk.chip()).max(cv.text_width(body, crate::pyrowave::banner_text()));
+    let button_w = cv.text_width(Text::new(Font::Semibold, bh * 0.32, FROST), crate::pyrowave::switch_to_hevc()) + 2.0 * bh * 0.58;
+    let close = 28.0 * u;
+    let w = (pad + 10.0 * u + text_w + 20.0 * u + button_w + 10.0 * u + close + pad).min(cv.w - 32.0 * u);
+    let h = PW_BANNER_H * u;
+    let x = (cv.w - w) / 2.0;
+    let y = if app.layout == Layout::Desktop { BAR_H + 22.0 } else { 28.0 * u };
+    cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 235));
+    cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, WARN.alpha(0.55));
+    // Le liseré ambre, à gauche.
+    cv.rrect(x + 1.0, y + 12.0 * u, 3.0 * u, h - 24.0 * u, 1.5 * u, WARN);
+    let tx = x + pad + 10.0 * u;
+    cv.text(tx, y + 25.0 * u, title, risk.chip());
+    cv.text(tx, y + 45.0 * u, body, crate::pyrowave::banner_text());
+    let bx = x + w - pad - close - 10.0 * u - button_w;
+    widgets::primary(cv, f, Target::PwHevc, bx, y + (h - bh) / 2.0, bh, crate::pyrowave::switch_to_hevc(), false);
+    let cr = Rect::new(x + w - pad - close, y + (h - close) / 2.0, close, close);
+    let (focused, hover) = f.state(Target::PwClose, cr);
+    if focused {
+        widgets::ring(cv, cr, close / 2.0);
+    }
+    if hover {
+        cv.rrect(cr.x, cr.y, cr.w, cr.h, close / 2.0, Rgba(227, 237, 240, 14));
+    }
+    cv.icon(&Icon::Close, cr.x + 6.0 * u, cr.y + 6.0 * u, close - 12.0 * u, 1.6, MUTED);
 }
 
 // MARK: - Statistiques (par-dessus l'image, à la demande)
@@ -1163,7 +1244,11 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     // Au salon, la rangée du trajet donne sa largeur au panneau : mesurée d'abord.
     let w = if tv { b.w.max(frame_path_row(cv, &b, &st, false)) } else { b.w };
     let end = if tv { b.path + ROW_H * u } else { b.path_end() };
-    let h = end - y + 24.0 * u + 3.0 * 19.0 * u + 24.0 * u;
+    // PyroWave : « Images perdues » (en part des images), et « Définition ramenée » quand l'app le sait.
+    let pw = st.decoder == "PyroWave";
+    let lowered_lines = st.lowered.as_deref().map_or(0, |t| cv.line_count(Text::new(Font::Mono, 11.5 * u, MUTED), t, w - 32.0 * u));
+    let extra = if pw { 1.0 + lowered_lines as f32 } else { 0.0 };
+    let h = end - y + 24.0 * u + (3.0 + extra) * 19.0 * u + 24.0 * u;
     cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 214));
     cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE);
     let ix = x + 16.0 * u;
@@ -1194,6 +1279,16 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     yy += 19.0 * u;
     cv.text_fit(ix, yy, mono, &format!("{} {} · 10 s", st.lost, tr("perdues", "lost")), w - 32.0 * u);
     yy += 19.0 * u;
+    if pw {
+        let colon = if crate::i18n::english() { ":" } else { " :" };
+        let lost = crate::pyrowave::lost_value(st.lost_frames, st.fps.round() as u32);
+        cv.text_fit(ix, yy, if st.lost_frames > 0 { mono.color(WARN) } else { mono }, &format!("{}{colon} {lost}", crate::pyrowave::lost_label()), w - 32.0 * u);
+        yy += 19.0 * u;
+        if let Some(text) = &st.lowered {
+            cv.paragraph(ix, yy, mono.color(WARN), text, w - 32.0 * u, 19.0 * u);
+            yy += lowered_lines as f32 * 19.0 * u;
+        }
+    }
     // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
     let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
     cv.text_fit(ix, yy, mono, &format!("{}{} {}{ms}", tr("Chemin", "Path"), if crate::i18n::english() { ":" } else { " :" }, s.path().label()), w - 32.0 * u);
@@ -1324,6 +1419,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Lend, tr("Prêter l'ordinateur…", "Lend the computer…").into(), sub, on, false));
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
+        }
+        // PyroWave en Wi-Fi ou hors de chez soi : la puce de la barre, en tuile ; elle fait « Passer en HEVC ».
+        if let Some(r) = s.pyrowave_risk() {
+            tiles.push((MenuItem::PyroWaveHevc, r.chip().into(), crate::pyrowave::switch_to_hevc().into(), false, false));
         }
         tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true));
     }

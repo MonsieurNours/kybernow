@@ -48,10 +48,14 @@ public struct HostInfo: Sendable, Equatable {
     /// par le cœur) : faux sur une Station Mac sans le droit d'Apple ; vrai
     /// avec une Station d'avant (docs/link-ui.md, « Manettes indisponibles »).
     public let gamepadsAvailable: Bool
+    /// PyroWave (`pyrowave` de l'info) : proposé ou la raison ; nil avec une
+    /// Station d'avant PyroWave (docs/pyrowave.md).
+    public let pyrowave: PyroWaveOffer?
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
                 os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1,
-                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil, hdr: HDROffer = .none, gamepadsAvailable: Bool = true) {
+                share: ShareAvailability = .available, relay: RelayInfo? = nil, lend: LendInfo? = nil, hdr: HDROffer = .none, gamepadsAvailable: Bool = true,
+                pyrowave: PyroWaveOffer? = nil) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -68,6 +72,7 @@ public struct HostInfo: Sendable, Equatable {
         self.lend = lend
         self.hdr = hdr
         self.gamepadsAvailable = gamepadsAvailable
+        self.pyrowave = pyrowave
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -331,7 +336,8 @@ public final class ConsoleClient: @unchecked Sendable {
             relay: RelayInfo(json: json["relay"] as? [String: Any]),
             lend: LendInfo(json: json["lend"]),
             hdr: HDROffer(json: json["hdr"]),
-            gamepadsAvailable: gamepads
+            gamepadsAvailable: gamepads,
+            pyrowave: PyroWaveOffer.parse(json["pyrowave"])
         )
     }
 

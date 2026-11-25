@@ -64,6 +64,7 @@ struct SessionStatsView: View {
         case .h264: return "H.264"
         case .hevc: return "HEVC"
         case .av1: return "AV1"
+        case .pyrowave: return PyroWaveText.name
         }
     }
 
@@ -106,6 +107,26 @@ struct SessionStatsView: View {
         return StatsTile(label: String(localized: "Pertes 30 s"), value: "\(lost30) · \(StatsFormat.percent(pct))", warn: lost30 > 0)
     }
 
+    /// PyroWave (docs/link-ui.md) : une image perdue est sautée ; leur part
+    /// des images des 30 dernières secondes, en plus des pertes.
+    private var lostFramesTile: StatsTile? {
+        guard session.imageCodec == .pyrowave else { return nil }
+        let pct = frames30 + Double(lost30) > 0 ? Double(lost30) / (frames30 + Double(lost30)) * 100 : 0
+        return StatsTile(label: PyroWaveText.lostFrames, value: PyroWaveText.percent(pct), warn: lost30 > 0)
+    }
+
+    /// PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+    @ViewBuilder private var loweredLine: some View {
+        if let l = stats?.lowered {
+            HStack(alignment: .top, spacing: 8) {
+                Icon("monitor", size: 15).foregroundStyle(Theme.warn)
+                Text(PyroWaveText.lowered(width: l.width, height: l.height, mbps: l.mbps))
+                    .font(Theme.sans(12.5)).foregroundStyle(Theme.warnText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var sessionTile: StatsTile {
         let n = session.sessionLosses.frames
         let total = framesSinceStart
@@ -141,6 +162,7 @@ struct SessionStatsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 sheetHeader
+                loweredLine
                 if stats == nil {
                     waiting
                 } else if width >= 640 {
@@ -222,6 +244,7 @@ struct SessionStatsView: View {
     private var sheetTiles: some View {
         var tiles = [lossesTile, sessionTile, rttTile, pathTile,
                      StatsTile(label: String(localized: "Images / s"), value: stats.map { "\(Int($0.fps.rounded()))" } ?? "—", warn: false)]
+        if let lostFramesTile { tiles.insert(lostFramesTile, at: 1) }
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
         } else {
@@ -249,6 +272,7 @@ struct SessionStatsView: View {
     private var panel: some View {
         VStack(alignment: .leading, spacing: 16) {
             panelHeader
+            loweredLine
             if stats == nil {
                 waiting
             } else {
@@ -309,6 +333,7 @@ struct SessionStatsView: View {
         let image = keyframes30 == 1 ? String(localized: "\(fps) i/s · 1 clé") : String(localized: "\(fps) i/s · \(keyframes30) clés")
         var tiles = [lossesTile, sessionTile, rttTile, pathTile,
                      StatsTile(label: String(localized: "Image"), value: image, warn: keyframes30 > 0)]
+        if let lostFramesTile { tiles.insert(lostFramesTile, at: 1) }
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
         } else {

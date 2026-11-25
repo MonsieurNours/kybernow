@@ -45,17 +45,22 @@ public final class SessionEngine: @unchecked Sendable {
         /// Station le propose et que le décodeur suit ; il impose alors 4:2:0
         /// et HEVC ou AV1.
         public var hdr: Bool
-        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false) {
+        /// L'appareil est relié par câble au réseau de l'ordinateur
+        /// (`StreamSettings.wired` du cœur) : « Auto » peut alors prendre
+        /// PyroWave (docs/pyrowave.md).
+        public var wired: Bool
+        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false, wired: Bool = false) {
             self.profile = profile
             self.codec = codec
             self.yuv444 = yuv444
             self.mbps = mbps
             self.reliable = reliable
             self.hdr = hdr
+            self.wired = wired
         }
 
         var json: [String: Any] {
-            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr]
+            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr, "wired": wired]
             if let profile { j["profile"] = profile }
             return j
         }
@@ -354,6 +359,10 @@ public final class SessionEngine: @unchecked Sendable {
     // Rappels, tous sur le fil principal.
     public var onPhase: ((Phase) -> Void)?
     public var onNotice: ((Notice) -> Void)?
+    /// PyroWave : la définition est ramenée (le texte du bandeau, « Définition
+    /// ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », langue de l'app), ou
+    /// revenue à celle de l'appareil (nil, nil).
+    public var onLowered: ((LoweredMode?, String?) -> Void)?
     /// Les écrans annoncés par Kyber (choix dans la barre, sans écran virtuel).
     public var onDisplays: (([KyberDisplay]) -> Void)?
     /// L'écran affiché (aussi quand sa taille change).
@@ -431,6 +440,8 @@ public final class SessionEngine: @unchecked Sendable {
     private var input: InputPipeline?
     private var lastDisplay: KyberDisplay?
     private var lastSecond: LatencySecond?
+    /// Format du dernier paquet de codec (`receivedCodec`), sous `lock`.
+    private var receivedCodecValue: VideoCodec?
     private var padCaptured = false
     private var occluded = false
     private var vsync = true
@@ -660,7 +671,7 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// Ce que l'appareil décode (`Capabilities` du cœur).
     static func capabilitiesJSON(_ caps: DecoderCapabilities) -> [String: Any] {
-        ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1, "hdr": caps.hdr]
+        ["hevc": caps.hevc, "hevc444": caps.hevc444, "av1": caps.av1, "hdr": caps.hdr, "pyrowave": caps.pyrowave]
     }
 
     /// La session du cœur a démarré (`kn_session_start`) : `onPhase` ira
@@ -837,6 +848,12 @@ public final class SessionEngine: @unchecked Sendable {
     /// Plafond de débit (fenêtre occultée) ; nil le retire.
     public func setBitrateCap(_ cap: UInt32?) {
         if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
+    }
+
+    /// PyroWave (« Définition ramenée ») : le débit que l'appareil sait tenir
+    /// vers l'ordinateur, en Mbit/s ; nil : inconnu.
+    public func setLinkMbps(_ mbps: UInt32?) {
+        if let s = live { kn_session_set_link_mbps(s, mbps ?? 0) }
     }
 
     /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
@@ -1178,6 +1195,24 @@ public final class SessionEngine: @unchecked Sendable {
         old?.shutdown()
     }
 
+    /// Le format de l'image reçue (dernier paquet de codec, tous écrans) :
+    /// celui que la Station envoie vraiment, PyroWave ou son repli.
+    public var receivedCodec: VideoCodec? {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedCodecValue
+    }
+
+    static func codec(fourcc: UInt32) -> VideoCodec? {
+        switch VideoDecoder.Codec(rawValue: fourcc) {
+        case .h264?: return .h264
+        case .hevc?: return .hevc
+        case .av1?: return .av1
+        case .pyrowave?: return .pyrowave
+        case nil: return nil
+        }
+    }
+
     private func second(_ s: KnSecond) {
         var second = LatencySecond()
         second.latencyMs = s.has_latency ? s.latency_ms : nil
@@ -1195,6 +1230,9 @@ public final class SessionEngine: @unchecked Sendable {
         second.lostPackets = Int(s.lost_packets)
         second.rttMs = s.has_rtt ? s.rtt_ms : nil
         second.bytes = Int(s.bytes)
+        if s.lowered {
+            second.lowered = LoweredMode(width: Int(s.lowered_width), height: Int(s.lowered_height), refresh: Int(s.lowered_refresh), mbps: Int(s.lowered_mbps))
+        }
         lock.lock()
         lastSecond = second
         lock.unlock()
@@ -1212,6 +1250,12 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_RESTORE_OFFER: notice = .restoreOffer(n.has_mode ? Mode(width: Int(n.width), height: Int(n.height), refresh: 0) : nil)
         case KN_NOTICE_STATION_RESTARTING: notice = .stationRestarting
         case KN_NOTICE_HDR_REFUSED: notice = .hdrRefused(n.error.map { String(cString: $0) } ?? "")
+        case KN_NOTICE_RESOLUTION_LOWERED:
+            // À part des autres avis (`onLowered`) : les `switch` des apps restent tels quels.
+            let mode = n.has_mode ? LoweredMode(width: Int(n.width), height: Int(n.height), refresh: 0, mbps: Int(n.bitrate_mbps)) : nil
+            let text = n.has_mode ? n.error.map { String(cString: $0) } : nil
+            DispatchQueue.main.async { [self] in onLowered?(mode, text) }
+            return
         default: return
         }
         DispatchQueue.main.async { [self] in onNotice?(notice) }
@@ -1285,6 +1329,9 @@ public final class SessionEngine: @unchecked Sendable {
             lock.unlock()
             pipeline?.stop()
         case KN_PACKET_CODEC:
+            lock.lock()
+            receivedCodecValue = Self.codec(fourcc: p.codec)
+            lock.unlock()
             videoPipeline(for: p.stream, screen: Int(p.screen))?.decoder.setCodec(p.codec)
         case KN_PACKET_MEDIA:
             guard let data = p.data, p.len > 0, let pipeline = videoPipeline(for: p.stream, screen: Int(p.screen)) else { return }

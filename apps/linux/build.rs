@@ -17,6 +17,10 @@
 //!   Wayland de SDL) ; le code des protocoles `color-management-v1` et
 //!   `viewporter` (wayland-protocols 1.45) est déjà produit par wayland-scanner
 //!   dans `src/native/wayland`.
+//! - PyroWave (`src/native/pyrowave.c`, docs/pyrowave-client-linux.md) :
+//!   l'en-tête de l'API C et ceux de Vulkan, posés dans le préfixe par
+//!   build.sh ; la bibliothèque est chargée au lancement (dlopen, `-ldl`).
+//!   Sans eux, `pyrowave_none.c` : PyroWave indisponible.
 
 use std::path::PathBuf;
 use std::{env, fs};
@@ -76,6 +80,12 @@ fn main() {
     if v4l2_request {
         native.define("KN_V4L2_REQUEST", None);
     }
+    if prefix.join("include/pyrowave/pyrowave.h").is_file() && prefix.join("include/vulkan/vulkan.h").is_file() {
+        native.file("src/native/pyrowave.c");
+        native.define("KN_PYROWAVE_DIR", Some(format!("\"{}\"", prefix.join("lib").display()).as_str()));
+    } else {
+        native.file("src/native/pyrowave_none.c");
+    }
     for p in va.include_paths.iter().chain(drm.include_paths.iter()).chain(hdr_libs.iter().flat_map(|l| l.include_paths.iter())) {
         native.include(p);
     }
@@ -94,6 +104,7 @@ fn main() {
     if v4l2_request {
         println!("cargo:rustc-link-arg=-ludev");
     }
+    println!("cargo:rustc-link-arg=-ldl");
     println!("cargo:rustc-link-arg=-lm");
     println!("cargo:rustc-link-arg=-lpthread");
     // aarch64 : GCC compile les opérations atomiques de FFmpeg en appels à

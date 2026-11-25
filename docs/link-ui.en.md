@@ -119,6 +119,20 @@ Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and
 - **Controller as mouse** (living-room apps, phones and tablets that have it: A click, L1 / R1 to go from one window to another, Start the ⊞ key): with a Mac, L1 / R1 hold ⌘ instead of Alt (⇧ ⌘ ⇥ / ⌘ ⇥, ⌘ released a moment after the last press, like Alt), and Start sends “⌘ Space” (Spotlight) instead of ⊞ alone.
 - **Apple apps** (Mac, iPhone and iPad, Apple TV): ⌘ goes as ⌘ with a Mac (the ⊞ key for Kyber, which the Mac receives as ⌘); the setting “⌘ key sent as Ctrl” (Mac) / “⌘ sent as Ctrl” (iPhone, iPad) is not shown with a Mac Station and does not apply there; what is kept for PCs does not change. No “Ctrl acts as ⌘”: an Apple keyboard has its ⌘ key.
 
+**Immersive mode** / « Mode immersif » (Mac, Windows and Linux apps): the whole keyboard goes to the computer, system shortcuts included: ⌘ ⇥, ⌘ Space, ⌘ Q, ⌃ ← → and Mission Control on Mac; Alt+Tab, the ⊞ key, Ctrl+Esc and Alt+Esc on Windows and Linux. Only the app's shortcuts (⌃⌥⌘ + letter on Mac, Ctrl+Alt+Shift + letter on Windows and Linux) and what the system never lets go (Ctrl+Alt+Del, ⌥⌘Esc) stay on the device. Computer setting, Controls section, kept for each computer:
+
+| Element | Français | English |
+|---|---|---|
+| Setting | « Mode immersif » : « En plein écran » (default), « Toujours », « Jamais » | “Immersive mode”: “In full screen”, “Always”, “Never” |
+| Help (Windows, Linux) | « Alt+Tab, la touche ⊞ et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app. » (Linux, whose font lacks the ⊞ sign, writes “the Windows key”, as its “Keys” menu does) | “Alt+Tab, the ⊞ key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.” |
+| Help (Mac) | « ⌘ ⇥, ⌘ Espace et les autres raccourcis du Mac vont à l'ordinateur, et ⌘ y devient la touche ⊞. ⌃⌥⌘ + lettre reste à l'app. »; with a Mac Station: « ⌘ ⇥, ⌘ Espace et les autres raccourcis vont à l'ordinateur. ⌃⌥⌘ + lettre reste à l'app. » | “⌘ ⇥, ⌘ Space and the Mac's other shortcuts go to the computer, and ⌘ becomes the ⊞ key there. ⌃⌥⌘ + letter stays with the app.”; with a Mac Station: “⌘ ⇥, ⌘ Space and the other shortcuts go to the computer. ⌃⌥⌘ + letter stays with the app.” |
+| Missing permission (Mac), under the setting | « Autorisez KyberNow Link dans Réglages Système › Confidentialité et sécurité › Accessibilité. » and the button « Ouvrir les réglages » | “Allow KyberNow Link in System Settings › Privacy & Security › Accessibility.”; “Open Settings” |
+
+- **When**: the session's window is in front and its picture has the keyboard (not a menu, panel or field of the bar). “In full screen”: its window is full screen (with several displays, always: the windows are); “Always”: in a window too; “Never”: the system's shortcuts stay on the device, even in full screen. A change applies at once, in session too. You leave it by leaving full screen (shortcut F) or by moving to another window with the mouse.
+- **No immersive mode** for a guest without the keyboard and mouse (Alt+Tab goes back to the system when the host takes them back), nor for a game on a PlayStation console (the keyboard stands in for a controller there).
+- **Mac**: the Mac only lets an app allowed in Accessibility take its shortcuts. The first time the mode should turn on, the app asks for it (system window); while the permission is missing, nothing changes (as with “Never”) and the setting says so. In immersive mode, with a PC, ⌘ goes as the ⊞ key and Ctrl stays Ctrl: “⌘ key sent as Ctrl” does not apply there, and comes back when the mode turns off (held keys are released on the way). With a Mac Station, ⌘ already goes as ⌘.
+- **Windows, Linux**: “In full screen” is the rule from before this setting (the keyboard was only taken in full screen).
+
 **Controllers unavailable**: a Station may not be able to create controllers (a Mac Station until Apple grants its entitlement, see `docs/station-macos.en.md`). It says so in `gamepads` of `GET /api/stream/info`: `{ "available": false, "reason": "entitlement" }`; absent (older Stations): available. The core reads it (`Info::gamepads_available`), the app keeps it for each computer. Controllers still drive the app (bar, menus, Start + Select + L1 + R1 combination); the computer does not see them.
 
 | Element | Français | English |
@@ -462,7 +476,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; help: « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.” Inactive, on « Cet écran », with a custom resolution (help: « Avec une définition sur mesure, la session prend un seul écran. » / “With a custom resolution, the session takes a single display.”), with a session in a window (same help as the custom resolution, the window setting the display's size) and without a virtual display (setting off, or a Station without a usable virtual display: then with no help, the greyed row on « Cet écran » stands on its own and the virtual display has its own row; with a custom resolution, the custom resolution's help stays). Mac, Windows and Linux apps ([multi-ecrans.en.md](multi-ecrans.en.md)) |
 | Fréquence | Refresh rate | “120 Hz” |
 | Écran virtuel | Virtual display | help: « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
-| Format vidéo | Video format | Auto; HEVC; H.264; AV1 |
+| Format vidéo | Video format | Auto; HEVC; H.264; AV1; PyroWave (only if the computer offers it; see “PyroWave”) |
 | Texte net (4:4:4) | Sharp text (4:4:4) | help: « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactive with HDR on, help: « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
 | HDR | HDR | only on an HDR screen; help: « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.”; inactive with the reasons of the “HDR” section |
 | Débit | Bitrate | Auto; “80 Mbit/s” |
@@ -471,12 +485,52 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Son | Sound | Auto; Stéréo / Stereo; 5.1; 7.1; Sur l'ordinateur / On the computer |
 | Manette vue par l'ordinateur | Controller seen by the computer | Xbox 360; Fidèle / As is |
 | Souris | Mouse | Auto; Souris du bureau / Desktop mouse; Souris des jeux / Game mouse |
+| Mode immersif | Immersive mode | En plein écran / In full screen; Toujours / Always; Jamais / Never (see “Immersive mode”) |
 | Ctrl agit comme ⌘ | Ctrl acts as ⌘ | only with a Mac Station, on by default (see “With a Mac Station”) |
 | Presse-papiers partagé | Shared clipboard | |
 | Vibrations | Rumble | |
 | Transport de l'image | Picture transport | Rapide / Fast; Fiable / Reliable; help: « Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai. » / “Fast suits your home network and gaming. Reliable resends what gets lost, at the cost of a little delay.” |
 | Reconnexion automatique | Reconnect automatically | |
 | Réveil par le réseau | Wake on LAN | « Prêt » / “Ready” with the MAC address learnt from the Station, or « Pas encore d'adresse : connectez-vous une fois à cet ordinateur. » / “No address yet: connect to this computer once.”; help: « Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système). » / “Turns the computer on remotely when it is asleep. It must also be allowed on the computer (Admin › System).” |
+
+## PyroWave
+
+Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “Video format”, under its own name, in every app that decodes it; mock-ups: https://claude.ai/artifact/9mTTKtn4zLc2zaERtpcDf1.
+
+- **Auto** picks it only when the device is connected by cable (Ethernet), on the same network as the computer, and the computer offers it; otherwise HEVC as today. On Wi-Fi and through the relay, it must be chosen by hand.
+- **Apple apps** (Mac, Apple TV, iPhone, iPad): “Auto” is a profile there (Game, Desktop, Max); “Video format” shows “Auto” and “PyroWave” only when the computer knows PyroWave, “Auto” checked when a profile is active; picking it from “Custom” brings back Game ([pyrowave-client-apple.en.md](pyrowave-client-apple.en.md)).
+- **Bitrate too high** for the computer's ceiling or the measured bitrate: the app lowers the resolution (then the refresh rate), never sharpness, and says so.
+- **Through the relay**: allowed, warning only, no bitrate cap at the relay.
+- A lost frame is skipped; Statistics add “Lost frames”.
+- **Web client** ([pyrowave-client-web.en.md](pyrowave-client-web.en.md)): a browser can't tell whether it is connected by cable, so **Auto never picks PyroWave**; Auto's help says so when the computer offers it. Picked by hand, it is always warned: the “unknown network” text (below, instead of the Wi-Fi one, which would claim a Wi-Fi the browser can't see), or the relay one. Start banner with “Switch to {format}” (Auto's format: HEVC, or H.264 if this browser doesn't decode HEVC). Amber chip only through the relay: on an unknown network, nothing says there is a problem. Inactive value (“PyroWave” greyed out, its reason in the help and on hover); a PyroWave choice that is no longer offered is kept, “Auto” checked applies. For the host only (a guest, a friend: Auto's format). “PyroWave decoding” joins the Statistics, with “Lost frames”.
+
+| Where | English |
+|---|---|
+| “Video format” help, PyroWave chosen | “Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable.” |
+| “Video format” help, Auto, by cable | “Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.” |
+| “Video format” help, Auto, no cable (computer offers it) | “Auto: HEVC. PyroWave is only used when this device is connected by cable.” |
+| Warning under the choice, Wi-Fi | “On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
+| Warning under the choice, relay | “Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.” |
+| Banner at session start (Wi-Fi or relay, PyroWave chosen; goes after 8 s or on the cross) | title “PyroWave on Wi-Fi” / “PyroWave away from home”; “The picture may stutter.”; button “Switch to HEVC” (restarts the picture in HEVC, for this session only) |
+| Resolution lowered (banner, and Statistics) | “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” |
+| Session bar, PyroWave on Wi-Fi or via the relay | amber chip “PyroWave on Wi-Fi” / “PyroWave away from home”; the format says “PyroWave” |
+| Statistics, extra line | “Lost frames” “0.8%” |
+| Sharp text (4:4:4) with PyroWave | help: “With PyroWave, almost free: only the bitrate goes up.” |
+| Inactive value | “{name} doesn't offer PyroWave.”; “{this device} can't decode PyroWave.” |
+| Inactive value, Raspberry Pi ([pyrowave-client-pi.en.md](pyrowave-client-pi.en.md)) | Pi 4, 3, Zero 2 W: “This Raspberry Pi can't decode PyroWave: it takes a Raspberry Pi 5.”; Pi 5 on Raspberry Pi OS: “This Raspberry Pi can't decode PyroWave: it needs an up-to-date Raspberry Pi OS “Trixie”.”; Pi 5 on KyberNow Link OS: “This Raspberry Pi can't decode PyroWave.” |
+| Label of the value, and the Pi's “This device” card | “graphics card” (on the Pi too: PyroWave goes through V3D, not the Pi's decoder); line “PyroWave by the graphics card” |
+| Web client, Auto help (computer offers it), after the format's | “Pick PyroWave yourself: a browser can't tell whether this device is connected by cable.” |
+| Web client, warning under the choice, unknown network (**proposed**, instead of the Wi-Fi one) | “This browser can't tell whether you're connected by cable. Without an Ethernet cable, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
+| Web client, start banner, unknown network (**proposed**) | title “PyroWave, unknown network”; “Without an Ethernet cable, the picture may stutter.”; button “Switch to {format}” |
+| Web client, after “Switch to {format}” | “Picture restarted in {format} for this session.” |
+| Web client, session Statistics, extra line | “PyroWave decoding” “4.1 ms” |
+| Web client, “This browser” (Settings' Statistics section) | “PyroWave decoded by the graphics card (WebGPU)”; “PyroWave: not in this browser” |
+| Admin, “PyroWave” card (Picture and sound) | title “PyroWave”, subtitle “An almost delay-free picture, for devices connected by cable.”; chip “Ready · {GPU}” or “Unavailable”; switch “Offer PyroWave”, help “Your devices can pick it in “Video format”. On “Auto”, they use it by themselves when connected to your network by cable.” |
+| Admin, “Maximum bitrate” | Auto; 300; 500; 800 Mbit/s; Auto help: “Auto: based on this computer's network port, here {n} Mbit/s. Above that, your devices lower the resolution rather than sharpness.” |
+| Admin, card warning | “PyroWave compresses little: it sends 5 to 10 times more data than HEVC. On Wi-Fi or away from home, the picture may stutter; your devices warn you first.” |
+| Admin, unavailable (first that applies) | “The graphics driver doesn't provide Vulkan 1.3. Update it, then restart the Station.”; “This graphics card can't run PyroWave.”; “PyroWave starts with the Station: restart it to try it.”; “PyroWave couldn't start: {error}.” |
+| Admin, Mac Station (Apple chip, Metal encoder) | chip “Ready · {chip}” (“Ready · Apple M4 Max”); unavailable (`reason: "metal"`), instead of the first two: “This Mac's chip can't run PyroWave.” (a chip older than the Apple7 family: no Apple silicon Mac, so in practice never), then the last two as on Windows; “Maximum bitrate” on Auto: the Mac's port (Ethernet, or the Wi-Fi rate) |
+| Admin, current sessions | the “PyroWave” format and bitrate; “Ethernet” or “Wi-Fi” chip; “resolution lowered” when it is |
 
 ## Statistics
 

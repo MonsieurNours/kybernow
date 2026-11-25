@@ -183,5 +183,8 @@
   },
   "session": {
     "gamepads_unavailable": "Controllers unavailable on this computer."
+  },
+  "pyrowave": {
+    "banner_text": "The picture may stutter."
   }
 }

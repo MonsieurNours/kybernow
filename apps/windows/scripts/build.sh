@@ -5,6 +5,11 @@
 #   apps/windows/scripts/build.sh                 x64 (x86_64-pc-windows-gnu)
 #   apps/windows/scripts/build.sh --arch arm64    ARM64 (aarch64-pc-windows-gnullvm)
 #   apps/windows/scripts/build.sh --debug         sans optimisation
+#   apps/windows/scripts/build.sh --kyber-pyrowave
+#                                                 Kyber demande PyroWave
+#                                                 (correctif kyclient 0025 et
+#                                                 fonctionnalité pyrowave du
+#                                                 cœur, comme Android et Apple)
 #
 # Prérequis (docs/build-notes.md) : third_party/ en place, les correctifs
 # client appliqués par ce script ; pour x64, third_party/rootfs-win64 (FFmpeg,
@@ -31,10 +36,12 @@ KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
 
 PROFILE=release
 ARCH=x64
+KYBER_PYROWAVE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --debug) PROFILE=debug ;;
         --arch) ARCH="${2:-}"; shift ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift
@@ -90,8 +97,12 @@ kyber_toolchain_check rustc cargo-c
 
 # Correctifs client de KyberNow (paquets vers l'app, presse-papiers, tampon de
 # réception), les mêmes que pour les apps Apple.
+# Le correctif kyclient de PyroWave (0025) seulement avec --kyber-pyrowave :
+# third_party/ est partagé par toutes les apps, et le cœur sans sa
+# fonctionnalité `pyrowave` ne compile pas contre lui (`fallback_codec`).
 for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;
@@ -163,12 +174,22 @@ rm -f "$CLIENT_KYNPUT/bin/kynput.dll"
     --prefix="$CLIENT_KYNPUT" --target-dir "$STUBS/kynput-build" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; })
 [ -f "$CLIENT_KYNPUT/bin/kynput.dll" ] || { echo "kynput.dll n'a pas été produite" >&2; exit 1; }
 
+# PyroWave (docs/pyrowave-client-windows.md) : libpyrowave-shared-1.dll,
+# recompilée si absente ou d'un autre commit que apps/macos/PyroWave/COMMIT.
+# L'app l'ouvre elle-même au lancement (sans elle, ni sans le Vulkan du
+# pilote, PyroWave est indisponible et rien d'autre ne change).
+PYROWAVE_DLL="$STUBS/pyrowave/libpyrowave-shared-1.dll"
+if [ ! -f "$PYROWAVE_DLL" ] || [ "$(cat "$STUBS/pyrowave/COMMIT" 2>/dev/null)" != "$(tr -d ' \n' < "$APPS/macos/PyroWave/COMMIT")" ]; then
+    "$HERE/scripts/build-pyrowave.sh" --arch "$ARCH"
+fi
+
 # Interface (Svelte), embarquée dans l'exécutable par Tauri.
 echo "==> Interface (ui/)"
 (cd "$HERE/ui" && npm ci --silent && npm run build --silent)
 
 cargo_flags=(--target "$TARGET" -p kybernow-windows)
 [ "$PROFILE" = release ] && cargo_flags+=(--release)
+[ "$KYBER_PYROWAVE" = 1 ] && cargo_flags+=(--features kyber-pyrowave)
 echo "==> cargo build ($ARCH, $PROFILE)"
 (cd "$APPS" && cargo build "${cargo_flags[@]}" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; })
 
@@ -178,7 +199,7 @@ EXE="${CARGO_TARGET_DIR:-$APPS/target}/$TARGET/$PROFILE/kybernow.exe"
 echo "==> $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST"
-cp "$CLIENT_KYNPUT/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
+cp "$CLIENT_KYNPUT/bin/kynput.dll" "$SDL2_DLL" "$PYROWAVE_DLL" "$DIST/"
 # Icône des notifications de Windows (inscrite par l'app au lancement).
 cp "$HERE/resources/kybernow.png" "$DIST/"
 # Chargeur de WebView2 (l'interface), celui de la version de webview2-com-sys
@@ -196,7 +217,7 @@ if "$OBJDUMP" -p "$DIST/kybernow.exe" | grep -qi "DLL Name: libvlc"; then
 fi
 # Runtime de la chaîne (MinGW, libunwind et libc++ de llvm-mingw) demandé par
 # l'exécutable ou les DLL.
-for dll in $("$OBJDUMP" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" "$DIST/SDL2.dll" | awk '/DLL Name:/ {print $3}' | sort -u); do
+for dll in $("$OBJDUMP" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" "$DIST/SDL2.dll" "$DIST/libpyrowave-shared-1.dll" | awk '/DLL Name:/ {print $3}' | sort -u); do
     for dir in "${RUNTIME_DIRS[@]}"; do
         if [ -f "$dir/$dll" ]; then cp "$dir/$dll" "$DIST/"; break; fi
     done

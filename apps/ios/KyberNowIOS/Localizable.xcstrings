@@ -241,6 +241,22 @@
         }
       }
     },
+    "%@ ne propose pas PyroWave." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ doesn't offer PyroWave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas PyroWave."
+          }
+        }
+      }
+    },
     "%@ ne répond pas encore" : {
       "localizations" : {
         "en" : {
@@ -1921,6 +1937,38 @@
         }
       }
     },
+    "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: HEVC. PyroWave is only used when this device is connected by cable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble."
+          }
+        }
+      }
+    },
+    "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: PyroWave, because this device is connected by cable. Otherwise HEVC."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC."
+          }
+        }
+      }
+    },
     "Auto : la langue de l'iPad ; pour KyberNow Link seulement." : {
       "localizations" : {
         "en" : {
@@ -2013,6 +2061,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Automatique"
+          }
+        }
+      }
+    },
+    "Avec PyroWave, presque sans coût : seul le débit monte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With PyroWave, almost free: only the bitrate goes up."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec PyroWave, presque sans coût : seul le débit monte."
           }
         }
       }
@@ -2529,6 +2593,22 @@
         }
       }
     },
+    "Cet iPad ne sait pas décoder PyroWave." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This iPad can't decode PyroWave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet iPad ne sait pas décoder PyroWave."
+          }
+        }
+      }
+    },
     "Cet iPhone" : {
       "localizations" : {
         "en" : {
@@ -2589,6 +2669,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cet iPhone ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0."
+          }
+        }
+      }
+    },
+    "Cet iPhone ne sait pas décoder PyroWave." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This iPhone can't decode PyroWave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet iPhone ne sait pas décoder PyroWave."
           }
         }
       }
@@ -4065,6 +4161,22 @@
         }
       }
     },
+    "Définition ramenée à %@ pour tenir dans %lld Mbit/s." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolution lowered to %@ to fit in %lld Mbit/s."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Définition ramenée à %@ pour tenir dans %lld Mbit/s."
+          }
+        }
+      }
+    },
     "Déjà sur cet iPad" : {
       "localizations" : {
         "en" : {
@@ -4205,6 +4317,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En Wi-Fi, %lld à %lld Mbit/s suffisent pour cet écran à %lld Hz."
+          }
+        }
+      }
+    },
+    "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr."
           }
         }
       }
@@ -4883,6 +5011,22 @@
         }
       }
     },
+    "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr."
+          }
+        }
+      }
+    },
     "Hors de chez vous, l'app ne peut ni redémarrer ni mettre à jour la Station." : {
       "localizations" : {
         "en" : {
@@ -5135,6 +5279,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Images par seconde"
+          }
+        }
+      }
+    },
+    "Images perdues" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lost frames"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images perdues"
           }
         }
       }
@@ -5583,6 +5743,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L'image passe sur l'écran externe"
+          }
+        }
+      }
+    },
+    "L'image peut saccader." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The picture may stutter."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'image peut saccader."
           }
         }
       }
@@ -7715,6 +7891,22 @@
         }
       }
     },
+    "Passer en HEVC" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to HEVC"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passer en HEVC"
+          }
+        }
+      }
+    },
     "Pavé" : {
       "localizations" : {
         "en" : {
@@ -8067,6 +8259,22 @@
         }
       }
     },
+    "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet."
+          }
+        }
+      }
+    },
     "Presse-papiers partagé" : {
       "localizations" : {
         "en" : {
@@ -8271,6 +8479,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Publié par « %@ »"
+          }
+        }
+      }
+    },
+    "PyroWave en Wi-Fi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave on Wi-Fi"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave en Wi-Fi"
+          }
+        }
+      }
+    },
+    "PyroWave hors de chez vous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave away from home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave hors de chez vous"
           }
         }
       }
@@ -12816,6 +13056,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se déconnecter"
+          }
+        }
+      }
+    },
+    "En plein écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In full screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En plein écran"
+          }
+        }
+      }
+    },
+    "Toujours" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toujours"
+          }
+        }
+      }
+    },
+    "Jamais" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Never"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jamais"
           }
         }
       }

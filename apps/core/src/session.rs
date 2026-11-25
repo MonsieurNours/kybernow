@@ -23,7 +23,7 @@
 //! et les demandes de l'app lui arrivent par un canal.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::thread::JoinHandle;
@@ -454,6 +454,13 @@ pub enum Notice {
     /// ([`crate::profile::hdr_refused_text`]) : Windows a refusé le HDR d'un
     /// écran virtuel ; une fois par session.
     HdrRefused,
+    /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : la définition
+    /// demandée à l'ordinateur est ramenée pour tenir dans le plafond de
+    /// débit (`Some` : bandeau « Définition ramenée à {l} × {h} pour tenir
+    /// dans {n} Mbit/s. », [`crate::pyrowave::Lowered::text`]), ou revenue à
+    /// celle de l'appareil (`None` : bandeau retiré). Aussi dans
+    /// [`Second::lowered`] (Statistiques).
+    ResolutionLowered { lowered: Option<crate::pyrowave::Lowered> },
 }
 
 /// Multi-écrans : un écran de l'ordinateur pris par la session, et l'écran
@@ -690,6 +697,8 @@ enum Msg {
     Settings(StreamSettings),
     /// Plafond de débit (fenêtre occultée) ; `None` : plus de plafond.
     BitrateCap(Option<u32>),
+    /// PyroWave : le débit du lien a changé ([`Session::set_link_mbps`]).
+    LinkMbps,
     /// Taille des images décodées par l'app.
     DecodedSize(u32, u32),
     /// Écran choisi dans la barre.
@@ -1113,6 +1122,44 @@ fn targets(plan: &[PlannedScreen], prepared: &Prepared) -> Vec<(usize, ScreenMod
     if out.iter().any(|(_, m)| m.primary) { out } else { Vec::new() }
 }
 
+/// PyroWave (docs/pyrowave.md) : le mode et le plan demandés à la Station,
+/// ramenés pour tenir dans `ceiling` Mbit/s ([`crate::pyrowave::fit`]) ;
+/// `None` s'ils y tiennent. Plusieurs écrans : la même échelle pour tous
+/// (celle de l'écran principal), positions comprises, pour que les écrans
+/// restent bord à bord ; `mode` devient celui du premier écran du plan.
+fn pyrowave_request(mode: Mode, plan: &[PlannedScreen], yuv444: bool, ceiling: u32) -> Option<(Mode, Vec<PlannedScreen>, crate::pyrowave::Lowered)> {
+    if plan.is_empty() {
+        let (modes, lowered) = crate::pyrowave::lowered(&[mode], 0, yuv444, ceiling)?;
+        return Some((modes[0], Vec::new(), lowered));
+    }
+    let primary = plan.iter().position(|p| p.primary).unwrap_or(0);
+    let modes: Vec<Mode> = plan.iter().map(|p| p.mode).collect();
+    let (fitted, lowered) = crate::pyrowave::lowered(&modes, primary, yuv444, ceiling)?;
+    let (from, to) = (plan[primary].mode, fitted[primary]);
+    let kx = f64::from(to.width) / f64::from(from.width.max(1));
+    let ky = f64::from(to.height) / f64::from(from.height.max(1));
+    let lowered_plan: Vec<PlannedScreen> = plan
+        .iter()
+        .zip(&fitted)
+        .map(|(p, m)| PlannedScreen { mode: *m, x: (f64::from(p.x) * kx).round() as i32, y: (f64::from(p.y) * ky).round() as i32, ..*p })
+        .collect();
+    Some((lowered_plan[0].mode, lowered_plan, lowered))
+}
+
+/// PyroWave : le débit de la session d'après celui du profil `b` (bit/s) :
+/// un profil reçoit au moins `needed` (Mbit/s), et rien ne dépasse
+/// `ceiling` (Mbit/s).
+fn pyrowave_session_bitrate(b: u32, profile: bool, needed: u32, ceiling: Option<u32>) -> u32 {
+    let mut b = b;
+    if profile {
+        b = b.max(needed.saturating_mul(1_000_000));
+    }
+    if let Some(cap) = ceiling {
+        b = b.min(cap.saturating_mul(1_000_000));
+    }
+    b
+}
+
 /// Multi-écrans : chaque écran en place retrouvé dans la liste de Kyber par
 /// sa position et sa taille (à défaut, par sa taille seule si un seul écran
 /// libre l'a), principal en premier ; ceux qui n'y sont pas encore manquent.
@@ -1283,6 +1330,8 @@ pub struct Session {
     thread: Mutex<Option<JoinHandle<()>>>,
     focus: Arc<FocusState>,
     hdr_used: Arc<AtomicBool>,
+    /// PyroWave : débit du lien donné par l'app, en Mbit/s (0 : inconnu).
+    link_mbps: Arc<AtomicU32>,
 }
 
 impl Session {
@@ -1313,6 +1362,7 @@ impl Session {
         let focus = FocusState::new();
         let worker = Worker::new(params, screens, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone(), focus.clone());
         let hdr_used = worker.hdr_used.clone();
+        let link_mbps = worker.link_mbps.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
         let thread = std::thread::Builder::new()
@@ -1338,6 +1388,7 @@ impl Session {
             thread: Mutex::new(Some(thread)),
             focus,
             hdr_used,
+            link_mbps,
         })
     }
 
@@ -1487,6 +1538,21 @@ impl Session {
     /// Plafond de débit le temps que la fenêtre est occultée ; `None` le retire.
     pub fn set_bitrate_cap(&self, cap: Option<u32>) {
         self.send(Msg::BitrateCap(cap));
+    }
+
+    /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit que
+    /// l'app sait tenir vers l'ordinateur, en Mbit/s (`None` : inconnu) —
+    /// vitesse du lien (Ethernet, Wi-Fi), ou débit mesuré. Une valeur stable :
+    /// chaque changement qui change la définition refait l'écran virtuel.
+    /// Donné de préférence juste après [`Self::start`] (lu au premier
+    /// `prepare`) ; ensuite, la définition suit si elle doit changer. Il
+    /// entre dans le plafond avec le « Débit maximal » de la Station et le
+    /// débit réglé à la main ; sans effet hors PyroWave.
+    pub fn set_link_mbps(&self, mbps: Option<u32>) {
+        let v = mbps.unwrap_or(0);
+        if self.link_mbps.swap(v, Ordering::Relaxed) != v {
+            self.send(Msg::LinkMbps);
+        }
     }
 
     /// L'app a figé l'image (arrière-plan, fenêtre cachée) : aucune image
@@ -1695,6 +1761,19 @@ struct Worker {
     /// HDR (docs/hdr.md) : ce que la Station annonce (`GET /api/stream/info`,
     /// lu au début d'une session d'hôte quand un écran de l'appareil est HDR).
     station_hdr: Option<crate::console::HdrInfo>,
+    /// PyroWave (docs/pyrowave.md) : la Station le propose (`info.pyrowave.available`,
+    /// lu au début d'une session d'hôte quand il peut servir).
+    station_pyrowave: bool,
+    /// PyroWave : « Débit maximal » de la Station (`info.pyrowave.max_mbps`).
+    station_pyrowave_max: Option<u32>,
+    /// PyroWave : débit du lien donné par l'app (0 : inconnu), partagé avec
+    /// [`Session`].
+    link_mbps: Arc<AtomicU32>,
+    /// PyroWave : la définition ramenée en place (docs/pyrowave.md).
+    lowered: Option<crate::pyrowave::Lowered>,
+    /// Une adaptation pour la définition ramenée est en cours : pas d'avis
+    /// « Écran virtuel » à sa fin (l'avis de la définition suffit).
+    refitting: bool,
     /// HDR obtenu de la Station, par écran de l'appareil (index dans
     /// [`Screens::list`], 0 pour une session à un écran), et les valeurs HDR
     /// données avec lui.
@@ -1879,6 +1958,11 @@ impl Worker {
             giving_back: false,
             guest,
             station_hdr: None,
+            station_pyrowave: false,
+            station_pyrowave_max: None,
+            link_mbps: Arc::new(AtomicU32::new(0)),
+            lowered: None,
+            refitting: false,
             hdr_obtained: Vec::new(),
             hdr_luminance: Vec::new(),
             stream_hdr: Vec::new(),
@@ -2173,6 +2257,8 @@ impl Worker {
         next.station_restarted = true;
         next.hdr_used = self.hdr_used.clone();
         next.hdr_noticed = self.hdr_noticed;
+        next.link_mbps = self.link_mbps.clone();
+        next.lowered = self.lowered;
         *self = next;
     }
 
@@ -2194,6 +2280,15 @@ impl Worker {
     /// `screens` ; `mode` est sinon celui du principal). Un plan d'un seul
     /// écran (les autres retirés en session) part avec `screens` à une entrée.
     fn prepare_request_with(&self, mode: Mode, mode_policy: Option<&str>, plan: &[PlannedScreen]) -> PrepareRequest {
+        // PyroWave : la définition ramenée pour tenir dans le plafond.
+        let lowered = self.pyrowave_lowering(mode, plan);
+        let (mode, plan) = match &lowered {
+            Some((m, p, l)) => {
+                info!("PyroWave : définition demandée ramenée à {}×{} à {} Hz pour tenir dans {} Mbit/s", l.width, l.height, l.refresh, l.mbps);
+                (*m, if plan.is_empty() { plan } else { p.as_slice() })
+            }
+            None => (mode, plan),
+        };
         let p = &self.params;
         // Un seul verrou : le prendre deux fois dans la même expression bloquait le fil.
         let (label, policy) = self.profile_label.lock().unwrap().clone();
@@ -2245,11 +2340,16 @@ impl Worker {
         // HDR : les écrans dans l'ordre de la demande (avant qu'une Station à
         // un écran ne ramène la session à « Cet écran »).
         let hdr_order = self.session_screens();
+        // PyroWave : la définition ramenée qui vient d'être demandée (la
+        // même règle que `prepare_request_with`) ; sans écran virtuel, la
+        // Station n'en tient pas compte.
+        let lowering = if prepared.virtual_display { self.pyrowave_lowering(self.requested, &self.plan) } else { None };
         if let Some(m) = prepared.applied {
             self.stream_mode = m;
         } else {
-            self.stream_mode = self.requested;
+            self.stream_mode = lowering.as_ref().map_or(self.requested, |l| l.0);
         }
+        self.set_lowered(lowering.map(|l| l.2));
         self.platform.on_mode(self.stream_mode, prepared.virtual_display);
         // Préparée sans écran virtuel (pilote absent, déclenchement coupé) ou
         // sans `screens` (Station à un écran) : un seul écran, « Cet écran »,
@@ -2438,21 +2538,31 @@ impl Worker {
         }
     }
 
-    /// Lit ce que la Station annonce du HDR, au début d'une session d'hôte
-    /// dont un écran de l'appareil est HDR (sinon rien à demander).
+    /// Lit ce que la Station annonce du HDR et de PyroWave, au début d'une
+    /// session d'hôte dont un écran de l'appareil est HDR, ou qui pourrait
+    /// prendre PyroWave (choisi, ou « Auto » par câble) ; sinon rien à demander.
     fn read_station_hdr(&mut self, console: &Arc<Console>) -> Result<(), Failure> {
         let any_hdr = match &self.screens {
             Some(s) => s.list.iter().any(|d| d.hdr),
             None => self.params.screen_hdr,
         };
-        if !any_hdr {
+        let s = &self.params.settings;
+        let pyrowave = crate::profile::PYROWAVE_KYBER
+            && self.guest.is_none()
+            && self.capabilities().is_some_and(|c| c.pyrowave)
+            && (s.codec == Codec::PyroWave || (s.profile.is_some() && s.wired));
+        if !any_hdr && !pyrowave {
             return Ok(());
         }
         let c = console.clone();
         match self.step("HDR de la Station", INFO_WITHIN + STEP_MARGIN, move || c.info()) {
             Ok(Ok(i)) => {
-                info!("HDR de la Station : {:?}", i.hdr);
-                self.station_hdr = i.hdr;
+                info!("HDR de la Station : {:?} ; PyroWave : {:?}", i.hdr, i.pyrowave);
+                self.station_pyrowave = i.pyrowave_offered();
+                self.station_pyrowave_max = i.pyrowave.as_ref().and_then(|p| p.max_mbps);
+                if any_hdr {
+                    self.station_hdr = i.hdr;
+                }
             }
             Ok(Err(e)) => warn!("HDR : annonce de la Station illisible ({e}) : SDR"),
             Err(Cut::Late(_)) => warn!("HDR : annonce de la Station sans réponse : SDR"),
@@ -3320,6 +3430,10 @@ impl Worker {
     /// Réglages du flux en cours : ceux de la session, moins le repli.
     fn effective(&self) -> StreamSettings {
         let mut s = self.params.settings.clone();
+        if self.guest.is_none() {
+            let caps = self.capabilities().unwrap_or_default();
+            s = crate::profile::pyrowave_format(&s, caps, self.station_pyrowave, self.relay_tunnel.is_some());
+        }
         if self.fallback >= 2 {
             s.yuv444 = false;
         }
@@ -3332,26 +3446,28 @@ impl Worker {
     /// Débit du profil pour le flux en cours : sur la somme des pixels par
     /// seconde des écrans quand il y en a plusieurs.
     fn profile_bitrate(&self) -> u32 {
+        // Format effectif : PyroWave a son propre débit de base.
+        let settings = self.effective();
         if self.streams.len() > 1 {
             let rate: f64 = self
                 .streams
                 .iter()
                 .map(|s| f64::from(s.display.width.max(0)) * f64::from(s.display.height.max(0)) * f64::from(s.refresh.max(1)))
                 .sum();
-            return self.params.settings.bitrate_for_pixel_rate(rate);
+            return settings.bitrate_for_pixel_rate(rate);
         }
         // Un invité sur son image à part : le débit de cette image.
         if self.own_image()
             && let Some((w, h, f)) = self.share_image.as_ref().and_then(ShareImage::size)
         {
-            return self.params.settings.bitrate(w, h, f);
+            return settings.bitrate(w, h, f);
         }
         let m = self.stream_mode;
-        self.params.settings.bitrate(m.width, m.height, m.refresh)
+        settings.bitrate(m.width, m.height, m.refresh)
     }
 
     fn effective_bitrate(&self) -> u32 {
-        let mut b = self.profile_bitrate();
+        let mut b = self.pyrowave_bitrate(self.profile_bitrate());
         if self.fallback >= 1 {
             if let Some(cap) = self.params.recovery.fallback_bitrate {
                 b = b.min(cap);
@@ -3361,6 +3477,88 @@ impl Worker {
             b = b.min(cap);
         }
         b
+    }
+
+    /// PyroWave (docs/pyrowave.md) : un profil reçoit au moins le débit
+    /// dont l'image a besoin ([`crate::pyrowave::needed_mbps`], netteté
+    /// pleine), jamais plus que le plafond de la session : la définition a
+    /// été ramenée pour y tenir. Inchangé hors PyroWave.
+    fn pyrowave_bitrate(&self, b: u32) -> u32 {
+        let s = self.effective();
+        if s.codec != Codec::PyroWave || self.guest.is_some() {
+            return b;
+        }
+        let modes: Vec<Mode> = if self.streams.len() > 1 {
+            self.streams
+                .iter()
+                .map(|st| Mode { width: st.display.width.max(0) as u32, height: st.display.height.max(0) as u32, refresh: st.refresh })
+                .collect()
+        } else {
+            vec![self.stream_mode]
+        };
+        pyrowave_session_bitrate(b, s.profile.is_some(), crate::pyrowave::needed_mbps(&modes, s.yuv444), self.pyrowave_ceiling())
+    }
+
+    /// Le plafond PyroWave de la session, en Mbit/s
+    /// ([`crate::pyrowave::ceiling`]) : « Débit maximal » de la Station, débit
+    /// du lien donné par l'app, débit réglé à la main (format sans profil).
+    /// `None` hors PyroWave, pour un invité ou un emprunt, ou sans plafond connu.
+    fn pyrowave_ceiling(&self) -> Option<u32> {
+        if self.guest.is_some() || self.borrow.is_some() {
+            return None;
+        }
+        let s = self.effective();
+        if s.codec != Codec::PyroWave {
+            return None;
+        }
+        let link = self.link_mbps.load(Ordering::Relaxed);
+        crate::pyrowave::ceiling(self.station_pyrowave_max, (link > 0).then_some(link), s.profile.is_none().then_some(s.mbps))
+    }
+
+    /// PyroWave : le mode et le plan à demander à la Station pour `mode` et
+    /// `plan` (ceux de l'appareil), ramenés pour tenir dans le plafond ;
+    /// `None` s'ils y tiennent, hors PyroWave ou sans écran virtuel.
+    fn pyrowave_lowering(&self, mode: Mode, plan: &[PlannedScreen]) -> Option<(Mode, Vec<PlannedScreen>, crate::pyrowave::Lowered)> {
+        if !self.params.virtual_display {
+            return None;
+        }
+        let ceiling = self.pyrowave_ceiling()?;
+        pyrowave_request(mode, plan, self.effective().yuv444, ceiling)
+    }
+
+    /// La définition ramenée en place : l'avis aux apps quand elle change.
+    fn set_lowered(&mut self, lowered: Option<crate::pyrowave::Lowered>) {
+        if self.lowered != lowered {
+            self.lowered = lowered;
+            self.notice(Notice::ResolutionLowered { lowered });
+        }
+    }
+
+    /// PyroWave : le plafond ou le format a changé. Si la définition à
+    /// demander n'est plus celle en place, l'écran virtuel est refait
+    /// (comme une adaptation, ou la session refaite à plusieurs écrans) ;
+    /// `true` dans ce cas. Si seul le plafond change, l'avis le dit.
+    fn refit_pyrowave(&mut self) -> bool {
+        if self.guest.is_some() || self.borrow.is_some() || self.pyrowave_ceiling().is_none() && self.lowered.is_none() {
+            return false;
+        }
+        if !self.host_only(HostOnly::Adapt) || self.streaming.is_none() || self.adapting || !self.virtual_display() {
+            return false;
+        }
+        let want = self.pyrowave_lowering(self.requested, &self.plan).map(|l| l.2);
+        let dims = |l: Option<crate::pyrowave::Lowered>| l.map(|l| (l.width, l.height, l.refresh));
+        if dims(want) == dims(self.lowered) {
+            self.set_lowered(want);
+            return false;
+        }
+        info!("PyroWave : plafond ou format changé, définition redemandée ({:?} → {:?})", dims(self.lowered), dims(want));
+        self.refitting = true;
+        if self.plan.is_empty() {
+            self.readapt(self.requested, false);
+        } else {
+            self.replan(false);
+        }
+        true
     }
 
     fn apply_bitrate(&self) {
@@ -3418,6 +3616,11 @@ impl Worker {
                     let restart = before.codec != after.codec || before.yuv444 != after.yuv444 || before.reliable != after.reliable;
                     info!("profil : {} ({})", s.label(), if restart { "flux relancé" } else { "débit seul" });
                     self.refresh_restore_offer();
+                    // PyroWave : un autre format ou débit peut changer la
+                    // définition ramenée (l'écran virtuel est alors refait).
+                    if self.refit_pyrowave() {
+                        continue;
+                    }
                     if self.streaming.is_some() {
                         if restart {
                             self.restart_streaming(Duration::from_millis(300));
@@ -3429,6 +3632,11 @@ impl Worker {
                 Ok(Msg::BitrateCap(cap)) => {
                     self.bitrate_cap = cap;
                     self.apply_bitrate();
+                }
+                Ok(Msg::LinkMbps) => {
+                    if !self.refit_pyrowave() {
+                        self.apply_bitrate();
+                    }
                 }
                 Ok(Msg::DecodedSize(w, h)) => self.decoded(w, h),
                 Ok(Msg::PickDisplay(id)) => {
@@ -3550,6 +3758,7 @@ impl Worker {
                 next_second += Duration::from_secs(1);
                 let mut second = self.latency.drain();
                 second.hdr = self.streaming.is_some() && self.stream_hdr.iter().any(|h| *h);
+                second.lowered = self.lowered;
                 *self.last_latency.lock().unwrap() = second.latency_ms;
                 self.platform.on_latency(second.latency_ms);
                 self.platform.on_second(&second);
@@ -3875,6 +4084,12 @@ impl Worker {
     /// est refait à ce mode par la console (sur un fil d'appel), puis l'image
     /// repart dessus comme après une reconnexion.
     fn adapt(&mut self, mode: Mode) {
+        self.readapt(mode, true);
+    }
+
+    /// [`Self::adapt`] ; `announce` : l'avis « adaptation demandée » (pas
+    /// pour la définition ramenée de PyroWave, qui a le sien).
+    fn readapt(&mut self, mode: Mode, announce: bool) {
         if !self.host_only(HostOnly::Adapt) {
             return;
         }
@@ -3890,7 +4105,9 @@ impl Worker {
             "adaptation à l'écran de l'appareil : écran virtuel redemandé en {}×{} à {} Hz",
             mode.width, mode.height, mode.refresh
         );
-        self.notice(Notice::Adapting { width: mode.width, height: mode.height });
+        if announce {
+            self.notice(Notice::Adapting { width: mode.width, height: mode.height });
+        }
         self.stop_streaming();
         self.adapting = true;
         self.last_restore = Some(Instant::now());
@@ -3998,6 +4215,7 @@ impl Worker {
 
     fn adapted(&mut self, mode: Mode, screens: Option<(Screens, Vec<PlannedScreen>)>, result: Result<Prepared, String>) {
         self.adapting = false;
+        let refitting = std::mem::take(&mut self.refitting);
         match result {
             Ok(p) => {
                 let screens_changed = screens.is_some();
@@ -4023,7 +4241,7 @@ impl Worker {
                             return;
                         }
                     }
-                } else {
+                } else if !refitting {
                     let m = self.stream_mode;
                     self.pending_notice = Some(Notice::Adapted { width: m.width, height: m.height });
                 }
@@ -4470,6 +4688,12 @@ impl Worker {
                 VideoSessionConfig {
                     display_id: screen.display.id,
                     codec: s.codec.kyber(),
+                    // PyroWave : le format que la Station prend si elle ne le
+                    // propose plus (correctif 0025) ; l'app suit alors le
+                    // paquet de codec, comme toujours.
+                    #[cfg(feature = "pyrowave")]
+                    fallback_codec: (s.codec == Codec::PyroWave)
+                        .then(|| crate::profile::pyrowave_fallback(self.capabilities().unwrap_or_default()).kyber()),
                     yuv444: s.yuv444,
                     hdr,
                     intra_refresh: None,
@@ -4681,6 +4905,39 @@ impl Worker {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn pyrowave_definition_ramenee_demandee() {
+        let m = |width, height, refresh| Mode { width, height, refresh };
+        // Un écran : 4K60 4:2:0 dans 500 Mbit/s.
+        let (mode, plan, l) = pyrowave_request(m(3840, 2160, 60), &[], false, 500).unwrap();
+        assert!(plan.is_empty());
+        assert_eq!((mode.width, mode.height, mode.refresh), (l.width, l.height, 60));
+        assert!(crate::pyrowave::needed_mbps(&[mode], false) <= 500 && mode.height < 2160);
+        assert_eq!(pyrowave_request(m(3840, 2160, 60), &[], false, 800), None);
+        // Deux écrans bord à bord (4K principal à gauche, 1440p à droite) :
+        // même échelle, toujours bord à bord.
+        let plan = [
+            PlannedScreen { device: 0, mode: m(3840, 2160, 60), x: 0, y: 0, primary: true },
+            PlannedScreen { device: 1, mode: m(2560, 1440, 60), x: 3840, y: 360, primary: false },
+        ];
+        let (mode, lowered, l) = pyrowave_request(plan[0].mode, &plan, false, 700).unwrap();
+        assert_eq!(mode, lowered[0].mode);
+        assert_eq!((l.width, l.height), (lowered[0].mode.width, lowered[0].mode.height));
+        assert_eq!(lowered[1].x, lowered[0].mode.width as i32, "{lowered:?}");
+        assert!(crate::pyrowave::needed_mbps(&lowered.iter().map(|p| p.mode).collect::<Vec<_>>(), false) <= 700);
+        assert_eq!((lowered[1].device, lowered[1].primary), (1, false));
+    }
+
+    #[test]
+    fn pyrowave_debit_de_la_session() {
+        // Un profil : au moins le débit nécessaire, jamais plus que le plafond.
+        assert_eq!(pyrowave_session_bitrate(500_000_000, true, 600, None), 600_000_000);
+        assert_eq!(pyrowave_session_bitrate(500_000_000, true, 600, Some(550)), 550_000_000);
+        // Réglé à la main : gardé, sous le plafond.
+        assert_eq!(pyrowave_session_bitrate(300_000_000, false, 600, None), 300_000_000);
+        assert_eq!(pyrowave_session_bitrate(900_000_000, false, 600, Some(800)), 800_000_000);
+    }
 
     /// Une tentative qui a tout pour le dernier recours.
     fn eligible() -> Attempt {
@@ -5069,7 +5326,7 @@ mod tests {
     }
 
     fn worker(profile: crate::profile::Profile, screens: Screens) -> (Worker, Arc<Recorder>) {
-        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let params = SessionParams {
             console_host: "192.0.2.1".into(),
             console_port: 9443,
@@ -5105,7 +5362,7 @@ mod tests {
         screens.list[0].hdr = true;
         let (mut w, rec) = worker(crate::profile::Profile::Bureau, screens);
         w.params.settings.hdr = true;
-        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true });
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true, pyrowave: false });
         w.station_hdr = Some(crate::console::HdrInfo { available: true, reason: None });
         (w, rec)
     }
@@ -5132,7 +5389,7 @@ mod tests {
         assert!(w.stream_hdr_for(0, &s) && !w.stream_hdr_for(1, &s));
         assert!(rec.notices.lock().unwrap().is_empty());
         // Le profil reste Bureau : le HDR ne le fait pas passer en Personnalisé.
-        assert_eq!(crate::screens::screens_profile(&w.params.settings, Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true })), Some(crate::profile::Profile::Bureau));
+        assert_eq!(crate::screens::screens_profile(&w.params.settings, Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: true, pyrowave: false })), Some(crate::profile::Profile::Bureau));
     }
 
     #[test]
@@ -5245,7 +5502,7 @@ mod tests {
 
     #[test]
     fn hdr_de_l_invite_suit_son_ecran() {
-        let caps = crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true };
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true, pyrowave: false };
         let (mut w, _) = guest_with(joined(ShareRole::Spectator, Some("hevc"), Some("sha256:kk")), caps);
         let hevc = StreamSettings { codec: Codec::Hevc, yuv444: false, ..w.params.settings.clone() };
         assert!(!w.stream_hdr_for(0, &hevc), "écran SDR : image à part en SDR");
@@ -5268,7 +5525,7 @@ mod tests {
         assert!(!w.device_hdr(0));
         w.screens.as_mut().unwrap().list[0].hdr = true;
         w.params.settings.hdr = true;
-        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true });
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: false, av1: false, hdr: true, pyrowave: false });
         let s = w.effective();
         assert_eq!((s.codec, s.yuv444), (Codec::Hevc, false));
         // L'image suit le HDR que la Station a mis sur l'écran du prêt.
@@ -5479,7 +5736,7 @@ mod tests {
     fn borrower() -> (Worker, Arc<Recorder>) {
         let loan = crate::lend::Loan { target: share::ShareTarget { host: "127.0.0.1".into(), port: closed_port(), fingerprint: Some("sha256:ad".into()) }, borrowed: borrowed() };
         let device = DeviceInfo { id: "mac".into(), name: "Mac".into(), kind: "mac".into(), os: "macOS".into(), app: "test".into() };
-        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false });
+        let settings = StreamSettings::for_profile(crate::profile::Profile::Jeu, crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false });
         let mut params = SessionParams::borrower(&loan, device, settings, 2);
         params.recovery = Recovery { watch_image: true, fallback_bitrate: Some(20_000_000), restart_station: true };
         // Même demandé par l'app : jamais pour un emprunt.
@@ -5636,7 +5893,7 @@ mod tests {
     }
 
     fn guest(role: ShareRole) -> (Worker, Arc<Recorder>) {
-        guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false })
+        guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false })
     }
 
     fn beat(role: ShareRole) -> ShareBeat {
@@ -6082,8 +6339,8 @@ mod tests {
             (w.params.settings.codec, w.params.settings.yuv444)
         };
         use crate::profile::{Capabilities, Codec};
-        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false };
-        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false };
+        let hevc = Capabilities { hevc: true, hevc444: false, av1: false, hdr: false, pyrowave: false };
+        let hevc444 = Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false };
         let h264 = Capabilities::default();
         assert_eq!(pick("hevc", true, hevc444), (Codec::Hevc, true), "le format de l'hôte, tel quel");
         assert_eq!(pick("hevc", true, hevc), (Codec::Hevc, false), "sans son 4:4:4 : image à part en 4:2:0");

@@ -52,6 +52,15 @@
   const bitrate = $derived(curve(seconds.map((s) => s.mbps ?? 0), 10))
 
   const codec = $derived(stats?.decoder ?? '')
+  /**
+   * PyroWave (docs/link-ui.md « PyroWave ») : une image perdue est sautée ; « Images perdues » en part des images
+   * des 30 dernières secondes (« 0,8 % »), et « Définition ramenée » quand l'app l'a baissée pour le débit.
+   */
+  const pyro = $derived(codec.startsWith('PyroWave'))
+  const lostPct = $derived.by(() => {
+    const shown = sum((s) => s.fps ?? 0)
+    return lost + shown > 0 ? `${ms((lost * 100) / (lost + shown), 1)} %` : '—'
+  })
   const imageLine = $derived(
     stats
       ? (stats.screens > 1 ? `${t('stats.screens', { count: stats.screens })} · ` : '') +
@@ -130,6 +139,8 @@
       <dt>{t('stats.image')}</dt><dd>{imageLine}</dd>
       {#if measures}<dt>{t('stats.measures')}</dt><dd>{measures}</dd>{/if}
       {#if sound}<dt>{t('stats.sound')}</dt><dd>{sound}</dd>{/if}
+      {#if pyro}<dt>{t('pyrowave.lost_frames')}</dt><dd class="mono">{lostPct}</dd>{/if}
+      {#if pyro && stats.lowered}<dt>{t('stats.image')}</dt><dd>{t('pyrowave.lowered', { w: stats.lowered[0], h: stats.lowered[1], n: stats.lowered[2] })}</dd>{/if}
     </dl>
   {/if}
 </section>

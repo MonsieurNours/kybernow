@@ -137,8 +137,12 @@ cargo_quiet() {
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP).
 # Puis ceux de webOS (apps/webos/kyber-patches : kynput en client seul).
+# Jamais le correctif kyclient de PyroWave (0025) : les téléviseurs LG n'ont
+# pas PyroWave (docs/pyrowave.md), et le cœur ne compile pas avec lui sans sa
+# fonctionnalité pyrowave.
 for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE"/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) continue ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;

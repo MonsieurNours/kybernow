@@ -14,6 +14,12 @@
 # standard recompilée (-Zbuild-std), comme le fait build-ios.sh de Kyber.
 #   rustup toolchain install nightly --profile minimal --component rust-src
 #
+# Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
+# `fallback_codec`) n'est posé qu'avec --kyber-pyrowave (comme
+# build-native.sh --kyber-pyrowave d'Android), tant qu'il n'est pas allumé
+# pour toutes les apps : third_party/ est partagé. Il va avec
+# `build-apple-mobile.sh tvos --kyber-pyrowave` (fonctionnalité `pyrowave` du cœur).
+#
 # Sortie : Vendor/include (en-têtes, module.modulemap) et
 # Vendor/KyberSDK.xcframework (une bibliothèque statique par plateforme).
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
@@ -33,6 +39,15 @@ OUT="$HERE/Vendor"
 WORK="$HERE/build/sdk"
 DEPLOYMENT=18.0
 . "$ROOT/scripts/kyber-toolchain.sh"
+
+KYBER_PYROWAVE=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
+        *) echo "Option inconnue : $1 (--kyber-pyrowave)" >&2; exit 1 ;;
+    esac
+    shift
+done
 
 [ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
 [ -d "$OPUS_SRC" ] || { echo "Sources d'Opus introuvables : $OPUS_SRC" >&2; exit 1; }
@@ -54,6 +69,7 @@ cargo_quiet() {
 # mémoire de réception UDP).
 for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;

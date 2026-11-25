@@ -94,6 +94,7 @@ Différences de texte : l'aide « Aucune console trouvée… » renvoie à l'ong
 - **Mode jeu du téléviseur** : `Window.setPreferMinimalPostProcessing(true)` (ALLM sur l'HDMI) quand l'écran le permet.
 - **VRR** : Android ne donne pas la main sur le VRR en HDMI et la Shield n'en a pas. Sur un écran à fréquence variable (téléphones et tablettes à 120 Hz), chaque image part dès qu'elle est décodée, la plus récente remplace les autres.
 - **Décodage** (`jni/src/video.rs`) : les paquets du correctif 0001 vont à MediaCodec (décodeur matériel du format, `low-latency`, priorité temps réel, clés des fabricants Qualcomm, Exynos et Amlogic qui coupent la remise en ordre, réessayé sans elles si refusé), rendu direct sur la surface. Le jeu de paramètres est placé devant l'image clé qui démarre un décodeur (pas de `csd-0`, quel que soit le format) ; une perte fait attendre l'image clé suivante, redemandée par le cœur ; une surface neuve refait le décodeur. Profils ramenés à ce que l'appareil décode vraiment (MediaCodecList au lancement) : la Shield décode HEVC et H.264, pas l'AV1 ni le 4:4:4.
+- **PyroWave** ([docs/pyrowave-client-android.md](../../docs/pyrowave-client-android.md), textes de [link-ui](../../docs/link-ui.md#pyrowave)) : à côté de MediaCodec, décodé par Vulkan (`libkybernow_pyrowave.so`, PyroWave au commit a32b05e, arm64-v8a et x86_64) et présenté sur la même `SurfaceView` par une swapchain Vulkan, conversion YCbCr → RGB selon la couleur et la plage du paquet `KNPW`, HDR10 PQ si la surface l'accepte ; image incomplète sautée, jamais d'image clé demandée. Sonde au lancement (Vulkan 1.3, décodeur, image de test : `pyrowave` dans les capacités), câble Ethernet (`wired`) pour « Auto ». « PyroWave » dans Format vidéo quand la Station l'annonce, avertissement Wi-Fi ou relais, bandeau avec « Passer en HEVC », puce ambre, « Images perdues », définition ramenée d'après le cœur (débit du lien en Wi-Fi donné par `sessionSetLinkMbps`). Indisponible sur la Shield (Android 11 : chargeur Vulkan 1.1), en armeabi-v7a et sur l'émulateur (gfxstream).
 - **HDR** ([docs/hdr.md](../../docs/hdr.md), textes de [link-ui](../../docs/link-ui.md#hdr)) : sur un écran HDR seulement, la puce « HDR » de l'accueil à côté du profil (allumée la première fois, gardée pour chaque ordinateur, à part du profil ; inactive avec la raison du cœur, `profile::hdr_state` par `Native.hdrState`), la ligne « Écran … en HDR », l'interrupteur de Réglages › Image (« Texte net (4:4:4) » estompé, « Le HDR n'existe pas en 4:4:4. »), « HDR » dans la barre (près du profil) et en tuile au menu du téléviseur, chez l'hôte comme chez l'ami d'un prêt (jamais pour un invité : son HDR suit son écran), « HDR » dans les statistiques et la dernière session, et l'avis « L'ordinateur n'a pas pu passer en HDR : image en SDR. ». Sur un écran SDR, aucune trace. `model/Hdr.kt` :
   - **Écran** : HDR quand ses types HDR comprennent le HDR10 (`Display.Mode.getSupportedHdrTypes` en Android 14, `Display.getHdrCapabilities` avant) ; valeurs de l'écran d'après `HdrCapabilities` (luminosité maximale, moyenne, minimale ; maximale à 0 ou absente, fréquent derrière la Shield : celles par défaut du cœur ; blanc du bureau à 203 nits, qu'Android ne donne pas), données à la Station au début de la session et dans la demande d'emprunt. L'écran est suivi (`DisplayManager.DisplayListener`) : un téléviseur qui coupe le HDR fait disparaître la puce de l'accueil et, en session, repasser l'image en SDR (`Native.sessionScreenHdrChanged`), puis en HDR, sans message.
   - **Décodeur** : HDR si un décodeur matériel annonce le profil HDR10 du format que la session prendra (HEVC Main 10 HDR10, AV1 Main 10 HDR10 ; `Capabilities.hdr` du cœur) ; H.264 choisi à la main : « Le HDR demande le format HEVC ou AV1. ».
@@ -118,6 +119,8 @@ Les vibrations du jeu arrivent au cœur (`InputPlatform::rumble`) et sont jouée
 ```
 apps/android/
 ├── jni/                 crate kybernow-android → libkybernow.so (pont JNI, MediaCodec, AAudio ; consoles PlayStation : playstation.rs)
+│   └── pyrowave/        libkybernow_pyrowave.so (CMake : PyroWave, device Vulkan, swapchain) et l'outil d'essai kn_pyrowave_test
+├── tests/pyrowave/      essai hors ligne de PyroWave sur l'appareil branché (run.sh)
 ├── app/                 l'app (Kotlin, Jetpack Compose)
 │   └── src/main/java/fr/leslignesclaires/kybernow/
 │       ├── core/        Native (fonctions JNI), SessionListener, ConsoleClient (Admin), DeviceIdentity, Share (KyberNow Share), Lend (prêt de l'ordinateur), Invite (invitations), Account (comptes KyberNow), Relay (chemin d'une session, présence chez le relais)
@@ -141,7 +144,7 @@ apps/android/
 
 ```sh
 # Une fois : cibles Rust, cargo-c, NDK r27c (Android Studio › SDK Manager › SDK Tools › NDK (Side by side)
-# 27.2.12479018, ou ANDROID_NDK_HOME), SDK Android (plateforme 36), JDK 17 ou plus, cmake et Ninja (libopus).
+# 27.2.12479018, ou ANDROID_NDK_HOME), SDK Android (plateforme 36), JDK 17 ou plus, cmake et Ninja (libopus, PyroWave).
 rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 cargo install cargo-c --version 0.10.15 --locked
 
@@ -149,6 +152,9 @@ cargo install cargo-c --version 0.10.15 --locked
 apps/android/scripts/build-native.sh                     # les trois ABI
 apps/android/scripts/build-native.sh --target aarch64-linux-android
 apps/android/scripts/build-native.sh --check             # cargo check seul ; --debug : sans optimisation (CARGO_TARGET_DIR respecté)
+# --no-pyrowave : sans PyroWave ; --kyber-pyrowave : pose le correctif kyclient 0025 et allume PyroWave dans le cœur
+# PyroWave sur l'appareil branché (sonde, encodage par l'amont, décodage et affichage) :
+apps/android/tests/pyrowave/run.sh
 
 # L'app :
 cd apps/android

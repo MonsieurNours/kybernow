@@ -15,6 +15,7 @@ use crate::app::{Layout, Machine, NetInfo, NetKind, Pi};
 
 unsafe extern "C" {
     fn kn_vaapi_probe(vendor: *mut c_char, len: c_int) -> c_int;
+    fn kn_pw_probe(gpu: *mut c_char, gpulen: c_int, err: *mut c_char, errlen: c_int) -> c_int;
     fn kn_vrr_probe(name: *mut c_char, len: c_int, connected: *mut c_int) -> c_int;
     fn kn_modes_probe(hz_1080p: *mut c_int, w: *mut c_int, h: *mut c_int, hz: *mut c_int) -> c_int;
 }
@@ -366,4 +367,205 @@ fn wifi_band() -> Option<String> {
 /// d'accessibilité du bureau n'est pas lu).
 pub fn reduce_motion() -> bool {
     std::env::var("KYBERNOW_REDUCE_MOTION").is_ok_and(|v| v == "1")
+}
+
+/// La sonde de PyroWave (docs/pyrowave-client-linux.md) : un fil au lancement crée le device Vulkan de PyroWave, un
+/// décodeur et décode une image de test (comme l'app Mac). `None` tant qu'elle n'a pas fini ; puis décodé ou non.
+/// `KYBERNOW_PYROWAVE=0` la coupe (PyroWave indisponible).
+///
+/// Raspberry Pi (docs/pyrowave-client-pi.md) : Pi 5, 500 et CM5 seulement (V3D 7.1, Mesa v3dv) ; le Pi 4 n'a pas les
+/// opérations de sous-groupe, le Pi 3 et le Zero 2 W pas de Vulkan. Sur le Pi 5, la sonde tourne d'abord dans un
+/// processus à part (`kybernow --pyrowave-probe`) : un pilote qui plante n'emporte pas l'app ; son résultat est gardé
+/// (`pyrowave-probe` dans le dossier de l'app) tant que l'app et le pilote Vulkan ne changent pas. Réussie, elle est
+/// refaite dans l'app, pour préparer le device (ses pipelines) avant la première session.
+static PYROWAVE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+pub fn pyrowave_probe_start() {
+    if std::env::var("KYBERNOW_PYROWAVE").is_ok_and(|v| v == "0") {
+        log::info!("PyroWave : indisponible (KYBERNOW_PYROWAVE=0)");
+        let _ = PYROWAVE.set(false);
+        return;
+    }
+    let pi = pi();
+    if let Some(p) = &pi
+        && p.generation < 5
+    {
+        let why = if p.generation == 4 { "pas les opérations de sous-groupe de Vulkan (V3D 4.2)" } else { "pas de Vulkan" };
+        log::info!("PyroWave : indisponible sur {} ({why} ; Raspberry Pi 5 seulement)", p.model);
+        let _ = PYROWAVE.set(false);
+        return;
+    }
+    let _ = std::thread::Builder::new().name("kybernow-pyrowave".into()).spawn(move || {
+        let started = Instant::now();
+        if pi.is_some() {
+            let (ok, gpu, err, kept) = pyrowave_probe_apart();
+            if !ok {
+                log::info!("PyroWave : indisponible ({err}{}) ; sonde à part{} : {} ms", if gpu.is_empty() { String::new() } else { format!(", {gpu}") }, if kept { " (gardée)" } else { "" }, started.elapsed().as_millis());
+                let _ = PYROWAVE.set(false);
+                return;
+            }
+            log::info!("PyroWave : la sonde à part a réussi{} ({gpu})", if kept { " (gardée)" } else { "" });
+        }
+        let (ok, gpu, err) = pyrowave_probe_here();
+        if ok {
+            log::info!("PyroWave : prêt sur {gpu} (sonde : {} ms)", started.elapsed().as_millis());
+        } else {
+            log::info!("PyroWave : indisponible ({err}{}) ; sonde : {} ms", if gpu.is_empty() { String::new() } else { format!(", {gpu}") }, started.elapsed().as_millis());
+        }
+        let _ = PYROWAVE.set(ok);
+    });
+}
+
+/// La sonde dans ce processus : (décodé, carte, raison).
+fn pyrowave_probe_here() -> (bool, String, String) {
+    let mut gpu = [0 as c_char; 320];
+    let mut err = [0 as c_char; 400];
+    let ok = unsafe { kn_pw_probe(gpu.as_mut_ptr(), gpu.len() as c_int, err.as_mut_ptr(), err.len() as c_int) } == 1;
+    let text = |b: &[c_char]| unsafe { std::ffi::CStr::from_ptr(b.as_ptr()) }.to_string_lossy().into_owned();
+    (ok, text(&gpu), text(&err))
+}
+
+/// `kybernow --pyrowave-probe` : la sonde seule. Écrit « ok », la carte et la raison, une par ligne, et rend 0 si
+/// PyroWave est décodé (1 sinon).
+pub fn pyrowave_probe_child() -> i32 {
+    let (ok, gpu, err) = pyrowave_probe_here();
+    println!("{}\n{gpu}\n{err}", if ok { "ok" } else { "no" });
+    if ok { 0 } else { 1 }
+}
+
+/// Ce qui fait changer le résultat de la sonde du Pi : la version de l'app (et de sa bibliothèque PyroWave) et le
+/// pilote Vulkan installé (les fichiers ICD et `libvulkan_broadcom.so`, taille et date).
+fn pyrowave_probe_key() -> String {
+    let mut parts = vec![env!("CARGO_PKG_VERSION").to_string()];
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir("/usr/share/vulkan/icd.d").map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+    files.sort();
+    files.push("/usr/lib/aarch64-linux-gnu/libvulkan_broadcom.so".into());
+    for f in files {
+        if let Ok(m) = std::fs::metadata(&f) {
+            let t = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+            parts.push(format!("{}:{}:{t}", f.display(), m.len()));
+        }
+    }
+    parts.join(" ")
+}
+
+/// La sonde du Raspberry Pi dans un processus à part, ou son résultat gardé : (décodé, carte, raison, gardé).
+fn pyrowave_probe_apart() -> (bool, String, String, bool) {
+    let key = pyrowave_probe_key();
+    let path = crate::model::Store::dir().join("pyrowave-probe");
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let mut l = text.lines();
+        if l.next() == Some(key.as_str()) {
+            let ok = l.next() == Some("ok");
+            return (ok, l.next().unwrap_or("").into(), l.next().unwrap_or("").into(), true);
+        }
+    }
+    let Ok(exe) = std::env::current_exe() else { return (false, String::new(), "exécutable introuvable".into(), false) };
+    let child = std::process::Command::new(exe).arg("--pyrowave-probe").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn();
+    let Ok(mut child) = child else { return (false, String::new(), "sonde non lancée".into(), false) };
+    // La création du device compile les pipelines : quelques secondes au plus ; au-delà de 30 s, abandon (pas gardé).
+    let limit = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Some(st),
+            Ok(None) if Instant::now() < limit => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let Some(status) = status else { return (false, String::new(), "sonde trop longue (30 s)".into(), false) };
+    let mut out = String::new();
+    if let Some(mut so) = child.stdout.take() {
+        use std::io::Read;
+        let _ = so.read_to_string(&mut out);
+    }
+    let mut l = out.lines();
+    let first = l.next().unwrap_or("");
+    let (gpu, mut err) = (l.next().unwrap_or("").to_string(), l.next().unwrap_or("").to_string());
+    let ok = status.success() && first == "ok";
+    if !ok && first.is_empty() {
+        // Plantée (pilote) : gardé aussi, le même pilote planterait encore.
+        err = format!("sonde arrêtée ({status})");
+    }
+    let _ = std::fs::write(&path, format!("{key}\n{}\n{gpu}\n{err}\n", if ok { "ok" } else { "no" }));
+    (ok, gpu, err, false)
+}
+
+/// Le résultat de la sonde, s'il est là.
+pub fn pyrowave() -> Option<bool> {
+    PYROWAVE.get().copied()
+}
+
+/// Cet appareil joint `address` par un câble Ethernet (docs/link-ui.md, « PyroWave » : la règle d'« Auto ») :
+/// l'interface que le système prend pour l'atteindre (l'adresse locale d'une socket UDP « connectée », sans rien
+/// envoyer) est filaire (ni Wi-Fi, ni tunnel) et active. Sans route connue, le réseau de l'appareil (`net()`).
+pub fn wired_to(address: &str, port: u16) -> bool {
+    use std::net::{ToSocketAddrs, UdpSocket};
+    let local = (address, port.max(1))
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut a| a.next())
+        .and_then(|remote| {
+            let bind = if remote.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+            let s = UdpSocket::bind(bind).ok()?;
+            s.connect(remote).ok()?;
+            s.local_addr().ok()
+        })
+        .map(|a| a.ip());
+    let Some(ip) = local else { return net().kind == NetKind::Ethernet };
+    if ip.is_loopback() {
+        return true;
+    }
+    match interface_of(ip) {
+        Some(name) => {
+            let path = std::path::Path::new("/sys/class/net").join(&name);
+            let wifi = path.join("wireless").exists() || path.join("phy80211").exists() || name.starts_with("wl");
+            // ARPHRD_ETHER (1) : Ethernet ; les tunnels (WireGuard, Tailscale) et le reste ont d'autres types.
+            let ether = std::fs::read_to_string(path.join("type")).is_ok_and(|t| t.trim() == "1");
+            let up = std::fs::read_to_string(path.join("operstate")).is_ok_and(|s| matches!(s.trim(), "up" | "unknown"));
+            let virtual_if = name.starts_with("docker") || name.starts_with("veth") || name.starts_with("virbr") || name.starts_with("tailscale") || name.starts_with("wg");
+            let wired = !wifi && ether && up && !virtual_if;
+            log::info!("réseau : {address} par {name} ({ip}) : {}", if wired { "câble" } else { "sans câble" });
+            wired
+        }
+        None => net().kind == NetKind::Ethernet,
+    }
+}
+
+/// Le nom de l'interface qui porte l'adresse locale `ip` (getifaddrs).
+fn interface_of(ip: std::net::IpAddr) -> Option<String> {
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return None;
+    }
+    let mut found = None;
+    let mut cur = list;
+    while !cur.is_null() {
+        let ifa = unsafe { &*cur };
+        cur = ifa.ifa_next;
+        if ifa.ifa_addr.is_null() {
+            continue;
+        }
+        let family = unsafe { (*ifa.ifa_addr).sa_family } as i32;
+        let addr = match family {
+            libc::AF_INET => {
+                let sin = unsafe { &*(ifa.ifa_addr as *const libc::sockaddr_in) };
+                std::net::IpAddr::from(u32::from_be(sin.sin_addr.s_addr).to_be_bytes())
+            }
+            libc::AF_INET6 => {
+                let sin6 = unsafe { &*(ifa.ifa_addr as *const libc::sockaddr_in6) };
+                std::net::IpAddr::from(sin6.sin6_addr.s6_addr)
+            }
+            _ => continue,
+        };
+        if addr == ip {
+            found = Some(unsafe { std::ffi::CStr::from_ptr(ifa.ifa_name) }.to_string_lossy().into_owned());
+            break;
+        }
+    }
+    unsafe { libc::freeifaddrs(list) };
+    found
 }

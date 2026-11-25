@@ -249,19 +249,94 @@ final class SessionController: ObservableObject {
         lend = LendHostModel(console: nil) { .available }
     }
 
-    /// Les réglages de l'image, pour le cœur. AV1 seulement si l'appareil le décode.
+    /// Les réglages de l'image, pour le cœur. AV1 seulement si l'appareil le
+    /// décode. `wired` : relié par câble (adaptateur Ethernet USB-C), pour
+    /// « Auto » et PyroWave (docs/pyrowave-client-apple.md).
     private var engineSettings: SessionEngine.Settings {
         let s = host.settings
-        var codec = s.codec
+        var codec = codecOverride ?? s.codec
         if codec == .av1, !DecoderCapabilities.current.av1 { codec = DecoderCapabilities.current.hevc ? .hevc : .h264 }
         return SessionEngine.Settings(
-            profile: s.profile?.rawValue,
+            profile: codecOverride == nil ? s.profile?.rawValue : nil,
             codec: codec,
             yuv444: s.yuv444 && ConnectionSettings.decodes444(codec),
-            mbps: s.bitrateMbps,
+            mbps: codecOverride == nil ? s.bitrateMbps : min(s.bitrateMbps, PyroWaveSession.hevcMbps),
             reliable: s.transport == .reliable,
-            hdr: s.hdr
+            hdr: s.hdr,
+            wired: NetworkLink.shared.wired
         )
+    }
+
+    // MARK: - PyroWave
+
+    /// « Passer en HEVC » : le format de cette session seulement ; le choix
+    /// de l'ordinateur (PyroWave) reste dans ses réglages.
+    private var codecOverride: VideoCodec?
+    /// Le format que la Station envoie vraiment (dernier paquet de codec).
+    @Published private(set) var receivedCodec: VideoCodec?
+    /// Le bandeau du début de session (« PyroWave en Wi-Fi ») est affiché.
+    @Published private(set) var pyrowaveBanner = false
+    private var pyrowaveBannerDone = false
+
+    /// Comment l'appareil joint l'ordinateur : câble, Wi-Fi (ou réseau mobile), relais.
+    var pyrowaveLink: PyroWaveLink {
+        #if DEBUG
+        if let demoLink { return demoLink }
+        #endif
+        return PyroWaveLink(wired: NetworkLink.shared.wired, relay: path.viaRelay)
+    }
+    #if DEBUG
+    private var demoLink: PyroWaveLink?
+    #endif
+
+    /// La puce ambre de la barre : l'image est en PyroWave sans câble ou par le relais.
+    var pyrowaveChip: String? {
+        receivedCodec == .pyrowave && pyrowaveLink != .cable ? PyroWaveText.chip(pyrowaveLink) : nil
+    }
+
+    /// Le format reçu, et le bandeau du début (PyroWave choisi à la main, en
+    /// Wi-Fi ou par le relais, une fois par session).
+    private func followCodec() {
+        guard let engine else { return }
+        let codec = engine.receivedCodec
+        if codec != receivedCodec { receivedCodec = codec }
+        guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
+        showPyroWaveBanner()
+    }
+
+    private func showPyroWaveBanner() {
+        pyrowaveBannerDone = true
+        withAnimation(Theme.easeOut) { pyrowaveBanner = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds) { [weak self] in
+            self?.closePyroWaveBanner()
+        }
+    }
+
+    /// La croix du bandeau.
+    func closePyroWaveBanner() {
+        guard pyrowaveBanner else { return }
+        withAnimation(Theme.easeOut) { pyrowaveBanner = false }
+    }
+
+    /// La définition ramenée par le cœur pour tenir dans le débit (texte du
+    /// cœur, langue de l'app) : dans le bandeau du début s'il est là, sinon
+    /// en capsule ; nil quand elle revient à celle de l'écran.
+    @Published private(set) var loweredText: String?
+
+    private func resolutionLowered(_ mode: LoweredMode?, _ text: String?) {
+        let line = text ?? mode.map { PyroWaveText.lowered(width: $0.width, height: $0.height, mbps: $0.mbps) }
+        if let mode { KyberLog.app.notice("PyroWave : définition ramenée à \(mode.width)×\(mode.height) (\(mode.mbps) Mbit/s)") }
+        withAnimation(Theme.easeOut) { loweredText = line }
+        if let line, !pyrowaveBanner { show(notice: line, for: PyroWaveSession.bannerSeconds, icon: "monitor") }
+    }
+
+    /// « Passer en HEVC » : l'image repart en HEVC pour cette session.
+    func switchToHEVC() {
+        guard !isVisitor, codecOverride == nil else { return }
+        codecOverride = DecoderCapabilities.current.hevc ? .hevc : .h264
+        closePyroWaveBanner()
+        KyberLog.app.notice("PyroWave : passage en HEVC pour cette session")
+        engine?.setSettings(engineSettings)
     }
 
     // MARK: - HDR
@@ -377,6 +452,7 @@ final class SessionController: ObservableObject {
             self.virtualDisplay = virtualDisplay
         }
         engine.onVideoStats = { [weak self] in self?.received($0) }
+        engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         engine.onGameFullscreen = { game in
@@ -455,6 +531,10 @@ final class SessionController: ObservableObject {
     private func launch(_ engine: SessionEngine, _ params: SessionEngine.Params) {
         do {
             try engine.start(params)
+            // PyroWave (« Définition ramenée ») : le débit du lien, inconnu ici
+            // (iOS ne donne ni la vitesse d'un adaptateur Ethernet ni celle du
+            // Wi-Fi) ; la Station et le débit réglé plafonnent seuls.
+            engine.setLinkMbps(nil)
         } catch {
             fail(error.localizedDescription)
         }
@@ -595,6 +675,7 @@ final class SessionController: ObservableObject {
         if statsHistory.count > 30 { statsHistory.removeFirst() }
         sessionLosses.frames += stats.lostFrames
         sessionLosses.packets += stats.lostPackets
+        followCodec()
     }
 
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`.
@@ -704,7 +785,7 @@ final class SessionController: ObservableObject {
 
     /// Le format de l'image reçue : celui de son image (un invité), à défaut
     /// celui de l'hôte, sinon celui des réglages.
-    var imageCodec: VideoCodec { shareImage?.codec ?? guest?.codec ?? host.settings.codec }
+    var imageCodec: VideoCodec { receivedCodec ?? shareImage?.codec ?? guest?.codec ?? host.settings.codec }
 
     /// L'image que reçoit l'invité a changé (au départ, ou après un changement
     /// de qualité, un retard, une limite de l'ordinateur) ; l'avis du cœur
@@ -885,6 +966,8 @@ final class SessionController: ObservableObject {
         guard !isVisitor, profile != host.settings.profile else { return }
         host.settings.apply(profile)
         store.update(host)
+        // Un profil choisi en session reprend la main sur « Passer en HEVC ».
+        codecOverride = nil
         engine?.setSettings(engineSettings)
     }
 
@@ -996,16 +1079,34 @@ final class SessionController: ObservableObject {
             }
             self.startedAt = Date().addingTimeInterval(-12 * 60)
             self.modeLabel = "2622 × 1206 · 120 Hz"
+            // `-demoPyroWave wifi|relay` : l'image en PyroWave choisi à la main, en Wi-Fi ou par le relais
+            // (bandeau du début, puce de la barre, « Images perdues » des statistiques).
+            let pyrowave = UserDefaults.standard.string(forKey: "demoPyroWave")
+            if let pyrowave {
+                self.demoLink = pyrowave == "relay" ? .relay : .wifi
+                if pyrowave == "relay" { self.path = RouteInfo(transport: .relay, relay: Relay.defaultServer, rttClient: 24, rttStation: 11) }
+                self.host.settings.codec = .pyrowave
+                self.receivedCodec = .pyrowave
+            }
             for i in 0..<30 {
                 var s = VideoStats()
                 s.latencyMs = 8.4 + Double(i % 7) * 0.4
                 s.fps = 120
-                s.mbps = 46
+                s.mbps = pyrowave == nil ? 46 : 290
                 s.format = "4:2:0 8 bits"
                 s.width = 2622
                 s.height = 1206
+                if pyrowave != nil, i % 9 == 4 { s.lostFrames = 2 }
+                // `-demoLowered YES` : la définition ramenée (bandeau, ligne des statistiques).
+                if pyrowave != nil, UserDefaults.standard.bool(forKey: "demoLowered") {
+                    s.lowered = LoweredMode(width: 1920, height: 880, refresh: 60, mbps: 300)
+                }
                 self.received(s)
             }
+            if pyrowave != nil, UserDefaults.standard.bool(forKey: "demoLowered") {
+                self.loweredText = PyroWaveText.lowered(width: 1920, height: 880, mbps: 300)
+            }
+            if pyrowave != nil { self.showPyroWaveBanner() }
             if what == .bar { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.setBar(true) } }
             if UserDefaults.standard.bool(forKey: "demoKeyboard") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.toggleKeyboard() }

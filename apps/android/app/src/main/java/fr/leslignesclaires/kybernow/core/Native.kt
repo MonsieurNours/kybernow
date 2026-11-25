@@ -16,6 +16,12 @@ object Native {
     /** Journal vers logcat (`KyberNow`) et langue des messages du cœur. */
     @JvmStatic external fun init(language: String)
 
+    /**
+     * PyroWave (docs/pyrowave-client-android.md) : la sonde du lancement, hors du fil principal (device Vulkan,
+     * décodeur, image de test décodée et relue). `{"available": bool, "report": "GPU, chemin" ou la raison}`.
+     */
+    @JvmStatic external fun pyrowaveProbe(): String
+
     /** Horloge des mesures de Kyber (µs, CLOCK_MONOTONIC). */
     @JvmStatic external fun nowMicros(): Long
 
@@ -224,6 +230,8 @@ object Native {
     @JvmStatic external fun sessionSetSurface(handle: Long, surface: Surface?, refresh: Int)
     @JvmStatic external fun sessionSetSettings(handle: Long, json: String): Boolean
     @JvmStatic external fun sessionSetBackground(handle: Long, background: Boolean, capBitsPerSecond: Int)
+    /** PyroWave : débit du lien vers l'ordinateur en Mbit/s, 0 inconnu (docs/pyrowave.md, « Définition ramenée »). */
+    @JvmStatic external fun sessionSetLinkMbps(handle: Long, mbps: Int)
     @JvmStatic external fun sessionPickDisplay(handle: Long, id: Int)
     @JvmStatic external fun sessionSetMode(handle: Long, width: Int, height: Int, refresh: Int)
     @JvmStatic external fun sessionRestoreMode(handle: Long)
@@ -316,6 +324,12 @@ interface SessionListener {
         const val NOTICE_STATION_RESTARTING = 7
         /** Avis `onNotice` : l'ordinateur n'a pas pu passer en HDR, l'image est en SDR (`error` : le texte du cœur ; une fois par session). */
         const val NOTICE_HDR_REFUSED = 8
+        /**
+         * Avis `onNotice` : PyroWave, définition ramenée à `width` × `height` pour tenir dans `mbps`
+         * (`hasMode` ; `error` : le texte du bandeau), ou revenue à celle de l'appareil (`hasMode` faux).
+         * Aussi dans `onSecond`, valeurs 18 à 21 (largeur, hauteur, fréquence, plafond ; 0 sans).
+         */
+        const val NOTICE_RESOLUTION_LOWERED = 9
     }
 
     /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */

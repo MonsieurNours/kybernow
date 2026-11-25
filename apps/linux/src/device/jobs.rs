@@ -29,7 +29,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
         // « Hors de chez vous » si le relais le dit connecté (jamais de sonde par le relais toutes les 8 s).
         if host.address.is_empty() && super::accounts::access(&host.id).is_some() {
             let away = away_from_home(&host, &ConsoleError::Network(String::from("absent du réseau")));
-            let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
+            let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
             return;
         }
         // Un ordinateur d'un compte : le jeton d'accès du relais ; un ordinateur appairé : le compte de l'appareil.
@@ -55,6 +55,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     os,
                     gpu: info.gpu.clone(),
                     av1: info.av1,
+                    pyrowave: info.pyrowave_offered(),
                     virtual_display: Some(info.virtual_display.available),
                     max_screens: Some(info.virtual_display.max_screens()),
                     station: Some(station),
@@ -77,7 +78,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                 log::info!("{} : hors ligne ({e})", host.name);
                 // Le réseau ne répond pas : l'ordinateur est peut-être joignable par le relais (« Hors de chez vous »).
                 let away = away_from_home(&host, &e);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, away, relay: None, os: None, gpu: None, av1: false, pyrowave: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None, share: None, lend: None, lend_view: None, gamepads: None, hdr: None });
             }
         }
     });
@@ -293,6 +294,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             os: None,
                             gpu: None,
                             av1: false,
+                            pyrowave: false,
                             mac: None,
                             wake: Vec::new(),
                             relay: None,
@@ -307,6 +309,8 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             host.os = (!info.os.is_empty()).then(|| info.os.clone());
                             host.gpu = info.gpu.clone();
                             host.av1 = info.av1;
+                            host.pyrowave = info.pyrowave_offered();
+            host.pyrowave = info.pyrowave_offered();
                             host.wake = wake_cards(&info);
                         }
                         let _ = tx.send(Event::PairAccepted(host));
@@ -382,6 +386,7 @@ fn invited_host(code: &invite::InviteCode, i: invite::Invited) -> Host {
         os: None,
         gpu: None,
         av1: false,
+        pyrowave: false,
         mac: None,
         wake: Vec::new(),
         relay: i.relay.as_ref().map(host_relay),
@@ -398,6 +403,7 @@ fn invited_host(code: &invite::InviteCode, i: invite::Invited) -> Host {
             host.os = (!info.os.is_empty()).then(|| info.os.clone());
             host.gpu = info.gpu.clone();
             host.av1 = info.av1;
+            host.pyrowave = info.pyrowave_offered();
             host.wake = wake_cards(&info);
             if let Some(r) = info.relay.as_ref() {
                 host.relay = Some(host_relay(r));

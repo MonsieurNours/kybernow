@@ -52,6 +52,8 @@ build_admin() {
     cp "$ROOT/server/admin/target/release/kyber-admin" "$BIN/kyber-admin"
     echo "==> Agent des écrans virtuels"
     cp "$("$ROOT/server/macos/display-agent/build.sh" | tail -1)" "$BIN/kybernow-display"
+    # Vérification PyroWave (server/admin/src/pyrowave.rs) : à côté d'Admin.
+    cp "$KYBER_DIR_SRC/rootfs-arm64-macos/bin/kybernow-pyrowave-check" "$BIN/"
 }
 
 # Première fois : réglages de Kyber, certificat propre à cette Station (pas le

@@ -295,7 +295,7 @@ mod tests {
             max_screens: 4,
             lighten: false,
             virtual_display_available: true,
-            capabilities: Some(Capabilities { hevc: true, hevc444: true, av1: false, hdr: false }),
+            capabilities: Some(Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false }),
         }
     }
 
