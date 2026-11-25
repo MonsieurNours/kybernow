@@ -89,6 +89,10 @@ Admin donne `platform` : `linux` (`GET /api/session`) : l'interface et Admin rem
 - **Icône près de l'horloge** : le même programme que sous Windows (`server/tray`, tao et tray-icon), compilé pour Linux (`src/linux.rs`), en service systemd de l'utilisateur `kybernow-tray.service`. Une icône AppIndicator (StatusNotifierItem) : KDE Plasma l'affiche de lui-même, GNOME avec l'extension AppIndicator (d'office sous Ubuntu, `gnome-shell-extension-appindicator`, recommandée par le paquet, ailleurs). Mêmes menus et textes (`tray.*`), même état et même pastille (`src/status.rs`, partagé avec Windows) ; un clic ouvre toujours le menu, et les pages du panneau de Windows s'ouvrent dans Admin (partage, prêt, mises à jour). Pas de « Démarrer avec l'ordinateur » : les services démarrent avec la session. « Réinitialiser le mot de passe d'Admin » se fait sans droits particuliers (Admin tourne avec votre compte) et montre le code d'initialisation. Confirmations et messages par zenity ou kdialog ; une demande nouvelle (appareil, invité, ami) donne une notification.
 - `kybernow-station-setup` pose `~/.local/share/kybernow/station/kybernow.json` (le port d'Admin), où Admin note l'empreinte de son certificat : l'icône ne parle qu'à ce certificat, comme sous Windows.
 
+### Prêt de l'ordinateur
+
+Le mode console dans la session de l'hôte, comme sur Mac ([pret.md](pret.md), « Station Linux ») : l'icône `kybernow-tray`, lancée par Admin avec `--console` dans sa propre unité systemd, met le lanceur de l'ami (les apps permises, rien d'autre du bureau) en plein écran sur l'écran virtuel et un cache sur chaque écran de l'ordinateur, prend l'entrée physique (`EVIOCGRAB`) et coupe les raccourcis du bureau (GNOME par `gsettings`, KDE par KGlobalAccel). Admin (`lend_sys.rs`) suit la session par `loginctl`, empêche veille et verrouillage tant que le prêt est activé (`systemd-inhibit`, et `gnome-session-inhibit` sous GNOME), surveille les processus par `/proc` et ferme ce qui n'est pas permis. `lend.available` est vrai dès que l'agent est à côté d'Admin. Il faut que la règle udev du paquet donne à l'utilisateur ses appareils d'entrée (`/dev/input/event*`) pour bloquer le clavier et la souris de l'ordinateur ; sans elle, le prêt marche sans ce blocage.
+
 ### PyroWave
 
 Encodeur à part, en Vulkan (la bibliothèque PyroWave est en Vulkan), sur les images DMA-BUF de la capture PipeWire importées sans copie ; détail dans [pyrowave.md](pyrowave.md), « La Station Linux ».
@@ -168,7 +172,7 @@ Pièges rencontrés :
 
 ## Ce que voient les apps KyberNow Link
 
-Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux ») : un PC, dont le système est le nom de la distribution. Ce qui n'est pas encore là (HDR, PyroWave, stylet, prêt) n'est pas annoncé, et les apps font comme avec une Station qui ne l'a pas.
+Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux ») : un PC, dont le système est le nom de la distribution. Ce qui n'est pas encore là (HDR, stylet) n'est pas annoncé, et les apps font comme avec une Station qui ne l'a pas ; PyroWave et le prêt sont annoncés quand la carte graphique convient et quand l'agent du mode console est là.
 
 ## Découpage
 
@@ -178,7 +182,7 @@ Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux 
 4. **Son.** Sortie PipeWire KyberNow : **écrit**.
 5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland : à faire.
 6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Mises à jour depuis Admin et depuis les apps (service root par socket, retour arrière), icône près de l'horloge, paquets publiés : **écrits**, testés sur le Mac (tests d'Admin et de l'icône), pas encore essayés sous Linux (voir « Essais »).
-7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer), Prêt du PC (mode console dans la session de l'hôte, veille empêchée par `systemd-inhibit`), HDR (écran virtuel de GNOME en BT.2100 : GNOME ne le propose pas encore), PyroWave (Vulkan, import DMA-BUF), débit en direct en VA-API (à ajouter au correctif commun 0026) : à faire.
+7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer). Prêt du PC (mode console dans la session de l'hôte, veille empêchée), PyroWave (Vulkan, import DMA-BUF, correctifs Linux 0010 à 0012), débit en direct en VA-API (correctif commun 0026) : **écrits** (25/11/2026), pas encore compilés ni essayés sous Linux. HDR : **pas encore possible** (ni GNOME ni KDE ne donnent d'écran virtuel en BT.2100, voir « HDR »).
 8. **Systèmes immuables** (Bazzite, SteamOS). À faire.
 
 ## Essais

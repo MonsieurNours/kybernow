@@ -32,11 +32,11 @@ use tao::monitor::MonitorHandle;
 use tao::platform::macos::WindowExtMacOS;
 #[cfg(windows)]
 use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use tao::window::Fullscreen;
 use tao::window::{Window, WindowBuilder};
 // Station Mac : une fenêtre se désigne par son `NSWindow` (system_mac.rs).
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use super::system::Hwnd as HWND;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::HWND;
@@ -679,6 +679,13 @@ impl Surface {
         self.window.ns_window() as HWND
     }
 
+    /// Linux : un numéro propre à la fenêtre (Wayland ne donne pas de
+    /// poignée), comparé seulement à [`foreground_of`].
+    #[cfg(target_os = "linux")]
+    fn hwnd(&self) -> HWND {
+        self as *const Surface as HWND
+    }
+
     fn eval(&self, script: &str) {
         if self.ready {
             let _ = self.webview.evaluate_script(script);
@@ -701,6 +708,10 @@ fn surface(target: &EventLoopWindowTarget<Ev>, context: &mut WebContext, proxy: 
     // n'obtient pas en arrière-plan) ; une fenêtre sans bord posée sur l'écran.
     #[cfg(windows)]
     let window = window.with_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
+    // Linux : plein écran du compositeur sur cet écran (GNOME et KDE le
+    // mettent au-dessus de leurs barres).
+    #[cfg(target_os = "linux")]
+    let window = window.with_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
     #[cfg(target_os = "macos")]
     let window = window.with_visible(false);
     let window = window.build(target).context("fenêtre")?;
@@ -719,11 +730,17 @@ fn surface(target: &EventLoopWindowTarget<Ev>, context: &mut WebContext, proxy: 
         .with_devtools(cfg!(debug_assertions));
     #[cfg(windows)]
     let webview = webview.with_browser_accelerator_keys(false).with_default_context_menus(false);
-    let webview = webview
-        .with_focused(!cover)
-        .with_url(format!("{base}{}", if cover { "cover" } else { "launcher" }))
-        .build(&window)
-        .context("vue web")?;
+    let webview = webview.with_focused(!cover).with_url(format!("{base}{}", if cover { "cover" } else { "launcher" }));
+    #[cfg(not(target_os = "linux"))]
+    let webview = webview.build(&window).context("vue web")?;
+    // Linux : WebKitGTK dans la boîte GTK de la fenêtre (Wayland comme X11).
+    #[cfg(target_os = "linux")]
+    let webview = {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        let vbox = window.default_vbox().context("boîte GTK de la fenêtre")?;
+        webview.build_gtk(vbox).context("vue web")?
+    };
     Ok(Surface { window, webview, ready: false })
 }
 
@@ -747,6 +764,18 @@ fn screen_key(m: &MonitorHandle) -> String {
     format!("{}@{},{} {}x{}", m.name().unwrap_or_default(), p.x, p.y, s.width, s.height)
 }
 
+
+/// La fenêtre qui a le clavier. Linux : Wayland ne dit que si c'est l'une
+/// des nôtres ; sinon 0 (`system::foreground`), tenu pour l'app de l'ami.
+#[cfg(target_os = "linux")]
+fn foreground_of(l: &Surface) -> HWND {
+    if l.window.is_focused() { l.hwnd() } else { system::foreground() }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn foreground_of(_l: &Surface) -> HWND {
+    system::foreground()
+}
 
 struct Screens {
     proxy: EventLoopProxy<Ev>,
@@ -832,7 +861,7 @@ impl Screens {
     }
 
     fn place_launcher(&mut self, display: &Display, target: &EventLoopWindowTarget<Ev>) -> bool {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         system::log(&format!(
             "écran de l'ami ({}, {}) « {} » ; écrans : {}",
             display.x,
@@ -842,7 +871,7 @@ impl Screens {
         ));
         let Some(monitor) = target.available_monitors().find(|m| friend_screen(m, display)) else { return false };
         if let Some(launcher) = &self.launcher {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "linux"))]
             launcher.window.set_fullscreen(Some(Fullscreen::Borderless(Some(monitor))));
             #[cfg(target_os = "macos")]
             fill(&launcher.window, &monitor, false);
@@ -1038,7 +1067,7 @@ impl Screens {
         let now = Instant::now();
         // Les manettes, seulement quand le lanceur est devant.
         match &self.launcher {
-            Some(l) if l.ready && system::foreground() == l.hwnd() => {
+            Some(l) if l.ready && foreground_of(l) == l.hwnd() => {
                 for action in self.pad.next(system::read_pads(), now) {
                     l.eval(&format!("window.__knPad && window.__knPad('{action}')"));
                 }
@@ -1072,7 +1101,7 @@ impl Screens {
     /// fermée, une fenêtre partie sur un écran du PC, le bureau).
     fn guard_focus(&mut self) {
         let (Some(l), Some(d)) = (&self.launcher, self.display().cloned()) else { return };
-        let (hwnd, fg) = (l.hwnd(), system::foreground());
+        let (hwnd, fg) = (l.hwnd(), foreground_of(l));
         if fg != hwnd && system::acceptable_foreground(fg, &d) {
             // L'app est devant : le lanceur se met en pause.
             if let Some(o) = self.opening.as_mut() {
@@ -1083,6 +1112,8 @@ impl Screens {
         }
         if fg != hwnd {
             system::bring_to_front(hwnd);
+            #[cfg(target_os = "linux")]
+            l.window.set_focus();
             let _ = l.webview.focus();
         }
         // Le lanceur est devant : l'app ouverte depuis lui est fermée.

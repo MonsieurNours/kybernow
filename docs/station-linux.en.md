@@ -89,6 +89,10 @@ Admin gives `platform`: `linux` (`GET /api/session`): the interface and Admin re
 - **Tray icon by the clock**: the same program as on Windows (`server/tray`, tao and tray-icon), built for Linux (`src/linux.rs`), as the systemd user service `kybernow-tray.service`. An AppIndicator icon (StatusNotifierItem): KDE Plasma shows it by itself, GNOME with the AppIndicator extension (built in on Ubuntu; `gnome-shell-extension-appindicator`, recommended by the package, elsewhere). Same menus and texts (`tray.*`), same state and same badge (`src/status.rs`, shared with Windows); a click always opens the menu, and the pages of the Windows panel open in Admin (sharing, lending, updates). No "Start with the computer": the services start with the session. "Reset Admin's password" needs no special rights (Admin runs with your account) and shows the setup code. Confirmations and messages through zenity or kdialog; a new request (device, guest, friend) gives a notification.
 - `kybernow-station-setup` writes `~/.local/share/kybernow/station/kybernow.json` (Admin's port), where Admin notes its certificate's fingerprint: the icon only talks to that certificate, as on Windows.
 
+### Lending the computer
+
+Console mode in the host's session, as on Mac ([pret.en.md](pret.en.md), “Linux Station”): the `kybernow-tray` icon, started by Admin with `--console` in its own systemd unit, puts the friend's launcher (the allowed apps, nothing else of the desktop) full-screen on the virtual display and a cover on each of the computer's displays, takes the physical input (`EVIOCGRAB`) and turns off the desktop's shortcuts (GNOME through `gsettings`, KDE through KGlobalAccel). Admin (`lend_sys.rs`) follows the session through `loginctl`, prevents sleep and locking while lending is on (`systemd-inhibit`, and `gnome-session-inhibit` on GNOME), watches processes through `/proc` and closes what isn't allowed. `lend.available` is true as soon as the agent is next to Admin. The package's udev rule must give the user their input devices (`/dev/input/event*`) to block the computer's keyboard and mouse; without it, lending works without that blocking.
+
 ### PyroWave
 
 A separate encoder, in Vulkan (the PyroWave library is Vulkan), on the PipeWire capture's DMA-BUF frames imported without a copy; details in [pyrowave.en.md](pyrowave.en.md), “The Linux Station”.
@@ -168,7 +172,7 @@ Pitfalls met:
 
 ## What the KyberNow Link apps see
 
-Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR, PyroWave, pen, lending) is not announced, and the apps behave as with a Station that does not have it.
+Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR, pen) is not announced, and the apps behave as with a Station that does not have it; PyroWave and lending are announced when the graphics card is suitable and when the console mode agent is there.
 
 ## Breakdown
 
@@ -178,7 +182,7 @@ Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station�
 4. **Sound.** KyberNow PipeWire output: **written**.
 5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland: to do.
 6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Updates from Admin and from the apps (root service through a socket, rollback), tray icon by the clock, published packages: **written**, tested on the Mac (Admin and tray tests), not tried on Linux yet (see "Tests").
-7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try), PC lending (console mode in the host's session, sleep prevented by `systemd-inhibit`), HDR (GNOME virtual display in BT.2100: GNOME does not offer it yet), PyroWave (Vulkan, DMA-BUF import), live bitrate with VA-API (to add to common patch 0026): to do.
+7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try). PC lending (console mode in the host's session, sleep prevented), PyroWave (Vulkan, DMA-BUF import, Linux patches 0010 to 0012), live bitrate with VA-API (common patch 0026): **written** (25/11/2026), not yet built nor tried on Linux. HDR: **not possible yet** (neither GNOME nor KDE give a BT.2100 virtual display, see “HDR”).
 8. **Immutable systems** (Bazzite, SteamOS). To do.
 
 ## Tests

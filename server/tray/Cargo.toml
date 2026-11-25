@@ -24,10 +24,12 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSApplication", "NSResponder", "NSRunningApplication", "NSWorkspace", "NSWindow", "NSView", "NSScreen", "NSGraphics"] }
 
 # Station Linux : l'icône AppIndicator (StatusNotifierItem), par GTK, sans
-# libxdo (raccourcis clavier des menus, inutiles ici).
+# libxdo (raccourcis clavier des menus, inutiles ici) ; le mode console d'un
+# prêt (`kybernow-tray --console`) par WebKitGTK.
 [target.'cfg(target_os = "linux")'.dependencies]
 png = "0.18"
 tao = "0.37.1"
+wry = "0.57.0"
 tray-icon = { version = "0.21", default-features = false }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 sha2 = "0.10"

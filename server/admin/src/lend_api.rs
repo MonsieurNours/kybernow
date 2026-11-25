@@ -166,7 +166,7 @@ pub fn info(s: &AppState) -> Value {
 }
 
 /// Le prêt existe ici. Sur une Station Linux, seulement avec son agent de
-/// console (`kybernow-console`, le lanceur de l'ami) : sans lui, l'ami
+/// console (`kybernow-tray --console`, le lanceur de l'ami) : sans lui, l'ami
 /// recevrait tout le bureau de l'hôte (docs/pret.md, « Station Linux ») ; les
 /// apps disent alors « Le prêt n'est pas possible sur cet ordinateur. ».
 pub fn available() -> bool {

@@ -314,14 +314,14 @@ pub fn console_supported() -> bool {
     return cfg!(windows);
 }
 
-/// L'agent de console de la Station Linux (`kybernow-console`, à côté
-/// d'Admin), ou `KYBERNOW_CONSOLE`.
+/// L'agent de console de la Station Linux : l'icône (`kybernow-tray
+/// --console`, à côté d'Admin, comme sous Windows), ou `KYBERNOW_CONSOLE`.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn console_agent() -> Option<PathBuf> {
     std::env::var_os("KYBERNOW_CONSOLE")
         .filter(|p| !p.is_empty())
         .map(PathBuf::from)
-        .or_else(|| Some(std::env::current_exe().ok()?.parent()?.join("kybernow-console")))
+        .or_else(|| Some(std::env::current_exe().ok()?.parent()?.join("kybernow-tray")))
         .filter(|p| p.is_file())
 }
 
@@ -1163,11 +1163,11 @@ mod platform {
         Ok(())
     }
 
-    /// L'agent de console (`kybernow-console --console`) dans une unité
+    /// L'agent de console (`kybernow-tray --console`) dans une unité
     /// systemd à lui : arrêter Admin (son service) ne l'arrête pas ; il se
     /// remet alors en état seul en trouvant Admin sans prêt.
     pub fn spawn_console() -> Result<()> {
-        let exe = super::console_agent().context("kybernow-console introuvable")?;
+        let exe = super::console_agent().context("kybernow-tray introuvable")?;
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let unit = format!("kybernow-console-{now}");
         let status = Command::new("systemd-run")
