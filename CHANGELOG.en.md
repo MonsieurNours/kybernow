@@ -17,6 +17,9 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - **A bitrate that adapts to your network.** With the “Auto” bitrate, the app lowers the bitrate when the network is saturated (busy Wi-Fi, shared connection) and raises it again as soon as things are smooth. A passing spike changes nothing, and a bitrate set by hand stays as it is. The Station changes bitrate smoothly, without a frozen picture.
 - **PyroWave, the lowest latency at home.** A new picture format, encoded and decoded in a fraction of a millisecond, to pick in “Video format”. It needs a lot of bitrate (about 300 Mbit/s at 1080p): it is made for your home network, preferably by cable, and “Auto” only picks it by cable. If the bitrate isn't enough, the app lowers the resolution rather than sharpness and tells you; if the network is saturated, it offers to switch to HEVC.
 - **Pen pressure.** Draw on your computer with your tablet's or iPad's pen: pressure, tilt, the eraser and the pen button reach the computer, as with a tablet plugged into it. On a Windows or Mac Station, with the apps for Mac, Windows, Linux, iPad and Android; not in the browser yet.
+- **Watch a computer.** A new right, “Watch”: the person sees your computer's screen, with no keyboard, mouse or controller, and without changing anything for you. You see them in the share panel and can remove them at any time.
+- **Single-use access links.** On a computer's page, create a link with the rights you choose and send it to one person: it works only once, expires if unused, and can be revoked in one click.
+- **Computer groups.** In a family or a team, put computers in a group and open it all at once: the rights apply to all its computers, including the ones you add later.
 
 ## 0.10.0
 

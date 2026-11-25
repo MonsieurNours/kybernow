@@ -18,6 +18,9 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - **Un débit qui s'adapte à votre réseau.** Avec le débit « Auto », l'app baisse le débit quand le réseau sature (Wi-Fi chargé, connexion partagée) et le remonte dès que tout redevient fluide. Un pic passager ne change rien, et un débit réglé à la main reste tel quel. La Station change de débit sans à-coup, sans image figée.
 - **PyroWave, la latence au plus bas à la maison.** Un nouveau format d'image, encodé et décodé en une fraction de milliseconde, à choisir dans « Format vidéo ». Il demande beaucoup de débit (environ 300 Mbit/s en 1080p) : il est fait pour le réseau local, de préférence par câble, et « Auto » ne le prend que par câble. Si le débit ne suffit pas, l'app baisse la définition plutôt que la netteté et vous le dit ; si le réseau sature, elle vous propose de passer en HEVC.
 - **La pression du stylet.** Dessinez sur votre ordinateur avec le stylet de votre tablette ou de votre iPad : la pression, l'inclinaison, la gomme et le bouton du stylet arrivent sur l'ordinateur, comme avec une tablette branchée dessus. Sur une Station Windows ou Mac, avec les apps pour Mac, Windows, Linux, iPad et Android ; pas encore dans le navigateur.
+- **Regarder un ordinateur.** Un nouveau droit, « Regarder » : la personne voit l'écran de votre ordinateur, sans clavier, souris ni manette, et sans rien changer pour vous. Vous la voyez dans le panneau du partage et pouvez la retirer à tout moment.
+- **Des liens d'accès à usage unique.** Sur la page d'un ordinateur, créez un lien avec les droits de votre choix et envoyez-le à une seule personne : il ne sert qu'une fois, expire s'il n'a pas servi, et se révoque d'un clic.
+- **Des groupes d'ordinateurs.** Dans une famille ou une équipe, rangez des ordinateurs dans un groupe et ouvrez-le d'un coup : les droits valent pour tous ses ordinateurs, y compris ceux que vous ajouterez ensuite.
 
 ## 0.10.0
 
