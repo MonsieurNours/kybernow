@@ -5,9 +5,9 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
-## Prochaine version
+## 0.11.0
 
-<!-- À renommer en « ## X.Y.Z » à la publication (scripts/release.sh cherche ce titre exact). -->
+Bêta : PyroWave, le débit automatique, le stylet, « Regarder » et les nouveautés des comptes. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
 
 - **Un espace du compte plus simple à prendre en main.** Sur la page de votre compte KyberNow, un menu à gauche reste en place d'une page à l'autre : vos ordinateurs, les personnes à qui vous les ouvrez, vos familles et équipes, votre compte. Un tour d'accueil vous guide pas à pas (protéger votre compte, rattacher votre ordinateur, l'ouvrir à vos proches), et une carte « Pour bien démarrer » montre ce qu'il reste à faire.
 - **Familles et équipes.** Vous créez une famille (la maison, les enfants) ou une équipe (un atelier, une entreprise) : les mêmes droits, des mots plus clairs, et un schéma qui explique les groupes. Les droits s'appellent maintenant « Ouvrir le bureau », « Emprunter pour jouer », « Rejoindre vos partages » et « Administrer », chacun avec un exemple.
