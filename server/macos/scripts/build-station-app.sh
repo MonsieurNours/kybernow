@@ -12,6 +12,7 @@
 #                                   barre des menus (exécutable principal), Kyber,
 #                                   Admin, agent des écrans, fenêtres (kybernow-ui),
 #                                   agent de console du prêt (kybernow-console),
+#                                   vérification PyroWave d'Admin (kybernow-pyrowave-check),
 #                                   sortie son et moteur du client web en ressources
 #   Install KyberNow Station.app    « Installer KyberNow Station » en français :
 #                                   kybernow-ui, l'app ci-dessus en ressources
@@ -53,6 +54,9 @@ if [ -n "${KYBER_FROM_APP:-}" ]; then
     rm -rf "$KYAPP"
     mkdir -p "$KYAPP/Contents/MacOS" "$KYAPP/Contents/Resources"
     cp "$KYBER_FROM_APP"/Contents/MacOS/{kycontroller,kyavserver,kynputserver} "$KYAPP/Contents/MacOS/"
+    # Vérification PyroWave d'Admin : de l'app donnée, sinon du rootfs.
+    cp "$KYBER_FROM_APP/Contents/MacOS/kybernow-pyrowave-check" "$KYAPP/Contents/MacOS/" 2>/dev/null \
+        || cp "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos/bin/kybernow-pyrowave-check" "$KYAPP/Contents/MacOS/"
     cp -R "$KYBER_FROM_APP/Contents/Frameworks" "$KYAPP/Contents/Frameworks"
     cp "$KYBER_FROM_APP/Contents/Resources/kyber/kyber_config.toml" "$KYAPP/Contents/Resources/"
 else
@@ -133,7 +137,7 @@ APP="$OUT/KyberNow Station.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources/kyber" "$APP/Contents/Resources/licenses"
 cp "$MENUBAR" "$APP/Contents/MacOS/KyberNow Station"
-cp "$KYAPP"/Contents/MacOS/{kycontroller,kyavserver,kynputserver} "$APP/Contents/MacOS/"
+cp "$KYAPP"/Contents/MacOS/{kycontroller,kyavserver,kynputserver,kybernow-pyrowave-check} "$APP/Contents/MacOS/"
 cp -R "$KYAPP/Contents/Frameworks/." "$APP/Contents/Frameworks/"
 cp "$KYAPP/Contents/Resources/kyber_config.toml" "$APP/Contents/Resources/kyber/"
 cp "$ROOT/server/admin/target/release/kyber-admin" "$AGENT" "$UI" "$APP/Contents/MacOS/"
@@ -168,7 +172,7 @@ localized "$APP" "KyberNow Station" "KyberNow Station" \
 # exécutables (même droits : le son), puis le paquet.
 find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do sign "$lib"; done
 sign "$APP/Contents/Resources/KyberNow.driver"
-for exe in kycontroller kyavserver kynputserver kyber-admin kybernow-display kybernow-ui kybernow-console; do
+for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kyber-admin kybernow-display kybernow-ui kybernow-console; do
     sign --entitlements "$ENTITLEMENTS" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
 done
 sign --entitlements "$ENTITLEMENTS" "$APP"

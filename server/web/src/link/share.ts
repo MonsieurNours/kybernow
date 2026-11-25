@@ -210,7 +210,7 @@ export function joinRefusalText(e: unknown): string {
   }
 }
 
-const LABELS: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', av1: 'AV1' }
+const LABELS: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', av1: 'AV1', pyrowave: 'PyroWave' }
 
 /** Le nom du format de l'image (« HEVC 4:4:4 »). */
 export function formatLabel(codec: string, yuv444: boolean): string {

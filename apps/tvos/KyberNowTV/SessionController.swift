@@ -288,6 +288,24 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// La définition ramenée par le cœur pour tenir dans le débit (texte du
+    /// cœur, langue de l'app) : sous le bandeau du début s'il est là, sinon
+    /// en capsule ; nil quand elle revient à celle du téléviseur.
+    @Published private(set) var loweredText: String?
+    private var linkWatch: NSObjectProtocol?
+
+    /// Le débit que l'Apple TV tient vers l'ordinateur : en Ethernet, le
+    /// Gigabit de l'Apple TV (≈ 940 Mbit/s utiles) ; en Wi-Fi, inconnu (tvOS
+    /// ne donne pas le débit du lien) : la Station et le débit réglé plafonnent seuls.
+    static var linkMbps: UInt32? { NetworkLink.shared.wired ? 940 : nil }
+
+    private func resolutionLowered(_ mode: LoweredMode?, _ text: String?) {
+        let line = text ?? mode.map { PyroWaveText.lowered(width: $0.width, height: $0.height, mbps: $0.mbps) }
+        if let mode { KyberLog.app.notice("PyroWave : définition ramenée à \(mode.width)×\(mode.height) (\(mode.mbps) Mbit/s)") }
+        withAnimation(.easeOut(duration: 0.35)) { loweredText = line }
+        if let line, !pyrowaveBanner { show(notice: line, for: PyroWaveSession.bannerSeconds, icon: "monitor") }
+    }
+
     /// « Passer en HEVC » : l'image repart en HEVC pour cette session.
     func switchToHEVC() {
         guard !isVisitor, codecOverride == nil else { return }
@@ -420,6 +438,7 @@ final class SessionController: ObservableObject {
             self.modeLabel = String(localized: "\(mode.width) × \(mode.height) à \(mode.refresh) Hz")
         }
         engine.onVideoStats = { [weak self] in self?.videoStats($0) }
+        engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
         engine.onHDR = { [weak self] screens in self?.hdrScreens = screens }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGameFullscreen = { game in
@@ -482,6 +501,11 @@ final class SessionController: ObservableObject {
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)
+            // PyroWave (« Définition ramenée ») : le débit du lien, juste après le démarrage.
+            engine.setLinkMbps(Self.linkMbps)
+            linkWatch = NotificationCenter.default.addObserver(forName: NetworkLink.changed, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.engine?.setLinkMbps(Self.linkMbps) }
+            }
         } catch {
             fail(error.localizedDescription)
         }
@@ -731,9 +755,6 @@ final class SessionController: ObservableObject {
         case let .hdrRefused(text):
             // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
             show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
-        case let .resolutionLowered(lowered, text):
-            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
-            if let lowered { show(notice: text.isEmpty ? PyroWaveText.lowered(width: lowered.width, height: lowered.height, mbps: lowered.mbps) : text, for: 6) }
         case .adapting, .adapted, .adaptFailed:
             // Pas d'adaptation à l'écran sur l'Apple TV : le téléviseur ne change pas en session.
             break
@@ -883,6 +904,11 @@ final class SessionController: ObservableObject {
                 stats.lostFrames = 1
                 self.lossWindow = Array(repeating: (60, 0), count: 24) + [(59, 1), (60, 0), (58, 2), (60, 0), (59, 1), (60, 0)]
                 withAnimation(.easeOut(duration: 0.35)) { self.pyrowaveBanner = kind != .menu }
+                // `-demoLowered YES` : la définition ramenée (bandeau, ligne des statistiques).
+                if UserDefaults.standard.bool(forKey: "demoLowered") {
+                    stats.lowered = LoweredMode(width: 2560, height: 1440, refresh: 60, mbps: 300)
+                    self.loweredText = PyroWaveText.lowered(width: 2560, height: 1440, mbps: 300)
+                }
             }
             self.stats = stats
             // Le HDR demandé (`-hdrScreen YES`) : l'écran de la démonstration est « en HDR ».
@@ -1073,6 +1099,8 @@ final class SessionController: ObservableObject {
     }
 
     func finish() {
+        if let linkWatch { NotificationCenter.default.removeObserver(linkWatch) }
+        linkWatch = nil
         guard phase != .ended else { return }
         phase = .ended
         if !isVisitor { store.setSessionViaRelay(host, false) }

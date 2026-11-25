@@ -42,7 +42,7 @@ PSNR de la première image : 64 dB en Y (1440p 4:2:0), 56 dB en Y et 49 à 51 dB
 
 ## Le cœur
 
-`apps/core` connaît PyroWave (format, capacités, annonce de la Station, règle d'« Auto » par câble) : voir [apps/core/README.md](../apps/core/README.md), « PyroWave ». L'app Mac envoie `pyrowave` dans les capacités du décodeur, `wired` (câble Ethernet, `NetworkLink`) dans les réglages et le débit de son lien (`LinkRate` : vitesse de l'interface, 80 % en Ethernet, 50 % sans câble ; `kn_session_set_link_mbps`) pour la définition ramenée.
+`apps/core` connaît PyroWave (format, capacités, annonce de la Station, règle d'« Auto » par câble) : voir [apps/core/README.md](../apps/core/README.md), « PyroWave ». L'app Mac envoie `pyrowave` dans les capacités du décodeur, `wired` (câble Ethernet, `NetworkLink`) dans les réglages et le débit de son lien (`LinkRate` : vitesse de l'interface, 80 % en Ethernet, 50 % sans câble ; `SessionEngine.setLinkMbps`) pour la définition ramenée, qu'il reçoit par `SessionEngine.onLowered` et `VideoStats.lowered` comme l'Apple TV et l'iPhone ([pyrowave-client-apple.md](pyrowave-client-apple.md)).
 
 ## L'interface
 

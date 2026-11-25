@@ -125,7 +125,13 @@
 #         PyroWave côté client (kyctl-common, kyclient et son API C,
 #         kyclient-rs) et fallback_codec de la requête de démarrage ;
 #         0025-kycontroller : PyroWave seulement si la Station le propose,
-#         sinon le format de repli du client
+#         sinon le format de repli du client. Moteur web
+#         (docs/pyrowave-client-web.md) : 0025-kyctlweb (copie du moteur web
+#         seulement) : PyroWave et fallback_codec dans kyctl-common et
+#         kyclient, et kywebplayer passe les paquets « pwv1 » au décodeur
+#         WebGPU de la page (globalThis.__kybernowPyroWave) au lieu de
+#         WebCodecs ; 0025-kyberweb : codec « pyrowave » et fallback_codec
+#         dans la configuration JS de l'image
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

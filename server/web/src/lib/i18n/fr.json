@@ -145,7 +145,19 @@
       "guideDirect": "Touchez pour cliquer là où est le doigt, longuement pour le clic droit. Glissez à deux doigts pour défiler.",
       "gotIt": "Compris"
     },
-    "textInput": "Saisie vers l'ordinateur"
+    "textInput": "Saisie vers l'ordinateur",
+    "pyrowave": {
+      "titleNetwork": "PyroWave, réseau inconnu",
+      "textNetwork": "Sans câble Ethernet, l'image peut saccader.",
+      "titleRelay": "PyroWave hors de chez vous",
+      "textRelay": "L'image peut saccader.",
+      "switch": "Passer en {format}",
+      "close": "Fermer",
+      "switched": "Image relancée en {format} pour cette session.",
+      "lowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s.",
+      "lost": "Images perdues",
+      "decode": "Décodage PyroWave"
+    }
   },
   "web": {
     "app": {
@@ -238,7 +250,15 @@
       "rotateTitle": "Tournez le téléphone avant de vous connecter.",
       "rotate": "L'ordinateur crée alors un écran à sa taille, en largeur.",
       "homeScreenTitle": "Ajoutez cette page à l'écran d'accueil.",
-      "homeScreen": "Elle s'ouvre alors en plein écran, sans la barre du navigateur."
+      "homeScreen": "Elle s'ouvre alors en plein écran, sans la barre du navigateur.",
+      "pyrowaveHelp": "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet.",
+      "pyrowaveAutoNote": "PyroWave se choisit à la main : un navigateur ne sait pas si cet appareil est relié par câble.",
+      "pyrowaveWarnNetwork": "Ce navigateur ne sait pas si vous êtes relié par câble. Sans câble Ethernet, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
+      "pyrowaveWarnRelay": "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
+      "pyrowave444": "Avec PyroWave, presque sans coût : seul le débit monte.",
+      "pyrowaveStation": "{name} ne propose pas PyroWave.",
+      "pyrowaveBrowser": "Ce navigateur ne sait pas décoder PyroWave.",
+      "pyrowaveLowered": "Définition ramenée à {width} × {height} pour tenir dans {mbps} Mbit/s."
     },
     "device": {
       "browser": "Navigateur",
@@ -296,7 +316,9 @@
       "keysMenu": "Raccourcis système par le menu Touches",
       "text444": "Texte net (4:4:4)",
       "text444Missing": "Texte net (4:4:4) : pas dans ce navigateur",
-      "display": "Cet écran : {width} × {height} à {refresh} Hz"
+      "display": "Cet écran : {width} × {height} à {refresh} Hz",
+      "pyrowave": "PyroWave décodé par la carte graphique (WebGPU)",
+      "pyrowaveMissing": "PyroWave : pas dans ce navigateur"
     },
     "station": {
       "version": "KyberNow Station {version}",

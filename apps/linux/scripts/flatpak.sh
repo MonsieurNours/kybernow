@@ -3,19 +3,30 @@
 # le runtime org.freedesktop.Platform 25.08 (plus rust-stable et llvm20), pour
 # l'architecture de la machine ou celle donnée :
 #
-#   apps/linux/scripts/flatpak.sh [x86_64|aarch64]
+#   apps/linux/scripts/flatpak.sh [x86_64|aarch64] [--kyber-pyrowave]
+#
+# --kyber-pyrowave : l'app demande PyroWave à Kyber (build.sh --kyber-pyrowave).
 #
 # → apps/linux/dist/KyberNow-Link-Linux-<arch>.flatpak, un paquet unique qui
 # s'installe par `flatpak install --user <fichier>` (le runtime vient de Flathub).
 # Pour x86_64 depuis une machine ARM : binfmt (Rosetta ou qemu-user-static).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-ARCH="${1:-$(uname -m)}"
+ARCH="$(uname -m)"
+KP=""
+for a in "$@"; do
+    case "$a" in
+        --kyber-pyrowave) KP=" --kyber-pyrowave" ;;
+        *) ARCH="$a" ;;
+    esac
+done
 WORK="${KYBERNOW_FLATPAK_WORK:-$HOME/.cache/kybernow-flatpak}"
 mkdir -p "$WORK" "$HERE/dist"
 "$HERE/scripts/sources.sh" --deps "$WORK/src-deps" >/dev/null
 "$HERE/scripts/sources.sh" "$WORK/src" >/dev/null
-cp "$HERE/flatpak/fr.leslignesclaires.kybernow.yml" "$WORK/"
+# --kyber-pyrowave : le module de l'app compile avec (les dépendances ne changent pas).
+sed "s|build.sh --prefix /app/lib/kybernow-sdk --install /app|build.sh$KP --prefix /app/lib/kybernow-sdk --install /app|" \
+    "$HERE/flatpak/fr.leslignesclaires.kybernow.yml" > "$WORK/fr.leslignesclaires.kybernow.yml"
 cd "$WORK"
 flatpak-builder --arch="$ARCH" --user --force-clean --disable-rofiles-fuse --state-dir="$WORK/state-$ARCH" \
     --repo="$WORK/repo" "$WORK/build-$ARCH" fr.leslignesclaires.kybernow.yml

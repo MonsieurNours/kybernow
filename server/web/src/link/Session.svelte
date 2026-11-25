@@ -39,6 +39,8 @@
   import LendAsk from './LendAsk.svelte'
   import { borrowCaps, clearActive, lendEndText, lendNoticeText, lendRefusalText, markActive, type BorrowStart } from './lend'
   import { leftText } from '../lib/lend'
+  import { offer, probeAtLoad } from './pyrowave/state.svelte'
+  import { pyrowaveStats, type PyroWaveStats } from './pyrowave/live'
 
   /** `guest` : la session d'un invité du partage (KyberNow Share, docs/kybernow-share.md) : pas de
    * préparation de l'écran ni de jeton d'Admin, une barre réduite, les droits de son rôle.
@@ -203,6 +205,18 @@
   let fallbackTried = false
   /** Replis pris parce que l'image ne démarrait pas (H.264, son coupé) : pour toute la page, sans toucher aux réglages. */
   let fallbacks: Fallbacks = NO_FALLBACK
+  /** PyroWave (docs/link-ui.md, « PyroWave ») : ce que la Station en dit (`/api/stream/info`, relu au démarrage). */
+  let stationInfo: Info | null = null
+  /** « Passer en HEVC » : PyroWave laissé pour la suite de cette session seulement. */
+  let pyrowaveOff = false
+  /** Bandeau du début d'une session PyroWave : 8 s, ou jusqu'à la croix. */
+  let pyroBanner = $state<'network' | 'relay' | null>(null)
+  let pyroBannerShown = false
+  let pyroBannerTimer: ReturnType<typeof setTimeout> | null = null
+  /** Temps de décodage et images perdues (Statistiques). */
+  let pyroStats = $state<PyroWaveStats | null>(null)
+  /** L'écran de cet appareil : la définition ramenée de PyroWave part de lui. */
+  let screen: Mode | null = null
   /** Un échec a été dit à la Station : elle apprendra aussi comment l'image est partie. */
   let reportedFailure = false
 
@@ -747,7 +761,7 @@
       width: canvasSize.width || mode.width,
       height: canvasSize.height || mode.height,
       refresh: mode.refresh,
-      codec: `${plan.codec === 'hevc' ? 'HEVC' : 'H.264'}${plan.yuv444 ? ' 4:4:4' : ''}`,
+      codec: formatLabel(plan.codec, plan.yuv444),
       mbps: plan.mbps,
     })
   }
@@ -853,10 +867,19 @@
         await startBorrow(gen)
         return
       }
-      const [refresh, codecs, ticket] = await Promise.all([measureRefresh(), supportedCodecs(), backend.ticket()])
+      const [refresh, codecs, ticket, info] = await Promise.all([
+        measureRefresh(),
+        supportedCodecs(),
+        backend.ticket(),
+        backend.info().catch(() => null),
+        probeAtLoad(),
+      ])
       if (stale(gen)) return
-      mode = screenMode(refresh)
+      screen = screenMode(refresh)
       codecList = codecs
+      if (info) stationInfo = info
+      // PyroWave choisi : l'écran demandé à l'ordinateur est à la définition ramenée s'il le faut.
+      mode = choose(sessionPrefs(), screen, codecList, preferredProtocol(), pyroOffer()).pyrowave?.mode ?? screen
       // Moteur chargé : corrigé, il lit lui-même le champ du clavier de l'appareil.
       textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
       ticketToken = ticket.token
@@ -955,10 +978,8 @@
     phase = 'connecting'
     connectStep = 'kyber'
     clearWatches()
-    // Un ami : le profil Jeu de la Station (docs/pret.md), jamais de presse-papiers.
-    const base: Prefs = b ? { ...prefs, profile: 'jeu' } : prefs
-    // Repli en H.264 : le débit du H.264 (plus élevé que celui du HEVC).
-    plan = choose(fallbacks.h264 ? { ...base, codec: 'h264' } : base, mode, codecList, protocol)
+    // PyroWave : la définition ramenée se calcule depuis l'écran de cet appareil.
+    plan = choose(sessionPrefs(), !g && !b && screen ? screen : mode, codecList, protocol, pyroOffer())
     if (b) plan = { ...plan, clipboard: false }
     if (g) plan = guestPlan(plan)
     plan = applyFallbacks(plan, fallbacks, codecList)
@@ -972,6 +993,49 @@
     engine = e
     connectWatch = setTimeout(() => noControlPlane(e), 25000)
     await e.connect(streamHost(), location.port || '443', ticketToken, plan, g ? guestDisplay?.id : b ? lendDisplay?.id : undefined)
+  }
+
+  /**
+   * Les réglages de cette session. Un ami : le profil Jeu de la Station (docs/pret.md). Repli en H.264 :
+   * le débit du H.264 (plus élevé que celui du HEVC). PyroWave pour l'hôte seulement (un invité suit
+   * l'image de l'hôte, un ami celle du prêt), et plus après « Passer en HEVC ».
+   */
+  function sessionPrefs(): Prefs {
+    const base: Prefs = b ? { ...prefs, profile: 'jeu' } : prefs
+    if (fallbacks.h264) return { ...base, codec: 'h264' }
+    if (base.codec === 'pyrowave' && (g || b || pyrowaveOff)) return { ...base, codec: 'auto' }
+    return base
+  }
+
+  function pyroOffer() {
+    return g || b ? null : offer(stationInfo)
+  }
+
+  /** Bandeau du début (Wi-Fi ou réseau inconnu, relais) et définition ramenée, une fois par session. */
+  function showPyroBanner() {
+    const pw = plan?.pyrowave
+    if (!pw || pyroBannerShown) return
+    pyroBannerShown = true
+    pyroBanner = pw.warning
+    if (pyroBannerTimer) clearTimeout(pyroBannerTimer)
+    pyroBannerTimer = setTimeout(() => (pyroBanner = null), 8000)
+    if (pw.lowered) showNotice(t('session.pyrowave.lowered', { width: pw.lowered.width, height: pw.lowered.height, mbps: pw.lowered.mbps }), 8000)
+  }
+
+  function hidePyroBanner() {
+    if (pyroBannerTimer) clearTimeout(pyroBannerTimer)
+    pyroBannerTimer = null
+    pyroBanner = null
+  }
+
+  /** « Passer en HEVC » : l'image repart dans le format d'Auto, à la définition de l'écran, pour cette
+   * session seulement (les réglages ne changent pas). */
+  function leavePyroWave() {
+    hidePyroBanner()
+    if (!plan?.pyrowave || ended) return
+    pyrowaveOff = true
+    pendingNotice = t('session.pyrowave.switched', { format: formatLabel(plan.fallbackCodec ?? 'h264', false) })
+    void restart()
   }
 
   /** L'invité demande le format de l'hôte s'il le lit (il partage alors son image), sinon un format qu'il
@@ -1155,6 +1219,7 @@
           showNotice(pendingNotice)
           pendingNotice = ''
         }
+        if (first) showPyroBanner()
         if (reportedFailure && plan) {
           // La Station apprend que l'image est partie, et dans quel format.
           reportedFailure = false
@@ -1821,6 +1886,7 @@
       if (!engine || phase !== 'live') return
       latency = engine.latency.median()
       fps = engine.latency.fps()
+      pyroStats = plan?.pyrowave ? pyrowaveStats() : null
       if (latency) spark = [...spark.slice(-31), latency.total]
     }, 500)
     // Médiane de chaque seconde d'image, pour la dernière session.
@@ -1962,6 +2028,20 @@
     <div class="toast glass" role="status">{reconnecting || notice}</div>
   {/if}
 
+  {#if phase === 'live' && pyroBanner}
+    <!-- PyroWave sans câble connu ou par le relais : au début de la session, 8 s (docs/link-ui.md, « PyroWave »). -->
+    <div class="pwbanner glass" class:below={!!(reconnecting || notice)} role="status">
+      <div class="pwtext">
+        <strong>{pyroBanner === 'relay' ? t('session.pyrowave.titleRelay') : t('session.pyrowave.titleNetwork')}</strong>
+        <span>{pyroBanner === 'relay' ? t('session.pyrowave.textRelay') : t('session.pyrowave.textNetwork')}</span>
+      </div>
+      <button type="button" class="pwswitch" onclick={leavePyroWave}>{t('session.pyrowave.switch', { format: formatLabel(plan?.fallbackCodec ?? 'hevc', false) })}</button>
+      <button type="button" class="pwclose" aria-label={t('session.pyrowave.close')} onclick={hidePyroBanner}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+      </button>
+    </div>
+  {/if}
+
   {#if phase === 'live' && soundBlocked && prefs.audio && !muted}
     <button type="button" class="sound glass" onpointerdown={(e) => e.preventDefault()} onclick={unlockSound}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M17 9a4 4 0 0 1 0 6" /><path d="M19.5 6.5a8 8 0 0 1 0 11" /></svg>
@@ -2024,6 +2104,13 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
           <span class="label">{profileText}</span>
         </span>
+        {#if plan?.pyrowave?.warning === 'relay'}
+          <!-- PyroWave par le relais : la puce ambre reste dans la barre (docs/link-ui.md, « PyroWave »). -->
+          <span class="chip static amber">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z" /><path d="M12 10v4M12 17.5v.5" /></svg>
+            <span class="label">{t('session.pyrowave.titleRelay')}</span>
+          </span>
+        {/if}
       {/if}
       {#if canKbm}
         <button type="button" class="chip" aria-label={mouseLabel} title={t('session.mouse.hint')} onclick={cycleMouse}>
@@ -2141,6 +2228,15 @@
         <div class="mono foot">
           <span>{t('session.metrics.fps', { fps })}</span>{#if !g}<span>{plan?.mbps ?? '—'} Mbit/s</span>{/if}<span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>{#if relayed}<span>{t('session.bar.relay')}</span>{/if}
         </div>
+        {#if plan?.pyrowave}
+          <div class="mono foot">
+            <span>{t('session.pyrowave.decode')} {pyroStats?.decodeMs != null ? ms(pyroStats.decodeMs) : '—'}</span>
+            <span>{t('session.pyrowave.lost')} {pyroStats?.lostPercent != null ? `${decimal(pyroStats.lostPercent.toFixed(1))} %` : '—'}</span>
+          </div>
+          {#if plan.pyrowave.lowered}
+            <p class="muted small">{t('session.pyrowave.lowered', { width: plan.pyrowave.lowered.width, height: plan.pyrowave.lowered.height, mbps: plan.pyrowave.lowered.mbps })}</p>
+          {/if}
+        {/if}
         <p class="muted small">{t('session.metrics.browserNote')}</p>
       </section>
     {/if}
@@ -2888,6 +2984,62 @@
     gap: 10px;
     pointer-events: none;
     top: 80px;
+  }
+
+  /* PyroWave : bandeau du début, sous l'avis s'il y en a un. */
+  .pwbanner {
+    position: absolute;
+    left: 50%;
+    translate: -50% 0;
+    top: 80px;
+    max-width: calc(100% - 32px);
+    padding: 10px 10px 10px 16px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-shadow: inset 0 0 0 1px var(--warn-line);
+    z-index: 3;
+  }
+
+  .pwbanner.below {
+    top: 132px;
+  }
+
+  .pwtext {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+
+  .pwtext strong {
+    color: var(--warn-text);
+    font-weight: 600;
+  }
+
+  .pwswitch {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .pwclose {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    background: none;
+    color: var(--muted);
+  }
+
+  .chip.amber {
+    color: var(--warn-text);
+    box-shadow: inset 0 0 0 1px var(--warn-line);
   }
 
   /* Son en attente d'un geste : au-dessus de tout, en bas au centre. */

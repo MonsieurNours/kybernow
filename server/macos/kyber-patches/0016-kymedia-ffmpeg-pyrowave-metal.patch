@@ -1,0 +1,367 @@
+--- a/subprojects/ffmpeg.wrap
++++ b/subprojects/ffmpeg.wrap
+@@ -45,7 +45,8 @@
+   ffmpeg/patches/0018-avcodec-videotoolboxenc-set-expected-framerate.patch,
+   ffmpeg/patches/0019-avcodec-videotoolboxenc-make-VT-blocking.patch,
+   ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
+-  ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
++  ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
++  ffmpeg/patches/0022-avcodec-pyrowave-metal-encoder.patch
+ 
+ [provide]
+ dependency_names = ffmpeg, libavcodec, libavformat, libavutil, libswresample, libswscale, libavfilter, libavdevice
+--- a/subprojects/packagefiles/ffmpeg/meson.build
++++ b/subprojects/packagefiles/ffmpeg/meson.build
+@@ -100,6 +100,12 @@
+     _ext_deps += _iconv_dep
+   endif
+   _ext_deps += _c.find_library('m', required : false)
++  if host_machine.system() == 'darwin'
++    # KyberNow: PyroWave encoder of the Mac Station (libpyrowave_metal,
++    # static library built into the rootfs before this build:
++    # server/macos/pyrowave). Metal, IOSurface and the C++ runtime with it.
++    _ext_deps += dependency('kn-pyrowave-metal', static : true)
++  endif
+ elif host_machine.system() == 'android'
+   _ext_deps += declare_dependency(link_args : [
+     '-lm', '-lc',
+@@ -276,6 +282,8 @@
+     '--disable-filter=coreimage',
+     '--disable-filter=coreimagesrc',
+     '--disable-filter=yadif_videotoolbox',
++    # KyberNow: PyroWave encoder of VideoToolbox frames (docs/pyrowave.md).
++    '--enable-libpyrowave-metal',
+   ]
+   if meson.is_cross_build()
+     # macOS cross-arch (e.g. arm64 runner building x86_64): tell FFmpeg configure
+--- a/subprojects/packagefiles/ffmpeg/patches/0022-avcodec-pyrowave-metal-encoder.patch
++++ b/subprojects/packagefiles/ffmpeg/patches/0022-avcodec-pyrowave-metal-encoder.patch
+@@ -0,0 +1,328 @@
++From: KyberNow
++Subject: [PATCH] avcodec: PyroWave encoder for VideoToolbox frames (Metal)
++
++The Mac counterpart of libpyrowave (D3D11): libpyrowave_metal takes the
++VideoToolbox frames of a ScreenCaptureKit capture (IOSurface) without any
++CPU copy, through kn-pyrowave-metal (KyberNow, server/macos/pyrowave: RGB
++to YCbCr on the GPU, Metal port of PyroWave). KyberNow, docs/pyrowave.md.
++---
++diff --git a/configure b/configure
++index 5b10300..347902e 100755
++--- a/configure
+++++ b/configure
++@@ -266,6 +266,7 @@ External library support:
++   --enable-libplacebo      enable libplacebo library [no]
++   --enable-libpulse        enable Pulseaudio input via libpulse [no]
++   --enable-libpyrowave     enable PyroWave encoding of D3D11 frames via libpyrowave [no]
+++  --enable-libpyrowave-metal enable PyroWave encoding of VideoToolbox frames via the Metal port [no]
++   --enable-libqrencode     enable QR encode generation via libqrencode [no]
++   --enable-libquirc        enable QR decoding via libquirc [no]
++   --enable-librabbitmq     enable RabbitMQ library [no]
++@@ -2075,6 +2076,7 @@ EXTERNAL_LIBRARY_LIST="
++     libplacebo
++     libpulse
++     libpyrowave
+++    libpyrowave_metal
++     libqrencode
++     libquirc
++     librabbitmq
++@@ -3806,6 +3808,7 @@ libopus_decoder_deps="libopus"
++ libopus_encoder_deps="libopus"
++ libopus_encoder_select="audio_frame_queue"
++ libpyrowave_encoder_deps="libpyrowave d3d11va"
+++libpyrowave_metal_encoder_deps="libpyrowave_metal videotoolbox"
++ librav1e_encoder_deps="librav1e"
++ librsvg_decoder_deps="librsvg"
++ libshine_encoder_deps="libshine"
++@@ -7838,6 +7841,7 @@ enabled amf &&
++         "(AMF_VERSION_MAJOR << 48 | AMF_VERSION_MINOR << 32 | AMF_VERSION_RELEASE << 16 | AMF_VERSION_BUILD_NUM) >= 0x0001000400240000"
++ 
++ enabled libpyrowave && require_pkg_config libpyrowave pyrowave-shared "vulkan/vulkan.h pyrowave.h" pyrowave_get_api_version
+++enabled libpyrowave_metal && require_pkg_config libpyrowave_metal kn-pyrowave-metal kn_pyrowave_metal.h kn_pw_supported
++ 
++ # Funny iconv installations are not unusual, so check it after all flags have been set
++ if enabled libc_iconv; then
++diff --git a/libavcodec/Makefile b/libavcodec/Makefile
++index a96b44a..84da130 100644
++--- a/libavcodec/Makefile
+++++ b/libavcodec/Makefile
++@@ -1203,6 +1203,7 @@ OBJS-$(CONFIG_LIBOPUS_DECODER)            += libopusdec.o libopus.o     \
++ OBJS-$(CONFIG_LIBOPUS_ENCODER)            += libopusenc.o libopus.o     \
++                                              vorbis_data.o
++ OBJS-$(CONFIG_LIBPYROWAVE_ENCODER)        += libpyrowave_enc.o
+++OBJS-$(CONFIG_LIBPYROWAVE_METAL_ENCODER)  += libpyrowave_metal_enc.o
++ OBJS-$(CONFIG_LIBRAV1E_ENCODER)           += librav1e.o
++ OBJS-$(CONFIG_LIBRSVG_DECODER)            += librsvgdec.o
++ OBJS-$(CONFIG_LIBSHINE_ENCODER)           += libshine.o
++diff --git a/libavcodec/allcodecs.c b/libavcodec/allcodecs.c
++index 0673c5e..5f7ec12 100644
++--- a/libavcodec/allcodecs.c
+++++ b/libavcodec/allcodecs.c
++@@ -813,6 +813,7 @@ extern const FFCodec ff_libopenjpeg_encoder;
++ extern const FFCodec ff_libopus_encoder;
++ extern const FFCodec ff_libopus_decoder;
++ extern const FFCodec ff_libpyrowave_encoder;
+++extern const FFCodec ff_libpyrowave_metal_encoder;
++ extern const FFCodec ff_librav1e_encoder;
++ extern const FFCodec ff_librsvg_decoder;
++ extern const FFCodec ff_libshine_encoder;
++diff --git a/libavcodec/libpyrowave_metal_enc.c b/libavcodec/libpyrowave_metal_enc.c
++new file mode 100644
++index 0000000..c2023d3
++--- /dev/null
+++++ b/libavcodec/libpyrowave_metal_enc.c
++@@ -0,0 +1,254 @@
+++/*
+++ * PyroWave encoder for VideoToolbox frames on Apple silicon (KyberNow).
+++ *
+++ * This file is part of FFmpeg.
+++ *
+++ * FFmpeg is free software; you can redistribute it and/or
+++ * modify it under the terms of the GNU Lesser General Public
+++ * License as published by the Free Software Foundation; either
+++ * version 2.1 of the License, or (at your option) any later version.
+++ *
+++ * FFmpeg is distributed in the hope that it will be useful,
+++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+++ * Lesser General Public License for more details.
+++ *
+++ * You should have received a copy of the GNU Lesser General Public
+++ * License along with FFmpeg; if not, write to the Free Software
+++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+++ */
+++
+++/*
+++ * The Mac counterpart of libpyrowave (D3D11): it takes the VideoToolbox
+++ * frames of a ScreenCaptureKit capture (CVPixelBuffer backed by an
+++ * IOSurface) without any CPU copy. kn-pyrowave-metal (KyberNow,
+++ * server/macos/pyrowave) wraps the IOSurface in a Metal texture, converts
+++ * RGB to YCbCr on the GPU (or takes P010 as is) and scales it down if asked,
+++ * then runs the Metal port of PyroWave.
+++ *
+++ * Input: BGRA (SDR, encoded BT.709 full range), NV12 (SDR 4:2:0 at the
+++ * encoded size, BT.709 full range from ScreenCaptureKit, kept as is) or P010
+++ * (HDR10 from the capture: PQ, BT.2020, limited range, kept as is).
+++ *
+++ * Extradata and packets: the KyberNow contract, as libpyrowave
+++ * (docs/pyrowave.md): 16-byte "KNPW" header, one packet per frame made of
+++ * the PyroWave packets end to end, always a key frame.
+++ */
+++
+++#include <kn_pyrowave_metal.h>
+++
+++#include "libavutil/hwcontext.h"
+++#include "libavutil/mem.h"
+++#include "libavutil/opt.h"
+++#include "libavutil/pixdesc.h"
+++#include "avcodec.h"
+++#include "codec_internal.h"
+++#include "encode.h"
+++#include "hwconfig.h"
+++
+++#define KNPW_HEADER_SIZE 16
+++#define TIMING_EVERY 600
+++
+++typedef struct PyroWaveMetalContext {
+++    const AVClass *class;
+++
+++    /* Options (same as libpyrowave) */
+++    int chroma444;
+++    int out_width, out_height;
+++    int packet_size;
+++    int fps;
+++    int gpu_priority;
+++
+++    kn_pw *pw;
+++    int width, height;
+++    int hdr;
+++
+++    int64_t frames;
+++    double convert_ms, encode_ms, bytes;
+++} PyroWaveMetalContext;
+++
+++static av_cold int pwm_close(AVCodecContext *avctx)
+++{
+++    PyroWaveMetalContext *s = avctx->priv_data;
+++
+++    kn_pw_destroy(s->pw);
+++    s->pw = NULL;
+++    return 0;
+++}
+++
+++static av_cold int pwm_init(AVCodecContext *avctx)
+++{
+++    PyroWaveMetalContext *s = avctx->priv_data;
+++    AVHWFramesContext *hwfc;
+++    kn_pw_config config = { 0 };
+++    char chip[128], err[256] = { 0 };
+++
+++    if (!avctx->hw_frames_ctx) {
+++        av_log(avctx, AV_LOG_ERROR, "PyroWave takes VideoToolbox frames only (no hw_frames_ctx)\n");
+++        return AVERROR(EINVAL);
+++    }
+++    hwfc = (AVHWFramesContext *)avctx->hw_frames_ctx->data;
+++    if (hwfc->format != AV_PIX_FMT_VIDEOTOOLBOX ||
+++        (hwfc->sw_format != AV_PIX_FMT_BGRA && hwfc->sw_format != AV_PIX_FMT_NV12 &&
+++         hwfc->sw_format != AV_PIX_FMT_P010)) {
+++        av_log(avctx, AV_LOG_ERROR, "PyroWave takes VideoToolbox frames in BGRA, NV12 or P010, not %s\n",
+++               av_get_pix_fmt_name(hwfc->sw_format));
+++        return AVERROR(EINVAL);
+++    }
+++    s->hdr = hwfc->sw_format == AV_PIX_FMT_P010;
+++
+++    s->width  = s->out_width  > 0 ? s->out_width  : avctx->width;
+++    s->height = s->out_height > 0 ? s->out_height : avctx->height;
+++    /* 4:4:4 in SDR only: the HDR10 capture is P010 (4:2:0). */
+++    if (s->chroma444 && s->hdr) {
+++        av_log(avctx, AV_LOG_WARNING, "4:4:4 refused with HDR10 (P010 capture): 4:2:0\n");
+++        s->chroma444 = 0;
+++    }
+++    if (!s->chroma444 && ((s->width | s->height) & 1)) {
+++        av_log(avctx, AV_LOG_ERROR, "4:2:0 needs an even size, not %dx%d\n", s->width, s->height);
+++        return AVERROR(EINVAL);
+++    }
+++
+++    if (!kn_pw_supported(chip, sizeof(chip))) {
+++        av_log(avctx, AV_LOG_ERROR, "PyroWave needs an Apple7 GPU or later, not %s\n", chip);
+++        return AVERROR_EXTERNAL;
+++    }
+++    config.width     = s->width;
+++    config.height    = s->height;
+++    config.chroma444 = s->chroma444;
+++    config.hdr       = s->hdr;
+++    if (kn_pw_create(&config, &s->pw, err, sizeof(err)) < 0) {
+++        av_log(avctx, AV_LOG_ERROR, "Cannot create the encoder: %s\n", err);
+++        return AVERROR_EXTERNAL;
+++    }
+++
+++    /* Global header: the sinks send it as the stream's config packet. */
+++    avctx->extradata = av_mallocz(KNPW_HEADER_SIZE + AV_INPUT_BUFFER_PADDING_SIZE);
+++    if (!avctx->extradata)
+++        return AVERROR(ENOMEM);
+++    avctx->extradata_size = KNPW_HEADER_SIZE;
+++    kn_pw_config_packet(s->pw, avctx->extradata);
+++
+++    avctx->color_range = s->hdr ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
+++    av_log(avctx, AV_LOG_INFO, "PyroWave encoder %dx%d %s, %s, input %dx%d %s, packets of %d bytes, on %s (Metal)\n",
+++           s->width, s->height, s->chroma444 ? "4:4:4" : "4:2:0",
+++           s->hdr ? "HDR10 (PQ, BT.2020, limited)" : "SDR (BT.709, full)",
+++           avctx->width, avctx->height, av_get_pix_fmt_name(hwfc->sw_format), s->packet_size, chip);
+++    return 0;
+++}
+++
+++/* Bytes for one frame: bitrate / 8 / fps, a multiple of 4. */
+++static size_t pwm_frame_budget(AVCodecContext *avctx)
+++{
+++    PyroWaveMetalContext *s = avctx->priv_data;
+++    AVRational fps = avctx->framerate;
+++    int64_t size;
+++
+++    if (s->fps > 0)
+++        fps = (AVRational){ s->fps, 1 };
+++    else if (fps.num <= 0 || fps.den <= 0)
+++        fps = (AVRational){ 60, 1 };
+++    size = av_rescale_rnd(avctx->bit_rate > 0 ? avctx->bit_rate : 200000000, fps.den,
+++                          (int64_t)fps.num * 8, AV_ROUND_DOWN);
+++    size &= ~(int64_t)3;
+++    return FFMAX(size, 4096);
+++}
+++
+++static int pwm_encode(AVCodecContext *avctx, AVPacket *pkt, const AVFrame *frame, int *got_packet)
+++{
+++    PyroWaveMetalContext *s = avctx->priv_data;
+++    size_t budget, capacity = 0, size = 0;
+++    double convert_ms, encode_ms;
+++    int ret;
+++
+++    *got_packet = 0;
+++    if (frame->format != AV_PIX_FMT_VIDEOTOOLBOX || !frame->data[3]) {
+++        av_log(avctx, AV_LOG_ERROR, "Frame without a CVPixelBuffer\n");
+++        return AVERROR(EINVAL);
+++    }
+++
+++    budget = pwm_frame_budget(avctx);
+++    if (kn_pw_encode(s->pw, frame->data[3], budget, s->packet_size, &capacity) < 0) {
+++        av_log(avctx, AV_LOG_ERROR, "Encode failed: %s\n", kn_pw_error(s->pw));
+++        return AVERROR_EXTERNAL;
+++    }
+++    if ((ret = ff_get_encode_buffer(avctx, pkt, capacity, 0)) < 0)
+++        return ret;
+++    if (kn_pw_packetize(s->pw, s->packet_size, pkt->data, capacity, &size) < 0) {
+++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s\n", kn_pw_error(s->pw));
+++        return AVERROR_EXTERNAL;
+++    }
+++    av_shrink_packet(pkt, size);
+++
+++    pkt->pts = pkt->dts = frame->pts;
+++    pkt->flags |= AV_PKT_FLAG_KEY;
+++    *got_packet = 1;
+++
+++    kn_pw_last_timing(s->pw, &convert_ms, &encode_ms);
+++    s->convert_ms += convert_ms;
+++    s->encode_ms  += encode_ms;
+++    s->bytes      += size;
+++    if (!(++s->frames % TIMING_EVERY)) {
+++        av_log(avctx, AV_LOG_INFO, "PyroWave: %d frames, %.0f bytes on average (budget %zu), "
+++               "conversion %.2f ms, encode %.2f ms on average\n", TIMING_EVERY,
+++               s->bytes / TIMING_EVERY, budget, s->convert_ms / TIMING_EVERY, s->encode_ms / TIMING_EVERY);
+++        s->convert_ms = s->encode_ms = s->bytes = 0;
+++    }
+++    return 0;
+++}
+++
+++static const AVCodecHWConfigInternal *const pwm_hw_configs[] = {
+++    &(const AVCodecHWConfigInternal) {
+++        .public = {
+++            .pix_fmt     = AV_PIX_FMT_VIDEOTOOLBOX,
+++            .methods     = AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX,
+++            .device_type = AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+++        },
+++        .hwaccel = NULL,
+++    },
+++    NULL
+++};
+++
+++#define OFFSET(x) offsetof(PyroWaveMetalContext, x)
+++#define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
+++static const AVOption pwm_options[] = {
+++    { "chroma444",    "Encode 4:4:4 (SDR only)",                   OFFSET(chroma444),    AV_OPT_TYPE_BOOL, { .i64 = 0 },    0, 1,       VE },
+++    { "out_width",    "Encoded width (scaled on the GPU), 0: input", OFFSET(out_width),  AV_OPT_TYPE_INT,  { .i64 = 0 },    0, 16384,   VE },
+++    { "out_height",   "Encoded height, 0: input",                  OFFSET(out_height),   AV_OPT_TYPE_INT,  { .i64 = 0 },    0, 16384,   VE },
+++    { "packet_size",  "PyroWave packet boundary in bytes",         OFFSET(packet_size),  AV_OPT_TYPE_INT,  { .i64 = 1152 }, 256, 65535, VE },
+++    { "fps",          "Frames per second for the frame budget, 0: framerate", OFFSET(fps), AV_OPT_TYPE_INT, { .i64 = 0 },   0, 1000,    VE },
+++    /* Same options as libpyrowave; Metal has no queue priority to set. */
+++    { "gpu_priority", "Ignored (Metal)",                           OFFSET(gpu_priority), AV_OPT_TYPE_INT,  { .i64 = 1 },    0, 2,       VE },
+++    { NULL },
+++};
+++
+++static const AVClass pwm_class = {
+++    .class_name = "libpyrowave_metal",
+++    .item_name  = av_default_item_name,
+++    .option     = pwm_options,
+++    .version    = LIBAVUTIL_VERSION_INT,
+++};
+++
+++static const FFCodecDefault pwm_defaults[] = {
+++    { "b", "200M" },
+++    { NULL },
+++};
+++
+++const FFCodec ff_libpyrowave_metal_encoder = {
+++    .p.name         = "libpyrowave_metal",
+++    CODEC_LONG_NAME("PyroWave (VideoToolbox frames, Metal)"),
+++    .p.type         = AVMEDIA_TYPE_VIDEO,
+++    .p.id           = AV_CODEC_ID_PYROWAVE,
+++    .p.capabilities = AV_CODEC_CAP_HARDWARE,
+++    .p.wrapper_name = "libpyrowave_metal",
+++    .p.priv_class   = &pwm_class,
+++    .priv_data_size = sizeof(PyroWaveMetalContext),
+++    .init           = pwm_init,
+++    .close          = pwm_close,
+++    FF_CODEC_ENCODE_CB(pwm_encode),
+++    CODEC_PIXFMTS(AV_PIX_FMT_VIDEOTOOLBOX),
+++    .color_ranges   = AVCOL_RANGE_JPEG | AVCOL_RANGE_MPEG,
+++    .hw_configs     = pwm_hw_configs,
+++    .defaults       = pwm_defaults,
+++    .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP,
+++};

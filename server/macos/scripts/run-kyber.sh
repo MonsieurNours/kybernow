@@ -47,6 +47,9 @@ package() {
     [ -d "$APP" ] || { echo "Empaquetage raté ($APP absent)" >&2; exit 1; }
     # Hors des exécutables (sinon la signature du paquet échoue) : réglages et certificats.
     mv "$APP"/Contents/MacOS/*.pem "$APP"/Contents/MacOS/kyber_config.toml "$APP/Contents/Resources/"
+    # Vérification PyroWave d'Admin (server/macos/pyrowave), avec Kyber :
+    # build-station-app.sh la pose à côté d'Admin.
+    cp "$OUT/bin/kybernow-pyrowave-check" "$APP/Contents/MacOS/"
     rm -f "$KYBER_DIR/KyberNow-Station-Kyber.app.zip"
     plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$APP/Contents/Info.plist"
     plutil -replace CFBundleName -string "KyberNow Station (Kyber)" "$APP/Contents/Info.plist"
@@ -56,7 +59,7 @@ package() {
     plutil -replace NSMicrophoneUsageDescription -string "KyberNow Station lit le son de la session sur la sortie KyberNow pour l'envoyer à vos appareils." "$APP/Contents/Info.plist"
     # Bibliothèques d'abord, puis les exécutables, puis le paquet.
     find "$APP/Contents/Frameworks" -type f -name '*.dylib' -exec codesign -f -s "$IDENTITY" {} \;
-    for exe in kyavserver kynputserver; do
+    for exe in kyavserver kynputserver kybernow-pyrowave-check; do
         codesign -f -s "$IDENTITY" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
     done
     codesign -f -s "$IDENTITY" "$APP"

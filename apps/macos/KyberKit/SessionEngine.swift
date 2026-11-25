@@ -354,16 +354,15 @@ public final class SessionEngine: @unchecked Sendable {
         /// Le texte à montrer, une fois par session (« L'ordinateur n'a pas pu
         /// passer en HDR : image en SDR. »).
         case hdrRefused(String)
-        /// PyroWave : la définition demandée à l'ordinateur est ramenée pour
-        /// tenir dans le débit (`text` : « Définition ramenée à {l} × {h} pour
-        /// tenir dans {n} Mbit/s. », langue de l'app) ; nil : revenue à celle
-        /// de l'appareil.
-        case resolutionLowered(PyroWaveLowered?, text: String)
     }
 
     // Rappels, tous sur le fil principal.
     public var onPhase: ((Phase) -> Void)?
     public var onNotice: ((Notice) -> Void)?
+    /// PyroWave : la définition est ramenée (le texte du bandeau, « Définition
+    /// ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », langue de l'app), ou
+    /// revenue à celle de l'appareil (nil, nil).
+    public var onLowered: ((LoweredMode?, String?) -> Void)?
     /// Les écrans annoncés par Kyber (choix dans la barre, sans écran virtuel).
     public var onDisplays: (([KyberDisplay]) -> Void)?
     /// L'écran affiché (aussi quand sa taille change).
@@ -443,8 +442,6 @@ public final class SessionEngine: @unchecked Sendable {
     private var lastSecond: LatencySecond?
     /// Format du dernier paquet de codec (`receivedCodec`), sous `lock`.
     private var receivedCodecValue: VideoCodec?
-    /// `lowered`, sous `lock`.
-    private var loweredValue: PyroWaveLowered?
     private var padCaptured = false
     private var occluded = false
     private var vsync = true
@@ -853,18 +850,10 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
     }
 
-    /// PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit que ce
-    /// Mac sait tenir vers l'ordinateur, en Mbit/s ; nil : inconnu.
-    public func setLinkMbps(_ mbps: Int?) {
-        if let s = live { kn_session_set_link_mbps(s, UInt32(max(0, mbps ?? 0))) }
-    }
-
-    /// PyroWave : la définition ramenée en place (dernière seconde du cœur),
-    /// pour les Statistiques ; nil sans.
-    public var lowered: PyroWaveLowered? {
-        lock.lock()
-        defer { lock.unlock() }
-        return loweredValue
+    /// PyroWave (« Définition ramenée ») : le débit que l'appareil sait tenir
+    /// vers l'ordinateur, en Mbit/s ; nil : inconnu.
+    public func setLinkMbps(_ mbps: UInt32?) {
+        if let s = live { kn_session_set_link_mbps(s, mbps ?? 0) }
     }
 
     /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
@@ -1241,12 +1230,11 @@ public final class SessionEngine: @unchecked Sendable {
         second.lostPackets = Int(s.lost_packets)
         second.rttMs = s.has_rtt ? s.rtt_ms : nil
         second.bytes = Int(s.bytes)
-        let lowered = s.lowered
-            ? PyroWaveLowered(width: Int(s.lowered_width), height: Int(s.lowered_height), refresh: Int(s.lowered_refresh), mbps: Int(s.lowered_mbps))
-            : nil
+        if s.lowered {
+            second.lowered = LoweredMode(width: Int(s.lowered_width), height: Int(s.lowered_height), refresh: Int(s.lowered_refresh), mbps: Int(s.lowered_mbps))
+        }
         lock.lock()
         lastSecond = second
-        loweredValue = lowered
         lock.unlock()
     }
 
@@ -1263,8 +1251,11 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_STATION_RESTARTING: notice = .stationRestarting
         case KN_NOTICE_HDR_REFUSED: notice = .hdrRefused(n.error.map { String(cString: $0) } ?? "")
         case KN_NOTICE_RESOLUTION_LOWERED:
-            let lowered = n.has_mode ? PyroWaveLowered(width: Int(n.width), height: Int(n.height), refresh: 0, mbps: Int(n.bitrate_mbps)) : nil
-            notice = .resolutionLowered(lowered, text: n.error.map { String(cString: $0) } ?? "")
+            // À part des autres avis (`onLowered`) : les `switch` des apps restent tels quels.
+            let mode = n.has_mode ? LoweredMode(width: Int(n.width), height: Int(n.height), refresh: 0, mbps: Int(n.bitrate_mbps)) : nil
+            let text = n.has_mode ? n.error.map { String(cString: $0) } : nil
+            DispatchQueue.main.async { [self] in onLowered?(mode, text) }
+            return
         default: return
         }
         DispatchQueue.main.async { [self] in onNotice?(notice) }

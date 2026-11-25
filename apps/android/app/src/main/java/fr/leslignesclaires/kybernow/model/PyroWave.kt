@@ -45,6 +45,22 @@ object PyroWave {
     }.getOrDefault(false)
 
     /**
+     * Le débit du lien de l'appareil vers le réseau, en Mbit/s, pour la définition ramenée du cœur
+     * (`Session::set_link_mbps`, docs/pyrowave.md) ; 0 : inconnu. En Wi-Fi, le débit de réception négocié
+     * (`WifiInfo.getRxLinkSpeedMbps`) ; en Ethernet, Android ne donne qu'une estimation fixe
+     * (`getLinkDownstreamBandwidthKbps`), pas la vitesse de la prise : inconnu.
+     */
+    fun linkMbps(context: Context): Int = runCatching {
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return 0
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return 0
+        val info = caps.transportInfo as? android.net.wifi.WifiInfo
+            ?: @Suppress("DEPRECATION") context.getSystemService(android.net.wifi.WifiManager::class.java).connectionInfo
+        val rx = info.rxLinkSpeedMbps
+        (if (rx > 0) rx else info.linkSpeed).coerceAtLeast(0)
+    }.getOrDefault(0)
+
+    /**
      * Ce que la Station annonce (`pyrowave` de `GET /api/stream/info`) : vrai ou faux selon `available`, nul quand le
      * champ manque (Station d'avant PyroWave : la valeur n'apparaît jamais).
      */

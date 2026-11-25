@@ -1212,8 +1212,8 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var pyrowaveBanner = false
     private var pyrowaveBannerDone = false
     /// La définition ramenée par le cœur pour tenir dans le débit
-    /// (Statistiques) ; nil sans.
-    @Published private(set) var lowered: PyroWaveLowered?
+    /// (`VideoStats.lowered`, Statistiques) ; nil sans.
+    @Published private(set) var lowered: LoweredMode?
     private var linkObserver: NSObjectProtocol?
 
     /// Comment ce Mac joint l'ordinateur : câble, Wi-Fi, relais.
@@ -1234,12 +1234,11 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Le format reçu, la définition ramenée, et le bandeau du début
     /// (PyroWave choisi à la main, en Wi-Fi ou par le relais, une fois par session).
-    private func followCodec() {
+    private func followCodec(_ stats: VideoStats) {
         guard let engine else { return }
         let codec = engine.receivedCodec
         if codec != receivedCodec { receivedCodec = codec }
-        let lowered = engine.lowered
-        if lowered != self.lowered { self.lowered = lowered }
+        if stats.lowered != lowered { lowered = stats.lowered }
         guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
         showPyroWaveBanner()
     }
@@ -1257,6 +1256,15 @@ final class SessionController: NSObject, ObservableObject {
         guard pyrowaveBanner else { return }
         withAnimation(Theme.easeOut) { pyrowaveBanner = false }
         pyrowaveBannerRect = .zero
+    }
+
+    /// PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+    /// (texte du cœur, langue de l'app) en rappel en haut de l'image ; les
+    /// Statistiques suivent `VideoStats.lowered` ; rien quand elle revient.
+    private func resolutionLowered(_ mode: LoweredMode?, _ text: String?) {
+        guard let mode else { return }
+        KyberLog.app.notice("PyroWave : définition ramenée à \(mode.width)×\(mode.height) (\(mode.mbps) Mbit/s)")
+        showHint(.notice(text ?? PyroWaveText.lowered(width: mode.width, height: mode.height, mbps: mode.mbps)), after: 0, for: PyroWaveSession.bannerSeconds)
     }
 
     /// « Passer en HEVC » : l'image repart en HEVC pour cette session.
@@ -1412,8 +1420,9 @@ final class SessionController: NSObject, ObservableObject {
             if self.statsHistory.count > 30 { self.statsHistory.removeFirst() }
             self.sessionLosses.frames += stats.lostFrames
             self.sessionLosses.packets += stats.lostPackets
-            self.followCodec()
+            self.followCodec(stats)
         }
+        engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         engine.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
@@ -1702,13 +1711,6 @@ final class SessionController: NSObject, ObservableObject {
         case let .hdrRefused(text):
             // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
             showHint(.notice(text.isEmpty ? HDRText.refused : text), after: 0, for: 6)
-        case let .resolutionLowered(lowered, text):
-            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ;
-            // les Statistiques la gardent ; rien quand elle revient.
-            self.lowered = lowered.map { l in self.lowered.map { PyroWaveLowered(width: l.width, height: l.height, refresh: $0.refresh, mbps: l.mbps) } ?? l }
-            if let lowered {
-                showHint(.notice(text.isEmpty ? PyroWaveText.lowered(width: lowered.width, height: lowered.height, mbps: lowered.mbps) : text), after: 0, for: 6)
-            }
         }
     }
 
@@ -2226,7 +2228,7 @@ final class SessionController: NSObject, ObservableObject {
             demoLink = pyrowave == "relay" ? .relay : .wifi
             if pyrowave == "relay" { path = RouteInfo(transport: .relay, relay: Relay.defaultServer, rttClient: 24, rttStation: 11) }
             receivedCodec = .pyrowave
-            lowered = PyroWaveLowered(width: 1920, height: 1080, refresh: 60, mbps: 300)
+            lowered = LoweredMode(width: 1920, height: 1080, refresh: 60, mbps: 300)
             showPyroWaveBanner()
         }
         #else

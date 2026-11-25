@@ -318,6 +318,18 @@ final class SessionController: ObservableObject {
         withAnimation(Theme.easeOut) { pyrowaveBanner = false }
     }
 
+    /// La définition ramenée par le cœur pour tenir dans le débit (texte du
+    /// cœur, langue de l'app) : dans le bandeau du début s'il est là, sinon
+    /// en capsule ; nil quand elle revient à celle de l'écran.
+    @Published private(set) var loweredText: String?
+
+    private func resolutionLowered(_ mode: LoweredMode?, _ text: String?) {
+        let line = text ?? mode.map { PyroWaveText.lowered(width: $0.width, height: $0.height, mbps: $0.mbps) }
+        if let mode { KyberLog.app.notice("PyroWave : définition ramenée à \(mode.width)×\(mode.height) (\(mode.mbps) Mbit/s)") }
+        withAnimation(Theme.easeOut) { loweredText = line }
+        if let line, !pyrowaveBanner { show(notice: line, for: PyroWaveSession.bannerSeconds, icon: "monitor") }
+    }
+
     /// « Passer en HEVC » : l'image repart en HEVC pour cette session.
     func switchToHEVC() {
         guard !isVisitor, codecOverride == nil else { return }
@@ -440,6 +452,7 @@ final class SessionController: ObservableObject {
             self.virtualDisplay = virtualDisplay
         }
         engine.onVideoStats = { [weak self] in self?.received($0) }
+        engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         engine.onGameFullscreen = { game in
@@ -518,6 +531,10 @@ final class SessionController: ObservableObject {
     private func launch(_ engine: SessionEngine, _ params: SessionEngine.Params) {
         do {
             try engine.start(params)
+            // PyroWave (« Définition ramenée ») : le débit du lien, inconnu ici
+            // (iOS ne donne ni la vitesse d'un adaptateur Ethernet ni celle du
+            // Wi-Fi) ; la Station et le débit réglé plafonnent seuls.
+            engine.setLinkMbps(nil)
         } catch {
             fail(error.localizedDescription)
         }
@@ -808,9 +825,6 @@ final class SessionController: ObservableObject {
         case let .hdrRefused(text):
             // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
             show(notice: text.isEmpty ? HDRText.refused : text, for: 6)
-        case let .resolutionLowered(lowered, text):
-            // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
-            if let lowered { show(notice: text.isEmpty ? PyroWaveText.lowered(width: lowered.width, height: lowered.height, mbps: lowered.mbps) : text, for: 6) }
         }
     }
 
@@ -1083,7 +1097,14 @@ final class SessionController: ObservableObject {
                 s.width = 2622
                 s.height = 1206
                 if pyrowave != nil, i % 9 == 4 { s.lostFrames = 2 }
+                // `-demoLowered YES` : la définition ramenée (bandeau, ligne des statistiques).
+                if pyrowave != nil, UserDefaults.standard.bool(forKey: "demoLowered") {
+                    s.lowered = LoweredMode(width: 1920, height: 880, refresh: 60, mbps: 300)
+                }
                 self.received(s)
+            }
+            if pyrowave != nil, UserDefaults.standard.bool(forKey: "demoLowered") {
+                self.loweredText = PyroWaveText.lowered(width: 1920, height: 880, mbps: 300)
             }
             if pyrowave != nil { self.showPyroWaveBanner() }
             if what == .bar { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.setBar(true) } }

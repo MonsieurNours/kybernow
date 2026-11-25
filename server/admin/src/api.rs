@@ -2586,10 +2586,14 @@ mod tests {
                 info["pyrowave"].clone()
             }
         };
-        // Hors Windows : jamais proposé (et pas de réglage).
-        if !cfg!(windows) {
+        // Ni Windows ni Mac : jamais proposé (et pas de réglage).
+        if !cfg!(windows) && !cfg!(target_os = "macos") {
             assert_eq!(pyrowave(&c).await, json!({ "available": false, "reason": "windows" }));
             return;
+        }
+        // Mac sans kybernow-pyrowave-check à côté des tests : « metal ».
+        if cfg!(target_os = "macos") && std::env::var_os("KYBERNOW_PYROWAVE_CHECK").is_none() {
+            assert_eq!(pyrowave(&c).await, json!({ "available": false, "reason": "metal" }));
         }
         // Réglé sur non : la première raison.
         c.s.kyber.apply(&BTreeMap::from([("video.pyrowave".to_string(), Some(json!(false)))])).unwrap();

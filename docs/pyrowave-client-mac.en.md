@@ -42,7 +42,7 @@ First-frame PSNR: 64 dB on Y (1440p 4:2:0), 56 dB on Y and 49 to 51 dB on chroma
 
 ## The core
 
-`apps/core` knows PyroWave (format, capabilities, Station announcement, “Auto” rule when wired): see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”. The Mac app sends `pyrowave` in the decoder capabilities, `wired` (Ethernet cable, `NetworkLink`) in the settings and its link rate (`LinkRate`: interface speed, 80% on Ethernet, 50% without a cable; `kn_session_set_link_mbps`) for the lowered resolution.
+`apps/core` knows PyroWave (format, capabilities, Station announcement, “Auto” rule when wired): see [apps/core/README.en.md](../apps/core/README.en.md), “PyroWave”. The Mac app sends `pyrowave` in the decoder capabilities, `wired` (Ethernet cable, `NetworkLink`) in the settings and its link rate (`LinkRate`: interface speed, 80% on Ethernet, 50% without a cable; `SessionEngine.setLinkMbps`) for the lowered resolution, which it receives through `SessionEngine.onLowered` and `VideoStats.lowered` like the Apple TV and iPhone ([pyrowave-client-apple.en.md](pyrowave-client-apple.en.md)).
 
 ## The interface
 

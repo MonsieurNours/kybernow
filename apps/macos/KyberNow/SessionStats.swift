@@ -36,7 +36,7 @@ struct StatsPanel: View {
     /// (une image perdue est sautée, docs/link-ui.md).
     var pyrowave = false
     /// PyroWave : la définition ramenée par le cœur pour tenir dans le débit.
-    var lowered: PyroWaveLowered?
+    var lowered: LoweredMode?
 
     /// Durée d'une image au débit du moment (repère des graphiques).
     private var budget: Double { 1000 / max(30, stats?.fps ?? 60) }

@@ -67,6 +67,8 @@ public struct VideoStats: Sendable {
     public var lostPackets = 0
     /// Aller-retour réseau, en millisecondes.
     public var rttMs: Double?
+    /// PyroWave : la définition ramenée en place (Statistiques), nil sinon.
+    public var lowered: LoweredMode?
     /// Débit reçu pour l'image, en mégabits par seconde.
     public var mbps: Double = 0
     /// Images avec une latence mesurée sur les images montrées (0 à 1) :
@@ -1050,6 +1052,7 @@ final class VideoRenderer {
         current.keyframeRequests = second.keyframeRequests
         current.lostPackets = second.lostPackets
         current.rttMs = second.rttMs
+        current.lowered = second.lowered
         current.mbps = Double(second.bytes) * 8 / elapsed / 1_000_000
         current.measuredRatio = second.displayed > 0 ? Double(second.measured) / Double(second.displayed) : 0
         current.rejectedSamples = second.rejected

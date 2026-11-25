@@ -15,6 +15,7 @@
   import FrameRuler from './FrameRuler.svelte'
   import { viaRelay, type Plan } from './plan'
   import { loadLastSession } from './prefs'
+  import { browserDecodes } from './pyrowave/state.svelte'
 
   let {
     info,
@@ -62,8 +63,12 @@
       : '',
   )
 
-  const hardware = $derived(!!codecs?.find((c) => c.codec === (plan?.codec ?? 'h264'))?.hardware)
-  const can444 = $derived(!!codecs?.find((c) => c.codec === (plan?.codec ?? 'h264'))?.yuv444)
+  // Avec PyroWave (décodé par la page), ce que WebCodecs fait du format de repli.
+  const webCodec = $derived(plan?.codec === 'pyrowave' ? (plan.fallbackCodec ?? 'h264') : (plan?.codec ?? 'h264'))
+  const hardware = $derived(!!codecs?.find((c) => c.codec === webCodec)?.hardware)
+  const can444 = $derived(!!codecs?.find((c) => c.codec === webCodec)?.yuv444)
+  /** PyroWave : seulement face à un ordinateur qui le connaît. */
+  const pyroDecodes = $derived(browserDecodes())
 </script>
 
 <div class="card last">
@@ -106,6 +111,9 @@
     {#if codecs}
       <li class:off={!hardware}><Icon name={hardware ? 'check' : 'info'} size={14} stroke={2.4} />{hardware ? t('web.browser.hardware') : t('web.browser.software')}</li>
       <li class:off={!can444}><Icon name={can444 ? 'check' : 'info'} size={14} stroke={2.4} />{can444 ? t('web.browser.text444') : t('web.browser.text444Missing')}</li>
+      {#if info?.pyrowave}
+        <li class:off={!pyroDecodes}><Icon name={pyroDecodes ? 'check' : 'info'} size={14} stroke={2.4} />{pyroDecodes ? t('web.browser.pyrowave') : t('web.browser.pyrowaveMissing')}</li>
+      {/if}
     {/if}
     {#if protocol === 'websocket'}
       <li class="off"><Icon name="info" size={14} stroke={2.4} />{viaRelay() ? t('web.browser.relay') : t('web.browser.websocket')}</li>

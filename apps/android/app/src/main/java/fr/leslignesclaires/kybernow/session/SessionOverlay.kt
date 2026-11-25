@@ -485,7 +485,8 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
     val c by ui.state.capsule.collectAsState()
     val restore by ui.state.restoreOffer.collectAsState()
     Column(modifier.padding(top = s.dp(if (ui.barOpen && ui.padBar) 116f else if (ui.barOpen) 84f else 14f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-        c?.let { capsule ->
+        // La définition ramenée est déjà dans le bandeau PyroWave du début quand il est là.
+        c?.takeUnless { it is Capsule.ResolutionLowered && ui.pyroBanner }?.let { capsule ->
             // La demande d'un invité se choisit : elle ouvre le panneau du partage (docs/link-ui.md, « Partage ») ; celle d'un
             // ami qui veut emprunter l'ordinateur, le panneau du prêt.
             val open = when (capsule) {
@@ -540,6 +541,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.LendHostNotice -> c.text
     Capsule.PadsUnavailable -> stringResource(R.string.capsule_pads_unavailable)
     is Capsule.HdrRefused -> c.text.ifBlank { stringResource(R.string.hdr_refused) }
+    is Capsule.ResolutionLowered -> c.text
 }
 
 // MARK: - Téléphone et tablette
@@ -1104,7 +1106,7 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
         if (ui.console == null) {
             Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
             Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
-            PyroStats(ui, sec, video)
+            PyroStats(ui, sec)
         }
         // « HDR » quand l'image l'est : en allumant et éteignant le HDR depuis la barre, on voit quelle étape change.
         video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}" + if (hdr && ui.console == null) " · HDR" else "", size = 11f) }

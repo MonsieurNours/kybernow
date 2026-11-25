@@ -53,10 +53,10 @@
      #[test]
 --- a/kyavservice/src/txproto/run.rs
 +++ b/kyavservice/src/txproto/run.rs
-@@ -230,7 +230,9 @@
-             // make is refused here, so that kycontroller's start fails.
-             let windows = cfg!(target_os = "windows");
-             let scaling = kybernow::can_scale(config.encoder(), windows);
+@@ -241,7 +241,9 @@
+             // PyroWave scales it down itself.
+             let scaling = (windows && codec == VideoCodec::PyroWave)
+                 || kybernow::can_scale(config.encoder(), windows);
 -            if let Err(reason) = kybernow::check(scale, max_fps, scaling, windows) {
 +            // KyberNow (0007): ScreenCaptureKit caps the rate too (Mac Station).
 +            let rate_limit = windows || cfg!(target_os = "macos");

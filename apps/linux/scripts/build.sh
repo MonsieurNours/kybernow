@@ -8,10 +8,17 @@
 #   2. libkynput (statique, cargo cinstall) dans le préfixe ;
 #   3. FFmpeg 7.1.1 réduit au décodage H.264, HEVC et AV1, VA-API et V4L2 M2M
 #      compris (statique, LGPL 2.1) dans le préfixe ;
-#   4. PyroWave (Vulkan, API C, bibliothèque partagée ; pas avec --rpi) ;
+#   4. PyroWave (Vulkan, API C, bibliothèque partagée ; aussi avec --rpi, pour
+#      le Pi 4 et le Pi 5 en Vulkan par Mesa v3dv : docs/pyrowave-client-pi.md) ;
 #   5. l'app (cargo build -p kybernow-linux).
 #
-# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--prefix DIR] [--install DIR]
+# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--kyber-pyrowave] [--prefix DIR] [--install DIR]
+#   --kyber-pyrowave  le correctif kyclient de PyroWave (server/kyber-patches/0025,
+#             `VideoCodec::PyroWave`, `fallback_codec`) et la fonctionnalité
+#             `pyrowave` du cœur, qui vont ensemble (apps/core/README.md,
+#             « PyroWave ») : sans eux, l'app décode PyroWave mais ne le demande
+#             jamais. Comme les autres apps, seulement sur demande tant qu'ils ne
+#             sont pas allumés partout (le SDK de Kyber est partagé).
 #   --deps-only  s'arrête après libkynput, FFmpeg et PyroWave (module du Flatpak mis en cache)
 #   --rpi     Raspberry Pi : le FFmpeg de Raspberry Pi (jc-kynesim/rpi-ffmpeg,
 #             branche dev/7.1.1/rpi_import_1) à la place du 7.1.1 officiel, avec
@@ -39,12 +46,14 @@ PROFILE=release
 INSTALL=""
 DEPS_ONLY=0
 RPI=0
+KYBER_PYROWAVE="${KYBER_PYROWAVE:-0}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) COMMAND=check ;;
         --debug) PROFILE=debug ;;
         --deps-only) DEPS_ONLY=1 ;;
         --rpi) RPI=1 ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         --prefix) PREFIX="$2"; shift ;;
         --install) INSTALL="$2"; shift ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
@@ -65,6 +74,7 @@ cargo_quiet() {
 # 1. Correctifs.
 for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$APPS"/webos/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;
@@ -149,9 +159,12 @@ fi
 #    Vulkan, au commit de la Station (apps/macos/PyroWave/COMMIT), avec la
 #    partie de Granite que prend checkout_granite.sh ; bibliothèque partagée
 #    (libpyrowave-shared.so.1), chargée par l'app au lancement (dlopen) : sans
-#    elle, PyroWave est indisponible et rien d'autre ne change. Pas sur le Pi.
+#    elle, PyroWave est indisponible et rien d'autre ne change. Aussi pour le
+#    Raspberry Pi (--rpi : le .deb et KyberNow Link OS), où le pilote Vulkan
+#    est Mesa v3dv (docs/pyrowave-client-pi.md) ; c'est l'app qui décide, au
+#    lancement, si la carte sait le décoder.
 PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
-if [ "$RPI" = 0 ] && [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
+if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ]; then
     src="${PYROWAVE_SRC:-$PREFIX/build/pyrowave}"
     if [ ! -f "$src/.kybernow-$PYROWAVE_COMMIT" ]; then
         echo "==> sources de PyroWave ($PYROWAVE_COMMIT) et de Granite"
@@ -198,7 +211,8 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PAT
 export CARGO_PROFILE_RELEASE_STRIP=false
 flags=()
 [ "$PROFILE" = release ] && flags+=(--release)
-echo "==> cargo $COMMAND kybernow-linux ($ARCH, $PROFILE)"
+[ "$KYBER_PYROWAVE" = 1 ] && flags+=(--features pyrowave)
+echo "==> cargo $COMMAND kybernow-linux ($ARCH, $PROFILE$([ "$KYBER_PYROWAVE" = 1 ] && echo ', PyroWave demandé à Kyber' || true))"
 started=$(date +%s)
 (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-linux "${flags[@]}")
 [ "$COMMAND" = build ] || { echo "    vérifié ($(( $(date +%s) - started )) s)"; exit 0; }

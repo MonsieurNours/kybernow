@@ -144,34 +144,17 @@ public enum PyroWaveSession {
     public static let hevcMbps = 80
 }
 
-/// PyroWave, définition ramenée par le cœur pour tenir dans le débit
-/// (docs/pyrowave.md, « Définition ramenée ») : `width` × `height` à
-/// `refresh` Hz, pour tenir dans `mbps` Mbit/s.
-public struct PyroWaveLowered: Sendable, Equatable {
-    public let width: Int
-    public let height: Int
-    public let refresh: Int
-    public let mbps: Int
-
-    public init(width: Int, height: Int, refresh: Int, mbps: Int) {
-        self.width = width
-        self.height = height
-        self.refresh = refresh
-        self.mbps = mbps
-    }
-}
-
 /// Le débit que ce Mac sait tenir vers l'ordinateur, donné au cœur pour la
-/// définition ramenée de PyroWave (`kn_session_set_link_mbps`) : la vitesse
+/// définition ramenée de PyroWave (`SessionEngine.setLinkMbps`) : la vitesse
 /// de l'interface du chemin par défaut (`if_data.ifi_baudrate`), 80 % en
 /// Ethernet et 50 % sans câble, comme le plafond « Auto » de la Station
 /// (docs/pyrowave.md, point 6), arrondi aux 50 Mbit/s du dessous ; nil si
 /// l'interface ne dit pas sa vitesse.
 public enum LinkRate {
-    public static func usableMbps(wired: Bool) -> Int? {
+    public static func usableMbps(wired: Bool) -> UInt32? {
         guard let name = defaultInterface(), let bps = baudrate(of: name), bps > 0 else { return nil }
         let mbps = Double(bps) / 1_000_000 * (wired ? 0.8 : 0.5)
-        let rounded = Int(mbps / 50) * 50
+        let rounded = UInt32(mbps / 50) * 50
         return rounded > 0 ? rounded : nil
     }
 

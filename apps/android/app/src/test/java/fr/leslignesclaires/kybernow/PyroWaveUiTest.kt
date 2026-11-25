@@ -50,6 +50,7 @@ import fr.leslignesclaires.kybernow.model.PyroWaveChoice
 import fr.leslignesclaires.kybernow.model.PyroWaveLink
 import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.session.Second
+import fr.leslignesclaires.kybernow.session.Lowered
 
 /**
  * PyroWave à l'écran (docs/link-ui.md, « PyroWave »), en français : la valeur de « Format vidéo », son aide, sa
@@ -192,5 +193,34 @@ class PyroWaveUiTest {
         ui.state.second.value = Second(4.1, 1.0, 119, 1, 0, 0, 290.0, null)
         show(FormFactor.TABLET) { SessionOverlay(ui) }
         rule.onNodeWithText("Images perdues ", substring = true).assertExists()
+    }
+
+    @Test
+    fun statistiques_definition_ramenee_du_coeur() {
+        val ui = session({ statsOpen = true }, Actions())
+        ui.state.second.value = Second(4.1, 1.0, 120, 0, 0, 0, 290.0, null, lowered = Lowered(1920, 1080, 120, 300))
+        show(FormFactor.TABLET) { SessionOverlay(ui) }
+        rule.onNodeWithText("Définition ramenée à 1920\u00a0×\u00a01080 pour tenir dans 300\u00a0Mbit/s.").assertExists()
+    }
+
+    @Test
+    fun avis_definition_ramenee_et_retour() {
+        val ui = session({}, Actions())
+        val text = "Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s."
+        ui.state.onNotice(9, 1920, 1080, false, 0, 300, true, text)
+        show(FormFactor.TABLET) { SessionOverlay(ui) }
+        rule.onNodeWithText(text).assertExists()
+        assertEquals(text, ui.state.lowered.value)
+        ui.state.onNotice(9, 0, 0, false, 0, 0, false, null)
+        rule.waitForIdle()
+        assertEquals(null, ui.state.lowered.value)
+    }
+
+    @Test
+    fun bandeau_du_debut_reprend_la_definition_ramenee() {
+        val ui = session({ pyroChosen = true; pyroLink = PyroWaveLink.WIFI }, Actions())
+        ui.state.onNotice(9, 1920, 1080, false, 0, 300, true, "Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.")
+        show(FormFactor.TABLET) { SessionOverlay(ui) }
+        rule.onNodeWithText("L'image peut saccader. Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.").assertExists()
     }
 }
