@@ -33,6 +33,8 @@ pub enum Icon {
     Share,
     /// Prêter l'ordinateur : une clé (KyberNow Share, prêt).
     Lend,
+    /// Regarder (droit « Regarder » d'un compte) : un œil.
+    Eye,
 }
 
 impl Icon {
@@ -68,6 +70,7 @@ impl Icon {
             Icon::Close => (&["M6 6 L18 18", "M18 6 L6 18"], &[], &[]),
             Icon::Share => (&["M8.4 10.8 L15.6 6.4", "M8.4 13.2 L15.6 17.6"], &[(6.0, 12.0, 2.6), (18.0, 5.2, 2.6), (18.0, 18.8, 2.6)], &[]),
             Icon::Lend => (&["M11.5 12 H21", "M18 12 V15.5", "M14.8 12 V14.5"], &[(7.5, 12.0, 4.0)], &[]),
+            Icon::Eye => (&["M2 12 Q12 3 22 12 Q12 21 2 12 Z"], &[(12.0, 12.0, 3.2)], &[]),
         }
     }
 

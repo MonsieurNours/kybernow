@@ -846,6 +846,64 @@ fn account_shots(en: bool, cv: &mut Canvas, assets: &Assets, dir: &Path) {
     app.dialog = None;
     app.adjust_for_preview(crate::app::Setting::AccountManage(0));
     shot(&mut app, cv, assets, None, dir, "47-comptes-gerer");
+    watch_shots(en, cv, assets, dir);
+}
+
+/// Les droits du compte sur « Bureau » (le premier ordinateur du compte de `with_account`).
+fn set_rights(app: &mut App, rights: &[&str]) {
+    if let Some(c) = app.store.account_computers.iter_mut().find(|c| c.station == "st_atelier") {
+        c.rights = rights.iter().map(|r| r.to_string()).collect();
+    }
+}
+
+/// La session de qui regarde « Bureau », à deux écrans : celui regardé, le second.
+fn watch_session(app: &App) -> SessionUi {
+    let host = app.store.account_hosts.first().map(|a| a.id.clone()).unwrap_or_default();
+    let screens = vec![(7, crate::i18n::tr("Écran 1 — 3840 × 2160", "Screen 1 — 3840 × 2160").to_string()), (8, crate::i18n::tr("Écran 2 — 1920 × 1080", "Screen 2 — 1920 × 1080").to_string())];
+    let mut s = SessionUi::watcher("share:g1", "Bureau", ShareRole::Spectator, crate::app::WatchUi { host, screens, menu: true, display: 7 });
+    s.phase = Phase::Streaming;
+    s.streamed = true;
+    s.stats = Some(Stats { latency_ms: Some(9.4), fps: 60.0, mbps: 22.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into(), hdr: false, ..Default::default() });
+    s.started = Instant::now() - Duration::from_millis(400);
+    if let Some(g) = s.guest.as_mut() {
+        g.image = Some("1080p · 60 Hz".into());
+    }
+    s
+}
+
+/// Regarder (docs/link-ui.md, lignes « Regarder… » de « Comptes KyberNow ») : « Regarder » à la place de « Se
+/// connecter » (droit seul), à côté de « Réglages » (les deux droits), un refus, la connexion « Regarder Bureau », le menu
+/// (« Écran », « Arrêter de regarder »), la liste des écrans.
+fn watch_shots(en: bool, cv: &mut Canvas, assets: &Assets, dir: &Path) {
+    let mut app = with_account(en);
+    let host = app.store.account_hosts[0].id.clone();
+    app.store.selected = Some(host.clone());
+    set_rights(&mut app, &["view"]);
+    app.go(Screen::Home);
+    shot(&mut app, cv, assets, None, dir, "48-regarder-accueil");
+    app.watch(&host);
+    app.watch_failed(&host, crate::i18n::tr("Bureau est prêté en ce moment.", "Bureau is lent right now.").into());
+    shot(&mut app, cv, assets, None, dir, "48b-regarder-refus");
+    app.toast = None;
+    set_rights(&mut app, &["session", "view"]);
+    app.focus = Target::Watch;
+    shot(&mut app, cv, assets, None, dir, "48c-regarder-deux-droits");
+    let mut s = watch_session(&app);
+    s.phase = Phase::Connecting;
+    s.streamed = false;
+    app.session = Some(s);
+    app.screen = Screen::Session;
+    app.focus = Target::CancelConnect;
+    shot(&mut app, cv, assets, None, dir, "48d-regarder-connexion");
+    let mut s = watch_session(&app);
+    s.menu = true;
+    app.session = Some(s);
+    app.focus = Target::Menu(MenuItem::Screen);
+    shot(&mut app, cv, assets, None, dir, "48e-regarder-menu");
+    app.activate(Target::Menu(MenuItem::Screen));
+    shot(&mut app, cv, assets, None, dir, "48f-regarder-ecrans");
+    app.session = None;
+    app.go(Screen::Home);
 }
 
 /// Une PS5 associée avec deux comptes, une PS4 trouvée sur le réseau, un appareil qui attend un envoi.
@@ -1280,6 +1338,145 @@ mod tests {
         let hits = ui::draw(&app, &mut cv, &assets);
         assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::Host(_))).count(), 3);
         assert_eq!(app.origin("a"), Some("Appairé"));
+    }
+
+    /// Regarder, sur l'accueil (docs/link-ui.md, « Droit « Regarder » seul ») : le droit seul fait du bouton principal
+    /// « Regarder » (OK aussi) ; avec « Ouvrir le bureau », « Se connecter » reste et « Regarder » est à côté de
+    /// « Réglages », atteint à la croix ; sans le droit, rien. Une demande en cours n'est pas refaite ; un refus vient en
+    /// avis ; hors ligne, le bouton réveille comme pour les autres. Tout tient, en français et en anglais.
+    #[test]
+    fn watch_from_the_home_card() {
+        let assets = Assets::load();
+        let mut cv = Canvas::new();
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            let mut app = with_account(en);
+            let host = app.store.account_hosts[0].id.clone();
+            app.store.selected = Some(host.clone());
+            app.live.insert(host.clone(), HostLive { online: Online::Away, ..Default::default() });
+            app.go(Screen::Home);
+            // Sans le droit : ni « Regarder », ni rien à demander.
+            assert!(!app.host_can_watch(&host));
+            assert!(app.activate(Target::Watch).is_empty());
+            assert!(matches!(app.activate(Target::Connect).as_slice(), [Action::Connect { .. }]));
+            // Le droit seul : « Regarder » à la place de « Se connecter », pas de seconde pastille.
+            set_rights(&mut app, &["view"]);
+            assert!(app.host_watch_only(&host) && !app.watch_in_menu(&host));
+            let hits = ui::draw(&app, &mut cv, &assets);
+            fits(&hits, "regarder seul");
+            assert!(hits.iter().any(|(t, _)| *t == Target::Connect) && !hits.iter().any(|(t, _)| *t == Target::Watch));
+            assert_eq!(app.activate(Target::Connect), vec![Action::Watch { host: host.clone() }]);
+            assert!(app.activate(Target::Connect).is_empty(), "une demande à la fois");
+            assert!(app.watch_waiting(&host));
+            app.watch_failed(&host, "Bureau est prêté en ce moment.".into());
+            assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Bureau est prêté en ce moment."));
+            assert!(app.watch_pending.is_none());
+            // Une réponse arrivée après coup : rien n'est dit, et l'invité entré repart (`watch_answered` faux).
+            app.toast = None;
+            app.watch_failed(&host, "tard".into());
+            assert!(app.toast.is_none() && !app.watch_answered(&host));
+            // Hors ligne : le bouton sonde ou réveille, comme pour un autre ordinateur.
+            app.live.insert(host.clone(), HostLive { online: Online::Offline, ..Default::default() });
+            assert_eq!(app.activate(Target::Connect), vec![Action::Poll(host.clone())]);
+            app.live.insert(host.clone(), HostLive { online: Online::Away, ..Default::default() });
+            // Les deux droits : « Se connecter », et « Regarder » à côté de « Réglages », dans l'écran, à la croix.
+            set_rights(&mut app, &["session", "view"]);
+            assert!(matches!(app.activate(Target::Connect).as_slice(), [Action::Connect { .. }]));
+            app.focus = Target::HostSettings;
+            let hits = ui::draw(&app, &mut cv, &assets);
+            fits(&hits, "deux droits");
+            let settings = hits.iter().find(|(t, _)| *t == Target::HostSettings).expect("réglages").1;
+            let watch = hits.iter().find(|(t, _)| *t == Target::Watch).expect("« Regarder » manque").1;
+            assert!(watch.x > settings.x + settings.w && watch.x + watch.w <= 1920.0, "{watch:?}");
+            app.hits = hits;
+            app.nav(Nav::Right);
+            assert_eq!(app.focus, Target::Watch, "la croix y mène");
+            assert_eq!(app.activate(Target::Watch), vec![Action::Watch { host: host.clone() }]);
+            assert!(app.watch_answered(&host));
+            // Pendant une session, rien à demander.
+            app.session = Some(watch_session(&app));
+            assert!(app.activate(Target::Watch).is_empty());
+        }
+        crate::i18n::force_english(false);
+    }
+
+    /// Regarder, en session (docs/link-ui.md, « Regarder, connexion » et « Regarder, barre ») : titrée « Regarder
+    /// {nom} », le menu d'un invité avec « Arrêter de regarder » à la place de « Quitter le partage », et « Écran » avec
+    /// plusieurs écrans (l'écran regardé en sous-titre) ; la tuile ouvre la liste (l'écran regardé coché, le focus
+    /// dessus), Retour revient au menu ; un autre écran se demande, le même non ; un seul écran : pas d'« Écran ».
+    #[test]
+    fn watch_session_menu_and_screens() {
+        crate::i18n::force_english(false);
+        let assets = Assets::load();
+        let mut cv = Canvas::new();
+        let mut app = with_account(false);
+        app.screen = Screen::Session;
+        let mut s = watch_session(&app);
+        assert_eq!(s.name, "Regarder Bureau");
+        assert_eq!(s.leave_label(), "Arrêter de regarder");
+        assert_eq!(guest_session(ShareRole::Spectator).leave_label(), "Quitter le partage");
+        s.menu = true;
+        app.session = Some(s);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "menu de qui regarde");
+        for t in [MenuItem::Quality, MenuItem::Screen, MenuItem::Disconnect] {
+            assert!(hits.iter().any(|(h, _)| *h == Target::Menu(t)), "{t:?} manque");
+        }
+        assert!(!hits.iter().any(|(h, _)| matches!(h, Target::Menu(MenuItem::Share | MenuItem::Settings | MenuItem::Lend))));
+        assert_eq!(app.session.as_ref().unwrap().watch().unwrap().shown(), "Écran 1 — 3840 × 2160");
+        assert_eq!(app.activate(Target::Menu(MenuItem::Screen)), vec![Action::ReleaseAll]);
+        let s = app.session.as_ref().unwrap();
+        assert!(s.watch_panel && !s.menu);
+        assert!(ui::session_overlay_visible(&app));
+        assert_eq!(app.focus, Target::ScreenPick(7));
+        let items = crate::ui::watch_screen_items(app.session.as_ref().unwrap());
+        assert_eq!(items.iter().map(|i| (i.0, i.3)).collect::<Vec<_>>(), vec![(Target::ScreenPick(7), true), (Target::ScreenPick(8), false)]);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        fits(&hits, "écrans");
+        assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::ScreenPick(_))).count(), 2);
+        assert!(hits.iter().all(|(t, _)| !matches!(t, Target::Menu(_) | Target::QualityPick(_))), "rien d'autre que les écrans");
+        // Le menu de session ne s'ouvre pas par-dessus ; Retour revient au menu, sur « Écran ».
+        assert!(app.open_menu().is_empty());
+        assert!(app.session_back().is_empty());
+        let s = app.session.as_ref().unwrap();
+        assert!(!s.watch_panel && s.menu, "Retour revient au menu");
+        assert_eq!(app.focus, Target::Menu(MenuItem::Screen));
+        // Le même écran : rien ; un autre : demandé, coché tout de suite, retour à l'image.
+        app.activate(Target::Menu(MenuItem::Screen));
+        assert!(app.activate(Target::ScreenPick(7)).is_empty(), "l'écran déjà regardé ne demande rien");
+        app.activate(Target::Menu(MenuItem::Screen));
+        assert_eq!(app.activate(Target::ScreenPick(8)), vec![Action::WatchScreen(8)]);
+        let s = app.session.as_ref().unwrap();
+        assert!(!s.watch_panel && !s.menu, "le choix revient à l'image");
+        assert_eq!(s.watch().unwrap().display, 8);
+        assert!(app.activate(Target::ScreenPick(9)).is_empty(), "un écran inconnu");
+        // Le cœur dit un autre écran (un autre spectateur l'a changé) : la coche suit.
+        app.watch_display(Some(7));
+        assert_eq!(app.session.as_ref().unwrap().watch().unwrap().display, 7);
+        app.watch_display(None);
+        assert_eq!(app.session.as_ref().unwrap().watch().unwrap().display, 7);
+        // Un seul écran : pas d'« Écran », la tuile ne fait rien de plus que l'invité.
+        let mut one = watch_session(&app);
+        one.menu = true;
+        if let Some(w) = one.guest.as_mut().and_then(|g| g.watch.as_mut()) {
+            w.menu = false;
+        }
+        app.session = Some(one);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(!hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Screen)));
+        // Un invité d'un code n'a ni « Écran » ni rien à choisir.
+        let mut g = guest_session(ShareRole::Spectator);
+        g.menu = true;
+        app.session = Some(g);
+        assert!(app.activate(Target::Menu(MenuItem::Screen)).is_empty() && !app.session.as_ref().unwrap().watch_panel);
+        assert!(app.activate(Target::ScreenPick(7)).is_empty());
+        // En anglais.
+        crate::i18n::force_english(true);
+        let s = watch_session(&app);
+        assert_eq!((s.name.as_str(), s.leave_label()), ("Watching Bureau", "Stop watching"));
+        assert_eq!(crate::app::watch_word(), "Watch");
+        assert_eq!(crate::app::watch_screen_word(), "Screen");
+        crate::i18n::force_english(false);
     }
 
     /// Les réglages s'atteignent à la croix depuis « Se connecter », sans

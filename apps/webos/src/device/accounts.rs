@@ -229,6 +229,12 @@ pub fn access(host: &str) -> Option<(AccessParams, Option<RelayRoute>)> {
     REGISTRY.lock().unwrap().as_ref()?.get(host).map(|e| (e.params.clone(), e.route.clone()))
 }
 
+/// Regarder : le jeton d'accès d'un ordinateur d'un compte et sa route par le relais (`share::watch_account`) ;
+/// `None` : un ordinateur appairé.
+pub fn watch_access(host: &str) -> Option<(Arc<StationAccess>, Option<RelayRoute>)> {
+    REGISTRY.lock().unwrap().as_ref()?.get(host).map(|e| (e.access.clone(), e.route.clone()))
+}
+
 /// La console d'Admin d'un ordinateur d'un compte (jeton d'accès du relais, Admin épinglé sur l'empreinte du compte),
 /// sur le réseau quand la découverte l'y voit, sinon par le relais ; `None` : un ordinateur appairé.
 pub fn console(host: &Host) -> Option<Console> {

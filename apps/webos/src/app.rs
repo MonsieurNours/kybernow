@@ -464,6 +464,8 @@ pub enum MenuItem {
     Share,
     /// KyberNow Share, invité : « Qualité de l'image » (la tuile montre la qualité reçue ; ouvre les cinq choix).
     Quality,
+    /// Regarder, avec plusieurs écrans : « Écran » (la tuile montre l'écran regardé ; ouvre la liste).
+    Screen,
     /// Par le relais : la tuile « Par le relais » (le chemin ; rien à choisir).
     Route,
     /// Prêt de l'ordinateur, hôte : « Prêter l'ordinateur… ».
@@ -1589,6 +1591,8 @@ pub struct GuestUi {
     /// La qualité reçue (« 1080p · 60 Hz »), telle que `Platform::on_share_image` la donne ; `None` tant que
     /// Kyber n'en sait pas la taille : le menu ne la montre alors pas.
     pub image: Option<String>,
+    /// Regarder (droit « Regarder » d'un compte) : l'invité est entré par la carte de l'ordinateur, sans code.
+    pub watch: Option<WatchUi>,
 }
 
 impl GuestUi {
@@ -1596,6 +1600,55 @@ impl GuestUi {
     pub fn shown(&self) -> &str {
         self.image.as_deref().unwrap_or(self.quality.label())
     }
+}
+
+/// Regarder (docs/comptes.md, « Regarder… » ; mécanique : docs/kybernow-share.md, « Regarder avec un compte » ; textes :
+/// docs/link-ui.md, lignes « Regarder… » de « Comptes KyberNow ») : qui regarde est un invité spectateur du partage de
+/// l'ordinateur ; son menu est celui d'un invité, avec « Arrêter de regarder » et, avec plusieurs écrans, « Écran ».
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct WatchUi {
+    /// L'ordinateur de l'accueil regardé (`Host::id`).
+    pub host: String,
+    /// Les écrans de l'ordinateur : (identifiant, « Écran 1 — 3840 × 2160 » de `WatchScreen::label`), le principal
+    /// d'abord.
+    pub screens: Vec<(u32, String)>,
+    /// « Écran » se montre (`ShareWatch::menu` : plusieurs écrans, et un partage dont l'écran se change).
+    pub menu: bool,
+    /// L'écran regardé (`Session::watch_display`, qui suit aussi le choix d'un autre spectateur).
+    pub display: u32,
+}
+
+impl WatchUi {
+    /// Le libellé de l'écran regardé (la tuile du menu) ; « Écran » tant qu'on ne le connaît pas.
+    pub fn shown(&self) -> String {
+        self.screens.iter().find(|(id, _)| *id == self.display).map(|(_, l)| l.clone()).unwrap_or_else(|| watch_screen_word().into())
+    }
+}
+
+/// « Regarder » / “Watch” : le bouton de la carte (droit « Regarder » seul) et la pastille à côté de « Réglages ».
+/// Miroir de `share::watch_word(lang, "action")` du cœur (l'interface seule ne l'a pas).
+pub fn watch_word() -> &'static str {
+    tr("Regarder", "Watch")
+}
+
+/// « Regarder… » / “Watch…” : le temps d'entrer dans le partage.
+pub fn watch_waiting_word() -> &'static str {
+    tr("Regarder…", "Watch…")
+}
+
+/// « Arrêter de regarder » / “Stop watching”, à la place de « Quitter le partage » (`watch_word(lang, "stop")`).
+pub fn watch_stop_word() -> &'static str {
+    tr("Arrêter de regarder", "Stop watching")
+}
+
+/// « Écran » / “Screen” : la tuile et le panneau des écrans (`watch_word(lang, "screen")`).
+pub fn watch_screen_word() -> &'static str {
+    tr("Écran", "Screen")
+}
+
+/// « Regarder {nom} » / “Watching {name}”, à la place de « Invité sur {nom} » (`share::watch_title`).
+pub fn watch_title(computer: &str) -> String {
+    if english() { format!("Watching {computer}") } else { format!("Regarder {computer}") }
 }
 
 /// Le champ que la saisie de « Rejoindre un partage » remplit.
@@ -1683,6 +1736,8 @@ pub struct SessionUi {
     /// demande à Admin en cours, et ce qu'Admin a refusé.
     pub share: Option<ShareView>,
     pub share_panel: bool,
+    /// Regarder : le panneau « Écran » (la liste des écrans), ouvert par sa tuile du menu.
+    pub watch_panel: bool,
     pub share_busy: bool,
     pub share_error: Option<String>,
     /// « Partager » choisi avant la première réponse d'Admin (`Info::share` pas encore connue) : le panneau attend
@@ -1736,6 +1791,7 @@ impl SessionUi {
             started: Instant::now(),
             share: None,
             share_panel: false,
+            watch_panel: false,
             share_busy: false,
             share_error: None,
             share_wait: false,
@@ -1783,8 +1839,34 @@ impl SessionUi {
     /// liste des ordinateurs (`key` : une clé propre à la session, que le magasin ne connaît pas).
     pub fn guest(key: &str, computer: &str, role: ShareRole) -> Self {
         let mut s = Self::new(key, &guest_title(computer), Profile::Jeu, false);
-        s.guest = Some(GuestUi { computer: computer.into(), role, quality: ShareQuality::Auto, image: None });
+        s.guest = Some(GuestUi { computer: computer.into(), role, quality: ShareQuality::Auto, image: None, watch: None });
         s
+    }
+
+    /// Une session de qui regarde (« Regarder Atelier ») : un invité spectateur du partage de l'ordinateur, avec ses
+    /// écrans (`watch`).
+    pub fn watcher(key: &str, computer: &str, role: ShareRole, watch: WatchUi) -> Self {
+        let mut s = Self::guest(key, computer, role);
+        s.name = watch_title(computer);
+        if let Some(g) = s.guest.as_mut() {
+            g.watch = Some(watch);
+        }
+        s
+    }
+
+    /// Regarder : la session est celle de qui regarde un ordinateur d'un compte.
+    pub fn watch(&self) -> Option<&WatchUi> {
+        self.guest.as_ref().and_then(|g| g.watch.as_ref())
+    }
+
+    /// « Écran » se montre (menu) : plusieurs écrans, et un partage dont l'écran se change.
+    pub fn watch_menu(&self) -> bool {
+        self.watch().is_some_and(|w| w.menu)
+    }
+
+    /// Ce que dit la tuile rouge d'un invité : « Arrêter de regarder », sinon « Quitter le partage ».
+    pub fn leave_label(&self) -> &'static str {
+        if self.watch().is_some() { watch_stop_word() } else { tr("Quitter le partage", "Leave") }
     }
 
     /// Le rôle de l'invité ; `None` pour une session d'hôte.
@@ -1963,6 +2045,10 @@ pub enum Target {
     JoinCancel,
     /// Un des cinq choix du panneau « Qualité de l'image » d'une session d'invité.
     QualityPick(ShareQuality),
+    /// Regarder : « Regarder » à côté de « Réglages » sur la carte (avec les deux droits ; seul, c'est le bouton
+    /// principal) ; un écran du panneau « Écran » (son identifiant).
+    Watch,
+    ScreenPick(u32),
     /// KyberNow Share, hôte : le panneau du partage (les deux droits d'un invité : manettes, clavier et souris,
     /// retirer, nouveau code, arrêter, fermer).
     SharePads(usize),
@@ -2068,6 +2154,11 @@ pub enum Action {
     /// KyberNow Share, invité : la « Qualité de l'image » changée en session (`Session::set_share_quality`, sans
     /// rien relancer de la session).
     ShareQuality(ShareQuality),
+    /// Regarder (droit « Regarder » d'un compte) : `share::watch_account` pour cet ordinateur de l'accueil, puis la
+    /// session d'invité ; un refus revient en avis (`App::watch_failed`).
+    Watch { host: String },
+    /// Regarder : un autre écran de l'ordinateur (`Session::watch_screen`).
+    WatchScreen(u32),
     /// KyberNow Share, hôte : une demande à Admin pour le partage de la session.
     Share(ShareOp),
     /// Prêt de l'ordinateur, ami : emprunter l'ordinateur emprunté `id` avec ce mot de passe (`lend::borrow`).
@@ -2159,6 +2250,8 @@ pub struct App {
     /// Réveil envoyé à cet ordinateur : « Réveil de l'ordinateur… » jusqu'à
     /// ce qu'il soit en ligne (`WAKE_WAIT` au plus).
     pub waking: Option<(String, Instant)>,
+    /// Regarder : l'ordinateur dont l'entrée est demandée (`Action::Watch`), jusqu'à la réponse.
+    pub watch_pending: Option<String>,
     pub pad_selected: usize,
     pub session: Option<SessionUi>,
     pub toast: Option<(String, Instant)>,
@@ -2231,6 +2324,7 @@ impl App {
             dialog: None,
             station: None,
             waking: None,
+            watch_pending: None,
             pad_selected: 0,
             session: None,
             toast: None,
@@ -2676,6 +2770,13 @@ impl App {
                     self.focus = Target::Menu(MenuItem::Keys);
                     return Vec::new();
                 }
+                // Regarder : la liste des écrans revient au menu d'où elle s'ouvre.
+                if s.watch_panel {
+                    s.watch_panel = false;
+                    s.menu = true;
+                    self.focus = Target::Menu(MenuItem::Screen);
+                    return Vec::new();
+                }
                 // Le panneau du prêt se referme sur l'image, comme celui du partage.
                 if s.lend_panel {
                     s.lend_panel = false;
@@ -2709,6 +2810,7 @@ impl App {
             && !s.menu
             && !s.share_panel
             && !s.lend_panel
+            && !s.watch_panel
             && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
         {
             s.menu = true;
@@ -2751,8 +2853,16 @@ impl App {
                     self.live.entry(id.clone()).or_default().online = Online::Unknown;
                     return vec![Action::Poll(id)];
                 }
+                // Droit « Regarder » seul : le bouton principal est « Regarder ».
+                if self.host_watch_only(&id) {
+                    return self.watch(&id);
+                }
                 let profile = h.settings.profile;
                 vec![Action::Connect { host: id, profile }]
+            }
+            Target::Watch => {
+                let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
+                self.watch(&id)
             }
             Target::Chip(p) => {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
@@ -2968,6 +3078,7 @@ impl App {
                 Vec::new()
             }
             Target::QualityPick(q) => self.quality_pick(q),
+            Target::ScreenPick(display) => self.screen_pick(display),
             Target::SharePads(i) => self.share_guest_move(i, ShareMove::Pads),
             Target::ShareKbm(i) => self.share_guest_move(i, ShareMove::Kbm),
             Target::ShareAccept(i) => self.share_answer(i, true),
@@ -3140,6 +3251,78 @@ impl App {
             Target::KeySpace | Target::Ps(_) => Vec::new(),
             // Comptes KyberNow : `account_activate`, plus haut.
             Target::AccountSignIn | Target::AccountOtherRelay | Target::AccountNewCode | Target::AccountBack | Target::AccountRelayField | Target::AccountRelayGo | Target::AccountRelayCancel => Vec::new(),
+        }
+    }
+
+    // MARK: - Regarder
+
+    /// Droit « Regarder » sur cet ordinateur de l'accueil (un ordinateur d'un compte).
+    pub fn host_can_watch(&self, id: &str) -> bool {
+        self.store.account_computer(id).is_some_and(crate::model::KnComputer::can_watch)
+    }
+
+    /// Droit « Regarder » seul : la carte propose « Regarder » à la place de « Se connecter ».
+    pub fn host_watch_only(&self, id: &str) -> bool {
+        self.store.account_computer(id).is_some_and(crate::model::KnComputer::watch_only)
+    }
+
+    /// « Regarder » à côté de « Réglages » : les deux droits (le droit seul, c'est le bouton principal).
+    pub fn watch_in_menu(&self, id: &str) -> bool {
+        self.host_can_watch(id) && !self.host_watch_only(id)
+    }
+
+    /// L'entrée est demandée pour cet ordinateur : le bouton dit « Regarder… » jusqu'à la réponse.
+    pub fn watch_waiting(&self, host: &str) -> bool {
+        self.watch_pending.as_deref() == Some(host)
+    }
+
+    /// « Regarder » : le pilote entre dans le partage de l'ordinateur (`share::watch_account`, sur le réseau d'abord,
+    /// puis par le relais). Une demande en cours n'est pas refaite ; pendant une session, rien.
+    pub fn watch(&mut self, host: &str) -> Vec<Action> {
+        if !self.host_can_watch(host) || self.watch_pending.is_some() || self.session.is_some() {
+            return Vec::new();
+        }
+        self.watch_pending = Some(host.into());
+        vec![Action::Watch { host: host.into() }]
+    }
+
+    /// La réponse est arrivée pour cet ordinateur : la demande est finie. Rend vrai si c'était celle qu'on attendait
+    /// (sinon, l'invité entré entre-temps repart).
+    pub fn watch_answered(&mut self, host: &str) -> bool {
+        if !self.watch_waiting(host) {
+            return false;
+        }
+        self.watch_pending = None;
+        true
+    }
+
+    /// Un refus (`ShareError::text` du cœur : prêté, partage coupé, Station trop ancienne, texte d'Admin) : en avis
+    /// bref, l'accueil reste tel quel.
+    pub fn watch_failed(&mut self, host: &str, message: String) {
+        if self.watch_answered(host) {
+            self.toast(message);
+        }
+    }
+
+    /// Un écran choisi dans le panneau « Écran » : demandé à la Station, qui relance l'image ; la coche suit tout de
+    /// suite (`Session::watch_display` la corrige si la Station refuse). Le panneau se ferme ; l'écran déjà regardé ne
+    /// demande rien.
+    fn screen_pick(&mut self, display: u32) -> Vec<Action> {
+        let Some(s) = self.session.as_mut() else { return Vec::new() };
+        s.watch_panel = false;
+        let Some(w) = s.guest.as_mut().and_then(|g| g.watch.as_mut()) else { return Vec::new() };
+        if w.display == display || !w.screens.iter().any(|(i, _)| *i == display) {
+            return Vec::new();
+        }
+        w.display = display;
+        vec![Action::WatchScreen(display)]
+    }
+
+    /// L'écran regardé, d'après le cœur (`Session::watch_display`, qui suit aussi le choix d'un autre spectateur).
+    pub fn watch_display(&mut self, display: Option<u32>) {
+        let Some(d) = display else { return };
+        if let Some(w) = self.session.as_mut().and_then(|s| s.guest.as_mut()).and_then(|g| g.watch.as_mut()) {
+            w.display = d;
         }
     }
 
@@ -4009,6 +4192,14 @@ impl App {
                 s.menu = false;
                 s.share_panel = true;
                 self.focus = Target::QualityPick(q);
+                vec![Action::ReleaseAll]
+            }
+            // « Écran » (qui regarde, plusieurs écrans) : le menu se ferme, la liste s'ouvre sur l'image ; Retour revient au menu.
+            MenuItem::Screen => {
+                let Some(display) = s.watch().map(|w| w.display) else { return Vec::new() };
+                s.menu = false;
+                s.watch_panel = true;
+                self.focus = Target::ScreenPick(display);
                 vec![Action::ReleaseAll]
             }
             // « Par le relais » : le chemin de la session, rien à choisir.

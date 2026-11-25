@@ -21,6 +21,10 @@ mod share;
 pub mod theme;
 mod widgets;
 
+// Regarder : les écrans de qui regarde (panneau « Écran »), pour les essais.
+#[allow(unused_imports)]
+pub use quality::screen_items as watch_screen_items;
+
 use std::time::Instant;
 
 use tiny_skia::Pixmap;
@@ -63,6 +67,7 @@ pub fn session_overlay_visible(app: &App) -> bool {
     s.menu
         || s.keys
         || s.share_panel
+        || s.watch_panel
         || s.lend_panel
         || app.dialog.is_some()
         || s.show_stats

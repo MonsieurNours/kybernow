@@ -3,6 +3,10 @@
 //! ligne choisie, la qualité reçue quand elle diffère du libellé (« Auto » : « 1080p · 60 Hz »). Un panneau
 //! par-dessus l'image, ouvert par la tuile « Qualité de l'image » du menu de session (Retour revient au
 //! menu). La changer ne relance que l'image de l'invité.
+//!
+//! Regarder (droit « Regarder » d'un compte, docs/link-ui.md, « Regarder, barre ») : avec plusieurs écrans, le panneau
+//! « Écran » et la liste (« Écran 1 — 3840 × 2160 », l'écran principal d'abord), du même dessin, ouvert par la tuile
+//! « Écran » du menu ; en changer relance l'image.
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text, H, W};
 use super::icons::Icon;
@@ -26,11 +30,26 @@ pub fn items(s: &SessionUi) -> Vec<(Target, String, String, bool)> {
         .collect()
 }
 
+/// Les écrans de qui regarde : (cible, « Écran 1 — 3840 × 2160 », rien, regardé).
+pub fn screen_items(s: &SessionUi) -> Vec<(Target, String, String, bool)> {
+    let Some(w) = s.watch() else { return Vec::new() };
+    w.screens.iter().map(|(id, label)| (Target::ScreenPick(*id), label.clone(), String::new(), *id == w.display)).collect()
+}
+
 pub fn draw(cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    panel(cv, f, tr("Qualité de l'image", "Picture quality"), items(s));
+}
+
+/// Qui regarde : la liste des écrans, du même dessin.
+pub fn draw_screens(cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    panel(cv, f, crate::app::watch_screen_word(), screen_items(s));
+}
+
+fn panel(cv: &mut Canvas, f: &mut Frame, title: &str, items: Vec<(Target, String, String, bool)>) {
     cv.rect(0.0, 0.0, W, H, Rgba(2, 3, 4, 200));
-    cv.text(W / 2.0, 290.0, Text::new(Font::Title, 40.0, FROST).align(Align::Center), tr("Qualité de l'image", "Picture quality"));
+    cv.text(W / 2.0, 290.0, Text::new(Font::Title, 40.0, FROST).align(Align::Center), title);
     let (x0, y0, rw, rh, gap) = (500.0, 340.0, W - 1000.0, 96.0, 22.0);
-    for (i, (t, label, received, on)) in items(s).into_iter().enumerate() {
+    for (i, (t, label, received, on)) in items.into_iter().enumerate() {
         let rect = Rect::new(x0, y0 + i as f32 * (rh + gap), rw, rh);
         let focused = f.hit(t, rect);
         let (fg, sub) = if focused {
