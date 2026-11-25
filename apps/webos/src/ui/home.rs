@@ -117,6 +117,9 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                 } else {
                     tr("Réessayer", "Try again")
                 };
+            } else if app.host_watch_only(&h.id) {
+                // Droit « Regarder » seul (ordinateur d'un compte) : « Regarder » à la place de « Se connecter ».
+                primary = if app.watch_waiting(&h.id) { crate::app::watch_waiting_word() } else { crate::app::watch_word() };
             }
             // Prêté : « Reprendre l'ordinateur », puis, pendant la reprise, « Reprendre tout de suite ».
             if let Some(v) = lent {
@@ -142,7 +145,13 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                 x += widgets::chip_state(cv, f, Target::HdrChip, x, by + 14.0, "HDR", u.on, u.available()) + 10.0;
             }
             x += 18.0;
-            widgets::icon_chip(cv, f, Target::HostSettings, x, by + 14.0, Icon::Gear, tr("Réglages", "Settings"));
+            x += widgets::icon_chip(cv, f, Target::HostSettings, x, by + 14.0, Icon::Gear, tr("Réglages", "Settings")) + 10.0;
+            // Les deux droits (« Ouvrir le bureau » et « Regarder ») : « Regarder » à côté de « Réglages »
+            // (docs/link-ui.md, « Comptes KyberNow ») ; « Regarder… » le temps d'entrer dans le partage.
+            if app.watch_in_menu(&h.id) && live.online != Online::Offline {
+                let label = if app.watch_waiting(&h.id) { crate::app::watch_waiting_word() } else { crate::app::watch_word() };
+                widgets::icon_chip(cv, f, Target::Watch, x, by + 14.0, Icon::Eye, label);
+            }
             let phrase = match hdr {
                 Some(u) if f.focus == Target::HdrChip => u.help(),
                 _ if custom => tr("Vos propres réglages.", "Your own settings."),

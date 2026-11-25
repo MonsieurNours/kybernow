@@ -33,6 +33,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 menu(app, cv, f, s);
             } else if s.lend_panel {
                 super::lend::draw(app, cv, f, s);
+            } else if s.watch_panel {
+                super::quality::draw_screens(cv, f, s);
             } else if s.share_panel {
                 // Un invité n'a pas de panneau d'hôte : le sien est la « Qualité de l'image ».
                 if s.guest.is_some() {
@@ -356,11 +358,17 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     } else if let Some(g) = &s.guest {
         // « Qualité de l'image » : la tuile montre la qualité reçue (le choix tant que Kyber ne la donne pas) et ouvre les cinq choix.
         tiles.push((MenuItem::Quality, Icon::Monitor, tr("Qualité de l'image", "Picture quality").into(), Some(g.shown().into()), false, false));
+        // Qui regarde un ordinateur à plusieurs écrans : « Écran », qui montre l'écran regardé (comme les autres choix).
+        if s.watch_menu()
+            && let Some(w) = &g.watch
+        {
+            tiles.push((MenuItem::Screen, Icon::Monitor, crate::app::watch_screen_word().into(), Some(w.shown()), false, false));
+        }
         // Par le relais : le chemin, en tuile (rien à choisir).
         if s.via_relay() {
             tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
         }
-        tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Quitter le partage", "Leave").into(), Some(s.name.clone()), true, false));
+        tiles.push((MenuItem::Disconnect, Icon::Logout, s.leave_label().into(), Some(s.name.clone()), true, false));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
         // elle est estompée mais se choisit : elle ouvre le panneau réduit à la raison.
