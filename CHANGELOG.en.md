@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.10.1
+
+- **Immersive mode (Mac, PC, Linux).** The whole keyboard goes to the computer, system shortcuts included: ⌘ ⇥, ⌘ Space and Mission Control on Mac, Alt+Tab and the ⊞ key on PC and Linux. In the computer's settings, Controls section, “Immersive mode”: “In full screen” (default), “Always” (in a window too) or “Never”. The app's shortcuts (⌃⌥⌘ + letter, Ctrl+Alt+Shift + letter) stay with the app. On Mac, the mode asks once for the Accessibility permission, and ⌘ becomes the ⊞ key there with a PC.
+- **Linux: a computer's settings close again.** The “› {name}” link at the top of the window takes you back to the home screen again (the click used to move the window).
+- **Linux: the session bar in a window.** It opens more easily when the session is not full screen, and a click on its measures opens the detailed statistics, as on Mac and PC. Ctrl+Alt+Shift+S opens them too.
+
 ## 0.10.0
 
 KyberNow accounts beta. It is only offered to Stations and apps set to receive beta versions.

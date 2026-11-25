@@ -352,6 +352,13 @@
             <span>{t('settings.keyboard')}</span>
             <span class="help">{t(mac ? 'settings.keyboard_help_mac' : 'settings.keyboard_help')}</span>
           </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.immersive')}</span>
+              <Segmented label={t('settings.immersive')} value={s.immersive ?? 'fullscreen'} options={[{ value: 'fullscreen', label: t('settings.immersive_fullscreen') }, { value: 'always', label: t('settings.immersive_always') }, { value: 'never', label: t('settings.immersive_never') }]} onchange={(v) => save({ immersive: v })} />
+            </div>
+            <span class="help">{t('settings.immersive_help')}</span>
+          </div>
           {#if mac}
             <!-- Face à une Station Mac seulement : allumé tant qu'on ne l'a pas éteint. -->
             <div class="line stack">

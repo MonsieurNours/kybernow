@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.10.1
+
+- **Mode immersif (Mac, PC, Linux).** Tout le clavier va à l'ordinateur, raccourcis du système compris : ⌘ ⇥, ⌘ Espace et Mission Control sur Mac, Alt+Tab et la touche ⊞ sur PC et sous Linux. Dans les réglages de l'ordinateur, rubrique Commandes, « Mode immersif » : « En plein écran » (par défaut), « Toujours » (aussi dans une fenêtre) ou « Jamais ». Les raccourcis de l'app (⌃⌥⌘ + lettre, Ctrl+Alt+Maj + lettre) restent à l'app. Sur Mac, le mode demande une fois l'autorisation Accessibilité, et ⌘ y devient la touche ⊞ face à un PC.
+- **Linux : les réglages d'un ordinateur se referment.** Le lien « › {nom} » en haut de la fenêtre ramène de nouveau à l'accueil (le clic déplaçait la fenêtre).
+- **Linux : la barre de session dans une fenêtre.** Elle s'ouvre plus facilement quand la session n'est pas en plein écran, et un clic sur ses mesures ouvre les statistiques détaillées, comme sur Mac et PC. Ctrl+Alt+Maj+S les ouvre aussi.
+
 ## 0.10.0
 
 Bêta des comptes KyberNow. Elle n'est proposée qu'aux Stations et aux apps réglées sur les versions bêta.
