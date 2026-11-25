@@ -462,7 +462,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; help: « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.” Inactive, on « Cet écran », with a custom resolution (help: « Avec une définition sur mesure, la session prend un seul écran. » / “With a custom resolution, the session takes a single display.”), with a session in a window (same help as the custom resolution, the window setting the display's size) and without a virtual display (setting off, or a Station without a usable virtual display: then with no help, the greyed row on « Cet écran » stands on its own and the virtual display has its own row; with a custom resolution, the custom resolution's help stays). Mac, Windows and Linux apps ([multi-ecrans.en.md](multi-ecrans.en.md)) |
 | Fréquence | Refresh rate | “120 Hz” |
 | Écran virtuel | Virtual display | help: « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
-| Format vidéo | Video format | Auto; HEVC; H.264; AV1 |
+| Format vidéo | Video format | Auto; HEVC; H.264; AV1; PyroWave (only if the computer offers it; see “PyroWave”) |
 | Texte net (4:4:4) | Sharp text (4:4:4) | help: « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactive with HDR on, help: « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
 | HDR | HDR | only on an HDR screen; help: « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.”; inactive with the reasons of the “HDR” section |
 | Débit | Bitrate | Auto; “80 Mbit/s” |
@@ -477,6 +477,34 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Transport de l'image | Picture transport | Rapide / Fast; Fiable / Reliable; help: « Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai. » / “Fast suits your home network and gaming. Reliable resends what gets lost, at the cost of a little delay.” |
 | Reconnexion automatique | Reconnect automatically | |
 | Réveil par le réseau | Wake on LAN | « Prêt » / “Ready” with the MAC address learnt from the Station, or « Pas encore d'adresse : connectez-vous une fois à cet ordinateur. » / “No address yet: connect to this computer once.”; help: « Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système). » / “Turns the computer on remotely when it is asleep. It must also be allowed on the computer (Admin › System).” |
+
+## PyroWave
+
+Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “Video format”, under its own name, in every app that decodes it; mock-ups: https://claude.ai/artifact/9mTTKtn4zLc2zaERtpcDf1.
+
+- **Auto** picks it only when the device is connected by cable (Ethernet), on the same network as the computer, and the computer offers it; otherwise HEVC as today. On Wi-Fi and through the relay, it must be chosen by hand.
+- **Bitrate too high** for the computer's ceiling or the measured bitrate: the app lowers the resolution (then the refresh rate), never sharpness, and says so.
+- **Through the relay**: allowed, warning only, no bitrate cap at the relay.
+- A lost frame is skipped; Statistics add “Lost frames”.
+
+| Where | English |
+|---|---|
+| “Video format” help, PyroWave chosen | “Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable.” |
+| “Video format” help, Auto, by cable | “Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.” |
+| “Video format” help, Auto, no cable (computer offers it) | “Auto: HEVC. PyroWave is only used when this device is connected by cable.” |
+| Warning under the choice, Wi-Fi | “On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
+| Warning under the choice, relay | “Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.” |
+| Banner at session start (Wi-Fi or relay, PyroWave chosen; goes after 8 s or on the cross) | title “PyroWave on Wi-Fi” / “PyroWave away from home”; “The picture may stutter.”; button “Switch to HEVC” (restarts the picture in HEVC, for this session only) |
+| Resolution lowered (banner, and Statistics) | “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” |
+| Session bar, PyroWave on Wi-Fi or via the relay | amber chip “PyroWave on Wi-Fi” / “PyroWave away from home”; the format says “PyroWave” |
+| Statistics, extra line | “Lost frames” “0.8%” |
+| Sharp text (4:4:4) with PyroWave | help: “With PyroWave, almost free: only the bitrate goes up.” |
+| Inactive value | “{name} doesn't offer PyroWave.”; “{this device} can't decode PyroWave.” |
+| Admin, “PyroWave” card (Picture and sound) | title “PyroWave”, subtitle “An almost delay-free picture, for devices connected by cable.”; chip “Ready · {GPU}” or “Unavailable”; switch “Offer PyroWave”, help “Your devices can pick it in “Video format”. On “Auto”, they use it by themselves when connected to your network by cable.” |
+| Admin, “Maximum bitrate” | Auto; 300; 500; 800 Mbit/s; Auto help: “Auto: based on this computer's network port, here {n} Mbit/s. Above that, your devices lower the resolution rather than sharpness.” |
+| Admin, card warning | “PyroWave compresses little: it sends 5 to 10 times more data than HEVC. On Wi-Fi or away from home, the picture may stutter; your devices warn you first.” |
+| Admin, unavailable (first that applies) | “The graphics driver doesn't provide Vulkan 1.3. Update it, then restart the Station.”; “This graphics card can't run PyroWave.”; “PyroWave starts with the Station: restart it to try it.”; “PyroWave couldn't start: {error}.” |
+| Admin, current sessions | the “PyroWave” format and bitrate; “Ethernet” or “Wi-Fi” chip; “resolution lowered” when it is |
 
 ## Statistics
 
