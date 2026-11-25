@@ -5,7 +5,9 @@
 //! est faite par l'agent (`kyber-admin display-agent preview`) lancé dans la
 //! session de l'utilisateur, qui écrit le JPEG dans `preview/` ; la route le
 //! lit. La dernière capture est gardée 10 s, et resservie telle quelle
-//! pendant une session (pas de capture qui pourrait gêner le flux).
+//! pendant une session (pas de capture qui pourrait gêner le flux). Sur Mac,
+//! `screencapture` ; sur une Station Linux, une image du flux PipeWire de
+//! l'écran principal que tient l'agent des écrans (`linux_screen.rs`).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -241,7 +243,17 @@ pub fn capture_to(path: &Path, width: u32) -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+/// Station Linux : une image du flux PipeWire de l'écran principal, que
+/// l'agent des écrans tient hors session (`linux_screen.rs`).
+#[cfg(target_os = "linux")]
+pub fn capture_to(path: &Path, width: u32) -> Result<()> {
+    if !crate::linux::is_station() {
+        bail!("aperçu de l'écran indisponible sur ce système");
+    }
+    crate::linux_screen::capture(path, width.clamp(MIN_WIDTH, MAX_WIDTH), QUALITY)
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 pub fn capture_to(_path: &Path, _width: u32) -> Result<()> {
     bail!("aperçu de l'écran indisponible sur ce système")
 }

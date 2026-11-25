@@ -14,7 +14,8 @@
 //! cartes et leur nature, `GetAdaptersAddresses` pour leurs adresses) et
 //! `powercfg` toutes les 5 minutes ; `info` et `status` ne lisent que la
 //! mémoire (les apps demandent `info` toutes les 8 s). Hors Windows
-//! (développement), une carte Ethernet simulée, à l'adresse du Mac.
+//! (développement), une carte Ethernet simulée, à l'adresse du Mac ; Station
+//! Mac et Station Linux (`linux_net.rs`) : leurs vraies cartes.
 
 // Hors Windows, la lecture des réponses de Windows n'est que testée.
 #![cfg_attr(not(windows), allow(dead_code))]
@@ -394,7 +395,8 @@ mod platform {
     }
 }
 
-/// Hors Windows : sur une Station Mac, ses vraies cartes (`mac` ci-dessous) ;
+/// Hors Windows : sur une Station Mac, ses vraies cartes (`mac` ci-dessous),
+/// sur une Station Linux les siennes (`linux_net.rs`, `ethtool`) ;
 /// sinon (Mac de développement) une carte Ethernet simulée, à l'adresse de
 /// l'ordinateur, que Windows laisserait réveiller l'ordinateur.
 #[cfg(not(windows))]
@@ -410,6 +412,10 @@ mod platform {
         #[cfg(target_os = "macos")]
         if crate::mac::is_station() {
             return super::mac::cards();
+        }
+        #[cfg(target_os = "linux")]
+        if crate::linux::is_station() {
+            return crate::linux_net::cards();
         }
         let ip = crate::tls::lan_ip().and_then(|a| a.parse::<Ipv4Addr>().ok());
         vec![Card {

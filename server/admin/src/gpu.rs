@@ -9,6 +9,8 @@
 //!   même fil, et rattachés à leur carte par DXGI (LUID).
 //! - Un flux en cours : kyavserver occupe le moteur d'encodage vidéo d'une
 //!   carte (ou NVML compte une session NVENC).
+//! - Station Linux : les cartes de `/sys/class/drm`, leur nom par la base
+//!   PCI, la charge d'`amdgpu` (`linux_gpu.rs`) ; NVML pour NVIDIA.
 //! - Les mesures propres à NVIDIA (sessions et images par seconde NVENC,
 //!   latence, état de performance, température, puissance, mémoire) : NVML,
 //!   chargé dynamiquement depuis le pilote.
@@ -50,7 +52,7 @@ impl Vendor {
         }
     }
 
-    fn fallback_name(self) -> &'static str {
+    pub(crate) fn fallback_name(self) -> &'static str {
         match self {
             Self::Nvidia => "Carte NVIDIA",
             Self::Amd => "Carte AMD",
@@ -94,7 +96,7 @@ pub struct GpuDevice {
 }
 
 impl GpuDevice {
-    fn new(vendor: Vendor, name: String, driver: Option<String>) -> Self {
+    pub(crate) fn new(vendor: Vendor, name: String, driver: Option<String>) -> Self {
         GpuDevice {
             name,
             vendor,
@@ -231,6 +233,11 @@ pub fn status() -> Option<GpuStatus> {
             })
             .collect::<Vec<_>>()
     };
+    // Station Linux : les cartes de /sys/class/drm (`linux_gpu.rs`).
+    #[cfg(target_os = "linux")]
+    if devices.is_empty() {
+        devices = crate::linux_gpu::devices();
+    }
     add_nvml(&mut devices);
     // Mac : la puce Apple (« Apple M4 Max »), son GPU et son encodeur.
     if cfg!(target_os = "macos") && devices.is_empty() {

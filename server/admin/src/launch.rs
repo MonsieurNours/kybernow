@@ -23,6 +23,10 @@
 //! session, l'app est fermée si l'appareil le demande (adresse de fermeture
 //! de la suggestion, sinon `WM_CLOSE` à ses fenêtres) ; si un autre appareil
 //! prend la main avec la même app, elle reste ouverte.
+//!
+//! Sur Mac, l'agent Swift fait le même travail ; sur une Station Linux,
+//! Admin lui-même (fichiers `.desktop`, `systemd-run --user`), voir
+//! `linux_apps.rs`.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -544,7 +548,9 @@ pub fn icon_name(id: &str) -> String {
 
 fn is_launchable(name: &str) -> bool {
     let lower = name.to_lowercase();
-    lower.ends_with(".exe") || lower.ends_with(".lnk")
+    // Station Linux : fichiers .desktop, AppImage et scripts de lancement.
+    let linux = cfg!(target_os = "linux") && [".desktop", ".appimage", ".sh", ".x86_64"].iter().any(|x| lower.ends_with(x));
+    lower.ends_with(".exe") || lower.ends_with(".lnk") || linux
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -1246,7 +1252,7 @@ mod mac {
 #[cfg(not(windows))]
 mod platform {
     //! Hors Windows : sur une Station Mac, les apps du Mac (module `mac`) ;
-    //! sinon (Mac de développement, tests) un catalogue simulé, et des
+    //! sur une Station Linux, celles de la session (`linux_apps.rs`) ; sinon (Mac de développement, tests) un catalogue simulé, et des
     //! lancements qui ne font que s'écrire au journal.
 
     use super::*;
@@ -1296,6 +1302,10 @@ mod platform {
         #[cfg(target_os = "macos")]
         if let Some(agent) = super::mac::agent() {
             return super::mac::read_catalogue(&agent);
+        }
+        #[cfg(target_os = "linux")]
+        if crate::linux::is_station() {
+            return crate::linux_apps::read_catalogue();
         }
         let dir = std::env::temp_dir().join("kybernow-apps-sim");
         let icons = dir.join("icons");
@@ -1354,6 +1364,10 @@ mod platform {
         if let Some(agent) = super::mac::agent() {
             return super::mac::launch(&agent, launch);
         }
+        #[cfg(target_os = "linux")]
+        if crate::linux::is_station() {
+            return crate::linux_apps::launch(launch);
+        }
         tracing::info!("(simulé) lancement de {} ({:?} {})", launch.name, launch.kind, launch.target);
         Ok(json!({ "front": false, "pid": null }))
     }
@@ -1363,6 +1377,10 @@ mod platform {
         if let Some(agent) = super::mac::agent() {
             return super::mac::close(&agent, launch, _pid);
         }
+        #[cfg(target_os = "linux")]
+        if crate::linux::is_station() {
+            return crate::linux_apps::close(launch, _pid);
+        }
         tracing::info!("(simulé) fermeture de {}", launch.name);
         Ok(json!({ "closed": 0 }))
     }
@@ -1371,6 +1389,10 @@ mod platform {
         #[cfg(target_os = "macos")]
         if let Some(agent) = super::mac::agent() {
             return super::mac::session_locked(&agent);
+        }
+        #[cfg(target_os = "linux")]
+        if crate::linux::is_station() {
+            return crate::linux_apps::session_locked();
         }
         false
     }
