@@ -140,6 +140,17 @@ struct SessionView: View {
                                  detail: String(localized: "L'image reste figée ; la session reprend où elle était.")) {
                         Button("Se déconnecter") { session.end() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                     }
+                } else if session.pyrowaveBanner {
+                    // PyroWave choisi, en Wi-Fi ou par le relais (docs/link-ui.md) : 8 s ou la croix.
+                    StateCapsule(icon: "warning", tint: Theme.warn, title: PyroWaveText.chip(session.pyrowaveLink), detail: PyroWaveText.bannerBody) {
+                        if !session.isVisitor {
+                            Button(PyroWaveText.switchToHEVC) { session.switchToHEVC() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
+                        }
+                        Button { session.closePyroWaveBanner() } label: {
+                            Icon("x", size: 16).foregroundStyle(Theme.warnText).frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel(Text("Fermer"))
+                    }
                 } else if let note = session.fallbackNote {
                     StateCapsule(icon: "warning", tint: Theme.warn, title: note, detail: nil) { EmptyView() }
                 } else if let note = session.notice {
@@ -577,6 +588,8 @@ struct SessionBar: View {
                         separator
                     }
                     statsButton
+                    // PyroWave en Wi-Fi ou par le relais : la puce ambre, qui ouvre les statistiques.
+                    if let chip = session.pyrowaveChip { pyrowaveChip(chip) }
                     separator
                     if session.isBorrower {
                         // Un ami : ni profil de la Station, ni presse-papiers ; le HDR, comme un hôte.
@@ -837,6 +850,24 @@ struct SessionBar: View {
 
     private func item(_ icon: String, _ text: String) -> some View {
         BarItemLabel(icon: icon, text: text)
+    }
+
+    /// Puce ambre « PyroWave en Wi-Fi » / « PyroWave hors de chez vous ».
+    private func pyrowaveChip(_ text: String) -> some View {
+        Button { session.statsSheet = true } label: {
+            HStack(spacing: 6) {
+                Icon(session.pyrowaveLink == .relay ? "globe-hemisphere-west" : "wifi-high", size: 13).foregroundStyle(Theme.warn)
+                Text(text).font(Theme.sans(12, .semibold)).foregroundStyle(Theme.warnText).lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(Capsule().fill(Theme.warnFill))
+            .overlay(Capsule().stroke(Theme.warnLine, lineWidth: 1))
+            .frame(minHeight: 44)
+            .padding(.horizontal, 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: "\(text). \(PyroWaveText.bannerBody)"))
     }
 }
 

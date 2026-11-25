@@ -39,6 +39,9 @@ enum Theme {
     static let ok = rgb(0x4CD68A)
     static let warn = rgb(0xF5B841)
     static let warnText = rgb(0xEAD7A8)
+    /// Fond et bord d'un avertissement ambre (PyroWave en Wi-Fi, maquettes de PyroWave).
+    static let warnFill = rgb(0x1E1A12)
+    static let warnLine = rgb(0x4A3A1E)
     static let danger = rgb(0xFF6B6B)
     static let dangerText = rgb(0xFFC9C4)
 

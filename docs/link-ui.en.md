@@ -483,6 +483,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “Video format”, under its own name, in every app that decodes it; mock-ups: https://claude.ai/artifact/9mTTKtn4zLc2zaERtpcDf1.
 
 - **Auto** picks it only when the device is connected by cable (Ethernet), on the same network as the computer, and the computer offers it; otherwise HEVC as today. On Wi-Fi and through the relay, it must be chosen by hand.
+- **Apple apps** (Mac, Apple TV, iPhone, iPad): “Auto” is a profile there (Game, Desktop, Max); “Video format” shows “Auto” and “PyroWave” only when the computer knows PyroWave, “Auto” checked when a profile is active; picking it from “Custom” brings back Game ([pyrowave-client-apple.en.md](pyrowave-client-apple.en.md)).
 - **Bitrate too high** for the computer's ceiling or the measured bitrate: the app lowers the resolution (then the refresh rate), never sharpness, and says so.
 - **Through the relay**: allowed, warning only, no bitrate cap at the relay.
 - A lost frame is skipped; Statistics add “Lost frames”.

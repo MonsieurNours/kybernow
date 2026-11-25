@@ -18,7 +18,9 @@ public struct KyberDisplay: Sendable, Hashable {
 }
 
 public enum VideoCodec: String, Sendable, CaseIterable, Codable {
-    case h264, hevc, av1
+    /// `pyrowave` : décodé par le GPU (`PyroWaveDecoder`), seulement si la
+    /// Station le propose (docs/pyrowave.md, docs/link-ui.md « PyroWave »).
+    case h264, hevc, av1, pyrowave
 }
 
 public struct StreamOptions: Sendable {

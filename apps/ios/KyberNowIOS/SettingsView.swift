@@ -463,22 +463,19 @@ private struct SettingsPane: View {
             update { $0.display = $0.display == .physical ? .match : .physical }
         }
 
-        let caps = DecoderCapabilities.current
-        let av1Missing = !caps.av1
-        let av1Host = info?.av1 == false
-        rows.choice(String(localized: "Format vidéo"), codecNote, [
-            SettingsOption(key: VideoCodec.hevc.rawValue, label: "HEVC", unavailable: !caps.hevc),
-            SettingsOption(key: VideoCodec.h264.rawValue, label: "H.264"),
-            SettingsOption(key: VideoCodec.av1.rawValue, label: "AV1", unavailable: av1Missing || av1Host),
-        ], s.codec.rawValue) { v in
-            if let c = VideoCodec(rawValue: v) { update(custom: true) { $0.codec = c } }
+        // PyroWave (docs/link-ui.md) : avec « Auto » (un profil), seulement si la Station le connaît.
+        let pw = pyrowave
+        rows.choice(String(localized: "Format vidéo"), formatNote(pw), formatOptions(pw), pw.shown && s.profile != nil ? "auto" : s.codec.rawValue,
+                    warning: s.codec == .pyrowave && pw.usable ? PyroWaveText.warning(pw.link) : nil) { v in
+            pickFormat(v)
         }
 
         // HDR allumé (et possible) : pas de 4:4:4 (docs/hdr.md).
         let hdrState = s.hdrState(info, screenHDR: HDRDisplay.isHDR(nil))
         let hdrOn = hdrState.on(s.hdr)
         let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
-        rows.toggle(String(localized: "Texte net (4:4:4)"), hdrOn ? SettingsText.sharpTextHDR : can444 ? SettingsText.sharpTextHelp : yuvNote,
+        let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.profile != nil)
+        rows.toggle(String(localized: "Texte net (4:4:4)"), hdrOn ? SettingsText.sharpTextHDR : pyroImage ? PyroWaveText.sharpText : can444 ? SettingsText.sharpTextHelp : yuvNote,
                     s.yuv444 && can444, enabled: can444) {
             update(custom: true) { $0.yuv444 = !($0.yuv444 && can444) }
         }
@@ -554,6 +551,66 @@ private struct SettingsPane: View {
         return String(localized: "L'écran virtuel de l'ordinateur suit ; 60 Hz allège l'encodage et le réseau.")
     }
 
+    // MARK: PyroWave
+
+    /// PyroWave pour cet ordinateur : montré si la Station le connaît (ou s'il
+    /// est choisi), inactif avec sa raison, et le lien de l'appareil.
+    private var pyrowave: PyroWaveChoice {
+        PyroWaveChoice.of(offer: info?.pyrowave, decodes: DecoderCapabilities.current.pyrowave, chosen: s.codec == .pyrowave,
+                          link: PyroWaveLink(wired: link.kind == .ethernet, relay: store.viaRelay(host)))
+    }
+
+    private func formatOptions(_ pw: PyroWaveChoice) -> [SettingsOption] {
+        let caps = DecoderCapabilities.current
+        var formats = [
+            SettingsOption(key: VideoCodec.hevc.rawValue, label: "HEVC", unavailable: !caps.hevc),
+            SettingsOption(key: VideoCodec.h264.rawValue, label: "H.264"),
+            SettingsOption(key: VideoCodec.av1.rawValue, label: "AV1", unavailable: !caps.av1 || info?.av1 == false),
+        ]
+        if pw.shown {
+            formats.insert(SettingsOption(key: "auto", label: String(localized: "Auto")), at: 0)
+            formats.append(SettingsOption(key: VideoCodec.pyrowave.rawValue, label: PyroWaveText.name, unavailable: !pw.usable))
+        }
+        return formats
+    }
+
+    /// L'aide de « Format vidéo » : la raison d'un PyroWave inactif d'abord,
+    /// puis celle de PyroWave choisi ou d'« Auto », sinon celle d'avant.
+    private func formatNote(_ pw: PyroWaveChoice) -> String {
+        guard pw.shown else { return codecNote }
+        switch pw.block {
+        case .notOffered?: return PyroWaveText.notOffered(host.name)
+        case .noDecoder?:
+            return DeviceDisplay.isPad
+                ? String(localized: "Cet iPad ne sait pas décoder PyroWave.")
+                : String(localized: "Cet iPhone ne sait pas décoder PyroWave.")
+        case nil: break
+        }
+        if s.profile != nil { return pw.link == .cable ? PyroWaveText.helpAutoWired : PyroWaveText.helpAutoWireless }
+        return s.codec == .pyrowave ? PyroWaveText.helpChosen : codecNote
+    }
+
+    /// Un format choisi rend le profil « Personnalisé » ; « Auto » reprend le
+    /// profil Jeu. PyroWave choisi : le débit qu'« Auto » prendrait par câble.
+    private func pickFormat(_ key: String) {
+        if key == "auto" {
+            if s.profile == nil { update { $0.apply(.jeu) } }
+            return
+        }
+        guard let c = VideoCodec(rawValue: key) else { return }
+        update(custom: true) { st in
+            let wasPyroWave = st.codec == .pyrowave
+            st.codec = c
+            if c == .pyrowave {
+                let m = DeviceDisplay.mode(for: st)
+                st.bitrateMbps = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
+            } else if wasPyroWave {
+                // En quittant PyroWave, un débit d'HEVC.
+                st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps)
+            }
+        }
+    }
+
     private var codecNote: String {
         let caps = DecoderCapabilities.current
         if !caps.av1 {
@@ -565,6 +622,7 @@ private struct SettingsPane: View {
         switch s.codec {
         case .h264: return String(localized: "Le plus compatible. Demande plus de débit pour la même netteté.")
         case .av1: return String(localized: "Le plus efficace, en 4:2:0 seulement : pas de texte net.")
+        case .pyrowave: return PyroWaveText.helpChosen
         case .hevc:
             return DeviceDisplay.isPad
                 ? String(localized: "Cet iPad décode les trois en matériel. HEVC : net à débit égal, recommandé.")
@@ -576,6 +634,7 @@ private struct SettingsPane: View {
         switch s.codec {
         case .h264: return String(localized: "Le 4:4:4 demande le HEVC.")
         case .av1: return String(localized: "Pas en AV1 : les décodeurs Apple ne lisent que le 4:2:0.")
+        case .pyrowave: return PyroWaveText.sharpText
         case .hevc:
             return DeviceDisplay.isPad
                 ? String(localized: "Cet iPad ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0.")
@@ -600,7 +659,13 @@ private struct SettingsPane: View {
         return gb >= 10 ? String(Int(gb.rounded())) : StatsFormat.decimal(gb)
     }
 
+    /// PyroWave : son débit est voulu, l'avertissement ambre du format suffit.
     private var rateNote: (text: String, warn: Bool) {
+        let note = linkRateNote
+        return (note.text, note.warn && s.codec != .pyrowave)
+    }
+
+    private var linkRateNote: (text: String, warn: Bool) {
         let rate = effectiveBitrate
         let limit = comfortable
         switch link.kind {

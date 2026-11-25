@@ -1,6 +1,102 @@
 {
   "sourceLanguage" : "fr",
   "strings" : {
+    "%@ ne propose pas PyroWave." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ doesn't offer PyroWave."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne propose pas PyroWave."
+          }
+        }
+      }
+    },
+    "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: HEVC. PyroWave is only used when this device is connected by cable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble."
+          }
+        }
+      }
+    },
+    "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: PyroWave, because this device is connected by cable. Otherwise HEVC."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC."
+          }
+        }
+      }
+    },
+    "Avec PyroWave, presque sans coût : seul le débit monte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With PyroWave, almost free: only the bitrate goes up."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec PyroWave, presque sans coût : seul le débit monte."
+          }
+        }
+      }
+    },
+    "Définition ramenée à %@ pour tenir dans %lld Mbit/s." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolution lowered to %@ to fit in %lld Mbit/s."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Définition ramenée à %@ pour tenir dans %lld Mbit/s."
+          }
+        }
+      }
+    },
+    "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr."
+          }
+        }
+      }
+    },
     "Envoyer" : {
       "localizations" : {
         "en" : {
@@ -49,6 +145,38 @@
         }
       }
     },
+    "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr."
+          }
+        }
+      }
+    },
+    "L'image peut saccader." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The picture may stutter."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'image peut saccader."
+          }
+        }
+      }
+    },
     "Manettes indisponibles sur cet ordinateur" : {
       "localizations" : {
         "en" : {
@@ -77,6 +205,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manettes indisponibles sur cet ordinateur."
+          }
+        }
+      }
+    },
+    "Passer en HEVC" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch to HEVC"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passer en HEVC"
+          }
+        }
+      }
+    },
+    "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet."
+          }
+        }
+      }
+    },
+    "PyroWave en Wi-Fi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave on Wi-Fi"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave en Wi-Fi"
+          }
+        }
+      }
+    },
+    "PyroWave hors de chez vous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave away from home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PyroWave hors de chez vous"
           }
         }
       }

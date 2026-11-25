@@ -102,6 +102,24 @@ struct SettingsFlow: Layout {
 
 // MARK: - Lignes
 
+/// Avertissement ambre sous un choix (maquettes de PyroWave).
+struct SettingsWarning: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Icon("warning", size: 16).foregroundStyle(Theme.warn).padding(.top, 1)
+            Text(text).font(Theme.sans(12.5)).foregroundStyle(Theme.warnText).lineSpacing(1.5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.warnFill))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.warnLine))
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Fabrique des lignes, en largeur (`wide`) ou en hauteur.
 struct SettingsRows {
     let wide: Bool
@@ -132,8 +150,10 @@ struct SettingsRows {
     }
 
     /// Une ligne à choix ; un choix impossible reste visible, grisé.
+    /// `warning` : l'avertissement ambre sous le choix (PyroWave en Wi-Fi ou
+    /// par le relais, docs/link-ui.md).
     func choice(_ title: String, _ note: String, _ options: [SettingsOption], _ current: String,
-                noteColor: Color = Theme.muted, enabled: Bool = true, pick: @escaping (String) -> Void) -> some View {
+                noteColor: Color = Theme.muted, enabled: Bool = true, warning: String? = nil, pick: @escaping (String) -> Void) -> some View {
         let buttons = ForEach(options) { o in
             Button { pick(o.key) } label: { Text(o.label) }
                 .buttonStyle(SettingsOptionStyle(selected: current == o.key, unavailable: o.unavailable || !enabled, large: wide))
@@ -141,16 +161,19 @@ struct SettingsRows {
                 .accessibilityAddTraits(current == o.key ? .isSelected : [])
         }
         return container {
-            if wide {
-                HStack(spacing: 20) {
-                    label(title, note, noteColor: noteColor)
-                    HStack(spacing: 6) { buttons }.fixedSize()
+            VStack(alignment: .leading, spacing: 10) {
+                if wide {
+                    HStack(spacing: 20) {
+                        label(title, note, noteColor: noteColor)
+                        HStack(spacing: 6) { buttons }.fixedSize()
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        label(title, note, noteColor: noteColor)
+                        SettingsFlow(spacing: 6) { buttons }
+                    }
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    label(title, note, noteColor: noteColor)
-                    SettingsFlow(spacing: 6) { buttons }
-                }
+                if let warning { SettingsWarning(text: warning) }
             }
         }
         .accessibilityElement(children: .contain)
@@ -330,6 +353,13 @@ final class SettingsLink: ObservableObject {
     private let monitor = NWPathMonitor()
 
     init() {
+        #if DEBUG
+        // `-demoLink wifi|ethernet` : le lien affiché (captures, aides de PyroWave).
+        if let demo = UserDefaults.standard.string(forKey: "demoLink") {
+            kind = demo == "ethernet" ? .ethernet : .wifi
+            return
+        }
+        #endif
         monitor.pathUpdateHandler = { [weak self] path in
             let kind: Kind = path.status != .satisfied ? .offline
                 : path.usesInterfaceType(.wiredEthernet) ? .ethernet
