@@ -20,7 +20,7 @@ This document is the framing, to be approved before the mockup and the code. Sta
 | Attaching a Station | From the Station installer, or from Admin (“KyberNow account › Sign in”) |
 | Installers | Optional “KyberNow account” step during Station installation (relay pages, “Another relay…”, owner, access turned on); enrollment token to deploy a fleet; sign-in also offered by the Link Windows installer |
 | Invitations | Kept, alongside accounts |
-| Emails | Configurable sending (SMTP in the relay's configuration); the public relay goes through an EU provider |
+| Emails | Configurable sending (SMTP in the relay's configuration); the public relay goes through SendGrid (Twilio), sender `hello@kybernow.app` |
 | Database | SQLite in the relay's container, backed up |
 | What is managed where | **The relay's web console** (everything, fleet included) and **Admin** (attach the Station, switch, accesses seen and blocked); the apps sign in and show the account's computers |
 | Legal | Les Lignes Claires, data controller |

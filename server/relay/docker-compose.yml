@@ -36,12 +36,23 @@ services:
       KN_RELAY_BANLIST: /config/banlist.txt
       # Comptes KyberNow (README.md, « Comptes ») : on ou off ; vide, relay.toml décide.
       KN_RELAY_ACCOUNTS: ${RELAY_ACCOUNTS:-}
+      # E-mails des comptes (README.md, « Comptes ») : sans SMTP_HOST, aucun
+      # e-mail. Le mot de passe est dans secrets/smtp_password (lisible par
+      # l'utilisateur 65532 de l'image : chmod 644, le dossier secrets/ reste en 700).
+      KN_RELAY_SMTP_HOST: ${SMTP_HOST:-}
+      KN_RELAY_SMTP_PORT: ${SMTP_PORT:-}
+      KN_RELAY_SMTP_STARTTLS: ${SMTP_STARTTLS:-}
+      KN_RELAY_SMTP_USER: ${SMTP_USER:-}
+      KN_RELAY_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      KN_RELAY_SMTP_FROM: ${SMTP_FROM:-}
       RUST_LOG: ${RUST_LOG:-info}
     volumes:
       - ./certs:/certs:ro
       - ./config:/config:ro
       # La base des comptes et sa clé (en écriture, à l'utilisateur 65532 de l'image).
       - ./data:/data
+    secrets:
+      - smtp_password
     logging:
       driver: json-file
       options:
@@ -95,3 +106,6 @@ services:
 secrets:
   gandi_pat:
     file: ./secrets/gandi_pat
+  # Vide sans SMTP (touch secrets/smtp_password).
+  smtp_password:
+    file: ./secrets/smtp_password

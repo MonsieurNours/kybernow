@@ -20,7 +20,7 @@ Ce document est le cadrage, à valider avant la maquette et le code. État : **d
 | Rattacher une Station | Depuis l'installateur de la Station, ou depuis Admin (« Compte KyberNow › Se connecter ») |
 | Installateurs | Étape facultative « Compte KyberNow » pendant l'installation de la Station (pages du relais, « Autre relais… », propriétaire, accès activés) ; jeton d'enrôlement pour déployer une flotte ; connexion proposée aussi par l'installateur de Link Windows |
 | Invitations | Gardées, à côté des comptes |
-| E-mails | Envoi réglable (SMTP dans la configuration du relais) ; le relais public passe par un prestataire de l'UE |
+| E-mails | Envoi réglable (SMTP dans la configuration du relais) ; le relais public passe par SendGrid (Twilio), expéditeur `hello@kybernow.app` |
 | Base | SQLite dans le conteneur du relais, sauvegardée |
 | Où se gère quoi | **Console web du relais** (tout, flotte comprise) et **Admin** (rattacher la Station, interrupteur, accès vus et bloqués) ; les apps se connectent et montrent les ordinateurs du compte |
 | Juridique | Les Lignes Claires, responsable du traitement |

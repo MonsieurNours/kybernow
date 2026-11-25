@@ -62,6 +62,8 @@ mkdir -p ~/kybernow-relay/secrets ~/kybernow-relay/certs ~/kybernow-relay/config
 cd ~/kybernow-relay
 nano secrets/gandi_pat      # the token alone, on one line
 chmod 600 secrets/gandi_pat
+touch secrets/smtp_password # the accounts' SMTP password, empty without SMTP
+chmod 644 secrets/smtp_password
 ```
 
 ### 5. The files
@@ -159,7 +161,7 @@ docker compose up -d relay
 
 - **Database**: SQLite, `/data/accounts.db` (`database`), migrations at start-up. Back up the `data/` folder along with the key.
 - **Key**: `/data/secret.key` (`secret_key`), created at first start (64 hex digits, readable by the relay only). It encrypts the two-factor secrets (AES-256-GCM) and signs the cookies: losing it turns two-factor authentication off for every account.
-- **Email**: `[accounts.smtp]` (`host`, `port`, `starttls`, `user`, `password_file`, `from`), over TLS (rustls). The password goes in a file (`config/smtp_password`, `chown 65532` then `chmod 600`). Without SMTP, no sign-up, no verification and no forgotten password: the administrator creates the accounts, already verified:
+- **Email**: `[accounts.smtp]` (`host`, `port`, `starttls`, `user`, `password_file`, `from`), over TLS (rustls). The password goes in a file. With docker compose: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` and `SMTP_FROM` in `.env`, the password in `secrets/smtp_password` (`chmod 644` for the image's user 65532; the `secrets/` folder stays at 700). With SendGrid: `smtp.sendgrid.net`, port 587, user `apikey`, the API key as password, and a sender verified at SendGrid (authenticated domain). Without SMTP, no sign-up, no verification and no forgotten password: the administrator creates the accounts, already verified:
 
   ```sh
   docker compose exec relay kybernow-relay accounts add ana@example.org --name Ana

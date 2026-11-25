@@ -62,6 +62,8 @@ mkdir -p ~/kybernow-relay/secrets ~/kybernow-relay/certs ~/kybernow-relay/config
 cd ~/kybernow-relay
 nano secrets/gandi_pat      # le jeton seul, sur une ligne
 chmod 600 secrets/gandi_pat
+touch secrets/smtp_password # le mot de passe SMTP des comptes, vide sans SMTP
+chmod 644 secrets/smtp_password
 ```
 
 ### 5. Les fichiers
@@ -159,7 +161,7 @@ docker compose up -d relay
 
 - **Base** : SQLite, `/data/accounts.db` (`database`), migrations au démarrage. Sauvegardez le dossier `data/` avec la clé.
 - **Clé** : `/data/secret.key` (`secret_key`), créée au premier démarrage (64 chiffres hexadécimaux, lisible par le relais seul). Elle chiffre les secrets de double authentification (AES-256-GCM) et signe les cookies : la perdre coupe la double authentification de tous les comptes.
-- **E-mails** : `[accounts.smtp]` (`host`, `port`, `starttls`, `user`, `password_file`, `from`), en TLS (rustls). Le mot de passe va dans un fichier (`config/smtp_password`, `chown 65532` puis `chmod 600`). Sans SMTP, ni inscription, ni vérification, ni mot de passe oublié : l'administrateur crée les comptes, déjà vérifiés :
+- **E-mails** : `[accounts.smtp]` (`host`, `port`, `starttls`, `user`, `password_file`, `from`), en TLS (rustls). Le mot de passe va dans un fichier. Avec docker compose : `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` et `SMTP_FROM` dans `.env`, le mot de passe dans `secrets/smtp_password` (`chmod 644` pour l'utilisateur 65532 de l'image ; le dossier `secrets/` reste en 700). Avec SendGrid : `smtp.sendgrid.net`, port 587, utilisateur `apikey`, la clé d'API pour mot de passe, et un expéditeur vérifié chez SendGrid (domaine authentifié). Sans SMTP, ni inscription, ni vérification, ni mot de passe oublié : l'administrateur crée les comptes, déjà vérifiés :
 
   ```sh
   docker compose exec relay kybernow-relay accounts add ana@exemple.org --name Ana
