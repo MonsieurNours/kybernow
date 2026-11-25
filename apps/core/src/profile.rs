@@ -495,9 +495,13 @@ mod tests {
         // HDR : PyroWave reste, en 4:2:0.
         let hdr = hdr_format(&pyrowave_format(&bureau, all, true, false), all);
         assert_eq!((hdr.codec, hdr.yuv444), (Codec::PyroWave, false));
-        // Débit d'Auto : ≈ 280 Mbit/s en 1080p60 (docs/link-ui.md).
+        // Débit d'Auto en 1080p60 : la règle de tous les formats ne descend
+        // pas sous 40 % du débit du profil, soit 0,4 × 800 = 320 Mbit/s ; au
+        // moins le débit nécessaire (≈ 187, docs/pyrowave.md), autour des
+        // « environ 300 Mbit/s en 1080p » de l'avertissement (docs/link-ui.md).
         let mbps = pyrowave_format(&jeu, all, true, false).bitrate(1920, 1080, 60) / 1_000_000;
-        assert!((270..=300).contains(&mbps), "{mbps}");
+        assert_eq!(mbps, PYROWAVE_MBPS * 4 / 10);
+        assert!(mbps >= crate::pyrowave::needed_mbps(&[crate::console::Mode { width: 1920, height: 1080, refresh: 60 }], false));
     }
 
     #[test]

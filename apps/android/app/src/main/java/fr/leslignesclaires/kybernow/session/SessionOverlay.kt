@@ -164,12 +164,14 @@ class SessionUi(
     /**
      * PyroWave (docs/link-ui.md, « PyroWave ») : choisi à la main pour cet ordinateur ([pyroChosen], hôte seulement),
      * le réseau de l'appareil au début ([pyroLink] : câble ou Wi-Fi ; le relais se lit dans la route), le bandeau du
-     * début montré ([pyroBanner]) et déjà passé ([pyroBannerDone]).
+     * début montré ([pyroBanner]) et déjà passé ([pyroBannerDone]) ; le même bandeau sous le titre « Le réseau sature »
+     * ([pyroStrained]) quand le cœur dit que le réseau sature (docs/debit-automatique.md).
      */
     var pyroChosen by mutableStateOf(false)
     var pyroLink by mutableStateOf(PyroWaveLink.CABLE)
     var pyroBanner by mutableStateOf(false)
     var pyroBannerDone by mutableStateOf(false)
+    var pyroStrained by mutableStateOf(false)
     var mouseMode by mutableStateOf(0)
     var directTouch by mutableStateOf(false)
     var remoteMouse by mutableStateOf(false)

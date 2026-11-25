@@ -150,6 +150,9 @@ pub enum SessionEvent {
     /// `lowered` : PyroWave, la définition ramenée (`Second::lowered`).
     Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, lost_frames: u32, codec: String, audio_ms: Option<f64>, chain: Option<[f64; 6]>, hdr: bool, lowered: Option<kybernow_core::pyrowave::Lowered> },
     Notice(String),
+    /// PyroWave : le réseau sature (`Notice::PyroWaveStrained`, une fois par session) : le bandeau « Le réseau
+    /// sature » avec « Passer en HEVC ».
+    PyroWaveStrained,
     /// Le pointeur de l'ordinateur sur l'écran `screen` de l'appareil (multi-écrans :
     /// une couche par écran ; la forme est celle de l'écran où il se trouve).
     Pointer { screen: usize, position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
@@ -3021,6 +3024,11 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered });
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();
+            }
+        }
+        SessionEvent::PyroWaveStrained => {
+            if let Some(s) = app.session_by_mut(id) {
+                s.pyrowave_strained();
             }
         }
         SessionEvent::Notice(n) => {

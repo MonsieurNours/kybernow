@@ -749,6 +749,7 @@
     "warn_relay": "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
     "banner_wifi": "PyroWave en Wi-Fi",
     "banner_relay": "PyroWave hors de chez vous",
+    "banner_strained": "Le réseau sature",
     "banner_text": "L'image peut saccader.",
     "switch_hevc": "Passer en HEVC",
     "lowered": "Définition ramenée à {w} × {h} pour tenir dans {n} Mbit/s.",

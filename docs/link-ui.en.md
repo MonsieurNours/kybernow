@@ -479,7 +479,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Format vidéo | Video format | Auto; HEVC; H.264; AV1; PyroWave (only if the computer offers it; see “PyroWave”) |
 | Texte net (4:4:4) | Sharp text (4:4:4) | help: « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactive with HDR on, help: « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
 | HDR | HDR | only on an HDR screen; help: « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.”; inactive with the reasons of the “HDR” section |
-| Débit | Bitrate | Auto; “80 Mbit/s” |
+| Débit | Bitrate | Auto; “80 Mbit/s”; Auto: the profile’s bitrate, lowered when the network is saturated then raised again, paused with PyroWave ([debit-automatique.en.md](debit-automatique.en.md)); a value stays fixed |
 | Affichage des images | Frame display | Synchronisé / Synced; Immédiat / Immediate |
 | Garder la dernière image | Keep the last image | |
 | Son | Sound | Auto; Stéréo / Stereo; 5.1; 7.1; Sur l'ordinateur / On the computer |
@@ -512,6 +512,7 @@ Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “
 | Warning under the choice, Wi-Fi | “On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
 | Warning under the choice, relay | “Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.” |
 | Banner at session start (Wi-Fi or relay, PyroWave chosen; goes after 8 s or on the cross) | title “PyroWave on Wi-Fi” / “PyroWave away from home”; “The picture may stutter.”; button “Switch to HEVC” (restarts the picture in HEVC, for this session only) |
+| Banner when the network is saturated (PyroWave: 5 s of losses or queueing in a row, core notice `PyroWaveStrained`; once per session, host only; same shape as the start one, 8 s or the cross) | title “The network is saturated”; “The picture may stutter.”; button “Switch to HEVC” (the same as above) |
 | Resolution lowered (banner, and Statistics) | “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” |
 | Session bar, PyroWave on Wi-Fi or via the relay | amber chip “PyroWave on Wi-Fi” / “PyroWave away from home”; the format says “PyroWave” |
 | Statistics, extra line | “Lost frames” “0.8%” |

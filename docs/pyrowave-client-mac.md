@@ -49,7 +49,7 @@ PSNR de la première image : 64 dB en Y (1440p 4:2:0), 56 dB en Y et 49 à 51 dB
 Règles et textes : [link-ui.md](link-ui.md), « PyroWave » ; le détail est dans [apps/macos/README.md](../apps/macos/README.md), « PyroWave ».
 
 - Réglages › Image : « Format vidéo » avec « Auto » et « PyroWave » (quand la Station connaît PyroWave), raisons d'un PyroWave inactif, aides, avertissement ambre en Wi-Fi ou par le relais, aide du 4:4:4.
-- En session : bandeau du début (8 s, « Passer en HEVC » pour la session seulement, croix), puce ambre de la barre, format reçu dans la barre ; rappel « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » quand le cœur la baisse.
+- En session : bandeau du début (8 s, « Passer en HEVC » pour la session seulement, croix), puce ambre de la barre, format reçu dans la barre ; rappel « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » quand le cœur la baisse ; bandeau « Le réseau sature » (même forme que celui du début, « Passer en HEVC ») quand le cœur dit que le réseau sature depuis 5 s (`SessionEngine.onPyroWaveStrained`, une fois par session, hôte seulement, [debit-automatique.md](debit-automatique.md)).
 - Statistiques : « Images perdues » en pourcentage, et la ligne de la définition ramenée.
 - Compilé le 25/11/2026 ; pas vu à l'écran ni essayé avec une Station.
 

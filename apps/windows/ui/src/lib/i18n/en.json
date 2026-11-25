@@ -749,6 +749,7 @@
     "warn_relay": "Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.",
     "banner_wifi": "PyroWave on Wi-Fi",
     "banner_relay": "PyroWave away from home",
+    "banner_strained": "The network is saturated",
     "banner_text": "The picture may stutter.",
     "switch_hevc": "Switch to HEVC",
     "lowered": "Resolution lowered to {w} × {h} to fit in {n} Mbit/s.",

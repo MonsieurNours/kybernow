@@ -1230,9 +1230,13 @@ final class SessionController: NSObject, ObservableObject {
     private var codecOverride: VideoCodec?
     /// Le format que la Station envoie vraiment (dernier paquet de codec).
     @Published private(set) var receivedCodec: VideoCodec?
-    /// Le bandeau du début de session (« PyroWave en Wi-Fi ») est affiché.
+    /// Le bandeau du début de session (« PyroWave en Wi-Fi ») ou celui du
+    /// réseau qui sature (« Le réseau sature ») est affiché.
     @Published private(set) var pyrowaveBanner = false
+    /// Le bandeau affiché est celui du réseau qui sature.
+    @Published private(set) var pyrowaveStrained = false
     private var pyrowaveBannerDone = false
+    private var pyrowaveBannerClose: DispatchWorkItem?
     /// La définition ramenée par le cœur pour tenir dans le débit
     /// (`VideoStats.lowered`, Statistiques) ; nil sans.
     @Published private(set) var lowered: LoweredMode?
@@ -1265,12 +1269,29 @@ final class SessionController: NSObject, ObservableObject {
         showPyroWaveBanner()
     }
 
-    private func showPyroWaveBanner() {
+    /// Titre du bandeau : « PyroWave en Wi-Fi » / « … hors de chez vous »,
+    /// ou « Le réseau sature ».
+    var pyrowaveBannerTitle: String {
+        pyrowaveStrained ? PyroWaveText.strained : PyroWaveText.chip(pyrowaveLink)
+    }
+
+    private func showPyroWaveBanner(strained: Bool = false) {
         pyrowaveBannerDone = true
+        pyrowaveStrained = strained
         withAnimation(Theme.easeOut) { pyrowaveBanner = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds) { [weak self] in
-            self?.closePyroWaveBanner()
-        }
+        // Un bandeau qui en remplace un autre garde ses 8 s.
+        pyrowaveBannerClose?.cancel()
+        let close = DispatchWorkItem { [weak self] in self?.closePyroWaveBanner() }
+        pyrowaveBannerClose = close
+        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds, execute: close)
+    }
+
+    /// Le cœur dit que le réseau sature en PyroWave depuis 5 s (une fois par
+    /// session, hôte seulement) : « Le réseau sature », « Passer en HEVC ».
+    private func pyrowaveStrainedNotice() {
+        guard !isVisitor, codecOverride == nil else { return }
+        KyberLog.app.notice("PyroWave : le réseau sature, « Passer en HEVC » proposé")
+        showPyroWaveBanner(strained: true)
     }
 
     /// La croix du bandeau.
@@ -1445,6 +1466,7 @@ final class SessionController: NSObject, ObservableObject {
             self.followCodec(stats)
         }
         engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
+        engine.onPyroWaveStrained = { [weak self] in self?.pyrowaveStrainedNotice() }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         engine.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
@@ -2251,7 +2273,8 @@ final class SessionController: NSObject, ObservableObject {
             if pyrowave == "relay" { path = RouteInfo(transport: .relay, relay: Relay.defaultServer, rttClient: 24, rttStation: 11) }
             receivedCodec = .pyrowave
             lowered = LoweredMode(width: 1920, height: 1080, refresh: 60, mbps: 300)
-            showPyroWaveBanner()
+            // `-demoStrained YES` : le bandeau du réseau qui sature à la place de celui du début.
+            showPyroWaveBanner(strained: UserDefaults.standard.bool(forKey: "demoStrained"))
         }
         #else
         let pyrowave: String? = nil

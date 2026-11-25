@@ -97,14 +97,27 @@ internal fun PyroTile(ui: SessionUi) {
  * Le bandeau du début : PyroWave choisi à la main, en Wi-Fi ou par le relais. « L'image peut saccader. », « Passer
  * en HEVC » (l'image repart en HEVC pour cette session seulement) et la croix ; parti tout seul après 8 s. Une fois
  * par session, à la première image PyroWave.
+ *
+ * Le même bandeau, titré « Le réseau sature », quand le cœur dit que le réseau sature depuis 5 s en PyroWave
+ * (`SessionState.strained`, docs/debit-automatique.md) : une fois par session, hôte seulement, choisi à la main ou
+ * non, par câble aussi ; il prend la place du bandeau du début s'il est encore là.
  */
 @Composable
 internal fun PyroBanner(ui: SessionUi) {
     val active = pyroActive(ui)
     val link = pyroLink(ui)
+    val strained by ui.state.strained.collectAsState()
     LaunchedEffect(active, link) {
         if (active && ui.pyroChosen && link != PyroWaveLink.CABLE && !ui.pyroBannerDone) {
             ui.pyroBannerDone = true
+            ui.pyroBanner = true
+            delay(8_000)
+            if (!ui.pyroStrained) ui.pyroBanner = false
+        }
+    }
+    LaunchedEffect(strained) {
+        if (strained && !ui.pyroStrained) {
+            ui.pyroStrained = true
             ui.pyroBanner = true
             delay(8_000)
             ui.pyroBanner = false
@@ -120,7 +133,7 @@ internal fun PyroBanner(ui: SessionUi) {
     ) {
         KnIcon(KnIcons.warning, tint = Kn.warn, size = 18f)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
-            Body(pyroTitle(link), size = 14f, color = amberTitle, weight = 700)
+            Body(if (ui.pyroStrained) stringResource(R.string.pyrowave_strained) else pyroTitle(link), size = 14f, color = amberTitle, weight = 700)
             val lowered by ui.state.lowered.collectAsState()
             Body(listOfNotNull(stringResource(R.string.pyrowave_may_stutter), lowered).joinToString(" "), size = 14f, color = amberText)
         }

@@ -114,7 +114,7 @@
     "video.minimum_bitrate": {
       "label": "Minimum bitrate",
       "help": "The floor below which picture quality will never drop.",
-      "details": "Bitrate is the amount of data sent each second: the higher it is, the sharper the picture. Kyber adjusts it constantly to the network, but will never go below this floor.",
+      "details": "Bitrate is the amount of data sent each second: the higher it is, the sharper the picture. With “Auto” bitrate, the app lowers it when the network is saturated, then raises it again, never going below this floor.",
       "advice": "5 Mbit/s suits Wi-Fi. Over Ethernet, 15 to 30 Mbit/s avoid blur in fast scenes.",
       "caution": "A floor set too high on a slow network causes stutters instead of a merely blurrier picture."
     },

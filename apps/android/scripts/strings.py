@@ -159,6 +159,7 @@ S = [
 ("pyrowave_away", "PyroWave hors de chez vous", "PyroWave away from home"),
 ("pyrowave_may_stutter", "L'image peut saccader.", "The picture may stutter."),
 ("pyrowave_switch_hevc", "Passer en HEVC", "Switch to HEVC"),
+("pyrowave_strained", "Le réseau sature", "The network is saturated"),
 ("pyrowave_lowered", "Définition ramenée à %1$d × %2$d pour tenir dans %3$d Mbit/s.", "Resolution lowered to %1$d × %2$d to fit in %3$d Mbit/s."),
 ("pyrowave_444_help", "Avec PyroWave, presque sans coût : seul le débit monte.", "With PyroWave, almost free: only the bitrate goes up."),
 ("pyrowave_not_offered", "%1$s ne propose pas PyroWave.", "%1$s doesn't offer PyroWave."),

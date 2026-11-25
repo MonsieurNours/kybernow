@@ -59,7 +59,7 @@ struct SessionChrome: View {
     @ViewBuilder private var pyrowaveBanner: some View {
         if streaming, session.pyrowaveBanner {
             let hevc: (() -> Void)? = session.isVisitor ? nil : { session.switchToHEVC() }
-            PyroWaveBanner(title: PyroWaveText.chip(session.pyrowaveLink), switchToHEVC: hevc, close: { session.closePyroWaveBanner() })
+            PyroWaveBanner(title: session.pyrowaveBannerTitle, switchToHEVC: hevc, close: { session.closePyroWaveBanner() })
                 .background(GeometryReader { g in
                     Color.clear.preference(key: PyroWaveBannerRectKey.self, value: g.frame(in: Self.space))
                 })
@@ -438,7 +438,8 @@ struct PyroWaveBannerRectKey: PreferenceKey {
     }
 }
 
-/// Bandeau du début de session, PyroWave choisi en Wi-Fi ou par le relais
+/// Bandeau du début de session, PyroWave choisi en Wi-Fi ou par le relais,
+/// et celui du réseau qui sature (« Le réseau sature », même forme)
 /// (docs/link-ui.md, « PyroWave ») : 8 s ou la croix ; « Passer en HEVC »
 /// relance l'image en HEVC pour la session seulement.
 private struct PyroWaveBanner: View {

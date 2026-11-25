@@ -8483,6 +8483,22 @@
         }
       }
     },
+    "Le réseau sature" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The network is saturated"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le réseau sature"
+          }
+        }
+      }
+    },
     "PyroWave en Wi-Fi" : {
       "localizations" : {
         "en" : {

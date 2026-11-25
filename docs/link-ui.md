@@ -479,7 +479,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Format vidéo | Video format | Auto ; HEVC ; H.264 ; AV1 ; PyroWave (seulement si l'ordinateur le propose ; voir « PyroWave ») |
 | Texte net (4:4:4) | Sharp text (4:4:4) | aide : « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactif avec le HDR allumé, aide : « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
 | HDR | HDR | seulement sur un écran HDR ; aide : « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.” ; inactif avec les raisons de la section « HDR » |
-| Débit | Bitrate | Auto ; « 80 Mbit/s » |
+| Débit | Bitrate | Auto ; « 80 Mbit/s » ; Auto : le débit du profil, baissé quand le réseau sature puis remonté, en pause en PyroWave ([debit-automatique.md](debit-automatique.md)) ; une valeur reste fixe |
 | Affichage des images | Frame display | Synchronisé / Synced ; Immédiat / Immediate |
 | Garder la dernière image | Keep the last image | |
 | Son | Sound | Auto ; Stéréo / Stereo ; 5.1 ; 7.1 ; Sur l'ordinateur / On the computer |
@@ -512,6 +512,7 @@ Contrat technique : [pyrowave.md](pyrowave.md). PyroWave est une valeur de « Fo
 | Avertissement sous le choix, Wi-Fi | « En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr. » | “On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.” |
 | Avertissement sous le choix, relais | « Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr. » | “Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.” |
 | Bandeau au début de la session (Wi-Fi ou relais, PyroWave choisi ; disparaît après 8 s ou à la croix) | titre « PyroWave en Wi-Fi » / « PyroWave hors de chez vous » ; « L'image peut saccader. » ; bouton « Passer en HEVC » (relance l'image en HEVC, garde le choix pour la session seulement) | “PyroWave on Wi-Fi” / “PyroWave away from home”; “The picture may stutter.”; “Switch to HEVC” |
+| Bandeau quand le réseau sature (PyroWave : 5 s de pertes ou d'attente d'affilée, avis `PyroWaveStrained` du cœur ; une fois par session, hôte seulement ; même forme que celui du début, 8 s ou la croix) | titre « Le réseau sature » ; « L'image peut saccader. » ; bouton « Passer en HEVC » (le même que ci-dessus) | “The network is saturated”; “The picture may stutter.”; “Switch to HEVC” |
 | Définition ramenée (bandeau, et Statistiques) | « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » | “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” |
 | Barre de session, PyroWave en Wi-Fi ou par le relais | puce ambre « PyroWave en Wi-Fi » / « PyroWave hors de chez vous » ; le format dit « PyroWave » | amber chip “PyroWave on Wi-Fi” / “PyroWave away from home” |
 | Statistiques, ligne en plus | « Images perdues » « 0,8 % » | “Lost frames” |

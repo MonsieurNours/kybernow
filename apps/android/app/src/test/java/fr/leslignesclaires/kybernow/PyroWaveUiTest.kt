@@ -223,4 +223,30 @@ class PyroWaveUiTest {
         show(FormFactor.TABLET) { SessionOverlay(ui) }
         rule.onNodeWithText("L'image peut saccader. Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.").assertExists()
     }
+
+    @Test
+    fun bandeau_quand_le_reseau_sature() {
+        // Avis 10 du cœur (docs/debit-automatique.md) : même bandeau, titré « Le réseau sature », même par câble.
+        val actions = Actions()
+        val ui = session({ pyroLink = PyroWaveLink.CABLE }, actions)
+        show(FormFactor.TABLET) { SessionOverlay(ui) }
+        rule.onNodeWithText("Le réseau sature").assertDoesNotExist()
+        ui.state.onNotice(10, 0, 0, false, 0, 0, false, null)
+        rule.waitForIdle()
+        rule.onNodeWithText("Le réseau sature").assertExists()
+        rule.onNodeWithText("L'image peut saccader.").assertExists()
+        rule.onNodeWithText("Passer en HEVC").performClick()
+        assertEquals(1, actions.hevc)
+    }
+
+    @Test
+    fun bandeau_quand_le_reseau_sature_au_televiseur() {
+        val ui = session({ pyroChosen = true; pyroLink = PyroWaveLink.WIFI }, Actions())
+        ui.state.onNotice(10, 0, 0, false, 0, 0, false, null)
+        show(FormFactor.TV) { SessionOverlay(ui) }
+        // Il prend la place du bandeau du début : un seul titre.
+        rule.onNodeWithText("Le réseau sature").assertExists()
+        rule.onNodeWithText("PyroWave en Wi-Fi").assertDoesNotExist()
+        rule.onNodeWithText("L'image peut saccader.").assertExists()
+    }
 }

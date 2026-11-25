@@ -578,7 +578,9 @@ export type ShareStateEvent = { id: string; share: Share }
  * `share-open-panel` (le choix d'une notification de demande : le panneau de « Partager » de la session s'ouvre ;
  * charge : l'identifiant de la session).
  */
-export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | 'pyrowave_wifi' | 'pyrowave_relay' }
+/** Le bandeau de PyroWave : début de session en Wi-Fi ou par le relais, ou réseau qui sature (docs/link-ui.md). */
+export type PyroWaveBanner = 'pyrowave_wifi' | 'pyrowave_relay' | 'pyrowave_strained'
+export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | PyroWaveBanner }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })

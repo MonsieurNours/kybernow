@@ -49,7 +49,7 @@ First-frame PSNR: 64 dB on Y (1440p 4:2:0), 56 dB on Y and 49 to 51 dB on chroma
 Rules and texts: [link-ui.en.md](link-ui.en.md), “PyroWave”; details in [apps/macos/README.en.md](../apps/macos/README.en.md), “PyroWave”.
 
 - Settings › Picture: “Video format” with “Auto” and “PyroWave” (when the Station knows PyroWave), reasons for an inactive PyroWave, help texts, amber warning on Wi-Fi or through the relay, 4:4:4 help.
-- In session: start banner (8 s, “Switch to HEVC” for the session only, close button), amber chip in the bar, received format in the bar; reminder “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” when the core lowers it.
+- In session: start banner (8 s, “Switch to HEVC” for the session only, close button), amber chip in the bar, received format in the bar; reminder “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” when the core lowers it; “The network is saturated” banner (same shape as the start one, “Switch to HEVC”) when the core says the network has been saturated for 5 s (`SessionEngine.onPyroWaveStrained`, once per session, host only, [debit-automatique.en.md](debit-automatique.en.md)).
 - Statistics: “Lost frames” as a percentage, and the lowered-resolution line.
 - Builds as of 25/11/2026; not seen on screen nor tried with a Station.
 

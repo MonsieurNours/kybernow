@@ -243,9 +243,14 @@ final class SessionController: ObservableObject {
     private var codecOverride: VideoCodec?
     /// Le format que la Station envoie vraiment (dernier paquet de codec).
     @Published private(set) var receivedCodec: VideoCodec?
-    /// Le bandeau du début de session (« PyroWave en Wi-Fi ») est affiché.
+    /// Le bandeau du début de session (« PyroWave en Wi-Fi ») ou celui du
+    /// réseau qui sature (« Le réseau sature ») est affiché.
     @Published private(set) var pyrowaveBanner = false
+    /// Le réseau sature en PyroWave (avis du cœur) : titre du bandeau, et la
+    /// tuile « Passer en HEVC » du menu, même par câble.
+    @Published private(set) var pyrowaveStrained = false
     private var pyrowaveBannerDone = false
+    private var pyrowaveBannerClose: DispatchWorkItem?
     /// Images montrées et perdues des 30 dernières secondes (« Images perdues »).
     private var lossWindow: [(shown: Double, lost: Int)] = []
 
@@ -260,9 +265,18 @@ final class SessionController: ObservableObject {
     private var demoLink: PyroWaveLink?
     #endif
 
-    /// La puce ambre (tuile du menu) : l'image est en PyroWave sans câble ou par le relais.
+    /// La puce ambre (tuile du menu) : l'image est en PyroWave sans câble ou
+    /// par le relais, ou le réseau sature (« Le réseau sature »).
     var pyrowaveChip: String? {
-        receivedCodec == .pyrowave && pyrowaveLink != .cable ? PyroWaveText.chip(pyrowaveLink) : nil
+        guard receivedCodec == .pyrowave else { return nil }
+        if pyrowaveStrained { return PyroWaveText.strained }
+        return pyrowaveLink != .cable ? PyroWaveText.chip(pyrowaveLink) : nil
+    }
+
+    /// Titre du bandeau : « PyroWave en Wi-Fi » / « … hors de chez vous »,
+    /// ou « Le réseau sature ».
+    var pyrowaveBannerTitle: String {
+        pyrowaveStrained ? PyroWaveText.strained : PyroWaveText.chip(pyrowaveLink)
     }
 
     /// « Images perdues » : part des images des 30 dernières secondes.
@@ -281,11 +295,29 @@ final class SessionController: ObservableObject {
         let codec = engine?.receivedCodec
         if codec != receivedCodec { receivedCodec = codec }
         guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
+        showPyroWaveBanner()
+    }
+
+    private func showPyroWaveBanner(strained: Bool = false) {
         pyrowaveBannerDone = true
+        pyrowaveStrained = strained
         withAnimation(.easeOut(duration: 0.35)) { pyrowaveBanner = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds) { [weak self] in
+        // Un bandeau qui en remplace un autre garde ses 8 s.
+        pyrowaveBannerClose?.cancel()
+        let close = DispatchWorkItem { [weak self] in
             withAnimation(.easeIn(duration: 0.35)) { self?.pyrowaveBanner = false }
         }
+        pyrowaveBannerClose = close
+        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds, execute: close)
+    }
+
+    /// Le cœur dit que le réseau sature en PyroWave depuis 5 s (une fois par
+    /// session, hôte seulement) : « Le réseau sature » ; « Passer en HEVC »
+    /// est dans le menu (Retour), comme pour le bandeau du début.
+    private func pyrowaveStrainedNotice() {
+        guard !isVisitor, codecOverride == nil else { return }
+        KyberLog.app.notice("PyroWave : le réseau sature, « Passer en HEVC » proposé")
+        showPyroWaveBanner(strained: true)
     }
 
     /// La définition ramenée par le cœur pour tenir dans le débit (texte du
@@ -439,6 +471,7 @@ final class SessionController: ObservableObject {
         }
         engine.onVideoStats = { [weak self] in self?.videoStats($0) }
         engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
+        engine.onPyroWaveStrained = { [weak self] in self?.pyrowaveStrainedNotice() }
         engine.onHDR = { [weak self] screens in self?.hdrScreens = screens }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGameFullscreen = { game in
@@ -903,6 +936,8 @@ final class SessionController: ObservableObject {
                 stats.decodeMs = 0.9
                 stats.lostFrames = 1
                 self.lossWindow = Array(repeating: (60, 0), count: 24) + [(59, 1), (60, 0), (58, 2), (60, 0), (59, 1), (60, 0)]
+                // `-demoStrained YES` : le bandeau du réseau qui sature à la place de celui du début.
+                self.pyrowaveStrained = UserDefaults.standard.bool(forKey: "demoStrained")
                 withAnimation(.easeOut(duration: 0.35)) { self.pyrowaveBanner = kind != .menu }
                 // `-demoLowered YES` : la définition ramenée (bandeau, ligne des statistiques).
                 if UserDefaults.standard.bool(forKey: "demoLowered") {

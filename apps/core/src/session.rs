@@ -47,6 +47,7 @@ use crate::console::{
     ScreenMode, StationError,
 };
 use crate::i18n::{self, Lang};
+use crate::adaptive::{AdaptiveBitrate, Load};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{Packet, PacketHandler, packet_sink};
 use crate::profile::{Capabilities, Codec, HdrLuminance, SettingsJson, StreamSettings};
@@ -461,7 +462,14 @@ pub enum Notice {
     /// celle de l'appareil (`None` : bandeau retiré). Aussi dans
     /// [`Second::lowered`] (Statistiques).
     ResolutionLowered { lowered: Option<crate::pyrowave::Lowered> },
+    /// PyroWave (docs/debit-automatique.md) : le réseau sature depuis
+    /// [`PYROWAVE_STRAIN`] secondes. Bandeau « Le réseau sature » avec
+    /// « Passer en HEVC » ; une fois par session, pour l'hôte seulement.
+    PyroWaveStrained,
 }
+
+/// PyroWave : secondes chargées d'affilée avant [`Notice::PyroWaveStrained`].
+pub const PYROWAVE_STRAIN: u8 = 5;
 
 /// Multi-écrans : un écran de l'ordinateur pris par la session, et l'écran
 /// de l'appareil auquel il va.
@@ -1668,6 +1676,12 @@ struct Worker {
     frame_size: Option<(u32, u32)>,
     list_size: (u32, u32),
     bitrate_cap: Option<u32>,
+    /// Débit automatique (docs/debit-automatique.md) : part du débit du
+    /// profil que le réseau laisse passer.
+    adaptive: AdaptiveBitrate,
+    /// PyroWave : secondes chargées d'affilée, et l'avis déjà donné.
+    pyrowave_strain: u8,
+    pyrowave_strain_told: bool,
     /// Écran choisi dans la barre, tant qu'il existe.
     picked: Option<u32>,
     /// « Remettre W × H » proposé en ce moment.
@@ -1912,6 +1926,9 @@ impl Worker {
             frame_size: None,
             list_size: (0, 0),
             bitrate_cap: None,
+            adaptive: AdaptiveBitrate::new(),
+            pyrowave_strain: 0,
+            pyrowave_strain_told: false,
             picked: None,
             restore_offer: None,
             last_mode_restore: None,
@@ -2254,6 +2271,9 @@ impl Worker {
             self.focus.clone(),
         );
         next.bitrate_cap = self.bitrate_cap;
+        next.adaptive = self.adaptive.clone();
+        next.adaptive.new_path();
+        next.pyrowave_strain_told = self.pyrowave_strain_told;
         next.station_restarted = true;
         next.hdr_used = self.hdr_used.clone();
         next.hdr_noticed = self.hdr_noticed;
@@ -3466,8 +3486,20 @@ impl Worker {
         settings.bitrate(m.width, m.height, m.refresh)
     }
 
+    /// Débit automatique : un profil (débit « Auto »), sur l'image de l'hôte.
+    /// Un débit réglé à la main reste ; l'image à part d'un invité est
+    /// ajustée par la Station (correctif 0020).
+    /// En pause en PyroWave : son image a besoin de tout son débit, et la
+    /// définition ramenée l'ajuste déjà au lien ([`Self::watch_pyrowave`]).
+    fn auto_bitrate(&self) -> bool {
+        self.params.settings.profile.is_some() && !self.visitor() && self.effective().codec != Codec::PyroWave
+    }
+
     fn effective_bitrate(&self) -> u32 {
         let mut b = self.pyrowave_bitrate(self.profile_bitrate());
+        if self.auto_bitrate() {
+            b = self.adaptive.bitrate(b);
+        }
         if self.fallback >= 1 {
             if let Some(cap) = self.params.recovery.fallback_bitrate {
                 b = b.min(cap);
@@ -3561,6 +3593,59 @@ impl Worker {
         true
     }
 
+    /// Une seconde de plus pour le débit automatique. En pause quand l'app
+    /// plafonne le débit (fenêtre cachée, arrière-plan) : ce qui passe alors
+    /// ne dit rien du réseau.
+    fn adapt_bitrate(&mut self, second: &Second) {
+        self.watch_pyrowave(second);
+        if !self.auto_bitrate() || self.streaming.is_none() || self.bitrate_cap.is_some() || self.hidden.load(Ordering::Relaxed) {
+            return;
+        }
+        let need = self.profile_bitrate();
+        let before = self.adaptive.bitrate(need);
+        if self.adaptive.second(second, need).is_some() {
+            let after = self.adaptive.bitrate(need);
+            if after != before {
+                info!(
+                    "débit automatique : {} → {} Mb/s (profil {} Mb/s, aller-retour {} ms, {} paquets perdus)",
+                    before / 1_000_000,
+                    after / 1_000_000,
+                    need / 1_000_000,
+                    second.rtt_ms.map_or("?".to_string(), |r| format!("{r:.0}")),
+                    second.lost_packets,
+                );
+                self.apply_bitrate();
+            }
+        }
+    }
+
+    /// PyroWave : le débit automatique est en pause, mais le réseau reste
+    /// observé. Chargé [`PYROWAVE_STRAIN`] secondes d'affilée, l'avis
+    /// [`Notice::PyroWaveStrained`] propose de passer en HEVC, une fois.
+    fn watch_pyrowave(&mut self, second: &Second) {
+        if self.pyrowave_strain_told
+            || self.visitor()
+            || self.streaming.is_none()
+            || self.bitrate_cap.is_some()
+            || self.hidden.load(Ordering::Relaxed)
+            || self.effective().codec != Codec::PyroWave
+        {
+            self.pyrowave_strain = 0;
+            return;
+        }
+        match self.adaptive.watch(second) {
+            Load::Loaded | Load::Heavy => self.pyrowave_strain += 1,
+            Load::Clean => self.pyrowave_strain = 0,
+            Load::Unknown => {}
+        }
+        if self.pyrowave_strain >= PYROWAVE_STRAIN {
+            info!("PyroWave : le réseau sature depuis {PYROWAVE_STRAIN} s, « Passer en HEVC » proposé");
+            self.pyrowave_strain_told = true;
+            self.pyrowave_strain = 0;
+            self.notice(Notice::PyroWaveStrained);
+        }
+    }
+
     fn apply_bitrate(&self) {
         // Débit de l'image de l'hôte : réservé à l'hôte ; un invité règle
         // celui de son image à part (Kyber le borne).
@@ -3600,8 +3685,10 @@ impl Worker {
                     // Le HDR est un choix à part (`set_hdr`) : un profil le garde.
                     s.hdr = self.params.settings.hdr;
                     self.params.settings = s.clone();
-                    // Profil choisi à la main : le repli de la session repart de zéro.
+                    // Profil choisi à la main : le repli de la session repart de zéro,
+                    // le débit automatique aussi.
                     self.fallback = 0;
+                    self.adaptive = AdaptiveBitrate::new();
                     *self.profile_label.lock().unwrap() = (s.label().to_string(), s.mode_policy().to_string());
                     // Multi-écrans : le nombre d'écrans suit le profil tout de suite.
                     if let Some(screens) = self.screens.clone()
@@ -3761,6 +3848,7 @@ impl Worker {
                 second.lowered = self.lowered;
                 *self.last_latency.lock().unwrap() = second.latency_ms;
                 self.platform.on_latency(second.latency_ms);
+                self.adapt_bitrate(&second);
                 self.platform.on_second(&second);
             }
         }
@@ -4721,6 +4809,7 @@ impl Worker {
             input: input_config,
         };
         self.streaming = Some(display.clone());
+        self.adaptive.new_path();
         self.last_shown = Some(display);
         self.streaming_fallback = self.fallback;
         self.keyframe = None;
@@ -6028,6 +6117,68 @@ mod tests {
         host.params.clipboard = true;
         assert!(host.wants_input() && host.input_clipboard());
         assert_eq!(host.focus.rights(), InputRights::ALL);
+    }
+
+    /// PyroWave : le débit automatique en pause, et « Passer en HEVC »
+    /// proposé une fois quand le réseau sature.
+    #[cfg(feature = "pyrowave")]
+    #[test]
+    fn debit_automatique_en_pause_en_pyrowave() {
+        let charge = Second { rtt_ms: Some(2.0), lost_packets: 400, bytes: 5_000_000, ..Second::default() };
+        let (mut w, rec) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.params.capabilities = Some(crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: true });
+        w.station_pyrowave = true;
+        w.params.settings.codec = Codec::PyroWave;
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        assert!(!w.auto_bitrate());
+        let before = w.effective_bitrate();
+        for _ in 0..PYROWAVE_STRAIN - 1 {
+            w.adapt_bitrate(&charge);
+        }
+        assert_eq!(w.effective_bitrate(), before);
+        assert!(rec.notices.lock().unwrap().is_empty());
+        w.adapt_bitrate(&charge);
+        assert_eq!(*rec.notices.lock().unwrap(), vec![Notice::PyroWaveStrained]);
+        // Une fois par session.
+        for _ in 0..PYROWAVE_STRAIN * 2 {
+            w.adapt_bitrate(&charge);
+        }
+        assert_eq!(rec.notices.lock().unwrap().len(), 1);
+        // Passé en HEVC : le débit automatique reprend.
+        w.params.settings.codec = Codec::Hevc;
+        assert!(w.auto_bitrate());
+    }
+
+    #[test]
+    fn debit_automatique_du_profil_seulement() {
+        let charge = |rtt: f64| Second { rtt_ms: Some(rtt), bytes: 5_000_000, ..Second::default() };
+        // Profil (débit « Auto ») : une file qui monte fait baisser le débit.
+        let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        let need = w.profile_bitrate();
+        for _ in 0..5 {
+            w.adapt_bitrate(&charge(2.0));
+        }
+        assert_eq!(w.effective_bitrate(), need);
+        w.adapt_bitrate(&charge(60.0));
+        w.adapt_bitrate(&charge(60.0));
+        assert!(w.effective_bitrate() < need, "{} < {need}", w.effective_bitrate());
+        // En pause sous un plafond de l'app (fenêtre cachée).
+        let before = w.adaptive.share();
+        w.bitrate_cap = Some(20_000_000);
+        for _ in 0..10 {
+            w.adapt_bitrate(&charge(60.0));
+        }
+        assert_eq!(w.adaptive.share(), before);
+        // Débit réglé à la main : jamais touché.
+        let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.params.settings.profile = None;
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        let fixed = w.effective_bitrate();
+        for rtt in [2.0, 2.0, 60.0, 60.0, 60.0, 60.0] {
+            w.adapt_bitrate(&charge(rtt));
+        }
+        assert_eq!(w.effective_bitrate(), fixed);
     }
 
     #[test]

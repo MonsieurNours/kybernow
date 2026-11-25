@@ -1116,6 +1116,9 @@ enum PyroWaveText {
     static func chip(_ link: PyroWaveLink) -> String {
         link == .relay ? String(localized: "PyroWave hors de chez vous") : String(localized: "PyroWave en Wi-Fi")
     }
+    /// Titre du bandeau quand le réseau sature en PyroWave (avis du cœur,
+    /// docs/debit-automatique.md) ; même forme que celui du début.
+    static var strained: String { String(localized: "Le réseau sature") }
     static var bannerBody: String { String(localized: "L'image peut saccader.") }
     static var switchToHEVC: String { String(localized: "Passer en HEVC") }
     /// Bandeau et Statistiques, quand le cœur dit avoir baissé la définition.
