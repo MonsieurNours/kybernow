@@ -142,7 +142,8 @@ struct SessionView: View {
                     }
                 } else if session.pyrowaveBanner {
                     // PyroWave choisi, en Wi-Fi ou par le relais (docs/link-ui.md) : 8 s ou la croix.
-                    StateCapsule(icon: "warning", tint: Theme.warn, title: PyroWaveText.chip(session.pyrowaveLink), detail: PyroWaveText.bannerBody) {
+                    StateCapsule(icon: "warning", tint: Theme.warn, title: PyroWaveText.chip(session.pyrowaveLink),
+                                 detail: [PyroWaveText.bannerBody, session.loweredText].compactMap { $0 }.joined(separator: " ")) {
                         if !session.isVisitor {
                             Button(PyroWaveText.switchToHEVC) { session.switchToHEVC() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                         }

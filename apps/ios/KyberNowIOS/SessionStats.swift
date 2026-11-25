@@ -115,6 +115,18 @@ struct SessionStatsView: View {
         return StatsTile(label: PyroWaveText.lostFrames, value: PyroWaveText.percent(pct), warn: lost30 > 0)
     }
 
+    /// PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. »
+    @ViewBuilder private var loweredLine: some View {
+        if let l = stats?.lowered {
+            HStack(alignment: .top, spacing: 8) {
+                Icon("monitor", size: 15).foregroundStyle(Theme.warn)
+                Text(PyroWaveText.lowered(width: l.width, height: l.height, mbps: l.mbps))
+                    .font(Theme.sans(12.5)).foregroundStyle(Theme.warnText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var sessionTile: StatsTile {
         let n = session.sessionLosses.frames
         let total = framesSinceStart
@@ -150,6 +162,7 @@ struct SessionStatsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 sheetHeader
+                loweredLine
                 if stats == nil {
                     waiting
                 } else if width >= 640 {
@@ -259,6 +272,7 @@ struct SessionStatsView: View {
     private var panel: some View {
         VStack(alignment: .leading, spacing: 16) {
             panelHeader
+            loweredLine
             if stats == nil {
                 waiting
             } else {

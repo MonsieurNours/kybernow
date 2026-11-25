@@ -82,7 +82,7 @@ struct SessionView: View {
             // PyroWave choisi, en Wi-Fi ou par le relais : le bandeau du début (8 s) ;
             // « Passer en HEVC » est dans le menu (Retour), tuile « PyroWave en Wi-Fi ».
             if session.pyrowaveBanner, !session.menuOpen {
-                PyroWaveBannerTV(link: session.pyrowaveLink)
+                PyroWaveBannerTV(link: session.pyrowaveLink, lowered: session.loweredText)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, session.notice == nil ? 48 : 124)
                     .transition(.opacity)
@@ -477,6 +477,8 @@ struct MenuHint: View {
 /// Retour (le menu de session), la télécommande n'ayant pas de focus en jeu.
 struct PyroWaveBannerTV: View {
     let link: PyroWaveLink
+    /// « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », sous « L'image peut saccader. ».
+    var lowered: String?
 
     var body: some View {
         HStack(alignment: .center, spacing: 20) {
@@ -484,6 +486,9 @@ struct PyroWaveBannerTV: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(PyroWaveText.chip(link)).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
                 Text(PyroWaveText.bannerBody).font(Theme.sans(20)).foregroundStyle(Theme.warnText)
+                if let lowered {
+                    Text(lowered).font(Theme.sans(20)).foregroundStyle(Theme.warnText)
+                }
             }
             Rectangle().fill(Theme.warnLine).frame(width: 1, height: 48)
             HStack(spacing: 12) {

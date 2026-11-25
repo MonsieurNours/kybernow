@@ -359,6 +359,10 @@ public final class SessionEngine: @unchecked Sendable {
     // Rappels, tous sur le fil principal.
     public var onPhase: ((Phase) -> Void)?
     public var onNotice: ((Notice) -> Void)?
+    /// PyroWave : la définition est ramenée (le texte du bandeau, « Définition
+    /// ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », langue de l'app), ou
+    /// revenue à celle de l'appareil (nil, nil).
+    public var onLowered: ((LoweredMode?, String?) -> Void)?
     /// Les écrans annoncés par Kyber (choix dans la barre, sans écran virtuel).
     public var onDisplays: (([KyberDisplay]) -> Void)?
     /// L'écran affiché (aussi quand sa taille change).
@@ -846,6 +850,12 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
     }
 
+    /// PyroWave (« Définition ramenée ») : le débit que l'appareil sait tenir
+    /// vers l'ordinateur, en Mbit/s ; nil : inconnu.
+    public func setLinkMbps(_ mbps: UInt32?) {
+        if let s = live { kn_session_set_link_mbps(s, mbps ?? 0) }
+    }
+
     /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
     /// (fil principal). Celle donnée à `init` sert aux écrans sans vue.
     public func register(_ view: StreamView, screen: Int) {
@@ -1220,6 +1230,9 @@ public final class SessionEngine: @unchecked Sendable {
         second.lostPackets = Int(s.lost_packets)
         second.rttMs = s.has_rtt ? s.rtt_ms : nil
         second.bytes = Int(s.bytes)
+        if s.lowered {
+            second.lowered = LoweredMode(width: Int(s.lowered_width), height: Int(s.lowered_height), refresh: Int(s.lowered_refresh), mbps: Int(s.lowered_mbps))
+        }
         lock.lock()
         lastSecond = second
         lock.unlock()
@@ -1237,6 +1250,12 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_RESTORE_OFFER: notice = .restoreOffer(n.has_mode ? Mode(width: Int(n.width), height: Int(n.height), refresh: 0) : nil)
         case KN_NOTICE_STATION_RESTARTING: notice = .stationRestarting
         case KN_NOTICE_HDR_REFUSED: notice = .hdrRefused(n.error.map { String(cString: $0) } ?? "")
+        case KN_NOTICE_RESOLUTION_LOWERED:
+            // À part des autres avis (`onLowered`) : les `switch` des apps restent tels quels.
+            let mode = n.has_mode ? LoweredMode(width: Int(n.width), height: Int(n.height), refresh: 0, mbps: Int(n.bitrate_mbps)) : nil
+            let text = n.has_mode ? n.error.map { String(cString: $0) } : nil
+            DispatchQueue.main.async { [self] in onLowered?(mode, text) }
+            return
         default: return
         }
         DispatchQueue.main.async { [self] in onNotice?(notice) }
