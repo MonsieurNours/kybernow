@@ -503,6 +503,8 @@ impl Platform for AndroidPlatform {
                 Some(l) => (9, l.width, l.height, false, 0, l.mbps, true, Some(l.text(kybernow_core::i18n::current()))),
                 None => (9, 0, 0, false, 0, 0, false, None),
             },
+            // PyroWave : le réseau sature depuis 5 s (une fois par session, hôte seulement) : bandeau « Le réseau sature ».
+            Notice::PyroWaveStrained => (10, 0, 0, false, 0, 0, false, None),
         };
         self.0.listener.with(|env, obj| {
             let e = jstring_or_null(env, error.as_deref())?;

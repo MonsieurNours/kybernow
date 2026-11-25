@@ -132,6 +132,10 @@
 #         WebGPU de la page (globalThis.__kybernowPyroWave) au lieu de
 #         WebCodecs ; 0025-kyberweb : codec « pyrowave » et fallback_codec
 #         dans la configuration JS de l'image
+#   0026  débit changé en direct (docs/debit-automatique.md) : correctif
+#         FFmpeg 0023-avcodec-debit-en-direct ajouté au wrap (comme 0025) :
+#         NVENC sans remise à zéro ni image clé, mémoire VBV qui suit le
+#         débit ; VideoToolbox qui applique un débit changé en cours de session
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
@@ -224,7 +228,8 @@ pyrowave_fetch
 pyrowave_build
 # FFmpeg est extrait une fois par meson, avec les correctifs du wrap de ce
 # moment-là : quand le wrap ou ses fichiers changent (0025 y ajoute
-# l'encodeur PyroWave), il faut l'extraire et le configurer à nouveau.
+# l'encodeur PyroWave, 0026 le débit en direct), il faut l'extraire et le
+# configurer à nouveau.
 FFMPEG_STAMP="$KYMEDIA/subprojects/FFmpeg-n8.1/.kybernow-wrap"
 FFMPEG_WRAP=$(cat "$KYMEDIA/subprojects/ffmpeg.wrap" $(find "$KYMEDIA/subprojects/packagefiles/ffmpeg" -type f | sort) | shasum -a 256 | cut -d' ' -f1)
 if [ -d "$KYMEDIA/subprojects/FFmpeg-n8.1" ] && [ "$(cat "$FFMPEG_STAMP" 2>/dev/null)" != "$FFMPEG_WRAP" ]; then

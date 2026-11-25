@@ -209,7 +209,7 @@ pub fn fields() -> Vec<Field> {
             default: json!(5_000_000),
             label: "Débit minimum",
             help: "Le plancher sous lequel la qualité d'image ne descendra jamais.",
-            details: "Le débit, c'est la quantité de données envoyées chaque seconde : plus il est élevé, plus l'image est nette. Kyber l'ajuste en permanence selon le réseau, mais ne descendra jamais sous ce plancher.",
+            details: "Le débit, c'est la quantité de données envoyées chaque seconde : plus il est élevé, plus l'image est nette. Avec le débit « Auto », l'app le baisse quand le réseau sature, puis le remonte, sans jamais descendre sous ce plancher.",
             advice: "5 Mbit/s convient au Wi-Fi. En Ethernet, 15 à 30 Mbit/s évitent les flous dans les scènes rapides.",
             caution: Some("Un plancher trop haut sur un réseau lent provoque des saccades au lieu d'une image simplement plus floue."),
             unit: Some("bps"),

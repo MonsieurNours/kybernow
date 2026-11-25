@@ -295,6 +295,8 @@ impl Platform for WebOsPlatform {
             // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
             Notice::ResolutionLowered { lowered: Some(l) } => l.text(kybernow_core::i18n::current()),
             Notice::ResolutionLowered { lowered: None } => return,
+            // PyroWave : l'app du téléviseur ne le propose pas (pas de « Passer en HEVC ») ; l'avis ne la concerne pas.
+            Notice::PyroWaveStrained => return,
         };
         self.0.send(Event::Notice(msg));
     }

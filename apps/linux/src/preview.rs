@@ -2843,10 +2843,18 @@ fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, pr
     app.pointer = None;
     app.focus = Target::PwHevc;
     shot(app, cv, Some(video), dir, &name("45g-pyrowave-bandeau"));
+    // Par câble, le réseau sature (avis `PyroWaveStrained` du cœur) : le même bandeau, titré « Le réseau sature ».
+    if let Some(s) = app.session_mut() {
+        s.pw_wired = true;
+        s.notice = None;
+        s.pyrowave_strained();
+    }
+    shot(app, cv, Some(video), dir, &name("45i-pyrowave-reseau-sature"));
     // Les statistiques seules (à la manette, le menu les cachait) : « Images perdues », « Définition ramenée ».
     if let Some(s) = app.session_mut() {
         s.show_stats = true;
         s.pw_banner = None;
+        s.pw_wired = false;
         s.notice = None;
     }
     shot(app, cv, Some(video), dir, &name("45h-pyrowave-statistiques"));

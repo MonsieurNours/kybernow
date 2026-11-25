@@ -1,12 +1,11 @@
 --- a/subprojects/ffmpeg.wrap
 +++ b/subprojects/ffmpeg.wrap
-@@ -45,7 +45,8 @@
-   ffmpeg/patches/0018-avcodec-videotoolboxenc-set-expected-framerate.patch,
+@@ -46,6 +46,7 @@
    ffmpeg/patches/0019-avcodec-videotoolboxenc-make-VT-blocking.patch,
    ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
--  ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
-+  ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
-+  ffmpeg/patches/0022-avcodec-pyrowave-metal-encoder.patch
+   ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
++  ffmpeg/patches/0022-avcodec-pyrowave-metal-encoder.patch,
+   ffmpeg/patches/0023-avcodec-debit-en-direct.patch
  
  [provide]
  dependency_names = ffmpeg, libavcodec, libavformat, libavutil, libswresample, libswscale, libavfilter, libavdevice

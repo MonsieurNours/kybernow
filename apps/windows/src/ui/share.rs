@@ -507,6 +507,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         pads_off: false,
         pads_told: AtomicBool::new(false),
         pyrowave_told: AtomicBool::new(false),
+        pyrowave_strained_pending: AtomicBool::new(false),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(

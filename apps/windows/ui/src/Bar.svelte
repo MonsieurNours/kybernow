@@ -76,7 +76,7 @@
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
-  import type { BarHdr, PsBar, PsBarNav, PsStats } from './lib/api'
+  import type { BarHdr, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
@@ -157,9 +157,10 @@
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
   /**
    * PyroWave (docs/link-ui.md « PyroWave ») : l'avis est le bandeau du début de session (`pyrowave_wifi`,
-   * `pyrowave_relay`), avec « Passer en HEVC » et une croix ; il repart après 8 s.
+   * `pyrowave_relay`) ou celui du réseau qui sature (`pyrowave_strained`), avec « Passer en HEVC » et une
+   * croix ; il repart après 8 s.
    */
-  let noticeKind = $state<'pyrowave_wifi' | 'pyrowave_relay' | null>(null)
+  let noticeKind = $state<PyroWaveBanner | null>(null)
   /** Ce PC rejoint l'ordinateur par câble (session d'hôte) ; nul : on ne sait pas. */
   let wired = $state<boolean | null>(null)
   /** La puce ambre « PyroWave en Wi-Fi » / « PyroWave hors de chez vous » : l'image est en PyroWave (format des mesures) sans câble ou par le relais. */
@@ -210,8 +211,8 @@
     notice_opens_share?: boolean
     notice_opens_lend?: boolean
     notice_icon?: string | null
-    /** Le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`). */
-    notice_kind?: 'pyrowave_wifi' | 'pyrowave_relay' | null
+    /** Le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`, `pyrowave_strained`). */
+    notice_kind?: PyroWaveBanner | null
     /** Ce PC rejoint l'ordinateur par câble (puce de PyroWave). */
     wired?: boolean | null
     route?: RouteView | null
@@ -385,7 +386,7 @@
       // panneau de « Partager » ouvert (il montre la demande, l'avis ne le ferme pas).
       listen<ShareRequestEvent>('share-request', (e) => {
         // Le bandeau de PyroWave : seulement en capsule (barre ouverte, la puce ambre le dit déjà).
-        if (e.panel === 'pyrowave_wifi' || e.panel === 'pyrowave_relay') {
+        if (e.panel === 'pyrowave_wifi' || e.panel === 'pyrowave_relay' || e.panel === 'pyrowave_strained') {
           if (e.id === id && view === 'capsule') {
             showNotice(e.text, null, 8000)
             noticeKind = e.panel
@@ -1252,10 +1253,10 @@
 {#if view === 'capsule'}
   <!-- Un avis bref seul, en haut de l'image ; celui d'une demande se choisit et ouvre son panneau. -->
   {#if notice && noticeKind}
-    <!-- Le bandeau de PyroWave (Wi-Fi ou relais) : titre, texte, « Passer en HEVC », croix. -->
+    <!-- Le bandeau de PyroWave (Wi-Fi, relais, réseau qui sature) : titre, texte, « Passer en HEVC », croix. -->
     <div class="capsule banner" role="status" bind:this={bar}>
-      <Icon name={noticeKind === 'pyrowave_relay' ? 'globe' : 'wifi'} size={15} stroke={1.8} />
-      <strong>{t(noticeKind === 'pyrowave_relay' ? 'pyrowave.banner_relay' : 'pyrowave.banner_wifi')}</strong>
+      <Icon name={noticeKind === 'pyrowave_relay' ? 'globe' : noticeKind === 'pyrowave_strained' ? 'warning' : 'wifi'} size={15} stroke={1.8} />
+      <strong>{t(noticeKind === 'pyrowave_relay' ? 'pyrowave.banner_relay' : noticeKind === 'pyrowave_strained' ? 'pyrowave.banner_strained' : 'pyrowave.banner_wifi')}</strong>
       <span>{notice}</span>
       <button class="switch" onclick={switchToHevc}>{t('pyrowave.switch_hevc')}</button>
       <button class="x" aria-label={t('common.close')} title={t('common.close')} onclick={closeBanner}>✕</button>

@@ -93,7 +93,8 @@ const flags = new URLSearchParams(location.search)
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
 // `?pyrowave` : la Station du premier ordinateur propose PyroWave et ce PC le décode ; `=cable` (par défaut) ou
 // `=wifi` : ce PC rejoint l'ordinateur par câble ou non ; `=pc` : ce PC ne le décode pas. En session, l'image
-// est en PyroWave ; sans câble (ou `&relais`), la puce ambre et le bandeau du début de session.
+// est en PyroWave ; sans câble (ou `&relais`), la puce ambre et le bandeau du début de session ; `=sature` : par
+// câble, le bandeau « Le réseau sature » (avis `PyroWaveStrained` du cœur).
 const pyroFlag = flags.has('pyrowave') ? flags.get('pyrowave') || 'cable' : null
 /** Le relais tient le partage de l'hôte et les ordinateurs absents du réseau (tout sauf `injoignable`). */
 const relayJoined = relayFlag !== null && relayFlag !== 'injoignable' && relayFlag !== 'preparation' && relayFlag !== 'lent'
@@ -1710,7 +1711,7 @@ export function mockTauri() {
           // `?mac` : une Station Mac (menu Touches du Mac).
           const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
-          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || !!relayJoined))
+          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined))
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.
           if (psBarFlag && flags.has('manette')) {
             const keys = ['right', 'right', 'right', 'right', 'left', 'left', 'left', 'left'] as const
@@ -1722,6 +1723,10 @@ export function mockTauri() {
           if (host && pyroFlag && (pyroFlag === 'wifi' || relayJoined)) {
             const kind = relayJoined ? 'pyrowave_relay' : 'pyrowave_wifi'
             setTimeout(() => cb({ payload: { ...shown, wired: pyroFlag !== 'wifi', pinned: true, notice: t('pyrowave.banner_text'), notice_kind: kind } }), 2000)
+          }
+          // `?pyrowave=sature` : le réseau sature depuis 5 s, le même bandeau titré « Le réseau sature ».
+          if (host && pyroFlag === 'sature' && !relayJoined) {
+            setTimeout(() => cb({ payload: { ...shown, wired: true, pinned: true, notice: t('pyrowave.banner_text'), notice_kind: 'pyrowave_strained' } }), 2000)
           }
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {

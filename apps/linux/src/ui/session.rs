@@ -1006,16 +1006,16 @@ fn capsule_icon(app: &App, cv: &mut Canvas, msg: &str, icon: Icon, drop: f32) {
 const PW_BANNER_H: f32 = 62.0;
 
 /// Le bandeau du début d'une session PyroWave en Wi-Fi ou par le relais (docs/link-ui.md, « PyroWave ») : en haut,
-/// sous la barre ; titre (la puce), « L'image peut saccader. », « Passer en HEVC » et la croix. Au Deck et au salon
+/// sous la barre ; titre (la puce, ou « Le réseau sature » sur l'avis du cœur), « L'image peut saccader. », « Passer en HEVC » et la croix. Au Deck et au salon
 /// aussi (le toucher le prend ; à la manette, la tuile du menu fait de même) ; il part seul au bout de 8 s.
 fn pyrowave_banner(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
-    let Some(risk) = s.pyrowave_risk() else { return };
+    let Some(chip) = s.pw_banner_title() else { return };
     let u = unit(app.layout);
     let title = Text::new(Font::Semibold, 14.0 * u, FROST);
     let body = Text::new(Font::Regular, 13.0 * u, MUTED);
     let bh = 34.0 * u;
     let pad = 16.0 * u;
-    let text_w = cv.text_width(title, risk.chip()).max(cv.text_width(body, crate::pyrowave::banner_text()));
+    let text_w = cv.text_width(title, chip).max(cv.text_width(body, crate::pyrowave::banner_text()));
     let button_w = cv.text_width(Text::new(Font::Semibold, bh * 0.32, FROST), crate::pyrowave::switch_to_hevc()) + 2.0 * bh * 0.58;
     let close = 28.0 * u;
     let w = (pad + 10.0 * u + text_w + 20.0 * u + button_w + 10.0 * u + close + pad).min(cv.w - 32.0 * u);
@@ -1027,7 +1027,7 @@ fn pyrowave_banner(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // Le liseré ambre, à gauche.
     cv.rrect(x + 1.0, y + 12.0 * u, 3.0 * u, h - 24.0 * u, 1.5 * u, WARN);
     let tx = x + pad + 10.0 * u;
-    cv.text(tx, y + 25.0 * u, title, risk.chip());
+    cv.text(tx, y + 25.0 * u, title, chip);
     cv.text(tx, y + 45.0 * u, body, crate::pyrowave::banner_text());
     let bx = x + w - pad - close - 10.0 * u - button_w;
     widgets::primary(cv, f, Target::PwHevc, bx, y + (h - bh) / 2.0, bh, crate::pyrowave::switch_to_hevc(), false);
@@ -1421,8 +1421,9 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
         }
         // PyroWave en Wi-Fi ou hors de chez soi : la puce de la barre, en tuile ; elle fait « Passer en HEVC ».
-        if let Some(r) = s.pyrowave_risk() {
-            tiles.push((MenuItem::PyroWaveHevc, r.chip().into(), crate::pyrowave::switch_to_hevc().into(), false, false));
+        // Le réseau sature (avis du cœur), par câble aussi : la même tuile, titrée « Le réseau sature ».
+        if let Some(t) = s.pw_tile_title() {
+            tiles.push((MenuItem::PyroWaveHevc, t.into(), crate::pyrowave::switch_to_hevc().into(), false, false));
         }
         tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true));
     }

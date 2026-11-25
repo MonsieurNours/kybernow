@@ -39,7 +39,7 @@ Each end (the Station, an app) opens to the relay, on its port (443 for the publ
 
 - Name presented (SNI): the relay's name (`share.kybernow.app`). The relay presents its certificate; the apps and the Station check it against the web's usual authorities (`webpki-roots`), or by its fingerprint when the relay's address carries one (a relay installed at home, self-signed certificate): `relay.example.org:9443#sha256:ab:cd:…` (SHA-256 of the certificate, same form as Admin's fingerprint; the name is then not checked).
 - QUIC: initial MTU 1280 bytes, discovery up to 1472. Keep-alive every 10 s for the Station, 5 s for an app; cut after 30 s without news.
-- `kn-ctl/1` keeps the usual congestion control (Cubic). `kn-media/1` has a **permissive** controller: a very large window, no pacing, losses ignored; the datagram send queue is bounded (the oldest are dropped). Kyber already runs its own rate control inside.
+- `kn-ctl/1` keeps the usual congestion control (Cubic). `kn-media/1` has a **permissive** controller: a very large window, no pacing, losses ignored; the datagram send queue is bounded (the oldest are dropped). Rate is controlled inside, end to end: Kyber's QUIC connection, and the app's automatic bitrate ([debit-automatique.en.md](debit-automatique.en.md)), which sees the round trip and losses through the tunnel.
 - Order: `kn-ctl/1` first; `kn-media/1` after the `welcome` answer. If QUIC does not answer within 3 s, the end switches to the `kn-tcp/1` fallback, and retries QUIC every 5 minutes. The fallback shows (“Via the relay (TCP)”): fine for watching, less so for playing.
 
 ### Who is who

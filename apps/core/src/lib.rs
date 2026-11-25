@@ -8,6 +8,7 @@
 //! peut ouvrir SDL lui-même (feature `sdl`, Mac et Windows).
 
 pub mod account;
+pub mod adaptive;
 pub mod audio;
 pub mod console;
 pub mod focus;

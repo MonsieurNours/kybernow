@@ -723,6 +723,10 @@ pub const KN_NOTICE_HDR_REFUSED: u32 = 8;
 /// « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » (langue de
 /// l'app). `has_mode` faux : revenue à celle de l'appareil, bandeau retiré.
 pub const KN_NOTICE_RESOLUTION_LOWERED: u32 = 9;
+/// PyroWave (docs/debit-automatique.md) : le réseau sature depuis 5 s
+/// d'affilée ; bandeau « Le réseau sature » avec « Passer en HEVC », comme
+/// celui du début de session. Une fois par session, pour l'hôte seulement.
+pub const KN_NOTICE_PYROWAVE_STRAINED: u32 = 10;
 
 #[repr(C)]
 pub struct KnNotice {
@@ -1149,6 +1153,7 @@ impl Platform for ApplePlatform {
                     n.error = error_c.as_ptr();
                 }
             }
+            Notice::PyroWaveStrained => n.kind = KN_NOTICE_PYROWAVE_STRAINED,
         }
         unsafe { f(self.cb.userdata, &n) };
     }

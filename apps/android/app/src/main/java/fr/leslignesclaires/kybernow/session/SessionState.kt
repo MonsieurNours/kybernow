@@ -167,6 +167,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val hdr = MutableStateFlow(false)
     /** PyroWave : le texte de la définition ramenée en place (avis du cœur), nul sans ; repris par le bandeau du début. */
     val lowered = MutableStateFlow<String?>(null)
+    /** PyroWave : le réseau sature depuis 5 s (avis du cœur, une fois par session) ; le bandeau « Le réseau sature ». */
+    val strained = MutableStateFlow(false)
     val pointer = MutableStateFlow(PointerState(false, 0.0, 0.0, false, 0))
     val pointerShape = MutableStateFlow<Pair<Bitmap, Pair<Int, Int>>?>(null)
     /** La combinaison s'est formée : ouvrir le menu. */
@@ -327,6 +329,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
                 if (hasMode) show(Capsule.ResolutionLowered(error ?: ""), 8000)
                 else main.post { if (capsule.value is Capsule.ResolutionLowered) capsule.value = null }
             }
+            // PyroWave : « Le réseau sature », avec « Passer en HEVC » (docs/debit-automatique.md).
+            SessionListener.NOTICE_PYROWAVE_STRAINED -> strained.value = true
         }
     }
 

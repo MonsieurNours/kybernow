@@ -203,6 +203,10 @@ pub trait HostEvents: Send + Sync {
     /// Un avis bref du cœur, dans la langue de l'app (« L'ordinateur n'a pas
     /// pu passer en HDR : image en SDR. », une fois par session).
     fn notice(&self, _text: &str) {}
+    /// PyroWave (docs/debit-automatique.md) : le réseau sature depuis 5 s
+    /// d'affilée (avis `PyroWaveStrained` du cœur, une fois par session,
+    /// hôte seulement) : bandeau « Le réseau sature » avec « Passer en HEVC ».
+    fn pyrowave_strained(&self) {}
 }
 
 pub struct HostOptions {
@@ -647,6 +651,10 @@ impl Platform for WinPlatform {
             kybernow_core::session::Notice::ResolutionLowered { lowered: Some(l) } => {
                 log::info!("PyroWave : définition ramenée à {}×{} ({} Mbit/s)", l.width, l.height, l.mbps);
                 self.events.notice(&l.text(crate::i18n::lang()));
+            }
+            kybernow_core::session::Notice::PyroWaveStrained => {
+                log::warn!("PyroWave : le réseau sature, « Passer en HEVC » proposé");
+                self.events.pyrowave_strained();
             }
             _ => {}
         }

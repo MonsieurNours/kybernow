@@ -141,8 +141,8 @@ struct SessionView: View {
                         Button("Se déconnecter") { session.end() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                     }
                 } else if session.pyrowaveBanner {
-                    // PyroWave choisi, en Wi-Fi ou par le relais (docs/link-ui.md) : 8 s ou la croix.
-                    StateCapsule(icon: "warning", tint: Theme.warn, title: PyroWaveText.chip(session.pyrowaveLink),
+                    // PyroWave choisi, en Wi-Fi ou par le relais, ou réseau qui sature (docs/link-ui.md) : 8 s ou la croix.
+                    StateCapsule(icon: "warning", tint: Theme.warn, title: session.pyrowaveBannerTitle,
                                  detail: [PyroWaveText.bannerBody, session.loweredText].compactMap { $0 }.joined(separator: " ")) {
                         if !session.isVisitor {
                             Button(PyroWaveText.switchToHEVC) { session.switchToHEVC() }.buttonStyle(GlassButton(height: 44, fontSize: 14))

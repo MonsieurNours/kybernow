@@ -80,9 +80,10 @@ struct SessionView: View {
             }
 
             // PyroWave choisi, en Wi-Fi ou par le relais : le bandeau du début (8 s) ;
+            // aussi quand le réseau sature (« Le réseau sature »).
             // « Passer en HEVC » est dans le menu (Retour), tuile « PyroWave en Wi-Fi ».
             if session.pyrowaveBanner, !session.menuOpen {
-                PyroWaveBannerTV(link: session.pyrowaveLink, lowered: session.loweredText)
+                PyroWaveBannerTV(title: session.pyrowaveBannerTitle, lowered: session.loweredText)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, session.notice == nil ? 48 : 124)
                     .transition(.opacity)
@@ -472,11 +473,13 @@ struct MenuHint: View {
     }
 }
 
-/// Bandeau du début d'une session en PyroWave sans câble (docs/link-ui.md,
-/// « PyroWave ») : à lire de loin ; « Passer en HEVC » derrière le bouton
-/// Retour (le menu de session), la télécommande n'ayant pas de focus en jeu.
+/// Bandeau du début d'une session en PyroWave sans câble, et celui du réseau
+/// qui sature (docs/link-ui.md, « PyroWave ») : à lire de loin ; « Passer en
+/// HEVC » derrière le bouton Retour (le menu de session), la télécommande
+/// n'ayant pas de focus en jeu.
 struct PyroWaveBannerTV: View {
-    let link: PyroWaveLink
+    /// « PyroWave en Wi-Fi » / « PyroWave hors de chez vous » / « Le réseau sature ».
+    let title: String
     /// « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », sous « L'image peut saccader. ».
     var lowered: String?
 
@@ -484,7 +487,7 @@ struct PyroWaveBannerTV: View {
         HStack(alignment: .center, spacing: 20) {
             Icon("warning", size: 32).foregroundStyle(Theme.warn)
             VStack(alignment: .leading, spacing: 4) {
-                Text(PyroWaveText.chip(link)).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
+                Text(title).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
                 Text(PyroWaveText.bannerBody).font(Theme.sans(20)).foregroundStyle(Theme.warnText)
                 if let lowered {
                     Text(lowered).font(Theme.sans(20)).foregroundStyle(Theme.warnText)

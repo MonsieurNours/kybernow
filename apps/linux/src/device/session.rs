@@ -464,6 +464,11 @@ impl Platform for LinuxPlatform {
             // PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. » ; rien quand elle revient.
             Notice::ResolutionLowered { lowered: Some(l) } => l.text(kybernow_core::i18n::current()),
             Notice::ResolutionLowered { lowered: None } => return,
+            // PyroWave, le réseau sature : le bandeau du début, titré « Le réseau sature » (pas une capsule).
+            Notice::PyroWaveStrained => {
+                self.0.send(SessionEvent::PyroWaveStrained);
+                return;
+            }
         };
         self.0.send(SessionEvent::Notice(msg));
     }

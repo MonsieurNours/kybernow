@@ -1,0 +1,114 @@
+diff --git a/subprojects/ffmpeg.wrap b/subprojects/ffmpeg.wrap
+--- a/subprojects/ffmpeg.wrap
++++ b/subprojects/ffmpeg.wrap
+@@ -45,7 +45,8 @@ diff_files =
+   ffmpeg/patches/0018-avcodec-videotoolboxenc-set-expected-framerate.patch,
+   ffmpeg/patches/0019-avcodec-videotoolboxenc-make-VT-blocking.patch,
+   ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
+-  ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
++  ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
++  ffmpeg/patches/0023-avcodec-debit-en-direct.patch
+ 
+ [provide]
+ dependency_names = ffmpeg, libavcodec, libavformat, libavutil, libswresample, libswscale, libavfilter, libavdevice
+diff --git a/subprojects/packagefiles/ffmpeg/patches/0023-avcodec-debit-en-direct.patch b/subprojects/packagefiles/ffmpeg/patches/0023-avcodec-debit-en-direct.patch
+new file mode 100644
+--- /dev/null
++++ b/subprojects/packagefiles/ffmpeg/patches/0023-avcodec-debit-en-direct.patch
+@@ -0,0 +1,96 @@
++From: KyberNow
++Subject: [PATCH] avcodec: bitrate changed live (NVENC, VideoToolbox)
++
++NVENC: a bitrate change no longer resets the encoder nor forces a key
++frame, and a VBV buffer the caller did not change follows the bitrate.
++VideoToolbox: AverageBitRate is set again when bit_rate changes during the
++session. KyberNow, docs/debit-automatique.md.
++---
++diff --git a/libavcodec/nvenc.c b/libavcodec/nvenc.c
++--- a/libavcodec/nvenc.c
+++++ b/libavcodec/nvenc.c
++@@ -3038,6 +3038,17 @@
++                    "avg bitrate change: %d -> %d\n",
++                    params.reInitEncodeParams.encodeConfig->rcParams.averageBitRate,
++                    (uint32_t)avctx->bit_rate);
+++
+++            /* KyberNow: a buffer the caller didn't change keeps the same
+++             * length in time (2 s of the initial bitrate by default), or a
+++             * lowered bitrate would still allow the bursts of the old one. */
+++            if (avctx->rc_buffer_size > 0 &&
+++                avctx->rc_buffer_size == ctx->encode_config.rcParams.vbvBufferSize &&
+++                ctx->encode_config.rcParams.averageBitRate > 0) {
+++                uint64_t vbv = (uint64_t)ctx->encode_config.rcParams.vbvBufferSize * avctx->bit_rate /
+++                               ctx->encode_config.rcParams.averageBitRate;
+++                avctx->rc_buffer_size = (int)FFMIN(vbv, INT_MAX);
+++            }
++ 
++             params.reInitEncodeParams.encodeConfig->rcParams.averageBitRate = avctx->bit_rate;
++             reconfig_bitrate = 1;
++@@ -3064,8 +3075,13 @@
++         }
++ 
++         if (reconfig_bitrate) {
++-            params.resetEncoder = 1;
++-            params.forceIDR = 1;
+++            /* KyberNow: a dynamic bitrate change (support_dyn_bitrate) needs
+++             * neither a reset nor an IDR: the rate control takes the new
+++             * values from the next frame. A reset and an IDR at every change
+++             * made each adjustment a keyframe, the heaviest frame, sent
+++             * precisely when the network has less room. */
+++            params.resetEncoder = 0;
+++            params.forceIDR = 0;
++ 
++             needs_encode_config = 1;
++             needs_reconfig = 1;
++diff --git a/libavcodec/videotoolboxenc.c b/libavcodec/videotoolboxenc.c
++--- a/libavcodec/videotoolboxenc.c
+++++ b/libavcodec/videotoolboxenc.c
++@@ -296,6 +296,10 @@
++     int power_efficient;
++     int max_ref_frames;
++     int spatialaq;
+++
+++    /* KyberNow: average bitrate given to the session, to follow
+++     * avctx->bit_rate changed while encoding. */
+++    int64_t applied_bit_rate;
++ } VTEncContext;
++ 
++ static void vtenc_free_buf_node(BufNode *info)
++@@ -1321,6 +1325,7 @@
++             status = VTSessionSetProperty(vtctx->session,
++                                           kVTCompressionPropertyKey_AverageBitRate,
++                                           bit_rate_num);
+++            vtctx->applied_bit_rate = avctx->bit_rate;
++         }
++ 
++         CFRelease(bit_rate_num);
++@@ -2543,6 +2548,28 @@
++     if (!node)
++         return AVERROR(ENOMEM);
++ 
+++    /* KyberNow: the caller changed avctx->bit_rate while encoding. The
+++     * session only read it when it was created; AverageBitRate can change
+++     * between two frames, without a keyframe. */
+++    if (vtctx->applied_bit_rate > 0 && avctx->bit_rate > 0 &&
+++        avctx->bit_rate != vtctx->applied_bit_rate) {
+++        SInt32 rate = (SInt32)FFMIN(avctx->bit_rate, INT32_MAX);
+++        CFNumberRef rate_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &rate);
+++        if (rate_num) {
+++            OSStatus rate_status = VTSessionSetProperty(vtctx->session,
+++                                                        kVTCompressionPropertyKey_AverageBitRate,
+++                                                        rate_num);
+++            CFRelease(rate_num);
+++            if (rate_status)
+++                av_log(avctx, AV_LOG_WARNING, "Error changing the bitrate to %d: %d\n",
+++                       (int)rate, (int)rate_status);
+++            else
+++                av_log(avctx, AV_LOG_VERBOSE, "Bitrate changed: %"PRId64" -> %d\n",
+++                       vtctx->applied_bit_rate, (int)rate);
+++        }
+++        vtctx->applied_bit_rate = avctx->bit_rate;
+++    }
+++
++     if (__builtin_available(macOS 10.14, *)) {
++         node->signpost_id = os_signpost_id_generate(vtctx->os_log);
++     }

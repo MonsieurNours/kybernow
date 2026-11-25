@@ -1,0 +1,58 @@
+# Débit automatique
+
+[English](debit-automatique.en.md) · Français
+
+Avec le débit « Auto » (un profil : Jeu, Bureau ou Max), l'app baisse le débit de l'image quand le réseau sature, puis le remonte quand il redevient propre. Un débit réglé à la main (« Personnalisé ») ne bouge jamais. Le calcul est dans le cœur (`apps/core/src/adaptive.rs`), donc le même dans toutes les apps qui l'utilisent ; le client web du navigateur n'en a pas encore.
+
+## Ce que regarde l'app
+
+Chaque seconde, la session lit ce que Kyber et le cœur mesurent déjà (`latency::Second`) :
+
+- **l'aller-retour réseau** (celui de la connexion QUIC de Kyber), comparé à son plus bas des 10 dernières secondes : une hausse de plus de 15 ms, ou de plus de la moitié du repos, veut dire qu'une file se remplit quelque part (box, Wi-Fi, relais) ;
+- **les paquets perdus**, rapportés aux paquets reçus (estimés d'après les octets, 1 200 par paquet) : 2 % ou plus, avec au moins 3 paquets perdus ;
+- **les trous de l'image**, des pertes que la correction d'erreurs n'a pas pu réparer.
+
+Une seconde chargée seule ne change rien : un pic de latence isolé, fréquent en Wi-Fi, passe sans effet. Il en faut deux d'affilée. Des pertes lourdes (10 % ou plus) font baisser tout de suite.
+
+## Ce qu'elle fait
+
+L'app garde une **part du débit du profil**, entre 1 (le débit du profil) et le plancher de 5 Mbit/s (celui de l'encodeur de la Station, Admin › Débit minimum) :
+
+- réseau chargé : la part est multipliée par 0,7 ;
+- 4 secondes propres d'affilée : elle remonte de 15 %, et de 5 % seulement près du débit qui avait chargé le réseau (pendant une minute) ;
+- après chaque changement, 2 secondes sans décision (le réseau et l'encodeur s'y font), sauf pour des pertes lourdes.
+
+C'est une part et non un débit : un changement de définition ou d'écrans garde la même marge. La session part du débit du profil (sur le réseau local, il passe d'emblée), la garde quand l'image est relancée (même réseau), et réapprend l'aller-retour au repos à chaque relance (le chemin a pu changer : réseau local, relais). Un nouveau profil la remet à 1.
+
+Le débit automatique se met en pause quand l'app plafonne déjà le débit (fenêtre cachée, app en arrière-plan) ou n'affiche rien : ce qui passe alors ne dit rien du réseau. Il ne s'applique qu'à l'image de l'hôte : l'image à part d'un invité de KyberNow Share est ajustée par la Station (correctif 0020), et un emprunteur ne règle pas le débit.
+
+Il s'ajoute au repli qui existait déjà (« pas d'image » : débit plafonné, puis 4:2:0) : le repli reste le dernier recours quand rien n'arrive du tout.
+
+Chaque changement est écrit au journal de l'app : « débit automatique : 60 → 42 Mb/s (profil 60 Mb/s, aller-retour 41 ms, 0 paquets perdus) ».
+
+## PyroWave : en pause, et « Passer en HEVC » si le réseau sature
+
+Avec PyroWave ([pyrowave.md](pyrowave.md)), le débit automatique est **en pause**. PyroWave encode chaque image seule, avec un budget fixe : 30 % de débit en moins abîment toutes les images d'un coup, là où HEVC répartit la baisse. Et le débit de PyroWave est déjà ajusté au lien par la définition ramenée (plafond de la Station, du lien et de l'app), qui baisse la définition plutôt que la netteté.
+
+Le réseau reste observé avec les mêmes signes. Quand il sature **5 secondes d'affilée** (`PYROWAVE_STRAIN`), le cœur envoie l'avis `PyroWaveStrained` : les apps montrent le bandeau « Le réseau sature », « L'image peut saccader. », avec « Passer en HEVC » (même forme que le bandeau du début, [link-ui.md](link-ui.md)). Une fois par session, pour l'hôte seulement, et pas quand l'app plafonne déjà le débit (fenêtre cachée). En HEVC, le débit automatique reprend la main.
+
+## Côté Station : le débit change en direct
+
+L'app envoie le nouveau débit par `/set_bitrate` de Kyber, qui le passe à l'encodeur. Le correctif `server/kyber-patches/0026-kymedia-ffmpeg-debit-en-direct.patch` (FFmpeg 8.1, Station Windows et Station Mac) fait qu'un changement de débit ne coûte plus rien :
+
+- **NVENC** : FFmpeg remettait l'encodeur à zéro et forçait une image clé à chaque changement de débit. Le correctif change le débit sans remise à zéro ni image clé (changement dynamique, que NVENC accepte quand la carte l'annonce). La mémoire de l'encodeur (VBV), réglée par défaut à 2 secondes du débit de départ, suit le nouveau débit : sinon, un débit baissé laisserait passer les rafales de l'ancien.
+- **VideoToolbox** : FFmpeg ne lisait le débit qu'à la création de la session ; un changement en cours était ignoré. Le correctif le donne à la session (`AverageBitRate`) avant l'image suivante.
+
+Sans ce correctif (Station plus ancienne), le débit automatique fonctionne quand même, mais chaque changement coûte une image clé sur NVENC et reste sans effet sur la Station Mac.
+
+## Ce qui n'est pas fait
+
+- Pas d'affichage dans les apps : le débit en cours n'apparaît pas encore dans les statistiques, et rien ne prévient d'une liaison trop faible.
+- Pas de baisse de définition ni de fréquence : seul le débit bouge.
+- La correction d'erreurs garde sa part fixe de 30 %.
+- Le client web du navigateur garde son débit fixe, et ne montre pas le bandeau « Le réseau sature » en PyroWave.
+- Réglages faits par le raisonnement et les tests du cœur, pas encore sur un vrai réseau saturé (Wi-Fi chargé, 4G, relais).
+
+## Tests
+
+`cargo test -p kybernow-core adaptive` (le calcul : réseau local propre, file qui monte, pic de Wi-Fi isolé, pertes lourdes, bureau immobile, plancher, remontée, remontée prudente, aucune image, nouveau chemin, trous) et `… debit_automatique` (la session : profil seulement, pause sous un plafond de l'app, débit réglé à la main intact). Le correctif FFmpeg est compilé pour le Mac (VideoToolbox) et pour Windows (NVENC, compilation croisée), pas encore essayé sur une Station.

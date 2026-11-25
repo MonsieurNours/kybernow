@@ -1971,6 +1971,9 @@ pub struct SessionUi {
     pub pw_banner: Option<Instant>,
     pub pw_banner_seen: bool,
     pub pw_hevc: bool,
+    /// Le réseau sature en PyroWave (avis `PyroWaveStrained` du cœur, une fois par session) : le même bandeau, titré
+    /// « Le réseau sature », et la tuile « Passer en HEVC », par câble aussi.
+    pub pw_strained: bool,
 }
 
 impl SessionUi {
@@ -1992,8 +1995,38 @@ impl SessionUi {
         }
     }
 
+    /// Le cœur dit que le réseau sature en PyroWave (`Notice::PyroWaveStrained`) : le bandeau revient, titré
+    /// « Le réseau sature », 8 s ou la croix. Rien après « Passer en HEVC » ni pour un invité.
+    pub fn pyrowave_strained(&mut self) {
+        if self.pw_hevc || self.guest.is_some() {
+            return;
+        }
+        self.pw_strained = true;
+        self.pw_banner_seen = true;
+        self.pw_banner = Some(Instant::now());
+    }
+
+    /// Le titre du bandeau PyroWave : « Le réseau sature » après l'avis du cœur, sinon la puce (Wi-Fi, relais).
+    /// `None` : pas de bandeau ni de tuile (pas en PyroWave, « Passer en HEVC » déjà choisi, invité, câble sans souci).
+    pub fn pw_banner_title(&self) -> Option<&'static str> {
+        if self.pw_strained && self.pyrowave_on() {
+            return Some(crate::pyrowave::strained_title());
+        }
+        self.pyrowave_risk().map(|r| r.chip())
+    }
+
+    /// La tuile du menu qui fait « Passer en HEVC » : la puce de la barre (Wi-Fi, relais), sinon « Le réseau sature ».
+    pub fn pw_tile_title(&self) -> Option<&'static str> {
+        self.pyrowave_risk().map(|r| r.chip()).or_else(|| self.pw_banner_title())
+    }
+
+    /// L'image est en PyroWave pour l'hôte, sans « Passer en HEVC ».
+    fn pyrowave_on(&self) -> bool {
+        self.stats.as_ref().is_some_and(|s| s.decoder == "PyroWave") && !self.pw_hevc && self.guest.is_none()
+    }
+
     pub fn pw_banner_visible(&self) -> bool {
-        self.pyrowave_risk().is_some() && self.pw_banner.is_some_and(|t| t.elapsed() < Duration::from_secs(crate::pyrowave::BANNER_SECONDS))
+        self.pw_banner_title().is_some() && self.pw_banner.is_some_and(|t| t.elapsed() < Duration::from_secs(crate::pyrowave::BANNER_SECONDS))
     }
 
     /// Une session qui démarre : la connexion commence.
@@ -2048,6 +2081,7 @@ impl SessionUi {
             pw_banner: None,
             pw_banner_seen: false,
             pw_hevc: false,
+            pw_strained: false,
         }
     }
 
@@ -6432,7 +6466,7 @@ impl App {
     /// « Passer en HEVC » : l'image de la session active repart en HEVC (le choix de l'ordinateur ne change pas).
     pub fn pyrowave_to_hevc(&mut self) -> Vec<Action> {
         let Some(s) = self.session_mut() else { return Vec::new() };
-        if s.pyrowave_risk().is_none() {
+        if s.pw_banner_title().is_none() {
             return Vec::new();
         }
         s.pw_hevc = true;
@@ -6908,6 +6942,23 @@ mod tests {
         s.stats = Some(Stats { decoder: "PyroWave".into(), ..Default::default() });
         s.pyrowave_seen();
         assert!(s.pyrowave_risk().is_none() && !s.pw_banner_seen);
+        // Par câble, le réseau sature (avis du cœur) : le bandeau « Le réseau sature » et « Passer en HEVC ».
+        crate::i18n::force_english(false);
+        s.pyrowave_strained();
+        assert_eq!(s.pw_banner_title(), Some("Le réseau sature"));
+        assert_eq!(s.pw_tile_title(), Some("Le réseau sature"));
+        assert!(s.pw_banner_visible());
+        app.set_session(Some(s));
+        assert_eq!(app.activate(Target::PwHevc), vec![Action::PyroWaveToHevc(2)]);
+        let s = app.session().unwrap();
+        assert!(s.pw_hevc && s.pw_banner_title().is_none() && !s.pw_banner_visible());
+        // En Wi-Fi : le bandeau prend le titre « Le réseau sature », la tuile garde la puce.
+        let mut s = SessionUi::new(3, "a", "A", Profile::Jeu, false, false, 1);
+        s.stats = Some(Stats { decoder: "PyroWave".into(), ..Default::default() });
+        s.pw_wired = false;
+        s.pyrowave_strained();
+        assert_eq!(s.pw_banner_title(), Some("Le réseau sature"));
+        assert_eq!(s.pw_tile_title(), Some("PyroWave en Wi-Fi"));
     }
 
     fn online(app: &mut App, id: &str, station: Option<StationLive>) {

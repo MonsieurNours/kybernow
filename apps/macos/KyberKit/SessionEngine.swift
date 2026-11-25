@@ -363,6 +363,9 @@ public final class SessionEngine: @unchecked Sendable {
     /// ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », langue de l'app), ou
     /// revenue à celle de l'appareil (nil, nil).
     public var onLowered: ((LoweredMode?, String?) -> Void)?
+    /// PyroWave : le réseau sature depuis 5 s (bandeau « Le réseau sature »,
+    /// « Passer en HEVC ») ; une fois par session, pour l'hôte seulement.
+    public var onPyroWaveStrained: (() -> Void)?
     /// Les écrans annoncés par Kyber (choix dans la barre, sans écran virtuel).
     public var onDisplays: (([KyberDisplay]) -> Void)?
     /// L'écran affiché (aussi quand sa taille change).
@@ -1255,6 +1258,10 @@ public final class SessionEngine: @unchecked Sendable {
             let mode = n.has_mode ? LoweredMode(width: Int(n.width), height: Int(n.height), refresh: 0, mbps: Int(n.bitrate_mbps)) : nil
             let text = n.has_mode ? n.error.map { String(cString: $0) } : nil
             DispatchQueue.main.async { [self] in onLowered?(mode, text) }
+            return
+        case KN_NOTICE_PYROWAVE_STRAINED:
+            // À part aussi (`onPyroWaveStrained`), comme `onLowered`.
+            DispatchQueue.main.async { [self] in onPyroWaveStrained?() }
             return
         default: return
         }

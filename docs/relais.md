@@ -39,7 +39,7 @@ Chaque bout (la Station, une app) ouvre vers le relais, sur son port (443 pour l
 
 - Nom présenté (SNI) : le nom du relais (`share.kybernow.app`). Le relais présente son certificat ; les apps et la Station le vérifient par les autorités habituelles du web (`webpki-roots`), ou par son empreinte quand l'adresse du relais en porte une (relais installé chez soi, certificat signé par lui-même) : `relais.exemple.org:9443#sha256:ab:cd:…` (SHA-256 du certificat, même forme que l'empreinte d'Admin ; le nom n'est alors pas vérifié).
 - QUIC : MTU de départ 1280 octets, recherche jusqu'à 1472. Signe de vie toutes les 10 s pour la Station, 5 s pour une app ; coupure après 30 s sans nouvelles.
-- `kn-ctl/1` garde le contrôle de congestion habituel (Cubic). `kn-media/1` a un contrôle **permissif** : fenêtre très grande, pas d'espacement, pertes ignorées ; la file d'envoi des datagrammes est bornée (les plus anciens sont jetés). Kyber a déjà son propre contrôle de débit à l'intérieur.
+- `kn-ctl/1` garde le contrôle de congestion habituel (Cubic). `kn-media/1` a un contrôle **permissif** : fenêtre très grande, pas d'espacement, pertes ignorées ; la file d'envoi des datagrammes est bornée (les plus anciens sont jetés). Le débit se règle à l'intérieur, de bout en bout : la connexion QUIC de Kyber, et le débit automatique de l'app ([debit-automatique.md](debit-automatique.md)), qui voit l'aller-retour et les pertes à travers le tunnel.
 - Ordre : `kn-ctl/1` d'abord ; `kn-media/1` après la réponse `welcome`. Si QUIC ne répond pas en 3 s, le bout passe au repli `kn-tcp/1`, et retente QUIC toutes les 5 minutes. Le repli se signale (« Par le relais (TCP) ») : bon pour regarder, moins bon pour jouer.
 
 ### Qui est qui

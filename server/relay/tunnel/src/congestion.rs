@@ -1,7 +1,10 @@
 //! Contrôle de congestion « permissif » de `kn-media/1` (docs/relais.md) :
 //! fenêtre très grande, pas d'espacement (quinn espace d'après la fenêtre),
-//! pertes ignorées. Kyber a déjà son contrôle de débit à l'intérieur ; le
-//! tunnel ne doit pas en ajouter un second qui freinerait l'image.
+//! pertes ignorées. Le débit de l'image se règle à l'intérieur, de bout en
+//! bout : la connexion QUIC de Kyber, et le débit automatique de l'app
+//! (docs/debit-automatique.md), qui voit l'aller-retour et les pertes à
+//! travers le tunnel. Le tunnel ne doit pas en ajouter un second qui
+//! freinerait l'image.
 
 use std::any::Any;
 use std::sync::Arc;

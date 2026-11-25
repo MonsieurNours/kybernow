@@ -47,6 +47,12 @@ impl Risk {
     }
 }
 
+/// Le titre du bandeau quand le réseau sature en cours de session (avis `PyroWaveStrained` du cœur), par câble
+/// aussi ; le reste du bandeau est le même que celui du début.
+pub fn strained_title() -> &'static str {
+    tr("Le réseau sature", "The network is saturated")
+}
+
 /// Le texte du bandeau, sous le titre.
 pub fn banner_text() -> &'static str {
     tr("L'image peut saccader.", "The picture may stutter.")
@@ -167,7 +173,9 @@ mod tests {
         assert_eq!(lowered(1920, 1080, 300), "Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s.");
         assert_eq!(lost_value(8, 992), "0,8 %");
         assert_eq!(lost_value(0, 0), "0,0 %");
+        assert_eq!(strained_title(), "Le réseau sature");
         force_english(true);
+        assert_eq!(strained_title(), "The network is saturated");
         assert_eq!(Risk::Relay.chip(), "PyroWave away from home");
         assert_eq!(unavailable("Atelier", false, false, Decoder::Device).unwrap(), "Atelier doesn't offer PyroWave.");
         assert_eq!(unavailable("Atelier", true, false, Decoder::Pi { generation: 4, link_os: true }).unwrap(), "This Raspberry Pi can't decode PyroWave: it takes a Raspberry Pi 5.");

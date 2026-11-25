@@ -1799,6 +1799,11 @@ struct UiEvents {
     /// PyroWave en Wi-Fi ou par le relais : le bandeau du début de session
     /// déjà montré (une fois par session).
     pyrowave_told: std::sync::atomic::AtomicBool,
+    /// PyroWave : « Le réseau sature » arrivé alors que la barre était
+    /// ouverte sur cette session ; montré quand elle se cache
+    /// ([`show_pending_strained`]), oublié si la session finit ou si l'image
+    /// est déjà en HEVC.
+    pyrowave_strained_pending: std::sync::atomic::AtomicBool,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -1873,8 +1878,9 @@ struct BarShown {
     /// en PyroWave (format des mesures) sans câble.
     #[serde(skip_serializing_if = "Option::is_none")]
     wired: Option<bool>,
-    /// L'avis est le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`) :
-    /// titre, « Passer en HEVC » et croix, 8 s.
+    /// L'avis est le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`,
+    /// `pyrowave_strained` : le réseau sature) : titre, « Passer en HEVC » et
+    /// croix, 8 s.
     #[serde(skip_serializing_if = "Option::is_none")]
     notice_kind: Option<&'static str>,
     /// Une partie sur console PlayStation : la barre de la partie (son, souris,
@@ -2208,6 +2214,26 @@ impl HostEvents for UiEvents {
     /// Un avis bref du cœur (HDR refusé) : dans la capsule de la session.
     fn notice(&self, text: &str) {
         share::notice(&self.app, &self.id, &self.connexion.name, text);
+    }
+
+    /// PyroWave : le réseau sature (docs/link-ui.md « PyroWave ») ; le même
+    /// bandeau que celui du début de session, titré « Le réseau sature »,
+    /// avec « Passer en HEVC » ; une notification de Windows si l'app n'est
+    /// pas devant. La barre ouverte sur cette session (menus, statistiques,
+    /// autre avis) : il attend qu'elle se cache (`bar_hide`).
+    fn pyrowave_strained(&self) {
+        let (app, id, name) = (self.app.clone(), self.id.clone(), self.connexion.name.clone());
+        let _ = self.app.run_on_main_thread(move || {
+            let state = app.state::<UiState>();
+            let bar_here = state.bar_session.lock().unwrap().as_deref() == Some(id.as_str())
+                && app.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
+            if bar_here {
+                log::info!("[{name}] PyroWave : le réseau sature, bandeau gardé jusqu'à la fermeture de la barre");
+                state.with_session(&id, |r| r.events.pyrowave_strained_pending.store(true, std::sync::atomic::Ordering::Relaxed));
+                return;
+            }
+            share::panel_notice(&app, &id, &name, &t("pyrowave.banner_text", &[]), "pyrowave_strained");
+        });
     }
 
     fn share_image(&self, image: &ShareImage, _previous: Option<&ShareImage>, notice: Option<&str>) {
@@ -3199,6 +3225,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         pads_off: info.as_ref().is_some_and(|i| !i.gamepads_available()),
         pads_told: std::sync::atomic::AtomicBool::new(false),
         pyrowave_told: std::sync::atomic::AtomicBool::new(false),
+        pyrowave_strained_pending: std::sync::atomic::AtomicBool::new(false),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3663,7 +3690,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         route,
         hdr: bar_hdr(&state, id),
         wired: state.with_session(id, |r| r.sent.lock().unwrap().settings.wired),
-        notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay"].into_iter().find(|k| *k == p)),
+        notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained"].into_iter().find(|k| *k == p)),
         console: None,
     };
     let _ = app.emit_to("bar", "bar-shown", shown);
@@ -3758,6 +3785,7 @@ fn bar_hide(app: AppHandle, id: Option<String>, focus: Option<bool>) {
     bar_menu(app.clone(), false, None);
     let state = app.state::<UiState>();
     let served = state.bar_session.lock().unwrap().take();
+    show_pending_strained(&app);
     // Une partie sur console : la console reçoit de nouveau la manette.
     if let Some(ps) = served.as_deref().or(id.as_deref()).filter(|i| crate::consoles::host_of(i).is_some()) {
         playstation::bar_hidden(&app, ps, focus != Some(false));
@@ -3768,6 +3796,31 @@ fn bar_hide(app: AppHandle, id: Option<String>, focus: Option<bool>) {
     }
     if let Some(id) = id.or(served) {
         state.with_session(&id, |r| r.host.command(Command::Focus));
+    }
+}
+
+/// PyroWave : la barre vient de se cacher ; le bandeau « Le réseau sature »
+/// qui attendait (arrivé barre ouverte) se montre, pour une session à la
+/// fois (une autre attend la fermeture suivante). Oublié si l'image n'est
+/// plus en PyroWave (« Passer en HEVC » choisi entre-temps) ; une session
+/// finie n'est plus dans la liste.
+fn show_pending_strained(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    let state = app.state::<UiState>();
+    let found = state.sessions.lock().unwrap().iter().find_map(|r| {
+        if !r.events.pyrowave_strained_pending.swap(false, Ordering::Relaxed) {
+            return None;
+        }
+        let pyrowave = r.stats.lock().unwrap().as_ref().is_some_and(|s| s.decoder.starts_with("PyroWave"));
+        if !pyrowave {
+            log::info!("[{}] PyroWave : l'image n'est plus en PyroWave, bandeau « Le réseau sature » oublié", r.name);
+            return None;
+        }
+        Some((r.id.clone(), r.events.connexion.name.clone()))
+    });
+    if let Some((id, name)) = found {
+        log::info!("[{name}] PyroWave : la barre s'est cachée, bandeau « Le réseau sature »");
+        share::panel_notice(app, &id, &name, &t("pyrowave.banner_text", &[]), "pyrowave_strained");
     }
 }
 

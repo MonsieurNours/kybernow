@@ -330,6 +330,11 @@ interface SessionListener {
          * Aussi dans `onSecond`, valeurs 18 à 21 (largeur, hauteur, fréquence, plafond ; 0 sans).
          */
         const val NOTICE_RESOLUTION_LOWERED = 9
+        /**
+         * Avis `onNotice` : PyroWave, le réseau sature depuis 5 s (docs/debit-automatique.md) ; bandeau « Le réseau
+         * sature » avec « Passer en HEVC ». Une fois par session, hôte seulement.
+         */
+        const val NOTICE_PYROWAVE_STRAINED = 10
     }
 
     /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */
@@ -347,7 +352,8 @@ interface SessionListener {
     /**
      * 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre »,
      * 7 la Station redémarre ([NOTICE_STATION_RESTARTING]), 8 l'ordinateur n'a pas pu passer en HDR
-     * ([NOTICE_HDR_REFUSED]).
+     * ([NOTICE_HDR_REFUSED]), 9 définition ramenée ([NOTICE_RESOLUTION_LOWERED]), 10 le réseau sature en PyroWave
+     * ([NOTICE_PYROWAVE_STRAINED]).
      */
     fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?)
     fun onGameFullscreen(game: Boolean)
