@@ -39,6 +39,9 @@ OUT="$HERE/Vendor"
 WORK="$HERE/build/sdk"
 DEPLOYMENT=18.0
 . "$ROOT/scripts/kyber-toolchain.sh"
+# Une seule construction à la fois dans ce Vendor/ (scripts/verrou.sh).
+. "$ROOT/scripts/verrou.sh"
+kyber_verrou_sortie "$OUT" "build-kyber-tvos.sh" || exit 1
 
 KYBER_PYROWAVE=0
 while [ $# -gt 0 ]; do
