@@ -975,7 +975,7 @@ rm -rf "$V"
 
 # ---------------------------------------------------------------------------
 step "Flux de mises à jour de l'app (Sparkle, canal $CHANNEL)"
-SPARKLE=$(ls -d "$(arbre_dir apple)"/apps/macos/build/SourcePackages/artifacts/*/*/bin apps/macos/build/SourcePackages/artifacts/*/*/bin 2>/dev/null | head -1)
+SPARKLE=$(ls -d "$(arbre_dir apple)"/apps/macos/build/SourcePackages/artifacts/*/*/bin apps/macos/build/SourcePackages/artifacts/*/*/bin 2>/dev/null | head -1 || true)
 [ -x "$SPARKLE/generate_appcast" ] || { echo "generate_appcast de Sparkle introuvable (build de l'app Mac)" >&2; false; }
 # Notes en deux langues (docs/i18n.md) : la release GitHub porte la section
 # française, une ligne <!-- en -->, puis l'anglaise ; Admin et l'app Windows
