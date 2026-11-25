@@ -3,59 +3,56 @@
 #
 #   scripts/release.sh X.Y.Z                  version stable
 #   scripts/release.sh X.Y.Z --beta           version bêta (prerelease, canal beta)
-#   scripts/release.sh X.Y.Z --dry-run        essai : tout sauf commit, notarisation,
-#                                             release, tag et push (affichés)
+#   scripts/release.sh X.Y.Z --repetition     répétition : tout construire et tout
+#                                             vérifier comme une publication, en
+#                                             parallèle et avec reprise, sans rien
+#                                             commiter ni publier (--dry-run : pareil)
 #   scripts/release.sh X.Y.Z --check          vérifications préalables seules
 #   … --min-installer A.B.C --requires-setup  exigences de la mise à jour (manifeste)
+#   … --sans-notarisation                     répétition sans envoi à Apple
 #
-# Ordre, pour que les binaires publiés soient ceux du commit étiqueté :
-#   1. vérifications préalables (branche main, arbre propre et à jour avec
-#      origin, CHANGELOG.md et CHANGELOG.en.md, surcouche Kyber compilée avec
-#      les correctifs du dépôt, SDK et bibliothèques natives des apps (celles
-#      du client Kyber de l'app Mac recompilées si leur empreinte a changé), clé de
-#      l'app Android, VM « KyberNow Linux », outils, gh connecté, profil
-#      notarytool, sign-manifest.sh, aucune KyberNow Link ouverte) ;
-#   2. alignement des versions (Admin, icône, installateur de la Station, apps
-#      KyberNow Link) et commit « KyberNow X.Y.Z » ;
-#   3. construction depuis ce commit : installateur de la Station, paquet de
-#      mise à jour, app Mac (Developer ID), apps Apple TV et iPhone/iPad et leurs
-#      SDK, app Windows et son installateur, app Android (APK signé), app des
-#      téléviseurs LG (paquet webOS), app Linux (deux Flatpak) et paquet .deb
-#      du Raspberry Pi, image KyberNow Link OS (ces trois-là dans la VM
-#      « KyberNow Linux ») ; l'arbre doit rester propre (sinon les binaires ne
-#      correspondraient pas au commit) ;
-#   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
-#   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta) ; flux
-#      cumulatif du site (site/updates/appcast.xml, stables et bêtas, lu par
-#      l'app Mac), notes françaises (site/updates/notes/) et dépôt de Raspberry
-#      Pi Imager (site/updates/rpi-imager.json) mis à jour et commités après le
-#      commit de version ; SHA256SUMS, manifeste signé (scripts/sign-manifest.sh,
-#      minisign) ;
-#   6. release GitHub en brouillon, avec tous les fichiers ;
-#   7. tag vX.Y.Z sur le commit de version, 8. push de main (commit de
-#      version et flux du site) et du tag (atomique), 9. publication.
+# Déroulé (docs/releases.md, « Publier une version ») :
+#   1. vérifications préalables, rapides et toutes affichées d'un coup (git,
+#      notes, disque, outils, accords d'Apple, VM « KyberNow Linux » sans
+#      fenêtre et Rosetta, édition de liens de l'app Windows, copie du Flatpak,
+#      dépendances de cargo, verrous des arbres) ; une seule en échec et rien
+#      n'est modifié ;
+#   2. alignement des versions dans l'arbre « versions » et commit « KyberNow
+#      X.Y.Z » (en publication, main avance jusqu'à lui ; en répétition, le
+#      commit n'est sur aucune branche) ;
+#   3. constructions depuis ce commit, chacune dans son arbre de construction
+#      (scripts/arbres.sh : worktree et sources de Kyber par variante, caches
+#      gardés), en cinq voies parallèles : Windows/Android/webOS, Apple,
+#      notarisation de l'app Mac, Flatpak (VM), .deb et KyberNow Link OS (VM).
+#      Une étape dont les entrées (ses fichiers du commit, outils, sources de
+#      Kyber) n'ont pas changé depuis sa dernière réussite est reprise telle
+#      quelle (third_party/arbres/.etapes/) ; un échec arrête les autres voies
+#      après leur étape en cours, rien n'est publié ;
+#   4. vérification des fichiers (signatures, notarisation, Gatekeeper, APK,
+#      versions lisibles, tailles, DLL des exécutables Windows) ;
+#   5. flux Sparkle signé EdDSA, flux cumulatif du site, notes françaises, dépôt
+#      de Raspberry Pi Imager (commités par-dessus le commit de version),
+#      SHA256SUMS, manifeste signé (minisign), revérifiés ;
+#   6. release GitHub en brouillon, 7. tag vX.Y.Z, 8. push de main et du tag
+#      (atomique), 9. publication ;
+#   10. résumé : durée de chaque étape, refaite ou reprise.
 #
-# Relance après un échec : relancer la même commande. Le commit « KyberNow
-# X.Y.Z » déjà en tête (ou juste sous le commit du flux du site) est
-# réutilisé (pas de second commit), le brouillon existant reçoit les
-# nouveaux fichiers, le tag est posé s'il manque.
+# Relance après un échec : la même commande. Le commit « KyberNow X.Y.Z » déjà
+# en tête (ou sous le commit du flux du site) est réutilisé, ou HEAD si ses
+# versions sont déjà alignées (une correction commitée par-dessus) ; seules
+# les étapes dont les entrées ont changé sont refaites.
 #
-# Prérequis : third_party/ prêt (docs/build-notes.md), surcouche Kyber à jour
-# (server/kyber-patches/build.sh), SDK client de l'app Mac (apps/macos/Vendor,
-# build-kyclient.sh), gh connecté, clé Sparkle dans le Trousseau, certificat
-# Developer ID et profil de notarisation « kybernow », clé minisign de
-# sign-manifest.sh, clé de l'app Android (apps/android/scripts/release-apk.sh),
-# Android Studio (SDK et NDK 27.2.12479018) et cibles Rust Android, bibliothèques
-# natives de l'app Windows (x64 et ARM64, llvm-mingw), cible Rust de webOS, VM
-# Parallels « KyberNow Linux » (Flatpak, .deb, KyberNow Link OS). Voir docs/releases.md.
+# Prérequis : docs/releases.md (« Ce que l'auteur prépare une fois ») et
+# docs/build-notes.md (third_party/, outils, VM).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="MonsieurNours/kybernow"
 cd "$ROOT"
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
+DEBUT_PUBLICATION=$(date +%s)
 
 usage() {
-    echo "usage : scripts/release.sh X.Y.Z [--beta] [--dry-run | --check] [--min-installer A.B.C] [--requires-setup]" >&2
+    echo "usage : scripts/release.sh X.Y.Z [--beta] [--repetition | --check] [--min-installer A.B.C] [--requires-setup] [--sans-notarisation]" >&2
     exit "${1:-1}"
 }
 
@@ -66,12 +63,13 @@ tree_state() {
     git status --porcelain "$@" | grep -v '\.xcodeproj/xcshareddata/xcschemes/' || true
 }
 
-VERSION="" BETA=0 MODE=release MIN_INSTALLER="" REQUIRES_SETUP=0
+VERSION="" BETA=0 MODE=release MIN_INSTALLER="" REQUIRES_SETUP=0 NOTARISER=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --beta) BETA=1 ;;
-        --dry-run) MODE=dry-run ;;
+        --repetition | --dry-run) MODE=repetition ;;
         --check) MODE=check ;;
+        --sans-notarisation) NOTARISER=0 ;;
         --min-installer) [ $# -ge 2 ] || usage; MIN_INSTALLER="$2"; shift ;;
         --min-installer=*) MIN_INSTALLER="${1#*=}" ;;
         --requires-setup) REQUIRES_SETUP=1 ;;
@@ -84,36 +82,33 @@ done
 [ -n "$VERSION" ] || usage
 SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
 [[ "$VERSION" =~ $SEMVER ]] || { echo "version attendue : X.Y.Z (une bêta aussi : --beta)" >&2; exit 1; }
+[ "$MODE" = release ] && [ "$NOTARISER" = 0 ] && { echo "--sans-notarisation : seulement en répétition" >&2; exit 1; }
 
 TAG="v$VERSION"
-OUT="$ROOT/dist/$TAG"
+SUFFIXE=""
+[ "$MODE" = release ] || SUFFIXE="-repetition"
+OUT="$ROOT/dist/$TAG$SUFFIXE"
+LOGS="$ROOT/dist/.journaux-$TAG$SUFFIXE"
 CHANNEL=stable
 [ "$BETA" = 1 ] && CHANNEL=beta
-APP="apps/macos/build/Build/Products/Release/KyberNow Link.app"
 # Archive de l'app Mac (flux Sparkle, site) ; KyberNow-macOS.zip, son nom
 # jusqu'à la 0.4.2, est publié en copie pour les liens existants.
 MAC_ZIP=KyberNow-Link-macOS.zip
 LEGACY_MAC=(KyberNow-macOS.zip)
-OVERLAY="$ROOT/third_party/payload/kyber-overlay"
-OVERLAY_STAMP="$OVERLAY.stamp"   # écrit par server/kyber-patches/build.sh
 # Flux cumulatif des mises à jour de l'app Mac, publié par le site
 # (www.kybernow.app/updates/appcast.xml) : toutes les versions, bêtas comprises.
 SITE_FEED="site/updates/appcast.xml"
 FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 # Installateurs : KyberNow-Station-Setup.exe (la Station) et
 # KyberNow-Link-Setup.exe (app Windows). Leurs anciens noms sont publiés à
-# l'identique (copies) : l'app Windows en 0.3.1 et
-# avant cherche KyberNow-Client-Setup.exe dans le manifeste et la release,
-# Admin en 0.3.1 et avant renvoie vers KyberNow-Server-Setup.exe, et les liens
-# existants (…/latest/download/) mènent à KyberNow-Setup.exe (nom d'avant la
-# 0.3.0), KyberNow-Server-Setup.exe ou KyberNow-Client-Setup.exe. Voir
-# docs/releases.md, « Anciens noms des installateurs ».
+# l'identique (copies) : docs/releases.md, « Anciens noms des installateurs ».
 LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
-ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Station-Mac.dmg KyberNow-Station-Mac-update.zip "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
+# Fichiers construits (vérifiés avant publication), puis tous ceux publiés.
+BUILT=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Station-Mac.dmg KyberNow-Station-Mac-update.zip "$MAC_ZIP" "${LEGACY_MAC[@]}" KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz
-    SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz)
+ASSETS=("${BUILT[@]}" appcast.xml SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
     server/installer/Cargo.toml server/installer/Cargo.lock apps/macos/project.yml apps/macos/KyberNow.xcodeproj
@@ -122,6 +117,11 @@ VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo
     apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json
     apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock
     apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml)
+STATION_LINUX=()
+if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
+    STATION_LINUX=(KyberNow-Station-Linux-arm64.deb KyberNow-Station-Linux-arm64.rpm KyberNow-Station-Linux-x86_64.deb KyberNow-Station-Linux-x86_64.rpm
+        KyberNow-Station-Linux-aarch64.tar.xz KyberNow-Station-Linux-x86_64.tar.xz)
+fi
 
 # Exigences de la mise à jour, transmises à package-update.sh et au manifeste.
 UPDATE_FLAGS=()
@@ -129,86 +129,50 @@ UPDATE_FLAGS=()
 [ "$REQUIRES_SETUP" = 1 ] && UPDATE_FLAGS+=(--requires-setup)
 
 version_num() { local a b c; IFS=. read -r a b c <<< "$1"; echo $((a * 1000000 + b * 1000 + c)); }
-# Ce qui modifie le dépôt, Apple ou GitHub n'est fait qu'en publication réelle ;
-# en essai, la commande est affichée.
+# Ce qui modifie le dépôt ou GitHub n'est fait qu'en publication réelle ; en
+# répétition, la commande est affichée.
 act() {
     if [ "$MODE" = release ]; then
         "$@"
     else
-        printf '    [essai, non lancé]'; printf ' %q' "$@"; echo
+        printf '    [répétition, non lancé]'; printf ' %q' "$@"; echo
     fi
 }
+duree() { local s=$1; if [ "$s" -ge 60 ]; then printf '%d min %02d s' $((s / 60)) $((s % 60)); else printf '%d s' "$s"; fi; }
 
 STEP="vérifications préalables"
 step() { STEP="$1"; echo; echo "==> $1"; }
-
-# Lignes de progression de cargo, cachées à l'écran (gardées dans les journaux).
-PROGRESS='^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished|Installing) |replacing existing signature'
-# Journaux complets de chaque construction : dist/.journaux-vX.Y.Z/<nom>.log.
-LOGS="$ROOT/dist/.journaux-$TAG"
-# build <nom> <commande…> : toute la sortie dans le journal ; à l'écran, les
-# messages d'erreur sans la progression ; en cas d'échec, la fin du journal
-# (une erreur écrite sur la sortie standard ne passe plus inaperçue).
-build() {
-    local name=$1 rc
-    shift
-    mkdir -p "$LOGS"
-    : > "$LOGS/$name.log"
-    set +e
-    "$@" 2> >(tee -a "$LOGS/$name.log" | grep -Ev "$PROGRESS" >&2) >> "$LOGS/$name.log"
-    rc=$?
-    set -e
-    sleep 0.2  # la fin de tee, avant de relire le journal
-    if [ "$rc" -ne 0 ]; then
-        echo "Échec de « $name » (code $rc). Fin de $LOGS/$name.log :" >&2
-        grep -Ev "$PROGRESS" "$LOGS/$name.log" | tail -40 >&2
-    fi
-    return "$rc"
-}
-
-# Reprise après un échec (docs/releases.md) : une étape de construction faite
-# sur le même commit de version, dont les fichiers sont encore ceux qu'elle a
-# laissés (empreintes), est sautée à la relance. Un autre commit (une
-# correction) refait tout : les binaires publiés viennent tous du commit étiqueté.
-STEPS_DIR="$ROOT/dist/.etapes-$TAG"
-outputs_hash() {
-    local f
-    for f in "$@"; do [ -e "$f" ] || return 1; done
-    find "$@" -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | cut -d' ' -f1
-}
-# already <clé> <fichiers…> : vrai (et dit) si l'étape est déjà faite.
-already() {
-    local key=$1 have want
-    shift
-    [ "$MODE" = release ] && [ -f "$STEPS_DIR/$key" ] || return 1
-    have="$(cat "$STEPS_DIR/$key")"
-    want="$COMMIT $(outputs_hash "$@")" || return 1
-    [ "$have" = "$want" ] || return 1
-    echo "    déjà faite sur ce commit, fichiers inchangés : étape sautée (reprise)"
-}
-# done_step <clé> <fichiers…> : note l'étape faite (commit et empreintes).
-done_step() {
-    local key=$1
-    shift
-    [ "$MODE" = release ] || return 0
-    mkdir -p "$STEPS_DIR"
-    echo "$COMMIT $(outputs_hash "$@")" > "$STEPS_DIR/$key"
-}
 on_error() {
     echo >&2
     echo "Échec pendant « $STEP » (ligne $1)." >&2
     if [ "$MODE" = release ]; then
         echo "Corrigez puis relancez : scripts/release.sh $VERSION$([ "$BETA" = 1 ] && echo " --beta")" \
-            "(le commit de version et le brouillon déjà créés sont réutilisés)." >&2
+            "(le commit de version, les étapes réussies et le brouillon sont repris)." >&2
     fi
 }
 trap 'on_error $LINENO' ERR
+
+. scripts/kyber-toolchain.sh
+. scripts/arbres.sh
+. apps/linux/scripts/vm.sh
+# Caches des étapes (empreinte de leurs entrées, fichiers produits) et état de
+# la publication en cours (voies, étapes).
+CACHE="$ARBRES/.etapes"
+RUN="$ARBRES/.publication"
+NCPU="$(sysctl -n hw.ncpu 2>/dev/null || echo 8)"
+# Deux voies compilent sur le Mac en même temps : chacune un peu plus de la
+# moitié des cœurs pour cargo (meson, ninja et Xcode règlent les leurs).
+JOBS_MAC=$(( NCPU * 2 / 3 > 4 ? NCPU * 2 / 3 : 4 ))
+LLVM_OBJDUMP="$ROOT/third_party/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal/bin/llvm-objdump"
 
 # ---------------------------------------------------------------------------
 step "Vérifications préalables ($([ "$MODE" = release ] && echo publication || echo "$MODE"), canal $CHANNEL)"
 PROBLEMS=()
 ok() { echo "  ok   $1"; }
+note() { echo "  note $1"; }
 problem() { PROBLEMS+=("$1"); echo "  NON  $1" >&2; }
+# En répétition, ce qui n'empêche que la publication (git, notes, GitHub) est signalé sans arrêter.
+release_only() { if [ "$MODE" = repetition ]; then note "$1 (bloquerait une publication)"; else problem "$1"; fi; }
 
 if [ -n "$MIN_INSTALLER" ]; then
     if ! [[ "$MIN_INSTALLER" =~ $SEMVER ]]; then problem "--min-installer : version X.Y.Z attendue ($MIN_INSTALLER)"
@@ -218,162 +182,171 @@ if [ -n "$MIN_INSTALLER" ]; then
 fi
 [ "$REQUIRES_SETUP" = 1 ] && ok "mise à jour réservée à l'installateur (requires_setup)"
 
+# Une seule publication ou répétition à la fois, et aucun arbre pris ailleurs.
+if kyber_verrou_prendre "$ARBRES/publication" "scripts/release.sh $VERSION ($MODE)" 2> "$ARBRES.verrou-msg"; then
+    ok "aucune autre publication en cours"
+else
+    problem "une autre publication ou répétition est en cours : $(tr '\n' ' ' < "$ARBRES.verrou-msg")"
+fi
+rm -f "$ARBRES.verrou-msg"
+for v in $ARBRES_VARIANTES; do
+    if ! arbre_verrou "$v" "scripts/release.sh $VERSION" 2> "$ARBRES.verrou-msg"; then
+        problem "arbre « $v » pris par une autre construction : $(tr '\n' ' ' < "$ARBRES.verrou-msg")"
+    fi
+    rm -f "$ARBRES.verrou-msg"
+done
+rendre_verrous() {
+    local v
+    for v in $ARBRES_VARIANTES; do kyber_verrou_rendre "$(arbre_dir "$v")"; done
+    kyber_verrou_rendre "$ARBRES/publication"
+}
+
 # Git : main, propre, à jour.
 BRANCH="$(git symbolic-ref -q --short HEAD || echo "(tête détachée)")"
-if [ "$BRANCH" = main ]; then ok "branche main"; else problem "branche « $BRANCH » : on ne publie que depuis main"; fi
+if [ "$BRANCH" = main ]; then ok "branche main"; else release_only "branche « $BRANCH » : on ne publie que depuis main"; fi
 DIRTY="$(tree_state --untracked-files=normal)"
 if [ -z "$DIRTY" ]; then
     ok "arbre de travail propre"
 else
-    problem "arbre de travail modifié (commitez d'abord, CHANGELOG compris) :"
+    release_only "arbre de travail modifié (commitez d'abord, CHANGELOG compris ; la répétition construit HEAD, sans ces modifications) :"
     printf '%s\n' "$DIRTY" | head -15 | sed 's/^/         /' >&2
 fi
-if git fetch -q origin main 2>/dev/null; then
-    if git merge-base --is-ancestor origin/main HEAD; then ok "à jour avec origin/main"
-    else problem "HEAD n'inclut pas origin/main : git pull (le push serait refusé)"; fi
-else
-    problem "origin inaccessible (git fetch origin main)"
+if [ "$MODE" = release ]; then
+    if git fetch -q origin main 2>/dev/null; then
+        if git merge-base --is-ancestor origin/main HEAD; then ok "à jour avec origin/main"
+        else problem "HEAD n'inclut pas origin/main : git pull (le push serait refusé)"; fi
+    else
+        problem "origin inaccessible (git fetch origin main)"
+    fi
 fi
 
 # Relance : le commit de version est déjà en tête, ou juste sous celui du
-# flux du site (échec après l'étape 5).
+# flux du site (échec après l'étape 5) ; ou HEAD a déjà ses versions alignées
+# (une correction commitée par-dessus le commit de version).
 RELAUNCH=0
 VERSION_REF=HEAD
 if [ "$(git log -1 --format=%s)" = "$FEED_SUBJECT" ] && [ "$(git log -1 --format=%s HEAD~1 2> /dev/null)" = "KyberNow $VERSION" ]; then
     VERSION_REF=HEAD~1
 fi
+aligned() { git show "$1:server/admin/Cargo.toml" | grep -qxF "version = \"$VERSION\"" && git show "$1:apps/macos/project.yml" | grep -qF "MARKETING_VERSION: \"$VERSION\""; }
 if [ "$(git log -1 --format=%s "$VERSION_REF")" = "KyberNow $VERSION" ]; then
-    if grep -qxF "version = \"$VERSION\"" server/admin/Cargo.toml; then
+    if aligned "$VERSION_REF"; then
         RELAUNCH=1; ok "commit « KyberNow $VERSION » déjà fait$([ "$VERSION_REF" != HEAD ] && echo ", flux du site commité par-dessus") : relance, pas de nouveau commit"
     else
         problem "le commit « KyberNow $VERSION » est là mais server/admin/Cargo.toml n'a pas cette version"
     fi
+elif aligned HEAD; then
+    RELAUNCH=1; ok "versions déjà alignées sur $VERSION dans HEAD ($(git log -1 --format='%h « %s »' | cut -c1-70)) : HEAD est le commit construit"
 fi
 if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
     if [ "$RELAUNCH" = 1 ] && [ "$(git rev-list -n 1 "$TAG")" = "$(git rev-parse "$VERSION_REF")" ]; then
         ok "tag $TAG déjà posé sur le commit de version (relance)"
     else
-        problem "le tag $TAG existe déjà sur $(git rev-list -n 1 "$TAG" | cut -c1-7) (version publiée, ou reste d'un essai raté : git tag -d $TAG)"
+        release_only "le tag $TAG existe déjà sur $(git rev-list -n 1 "$TAG" | cut -c1-7) (version publiée, ou reste d'un essai raté : git tag -d $TAG)"
     fi
 fi
 
 # Notes de version, en français et en anglais.
 for f in CHANGELOG.md CHANGELOG.en.md; do
     if grep -qxF "## $VERSION" "$f"; then ok "$f : section ## $VERSION"
-    else problem "$f : ajoutez une section « ## $VERSION »"; fi
+    else release_only "$f : ajoutez une section « ## $VERSION »"; fi
 done
 
-# Surcouche Kyber compilée avec les correctifs du dépôt.
-patches_hash() { cat server/kyber-patches/*.patch server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh | shasum -a 256 | cut -d' ' -f1; }
-if [ ! -d "$OVERLAY" ]; then
-    problem "surcouche Kyber absente ($OVERLAY) : server/kyber-patches/build.sh"
-elif [ -f "$OVERLAY_STAMP" ]; then
-    if [ "$(cat "$OVERLAY_STAMP")" = "$(patches_hash)" ]; then ok "surcouche Kyber compilée avec les correctifs actuels (empreinte)"
-    else problem "surcouche Kyber compilée avec d'autres correctifs (empreinte différente) : server/kyber-patches/build.sh"; fi
-else
-    STALE=()
-    for f in server/kyber-patches/*.patch server/kyber-patches/build.sh; do
-        [ -n "$(find "$OVERLAY" -type f ! -newer "$f" -print -quit)" ] && STALE+=("$(basename "$f")")
-    done
-    if [ ${#STALE[@]} -eq 0 ]; then
-        ok "surcouche Kyber plus récente que les correctifs (pas d'empreinte : relancez build.sh pour en avoir une)"
-    else
-        problem "surcouche Kyber plus ancienne que ${#STALE[@]} fichier(s) de server/kyber-patches (${STALE[0]}…), et sans empreinte : relancez server/kyber-patches/build.sh (il écrit $(basename "$OVERLAY_STAMP"))"
-    fi
-fi
+# Place sur le disque du Mac (arbres, caches, image de KyberNow Link OS).
+FREE_GB=$(df -Pk "$ROOT" | awk 'NR==2 {print int($4/1048576)}')
+if [ "$FREE_GB" -lt 40 ]; then problem "disque du Mac : $FREE_GB Go libres, 40 au moins (docs/build-notes.md, « Place sur le disque »)"
+elif [ "$FREE_GB" -lt 80 ]; then note "disque du Mac : $FREE_GB Go libres (moins de 80)"
+else ok "disque du Mac : $FREE_GB Go libres"; fi
 
-# SDK client de Kyber des apps (hors git, compilés à part).
-if [ -d apps/macos/Vendor ]; then ok "SDK Kyber de l'app Mac (apps/macos/Vendor)"
-else problem "apps/macos/Vendor absent : apps/macos/scripts/build-kyclient.sh"; fi
-# Bibliothèques client de Kyber de l'app Mac (libkynput, libkyclient) : compilées
-# avec les correctifs du dépôt (empreinte de build-kyclient.sh) et libkynput
-# sans son lecteur de manettes SDL (le cœur lit les manettes). Les copies de
-# travail reconstruisent leur propre Vendor/, pas celui-ci : périmées, la
-# publication les recompile avant le cœur de l'app Mac.
-KYCLIENT_REBUILD=0
-KYNPUT_LIB=apps/macos/Vendor/Frameworks/libkynput.0.1.0.dylib
-kyclient_state() {
-    local want have
-    want="$(apps/macos/scripts/build-kyclient.sh --stamp)"
-    have="$(cat apps/macos/Vendor/kyclient.stamp 2>/dev/null || true)"
-    if [ ! -f "$KYNPUT_LIB" ]; then echo "libkynput absente"
-    elif otool -L "$KYNPUT_LIB" | grep -qi sdl; then echo "libkynput lie encore SDL"
-    elif [ -z "$have" ]; then echo "sans empreinte"
-    elif [ "$have" != "$want" ]; then echo "empreinte différente des correctifs"
-    fi
-}
-if [ -d apps/macos/Vendor/Frameworks ]; then
-    KYCLIENT_WHY="$(kyclient_state)"
-    if [ -z "$KYCLIENT_WHY" ]; then
-        ok "bibliothèques client de Kyber de l'app Mac compilées avec les correctifs actuels (empreinte, libkynput sans SDL)"
-    else
-        KYCLIENT_REBUILD=1
-        if [ "$MODE" = release ]; then
-            ok "bibliothèques client de Kyber de l'app Mac périmées ($KYCLIENT_WHY) : recompilées avant l'app Mac (build-kyclient.sh)"
-        else
-            echo "  note bibliothèques client de Kyber de l'app Mac périmées ($KYCLIENT_WHY) : la publication les recompilera ; l'essai les reprend telles quelles"
+# Outils.
+for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint rsync minisign meson cmake; do
+    command -v "$tool" > /dev/null || problem "$tool introuvable"
+done
+[ -x "$LLVM_OBJDUMP" ] || problem "llvm-objdump de llvm-mingw $KYBER_LLVM_MINGW introuvable (third_party/toolchains, docs/build-notes.md)"
+
+# GitHub : seulement pour publier.
+RELEASE_STATE=none
+if [ "$MODE" = release ] || [ "$MODE" = check ]; then
+    if gh auth status -h github.com > /dev/null 2>&1; then
+        ok "gh connecté à github.com"
+        if INFO="$(gh release view "$TAG" -R "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
+            if [ "$INFO" = true ]; then RELEASE_STATE=draft; ok "brouillon $TAG existant : réutilisé"
+            else RELEASE_STATE=published; problem "$TAG est déjà publiée sur GitHub"; fi
+        elif ! grep -qi "not found" <<< "$INFO"; then
+            problem "lecture des releases de $REPO impossible : $INFO"
         fi
+    else
+        problem "gh non connecté : gh auth login (jeton et droits : docs/releases.md)"
     fi
 fi
-if [ "$MODE" != release ]; then
-    # L'essai ne recompile pas le SDK Apple TV (build-kyber-tvos.sh applique
-    # les correctifs dans third_party/, partagé) : il reprend celui en place.
-    if [ -d apps/tvos/Vendor/KyberSDK.xcframework ]; then ok "SDK Kyber de l'app Apple TV en place (repris par l'essai)"
-    else problem "apps/tvos/Vendor absent : l'essai ne le compile pas (apps/tvos/scripts/build-kyber-tvos.sh)"; fi
-fi
 
-# App Windows : bibliothèques natives (hors git) des deux architectures.
-. scripts/kyber-toolchain.sh
-for f in third_party/rootfs-win64/lib/libavcodec.a third_party/rootfs-win64-kynput/bin/kynput.dll \
-    third_party/rootfs-winarm64/lib/libavcodec.a third_party/rootfs-winarm64/bin/kynput.dll \
-    "third_party/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"; do
-    if [ -e "$f" ]; then ok "app Windows : $f"
-    else problem "app Windows : $f absent (server/kyber-patches/build.sh, apps/windows/scripts/build-arm64-deps.sh, docs/build-notes.md)"; fi
-done
+# Notarisation : profil lisible et accords d'Apple en règle (une requête
+# sans effet : un accord expiré répond 403, comme l'envoi le ferait).
+if [ "$NOTARISER" = 1 ]; then
+    if NOTA="$(xcrun notarytool history --keychain-profile kybernow 2>&1)"; then
+        ok "notarisation : profil « kybernow » lisible, accords d'Apple en règle"
+    elif grep -qiE "403|agreement|contrat|accord" <<< "$NOTA"; then
+        problem "notarisation refusée par Apple (403) : un accord est à accepter sur developer.apple.com (Account › Agreements) et App Store Connect"
+    else
+        problem "profil de notarisation « kybernow » illisible : Mac verrouillé, ou xcrun notarytool store-credentials (docs/releases.md) — $(tail -1 <<< "$NOTA")"
+    fi
+else
+    note "répétition sans notarisation (--sans-notarisation) : agrafes et Gatekeeper non vérifiés"
+fi
+if [ -x scripts/sign-manifest.sh ]; then ok "scripts/sign-manifest.sh (manifeste signé minisign)"
+else problem "scripts/sign-manifest.sh absent : sans manifeste signé, Admin refuse la mise à jour"; fi
+if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
+else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
 
 # App Android : clé de publication (Trousseau) et outils (JDK, SDK, apksigner).
 if CHECK="$(apps/android/scripts/release-apk.sh --check 2>&1)"; then ok "app Android : ${CHECK##*$'\n'}"
 else problem "app Android : ${CHECK##*$'\n'}"; fi
-
-# Station pour Mac : Kyber compilé pour Mac (server/macos/scripts/build-kyber.sh),
-# dans sa copie à part des sources.
-# Kyber de la Station Mac compilé avec les correctifs du dépôt (empreinte de
-# server/macos/scripts/build-kyber.sh, comme la surcouche de Windows) et avec
-# tout ce que l'app de la Station embarque (vérification PyroWave).
-MAC_KYBER=third_party/kyber-desktop-macos/rootfs-arm64-macos
-mac_kyber_hash() { cat server/kyber-patches/*.patch server/kyber-patches/apply.sh server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1; }
-if [ ! -x "$MAC_KYBER/bin/kycontroller" ]; then
-    problem "Station Mac : $MAC_KYBER absent (server/macos/scripts/build-kyber.sh, docs/build-notes.md)"
-elif [ ! -x "$MAC_KYBER/bin/kybernow-pyrowave-check" ]; then
-    problem "Station Mac : Kyber pour Mac compilé avant PyroWave (kybernow-pyrowave-check absent) : server/macos/scripts/build-kyber.sh"
-elif [ -f "$MAC_KYBER/.kybernow-patches" ]; then
-    if [ "$(cat "$MAC_KYBER/.kybernow-patches")" = "$(mac_kyber_hash)" ]; then ok "Station Mac : Kyber pour Mac compilé avec les correctifs actuels (empreinte)"
-    else problem "Station Mac : Kyber pour Mac compilé avec d'autres correctifs (empreinte différente) : server/macos/scripts/build-kyber.sh"; fi
-else
-    STALE=()
-    for f in server/kyber-patches/*.patch server/macos/kyber-patches/*.patch; do
-        [ "$f" -nt "$MAC_KYBER/bin/kycontroller" ] && STALE+=("$(basename "$f")")
-    done
-    if [ ${#STALE[@]} -eq 0 ]; then ok "Station Mac : Kyber pour Mac plus récent que les correctifs (pas d'empreinte : relancez build-kyber.sh pour en avoir une)"
-    else problem "Station Mac : Kyber pour Mac plus ancien que ${#STALE[@]} correctif(s) (${STALE[0]}…), sans empreinte : server/macos/scripts/build-kyber.sh"; fi
-fi
-
-# App des téléviseurs LG : sources de Kyber (kysdk) ; la chaîne webOS est
-# téléchargée par apps/webos/scripts/build.sh si elle manque.
-if [ -d third_party/kyber-desktop/kysdk/kyctl ]; then ok "app webOS : sources de Kyber"
-else problem "app webOS : third_party/kyber-desktop/kysdk absent (docs/build-notes.md)"; fi
+# App des téléviseurs LG : cible Rust.
 if rustup target list --installed 2>/dev/null | grep -qx armv7-unknown-linux-gnueabi; then ok "app webOS : cible Rust armv7-unknown-linux-gnueabi"
 else problem "app webOS : rustup target add armv7-unknown-linux-gnueabi"; fi
 
-# App Linux : les Flatpak se construisent dans la VM Parallels « KyberNow Linux »
-# (démarrée au besoin), qui voit ce dépôt en dossier partagé.
+# Sources de Kyber et dépendances lues par les arbres (third_party/ partagé).
+for f in third_party/kyber-desktop/kysdk/kyctl third_party/kyber-desktop-macos/kysdk/kyctl third_party/kyber-web/Cargo.toml \
+    third_party/payload/kyber-0.29.0/SDL2.dll third_party/rootfs-winarm64/lib/libavcodec.a \
+    "third_party/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"; do
+    if [ -e "$f" ]; then ok "${f#third_party/}"
+    else problem "$f absent (docs/build-notes.md)"; fi
+done
+
+# App Windows : édition de liens contre la libavcodec que l'app liera (celle
+# de la Station Windows de l'arbre, sinon du third_party/ partagé) ; ARM64
+# contre la sienne. Quelques secondes ; un symbole manquant est nommé.
+WIN_ROOTFS="$(arbre_dir station-windows)/third_party/rootfs-win64"
+[ -f "$WIN_ROOTFS/lib/libavcodec.a" ] || WIN_ROOTFS="$ROOT/third_party/rootfs-win64"
+for arch in x64 arm64; do
+    r=()
+    [ "$arch" = x64 ] && r=(--rootfs "$WIN_ROOTFS")
+    if CHECK="$(apps/windows/scripts/link-check.sh --arch "$arch" ${r[@]+"${r[@]}"} 2>&1)"; then ok "$CHECK"
+    else problem "$(tr '\n' ' ' <<< "$CHECK")"; fi
+done
+
+# Ce que les arbres recompileront d'eux-mêmes (rien à faire ; dit pour la durée).
+STATION_STAMP="$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp"
+OVERLAY_WANT="$(cat server/kyber-patches/*.patch server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh | shasum -a 256 | cut -d' ' -f1)"
+if [ "$(cat "$STATION_STAMP" 2>/dev/null)" = "$OVERLAY_WANT" ]; then ok "surcouche Kyber de l'arbre station-windows : correctifs actuels (empreinte)"
+else note "surcouche Kyber (Station Windows) à compiler dans son arbre : correctifs changés ou arbre neuf (automatique, long)"; fi
+mac_kyber_hash() { (cd "$1" && cat server/kyber-patches/*.patch server/kyber-patches/apply.sh server/macos/kyber-patches/*.patch server/macos/crates/*.patch server/macos/scripts/build-kyber.sh server/macos/pyrowave/* 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
+MAC_KYBER="$(arbre_dir station-mac)/third_party/kyber-desktop-macos/rootfs-arm64-macos"
+if [ -x "$MAC_KYBER/bin/kybernow-pyrowave-check" ] && [ "$(cat "$MAC_KYBER/.kybernow-patches" 2>/dev/null)" = "$(mac_kyber_hash "$ROOT")" ]; then
+    ok "Station Mac : Kyber pour Mac de l'arbre compilé avec les correctifs actuels (empreinte, PyroWave)"
+else
+    note "Station Mac : Kyber pour Mac à compiler dans son arbre (correctifs changés, PyroWave absent ou arbre neuf : automatique)"
+fi
+
+# VM « KyberNow Linux » : sans fenêtre, joignable, Rosetta, place pour pi-gen.
+vm_sans_fenetre
+if [ "$(vm_vue)" = headless ]; then ok "VM « $VM_NAME » : démarrage sans fenêtre (headless)"
+else problem "VM « $VM_NAME » : vue au démarrage « $(vm_vue) », pas headless (prlctl set \"$VM_NAME\" --startup-view headless)"; fi
 if CHECK="$(apps/linux/scripts/release-flatpaks.sh --check 2>&1)"; then ok "app Linux : ${CHECK##*$'\n'}"
 else problem "app Linux : ${CHECK##*$'\n'} (apps/linux/README.md, « Compiler »)"; fi
 if CHECK="$(apps/linux/os/release-image.sh --check 2>&1)"; then ok "KyberNow Link OS : ${CHECK##*$'\n'}"
 else problem "KyberNow Link OS : ${CHECK##*$'\n'} (apps/linux/os/README.md)"; fi
-# Station Linux : paquets .deb et .rpm (arm64 dans la même VM, x86_64 sur une
-# machine x86_64), publiés seulement avec KYBERNOW_STATION_LINUX=1 tant que
-# la Station Linux n'est pas annoncée.
+VM_TOOLS="$(vm "uname -m; flatpak --version; flatpak-builder --version; ~/.cargo/bin/rustc -V 2>/dev/null || rustc -V" 2>/dev/null || echo "VM injoignable")"
 if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
     if CHECK="$(server/linux/scripts/release-station.sh --check 2>&1)"; then ok "${CHECK##*$'\n'}"
     else problem "${CHECK##*$'\n'} (docs/station-linux.md, « Compiler »)"; fi
@@ -381,69 +354,70 @@ else
     ok "Station Linux : pas dans cette version (KYBERNOW_STATION_LINUX=1 pour la publier)"
 fi
 
-# Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
-if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
-else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
+# Copie des sources du Flatpak (apps/linux/scripts/sources.sh, sans scripts/
+# ni historique git) : ce que build.sh y lit est là, ses correctifs se posent
+# sur les sources de Kyber d'origine, et l'espace de travail réduit se résout.
+FLATPAK_SRC="$(mktemp -d)"
+if CHECK="$(KYBERNOW_KYBER_HEAD=1 apps/linux/scripts/sources.sh "$FLATPAK_SRC/src" 2>&1)"; then
+    MISSING=()
+    for f in apps/linux/scripts/build.sh apps/Cargo.toml apps/Cargo.lock apps/core/Cargo.toml server/relay/tunnel \
+        server/admin/src/update/kybernow-release.pub third_party/kyber-desktop/kysdk/kyctl/kyclient third_party/kyber-desktop/kysdk/kynput/kynput \
+        third_party/kyber-desktop/kysdk/kymux/kymux third_party/kyber-desktop/kysdk/kymedia/subprojects/vlc-rs/src third_party/kyber-desktop/COPYING.AGPLv3; do
+        [ -e "$FLATPAK_SRC/src/$f" ] || MISSING+=("$f")
+    done
+    PATCH_FAIL=()
+    for p in "$FLATPAK_SRC"/src/apps/macos/kyber-patches/*.patch "$FLATPAK_SRC"/src/server/kyber-patches/*-kyclient-*.patch "$FLATPAK_SRC"/src/apps/webos/kyber-patches/*.patch; do
+        case "$(basename "$p")" in
+            *-kyclient-pyrowave.patch) continue ;;
+            *-kyclient-*) r=kyctl ;; *-kynput-*) r=kynput ;; *-kynet-*) r=kymux ;; *) PATCH_FAIL+=("$(basename "$p") (dépôt ?)"); continue ;;
+        esac
+        (cd "$FLATPAK_SRC/src/third_party/kyber-desktop/kysdk/$r" && patch -p1 -s -f -F0 < "$p" > /dev/null 2>&1) || PATCH_FAIL+=("$(basename "$p")")
+    done
+    if [ ${#MISSING[@]} -gt 0 ]; then problem "copie du Flatpak : manque ${MISSING[*]}"
+    elif [ ${#PATCH_FAIL[@]} -gt 0 ]; then problem "copie du Flatpak : correctifs inapplicables sur les sources d'origine : ${PATCH_FAIL[*]}"
+    elif ! CHECK="$(cd "$FLATPAK_SRC/src/apps" && cargo metadata --offline --format-version 1 > /dev/null 2>&1 || cargo metadata --format-version 1 2>&1 > /dev/null)"; then
+        problem "copie du Flatpak : l'espace de travail ne se résout pas : $(tail -3 <<< "$CHECK" | tr '\n' ' ')"
+    else ok "copie du Flatpak : sources, correctifs posés sur l'origine, espace de travail résolu"; fi
+else
+    problem "copie du Flatpak : sources.sh en échec : $(tail -2 <<< "$CHECK" | tr '\n' ' ')"
+fi
+rm -rf "$FLATPAK_SRC"
 
-# Outils et comptes.
-for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint; do
-    command -v "$tool" > /dev/null || problem "$tool introuvable"
+# Dépendances de cargo téléchargées (après une fusion, un Cargo.lock nouveau).
+FETCH_FAIL=()
+for ws in apps server/admin server/tray server/installer server/relay apps/windows/setup; do
+    [ -f "$ws/Cargo.lock" ] || continue
+    (cd "$ws" && cargo fetch --locked --quiet > /dev/null 2>&1) || FETCH_FAIL+=("$ws")
 done
-RELEASE_STATE=none
-if gh auth status -h github.com > /dev/null 2>&1; then
-    ok "gh connecté à github.com"
-    if INFO="$(gh release view "$TAG" -R "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
-        if [ "$INFO" = true ]; then RELEASE_STATE=draft; ok "brouillon $TAG existant : réutilisé"
-        else RELEASE_STATE=published; problem "$TAG est déjà publiée sur GitHub"; fi
-    elif ! grep -qi "not found" <<< "$INFO"; then
-        problem "lecture des releases de $REPO impossible : $INFO"
-    fi
-else
-    problem "gh non connecté : gh auth login (jeton et droits : docs/releases.md)"
-fi
-if xcrun notarytool history --keychain-profile kybernow > /dev/null 2>&1; then
-    ok "profil de notarisation « kybernow »"
-else
-    problem "profil de notarisation « kybernow » illisible : Mac verrouillé, ou xcrun notarytool store-credentials (docs/releases.md)"
-fi
-if [ -x scripts/sign-manifest.sh ]; then
-    ok "scripts/sign-manifest.sh (manifeste signé minisign)"
-else
-    problem "scripts/sign-manifest.sh absent : sans manifeste signé, Admin refuse la mise à jour"
-fi
-# Aucune KyberNow ne doit tourner : le cœur Rust de l'app Mac
-# (apps/macos/Vendor/Frameworks/libkybernow.dylib) et les bibliothèques de
-# l'app Release sont réécrits (docs/build-notes.md, « App ouverte »).
-if pgrep -x "KyberNow( Link)?" > /dev/null; then problem "quittez KyberNow Link (⌘Q) : le cœur Rust de l'app Mac est recompilé"; fi
+if [ ${#FETCH_FAIL[@]} -eq 0 ]; then ok "dépendances de cargo téléchargées (cargo fetch --locked)"
+else problem "cargo fetch --locked en échec dans ${FETCH_FAIL[*]} (Cargo.lock à jour ? réseau ?)"; fi
 
 if [ ${#PROBLEMS[@]} -gt 0 ]; then
     echo >&2
     echo "${#PROBLEMS[@]} vérification(s) en échec :" >&2
     printf '  - %s\n' "${PROBLEMS[@]}" >&2
-    case "$MODE" in
-        release) echo "Rien n'a été modifié." >&2; exit 1 ;;
-        dry-run) echo "Une publication s'arrêterait ici ; l'essai continue pour montrer la suite." >&2 ;;
-    esac
-else
-    echo; echo "Toutes les vérifications préalables passent."
+    echo "Rien n'a été modifié." >&2
+    rendre_verrous
+    exit 1
 fi
+echo; echo "Toutes les vérifications préalables passent ($(duree $(( $(date +%s) - DEBUT_PUBLICATION )))."
 if [ "$MODE" = check ]; then
     cat << EOF
 
 Publication prévue ($CHANNEL) :
   2. versions alignées sur $VERSION, $([ "$RELAUNCH" = 1 ] && echo "commit déjà fait (relance)" || echo "commit « KyberNow $VERSION »")
-  3. installateur de la Station, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac,
-     apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur, app Android,
-     app des téléviseurs LG (KyberNow-Link-webOS.ipk), app Linux (deux Flatpak, VM « KyberNow Linux »)
-     (anciens noms des installateurs publiés en copie : ${LEGACY_STATION[*]} ${LEGACY_LINK[*]})
-  4. notarisation de l'app Mac
-  5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL),
-     $SITE_FEED mis à jour, commit « $FEED_SUBJECT »
+  3. constructions en cinq voies, dans les arbres de third_party/arbres (étapes inchangées reprises) :
+     Station Windows (surcouche si besoin), app Windows, Android, webOS ; app Mac, Apple TV, iPhone/iPad,
+     Station Mac ; notarisation de l'app Mac ; Flatpak x86_64 et aarch64 ; .deb du Raspberry Pi et KyberNow Link OS
+  4. vérification des fichiers ; 5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS,
+     kybernow-release.json signé (canal $CHANNEL), $SITE_FEED, commit « $FEED_SUBJECT »
   6. release $TAG en brouillon$([ "$BETA" = 1 ] && echo ", prerelease")$([ "$RELEASE_STATE" = draft ] && echo " (existante, fichiers remplacés)")
   7-9. tag $TAG sur le commit de version, push de main et du tag, publication
 EOF
-    exit $((${#PROBLEMS[@]} > 0))
+    rendre_verrous
+    exit 0
 fi
+PRECHECK_S=$(( $(date +%s) - DEBUT_PUBLICATION ))
 
 # Écran allumé jusqu'à la fin : le mot de passe de notarytool n'est lisible
 # que Mac déverrouillé.
@@ -451,226 +425,533 @@ caffeinate -dimsu -w $$ &
 
 # ---------------------------------------------------------------------------
 step "Versions"
-if [ "$MODE" = dry-run ]; then
-    # L'essai aligne les versions pour construire comme la publication, puis
-    # remet les fichiers tels qu'il les a trouvés (modifications comprises).
-    BACKUP="$(mktemp -d)"
-    tar -cf "$BACKUP/versions.tar" "${VERSION_FILES[@]}"
-    trap 'tar -xf "$BACKUP/versions.tar" && rm -rf "$BACKUP" && echo "(essai : fichiers de version remis en état)"' EXIT
-fi
+T0=$(date +%s)
 if [ "$RELAUNCH" = 1 ]; then
-    echo "    déjà alignées (commit « KyberNow $VERSION »)"
+    COMMIT="$(git rev-parse "$VERSION_REF")"
+    echo "    déjà alignées : $(git log -1 --format='%h « %s »' "$COMMIT")"
 else
-    for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml apps/windows/setup/Cargo.toml; do
-        sed -i '' -E "1,10s/^version = \".*\"/version = \"$VERSION\"/" "$f"
-        (cd "$(dirname "$f")" && cargo update --workspace --offline --quiet)
-    done
+    # Dans l'arbre « versions » (l'arbre de travail courant n'est pas touché) :
+    # en publication, main avance ensuite jusqu'à ce commit ; en répétition, il
+    # n'est sur aucune branche.
+    arbre_preparer versions "$(git rev-parse HEAD)" > /dev/null
+    VT="$(arbre_dir versions)"
     BUILD=$(date +%Y%m%d%H%M)
-    # Clients en Rust (cœur et app Windows) : version de l'espace de travail.
-    sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" apps/Cargo.toml
-    sed -i '' -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" apps/windows/tauri.conf.json
-    # Fiche AppStream du Flatpak : la version et sa date.
-    sed -i '' -E "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"$VERSION\" date=\"$(date +%Y-%m-%d)\"/>|" \
-        apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml
-    (cd apps && cargo update --workspace --offline --quiet)
-    for d in apps/macos apps/tvos apps/ios; do
-        sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" "$d/project.yml"
-        (cd "$d" && xcodegen generate --quiet)
-    done
-    git --no-pager diff --stat -- "${VERSION_FILES[@]}"
-    if [ "$MODE" = release ]; then
+    (
+        cd "$VT"
+        for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml apps/windows/setup/Cargo.toml; do
+            sed -i '' -E "1,10s/^version = \".*\"/version = \"$VERSION\"/" "$f"
+            (cd "$(dirname "$f")" && cargo update --workspace --offline --quiet)
+        done
+        # Clients en Rust (cœur et app Windows) : version de l'espace de travail.
+        sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" apps/Cargo.toml
+        sed -i '' -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" apps/windows/tauri.conf.json
+        # Fiche AppStream du Flatpak : la version et sa date.
+        sed -i '' -E "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"$VERSION\" date=\"$(date +%Y-%m-%d)\"/>|" \
+            apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml
+        (cd apps && cargo update --workspace --offline --quiet)
+        for d in apps/macos apps/tvos apps/ios; do
+            sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" "$d/project.yml"
+            (cd "$d" && xcodegen generate --quiet)
+        done
+        git --no-pager diff --stat -- "${VERSION_FILES[@]}"
+        EXTRA="$(git status --porcelain | grep -v '\.xcodeproj/xcshareddata/xcschemes/' | awk '{print $2}' | while read -r f; do
+            keep=0; for v in "${VERSION_FILES[@]}"; do case "$f" in "$v" | "$v"/*) keep=1 ;; esac; done; [ "$keep" = 1 ] || echo "$f"; done)"
+        [ -z "$EXTRA" ] || { echo "l'alignement des versions a modifié d'autres fichiers : $EXTRA" >&2; exit 1; }
         git add -- "${VERSION_FILES[@]}"
         git commit -q -m "KyberNow $VERSION"
-        echo "    commit $(git rev-parse --short HEAD) « KyberNow $VERSION »"
+    )
+    COMMIT="$(git -C "$VT" rev-parse HEAD)"
+    if [ "$MODE" = release ]; then
+        git merge -q --ff-only "$COMMIT"
+        echo "    commit $(git rev-parse --short HEAD) « KyberNow $VERSION » (main avancé)"
     else
-        act git commit -m "KyberNow $VERSION"
+        echo "    commit $(git rev-parse --short "$COMMIT") « KyberNow $VERSION » (répétition : sur aucune branche, arbre de travail intact)"
     fi
 fi
-# Commit étiqueté : celui de la version (le commit du flux du site, s'il est
-# déjà là, ne touche qu'à site/ : les binaires sont les mêmes).
-COMMIT="$(git rev-parse "$VERSION_REF")"
-# Un autre commit de version (une correction depuis l'échec) : rien n'est repris.
-if [ "$MODE" = release ] && [ "$(cat "$STEPS_DIR/commit" 2>/dev/null)" != "$COMMIT" ]; then
-    rm -rf "$STEPS_DIR" "$OUT"
-fi
-[ "$MODE" = release ] || rm -rf "$OUT"
-mkdir -p "$OUT" "$LOGS"
-[ "$MODE" = release ] && { mkdir -p "$STEPS_DIR"; echo "$COMMIT" > "$STEPS_DIR/commit"; }
-# Tout ce qui est construit doit venir de ce commit : la construction ne doit
-# toucher à aucun fichier suivi.
-TREE_BEFORE="$(tree_state)"
+VERSIONS_S=$(( $(date +%s) - T0 ))
 
 # ---------------------------------------------------------------------------
-step "KyberNow Station : installateur et paquet de mise à jour"
-STATION_FILES=(server/installer/dist/KyberNow-Station-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1)
-if ! already station "${STATION_FILES[@]}"; then
-    build station server/installer/build.sh
-    build station-maj server/installer/package-update.sh ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
-    done_step station "${STATION_FILES[@]}"
-fi
+step "Arbres de construction (third_party/arbres, au commit $(git rev-parse --short "$COMMIT"))"
+T0=$(date +%s)
+for v in station-windows windows-app android webos apple station-mac linux; do
+    arbre_preparer "$v" "$COMMIT"
+done
+ARBRES_S=$(( $(date +%s) - T0 ))
+rm -rf "$RUN" "$LOGS" "$OUT"
+mkdir -p "$RUN/etat" "$LOGS" "$OUT" "$CACHE"
 
-step "KyberNow Station pour Mac : app, installateur et paquet de mise à jour"
-# docs/station-macos.md (jalon 6) ; notarisée seulement à la publication.
-NOTARIZE_FLAG=()
-[ "$MODE" = release ] && NOTARIZE_FLAG=(--notarize)
-STATION_MAC_FILES=(server/macos/dist/KyberNow-Station-Mac.dmg server/macos/dist/KyberNow-Station-Mac-update.zip)
-if ! already station-mac "${STATION_MAC_FILES[@]}"; then
-    build station-mac server/macos/scripts/build-station-app.sh ${NOTARIZE_FLAG[@]+"${NOTARIZE_FLAG[@]}"}
-    done_step station-mac "${STATION_MAC_FILES[@]}"
-fi
+# Versions des outils : entrée de toutes les étapes.
+TOOLS_ID="$({
+    rustc -V; rustup run "nightly-$KYBER_NIGHTLY" rustc -V 2>/dev/null || true; cargo -V; cargo cinstall --version 2>/dev/null | head -1
+    xcodebuild -version | tr '\n' ' '; echo; xcodegen --version 2>/dev/null; x86_64-w64-mingw32-gcc -dumpversion; node -v; npm -v
+    meson --version; cmake --version | head -1; java -version 2>&1 | head -1; ls "${ANDROID_HOME:-$HOME/Library/Android/sdk}/ndk" 2>/dev/null | tr '\n' ' '
+    echo; sw_vers -productVersion
+} | shasum -a 256 | cut -d' ' -f1)"
 
-step "Cœur Rust de l'app Mac (apps/core, apps/apple)"
-MAC_DONE=0
-already app-mac "$APP" && MAC_DONE=1
-if [ "$MAC_DONE" = 0 ]; then
-# Bibliothèques client de Kyber périmées (vérifications préalables) : recompilées
-# d'abord, puis contrôlées (empreinte, libkynput sans SDL).
-if [ "$KYCLIENT_REBUILD" = 1 ]; then
-    if [ "$MODE" = release ]; then
-        echo "    bibliothèques client de Kyber recompilées ($KYCLIENT_WHY)"
-        apps/macos/scripts/build-kyclient.sh > /dev/null
-        KYCLIENT_WHY="$(kyclient_state)"
-        [ -z "$KYCLIENT_WHY" ] || { echo "bibliothèques client de Kyber toujours périmées après build-kyclient.sh : $KYCLIENT_WHY" >&2; false; }
-    else
-        echo "    [essai] bibliothèques client reprises de apps/macos/Vendor (build-kyclient.sh non lancé : $KYCLIENT_WHY)"
+# ---------------------------------------------------------------------------
+# Étapes. Chacune : ses entrées (entrees_<id> : chemins du commit, outils,
+# sources de Kyber, dépendances de third_party/), sa construction
+# (construire_<id>, qui dépose ses fichiers dans $E), ses dépendances.
+ETAPES=(surcouche station windows android webos app_mac notarisation tvos ios station_mac flatpak_aarch64 flatpak_x86_64 deb_pi link_os)
+[ "${KYBERNOW_STATION_LINUX:-0}" = 1 ] && ETAPES+=(station_linux)
+libelle() {
+    case "$1" in
+        surcouche) echo "Surcouche Kyber (Windows)" ;; station) echo "Station Windows" ;; windows) echo "App Windows x64+ARM64" ;;
+        android) echo "App Android" ;; webos) echo "App webOS" ;; app_mac) echo "App Mac" ;; notarisation) echo "Notarisation app Mac" ;;
+        tvos) echo "App Apple TV + SDK" ;; ios) echo "App iPhone/iPad + SDK" ;; station_mac) echo "Station Mac" ;;
+        flatpak_aarch64) echo "Flatpak aarch64 (VM)" ;; flatpak_x86_64) echo "Flatpak x86_64 (VM)" ;; deb_pi) echo ".deb Raspberry Pi (VM)" ;;
+        link_os) echo "KyberNow Link OS (VM)" ;; station_linux) echo "Station Linux (VM)" ;;
+    esac
+}
+deps_de() {
+    case "$1" in
+        station | windows | station_mac) echo surcouche ;;
+        notarisation) echo app_mac ;;
+        link_os) echo deb_pi ;;
+    esac
+}
+
+# Entrées communes : chemins du commit (objets git : un seul fichier changé
+# change l'empreinte), outils.
+chemins() { echo "commit-chemins :"; git ls-tree "$COMMIT" -- "$@"; echo "outils $TOOLS_ID"; }
+COEUR=(apps/core apps/Cargo.toml apps/Cargo.lock apps/macos/kyber-patches server/kyber-patches server/relay
+    server/admin/src/update/kybernow-release.pub scripts/kyber-client-patches.sh scripts/kyber-toolchain.sh brand)
+# Les dossiers de server/ sauf ceux qu'on nomme.
+server_sauf() { git ls-tree --name-only "$COMMIT" server/ | grep -vxF -f <(printf 'server/%s\n' "$@"); }
+# Sources de Kyber d'un arbre : commit d'origine de chaque dépôt.
+kyber_tetes() { local r; for r in $(arbre_depots "$(arbre_dir "$1")/third_party/$2"); do echo "${r##*/third_party/} $(git -C "$r" rev-parse HEAD)"; done; }
+# Une dépendance lue dans third_party/ : noms, tailles et dates de ses fichiers.
+tp_id() {
+    local d="$ROOT/third_party/$1" f t
+    f="$RUN/tp-$(echo "$1" | tr '/' '_')"
+    if [ ! -f "$f" ]; then
+        t="$f.$RANDOM$RANDOM"
+        echo "$1 $( (cd "$d" 2>/dev/null && find -L . -type f -print0 | xargs -0 stat -f '%N %z %m' 2>/dev/null) | shasum -a 256 | cut -d' ' -f1)" > "$t"
+        mv "$t" "$f"
     fi
-fi
-# libkybernow.dylib et son en-tête dans apps/macos/Vendor (docs/coeur-apple.md).
-build coeur-mac apps/apple/scripts/build-apple.sh
-fi
+    cat "$f"
+}
+empreinte_de() {
+    local f="$RUN/empreinte-$1" t
+    if [ ! -f "$f" ]; then
+        t="$f.$RANDOM$RANDOM"
+        { echo "$1"; "entrees_$1"; } | shasum -a 256 | cut -d' ' -f1 > "$t"
+        mv "$t" "$f"
+    fi
+    cat "$f"
+}
 
-step "App Mac"
-if [ "$MAC_DONE" = 1 ]; then
-    echo "    déjà faite sur ce commit, fichiers inchangés : étape sautée (reprise)"
-else
-    (cd apps/macos && xcodegen generate --quiet && xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Release \
-        -derivedDataPath build build 2>&1 | tee "$LOGS/app-mac.log" | grep -E "error:|BUILD (SUCC|FAIL)")
-    build app-mac-signature apps/macos/scripts/sign-release.sh "$APP"
-    done_step app-mac "$APP"
-fi
+entrees_surcouche() { chemins server/kyber-patches scripts/kyber-toolchain.sh; kyber_tetes station-windows kyber-desktop; kyber_tetes station-windows kyber-web; tp_id payload/kyber-0.29.0; }
+entrees_station() { chemins $(server_sauf macos linux) scripts/kyber-toolchain.sh brand; echo "maj ${UPDATE_FLAGS[*]+"${UPDATE_FLAGS[*]}"}"; empreinte_de surcouche; tp_id payload/kyber-0.29.0; tp_id kyber-installer; }
+entrees_windows() { chemins "${COEUR[@]}" apps/windows apps/macos/PyroWave; empreinte_de surcouche; kyber_tetes windows-app kyber-desktop; tp_id rootfs-winarm64; tp_id "toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"; }
+entrees_android() { chemins "${COEUR[@]}" apps/android; kyber_tetes android kyber-desktop; tp_id opus-1.6.1; }
+entrees_webos() { chemins "${COEUR[@]}" apps/webos; kyber_tetes webos kyber-desktop; tp_id webos-toolchain-mac; tp_id ffmpeg-7.1.1; tp_id opus-1.6.1; }
+entrees_app_mac() { chemins "${COEUR[@]}" apps/macos apps/apple; kyber_tetes apple kyber-desktop; }
+entrees_notarisation() { echo "notariser $NOTARISER"; empreinte_de app_mac; }
+entrees_tvos() { chemins "${COEUR[@]}" apps/macos apps/apple apps/tvos; kyber_tetes apple kyber-desktop; }
+entrees_ios() { chemins "${COEUR[@]}" apps/macos apps/apple apps/ios; kyber_tetes apple kyber-desktop; }
+entrees_station_mac() { chemins $(server_sauf linux) scripts/kyber-toolchain.sh brand; echo "notariser $NOTARISER"; empreinte_de surcouche; kyber_tetes station-mac kyber-desktop-macos; tp_id payload/kyber-0.29.0; }
+LINUX_ENTREES=(apps/linux apps/webos/kyber-patches LICENSE LICENSE.md)
+entrees_flatpak_aarch64() { chemins "${COEUR[@]}" "${LINUX_ENTREES[@]}"; kyber_tetes linux kyber-desktop; echo "$VM_TOOLS"; }
+entrees_flatpak_x86_64() { entrees_flatpak_aarch64; }
+entrees_deb_pi() { entrees_flatpak_aarch64; }
+entrees_link_os() { chemins apps/linux/os; empreinte_de deb_pi; }
+entrees_station_linux() { chemins $(server_sauf macos) scripts/kyber-toolchain.sh; echo "$VM_TOOLS"; }
 
-step "App Apple TV (SDK de Kyber pour tvOS, compilation de vérification)"
-if ! already tvos "$OUT/KyberSDK-tvOS.zip"; then
-if [ "$MODE" = release ]; then
-    build sdk-tvos apps/tvos/scripts/build-kyber-tvos.sh
-else
-    echo "    [essai] SDK repris de apps/tvos/Vendor (build-kyber-tvos.sh non lancé)"
-fi
-# Le cœur Rust pour tvOS (apps/tvos/Vendor/KyberNow.xcframework), publié avec
-# le SDK dans KyberSDK-tvOS.zip : la CI et le sideload le reprennent.
-build coeur-tvos apps/apple/scripts/build-apple-mobile.sh tvos
-(cd apps/tvos && xcodegen generate --quiet && xcodebuild -project KyberNowTV.xcodeproj -scheme KyberNowTV -configuration Release \
-    -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$LOGS/app-tvos.log" | grep -E "error:|BUILD (SUCC|FAIL)")
-(cd apps/tvos/Vendor && ditto -c -k . "$OUT/KyberSDK-tvOS.zip")
-done_step tvos "$OUT/KyberSDK-tvOS.zip"
-fi
+# Fichiers produits par chaque étape (dans $E, puis dans son cache).
+fichiers_de() {
+    case "$1" in
+        surcouche) echo "surcouche.stamp" ;;
+        station) echo "KyberNow-Station-Setup.exe kybernow-update.zip update.ps1" ;;
+        windows) echo "KyberNow-Link-Setup.exe" ;;
+        android) echo "KyberNow-Link-Android.apk" ;;
+        webos) echo "KyberNow-Link-webOS.ipk" ;;
+        app_mac) echo "app-mac-signee.zip" ;;
+        notarisation) echo "$MAC_ZIP" ;;
+        tvos) echo "KyberSDK-tvOS.zip" ;;
+        ios) echo "KyberSDK-iOS.zip" ;;
+        station_mac) echo "KyberNow-Station-Mac.dmg KyberNow-Station-Mac-update.zip" ;;
+        flatpak_aarch64) echo "KyberNow-Link-Linux-aarch64.flatpak" ;;
+        flatpak_x86_64) echo "KyberNow-Link-Linux-x86_64.flatpak" ;;
+        deb_pi) echo "KyberNow-Link-RaspberryPi-arm64.deb kybernow-link_${VERSION}_arm64.deb" ;;
+        link_os) echo "KyberNow-Link-OS.img.xz KyberNow-Link-OS.img.xz.info" ;;
+        station_linux) echo "${STATION_LINUX[*]}" ;;
+    esac
+}
 
-step "App iPhone et iPad (cœur Rust et SDK, compilation de vérification)"
-# libkynput pour iOS (rootfs par cible), puis le cœur, libopus et les en-têtes
-# dans apps/ios/Vendor, publiés dans KyberSDK-iOS.zip pour apps/ios/scripts/sideload.sh.
-if ! already ios "$OUT/KyberSDK-iOS.zip"; then
-    for t in aarch64-apple-ios aarch64-apple-ios-sim; do
-        build "coeur-$t" apps/core/scripts/build-apple.sh --target "$t"
+# Cache valable : même empreinte, fichiers intacts (et, pour la surcouche,
+# celle de l'arbre encore compilée avec ces correctifs).
+cache_valide() {
+    local id=$1 key=$2 c="$CACHE/$1"
+    [ "$(cat "$c/empreinte" 2>/dev/null)" = "$key" ] || return 1
+    (cd "$c/fichiers" 2>/dev/null && shasum -a 256 -s -c ../sommes) || return 1
+    if [ "$id" = surcouche ]; then
+        [ "$(cat "$(arbre_dir station-windows)/third_party/payload/kyber-overlay.stamp" 2>/dev/null)" = "$OVERLAY_WANT" ] || return 1
+    fi
+}
+cache_noter() {
+    local id=$1 key=$2 c="$CACHE/$1" f
+    for f in $(fichiers_de "$id"); do
+        [ -s "$CACHE/$id.nouveau/$f" ] || { echo "$f absent après la construction" >> "$LOGS/$id.log"; return 1; }
     done
-    build coeur-ios apps/apple/scripts/build-apple-mobile.sh ios
-    (cd apps/ios && xcodegen generate --quiet && xcodebuild -project KyberNowIOS.xcodeproj -scheme KyberNowIOS -configuration Release \
-        -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$LOGS/app-ios.log" | grep -E "error:|BUILD (SUCC|FAIL)")
-    (cd apps/ios/Vendor && ditto -c -k . "$OUT/KyberSDK-iOS.zip")
-    done_step ios "$OUT/KyberSDK-iOS.zip"
-fi
+    (cd "$CACHE/$id.nouveau" && shasum -a 256 $(fichiers_de "$id")) > "$CACHE/$id.sommes"
+    rm -rf "$c"; mkdir -p "$c"
+    mv "$CACHE/$id.nouveau" "$c/fichiers"
+    mv "$CACHE/$id.sommes" "$c/sommes"
+    echo "$key" > "$c/empreinte"
+}
 
-step "App Windows (KyberNow Link, x64 et ARM64) et son installateur"
-# Comme pour la Station : avec pipefail, un échec de build.sh arrête tout
-# (sinon l'exécutable d'un build précédent partirait dans la version).
-if ! already windows "$OUT/KyberNow-Link-Setup.exe"; then
+etat() { echo "$2 ${3:-$(date +%s)} $(date +%s)" > "$RUN/etat/$1.tmp" && mv "$RUN/etat/$1.tmp" "$RUN/etat/$1"; }
+etat_de() { cut -d' ' -f1 "$RUN/etat/$1" 2>/dev/null || echo attente; }
+arret() { [ -f "$RUN/arret" ]; }
+
+# etape <id> : attend ses dépendances, reprend le cache s'il est valable,
+# sinon construit (sortie dans $LOGS/<id>.log) ; un échec arrête les voies.
+etape() {
+    local id=$1 d st key debut
+    arret && { etat "$id" annulee; return 1; }
+    for d in $(deps_de "$id"); do
+        while :; do
+            st="$(etat_de "$d")"
+            case "$st" in faite | reprise) break ;; echec | annulee) etat "$id" annulee; return 1 ;; esac
+            sleep 2
+        done
+    done
+    arret && { etat "$id" annulee; return 1; }
+    key="$(empreinte_de "$id")"
+    if cache_valide "$id" "$key"; then
+        etat "$id" reprise
+        return 0
+    fi
+    debut=$(date +%s)
+    etat "$id" encours "$debut"
+    rm -rf "$CACHE/$id.nouveau"
+    mkdir -p "$CACHE/$id.nouveau"
+    # Sous-shell lancé en arrière-plan puis attendu : set -e y vaut (il serait
+    # ignoré dans un « if ( … ) »).
+    ( set -euo pipefail; E="$CACHE/$id.nouveau"; "construire_$id" ) > "$LOGS/$id.log" 2>&1 < /dev/null &
+    if wait $! && cache_noter "$id" "$key"; then
+        etat "$id" faite "$debut"
+        return 0
+    fi
+    etat "$id" echec "$debut"
+    touch "$RUN/arret"
+    return 1
+}
+
+# --- Constructions -----------------------------------------------------------
+export KYBERNOW_IGNORE_RUNNING=1   # les arbres ont leur propre Vendor/, pas celui de l'app ouverte
+UPDATE_FLAGS_STR="${UPDATE_FLAGS[*]+"${UPDATE_FLAGS[*]}"}"
+note_kyber() { arbre_kyber_noter "$1" > /dev/null; }
+
+construire_surcouche() {
+    cd "$(arbre_dir station-windows)"
+    if [ "$(cat third_party/payload/kyber-overlay.stamp 2>/dev/null)" != "$OVERLAY_WANT" ]; then
+        server/kyber-patches/build.sh
+    fi
+    [ "$(cat third_party/payload/kyber-overlay.stamp)" = "$OVERLAY_WANT" ]
+    python3 -I "$ROOT/scripts/release-verifie.py" pe "$LLVM_OBJDUMP" third_party/payload/kyber-overlay third_party/payload/kyber-0.29.0
+    cp third_party/payload/kyber-overlay.stamp "$E/surcouche.stamp"
+    note_kyber station-windows
+}
+construire_station() {
+    cd "$(arbre_dir station-windows)"
+    server/installer/build.sh
+    # shellcheck disable=SC2086
+    server/installer/package-update.sh $UPDATE_FLAGS_STR
+    cp server/installer/dist/KyberNow-Station-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$E/"
+}
+construire_windows() {
+    cd "$(arbre_dir windows-app)"
+    apps/windows/scripts/link-check.sh --arch x64
+    apps/windows/scripts/link-check.sh --arch arm64
     for arch in x64 arm64; do
-        build "windows-$arch" apps/windows/scripts/build.sh --arch "$arch"
+        apps/windows/scripts/build.sh --arch "$arch"
+        python3 -I "$ROOT/scripts/release-verifie.py" pe "$LLVM_OBJDUMP" "apps/windows/dist/$arch"
     done
     # Un seul installateur pour les deux : il pose la version du processeur.
-    build windows-installateur apps/windows/scripts/build-installer.sh
-    cp apps/windows/dist/KyberNow-Link-Setup.exe "$OUT/"
-    for f in "${LEGACY_LINK[@]}"; do cp "$OUT/KyberNow-Link-Setup.exe" "$OUT/$f"; done
-    done_step windows "$OUT/KyberNow-Link-Setup.exe"
-fi
+    apps/windows/scripts/build-installer.sh
+    cp apps/windows/dist/KyberNow-Link-Setup.exe "$E/"
+    note_kyber windows-app
+}
+construire_android() {
+    cd "$(arbre_dir android)"
+    apps/android/scripts/release-apk.sh "$E/KyberNow-Link-Android.apk"
+    note_kyber android
+}
+construire_webos() {
+    cd "$(arbre_dir webos)"
+    apps/webos/scripts/build.sh
+    cp "apps/webos/dist/fr.leslignesclaires.kybernow_${VERSION}_arm.ipk" "$E/KyberNow-Link-webOS.ipk"
+    note_kyber webos
+}
+APP_REL="apps/macos/build/Build/Products/Release/KyberNow Link.app"
+construire_app_mac() {
+    cd "$(arbre_dir apple)"
+    [ -d apps/macos/Vendor/Frameworks ] || apps/macos/scripts/vendor-kyber.sh
+    if [ "$(apps/macos/scripts/build-kyclient.sh --stamp)" != "$(cat apps/macos/Vendor/kyclient.stamp 2>/dev/null)" ] \
+        || otool -L apps/macos/Vendor/Frameworks/libkynput.0.1.0.dylib | grep -qi sdl; then
+        apps/macos/scripts/build-kyclient.sh
+    fi
+    otool -L apps/macos/Vendor/Frameworks/libkynput.0.1.0.dylib | grep -qi sdl && { echo "libkynput lie encore SDL" >&2; exit 1; }
+    apps/apple/scripts/build-apple.sh
+    (cd apps/macos && xcodegen generate --quiet && xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Release \
+        -derivedDataPath build build)
+    apps/macos/scripts/sign-release.sh "$APP_REL"
+    codesign --verify --deep --strict "$APP_REL"
+    plutil -extract CFBundleShortVersionString raw "$APP_REL/Contents/Info.plist" | grep -qxF "$VERSION"
+    ditto -c -k --keepParent "$APP_REL" "$E/app-mac-signee.zip"
+    note_kyber apple
+}
+construire_notarisation() {
+    local w="$E/.travail" app
+    mkdir -p "$w"
+    ditto -x -k "$CACHE/app_mac/fichiers/app-mac-signee.zip" "$w"
+    app="$w/KyberNow Link.app"
+    if [ "$NOTARISER" = 1 ]; then
+        # Profil enregistré une fois : xcrun notarytool store-credentials kybernow --apple-id … --team-id P6DB682S4K
+        xcrun notarytool submit "$CACHE/app_mac/fichiers/app-mac-signee.zip" --keychain-profile kybernow --wait --timeout 30m | tee "$w/notarytool.txt"
+        grep -q "status: Accepted" "$w/notarytool.txt" || { echo "notarisation refusée (xcrun notarytool log <id> --keychain-profile kybernow)" >&2; exit 1; }
+        xcrun stapler staple "$app"
+        xcrun stapler validate "$app"
+        spctl --assess --type execute -vv "$app"
+    fi
+    ditto -c -k --keepParent "$app" "$E/$MAC_ZIP"
+    rm -rf "$w"
+}
+construire_tvos() {
+    cd "$(arbre_dir apple)"
+    apps/tvos/scripts/build-kyber-tvos.sh
+    # Le cœur Rust pour tvOS (apps/tvos/Vendor/KyberNow.xcframework), publié avec
+    # le SDK dans KyberSDK-tvOS.zip : la CI et le sideload le reprennent.
+    apps/apple/scripts/build-apple-mobile.sh tvos
+    (cd apps/tvos && xcodegen generate --quiet && xcodebuild -project KyberNowTV.xcodeproj -scheme KyberNowTV -configuration Release \
+        -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build)
+    (cd apps/tvos/Vendor && ditto -c -k . "$E/KyberSDK-tvOS.zip")
+    note_kyber apple
+}
+construire_ios() {
+    cd "$(arbre_dir apple)"
+    # libkynput pour iOS (rootfs par cible), puis le cœur, libopus et les en-têtes
+    # dans apps/ios/Vendor, publiés dans KyberSDK-iOS.zip pour apps/ios/scripts/sideload.sh.
+    for t in aarch64-apple-ios aarch64-apple-ios-sim; do
+        apps/core/scripts/build-apple.sh --target "$t"
+    done
+    apps/apple/scripts/build-apple-mobile.sh ios
+    (cd apps/ios && xcodegen generate --quiet && xcodebuild -project KyberNowIOS.xcodeproj -scheme KyberNowIOS -configuration Release \
+        -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build)
+    (cd apps/ios/Vendor && ditto -c -k . "$E/KyberSDK-iOS.zip")
+    note_kyber apple
+}
+construire_station_mac() {
+    local t
+    t="$(arbre_dir station-mac)"
+    cd "$t"
+    MK="third_party/kyber-desktop-macos/rootfs-arm64-macos"
+    if [ ! -x "$MK/bin/kybernow-pyrowave-check" ] || [ "$(cat "$MK/.kybernow-patches" 2>/dev/null)" != "$(mac_kyber_hash "$t")" ]; then
+        server/macos/scripts/build-kyber.sh
+    fi
+    [ "$(cat "$MK/.kybernow-patches")" = "$(mac_kyber_hash "$t")" ]
+    if [ "$NOTARISER" = 1 ]; then server/macos/scripts/build-station-app.sh --notarize; else server/macos/scripts/build-station-app.sh; fi
+    cp server/macos/dist/KyberNow-Station-Mac.dmg server/macos/dist/KyberNow-Station-Mac-update.zip "$E/"
+    note_kyber station-mac
+}
+# Flatpak et .deb dans la VM, depuis l'arbre « linux » : sources de Kyber du
+# Flatpak prises dans leurs dépôts git (d'origine), dossier de travail de
+# flatpak-builder propre à la publication.
+export KYBERNOW_FLATPAK_WORK='~/.cache/kybernow-flatpak-publication'
+export KYBERNOW_KYBER_HEAD=1
+construire_flatpak_aarch64() { cd "$(arbre_dir linux)"; apps/linux/scripts/release-flatpaks.sh --seulement aarch64 "$E"; }
+construire_flatpak_x86_64() { cd "$(arbre_dir linux)"; apps/linux/scripts/release-flatpaks.sh --seulement x86_64 "$E"; }
+construire_deb_pi() {
+    cd "$(arbre_dir linux)"
+    apps/linux/scripts/release-flatpaks.sh --seulement deb "$E"
+    cp "apps/linux/dist/kybernow-link_${VERSION}_arm64.deb" "$E/"
+    note_kyber linux
+}
+construire_link_os() {
+    cd "$(arbre_dir linux)"
+    # Le .deb de cette version (repris du cache s'il n'a pas été refait).
+    mkdir -p apps/linux/dist
+    cp "$CACHE/deb_pi/fichiers/kybernow-link_${VERSION}_arm64.deb" apps/linux/dist/
+    apps/linux/os/release-image.sh "$E"
+}
+construire_station_linux() { cd "$(arbre_dir linux)"; server/linux/scripts/release-station.sh "$E"; }
 
-step "App Android (KyberNow Link, APK signé)"
-# Bibliothèque native des trois architectures, R8, signature vérifiée par apksigner.
-if ! already android "$OUT/KyberNow-Link-Android.apk"; then
-    build android apps/android/scripts/release-apk.sh "$OUT/KyberNow-Link-Android.apk"
-    done_step android "$OUT/KyberNow-Link-Android.apk"
-fi
+# --- Voies -------------------------------------------------------------------
+voie_autres() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape surcouche || true; etape station || true; etape windows || true; etape android || true; etape webos || true; }
+voie_apple() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape app_mac || true; etape tvos || true; etape ios || true; etape station_mac || true; }
+voie_notarisation() { etape notarisation || true; }
+voie_linux() { etape flatpak_aarch64 || true; etape flatpak_x86_64 || true; }
+voie_linux_os() { etape deb_pi || true; etape link_os || true; [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ] && { etape station_linux || true; }; true; }
 
-step "App des téléviseurs LG (KyberNow Link, paquet webOS)"
-# Binaire armv7 et paquet .ipk (installé en mode développeur : ares-install ou
-# webOS Dev Manager ; l'app signale la nouvelle version, sans s'installer).
-if ! already webos "$OUT/KyberNow-Link-webOS.ipk"; then
-    build webos apps/webos/scripts/build.sh
-    cp "apps/webos/dist/fr.leslignesclaires.kybernow_${VERSION}_arm.ipk" "$OUT/KyberNow-Link-webOS.ipk"
-    done_step webos "$OUT/KyberNow-Link-webOS.ipk"
-fi
-
-step "App Linux, Steam Deck et SteamOS (KyberNow Link, Flatpak x86_64 et aarch64)"
-# Construits dans la VM « KyberNow Linux » depuis cet arbre (dossier partagé) ;
-# l'app signale les nouvelles versions, Flatpak les installe.
-LINUX_FILES=("$OUT/KyberNow-Link-Linux-x86_64.flatpak" "$OUT/KyberNow-Link-Linux-aarch64.flatpak" "$OUT/KyberNow-Link-RaspberryPi-arm64.deb")
-if ! already linux "${LINUX_FILES[@]}"; then
-    apps/linux/scripts/release-flatpaks.sh "$OUT"
-    done_step linux "${LINUX_FILES[@]}"
-fi
-
-STATION_LINUX=()
-if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
-    step "KyberNow Station pour Linux (.deb et .rpm, arm64 et x86_64)"
-    # Admin d'une Station Linux s'y met à jour avec le paquet de son architecture.
-    server/linux/scripts/release-station.sh "$OUT"
-    STATION_LINUX=(KyberNow-Station-Linux-arm64.deb KyberNow-Station-Linux-arm64.rpm KyberNow-Station-Linux-x86_64.deb KyberNow-Station-Linux-x86_64.rpm
-        KyberNow-Station-Linux-aarch64.tar.xz KyberNow-Station-Linux-x86_64.tar.xz)
-fi
-
-step "KyberNow Link OS (image Raspberry Pi à flasher)"
-# Construite dans la même VM (pi-gen, long) ; l'app en OS cherche cette image
-# dans chaque version pour sa mise à jour A/B, et Raspberry Pi Imager la liste
-# par site/updates/rpi-imager.json.
-if ! already link-os "$OUT/KyberNow-Link-OS.img.xz" "$OUT/KyberNow-Link-OS.img.xz.info"; then
-    apps/linux/os/release-image.sh "$OUT"
-    done_step link-os "$OUT/KyberNow-Link-OS.img.xz" "$OUT/KyberNow-Link-OS.img.xz.info"
-fi
-
-TREE_AFTER="$(tree_state)"
-if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
-    echo "La construction a modifié des fichiers suivis : les binaires ne correspondraient pas au commit." >&2
-    diff <(printf '%s\n' "$TREE_BEFORE") <(printf '%s\n' "$TREE_AFTER") >&2 || true
-    [ "$MODE" = release ] && false
-fi
+# --- Affichage ---------------------------------------------------------------
+SYM_attente="·" SYM_encours="▶" SYM_faite="✓" SYM_reprise="=" SYM_echec="✗" SYM_annulee="–"
+NOM_attente="en attente" NOM_encours="en cours" NOM_faite="refaite" NOM_reprise="reprise" NOM_echec="ÉCHEC" NOM_annulee="annulée"
+ligne_etape() {
+    local id=$1 st d0 d1 s now
+    now=$(date +%s)
+    read -r st d0 d1 < "$RUN/etat/$id" 2>/dev/null || { st=attente d0=$now d1=$now; }
+    case "$st" in encours) s=$((now - d0)) ;; faite | echec) s=$((d1 - d0)) ;; *) s="" ;; esac
+    local sym="SYM_$st" nom="NOM_$st"
+    printf '  %s %-27s %-10s %s' "${!sym}" "$(libelle "$id")" "${!nom}" "$([ -n "$s" ] && duree "$s")"
+}
+fin_journal() { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished|Installing) |replacing existing signature' "$LOGS/$1.log" 2>/dev/null | tail -"${2:-30}"; }
+TTY=0
+[ -t 1 ] && TTY=1
+VU=()
+LIGNES=0
+DERNIER_POINT=$(date +%s)
+afficher() {
+    local id st evts="" now i=0
+    now=$(date +%s)
+    for id in "${ETAPES[@]}"; do
+        i=$((i + 1))
+        st="$(etat_de "$id")"
+        [ "${VU[$i]:-}" = "$st" ] && continue
+        VU[$i]="$st"
+        case "$st" in
+            faite | reprise | annulee) evts+="[$(date +%H:%M:%S)] $(ligne_etape "$id")"$'\n' ;;
+            encours) [ "$TTY" = 1 ] || evts+="[$(date +%H:%M:%S)] $(ligne_etape "$id")"$'\n' ;;
+            echec) evts+="[$(date +%H:%M:%S)] $(ligne_etape "$id") — fin de $LOGS/$id.log :"$'\n'"$(fin_journal "$id" 25 | sed 's/^/      /')"$'\n' ;;
+        esac
+    done
+    if [ "$TTY" = 1 ]; then
+        [ "$LIGNES" -gt 0 ] && printf '\033[%dA\033[J' "$LIGNES"
+        printf '%s' "$evts"
+        LIGNES=0
+        for id in "${ETAPES[@]}"; do ligne_etape "$id"; printf '\033[K\n'; LIGNES=$((LIGNES + 1)); done
+    else
+        printf '%s' "$evts"
+        if [ $((now - DERNIER_POINT)) -ge 300 ]; then
+            DERNIER_POINT=$now
+            local cours=""
+            for id in "${ETAPES[@]}"; do [ "$(etat_de "$id")" = encours ] && cours+=" $(libelle "$id") ($(duree $((now - $(cut -d' ' -f2 "$RUN/etat/$id")))))," ; done
+            [ -n "$cours" ] && echo "[$(date +%H:%M:%S)] en cours :${cours%,}"
+        fi
+    fi
+}
 
 # ---------------------------------------------------------------------------
-step "Notarisation de l'app (Apple, quelques minutes)"
-# Profil enregistré une fois : xcrun notarytool store-credentials kybernow --apple-id … --team-id P6DB682S4K
-if [ "$MODE" = release ]; then
-    ditto -c -k --keepParent "$APP" "$OUT/notarisation.zip"
-    xcrun notarytool submit "$OUT/notarisation.zip" --keychain-profile kybernow --wait --timeout 30m
-    rm "$OUT/notarisation.zip"
-    xcrun stapler staple "$APP"
-    spctl --assess --type execute -vv "$APP"
-else
-    act xcrun notarytool submit notarisation.zip --keychain-profile kybernow --wait --timeout 30m
-    act xcrun stapler staple "$APP"
+step "Constructions (5 voies ; journaux : ${LOGS#"$ROOT"/})"
+T0=$(date +%s)
+PIDS=()
+voie_autres & PIDS+=($!)
+voie_apple & PIDS+=($!)
+voie_notarisation & PIDS+=($!)
+voie_linux & PIDS+=($!)
+voie_linux_os & PIDS+=($!)
+arreter_voies() { touch "$RUN/arret"; kill "${PIDS[@]}" 2>/dev/null || true; }
+trap 'arreter_voies; echo; echo "Interrompu." >&2; rendre_verrous; exit 130' INT TERM
+while :; do
+    afficher
+    vivantes=0
+    for p in "${PIDS[@]}"; do kill -0 "$p" 2>/dev/null && vivantes=$((vivantes + 1)); done
+    [ "$vivantes" -eq 0 ] && break
+    sleep 1
+done
+wait "${PIDS[@]}" 2>/dev/null || true
+afficher
+CONSTRUCTIONS_S=$(( $(date +%s) - T0 ))
+
+# Résumé : durée de chaque étape, refaite ou reprise.
+resume() {
+    local id st d0 d1 refaites=0 reprises=0
+    {
+        echo
+        echo "Résumé ($MODE $VERSION, commit $(git rev-parse --short "$COMMIT")) :"
+        printf '  %-27s %s\n' "Vérifications préalables" "$(duree "$PRECHECK_S")"
+        printf '  %-27s %s\n' "Versions" "$(duree "$VERSIONS_S")"
+        printf '  %-27s %s\n' "Arbres de construction" "$(duree "$ARBRES_S")"
+        for id in "${ETAPES[@]}"; do
+            read -r st d0 d1 < "$RUN/etat/$id" 2>/dev/null || st=attente
+            case "$st" in faite) refaites=$((refaites + 1)) ;; reprise) reprises=$((reprises + 1)) ;; esac
+            ligne_etape "$id"; echo
+        done
+        printf '  %-27s %s (en parallèle)\n' "Constructions" "$(duree "$CONSTRUCTIONS_S")"
+        [ -n "${FIN_S:-}" ] && printf '  %-27s %s\n' "Vérifications et flux" "$(duree "$FIN_S")"
+        printf '  %-27s %s (%d étapes refaites, %d reprises)\n' "Total" "$(duree $(( $(date +%s) - DEBUT_PUBLICATION )))" "$refaites" "$reprises"
+    } | tee "$LOGS/resume.txt"
+}
+
+ECHECS=() INCOMPLETES=()
+for id in "${ETAPES[@]}"; do
+    case "$(etat_de "$id")" in
+        echec) ECHECS+=("$id") ;;
+        faite | reprise) ;;
+        *) INCOMPLETES+=("$(libelle "$id")") ;;
+    esac
+done
+if [ ${#ECHECS[@]} -gt 0 ] || [ ${#INCOMPLETES[@]} -gt 0 ] || [ -f "$RUN/arret" ]; then
+    [ ${#INCOMPLETES[@]} -eq 0 ] || echo "Étapes non terminées : ${INCOMPLETES[*]}" >&2
+    for id in ${ECHECS[@]+"${ECHECS[@]}"}; do
+        echo >&2
+        echo "Échec de « $(libelle "$id") ». Fin de $LOGS/$id.log :" >&2
+        fin_journal "$id" 40 >&2
+    done
+    resume
+    echo >&2
+    echo "Rien n'a été publié. Corrigez, commitez, puis relancez la même commande : les étapes réussies sont reprises." >&2
+    rendre_verrous
+    exit 1
 fi
 
-ditto -c -k --keepParent "$APP" "$OUT/$MAC_ZIP"
-for f in "${LEGACY_MAC[@]}"; do cp "$OUT/$MAC_ZIP" "$OUT/$f"; done
-cp server/installer/dist/KyberNow-Station-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
-cp server/macos/dist/KyberNow-Station-Mac.dmg server/macos/dist/KyberNow-Station-Mac-update.zip "$OUT/"
-for f in "${LEGACY_STATION[@]}"; do cp "$OUT/KyberNow-Station-Setup.exe" "$OUT/$f"; done
+# Les constructions ne doivent avoir modifié aucun fichier suivi des arbres :
+# les binaires ne correspondraient plus au commit.
+SALES=()
+for v in station-windows windows-app android webos apple station-mac linux; do
+    s="$(arbre_propre "$v")"
+    [ -z "$s" ] || { SALES+=("$v"); echo "Arbre $v modifié par la construction :" >&2; printf '%s\n' "$s" | head -10 | sed 's/^/    /' >&2; }
+done
+[ ${#SALES[@]} -eq 0 ] || { echo "Les binaires ne correspondraient pas au commit ($(printf '%s ' ${SALES[@]+"${SALES[@]}"}))." >&2; resume; rendre_verrous; exit 1; }
 
+# ---------------------------------------------------------------------------
+step "Fichiers de la version (${OUT#"$ROOT"/})"
+T0=$(date +%s)
+for id in "${ETAPES[@]}"; do
+    [ "$id" = surcouche ] || [ "$id" = app_mac ] || cp -c "$CACHE/$id"/fichiers/* "$OUT/" 2>/dev/null || cp "$CACHE/$id"/fichiers/* "$OUT/"
+done
+rm -f "$OUT/kybernow-link_${VERSION}_arm64.deb"
+for f in "${LEGACY_MAC[@]}"; do cp "$OUT/$MAC_ZIP" "$OUT/$f"; done
+for f in "${LEGACY_STATION[@]}"; do cp "$OUT/KyberNow-Station-Setup.exe" "$OUT/$f"; done
+for f in "${LEGACY_LINK[@]}"; do cp "$OUT/KyberNow-Link-Setup.exe" "$OUT/$f"; done
+
+step "Vérification des fichiers"
+VERIF=0
+python3 -I scripts/release-verifie.py fichiers "$OUT" "$VERSION" "${BUILT[@]}" KyberNow-Link-OS.img.xz.info ${STATION_LINUX[@]+"${STATION_LINUX[@]}"} || VERIF=1
+V="$(mktemp -d)"
+ditto -x -k "$OUT/$MAC_ZIP" "$V/app"
+ditto -x -k "$OUT/KyberNow-Station-Mac-update.zip" "$V/station"
+verifie() { local quoi=$1; shift; if "$@" > "$V/sortie" 2>&1; then echo "  ok   $quoi"; else echo "  NON  $quoi : $(tail -2 "$V/sortie" | tr '\n' ' ')"; VERIF=1; fi; }
+verifie "app Mac : signature Developer ID" codesign --verify --deep --strict "$V/app/KyberNow Link.app"
+verifie "Station Mac (mise à jour) : signature" codesign --verify --deep --strict "$V/station/KyberNow Station.app"
+verifie "Station Mac (.dmg) : signature" codesign --verify "$OUT/KyberNow-Station-Mac.dmg"
+if [ "$NOTARISER" = 1 ]; then
+    verifie "app Mac : ticket de notarisation agrafé" xcrun stapler validate "$V/app/KyberNow Link.app"
+    verifie "app Mac : Gatekeeper" spctl --assess --type execute "$V/app/KyberNow Link.app"
+    verifie "Station Mac (mise à jour) : ticket agrafé" xcrun stapler validate "$V/station/KyberNow Station.app"
+    verifie "Station Mac (.dmg) : ticket agrafé" xcrun stapler validate "$OUT/KyberNow-Station-Mac.dmg"
+    verifie "Station Mac (.dmg) : Gatekeeper" spctl --assess --type open --context context:primary-signature "$OUT/KyberNow-Station-Mac.dmg"
+fi
+SDK_ANDROID="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+APKSIGNER="$(ls -d "$SDK_ANDROID"/build-tools/*/apksigner 2> /dev/null | sort -V | tail -1)"
+AAPT2="$(ls -d "$SDK_ANDROID"/build-tools/*/aapt2 2> /dev/null | sort -V | tail -1)"
+verifie "APK : signature (apksigner, clé de publication $(cut -c1-16 apps/android/scripts/release-cert.sha256 2>/dev/null)…)" \
+    sh -c "'$APKSIGNER' verify --print-certs '$OUT/KyberNow-Link-Android.apk' | grep -q \"\$(cat apps/android/scripts/release-cert.sha256 2>/dev/null || echo .)\""
+verifie "APK : version $VERSION" sh -c "'$AAPT2' dump badging '$OUT/KyberNow-Link-Android.apk' | grep -q \"versionName='$VERSION'\""
+rm -rf "$V"
+[ "$VERIF" = 0 ] || { echo "Fichiers de la version en défaut : rien n'est publié." >&2; resume; rendre_verrous; exit 1; }
+
+# ---------------------------------------------------------------------------
 step "Flux de mises à jour de l'app (Sparkle, canal $CHANNEL)"
-SPARKLE=$(ls -d apps/macos/build/SourcePackages/artifacts/*/*/bin | head -1)
+SPARKLE=$(ls -d "$(arbre_dir apple)"/apps/macos/build/SourcePackages/artifacts/*/*/bin apps/macos/build/SourcePackages/artifacts/*/*/bin 2>/dev/null | head -1)
+[ -x "$SPARKLE/generate_appcast" ] || { echo "generate_appcast de Sparkle introuvable (build de l'app Mac)" >&2; false; }
 # Notes en deux langues (docs/i18n.md) : la release GitHub porte la section
 # française, une ligne <!-- en -->, puis l'anglaise ; Admin et l'app Windows
 # prennent la partie de leur langue.
 section() { awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' "$1"; }
-NOTES_FR="$(section CHANGELOG.md)"
-NOTES_EN="$(section CHANGELOG.en.md)"
+NOTES_FR="$(git show "$COMMIT:CHANGELOG.md" | section /dev/stdin)"
+NOTES_EN="$(git show "$COMMIT:CHANGELOG.en.md" | section /dev/stdin)"
 printf '%s\n\n<!-- en -->\n\n%s\n' "$NOTES_FR" "$NOTES_EN" > "$OUT/notes.md"
 # Flux Sparkle : l'anglais est la description par défaut (toute langue autre
 # que le français la reçoit) ; le français est un lien par langue (xml:lang),
@@ -688,6 +969,8 @@ CHANNEL_FLAG=()
     ${CHANNEL_FLAG[@]+"${CHANNEL_FLAG[@]}"} --embed-release-notes -o "$OUT/appcast.xml" "$FEED"
 mkdir -p "$OUT/notes" && cp "$FEED/${MAC_ZIP%.zip}.fr.html" "$OUT/notes/"
 rm -rf "$FEED"
+xmllint --noout "$OUT/appcast.xml"
+python3 -I scripts/release-verifie.py fichiers "$OUT" "$VERSION" appcast.xml
 
 step "Flux cumulatif du site ($SITE_FEED)"
 # Le flux de cette version rejoint ceux déjà publiés (même version : la
@@ -716,7 +999,7 @@ elif [ "$MODE" = release ]; then
     fi
     echo "    commit $(git rev-parse --short HEAD) « $FEED_SUBJECT » (publié par le workflow Pages au push)"
 else
-    echo "    [essai] $SITE_FEED serait remplacé par ${OUT#"$ROOT"/}/appcast-site.xml, et $IMAGER_JSON par rpi-imager.json :"
+    echo "    [répétition] $SITE_FEED serait remplacé par ${OUT#"$ROOT"/}/appcast-site.xml, et $IMAGER_JSON par rpi-imager.json :"
     git --no-pager diff --no-index --stat -- "$SITE_FEED" "$OUT/appcast-site.xml" || true
     git --no-pager diff --no-index --stat -- "$IMAGER_JSON" "$OUT/rpi-imager.json" || true
     act git commit -m "$FEED_SUBJECT" -- "$SITE_FEED" "$NOTES_DIR" "$IMAGER_JSON"
@@ -728,35 +1011,34 @@ step "Empreintes et manifeste signé"
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk \
     KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz \
     ${STATION_LINUX[@]+"${STATION_LINUX[@]}"} > SHA256SUMS)
-cat "$OUT/SHA256SUMS"
-if [ -x scripts/sign-manifest.sh ]; then
-    scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
-    for f in kybernow-release.json kybernow-release.json.minisig; do
-        [ -s "$OUT/$f" ] || { echo "sign-manifest.sh n'a pas produit $f" >&2; false; }
-    done
-else
-    echo "    [essai] scripts/sign-manifest.sh absent : manifeste non produit"
-fi
+scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
+for f in kybernow-release.json kybernow-release.json.minisig; do
+    [ -s "$OUT/$f" ] || { echo "sign-manifest.sh n'a pas produit $f" >&2; false; }
+done
+python3 -I scripts/release-verifie.py manifeste "$OUT" "$VERSION" "$CHANNEL"
+minisign -Vm "$OUT/kybernow-release.json" -p server/admin/src/update/kybernow-release.pub > /dev/null
+echo "  ok   signature du manifeste (clé publique d'Admin)"
+FIN_S=$(( $(date +%s) - T0 ))
 
 # ---------------------------------------------------------------------------
 step "Release GitHub en brouillon"
 FILES=()
-for f in "${ASSETS[@]}" ${STATION_LINUX[@]+"${STATION_LINUX[@]}"}; do FILES+=("dist/$TAG/$f"); done
+for f in "${ASSETS[@]}" ${STATION_LINUX[@]+"${STATION_LINUX[@]}"}; do FILES+=("${OUT#"$ROOT"/}/$f"); done
 PRERELEASE=false
 [ "$BETA" = 1 ] && PRERELEASE=true
 if [ "$RELEASE_STATE" = draft ]; then
     act gh release upload "$TAG" -R "$REPO" --clobber "${FILES[@]}"
-    act gh release edit "$TAG" -R "$REPO" --title "KyberNow $VERSION" --notes-file "dist/$TAG/notes.md" --prerelease="$PRERELEASE"
+    act gh release edit "$TAG" -R "$REPO" --title "KyberNow $VERSION" --notes-file "${OUT#"$ROOT"/}/notes.md" --prerelease="$PRERELEASE"
 else
     # Pas de tag encore : GitHub le crée à la publication s'il n'existe pas ;
     # ici il existera (étape suivante), --target n'est qu'une valeur requise.
     act gh release create "$TAG" -R "$REPO" --draft --target main --title "KyberNow $VERSION" \
-        --notes-file "dist/$TAG/notes.md" --prerelease="$PRERELEASE" "${FILES[@]}"
+        --notes-file "${OUT#"$ROOT"/}/notes.md" --prerelease="$PRERELEASE" "${FILES[@]}"
 fi
 
 step "Tag $TAG et push"
 if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
-    echo "    tag $TAG déjà posé sur $(git rev-parse --short "$COMMIT")"
+    echo "    tag $TAG déjà posé sur $(git rev-parse --short "$(git rev-list -n 1 "$TAG")")"
 else
     act git tag -a "$TAG" -m "KyberNow $VERSION" "$COMMIT"
 fi
@@ -767,11 +1049,12 @@ step "Publication"
 LATEST=true
 [ "$BETA" = 1 ] && LATEST=false
 act gh release edit "$TAG" -R "$REPO" --draft=false --latest="$LATEST"
+resume
+rendre_verrous
 if [ "$MODE" = release ]; then
     gh release view "$TAG" -R "$REPO" --json isDraft,isPrerelease,url --jq '"\(.url) (brouillon : \(.isDraft), prerelease : \(.isPrerelease))"'
     echo "Publiée : https://github.com/$REPO/releases/tag/$TAG"
 else
     echo
-    echo "Essai terminé : fichiers dans ${OUT#"$ROOT"/} (app non notarisée), rien n'a été commité, poussé ni publié."
-    [ ${#PROBLEMS[@]} -eq 0 ] || { echo "${#PROBLEMS[@]} vérification(s) préalable(s) en échec (voir le début)." >&2; exit 1; }
+    echo "Répétition terminée : fichiers dans ${OUT#"$ROOT"/}$([ "$NOTARISER" = 1 ] && echo " (notarisés)"), rien n'a été commité, poussé ni publié."
 fi

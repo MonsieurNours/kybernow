@@ -40,7 +40,12 @@ vm_rosetta
 [ "$CHECK" = 1 ] && { echo "VM « $VM_NAME » prête ($VM_HOST, $REPO, vue au démarrage : $(vm_vue))"; exit 0; }
 
 ENV=""
-[ -n "${KYBERNOW_FLATPAK_WORK:-}" ] && ENV+="KYBERNOW_FLATPAK_WORK=$KYBERNOW_FLATPAK_WORK "
+if [ -n "${KYBERNOW_FLATPAK_WORK:-}" ]; then
+    ENV+="KYBERNOW_FLATPAK_WORK=$KYBERNOW_FLATPAK_WORK "
+    # Un dossier de travail neuf part du cache de flatpak-builder des
+    # constructions à la main (modules déjà compilés, repérés par leur empreinte).
+    vm "[ -d $KYBERNOW_FLATPAK_WORK ] || [ ! -d ~/.cache/kybernow-flatpak ] || cp -a ~/.cache/kybernow-flatpak $KYBERNOW_FLATPAK_WORK"
+fi
 [ -n "${KYBERNOW_KYBER_HEAD:-}" ] && ENV+="KYBERNOW_KYBER_HEAD=$KYBERNOW_KYBER_HEAD "
 
 for arch in aarch64 x86_64; do

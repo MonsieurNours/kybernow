@@ -59,6 +59,8 @@ fi
 cp "$ROOT/third_party/kyber-desktop/"COPYING* "$DEST/third_party/kyber-desktop/" 2>/dev/null || true
 "${R[@]}" "$ROOT/brand/v2/app-icon" "$DEST/brand/v2/"
 # Clé publique des versions signées (mises à jour, apps/core/src/update.rs).
-install -Dm644 "$ROOT/server/admin/src/update/kybernow-release.pub" "$DEST/server/admin/src/update/kybernow-release.pub"
+# (mkdir + cp plutôt qu'install -D, absent de macOS : release.sh vérifie cette copie sur le Mac.)
+mkdir -p "$DEST/server/admin/src/update"
+cp "$ROOT/server/admin/src/update/kybernow-release.pub" "$DEST/server/admin/src/update/kybernow-release.pub"
 cp "$ROOT/LICENSE"* "$DEST/" 2>/dev/null || true
 echo "sources dans $DEST ($(du -sh "$DEST" | cut -f1))"
