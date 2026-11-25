@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KyberNow · Technologie&#8239;: latence mesurée, QUIC, moteur Kyber et comparaison avec Sunshine et Moonlight</title>
-<meta name="description" content="Le trajet d'une image de votre PC à votre écran, avec 9,4&nbsp;ms de latence médiane mesurée sur un réseau local, le transport chiffré par QUIC, le moteur Kyber et la comparaison avec Sunshine et Moonlight.">
+<meta name="description" content="Le trajet d'une image de votre PC à votre écran, avec 9,4&nbsp;ms de latence médiane mesurée sur un réseau local, le transport chiffré par QUIC, le moteur Kyber, PyroWave pour le réseau local et la comparaison avec Sunshine et Moonlight.">
 <link rel="canonical" href="https://www.kybernow.app/technologie/">
 <meta name="theme-color" content="#05070A">
 <meta property="og:type" content="website">
@@ -12,7 +12,7 @@
 <meta property="og:locale" content="fr_FR">
 <meta property="og:locale:alternate" content="en_GB">
 <meta property="og:title" content="Comment fonctionne KyberNow&#8239;: latence, QUIC et moteur Kyber">
-<meta property="og:description" content="Le trajet d'une image de votre PC à votre écran, avec 9,4&nbsp;ms de latence médiane mesurée sur un réseau local, le transport chiffré par QUIC, le moteur Kyber et la comparaison avec Sunshine et Moonlight.">
+<meta property="og:description" content="Le trajet d'une image de votre PC à votre écran, avec 9,4&nbsp;ms de latence médiane mesurée sur un réseau local, le transport chiffré par QUIC, le moteur Kyber, PyroWave pour le réseau local et la comparaison avec Sunshine et Moonlight.">
 <meta property="og:url" content="https://www.kybernow.app/technologie/">
 <meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-fr.jpg">
 <meta property="og:image:type" content="image/jpeg">
@@ -21,7 +21,7 @@
 <meta property="og:image:alt" content="KyberNow&#8239;: votre PC sur tous vos écrans. Jouez et travaillez sur votre ordinateur depuis tous vos appareils, l'alternative libre et gratuite à Sunshine et Moonlight.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Comment fonctionne KyberNow&#8239;: latence, QUIC et moteur Kyber">
-<meta name="twitter:description" content="Le trajet d'une image de votre PC à votre écran, avec 9,4&nbsp;ms de latence médiane mesurée sur un réseau local, le transport chiffré par QUIC, le moteur Kyber et la comparaison avec Sunshine et Moonlight.">
+<meta name="twitter:description" content="Le trajet d'une image de votre PC à votre écran, avec 9,4&nbsp;ms de latence médiane mesurée sur un réseau local, le transport chiffré par QUIC, le moteur Kyber, PyroWave pour le réseau local et la comparaison avec Sunshine et Moonlight.">
 <meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-fr.jpg">
 <meta name="twitter:image:alt" content="KyberNow&#8239;: votre PC sur tous vos écrans. Jouez et travaillez sur votre ordinateur depuis tous vos appareils, l'alternative libre et gratuite à Sunshine et Moonlight.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -60,6 +60,7 @@
     <a href="/guide/">Guide</a>
   </nav>
   <div class="nav-actions">
+    <a class="nav-signin" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Se connecter</a>
     <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
     <a class="nav-lang" href="/en/technology/" hreflang="en" lang="en" data-set-lang="en">EN</a>
     <a class="btn btn-ghost btn-sm nav-dl" href="/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Télécharger</a>
@@ -78,6 +79,7 @@
     <a href="/#telecharger">Télécharger</a>
   </nav>
   <div class="menu-foot">
+    <a class="btn btn-ghost" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Se connecter</a>
     <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
     <a class="btn btn-ghost" href="/en/technology/" hreflang="en" lang="en" data-set-lang="en"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>English</a>
   </div>
@@ -95,7 +97,8 @@
       <li><a href="#quic"><span>02</span>QUIC</a></li>
       <li><a href="#kyber"><span>03</span>Kyber</a></li>
       <li><a href="#comparer"><span>04</span>Comparer</a></li>
-      <li><a href="#fonctions"><span>05</span>Les fonctions</a></li>
+      <li><a href="#pyrowave"><span>05</span>PyroWave</a></li>
+      <li><a href="#fonctions"><span>06</span>Les fonctions</a></li>
     </ul>
   </div>
 </section>
@@ -180,7 +183,7 @@
       <div class="col" data-reveal style="--d:.1s">
         <p class="mono-label">Ce qu'ajoute KyberNow</p>
         <ul class="ticks ticks-on">
-          <li>KyberNow Station&#8239;: l'installateur (moteur, écran virtuel, pilote de manettes, pare-feu), les réglages dans le navigateur avec KyberNow Admin, et les mises à jour</li>
+          <li>KyberNow Station&#8239;: l'installateur (moteur, écran virtuel, pilote de manettes, pare-feu), les réglages dans le navigateur avec KyberNow Admin, et les mises à jour&#8239;; une Station pour Linux, pour GNOME et KDE Plasma, est en préparation</li>
           <li>Un écran virtuel créé à chaque session, et le son basculé vers les haut-parleurs virtuels de Steam quand Steam est installé</li>
           <li>KyberNow Link&#8239;: des apps natives pour Mac, Windows, Apple TV, iPhone et iPad, Android et Android TV, téléviseurs LG, Linux, Steam Deck et Raspberry Pi (avec KyberNow Link OS), qui décodent et affichent l'image elles-mêmes, et une version web servie par la Station</li>
           <li>Des correctifs du moteur, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">publiés et décrits</a></li>
@@ -192,7 +195,7 @@
       <svg class="ic-lg"><use href="/assets/icons.svg#sparkle"/></svg>
       <div>
         <h3>Un projet communautaire, non commercial</h3>
-        <p>KyberNow est gratuit et libre, et tout son code est ouvert. Il ne demande ni compte en ligne ni abonnement, n'affiche aucune publicité et n'envoie aucune télémétrie. Il est développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>. KyberNow n'est pas affilié à Kyber&#8239;: il n'est ni édité, ni approuvé par son équipe.</p>
+        <p>KyberNow est gratuit et libre, et tout son code est ouvert. Il ne demande ni abonnement ni compte en ligne (le compte KyberNow est facultatif), n'affiche aucune publicité et n'envoie aucune télémétrie. Il est développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>. KyberNow n'est pas affilié à Kyber&#8239;: il n'est ni édité, ni approuvé par son équipe.</p>
         <p class="notice-links"><a href="https://kyber.tech" rel="noopener">Découvrir Kyber<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Voir le code source de KyberNow<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
       </div>
     </aside>
@@ -226,6 +229,22 @@
   </div>
 </section>
 
+<!-- 4 bis · PyroWave -->
+<section class="section" id="pyrowave" data-scene="rest-r">
+  <div class="wrap">
+    <p class="label" data-reveal>PyroWave</p>
+    <h2 class="title" data-split>Un format d'image <strong>pour le réseau de la maison.</strong></h2>
+    <p class="body-lg" data-reveal>Sur le trajet mesuré plus haut, la compression et la décompression prennent plus des trois quarts du temps. <a href="https://github.com/Themaister/pyrowave" rel="noopener">PyroWave</a>, un format d'image libre (licence MIT), les fait en une fraction de milliseconde, sur la carte graphique&#8239;: par Vulkan sur un PC, par Metal sur un Mac. En échange, il demande beaucoup de débit. C'est un format de plus, à côté de H.264, HEVC et AV1, à choisir dans «&#8239;Format vidéo&#8239;», et fait pour le réseau local, de préférence par câble.</p>
+    <div class="points">
+      <div class="point" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg><h3>Chaque image est indépendante</h3><p>PyroWave compresse chaque image seule, par ondelettes, sans s'appuyer sur la précédente. Une image perdue en route est simplement sautée&#8239;: il n'y a pas d'image complète à redemander.</p></div>
+      <div class="point" data-reveal style="--d:.08s"><svg class="ic-lg"><use href="/assets/icons.svg#plugs"/></svg><h3>Beaucoup de débit</h3><p>Environ 300&nbsp;Mbit/s en 1080p, cinq à dix fois plus que HEVC. En «&#8239;Auto&#8239;», l'app ne le prend que si votre appareil est relié par câble. Choisi à la main en Wi-Fi ou par le relais, il est accepté, avec un avertissement.</p></div>
+      <div class="point" data-reveal style="--d:.16s"><svg class="ic-lg"><use href="/assets/icons.svg#monitor"/></svg><h3>La définition plutôt que la netteté</h3><p>Si le débit ne suffit pas, l'app baisse la définition, puis la fréquence, mais jamais la netteté, et un bandeau vous dit à quelle définition l'image est ramenée.</p></div>
+      <div class="point" data-reveal style="--d:.24s"><svg class="ic-lg"><use href="/assets/icons.svg#wifi-high"/></svg><h3>«&#8239;Passer en HEVC&#8239;»</h3><p>Le débit automatique ne touche pas à PyroWave&#8239;: baisser son débit abîmerait toutes les images d'un coup. Si le réseau sature cinq secondes d'affilée, l'app vous propose plutôt de passer en HEVC, en un clic.</p></div>
+    </div>
+    <p class="footnote" data-reveal>Il faut une Station qui le propose&#8239;: un PC sous Windows avec une carte graphique qui gère Vulkan&nbsp;1.3, ou un Mac à puce Apple. Par défaut, Admin plafonne son débit d'après la prise réseau de l'ordinateur. Parmi les Raspberry Pi, seul le Pi&nbsp;5 le décode. En plein écran, l'app Mac allume le Mode Jeu de macOS, qui donne la priorité à la session, utile surtout avec PyroWave en 4K. PyroWave est tout neuf&#8239;: sur un Mac, la Station a compressé de vraies captures d'écran, décodées par l'app Mac, mais aucune session complète n'a encore été faite, et la Station Windows n'a pas encore été essayée sur un vrai PC.</p>
+  </div>
+</section>
+
 <!-- 5 · Fonctions -->
 <section class="section" id="fonctions" data-scene="rest-r">
   <div class="wrap">
@@ -245,6 +264,8 @@
       <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>Dans un navigateur</h3><p>La Station sert aussi une version web de Link. Ouvrez son adresse dans Chrome ou Edge, sur un ordinateur, une tablette ou un téléphone, au pavé tactile ou au doigt. Dans Safari, sur iPhone et dans Firefox, elle passe par WebSocket, avec un peu plus de latence. Le son y est en stéréo.</p></article>
       <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#sparkle"/></svg><h3>Le HDR</h3><p>La Station capture l'écran en 16&nbsp;bits flottants, le convertit en PQ BT.2020 sur la carte graphique et l'encode en HEVC Main&nbsp;10 ou en AV1 10&nbsp;bits, en 4:2:0. L'écran virtuel passe en HDR au début de la session (Windows 11 24H2), et la Station annonce aux jeux la luminosité de l'écran de votre appareil, pas celle d'un écran virtuel quelconque. Un Mac en Station fait de même avec VideoToolbox. Un invité sans écran HDR reçoit une image convertie en SDR.</p></article>
       <article class="card" data-reveal style="--d:.3s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Les mises à jour</h3><p>La Station se met à jour en un clic depuis Admin. Les apps Mac, Windows et Android se mettent à jour seules&#8239;; celles de Linux, du Raspberry Pi et des téléviseurs LG vous annoncent la nouvelle version. Sur l'Apple TV, l'iPhone et l'iPad, vous réinstallez l'app depuis un Mac. Chaque paquet est vérifié avant d'être installé.</p></article>
+      <article class="card" data-reveal style="--d:.35s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Le débit automatique</h3><p>Avec le débit «&#8239;Auto&#8239;», l'app surveille chaque seconde l'aller-retour sur le réseau, les paquets perdus et les trous de l'image. Après deux secondes chargées d'affilée, elle baisse le débit de 30&nbsp;%&#8239;; après quatre secondes propres, elle le remonte peu à peu. Un pic isolé ne change rien, un débit réglé à la main ne bouge jamais, et la Station change de débit sans figer l'image. Les Statistiques montrent le débit visé, par exemple «&#8239;42 / 60&nbsp;Mbit/s · baissé, réseau saturé&#8239;». Ses seuils viennent de nos calculs et de nos tests, pas encore d'un vrai réseau saturé. Pas encore dans le navigateur.</p></article>
+      <article class="card" data-reveal style="--d:.4s"><svg class="ic-lg"><use href="/assets/icons.svg#keyboard"/></svg><h3>Le mode immersif</h3><p>Dans les apps pour ordinateur, tout le clavier va à l'ordinateur, raccourcis du système compris&#8239;: ⌘&nbsp;⇥, ⌘ Espace et Mission Control sur un Mac, Alt+Tab et la touche ⊞ sur un PC. Seuls restent à l'appareil les raccourcis de l'app (⌃⌥⌘ ou Ctrl+Alt+Maj avec une lettre) et ce que le système ne laisse jamais prendre, comme Ctrl+Alt+Suppr. Il se règle pour chaque ordinateur&#8239;: en plein écran (par défaut), toujours ou jamais. Sur un Mac, il demande une fois l'autorisation Accessibilité.</p></article>
     </div>
 
     <div class="profiles" data-reveal>
@@ -272,7 +293,7 @@
   <div class="wrap">
     <p class="label" data-reveal>Pour commencer</p>
     <h2 class="title" data-split>Installer KyberNow <strong>en trois étapes.</strong></h2>
-    <p class="body-lg" data-reveal>Installez KyberNow Station sur l'ordinateur à partager, PC ou Mac, connectez votre appareil avec l'app KyberNow Link, puis lancez votre première session. Le guide décrit chaque étape, écran par écran. KyberNow est gratuit et ne demande aucun compte en ligne.</p>
+    <p class="body-lg" data-reveal>Installez KyberNow Station sur l'ordinateur à partager, PC ou Mac, connectez votre appareil avec l'app KyberNow Link, puis lancez votre première session. Le guide décrit chaque étape, écran par écran. KyberNow est gratuit, et aucun compte en ligne n'est obligatoire.</p>
     <div class="hero-cta" data-reveal><a class="btn kn-primary" href="/#telecharger">Télécharger</a><a class="btn btn-ghost" href="/guide/">Lire le guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></div>
   </div>
 </section>

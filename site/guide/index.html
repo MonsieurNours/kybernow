@@ -51,7 +51,7 @@
    "name": "KyberNow est-il vraiment gratuit ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé sans but commercial. Il n'y a ni abonnement ni publicité, et aucun compte en ligne à créer. Le code est sur GitHub."
+    "text": "Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé sans but commercial. Il n'y a ni abonnement ni publicité, et aucun compte en ligne n'est obligatoire. Le code est sur GitHub."
    }
   },
   {
@@ -136,10 +136,26 @@
   },
   {
    "@type": "Question",
+   "name": "Faut-il un compte KyberNow ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Non. Chez vous, l'app trouve l'ordinateur toute seule et vous l'ajoutez avec un code à six chiffres ; le partage et le prêt marchent aussi sans compte. Un compte KyberNow, facultatif, sert à retrouver vos ordinateurs sur tous vos appareils sans appairage, et à les ouvrir à votre famille ou à votre équipe. Vous le créez et vous vous connectez sur share.kybernow.app ; voir Votre compte KyberNow."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Qu'est-ce que PyroWave ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Un format d'image qui se compresse et se décompresse en une fraction de milliseconde, pour gagner encore du délai sur le réseau de la maison. Il demande beaucoup de débit, environ 300 Mbit/s en 1080p : en « Auto », l'app ne le prend que si votre appareil est relié par câble et que l'ordinateur le propose. Il est tout neuf et n'a pas encore été essayé dans une session complète. Voir Le format vidéo et PyroWave."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "KyberNow gère-t-il le HDR ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Oui, sur Mac, iPhone, iPad, Apple TV et téléviseurs LG. Sur un écran HDR, une puce « HDR » apparaît sur la carte de l'ordinateur, allumée d'office, et les jeux arrivent avec leurs couleurs et leurs lumières. Sur le PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10 bits."
+    "text": "Oui, sur Mac, iPhone, iPad, Apple TV et téléviseurs LG. Sur un écran HDR, une puce « HDR » apparaît sur la carte de l'ordinateur, allumée d'office, et les jeux arrivent avec leurs couleurs et leurs lumières. Sur le PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10 bits. Voir Le HDR."
    }
   },
   {
@@ -259,7 +275,7 @@
    "name": "KyberNow Station fonctionne-t-elle sur un Mac ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Oui, sur un Mac à puce Apple sous macOS 15 ou plus récent. Le Mac devient une Station comme un PC Windows : même Admin, écran virtuel à la taille de chaque appareil, sortie son, partage, prêt et HDR."
+    "text": "Oui, sur un Mac à puce Apple sous macOS 15 ou plus récent. Le Mac devient une Station comme un PC Windows : même Admin, écran virtuel à la taille de chaque appareil, sortie son, partage, prêt et HDR. Voir Sur un Mac."
    }
   },
   {
@@ -267,7 +283,7 @@
    "name": "Puis-je prêter mon ordinateur à un ami ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Oui : avec un code pour une séance, ou un compte que vous lui créez dans Admin, votre ami joue ou travaille depuis son appareil pendant que vous ne vous servez pas de l'ordinateur, avec les apps que vous permettez."
+    "text": "Oui : avec un code pour une séance, ou un compte que vous lui créez dans Admin, votre ami joue ou travaille depuis son appareil pendant que vous ne vous servez pas de l'ordinateur, avec les apps que vous permettez. Voir Prêter votre ordinateur."
    }
   },
   {
@@ -275,7 +291,7 @@
    "name": "Puis-je jouer à ma PlayStation avec KyberNow ?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Oui. Une PS5 ou une PS4 de la maison apparaît à l'accueil de KyberNow Link, à côté de vos ordinateurs ; vous l'associez une fois avec le code qu'elle affiche, puis « Jouer »."
+    "text": "Oui. Une PS5 ou une PS4 de la maison apparaît à l'accueil de KyberNow Link, à côté de vos ordinateurs ; vous l'associez une fois avec le code qu'elle affiche, puis « Jouer ». Voir Jouer à votre PlayStation."
    }
   },
   {
@@ -306,6 +322,7 @@
     <a href="/guide/">Guide</a>
   </nav>
   <div class="nav-actions">
+    <a class="nav-signin" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Se connecter</a>
     <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
     <a class="nav-lang" href="/en/guide/" hreflang="en" lang="en" data-set-lang="en">EN</a>
     <a class="btn btn-ghost btn-sm nav-dl" href="/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Télécharger</a>
@@ -324,6 +341,7 @@
     <a href="/#telecharger">Télécharger</a>
   </nav>
   <div class="menu-foot">
+    <a class="btn btn-ghost" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Se connecter</a>
     <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
     <a class="btn btn-ghost" href="/en/guide/" hreflang="en" lang="en" data-set-lang="en"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>English</a>
   </div>
@@ -354,6 +372,7 @@
     <a href="#playstation">Jouer à votre PlayStation</a>
     <a href="#partage">Partager avec quelqu'un</a>
     <a href="#pret">Prêter votre ordinateur</a>
+    <a href="#compte">Votre compte KyberNow</a>
     <a href="#distance">Hors de chez vous</a>
     <a href="#relais">Installer votre propre relais</a>
     <a href="#mises-a-jour">Mettre à jour</a>
@@ -375,6 +394,7 @@
             <li>Microsoft Edge WebView2, déjà présent sur Windows 11 et la plupart des Windows 10. S'il manque, l'installateur vous le dit et ouvre la page de Microsoft pour le télécharger</li>
             <li>Sur le PC, Steam, pour que le son parte vers vos appareils. Sans Steam, le son sort aussi des haut-parleurs du PC. Sur un Mac, rien à ajouter&#8239;: la Station installe sa propre sortie son</li>
             <li>Pour le HDR, Windows 11 24H2 et une carte graphique qui encode en 10&nbsp;bits (HEVC ou AV1)&#8239;; sur un Mac, la puce Apple suffit</li>
+            <li>Bientôt, un ordinateur sous Linux&#8239;: la Station pour Linux (GNOME et KDE Plasma) est en préparation et ne se télécharge pas encore</li>
           </ul>
         </div>
         <div class="req-card">
@@ -410,7 +430,7 @@
         </li>
         <li>
           <h3>Votre compte</h3>
-          <p>Choisissez un identifiant et un mot de passe d'au moins 10&nbsp;caractères. Ce compte reste sur le PC&#8239;: il n'y a aucun compte en ligne à créer. Il vous sert à ouvrir Admin et à connecter vos appareils&#8239;; vous pourrez créer d'autres comptes dans Admin, espace Utilisateurs. Le mot de passe n'est pas gardé en clair&#8239;: la Station n'en garde qu'une empreinte, qui sert à le vérifier.</p>
+          <p>Choisissez un identifiant et un mot de passe d'au moins 10&nbsp;caractères. Ce compte reste sur le PC&#8239;: aucun compte en ligne n'est obligatoire. Il vous sert à ouvrir Admin et à connecter vos appareils&#8239;; vous pourrez créer d'autres comptes dans Admin, espace Utilisateurs. Le mot de passe n'est pas gardé en clair&#8239;: la Station n'en garde qu'une empreinte, qui sert à le vérifier.</p>
           <p>Si la Station est déjà installée, cet écran commence par une question. «&#8239;Conserver mes réglages&#8239;» ne remplace que les programmes et les pilotes&#8239;: vos appareils restent connectés. «&#8239;Repartir de zéro&#8239;» crée un nouveau compte, et il faudra reconnecter chaque appareil.</p>
         </li>
         <li>
@@ -421,6 +441,7 @@
         <li>
           <h3>Installation</h3>
           <p>Elle prend moins d'une minute. L'installateur ouvre aussi le pare-feu de Windows, pour votre réseau privé seulement&#8239;: les deux ports, et celui qui permet à vos appareils de trouver le PC tout seuls (5353). L'écran de fin affiche l'adresse du PC, un QR code pour ouvrir Admin sur votre téléphone, et l'adresse à ouvrir dans un navigateur pour utiliser le PC sans app. Si les manettes l'exigent, «&#8239;Redémarrer maintenant&#8239;» redémarre le PC&#8239;: elles ne fonctionneront qu'après.</p>
+          <p>Depuis la version&nbsp;0.11, l'installateur propose aussi, pendant l'installation, de rattacher le PC à votre compte («&#8239;Pendant ce temps&#8239;: votre compte KyberNow&#8239;»)&#8239;; c'est facultatif, et «&#8239;Plus tard&#8239;» passe cet écran. Voir <a href="#compte">Votre compte KyberNow</a>.</p>
         </li>
       </ol>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>La première fois que vous ouvrez Admin, le navigateur affiche un avertissement de sécurité. C'est normal&#8239;: la Station chiffre la connexion avec un certificat qu'elle a créé elle-même, et que le navigateur ne connaît pas. Acceptez-le pour continuer. Les apps KyberNow Link, elles, reconnaissent ce certificat à son empreinte.</span></p>
@@ -667,6 +688,18 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <h3 class="sub" id="hdr">Le HDR</h3>
       <p>Sur un écran HDR (l'écran XDR d'un Mac, un iPhone, un iPad, une télé HDR derrière l'Apple TV, un téléviseur LG), une puce «&#8239;HDR&#8239;» apparaît sur la carte de l'ordinateur, à côté du profil. Elle est allumée d'office, l'app retient votre choix pour chaque ordinateur, et en session «&#8239;HDR&#8239;» se coche et se décoche dans la barre. Les jeux et Windows en HDR arrivent tels quels&#8239;: l'ordinateur passe son écran virtuel en HDR au début de la session et le remet comme avant à la fin, rien à régler dessus. Tous les profils passent en HDR, en 4:2:0&#8239;: le texte net (4:4:4) revient quand vous éteignez le HDR. Sur un PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10&nbsp;bits (HEVC ou AV1)&#8239;; un Mac en Station passe en HDR de la même façon. Quand le HDR n'est pas possible, la puce dit pourquoi.</p>
       <p>L'ordinateur et les jeux connaissent la luminosité de votre écran, pas celle d'un écran virtuel quelconque. Pour régler votre écran à l'œil, comme sur une console, l'écran «&#8239;Réglage du HDR&#8239;» des Réglages de l'app propose quatre mires&#8239;; sur un téléviseur, passez-le en mode Jeu avec le HGIG. Un invité du partage sans écran HDR, ou dans un navigateur, reçoit une image convertie en SDR. Les statistiques de la session disent «&#8239;HDR&#8239;» quand il est transmis.</p>
+      <h3 class="sub" id="format">Le format vidéo et PyroWave</h3>
+      <p>Dans les réglages de l'ordinateur, «&#8239;Format vidéo&#8239;» propose Auto, HEVC, H.264, AV1 et PyroWave, ce dernier seulement quand l'ordinateur le propose et que votre appareil sait le décoder. PyroWave est un format d'image qui se compresse et se décompresse en une fraction de milliseconde, mais qui demande beaucoup de débit, environ 300&nbsp;Mbit/s en 1080p. En «&#8239;Auto&#8239;», l'app le prend quand votre appareil est relié par câble, et HEVC sinon. Vous pouvez aussi le choisir à la main&#8239;: en Wi-Fi ou hors de chez vous, l'app vous prévient que l'image risque de saccader, et un bandeau propose «&#8239;Passer en HEVC&#8239;» au début de la session.</p>
+      <p>Si le débit ne suffit pas, l'app baisse la définition plutôt que la netteté, et un bandeau vous le dit. Si le réseau sature, elle vous propose de passer en HEVC. Avec PyroWave, le texte net (4:4:4) ne coûte presque que du débit. Il faut une Station Windows ou Mac qui le propose&#8239;; dans un navigateur, «&#8239;Auto&#8239;» ne le prend jamais, et parmi les Raspberry Pi, seul le Pi&nbsp;5 le décode.</p>
+      <p class="muted">PyroWave est tout neuf&#8239;: il n'a pas encore été essayé dans une session complète, ni sur un vrai PC en Station.</p>
+      <h3 class="sub" id="debit">Le débit</h3>
+      <p>Le débit, c'est la quantité de données d'image envoyée chaque seconde. En «&#8239;Auto&#8239;», l'app part du débit du profil, le baisse quand le réseau sature (un Wi-Fi chargé, une connexion partagée), puis le remonte dès que tout va mieux&#8239;; un pic passager ne change rien. Un débit choisi à la main reste tel quel. Les Statistiques (un clic sur les mesures de la barre de session, ou le raccourci avec <kbd>S</kbd>) montrent le débit visé et la raison, par exemple «&#8239;42 / 60&nbsp;Mbit/s · baissé, réseau saturé&#8239;», avec son trait sur la courbe du débit. Avec PyroWave, le débit automatique se met en pause. Il n'est pas encore dans le navigateur.</p>
+      <h3 class="sub" id="immersif">Le mode immersif</h3>
+      <p>Dans les apps Mac, Windows et Linux, le mode immersif envoie tout le clavier à l'ordinateur, raccourcis du système compris&#8239;: <kbd>⌘</kbd><kbd>⇥</kbd>, <kbd>⌘</kbd> Espace et Mission Control sur le Mac, <kbd>Alt</kbd><kbd>Tab</kbd> et la touche <kbd>⊞</kbd> sous Windows et Linux. Il se règle pour chaque ordinateur, dans ses réglages, rubrique Commandes, «&#8239;Mode immersif&#8239;»&#8239;: «&#8239;En plein écran&#8239;» (par défaut), «&#8239;Toujours&#8239;» (aussi dans une fenêtre) ou «&#8239;Jamais&#8239;». Les raccourcis de l'app, <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> ou <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd> avec une lettre, restent à l'app, et <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> reste au système.</p>
+      <p>Sur le Mac, la première fois, macOS demande l'autorisation Accessibilité pour KyberNow Link&#8239;; sans elle, rien ne change. En mode immersif, face à un PC, <kbd>⌘</kbd> devient la touche <kbd>⊞</kbd> et <kbd>Ctrl</kbd> reste <kbd>Ctrl</kbd>.</p>
+      <h3 class="sub" id="stylet">Le stylet</h3>
+      <p>Le stylet d'une tablette graphique branchée sur votre appareil, l'Apple Pencil d'un iPad ou le stylet d'un appareil Android arrive sur l'ordinateur comme un vrai stylet&#8239;: la pression, l'inclinaison, la gomme et le bouton du stylet. Rien à régler&#8239;: il faut une Station Windows ou Mac à jour, et les apps Mac, Windows, Linux, iPad ou Android. Une Station plus ancienne le reçoit comme une souris, et un invité du partage l'a quand vous lui donnez le clavier et la souris. Pas encore dans le navigateur.</p>
+      <p class="muted">Le stylet n'a pas encore été essayé avec une vraie tablette graphique ni un vrai stylet.</p>
       <h3 class="sub">Raccourcis de l'app Mac</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
@@ -675,14 +708,14 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd></span><span>Mesures détaillées&#8239;: trajet d'une image, latence, débit, pertes</span></div>
         <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>Tenus ensemble&#8239;: la manette pilote la barre de session</span></div>
       </div>
-      <p class="muted">Les raccourcis <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> restent sur le Mac et ne partent jamais vers le PC. <kbd>⌘</kbd> + touche est envoyé comme <kbd>Ctrl</kbd> + touche (réglable).</p>
+      <p class="muted">Les raccourcis <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> restent sur le Mac et ne partent jamais vers le PC. <kbd>⌘</kbd> + touche est envoyé comme <kbd>Ctrl</kbd> + touche (réglable), sauf en <a href="#immersif">mode immersif</a>. En plein écran, l'app allume le Mode Jeu de macOS, qui donne la priorité à la session&#8239;; pour le couper, l'icône manette de la barre des menus, «&#8239;Désactiver le Mode Jeu&#8239;».</p>
       <h3 class="sub">Raccourcis de l'app Windows</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>F</kbd></span><span>Plein écran ou fenêtre</span></div>
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
       </div>
-      <p class="muted">La barre de session apparaît quand le pointeur touche le haut de l'écran. En plein écran, les raccourcis de Windows partent vers le PC, la touche <kbd>⊞</kbd> et <kbd>Alt</kbd><kbd>Tab</kbd> compris&#8239;; le menu Touches de la barre envoie <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> et les autres combinaisons que Windows garde pour lui. Face à une Station Mac, il propose les combinaisons du Mac (<kbd>⌘</kbd><kbd>⇥</kbd>, <kbd>⌘</kbd> Espace…) et l'option «&#8239;Ctrl agit comme ⌘&#8239;».</p>
+      <p class="muted">La barre de session apparaît quand le pointeur touche le haut de l'écran. En plein écran, le <a href="#immersif">mode immersif</a> envoie les raccourcis de Windows vers le PC, la touche <kbd>⊞</kbd> et <kbd>Alt</kbd><kbd>Tab</kbd> compris&#8239;; le menu Touches de la barre envoie <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> et les autres combinaisons que Windows garde pour lui. Face à une Station Mac, il propose les combinaisons du Mac (<kbd>⌘</kbd><kbd>⇥</kbd>, <kbd>⌘</kbd> Espace…) et l'option «&#8239;Ctrl agit comme ⌘&#8239;».</p>
       <h3 class="sub">Raccourcis de l'app Linux</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
@@ -690,7 +723,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
         <div class="tr"><span class="th"><kbd>Échap</kbd> tenu une seconde</span><span>Libère la souris d'un jeu</span></div>
       </div>
-      <p class="muted">Sur le bureau, la barre de session apparaît quand le pointeur approche du haut de l'écran&#8239;: latence, définition, images par seconde, décodeur, profil, touches, souris, plein écran, Quitter. En plein écran, l'app prend tout le clavier&#8239;: <kbd>Alt</kbd><kbd>Tab</kbd> et la touche Super partent vers le PC.</p>
+      <p class="muted">Sur le bureau, la barre de session apparaît quand le pointeur approche du haut de l'écran&#8239;: latence, définition, images par seconde, décodeur, profil, touches, souris, plein écran, Quitter. En plein écran, le <a href="#immersif">mode immersif</a> prend tout le clavier&#8239;: <kbd>Alt</kbd><kbd>Tab</kbd> et la touche Super partent vers le PC. <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>S</kbd> ouvre les statistiques détaillées, comme un clic sur les mesures de la barre.</p>
       <h3 class="sub">Sur l'Apple TV</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Retour</kbd></span><span>Ouvre le menu de session&#8239;: santé du flux, manettes, son, télécommande en souris, manette en souris, saisie de texte, déconnexion</span></div>
@@ -803,6 +836,45 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>Vos fichiers sont protégés au mieux, pas de façon étanche&#8239;: un jeu ou une app permise peut lire votre disque. Prêtez l'ordinateur à des personnes de confiance.</span></p>
     </section>
 
+    <section id="compte" class="doc-section">
+      <h2>Votre compte KyberNow</h2>
+      <p>Le compte KyberNow est facultatif&#8239;: chez vous, l'appairage par code, le partage et le prêt marchent sans lui. Il sert à retrouver vos ordinateurs sur tous vos appareils sans les ajouter un à un, et à les ouvrir à votre famille ou à votre équipe, chacun avec ses droits. Il fait partie de la version&nbsp;0.11&#8239;: mettez à jour la Station et vos apps pour l'avoir (voir <a href="#mises-a-jour">Mettre à jour</a>).</p>
+      <h3 class="sub">Créer votre compte et vous connecter</h3>
+      <ol class="steps-doc">
+        <li><p>Ouvrez <a href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener">share.kybernow.app</a> et choisissez «&#8239;Créer un compte&#8239;»&#8239;: votre adresse e-mail et un mot de passe, puis le code reçu par e-mail. Un tour d'accueil vous propose ensuite d'ajouter une passkey ou la double authentification, de rattacher votre ordinateur et de l'ouvrir à vos proches.</p></li>
+        <li><p><b>Rattachez votre ordinateur</b>&#8239;: dans Admin, <b>Compte KyberNow › Se connecter</b>, ou pendant l'installation de la Station, à l'écran facultatif «&#8239;Pendant ce temps&#8239;: votre compte KyberNow&#8239;». Seul Admin peut rattacher un ordinateur&#8239;: personne ne rattache celui d'un autre.</p></li>
+        <li><p><b>Connectez vos appareils</b>&#8239;: dans l'app KyberNow Link, «&#8239;Se connecter à un compte KyberNow&#8239;», sur l'accueil ou dans les réglages de l'app. La page de connexion s'ouvre dans une fenêtre du système. Sur l'Apple TV, un téléviseur ou au salon, un code et un QR code s'affichent&#8239;: approuvez-les depuis votre téléphone. Vos ordinateurs apparaissent sur l'accueil, sans appairage.</p></li>
+      </ol>
+      <h3 class="sub">Ouvrir votre ordinateur à quelqu'un</h3>
+      <p>Sur la page de votre compte, ouvrez l'ordinateur, puis «&#8239;Ajouter une personne&#8239;»&#8239;: son adresse e-mail, ses droits et, si vous voulez, une date de fin. Elle reçoit un e-mail&#8239;; si elle n'a pas de compte, le lien lui propose d'en créer un. En tapant l'adresse, les personnes que vous connaissez déjà vous sont proposées. Une invitation en attente expire après 30&nbsp;jours&#8239;: «&#8239;Renvoyer l'invitation&#8239;» la relance pour 30&nbsp;jours.</p>
+      <div class="table">
+        <div class="tr"><span class="th">Regarder</span><span>Voir l'écran de l'ordinateur, sans clavier, souris ni manette.</span></div>
+        <div class="tr"><span class="th">Ouvrir le bureau</span><span>Se connecter à l'ordinateur et l'utiliser comme vous, de n'importe où.</span></div>
+        <div class="tr"><span class="th">Emprunter pour jouer</span><span>Jouer aux apps permises dans Admin, page Prêt, quand l'ordinateur est libre (voir <a href="#pret">Prêter votre ordinateur</a>).</span></div>
+        <div class="tr"><span class="th">Rejoindre vos partages</span><span>Entrer dans un partage que vous ouvrez, sans code et sans attendre votre accord. Vous la voyez et pouvez la retirer, comme tout invité.</span></div>
+        <div class="tr"><span class="th">Administrer</span><span>Gérer les accès, redémarrer et mettre à jour la Station, ouvrir Admin. La double authentification est exigée.</span></div>
+      </div>
+      <h3 class="sub" id="regarder">Regarder</h3>
+      <p>Une personne qui a le droit «&#8239;Regarder&#8239;» voit «&#8239;Regarder&#8239;» sur la carte de l'ordinateur (dans son menu, si elle peut aussi ouvrir le bureau). Elle voit le vrai écran de l'ordinateur, tel quel&#8239;: rien ne change pour vous, aucun écran virtuel n'est créé. Elle entre comme un invité spectateur dans le partage ouvert, ou dans un partage que la Station ouvre pour elle et referme quand elle part. Avec plusieurs écrans, sa barre propose «&#8239;Écran&#8239;» pour passer de l'un à l'autre.</p>
+      <p>Vous le savez&#8239;: Admin affiche «&#8239;Léa regarde votre écran&#8239;», et le panneau du partage la montre avec «&#8239;Retirer&#8239;». Vous pouvez aussi lui donner les manettes ou le clavier, comme à tout invité. Regarder est refusé pendant un prêt, quand le partage est coupé dans Admin, et avec une Station trop ancienne, qu'il faut mettre à jour.</p>
+      <h3 class="sub" id="liens">Les liens d'accès</h3>
+      <p>Pour ouvrir l'ordinateur à quelqu'un dont vous n'avez pas l'adresse&#8239;: sur la page de l'ordinateur, «&#8239;Liens d'accès&#8239;», choisissez les droits, la durée pendant laquelle le lien sert (1, 7 ou 30&nbsp;jours) et, si vous voulez, une date de fin de l'accès. Le lien n'est montré qu'une fois&#8239;: «&#8239;Copier le lien&#8239;», puis envoyez-le à une seule personne. Elle l'ouvre, se connecte ou crée son compte, puis «&#8239;Accepter&#8239;». Le lien ne sert qu'une fois&#8239;; «&#8239;Révoquer&#8239;» l'annule tant qu'il n'a pas servi. Un accès déjà donné se retire dans «&#8239;Qui y a accès&#8239;». Dix liens en attente au plus par ordinateur.</p>
+      <h3 class="sub">Familles et équipes</h3>
+      <p>Dans «&#8239;Familles et équipes&#8239;», créez une famille (la maison) ou une équipe (un atelier, une entreprise)&#8239;: les mêmes droits, avec des mots différents. Invitez ses membres, chacun avec un rôle (Propriétaire, Administrateur ou Membre), et réunissez-les en groupes. Ouvrez un ordinateur à toute la famille ou l'équipe, à un groupe, ou à une personne. Le journal note qui a ouvert quoi, quand et d'où, et chaque changement de droits. Les propriétaires et les administrateurs doivent avoir la double authentification.</p>
+      <p><b>Groupes d'ordinateurs</b>&#8239;: dans l'onglet Ordinateurs, rangez des ordinateurs dans un groupe («&#8239;Postes de l'atelier&#8239;»), puis ouvrez le groupe d'un coup. Les droits valent pour tous ses ordinateurs, y compris ceux que vous ajouterez ensuite&#8239;; sur la page d'un ordinateur, ils apparaissent «&#8239;Par le groupe…&#8239;» et se changent sur le groupe.</p>
+      <p><b>Déployer</b> (équipes)&#8239;: l'onglet «&#8239;Déployer&#8239;» donne un jeton d'enrôlement, pour une durée et un nombre de Stations choisis, qui peut ranger d'office les ordinateurs dans un groupe. L'installateur Windows le prend en ligne de commande, sans écran&#8239;:</p>
+      <pre><code>KyberNow-Station-Setup.exe /quiet /enroll=&lt;jeton&gt; /relay=&lt;relais&gt;</code></pre>
+      <h3 class="sub">Ouvrir Admin depuis votre compte</h3>
+      <p>Si vous administrez un ordinateur, «&#8239;Ouvrir Admin&#8239;» est sur sa page et sur sa carte&#8239;: confirmez avec une passkey, et Admin s'ouvre déjà connecté. Chez vous, il passe par le réseau. Pour l'ouvrir de n'importe où, allumez d'abord «&#8239;Admin à distance&#8239;» dans Admin, section «&#8239;Hors de chez vous&#8239;»&#8239;: il est coupé au départ, demande «&#8239;Accès hors de chez vous&#8239;», et ne s'allume que sur place. À chaque ouverture à distance, l'ordinateur l'annonce, le journal le note, et la session se ferme après 30&nbsp;minutes sans activité. Par cette voie, le relais voit ce qui passe, comme pour un invité dans le navigateur.</p>
+      <p class="muted">Ouvrir Admin depuis le compte est tout neuf&#8239;: il n'a pas encore été essayé sur une vraie Station.</p>
+      <h3 class="sub">Vos réglages vous suivent</h3>
+      <p>Le profil, le format vidéo, le débit, le texte net, le HDR et le mode immersif de chaque ordinateur du compte passent d'un appareil à l'autre. L'écran, le son, les manettes et les raccourcis restent propres à chaque appareil. Pour les garder sur un appareil, éteignez «&#8239;Synchroniser les réglages des ordinateurs&#8239;» dans les réglages de l'app, section Comptes (allumé au départ).</p>
+      <h3 class="sub">Déplacer un ordinateur</h3>
+      <p>Sur la page de l'ordinateur, «&#8239;Déplacer…&#8239;»&#8239;: vers vous, ou vers une famille ou une équipe que vous gérez. Un aperçu, «&#8239;Ce qui change&#8239;», montre qui perd l'accès, les groupes que l'ordinateur quitte et les liens en attente annulés. Cochez «&#8239;Garder les accès donnés à des personnes&#8239;» pour garder les droits donnés une par une. Il faut être propriétaire ou administrateur des deux côtés, avec la double authentification.</p>
+      <h3 class="sub">Sécurité</h3>
+      <p>Le jeton qu'un appareil présente pour ouvrir un ordinateur vaut deux minutes, et l'app le renouvelle d'elle-même. Un appareil qui ne sert pas pendant 90&nbsp;jours est déconnecté de votre compte&#8239;: reconnectez-vous. La liste de vos appareils, dans «&#8239;Compte et sécurité&#8239;», dit quand chacun a servi.</p>
+    </section>
+
     <section id="distance" class="doc-section">
       <h2>Hors de chez vous</h2>
       <p>Chez vous, l'image va directement de votre PC à votre appareil, sans passer par un serveur. Hors de chez vous, à l'hôtel ou chez des amis, vos appareils retrouvent le PC par le relais de KyberNow, ou par un VPN. Dans les deux cas, le PC doit rester allumé.</p>
@@ -823,7 +895,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <li><p>Installez le même VPN sur le PC et sur l'appareil, connectés au même compte ou au même réseau.</p></li>
         <li><p>Par VPN, le PC n'apparaît pas tout seul dans l'app. Ajoutez-le «&#8239;Par adresse&#8239;», avec son adresse dans le VPN (par exemple <code>100.x.y.z</code> avec Tailscale) et le port d'Admin, puis donnez-lui accès comme chez vous. Sur l'Apple TV, l'iPhone et l'iPad, le code à l'écran ne passe pas par le VPN&#8239;: entrez votre compte.</p></li>
       </ol>
-      <p>Dans les deux cas, choisissez le profil Jeu ou Bureau&#8239;: le débit du profil Max est prévu pour un réseau local. Si l'image saccade, baissez le débit dans les réglages de l'ordinateur, dans l'app&#8239;: il doit rester sous le débit montant de votre connexion, ce que votre box peut envoyer. Avec un forfait mobile, comptez environ 9&nbsp;Go par heure de session à 20&nbsp;Mbit/s.</p>
+      <p>Dans les deux cas, choisissez le profil Jeu ou Bureau&#8239;: le débit du profil Max est prévu pour un réseau local. En débit «&#8239;Auto&#8239;», l'app le baisse d'elle-même quand le réseau sature. Si vous l'avez réglé à la main et que l'image saccade, baissez-le dans les réglages de l'ordinateur, dans l'app&#8239;: il doit rester sous le débit montant de votre connexion, ce que votre box peut envoyer. Avec un forfait mobile, comptez environ 9&nbsp;Go par heure de session à 20&nbsp;Mbit/s.</p>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>N'ouvrez pas les ports de KyberNow sur Internet depuis votre box (une «&#8239;redirection de ports&#8239;»)&#8239;: ni le relais ni un VPN n'en ont besoin, et votre PC reste invisible pour le reste d'Internet.</span></p>
     </section>
 
@@ -851,7 +923,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
 
     <section id="mises-a-jour" class="doc-section">
       <h2>Mettre à jour</h2>
-      <p><b>La Station</b>&#8239;: Admin cherche une nouvelle version toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» la télécharge, vérifie qu'elle vient bien de KyberNow et l'installe en une minute environ&#8239;; une session en cours est coupée. Si la nouvelle version ne démarre pas correctement, la Station revient d'elle-même à la précédente, et «&#8239;Revenir à la version précédente&#8239;» le fait aussi à la demande. L'icône près de l'horloge propose aussi la mise à jour. Sur un Mac, c'est pareil, depuis Admin ou l'icône de la barre des menus.</p>
+      <p><b>La Station</b>&#8239;: Admin cherche une nouvelle version toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» la télécharge, vérifie qu'elle vient bien de KyberNow et l'installe en une minute environ&#8239;; une session en cours est coupée. Si la nouvelle version ne démarre pas correctement, la Station revient d'elle-même à la précédente, et «&#8239;Revenir à la version précédente&#8239;» le fait aussi à la demande. L'icône près de l'horloge propose aussi la mise à jour. Sur un Mac, c'est pareil, depuis Admin ou l'icône de la barre des menus. Pour recevoir aussi les bêtas, choisissez le canal «&#8239;Bêta&#8239;» dans <b>Système › Mises à jour</b>.</p>
       <p><b>L'app Mac</b>&#8239;: elle cherche une nouvelle version chaque jour, la télécharge et l'installe elle-même. Pour recevoir aussi les bêtas, cochez «&#8239;Recevoir les versions bêta&#8239;» dans ses réglages (KyberNow Link › Réglages…). Pour chercher tout de suite&#8239;: <b>KyberNow Link › Rechercher des mises à jour…</b></p>
       <p><b>L'app Windows</b>&#8239;: elle cherche une nouvelle version au lancement, puis toutes les 6&nbsp;heures, et vous la propose&#8239;: «&#8239;Installer et relancer&#8239;» l'installe et rouvre l'app, jamais pendant une session. Ses réglages (la roue dentée de la barre de titre) proposent aussi les bêtas.</p>
       <p><b>Les apps Apple TV, iPhone et iPad</b>&#8239;: elles se réinstallent depuis le Mac. Dans le dossier <code>kybernow</code>, faites <code>git pull</code>, effacez les bibliothèques téléchargées par le script (<code>rm -rf apps/tvos/Vendor</code> pour l'Apple TV, <code>rm -rf apps/ios/Vendor</code> pour l'iPhone et l'iPad), puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
@@ -880,7 +952,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
     <section id="faq" class="doc-section">
       <h2>Questions fréquentes</h2>
       <div class="faq">
-        <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé sans but commercial. Il n'y a ni abonnement ni publicité, et aucun compte en ligne à créer. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
+        <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé sans but commercial. Il n'y a ni abonnement ni publicité, et aucun compte en ligne n'est obligatoire. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
         <details><summary>Pourquoi KyberNow est-il en bêta&#8239;?</summary><p>KyberNow n'a pas encore atteint la version&nbsp;1.0. Nous l'utilisons déjà tous les jours, mais il reste des défauts, et des réglages ou des fonctions peuvent encore changer d'une version à l'autre. Certaines apps n'ont pas encore tourné sur du vrai matériel&#8239;: celles du Steam Deck et du Raspberry Pi, et l'app Linux, essayée seulement en machine virtuelle. Les fonctions les plus récentes, le HDR et les consoles PlayStation, ont moins de recul que les autres. Gardez la Station et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
         <details><summary>KyberNow peut-il remplacer Sunshine et Moonlight&#8239;?</summary><p>Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre PC sur vos autres appareils, pour jouer ou pour travailler, dans une app ou dans le navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream. L'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils se connectent quand vous acceptez leur code dans Admin, sans rien recopier. Le détail est dans la <a href="/technologie/#comparer">comparaison</a>.</p></details>
         <details><summary>KyberNow, est-ce du cloud gaming&#8239;?</summary><p>Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre&#8239;: vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans abonnement ni file d'attente. Chez vous, l'image va directement de votre PC à votre appareil, sans passer par un serveur&#8239;; hors de chez vous, elle peut passer par un relais, qui ne peut pas la lire dans les apps. Voir <a href="#distance">Hors de chez vous</a>.</p></details>
@@ -891,6 +963,8 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
         <details><summary>Faut-il une carte graphique particulière&#8239;?</summary><p>Non. Le PC compresse l'image avec n'importe quelle carte graphique NVIDIA, AMD ou Intel, même externe (eGPU). Sans carte graphique, le processeur s'en charge. Seul le format AV1 demande une carte NVIDIA RTX 40 ou 50. L'encodeur se change dans KyberNow Admin, Système › Avancé.</p></details>
         <details><summary>Quelles définitions et fréquences d'image sont possibles&#8239;?</summary><p>Celles de votre écran&#8239;: à chaque session, le PC crée un écran virtuel à la définition et à la fréquence de votre appareil. Le plus haut que nous ayons vérifié&#8239;: 3840&nbsp;×&nbsp;2160 (la 4K) à 160&nbsp;Hz. Certains appareils ont leur propre plafond&#8239;: 4K à 60&nbsp;Hz sur l'Apple TV, la NVIDIA Shield et le Raspberry Pi, 4K à 120&nbsp;Hz sur les téléviseurs LG. En H.264, l'image fait au plus 4096&nbsp;pixels de large. Si le réseau ou la carte graphique peinent, l'option «&#8239;Au plus 4K&#8239;» des apps Mac, Windows, iPhone et iPad allège le flux.</p></details>
         <details><summary>Quelle latence attendre&#8239;?</summary><p>Sur un réseau local, nous avons mesuré 9,4&nbsp;ms entre la capture de l'image sur le PC et son affichage sur l'appareil, avec le moteur Kyber. C'est une médiane&#8239;: la moitié des images arrivent plus vite. Avec l'écran virtuel de KyberNow en 4K à 160&nbsp;Hz, 8,3&nbsp;ms&#8239;; avec l'app Windows, environ 10&nbsp;ms. Chez vous, la latence dépend surtout de la carte graphique, du réseau et de l'appareil&#8239;; l'app l'affiche en direct pendant la session.</p></details>
+        <details><summary>Faut-il un compte KyberNow&#8239;?</summary><p>Non. Chez vous, l'app trouve l'ordinateur toute seule et vous l'ajoutez avec un code à six chiffres&#8239;; le partage et le prêt marchent aussi sans compte. Un compte KyberNow, facultatif, sert à retrouver vos ordinateurs sur tous vos appareils sans appairage, et à les ouvrir à votre famille ou à votre équipe. Vous le créez et vous vous <a href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener">connectez</a> sur share.kybernow.app&#8239;; voir <a href="#compte">Votre compte KyberNow</a>.</p></details>
+        <details><summary>Qu'est-ce que PyroWave&#8239;?</summary><p>Un format d'image qui se compresse et se décompresse en une fraction de milliseconde, pour gagner encore du délai sur le réseau de la maison. Il demande beaucoup de débit, environ 300&nbsp;Mbit/s en 1080p&#8239;: en «&#8239;Auto&#8239;», l'app ne le prend que si votre appareil est relié par câble et que l'ordinateur le propose. Il est tout neuf et n'a pas encore été essayé dans une session complète. Voir <a href="#format">Le format vidéo et PyroWave</a>.</p></details>
         <details><summary>KyberNow gère-t-il le HDR&#8239;?</summary><p>Oui, sur Mac, iPhone, iPad, Apple TV et téléviseurs LG. Sur un écran HDR, une puce «&#8239;HDR&#8239;» apparaît sur la carte de l'ordinateur, allumée d'office, et les jeux arrivent avec leurs couleurs et leurs lumières. Sur le PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10&nbsp;bits. Voir <a href="#hdr">Le HDR</a>.</p></details>
         <details><summary>Mes écrans s'éteignent pendant la session, c'est normal&#8239;?</summary><p>Oui. Pendant la session, le PC n'affiche que l'écran virtuel, à la taille de votre appareil, et éteint ses propres écrans. Ils se rallument à la fin. Si l'app se coupe sans prévenir, la Station attend 20&nbsp;secondes, puis retire l'écran virtuel et rallume vos écrans. Au besoin, Admin a un bouton «&#8239;Rallumer mes écrans&#8239;», dans Image et son.</p></details>
         <details><summary>Pourquoi le son sort-il encore des haut-parleurs du PC&#8239;?</summary><p>Pour envoyer le son vers vos appareils, la Station se sert des haut-parleurs virtuels de Steam. Installez Steam sur le PC, puis relancez l'installateur de KyberNow Station et choisissez «&#8239;Conserver mes réglages&#8239;»&#8239;: l'option «&#8239;Son à distance&#8239;» devient disponible, et vos appareils restent connectés.</p></details>
