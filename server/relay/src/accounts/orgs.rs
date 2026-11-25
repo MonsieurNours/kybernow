@@ -169,10 +169,38 @@ pub struct Org {
     pub public_id: String,
     pub name: String,
     pub created_at: i64,
+    /// Famille ou équipe : les mêmes droits, d'autres mots (docs/comptes.md, « L'espace du compte »).
+    pub kind: Kind,
+}
+
+/// Le genre d'une organisation, choisi à sa création.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// Pour la maison : pas de jetons d'enrôlement.
+    Family,
+    /// Pour un atelier, une association, une entreprise.
+    Team,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Family => "family",
+            Kind::Team => "team",
+        }
+    }
+
+    /// `family` ou `famille` ; tout le reste : une équipe.
+    pub fn parse(s: &str) -> Kind {
+        match s {
+            "family" | "famille" => Kind::Family,
+            _ => Kind::Team,
+        }
+    }
 }
 
 fn org_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Org> {
-    Ok(Org { id: r.get(0)?, public_id: r.get(1)?, name: r.get(2)?, created_at: r.get(3)? })
+    Ok(Org { id: r.get(0)?, public_id: r.get(1)?, name: r.get(2)?, created_at: r.get(3)?, kind: Kind::parse(&r.get::<_, String>(4)?) })
 }
 
 /// Un membre.
@@ -299,20 +327,20 @@ pub(super) fn before_account_deleted(conn: &Connection, account: i64) -> Result<
     Ok(())
 }
 
-const ORG_COLS: &str = "id, public_id, name, created_at";
+const ORG_COLS: &str = "id, public_id, name, created_at, kind";
 
 impl Store {
     // --- Organisations et membres ---------------------------------------------
 
     /// Crée une organisation ; son créateur en est le Propriétaire.
-    pub fn create_org(&self, name: &str, owner: i64, now: i64) -> Result<Org> {
+    pub fn create_org(&self, name: &str, kind: Kind, owner: i64, now: i64) -> Result<Org> {
         let public_id = format!("org_{}", base32_lower(&random::<10>()));
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute("INSERT INTO organizations (public_id, name, created_at) VALUES (?1, ?2, ?3)", params![public_id, name, now])?;
+        tx.execute("INSERT INTO organizations (public_id, name, created_at, kind) VALUES (?1, ?2, ?3, ?4)", params![public_id, name, now, kind.as_str()])?;
         let id = tx.last_insert_rowid();
         tx.execute("INSERT INTO org_members (org, account, role, joined_at) VALUES (?1, ?2, 'owner', ?3)", params![id, owner, now])?;
         tx.commit()?;
-        Ok(Org { id, public_id, name: name.into(), created_at: now })
+        Ok(Org { id, public_id, name: name.into(), created_at: now, kind })
     }
 
     pub fn org(&self, id: i64) -> Result<Option<Org>> {
@@ -326,10 +354,10 @@ impl Store {
     /// Les organisations d'un compte et son rôle, par nom.
     pub fn orgs_of(&self, account: i64) -> Result<Vec<(Org, Role)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT o.id, o.public_id, o.name, o.created_at, m.role FROM organizations o JOIN org_members m ON m.org = o.id
+            "SELECT o.id, o.public_id, o.name, o.created_at, o.kind, m.role FROM organizations o JOIN org_members m ON m.org = o.id
              WHERE m.account = ?1 ORDER BY o.name COLLATE NOCASE, o.id",
         )?;
-        let rows = stmt.query_map([account], |r| Ok((org_row(r)?, r.get::<_, String>(4)?)))?;
+        let rows = stmt.query_map([account], |r| Ok((org_row(r)?, r.get::<_, String>(5)?)))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().filter_map(|(o, r)| Some((o, Role::parse(&r)?))).collect())
     }
 
@@ -705,7 +733,7 @@ mod tests {
         let s = Store::memory(0).unwrap();
         let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
         let b = s.create_account("b@exemple.org", "B", "h", "fr", Some(0), 0).unwrap().unwrap();
-        let org = s.create_org("Les Lignes Claires", a, 10).unwrap();
+        let org = s.create_org("Les Lignes Claires", Kind::Team, a, 10).unwrap();
         assert!(org.public_id.starts_with("org_"));
         assert_eq!(s.org_role(org.id, a).unwrap(), Some(Role::Owner));
         s.set_member(org.id, b, Role::Member, 20).unwrap();
@@ -735,7 +763,7 @@ mod tests {
     fn invitations_reprises_et_compte_efface() {
         let s = Store::memory(0).unwrap();
         let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
-        let org = s.create_org("Org", a, 10).unwrap();
+        let org = s.create_org("Org", Kind::Team, a, 10).unwrap();
         s.invite_member(org.id, "c@exemple.org", Role::Admin, a, 20).unwrap();
         assert_eq!(s.org_invites(org.id).unwrap().len(), 1);
         let c = s.create_account("c@exemple.org", "C", "h", "fr", Some(30), 30).unwrap().unwrap();
@@ -757,7 +785,7 @@ mod tests {
     fn jetons_d_enrolement() {
         let s = Store::memory(0).unwrap();
         let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
-        let org = s.create_org("Org", a, 10).unwrap();
+        let org = s.create_org("Org", Kind::Team, a, 10).unwrap();
         let token = new_enroll_token();
         assert!(token.starts_with("kne_") && token.len() == 36);
         let id = s.create_enroll_token(org.id, "Postes", &token_hash(&token), &token[..9], 2, None, &Rights::default(), a, 10, 100).unwrap();

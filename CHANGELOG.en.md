@@ -4,6 +4,16 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Next version
+
+<!-- Rename to “## X.Y.Z” when publishing (scripts/release.sh looks for that exact heading). -->
+
+- **An account space that's easier to get to grips with.** On your KyberNow account's page, a menu on the left stays in place from one page to the next: your computers, the people you open them to, your families and teams, your account. A welcome tour guides you step by step (protect your account, attach your computer, open it to your loved ones), and a “Getting started” card shows what's left to do.
+- **Families and teams.** You create a family (home, the kids) or a team (a studio, a company): the same rights, clearer words, and a diagram that explains groups. Rights are now called “Open the desktop”, “Borrow to play”, “Join your shares” and “Administer”, each with an example.
+- **Immersive mode (Mac, PC, Linux).** The whole keyboard goes to the computer, system shortcuts included: ⌘ ⇥, ⌘ Space and Mission Control on Mac, Alt+Tab and the ⊞ key on PC and Linux. In the computer's settings, Controls section, “Immersive mode”: “In full screen” (default), “Always” (in a window too) or “Never”. The app's shortcuts (⌃⌥⌘ + letter, Ctrl+Alt+Shift + letter) stay with the app. On Mac, the mode asks once for the Accessibility permission, and ⌘ becomes the ⊞ key there with a PC.
+- **Linux: a computer's settings close again.** The “› {name}” link at the top of the window takes you back to the home screen again (the click used to move the window).
+- **Linux: the session bar in a window.** It opens more easily when the session is not full screen, and a click on its measures opens the detailed statistics, as on Mac and PC. Ctrl+Alt+Shift+S opens them too.
+
 ## 0.10.0
 
 KyberNow accounts beta. It is only offered to Stations and apps set to receive beta versions.

@@ -119,6 +119,20 @@ Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and
 - **Controller as mouse** (living-room apps, phones and tablets that have it: A click, L1 / R1 to go from one window to another, Start the ⊞ key): with a Mac, L1 / R1 hold ⌘ instead of Alt (⇧ ⌘ ⇥ / ⌘ ⇥, ⌘ released a moment after the last press, like Alt), and Start sends “⌘ Space” (Spotlight) instead of ⊞ alone.
 - **Apple apps** (Mac, iPhone and iPad, Apple TV): ⌘ goes as ⌘ with a Mac (the ⊞ key for Kyber, which the Mac receives as ⌘); the setting “⌘ key sent as Ctrl” (Mac) / “⌘ sent as Ctrl” (iPhone, iPad) is not shown with a Mac Station and does not apply there; what is kept for PCs does not change. No “Ctrl acts as ⌘”: an Apple keyboard has its ⌘ key.
 
+**Immersive mode** / « Mode immersif » (Mac, Windows and Linux apps): the whole keyboard goes to the computer, system shortcuts included: ⌘ ⇥, ⌘ Space, ⌘ Q, ⌃ ← → and Mission Control on Mac; Alt+Tab, the ⊞ key, Ctrl+Esc and Alt+Esc on Windows and Linux. Only the app's shortcuts (⌃⌥⌘ + letter on Mac, Ctrl+Alt+Shift + letter on Windows and Linux) and what the system never lets go (Ctrl+Alt+Del, ⌥⌘Esc) stay on the device. Computer setting, Controls section, kept for each computer:
+
+| Element | Français | English |
+|---|---|---|
+| Setting | « Mode immersif » : « En plein écran » (default), « Toujours », « Jamais » | “Immersive mode”: “In full screen”, “Always”, “Never” |
+| Help (Windows, Linux) | « Alt+Tab, la touche ⊞ et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app. » (Linux, whose font lacks the ⊞ sign, writes “the Windows key”, as its “Keys” menu does) | “Alt+Tab, the ⊞ key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.” |
+| Help (Mac) | « ⌘ ⇥, ⌘ Espace et les autres raccourcis du Mac vont à l'ordinateur, et ⌘ y devient la touche ⊞. ⌃⌥⌘ + lettre reste à l'app. »; with a Mac Station: « ⌘ ⇥, ⌘ Espace et les autres raccourcis vont à l'ordinateur. ⌃⌥⌘ + lettre reste à l'app. » | “⌘ ⇥, ⌘ Space and the Mac's other shortcuts go to the computer, and ⌘ becomes the ⊞ key there. ⌃⌥⌘ + letter stays with the app.”; with a Mac Station: “⌘ ⇥, ⌘ Space and the other shortcuts go to the computer. ⌃⌥⌘ + letter stays with the app.” |
+| Missing permission (Mac), under the setting | « Autorisez KyberNow Link dans Réglages Système › Confidentialité et sécurité › Accessibilité. » and the button « Ouvrir les réglages » | “Allow KyberNow Link in System Settings › Privacy & Security › Accessibility.”; “Open Settings” |
+
+- **When**: the session's window is in front and its picture has the keyboard (not a menu, panel or field of the bar). “In full screen”: its window is full screen (with several displays, always: the windows are); “Always”: in a window too; “Never”: the system's shortcuts stay on the device, even in full screen. A change applies at once, in session too. You leave it by leaving full screen (shortcut F) or by moving to another window with the mouse.
+- **No immersive mode** for a guest without the keyboard and mouse (Alt+Tab goes back to the system when the host takes them back), nor for a game on a PlayStation console (the keyboard stands in for a controller there).
+- **Mac**: the Mac only lets an app allowed in Accessibility take its shortcuts. The first time the mode should turn on, the app asks for it (system window); while the permission is missing, nothing changes (as with “Never”) and the setting says so. In immersive mode, with a PC, ⌘ goes as the ⊞ key and Ctrl stays Ctrl: “⌘ key sent as Ctrl” does not apply there, and comes back when the mode turns off (held keys are released on the way). With a Mac Station, ⌘ already goes as ⌘.
+- **Windows, Linux**: “In full screen” is the rule from before this setting (the keyboard was only taken in full screen).
+
 **Controllers unavailable**: a Station may not be able to create controllers (a Mac Station until Apple grants its entitlement, see `docs/station-macos.en.md`). It says so in `gamepads` of `GET /api/stream/info`: `{ "available": false, "reason": "entitlement" }`; absent (older Stations): available. The core reads it (`Info::gamepads_available`), the app keeps it for each computer. Controllers still drive the app (bar, menus, Start + Select + L1 + R1 combination); the computer does not see them.
 
 | Element | Français | English |
@@ -397,7 +411,7 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 | Code, relay | “Relay: {relay}”; “Another relay…”; “Back” | « Relais : {relais} » ; « Un autre relais… » ; « Retour » |
 | Code declined on the phone | “Sign-in declined on the phone.”, and “New code” | « Connexion refusée sur le téléphone. », et « Nouveau code » |
 | Another relay | title “Another relay”; field “Relay” (e.g. `relais.exemple.org:9443`), help “Your account's relay address, if it isn't share.kybernow.app.”; “Continue”, “Cancel”; refusals: “Unreadable relay address.”, “This relay has no KyberNow accounts.”, “The relay is not answering.” | « Un autre relais » ; « Relais », aide « L'adresse du relais de votre compte, si ce n'est pas share.kybernow.app. » ; « Continuer », « Annuler » ; « Adresse du relais illisible. », « Ce relais n'a pas de comptes KyberNow. », « Le relais ne répond pas. » |
-| Origin badge (computer cards and list, only when an account is signed in) | “Account”; with accounts on several relays: “Account · {relay}”; an organization's computer: its name (“Les Lignes Claires”); opened by someone else: “Opened by {name}”; paired on this device: “Paired” | « Compte » ; « Compte · {relais} » ; le nom de l'organisation ; « Ouvert par {prénom} » ; « Appairé » |
+| Origin badge (computer cards and list, only when an account is signed in) | “Account”; with accounts on several relays: “Account · {relay}”; a family's or team's computer: its name (“Les Lignes Claires”); opened by someone else: “Opened by {name}”; paired on this device: “Paired” | « Compte » ; « Compte · {relais} » ; le nom de la famille ou de l'équipe ; « Ouvert par {prénom} » ; « Appairé » |
 | One computer once | a computer both paired and on an account (same Admin fingerprint, or same Station at the relay) shows only once: the paired one, with the account's badge; a computer on two accounts, once | un ordinateur une seule fois |
 | Account computer, state | like the others: “Online”, “Offline”, “Away from home”; “Connect” opens the session without pairing, on the network if it is there, otherwise through the relay | comme les autres |
 | Account computer, refusal | “This computer is no longer on your account.” (it leaves the home screen); otherwise: Admin's text (accounts turned off, device blocked, missing right) | « Cet ordinateur n'est plus sur votre compte. » |
@@ -471,6 +485,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Son | Sound | Auto; Stéréo / Stereo; 5.1; 7.1; Sur l'ordinateur / On the computer |
 | Manette vue par l'ordinateur | Controller seen by the computer | Xbox 360; Fidèle / As is |
 | Souris | Mouse | Auto; Souris du bureau / Desktop mouse; Souris des jeux / Game mouse |
+| Mode immersif | Immersive mode | En plein écran / In full screen; Toujours / Always; Jamais / Never (see “Immersive mode”) |
 | Ctrl agit comme ⌘ | Ctrl acts as ⌘ | only with a Mac Station, on by default (see “With a Mac Station”) |
 | Presse-papiers partagé | Shared clipboard | |
 | Vibrations | Rumble | |

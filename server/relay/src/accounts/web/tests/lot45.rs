@@ -13,7 +13,7 @@ use super::*;
 fn person(w: &World, email: &str, name: &str, ip: &str) -> Browser {
     w.acc.add_verified(email, name, PASSWORD).unwrap();
     let mut b = w.browser_at(ip);
-    assert_eq!(location(&b.sign_in(email, PASSWORD)), "/compte?lang=fr");
+    assert_eq!(location(&b.sign_in(email, PASSWORD)), "/compte/ordinateurs?lang=fr");
     b
 }
 
@@ -67,7 +67,7 @@ fn ajouter_des_personnes_droits_echeance_et_retrait() {
     assert!(text.contains("Personne ajoutée") && text.contains("Léa Martin") && text.contains("jusqu&#39;au 30/11/2026"), "{text}");
     let mail = w.mail("lea@exemple.org");
     assert_eq!(mail.subject, "Ana vous ouvre PC du salon");
-    assert!(mail.text.contains("Session, Partage, Administrer, jusqu'au 30/11/2026") && mail.text.contains("https://share.test/compte/ordinateurs?lang=fr"));
+    assert!(mail.text.contains("Ouvrir le bureau, Rejoindre vos partages, Administrer, jusqu'au 30/11/2026") && mail.text.contains("https://share.test/compte/ordinateurs?lang=fr"));
     // Ses ordinateurs : celui d'Ana, sans Administrer tant qu'elle n'a pas la double authentification.
     let list = computers(&w, &lea);
     assert_eq!(list[0]["station"], st.as_str());
@@ -87,10 +87,11 @@ fn ajouter_des_personnes_droits_echeance_et_retrait() {
     // Léa voit « Ordinateurs » : celui d'Ana, ouvert pour elle ; ses droits, et l'avis pour Administrer.
     let mut lea_b = w.browser_at("192.0.2.11");
     lea_b.sign_in("lea@exemple.org", PASSWORD);
+    lea_b.post("/compte/bienvenue?lang=fr", &[]);
     let page = lea_b.get("/compte/ordinateurs?lang=fr");
     assert!(html(&page).contains("Ouverts pour vous") && html(&page).contains("de Ana"));
     let page = lea_b.get(&format!("/compte/ordinateur?id={st}&lang=fr"));
-    assert!(html(&page).contains("Vos droits sur cet ordinateur") && html(&page).contains("ne compte qu'avec la double authentification"));
+    assert!(html(&page).contains("Ce que vous pouvez y faire") && html(&page).contains("ne compte qu'avec la double authentification"));
     assert!(!html(&page).contains("Ajouter une personne"), "sans Administrer effectif, elle ne gère pas");
     assert_eq!(lea_b.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "x@exemple.org"), ("session", "1")]).status, 404);
     // Avec la double authentification, Administrer compte, et elle gère les accès.
@@ -131,7 +132,7 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     assert!(html(&r).contains("Activez d'abord la double authentification"));
     with_totp(&w, &mut ana, "ana@exemple.org");
     let r = ana.post("/compte/organisations/creer?lang=fr", &[("nom", "Les Lignes Claires")]);
-    assert!(html(&r).contains("Organisation créée") && html(&r).contains("vous êtes Propriétaire"));
+    assert!(html(&r).contains("vous en êtes propriétaire") && html(&r).contains("Vous êtes propriétaire"));
     let org = w.acc.db().orgs_of(1).unwrap()[0].0.clone();
     let id = org.public_id.clone();
     // Inviter : Hugo a un compte (membre tout de suite), Paul non (invitation en attente).
@@ -159,6 +160,12 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     assert!(html(&page).contains(&format!(r#"name="proprietaire" value="{id}""#)) && html(&page).contains("Les Lignes Claires"));
     let r = ana.post("/compte/rattacher?lang=fr", &[("code", &code), ("action", "rattacher"), ("proprietaire", &id)]);
     assert!(html(&r).contains("rattaché à l'organisation Les Lignes Claires"));
+    // « Personnes » : l'ordinateur de l'équipe, qu'Ana gère, a son bouton « Ajouter une personne ».
+    let page = ana.get("/compte/personnes?lang=fr");
+    assert!(html(&page).contains("#ajouter") && html(&page).contains("Ajouter une personne") && !html(&page).contains("rattachez-le d'abord"));
+    // Groupes : le panneau de chaque groupe, et ses formulaires qui y reviennent.
+    let page = ana.get(&format!("/compte/organisation?id={id}&vue=groupes&lang=fr"));
+    assert!(html(&page).contains("id=\"groupe-") && html(&page).contains("/compte/organisation/groupes/membre?lang=fr#groupe-"));
     let Some((_, Msg::Attached(a))) = link.last() else { panic!("attached attendu") };
     assert_eq!((a.owner.kind.as_str(), a.owner.id.as_str(), a.owner.email.as_deref()), ("organization", id.as_str(), None));
     let row = w.acc.db().station(&st).unwrap().unwrap();
@@ -186,7 +193,7 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     assert!(html(&page).contains("Hugo a ouvert Station de rendu (iPad de Hugo)"));
     // Hugo, membre, ne gère pas : ni journal, ni invitation, ni page des jetons.
     let page = hugo_b.get(&format!("/compte/organisation?id={id}&lang=fr"));
-    assert!(html(&page).contains("vous êtes Membre") && !html(&page).contains("Inviter un membre"));
+    assert!(html(&page).contains("Vous êtes membre") && !html(&page).contains("Inviter un membre"));
     let r = hugo_b.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", "x@exemple.org"), ("role", "member")]);
     assert!(html(&r).contains("Vous ne pouvez pas faire cela ici"));
     // Hugo devient Administrateur, mais sans double authentification il ne gère pas encore.
@@ -201,20 +208,21 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     let r = hugo_b.post("/compte/organisation/role?lang=fr", &[("id", &id), ("compte", "1"), ("role", "member")]);
     assert!(html(&r).contains("Vous ne pouvez pas faire cela ici"));
     let r = ana.post("/compte/organisation/role?lang=fr", &[("id", &id), ("compte", "1"), ("role", "member")]);
-    assert!(html(&r).contains("au moins un Propriétaire"));
+    assert!(html(&r).contains("au moins un propriétaire"));
     let r = ana.post("/compte/organisation/quitter?lang=fr", &[("id", &id)]);
-    assert!(html(&r).contains("au moins un Propriétaire"));
+    assert!(html(&r).contains("au moins un propriétaire"));
     // Paul s'inscrit : il devient membre.
     let mut paul = w.browser_at("192.0.2.14");
     paul.post("/compte/inscription?lang=fr", &[("name", "Paul"), ("email", "paul@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
     let code: String = between(&w.mail("paul@exemple.org").text, "    ", "\n").chars().filter(char::is_ascii_digit).collect();
     paul.post("/compte/verifier?lang=fr", &[("action", "code"), ("code", &code)]);
-    assert!(html(&paul.get(&format!("/compte/organisation?id={id}&lang=fr"))).contains("vous êtes Membre"));
+    assert!(html(&paul.get(&format!("/compte/organisation?id={id}&lang=fr"))).contains("Vous êtes membre"));
     // Retirer Hugo : il perd tout.
     let r = ana.post("/compte/organisation/retirer?lang=fr", &[("id", &id), ("compte", &hugo_id.to_string())]);
     assert!(html(&r).contains("Membre retiré"));
     assert_eq!(computers(&w, &hugo), json!([]));
     // « Ordinateurs » d'Ana : la section de l'organisation.
+    ana.post("/compte/bienvenue?lang=fr", &[]);
     let page = ana.get("/compte/ordinateurs?lang=fr");
     assert!(html(&page).contains("Les Lignes Claires") && html(&page).contains("Station de rendu"));
     // Détacher depuis la console : la Station le sait, le journal aussi.
@@ -241,7 +249,7 @@ fn ouvrir_un_ordinateur_personnel_a_une_organisation() {
     assert_eq!(computers(&w, &ines), json!([]));
     // Le PC d'Ana, ouvert à toute l'organisation : Prêt.
     let page = ana.get(&format!("/compte/ordinateur?id={st}&lang=fr"));
-    assert!(html(&page).contains("Ouvrir à une organisation") && html(&page).contains("Atelier (toute l&#39;organisation)"));
+    assert!(html(&page).contains("Ouvrir à une famille ou une équipe") && html(&page).contains("Atelier (toute l&#39;équipe)"));
     let r = ana.post("/compte/ordinateur/ouvrir?lang=fr", &[("id", &st), ("a", &org.public_id), ("lend", "1")]);
     assert!(html(&r).contains("Accès enregistré"));
     let list = computers(&w, &ines);

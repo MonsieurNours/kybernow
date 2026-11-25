@@ -30,6 +30,7 @@
 		34174074C7B9723074D7C2A1 /* PlayStationCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = B052E9C30B09D3F009C6FA94 /* PlayStationCloud.swift */; };
 		356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */; };
 		370A9BD7A97EA14272994F45 /* pyrowave_common.mm in Sources */ = {isa = PBXBuildFile; fileRef = CEBC4D26AFB6E26FEC77B803 /* pyrowave_common.mm */; };
+		3BA2E40FFEADC133A529652D /* Immersive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202BCC5AA54DDA89D34041F1 /* Immersive.swift */; };
 		3C1112D1427766C796C08621 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */; };
 		40FCBB71B3EDC857AD1AB68C /* SharePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5C11D7DB21D2ED25AAAC45 /* SharePanel.swift */; };
 		449C629E0CD8B9E1C4F77532 /* PyroWaveDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9959EAF050CC646C3E4D4F5E /* PyroWaveDecoder.swift */; };
@@ -131,6 +132,7 @@
 		189BCD69D071C000182BA243 /* LendCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendCore.swift; sourceTree = "<group>"; };
 		1B18D524B92EC557D60FED25 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
+		202BCC5AA54DDA89D34041F1 /* Immersive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Immersive.swift; sourceTree = "<group>"; };
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		299561D683D5C9CF287F4E73 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
 		2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
@@ -252,6 +254,7 @@
 				89E04E220C974B33C3998C25 /* HDRCalibrationView.swift */,
 				94C101B09449F09428C0AF60 /* HomeView.swift */,
 				1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */,
+				202BCC5AA54DDA89D34041F1 /* Immersive.swift */,
 				80362106CECC77FF3DAFF939 /* Info.plist */,
 				045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */,
 				6A261A80C419110D4817F09A /* JoinFlow.swift */,
@@ -499,6 +502,7 @@
 				E918DDDF875BCF67DB6E4B84 /* HDRCalibrationView.swift in Sources */,
 				4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */,
 				AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */,
+				3BA2E40FFEADC133A529652D /* Immersive.swift in Sources */,
 				0D7DB35F67816B86E07B4330 /* JoinFlow.swift in Sources */,
 				9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */,
 				75227C866A6518982A77082E /* Lend.swift in Sources */,

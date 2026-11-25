@@ -46,6 +46,9 @@ pub struct Settings {
     /// « Ctrl agit comme ⌘ », face à une Station Mac seulement ; `None` :
     /// jamais changé, allumé (`keymap::control_as_command` du cœur).
     pub ctrl_command: Option<bool>,
+    /// Mode immersif (docs/link-ui.md) : `fullscreen` (Alt+Tab, la touche ⊞… vont à l'ordinateur en plein
+    /// écran, la règle d'avant ce réglage), `always` (aussi dans une fenêtre) ou `never`.
+    pub immersive: String,
     /// `auto`, `2`, `6`, `8` ou `0` (son laissé sur l'ordinateur).
     pub audio: String,
     pub virtual_display: bool,
@@ -85,6 +88,7 @@ impl Default for Settings {
             gamepad: "xbox360".into(),
             clipboard: true,
             ctrl_command: None,
+            immersive: "fullscreen".into(),
             audio: "auto".into(),
             virtual_display: true,
             battery: "alleger".into(),

@@ -35,6 +35,8 @@ private struct SettingsContent: View {
     @State private var confirmRemove = false
     /// Ce Mac est relié par câble (Ethernet) : « Auto » et PyroWave.
     @State private var wired = NetworkLink.shared.wired
+    /// Mode immersif : l'app a l'autorisation Accessibilité (relue au retour au premier plan).
+    @State private var immersiveTrusted = ImmersiveKeyboard.trusted
 
     private var info: HostInfo? { status?.info }
     private var s: ConnectionSettings { host.settings }
@@ -472,6 +474,40 @@ private struct SettingsContent: View {
         }
     }
 
+    /// « Mode immersif » (docs/link-ui.md).
+    private var immersiveRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Mode immersif").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+            Segmented(
+                options: ImmersiveChoice.allCases.map { ($0, $0.label) },
+                selection: Binding(get: { s.immersive }, set: { c in
+                    if let c {
+                        update { $0.immersive = c }
+                        ImmersiveKeyboard.shared.check()
+                    }
+                }),
+                height: 30,
+                fill: true
+            )
+            Text(host.isMac
+                 ? String(localized: "⌘ ⇥, ⌘ Espace et les autres raccourcis vont à l'ordinateur. ⌃⌥⌘ + lettre reste à l'app.")
+                 : String(localized: "⌘ ⇥, ⌘ Espace et les autres raccourcis du Mac vont à l'ordinateur, et ⌘ y devient la touche ⊞. ⌃⌥⌘ + lettre reste à l'app."))
+                .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            if s.immersive != .never, !immersiveTrusted {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Autorisez KyberNow Link dans Réglages Système › Confidentialité et sécurité › Accessibilité.")
+                        .font(Theme.sans(12)).foregroundStyle(Theme.warnText).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(String(localized: "Ouvrir les réglages")) { ImmersiveKeyboard.openSettings() }
+                        .buttonStyle(GhostButton(height: 30))
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            immersiveTrusted = ImmersiveKeyboard.trusted
+        }
+    }
+
     private var can444: Bool { ConnectionSettings.decodes444(s.codec) }
 
     /// La puce « HDR » de cet ordinateur sur l'écran de cette fenêtre.
@@ -622,6 +658,7 @@ private struct SettingsContent: View {
                               String(localized: "⌘C, ⌘V et les autres raccourcis du Mac font Ctrl+C, Ctrl+V sur l'ordinateur."),
                               isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }))
                 }
+                immersiveRow
                 toggleRow(String(localized: "Presse-papiers partagé"),
                           String(localized: "Le texte copié sur ce Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Admin peut l'interdire dans un sens ou dans l'autre."),
                           isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }))

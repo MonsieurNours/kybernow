@@ -36,6 +36,8 @@ export type Settings = {
   clipboard: boolean
   /** « Ctrl agit comme ⌘ », face à une Station Mac ; `null` ou absent : jamais changé, allumé. */
   ctrl_command?: boolean | null
+  /** « Mode immersif » (docs/link-ui.md) ; absent des fichiers d'avant : en plein écran. */
+  immersive?: 'fullscreen' | 'always' | 'never'
   audio: 'auto' | '2' | '6' | '8' | '0'
   virtual_display: boolean
   /** Repris par les réglages de l'app (`AppInfo.battery`) ; gardé pour l'aller-retour. */

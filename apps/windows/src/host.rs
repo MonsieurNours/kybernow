@@ -229,6 +229,8 @@ pub struct HostOptions {
     /// « Ctrl agit comme ⌘ » au départ (face à une Station Mac,
     /// `keymap::control_as_command`) ; ensuite [`SessionHost::set_control_as_command`].
     pub control_as_command: bool,
+    /// « Mode immersif » au départ (`fullscreen`, `always`, `never`) ; ensuite [`SessionHost::set_immersive`].
+    pub immersive: String,
 }
 
 pub struct SessionHost {
@@ -413,6 +415,13 @@ impl SessionHost {
     pub fn set_control_as_command(&self, on: bool) {
         if let Some(a) = self.app() {
             a.set_control_as_command(on);
+        }
+    }
+
+    /// « Mode immersif » changé dans les réglages pendant la session : tout de suite.
+    pub fn set_immersive(&self, mode: &str) {
+        if let Some(a) = self.app() {
+            a.set_immersive(mode);
         }
     }
 
@@ -732,6 +741,7 @@ fn run(
         opts.title_stats,
     );
     app.set_control_as_command(opts.control_as_command);
+    app.set_immersive(&opts.immersive);
     app.set_mouse_mode(match opts.mouse {
         None => MouseMode::Auto,
         Some(true) => MouseMode::Game,

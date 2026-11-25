@@ -1872,6 +1872,9 @@ pub const NAME_MAX: usize = 24;
 /// pas (un événement qui arrive après la fin d'une session ne vise jamais la suivante).
 pub type SessionId = u32;
 
+/// Les valeurs de « Mode immersif », dans l'ordre du réglage.
+pub const IMMERSIVE: [&str; 3] = ["fullscreen", "always", "never"];
+
 /// Ordinateurs en session en même temps, au plus (docs/plusieurs-ordinateurs.md).
 pub const MAX_SESSIONS: usize = 4;
 
@@ -2107,6 +2110,12 @@ impl SessionUi {
         !matches!(self.phase, Phase::Ended { .. })
     }
 
+    /// « Statistiques » : la barre (un clic sur les mesures), le menu, Ctrl+Alt+Maj + S.
+    pub fn toggle_stats(&mut self) {
+        self.show_stats = !self.show_stats;
+        self.stats_help = None;
+    }
+
     /// La session est à plusieurs écrans (une fenêtre plein écran chacun) : pas de « Plein
     /// écran ». Comme `multiScreen` sur Mac.
     pub fn multi(&self) -> bool {
@@ -2170,6 +2179,8 @@ pub enum Setting {
     Combo,
     /// « Ctrl agit comme ⌘ » (face à une Station Mac seulement).
     CtrlCommand,
+    /// « Mode immersif » : En plein écran, Toujours, Jamais.
+    Immersive,
     Pads,
     Mouse,
     Clipboard,
@@ -2554,6 +2565,8 @@ pub enum Target {
     BarKeys,
     BarShortcut(usize),
     BarMouse,
+    /// Les mesures de la barre (latence, courbe, image) : un clic ouvre ou ferme « Statistiques ».
+    BarStats,
     BarFullscreen,
     BarQuit,
     /// Plusieurs ordinateurs : le menu « Ordinateurs » de la barre, l'un des ordinateurs
@@ -2934,6 +2947,12 @@ impl App {
     fn active_in(sessions: &mut [SessionUi], active: Option<SessionId>) -> Option<&mut SessionUi> {
         let id = active?;
         sessions.iter_mut().find(|s| s.id == id)
+    }
+
+    /// « Mode immersif » de l'ordinateur d'une session (`fullscreen`, `always`, `never`) ; un invité, sans
+    /// réglages de l'ordinateur : `fullscreen`.
+    pub fn immersive_of(&self, id: SessionId) -> &str {
+        self.session_by(id).and_then(|s| self.store.host(&s.host)).map_or("fullscreen", |h| h.settings.immersive.as_str())
     }
 
     pub fn session_by(&self, id: SessionId) -> Option<&SessionUi> {
@@ -4455,6 +4474,12 @@ impl App {
                 vec![Action::SetProfile(id, p), Action::Save]
             }
             Target::BarMouse => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            Target::BarStats => {
+                if let Some(s) = self.session_mut() {
+                    s.toggle_stats();
+                }
+                Vec::new()
+            }
             Target::BarFullscreen => self.active_id().map(|id| vec![Action::ToggleFullscreen(Some(id))]).unwrap_or_default(),
             Target::BarSound => {
                 let Some(s) = self.session_mut() else { return Vec::new() };
@@ -5110,8 +5135,7 @@ impl App {
                 Vec::new()
             }
             MenuItem::Stats => {
-                s.show_stats = !s.show_stats;
-                s.stats_help = None;
+                s.toggle_stats();
                 s.menu = false;
                 Vec::new()
             }
@@ -5837,6 +5861,18 @@ impl App {
                         ["auto", "desktop", "game"].iter().position(|v| *v == st.mouse).unwrap_or(0),
                         vec![false; 3],
                     ),
+                    choice(
+                        Setting::Immersive,
+                        tr("Mode immersif", "Immersive mode"),
+                        tr(
+                            "Alt+Tab, la touche Windows et les autres raccourcis du système vont à l'ordinateur. Ctrl+Alt+Maj + lettre reste à l'app.",
+                            "Alt+Tab, the Windows key and the system's other shortcuts go to the computer. Ctrl+Alt+Shift + letter stays with the app.",
+                        )
+                        .into(),
+                        vec![tr("En plein écran", "In full screen").into(), tr("Toujours", "Always").into(), tr("Jamais", "Never").into()],
+                        IMMERSIVE.iter().position(|v| *v == st.immersive).unwrap_or(0),
+                        vec![false; 3],
+                    ),
                     toggle(Setting::Clipboard, tr("Presse-papiers partagé", "Shared clipboard"), tr("Le texte copié passe dans les deux sens.", "Copied text goes both ways.").into(), st.clipboard),
                 ];
                 // Face à une Station Mac seulement, allumé tant qu'on ne l'a pas éteint (docs/link-ui.md).
@@ -5845,8 +5881,8 @@ impl App {
                         Setting::CtrlCommand,
                         tr("Ctrl agit comme ⌘", "Ctrl acts as ⌘"),
                         tr(
-                            "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche ⊞ devient ⌃.",
-                            "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The ⊞ key becomes ⌃.",
+                            "Copier, coller et les autres raccourcis du Mac avec Ctrl, comme sur un PC. La touche Windows devient ⌃.",
+                            "Copy, paste and the Mac's other shortcuts with Ctrl, as on a PC. The Windows key becomes ⌃.",
                         )
                         .into(),
                         st.ctrl_command.unwrap_or(true),
@@ -6239,6 +6275,8 @@ impl App {
             Setting::Bitrate => st.mbps = BITRATES[i.min(BITRATES.len() - 1)],
             Setting::Audio => st.audio = pick(&["auto", "stereo", "5.1", "7.1", "computer"], i),
             Setting::Mouse => st.mouse = pick(&["auto", "desktop", "game"], i),
+            // Vaut tout de suite : les fenêtres de session suivent le réglage (`device::sync_keyboard_grab`).
+            Setting::Immersive => st.immersive = pick(&IMMERSIVE, i),
             Setting::Xbox360 => st.xbox360 = if i == usize::MAX { !st.xbox360 } else { i == 0 },
             Setting::Reliable => st.reliable = if i == usize::MAX { !st.reliable } else { i == 1 },
             Setting::VirtualDisplay => st.virtual_display = !st.virtual_display,

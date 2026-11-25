@@ -75,6 +75,9 @@ pub struct HostSettings {
     /// « Ctrl agit comme ⌘ », face à une Station Mac seulement ; `None` : jamais changé, allumé
     /// (`keymap::control_as_command` du cœur).
     pub ctrl_command: Option<bool>,
+    /// Mode immersif (docs/link-ui.md) : `fullscreen` (le clavier entier, Alt+Tab et la touche ⊞ compris, va à
+    /// l'ordinateur en plein écran), `always` (aussi dans une fenêtre), `never`.
+    pub immersive: String,
     pub clipboard: bool,
     pub reconnect: bool,
     /// Transport fiable même en profil Jeu (Wi-Fi chargé).
@@ -107,6 +110,7 @@ impl Default for HostSettings {
             xbox360: true,
             combo: true,
             ctrl_command: None,
+            immersive: "fullscreen".into(),
             clipboard: true,
             reconnect: true,
             reliable: false,

@@ -1,13 +1,15 @@
 //! La console du lot 4 (docs/comptes.md, « Ajouter des personnes ») :
-//! « Ordinateurs » (`/compte/ordinateurs`), « Personnes » d'un ordinateur
+//! « Ordinateurs » (`/compte/ordinateurs`), la page d'un ordinateur
 //! (`/compte/ordinateur?id=…`), ajouter une personne par e-mail, ouvrir à une
-//! organisation ou à un groupe (lot 5), retirer un accès.
+//! famille, une équipe ou un groupe (lot 5), retirer un accès ; et l'espace du
+//! compte (« L'espace du compte ») : le menu, « Personnes », « Familles et
+//! équipes », le tour d'accueil.
 
 use kybernow_tunnel::access::{Right, Rights};
 use serde_json::json;
 
 use super::super::mail::Message;
-use super::super::pages::console::{self, ComputerCard, ComputersView, PeopleView, PersonRow, rights_words};
+use super::super::pages::console::{self, AllPeopleView, ComputerCard, ComputersView, FamiliesView, Granted, NavOrg, OrgCard, PeopleView, PersonRow, Shell, Start, Welcome, rights_words};
 use super::super::pages::{Notice, date};
 use super::super::people::Subject;
 use super::super::stations::StationRow;
@@ -16,9 +18,26 @@ use super::device_pages::sign_in_first;
 use super::{Cx, Reply, lang_of, normalize_email};
 use crate::pages::{Lang, t};
 
-/// Les organisations du compte, pour la barre de la console : `(identifiant, nom)`.
-pub(super) fn nav_orgs(cx: &Cx<'_>, account: i64) -> Vec<(String, String)> {
-    cx.acc.db().orgs_of(account).unwrap_or_default().into_iter().map(|(o, _)| (o.public_id, o.name)).collect()
+/// Les ordinateurs dont ce compte gère les accès : les siens, et ceux des familles et équipes qu'il gère.
+pub(super) fn managed_stations(cx: &Cx<'_>, account: &Account) -> Vec<StationRow> {
+    let visible = cx.acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
+    visible.into_iter().filter(|s| cx.acc.can_manage(account, s)).collect()
+}
+
+/// Ce que le menu de l'espace montre : ses familles et équipes, les nombres, « Pour bien démarrer ».
+pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
+    let managed = managed_stations(cx, account);
+    let db = cx.acc.db();
+    let orgs = db.orgs_of(account.id).unwrap_or_default();
+    let people: usize = managed.iter().map(|s| db.grants_of(&s.id).map(|g| g.len()).unwrap_or(0)).sum();
+    Shell {
+        name: account.name.clone(),
+        email: account.email.clone(),
+        computers: db.visible_stations(account.id, cx.now).map(|v| v.len()).unwrap_or(0),
+        people,
+        start: Start { protected: db.two_factor(account.id).unwrap_or(false), attached: !managed.is_empty(), opened: people > 0, grouped: !orgs.is_empty() },
+        orgs: orgs.into_iter().map(|(o, _)| NavOrg { id: o.public_id, name: o.name, kind: o.kind }).collect(),
+    }
 }
 
 /// Les droits cochés d'un formulaire (`session`, `lend`, `share`, `admin`).
@@ -72,11 +91,16 @@ pub(super) use signed_in;
 pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
+    // La première fois, le tour d'accueil d'abord.
+    if notice.is_none() && !acc.db().welcomed(account.id).unwrap_or(true) {
+        let q = cx.q();
+        return cx.redirect(format!("/compte/bienvenue{q}"));
+    }
     let orgs = acc.db().orgs_of(account.id).unwrap_or_default();
     let stations = acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
     let mut view = ComputersView {
-        orgs: orgs.iter().map(|(o, _)| (o.public_id.clone(), o.name.clone(), Vec::new())).collect(),
-        nav_orgs: orgs.iter().map(|(o, _)| (o.public_id.clone(), o.name.clone())).collect(),
+        orgs: orgs.iter().map(|(o, _)| (o.public_id.clone(), o.name.clone(), o.kind, Vec::new())).collect(),
+        shell: shell(&cx, &account),
         ..ComputersView::default()
     };
     for s in &stations {
@@ -100,12 +124,92 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
         };
         match (standing.mine, s.org.and_then(|o| orgs.iter().position(|(org, _)| org.id == o))) {
             (true, _) => view.mine.push(card),
-            (false, Some(i)) => view.orgs[i].2.push(card),
+            (false, Some(i)) => view.orgs[i].3.push(card),
             (false, None) => view.opened.push(card),
         }
     }
     let page = console::computers(&cx.view(), &view, notice);
     cx.page(200, page)
+}
+
+/// Qui a accès, en mots : `(nom, détail)`.
+fn subject_words(cx: &Cx<'_>, subject: &Subject) -> (String, String) {
+    match subject {
+        Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, email.clone()),
+        Subject::Invite { email } => (email.clone(), cx.tr("Invitation envoyée, pas encore de compte", "Invitation sent, no account yet")),
+        Subject::Org { name, .. } => (name.clone(), cx.tr("Tous ses membres", "All its members")),
+        Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), cx.tr("Groupe", "Group")),
+    }
+}
+
+/// `GET /compte/personnes` : ceux à qui il a ouvert ses ordinateurs.
+pub(super) fn all_people(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let mine = managed_stations(&cx, &account);
+    let view = {
+        let db = cx.acc.db();
+        let mut rows = Vec::new();
+        for s in &mine {
+            for g in db.grants_of(&s.id).unwrap_or_default() {
+                let (name, mut detail) = subject_words(&cx, &g.subject);
+                if g.expired(cx.now) {
+                    detail = format!("{detail} · {}", cx.tr("échu", "expired"));
+                }
+                rows.push(Granted { name, detail, computer_id: s.id.clone(), computer: s.name.clone(), rights: g.rights.clone() });
+            }
+        }
+        AllPeopleView { rows, computers: mine.into_iter().map(|s| (s.id, s.name)).collect(), shell: Shell::default() }
+    };
+    let view = AllPeopleView { shell: shell(&cx, &account), ..view };
+    let page = console::all_people(&cx.view(), &view);
+    cx.page(200, page)
+}
+
+/// `GET /compte/familles` : ses familles et équipes, et comment ça marche.
+pub(super) fn families(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let orgs = {
+        let db = cx.acc.db();
+        db.orgs_of(account.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(o, role)| OrgCard {
+                members: db.members(o.id).map(|m| m.len()).unwrap_or(0),
+                computers: db.stations_of_org(o.id).map(|s| s.len()).unwrap_or(0),
+                id: o.public_id,
+                name: o.name,
+                kind: o.kind,
+                role,
+            })
+            .collect()
+    };
+    let view = FamiliesView { orgs, shell: shell(&cx, &account) };
+    let page = console::families(&cx.view(), &view);
+    cx.page(200, page)
+}
+
+/// `GET /compte/bienvenue?etape=…` : le tour d'accueil.
+pub(super) fn welcome(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let step = cx.req.query("etape").and_then(|s| s.parse::<u8>().ok()).unwrap_or(0).min(3);
+    let computer = managed_stations(&cx, &account).into_iter().next().map(|s| s.name);
+    let protected = cx.acc.db().two_factor(account.id).unwrap_or(false);
+    let register = if protected { None } else { cx.registration(&account) };
+    let view = Welcome { name: account.name.clone(), protected, register, computer };
+    let page = console::welcome(&cx.view(), step, &view);
+    cx.page(200, page)
+}
+
+/// `POST /compte/bienvenue` : le tour est vu ; `suite` : créer une famille, une équipe, ou l'espace.
+pub(super) fn welcome_done(cx: Cx<'_>) -> Reply {
+    let account = signed_in!(cx);
+    let _ = cx.acc.db().set_welcomed(account.id, cx.now);
+    let q = cx.q();
+    match cx.req.form("suite") {
+        "famille" => cx.redirect(format!("/compte/organisations/creer{q}&genre=famille")),
+        "equipe" => cx.redirect(format!("/compte/organisations/creer{q}&genre=equipe")),
+        _ => cx.redirect(format!("/compte/ordinateurs{q}")),
+    }
 }
 
 /// Le nom du propriétaire d'une Station (la personne, ou l'organisation).
@@ -154,14 +258,14 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
                 } else {
                     db.account(owner).ok().flatten().map(|a| a.name).unwrap_or_default()
                 };
-                rows.push(PersonRow { grant: None, name, detail: cx.tr("Propriétaire", "Owner"), rights: all.clone() });
+                rows.push(PersonRow { grant: None, name, detail: cx.tr("Propriétaire : tout", "Owner: everything"), rights: all.clone() });
             }
             (None, Some(org)) => {
                 let name = db.org(org).ok().flatten().map(|o| o.name).unwrap_or_default();
                 rows.push(PersonRow {
                     grant: None,
                     name,
-                    detail: cx.tr("Propriétaires et Administrateurs de l'organisation", "Owners and Administrators of the organization"),
+                    detail: cx.tr("Propriétaires et administrateurs", "Owners and administrators"),
                     rights: all.clone(),
                 });
             }
@@ -176,7 +280,7 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
             let (name, mut detail) = match &g.subject {
                 Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, vec![email.clone()]),
                 Subject::Invite { email } => (email.clone(), vec![cx.tr("Invitation envoyée, pas encore de compte", "Invitation sent, no account yet")]),
-                Subject::Org { name, .. } => (name.clone(), vec![cx.tr("Toute l'organisation", "The whole organization")]),
+                Subject::Org { name, .. } => (name.clone(), vec![cx.tr("Tous ses membres", "All its members")]),
                 Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), vec![cx.tr("Groupe", "Group")]),
             };
             detail.extend(until);
@@ -190,7 +294,11 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
         let mut list = Vec::new();
         for (org, _) in db.orgs_of(account.id).unwrap_or_default() {
             if station.org != Some(org.id) {
-                list.push((org.public_id.clone(), t(cx.lang, &format!("{} (toute l'organisation)", org.name), &format!("{} (the whole organization)", org.name))));
+                let whole = match org.kind {
+                    super::super::orgs::Kind::Family => t(cx.lang, &format!("{} (toute la famille)", org.name), &format!("{} (the whole family)", org.name)),
+                    super::super::orgs::Kind::Team => t(cx.lang, &format!("{} (toute l'équipe)", org.name), &format!("{} (the whole team)", org.name)),
+                };
+                list.push((org.public_id.clone(), whole));
             }
             for g in db.groups(org.id).unwrap_or_default() {
                 list.push((format!("{}:{}", org.public_id, g.id), format!("{} › {}", org.name, g.name)));
@@ -211,7 +319,7 @@ fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, notice: Opti
         admin_needs_2fa: standing.admin_needs_2fa,
         targets,
         form: form.unwrap_or_else(|| (String::new(), Rights::new([Right::Session, Right::Share]), String::new())),
-        nav_orgs: nav_orgs(&cx, account.id),
+        shell: shell(&cx, account),
     };
     let page = console::people(&cx.view(), &view, notice);
     cx.page(200, page)

@@ -107,6 +107,11 @@ const MIGRATIONS: &[&str] = &[
     super::people::MIGRATION,
     // 5 : lot 5 (organisations, groupes, journal, jetons d'enrôlement ; `stations` reconstruite), voir `super::orgs`.
     super::orgs::MIGRATION,
+    // 6 : l'espace du compte (docs/comptes.md, « L'espace du compte ») : famille ou équipe, tour d'accueil vu.
+    r#"
+    ALTER TABLE organizations ADD COLUMN kind TEXT NOT NULL DEFAULT 'team';
+    ALTER TABLE accounts ADD COLUMN welcomed_at INTEGER;
+    "#,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -291,6 +296,18 @@ impl Store {
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;")?;
         migrate(&mut conn, now)?;
         Ok(Store { conn })
+    }
+
+    /// Le tour d'accueil de l'espace est vu (ou passé).
+    pub fn set_welcomed(&self, account: i64, now: i64) -> Result<()> {
+        self.conn.execute("UPDATE accounts SET welcomed_at = ?2 WHERE id = ?1 AND welcomed_at IS NULL", params![account, now])?;
+        Ok(())
+    }
+
+    /// Le tour d'accueil a été vu (ou passé).
+    pub fn welcomed(&self, account: i64) -> Result<bool> {
+        let at: Option<Option<i64>> = self.conn.query_row("SELECT welcomed_at FROM accounts WHERE id = ?1", [account], |r| r.get(0)).optional()?;
+        Ok(at.flatten().is_some())
     }
 
     /// La version du schéma.

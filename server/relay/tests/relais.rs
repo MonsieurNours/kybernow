@@ -843,7 +843,7 @@ async fn comptes_sur_le_relais() {
         // Se connecter : une session, puis la page du compte.
         let r = https_body(&relay, &pki.roots, DOMAIN, "POST", "/compte/connexion?lang=fr", &headers, &body).await.unwrap();
         assert_eq!(r.status, 303);
-        assert_eq!(r.headers.get("location").unwrap(), "/compte?lang=fr");
+        assert_eq!(r.headers.get("location").unwrap(), "/compte/ordinateurs?lang=fr");
         let session = r.headers.get_all("set-cookie").iter().map(|v| v.to_str().unwrap()).find(|c| c.starts_with("__Host-kn_session=")).unwrap().to_string();
         assert!(session.contains("; Path=/; Secure; HttpOnly; SameSite=Lax"));
         let cookies = format!("{csrf_value}; {}", session.split(';').next().unwrap());
@@ -1154,7 +1154,7 @@ async fn rattacher_une_station_par_sa_connexion_de_controle() {
         .expect("detached en réponse à attach_status");
 
         // Lot 5 : un jeton d'enrôlement d'organisation, présenté par la connexion de contrôle.
-        let org = accounts.db().create_org("Les Lignes Claires", account.id, 0).unwrap();
+        let org = accounts.db().create_org("Les Lignes Claires", kybernow_relay::accounts::orgs::Kind::Team, account.id, 0).unwrap();
         let token = kybernow_relay::accounts::orgs::new_enroll_token();
         let hash = kybernow_relay::accounts::token_hash(&token);
         let far = i64::MAX / 2;

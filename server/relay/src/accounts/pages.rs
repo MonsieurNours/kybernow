@@ -246,18 +246,18 @@ impl Notice {
                 "First turn on two-factor authentication (or add a passkey) on your account.",
             ),
             Notice::NotAllowed => tr("Vous ne pouvez pas faire cela ici.", "You can't do that here."),
-            Notice::OrgCreated => tr("Organisation créée : vous en êtes Propriétaire.", "Organization created: you are its Owner."),
-            Notice::OrgRenamed => tr("Organisation renommée.", "Organization renamed."),
+            Notice::OrgCreated => tr("C'est créé : vous en êtes propriétaire. Invitez maintenant ses membres.", "Created: you are its owner. Now invite its members."),
+            Notice::OrgRenamed => tr("Nom changé.", "Name changed."),
             Notice::OrgNameMissing => tr("Entrez un nom.", "Enter a name."),
             Notice::MemberAdded => tr("Membre ajouté, et prévenu par e-mail.", "Member added, and told by email."),
             Notice::RoleChanged => tr("Rôle changé.", "Role changed."),
             Notice::MemberRemoved => tr("Membre retiré.", "Member removed."),
             Notice::InviteCancelled => tr("Invitation annulée.", "Invitation cancelled."),
             Notice::LastOwner => tr(
-                "Une organisation garde au moins un Propriétaire : nommez-en un autre d'abord.",
-                "An organization keeps at least one Owner: name another one first.",
+                "Il faut toujours au moins un propriétaire : nommez-en un autre d'abord.",
+                "There must always be at least one owner: name another one first.",
             ),
-            Notice::OrgLeft => tr("Vous avez quitté l'organisation.", "You left the organization."),
+            Notice::OrgLeft => tr("Vous êtes parti. Ses ordinateurs ne vous sont plus ouverts.", "You left. Its computers are no longer open to you."),
             Notice::GroupCreated => tr("Groupe créé.", "Group created."),
             Notice::GroupTaken => tr("Un groupe porte déjà ce nom.", "A group already has this name."),
             Notice::GroupDeleted => tr("Groupe supprimé.", "Group deleted."),
@@ -784,13 +784,14 @@ pub fn date(lang: Lang, unix: i64) -> String {
 }
 
 /// « Votre compte » (en attendant la console du lot 4).
-pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String {
-    let title = v.tr("Votre compte", "Your account");
+pub fn account(v: &View<'_>, a: &AccountView, shell: &console::Shell, notice: Option<Notice>) -> String {
+    let title = v.tr("Compte et sécurité", "Account and security");
     let tr = |f: &str, e: &str| v.tr(f, e);
+    let protected = a.totp_on || !a.passkeys.is_empty();
     let totp = if a.totp_on {
         let left = match v.lang {
-            Lang::Fr => format!("{} code{s} de secours restant{s}", a.recovery_left, s = if a.recovery_left > 1 { "s" } else { "" }),
-            Lang::En => format!("{} recovery code{s} left", a.recovery_left, s = if a.recovery_left == 1 { "" } else { "s" }),
+            Lang::Fr => format!("Activée · {} code{s} de secours restant{s}", a.recovery_left, s = if a.recovery_left > 1 { "s" } else { "" }),
+            Lang::En => format!("On · {} recovery code{s} left", a.recovery_left, s = if a.recovery_left == 1 { "" } else { "s" }),
         };
         // Un seul mot de passe pour les deux actions : chaque bouton envoie le formulaire à sa route.
         let inner = format!(
@@ -801,21 +802,23 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
             off = tr("Couper", "Turn off"),
         );
         format!(
-            "<div class=\"row\"><div><b>{name}</b><small>{left}</small></div><span class=\"pill pill-on\">{on}</span></div>\n{form}",
+            "<div class=\"row\">{icon}<div class=\"ka-row-main\"><b>{name}</b><small>{left}</small></div><div class=\"acts\"><details class=\"acct-rename ka-more\"><summary class=\"btn btn-ghost btn-sm\">{manage}</summary>\n{form}\n</details></div></div>\n",
+            icon = console::ic("shield"),
             name = tr("Double authentification", "Two-factor authentication"),
-            on = tr("Activée", "On"),
+            manage = tr("Gérer", "Manage"),
             form = v.form("/compte/double-authentification/couper", "acct-sub", &inner),
         )
     } else {
         format!(
-            "<div class=\"row\"><div><b>{name}</b><small>{text}</small></div><a class=\"btn kn-primary btn-sm\" href=\"/compte/double-authentification{q}\">{on}</a></div>",
+            "<div class=\"row\">{icon}<div class=\"ka-row-main\"><b>{name}</b><small>{text}</small></div><div class=\"acts\"><a class=\"btn btn-ghost btn-sm\" href=\"/compte/double-authentification{q}\">{on}</a></div></div>\n",
+            icon = console::ic("shield"),
             name = tr("Double authentification", "Two-factor authentication"),
-            text = tr("Coupée", "Off"),
+            text = tr("Un code de votre application d'authentification, en plus du mot de passe.", "A code from your authenticator app, on top of your password."),
             q = v.q(),
             on = tr("Activer", "Turn on"),
         )
     };
-    // Lot 1b : les passkeys (liste, « Ajouter une passkey »), sous la double authentification.
+    // Lot 1b : les passkeys (liste, « Ajouter une passkey »), au-dessus de la double authentification.
     let passkeys = passkeys_html(v, a);
     let sessions: String = a
         .sessions
@@ -826,7 +829,7 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
                 Lang::En => format!("Opened {}, last seen {}", date(v.lang, s.created_at), date(v.lang, s.seen_at)),
             };
             let act = if s.current {
-                format!("<span class=\"pill\">{}</span>", tr("Cette session", "This session"))
+                format!("<span class=\"ka-pill ka-pill-on\">{}</span>", tr("Cette session", "This session"))
             } else {
                 v.form(
                     "/compte/sessions/fermer",
@@ -834,30 +837,35 @@ pub fn account(v: &View<'_>, a: &AccountView, notice: Option<Notice>) -> String 
                     &format!("<input type=\"hidden\" name=\"id\" value=\"{}\">\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>", s.id, tr("Fermer", "Close")),
                 )
             };
-            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div>{act}</div>\n", esc(&s.device))
+            format!("<div class=\"row\">{}<div class=\"ka-row-main\"><b>{}</b><small>{when}</small></div><div class=\"acts\">{act}</div></div>\n", console::ic("monitor"), esc(&s.device))
         })
         .collect();
-    let computers = computers_html(v, &a.computers);
     let devices = devices_html(v, &a.devices);
     let sign_out = v.form(
         "/compte/deconnexion",
-        "",
-        &format!("<button class=\"btn btn-ghost\" type=\"submit\">{}</button>", tr("Se déconnecter", "Sign out")),
+        "acct-inline",
+        &format!("<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>", tr("Se déconnecter", "Sign out")),
     );
     // Lot 1b : « Exporter mes données » et « Supprimer le compte ».
     let data = data_html(v);
-    // Lot 4 : la console (« Ordinateurs », organisations) au-dessus.
-    let card = format!(
-        "{nav}<h1>{title}</h1>\n{notice}<section>\n<h2>{email_h}</h2>\n<div class=\"row\"><div><b>{email}</b><small>{name}</small></div></div>\n</section>\n<section>\n<h2>{security}</h2>\n{totp}\n{passkeys}</section>\n<section>\n<h2>{sessions_h}</h2>\n{sessions}</section>\n{computers}{devices}{data}{sign_out}",
+    let state = if protected {
+        format!("<span class=\"ka-pill ka-pill-on\">{}</span>", tr("Compte protégé", "Account protected"))
+    } else {
+        format!("<span class=\"ka-pill ka-pill-warn\">{}</span>", tr("À faire", "To do"))
+    };
+    let body = format!(
+        "<header class=\"ka-head\"><div><h1><strong>{title}</strong></h1>\n<p class=\"ka-lede\">{lede}</p></div></header>\n{notice}<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{you}</h2></div>\n<div class=\"ka-list\">\n<div class=\"row\">{avatar}<div class=\"ka-row-main\"><b>{name}</b><small>{email}</small></div><div class=\"acts\">{sign_out}</div></div>\n</div>\n</section>\n<section class=\"ka-section\" id=\"securite\">\n<div class=\"ka-section-head\"><h2>{security}</h2>{state}</div>\n<div class=\"ka-list\">\n{passkeys}{totp}</div>\n</section>\n{devices}<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{sessions_h}</h2><small>{sessions_sub}</small></div>\n<div class=\"ka-list\">\n{sessions}</div>\n</section>\n{data}",
+        lede = tr("Votre adresse, la façon dont vous vous connectez et les appareils où vous l'êtes.", "Your address, how you sign in and the devices where you are signed in."),
         notice = notice_html(v.lang, notice),
-        email_h = tr("Adresse e-mail", "Email address"),
-        email = esc(&a.email),
+        you = tr("Vous", "You"),
+        avatar = console::avatar(&a.name),
         name = esc(&a.name),
+        email = esc(&a.email),
         security = tr("Sécurité", "Security"),
         sessions_h = tr("Sessions ouvertes", "Open sessions"),
-        nav = console::nav(v, &a.orgs, console::Here::Account),
+        sessions_sub = tr("Dans les navigateurs", "In browsers"),
     );
-    page(v, &title, "/compte", true, &card)
+    console::frame(v, shell, console::Here::Account, &title, "/compte", &body)
 }
 
 /// Activer la double authentification : le QR code, la clé, le code.
@@ -908,38 +916,6 @@ pub fn recovery_codes(v: &View<'_>, codes: &[String], notice: Option<Notice>) ->
 
 // --- Lot 2 : ordinateurs rattachés ; lot 3 : appareils connectés -------------------------
 
-/// « Ordinateurs » sur la page du compte (rien tant qu'aucun n'est rattaché).
-fn computers_html(v: &View<'_>, computers: &[ComputerView]) -> String {
-    if computers.is_empty() {
-        return String::new();
-    }
-    let rows: String = computers
-        .iter()
-        .map(|c| {
-            let when = match v.lang {
-                Lang::Fr => format!("Rattaché le {}", date(v.lang, c.attached_at)),
-                Lang::En => format!("Attached {}", date(v.lang, c.attached_at)),
-            };
-            let state = if c.online {
-                format!("<span class=\"pill pill-on\">{}</span>", v.tr("En ligne", "Online"))
-            } else {
-                format!("<span class=\"pill\">{}</span>", v.tr("Hors ligne", "Offline"))
-            };
-            let detach = v.form(
-                "/compte/ordinateurs/detacher",
-                "acct-inline",
-                &format!(
-                    "<input type=\"hidden\" name=\"id\" value=\"{}\">\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>",
-                    esc(&c.id),
-                    v.tr("Détacher", "Detach")
-                ),
-            );
-            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div><div class=\"acts\">{state}\n{detach}</div></div>\n", esc(&c.name))
-        })
-        .collect();
-    format!("<section>\n<h2>{}</h2>\n{rows}</section>\n", v.tr("Ordinateurs", "Computers"))
-}
-
 /// « Appareils connectés » sur la page du compte (rien tant qu'aucun ne l'est).
 fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
     if devices.is_empty() {
@@ -963,10 +939,14 @@ fn devices_html(v: &View<'_>, devices: &[DeviceView]) -> String {
                     v.tr("Déconnecter", "Disconnect")
                 ),
             );
-            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div>{close}</div>\n", esc(&name))
+            format!("<div class=\"row\">{}<div class=\"ka-row-main\"><b>{}</b><small>{when}</small></div><div class=\"acts\">{close}</div></div>\n", console::ic(if d.tv { "pad" } else { "monitor" }), esc(&name))
         })
         .collect();
-    format!("<section>\n<h2>{}</h2>\n{rows}</section>\n", v.tr("Appareils connectés", "Connected devices"))
+    format!(
+        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{}</h2><small>{}</small></div>\n<div class=\"ka-list\">\n{rows}</div>\n</section>\n",
+        v.tr("Appareils connectés", "Connected devices"),
+        v.tr("Ils vous montrent vos ordinateurs", "They show you your computers")
+    )
 }
 
 /// « Rattacher {nom} » : le propriétaire, puis confirmer (`/compte/rattacher`).
@@ -1161,8 +1141,13 @@ fn passkey_get_form(v: &View<'_>, path: &str, allow: &[String], label: &str) -> 
 
 /// Le formulaire « Ajouter une passkey » (`navigator.credentials.create()`), caché sans script.
 fn passkey_create_form(v: &View<'_>, r: &Registration, class: &str) -> String {
+    passkey_create_form_with(v, r, class, "")
+}
+
+/// Le même, avec des champs de plus (`suite` : où revenir après l'ajout).
+fn passkey_create_form_with(v: &View<'_>, r: &Registration, class: &str, extra: &str) -> String {
     format!(
-        "<form method=\"post\" action=\"/compte/passkeys/ajouter{q}\" class=\"acct-inline\" data-passkey=\"create\"{attrs} hidden>\n{csrf}\n<button class=\"{class}\" type=\"submit\">{label}</button>\n{error}\n</form>",
+        "<form method=\"post\" action=\"/compte/passkeys/ajouter{q}\" class=\"acct-inline\" data-passkey=\"create\"{attrs} hidden>\n{csrf}\n{extra}<button class=\"{class}\" type=\"submit\">{label}</button>\n{error}\n</form>",
         q = v.q(),
         attrs = [
             data_attr("challenge", &r.challenge),
@@ -1184,7 +1169,7 @@ fn passkeys_html(v: &View<'_>, a: &AccountView) -> String {
     let tr = |f: &str, e: &str| v.tr(f, e);
     let add = match &a.register {
         Some(r) => passkey_create_form(v, r, "btn kn-primary btn-sm"),
-        None => format!("<span class=\"pill\">{}</span>", tr("20 au plus", "20 at most")),
+        None => format!("<span class=\"ka-pill ka-pill-off\">{}</span>", tr("20 au plus", "20 at most")),
     };
     let summary = if a.passkeys.is_empty() {
         tr("Aucune. Une passkey remplace le mot de passe et vaut double authentification.", "None. A passkey replaces the password and counts as two-factor authentication.")
@@ -1222,11 +1207,12 @@ fn passkeys_html(v: &View<'_>, a: &AccountView) -> String {
                 "acct-inline",
                 &format!("{id}\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\">{}</button>", tr("Retirer", "Remove")),
             );
-            format!("<div class=\"row\"><div><b>{}</b><small>{when}</small></div><div class=\"acts\">{rename}{remove}</div></div>\n", esc(&p.name))
+            format!("<div class=\"row ka-row-sub\"><span class=\"ka-lead-space\"></span><div class=\"ka-row-main\"><b>{}</b><small>{when}</small></div><div class=\"acts\">{rename}{remove}</div></div>\n", esc(&p.name))
         })
         .collect();
     format!(
-        "<div class=\"row\"><div><b>{name}</b><small>{summary}</small>{none}</div>{add}</div>\n{list}",
+        "<div class=\"row\">{icon}<div class=\"ka-row-main\"><b>{name}</b><small>{summary}</small>{none}</div><div class=\"acts\">{add}</div></div>\n{list}",
+        icon = console::ic("key"),
         name = tr("Passkeys", "Passkeys"),
         none = if a.register.is_some() { passkey_unsupported(v) } else { String::new() },
     )
@@ -1236,7 +1222,9 @@ fn passkeys_html(v: &View<'_>, a: &AccountView) -> String {
 fn data_html(v: &View<'_>) -> String {
     let tr = |f: &str, e: &str| v.tr(f, e);
     format!(
-        "<section>\n<h2>{h}</h2>\n<div class=\"row\"><div><b>{export}</b><small>{export_text}</small></div>{export_form}</div>\n<div class=\"row\"><div><b>{delete}</b><small>{delete_text}</small></div><a class=\"btn btn-ghost btn-sm\" href=\"/compte/supprimer{q}\">{delete_btn}</a></div>\n</section>\n",
+        "<section class=\"ka-section\">\n<div class=\"ka-section-head\"><h2>{h}</h2></div>\n<div class=\"ka-list\">\n<div class=\"row\">{i_log}<div class=\"ka-row-main\"><b>{export}</b><small>{export_text}</small></div><div class=\"acts\">{export_form}</div></div>\n<div class=\"row\">{i_close}<div class=\"ka-row-main\"><b>{delete}</b><small>{delete_text}</small></div><div class=\"acts\"><a class=\"btn btn-danger btn-sm\" href=\"/compte/supprimer{q}\">{delete_btn}</a></div></div>\n</div>\n</section>\n",
+        i_log = console::ic("log"),
+        i_close = console::ic("close"),
         h = tr("Vos données", "Your data"),
         export = tr("Exporter mes données", "Export my data"),
         export_text = tr("Un fichier JSON : le compte, la sécurité, les sessions, le journal.", "A JSON file: the account, security, sessions, log."),
@@ -1353,8 +1341,8 @@ mod tests {
             ("oubli/envoye", forgot(&v, Forgot::Sent)),
             ("oubli/indisponible", forgot(&v, Forgot::Unavailable)),
             ("nouveau", new_password(&v, "jeton", Some(Notice::Weak(Weak::TooShort)))),
-            ("compte", account(&v, &account_view, Some(Notice::TotpOn))),
-            ("compte/sans-2fa", account(&v, &AccountView { totp_on: false, passkeys: vec![], register: None, ..account_view.clone() }, None)),
+            ("compte", account(&v, &account_view, &console::tests::shell(), Some(Notice::TotpOn))),
+            ("compte/sans-2fa", account(&v, &AccountView { totp_on: false, passkeys: vec![], register: None, ..account_view.clone() }, &console::tests::shell(), None)),
             ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", Some(Notice::WrongCode))),
             ("secours", recovery_codes(&v, &["abcd-efgh".into()], None)),
             ("message", message(&v, "/compte/verifier", "Titre", "Texte.", ("/compte/connexion", "Lien"))),
@@ -1415,12 +1403,30 @@ mod tests {
         pages
     }
 
+    /// Écrit toutes les pages et les fichiers du relais dans `KN_PAGES_DIR`, pour les regarder dans
+    /// un navigateur sans relais (`python3 -m http.server`) : `KN_PAGES_DIR=… cargo test ecrire_les_pages -- --ignored`.
+    #[test]
+    #[ignore]
+    fn ecrire_les_pages() {
+        let dir = std::path::PathBuf::from(std::env::var("KN_PAGES_DIR").expect("KN_PAGES_DIR"));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        for name in assets::NAMES {
+            std::fs::write(dir.join("assets").join(name), assets::get(name).unwrap().body).unwrap();
+        }
+        for lang in [Lang::Fr, Lang::En] {
+            for (name, page) in all(lang, None) {
+                let file = format!("{}-{}.html", name.replace('/', "-"), lang.code());
+                std::fs::write(dir.join(file), page).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn typographie_francaise_et_pas_de_tiret_cadratin() {
         for (name, page) in all(Lang::Fr, None) {
             let text = text_of(&page);
             for bad in [" :", " ;", " !", " ?", "« ", " »"] {
-                assert!(!text.contains(bad), "{name} : « {bad} » dans le texte");
+                assert!(!text.contains(bad), "{name} : « {bad} » dans le texte : {:?}", text.find(bad).map(|i| text[i.saturating_sub(80)..].chars().take(120).collect::<String>()).unwrap_or_default());
             }
         }
         for lang in [Lang::Fr, Lang::En] {
@@ -1522,9 +1528,14 @@ mod tests {
 
     #[test]
     fn ordinateurs_appareils_et_retour_vers_l_app() {
-        let page = all(Lang::Fr, None).into_iter().find(|(n, _)| *n == "compte").unwrap().1;
-        assert!(page.contains("PC du &lt;salon&gt;") && page.contains("Rattaché le 14/11/2023") && page.contains("En ligne"));
-        assert!(page.contains("action=\"/compte/ordinateurs/detacher?lang=fr\"") && page.contains(r#"name="id" value="st1""#));
+        let pages = all(Lang::Fr, None);
+        let get = |n: &str| pages.iter().find(|(name, _)| *name == n).unwrap().1.clone();
+        // Les ordinateurs sont sur « Ordinateurs » (l'espace du compte), « Détacher » sur la page de chacun.
+        let computers = get("ordinateurs");
+        assert!(computers.contains("PC du &lt;salon&gt;") && computers.contains("En ligne") && computers.contains("/compte/ordinateur?lang=fr&amp;id=st1"));
+        let computer = get("personnes");
+        assert!(computer.contains("action=\"/compte/ordinateurs/detacher?lang=fr\"") && computer.contains(r#"name="id" value="st1""#));
+        let page = get("compte");
         assert!(page.contains("Appareils connectés") && page.contains("Connecté par un code le"));
         let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa"), challenge: "" };
         let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1");
