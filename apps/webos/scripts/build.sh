@@ -152,13 +152,15 @@ PATCHES+=("$HERE"/kyber-patches/*.patch)
 kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 
 # libkynput (API C de kynput, sans SDL), statique.
-if [ ! -f "$PREFIX/lib/pkgconfig/kynput.pc" ]; then
+KYNPUT_STAMP="$(kyber_kynput_stamp "$KYSDK")"
+if ! kyber_kynput_current "$PREFIX" "$KYNPUT_STAMP"; then
     kyber_toolchain_check cargo-c
     echo "==> libkynput ($TARGET) dans $PREFIX"
     mkdir -p "$PREFIX"
     (cd "$KYSDK/kynput" && cargo_quiet cargo cinstall -p kynput --target="$TARGET" \
         --release --library-type=staticlib --prefix="$PREFIX")
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
+    kyber_kynput_mark "$PREFIX" "$KYNPUT_STAMP"
 fi
 
 # libopus 1.6.1 (la version de Kyber 0.29), statique.

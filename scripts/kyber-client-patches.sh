@@ -56,3 +56,25 @@ kyber_apply_client_patches() {
         echo "==> $(basename "$patch") posé"
     done
 }
+
+# libkynput installée dans un rootfs : refaite quand ses sources changent
+# (correctifs posés ou retirés, autre version de kynput), pas seulement quand
+# elle manque. Sans cela, une libkynput d'avant un correctif (le stylet, 0005)
+# restait en place et kynput-rs ne compilait plus contre elle.
+# kyber_kynput_stamp <kysdk> : empreinte des sources de kynput telles qu'elles sont.
+kyber_kynput_stamp() {
+    local repo="$1/kynput"
+    {
+        git -C "$repo" rev-parse HEAD
+        git -C "$repo" diff HEAD
+        (cd "$repo" && git ls-files -o --exclude-standard -z | xargs -0 cat 2>/dev/null) || true
+    } | { if command -v shasum >/dev/null; then shasum -a 256; else sha256sum; fi; } | cut -d' ' -f1
+}
+# kyber_kynput_current <prefix> <empreinte> : vrai si la libkynput de ce rootfs en vient.
+kyber_kynput_current() {
+    [ -f "$1/lib/pkgconfig/kynput.pc" ] && [ "$(cat "$1/lib/pkgconfig/.kybernow-kynput" 2>/dev/null)" = "$2" ]
+}
+# kyber_kynput_mark <prefix> <empreinte> : note l'empreinte après l'installation.
+kyber_kynput_mark() {
+    echo "$2" > "$1/lib/pkgconfig/.kybernow-kynput"
+}

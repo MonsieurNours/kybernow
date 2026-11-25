@@ -188,13 +188,16 @@ kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 # libkynput (API C de kynput, sans SDL) dans le rootfs de la cible.
 ensure_kynput() {
     local target=$1 prefix=$2
-    [ -f "$prefix/lib/pkgconfig/kynput.pc" ] && return 0
+    local stamp
+    stamp="$(kyber_kynput_stamp "$KYSDK")"
+    kyber_kynput_current "$prefix" "$stamp" && return 0
     kyber_toolchain_check cargo-c
     echo "==> libkynput ($target) dans $prefix"
     mkdir -p "$prefix"
     (cd "$KYSDK/kynput" && cargo_quiet cargo cinstall -p kynput --target="$target" \
         --release --library-type=staticlib --prefix="$prefix")
     [ -f "$prefix/lib/pkgconfig/kynput.pc" ] || { echo "libkynput ($target) non installée dans $prefix" >&2; exit 1; }
+    kyber_kynput_mark "$prefix" "$stamp"
 }
 
 # libopus (moteur de son du cœur), statique, dans le rootfs de la cible.
