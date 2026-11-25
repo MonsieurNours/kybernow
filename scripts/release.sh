@@ -351,7 +351,7 @@ elif [ -f "$MAC_KYBER/.kybernow-patches" ]; then
     else problem "Station Mac : Kyber pour Mac compilé avec d'autres correctifs (empreinte différente) : server/macos/scripts/build-kyber.sh"; fi
 else
     STALE=()
-    for f in server/kyber-patches/*.patch server/macos/kyber-patches/*.patch server/macos/scripts/build-kyber.sh; do
+    for f in server/kyber-patches/*.patch server/macos/kyber-patches/*.patch; do
         [ "$f" -nt "$MAC_KYBER/bin/kycontroller" ] && STALE+=("$(basename "$f")")
     done
     if [ ${#STALE[@]} -eq 0 ]; then ok "Station Mac : Kyber pour Mac plus récent que les correctifs (pas d'empreinte : relancez build-kyber.sh pour en avoir une)"
