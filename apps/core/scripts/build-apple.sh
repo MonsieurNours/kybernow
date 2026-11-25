@@ -10,6 +10,7 @@
 #   apps/core/scripts/build-apple.sh                      toutes les cibles
 #   apps/core/scripts/build-apple.sh --target <cible>     une seule
 #   apps/core/scripts/build-apple.sh --check              cargo check seul
+#   apps/core/scripts/build-apple.sh --kyber-pyrowave     Kyber demande PyroWave
 #
 #   aarch64-apple-darwin      Rust stable (référence : le Mac qui compile)
 #   aarch64-apple-ios         Rust stable, rang 2 (rustup target add)
@@ -23,6 +24,11 @@
 # build-kyber-tvos.sh ; pour iOS (et une cible tvOS pas encore construite), ce
 # script compile libkynput lui-même (cargo cinstall, sans SDL : sur iOS et
 # tvOS, les manettes passent par GameController). Déploiement iOS 18 et tvOS 18.
+#
+# Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
+# `fallback_codec`) et la fonctionnalité `pyrowave` du cœur vont ensemble
+# (apps/core/README.md, « PyroWave ») : seulement avec --kyber-pyrowave, tant
+# qu'ils ne sont pas allumés pour toutes les apps (third_party/ est partagé).
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée).
 # Versions vérifiées : scripts/kyber-toolchain.sh (une autre est signalée).
@@ -42,10 +48,12 @@ DEPLOYMENT=18.0
 ALL_TARGETS=(aarch64-apple-darwin aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-tvos aarch64-apple-tvos-sim)
 TARGETS=()
 COMMAND=build
+KYBER_PYROWAVE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGETS+=("${2:-}"); shift ;;
         --check) COMMAND=check ;;
+        --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift
@@ -106,6 +114,7 @@ done
 # mémoire de réception UDP) : le cœur compile contre cette API de kyclient.
 for patch in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
         *-kynet-*) repo="$KYSDK/kymux" ;;
@@ -167,6 +176,7 @@ build_target() {
     local cargo=(cargo "$COMMAND" -p kybernow-core --release --target "$target")
     # shellcheck disable=SC2054  # la virgule est celle de -Zbuild-std=std,panic_abort
     needs_nightly "$target" && cargo=(cargo +nightly "$COMMAND" -p kybernow-core --release --target "$target" -Zbuild-std=std,panic_abort)
+    [ "$KYBER_PYROWAVE" = 1 ] && cargo+=(--features pyrowave)
     echo "==> cargo $COMMAND ($target)"
     started=$(date +%s)
     (cd "$APPS" && cargo_quiet "${cargo[@]}")

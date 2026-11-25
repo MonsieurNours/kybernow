@@ -492,6 +492,7 @@ private struct SettingsContent: View {
         case .h264: base = String(localized: "Le plus compatible. Demande plus de débit pour la même netteté.")
         case .hevc: base = String(localized: "Recommandé : plus net à débit égal, décodé par la puce de ce Mac.")
         case .av1: base = String(localized: "Le plus efficace, décodé par les puces M3 et suivantes (en 4:2:0 seulement : pas de texte net).")
+        case .pyrowave: base = PyroWaveText.helpChosen
         }
         if !DecoderCapabilities.current.av1 { return base + " " + String(localized: "Ce Mac ne décode pas l'AV1 en matériel.") }
         return info?.av1 == true ? base : base + " " + String(localized: "AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur.")

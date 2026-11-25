@@ -79,6 +79,15 @@ struct SessionView: View {
                     .transition(.opacity)
             }
 
+            // PyroWave choisi, en Wi-Fi ou par le relais : le bandeau du début (8 s) ;
+            // « Passer en HEVC » est dans le menu (Retour), tuile « PyroWave en Wi-Fi ».
+            if session.pyrowaveBanner, !session.menuOpen {
+                PyroWaveBannerTV(link: session.pyrowaveLink)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, session.notice == nil ? 48 : 124)
+                    .transition(.opacity)
+            }
+
             if let note = session.fallbackNote, !session.menuOpen {
                 MenuHint(text: note)
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -460,6 +469,33 @@ struct MenuHint: View {
         .padding(.horizontal, 28)
         .frame(height: 60)
         .glass(30, tint: 0.5)
+    }
+}
+
+/// Bandeau du début d'une session en PyroWave sans câble (docs/link-ui.md,
+/// « PyroWave ») : à lire de loin ; « Passer en HEVC » derrière le bouton
+/// Retour (le menu de session), la télécommande n'ayant pas de focus en jeu.
+struct PyroWaveBannerTV: View {
+    let link: PyroWaveLink
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 20) {
+            Icon("warning", size: 32).foregroundStyle(Theme.warn)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(PyroWaveText.chip(link)).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
+                Text(PyroWaveText.bannerBody).font(Theme.sans(20)).foregroundStyle(Theme.warnText)
+            }
+            Rectangle().fill(Theme.warnLine).frame(width: 1, height: 48)
+            HStack(spacing: 12) {
+                Glyph(kind: .remote, role: .back, size: 26)
+                Text(PyroWaveText.switchToHEVC).font(Theme.sans(20, .medium)).foregroundStyle(Theme.warnText)
+            }
+        }
+        .padding(.horizontal, 30)
+        .padding(.vertical, 16)
+        .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.warnFill.opacity(0.94)))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Theme.warnLine, lineWidth: 1.5))
+        .accessibilityElement(children: .combine)
     }
 }
 

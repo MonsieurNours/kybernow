@@ -23,6 +23,10 @@ kybernow-core = { path = "../core", features = ["sdl"] }
 # La feature `capi` est celle que cargo-c active pour construire la bibliothèque C.
 [features]
 capi = []
+# Kyber sait demander PyroWave (correctif kyclient 0025 posé) : la
+# fonctionnalité `pyrowave` du cœur (build-apple-mobile.sh --kyber-pyrowave,
+# docs/pyrowave-client-apple.md).
+kyber-pyrowave = ["kybernow-core/pyrowave"]
 
 [package.metadata.capi.library]
 name = "kybernow"

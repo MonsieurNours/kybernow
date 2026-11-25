@@ -52,6 +52,7 @@
 		6653A4ED3F13552933EA6268 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C48FEEB2EF3F0C1C29CF932A /* SystemConfiguration.framework */; };
 		6900DF869CD96B84CB3D2982 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 943CF5575AABD133E0381912 /* OFL.txt */; };
 		6AF6DC2A12BD51242201E613 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ECA1A96C6FB50960289154D /* SessionController.swift */; };
+		6BAB4ED6158B63BC01A49A1B /* PyroWaveSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C53F4518A7D92F25AAB0A18 /* PyroWaveSupport.swift */; };
 		6D10BF1561E600B622751250 /* FramePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5CAB0A1CC458D1CAE235BF2 /* FramePath.swift */; };
 		6EB4D0D61C6AC05D90761C23 /* GamepadsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82813EE36CC6DB67A977F840 /* GamepadsView.swift */; };
 		6FDCDCDBBE4CBF939CD1AF71 /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99A7F2997495AE8E0846FCF2 /* KyberKit.framework */; };
@@ -182,6 +183,7 @@
 		51A419BE79B3C891332EF56E /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
 		5680458539B0010845C420CE /* KyberNowTopShelf.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = KyberNowTopShelf.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		576015575B19883226E35C13 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
+		5C53F4518A7D92F25AAB0A18 /* PyroWaveSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveSupport.swift; sourceTree = "<group>"; };
 		5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		609D971655FAFD446DC66236 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		62FE3E9D1E34B31C3A9DD531 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -426,6 +428,7 @@
 				F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */,
 				919B515E219980860679A380 /* PlayStationCore.swift */,
 				E3F34F3B851901BD764C3617 /* PyroWaveDecoder.swift */,
+				5C53F4518A7D92F25AAB0A18 /* PyroWaveSupport.swift */,
 				51A419BE79B3C891332EF56E /* RelayCore.swift */,
 				26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */,
 				98802BF2F33E3D7BC10FF259 /* ShareCore.swift */,
@@ -722,6 +725,7 @@
 				00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */,
 				3CE9B57C5767BD6DFC105230 /* PlayStationCore.swift in Sources */,
 				36055FDA8EED2FE333792D8F /* PyroWaveDecoder.swift in Sources */,
+				6BAB4ED6158B63BC01A49A1B /* PyroWaveSupport.swift in Sources */,
 				1BC9E26B0CBD77A3DD314E3F /* RelayCore.swift in Sources */,
 				E500B3D5892A7F414E0B3893 /* SessionEngine.swift in Sources */,
 				F7AE3287A1E7E95408692797 /* ShareCore.swift in Sources */,

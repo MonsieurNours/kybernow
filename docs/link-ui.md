@@ -483,6 +483,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 Contrat technique : [pyrowave.md](pyrowave.md). PyroWave est une valeur de « Format vidéo », sous son nom, dans toutes les apps qui le décodent ; maquettes : https://claude.ai/artifact/9mTTKtn4zLc2zaERtpcDf1.
 
 - **Auto** le prend seulement quand l'appareil est relié par câble (Ethernet), sur le même réseau que l'ordinateur, et que l'ordinateur le propose ; sinon HEVC comme aujourd'hui. En Wi-Fi et par le relais, il faut le choisir soi-même.
+- **Apps Apple** (Mac, Apple TV, iPhone, iPad) : « Auto » y est un profil (Jeu, Bureau, Max) ; « Format vidéo » montre « Auto » et « PyroWave » seulement quand l'ordinateur connaît PyroWave, « Auto » coché quand un profil est actif ; le choisir depuis « Personnalisé » reprend Jeu ([pyrowave-client-apple.md](pyrowave-client-apple.md)).
 - **Débit trop haut** pour le plafond de l'ordinateur ou le débit mesuré : l'app baisse la définition (puis la fréquence), jamais la netteté, et le dit.
 - **Par le relais** : permis, avertissement seul, sans plafond de débit au relais.
 - Une image perdue est sautée ; les Statistiques ajoutent « Images perdues ».

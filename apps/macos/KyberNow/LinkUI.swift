@@ -73,6 +73,7 @@ enum LinkFormat {
         case .h264: return "H.264"
         case .hevc: return "HEVC"
         case .av1: return "AV1"
+        case .pyrowave: return "PyroWave"
         }
     }
 
@@ -1031,6 +1032,11 @@ extension HostStore {
         tour.lastDuration = 42 * 60
         (tour.lastWidth, tour.lastHeight, tour.lastRefresh, tour.lastCodec, tour.lastMbps) = (2560, 1440, 120, .hevc, 80)
         tour.wake = [WakeTarget(mac: "3C:7C:3F:12:AB:CD", ipv4: "192.168.1.42", broadcast: "192.168.1.255", kind: "ethernet", armed: true)]
+        // `-demoCodec pyrowave` : PyroWave choisi à la main pour la Tour (réglages « Format vidéo »).
+        if let codec = args.string(forKey: "demoCodec").flatMap(VideoCodec.init(rawValue:)) {
+            tour.settings.codec = codec
+            tour.settings.profile = nil
+        }
         var atelier = Host(name: "Atelier", address: "10.8.0.12", consolePort: 9443, username: "camille")
         atelier.wake = [WakeTarget(mac: "D8:BB:C1:04:5E:72", ipv4: "10.8.0.12", broadcast: "10.8.0.255", kind: "ethernet")]
         atelier.lastSession = Date().addingTimeInterval(-3 * 86400)
@@ -1068,8 +1074,11 @@ extension HostStore {
         // HDR : la Tour le propose (`-demoHDROffer off|windows|encoder` : la raison
         // de la puce inactive), l'Atelier est sous Windows 10, le Studio n'en a pas.
         let tourHDR = args.string(forKey: "demoHDROffer").map { HDROffer(available: false, reason: HDROffer.Reason(rawValue: $0)) } ?? HDROffer(available: true)
+        // PyroWave : `-demoPyroWaveOffer on|off` (ou `-demoPyroWave wifi|relay`) : la Tour le connaît, le propose ou non.
+        let tourPyroWave: PyroWaveOffer? = (args.string(forKey: "demoPyroWaveOffer") ?? args.string(forKey: "demoPyroWave").map { _ in "on" })
+            .map { PyroWaveOffer(available: $0 == "on", reason: $0 == "on" ? nil : "off") }
         put(tour, online: true, HostInfo(hostname: tour.name, gpu: "NVIDIA GeForce RTX 4080", av1: true, os: "Windows 11 Pro 24H2",
-                                          adminVersion: station?.version ?? "0.4.9", station: station, hdr: tourHDR), problem: problem)
+                                          adminVersion: station?.version ?? "0.4.9", station: station, hdr: tourHDR, pyrowave: tourPyroWave), problem: problem)
         put(atelier, online: false, HostInfo(hostname: atelier.name, gpu: "AMD Radeon RX 7800 XT", os: "Windows 10 Pro 22H2",
                                               adminVersion: "0.5.0", station: StationInfo(version: "0.5.0"), hdr: HDROffer(available: false, reason: .windows)))
         put(studio, online: true, HostInfo(hostname: studio.name, gpu: "Apple M4", virtualDisplay: false, os: "macOS 26.1",
@@ -1079,3 +1088,50 @@ extension HostStore {
     }
 }
 #endif
+
+// MARK: - PyroWave
+
+/// Les textes de PyroWave (docs/link-ui.md, « PyroWave ») : « Format vidéo »,
+/// avertissements, bandeau et puce de session, statistiques. La raison
+/// « {cet appareil} ne sait pas décoder PyroWave. » est dans chaque app.
+enum PyroWaveText {
+    static var name: String { "PyroWave" }
+    /// Aide de « Format vidéo », PyroWave choisi.
+    static var helpChosen: String {
+        String(localized: "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet.")
+    }
+    /// Aide de « Format vidéo », Auto, par câble.
+    static var helpAutoWired: String { String(localized: "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.") }
+    /// Aide de « Format vidéo », Auto, sans câble (ordinateur qui le propose).
+    static var helpAutoWireless: String { String(localized: "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble.") }
+    /// Avertissement sous le choix : en Wi-Fi, ou par le relais.
+    static func warning(_ link: PyroWaveLink) -> String? {
+        switch link {
+        case .cable: return nil
+        case .wifi: return String(localized: "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.")
+        case .relay: return String(localized: "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.")
+        }
+    }
+    /// Titre du bandeau du début de session et puce ambre de la barre.
+    static func chip(_ link: PyroWaveLink) -> String {
+        link == .relay ? String(localized: "PyroWave hors de chez vous") : String(localized: "PyroWave en Wi-Fi")
+    }
+    static var bannerBody: String { String(localized: "L'image peut saccader.") }
+    static var switchToHEVC: String { String(localized: "Passer en HEVC") }
+    /// Bandeau et Statistiques, quand le cœur dit avoir baissé la définition.
+    static func lowered(width: Int, height: Int, mbps: Int) -> String {
+        String(localized: "Définition ramenée à \(LinkFormat.dims(width, height)) pour tenir dans \(mbps) Mbit/s.")
+    }
+    /// Statistiques, ligne en plus.
+    static var lostFrames: String { String(localized: "Images perdues") }
+    /// Sa valeur : « 0,8 % » (deux décimales sous 0,1 %).
+    static func percent(_ value: Double) -> String {
+        if value <= 0 { return "0 %" }
+        let text = String(format: "%.\(value < 0.1 ? 2 : 1)f", value)
+        return (LanguageChoice.effective == "fr" ? text.replacingOccurrences(of: ".", with: ",") : text) + " %"
+    }
+    /// Aide de « Texte net (4:4:4) » avec PyroWave.
+    static var sharpText: String { String(localized: "Avec PyroWave, presque sans coût : seul le débit monte.") }
+    /// Valeur inactive : la Station ne le propose pas.
+    static func notOffered(_ name: String) -> String { String(localized: "\(name) ne propose pas PyroWave.") }
+}

@@ -45,17 +45,22 @@ public final class SessionEngine: @unchecked Sendable {
         /// Station le propose et que le décodeur suit ; il impose alors 4:2:0
         /// et HEVC ou AV1.
         public var hdr: Bool
-        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false) {
+        /// L'appareil est relié par câble au réseau de l'ordinateur
+        /// (`StreamSettings.wired` du cœur) : « Auto » peut alors prendre
+        /// PyroWave (docs/pyrowave.md).
+        public var wired: Bool
+        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false, wired: Bool = false) {
             self.profile = profile
             self.codec = codec
             self.yuv444 = yuv444
             self.mbps = mbps
             self.reliable = reliable
             self.hdr = hdr
+            self.wired = wired
         }
 
         var json: [String: Any] {
-            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr]
+            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr, "wired": wired]
             if let profile { j["profile"] = profile }
             return j
         }
@@ -431,6 +436,8 @@ public final class SessionEngine: @unchecked Sendable {
     private var input: InputPipeline?
     private var lastDisplay: KyberDisplay?
     private var lastSecond: LatencySecond?
+    /// Format du dernier paquet de codec (`receivedCodec`), sous `lock`.
+    private var receivedCodecValue: VideoCodec?
     private var padCaptured = false
     private var occluded = false
     private var vsync = true
@@ -1178,6 +1185,24 @@ public final class SessionEngine: @unchecked Sendable {
         old?.shutdown()
     }
 
+    /// Le format de l'image reçue (dernier paquet de codec, tous écrans) :
+    /// celui que la Station envoie vraiment, PyroWave ou son repli.
+    public var receivedCodec: VideoCodec? {
+        lock.lock()
+        defer { lock.unlock() }
+        return receivedCodecValue
+    }
+
+    static func codec(fourcc: UInt32) -> VideoCodec? {
+        switch VideoDecoder.Codec(rawValue: fourcc) {
+        case .h264?: return .h264
+        case .hevc?: return .hevc
+        case .av1?: return .av1
+        case .pyrowave?: return .pyrowave
+        case nil: return nil
+        }
+    }
+
     private func second(_ s: KnSecond) {
         var second = LatencySecond()
         second.latencyMs = s.has_latency ? s.latency_ms : nil
@@ -1285,6 +1310,9 @@ public final class SessionEngine: @unchecked Sendable {
             lock.unlock()
             pipeline?.stop()
         case KN_PACKET_CODEC:
+            lock.lock()
+            receivedCodecValue = Self.codec(fourcc: p.codec)
+            lock.unlock()
             videoPipeline(for: p.stream, screen: Int(p.screen))?.decoder.setCodec(p.codec)
         case KN_PACKET_MEDIA:
             guard let data = p.data, p.len > 0, let pipeline = videoPipeline(for: p.stream, screen: Int(p.screen)) else { return }

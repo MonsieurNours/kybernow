@@ -22,7 +22,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr, pyrowave }
 
     init(session: SessionController) {
         self.session = session
@@ -95,6 +95,11 @@ struct SessionMenu: View {
                     } else if session.isGuest {
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: ShareText.leave, detail: ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
                     } else {
+                        // PyroWave en Wi-Fi ou par le relais : la tuile ambre, qui passe l'image en HEVC.
+                        if let chip = session.pyrowaveChip {
+                            tile(.pyrowave, icon: "warning", iconColor: Theme.warn, title: chip, detail: PyroWaveText.switchToHEVC) { session.switchToHEVC() }
+                                .accessibilityHint(Text(PyroWaveText.bannerBody))
+                        }
                         shareTile
                         if showsLend { lendTile }
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: String(localized: "Se déconnecter"), detail: String(localized: "L'ordinateur retrouve ses écrans")) { session.end() }
@@ -178,7 +183,8 @@ struct SessionMenu: View {
     private var statsStrip: some View {
         let s = session.stats
         let lost = (s?.lostFrames ?? 0) + (s?.lostPackets ?? 0)
-        let codec = session.imageCodec == .h264 ? "H.264" : "HEVC"
+        let codec = LinkFormat.codec(session.imageCodec == .av1 ? .hevc : session.imageCodec)
+        let pyrowave = session.imageCodec == .pyrowave
         let format = s?.format.components(separatedBy: " ").first ?? "4:2:0"
         return HStack(spacing: 28) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -193,9 +199,18 @@ struct SessionMenu: View {
             if session.streamHDR { Text(verbatim: HDRText.label) }
             // « Chemin » : Direct, Par le relais, Par le relais (TCP).
             Text(verbatim: session.path.label)
-            HStack(spacing: 8) {
-                Circle().fill(lost == 0 ? Theme.ok : Theme.warn).frame(width: 9, height: 9)
-                lost == 0 ? Text("0 perte") : Text("\(lost) pertes")
+            if pyrowave {
+                // PyroWave : une image perdue est sautée ; leur part sur 30 s.
+                let share = session.lostFramesShare
+                HStack(spacing: 8) {
+                    Circle().fill(share == 0 ? Theme.ok : Theme.warn).frame(width: 9, height: 9)
+                    Text(verbatim: "\(PyroWaveText.lostFrames) \(PyroWaveText.percent(share))")
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Circle().fill(lost == 0 ? Theme.ok : Theme.warn).frame(width: 9, height: 9)
+                    lost == 0 ? Text("0 perte") : Text("\(lost) pertes")
+                }
             }
         }
         .font(Theme.mono(18))
@@ -279,7 +294,8 @@ struct SessionMenu: View {
     private var tileCount: Int {
         if session.isBorrower { return 8 }
         if session.isGuest { return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) }
-        return showsLend ? 9 : 8
+        // La tuile ambre de PyroWave (en Wi-Fi ou par le relais) en plus.
+        return (showsLend ? 9 : 8) + (session.pyrowaveChip != nil ? 1 : 0)
     }
 
     /// Neuf tuiles (« Partager » et « Prêter l'ordinateur… ») : plus serrées, des titres un peu plus petits.

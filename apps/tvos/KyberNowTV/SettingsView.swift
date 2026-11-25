@@ -279,17 +279,24 @@ struct SettingsView: View {
             edit { st in st.display = st.display == .physical ? .match : .physical }
         }
         rateRow(s)
-        seg("codec", String(localized: "Format vidéo"), String(localized: "AV1 : cette Apple TV ne le décode pas en matériel"),
-            [("hevc", "HEVC"), ("h264", "H.264"), ("av1", "AV1")], s.codec == .h264 ? "h264" : "hevc",
-            disabled: ["av1"] + (DecoderCapabilities.current.hevc ? [] : ["hevc"])) { v in
-            edit { st in st.codec = v == "h264" ? .h264 : .hevc }
+        let pw = pyrowave(s)
+        if pw.shown {
+            formatList(s, pw)
+        } else {
+            seg("codec", String(localized: "Format vidéo"), String(localized: "AV1 : cette Apple TV ne le décode pas en matériel"),
+                [("hevc", "HEVC"), ("h264", "H.264"), ("av1", "AV1")], s.codec == .h264 ? "h264" : "hevc",
+                disabled: ["av1"] + (DecoderCapabilities.current.hevc ? [] : ["hevc"])) { v in
+                edit { st in st.codec = v == "h264" ? .h264 : .hevc }
+            }
         }
         // HDR allumé : le 4:4:4 n'existe pas en HDR (docs/hdr.md), le texte net est inactif.
         let hdr = s.hdrState(info, screenHDR: app.screenHDR)
         let hdrOn = hdr.on(s.hdr)
         let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
+        let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.profile != nil)
         toggle("yuv", String(localized: "Texte net (4:4:4)"),
                hdrOn ? SettingsText.sharpTextHDR
+                   : pyroImage ? PyroWaveText.sharpText
                    : can444 ? SettingsText.sharpTextHelp : s.codec == .h264 ? String(localized: "Le 4:4:4 demande le HEVC.") : String(localized: "Cette Apple TV ne le décode pas en matériel : l'image reste en 4:2:0."),
                s.yuv444 && can444) {
             edit { st in st.yuv444.toggle() }
@@ -326,9 +333,105 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: PyroWave
+
+    /// PyroWave pour cet ordinateur : montré si la Station le connaît (ou s'il
+    /// est choisi), inactif avec sa raison, et le lien de l'Apple TV.
+    private func pyrowave(_ s: ConnectionSettings) -> PyroWaveChoice {
+        PyroWaveChoice.of(offer: info?.pyrowave, decodes: DecoderCapabilities.current.pyrowave, chosen: s.codec == .pyrowave,
+                          link: PyroWaveLink(wired: link == "Ethernet", relay: store.viaRelay(hostID)))
+    }
+
+    /// « Format vidéo » quand la Station connaît PyroWave (maquette Apple TV
+    /// de PyroWave, docs/link-ui.md) : la liste au focus à droite, à lire de
+    /// loin ; à gauche l'aide du choix et, en Wi-Fi ou par le relais,
+    /// l'avertissement ambre. « Auto » : un profil (le cœur choisit).
+    private func formatList(_ s: ConnectionSettings, _ pw: PyroWaveChoice) -> some View {
+        let current = s.profile != nil ? "auto" : s.codec.rawValue
+        let options: [(key: String, label: String, off: Bool)] = [
+            ("auto", String(localized: "Auto"), false),
+            ("hevc", "HEVC", !DecoderCapabilities.current.hevc),
+            ("h264", "H.264", false),
+            ("av1", "AV1", true),
+            ("pyrowave", PyroWaveText.name, !pw.usable),
+        ]
+        let warning = s.codec == .pyrowave && pw.usable ? PyroWaveText.warning(pw.link) : nil
+        return HStack(alignment: .top, spacing: 40) {
+            VStack(alignment: .leading, spacing: 18) {
+                label(String(localized: "Format vidéo"), formatHelp(s, pw))
+                if let warning {
+                    HStack(alignment: .top, spacing: 14) {
+                        Icon("warning", size: 26).foregroundStyle(Theme.warn)
+                        Text(warning).font(Theme.sans(19)).foregroundStyle(Theme.warnText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.horizontal, 20).padding(.vertical, 16)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.warnFill))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.warnLine, lineWidth: 1.5))
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            VStack(spacing: 10) {
+                ForEach(options, id: \.key) { o in
+                    Button { pickFormat(o.key, s) } label: {
+                        HStack {
+                            Text(o.label).strikethrough(o.off)
+                            Spacer(minLength: 24)
+                            if current == o.key { Icon("check", size: 24, bold: true) }
+                        }
+                        .frame(width: 300)
+                    }
+                    .buttonStyle(ChoiceButton(selected: current == o.key, height: 60, light: true))
+                    .disabled(o.off)
+                    .focused($focus, equals: .row("codec.\(o.key)"))
+                }
+            }
+            .focusSection()
+        }
+        .padding(.horizontal, 24).padding(.vertical, 18)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.04)))
+    }
+
+    /// L'aide de « Format vidéo » : la raison d'un PyroWave inactif d'abord,
+    /// puis celle de PyroWave choisi ou d'« Auto ».
+    private func formatHelp(_ s: ConnectionSettings, _ pw: PyroWaveChoice) -> String {
+        switch pw.block {
+        case .notOffered?: return PyroWaveText.notOffered(hostName)
+        case .noDecoder?: return String(localized: "Cette Apple TV ne sait pas décoder PyroWave.")
+        case nil: break
+        }
+        if s.codec == .pyrowave, s.profile == nil { return PyroWaveText.helpChosen }
+        if s.profile != nil { return pw.link == .cable ? PyroWaveText.helpAutoWired : PyroWaveText.helpAutoWireless }
+        return String(localized: "AV1 : cette Apple TV ne le décode pas en matériel")
+    }
+
+    /// Un format choisi rend le profil « Personnalisé » ; « Auto » reprend le
+    /// profil Jeu. PyroWave choisi : le débit qu'« Auto » prendrait par câble.
+    private func pickFormat(_ key: String, _ s: ConnectionSettings) {
+        edit { st in
+            switch key {
+            case "auto":
+                if st.profile == nil { st.apply(.jeu) }
+            case "pyrowave":
+                let mode = TVDisplay.mode(for: st)
+                st.codec = .pyrowave
+                st.profile = nil
+                st.bitrateMbps = PyroWaveRate.mbps(width: mode.width, height: mode.height, refresh: mode.refresh, yuv444: st.yuv444)
+            default:
+                let wasPyroWave = st.codec == .pyrowave
+                st.codec = key == "h264" ? .h264 : .hevc
+                st.profile = nil
+                // En quittant PyroWave, un débit d'HEVC.
+                if wasPyroWave { st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps) }
+            }
+        }
+    }
+
     private func rateRow(_ s: ConnectionSettings) -> some View {
         let rate = bitrate(s)
-        let warn = rate > 150
+        // PyroWave : 5 à 10 fois le débit de HEVC, voulu ; pas d'avertissement de débit.
+        let pyro = s.codec == .pyrowave
+        let warn = rate > 150 && !pyro
         return HStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
@@ -345,7 +448,7 @@ struct SettingsView: View {
                             Rectangle().fill(Theme.warn.opacity(0.35))
                         }
                         Rectangle().fill(warn ? Theme.warn : Theme.accent)
-                            .frame(width: geo.size.width * min(1, CGFloat(rate) / 400))
+                            .frame(width: geo.size.width * min(1, CGFloat(rate) / (pyro ? CGFloat(PyroWaveRate.max) : 400)))
                     }
                     .clipShape(Capsule())
                 }
@@ -746,6 +849,10 @@ struct SettingsView: View {
     }
 
     private func watchLink() {
+        #if DEBUG
+        // `-demoLink Wi-Fi|Ethernet` : le lien affiché (captures, aides de PyroWave).
+        if let demo = UserDefaults.standard.string(forKey: "demoLink") { link = demo; return }
+        #endif
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { path in
             let kind = path.usesInterfaceType(.wiredEthernet) ? "Ethernet" : path.usesInterfaceType(.wifi) ? "Wi-Fi" : String(localized: "Réseau")

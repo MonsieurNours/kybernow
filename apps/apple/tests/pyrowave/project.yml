@@ -1,0 +1,51 @@
+# Essai hors ligne de PyroWave sur l'Apple TV, l'iPhone et l'iPad
+# (docs/pyrowave-client-apple.md) : une petite app à part (identifiant
+# fr.leslignesclaires.kybernow.pyrowavebench), qui ne touche pas à KyberNow
+# Link installée. Elle encode une mire sur l'appareil avec l'encodeur Metal
+# du port (apps/macos/PyroWave), puis la décode par le chemin de l'app
+# (VideoDecoder « pwv1 » → PyroWaveDecoder de KyberKit). `run.sh` la construit,
+# l'installe et lit son résultat. Généré par XcodeGen (`xcodegen generate`).
+name: PyroWaveBench
+options:
+  bundleIdPrefix: fr.leslignesclaires
+  deploymentTarget:
+    tvOS: "18.0"
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: P6DB682S4K
+    ARCHS: arm64
+    GENERATE_INFOPLIST_FILE: YES
+    PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow.pyrowavebench
+    SWIFT_INCLUDE_PATHS: $(SRCROOT)/../../../macos/PyroWave/module
+    CLANG_ENABLE_OBJC_ARC: YES
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+targets:
+  PyroWaveBenchTV:
+    type: application
+    platform: tvOS
+    sources: &sources
+      - path: Bench
+      - path: ../../../macos/KyberKit/PyroWaveDecoder.swift
+      - path: ../../../macos/KyberKit/VideoDecoder.swift
+      - path: ../../../macos/KyberKit/AV1.swift
+      - path: ../../../macos/PyroWave/upstream/pyrowave_common.mm
+      - path: ../../../macos/PyroWave/upstream/pyrowave_decoder.mm
+      - path: ../../../macos/PyroWave/upstream/pyrowave_encoder.mm
+      - path: ../../../macos/PyroWave/upstream/pyrowave_bitstream.cpp
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "3"
+        PRODUCT_NAME: PyroWaveBench
+  PyroWaveBenchIOS:
+    type: application
+    platform: iOS
+    sources: *sources
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        PRODUCT_NAME: PyroWaveBench

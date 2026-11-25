@@ -260,6 +260,8 @@ struct ConnectionSettings: Codable, Hashable {
     static func decodes444(_ codec: VideoCodec) -> Bool {
         switch codec {
         case .hevc: return DecoderCapabilities.current.hevc444
+        // PyroWave : 4:4:4 presque sans coût, décodé par le GPU (docs/pyrowave.md).
+        case .pyrowave: return DecoderCapabilities.current.pyrowave
         case .av1, .h264: return false
         }
     }
