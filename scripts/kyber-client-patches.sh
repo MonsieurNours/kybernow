@@ -22,7 +22,7 @@
 kyber_client_repo() {
     local kysdk=$1 patch=$2
     case "$(basename "$patch")" in
-        *-kyclient-*) echo "$kysdk/kyctl" ;;
+        *-kyclient-* | *-kycontroller-* | *-kywebplayer-*) echo "$kysdk/kyctl" ;;
         *-kynput-*) echo "$kysdk/kynput" ;;
         *-kynet-*) echo "$kysdk/kymux" ;;
         *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; return 1 ;;
@@ -32,9 +32,28 @@ kyber_client_repo() {
 # kyber_apply_client_patches <kysdk> <correctif>... : remet à l'origine (HEAD
 # du dépôt) chaque fichier que ces correctifs touchent, puis les pose dans
 # l'ordre donné. S'arrête (code 1) au premier correctif qui ne se pose pas.
+# Les correctifs de la Station pour ces dépôts (kycontroller, kywebplayer,
+# kynet, kynput : pas ceux de kyclient, que l'appelant passe, ni ceux du moteur
+# web) sont posés d'abord, comme server/kyber-patches/apply.sh : les apps se
+# compilent sur le même état que la Station (le stylet de la Station touche
+# kynput/Cargo.toml et ajoute des fichiers ; remettre l'un sans les autres
+# cassait la compilation de kynput).
+KYBER_CLIENT_PATCHES_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+kyber_station_patches() {
+    local patch
+    for patch in "$KYBER_CLIENT_PATCHES_ROOT"/server/kyber-patches/*.patch; do
+        case "$(basename "$patch")" in
+            *-kycontroller-* | *-kywebplayer-* | *-kynet-* | *-kynput-*) echo "$patch" ;;
+        esac
+    done
+}
+
 kyber_apply_client_patches() {
     local kysdk=$1 patch repo f
     shift
+    local station=()
+    while IFS= read -r patch; do station+=("$patch"); done < <(kyber_station_patches)
+    set -- ${station[@]+"${station[@]}"} "$@"
     for patch in "$@"; do
         repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
         for f in $(grep -h '^+++ b/' "$patch" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
