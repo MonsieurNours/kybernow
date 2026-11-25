@@ -96,15 +96,24 @@ done
 export RUSTFLAGS="${RUSTFLAGS:-} --cfg kybernow_webos"
 
 # 2. libkynput, refaite quand les sources de kynput changent
-# (scripts/kyber-client-patches.sh, kyber_kynput_stamp).
-. "$ROOT/scripts/kyber-client-patches.sh"
-KYNPUT_STAMP="$(kyber_kynput_stamp "$KYSDK")"
-if ! kyber_kynput_current "$PREFIX" "$KYNPUT_STAMP"; then
+# (scripts/kyber-client-patches.sh, kyber_kynput_stamp). Dans la copie du
+# Flatpak (apps/linux/scripts/sources.sh), ni ce fichier ni l'historique git de
+# kynput : son dossier de construction part de zéro, libkynput y est faite
+# quand elle manque, comme avant.
+KYNPUT_STAMP=""
+if [ -f "$ROOT/scripts/kyber-client-patches.sh" ] && git -C "$KYSDK/kynput" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+    . "$ROOT/scripts/kyber-client-patches.sh"
+    KYNPUT_STAMP="$(kyber_kynput_stamp "$KYSDK")"
+fi
+kynput_current() {
+    if [ -n "$KYNPUT_STAMP" ]; then kyber_kynput_current "$PREFIX" "$KYNPUT_STAMP"; else [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ]; fi
+}
+if ! kynput_current; then
     command -v cargo-cinstall >/dev/null || cargo install cargo-c --version 0.10.15 --locked
     echo "==> libkynput dans $PREFIX"
     (cd "$KYSDK/kynput" && cargo_quiet cargo cinstall -p kynput --release --library-type=staticlib --prefix="$PREFIX" --libdir="$PREFIX/lib" --target-dir="$PREFIX/build/kynput")
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
-    kyber_kynput_mark "$PREFIX" "$KYNPUT_STAMP"
+    [ -z "$KYNPUT_STAMP" ] || kyber_kynput_mark "$PREFIX" "$KYNPUT_STAMP"
 fi
 
 # 3. FFmpeg réduit au décodage (VA-API ; V4L2 M2M partout sur Linux ; avec --rpi,
