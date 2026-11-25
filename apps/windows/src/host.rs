@@ -81,6 +81,11 @@ pub struct Stats {
     pub audio_channels: u16,
     pub audio_buffer_ms: Option<f64>,
     pub audio_output_ms: Option<f64>,
+    /// PyroWave (docs/link-ui.md) : la définition ramenée pour tenir dans le
+    /// débit (largeur, hauteur, Mbit/s), ligne « Définition ramenée » des
+    /// Statistiques. Le cœur ne la dit pas encore : toujours absente.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lowered: Option<(u32, u32, u32)>,
 }
 
 /// Bilan d'une session terminée.
@@ -620,6 +625,7 @@ impl Platform for WinPlatform {
             audio_channels: audio.map_or(self.audio_channels, |a| a.channels as u16),
             audio_buffer_ms: audio.map(|a| a.buffer_ms),
             audio_output_ms: audio.map(|a| a.output_ms),
+            lowered: None,
         });
     }
     fn on_notice(&self, notice: &kybernow_core::session::Notice) {

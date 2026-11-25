@@ -26,6 +26,9 @@ pub struct ThisPc {
     /// HDR (docs/hdr.md) : la carte décode en 10 bits ce qu'une session HDR
     /// prend (`decoder::hdr_capable`).
     pub hdr: bool,
+    /// PyroWave (docs/pyrowave-client-windows.md) : la sonde a décodé son
+    /// image de test (DLL, Vulkan du pilote et carte qui le font tourner).
+    pub pyrowave: bool,
     pub width: u32,
     pub height: u32,
     pub refresh: u32,
@@ -47,6 +50,9 @@ pub struct Gpu {
     pub hevc10: bool,
     #[serde(default)]
     pub av1_10: bool,
+    /// PyroWave décodé (absent d'une sonde d'avant PyroWave).
+    #[serde(default)]
+    pub pyrowave: bool,
 }
 
 /// Côté processus de sonde : la carte et ses décodeurs.
@@ -57,7 +63,7 @@ pub fn probe_gpu() -> Gpu {
             let gpu = render::adapter_name(&device);
             log::info!("sonde : {gpu}, décodeurs");
             let p = decoder::probe(&device);
-            Gpu { gpu, h264: p.h264, hevc: p.caps.hevc, hevc444: p.caps.hevc444, av1: p.caps.av1, hevc10: p.hevc10, av1_10: p.av1_10 }
+            Gpu { gpu, h264: p.h264, hevc: p.caps.hevc, hevc444: p.caps.hevc444, av1: p.caps.av1, hevc10: p.hevc10, av1_10: p.av1_10, pyrowave: p.caps.pyrowave }
         }
         Err(e) => {
             log::warn!("sonde : Direct3D 11 indisponible ({e})");
@@ -123,6 +129,7 @@ pub fn this_pc() -> ThisPc {
         hevc444: gpu.hevc444,
         av1: gpu.av1,
         hdr: decoder::hdr_capable(gpu.hevc, gpu.hevc10, gpu.av1, gpu.av1_10),
+        pyrowave: gpu.pyrowave,
         width: mode.width,
         height: mode.height,
         refresh: mode.refresh,

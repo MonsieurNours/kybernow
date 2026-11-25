@@ -29,7 +29,8 @@ Options :
   --fingerprint <empreinte> empreinte d'Admin (sha256:…), sinon retenue
                             au premier contact
   --profile jeu|bureau|max  profil (Jeu par défaut)
-  --codec h264|hevc|av1     format vidéo (selon la carte graphique par défaut)
+  --codec h264|hevc|av1|pyrowave
+                            format vidéo (selon la carte graphique par défaut)
   --444 / --420             couleurs complètes ou non
   --mbps <débit>            débit fixe en Mbit/s (sinon celui du profil)
   --size <L>x<H>@<Hz>       mode de l'écran de l'ordinateur (sinon cet écran)
@@ -46,6 +47,7 @@ Options :
   --no-station-restart      pas de redémarrage de la Station en dernier recours
                             quand l'image ne vient pas
   --probe                   affiche ce que la carte graphique décode, puis quitte
+  --pyrowave-test [--help]  essai hors ligne du décodeur PyroWave, puis quitte
 
 Raccourcis : Ctrl+Alt+Maj+D se déconnecter, +F plein écran, +M souris des jeux.
 ";
@@ -228,6 +230,11 @@ fn forget_accounts() -> usize {
 }
 
 pub fn main() -> i32 {
+    // Essai hors ligne de PyroWave : ses propres options.
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.first().is_some_and(|a| a == "--pyrowave-test") {
+        return crate::pyrowave_test::run(&raw[1..]);
+    }
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {

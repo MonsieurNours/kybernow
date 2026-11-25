@@ -88,6 +88,49 @@ pub fn is_this_pc(host: &str) -> bool {
     addrs.into_iter().any(|a| a.ip().is_loopback() || UdpSocket::bind((a.ip(), 0)).is_ok())
 }
 
+/// PyroWave (docs/link-ui.md, « PyroWave ») : ce PC joint l'ordinateur
+/// `host` par une carte réseau filaire (Ethernet), celle que Windows prend
+/// pour cette adresse. Faux pour le Wi-Fi, le réseau mobile, une adresse
+/// introuvable ou qu'on ne sait pas lire : « Auto » prend alors HEVC.
+pub fn wired_to(host: &str) -> bool {
+    use std::net::{IpAddr, ToSocketAddrs};
+    use windows::Win32::NetworkManagement::IpHelper::{GetBestInterfaceEx, GetIfEntry2, MIB_IF_ROW2};
+    use windows::Win32::NetworkManagement::Ndis::{NdisPhysicalMedium802_3, NdisPhysicalMediumUnspecified};
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN_ADDR, IN6_ADDR, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
+    /// `IF_TYPE_ETHERNET_CSMACD` (ipifcons.h).
+    const ETHERNET: u32 = 6;
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let Some(ip) = (host, 0u16).to_socket_addrs().ok().and_then(|mut a| a.next()).map(|a| a.ip()) else { return false };
+    let mut index = 0u32;
+    let found = unsafe {
+        match ip {
+            IpAddr::V4(v4) => {
+                let mut sa = SOCKADDR_IN { sin_family: AF_INET, ..Default::default() };
+                sa.sin_addr = IN_ADDR { S_un: windows::Win32::Networking::WinSock::IN_ADDR_0 { S_addr: u32::from_ne_bytes(v4.octets()) } };
+                GetBestInterfaceEx(&sa as *const SOCKADDR_IN as *const SOCKADDR, &mut index)
+            }
+            IpAddr::V6(v6) => {
+                let mut sa = SOCKADDR_IN6 { sin6_family: AF_INET6, ..Default::default() };
+                sa.sin6_addr = IN6_ADDR { u: windows::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: v6.octets() } };
+                GetBestInterfaceEx(&sa as *const SOCKADDR_IN6 as *const SOCKADDR, &mut index)
+            }
+        }
+    };
+    if found != 0 {
+        return false;
+    }
+    let mut row = MIB_IF_ROW2 { InterfaceIndex: index, ..Default::default() };
+    if unsafe { GetIfEntry2(&mut row) }.is_err() {
+        return false;
+    }
+    // Une carte Wi-Fi se dit IEEE 802.11 (71) ; certaines cartes Wi-Fi ou
+    // mobiles se disent Ethernet : leur support physique les trahit.
+    let medium = row.PhysicalMediumType;
+    let wired = row.Type == ETHERNET && (medium == NdisPhysicalMedium802_3 || medium == NdisPhysicalMediumUnspecified);
+    log::info!("réseau vers {host} : carte {index}, type {}, support {}, {}", row.Type, medium.0, if wired { "câble" } else { "sans fil" });
+    wired
+}
+
 /// Cette app x64 tourne-t-elle émulée sur un processeur ARM64 ?
 pub fn emulated() -> bool {
     use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_ARM64};
@@ -405,6 +448,13 @@ pub fn probe_only() -> Result<(), String> {
     println!("HEVC       : {}", yes(p.caps.hevc));
     println!("HEVC 4:4:4 : {}", yes(p.caps.hevc444));
     println!("AV1        : {}", if p.caps.av1 { "carte graphique" } else { "non (pas de décodage AV1 par le processeur)" });
+    println!(
+        "PyroWave   : {}",
+        match crate::pyrowave::probe(&device) {
+            Ok(()) => "carte graphique (Vulkan)".to_string(),
+            Err(e) => format!("non ({e})"),
+        }
+    );
     let m = screen_mode();
     println!("Écran      : {} × {} à {} Hz", m.width, m.height, m.refresh);
     // Les écrans de ce PC, tels que le cœur les reçoit pour le multi-écrans.

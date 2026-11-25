@@ -686,12 +686,43 @@ impl Renderer {
             self.params.m = hdr::yuv_matrix(f.colorspace as i32, f.color_range as i32 == 2, bits, unit);
             let (fw, fh) = (planes.width, planes.height);
             let pq = hdr::frame_is_pq(f.color_trc as i32, bits == 10, stream_hdr);
-            self.choose_output(pq, f);
+            self.choose_output(pq, if pq { frame_hdr(f) } else { FrameHdr::default() });
             (fw, fh, self.encode(hint))
         };
         if painted {
             self.present();
             // Après la présentation : rien ne retarde l'image à l'écran.
+            let _held = lock.lock();
+            self.snapshot(fw, fh);
+        }
+        Ok(())
+    }
+
+    /// Montre une image PyroWave (`pyrowave.rs`) : ses trois plans (Y, Cb,
+    /// Cr ; R8 en SDR, R16 en HDR10) copiés des textures partagées du
+    /// décodeur dans les nôtres, puis le même tracé que pour FFmpeg (mode
+    /// « trois plans »). Valeurs : PyroWave écrit la valeur normalisée v, soit
+    /// le code v · 255 en 8 bits, et en 16 bits la convention P010 de la
+    /// Station (10 bits en haut de 16). Pas de métadonnées HDR10 dans le flux :
+    /// crête par défaut (1 000 nits).
+    pub fn draw_pyrowave(&mut self, dec: &mut crate::pyrowave::Decoder, c: crate::pyrowave::Config, hint: u32) -> Result<(), Unsupported> {
+        self.wait_ready();
+        let lock = self.lock.clone();
+        let (fw, fh, painted) = {
+            let _held = lock.lock();
+            let layout = Layout::Planar { chroma_shift: if c.chroma444 { 0 } else { 1 }, wide: c.hdr };
+            self.ensure_planes(layout, c.width, c.height).map_err(|e| Unsupported(e.to_string()))?;
+            let planes = self.planes.as_ref().unwrap();
+            dec.copy_into(&self.ctx, &planes.textures).map_err(Unsupported)?;
+            self.params.mode = 1;
+            // AVCOL_SPC_BT709 (1) en SDR, BT2020_NCL (9) en HDR10.
+            let (space, bits, unit) = if c.hdr { (9, 10, 64.0 / 65535.0) } else { (1, 8, 1.0 / 255.0) };
+            self.params.m = hdr::yuv_matrix(space, c.full_range, bits, unit);
+            self.choose_output(c.hdr, FrameHdr::default());
+            (c.width, c.height, self.encode(hint))
+        };
+        if painted {
+            self.present();
             let _held = lock.lock();
             self.snapshot(fw, fh);
         }
@@ -710,9 +741,8 @@ impl Renderer {
     /// La sortie de cette image (`hdr::Output`), la chaîne d'échange au bon
     /// format, les constantes du shader et les métadonnées HDR10. Sous le
     /// verrou du contexte.
-    fn choose_output(&mut self, pq: bool, f: &AVFrame) {
+    fn choose_output(&mut self, pq: bool, seen: FrameHdr) {
         if pq {
-            let seen = frame_hdr(f);
             if !seen.is_empty() {
                 self.stream_hdr = seen;
             }

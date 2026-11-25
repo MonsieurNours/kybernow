@@ -183,5 +183,8 @@
   },
   "session": {
     "gamepads_unavailable": "Manettes indisponibles sur cet ordinateur."
+  },
+  "pyrowave": {
+    "banner_text": "L'image peut saccader."
   }
 }
