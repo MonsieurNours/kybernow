@@ -14,6 +14,8 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - **Immersive mode (Mac, PC, Linux).** The whole keyboard goes to the computer, system shortcuts included: ⌘ ⇥, ⌘ Space and Mission Control on Mac, Alt+Tab and the ⊞ key on PC and Linux. In the computer's settings, Controls section, “Immersive mode”: “In full screen” (default), “Always” (in a window too) or “Never”. The app's shortcuts (⌃⌥⌘ + letter, Ctrl+Alt+Shift + letter) stay with the app. On Mac, the mode asks once for the Accessibility permission, and ⌘ becomes the ⊞ key there with a PC.
 - **Linux: a computer's settings close again.** The “› {name}” link at the top of the window takes you back to the home screen again (the click used to move the window).
 - **Linux: the session bar in a window.** It opens more easily when the session is not full screen, and a click on its measures opens the detailed statistics, as on Mac and PC. Ctrl+Alt+Shift+S opens them too.
+- **A bitrate that adapts to your network.** With the “Auto” bitrate, the app lowers the bitrate when the network is saturated (busy Wi-Fi, shared connection) and raises it again as soon as things are smooth. A passing spike changes nothing, and a bitrate set by hand stays as it is. The Station changes bitrate smoothly, without a frozen picture.
+- **PyroWave, the lowest latency at home.** A new picture format, encoded and decoded in a fraction of a millisecond, to pick in “Video format”. It needs a lot of bitrate (about 300 Mbit/s at 1080p): it is made for your home network, preferably by cable, and “Auto” only picks it by cable. If the bitrate isn't enough, the app lowers the resolution rather than sharpness and tells you; if the network is saturated, it offers to switch to HEVC.
 
 ## 0.10.0
 
