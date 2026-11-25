@@ -165,9 +165,10 @@ pub fn fields() -> Vec<Field> {
             unit: None,
         },
         // TODO textes pyrowave : libellés provisoires, en attente de la
-        // maquette (docs/pyrowave.md). Windows seulement (retiré plus bas
-        // sur Mac). Proposé aux apps seulement si la carte graphique a un
-        // Vulkan 1.3 qui convient (pyrowave.rs).
+        // maquette (docs/pyrowave.md). Proposé aux apps seulement si la
+        // carte graphique a un Vulkan 1.3 qui convient, ou sur Mac si la puce
+        // Apple fait tourner l'encodeur Metal (pyrowave.rs ; texte Mac dans
+        // i18n/schema.macos.json).
         Field {
             id: "video.pyrowave", group: "video",
             table: &["kyavserver"], key: "pyrowave",
@@ -183,7 +184,7 @@ pub fn fields() -> Vec<Field> {
         // PyroWave, « Débit maximal » (docs/link-ui.md, carte « PyroWave » ;
         // docs/pyrowave.md) : annoncé aux apps (`pyrowave.max_mbps` d'`info`),
         // qui baissent la définition au-delà. Lu par Admin seul (kyavserver
-        // ignore la clé). Windows seulement, comme `video.pyrowave`.
+        // ignore la clé). Windows et Mac, comme `video.pyrowave`.
         Field {
             id: "video.pyrowave_max_mbps", group: "video",
             table: &["kyavserver"], key: "pyrowave_max_mbps",
@@ -417,7 +418,7 @@ pub fn fields() -> Vec<Field> {
         },
     ];
     if cfg!(target_os = "macos") {
-        fields.retain(|f| f.id != "video.gpu_priority" && f.id != "video.pyrowave" && f.id != "video.pyrowave_max_mbps");
+        fields.retain(|f| f.id != "video.gpu_priority");
     }
     fields
 }

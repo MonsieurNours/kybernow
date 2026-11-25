@@ -505,6 +505,7 @@ Technical contract: [pyrowave.en.md](pyrowave.en.md). PyroWave is a value of “
 | Admin, “Maximum bitrate” | Auto; 300; 500; 800 Mbit/s; Auto help: “Auto: based on this computer's network port, here {n} Mbit/s. Above that, your devices lower the resolution rather than sharpness.” |
 | Admin, card warning | “PyroWave compresses little: it sends 5 to 10 times more data than HEVC. On Wi-Fi or away from home, the picture may stutter; your devices warn you first.” |
 | Admin, unavailable (first that applies) | “The graphics driver doesn't provide Vulkan 1.3. Update it, then restart the Station.”; “This graphics card can't run PyroWave.”; “PyroWave starts with the Station: restart it to try it.”; “PyroWave couldn't start: {error}.” |
+| Admin, Mac Station (Apple chip, Metal encoder) | chip “Ready · {chip}” (“Ready · Apple M4 Max”); unavailable (`reason: "metal"`), instead of the first two: “This Mac's chip can't run PyroWave.” (a chip older than the Apple7 family: no Apple silicon Mac, so in practice never), then the last two as on Windows; “Maximum bitrate” on Auto: the Mac's port (Ethernet, or the Wi-Fi rate) |
 | Admin, current sessions | the “PyroWave” format and bitrate; “Ethernet” or “Wi-Fi” chip; “resolution lowered” when it is |
 
 ## Statistics
