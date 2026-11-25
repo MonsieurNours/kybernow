@@ -339,7 +339,7 @@ impl<'a> Cx<'a> {
 
     fn mail(&self, to: &str, lang: Lang, message: Message<'_>) {
         if let Some(mailer) = &self.acc.mailer {
-            mailer.send(mail::compose(to, lang, message));
+            mailer.send(mail::compose(&self.acc.public_url, to, lang, message));
         }
     }
 

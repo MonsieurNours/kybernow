@@ -604,7 +604,7 @@ impl Accounts {
             let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
             let link = format!("{}/compte/ordinateur?id={}&lang={}", self.public_url, station.id, lang.code());
             let person = if who.id == owner.id { None } else { Some(if who.name.is_empty() { who.email.as_str() } else { who.name.as_str() }) };
-            mailer.send(mail::compose(&owner.email, lang, Message::NewDevice { device: &device.name, computer: &station.name, person, account: &link }));
+            mailer.send(mail::compose(&self.public_url, &owner.email, lang, Message::NewDevice { device: &device.name, computer: &station.name, person, account: &link }));
         }
     }
 

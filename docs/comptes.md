@@ -419,7 +419,9 @@ Compte supprimé : effacé sous 30 jours (sauvegardes comprises). Export des don
 
 ### E-mails
 
-SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans SMTP, un relais auto-hébergé n'a ni vérification d'e-mail ni mot de passe oublié (la console le dit, l'administrateur du relais crée les comptes). Messages en français et en anglais : vérification, mot de passe oublié, nouvel appareil, ajout à un ordinateur ou à une organisation, double authentification changée.
+SMTP réglé dans `relay.toml` (hôte, port, identifiants, expéditeur) ; sans SMTP, un relais auto-hébergé n'a ni vérification d'e-mail ni mot de passe oublié (la console le dit, l'administrateur du relais crée les comptes). Messages en français et en anglais : vérification, mot de passe oublié, nouvel appareil, ajout à un ordinateur ou à une organisation, double authentification changée, passkey ajoutée, compte supprimé, Admin ouvert à distance.
+
+**Mise en forme** (`server/relay/src/accounts/mail.rs`) : chaque e-mail part en HTML avec sa version texte, rendues depuis le même contenu (un titre, des paragraphes, un encadré pour le détail ou le code, un bouton, une note « Ce n'était pas vous ? » et un pied qui dit pourquoi l'e-mail arrive). Charte claire : fond `#F2F5F6`, carte blanche, bouton du signal `#5340E6`, polices du système. Tableaux et styles en ligne pour Outlook et les webmails ; logo en PNG (`/assets/kybernow-share-mail.png`, sans version, pour que les e-mails déjà envoyés le gardent), Gmail et Outlook ne montrant pas le SVG. Avec SendGrid, l'en-tête `X-SMTPAPI` coupe le suivi des clics et des ouvertures : les liens restent ceux du relais. Pour les regarder : `KN_PAGES_DIR=… cargo test ecrire_les_e_mails -- --ignored`.
 
 ### Sécurité du relais
 

@@ -16,6 +16,9 @@ const ARCHIVO: &[u8] = include_bytes!("../assets/archivo.woff2");
 const MARTIAN_MONO: &[u8] = include_bytes!("../assets/martian-mono.woff2");
 const LOGO: &str = include_str!("../assets/kybernow-share-dark.svg");
 const FAVICON: &str = include_str!("../assets/kybernow-favicon.svg");
+/// Le logo des e-mails (fond clair, 656 × 120, affiché à 164 × 30) : Gmail et Outlook ne montrent pas le SVG.
+/// Rendu de `brand/v2/logo/kybernow-share-light.svg`. Son adresse, sans version, reste celle des e-mails déjà envoyés.
+pub const MAIL_LOGO: &[u8] = include_bytes!("../assets/kybernow-share-mail.png");
 /// Le seul script des pages : les passkeys des comptes (lot 1b), écrit à la main.
 const PASSKEY_JS: &str = include_str!("../assets/passkey.js");
 
@@ -29,7 +32,7 @@ pub struct Asset {
 }
 
 /// Les noms servis sous `/assets/`.
-pub const NAMES: [&str; 6] = ["share.css", "archivo.woff2", "martian-mono.woff2", "kybernow-share-dark.svg", "kybernow-favicon.svg", "passkey.js"];
+pub const NAMES: [&str; 7] = ["share.css", "archivo.woff2", "martian-mono.woff2", "kybernow-share-dark.svg", "kybernow-favicon.svg", "passkey.js", "kybernow-share-mail.png"];
 
 /// Les huit premiers chiffres hexadécimaux du SHA-256 des fichiers.
 pub fn version() -> &'static str {
@@ -64,6 +67,7 @@ pub fn get(name: &str) -> Option<Asset> {
         "kybernow-share-dark.svg" => ("image/svg+xml", LOGO.as_bytes()),
         "kybernow-favicon.svg" => ("image/svg+xml", FAVICON.as_bytes()),
         "passkey.js" => ("text/javascript; charset=utf-8", PASSKEY_JS.as_bytes()),
+        "kybernow-share-mail.png" => ("image/png", MAIL_LOGO),
         _ => return None,
     };
     Some(Asset { mime, body })

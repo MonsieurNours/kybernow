@@ -410,7 +410,9 @@ Deleted account: erased within 30 days (backups included). Data export from the 
 
 ### Emails
 
-SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self-hosted relay has neither email verification nor forgotten password (the console says so, the relay's administrator creates the accounts). Messages in French and English: verification, forgotten password, new device, added to a computer or an organization, two-factor authentication changed.
+SMTP set in `relay.toml` (host, port, credentials, sender); without SMTP, a self-hosted relay has neither email verification nor forgotten password (the console says so, the relay's administrator creates the accounts). Messages in French and English: verification, forgotten password, new device, added to a computer or an organization, two-factor authentication changed, passkey added, account deleted, Admin opened remotely.
+
+**Layout** (`server/relay/src/accounts/mail.rs`): each email goes out as HTML with its plain-text version, both rendered from the same content (a heading, paragraphs, a box for the detail or the code, a button, a "Wasn't you?" note and a footer saying why the email arrives). Light brand look: `#F2F5F6` background, white card, `#5340E6` signal button, system fonts. Tables and inline styles for Outlook and webmail; PNG logo (`/assets/kybernow-share-mail.png`, unversioned so that emails already sent keep it), since Gmail and Outlook don't show SVG. With SendGrid, the `X-SMTPAPI` header turns off click and open tracking: links stay the relay's own. To look at them: `KN_PAGES_DIR=… cargo test ecrire_les_e_mails -- --ignored`.
 
 ### Relay security
 
