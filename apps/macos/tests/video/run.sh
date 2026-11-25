@@ -50,8 +50,14 @@ for c in 3366CC 202020; do
         -c:v libsvtav1 -preset 10 -crf 1 -svtav1-params "$AV1P" -f obu "c_${c}.obu"
 done
 
-SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyReporting.swift")
-LINK=(-I "$KIT/../Vendor/include" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks")
+# Le port Metal de PyroWave (VideoDecoder passe le format pwv1 à PyroWaveDecoder).
+PW="$HERE/../../PyroWave"
+for f in pyrowave_common.mm pyrowave_decoder.mm pyrowave_bitstream.cpp; do
+    clang++ -std=c++17 -O2 -fobjc-arc -c "$PW/upstream/$f" -o "$f.o"
+done
+SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/PyroWaveDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/Upscaler.swift" "$KIT/LatencyReporting.swift")
+LINK=(-I "$KIT/../Vendor/include" -I "$PW/module" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks"
+      ./pyrowave_*.o -lc++ -framework IOSurface)
 swiftc -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 swiftc -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 swiftc -O -o recovery "$HERE/recovery/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
