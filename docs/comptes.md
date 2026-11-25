@@ -120,6 +120,22 @@ Décidé le 25/11/2026.
 - Une **session d'appareil** (une app connectée au compte) **expire après 90 jours sans servir** : l'app dit « Ce compte a été déconnecté de cet appareil : reconnectez-vous. », comme après une déconnexion depuis la page du compte.
 - « Compte et sécurité », liste des appareils : « Utilisé il y a {durée} » ; aide « Un appareil qui ne sert pas pendant 90 jours est déconnecté. » / “Used {duration} ago”; “A device unused for 90 days is signed out.”.
 
+### Réglages synchronisés et déplacer un ordinateur
+
+Décidé le 25/11/2026.
+
+**Réglages synchronisés** : les réglages d'un ordinateur du compte suivent la personne d'un appareil à l'autre.
+- Ce qui suit : le **profil** (Auto, Jeu, Bureau…), le **format vidéo**, le **débit**, le **texte net (4:4:4)**, le **HDR** et le **mode immersif** de chaque ordinateur. Ce qui reste sur l'appareil : son écran et sa définition, son son, ses manettes, ses raccourcis, ses préférences d'app.
+- Gardés par le relais, par compte et par ordinateur (un petit objet, 4 Ko au plus) ; le dernier changement l'emporte. Un appareil les lit en démarrant, à chaque rafraîchissement du compte et avant une session ; il les envoie quand on change un de ces réglages. Une valeur qu'un appareil ne sait pas appliquer (format qu'il ne décode pas, HDR sans écran HDR, mode immersif sur un téléviseur) est gardée telle quelle, mais l'appareil applique ce qu'il peut, comme aujourd'hui.
+- Pour un ordinateur à la fois appairé et dans un compte (même Station), les réglages du compte valent aussi.
+- Réglages de l'app, section « Comptes » : « Synchroniser les réglages des ordinateurs » (allumé par défaut), aide « Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils. » / “Sync computer settings”; “Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.”.
+- Supprimés avec le compte ; un ordinateur détaché ou qui n'est plus ouvert au compte perd les siens.
+
+**Déplacer un ordinateur** (page d'un ordinateur, « Déplacer… » / “Move…”) : vers vous, ou vers une famille ou une équipe que vous gérez, depuis vous ou depuis une famille ou une équipe que vous gérez (Propriétaire ou Administrateur, double authentification, des deux côtés).
+- Choisir la destination, puis un **aperçu** « Ce qui change » / “What changes” : « Perdent l'accès : » les familles, équipes et groupes de l'ancien propriétaire et les accès venus d'un groupe d'ordinateurs ; « Quitte les groupes d'ordinateurs : {groupes} » ; « Liens en attente annulés : {n} ». Une case « Garder les accès donnés à des personnes » / “Keep the access given to people” (cochée) garde les droits donnés une par une à des personnes ; décochée, ils partent aussi.
+- Bouton « Déplacer {ordinateur} » / “Move {computer}”, puis l'avis « {ordinateur} est maintenant à {destination}. » / “{computer} now belongs to {destination}.”. Le journal des deux côtés le note ; la Station l'apprend comme un rattachement (Admin montre le nouveau propriétaire).
+- Refus : « Vous ne gérez pas {destination}. », « Activez d'abord la double authentification. ».
+
 ## L'espace du compte
 
 Décidé le 25/11/2026 avec la maquette (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). La console du relais (`/compte/…`) devient une appli : un **menu latéral fixe** et une **colonne de contenu de largeur constante** (920 px), quelle que soit la page ; au téléphone (moins de 880 px), le menu devient une **barre d'onglets en bas**.

@@ -120,6 +120,22 @@ Decided on 25/11/2026.
 - A **device session** (an app signed in to the account) **expires after 90 days unused**: the app says “This account was signed out of this device: sign in again.”, as after signing out from the account's page.
 - “Account and security”, list of devices: “Used {duration} ago”; help “A device unused for 90 days is signed out.” (« Utilisé il y a {durée} » ; « Un appareil qui ne sert pas pendant 90 jours est déconnecté. »).
 
+### Synced settings and moving a computer
+
+Decided on 25/11/2026.
+
+**Synced settings**: an account computer's settings follow the person from one device to another.
+- What follows: each computer's **profile** (Auto, Game, Desktop…), **video format**, **bitrate**, **sharp text (4:4:4)**, **HDR** and **immersive mode**. What stays on the device: its screen and resolution, its sound, its controllers, its shortcuts, its app preferences.
+- Kept by the relay, per account and per computer (a small object, 4 KB at most); the last change wins. A device reads them when it starts, at each account refresh and before a session; it sends them when one of these settings changes. A value a device can't apply (a format it can't decode, HDR without an HDR screen, immersive mode on a TV) is kept as is, but the device applies what it can, as today.
+- For a computer both paired and on an account (same Station), the account's settings apply too.
+- App settings, “Accounts” section: “Sync computer settings” (on by default), help “Each computer's profile, format, bitrate, HDR and immersive mode follow you on your devices.” (« Synchroniser les réglages des ordinateurs » ; « Le profil, le format, le débit, le HDR et le mode immersif de chaque ordinateur vous suivent sur vos appareils. »).
+- Deleted with the account; a computer detached or no longer open to the account loses its settings.
+
+**Moving a computer** (a computer's page, “Move…” / « Déplacer… »): to you, or to a family or team you manage, from you or from a family or team you manage (Owner or Administrator, two-factor authentication, on both sides).
+- Choose the destination, then a **preview** “What changes” / « Ce qui change »: “Lose access:” the previous owner's families, teams and groups and the access coming from a computer group; “Leaves the computer groups: {groups}”; “Pending links cancelled: {n}”. A box “Keep the access given to people” / « Garder les accès donnés à des personnes » (checked) keeps the rights given one by one to people; unchecked, they go too.
+- Button “Move {computer}” / « Déplacer {ordinateur} », then the notice “{computer} now belongs to {destination}.” / « {ordinateur} est maintenant à {destination}. ». Both sides' logs record it; the Station learns it like an attachment (Admin shows the new owner).
+- Refusals: “You don't manage {destination}.”, “Turn on two-factor authentication first.” (« Vous ne gérez pas {destination}. », « Activez d'abord la double authentification. »).
+
 ## The account space
 
 Decided on 11/25/2026 with the mockup (https://claude.ai/artifact/KVvUYFTNCdRFRmYTSTtXev). The relay's console (`/compte/…`) becomes an app: a **fixed side menu** and a **content column of constant width** (920 px), whatever the page; on a phone (under 880 px), the menu becomes a **tab bar at the bottom**.
