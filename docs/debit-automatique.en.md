@@ -38,12 +38,13 @@ The network is still watched with the same signs. When it is saturated for **5 s
 
 ## On the Station: the bitrate changes live
 
-The app sends the new bitrate through Kyber's `/set_bitrate`, which hands it to the encoder. The patch `server/kyber-patches/0026-kymedia-ffmpeg-debit-en-direct.patch` (FFmpeg 8.1, Windows Station and Mac Station) makes a bitrate change free:
+The app sends the new bitrate through Kyber's `/set_bitrate`, which hands it to the encoder. The patch `server/kyber-patches/0026-kymedia-ffmpeg-debit-en-direct.patch` (FFmpeg 8.1, Windows, Mac and Linux Stations) makes a bitrate change free:
 
 - **NVENC**: FFmpeg reset the encoder and forced a keyframe at every bitrate change. The patch changes the bitrate without a reset or a keyframe (dynamic change, which NVENC accepts when the card reports it). The encoder's buffer (VBV), set by default to 2 seconds of the initial bitrate, follows the new bitrate: otherwise a lowered bitrate would still let through the bursts of the old one.
 - **VideoToolbox**: FFmpeg only read the bitrate when the session was created; a change while encoding was ignored. The patch hands it to the session (`AverageBitRate`) before the next frame.
+- **VA-API** (Linux Station, AMD and Intel cards): FFmpeg only sent the rate control parameters with IDR frames (every 10 s on the Linux Station). The patch scales them to the new bitrate (HRD buffer included) and sends them with the next frame, without a keyframe.
 
-Without this patch (older Station), automatic bitrate still works, but each change costs a keyframe on NVENC and has no effect on the Mac Station.
+Without this patch (older Station), automatic bitrate still works, but each change costs a keyframe on NVENC and has no effect on the Mac Station (on the Linux Station with VA-API, it waits for the next IDR frame).
 
 ## In the statistics: the target bitrate
 

@@ -76,6 +76,10 @@ fn main() {
 /// Station Linux : l'icône près de l'horloge (service `kybernow-tray.service`).
 #[cfg(target_os = "linux")]
 fn main() {
+    // L'agent de console d'un prêt, lancé par Admin (docs/pret.md, « Station Linux »).
+    if std::env::args().nth(1).as_deref() == Some(lend::agent::ARG) {
+        std::process::exit(lend::agent::run());
+    }
     if let Err(e) = linux::run_app() {
         linux::alert(&i18n::t("tray.startFailed", &[("error", &format!("{e:#}"))]));
         std::process::exit(1);

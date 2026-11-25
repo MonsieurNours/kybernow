@@ -150,6 +150,32 @@ Why the user's folder: everything the Station needs is already per user (systemd
 **SteamOS**: the Station runs in Desktop Mode (KDE Plasma). In Game Mode, gamescope offers the agent neither virtual displays nor capture: the Station doesn't stream there. For it to be there after a reboot, SteamOS must boot into Desktop Mode (`steamos-session-select plasma-persistent`). Same for the Bazzite images that boot into Game Mode (Bazzite Deck); Bazzite's desktop images (KDE, GNOME) behave like Fedora.
 
 **Not tried**: no Bazzite, Fedora Atomic or SteamOS VM or machine. Tried on the Mac with stand-ins for `systemctl` and `curl`: building the archive (from a tree and from a `.deb`), installation, a successful update, an update refused by the health check then the old version put back, an archive of another version refused, going back to the previous version, removal. To check on a real machine: KWin's access control with the `.desktop` in the user's folder, `steam-devices` and `/dev/uinput`, the fallback GStreamer plugin, SteamOS's glibc, `graphical-session.target` in Desktop Mode and Game Mode.
+### Lending the computer
+
+Console mode in the host's session, as on Mac ([pret.en.md](pret.en.md), “Linux Station”): the `kybernow-tray` icon, started by Admin with `--console` in its own systemd unit, puts the friend's launcher (the allowed apps, nothing else of the desktop) full-screen on the virtual display and a cover on each of the computer's displays, takes the physical input (`EVIOCGRAB`) and turns off the desktop's shortcuts (GNOME through `gsettings`, KDE through KGlobalAccel). Admin (`lend_sys.rs`) follows the session through `loginctl`, prevents sleep and locking while lending is on (`systemd-inhibit`, and `gnome-session-inhibit` on GNOME), watches processes through `/proc` and closes what isn't allowed. `lend.available` is true as soon as the agent is next to Admin. The package's udev rule must give the user their input devices (`/dev/input/event*`) to block the computer's keyboard and mouse; without it, lending works without that blocking.
+
+### PyroWave
+
+A separate encoder, in Vulkan (the PyroWave library is Vulkan), on the PipeWire capture's DMA-BUF frames imported without a copy; details in [pyrowave.en.md](pyrowave.en.md), “The Linux Station”.
+
+- `server/linux/scripts/pyrowave-linux.sh` (run by `build-kyber.sh` before FFmpeg) builds `libpyrowave-shared.so` and `pyrowave-device-validation` into Kyber's rootfs; Kyber Linux patches 0010 (FFmpeg encoder `libpyrowave_vulkan`), 0011 (kyavserver, libavconv engine) and 0012 (kycontroller offers it).
+- Admin (`pyrowave.rs`) checks once per launch, in the background, the render node's card (`/dev/dri/renderD128`, `KYBERNOW_RENDER_NODE` for another): `pyrowave-device-validation --external --roundtrip --vid … --pid …` (suitable Vulkan 1.3, import of DMA-BUFs and sync files, round trip). `pyrowave.available` is true when it succeeds, otherwise `reason: "vulkan"`.
+- A capture without DMA-BUF (virtual machine) goes through the CPU for the YCbCr conversion: PyroWave works, more slowly.
+
+### Live bitrate
+
+Common patch 0026 also covers VA-API (AMD and Intel cards): when the app changes the bitrate (`/set_bitrate`), the encoder's rate control parameters (bitrate, HRD buffer) follow and go with the next frame, without a keyframe; before, they were only sent with IDR frames (every 10 s with the 600-frame GOP). NVENC and VideoToolbox don't change ([debit-automatique.en.md](debit-automatique.en.md)). x264 already follows a bitrate change by itself.
+
+### HDR
+
+The question: can GNOME or KDE give a program a virtual display in BT.2100 (PQ, BT.2020 colours), like the Windows Station's HDR virtual display? **Not yet**, neither of them, so the Linux Station doesn't announce HDR (`hdr` false: apps stay in SDR). Study of 25/11/2026, from both compositors' public interfaces and developers' reports; to confirm in the VMs:
+
+- **GNOME (Mutter 46 to 49)**: HDR exists for physical displays that announce it (EDID), set in Settings › Displays. A virtual display (`org.gnome.Mutter.ScreenCast`, `RecordVirtual`) has no colour property nor EDID: it stays sRGB, and its PipeWire stream only offers 8-bit formats, without colorimetry. It would take a modified Mutter (virtual display with a colour mode, 10-bit stream announced as BT.2100): out of our reach until Mutter does it itself.
+- **KDE Plasma 6 (KWin)**: HDR and per-display colour management since Plasma 6.0, for displays that announce it. The `zkde_screencast_unstable_v1` virtual display (`stream_virtual_output`) has no such capabilities (nothing to turn on with `kscreen-doctor output.Virtual-KyberNow-1.hdr.enable`), and KWin's screencast plugin only offers 8-bit DRM formats: even an HDR rendering would be brought back to SDR there.
+- **On Kyber's side too**: libavgrab's GStreamer capture can't read 10-bit frames (10-bit RGB and P010 aren't in its format table) nor HDR metadata; it would need the Linux equivalent of common patch 0022 (P010 to HEVC Main 10 with VA-API or NVENC, metadata).
+- **Detour ruled out**: capturing a physical HDR display through KMS (kmsgrab) needs root rights (`CAP_SYS_ADMIN`) and makes no virtual display at the device's size.
+
+To redo when Mutter or KWin give a virtual display with a colour description (the `wp_color_management_v1` Wayland protocol on the compositor's side, or a `RecordVirtual` property) and 10-bit PipeWire streams. To check in the VMs meanwhile: `kscreen-doctor -o` (HDR and WCG lines of `Virtual-KyberNow-1`) and the formats of the virtual display's PipeWire node (`pw-dump`).
 
 ## Linux-specific Kyber patches
 
@@ -164,6 +190,9 @@ Kept in `server/linux/kyber-patches`, applied after the common patches by `serve
 | `0005-kynput-manettes-linux` | The device's PlayStation controller as a DualSense through uhid (rumble sent back), the others as Xbox 360 through uinput; “All controllers as Xbox 360” honoured; endless Xbox rumble, read at once |
 | `0006-kynput-stylet-linux` | Pen as a uinput graphics tablet (pressure, tilt, eraser, button, hover); the Station announces it (`PenAvailable`) |
 | `0007-kynput-presse-papiers-wayland` | Clipboard through `ext-data-control-v1` (or `zwlr-data-control`) on Wayland when the compositor offers it (KDE); otherwise X11 through Xwayland (GNOME) |
+| `0010-kymedia-ffmpeg-pyrowave-vulkan` | FFmpeg encoder `libpyrowave_vulkan`: the capture's DMA-BUF frames imported in Vulkan, PyroWave on the card (see “PyroWave”) |
+| `0011-kyavservice-pyrowave-linux` | kyavserver accepts PyroWave on Linux, with this encoder |
+| `0012-kycontroller-pyrowave-linux` | kycontroller offers PyroWave on a Linux Station |
 
 ## Building
 
@@ -207,7 +236,7 @@ Pitfalls met:
 
 ## What the KyberNow Link apps see
 
-Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR, PyroWave, lending) is not announced, and the apps behave as with a Station that does not have it.
+Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR) is not announced, and the apps behave as with a Station that does not have it; PyroWave and lending are announced when the graphics card is suitable and when the console mode agent is there.
 
 ## Breakdown
 
@@ -217,7 +246,7 @@ Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station�
 4. **Sound.** KyberNow PipeWire output: **written**.
 5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland (data-control): **written** (patches 0005 to 0007, built for Linux and unit tests on the Mac on 25/11/2026), not tried on Linux yet. udev rule for `/dev/uhid` and `uhid` module loaded at boot: in the package (updates branch).
 6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Updates from Admin and from the apps (root service through a socket, rollback), tray icon by the clock, published packages: **written**, tested on the Mac (Admin and tray tests), not tried on Linux yet (see "Tests").
-7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try), PC lending (console mode in the host's session, sleep prevented by `systemd-inhibit`), HDR (GNOME virtual display in BT.2100: GNOME does not offer it yet), PyroWave (Vulkan, DMA-BUF import), live bitrate with VA-API (to add to common patch 0026): to do.
+7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try). PC lending (console mode in the host's session, sleep prevented), PyroWave (Vulkan, DMA-BUF import, Linux patches 0010 to 0012), live bitrate with VA-API (common patch 0026): **written** (25/11/2026), not yet built nor tried on Linux. HDR: **not possible yet** (neither GNOME nor KDE give a BT.2100 virtual display, see “HDR”).
 8. **Immutable systems** (Bazzite, Fedora Atomic, SteamOS). Installation in the user's folder, no root except the udev rule when Steam hasn't already set one, password-free updates (`server/linux/immutable`): **written**, tried on the Mac with stand-ins, never on those systems (see “Immutable systems”).
 
 ## Tests

@@ -1,0 +1,111 @@
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -401,10 +401,11 @@
+             hdr_capture,
+         } => {
+             // KyberNow (0025): PyroWave only where this Station offers it.
++            // KyberNow (server/linux/kyber-patches/0011): a Linux Station too.
+             let (codec, refused) = crate::pyrowave::resolve(
+                 codec,
+                 config.pyrowave(),
+-                cfg!(target_os = "windows"),
++                crate::pyrowave::STATION,
+             );
+             if let Some(reason) = refused {
+                 warn!("{reason}");
+@@ -432,7 +433,7 @@
+             // kycontroller's start fails.
+             // KyberNow (0025): PyroWave scales it down itself.
+             let windows = cfg!(target_os = "windows");
+-            let scaling = (windows && codec == VideoCodec::PyroWave)
++            let scaling = (crate::pyrowave::STATION && codec == VideoCodec::PyroWave)
+                 || kybernow::can_scale(config.encoder(), windows);
+             kybernow::check(scale, max_fps, scaling, false)
+                 .map_err(|reason| Error::ConfigInvalid { reason })?;
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -438,7 +438,10 @@
+ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+     // KyberNow (0025): PyroWave, whatever the configured encoder, takes the
+     // D3D11 capture as is and scales a guest's own image down itself.
+-    if cfg!(target_os = "windows") && config.codec == VideoCodec::PyroWave {
++    // KyberNow (server/linux/kyber-patches/0011): on Linux, the Vulkan
++    // encoder takes the DMA-BUF frames of the PipeWire capture as they are
++    // (or converts frames in system memory itself).
++    if crate::pyrowave::STATION && config.codec == VideoCodec::PyroWave {
+         return (crate::pyrowave::ENCODER, "null".to_string());
+     }
+     let (enc, filter): (&'static str, String) = match config.encoder {
+@@ -575,7 +578,7 @@
+     let (name, default_options) = match config.encoder {
+         // KyberNow (0025): see encoder_names(). This engine has no capped
+         // rate (max_fps).
+-        _ if cfg!(target_os = "windows") && config.codec == VideoCodec::PyroWave => (
++        _ if crate::pyrowave::STATION && config.codec == VideoCodec::PyroWave => (
+             "pyrowave",
+             crate::pyrowave::options(
+                 config.bitrate,
+diff --git a/kyavservice/src/pyrowave.rs b/kyavservice/src/pyrowave.rs
+--- a/kyavservice/src/pyrowave.rs
++++ b/kyavservice/src/pyrowave.rs
+@@ -12,15 +12,26 @@
+ use crate::config::GpuPriority;
+ 
+ /// FFmpeg encoder of the PyroWave patch (packagefiles/ffmpeg).
+-pub(crate) const ENCODER: &str = "libpyrowave";
++/// KyberNow (server/linux/kyber-patches/0011): on a Linux Station, the
++/// Vulkan one (0010), on the DMA-BUF frames of the PipeWire capture, same
++/// options.
++pub(crate) const ENCODER: &str = if cfg!(target_os = "linux") {
++    "libpyrowave_vulkan"
++} else {
++    "libpyrowave"
++};
+ 
++/// KyberNow (server/linux/kyber-patches/0011): this Station offers PyroWave
++/// (Windows, or Linux with the Vulkan encoder).
++pub(crate) const STATION: bool = cfg!(target_os = "windows") || cfg!(target_os = "linux");
++
+ /// The codec the Station encodes, and why PyroWave was turned down.
+ pub(crate) fn resolve(codec: VideoCodec, enabled: bool, windows: bool) -> (VideoCodec, Option<String>) {
+     if codec != VideoCodec::PyroWave {
+         return (codec, None);
+     }
+     let reason = if !windows {
+-        "PyroWave refused: Windows Station only"
++        "PyroWave refused: Windows, Mac or Linux Station only"
+     } else if !enabled {
+         "PyroWave refused: [kyavserver] pyrowave = false"
+     } else {
+@@ -52,6 +63,15 @@
+     if let Some(fps) = max_fps {
+         options.push(("fps", fps.to_string()));
+     }
++    // KyberNow (server/linux/kyber-patches/0011): the card of the Linux
++    // Station, as KyberNow Admin checks it (`/dev/dri/renderD128` by default).
++    if cfg!(target_os = "linux")
++        && let Ok(node) = std::env::var("KYBERNOW_RENDER_NODE")
++        && !node.is_empty()
++    {
++        let node = if node.starts_with('/') { node } else { format!("/dev/dri/{node}") };
++        options.push(("render_node", node));
++    }
+     options
+ }
+ 
+@@ -79,6 +99,13 @@
+         let (codec, reason) = resolve(VideoCodec::PyroWave, true, false);
+         assert_eq!(codec, VideoCodec::H264);
+         assert!(reason.unwrap().contains("Windows"));
++    }
++
++    #[test]
++    fn the_encoder_of_this_station() {
++        // KyberNow (server/linux/kyber-patches/0011): the Vulkan encoder on Linux.
++        assert_eq!(ENCODER == "libpyrowave_vulkan", cfg!(target_os = "linux"));
++        assert_eq!(STATION, cfg!(any(target_os = "windows", target_os = "linux")));
+     }
+ 
+     #[test]

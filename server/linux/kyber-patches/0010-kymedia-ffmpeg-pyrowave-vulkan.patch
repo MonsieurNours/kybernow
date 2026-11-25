@@ -1,0 +1,816 @@
+diff --git a/subprojects/ffmpeg.wrap b/subprojects/ffmpeg.wrap
+--- a/subprojects/ffmpeg.wrap
++++ b/subprojects/ffmpeg.wrap
+@@ -46,7 +46,8 @@
+   ffmpeg/patches/0019-avcodec-videotoolboxenc-make-VT-blocking.patch,
+   ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
+   ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
+-  ffmpeg/patches/0023-avcodec-debit-en-direct.patch
++  ffmpeg/patches/0023-avcodec-debit-en-direct.patch,
++  ffmpeg/patches/0024-avcodec-pyrowave-vulkan-encoder.patch
+ 
+ [provide]
+ dependency_names = ffmpeg, libavcodec, libavformat, libavutil, libswresample, libswscale, libavfilter, libavdevice
+diff --git a/subprojects/packagefiles/ffmpeg/meson.build b/subprojects/packagefiles/ffmpeg/meson.build
+--- a/subprojects/packagefiles/ffmpeg/meson.build
++++ b/subprojects/packagefiles/ffmpeg/meson.build
+@@ -205,6 +205,10 @@
+     '--enable-libvpl',
+     '--enable-libdrm',
+     '--enable-vulkan',
++    # KyberNow (Station Linux): PyroWave encoder of DMA-BUF frames
++    # (libpyrowave-shared.so, built into the rootfs before this build by
++    # server/linux/scripts/pyrowave-linux.sh ; docs/pyrowave.md).
++    '--enable-libpyrowave-vulkan',
+     # Disable features autodetected from host -dev packages but unused by VLC;
+     # their system libs are not in _ext_deps, so they break the static link.
+     '--disable-sndio',
+diff --git a/subprojects/packagefiles/ffmpeg/patches/0024-avcodec-pyrowave-vulkan-encoder.patch b/subprojects/packagefiles/ffmpeg/patches/0024-avcodec-pyrowave-vulkan-encoder.patch
+new file mode 100644
+--- /dev/null
++++ b/subprojects/packagefiles/ffmpeg/patches/0024-avcodec-pyrowave-vulkan-encoder.patch
+@@ -0,0 +1,784 @@
++From: KyberNow
++Subject: [PATCH] avcodec: PyroWave encoder for DMA-BUF frames (Vulkan)
++
++The Linux counterpart of libpyrowave (D3D11) and libpyrowave_metal:
++libpyrowave_vulkan imports the DMA-BUF frames of a PipeWire screen capture
++(DRM PRIME) in a Vulkan device without any copy, waits for the
++compositor's implicit fence (sync file), and lets PyroWave convert RGB to
++YCbCr and scale on the GPU. Frames in system memory are converted on the
++CPU. KyberNow, docs/pyrowave.md.
++---
++diff --git a/configure b/configure
++--- a/configure
+++++ b/configure
++@@ -266,6 +266,7 @@
++   --enable-libplacebo      enable libplacebo library [no]
++   --enable-libpulse        enable Pulseaudio input via libpulse [no]
++   --enable-libpyrowave     enable PyroWave encoding of D3D11 frames via libpyrowave [no]
+++  --enable-libpyrowave-vulkan enable PyroWave encoding of DMA-BUF frames via libpyrowave (Vulkan) [no]
++   --enable-libqrencode     enable QR encode generation via libqrencode [no]
++   --enable-libquirc        enable QR decoding via libquirc [no]
++   --enable-librabbitmq     enable RabbitMQ library [no]
++@@ -2075,6 +2076,7 @@
++     libplacebo
++     libpulse
++     libpyrowave
+++    libpyrowave_vulkan
++     libqrencode
++     libquirc
++     librabbitmq
++@@ -3806,6 +3808,7 @@
++ libopus_encoder_deps="libopus"
++ libopus_encoder_select="audio_frame_queue"
++ libpyrowave_encoder_deps="libpyrowave d3d11va"
+++libpyrowave_vulkan_encoder_deps="libpyrowave_vulkan libdrm"
++ librav1e_encoder_deps="librav1e"
++ librsvg_decoder_deps="librsvg"
++ libshine_encoder_deps="libshine"
++@@ -7838,6 +7841,7 @@
++         "(AMF_VERSION_MAJOR << 48 | AMF_VERSION_MINOR << 32 | AMF_VERSION_RELEASE << 16 | AMF_VERSION_BUILD_NUM) >= 0x0001000400240000"
++ 
++ enabled libpyrowave && require_pkg_config libpyrowave pyrowave-shared "vulkan/vulkan.h pyrowave.h" pyrowave_get_api_version
+++enabled libpyrowave_vulkan && require_pkg_config libpyrowave_vulkan pyrowave-shared "vulkan/vulkan.h pyrowave.h" pyrowave_get_api_version
++ 
++ # Funny iconv installations are not unusual, so check it after all flags have been set
++ if enabled libc_iconv; then
++diff --git a/libavcodec/Makefile b/libavcodec/Makefile
++--- a/libavcodec/Makefile
+++++ b/libavcodec/Makefile
++@@ -1203,6 +1203,7 @@
++ OBJS-$(CONFIG_LIBOPUS_ENCODER)            += libopusenc.o libopus.o     \
++                                              vorbis_data.o
++ OBJS-$(CONFIG_LIBPYROWAVE_ENCODER)        += libpyrowave_enc.o
+++OBJS-$(CONFIG_LIBPYROWAVE_VULKAN_ENCODER) += libpyrowave_vulkan_enc.o
++ OBJS-$(CONFIG_LIBRAV1E_ENCODER)           += librav1e.o
++ OBJS-$(CONFIG_LIBRSVG_DECODER)            += librsvgdec.o
++ OBJS-$(CONFIG_LIBSHINE_ENCODER)           += libshine.o
++diff --git a/libavcodec/allcodecs.c b/libavcodec/allcodecs.c
++--- a/libavcodec/allcodecs.c
+++++ b/libavcodec/allcodecs.c
++@@ -813,6 +813,7 @@
++ extern const FFCodec ff_libopus_encoder;
++ extern const FFCodec ff_libopus_decoder;
++ extern const FFCodec ff_libpyrowave_encoder;
+++extern const FFCodec ff_libpyrowave_vulkan_encoder;
++ extern const FFCodec ff_librav1e_encoder;
++ extern const FFCodec ff_librsvg_decoder;
++ extern const FFCodec ff_libshine_encoder;
++diff --git a/libavcodec/libpyrowave_vulkan_enc.c b/libavcodec/libpyrowave_vulkan_enc.c
++new file mode 100644
++--- /dev/null
+++++ b/libavcodec/libpyrowave_vulkan_enc.c
++@@ -0,0 +1,712 @@
+++/*
+++ * PyroWave encoder for DMA-BUF frames, Vulkan (KyberNow).
+++ *
+++ * This file is part of FFmpeg.
+++ *
+++ * FFmpeg is free software; you can redistribute it and/or
+++ * modify it under the terms of the GNU Lesser General Public
+++ * License as published by the Free Software Foundation; either
+++ * version 2.1 of the License, or (at your option) any later version.
+++ *
+++ * FFmpeg is distributed in the hope that it will be useful,
+++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+++ * Lesser General Public License for more details.
+++ *
+++ * You should have received a copy of the GNU Lesser General Public
+++ * License along with FFmpeg; if not, write to the Free Software
+++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+++ */
+++
+++/*
+++ * The Linux counterpart of libpyrowave (D3D11) and libpyrowave_metal: the
+++ * frames of a PipeWire screen capture (GStreamer, DRM PRIME frames whose
+++ * DMA-BUF is shared with the compositor) are imported in a Vulkan device as
+++ * they are, without any copy: VK_EXT_external_memory_dma_buf and
+++ * VK_EXT_image_drm_format_modifier, one VkImage per buffer of the capture's
+++ * pool (cached by inode), and pyrowave_encoder_encode_gpu_scaled() converts
+++ * RGB to YCbCr BT.709 full range (and scales a guest's image down) on the
+++ * graphics card. The compositor's rendering is waited for with the buffer's
+++ * implicit fence, exported as a sync file (DMA_BUF_IOCTL_EXPORT_SYNC_FILE,
+++ * Linux 6.0) and imported as a binary semaphore.
+++ *
+++ * Frames in system memory (a capture without DMA-BUF, e.g. a virtual
+++ * machine) are converted to YCbCr on the CPU and encoded with
+++ * pyrowave_encoder_encode_cpu(): slower, for when nothing else works.
+++ *
+++ * Same options, extradata and packets as libpyrowave (docs/pyrowave.md):
+++ *   "KNPW" | version u8 = 1 | chroma u8 (0 = 4:2:0, 1 = 4:4:4) |
+++ *   colour u8 (0 = SDR BT.709) | range u8 (0 = full) | width u32 LE |
+++ *   height u32 LE.
+++ * SDR only: there is no HDR capture on a Linux Station yet.
+++ */
+++
+++#include <errno.h>
+++#include <fcntl.h>
+++#include <stdio.h>
+++#include <string.h>
+++#include <sys/ioctl.h>
+++#include <sys/stat.h>
+++#include <unistd.h>
+++#include <linux/dma-buf.h>
+++
+++#include <vulkan/vulkan.h>
+++#include <pyrowave.h>
+++
+++#include "libavutil/hwcontext.h"
+++#include "libavutil/hwcontext_drm.h"
+++#include "libavutil/intreadwrite.h"
+++#include "libavutil/mem.h"
+++#include "libavutil/opt.h"
+++#include "libavutil/pixdesc.h"
+++#include "avcodec.h"
+++#include "codec_internal.h"
+++#include "encode.h"
+++#include "hwconfig.h"
+++
+++#define KNPW_HEADER_SIZE 16
+++#define PW_CACHE_SIZE    8
+++
+++#define PW_FOURCC(a, b, c, d) ((uint32_t)(a) | ((uint32_t)(b) << 8) | \
+++                               ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
+++
+++typedef struct PWImported {
+++    dev_t dev;
+++    ino_t ino;
+++    uint32_t fourcc;
+++    uint64_t modifier;
+++    int width, height, nb_planes;
+++    ptrdiff_t offset[AV_DRM_MAX_PLANES], pitch[AV_DRM_MAX_PLANES];
+++    pyrowave_image image;
+++    int64_t used;
+++} PWImported;
+++
+++typedef struct PyroWaveVulkanContext {
+++    const AVClass *class;
+++
+++    /* Options */
+++    int chroma444;
+++    int out_width, out_height;
+++    int packet_size;
+++    int fps;
+++    int gpu_priority;
+++    char *render_node;
+++
+++    pyrowave_device device;
+++    pyrowave_encoder encoder;
+++    int width, height;
+++
+++    /* DMA-BUF images of the capture's pool. */
+++    PWImported cache[PW_CACHE_SIZE];
+++    int64_t uses;
+++    int sync_file;       /* 1 works, 0 unknown, -1 unavailable */
+++
+++    /* CPU path: YCbCr planes. */
+++    uint8_t *planes[3];
+++    int chroma_w, chroma_h;
+++
+++    pyrowave_packet *packets;
+++    size_t nb_packets_alloc;
+++    int64_t frames;
+++} PyroWaveVulkanContext;
+++
+++static const char *pw_result_name(pyrowave_result r)
+++{
+++    switch (r) {
+++    case PYROWAVE_SUCCESS:                         return "success";
+++    case PYROWAVE_TIMEOUT:                         return "timeout";
+++    case PYROWAVE_ERROR_INVALID_ARGUMENT:          return "invalid argument";
+++    case PYROWAVE_ERROR_OUT_OF_HOST_MEMORY:        return "out of host memory";
+++    case PYROWAVE_ERROR_OUT_OF_DEVICE_MEMORY:      return "out of device memory";
+++    case PYROWAVE_ERROR_NO_VULKAN:                 return "no Vulkan";
+++    case PYROWAVE_ERROR_NOT_IMPLEMENTED:           return "not implemented";
+++    case PYROWAVE_ERROR_UNSUPPORTED_EXTERNAL_HANDLE: return "unsupported external handle";
+++    case PYROWAVE_ERROR_FAILED_EXTERNAL_HANDLE:    return "failed external handle";
+++    default:                                       return "generic error";
+++    }
+++}
+++
+++/* DRM fourcc of the capture to the Vulkan format of its single plane. The
+++ * alpha (or padding) channel is ignored by the RGB to YCbCr conversion. */
+++static VkFormat pw_vk_format(uint32_t fourcc)
+++{
+++    switch (fourcc) {
+++    case PW_FOURCC('X', 'R', '2', '4'):
+++    case PW_FOURCC('A', 'R', '2', '4'): return VK_FORMAT_B8G8R8A8_UNORM;
+++    case PW_FOURCC('X', 'B', '2', '4'):
+++    case PW_FOURCC('A', 'B', '2', '4'): return VK_FORMAT_R8G8B8A8_UNORM;
+++    case PW_FOURCC('X', 'R', '3', '0'):
+++    case PW_FOURCC('A', 'R', '3', '0'): return VK_FORMAT_A2R10G10B10_UNORM_PACK32;
+++    case PW_FOURCC('X', 'B', '3', '0'):
+++    case PW_FOURCC('A', 'B', '3', '0'): return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+++    default:                            return VK_FORMAT_UNDEFINED;
+++    }
+++}
+++
+++/* PCI vendor and device of a render node, to open the Vulkan device of the
+++ * card the capture (and KyberNow Admin's check) use. 0, 0: the first
+++ * Vulkan device. */
+++static void pw_card_ids(AVCodecContext *avctx, const char *node, uint32_t *vid, uint32_t *pid)
+++{
+++    const char *name = strrchr(node, '/');
+++    char path[256], text[32];
+++    uint32_t *out[2] = { vid, pid };
+++    const char *files[2] = { "vendor", "device" };
+++
+++    *vid = *pid = 0;
+++    name = name ? name + 1 : node;
+++    for (int i = 0; i < 2; i++) {
+++        FILE *f;
+++        snprintf(path, sizeof(path), "/sys/class/drm/%s/device/%s", name, files[i]);
+++        f = fopen(path, "r");
+++        if (!f || !fgets(text, sizeof(text), f)) {
+++            if (f)
+++                fclose(f);
+++            av_log(avctx, AV_LOG_WARNING, "No PCI ids for %s: first Vulkan device\n", node);
+++            *vid = *pid = 0;
+++            return;
+++        }
+++        fclose(f);
+++        *out[i] = strtoul(text, NULL, 16);
+++    }
+++}
+++
+++static void pw_release_cache(PyroWaveVulkanContext *s)
+++{
+++    for (int i = 0; i < PW_CACHE_SIZE; i++) {
+++        if (s->cache[i].image)
+++            pyrowave_image_destroy(s->cache[i].image);
+++        memset(&s->cache[i], 0, sizeof(s->cache[i]));
+++    }
+++}
+++
+++/* The VkImage of a DMA-BUF of the capture: imported once per buffer of the
+++ * PipeWire pool, kept while its layout stays the same. */
+++static int pw_import(AVCodecContext *avctx, const AVDRMFrameDescriptor *desc,
+++                     int width, int height, pyrowave_image *out)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    const AVDRMLayerDescriptor *layer = &desc->layers[0];
+++    const AVDRMObjectDescriptor *obj = &desc->objects[0];
+++    VkSubresourceLayout layouts[AV_DRM_MAX_PLANES] = { 0 };
+++    PWImported *slot = NULL;
+++    struct stat st;
+++    VkFormat format;
+++    pyrowave_result r;
+++    int fd;
+++
+++    if (desc->nb_layers != 1 || desc->nb_objects != 1 || layer->nb_planes < 1 ||
+++        layer->nb_planes > 4) {
+++        av_log(avctx, AV_LOG_ERROR, "DMA-BUF with %d layers, %d objects: "
+++               "one of each expected\n", desc->nb_layers, desc->nb_objects);
+++        return AVERROR(ENOSYS);
+++    }
+++    format = pw_vk_format(layer->format);
+++    if (format == VK_FORMAT_UNDEFINED) {
+++        av_log(avctx, AV_LOG_ERROR, "Unsupported DMA-BUF format %s\n",
+++               av_fourcc2str(layer->format));
+++        return AVERROR(ENOSYS);
+++    }
+++    if (fstat(obj->fd, &st) < 0)
+++        return AVERROR(errno);
+++
+++    for (int i = 0; i < PW_CACHE_SIZE; i++) {
+++        PWImported *c = &s->cache[i];
+++        int same = c->image && c->dev == st.st_dev && c->ino == st.st_ino &&
+++                   c->fourcc == layer->format && c->modifier == obj->format_modifier &&
+++                   c->width == width && c->height == height && c->nb_planes == layer->nb_planes;
+++        for (int p = 0; same && p < layer->nb_planes; p++)
+++            same = c->offset[p] == layer->planes[p].offset && c->pitch[p] == layer->planes[p].pitch;
+++        if (same) {
+++            c->used = ++s->uses;
+++            *out = c->image;
+++            return 0;
+++        }
+++    }
+++
+++    /* A free slot, or the one used longest ago (the capture's pool changed). */
+++    for (int i = 0; i < PW_CACHE_SIZE; i++) {
+++        if (!slot || !s->cache[i].image || s->cache[i].used < slot->used)
+++            slot = &s->cache[i];
+++        if (!slot->image)
+++            break;
+++    }
+++    if (slot->image)
+++        pyrowave_image_destroy(slot->image);
+++    memset(slot, 0, sizeof(*slot));
+++
+++    for (int p = 0; p < layer->nb_planes; p++) {
+++        layouts[p].offset   = layer->planes[p].offset;
+++        layouts[p].rowPitch = layer->planes[p].pitch;
+++    }
+++    VkImageDrmFormatModifierExplicitCreateInfoEXT modifier = {
+++        .sType                       = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT,
+++        .drmFormatModifier           = obj->format_modifier,
+++        .drmFormatModifierPlaneCount = layer->nb_planes,
+++        .pPlaneLayouts               = layouts,
+++    };
+++    VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+++    info.pNext         = &modifier;
+++    info.imageType     = VK_IMAGE_TYPE_2D;
+++    info.format        = format;
+++    info.extent.width  = width;
+++    info.extent.height = height;
+++    info.extent.depth  = 1;
+++    info.mipLevels     = 1;
+++    info.arrayLayers   = 1;
+++    info.samples       = VK_SAMPLE_COUNT_1_BIT;
+++    info.tiling        = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
+++    info.usage         = VK_IMAGE_USAGE_SAMPLED_BIT;
+++    info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+++
+++    /* Vulkan takes the descriptor over: a copy, the capture keeps its own. */
+++    fd = fcntl(obj->fd, F_DUPFD_CLOEXEC, 0);
+++    if (fd < 0)
+++        return AVERROR(errno);
+++    pyrowave_image_create_info create = { 0 };
+++    create.device            = s->device;
+++    create.external_handle   = (pyrowave_os_handle)fd;
+++    create.handle_type       = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
+++    create.image_create_info = &info;
+++    r = pyrowave_image_create(&create, &slot->image);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the DMA-BUF (%s, modifier 0x%"PRIx64
+++               ", %dx%d): %s\n", av_fourcc2str(layer->format), obj->format_modifier,
+++               width, height, pw_result_name(r));
+++        slot->image = NULL;
+++        close(fd);
+++        return AVERROR_EXTERNAL;
+++    }
+++    slot->dev       = st.st_dev;
+++    slot->ino       = st.st_ino;
+++    slot->fourcc    = layer->format;
+++    slot->modifier  = obj->format_modifier;
+++    slot->width     = width;
+++    slot->height    = height;
+++    slot->nb_planes = layer->nb_planes;
+++    for (int p = 0; p < layer->nb_planes; p++) {
+++        slot->offset[p] = layer->planes[p].offset;
+++        slot->pitch[p]  = layer->planes[p].pitch;
+++    }
+++    slot->used = ++s->uses;
+++    av_log(avctx, AV_LOG_VERBOSE, "DMA-BUF imported: %s, modifier 0x%"PRIx64", %dx%d, %d plane(s)\n",
+++           av_fourcc2str(layer->format), obj->format_modifier, width, height, layer->nb_planes);
+++    *out = slot->image;
+++    return 0;
+++}
+++
+++/* The fence of the compositor's last write to the buffer, as a binary
+++ * semaphore the encode waits for; NULL without (older kernel: the buffer
+++ * PipeWire hands over is then already rendered on most drivers). */
+++static pyrowave_sync_object pw_wait_for_writer(AVCodecContext *avctx, int dmabuf_fd)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++#ifdef DMA_BUF_IOCTL_EXPORT_SYNC_FILE
+++    struct dma_buf_export_sync_file arg = { .flags = DMA_BUF_SYNC_READ, .fd = -1 };
+++    pyrowave_sync_object sync = NULL;
+++    pyrowave_result r;
+++
+++    if (s->sync_file < 0)
+++        return NULL;
+++    if (ioctl(dmabuf_fd, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &arg) < 0 || arg.fd < 0) {
+++        av_log(avctx, AV_LOG_VERBOSE, "No sync file from the DMA-BUF (%s): implicit sync only\n",
+++               strerror(errno));
+++        s->sync_file = -1;
+++        return NULL;
+++    }
+++    pyrowave_sync_object_create_info info = { 0 };
+++    info.device          = s->device;
+++    info.external_handle = (pyrowave_os_handle)arg.fd;
+++    info.handle_type     = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
+++    info.semaphore_type  = VK_SEMAPHORE_TYPE_BINARY;
+++    info.import_flags    = VK_SEMAPHORE_IMPORT_TEMPORARY_BIT;
+++    r = pyrowave_sync_object_create(&info, &sync);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_WARNING, "Vulkan cannot import the sync file: %s\n", pw_result_name(r));
+++        close(arg.fd);
+++        s->sync_file = -1;
+++        return NULL;
+++    }
+++    s->sync_file = 1;
+++    return sync;
+++#else
+++    (void)s;
+++    (void)dmabuf_fd;
+++    return NULL;
+++#endif
+++}
+++
+++static void pw_set_extradata(AVCodecContext *avctx)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    uint8_t *h = avctx->extradata;
+++
+++    memcpy(h, "KNPW", 4);
+++    h[4] = 1;
+++    h[5] = s->chroma444 ? 1 : 0;
+++    h[6] = 0;   /* SDR BT.709 */
+++    h[7] = 0;   /* full range */
+++    AV_WL32(h + 8, s->width);
+++    AV_WL32(h + 12, s->height);
+++}
+++
+++static av_cold int pw_close(AVCodecContext *avctx)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++
+++    if (s->encoder)
+++        pyrowave_encoder_destroy(s->encoder);
+++    s->encoder = NULL;
+++    pw_release_cache(s);
+++    if (s->device)
+++        pyrowave_device_destroy(s->device);
+++    s->device = NULL;
+++    for (int i = 0; i < 3; i++)
+++        av_freep(&s->planes[i]);
+++    av_freep(&s->packets);
+++    s->nb_packets_alloc = 0;
+++    return 0;
+++}
+++
+++static av_cold int pw_init(AVCodecContext *avctx)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    VkQueueGlobalPriority priority;
+++    uint32_t major, minor, patch, vid, pid;
+++    pyrowave_result r;
+++    enum AVPixelFormat input = avctx->pix_fmt;
+++
+++    if (avctx->hw_frames_ctx) {
+++        AVHWFramesContext *hwfc = (AVHWFramesContext *)avctx->hw_frames_ctx->data;
+++        if (hwfc->format != AV_PIX_FMT_DRM_PRIME) {
+++            av_log(avctx, AV_LOG_ERROR, "PyroWave takes DRM PRIME frames, not %s\n",
+++                   av_get_pix_fmt_name(hwfc->format));
+++            return AVERROR(EINVAL);
+++        }
+++        input = hwfc->sw_format;
+++    }
+++
+++    s->width  = s->out_width  > 0 ? s->out_width  : avctx->width;
+++    s->height = s->out_height > 0 ? s->out_height : avctx->height;
+++    if (!s->chroma444 && ((s->width | s->height) & 1)) {
+++        av_log(avctx, AV_LOG_ERROR, "4:2:0 needs an even size, not %dx%d\n", s->width, s->height);
+++        return AVERROR(EINVAL);
+++    }
+++
+++    pyrowave_get_api_version(&major, &minor, &patch);
+++    if (major != PYROWAVE_API_VERSION_MAJOR) {
+++        av_log(avctx, AV_LOG_ERROR, "PyroWave API %u.%u.%u, %d.x expected\n",
+++               major, minor, patch, PYROWAVE_API_VERSION_MAJOR);
+++        return AVERROR_EXTERNAL;
+++    }
+++
+++    switch (s->gpu_priority) {
+++    case 0:  priority = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM;   break;
+++    case 2:  priority = VK_QUEUE_GLOBAL_PRIORITY_REALTIME; break;
+++    default: priority = VK_QUEUE_GLOBAL_PRIORITY_HIGH;     break;
+++    }
+++    /* Above MEDIUM, Linux wants CAP_SYS_NICE: PyroWave falls back to it. */
+++    pw_card_ids(avctx, s->render_node, &vid, &pid);
+++    r = pyrowave_create_device_by_compat(vid, pid, NULL, NULL, NULL, priority, &s->device);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "No suitable Vulkan 1.3 device (%04x:%04x): %s\n",
+++               vid, pid, pw_result_name(r));
+++        s->device = NULL;
+++        return AVERROR_EXTERNAL;
+++    }
+++    if (avctx->hw_frames_ctx && !pyrowave_device_confirm_interop_support(s->device)) {
+++        av_log(avctx, AV_LOG_ERROR, "The Vulkan device cannot import DMA-BUF images\n");
+++        return AVERROR_EXTERNAL;
+++    }
+++    av_log(avctx, AV_LOG_INFO, "PyroWave %u.%u.%u on %s (%04x:%04x, Vulkan), queue priority %d (got %d)\n",
+++           major, minor, patch, s->render_node, vid, pid, priority,
+++           pyrowave_device_get_global_priority(s->device));
+++
+++    pyrowave_encoder_create_info enc_info = { 0 };
+++    enc_info.device = s->device;
+++    enc_info.width  = s->width;
+++    enc_info.height = s->height;
+++    enc_info.chroma = s->chroma444 ? PYROWAVE_CHROMA_SUBSAMPLING_444 : PYROWAVE_CHROMA_SUBSAMPLING_420;
+++    r = pyrowave_encoder_create(&enc_info, &s->encoder);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "Cannot create the encoder (%dx%d): %s\n",
+++               s->width, s->height, pw_result_name(r));
+++        s->encoder = NULL;
+++        return AVERROR_EXTERNAL;
+++    }
+++
+++    avctx->extradata = av_mallocz(KNPW_HEADER_SIZE + AV_INPUT_BUFFER_PADDING_SIZE);
+++    if (!avctx->extradata)
+++        return AVERROR(ENOMEM);
+++    avctx->extradata_size = KNPW_HEADER_SIZE;
+++    pw_set_extradata(avctx);
+++
+++    avctx->color_range = AVCOL_RANGE_JPEG;
+++    av_log(avctx, AV_LOG_INFO, "PyroWave encoder %dx%d %s, SDR (BT.709, full), input %dx%d %s%s, "
+++           "packets of %d bytes\n", s->width, s->height, s->chroma444 ? "4:4:4" : "4:2:0",
+++           avctx->width, avctx->height, av_get_pix_fmt_name(input),
+++           avctx->hw_frames_ctx ? " (DMA-BUF)" : " (system memory, converted on the CPU)",
+++           s->packet_size);
+++    return 0;
+++}
+++
+++/* Bytes for one frame: bitrate / 8 / fps, a multiple of 4. */
+++static size_t pw_frame_budget(AVCodecContext *avctx)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    AVRational fps = avctx->framerate;
+++    int64_t size;
+++
+++    if (s->fps > 0)
+++        fps = (AVRational){ s->fps, 1 };
+++    else if (fps.num <= 0 || fps.den <= 0)
+++        fps = (AVRational){ 60, 1 };
+++    size = av_rescale_rnd(avctx->bit_rate > 0 ? avctx->bit_rate : 200000000, fps.den,
+++                          (int64_t)fps.num * 8, AV_ROUND_DOWN);
+++    size &= ~(int64_t)3;
+++    return FFMAX(size, 4096);
+++}
+++
+++static int pw_encode_dmabuf(AVCodecContext *avctx, const AVFrame *frame, const pyrowave_rate_control *rate)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    const AVDRMFrameDescriptor *desc = (const AVDRMFrameDescriptor *)frame->data[0];
+++    pyrowave_image image;
+++    pyrowave_sync_object sync;
+++    pyrowave_result r;
+++    int ret;
+++
+++    if (!desc) {
+++        av_log(avctx, AV_LOG_ERROR, "Frame without a DRM descriptor\n");
+++        return AVERROR(EINVAL);
+++    }
+++    if ((ret = pw_import(avctx, desc, frame->width, frame->height, &image)) < 0)
+++        return ret;
+++    sync = pw_wait_for_writer(avctx, desc->objects[0].fd);
+++
+++    /* Taken from and given back to the compositor's side (foreign queue). */
+++    pyrowave_gpu_external_reference ref = { image, VK_QUEUE_FAMILY_FOREIGN_EXT };
+++    pyrowave_gpu_sync_operation acquire = {
+++        &ref, 1, { sync ? pyrowave_sync_object_get_semaphore(sync) : VK_NULL_HANDLE, 0 } };
+++    /* No semaphore at release: packetize() waits for the encode before the
+++     * frame (and its buffer) go back to PipeWire. */
+++    pyrowave_gpu_sync_operation release = { &ref, 1, { VK_NULL_HANDLE, 0 } };
+++
+++    pyrowave_scaled_encode_info info = { 0 };
+++    r = pyrowave_image_get_image_view(image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_SAMPLED_BIT, &info.view);
+++    if (r == PYROWAVE_SUCCESS) {
+++        int ten_bits = info.view.view_format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 ||
+++                       info.view.view_format == VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+++        info.input_color_space         = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+++        info.output_color_space        = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+++        info.intermediate_plane_format = ten_bits ? VK_FORMAT_R16_UNORM : VK_FORMAT_R8_UNORM;
+++        info.ycbcr_range               = VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
+++        info.ycbcr_chroma_midpoint     = 0.5f;
+++        r = pyrowave_encoder_encode_gpu_scaled(s->encoder, &acquire, &release, &info, rate);
+++    } else {
+++        av_log(avctx, AV_LOG_ERROR, "No view of the DMA-BUF image: %s\n", pw_result_name(r));
+++    }
+++    /* Waited for by the submission: the temporary payload is consumed. */
+++    if (sync)
+++        pyrowave_sync_object_destroy(sync);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "Encode failed: %s\n", pw_result_name(r));
+++        return AVERROR_EXTERNAL;
+++    }
+++    return 0;
+++}
+++
+++/* RGB to YCbCr BT.709 full range, 16-bit fixed point. */
+++#define PW_Y(r, g, b)  ((13933 * (r) + 46871 * (g) + 4732 * (b) + 32768) >> 16)
+++#define PW_CB(r, g, b) (((-7509 * (r) - 25259 * (g) + 32768 * (b) + 32768) >> 16) + 128)
+++#define PW_CR(r, g, b) (((32768 * (r) - 29763 * (g) - 3005 * (b) + 32768) >> 16) + 128)
+++
+++/* A system memory frame (BGR0, RGB0, BGRA, RGBA) to the three planes,
+++ * scaled to the encoded size by nearest sampling (a guest's own image). */
+++static void pw_convert(PyroWaveVulkanContext *s, const AVFrame *frame)
+++{
+++    const int bgr = frame->format == AV_PIX_FMT_BGR0 || frame->format == AV_PIX_FMT_BGRA;
+++    const int ri = bgr ? 2 : 0, bi = bgr ? 0 : 2;
+++    const int sub = s->chroma444 ? 1 : 2;
+++
+++#define PIXEL(x, y) (frame->data[0] + (int64_t)((y) * frame->height / s->height) * frame->linesize[0] + \
+++                     (int64_t)((x) * frame->width / s->width) * 4)
+++    for (int y = 0; y < s->height; y++) {
+++        uint8_t *luma = s->planes[0] + (size_t)y * s->width;
+++        for (int x = 0; x < s->width; x++) {
+++            const uint8_t *p = PIXEL(x, y);
+++            luma[x] = av_clip_uint8(PW_Y(p[ri], p[1], p[bi]));
+++        }
+++    }
+++    for (int y = 0; y < s->chroma_h; y++) {
+++        uint8_t *cb = s->planes[1] + (size_t)y * s->chroma_w;
+++        uint8_t *cr = s->planes[2] + (size_t)y * s->chroma_w;
+++        for (int x = 0; x < s->chroma_w; x++) {
+++            int r = 0, g = 0, b = 0;
+++            for (int dy = 0; dy < sub; dy++) {
+++                for (int dx = 0; dx < sub; dx++) {
+++                    const uint8_t *p = PIXEL(x * sub + dx, y * sub + dy);
+++                    r += p[ri];
+++                    g += p[1];
+++                    b += p[bi];
+++                }
+++            }
+++            r /= sub * sub;
+++            g /= sub * sub;
+++            b /= sub * sub;
+++            cb[x] = av_clip_uint8(PW_CB(r, g, b));
+++            cr[x] = av_clip_uint8(PW_CR(r, g, b));
+++        }
+++    }
+++#undef PIXEL
+++}
+++
+++static int pw_encode_cpu(AVCodecContext *avctx, const AVFrame *frame, const pyrowave_rate_control *rate)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    pyrowave_cpu_buffer buf = { 0 };
+++    pyrowave_result r;
+++
+++    if (!s->planes[0]) {
+++        s->chroma_w = s->chroma444 ? s->width : s->width / 2;
+++        s->chroma_h = s->chroma444 ? s->height : s->height / 2;
+++        s->planes[0] = av_malloc((size_t)s->width * s->height);
+++        s->planes[1] = av_malloc((size_t)s->chroma_w * s->chroma_h);
+++        s->planes[2] = av_malloc((size_t)s->chroma_w * s->chroma_h);
+++        if (!s->planes[0] || !s->planes[1] || !s->planes[2])
+++            return AVERROR(ENOMEM);
+++    }
+++    pw_convert(s, frame);
+++
+++    buf.format = s->chroma444 ? PYROWAVE_CPU_BUFFER_FORMAT_YUV444P : PYROWAVE_CPU_BUFFER_FORMAT_YUV420P;
+++    buf.width  = s->width;
+++    buf.height = s->height;
+++    for (int i = 0; i < 3; i++) {
+++        int w = i ? s->chroma_w : s->width, h = i ? s->chroma_h : s->height;
+++        buf.data[i]                = s->planes[i];
+++        buf.row_stride_in_bytes[i] = w;
+++        buf.plane_size_in_bytes[i] = (size_t)w * h;
+++    }
+++    r = pyrowave_encoder_encode_cpu(s->encoder, &buf, rate);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "Encode failed: %s\n", pw_result_name(r));
+++        return AVERROR_EXTERNAL;
+++    }
+++    return 0;
+++}
+++
+++static int pw_encode(AVCodecContext *avctx, AVPacket *pkt, const AVFrame *frame, int *got_packet)
+++{
+++    PyroWaveVulkanContext *s = avctx->priv_data;
+++    pyrowave_result r;
+++    size_t budget, nb_packets = 0, out_packets, total = 0;
+++    int ret;
+++
+++    *got_packet = 0;
+++    budget = pw_frame_budget(avctx);
+++    pyrowave_rate_control rate = { budget };
+++
+++    if (frame->format == AV_PIX_FMT_DRM_PRIME)
+++        ret = pw_encode_dmabuf(avctx, frame, &rate);
+++    else
+++        ret = pw_encode_cpu(avctx, frame, &rate);
+++    if (ret < 0)
+++        return ret;
+++
+++    r = pyrowave_encoder_compute_num_packets(s->encoder, s->packet_size, &nb_packets);
+++    if (r != PYROWAVE_SUCCESS || !nb_packets) {
+++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s\n", pw_result_name(r));
+++        return AVERROR_EXTERNAL;
+++    }
+++    if (nb_packets > s->nb_packets_alloc) {
+++        ret = av_reallocp_array(&s->packets, nb_packets, sizeof(*s->packets));
+++        if (ret < 0) {
+++            s->nb_packets_alloc = 0;
+++            return ret;
+++        }
+++        s->nb_packets_alloc = nb_packets;
+++    }
+++
+++    size_t capacity = nb_packets * (size_t)s->packet_size;
+++    if ((ret = ff_get_encode_buffer(avctx, pkt, capacity, 0)) < 0)
+++        return ret;
+++    out_packets = nb_packets;
+++    r = pyrowave_encoder_packetize(s->encoder, s->packets, s->packet_size, &out_packets, pkt->data, capacity);
+++    if (r != PYROWAVE_SUCCESS || out_packets > nb_packets) {
+++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s\n", pw_result_name(r));
+++        return AVERROR_EXTERNAL;
+++    }
+++    /* One media packet per frame: the PyroWave packets end to end. */
+++    for (size_t i = 0; i < out_packets; i++) {
+++        if (s->packets[i].offset != total)
+++            memmove(pkt->data + total, pkt->data + s->packets[i].offset, s->packets[i].size);
+++        total += s->packets[i].size;
+++    }
+++    av_shrink_packet(pkt, total);
+++
+++    pkt->pts = pkt->dts = frame->pts;
+++    pkt->flags |= AV_PKT_FLAG_KEY;
+++    *got_packet = 1;
+++
+++    if (!(s->frames++ % 600))
+++        av_log(avctx, AV_LOG_VERBOSE, "Frame %"PRId64": %zu bytes (budget %zu), %zu packets\n",
+++               s->frames, total, budget, out_packets);
+++    return 0;
+++}
+++
+++static const AVCodecHWConfigInternal *const pw_hw_configs[] = {
+++    &(const AVCodecHWConfigInternal) {
+++        .public = {
+++            .pix_fmt     = AV_PIX_FMT_DRM_PRIME,
+++            .methods     = AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX,
+++            .device_type = AV_HWDEVICE_TYPE_DRM,
+++        },
+++        .hwaccel = NULL,
+++    },
+++    NULL
+++};
+++
+++#define OFFSET(x) offsetof(PyroWaveVulkanContext, x)
+++#define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
+++static const AVOption pw_options[] = {
+++    { "chroma444",    "Encode 4:4:4",                              OFFSET(chroma444),    AV_OPT_TYPE_BOOL, { .i64 = 0 },    0, 1,       VE },
+++    { "out_width",    "Encoded width (scaled on the GPU), 0: input", OFFSET(out_width),  AV_OPT_TYPE_INT,  { .i64 = 0 },    0, 16384,   VE },
+++    { "out_height",   "Encoded height, 0: input",                  OFFSET(out_height),   AV_OPT_TYPE_INT,  { .i64 = 0 },    0, 16384,   VE },
+++    { "packet_size",  "PyroWave packet boundary in bytes",         OFFSET(packet_size),  AV_OPT_TYPE_INT,  { .i64 = 1152 }, 256, 65535, VE },
+++    { "fps",          "Frames per second for the frame budget, 0: framerate", OFFSET(fps), AV_OPT_TYPE_INT, { .i64 = 0 },   0, 1000,    VE },
+++    { "gpu_priority", "Vulkan queue priority: 0 medium, 1 high, 2 realtime", OFFSET(gpu_priority), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 2, VE },
+++    { "render_node",  "Render node of the graphics card that encodes", OFFSET(render_node), AV_OPT_TYPE_STRING, { .str = "/dev/dri/renderD128" }, 0, 0, VE },
+++    { NULL },
+++};
+++
+++static const AVClass pw_class = {
+++    .class_name = "libpyrowave_vulkan",
+++    .item_name  = av_default_item_name,
+++    .option     = pw_options,
+++    .version    = LIBAVUTIL_VERSION_INT,
+++};
+++
+++static const FFCodecDefault pw_defaults[] = {
+++    { "b", "200M" },
+++    { NULL },
+++};
+++
+++const FFCodec ff_libpyrowave_vulkan_encoder = {
+++    .p.name         = "libpyrowave_vulkan",
+++    CODEC_LONG_NAME("PyroWave (DMA-BUF frames, Vulkan)"),
+++    .p.type         = AVMEDIA_TYPE_VIDEO,
+++    .p.id           = AV_CODEC_ID_PYROWAVE,
+++    .p.capabilities = AV_CODEC_CAP_HARDWARE,
+++    .p.wrapper_name = "libpyrowave_vulkan",
+++    .p.priv_class   = &pw_class,
+++    .priv_data_size = sizeof(PyroWaveVulkanContext),
+++    .init           = pw_init,
+++    .close          = pw_close,
+++    FF_CODEC_ENCODE_CB(pw_encode),
+++    CODEC_PIXFMTS(AV_PIX_FMT_DRM_PRIME, AV_PIX_FMT_BGR0, AV_PIX_FMT_RGB0,
+++                  AV_PIX_FMT_BGRA, AV_PIX_FMT_RGBA),
+++    .color_ranges   = AVCOL_RANGE_JPEG,
+++    .hw_configs     = pw_hw_configs,
+++    .defaults       = pw_defaults,
+++    .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP,
+++};

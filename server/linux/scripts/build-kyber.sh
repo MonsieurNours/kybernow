@@ -154,6 +154,12 @@ fi
 # segment has dynamic relocations », Fedora 45).
 export CFLAGS="${CFLAGS:+$CFLAGS }-fPIC" CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-fPIC"
 
+# PyroWave (libpyrowave-shared.so) avant FFmpeg, qui s'y lie pour son
+# encodeur libpyrowave_vulkan (correctif Linux 0010, docs/pyrowave.md).
+# shellcheck source=pyrowave-linux.sh
+. "$HERE/pyrowave-linux.sh"
+pyrowave_linux_build
+
 echo "==> Compilation de kymedia (txproto, libavconv, FFmpeg, kyavserver)"
 # Le lecteur (VLC) ne sert pas à la Station : seulement la partie serveur.
 (cd "$KYMEDIA" && sed -e "s|x86_64-linux-gnu|$TRIPLET|g" \

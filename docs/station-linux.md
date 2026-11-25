@@ -150,6 +150,32 @@ Pourquoi le dossier de l'utilisateur : tout ce dont la Station a besoin est déj
 **SteamOS** : la Station tourne dans le mode Bureau (KDE Plasma). En mode Jeu, gamescope n'offre ni écran virtuel ni capture à l'agent : la Station n'y diffuse pas. Pour qu'elle soit là après un redémarrage, SteamOS doit démarrer en mode Bureau (`steamos-session-select plasma-persistent`). Même chose pour les images de Bazzite qui démarrent en mode Jeu (Bazzite Deck) ; les images de bureau de Bazzite (KDE, GNOME) sont comme une Fedora.
 
 **Pas essayé** : aucune VM ni machine Bazzite, Fedora Atomic ou SteamOS. Essayé sur le Mac avec des simulacres de `systemctl` et de `curl` : fabrication de l'archive (depuis un assemblage et depuis un `.deb`), installation, mise à jour réussie, mise à jour refusée par le contrôle de santé puis remise de l'ancienne version, archive d'une autre version refusée, retour à la version précédente, retrait. À vérifier sur une vraie machine : le contrôle d'accès de KWin avec le `.desktop` du dossier de l'utilisateur, `steam-devices` et `/dev/uinput`, le greffon GStreamer de secours, la glibc de SteamOS, `graphical-session.target` en mode Bureau et en mode Jeu.
+### Prêt de l'ordinateur
+
+Le mode console dans la session de l'hôte, comme sur Mac ([pret.md](pret.md), « Station Linux ») : l'icône `kybernow-tray`, lancée par Admin avec `--console` dans sa propre unité systemd, met le lanceur de l'ami (les apps permises, rien d'autre du bureau) en plein écran sur l'écran virtuel et un cache sur chaque écran de l'ordinateur, prend l'entrée physique (`EVIOCGRAB`) et coupe les raccourcis du bureau (GNOME par `gsettings`, KDE par KGlobalAccel). Admin (`lend_sys.rs`) suit la session par `loginctl`, empêche veille et verrouillage tant que le prêt est activé (`systemd-inhibit`, et `gnome-session-inhibit` sous GNOME), surveille les processus par `/proc` et ferme ce qui n'est pas permis. `lend.available` est vrai dès que l'agent est à côté d'Admin. Il faut que la règle udev du paquet donne à l'utilisateur ses appareils d'entrée (`/dev/input/event*`) pour bloquer le clavier et la souris de l'ordinateur ; sans elle, le prêt marche sans ce blocage.
+
+### PyroWave
+
+Encodeur à part, en Vulkan (la bibliothèque PyroWave est en Vulkan), sur les images DMA-BUF de la capture PipeWire importées sans copie ; détail dans [pyrowave.md](pyrowave.md), « La Station Linux ».
+
+- `server/linux/scripts/pyrowave-linux.sh` (lancé par `build-kyber.sh` avant FFmpeg) compile `libpyrowave-shared.so` et `pyrowave-device-validation` dans le rootfs de Kyber ; correctifs Kyber Linux 0010 (encodeur FFmpeg `libpyrowave_vulkan`), 0011 (kyavserver, moteur libavconv) et 0012 (kycontroller le propose).
+- Admin (`pyrowave.rs`) vérifie une fois par lancement, en fond, la carte du nœud de rendu (`/dev/dri/renderD128`, `KYBERNOW_RENDER_NODE` pour un autre) : `pyrowave-device-validation --external --roundtrip --vid … --pid …` (Vulkan 1.3 qui convient, import des DMA-BUF et des descripteurs de synchronisation, aller-retour). `pyrowave.available` est vrai quand il réussit, sinon `reason: "vulkan"`.
+- Une capture sans DMA-BUF (machine virtuelle) passe par le processeur pour la conversion en YCbCr : PyroWave marche, plus lentement.
+
+### Débit en direct
+
+Le correctif commun 0026 couvre aussi VA-API (cartes AMD et Intel) : quand l'app change le débit (`/set_bitrate`), les paramètres du débit de l'encodeur (débit, mémoire HRD) suivent et partent avec l'image suivante, sans image clé ; avant, ils n'étaient envoyés qu'avec les images IDR (toutes les 10 s avec le GOP de 600 images). NVENC et VideoToolbox ne changent pas ([debit-automatique.md](debit-automatique.md)). x264 suit déjà un changement de débit de lui-même.
+
+### HDR
+
+La question : GNOME ou KDE peuvent-ils donner à un programme un écran virtuel en BT.2100 (PQ, couleurs BT.2020), comme l'écran virtuel HDR de la Station Windows ? **Pas encore**, ni l'un ni l'autre, et la Station Linux n'annonce donc pas le HDR (`hdr` faux : les apps restent en SDR). Étude du 25/11/2026, d'après les interfaces publiques des deux compositeurs et les rapports de développeurs ; à confirmer dans les VM :
+
+- **GNOME (Mutter 46 à 49)** : le HDR existe pour les écrans physiques qui l'annoncent (EDID), réglé dans Paramètres › Écrans. Un écran virtuel (`org.gnome.Mutter.ScreenCast`, `RecordVirtual`) n'a aucune propriété de couleur ni d'EDID : il reste en sRGB, et son flux PipeWire ne propose que des formats 8 bits, sans colorimétrie. Il faudrait un Mutter modifié (écran virtuel avec un mode de couleur, flux 10 bits annoncé en BT.2100) : hors de notre portée tant que Mutter ne le fait pas lui-même.
+- **KDE Plasma 6 (KWin)** : HDR et gestion des couleurs par écran depuis Plasma 6.0, pour les écrans qui l'annoncent. L'écran virtuel de `zkde_screencast_unstable_v1` (`stream_virtual_output`) n'en a pas les capacités (rien à allumer par `kscreen-doctor output.Virtual-KyberNow-1.hdr.enable`), et le greffon de capture de KWin ne propose que des formats DRM 8 bits : même un rendu HDR y serait ramené en SDR.
+- **Côté Kyber aussi** : la capture GStreamer de libavgrab ne sait pas lire d'images 10 bits (RGB 10 bits et P010 ne sont pas dans sa table des formats) ni les métadonnées HDR ; il faudrait l'équivalent Linux du correctif commun 0022 (P010 vers HEVC Main 10 en VA-API ou NVENC, métadonnées).
+- **Détour écarté** : capturer en KMS un écran physique HDR (kmsgrab) demande des droits root (`CAP_SYS_ADMIN`) et ne fait pas d'écran virtuel à la taille de l'appareil.
+
+À refaire quand Mutter ou KWin donneront un écran virtuel avec une description de couleur (protocole Wayland `wp_color_management_v1` côté compositeur, ou une propriété de `RecordVirtual`) et des flux PipeWire 10 bits. À vérifier dans les VM d'ici là : `kscreen-doctor -o` (lignes HDR et WCG de `Virtual-KyberNow-1`) et les formats du nœud PipeWire de l'écran virtuel (`pw-dump`).
 
 ## Correctifs Kyber propres à Linux
 
@@ -164,6 +190,9 @@ Rangés dans `server/linux/kyber-patches`, posés après les correctifs communs 
 | `0005-kynput-manettes-linux` | Manette PlayStation de l'appareil en DualSense par uhid (vibrations renvoyées), les autres en Xbox 360 par uinput ; « Toutes les manettes en Xbox 360 » respecté ; vibrations Xbox sans fin et lues d'un coup |
 | `0006-kynput-stylet-linux` | Stylet en tablette graphique uinput (pression, inclinaison, gomme, bouton, survol) ; la Station l'annonce (`PenAvailable`) |
 | `0007-kynput-presse-papiers-wayland` | Presse-papiers par `ext-data-control-v1` (ou `zwlr-data-control`) sous Wayland quand le compositeur l'offre (KDE) ; sinon X11 par Xwayland (GNOME) |
+| `0010-kymedia-ffmpeg-pyrowave-vulkan` | Encodeur FFmpeg `libpyrowave_vulkan` : images DMA-BUF de la capture importées dans Vulkan, PyroWave sur la carte (voir « PyroWave ») |
+| `0011-kyavservice-pyrowave-linux` | kyavserver accepte PyroWave sous Linux, avec cet encodeur |
+| `0012-kycontroller-pyrowave-linux` | kycontroller propose PyroWave sur une Station Linux |
 
 ## Compiler
 
@@ -207,7 +236,7 @@ Pièges rencontrés :
 
 ## Ce que voient les apps KyberNow Link
 
-Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux ») : un PC, dont le système est le nom de la distribution. Ce qui n'est pas encore là (HDR, PyroWave, prêt) n'est pas annoncé, et les apps font comme avec une Station qui ne l'a pas.
+Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux ») : un PC, dont le système est le nom de la distribution. Ce qui n'est pas encore là (HDR) n'est pas annoncé, et les apps font comme avec une Station qui ne l'a pas ; PyroWave et le prêt sont annoncés quand la carte graphique convient et quand l'agent du mode console est là.
 
 ## Découpage
 
@@ -217,7 +246,7 @@ Rien de propre à Linux ([link-ui.md](link-ui.md), « Face à une Station Linux 
 4. **Son.** Sortie PipeWire KyberNow : **écrit**.
 5. **Entrées.** uinput, règle udev, pointeur absolu sous Wayland : **écrit**. Manettes DualSense par uhid, stylet (tablette uinput, à la suite du correctif commun 0027), presse-papiers sous Wayland (data-control) : **écrits** (correctifs 0005 à 0007, compilés pour Linux et essais unitaires sur le Mac le 25/11/2026), pas encore essayés sous Linux. Règle udev de `/dev/uhid` et module `uhid` chargé au démarrage : dans le paquet (branche des mises à jour).
 6. **Paquet, mises à jour.** `.deb`, `.rpm`, services : **écrit**. Mises à jour depuis Admin et depuis les apps (service root par socket, retour arrière), icône près de l'horloge, paquets publiés : **écrits**, testés sur le Mac (tests d'Admin et de l'icône), pas encore essayés sous Linux (voir « Essais »).
-7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer), Prêt du PC (mode console dans la session de l'hôte, veille empêchée par `systemd-inhibit`), HDR (écran virtuel de GNOME en BT.2100 : GNOME ne le propose pas encore), PyroWave (Vulkan, import DMA-BUF), débit en direct en VA-API (à ajouter au correctif commun 0026) : à faire.
+7. **Fonctions avancées.** Share et relais (rien de propre au système dans Admin : à essayer). Prêt du PC (mode console dans la session de l'hôte, veille empêchée), PyroWave (Vulkan, import DMA-BUF, correctifs Linux 0010 à 0012), débit en direct en VA-API (correctif commun 0026) : **écrits** (25/11/2026), pas encore compilés ni essayés sous Linux. HDR : **pas encore possible** (ni GNOME ni KDE ne donnent d'écran virtuel en BT.2100, voir « HDR »).
 8. **Systèmes immuables** (Bazzite, Fedora Atomic, SteamOS). Installation dans le dossier de l'utilisateur, sans root sauf la règle udev quand Steam ne l'a pas déjà, mise à jour sans mot de passe (`server/linux/immutable`) : **écrit**, essayé sur le Mac avec des simulacres, jamais sur ces systèmes (voir « Systèmes immuables »).
 
 ## Essais
