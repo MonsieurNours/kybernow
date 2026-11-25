@@ -31,6 +31,9 @@ qrcodegen = "1.8"
 # l'interface se compile : captures des écrans (`--preview`), sur Mac aussi.
 default = ["device"]
 device = ["dep:kybernow-core", "dep:kynput-sys", "dep:keycode"]
+# PyroWave demandé à Kyber : la fonctionnalité `pyrowave` du cœur, avec le
+# correctif kyclient 0025 (scripts/build.sh --kyber-pyrowave).
+pyrowave = ["device", "kybernow-core/pyrowave"]
 
 [build-dependencies]
 cc = "1"

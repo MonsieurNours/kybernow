@@ -2969,6 +2969,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                     }
                 }
                 let stages = Stats::stages(chain, local);
+                let lowered = lowered.map(|l| l.text(kybernow_core::i18n::current()));
                 s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), decoder: codec, audio_ms, history, stages, hdr, lost_frames, lowered });
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();

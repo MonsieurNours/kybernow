@@ -8,6 +8,8 @@ Client section of [pyrowave.md](pyrowave.md) (the contract and the Station), to 
 
 - [PyroWave](https://github.com/Themaister/pyrowave) (MIT licence), **Vulkan** path, at the Station's and the Mac's commit (a32b05e, `apps/macos/PyroWave/COMMIT`), with the part of [Granite](https://github.com/Themaister/Granite) (MIT) that `checkout_granite.sh` fetches. `apps/linux/scripts/build.sh` (step 4) fetches it with git, builds it with CMake (target `pyrowave-shared`, the `pyrowave.h` C API) and puts `libpyrowave-shared.so.1`, `pyrowave.h` and Granite's Vulkan headers in the prefix. About thirty seconds; the Flatpak's dependency module caches it along with FFmpeg and libkynput.
 - **Shared library, loaded at launch** (`dlopen`): next to the app (`<prefix>/lib`, `/app/lib` in the Flatpak), otherwise the build prefix, otherwise the system path; `KYBERNOW_PYROWAVE_LIB` forces one. Without it, PyroWave is unavailable and nothing else changes. The Vulkan loader is the runtime's (`libvulkan.so.1`, opened by volk inside Granite); no extra permission in the Flatpak (`--device=all` is already there).
+- **Requesting PyroWave from Kyber**: `build.sh --kyber-pyrowave` (and `flatpak.sh ARCH --kyber-pyrowave`) applies the Station's kyclient patch 0025 (`VideoCodec::PyroWave`, `fallback_codec`) and turns on the core's `pyrowave` feature (the app's `pyrowave` feature forwards it). Both go together; like the other apps, only on request until they are on everywhere. Without them, the app decodes PyroWave but never requests it.
+- **Shared Kyber SDK**: when the shared `third_party/` already carries another piece of work's patches (the branch's patches no longer apply), `KYBERNOW_KYBER_HEAD=1` makes `sources.sh` take the SDK as it is in its git repositories (HEAD of kysdk and its submodules), read-only; `build.sh` then applies the branch's patches.
 - `build.sh --rpi` does not build it: the Pi app takes `src/native/pyrowave_none.c` (the probe answers “unavailable”).
 
 ## Decoding (`src/native/pyrowave.c`, `src/device/video.rs`)
@@ -42,8 +44,8 @@ link-ui's texts, word for word (`src/pyrowave.rs`, without SDL or the core):
   - the **amber chip** in the desktop bar, after “Through the relay”; the format there says “PyroWave”;
   - with a controller (Deck, living room), a session menu **tile** named like the chip, subtitle “Switch to HEVC”.
   - “**Switch to HEVC**” restarts the picture in HEVC for this session only (`Session::set_settings`, cable removed so that “Auto” does not take PyroWave back); the computer's choice stays.
-- **Statistics** (session): “Lost frames: 0.8 %” (the computer's frames never shown, as a share of the second's frames; amber above zero) and “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” when the app knows it. The core does not yet say when it lowers the resolution: the line and the banner wait for that signal (`SessionUi::lowered`).
-- Captures: `--preview`, `45-pyrowave-*` (desktop, deck, living room: by cable, Wi-Fi, Auto by cable and without, inactive, session, banner).
+- **Statistics** (session): “Lost frames: 0.8 %” (the computer's frames never shown, as a share of the second's frames; amber above zero) and “Resolution lowered to {w} × {h} to fit in {n} Mbit/s.” when the core lowered the resolution to fit the Station's “Maximum bitrate” (`Second::lowered`, text from `Lowered::text`, kept in `Stats::lowered`; wraps when needed). When it lowers it, the core also says so (`Notice::ResolutionLowered`): the session's capsule, under the PyroWave banner when that one is shown (desktop), at the bottom on the Deck and in the living room.
+- Captures: `--preview`, `45-pyrowave-*` (desktop, deck, living room: by cable, Wi-Fi, Auto by cable and without, inactive, session, banner, statistics alone).
 
 ## Offline test (`apps/linux/tests/pyrowave/run.sh`)
 
@@ -66,8 +68,8 @@ Probe: 33 ms at app launch (lavapipe refused), 56 to 79 ms when it is allowed. F
 
 ## To try on the Steam Deck
 
-1. Build and install the x86_64 Flatpak (`apps/linux/scripts/flatpak.sh x86_64` in the VM, or a release's): `flatpak install --user KyberNow-Link-Linux-x86_64.flatpak`.
+1. Build and install the x86_64 Flatpak (`apps/linux/scripts/flatpak.sh x86_64 --kyber-pyrowave` in the VM so that it requests PyroWave, or a release's): `flatpak install --user KyberNow-Link-Linux-x86_64.flatpak`.
 2. Start the app once in Desktop mode from a terminal (Konsole): `flatpak run fr.leslignesclaires.kybernow 2>&1 | grep -i pyrowave` should say “PyroWave : prêt sur AMD Custom GPU … (RADV VANGOGH)” and the probe's duration. “décodeur prêt, mais ce cœur ne sait pas encore le demander”: the core's `pyrowave` feature is still off (the Station's kyclient patch not merged yet).
 3. The offline test on the Deck (measuring the read-back): the Flatpak has no compiler, so in an Ubuntu 24.04 distrobox (or with the app built by `build.sh` on an x86_64 Linux), `apps/linux/tests/pyrowave/run.sh 2560 1440 120` (upstream's Vulkan encoder runs on RADV); note “décodage, relecture comprise” at 1440p 4:2:0 and 4:4:4. More than 1 ms above decoding alone: write the zero-copy path (dmabuf).
-4. With a Station that offers PyroWave (patch 0025 and the core's `pyrowave` feature on): Settings › Picture › Video format › PyroWave; a session by cable (dock and Ethernet), then on Wi-Fi: the banner, the chip (desktop) or the tile (Game mode), “Switch to HEVC”; the statistics (Decoding, Lost frames). In Game mode (gamescope) and in the living room, the same with a controller.
+4. With a Station that offers PyroWave (patch 0025 and the core's `pyrowave` feature on): Settings › Picture › Video format › PyroWave; a session by cable (dock and Ethernet), then on Wi-Fi: the banner, the chip (desktop) or the tile (Game mode), “Switch to HEVC”; the statistics (Decoding, Lost frames, Resolution lowered with a low “Maximum bitrate” in Admin). In Game mode (gamescope) and in the living room, the same with a controller.
 5. HDR10 in PyroWave on a KDE Plasma 6.3+ desktop with an HDR screen (the Deck OLED in Game mode stays SDR, as with HEVC).

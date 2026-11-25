@@ -55,7 +55,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     os,
                     gpu: info.gpu.clone(),
                     av1: info.av1,
-                    pyrowave: info.pyrowave,
+                    pyrowave: info.pyrowave_offered(),
                     virtual_display: Some(info.virtual_display.available),
                     max_screens: Some(info.virtual_display.max_screens()),
                     station: Some(station),
@@ -309,8 +309,8 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             host.os = (!info.os.is_empty()).then(|| info.os.clone());
                             host.gpu = info.gpu.clone();
                             host.av1 = info.av1;
-                            host.pyrowave = info.pyrowave;
-            host.pyrowave = info.pyrowave;
+                            host.pyrowave = info.pyrowave_offered();
+            host.pyrowave = info.pyrowave_offered();
                             host.wake = wake_cards(&info);
                         }
                         let _ = tx.send(Event::PairAccepted(host));
@@ -403,7 +403,7 @@ fn invited_host(code: &invite::InviteCode, i: invite::Invited) -> Host {
             host.os = (!info.os.is_empty()).then(|| info.os.clone());
             host.gpu = info.gpu.clone();
             host.av1 = info.av1;
-            host.pyrowave = info.pyrowave;
+            host.pyrowave = info.pyrowave_offered();
             host.wake = wake_cards(&info);
             if let Some(r) = info.relay.as_ref() {
                 host.relay = Some(host_relay(r));

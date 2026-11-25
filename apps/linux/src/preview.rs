@@ -2768,7 +2768,11 @@ fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, pr
     }
     s.pw_wired = false;
     s.pyrowave_seen();
-    s.lowered = Some((1920, 1080, 300));
+    if let Some(st) = s.stats.as_mut() {
+        st.lowered = Some(crate::pyrowave::lowered(1920, 1080, 300));
+    }
+    // Le cœur le dit aussi en capsule, au moment où il ramène la définition (`Notice::ResolutionLowered`).
+    s.notice = Some((crate::pyrowave::lowered(1920, 1080, 300), Instant::now()));
     if desktop {
         s.menu = false;
         s.relative = false;
@@ -2789,6 +2793,13 @@ fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, pr
     app.pointer = None;
     app.focus = Target::PwHevc;
     shot(app, cv, Some(video), dir, &name("45g-pyrowave-bandeau"));
+    // Les statistiques seules (à la manette, le menu les cachait) : « Images perdues », « Définition ramenée ».
+    if let Some(s) = app.session_mut() {
+        s.show_stats = true;
+        s.pw_banner = None;
+        s.notice = None;
+    }
+    shot(app, cv, Some(video), dir, &name("45h-pyrowave-statistiques"));
     app.set_session(None);
     app.store.selected = selected;
     app.net = net;
