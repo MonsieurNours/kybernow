@@ -89,6 +89,11 @@ targets:
           - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
             CFBundleURLSchemes: [kybernow]
         NSBonjourServices: [_kybernow._tcp]
+        # Mode Jeu de macOS : avec la catégorie Jeux (LSApplicationCategoryType
+        # plus bas), il s'allume quand une session passe en plein écran.
+        # LSSupportsGameMode pour macOS 26+, GCSupportsGameMode pour 14 et 15.
+        LSSupportsGameMode: true
+        GCSupportsGameMode: true
         # Sparkle : flux cumulatif du site (site/updates/appcast.xml, stables et
         # bêtas, voir docs/releases.md) ; archives vérifiées avec cette clé.
         SUFeedURL: https://www.kybernow.app/updates/appcast.xml
@@ -103,7 +108,7 @@ targets:
         PRODUCT_MODULE_NAME: KyberNow
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: KyberNow Link
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.games
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Les Lignes Claires · AGPL-3.0"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "KyberNow Link se connecte à vos ordinateurs sur le réseau local."
         INFOPLIST_KEY_NSCameraUsageDescription: "KyberNow Link lit le QR code affiché dans KyberNow Admin."

@@ -56,7 +56,7 @@ The app shows the computer's screen unfiltered (browser, games, any content): an
 - Name Apple's platforms and Windows; do not mention Android, Google or KyberNow's other platforms (2.3.10).
 - PlayStation: text only, as compatibility ("play your PS5 and PS4"), with "PlayStation, PS5 and PS4 are trademarks of Sony Interactive Entertainment Inc."; no Sony logo or image, neither in the icon nor in the screenshots.
 - Screenshots on real computers, without protected game content in the spotlight.
-- Category: Utilities, secondary category: Productivity (the app is not a game).
+- Category: Utilities, secondary category: Productivity (the app is not a game). No Game Mode on iPhone and iPad (`GCSupportsGameMode`, `LSSupportsGameMode`) while the app is listed this way: it would turn on at launch, and an app that is not a game and turns it on risks rejection. The Mac app, outside the App Store, has it (see [apps/macos/README.en.md](../apps/macos/README.en.md), “macOS Game Mode”).
 
 ## App Review
 
