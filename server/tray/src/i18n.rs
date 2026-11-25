@@ -138,8 +138,18 @@ fn system() -> Option<String> {
     String::from_utf8_lossy(&out.stdout).split('"').nth(1).map(str::to_string)
 }
 
+/// Linux : la langue de la session (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`).
+#[cfg(target_os = "linux")]
+fn system() -> Option<String> {
+    ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"].iter().find_map(|v| {
+        let value = std::env::var(v).ok()?;
+        let first = value.split(':').next()?.split(['.', '@']).next()?.replace('_', "-");
+        (!first.is_empty() && first != "C" && first != "POSIX").then_some(first)
+    })
+}
+
 /// Ailleurs (essais) : français, sauf `KYBERNOW_LANG`.
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn system() -> Option<String> {
     None
 }

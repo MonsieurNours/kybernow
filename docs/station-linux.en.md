@@ -19,7 +19,7 @@ A computer running Linux becomes a Station like a Windows PC or a Mac: same feat
 | Cards and encoders | NVENC (NVIDIA), VA-API (AMD, Intel), x264 as a fallback, picked from the card at installation; frames to the encoder without copies (DMA-BUF); PyroWave in Vulkan |
 | Input | uinput (X11 and Wayland), not libei; Xbox controllers through uinput, DualSense through uhid |
 | Locking | As on Mac: the session's lock screen is streamed; after a restart, the session must open on its own (automatic login) |
-| Services | Kyber, Admin (and later the tray icon) as systemd user services, in the user's graphical session; a separate root service to apply updates |
+| Services | Kyber, Admin and the tray icon as systemd user services, in the user's graphical session; a separate root service to apply updates |
 | Sound | A « KyberNow » PipeWire output with 2, 6 or 8 channels, chosen for the session, then the original output given back (like the Mac's KyberNow output) |
 | Engine | Kyber 0.29's Linux server (kycontroller, kyavserver with the libavconv engine, kynputserver), with our common patches and Linux-specific ones. No engine of our own |
 
@@ -59,6 +59,24 @@ kynputserver injects keyboard, mouse and controllers through `/dev/uinput`, on X
 
 **Absolute pointer on Wayland** (Linux Kyber patch 0002): on Wayland, no program can place the pointer (XTest only moves Xwayland's). kynput therefore plugs a second uinput device, « KyberNow pointeur », with two absolute axes and a mouse's buttons: udev classes it as an absolute mouse (like a virtual machine's tablet) and the compositor spreads it over its whole desktop. Its axes cover the box around the displays the Station announces (places written by the agent). While it holds the pointer, clicks and wheel go through it (GNOME does not apply another mouse's clicks in that case); a relative move (captured pointer, games) hands back to the relative mouse. On X11, nothing changes (XTest).
 
+### Controllers
+
+Linux Kyber patch 0005. As on Windows and the Mac, a PlayStation controller on the device (Sony: DualShock 3 and 4, DualSense, DualSense Edge) becomes a DualSense on the computer, any other an Xbox 360 controller; Admin's “All controllers as Xbox 360” setting (`gamepad_force_xbox360`) makes them all Xbox.
+
+- **DualSense through uhid** (`kynput/src/linux/uhid_gamepad.rs`): `/dev/uhid` creates a real HID device, a DualSense plugged in over USB (054C:0CE6, descriptor taken from a CFI-ZCT1W, the same as the Mac Station). Linux's `hid-playstation` driver takes it as a real one: controller, sensors and touchpad for evdev, `hidraw` for SDL and Steam; games see a DualSense (PlayStation icons). kynput answers the three reports the driver reads when it opens it (calibration, pairing, firmware), with one MAC address per controller (the driver refuses two controllers with the same address). Rumble comes back in the controller's output reports (0x02) and goes to the device, with no duration, as on the other Stations. The light bar, player LEDs and adaptive triggers do not come back: Kyber's protocol only carries rumble.
+- **Xbox 360 through uinput** (already in Kyber, completed): Linux's “endless” rumble (length 0, or 0xFFFF from SDL) sent with no duration; all rumble feedback read at once (the thread read one per wake-up and an effect could wait for the next one); an error on one controller no longer stops all the others.
+- **Without uhid** (module missing, permissions): the PlayStation controller becomes an Xbox 360 one, with a warning in kynput's log. The package must open `/dev/uhid` to the user like `/dev/uinput` (`uaccess` udev rule, `uhid` module loaded), and these DualSenses' `hidraw` for SDL and Steam.
+
+kynput's log: “Plug DualSense gamepad 1”, “DualSense 1 started by the kernel”, or “Plug gamepad 1 (device …)” for an Xbox one.
+
+### Pen
+
+Linux Kyber patch 0006, following common patch 0027 ([stylet.en.md](stylet.en.md), “Linux Station”): the Station announces the pen (`PenAvailable`) and receives it as a uinput graphics tablet, « KyberNow stylet » (`BTN_TOOL_PEN`, `BTN_TOOL_RUBBER`, `BTN_TOUCH`, `BTN_STYLUS`, `ABS_PRESSURE`, `ABS_TILT_X/Y`), created at the pen's first packet. udev classes it as a tablet, libinput hands it to the compositor (Wayland: `tablet-v2`, X11: XInput2): pressure, tilt, eraser, button and hover in Krita, GIMP or Inkscape. It covers the box of the announced displays, like the absolute pointer. Rotation does not go through (libinput only reads it on some Wacom pens).
+
+### Clipboard
+
+Linux Kyber patch 0007. On Wayland, a program without a window can neither read nor set the clipboard; Kyber's X11 route (Xwayland) depends on what the compositor copies between X11 and Wayland (KWin only does it while an X11 window has the keyboard). kynput therefore uses the clipboard managers' protocol when the compositor offers it: `ext-data-control-v1` (KDE Plasma 6), otherwise `zwlr-data-control-unstable-v1` (Plasma 5, KWin up to 6.4). Text and HTML, same rights as the other Stations (copy to the device, paste from the device). GNOME offers neither: the Station stays on X11 there, whose clipboard Mutter copies to Wayland and back, and the log says so (“Wayland compositor without data-control (GNOME): clipboard through X11 (Xwayland)”). `KYBERNOW_CLIPBOARD=x11` forces X11 (troubleshooting).
+
 ### Sound
 
 Admin (`audio/mod.rs`, `linux` module) creates at the start of the session a « KyberNow » output (PipeWire's `module-null-sink`, through `pactl`) with the device's channel count (2, 6 or 8, PulseAudio order), makes it the default output and moves the playing sounds to it: nothing comes out of the computer's speakers. Kyber captures the default output's monitor. At the end: original output given back, sounds moved back, module removed (and removed at startup if one was left by an interrupted session).
@@ -76,7 +94,88 @@ Admin gives `platform`: `linux` (`GET /api/session`): the interface and Admin re
 - `kybernow-admin.service` and `kybernow-kyber.service`, systemd user services (`/usr/lib/systemd/user`), tied to the graphical session: they start at login and stop with it. Admin drives Kyber through `systemctl --user` (`linux.rs`), and restarts the Station through systemd.
 - First start: `kybernow-station-setup` (before Admin) writes Kyber's Linux settings (libavconv engine, GStreamer capture, displays file), a certificate of the Station's own, the card's encoder, the first account (your user name, random password in `~/.local/share/kybernow/station/admin/mot-de-passe`).
 - Data: `~/.local/share/kybernow/station/` (`admin/`, `kyber/`, `kyber-screens.toml`).
-- Package: `server/linux/scripts/package.sh` → `kybernow-station_<version>_<arch>.deb` and `kybernow-station-<version>.<arch>.rpm` (`/usr/lib/kybernow-station`, services, udev rule). At installation, the services are enabled for every user (`systemctl --global enable`) and the udev rule is loaded.
+- Package: `server/linux/scripts/package.sh` → `kybernow-station_<version>_<arch>.deb` and `kybernow-station-<version>.<arch>.rpm` (`/usr/lib/kybernow-station`, user services including the tray icon, root update socket and service, udev rule). At installation, the services are enabled for every user (`systemctl --global enable`), the update socket is opened and the udev rule is loaded; a package update keeps all that (the scripts only disable on removal). Tray icon dependencies: GTK 3 and AppIndicator (Ayatana or the older one); recommended: GNOME's AppIndicator extension, zenity or kdialog, notify-send. Admin dependencies: ethtool, GStreamer "good" plugins, hwdata; recommended: iw, xprop, rsvg-convert. `uinput` and `uhid` (DualSense) loaded at boot (`modules-load.d`), opened to the user by the udev rule along with the DualSense hidraw. The same assembly also gives the immutable systems archive (`server/linux/immutable/make-archive.sh`). Publishing: `server/linux/scripts/release-station.sh` builds the four packages under their fixed names (arm64 in the VM, x86_64 on an x86_64 machine reached by ssh); `scripts/release.sh` publishes them with `KYBERNOW_STATION_LINUX=1` (see [releases.en.md](releases.en.md)).
+
+### Updates and tray icon
+
+- **Updates** (milestone 6), as on Windows and on the Mac: same minisign-signed manifest, same checks by Admin (signature by the built-in key, version, channel, size and hash of the package), same Updates page and same buttons in the apps. The package is the one for the installed architecture and format: `KyberNow-Station-Linux-{x86_64,arm64}.{deb,rpm}` (`update/linux.rs`, format read from dpkg, otherwise rpm).
+- Admin is never root. It downloads and checks in `~/.local/share/kybernow/station/admin/update/<version>/`, then drops its request on the `/run/kybernow-station/update.sock` socket (`kybernow-station-update.socket`, open to everyone). systemd then starts, for that connection, the root service `kybernow-station-update@.service` (`kyber-admin update serve`), which trusts nothing in the request: it reads the account making it (`SO_PEERCRED`), only takes files from that account's updates folder, without following links, copies them into its own folder `/var/lib/kybernow-station/update/<version>/` and checks everything again there (signature, version newer than the installed package, channel followed by that account, `min_installer_version`, size and hash). It answers Admin once the request is checked, before stopping anything: a refusal shows in Admin as elsewhere.
+- Then it stops that account's tray icon, Kyber and Admin (`runuser … systemctl --user`), installs the package (`apt-get install` for a .deb, which pulls new dependencies, otherwise `dpkg -i`; `dnf install` for an .rpm, otherwise `rpm -Uvh`), restarts the services and waits for Admin to answer in the new version (60 s, at the address of its `listen` setting).
+- **Rollback.** Before installing, Admin also downloads the package of the running version (from its published release, checked against its signed manifest) unless the root service already keeps it; the root service checks and keeps it. If Admin doesn't answer in the new version, it reinstalls that one (`--allow-downgrades`, `rpm --oldpackage`). "Go back to the previous version" reinstalls the kept version (`previous`) the same way, checked again; only the two useful versions stay in `/var/lib/kybernow-station/update/`. A Station installed by hand from a release that did not publish Linux packages yet (0.11.0 and earlier) has no rollback for its first update: the log says so.
+- Result in `/var/lib/kybernow-station/update/resultat.json` (readable by everyone, same format), which Admin reads at startup; log in `<version>/update.log` next to it, and `journalctl -u 'kybernow-station-update@*'`.
+- **Immutable systems.** An Admin installed in the user's folder (`~/.local/lib/kybernow-station/versions/<version>/bin`, see "Immutable systems") takes the `KyberNow-Station-Linux-{x86_64,aarch64}.tar.xz` archive, checked the same way, and hands it to `kybernow-station-home update <archive> <version> --result … --log …`, next to it: no root service; result in its own `update/` folder. "Go back to the previous version": `kybernow-station-home rollback`, to the `previous` link. On an ostree system (`/run/ostree-booted`) where the Station is layered under `/usr` (rpm-ostree), Admin announces the version without installing it: "installs with rpm-ostree".
+- **Tray icon by the clock**: the same program as on Windows (`server/tray`, tao and tray-icon), built for Linux (`src/linux.rs`), as the systemd user service `kybernow-tray.service`. An AppIndicator icon (StatusNotifierItem): KDE Plasma shows it by itself, GNOME with the AppIndicator extension (built in on Ubuntu; `gnome-shell-extension-appindicator`, recommended by the package, elsewhere). Same menus and texts (`tray.*`), same state and same badge (`src/status.rs`, shared with Windows); a click always opens the menu, and the pages of the Windows panel open in Admin (sharing, lending, updates). No "Start with the computer": the services start with the session. "Reset Admin's password" needs no special rights (Admin runs with your account) and shows the setup code. Confirmations and messages through zenity or kdialog; a new request (device, guest, friend) gives a notification.
+- `kybernow-station-setup` writes `~/.local/share/kybernow/station/kybernow.json` (Admin's port), where Admin notes its certificate's fingerprint: the icon only talks to that certificate, as on Windows.
+
+### Admin: wake, preview, graphics card, apps
+
+Admin lives in the user's session: it reads everything itself, with no agent and no root rights (`server/admin/src/linux_*.rs`).
+
+- **Wake on LAN** (`linux_net.rs`): the cards of `/sys/class/net` backed by a real device (`device`), Ethernet before Wi-Fi, the card of the default route (`/proc/net/route`) first; no bridges, no container, virtual machine or VPN cards, no Bluetooth. Hardware address: the card's own, or the permanent address from `ethtool -P` when NetworkManager picked a random one. IPv4 addresses from `ip -4 -o addr`. "Wake allowed": `Wake-on` from `ethtool <card>` contains `g` (magic packet); no if the kernel forbids the card to wake the computer (`device/power/wakeup`); unknown without `ethtool` or for Wi-Fi. Link speed (PyroWave in Auto): `speed` for Ethernet, `iw dev <card> link` for Wi-Fi. Name: the chip's name in the PCI database, then the interface ("Intel Ethernet Controller I225-V (enp3s0)").
+- **Home preview** (`linux_screen.rs`): outside a session, the displays agent already holds one PipeWire stream per computer display (written to `kyber-screens.toml`). Admin reads **one frame** of the display placed at (0, 0) with GStreamer (`gst-launch-1.0 pipewiresrc … num-buffers=1 ! videoscale ! jpegenc`), scaled down to the requested width: no screen-sharing dialog, nothing to install beyond what Kyber needs. Kept 10 s, and never taken during a session, as on Windows.
+- **Graphics card** (`linux_gpu.rs`): `/sys/class/drm/card<N>` (NVIDIA, AMD, Intel, in that order, as on Windows), marketing name from the PCI database (`pci.ids` from `hwdata` or `pciutils`: "AD102 [GeForce RTX 4090]" → "NVIDIA GeForce RTX 4090"), driver as its version (`/sys/module/nvidia/version`) or "amdgpu (Linux 6.8.0)". Monitoring: NVML for NVIDIA; `amdgpu` load, memory, temperature and power from `/sys`; nothing for Intel (it needs rights the Station doesn't have). A virtual machine card (virtio) isn't shown.
+- **App at session start** (`linux_apps.rs`): the catalogue is made of the session's `.desktop` files (`XDG_DATA_HOME`, then `XDG_DATA_DIRS`: packages, Flatpak, Snap), like the desktop's menu: without hidden apps, apps meant for another desktop, or terminal apps; name in the session's language; icon looked up in the icon themes (`hicolor` first) and `pixmaps`, as PNG, an SVG icon converted by `rsvg-convert` when present. Suggestions: Steam Big Picture (Steam as a package or Flatpak), Lutris, Heroic. "Other…": your applications (`~/Applications`), the Desktop and `/opt` (`.desktop` files, AppImages, scripts). Each app runs in **its own systemd user service** (`systemd-run --user`, `kybernow-app-<hash>`): restarting Admin doesn't close it, and closing it at the end of the session stops everything it started; Big Picture is closed with `steam://close/bigpicture`. Wayland doesn't let a window be brought to the front: an app already open stays as it is. Locked session (`LockedHint` from `loginctl`): the app waits for the unlock, 2 minutes at most.
+- **Auto mouse** (`linux_screen.rs`): Wayland doesn't tell which window has focus, but Steam games (Proton and most native games) are X11 windows served by Xwayland, for which GNOME and KDE remain the window manager: the active X11 window, its full-screen state and its program are read with `xprop` (package `x11-utils` or `xprop`). A full-screen `steam_app_…` window is a game; browsers and video players aren't. A game in a native Wayland window isn't seen: the mouse stays the desktop one.
+
+### Immutable systems (Bazzite, Fedora Atomic, SteamOS)
+
+On Bazzite, the Fedora Atomic desktops (Silverblue, Kinoite…) and SteamOS, `/usr` is read-only and replaced as a whole by each system update: the `.deb` and the `.rpm` don't go in as they are. Three ways were studied (milestone 8, 25/11/2026):
+
+| Way | Bazzite, Fedora Atomic | SteamOS (Desktop Mode) | Verdict |
+|---|---|---|---|
+| **Layered rpm** (`rpm-ostree install ./kybernow-station-….rpm`) | Works with the `.rpm` as is, for every account; reboot, each system update recomposes the image (slower, and blocked if a dependency goes missing); Bazzite advises against layering. The Station can't update itself: there is no `rpm -U`, it takes `rpm-ostree` (root, reboot) | Impossible: pacman is locked, and what it installs is wiped by the next update | Tolerated on Fedora Atomic, not offered |
+| **systemd-sysext extension** (image in `/var/lib/extensions`, merged over `/usr`) | Works (root, `extension-release` with `ID=_any`), rebuilt with each Station update | Works in principle, but root at each update, the `systemd-sysext` service to enable, and `/var` belongs to each A/B partition: nothing guarantees the image follows a SteamOS update | No: root every time, and fragile on SteamOS |
+| **User's folder** (`~/.local/lib/kybernow-station`) | Yes | Yes | **Chosen** |
+
+Why the user's folder: everything the Station needs is already per user (systemd `--user` services, data in `~/.local/share/kybernow/station`, sound, displays), the home folder survives every system update, and the Station updates without a password, as on the Mac. What remains, with or without root:
+
+| Piece | Without root? | Where |
+|---|---|---|
+| Kyber, Admin, the display agent | Yes | `~/.local/lib/kybernow-station/versions/<version>`, `current` link (and `previous`) |
+| `--user` services | Yes | `~/.config/systemd/user/kybernow-*.service`: the package's, `/usr/lib/kybernow-station` rewritten to `…/current` (an update only changes the link) |
+| The agent's right to KWin's display protocol | Yes | `~/.local/share/applications/fr.leslignesclaires.kybernow.station.display.desktop` (KWin reads the user's XDG folders, as for the test Station); `Exec` is the agent's real path, rewritten at each version change, because KWin compares it with the program that connects |
+| Sound (PipeWire output), virtual displays (Mutter, KWin), certificate, accounts | Yes | Nothing changed |
+| `/dev/uinput` (keyboard, mouse, controllers) | Often already open | Steam's udev rules (`steam-devices`, present on SteamOS and Bazzite) already give `uaccess` to `/dev/uinput`. Otherwise, the Station's rule in `/etc/udev/rules.d` and `uinput` in `/etc/modules-load.d`, with sudo, once: `/etc` is writable and kept across updates on both systems. On SteamOS, a password is needed first (`passwd`) |
+| GStreamer's PipeWire plugin | Depends on the system | The system's if there is one; otherwise the build machine's, shipped in the archive (`runtime/gst-fallback`, picked up through `GST_PLUGIN_PATH` in a drop-in of Kyber's service). On Fedora Atomic, `rpm-ostree install pipewire-gstreamer` remains possible |
+| Starting on its own after a reboot | System setting | Automatic login, as elsewhere |
+
+**Archive**: `server/linux/immutable/make-archive.sh` rearranges the package's tree (or an existing `.deb`, readable from a Mac too) into `KyberNow-Station-Linux-<x86_64|aarch64>.tar.xz`: `install.sh`, `VERSION`, `BUILD` (architecture and glibc of the build machine), `bin/` (with `kybernow-station-home`), `runtime/`, `share/systemd-user`, `share/applications`, `share/udev`. `package.sh` calls it after the `.deb`. The programs need a glibc at least as recent as the build machine's: the published archive is built on Ubuntu 24.04 (glibc 2.39, the oldest of the targeted systems), never on Fedora 45; installation refuses an older system and says so.
+
+**Installation**: `./install.sh` in the extracted folder (`bin/kybernow-station-home install`): checks the architecture and glibc, copies into `versions/<version>`, `current` link, services and `.desktop` written, missing programs reported (`pactl`, `pw-dump`, GStreamer, `kscreen-doctor` on KDE), udev rule only if `/dev/uinput` (or `/dev/uhid`, if the rule names it) is closed, services enabled and started in the graphical session. The first start is the package's (`kybernow-station-setup`). If the package is also installed in the system, installation says so: the services in the user's folder take precedence.
+
+**Update** (no root): Admin downloads `KyberNow-Station-Linux-<arch>.tar.xz`, checks it against the signed manifest, then runs `kybernow-station-home update <archive> <version> --result <…>/resultat.json --log <…>`. The script detaches from Admin (`kybernow-station-update` unit through `systemd-run --user`, a copy of itself outside the version folders), extracts into `versions/`, checks the version, architecture and glibc, stops the services, switches `current`, rewrites the services and `.desktop`, restarts, and waits for Admin to answer in the new version (`/api/session`, 60 s). Otherwise it puts the other version back. Result in the same format as the Mac applier (`version`, `ok`, `rolled_back`, `undo_failed`, `message`, `log`). Two versions kept: “Go back to the previous version” is `kybernow-station-home rollback`. Choosing the path (user's folder or package) is up to the applier, from where Admin runs; on an ostree system with the Station layered in `/usr`, Admin announces the new version without installing it.
+
+**Removal**: `kybernow-station-home uninstall` (settings, accounts and pairings kept; `--purge` to remove them). The udev rule, if it was added, is removed with the command shown.
+
+**SteamOS**: the Station runs in Desktop Mode (KDE Plasma). In Game Mode, gamescope offers the agent neither virtual displays nor capture: the Station doesn't stream there. For it to be there after a reboot, SteamOS must boot into Desktop Mode (`steamos-session-select plasma-persistent`). Same for the Bazzite images that boot into Game Mode (Bazzite Deck); Bazzite's desktop images (KDE, GNOME) behave like Fedora.
+
+**Not tried**: no Bazzite, Fedora Atomic or SteamOS VM or machine. Tried on the Mac with stand-ins for `systemctl` and `curl`: building the archive (from a tree and from a `.deb`), installation, a successful update, an update refused by the health check then the old version put back, an archive of another version refused, going back to the previous version, removal. To check on a real machine: KWin's access control with the `.desktop` in the user's folder, `steam-devices` and `/dev/uinput`, the fallback GStreamer plugin, SteamOS's glibc, `graphical-session.target` in Desktop Mode and Game Mode.
+### Lending the computer
+
+Console mode in the host's session, as on Mac ([pret.en.md](pret.en.md), “Linux Station”): the `kybernow-tray` icon, started by Admin with `--console` in its own systemd unit, puts the friend's launcher (the allowed apps, nothing else of the desktop) full-screen on the virtual display and a cover on each of the computer's displays, takes the physical input (`EVIOCGRAB`) and turns off the desktop's shortcuts (GNOME through `gsettings`, KDE through KGlobalAccel). Admin (`lend_sys.rs`) follows the session through `loginctl`, prevents sleep and locking while lending is on (`systemd-inhibit`, and `gnome-session-inhibit` on GNOME), watches processes through `/proc` and closes what isn't allowed. `lend.available` is true as soon as the agent is next to Admin. The package's udev rule must give the user their input devices (`/dev/input/event*`) to block the computer's keyboard and mouse; without it, lending works without that blocking.
+
+### PyroWave
+
+A separate encoder, in Vulkan (the PyroWave library is Vulkan), on the PipeWire capture's DMA-BUF frames imported without a copy; details in [pyrowave.en.md](pyrowave.en.md), “The Linux Station”.
+
+- `server/linux/scripts/pyrowave-linux.sh` (run by `build-kyber.sh` before FFmpeg) builds `libpyrowave-shared.so` and `pyrowave-device-validation` into Kyber's rootfs; Kyber Linux patches 0010 (FFmpeg encoder `libpyrowave_vulkan`), 0011 (kyavserver, libavconv engine) and 0012 (kycontroller offers it).
+- Admin (`pyrowave.rs`) checks once per launch, in the background, the render node's card (`/dev/dri/renderD128`, `KYBERNOW_RENDER_NODE` for another): `pyrowave-device-validation --external --roundtrip --vid … --pid …` (suitable Vulkan 1.3, import of DMA-BUFs and sync files, round trip). `pyrowave.available` is true when it succeeds, otherwise `reason: "vulkan"`.
+- A capture without DMA-BUF (virtual machine) goes through the CPU for the YCbCr conversion: PyroWave works, more slowly.
+
+### Live bitrate
+
+Common patch 0026 also covers VA-API (AMD and Intel cards): when the app changes the bitrate (`/set_bitrate`), the encoder's rate control parameters (bitrate, HRD buffer) follow and go with the next frame, without a keyframe; before, they were only sent with IDR frames (every 10 s with the 600-frame GOP). NVENC and VideoToolbox don't change ([debit-automatique.en.md](debit-automatique.en.md)). x264 already follows a bitrate change by itself.
+
+### HDR
+
+The question: can GNOME or KDE give a program a virtual display in BT.2100 (PQ, BT.2020 colours), like the Windows Station's HDR virtual display? **Not yet**, neither of them, so the Linux Station doesn't announce HDR (`hdr` false: apps stay in SDR). Study of 25/11/2026, from both compositors' public interfaces and developers' reports; to confirm in the VMs:
+
+- **GNOME (Mutter 46 to 49)**: HDR exists for physical displays that announce it (EDID), set in Settings › Displays. A virtual display (`org.gnome.Mutter.ScreenCast`, `RecordVirtual`) has no colour property nor EDID: it stays sRGB, and its PipeWire stream only offers 8-bit formats, without colorimetry. It would take a modified Mutter (virtual display with a colour mode, 10-bit stream announced as BT.2100): out of our reach until Mutter does it itself.
+- **KDE Plasma 6 (KWin)**: HDR and per-display colour management since Plasma 6.0, for displays that announce it. The `zkde_screencast_unstable_v1` virtual display (`stream_virtual_output`) has no such capabilities (nothing to turn on with `kscreen-doctor output.Virtual-KyberNow-1.hdr.enable`), and KWin's screencast plugin only offers 8-bit DRM formats: even an HDR rendering would be brought back to SDR there.
+- **On Kyber's side too**: libavgrab's GStreamer capture can't read 10-bit frames (10-bit RGB and P010 aren't in its format table) nor HDR metadata; it would need the Linux equivalent of common patch 0022 (P010 to HEVC Main 10 with VA-API or NVENC, metadata).
+- **Detour ruled out**: capturing a physical HDR display through KMS (kmsgrab) needs root rights (`CAP_SYS_ADMIN`) and makes no virtual display at the device's size.
+
+To redo when Mutter or KWin give a virtual display with a colour description (the `wp_color_management_v1` Wayland protocol on the compositor's side, or a `RecordVirtual` property) and 10-bit PipeWire streams. To check in the VMs meanwhile: `kscreen-doctor -o` (HDR and WCG lines of `Virtual-KyberNow-1`) and the formats of the virtual display's PipeWire node (`pw-dump`).
 
 ## Linux-specific Kyber patches
 
@@ -88,6 +187,12 @@ Kept in `server/linux/kyber-patches`, applied after the common patches by `serve
 | `0002-kynput-pointeur-wayland` | Absolute pointer through uinput on Wayland, clicks and wheel through it while it holds the pointer |
 | `0003-libavgrab-gstreamer-1-24` | Builds with GStreamer 1.24 (Ubuntu 24.04), which lacks `gst_message_get_details` |
 | `0004-kymedia-luac-5-4` | A 5.4 `luac` built by Kyber when the system has none (Fedora 45: Lua 5.5), from Lua's sources |
+| `0005-kynput-manettes-linux` | The device's PlayStation controller as a DualSense through uhid (rumble sent back), the others as Xbox 360 through uinput; “All controllers as Xbox 360” honoured; endless Xbox rumble, read at once |
+| `0006-kynput-stylet-linux` | Pen as a uinput graphics tablet (pressure, tilt, eraser, button, hover); the Station announces it (`PenAvailable`) |
+| `0007-kynput-presse-papiers-wayland` | Clipboard through `ext-data-control-v1` (or `zwlr-data-control`) on Wayland when the compositor offers it (KDE); otherwise X11 through Xwayland (GNOME) |
+| `0010-kymedia-ffmpeg-pyrowave-vulkan` | FFmpeg encoder `libpyrowave_vulkan`: the capture's DMA-BUF frames imported in Vulkan, PyroWave on the card (see “PyroWave”) |
+| `0011-kyavservice-pyrowave-linux` | kyavserver accepts PyroWave on Linux, with this encoder |
+| `0012-kycontroller-pyrowave-linux` | kycontroller offers PyroWave on a Linux Station |
 
 ## Building
 
@@ -100,13 +205,13 @@ sudo apt install build-essential cmake nasm bison flex pkg-config pipx lua5.4 py
   libva-dev libdrm-dev libgbm-dev libegl-dev libvulkan-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libpulse-dev libasound2-dev \
   libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-shape0-dev libxtst-dev \
-  libxkbcommon-dev libwayland-dev wayland-protocols libevdev-dev libudev-dev libinput-dev
+  libxkbcommon-dev libwayland-dev wayland-protocols libevdev-dev libudev-dev libinput-dev libgtk-3-dev
 # Fedora 42 and later (no libplacebo-devel: Kyber builds its own)
 sudo dnf install gcc gcc-c++ cmake nasm bison flex pipx python3-jinja2 glslang spirv-tools clang-devel \
   openssl-devel libv4l-devel libcap-devel libvdpau-devel numactl-devel libva-devel libdrm-devel \
   mesa-libgbm-devel mesa-libEGL-devel vulkan-loader-devel gstreamer1-devel gstreamer1-plugins-base-devel \
   pipewire-devel pulseaudio-libs-devel alsa-lib-devel libxcb-devel libXtst-devel libXrandr-devel libxkbcommon-devel \
-  wayland-devel wayland-protocols-devel libevdev-devel systemd-devel libinput-devel dbus-devel rustup \
+  wayland-devel wayland-protocols-devel libevdev-devel systemd-devel libinput-devel dbus-devel rustup gtk3-devel \
   libXrandr-devel clang20-devel
 pipx install meson==1.11.2 && pipx inject meson jinja2
 cargo install cargo-c --version 0.10.15 --locked --features vendored-openssl && rustup toolchain install 1.89.0
@@ -131,18 +236,18 @@ Pitfalls met:
 
 ## What the KyberNow Link apps see
 
-Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR, PyroWave, pen, lending) is not announced, and the apps behave as with a Station that does not have it.
+Nothing Linux-specific ([link-ui.en.md](link-ui.en.md), “With a Linux Station”): a PC, whose system is the distribution's name. What is not there yet (HDR) is not announced, and the apps behave as with a Station that does not have it; PyroWave and lending are announced when the graphics card is suitable and when the console mode agent is there.
 
 ## Breakdown
 
 1. **Kyber on Linux.** Built with our patches for x86_64 and arm64 (`build-kyber.sh`), without the VLC player. **Done in the arm64 VM (25/11/2026).**
-2. **Admin on Linux.** systemd service, Station recognised, restart, encoders: **written**. Wake on LAN (ethtool), home preview, graphics card name, app at session start (`.desktop` files, Steam): **to do**.
+2. **Admin on Linux.** systemd service, Station recognised, restart, encoders: **written**. Wake on LAN (`/sys`, `ethtool`), home preview (one frame of the display's PipeWire stream), graphics card (`/sys/class/drm`, PCI database, NVML, `amdgpu`), app at session start (`.desktop` files, systemd services, Steam Big Picture), Auto mouse for X11 games (Xwayland): **written and tested on the Mac** (source parsing), not yet tried in a VM or on a real machine.
 3. **Virtual displays.** GNOME through Mutter and KDE Plasma 6 through KWin: **written and tried in the VMs** (see “Tests”).
 4. **Sound.** KyberNow PipeWire output: **written**.
-5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland: to do.
-6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Tray icon, update applier (root service), update from Admin: to do.
-7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try), PC lending (console mode in the host's session, sleep prevented by `systemd-inhibit`), HDR (GNOME virtual display in BT.2100: GNOME does not offer it yet), PyroWave (Vulkan, DMA-BUF import), live bitrate with VA-API (to add to common patch 0026): to do.
-8. **Immutable systems** (Bazzite, SteamOS). To do.
+5. **Input.** uinput, udev rule, absolute pointer on Wayland: **written**. DualSense controllers through uhid, pen (uinput tablet, following common patch 0027), clipboard on Wayland (data-control): **written** (patches 0005 to 0007, built for Linux and unit tests on the Mac on 25/11/2026), not tried on Linux yet. udev rule for `/dev/uhid` and `uhid` module loaded at boot: in the package (updates branch).
+6. **Package, updates.** `.deb`, `.rpm`, services: **written**. Updates from Admin and from the apps (root service through a socket, rollback), tray icon by the clock, published packages: **written**, tested on the Mac (Admin and tray tests), not tried on Linux yet (see "Tests").
+7. **Advanced features.** Share and relay (nothing system-specific in Admin: to try). PC lending (console mode in the host's session, sleep prevented), PyroWave (Vulkan, DMA-BUF import, Linux patches 0010 to 0012), live bitrate with VA-API (common patch 0026): **written** (25/11/2026), not yet built nor tried on Linux. HDR: **not possible yet** (neither GNOME nor KDE give a BT.2100 virtual display, see “HDR”).
+8. **Immutable systems** (Bazzite, Fedora Atomic, SteamOS). Installation in the user's folder, no root except the udev rule when Steam hasn't already set one, password-free updates (`server/linux/immutable`): **written**, tried on the Mac with stand-ins, never on those systems (see “Immutable systems”).
 
 ## Tests
 
@@ -167,4 +272,4 @@ Pitfalls found on the way: the app picks its display from Kyber's list as soon a
 
 Defects found and fixed on the way: a layout without a virtual display disabled the displays on KDE; a refused virtual display left Kyber without a display; Plasma 6's “Virtual-KyberNow-1” name wasn't recognised; Plasma 6's `kscreen-doctor` output (one property per line) wasn't read; a display turned back on was looked up under its old object.
 
-**Not tried yet**: a session from an app on KDE, an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.
+**Not tried yet**: updating from Admin (socket, root service, apt and dnf, health check, rollback), the tray icon on GNOME and KDE, building the tray icon and root service on Linux; a session from an app on KDE, an end-to-end session from a KyberNow Link app (picture, sound, latency), keyboard, absolute pointer and clicks on Wayland, controllers (Xbox and DualSense), the pen, the clipboard on Wayland, VA-API and NVENC (no real graphics card in the VM), x86_64, Fedora, a real machine.

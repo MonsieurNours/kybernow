@@ -28,6 +28,9 @@ use crate::i18n::{self, Msg};
 
 pub mod acl;
 pub mod apply;
+// Station Linux ; ses parties sans système se testent aussi sur Mac.
+#[cfg(any(target_os = "linux", all(test, unix)))]
+pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod manifest;
@@ -37,8 +40,17 @@ use manifest::{Manifest, Refusal};
 
 pub const REPO: &str = "MonsieurNours/kybernow";
 /// Paquet de mise à jour de cette Station : `kybernow-update.zip` sous
-/// Windows, l'app entière sur Mac (`server/macos/scripts/build-station-app.sh`).
-pub const PACKAGE: &str = if cfg!(target_os = "macos") { "KyberNow-Station-Mac-update.zip" } else { "kybernow-update.zip" };
+/// Windows, l'app entière sur Mac (`server/macos/scripts/build-station-app.sh`),
+/// le paquet .deb ou .rpm de son architecture sous Linux (`linux::package`).
+pub fn package() -> &'static str {
+    #[cfg(target_os = "linux")]
+    let name = linux::package();
+    #[cfg(target_os = "macos")]
+    let name = "KyberNow-Station-Mac-update.zip";
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let name = "kybernow-update.zip";
+    name
+}
 /// Résultat de la dernière installation, écrit par l'applicateur (ou `update.ps1`).
 const RESULT: &str = "resultat.json";
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -117,6 +129,9 @@ impl Brief {
 
 pub struct Updater {
     dir: PathBuf,
+    /// `resultat.json` de l'applicateur : dans `dir`, sauf sous Linux, où
+    /// l'écrit le service root, dans son propre dossier.
+    results: PathBuf,
     layout: apply::Layout,
     state: Mutex<State>,
 }
@@ -126,7 +141,10 @@ fn install_dir() -> PathBuf {
     // Mac : l'app KyberNow Station qui contient cet Admin.
     #[cfg(target_os = "macos")]
     return mac::installed_app();
-    #[cfg_attr(target_os = "macos", allow(unreachable_code))]
+    // Linux : le paquet, à sa place fixe.
+    #[cfg(target_os = "linux")]
+    return PathBuf::from("/usr/lib/kybernow-station");
+    #[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(unreachable_code))]
     std::env::current_exe()
         .ok()
         .and_then(|exe| {
@@ -171,8 +189,9 @@ pub fn newer(candidate: &str, than: &str) -> bool {
 impl Updater {
     pub fn new(data_dir: &Path) -> Self {
         let dir = data_dir.join("update");
+        let results = results_path(&dir);
         let mut state = State::default();
-        if let Some(failure) = read_failure(&dir.join(RESULT)) {
+        if let Some(failure) = read_failure(&results) {
             let version = failure["version"].as_str().unwrap_or("?");
             // La raison vient de l'applicateur (en français, comme son journal).
             let message = failure["message"].as_str().map_or_else(|| Msg::new("update.unknownReason").to_value(), |m| json!(m));
@@ -194,7 +213,7 @@ impl Updater {
         state.channel = crate::settings::Settings::load(data_dir).map(|s| s.update_channel).unwrap_or_default();
         let layout = apply::Layout { install: install_dir(), data: data_dir.to_path_buf() };
         state.previous = apply::previous_version(&layout).filter(|v| v != current());
-        Self { dir, layout, state: Mutex::new(state) }
+        Self { dir, results, layout, state: Mutex::new(state) }
     }
 
     pub fn channel(&self) -> Channel {
@@ -382,7 +401,7 @@ impl Updater {
             s.install_error = None;
             s.last_failure = None;
         }
-        let _ = std::fs::remove_file(self.dir.join(RESULT));
+        let _ = std::fs::remove_file(&self.results);
         let result = self.download_and_launch(&release.version, channel, package, manifest_url, signature_url);
         let mut s = self.state.lock().unwrap();
         match result {
@@ -419,13 +438,37 @@ impl Updater {
         manifest.check(version, channel, current()).map_err(|r| anyhow::Error::new(r.message().clone()))?;
         crate::durable::write(&dir.join(manifest::MANIFEST), &json)?;
         crate::durable::write(&dir.join(manifest::SIGNATURE), &signature)?;
-        let zip = dir.join(PACKAGE);
-        let expected = manifest.file(PACKAGE)?;
+        let zip = dir.join(package());
+        let expected = manifest.file(package())?;
         tracing::info!("mise à jour {version} : téléchargement ({} octets)", expected.size);
         // Jamais plus que la taille annoncée par le manifeste signé.
         crate::durable::write(&zip, get(package_url, expected.size + 1)?)?;
-        manifest.check_file(PACKAGE, &zip)?;
+        manifest.check_file(package(), &zip)?;
         tracing::info!("mise à jour {version} : paquet vérifié (signature, taille, empreinte), installation");
+        // Linux : le paquet de la version qui tourne, pour le retour arrière,
+        // puis la demande au service root (qui revérifie tout).
+        #[cfg(target_os = "linux")]
+        {
+            // Installation dans le dossier de l'utilisateur (systèmes immuables) :
+            // son script bascule lui-même, sans root.
+            if let Some(bin) = linux::home_bin() {
+                let args = vec![
+                    "update".into(),
+                    zip.into_os_string(),
+                    version.into(),
+                    "--result".into(),
+                    self.results.clone().into_os_string(),
+                    "--log".into(),
+                    dir.join("update.log").into_os_string(),
+                ];
+                return linux::run_home(&bin, &args, &dir.join("lancement.log")).map(|()| None);
+            }
+            if let Err(e) = self.fetch_running_package() {
+                tracing::warn!("paquet de la version {} non téléchargé, pas de retour arrière possible : {e:#}", current());
+            }
+            return linux::request(&linux::Request::Apply { version: version.into() }).map(|()| None);
+        }
+        #[cfg_attr(target_os = "linux", allow(unreachable_code))]
         let args = vec!["update".into(), "apply".into(), zip.into_os_string(), "--version".into(), version.into()];
         self.launch(&dir, args)
     }
@@ -445,9 +488,27 @@ impl Updater {
             s.last_failure = None;
             previous
         };
-        let _ = std::fs::remove_file(self.dir.join(RESULT));
+        let _ = std::fs::remove_file(&self.results);
         let dir = self.dir.join(&previous);
-        let result = std::fs::create_dir_all(&dir).map_err(anyhow::Error::from).and_then(|_| self.launch(&dir, vec!["update".into(), "rollback".into()]));
+        let result = std::fs::create_dir_all(&dir).map_err(anyhow::Error::from).and_then(|_| {
+            // Linux : le service root remet la version qu'il a gardée.
+            #[cfg(target_os = "linux")]
+            return match linux::home_bin() {
+                Some(bin) => {
+                    let args = vec![
+                        "rollback".into(),
+                        "--result".into(),
+                        self.results.clone().into_os_string(),
+                        "--log".into(),
+                        dir.join("update.log").into_os_string(),
+                    ];
+                    linux::run_home(&bin, &args, &dir.join("lancement.log")).map(|()| None)
+                }
+                None => linux::request(&linux::Request::Rollback).map(|()| None),
+            };
+            #[cfg_attr(target_os = "linux", allow(unreachable_code))]
+            self.launch(&dir, vec!["update".into(), "rollback".into()])
+        });
         let mut s = self.state.lock().unwrap();
         match result {
             Ok(child) => {
@@ -461,8 +522,40 @@ impl Updater {
         }
     }
 
+    /// Paquet publié de la version qui tourne, pour que le service root puisse
+    /// y revenir : téléchargé et vérifié contre son manifeste signé, sauf
+    /// s'il le garde déjà (installé par une mise à jour).
+    #[cfg(target_os = "linux")]
+    fn fetch_running_package(&self) -> Result<()> {
+        let version = current();
+        if linux::Store::system().kept(version, package()).is_some() {
+            return Ok(());
+        }
+        let release = fetch_tag(version)?;
+        let (Some(package_url), Some(json_url), Some(sig_url)) = (&release.package, &release.manifest_url, &release.signature_url) else {
+            bail!("la version {version} publiée n'a pas de paquet {} signé", package());
+        };
+        let dir = self.dir.join(version);
+        std::fs::create_dir_all(&dir)?;
+        let json = get(json_url, MANIFEST_LIMIT)?;
+        let signature = get(sig_url, MANIFEST_LIMIT)?;
+        let manifest = manifest::verify_release(&json, &String::from_utf8_lossy(&signature))?;
+        if manifest.version != version {
+            bail!("le manifeste signé annonce {}, pas {version}", manifest.version);
+        }
+        let expected = manifest.file(package())?;
+        let path = dir.join(package());
+        crate::durable::write(&path, get(package_url, expected.size + 1)?)?;
+        manifest.check_file(package(), &path)?;
+        crate::durable::write(&dir.join(manifest::MANIFEST), &json)?;
+        crate::durable::write(&dir.join(manifest::SIGNATURE), &signature)?;
+        tracing::info!("paquet de la version {version} téléchargé et vérifié (retour arrière)");
+        Ok(())
+    }
+
     /// Lance l'applicateur, détaché, avec les dossiers de cet ordinateur. Sur
     /// Mac, launchd le suit (service à part) : pas de processus à surveiller ici.
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     fn launch(&self, log_dir: &Path, mut args: Vec<std::ffi::OsString>) -> Result<Option<std::process::Child>> {
         args.extend(["--install-dir".into(), self.layout.install.clone().into_os_string()]);
         args.extend(["--data-dir".into(), self.layout.data.clone().into_os_string()]);
@@ -492,9 +585,14 @@ fn verify_release(release: &mut Release, channel: Channel) {
     match verified {
         Ok(m) => {
             release.refusal = m.check(&release.version, channel, current()).err();
+            // Station en couche sur un système ostree : elle s'installe par rpm-ostree.
+            #[cfg(target_os = "linux")]
+            if release.refusal.is_none() && linux::ostree_layered() {
+                release.refusal = Some(Refusal::Setup(Msg::new("update.rpmOstree").with("version", release.version.as_str())));
+            }
             if release.refusal.is_none() && release.package.is_none() {
                 release.refusal =
-                    Some(Refusal::Rejected(Msg::new("update.packageMissing").with("package", PACKAGE).with("version", release.version.as_str())));
+                    Some(Refusal::Rejected(Msg::new("update.packageMissing").with("package", package()).with("version", release.version.as_str())));
             }
             release.manifest = Some(m);
         }
@@ -542,6 +640,24 @@ fn fetch_latest(channel: Channel) -> Result<Release> {
         .map_err(|e| i18n::because(Msg::new("update.githubDown"), &e.into()))?;
     let list: Vec<Value> = serde_json::from_slice(&resp.body_mut().with_config().limit(16 * 1024 * 1024).read_to_vec()?)?;
     let v = pick(&list, channel).ok_or_else(|| Msg::new("update.noRelease").with("channel", channel.as_str()))?;
+    release_from(v)
+}
+
+/// Une version publiée précise (`v<version>`), pour son paquet.
+#[cfg(target_os = "linux")]
+fn fetch_tag(version: &str) -> Result<Release> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases/tags/v{version}");
+    let mut resp = agent()
+        .get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| i18n::because(Msg::new("update.githubDown"), &e.into()))?;
+    let v: Value = serde_json::from_slice(&resp.body_mut().with_config().limit(4 * 1024 * 1024).read_to_vec()?)?;
+    release_from(&v)
+}
+
+/// Une version de l'API de GitHub, avec les adresses de ses fichiers.
+fn release_from(v: &Value) -> Result<Release> {
     let asset = |name: &str| {
         v["assets"].as_array().and_then(|a| {
             a.iter().find(|x| x["name"] == name).and_then(|x| x["browser_download_url"].as_str()).map(String::from)
@@ -557,7 +673,7 @@ fn fetch_latest(channel: Channel) -> Result<Release> {
         published: v["published_at"].as_str().unwrap_or("").to_string(),
         page: v["html_url"].as_str().unwrap_or("").to_string(),
         prerelease: v["prerelease"].as_bool().unwrap_or(false),
-        package: asset(PACKAGE),
+        package: asset(package()),
         manifest_url: asset(manifest::MANIFEST),
         signature_url: asset(manifest::SIGNATURE),
         manifest: None,
@@ -565,6 +681,16 @@ fn fetch_latest(channel: Channel) -> Result<Release> {
     })
 }
 
+
+/// `resultat.json` de l'applicateur : dans `dir`, sauf sous Linux avec le
+/// paquet du système, où l'écrit le service root dans son propre dossier.
+fn results_path(dir: &Path) -> PathBuf {
+    #[cfg(all(target_os = "linux", not(test)))]
+    if linux::home_bin().is_none() {
+        return linux::Store::system().result();
+    }
+    dir.join(RESULT)
+}
 
 /// Échec signalé par l'applicateur ou `update.ps1`, s'il y en a un. Un échec de la version qui
 /// tourne est périmé : elle a été installée depuis.
@@ -623,7 +749,7 @@ pub fn spawn_detached(exe: &Path, args: &[std::ffi::OsString], cwd: &Path, outpu
 }
 
 #[cfg(not(windows))]
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
 fn launch_applicator(_: &apply::Layout, log_dir: &Path, _: &[std::ffi::OsString]) -> Result<std::process::Child> {
     bail!("installation réservée à Windows (paquet vérifié dans {})", log_dir.display())
 }
@@ -701,7 +827,8 @@ mod tests {
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
         std::fs::write(dir.join("update").join(RESULT), failed(true)).unwrap();
         let error = Updater::new(&dir).status()["install_error"].as_str().unwrap().to_string();
-        assert!(error.contains("n'a pas abouti") && error.contains("KyberNow-Station-Setup.exe"), "{error}");
+        let setup = if cfg!(target_os = "linux") { "paquet kybernow-station" } else { "KyberNow-Station-Setup.exe" };
+        assert!(error.contains("n'a pas abouti") && error.contains(setup), "{error}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -785,7 +912,7 @@ mod tests {
         let status = updater.status();
         assert_eq!(status["installable"], false);
         assert_eq!(status["requires_setup"], true);
-        let setup = if cfg!(target_os = "macos") { manifest::MAC_SETUP } else { manifest::SETUP };
+        let setup = manifest::default_setup();
         assert!(status["verify_error"].as_str().unwrap().contains(setup));
         assert_eq!(status["setup"], setup);
         // Signée : l'icône la signale (pour réinstaller), les apps aussi.
@@ -807,8 +934,8 @@ mod tests {
         r.manifest = Some(m);
         updater.state.lock().unwrap().latest = Some(r);
         let status = updater.status();
-        // (Sur Mac, toujours le .dmg : les anciens noms sont ceux de Windows.)
-        let legacy = if cfg!(target_os = "macos") { manifest::MAC_SETUP } else { manifest::LEGACY_SETUP };
+        // (Sur Mac, toujours le .dmg, sous Linux le paquet : les anciens noms sont ceux de Windows.)
+        let legacy = if cfg!(windows) { manifest::LEGACY_SETUP } else { manifest::default_setup() };
         assert_eq!(status["setup"], legacy);
         assert!(status["verify_error"].as_str().unwrap().contains(legacy), "{status}");
         let _ = std::fs::remove_dir_all(&dir);

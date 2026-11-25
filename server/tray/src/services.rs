@@ -22,21 +22,7 @@ pub const KYBER: &str = "kyber";
 /// Console d'administration.
 pub const ADMIN: &str = "kyber-admin";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
-    Running,
-    Stopped,
-    Starting,
-    Stopping,
-    Missing,
-    Unknown,
-}
-
-impl State {
-    pub fn is_up(self) -> bool {
-        matches!(self, State::Running | State::Starting)
-    }
-}
+pub use crate::status::State;
 
 struct Handle(SC_HANDLE);
 

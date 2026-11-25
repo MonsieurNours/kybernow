@@ -3,8 +3,10 @@
 //! (`kybernow-tray.exe --console`, avec le compte de l'utilisateur), la
 //! surveillance des processus de la session (par Admin, SYSTEM : il peut
 //! fermer un Gestionnaire des tâches ou une invite élevés), le verrouillage
-//! final et la veille empêchée. Hors de Windows (développement) : une session
-//! toujours ouverte, personne devant, pas d'agent.
+//! final et la veille empêchée. Station Mac et Station Linux : les mêmes
+//! fonctions, par les outils de leur système (modules `platform` plus bas).
+//! Ailleurs (développement) : une session toujours ouverte, personne devant,
+//! pas d'agent.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -305,8 +307,22 @@ pub use platform::{host_name, idle_secs, keep_awake, lock_session, session_state
 pub fn console_supported() -> bool {
     #[cfg(target_os = "macos")]
     return crate::mac::is_station();
-    #[cfg(not(target_os = "macos"))]
+    // Station Linux installée (ou d'essai), avec son agent de console.
+    #[cfg(target_os = "linux")]
+    return crate::linux::is_station() && console_agent().is_some();
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     return cfg!(windows);
+}
+
+/// L'agent de console de la Station Linux : l'icône (`kybernow-tray
+/// --console`, à côté d'Admin, comme sous Windows), ou `KYBERNOW_CONSOLE`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn console_agent() -> Option<PathBuf> {
+    std::env::var_os("KYBERNOW_CONSOLE")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| Some(std::env::current_exe().ok()?.parent()?.join("kybernow-tray")))
+        .filter(|p| p.is_file())
 }
 
 #[cfg(windows)]
@@ -695,6 +711,179 @@ mod mac_rules {
     }
 }
 
+
+/// Station Linux : ce qu'est une app, ce qui est refusé (docs/pret.md, « Station Linux »).
+#[cfg(any(target_os = "linux", test))]
+mod linux_rules {
+    use std::collections::HashSet;
+    use std::path::Path;
+
+    use super::{Parent, Rules};
+
+    /// Programmes refusés pendant un prêt, même ouverts par une app permise :
+    /// terminaux, moniteurs système, réglages, gestionnaires de fichiers,
+    /// trousseaux (noms des exécutables).
+    pub(super) const DENIED: &[&str] = &[
+        "gnome-terminal",
+        "gnome-terminal-server",
+        "kgx",
+        "ptyxis",
+        "ptyxis-agent",
+        "konsole",
+        "yakuake",
+        "xterm",
+        "uxterm",
+        "alacritty",
+        "kitty",
+        "foot",
+        "footclient",
+        "wezterm",
+        "wezterm-gui",
+        "tilix",
+        "terminator",
+        "xfce4-terminal",
+        "lxterminal",
+        "gnome-system-monitor",
+        "plasma-systemmonitor",
+        "ksysguard",
+        "gnome-control-center",
+        "systemsettings",
+        "systemsettings5",
+        "kcmshell6",
+        "kcmshell5",
+        "nautilus",
+        "dolphin",
+        "nemo",
+        "thunar",
+        "pcmanfm",
+        "gnome-disks",
+        "partitionmanager",
+        "seahorse",
+        "kwalletmanager",
+        "kwalletmanager5",
+        "dconf-editor",
+        "gnome-tweaks",
+        "gnome-software",
+        "plasma-discover",
+        "krunner",
+    ];
+
+    /// Les exécutables des apps du bureau (`Exec` des fichiers `.desktop`
+    /// des dossiers `applications` de XDG), par leur nom : ce qui n'en est
+    /// pas un (services, aides, outils lancés par les apps) n'est pas jugé,
+    /// comme seul l'exécutable principal d'une app l'est sur Mac.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(super) fn desktop_apps(dirs: &[std::path::PathBuf]) -> HashSet<String> {
+        let mut apps = HashSet::new();
+        for dir in dirs {
+            let Ok(entries) = std::fs::read_dir(dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_none_or(|e| e != "desktop") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&path) else { continue };
+                if let Some(name) = exec_name(&text) {
+                    apps.insert(name);
+                }
+            }
+        }
+        apps
+    }
+
+    /// Le nom de l'exécutable de la ligne `Exec` d'un fichier `.desktop`
+    /// (section `[Desktop Entry]`), sans `env VAR=…` devant.
+    pub(super) fn exec_name(text: &str) -> Option<String> {
+        let mut in_entry = false;
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_entry = line == "[Desktop Entry]";
+                continue;
+            }
+            if !in_entry {
+                continue;
+            }
+            let Some(exec) = line.strip_prefix("Exec=") else { continue };
+            // Un chemin entre guillemets peut contenir des espaces.
+            let words: Vec<&str> = match exec.strip_prefix('"').and_then(|e| e.split_once('"')) {
+                Some((quoted, rest)) => std::iter::once(quoted).chain(rest.split_whitespace()).collect(),
+                None => exec.split_whitespace().collect(),
+            };
+            let mut words = words.into_iter();
+            let mut first = words.next()?;
+            if first == "env" || first.ends_with("/env") {
+                first = words.find(|w| !w.contains('='))?;
+            }
+            let name = Path::new(first).file_name()?.to_string_lossy().to_string();
+            return (!name.is_empty()).then_some(name);
+        }
+        None
+    }
+
+    /// Verdict sur un processus nouveau (docs/pret.md, « Station Linux ») :
+    /// refusés d'abord ; puis seules les apps du bureau (`apps`) sont jugées :
+    /// permises si elles sont dans la liste, Steam ou un jeu, KyberNow, ou
+    /// lancées par une app permise ; le reste du système passe. Rend aussi si
+    /// le processus est de la lignée d'une app.
+    pub(super) fn judge(rules: &Rules, path: &str, parent: Parent, apps: &HashSet<String>) -> (bool, bool) {
+        let lower = path.to_ascii_lowercase();
+        let name = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        if DENIED.contains(&name.as_str()) {
+            return (false, false);
+        }
+        let steam = rules.steam.replace('\\', "/");
+        let game = lower.contains("/steamapps/") || (!steam.is_empty() && lower.starts_with(&steam));
+        let allowed_app = rules.apps.iter().map(|a| a.replace('\\', "/")).any(|a| a == lower || a == name.to_ascii_lowercase());
+        let is_app = parent == Parent::App || allowed_app || game || name == "steam";
+        if !apps.contains(&name) {
+            // Pas une app du bureau : services, aides, outils des apps.
+            return (true, is_app);
+        }
+        let kept = rules.dirs.iter().any(|d| lower.starts_with(&d.replace('\\', "/")));
+        (is_app || kept || parent == Parent::Allowed, is_app)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::collections::HashSet;
+
+        use super::super::{Parent, Rules};
+        use super::{exec_name, judge};
+
+        #[test]
+        fn la_ligne_exec_d_un_fichier_desktop() {
+            assert_eq!(exec_name("[Desktop Entry]\nName=Fichiers\nExec=nautilus --new-window %U\n").as_deref(), Some("nautilus"));
+            assert_eq!(exec_name("[Desktop Entry]\nExec=env GDK_BACKEND=x11 /usr/bin/firefox %u\n").as_deref(), Some("firefox"));
+            assert_eq!(exec_name("[Desktop Action new]\nExec=autre\n[Desktop Entry]\nExec=\"/opt/Mon App/app\" %f\n").as_deref(), Some("app"));
+            assert_eq!(exec_name("[Desktop Entry]\nName=Sans\n"), None);
+        }
+
+        #[test]
+        fn ce_qui_est_permis_pendant_un_pret_sous_linux() {
+            let rules = Rules {
+                apps: vec!["/usr/bin/heroic".into()],
+                dirs: vec!["/usr/lib/kybernow-station/".into()],
+                steam: "/home/lea/.local/share/steam/".into(),
+                ..Rules::default()
+            };
+            let apps: HashSet<String> = ["firefox", "heroic", "steam", "nautilus"].iter().map(|s| s.to_string()).collect();
+            // Une app du bureau hors liste : fermée ; permise si une app permise l'ouvre.
+            assert!(!judge(&rules, "/usr/lib/firefox/firefox", Parent::Other, &apps).0);
+            assert_eq!(judge(&rules, "/usr/lib/firefox/firefox", Parent::App, &apps), (true, true));
+            // L'app permise, et Steam et ses jeux.
+            assert_eq!(judge(&rules, "/usr/bin/heroic", Parent::Other, &apps), (true, true));
+            assert_eq!(judge(&rules, "/home/lea/.local/share/Steam/ubuntu12_32/steam", Parent::Other, &apps), (true, true));
+            assert_eq!(judge(&rules, "/home/lea/.local/share/Steam/steamapps/common/Jeu/jeu", Parent::Other, &apps), (true, true));
+            // Refusés même sous une app.
+            assert!(!judge(&rules, "/usr/bin/nautilus", Parent::App, &apps).0);
+            assert!(!judge(&rules, "/usr/libexec/gnome-terminal-server", Parent::Other, &apps).0);
+            // Le reste du système passe, sans être une app.
+            assert_eq!(judge(&rules, "/usr/libexec/xdg-desktop-portal", Parent::Other, &apps), (true, false));
+        }
+    }
+}
+
 #[cfg(all(target_os = "macos", not(test)))]
 mod platform {
     use std::collections::{HashMap, HashSet};
@@ -889,7 +1078,306 @@ mod platform {
     }
 }
 
-#[cfg(any(all(target_os = "macos", test), not(any(windows, target_os = "macos"))))]
+
+#[cfg(all(target_os = "linux", not(test)))]
+mod platform {
+    //! Station Linux : logind (`loginctl`) pour la session, le compositeur
+    //! (GNOME, KDE) pour la dernière entrée, `systemd-inhibit` et l'inhibition
+    //! de la session GNOME contre la veille et le verrouillage, `/proc` pour
+    //! les processus, `systemd-run` pour l'agent de console.
+
+    use std::collections::{HashMap, HashSet};
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use anyhow::{Context, Result, bail};
+
+    use super::linux_rules::{desktop_apps, judge};
+    use super::{Rules, SessionState, Watch, parents_first};
+
+    fn home() -> PathBuf {
+        std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
+    }
+
+    fn own_uid() -> u32 {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata("/proc/self").map(|m| m.uid()).unwrap_or(u32::MAX)
+    }
+
+    fn output(cmd: &str, args: &[&str]) -> Option<String> {
+        let out = Command::new(cmd).args(args).stdin(Stdio::null()).stderr(Stdio::null()).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    /// La session graphique de l'utilisateur (`Display` de logind).
+    fn graphical_session() -> Option<String> {
+        let uid = own_uid().to_string();
+        output("loginctl", &["show-user", &uid, "-p", "Display", "--value"]).filter(|s| !s.is_empty())
+    }
+
+    /// Ouverte, verrouillée (`LockedHint`, que GNOME et KDE tiennent à jour),
+    /// ou pas devant l'écran (`Active` faux : un autre compte au clavier).
+    pub fn session_state() -> SessionState {
+        let Some(id) = graphical_session() else { return SessionState::None };
+        let Some(text) = output("loginctl", &["show-session", &id, "-p", "Active", "-p", "LockedHint"]) else {
+            return SessionState::None;
+        };
+        let get = |key: &str| text.lines().find_map(|l| l.strip_prefix(key)).map(|v| v.trim() == "yes");
+        match (get("Active="), get("LockedHint=")) {
+            (Some(false), _) | (None, _) => SessionState::None,
+            (_, Some(true)) => SessionState::Locked,
+            _ => SessionState::Open,
+        }
+    }
+
+    /// Secondes depuis la dernière entrée : Mutter (`GetIdletime`, en ms),
+    /// sinon `org.freedesktop.ScreenSaver.GetSessionIdleTime` (KDE, en
+    /// secondes selon la spécification).
+    pub fn idle_secs() -> Option<u64> {
+        let number = |text: String| text.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok());
+        if let Some(ms) = output(
+            "busctl",
+            &["--user", "call", "org.gnome.Mutter.IdleMonitor", "/org/gnome/Mutter/IdleMonitor/Core", "org.gnome.Mutter.IdleMonitor", "GetIdletime"],
+        )
+        .and_then(number)
+        {
+            return Some(ms / 1000);
+        }
+        output(
+            "busctl",
+            &["--user", "call", "org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver", "org.freedesktop.ScreenSaver", "GetSessionIdleTime"],
+        )
+        .and_then(number)
+    }
+
+    /// Verrouille la session (`loginctl lock-session`).
+    pub fn lock_session() -> Result<()> {
+        let id = graphical_session().context("pas de session graphique")?;
+        let status = Command::new("loginctl").args(["lock-session", &id]).status().context("loginctl lock-session")?;
+        if !status.success() {
+            bail!("loginctl lock-session {id} : {status}");
+        }
+        Ok(())
+    }
+
+    /// L'agent de console (`kybernow-tray --console`) dans une unité
+    /// systemd à lui : arrêter Admin (son service) ne l'arrête pas ; il se
+    /// remet alors en état seul en trouvant Admin sans prêt.
+    pub fn spawn_console() -> Result<()> {
+        let exe = super::console_agent().context("kybernow-tray introuvable")?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let unit = format!("kybernow-console-{now}");
+        let status = Command::new("systemd-run")
+            .args(["--user", "--quiet", "--collect", "--unit", &unit, "--description", "KyberNow, mode console du prêt"])
+            .arg(&exe)
+            .arg("--console")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        if status.is_ok_and(|s| s.success()) {
+            return Ok(());
+        }
+        // Sans systemd-run : un processus à part, dans son propre groupe.
+        use std::os::unix::process::CommandExt;
+        Command::new(&exe)
+            .arg("--console")
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("lancement de {}", exe.display()))?;
+        Ok(())
+    }
+
+    /// Le prénom de l'hôte : le nom complet du compte (champ GECOS de `getent passwd`).
+    pub fn host_name() -> Option<String> {
+        let user = std::env::var("USER").ok().filter(|u| !u.is_empty()).or_else(|| output("id", &["-un"]))?;
+        let line = output("getent", &["passwd", &user])?;
+        let gecos = line.split(':').nth(4)?.split(',').next()?.trim().to_string();
+        (!gecos.is_empty()).then_some(gecos)
+    }
+
+    /// Les données de Steam : `~/.local/share/Steam` (paquet de la
+    /// distribution), `~/.steam/steam`, ou celles du Flatpak.
+    pub fn steam_dir() -> Option<PathBuf> {
+        let h = home();
+        [
+            h.join(".local/share/Steam"),
+            h.join(".steam/steam"),
+            h.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
+        ]
+        .into_iter()
+        .map(|d| d.canonicalize().unwrap_or(d))
+        .find(|d| d.join("steamapps").is_dir() || d.join("config").is_dir())
+    }
+
+    /// Pas de veille, d'écran éteint ni de verrouillage automatique tant
+    /// que le prêt est activé : `systemd-inhibit` (veille, rabat, inactivité
+    /// pour logind et KDE), et sous GNOME `gnome-session-inhibit` (GNOME ne
+    /// lit pas l'inactivité de logind). Les deux tiennent tant qu'ils
+    /// tournent ; arrêtés avec le service d'Admin.
+    pub fn keep_awake(on: bool) {
+        static AWAKE: Mutex<Vec<std::process::Child>> = Mutex::new(Vec::new());
+        let mut awake = AWAKE.lock().unwrap();
+        match (on, awake.is_empty()) {
+            (true, true) => {
+                let why = "KyberNow : prêt de l'ordinateur activé";
+                if let Ok(child) = Command::new("systemd-inhibit")
+                    .args(["--what=sleep:idle:handle-lid-switch", "--who=KyberNow", &format!("--why={why}"), "--mode=block", "sleep", "infinity"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    awake.push(child);
+                }
+                if let Ok(child) = Command::new("gnome-session-inhibit")
+                    .args(["--inhibit", "idle:suspend", "--reason", why, "--app-id", "fr.leslignesclaires.kybernow.station", "--inhibit-only"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    awake.push(child);
+                }
+                if awake.is_empty() {
+                    tracing::warn!("prêt : ni systemd-inhibit ni gnome-session-inhibit, la veille n'est pas empêchée");
+                }
+            }
+            (false, false) => {
+                for mut child in awake.drain(..) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            _ => {
+                // Un inhibiteur sorti de lui-même (session GNOME absente) : laissé.
+                awake.retain_mut(|c| c.try_wait().ok().flatten().is_none());
+            }
+        }
+    }
+
+    /// Processus du compte : (pid, ppid, chemin de l'exécutable), par `/proc`.
+    fn snapshot() -> Vec<(u32, u32, String)> {
+        use std::os::unix::fs::MetadataExt;
+        let uid = own_uid();
+        let Ok(entries) = std::fs::read_dir("/proc") else { return Vec::new() };
+        entries
+            .flatten()
+            .filter_map(|e| {
+                let pid: u32 = e.file_name().to_str()?.parse().ok()?;
+                let dir = e.path();
+                if std::fs::metadata(&dir).ok()?.uid() != uid {
+                    return None;
+                }
+                // `stat` : « pid (nom) état ppid … », le nom peut contenir des espaces.
+                let stat = std::fs::read_to_string(dir.join("stat")).ok()?;
+                let ppid = stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()?;
+                let exe = std::fs::read_link(dir.join("exe")).ok()?;
+                let exe = exe.to_string_lossy().trim_end_matches(" (deleted)").to_string();
+                Some((pid, ppid, exe))
+            })
+            .collect()
+    }
+
+    /// Les dossiers `applications` de XDG (`XDG_DATA_DIRS`, celui de
+    /// l'utilisateur, ceux de Flatpak).
+    fn application_dirs() -> Vec<PathBuf> {
+        let mut dirs = vec![home().join(".local/share/applications")];
+        let data = std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+        dirs.extend(data.split(':').filter(|d| !d.is_empty()).map(|d| Path::new(d).join("applications")));
+        dirs.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
+        dirs.push(home().join(".local/share/flatpak/exports/share/applications"));
+        dirs
+    }
+
+    /// Surveille les processus de l'utilisateur toutes les 500 ms, comme sur
+    /// Mac : ceux d'avant le prêt et ce que lancent les apps de l'hôte ne
+    /// sont pas touchés, sauf un jeu ; une app du bureau nouvelle est
+    /// permise selon `rules`, sinon fermée.
+    pub fn watch(rules: Rules) -> Option<Watch> {
+        let apps: HashSet<String> = desktop_apps(&application_dirs());
+        let before: HashSet<u32> = snapshot().into_iter().map(|(pid, _, _)| pid).collect();
+        let stop = Arc::new(AtomicBool::new(false));
+        let started = Arc::new(Mutex::new(HashSet::new()));
+        let (stop2, started2) = (stop.clone(), started.clone());
+        let thread = std::thread::spawn(move || {
+            // La lignée des processus de l'hôte (pas systemd, qui lance tout).
+            let systemd: HashSet<u32> =
+                snapshot().into_iter().filter(|(_, _, exe)| exe.ends_with("/systemd")).map(|(pid, _, _)| pid).collect();
+            let mut host: HashSet<u32> = before.iter().copied().filter(|p| *p > 1 && !systemd.contains(p)).collect();
+            let mut seen = before;
+            let mut allowed: HashMap<u32, bool> = HashMap::new();
+            while !stop2.load(Ordering::SeqCst) {
+                let all = snapshot();
+                let paths: HashMap<u32, String> = all.iter().map(|(p, _, c)| (*p, c.clone())).collect();
+                let fresh: Vec<(u32, u32)> = all.iter().filter(|(pid, _, _)| !seen.contains(pid)).map(|(p, pp, _)| (*p, *pp)).collect();
+                for (pid, ppid) in parents_first(fresh) {
+                    seen.insert(pid);
+                    let Some(path) = paths.get(&pid) else { continue };
+                    if host.contains(&ppid) && !path.to_ascii_lowercase().contains("/steamapps/") {
+                        host.insert(pid);
+                        continue;
+                    }
+                    let parent = match allowed.get(&ppid) {
+                        None => super::Parent::Other,
+                        Some(false) => super::Parent::Allowed,
+                        Some(true) => super::Parent::App,
+                    };
+                    match judge(&rules, path, parent, &apps) {
+                        (true, app) => {
+                            allowed.insert(pid, app);
+                            started2.lock().unwrap().insert(pid);
+                        }
+                        (false, _) => {
+                            let done = unsafe { libc_kill(pid as i32, 9) } == 0;
+                            tracing::info!("prêt : {path} fermé ({})", if done { "fait" } else { "refusé" });
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        });
+        Some(Watch { stop, started, thread: Some(thread) })
+    }
+
+    unsafe extern "C" {
+        #[link_name = "kill"]
+        fn libc_kill(pid: i32, sig: i32) -> i32;
+    }
+
+    /// Ferme les apps ouvertes pendant le prêt qui restent après la remise en
+    /// état de l'agent : les apps du bureau et les jeux, sauf KyberNow, Kyber
+    /// et le client Steam (pas ses jeux).
+    pub fn close_started(started: &[u32], rules: &Rules) -> usize {
+        let apps = desktop_apps(&application_dirs());
+        let paths: HashMap<u32, String> = snapshot().into_iter().map(|(p, _, c)| (p, c)).collect();
+        let mut closed = 0;
+        for pid in started {
+            let Some(path) = paths.get(pid) else { continue };
+            let lower = path.to_ascii_lowercase();
+            let name = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let game = lower.contains("/steamapps/");
+            if !game && (!apps.contains(&name) || name == "steam") {
+                continue;
+            }
+            if !game && rules.dirs.iter().any(|d| lower.starts_with(&d.replace('\\', "/"))) {
+                continue;
+            }
+            if unsafe { libc_kill(*pid as i32, 15) } == 0 {
+                closed += 1;
+            }
+        }
+        closed
+    }
+}
+
+#[cfg(any(all(any(target_os = "macos", target_os = "linux"), test), not(any(windows, target_os = "macos", target_os = "linux"))))]
 mod platform {
     use std::path::PathBuf;
 

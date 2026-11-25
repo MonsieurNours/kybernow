@@ -165,12 +165,12 @@ pub fn info(s: &AppState) -> Value {
     json!({ "available": available(), "enabled": enabled(s) })
 }
 
-/// Le prêt existe ici. Pas encore sur une Station Linux : sans le mode console
-/// (le lanceur de l'ami), l'ami recevrait tout le bureau de l'hôte
-/// (docs/station-linux.md) ; les apps disent alors « Le prêt n'est pas
-/// possible sur cet ordinateur. ».
+/// Le prêt existe ici. Sur une Station Linux, seulement avec son agent de
+/// console (`kybernow-tray --console`, le lanceur de l'ami) : sans lui, l'ami
+/// recevrait tout le bureau de l'hôte (docs/pret.md, « Station Linux ») ; les
+/// apps disent alors « Le prêt n'est pas possible sur cet ordinateur. ».
 pub fn available() -> bool {
-    !cfg!(target_os = "linux")
+    !cfg!(target_os = "linux") || lend_sys::console_supported()
 }
 
 /// La vue du prêt (contrat), avec le nom de l'ordinateur et de l'hôte.

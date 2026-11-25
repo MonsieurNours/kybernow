@@ -1,0 +1,17 @@
+# KyberNow Station pour Linux : les demandes de mise à jour d'Admin
+# (docs/station-linux.md). Admin tourne avec le compte de l'utilisateur et
+# ne fait que déposer sa demande ici ; systemd lance pour chacune le service
+# root kybernow-station-update@.service, qui revérifie tout (signature,
+# version, empreinte) avant d'installer quoi que ce soit.
+[Unit]
+Description=KyberNow Station (demandes de mise à jour)
+
+[Socket]
+ListenStream=/run/kybernow-station/update.sock
+SocketMode=0666
+DirectoryMode=0755
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target

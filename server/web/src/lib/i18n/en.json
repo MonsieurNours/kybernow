@@ -1594,19 +1594,26 @@
     },
     "devices": {
       "card": {
-        "launchText": "An app opens on the computer as soon as the virtual display is ready, in your session. Already open, it comes back to the front."
+        "launchText": "An app opens on the computer as soon as the virtual display is ready, in your session. If it's already open, it stays as it is."
       },
       "launch": {
         "intro": "An app opens on the computer as soon as its display is ready: Steam Big Picture, a game, a spreadsheet… Apps and their icons come from the applications installed in your session.",
         "loading": "Reading the applications…",
         "readFailed": "The applications couldn't be read: {error}. Log in to the computer, then refresh.",
         "allOf": "The computer's applications",
-        "emptyCatalogue": "No app found. Log in to the computer, then refresh."
+        "emptyCatalogue": "No app found. Log in to the computer, then refresh.",
+        "otherHint": "A .desktop file, an AppImage or a script in your applications, on the Desktop or in /opt",
+        "roots": {
+          "programs": "/opt",
+          "desktop": "Desktop",
+          "userPrograms": "My applications"
+        }
       }
     },
     "system": {
       "update": {
-        "timeout": "The update did not complete within 5 minutes: see the log (journalctl --user -u kybernow-admin)."
+        "timeout": "The update did not complete within 5 minutes: see /var/lib/kybernow-station/update/<version>/update.log.",
+        "needsSetup": "This version is installed with its package (.deb or .rpm), to download."
       },
       "server": {
         "simulated": "(simulated outside a Station)",

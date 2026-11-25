@@ -1594,19 +1594,26 @@
     },
     "devices": {
       "card": {
-        "launchText": "Une app s'ouvre sur l'ordinateur dès que l'écran virtuel est prêt, dans votre session. Déjà ouverte, elle revient au premier plan."
+        "launchText": "Une app s'ouvre sur l'ordinateur dès que l'écran virtuel est prêt, dans votre session. Si elle est déjà ouverte, elle reste comme elle est."
       },
       "launch": {
         "intro": "Une app s'ouvre sur l'ordinateur dès que son écran est prêt : Steam Big Picture, un jeu, un tableur… Les apps et leurs icônes viennent des applications installées de votre session.",
         "loading": "Lecture des applications…",
         "readFailed": "Les applications n'ont pas pu être relues : {error}. Ouvrez votre session sur l'ordinateur, puis actualisez.",
         "allOf": "Applications de l'ordinateur",
-        "emptyCatalogue": "Aucune app trouvée. Ouvrez votre session sur l'ordinateur, puis actualisez."
+        "emptyCatalogue": "Aucune app trouvée. Ouvrez votre session sur l'ordinateur, puis actualisez.",
+        "otherHint": "Un fichier .desktop, une AppImage ou un script dans vos applications, sur le Bureau ou dans /opt",
+        "roots": {
+          "programs": "/opt",
+          "desktop": "Bureau",
+          "userPrograms": "Mes applications"
+        }
       }
     },
     "system": {
       "update": {
-        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez le journal (journalctl --user -u kybernow-admin)."
+        "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez /var/lib/kybernow-station/update/<version>/update.log.",
+        "needsSetup": "Cette version s'installe avec son paquet (.deb ou .rpm), à télécharger."
       },
       "server": {
         "simulated": "(simulé hors Station)",

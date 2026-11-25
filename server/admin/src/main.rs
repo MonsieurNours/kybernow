@@ -29,6 +29,10 @@ mod local_token;
 mod logs;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linux;
+mod linux_apps;
+mod linux_gpu;
+mod linux_net;
+mod linux_screen;
 #[cfg(not(windows))]
 mod mac;
 mod migrate;

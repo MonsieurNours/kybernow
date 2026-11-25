@@ -38,12 +38,13 @@ Le réseau reste observé avec les mêmes signes. Quand il sature **5 secondes d
 
 ## Côté Station : le débit change en direct
 
-L'app envoie le nouveau débit par `/set_bitrate` de Kyber, qui le passe à l'encodeur. Le correctif `server/kyber-patches/0026-kymedia-ffmpeg-debit-en-direct.patch` (FFmpeg 8.1, Station Windows et Station Mac) fait qu'un changement de débit ne coûte plus rien :
+L'app envoie le nouveau débit par `/set_bitrate` de Kyber, qui le passe à l'encodeur. Le correctif `server/kyber-patches/0026-kymedia-ffmpeg-debit-en-direct.patch` (FFmpeg 8.1, Stations Windows, Mac et Linux) fait qu'un changement de débit ne coûte plus rien :
 
 - **NVENC** : FFmpeg remettait l'encodeur à zéro et forçait une image clé à chaque changement de débit. Le correctif change le débit sans remise à zéro ni image clé (changement dynamique, que NVENC accepte quand la carte l'annonce). La mémoire de l'encodeur (VBV), réglée par défaut à 2 secondes du débit de départ, suit le nouveau débit : sinon, un débit baissé laisserait passer les rafales de l'ancien.
 - **VideoToolbox** : FFmpeg ne lisait le débit qu'à la création de la session ; un changement en cours était ignoré. Le correctif le donne à la session (`AverageBitRate`) avant l'image suivante.
+- **VA-API** (Station Linux, cartes AMD et Intel) : FFmpeg n'envoyait les paramètres du débit qu'avec les images IDR (toutes les 10 s sur la Station Linux). Le correctif les met à l'échelle du nouveau débit (mémoire HRD comprise) et les envoie avec l'image suivante, sans image clé.
 
-Sans ce correctif (Station plus ancienne), le débit automatique fonctionne quand même, mais chaque changement coûte une image clé sur NVENC et reste sans effet sur la Station Mac.
+Sans ce correctif (Station plus ancienne), le débit automatique fonctionne quand même, mais chaque changement coûte une image clé sur NVENC et reste sans effet sur la Station Mac (sur la Station Linux en VA-API, il attend l'image IDR suivante).
 
 ## Dans les Statistiques : le débit visé
 

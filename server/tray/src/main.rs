@@ -1,6 +1,7 @@
-//! Icône de KyberNow Station dans la zone de notification de Windows ; sur une
-//! Station Mac, seulement l'agent de console d'un prêt (`kybernow-console
-//! --console`, l'icône du Mac étant `server/macos/menubar`).
+//! Icône de KyberNow Station dans la zone de notification de Windows, et près
+//! de l'horloge sous Linux (`linux`, AppIndicator) ; sur une Station Mac,
+//! seulement l'agent de console d'un prêt (`kybernow-console --console`,
+//! l'icône du Mac étant `server/macos/menubar`).
 //!
 //! Tourne dans la session de l'utilisateur, sans droits administrateur : accès à
 //! KyberNow Admin, état de la Station et de la session, démarrage et arrêt des services.
@@ -11,19 +12,21 @@
 #[cfg(windows)]
 mod app;
 // Sur Mac, l'agent de console ne prend que ce qui sert au prêt.
-#[cfg(any(windows, target_os = "macos"))]
-#[cfg_attr(target_os = "macos", allow(dead_code))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+#[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(dead_code))]
 mod console;
 mod fonts;
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 mod http;
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 mod i18n;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 mod icons;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod lend;
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(windows)]
 mod panel;
 #[cfg(windows)]
@@ -36,6 +39,8 @@ mod services;
 mod share;
 #[cfg(windows)]
 mod startup;
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
+mod status;
 
 #[cfg(windows)]
 fn main() {
@@ -68,8 +73,21 @@ fn main() {
     std::process::exit(2);
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+/// Station Linux : l'icône près de l'horloge (service `kybernow-tray.service`).
+#[cfg(target_os = "linux")]
 fn main() {
-    eprintln!("kybernow-tray ne fonctionne que sous Windows.");
+    // L'agent de console d'un prêt, lancé par Admin (docs/pret.md, « Station Linux »).
+    if std::env::args().nth(1).as_deref() == Some(lend::agent::ARG) {
+        std::process::exit(lend::agent::run());
+    }
+    if let Err(e) = linux::run_app() {
+        linux::alert(&i18n::t("tray.startFailed", &[("error", &format!("{e:#}"))]));
+        std::process::exit(1);
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn main() {
+    eprintln!("kybernow-tray ne fonctionne que sous Windows et Linux.");
     std::process::exit(1);
 }

@@ -33,7 +33,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use super::manifest::{self, Channel, Manifest};
-use super::{PACKAGE, RESULT, valid_version};
+use super::{RESULT, package, valid_version};
 
 /// Dossiers remplacés, dans l'ordre de la bascule ; le paquet doit les avoir tous.
 pub const PARTS: [&str; 3] = ["kyber", "admin", "tray"];
@@ -64,6 +64,10 @@ pub enum Action {
         #[arg(long)]
         install_dir: Option<PathBuf>,
     },
+    /// Station Linux : le service root des mises à jour, lancé par systemd
+    /// pour une demande d'Admin sur son socket (`update::linux`)
+    #[command(hide = true)]
+    Serve,
 }
 
 /// Où est installé KyberNow.
@@ -279,21 +283,57 @@ fn remove_dir(path: &Path) -> Result<()> {
 /// kyber-admin.toml (toutes les adresses → 127.0.0.1 ou [::1], une adresse
 /// précise → elle-même), sinon le `console_port` de kybernow.json, sinon 9443.
 pub fn console_address(layout: &Layout) -> String {
-    let from_settings = crate::settings::Settings::load(&layout.data).ok().and_then(|s| s.listen).and_then(|l| {
-        let (host, port) = l.rsplit_once(':')?;
-        let port: u16 = port.parse().ok()?;
-        let host = match host {
-            "" | "0.0.0.0" => "127.0.0.1",
-            "[::]" => "[::1]",
-            h => h,
-        };
-        Some(format!("{host}:{port}"))
-    });
+    let from_settings = crate::settings::Settings::load(&layout.data).ok().and_then(|s| s.listen).and_then(|l| address_from_listen(&l));
     let from_record = || {
         let v: Value = serde_json::from_slice(&fs::read(layout.install.join("kybernow.json")).ok()?).ok()?;
         v["console_port"].as_u64().and_then(|p| u16::try_from(p).ok()).map(|p| format!("127.0.0.1:{p}"))
     };
     from_settings.or_else(from_record).unwrap_or_else(|| "127.0.0.1:9443".into())
+}
+
+/// Adresse locale pour joindre la console qui écoute sur `listen`.
+pub fn address_from_listen(listen: &str) -> Option<String> {
+    let (host, port) = listen.rsplit_once(':')?;
+    let port: u16 = port.parse().ok()?;
+    let host = match host {
+        "" | "0.0.0.0" => "127.0.0.1",
+        "[::]" => "[::1]",
+        h => h,
+    };
+    Some(format!("{host}:{port}"))
+}
+
+/// Admin répond-il à `address`, dans la version attendue ? (Stations Mac et
+/// Linux : leur applicateur attend la nouvelle version ainsi.)
+#[cfg(unix)]
+pub fn admin_answers(address: &str, version: &str, timeout: Duration) -> Result<()> {
+    use std::time::Instant;
+    let deadline = Instant::now() + timeout;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(3)))
+        // Certificat d'Admin, auto-signé : seule la version compte ici.
+        .tls_config(ureq::tls::TlsConfig::builder().disable_verification(true).build())
+        .http_status_as_error(false)
+        .proxy(None)
+        .build()
+        .into();
+    let url = format!("https://{address}/api/session");
+    let mut last = String::from("aucune réponse");
+    while Instant::now() < deadline {
+        match agent.get(&url).call() {
+            Ok(mut resp) => {
+                let body: Value = resp.body_mut().read_to_vec().ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+                match body["version"].as_str() {
+                    Some(v) if v == version => return Ok(()),
+                    Some(v) => last = format!("Admin répond en version {v}"),
+                    None => last = "réponse sans version".into(),
+                }
+            }
+            Err(e) => last = e.to_string(),
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    bail!("KyberNow Admin ne répond pas en version {version} au bout de {} s ({last})", timeout.as_secs())
 }
 
 /// Version dans `kybernow.json` (écrite d'un bloc : fichier temporaire puis renommage).
@@ -448,7 +488,7 @@ pub fn verify_package(layout: &Layout, zip: &Path, version: &str, checks: &Check
     }
     let manifest = manifest::verify(&json, &signature, checks.public_key)?;
     manifest.check(version, checks.channel, checks.installed).map_err(|r| anyhow::anyhow!("{}", r.message()))?;
-    manifest.check_file(PACKAGE, zip)?;
+    manifest.check_file(package(), zip)?;
     Ok(manifest)
 }
 
@@ -657,11 +697,21 @@ fn run_switch(
 
 /// Point d'entrée de `kyber-admin update …`.
 pub fn run(action: Action, data_dir: &Path) -> Result<()> {
+    // Sous Linux, le service root ne lit pas le dossier de données d'Admin.
+    #[cfg(target_os = "linux")]
+    let _ = data_dir;
+    #[cfg(target_os = "linux")]
+    return match action {
+        Action::Serve => super::linux::serve(),
+        // Sous Linux, seul le service root installe (Admin le lui demande).
+        _ => bail!("sous Linux, les mises à jour passent par le service kybernow-station-update (systemd)"),
+    };
     #[cfg(target_os = "macos")]
     return super::mac::run(action, data_dir);
-    #[cfg_attr(target_os = "macos", allow(unreachable_code))]
+    #[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(unreachable_code))]
     let install_dir = match &action {
         Action::Apply { install_dir, .. } | Action::Rollback { install_dir } => install_dir.clone().unwrap_or_else(default_install_dir),
+        Action::Serve => bail!("réservé à la Station Linux"),
     };
     let layout = Layout { install: install_dir, data: data_dir.to_path_buf() };
     let mut sys = platform()?;
@@ -672,6 +722,7 @@ pub fn run(action: Action, data_dir: &Path) -> Result<()> {
             apply(&layout, sys.as_mut(), &zip, &version, &checks)
         }
         Action::Rollback { .. } => rollback(&layout, sys.as_mut()).map(|v| println!("Version {v} remise en place.")),
+        Action::Serve => unreachable!(),
     }
 }
 
@@ -1016,7 +1067,12 @@ pub fn previous_version(layout: &Layout) -> Option<String> {
 pub fn previous_version(layout: &Layout) -> Option<String> {
     #[cfg(target_os = "macos")]
     return super::mac::previous_version(layout);
-    #[cfg_attr(target_os = "macos", allow(unreachable_code))]
+    #[cfg(target_os = "linux")]
+    {
+        let _ = layout;
+        return super::linux::previous_version();
+    }
+    #[cfg_attr(any(target_os = "macos", target_os = "linux"), allow(unreachable_code))]
     {
         let _ = layout;
         None
@@ -1119,7 +1175,7 @@ mod tests {
         fn package(&self, version: &str, extra: &[(&str, &str)]) -> PathBuf {
             let dir = self.layout.updates().join(version);
             fs::create_dir_all(&dir).unwrap();
-            let zip_path = dir.join(PACKAGE);
+            let zip_path = dir.join(package());
             let mut zip = zip::ZipWriter::new(fs::File::create(&zip_path).unwrap());
             let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
             let mut entries = vec![
@@ -1142,7 +1198,7 @@ mod tests {
         fn sign(&self, version: &str, zip_path: &Path) {
             let mut m = sample(version, Channel::Stable);
             m.files = BTreeMap::from([(
-                PACKAGE.to_string(),
+                package().to_string(),
                 FileEntry { sha256: manifest::sha256_file(zip_path).unwrap(), size: fs::metadata(zip_path).unwrap().len() },
             )]);
             let (json, sig) = signed(&self.key, &m);
