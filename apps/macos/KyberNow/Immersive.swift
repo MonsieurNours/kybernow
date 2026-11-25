@@ -82,7 +82,7 @@ final class ImmersiveKeyboard {
         let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                           eventsOfInterest: CGEventMask(mask), callback: immersiveTapCallback, userInfo: nil) else {
-            NSLog("mode immersif : crochet clavier refusé")
+            KyberLog.app.error("mode immersif : crochet clavier refusé")
             return
         }
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
@@ -90,7 +90,7 @@ final class ImmersiveKeyboard {
         CGEvent.tapEnable(tap: tap, enable: true)
         self.tap = tap
         self.source = source
-        NSLog("mode immersif : crochet clavier posé")
+        KyberLog.app.notice("mode immersif : crochet clavier posé")
     }
 
     private func remove() {
@@ -99,7 +99,7 @@ final class ImmersiveKeyboard {
         tap = nil
         source = nil
         held.removeAll()
-        NSLog("mode immersif : crochet clavier retiré")
+        KyberLog.app.notice("mode immersif : crochet clavier retiré")
     }
 
     private func unmarkAll() {
