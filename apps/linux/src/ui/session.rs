@@ -385,6 +385,8 @@ pub(super) const BAR_H: f32 = 46.0;
 /// Le pointeur ouvre la barre à 2 points au plus du bord haut ; il la garde
 /// ouverte à 8 points au plus de son rectangle.
 const BAR_EDGE: f32 = 2.0;
+/// La même bande, session dans une fenêtre.
+const BAR_EDGE_WINDOW: f32 = 8.0;
 const BAR_MARGIN: f32 = 8.0;
 /// Le trait qui signale l'endroit (celui de l'app Mac : capsule blanche à 35 %,
 /// 220 × 3 points) et la hauteur du bandeau qui le contient.
@@ -557,7 +559,10 @@ fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
 /// Le pointeur est contre le bord haut, dans la zone centrée de la largeur de
 /// la barre : l'endroit où elle s'ouvre (après un quart de seconde).
 pub fn at_bar_edge(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, ux: f32, uy: f32) -> bool {
-    if uy > BAR_EDGE {
+    // Dans une fenêtre, le bord haut de l'image touche la barre de titre du système : le pointeur qui la
+    // vise en sort vite. Une bande plus haute, comme le trait qui la signale.
+    let edge = if s.fullscreen { BAR_EDGE } else { BAR_EDGE_WINDOW };
+    if uy > edge {
         return false;
     }
     let r = bar_rect(cv, app, s, w);
@@ -603,6 +608,17 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.rrect_stroke(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, 1.0, LINE_2);
     let cy = h / 2.0;
     let mut x = x0 + 16.0;
+    // Les mesures (symbole, latence, courbe, image) : un clic ouvre « Statistiques » (docs/link-ui.md).
+    {
+        let mr = Rect::new(x - 8.0, cy - 15.0, 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 13.0 + info_w + 12.0, 30.0);
+        let (focused, hover) = f.state(Target::BarStats, mr);
+        if hover || focused || s.show_stats {
+            cv.rrect(mr.x, mr.y, mr.w, mr.h, 7.0, Rgba(227, 237, 240, if s.show_stats { 26 } else { 16 }));
+        }
+        if focused {
+            cv.neon(mr.x, mr.y, mr.w, mr.h, 7.0, 1.0);
+        }
+    }
     // Le symbole allumé : un flux est en cours.
     cv.glow(x + 8.0, cy, 14.0, 14.0, HALO.alpha(0.5));
     cv.mark(x, cy - 8.0, 16.0, FROST, SPECTRE, Some(CORE));
