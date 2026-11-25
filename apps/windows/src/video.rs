@@ -21,12 +21,13 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::i18n::Lang;
 use kybernow_core::latency::{LatencyTracker, now_micros};
-use kybernow_core::media::{FOURCC_AV1, Packet, PacketHandler};
+use kybernow_core::media::{FOURCC_AV1, FOURCC_PYROWAVE, Packet, PacketHandler};
 use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, codec_name, is_corrupt};
 use crate::gpu::Gpu;
 use crate::hdr::ScreenHdr;
+use crate::pyrowave::{self, Config as PyroConfig, Outcome};
 use crate::render::Renderer;
 
 pub enum VideoMsg {
@@ -389,6 +390,11 @@ fn run(
     // chaîne fausserait son compte (première image retardée, ou une image de
     // plus en file pour toute la session).
     let mut decoder: Option<Decoder> = None;
+    // PyroWave (docs/pyrowave-client-windows.md) : son propre décodeur, à la
+    // place de FFmpeg, et le dernier paquet de configuration reçu.
+    let mut pyro: Option<pyrowave::Decoder> = None;
+    let mut pyro_config: Option<PyroConfig> = None;
+    let mut pyro_skipped: u64 = 0;
     let mut fourcc = 0u32;
     let mut config: Vec<u8> = Vec::new();
     let mut send_config = false;
@@ -411,6 +417,26 @@ fn run(
         if force || last_request.elapsed() >= Duration::from_millis(300) {
             last_request = Instant::now();
             shared.request_keyframe();
+        }
+    };
+    let open_pyro = |shared: &Shared, config: Option<PyroConfig>| -> Option<pyrowave::Decoder> {
+        let device = gpu.pyrowave()?;
+        match pyrowave::Decoder::new(device, &gpu.device) {
+            Ok(mut d) => {
+                if let Some(c) = config {
+                    if let Err(e) = d.configure(c) {
+                        log::error!("PyroWave : {e}");
+                    }
+                }
+                let what = |lang: Lang| format!("PyroWave · {}", crate::i18n::tr(lang, "decoder.hardware", &[]));
+                log::info!("décodeur : {}", what(Lang::Fr));
+                *shared.decoder.lock().unwrap() = what(crate::i18n::lang());
+                Some(d)
+            }
+            Err(e) => {
+                log::error!("décodeur PyroWave : {e}");
+                None
+            }
         }
     };
     let open = |fourcc: u32, hw: bool, shared: &Shared| -> Option<Decoder> {
@@ -476,7 +502,14 @@ fn run(
                 // Début d'un flux : décodeur neuf.
                 fourcc = c;
                 decoder.take();
-                decoder = open(c, hw_allowed, &shared);
+                pyro.take();
+                if c == FOURCC_PYROWAVE {
+                    // Le paquet de configuration suit ; celui d'avant ne vaut plus.
+                    pyro_config = None;
+                    pyro = open_pyro(&shared, None);
+                } else {
+                    decoder = open(c, hw_allowed, &shared);
+                }
                 waiting_key = true;
                 send_config = true;
                 shared.first_image.store(false, Ordering::Relaxed);
@@ -485,6 +518,10 @@ fn run(
                 if !seen_config {
                     seen_config = true;
                     log::info!("image : paramètres du flux reçus ({} octets)", d.len());
+                }
+                if fourcc == FOURCC_PYROWAVE || PyroConfig::is_config(&d) {
+                    pyro_configure(&mut pyro, &mut pyro_config, &d);
+                    continue;
                 }
                 // AV1 : un `av1C` (4 octets de résumé, puis les OBU) n'entre
                 // pas tel quel dans un flux d'OBU.
@@ -520,9 +557,66 @@ fn run(
                 if (decoder.is_none() && fourcc == 0 && wanted != 0) || stale {
                     log::warn!("image : format jamais annoncé, décodeur {} ouvert d'office", codec_name(wanted));
                     fourcc = wanted;
-                    decoder = open(fourcc, hw_allowed, &shared);
+                    // PyroWave n'est pas pour FFmpeg : son décodeur s'ouvre plus bas.
+                    decoder = if fourcc == FOURCC_PYROWAVE { None } else { open(fourcc, hw_allowed, &shared) };
                     send_config = true;
                     waiting_key = true;
+                }
+                // PyroWave : chaque image est complète (intra seule), rien
+                // n'attend une image clé ; une image en retard ou incomplète
+                // est seulement sautée.
+                if fourcc == FOURCC_PYROWAVE || (fourcc == 0 && wanted == FOURCC_PYROWAVE) {
+                    if fourcc == 0 {
+                        log::warn!("image : format jamais annoncé, décodeur PyroWave ouvert d'office");
+                        fourcc = FOURCC_PYROWAVE;
+                        decoder.take();
+                    }
+                    handler.overflow.store(false, Ordering::Relaxed);
+                    if PyroConfig::is_config(&data) {
+                        pyro_configure(&mut pyro, &mut pyro_config, &data);
+                        continue;
+                    }
+                    if pyro.is_none() {
+                        pyro = open_pyro(&shared, pyro_config);
+                    }
+                    // D'autres images attendent : celle-ci n'est pas décodée du tout.
+                    let Some(dec) = pyro.as_mut().filter(|_| !newer_waiting) else {
+                        if !newer_waiting {
+                            dropped += 1;
+                            if dropped == 1 || dropped % 600 == 0 {
+                                log::warn!("image : {dropped} images reçues sans décodeur PyroWave");
+                            }
+                        }
+                        continue;
+                    };
+                    match dec.decode(&data) {
+                        Ok(Outcome::Ready(img)) => {
+                            let decoded = now_micros();
+                            renderer.set_screen(*shared.screen_hdr.lock().unwrap());
+                            match renderer.draw_pyrowave(dec, img.config, shared.edge_hint.load(Ordering::Relaxed)) {
+                                Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
+                                Err(e) => {
+                                    if !unsupported_logged {
+                                        log::error!("rendu PyroWave : {}", e.0);
+                                        unsupported_logged = true;
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Outcome::Skipped(why)) => {
+                            pyro_skipped += 1;
+                            if pyro_skipped <= 3 || pyro_skipped % 600 == 0 {
+                                log::warn!("PyroWave : {why}, image sautée ({pyro_skipped} en tout)");
+                            }
+                        }
+                        Err(e) => {
+                            pyro_skipped += 1;
+                            if pyro_skipped <= 3 || pyro_skipped % 600 == 0 {
+                                log::error!("PyroWave : {e} ({pyro_skipped} images sautées en tout)");
+                            }
+                        }
+                    }
+                    continue;
                 }
                 if handler.overflow.swap(false, Ordering::Relaxed) {
                     log::warn!("image : file pleine, reprise sur une image clé");
@@ -575,31 +669,7 @@ fn run(
                             }
                             renderer.set_screen(*shared.screen_hdr.lock().unwrap());
                             match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed), shared.stream_hdr.load(Ordering::Relaxed)) {
-                                Ok(()) => {
-                                    // Les mesures sont celles de l'écran principal :
-                                    // arrivée, décodage et affichage de l'image, pour
-                                    // le trajet d'une image.
-                                    if shared.is_primary() {
-                                        let at = now_micros();
-                                        let received = arrivals.iter().rev().find(|(p, _)| *p == pts).map_or(decoded, |(_, r)| *r);
-                                        if let Some(l) = shared.link.latency.get() {
-                                            l.frame_displayed(pts, received, decoded, at);
-                                        }
-                                        shared.link.push_local((decoded - received) as f64 / 1000.0, (at - decoded) as f64 / 1000.0);
-                                    }
-                                    shared.frames.fetch_add(1, Ordering::Relaxed);
-                                    if !shared.first_image.swap(true, Ordering::Relaxed) {
-                                        // La fenêtre de cet écran se montre à sa première image.
-                                        unsafe {
-                                            let _ = PostMessageW(
-                                                Some(HWND(hwnd as *mut _)),
-                                                crate::window::WM_APP_FIRST_IMAGE,
-                                                WPARAM(0),
-                                                LPARAM(0),
-                                            );
-                                        }
-                                    }
-                                }
+                                Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
                                 Err(e) => {
                                     if dec.hardware {
                                         log::warn!("rendu : {}", e.0);
@@ -640,4 +710,43 @@ fn run(
         }
     }
     log::info!("fil de l'image arrêté");
+}
+
+/// Une image vient d'être montrée : les mesures de l'écran principal
+/// (arrivée, décodage et affichage, pour le trajet d'une image), le compte
+/// des images, et la fenêtre montrée à sa première image.
+fn shown(shared: &Shared, hwnd: isize, arrivals: &VecDeque<(u64, i64)>, pts: u64, decoded: i64) {
+    if shared.is_primary() {
+        let at = now_micros();
+        let received = arrivals.iter().rev().find(|(p, _)| *p == pts).map_or(decoded, |(_, r)| *r);
+        if let Some(l) = shared.link.latency.get() {
+            l.frame_displayed(pts, received, decoded, at);
+        }
+        shared.link.push_local((decoded - received) as f64 / 1000.0, (at - decoded) as f64 / 1000.0);
+    }
+    shared.frames.fetch_add(1, Ordering::Relaxed);
+    if !shared.first_image.swap(true, Ordering::Relaxed) {
+        // La fenêtre de cet écran se montre à sa première image.
+        unsafe {
+            let _ = PostMessageW(Some(HWND(hwnd as *mut _)), crate::window::WM_APP_FIRST_IMAGE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Paquet de configuration PyroWave : gardé, et donné au décodeur (qui se
+/// recrée s'il change). Illisible : la définition sera lue dans le flux.
+fn pyro_configure(pyro: &mut Option<pyrowave::Decoder>, kept: &mut Option<PyroConfig>, data: &[u8]) {
+    let Some(c) = PyroConfig::parse(data) else {
+        log::warn!("PyroWave : paquet de configuration illisible ({} octets)", data.len());
+        return;
+    };
+    if *kept != Some(c) {
+        log::info!("PyroWave : configuration {}", c.label());
+    }
+    *kept = Some(c);
+    if let Some(d) = pyro.as_mut() {
+        if let Err(e) = d.configure(c) {
+            log::error!("PyroWave : {e}");
+        }
+    }
 }

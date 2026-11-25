@@ -14,7 +14,7 @@
 
 use std::cell::UnsafeCell;
 use std::ffi::c_void;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext};
 use windows::Win32::System::Threading::{CRITICAL_SECTION, DeleteCriticalSection, EnterCriticalSection, InitializeCriticalSection, LeaveCriticalSection};
@@ -77,11 +77,27 @@ pub struct Gpu {
     pub device: ID3D11Device,
     pub ctx: ID3D11DeviceContext,
     pub lock: Arc<ContextLock>,
+    /// Le device PyroWave (Vulkan) de cette carte, créé au premier flux
+    /// PyroWave et partagé par tous les écrans ; `None` s'il n'a pas pu l'être.
+    pyrowave: OnceLock<Option<Arc<crate::pyrowave::Device>>>,
 }
 
 impl Gpu {
     pub fn new() -> windows::core::Result<Arc<Self>> {
         let (device, ctx) = crate::render::create_device()?;
-        Ok(Arc::new(Self { device, ctx, lock: ContextLock::new() }))
+        Ok(Arc::new(Self { device, ctx, lock: ContextLock::new(), pyrowave: OnceLock::new() }))
+    }
+
+    /// Le device PyroWave de la carte de la session (créé une fois).
+    pub fn pyrowave(&self) -> Option<Arc<crate::pyrowave::Device>> {
+        self.pyrowave
+            .get_or_init(|| match crate::pyrowave::Device::new(&self.device) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    log::error!("PyroWave : {e}");
+                    None
+                }
+            })
+            .clone()
     }
 }

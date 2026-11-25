@@ -331,7 +331,15 @@ pub fn probe(device: &ID3D11Device) -> Probe {
             hevc444: probe_one(FOURCC_HEVC, PROBE_HEVC444, device),
             av1,
             hdr: hdr_capable(hevc, hevc10, av1, av1_10),
-            pyrowave: false,
+            // PyroWave (docs/pyrowave-client-windows.md) : décodé pour de bon
+            // par le chemin de la session (Vulkan, textures partagées).
+            pyrowave: match crate::pyrowave::probe(device) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::info!("sonde : PyroWave indisponible ({e})");
+                    false
+                }
+            },
         },
     };
     unsafe { av_log_set_level(AV_LOG_ERROR as i32) };

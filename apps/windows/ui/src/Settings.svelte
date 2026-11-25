@@ -13,7 +13,7 @@
   import Station from './Station.svelte'
   import { onMount, untrack } from 'svelte'
   import type { Battery, Computer, DisplaysInfo, Settings, ThisPc } from './lib/api'
-  import { invoke, isCustom, isMacStation, listen, profileBase, sessionPlan } from './lib/api'
+  import { invoke, isCustom, isMacStation, listen, profileBase, pyrowaveOffered, sessionPlan } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
   let {
@@ -75,6 +75,39 @@
   const codec = $derived(s.codec ?? base.codec)
   const yuv444 = $derived(s.yuv444 ?? base.yuv444)
   const reliable = $derived(s.reliable ?? base.reliable)
+
+  /**
+   * PyroWave (docs/link-ui.md « PyroWave ») : la valeur de « Format vidéo » quand l'ordinateur le propose (ou
+   * qu'il est déjà choisi), inactive avec sa raison ; « Auto » le prend seulement par câble. `wired` : ce PC
+   * rejoint l'ordinateur par un câble Ethernet (demandé à l'ouverture des réglages).
+   */
+  const pyroOffered = $derived(pyrowaveOffered(computer.info))
+  const pyroDecodes = $derived(!!thisPc?.pyrowave)
+  const pyroShown = $derived(pyroOffered || s.codec === 'pyrowave')
+  const pyroReason = $derived(
+    !pyroOffered ? t('pyrowave.not_offered', { name: computer.name }) : !pyroDecodes ? t('pyrowave.cannot_decode', { device: t('pyrowave.this_device') }) : null,
+  )
+  let wired = $state<boolean | null>(null)
+  $effect(() => {
+    const id = computer.id
+    invoke<boolean>('computer_wired', { id })
+      .then((w) => (wired = w))
+      .catch(() => (wired = null))
+  })
+  const relayed = $derived(!!(computer.via_relay || computer.away))
+  /** L'aide sous « Format vidéo », et l'avertissement Wi-Fi ou relais quand PyroWave est choisi. */
+  const formatHelp = $derived.by(() => {
+    // Valeur inactive : sa raison.
+    if (pyroShown && pyroReason) return pyroReason
+    if (s.codec === 'pyrowave') return t('pyrowave.chosen_help')
+    if (s.codec == null && pyroOffered && pyroDecodes) return wired && !relayed ? t('pyrowave.auto_wired') : t('pyrowave.auto_unwired')
+    return null
+  })
+  const formatWarn = $derived(
+    s.codec !== 'pyrowave' || pyroReason ? null : relayed ? t('pyrowave.warn_relay') : wired === false ? t('pyrowave.warn_wifi') : null,
+  )
+  /** PyroWave : 4:4:4 possible (le décodeur le prend toujours). */
+  const pyro444 = $derived(codec === 'pyrowave' && pyroDecodes)
 
   /** Débit réel d'une session : celui que plan.rs demandera. */
   const realMbps = $derived(sessionPlan(s, thisPc, battery)?.mbps ?? s.mbps ?? base.mbps)
@@ -242,31 +275,37 @@
             </div>
             <span class="help">{t('settings.virtual_help')}</span>
           </div>
-          <div class="line">
-            <span>{t('settings.format')}</span>
-            <Segmented
-              label={t('settings.format')}
-              value={s.codec ?? 'auto'}
-              options={[
-                { value: 'auto' as const, label: 'Auto' },
-                ...(thisPc?.hevc !== false ? [{ value: 'hevc' as const, label: 'HEVC' }] : []),
-                { value: 'h264' as const, label: 'H.264' },
-                ...(thisPc?.av1 ? [{ value: 'av1' as const, label: 'AV1' }] : []),
-              ]}
-              onchange={(v) => save({ codec: v === 'auto' ? null : v })}
-            />
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.format')}</span>
+              <Segmented
+                label={t('settings.format')}
+                value={s.codec ?? 'auto'}
+                options={[
+                  { value: 'auto' as const, label: 'Auto' },
+                  ...(thisPc?.hevc !== false ? [{ value: 'hevc' as const, label: 'HEVC' }] : []),
+                  { value: 'h264' as const, label: 'H.264' },
+                  ...(thisPc?.av1 ? [{ value: 'av1' as const, label: 'AV1' }] : []),
+                  // PyroWave sous son nom ; inactif (sa raison dans l'aide) s'il ne peut pas servir.
+                  ...(pyroShown ? [{ value: 'pyrowave' as const, label: 'PyroWave', disabled: !!pyroReason && s.codec !== 'pyrowave' }] : []),
+                ]}
+                onchange={(v) => save({ codec: v === 'auto' ? null : v })}
+              />
+            </div>
+            {#if formatHelp}<span class="help">{formatHelp}</span>{/if}
+            {#if formatWarn}<span class="help warn">{formatWarn}</span>{/if}
           </div>
           <div class="line stack">
             <div class="lr">
               <span>{t('settings.sharp_text')}</span>
               <Switch
                 label={t('settings.sharp_text')}
-                checked={yuv444 && codec === 'hevc' && !hdrOn}
-                disabled={codec !== 'hevc' || !thisPc?.hevc444 || hdrOn}
+                checked={yuv444 && ((codec === 'hevc' && !!thisPc?.hevc444) || pyro444) && !hdrOn}
+                disabled={!((codec === 'hevc' && thisPc?.hevc444) || pyro444) || hdrOn}
                 onchange={(v) => over('yuv444', v, base.yuv444)}
               />
             </div>
-            <span class="help">{hdrOn ? t('hdr.no_444') : t('settings.sharp_text_help')}</span>
+            <span class="help">{hdrOn ? t('hdr.no_444') : pyro444 ? t('pyrowave.sharp_text_help') : t('settings.sharp_text_help')}</span>
           </div>
           {#if hdr?.shown}
             <!-- HDR (docs/link-ui.md « HDR ») : sur un écran HDR seulement ; inactif avec la raison. -->
@@ -286,7 +325,7 @@
             <input
               type="range"
               min="5"
-              max="500"
+              max={codec === 'pyrowave' ? 1500 : 500}
               step="5"
               value={sliderMbps}
               aria-label={t('settings.bitrate')}
@@ -297,7 +336,7 @@
               }}
             />
             {#if s.mbps != null}<button class="reset" onclick={() => save({ mbps: null })}>{t('settings.reset_bitrate')}</button>{/if}
-            {#if sliderMbps > 300}<span class="help warn">{t('settings.wifi_warn')}</span>{/if}
+            {#if sliderMbps > 300 && codec !== 'pyrowave'}<span class="help warn">{t('settings.wifi_warn')}</span>{/if}
           </div>
           <div class="line stack">
             <div class="lr">

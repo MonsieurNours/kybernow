@@ -21,7 +21,7 @@ export const currentWindow = () => tauri.window.getCurrentWindow()
 
 export type Settings = {
   profile: 'jeu' | 'bureau' | 'max'
-  codec: 'h264' | 'hevc' | 'av1' | null
+  codec: 'h264' | 'hevc' | 'av1' | 'pyrowave' | null
   yuv444: boolean | null
   mbps: number | null
   reliable: boolean | null
@@ -101,7 +101,17 @@ export type Info = {
   lend?: { available: boolean; enabled: boolean }
   /** Le relais de la Station (Station 0.8.0 et suivantes, relais réglé) : gardé pour chaque ordinateur (`Computer.relay`). */
   relay?: RelayInfo | null
+  /** PyroWave proposé par la Station (docs/pyrowave.md) ; absent : Station d'avant PyroWave. */
+  pyrowave?: boolean | { available: boolean; reason?: string | null } | null
 }
+
+/** La Station propose PyroWave (`info.pyrowave`, booléen ou `{ available }`). */
+export const pyrowaveOffered = (info: Info | null | undefined) =>
+  info?.pyrowave === true || (typeof info?.pyrowave === 'object' && !!info.pyrowave?.available)
+
+/** Débit de base de PyroWave en 4K à 60 Hz (`PYROWAVE_MBPS`, `PYROWAVE_MBPS_444` de profile.rs). */
+export const PYROWAVE_MBPS = 800
+export const PYROWAVE_MBPS_444 = 1200
 
 /**
  * Le relais d'un ordinateur (`info.relay`) : le relais (`share.kybernow.app`), son identifiant chez lui, et
@@ -248,6 +258,8 @@ export type ThisPc = {
   av1: boolean
   /** La carte décode le HEVC Main 10 (ou l'AV1 10 bits) : le HDR est possible sur un écran HDR. */
   hdr: boolean
+  /** PyroWave : la sonde du lancement l'a décodé (docs/pyrowave-client-windows.md). */
+  pyrowave?: boolean
   width: number
   height: number
   refresh: number
@@ -327,6 +339,8 @@ export type StationRestarting = { id: string }
 export type Summary = { error: string | null; median_ms: number | null; p95_ms: number | null; seconds: number }
 
 export type Stats = {
+  /** PyroWave : définition ramenée pour tenir dans le débit [largeur, hauteur, Mbit/s] (pas encore donnée par le cœur). */
+  lowered?: [number, number, number] | null
   latency_ms: number | null
   fps: number
   /** Définition de l'écran principal. */
@@ -562,7 +576,7 @@ export type ShareStateEvent = { id: string; share: Share }
  * `share-open-panel` (le choix d'une notification de demande : le panneau de « Partager » de la session s'ouvre ;
  * charge : l'identifiant de la session).
  */
-export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' }
+export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | 'pyrowave_wifi' | 'pyrowave_relay' }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })
@@ -657,7 +671,12 @@ export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery): (
   if (!mode) return null
   if (s.max_4k && !s.custom) mode = fit(mode, 3840, 2160)
   if (battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
-  const base = profileBase(s.profile, pc)
+  let base = profileBase(s.profile, pc)
+  // PyroWave choisi à la main : le débit de PyroWave pour ce mode (plan.rs).
+  if (s.codec === 'pyrowave') {
+    const yuv444 = (s.yuv444 ?? base.yuv444) && !!pc?.pyrowave
+    base = { ...base, mbps: yuv444 ? PYROWAVE_MBPS_444 : PYROWAVE_MBPS }
+  }
   // NVENC n'encode pas l'H.264 au-delà de 4096 de large.
   if ((s.codec ?? base.codec) === 'h264') mode = fit(mode, 4096, 4096)
   // Débit du profil pour ce mode (`StreamSettings::bitrate`), sauf débit réglé.

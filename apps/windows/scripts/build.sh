@@ -163,6 +163,15 @@ rm -f "$CLIENT_KYNPUT/bin/kynput.dll"
     --prefix="$CLIENT_KYNPUT" --target-dir "$STUBS/kynput-build" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; })
 [ -f "$CLIENT_KYNPUT/bin/kynput.dll" ] || { echo "kynput.dll n'a pas été produite" >&2; exit 1; }
 
+# PyroWave (docs/pyrowave-client-windows.md) : libpyrowave-shared-1.dll,
+# recompilée si absente ou d'un autre commit que apps/macos/PyroWave/COMMIT.
+# L'app l'ouvre elle-même au lancement (sans elle, ni sans le Vulkan du
+# pilote, PyroWave est indisponible et rien d'autre ne change).
+PYROWAVE_DLL="$STUBS/pyrowave/libpyrowave-shared-1.dll"
+if [ ! -f "$PYROWAVE_DLL" ] || [ "$(cat "$STUBS/pyrowave/COMMIT" 2>/dev/null)" != "$(tr -d ' \n' < "$APPS/macos/PyroWave/COMMIT")" ]; then
+    "$HERE/scripts/build-pyrowave.sh" --arch "$ARCH"
+fi
+
 # Interface (Svelte), embarquée dans l'exécutable par Tauri.
 echo "==> Interface (ui/)"
 (cd "$HERE/ui" && npm ci --silent && npm run build --silent)
@@ -178,7 +187,7 @@ EXE="${CARGO_TARGET_DIR:-$APPS/target}/$TARGET/$PROFILE/kybernow.exe"
 echo "==> $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST"
-cp "$CLIENT_KYNPUT/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
+cp "$CLIENT_KYNPUT/bin/kynput.dll" "$SDL2_DLL" "$PYROWAVE_DLL" "$DIST/"
 # Icône des notifications de Windows (inscrite par l'app au lancement).
 cp "$HERE/resources/kybernow.png" "$DIST/"
 # Chargeur de WebView2 (l'interface), celui de la version de webview2-com-sys
@@ -196,7 +205,7 @@ if "$OBJDUMP" -p "$DIST/kybernow.exe" | grep -qi "DLL Name: libvlc"; then
 fi
 # Runtime de la chaîne (MinGW, libunwind et libc++ de llvm-mingw) demandé par
 # l'exécutable ou les DLL.
-for dll in $("$OBJDUMP" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" "$DIST/SDL2.dll" | awk '/DLL Name:/ {print $3}' | sort -u); do
+for dll in $("$OBJDUMP" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" "$DIST/SDL2.dll" "$DIST/libpyrowave-shared-1.dll" | awk '/DLL Name:/ {print $3}' | sort -u); do
     for dir in "${RUNTIME_DIRS[@]}"; do
         if [ -f "$dir/$dll" ]; then cp "$dir/$dll" "$DIST/"; break; fi
     done

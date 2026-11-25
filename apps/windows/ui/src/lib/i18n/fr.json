@@ -735,5 +735,22 @@
     "help": "Couleurs plus riches et lumières plus vives, sur cet écran HDR.",
     "settings_help": "Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR.",
     "no_444": "Le HDR n'existe pas en 4:4:4."
+  },
+  "pyrowave": {
+    "chosen_help": "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet.",
+    "auto_wired": "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.",
+    "auto_unwired": "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble.",
+    "warn_wifi": "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
+    "warn_relay": "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
+    "banner_wifi": "PyroWave en Wi-Fi",
+    "banner_relay": "PyroWave hors de chez vous",
+    "banner_text": "L'image peut saccader.",
+    "switch_hevc": "Passer en HEVC",
+    "lowered": "Définition ramenée à {w} × {h} pour tenir dans {n} Mbit/s.",
+    "sharp_text_help": "Avec PyroWave, presque sans coût : seul le débit monte.",
+    "not_offered": "{name} ne propose pas PyroWave.",
+    "cannot_decode": "{device} ne sait pas décoder PyroWave.",
+    "this_device": "Ce PC",
+    "lost_frames": "Images perdues"
   }
 }

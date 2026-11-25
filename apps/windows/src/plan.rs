@@ -4,7 +4,7 @@
 //! commande.
 
 use kybernow_core::console::Mode;
-use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
+use kybernow_core::profile::{Capabilities, Codec, PYROWAVE_MBPS, PYROWAVE_MBPS_444, Profile, StreamSettings};
 
 #[derive(Debug, Clone, Default)]
 pub struct Choices {
@@ -50,7 +50,7 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
         }
     }
     if let Some(y) = c.yuv444 {
-        let y = y && settings.codec == Codec::Hevc;
+        let y = y && matches!(settings.codec, Codec::Hevc | Codec::PyroWave);
         if y != settings.yuv444 {
             settings.yuv444 = y;
             custom = true;
@@ -62,8 +62,14 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
             custom = true;
         }
     }
-    // Le 4:4:4 n'existe qu'en HEVC, et seulement si la carte le décode.
-    if settings.yuv444 && (settings.codec != Codec::Hevc || !caps.hevc444) {
+    // Le 4:4:4 n'existe qu'en HEVC, et seulement si la carte le décode ; et
+    // en PyroWave (presque sans coût, docs/link-ui.md « PyroWave »).
+    let can444 = match settings.codec {
+        Codec::Hevc => caps.hevc444,
+        Codec::PyroWave => caps.pyrowave,
+        _ => false,
+    };
+    if settings.yuv444 && !can444 {
         settings.yuv444 = false;
     }
     if c.mbps.is_some() {
@@ -78,7 +84,14 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
     // réduction de l'H.264), comme pour un profil. L'interface refait ce
     // calcul (`sessionPlan`, ui/src/lib/api.ts).
     if custom {
-        let profile_mbps = settings.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000;
+        // PyroWave choisi à la main : le débit de PyroWave pour ce mode (celui
+        // qu'« Auto » prendrait par câble), pas celui du HEVC.
+        let base = if settings.codec == Codec::PyroWave {
+            StreamSettings { mbps: if settings.yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS }, ..settings.clone() }
+        } else {
+            settings.clone()
+        };
+        let profile_mbps = base.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000;
         settings.profile = None;
         settings.mbps = c.mbps.unwrap_or(profile_mbps);
     }

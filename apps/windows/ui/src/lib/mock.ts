@@ -91,6 +91,10 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 const flags = new URLSearchParams(location.search)
 /** Le relais : `joint`, `tcp`, `injoignable`, `preparation`, `lent`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
+// `?pyrowave` : la Station du premier ordinateur propose PyroWave et ce PC le décode ; `=cable` (par défaut) ou
+// `=wifi` : ce PC rejoint l'ordinateur par câble ou non ; `=pc` : ce PC ne le décode pas. En session, l'image
+// est en PyroWave ; sans câble (ou `&relais`), la puce ambre et le bandeau du début de session.
+const pyroFlag = flags.has('pyrowave') ? flags.get('pyrowave') || 'cable' : null
 /** Le relais tient le partage de l'hôte et les ordinateurs absents du réseau (tout sauf `injoignable`). */
 const relayJoined = relayFlag !== null && relayFlag !== 'injoignable' && relayFlag !== 'preparation' && relayFlag !== 'lent'
 /** Écrans de ce PC imité. */
@@ -192,6 +196,7 @@ let computers = [
       station: station('0.5.0', { available: true, version: '0.5.1', installable: !flags.has('installateur'), requires_setup: flags.has('installateur') }),
       wake: wakeOf.a1,
       account: { own_device: true },
+      ...(pyroFlag ? { pyrowave: true } : {}),
     } as Info | null,
     preview: null,
     preview_source: null,
@@ -346,6 +351,9 @@ const emitComputers = () => {
   emit('bar-computers', barComputers())
 }
 
+/** « Passer en HEVC » choisi (bandeau de PyroWave) : les mesures redisent HEVC. */
+let pyroHevc = false
+
 const thisPc = {
   name: 'PORTABLE-BUREAU',
   gpu: 'Intel(R) Iris(R) Xe Graphics',
@@ -354,6 +362,7 @@ const thisPc = {
   hevc444: true,
   av1: true,
   hdr: true,
+  pyrowave: !!pyroFlag && pyroFlag !== 'pc',
   width: 1920,
   height: 1200,
   refresh: 60,
@@ -1214,6 +1223,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     return null
   },
   session_hdr: () => null,
+  computer_wired: () => pyroFlag !== 'wifi',
+  session_hevc: () => {
+    pyroHevc = true
+    return null
+  },
   fond_state: () => ({ not_created: flags.has('sanscreation') }) satisfies FondState,
   session_command: () => null,
   bar_hide: () => null,
@@ -1696,14 +1710,19 @@ export function mockTauri() {
           // `?mac` : une Station Mac (menu Touches du Mac).
           const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
-          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice
+          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || !!relayJoined))
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.
           if (psBarFlag && flags.has('manette')) {
             const keys = ['right', 'right', 'right', 'right', 'left', 'left', 'left', 'left'] as const
             let n = 0
             setInterval(() => emit('ps-bar-nav', { id: served, key: keys[n++ % keys.length] }), 1200)
           }
-          if (!capsuleOnly) setTimeout(() => cb({ payload: shown }), 300)
+          if (!capsuleOnly) setTimeout(() => cb({ payload: { ...shown, wired: pyroFlag ? pyroFlag !== 'wifi' : null } }), 300)
+          // `?pyrowave=wifi` (ou `&relais`) : le bandeau du début de session, « Passer en HEVC ».
+          if (host && pyroFlag && (pyroFlag === 'wifi' || relayJoined)) {
+            const kind = relayJoined ? 'pyrowave_relay' : 'pyrowave_wifi'
+            setTimeout(() => cb({ payload: { ...shown, wired: pyroFlag !== 'wifi', pinned: true, notice: t('pyrowave.banner_text'), notice_kind: kind } }), 2000)
+          }
           // `&avis` : le changement de rôle d'un invité, montré à la place des statistiques.
           if (guest && flags.has('avis')) {
             const kind = flags.get('avis') || (guestRole === 'spectator' ? 'watch' : guestRole === 'player' ? 'play' : 'kbm')
@@ -1738,7 +1757,7 @@ export function mockTauri() {
         }
         if (name === 'stats' && psBarFlag) return () => {}
         if (name === 'stats') {
-          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false, refresh: 120, mbps: 70 + Math.random() * 15, lost_frames: Math.random() < 0.1 ? 1 : 0, lost_packets: Math.random() < 0.2 ? 3 : 0, keyframes: 0, measured_pct: 98, rejected: 0, audio_channels: 2, audio_buffer_ms: 14 + Math.random() * 3, audio_output_ms: 10 } }), 1000)
+          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `${pyroFlag && !pyroHevc ? 'PyroWave' : 'HEVC'} · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens, chain: [0.4 + Math.random() * 0.3, 2.6 + Math.random() * 0.8, 0.3, 1.2 + Math.random(), 1.1 + Math.random() * 0.4, 2.4 + Math.random() * 1.5], hdr: false, refresh: 120, mbps: 70 + Math.random() * 15, lost_frames: Math.random() < 0.1 ? 1 : 0, lost_packets: Math.random() < 0.2 ? 3 : 0, keyframes: 0, measured_pct: 98, rejected: 0, audio_channels: 2, audio_buffer_ms: 14 + Math.random() * 3, audio_output_ms: 10 } }), 1000)
           return () => clearInterval(timer)
         }
         return () => {}

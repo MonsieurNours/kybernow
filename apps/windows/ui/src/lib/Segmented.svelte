@@ -1,4 +1,4 @@
-<!-- Choix exclusif en pastilles. -->
+<!-- Choix exclusif en pastilles ; une valeur peut être inactive (PyroWave : sa raison est dans l'aide). -->
 <script lang="ts" generics="T extends string">
   let {
     options,
@@ -6,12 +6,12 @@
     label,
     disabled = false,
     onchange,
-  }: { options: { value: T; label: string }[]; value: T; label: string; disabled?: boolean; onchange: (v: T) => void } = $props()
+  }: { options: { value: T; label: string; disabled?: boolean }[]; value: T; label: string; disabled?: boolean; onchange: (v: T) => void } = $props()
 </script>
 
 <div class="seg" role="group" aria-label={label}>
   {#each options as o (o.value)}
-    <button type="button" aria-pressed={o.value === value} {disabled} onclick={() => o.value !== value && onchange(o.value)}>{o.label}</button>
+    <button type="button" aria-pressed={o.value === value} disabled={disabled || !!o.disabled} onclick={() => o.value !== value && onchange(o.value)}>{o.label}</button>
   {/each}
 </div>
 
