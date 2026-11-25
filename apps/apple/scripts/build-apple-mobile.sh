@@ -80,17 +80,20 @@ for target in "${TARGETS[@]}"; do
     }
 done
 
+# Les correctifs de kyclient (tous, remis à l'origine puis reposés : le
+# cœur compile contre cette API), PyroWave (0025) seulement avec --kyber-pyrowave.
+KYSDK="$KYBER/kysdk"
+. "$ROOT/scripts/kyber-client-patches.sh"
+PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
+for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
+    case "$(basename "$patch")" in
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
+    esac
+    PATCHES+=("$patch")
+done
+kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 FEATURES=()
 if [ "$KYBER_PYROWAVE" = 1 ]; then
-    patch="$ROOT/server/kyber-patches/0025-kyclient-pyrowave.patch"
-    repo="$KYBER/kysdk/kyctl"
-    if git -C "$repo" apply --check "$patch" 2>/dev/null; then
-        git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
-    elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
-        echo "Correctif $(basename "$patch") inapplicable :" >&2
-        git -C "$repo" apply --check "$patch" >&2 || true
-        exit 1
-    fi
     FEATURES=(--features kyber-pyrowave)
 fi
 

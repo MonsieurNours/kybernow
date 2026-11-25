@@ -54,7 +54,7 @@ for arg in "$@"; do
     esac
 done
 stamp() {
-    { cat "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh"; echo "pyrowave=$KYBER_PYROWAVE"; } | shasum -a 256 | cut -d' ' -f1
+    { cat "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$HERE/scripts/build-kyclient.sh" "$ROOT/scripts/kyber-toolchain.sh" "$ROOT/scripts/kyber-client-patches.sh"; echo "pyrowave=$KYBER_PYROWAVE"; } | shasum -a 256 | cut -d' ' -f1
 }
 if [ "$STAMP_ONLY" = 1 ]; then
     stamp
@@ -90,25 +90,17 @@ cargo_quiet() {
     "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; }
 }
 
-# Chaque correctif vise le dépôt nommé après son numéro.
-for patch in "$HERE"/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
+# Chaque correctif vise le dépôt nommé après son numéro ; ses fichiers sont
+# remis à l'origine puis tous reposés dans l'ordre (scripts/kyber-client-patches.sh).
+. "$ROOT/scripts/kyber-client-patches.sh"
+PATCHES=("$HERE"/kyber-patches/*.patch)
+for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
-        *-kyclient-*) repo="$KYSDK/kyctl" ;;
-        *-kynput-*) repo="$KYSDK/kynput" ;;
-        *-kynet-*) repo="$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
     esac
-    if git -C "$repo" apply --check "$patch" 2>/dev/null; then
-        git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
-    elif git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
-        echo "==> $(basename "$patch") déjà appliqué"
-    else
-        echo "Correctif $(basename "$patch") inapplicable :" >&2
-        git -C "$repo" apply --check "$patch" >&2 || true
-        exit 1
-    fi
+    PATCHES+=("$patch")
 done
+kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 
 export PATH="$ROOTFS/bin:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 export PKG_CONFIG_LIBDIR="$ROOTFS/lib/pkgconfig"

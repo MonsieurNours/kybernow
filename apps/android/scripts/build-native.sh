@@ -175,39 +175,15 @@ done
 
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP) : le cœur compile contre cette API de kyclient.
-repo_of() {
-    case "$(basename "$1")" in
-        *-kyclient-*) echo "$KYSDK/kyctl" ;;
-        *-kynput-*) echo "$KYSDK/kynput" ;;
-        *-kynet-*) echo "$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$1")" >&2; return 1 ;;
-    esac
-}
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch)
-for i in "${!PATCHES[@]}"; do
-    patch="${PATCHES[$i]}"
+. "$ROOT/scripts/kyber-client-patches.sh"
+PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
+for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
     esac
-    repo="$(repo_of "$patch")" || exit 1
-    if git -C "$repo" apply --check "$patch" 2>/dev/null; then
-        git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
-    elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
-        # Posé, mais recouvert par un correctif suivant du même dépôt déjà posé
-        # (0004 sur 0002 quand le client Windows a été construit) : rien à faire.
-        covered=""
-        for later in "${PATCHES[@]:$((i + 1))}"; do
-            [ "$(repo_of "$later")" = "$repo" ] && git -C "$repo" apply --reverse --check "$later" 2>/dev/null && { covered="$later"; break; }
-        done
-        if [ -n "$covered" ]; then
-            echo "    $(basename "$patch") déjà posé (sous $(basename "$covered"))"
-            continue
-        fi
-        echo "Correctif $(basename "$patch") inapplicable :" >&2
-        git -C "$repo" apply --check "$patch" >&2 || true
-        exit 1
-    fi
+    PATCHES+=("$patch")
 done
+kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 
 # libkynput (API C de kynput, sans SDL) dans le rootfs de la cible.
 ensure_kynput() {
