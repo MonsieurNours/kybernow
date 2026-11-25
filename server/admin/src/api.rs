@@ -943,6 +943,7 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
     let trigger = s.display.settings.lock().unwrap().trigger;
     let hdr = hdr_offer(&s, gpu.as_ref(), max_screens(available, trigger) > 1).await?;
     let gamepads = tokio::task::spawn_blocking(crate::gamepads::info).await.unwrap_or(Value::Null);
+    let pyrowave = pyrowave_offer(&s).await;
     Ok(Json(json!({
         "hostname": crate::system::computer_name(),
         "os": crate::system::os_name(),
@@ -975,7 +976,26 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         "hdr": hdr,
         // Manettes (docs/station-macos.md) : `reason` dit pourquoi elles manquent.
         "gamepads": gamepads,
+        // PyroWave (docs/pyrowave.md) : `reason` dit pourquoi il n'est pas proposé.
+        "pyrowave": pyrowave,
     })))
+}
+
+/// `pyrowave` de `info` (docs/pyrowave.md) : le réglage `video.pyrowave`
+/// (oui s'il manque), puis la carte qui encode (`pyrowave.rs`, appel
+/// bloquant la première fois).
+async fn pyrowave_offer(s: &AppState) -> Value {
+    let enabled = s
+        .kyber
+        .values()
+        .ok()
+        .and_then(|v| v.into_iter().find(|f| f.id == "video.pyrowave"))
+        .and_then(|f| f.value.as_bool())
+        .unwrap_or(true);
+    let dir = s.kyber_dir.clone();
+    tokio::task::spawn_blocking(move || crate::pyrowave::info(enabled, &dir))
+        .await
+        .unwrap_or(Value::Null)
 }
 
 /// Pourquoi la Station ne propose pas le HDR (docs/hdr.md, dans l'ordre du
@@ -2555,6 +2575,26 @@ mod tests {
         assert_eq!(info["version"], crate::update::current());
         assert_eq!(info["restarting"], false);
         assert_eq!(info["update"], json!({ "available": false, "version": null, "installable": false, "requires_setup": false, "installing": false }));
+    }
+
+    #[tokio::test]
+    async fn info_says_whether_the_station_offers_pyrowave() {
+        let c = console_with_account();
+        let pyrowave = |c: &Console| {
+            let s = c.s.clone();
+            async move {
+                let Json(info) = stream_info(State(s), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
+                info["pyrowave"].clone()
+            }
+        };
+        // Hors Windows : jamais proposé (et pas de réglage).
+        if !cfg!(windows) {
+            assert_eq!(pyrowave(&c).await, json!({ "available": false, "reason": "windows" }));
+            return;
+        }
+        // Réglé sur non : la première raison.
+        c.s.kyber.apply(&BTreeMap::from([("video.pyrowave".to_string(), Some(json!(false)))])).unwrap();
+        assert_eq!(pyrowave(&c).await, json!({ "available": false, "reason": "off" }));
     }
 
     #[tokio::test]

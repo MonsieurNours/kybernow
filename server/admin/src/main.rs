@@ -32,6 +32,7 @@ mod mac;
 mod migrate;
 mod pairing;
 mod preview;
+mod pyrowave;
 mod relay;
 mod schema;
 mod service;
@@ -904,6 +905,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     // Cartes graphiques : liste et activité relevées en fond (flux en cours, console).
     gpu::start();
+    // PyroWave : la carte qui encode a-t-elle un Vulkan qui convient ?
+    pyrowave::warm_up(&kyber_dir);
 
     // Cartes réseau pour le réveil des apps : relues en fond, `info` lit la mémoire.
     wake::start();

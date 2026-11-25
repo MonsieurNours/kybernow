@@ -1,0 +1,582 @@
+diff --git a/kyavservice-types/src/lib.rs b/kyavservice-types/src/lib.rs
+index 66942a6..62a69ff 100644
+--- a/kyavservice-types/src/lib.rs
++++ b/kyavservice-types/src/lib.rs
+@@ -27,6 +27,9 @@ pub enum VideoCodec {
+     H264,
+     HEVC,
+     AV1,
++    /// KyberNow (0025): PyroWave, intra-only wavelets in Vulkan compute
++    /// (docs/pyrowave.md). kymux codec `0x7077_7631` ("pwv1").
++    PyroWave,
+ }
+ 
+ #[derive(Clone, Debug, Serialize, Deserialize)]
+diff --git a/kyavservice/src/avconv/kymux_sink.rs b/kyavservice/src/avconv/kymux_sink.rs
+index 98c72ac..4fcc255 100644
+--- a/kyavservice/src/avconv/kymux_sink.rs
++++ b/kyavservice/src/avconv/kymux_sink.rs
+@@ -48,6 +48,8 @@ const KYMUX_CODEC_H264: u32 = 0x6832_3634;
+ const KYMUX_CODEC_H265: u32 = 0x6832_3635;
+ const KYMUX_CODEC_AV1: u32 = 0x0061_7631;
+ const KYMUX_CODEC_OPUS: u32 = 0x6F70_7573;
++/// KyberNow (0025): PyroWave, "pwv1" (docs/pyrowave.md).
++const KYMUX_CODEC_PYROWAVE: u32 = 0x7077_7631;
+ 
+ // AVERROR(errno) = -(errno).  Values are stable on Linux and Windows.
+ const AVERROR_EIO: i32 = -5; // -EIO
+@@ -270,11 +272,25 @@ fn codec_id_to_kymux(codec_id: sys::AVCodecID) -> Option<u32> {
+         Some(KYMUX_CODEC_AV1)
+     } else if codec_id == sys::AVCodecID_AV_CODEC_ID_OPUS {
+         Some(KYMUX_CODEC_OPUS)
++    } else if is_pyrowave(codec_id) {
++        Some(KYMUX_CODEC_PYROWAVE)
+     } else {
+         None
+     }
+ }
+ 
++/// KyberNow (0025): AV_CODEC_ID_PYROWAVE comes from the FFmpeg patch of the
++/// Windows build; known by its name, so that FFmpeg without it still builds.
++fn is_pyrowave(codec_id: sys::AVCodecID) -> bool {
++    // Not in libavconv-sys' bindings; libavcodec is linked already.
++    unsafe extern "C" {
++        fn avcodec_get_name(id: sys::AVCodecID) -> *const std::ffi::c_char;
++    }
++    // SAFETY: avcodec_get_name() always returns a static C string.
++    let name = unsafe { std::ffi::CStr::from_ptr(avcodec_get_name(codec_id)) };
++    name.to_bytes() == b"pyrowave"
++}
++
+ /// `MediaPacketHeader::serialize` requires pts to fit in 61 bits; clamp
+ /// AV_NOPTS_VALUE (i64::MIN) to 0 and mask everything else.
+ fn clamp_pts(pts_raw: i64) -> u64 {
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index 66fb18d..1683da5 100644
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -390,6 +390,16 @@ async fn handle_command(
+             hdr,
+             hdr_capture,
+         } => {
++            // KyberNow (0025): PyroWave only where this Station offers it.
++            let (codec, refused) = crate::pyrowave::resolve(
++                codec,
++                config.pyrowave(),
++                cfg!(target_os = "windows"),
++            );
++            if let Some(reason) = refused {
++                warn!("{reason}");
++            }
++
+             // KyberNow (0022): HDR10, or SDR from the display's HDR
+             // capture; HDR refused here (H.264, x264, 4:4:4) goes SDR.
+             let (hdr_mode, refused) = crate::hdr::mode(
+@@ -410,7 +420,10 @@ async fn handle_command(
+             // KyberNow (0020): this engine scales a share guest's own image
+             // down but can't cap its rate; refused otherwise, and
+             // kycontroller's start fails.
+-            let scaling = kybernow::can_scale(config.encoder(), cfg!(target_os = "windows"));
++            // KyberNow (0025): PyroWave scales it down itself.
++            let windows = cfg!(target_os = "windows");
++            let scaling = (windows && codec == VideoCodec::PyroWave)
++                || kybernow::can_scale(config.encoder(), windows);
+             kybernow::check(scale, max_fps, scaling, false)
+                 .map_err(|reason| Error::ConfigInvalid { reason })?;
+ 
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+index d7a0569..4d1690e 100644
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -436,12 +436,17 @@ fn d3d11_filter(config: &VideoConfig) -> String {
+ }
+ 
+ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
++    // KyberNow (0025): PyroWave, whatever the configured encoder, takes the
++    // D3D11 capture as is and scales a guest's own image down itself.
++    if cfg!(target_os = "windows") && config.codec == VideoCodec::PyroWave {
++        return (crate::pyrowave::ENCODER, "null".to_string());
++    }
+     let (enc, filter): (&'static str, String) = match config.encoder {
+         VideoEncoder::NVENC => {
+             let enc = match config.codec {
+                 VideoCodec::H264 => "h264_nvenc",
+                 VideoCodec::HEVC => "hevc_nvenc",
+-                VideoCodec::AV1 => "av1_nvenc",
++                VideoCodec::AV1 | VideoCodec::PyroWave => "av1_nvenc",
+             };
+             (enc, d3d11_filter(config))
+         }
+@@ -449,7 +454,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+             let enc = match config.codec {
+                 VideoCodec::H264 => "h264_amf",
+                 VideoCodec::HEVC => "hevc_amf",
+-                VideoCodec::AV1 => "av1_amf",
++                VideoCodec::AV1 | VideoCodec::PyroWave => "av1_amf",
+             };
+             (enc, d3d11_filter(config))
+         }
+@@ -457,7 +462,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+             let enc = match config.codec {
+                 VideoCodec::H264 => "h264_vaapi",
+                 VideoCodec::HEVC => "hevc_vaapi",
+-                VideoCodec::AV1 => "av1_vaapi",
++                VideoCodec::AV1 | VideoCodec::PyroWave => "av1_vaapi",
+             };
+             if config.yuv444 {
+                 warn!("VAAPI encoder doesn't support yuv444, falling back to NV12 (4:2:0)");
+@@ -472,7 +477,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+             let enc = match config.codec {
+                 VideoCodec::H264 => "h264_qsv",
+                 VideoCodec::HEVC => "hevc_qsv",
+-                VideoCodec::AV1 => "av1_qsv",
++                VideoCodec::AV1 | VideoCodec::PyroWave => "av1_qsv",
+             };
+             let is_yuv444_hevc = config.codec == VideoCodec::HEVC && config.yuv444;
+             let filter = match (vaapi_import(config), is_yuv444_hevc) {
+@@ -520,7 +525,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+                 // FFmpeg has no AV1 V4L2 M2M encoder; the unregistered name
+                 // makes find_encoder_by_name() fail with a clean NotFound
+                 // (same approach as the VideoToolbox arm below).
+-                VideoCodec::AV1 => "av1_v4l2m2m",
++                VideoCodec::AV1 | VideoCodec::PyroWave => "av1_v4l2m2m",
+             };
+             // No format forced: the accepted input formats are driver-specific
+             (enc, "null".to_string())
+@@ -533,7 +538,7 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+             let enc = match config.codec {
+                 VideoCodec::H264 => "h264_videotoolbox",
+                 VideoCodec::HEVC => "hevc_videotoolbox",
+-                VideoCodec::AV1 => "av1_videotoolbox",
++                VideoCodec::AV1 | VideoCodec::PyroWave => "av1_videotoolbox",
+             };
+             (enc, "null".to_string())
+         }
+@@ -568,6 +573,18 @@ fn print_options(encoder: &str, options: &[(&str, String)]) {
+ /// encoder and locks out further configuration).
+ fn configure_enc_ctx(enc: &EncoderBuilder, config: &VideoConfig) -> Result<()> {
+     let (name, default_options) = match config.encoder {
++        // KyberNow (0025): see encoder_names(). This engine has no capped
++        // rate (max_fps).
++        _ if cfg!(target_os = "windows") && config.codec == VideoCodec::PyroWave => (
++            "pyrowave",
++            crate::pyrowave::options(
++                config.bitrate,
++                config.yuv444,
++                config.scale,
++                None,
++                config.gpu_priority,
++            ),
++        ),
+         VideoEncoder::NVENC => ("nvenc", configure_nvenc(config)),
+         VideoEncoder::AMF => ("amf", configure_amf(config)),
+         VideoEncoder::VAAPI => ("vaapi", configure_vaapi(config)),
+@@ -629,7 +646,7 @@ fn configure_nvenc(config: &VideoConfig) -> Vec<(&'static str, String)> {
+                 options.push(("profile", "high".to_string()));
+             }
+         }
+-        VideoCodec::HEVC | VideoCodec::AV1 => {
++        VideoCodec::HEVC | VideoCodec::AV1 | VideoCodec::PyroWave => {
+             if config.yuv444 {
+                 options.push(("rgb_mode", "yuv444".to_string()));
+             }
+@@ -659,7 +676,7 @@ fn configure_amf(config: &VideoConfig) -> Vec<(&'static str, String)> {
+         VideoCodec::HEVC => {
+             options.push(("usage", "ultralowlatency".to_string()));
+         }
+-        VideoCodec::AV1 => {
++        VideoCodec::AV1 | VideoCodec::PyroWave => {
+             options.push(("usage", "lowlatency".to_string()));
+         }
+     }
+@@ -694,7 +711,7 @@ fn configure_qsv(config: &VideoConfig) -> Vec<(&'static str, String)> {
+                 options.push(("profile", "rext".to_string()));
+             }
+         }
+-        VideoCodec::AV1 => {}
++        VideoCodec::AV1 | VideoCodec::PyroWave => {}
+     }
+     // KyberNow (0022): P010 frames, HEVC Main 10.
+     if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index de22282..e4de631 100644
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -193,7 +193,7 @@ impl GstreamerVideoSource {
+                     "{} ! video/x-h265,width={},height={},framerate={} ! h265parse config-interval=-1 ! video/x-h265,stream-format=byte-stream,alignment=au",
+                     self.source, self.width, self.height, self.framerate,
+                 ),
+-                Some(VideoCodec::AV1) | None => {
++                Some(VideoCodec::AV1 | VideoCodec::PyroWave) | None => {
+                     return Err(ConfigError::Invalid(format!(
+                         "GStreamer encoded video source '{}' must set codec to H264 or HEVC",
+                         self.name
+@@ -250,6 +250,7 @@ pub struct Config {
+     clock_type: Option<ClockType>,
+     cursor_move_rate: Option<u32>,
+     gpu_priority: Option<String>,
++    pyrowave: Option<bool>,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -303,6 +304,13 @@ impl Config {
+         }
+     }
+ 
++    /// KyberNow (0025): PyroWave offered by this Station, from
++    /// `[kyavserver] pyrowave` (true by default; KyberNow Admin writes false
++    /// when the graphics card has no suitable Vulkan 1.3). docs/pyrowave.md.
++    pub(crate) fn pyrowave(&self) -> bool {
++        self.pyrowave.unwrap_or(true)
++    }
++
+     pub(crate) fn minimum_bitrate(&self) -> u32 {
+         self.minimum_bitrate.unwrap_or(5_000_000)
+     }
+@@ -904,6 +912,14 @@ mode = "encoded"
+         }
+     }
+ 
++    #[test]
++    fn pyrowave_defaults_to_offered() {
++        let table: toml::Table = "[kyavserver]\nencoder = \"nvenc\"".parse().unwrap();
++        assert!(from_table(&table).unwrap().pyrowave());
++        let table: toml::Table = "[kyavserver]\npyrowave = false".parse().unwrap();
++        assert!(!from_table(&table).unwrap().pyrowave());
++    }
++
+     #[test]
+     fn gpu_priority_unknown_value_is_high() {
+         let table: toml::Table = "[kyavserver]\ngpu_priority = \"Realtime\"".parse().unwrap();
+diff --git a/kyavservice/src/hdr.rs b/kyavservice/src/hdr.rs
+index d9a2a5d..2b6208d 100644
+--- a/kyavservice/src/hdr.rs
++++ b/kyavservice/src/hdr.rs
+@@ -65,10 +65,14 @@ pub(crate) fn mode(
+         Some("HDR refused with H.264 (HEVC or AV1 only): SDR image".to_string())
+     } else if yuv444 {
+         Some("HDR refused with 4:4:4 (4:2:0 only): SDR image".to_string())
+-    } else if !matches!(
+-        encoder,
+-        VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
+-    ) {
++    } else if *codec != VideoCodec::PyroWave
++        && !matches!(
++            encoder,
++            VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
++        )
++    {
++        // KyberNow (0025): PyroWave encodes the P010 capture whatever the
++        // configured encoder.
+         Some(format!(
+             "HDR refused with the {encoder:?} encoder (NVENC, AMF or Quick Sync only): SDR image"
+         ))
+@@ -116,6 +120,20 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn hdr10_with_pyrowave_whatever_the_encoder() {
++        for encoder in [VideoEncoder::NVENC, VideoEncoder::X264] {
++            assert_eq!(
++                mode(true, true, encoder, &VideoCodec::PyroWave, false, true),
++                (HdrMode::Pq, None)
++            );
++        }
++        assert_eq!(
++            mode(true, true, VideoEncoder::NVENC, &VideoCodec::PyroWave, true, true).0,
++            HdrMode::SdrFromHdr
++        );
++    }
++
+     #[test]
+     fn hdr10_with_hevc_or_av1_on_hardware_encoders() {
+         for encoder in [VideoEncoder::NVENC, VideoEncoder::AMF, VideoEncoder::QSV] {
+diff --git a/kyavservice/src/lib.rs b/kyavservice/src/lib.rs
+index 7d3ec51..cc0ef4c 100644
+--- a/kyavservice/src/lib.rs
++++ b/kyavservice/src/lib.rs
+@@ -22,6 +22,7 @@ mod avconv;
+ mod config;
+ mod hdr;
+ mod kybernow;
++mod pyrowave;
+ mod txproto;
+ 
+ use kyavservice_types::IpcApi;
+diff --git a/kyavservice/src/pyrowave.rs b/kyavservice/src/pyrowave.rs
+new file mode 100644
+index 0000000..4854f70
+--- /dev/null
++++ b/kyavservice/src/pyrowave.rs
+@@ -0,0 +1,100 @@
++// KyberNow (0025): PyroWave (docs/pyrowave.md). The client asks for it only
++// when the Station announces it (KyberNow Admin, `GET /api/stream/info`); the
++// Station encodes it only when `[kyavserver] pyrowave` allows it (true by
++// default) and on Windows, where the FFmpeg encoder `libpyrowave` takes the
++// D3D11 frames of the capture (BGRA, or P010 in HDR10) without a CPU copy.
++// kycontroller already put the client's fallback codec in its place
++// otherwise; checked again here (H.264), the client learns it from the
++// stream's codec packet. What both engines share is here.
++
++use kyavservice_types::{VideoCodec, VideoScale};
++
++use crate::config::GpuPriority;
++
++/// FFmpeg encoder of the PyroWave patch (packagefiles/ffmpeg).
++pub(crate) const ENCODER: &str = "libpyrowave";
++
++/// The codec the Station encodes, and why PyroWave was turned down.
++pub(crate) fn resolve(codec: VideoCodec, enabled: bool, windows: bool) -> (VideoCodec, Option<String>) {
++    if codec != VideoCodec::PyroWave {
++        return (codec, None);
++    }
++    let reason = if !windows {
++        "PyroWave refused: Windows Station only"
++    } else if !enabled {
++        "PyroWave refused: [kyavserver] pyrowave = false"
++    } else {
++        return (codec, None);
++    };
++    (VideoCodec::H264, Some(format!("{reason}: H264 instead")))
++}
++
++/// Options of the `libpyrowave` encoder: bitrate (the frame budget is
++/// bitrate / 8 / fps), 4:4:4 (SDR only), a guest's own image scaled down on
++/// the graphics card by PyroWave itself, its capped rate, and the Vulkan
++/// queue priority (`gpu_priority`).
++pub(crate) fn options(
++    bitrate: u32,
++    yuv444: bool,
++    scale: Option<VideoScale>,
++    max_fps: Option<u32>,
++    gpu_priority: GpuPriority,
++) -> Vec<(&'static str, String)> {
++    let mut options = vec![
++        ("b", bitrate.to_string()),
++        ("chroma444", u8::from(yuv444).to_string()),
++        ("gpu_priority", gpu_priority.capture_option().to_string()),
++    ];
++    if let Some(VideoScale { width, height }) = scale {
++        options.push(("out_width", width.to_string()));
++        options.push(("out_height", height.to_string()));
++    }
++    if let Some(fps) = max_fps {
++        options.push(("fps", fps.to_string()));
++    }
++    options
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn other_codecs_are_kept() {
++        for codec in [VideoCodec::H264, VideoCodec::HEVC, VideoCodec::AV1] {
++            assert_eq!(resolve(codec.clone(), false, false), (codec, None));
++        }
++    }
++
++    #[test]
++    fn pyrowave_on_a_windows_station_that_offers_it() {
++        assert_eq!(resolve(VideoCodec::PyroWave, true, true), (VideoCodec::PyroWave, None));
++    }
++
++    #[test]
++    fn pyrowave_turned_down_falls_back_to_h264() {
++        let (codec, reason) = resolve(VideoCodec::PyroWave, false, true);
++        assert_eq!(codec, VideoCodec::H264);
++        assert!(reason.unwrap().contains("pyrowave = false"));
++        let (codec, reason) = resolve(VideoCodec::PyroWave, true, false);
++        assert_eq!(codec, VideoCodec::H264);
++        assert!(reason.unwrap().contains("Windows"));
++    }
++
++    #[test]
++    fn encoder_options() {
++        let options = options(
++            200_000_000,
++            false,
++            Some(VideoScale { width: 1280, height: 720 }),
++            Some(30),
++            GpuPriority::High,
++        );
++        let get = |key| options.iter().find(|(k, _)| *k == key).map(|(_, v)| v.as_str());
++        assert_eq!(get("b"), Some("200000000"));
++        assert_eq!(get("chroma444"), Some("0"));
++        assert_eq!((get("out_width"), get("out_height")), (Some("1280"), Some("720")));
++        assert_eq!(get("fps"), Some("30"));
++        assert_eq!(get("gpu_priority"), Some("1"));
++    }
++}
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index 35709d0..ce13344 100644
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -227,10 +227,19 @@ async fn handle_command(
+             hdr,
+             hdr_capture,
+         } => {
++            // KyberNow (0025): PyroWave only where this Station offers it.
++            let windows = cfg!(target_os = "windows");
++            let (codec, refused) =
++                crate::pyrowave::resolve(codec, config.pyrowave(), windows);
++            if let Some(reason) = refused {
++                warn!("{reason}");
++            }
++
+             // KyberNow (0020): a share guest's own image this encoder can't
+             // make is refused here, so that kycontroller's start fails.
+-            let windows = cfg!(target_os = "windows");
+-            let scaling = kybernow::can_scale(config.encoder(), windows);
++            // PyroWave scales it down itself.
++            let scaling = (windows && codec == VideoCodec::PyroWave)
++                || kybernow::can_scale(config.encoder(), windows);
+             if let Err(reason) = kybernow::check(scale, max_fps, scaling, windows) {
+                 error!("Refused Kymux Video: {reason}");
+                 response.send(Err(kyavservice_types::Error(reason)))?;
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index eaf4252..bf25012 100644
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -192,7 +192,7 @@ fn create_nvenc(
+                 options.push(("rgb_mode", "yuv444").into());
+             }
+         }
+-        VideoCodec::AV1 => {
++        VideoCodec::AV1 | VideoCodec::PyroWave => {
+             if config.yuv444 {
+                 options.push(("rgb_mode", "yuv444").into());
+             }
+@@ -216,7 +216,7 @@ fn create_nvenc(
+     let enc_name = match config.codec {
+         VideoCodec::H264 => "h264_nvenc",
+         VideoCodec::HEVC => "hevc_nvenc",
+-        VideoCodec::AV1 => "av1_nvenc",
++        VideoCodec::AV1 | VideoCodec::PyroWave => "av1_nvenc",
+     };
+ 
+     let (scale, hdr) = (config.scale, config.hdr);
+@@ -269,6 +269,45 @@ fn link_d3d11(
+     Ok(())
+ }
+ 
++/// KyberNow (0025): PyroWave (docs/pyrowave.md), whatever the configured
++/// encoder: the `libpyrowave` encoder takes the D3D11 capture as is (BGRA,
++/// or P010 in HDR10) and scales a guest's own image down itself.
++fn create_pyrowave(
++    ctx: &Txproto,
++    config: &VideoConfig,
++    video_source: &txproto_rs::Handle,
++) -> Result<txproto_rs::Handle> {
++    let mut options: Vec<DictionaryEntry> = crate::pyrowave::options(
++        config.bitrate,
++        config.yuv444,
++        config.scale,
++        config.max_fps,
++        config.gpu_priority,
++    )
++    .into_iter()
++    .map(|(key, value)| (key, value.as_str()).into())
++    .collect();
++    options.push(("flags", "+global_header").into());
++
++    print_options("pyrowave", &options);
++    let options = Dictionary::from_entries(&options)?;
++    let init_opts = Dictionary::from_entries(&[("fifo_size", 1).into()])?;
++
++    let enc_name = crate::pyrowave::ENCODER;
++    let encoder_config = txproto_rs::EncoderConfig {
++        enc_name,
++        options: Some(options),
++        init_opts: Some(init_opts),
++        ..Default::default()
++    };
++
++    info!("Create encoder {enc_name}");
++    let encoder = ctx.create_encoder(encoder_config)?;
++    ctx.link(video_source, &encoder, 0)?;
++
++    Ok(encoder)
++}
++
+ fn create_vaapi(
+     ctx: &Txproto,
+     config: &VideoConfig,
+@@ -286,7 +325,7 @@ fn create_vaapi(
+         VideoCodec::H264 => {
+             options.push(("profile", "high").into());
+         }
+-        VideoCodec::HEVC | VideoCodec::AV1 => {}
++        VideoCodec::HEVC | VideoCodec::AV1 | VideoCodec::PyroWave => {}
+     };
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+@@ -300,7 +339,7 @@ fn create_vaapi(
+     let enc_name = match config.codec {
+         VideoCodec::H264 => "h264_vaapi",
+         VideoCodec::HEVC => "hevc_vaapi",
+-        VideoCodec::AV1 => "av1_vaapi",
++        VideoCodec::AV1 | VideoCodec::PyroWave => "av1_vaapi",
+     };
+ 
+     #[cfg(target_os = "linux")]
+@@ -404,7 +443,7 @@ fn create_qsv(
+                 options.push(("profile", "rext").into());
+             }
+         }
+-        VideoCodec::AV1 => {}
++        VideoCodec::AV1 | VideoCodec::PyroWave => {}
+     }
+     // KyberNow (0022): P010 frames, HEVC Main 10.
+     if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
+@@ -434,7 +473,7 @@ fn create_qsv(
+ 
+             ("hevc_qsv", filter)
+         }
+-        VideoCodec::AV1 => {
++        VideoCodec::AV1 | VideoCodec::PyroWave => {
+             let filter = create_qsv_nv12_filter(ctx, config.scale, config.hdr)?;
+ 
+             ("av1_qsv", Some(filter))
+@@ -484,7 +523,7 @@ fn create_amf(
+         VideoCodec::HEVC => {
+             options.push(("usage", "ultralowlatency").into());
+         }
+-        VideoCodec::AV1 => {
++        VideoCodec::AV1 | VideoCodec::PyroWave => {
+             options.push(("usage", "lowlatency").into());
+         }
+     };
+@@ -504,7 +543,7 @@ fn create_amf(
+     let enc_name = match config.codec {
+         VideoCodec::H264 => "h264_amf",
+         VideoCodec::HEVC => "hevc_amf",
+-        VideoCodec::AV1 => "av1_amf",
++        VideoCodec::AV1 | VideoCodec::PyroWave => "av1_amf",
+     };
+ 
+     let init_opts = Dictionary::from_entries(&[("fifo_size", 1).into()])?;
+@@ -623,7 +662,7 @@ fn create_videotoolbox(
+     let enc_name = match config.codec {
+         VideoCodec::H264 => "h264_videotoolbox",
+         VideoCodec::HEVC => "hevc_videotoolbox",
+-        VideoCodec::AV1 => "av1_videotoolbox",
++        VideoCodec::AV1 | VideoCodec::PyroWave => "av1_videotoolbox",
+     };
+ 
+     let config = txproto_rs::EncoderConfig {
+@@ -740,7 +779,12 @@ pub(crate) fn configure(
+     };
+ 
+     // Encoder
++    // KyberNow (0025): PyroWave has its own encoder (the codec matches of
++    // the other encoders never see it).
+     let create_encoder = match video_config.encoder {
++        _ if cfg!(target_os = "windows") && video_config.codec == VideoCodec::PyroWave => {
++            create_pyrowave
++        }
+         VideoEncoder::AMF => create_amf,
+         VideoEncoder::NVENC => create_nvenc,
+         VideoEncoder::QSV => create_qsv,
