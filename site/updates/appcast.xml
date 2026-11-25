@@ -3,6 +3,32 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.10.0</title>
+            <pubDate>Wed, 25 Nov 2026 11:19:42 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611251033</sparkle:version>
+            <sparkle:shortVersionString>0.10.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+KyberNow accounts beta. It is only offered to Stations and apps set to receive beta versions.
+
+- **A KyberNow account, and your computers everywhere.** Create your account on the relay's page (email and password, then a passkey or two-factor authentication if you like), sign in in KyberNow Link, and your computers show up on the home screen, on all your devices, without pairing. On Apple TV, a TV or the Shield, a code appears: approve it from your phone. The account stays optional: the local network, pairing with a code and sharing work as before.
+- **Attach your computer to your account.** In Admin › KyberNow account › “Sign in”, or right at installation: the Station installer, on PC and Mac, offers an optional “KyberNow account” step. The KyberNow Link installer for Windows also offers to sign you in.
+- **Open your computer to family, friends or your team.** On your account page, add a person by their email and choose what they can do: open the desktop, borrow the computer (lending), join your shares without a code, or administer it. For a team, create an organization, with its members, groups and a log of who opened what. An account allowed to administer the computer also opens Admin on the network (“Sign in with KyberNow”).
+- **Invite a device from afar.** Admin › Link devices › “Invite a device…” gives a code and a password, valid for 1, 7 or 30 days. In the app, “Join with a code”, then the password: the computer is added, even far from home, without anyone having to accept it on site.
+- **Capture GPU priority (PC).** Admin › System › Advanced offers “GPU priority”: Normal, High (default) or Realtime. If the picture stutters when a game pushes the graphics card to the max, try “Realtime”.
+- **Installer**: it also opens when Windows asks for another administrator account's password.
+- **Self-hosted relay: KyberNow accounts need a compose update.** The nightly update replaces the relay's image, not its files: the new image runs unchanged, with accounts off. To turn accounts on, once, from the relay's folder:
+  1. fetch the compose files again: `for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`;
+  2. create the data folder (the accounts database and the keys): `mkdir -p data && sudo chown 65532:65532 data`;
+  3. add `[accounts]` and `enabled = true` to `config/relay.toml`, with the `[accounts.smtp]` section if you want email verification and password reset (see `relay.toml.example`);
+  4. restart: `docker compose pull && docker compose up -d`.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.10.0/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.10.0/KyberNow-Link-macOS.zip" length="50985350" type="application/octet-stream" sparkle:edSignature="XqpB3Si0W1NHICMDOxyJDizxEJuBd6uOKe4q6IKuxy7xFPLdjJ38sOlOKaO2CHqeo1L1bL0sqDM4bomKjZ0CCA=="/>
+        </item>
+        <item>
             <title>0.9.9</title>
             <pubDate>Wed, 04 Nov 2026 18:16:01 +0100</pubDate>
             <sparkle:version>202611041752</sparkle:version>
