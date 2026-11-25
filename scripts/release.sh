@@ -211,7 +211,7 @@ for f in CHANGELOG.md CHANGELOG.en.md; do
 done
 
 # Surcouche Kyber compilée avec les correctifs du dépôt.
-patches_hash() { cat server/kyber-patches/*.patch server/kyber-patches/build.sh | shasum -a 256 | cut -d' ' -f1; }
+patches_hash() { cat server/kyber-patches/*.patch server/kyber-patches/build.sh server/kyber-patches/pyrowave.sh | shasum -a 256 | cut -d' ' -f1; }
 if [ ! -d "$OVERLAY" ]; then
     problem "surcouche Kyber absente ($OVERLAY) : server/kyber-patches/build.sh"
 elif [ -f "$OVERLAY_STAMP" ]; then
