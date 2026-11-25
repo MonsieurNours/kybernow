@@ -56,7 +56,7 @@ L'app montre l'écran de l'ordinateur sans filtre (navigateur, jeux, tout conten
 - Nommer les plateformes d'Apple et Windows ; ne pas citer Android, Google ni les autres plateformes de KyberNow (2.3.10).
 - PlayStation : seulement en texte, comme compatibilité (« jouez à votre PS5 et votre PS4 »), avec la mention « PlayStation, PS5 et PS4 sont des marques de Sony Interactive Entertainment Inc. » ; aucun logo, aucune image de Sony, ni dans l'icône ni dans les captures.
 - Captures sur de vrais ordinateurs, sans contenu de jeux protégés en vedette.
-- Catégorie : Utilitaires, seconde catégorie : Productivité (l'app n'est pas un jeu).
+- Catégorie : Utilitaires, seconde catégorie : Productivité (l'app n'est pas un jeu). Pas de Mode Jeu sur iPhone et iPad (`GCSupportsGameMode`, `LSSupportsGameMode`) tant que l'app est classée ainsi : il s'allumerait dès l'ouverture, et une app qui n'est pas un jeu et l'active risque un refus. L'app Mac, hors App Store, l'a (voir [apps/macos/README.md](../apps/macos/README.md), « Mode Jeu de macOS »).
 
 ## App Review
 

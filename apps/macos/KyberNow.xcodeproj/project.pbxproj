@@ -713,7 +713,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KyberNow/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "KyberNow Link";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
 				INFOPLIST_KEY_NSCameraUsageDescription = "KyberNow Link lit le QR code affiché dans KyberNow Admin.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Les Lignes Claires · AGPL-3.0";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "KyberNow Link se connecte à vos ordinateurs sur le réseau local.";
@@ -810,7 +810,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KyberNow/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "KyberNow Link";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
 				INFOPLIST_KEY_NSCameraUsageDescription = "KyberNow Link lit le QR code affiché dans KyberNow Admin.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Les Lignes Claires · AGPL-3.0";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "KyberNow Link se connecte à vos ordinateurs sur le réseau local.";

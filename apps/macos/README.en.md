@@ -118,6 +118,17 @@ Kyber normally draws the image and plays the sound with VLC. KyberNow Link decod
 
 Live measurements (session bar): end-to-end latency and its curve, resolution and format. A click on them (or ⌃⌥⌘S) opens the **detailed measurements** at the bottom right (`SessionStats.swift`): the path of a frame as a cascade on a common scale, with the duration of one frame as a dotted line; latency (losses marked under the curve) and bitrate over 30 s; losses over 30 s and since the start; network round trip, image, sound and the sound-image offset. The panel stays open and lets clicks and movements through to the computer, except its close button. In Debug, `KN_STATS_PREVIEW=1` shows it filled with plausible measurements, without a session.
 
+## macOS Game Mode
+
+A full-screen session turns on macOS Game Mode (macOS 14 and later): macOS gives KyberNow Link priority on the CPU and GPU, slows background tasks (Spotlight, backups, syncing) and polls Bluetooth controllers and AirPods twice as often, which lowers their latency. It mostly helps high bitrates (PyroWave at 4K 120 Hz, several hundred Mbit/s to decode).
+
+- **How**: `LSSupportsGameMode` (macOS 26 and later) and `GCSupportsGameMode` (macOS 14 and 15) set to `true` in the Info.plist (`project.yml`), and the `public.app-category.games` category (`LSApplicationCategoryType`), which Apple also asks for. No code: macOS turns Game Mode on when the session window goes native full screen (which the app already does, `toggleFullScreen`) and off when it leaves full screen or the session ends. macOS has the final say: it may not turn it on.
+- **Turning it off**: no setting in the app. The controller icon in the macOS menu bar (in full screen, or in Control Center) offers “Turn Off Game Mode”, remembered for the app.
+- **Trade-off**: to macOS, KyberNow Link is now a game (Finder category, Screen Time “Games” limits). The Mac app is not on the Mac App Store (Developer ID, see [docs/app-store.en.md](../../docs/app-store.en.md)): no listing to change.
+- **iPhone, iPad, Apple TV**: no Game Mode for now. It does not exist on Apple TV; on iPhone and iPad (iOS 18) it turns on as soon as the app is in the foreground, and the app is on the App Store there as a Utility, where an app not listed as a game that turns it on risks rejection (see [docs/app-store.en.md](../../docs/app-store.en.md)).
+- **Mac Station**: nothing. Game Mode there would favour the host's foreground app (the game itself, if it supports it), not the Station's encoder.
+- **Testing**: built, keys checked in the built app. Not yet tried in a session: check, in full screen, the controller icon in the menu bar, then compare decode time and dropped frames in the Statistics panel (⌃⌥⌘S) with and without Game Mode, with PyroWave at 4K 120 Hz.
+
 ## Several displays
 
 A session can take every display of this Mac (contract: [docs/multi-ecrans.en.md](../../docs/multi-ecrans.en.md); texts and behaviour: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Several displays”). The core decides the number of displays with the same rules as Windows and Linux; the app gives it what decides and shows what it returns.

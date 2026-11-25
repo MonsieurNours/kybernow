@@ -118,6 +118,17 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow Link les dé
 
 Mesures en direct (barre de session) : latence de bout en bout et sa courbe, définition et format. Un clic dessus (ou ⌃⌥⌘S) ouvre les **mesures détaillées** en bas à droite (`SessionStats.swift`) : le trajet d'une image en cascade sur une échelle commune, avec la durée d'une image en pointillé ; la latence (pertes repérées sous la courbe) et le débit sur 30 s ; les pertes sur 30 s et depuis le début ; l'aller-retour réseau, l'image, le son et l'écart son-image. Le panneau reste ouvert et laisse passer clics et mouvements vers l'ordinateur, sauf son bouton de fermeture. En Debug, `KN_STATS_PREVIEW=1` l'affiche rempli de mesures plausibles, sans session.
 
+## Mode Jeu de macOS
+
+Une session en plein écran allume le Mode Jeu de macOS (macOS 14 et suivants) : macOS donne la priorité du processeur et de la puce graphique à KyberNow Link, ralentit les tâches de fond (Spotlight, sauvegardes, synchronisations) et lit deux fois plus souvent les manettes et les AirPods en Bluetooth, ce qui réduit leur latence. C'est surtout utile aux gros débits (PyroWave en 4K 120 Hz, plusieurs centaines de Mbit/s à décoder).
+
+- **Comment** : `LSSupportsGameMode` (macOS 26 et suivants) et `GCSupportsGameMode` (macOS 14 et 15) à `true` dans l'Info.plist (`project.yml`), et la catégorie `public.app-category.games` (`LSApplicationCategoryType`), qu'Apple demande aussi. Aucun code : macOS allume le Mode Jeu quand la fenêtre de la session passe en plein écran natif (ce que fait déjà l'app, `toggleFullScreen`) et l'éteint à la sortie du plein écran ou à la fin de la session. macOS reste seul juge : il peut ne pas l'allumer.
+- **Pour le couper** : pas de réglage dans l'app. L'icône manette de la barre des menus de macOS (en plein écran, ou dans le Centre de contrôle) propose « Désactiver le Mode Jeu », retenu pour l'app.
+- **Contrepartie** : pour macOS, KyberNow Link est désormais un jeu (catégorie dans le Finder, limites « Jeux » de Temps d'écran). L'app Mac n'est pas sur le Mac App Store (Developer ID, voir [docs/app-store.md](../../docs/app-store.md)) : aucune fiche à changer.
+- **iPhone, iPad, Apple TV** : pas de Mode Jeu pour l'instant. Il n'existe pas sur l'Apple TV ; sur iPhone et iPad (iOS 18), il s'allume dès que l'app est au premier plan, et l'app y est sur l'App Store en Utilitaires, où une app qui n'est pas classée jeu et l'active risque un refus (voir [docs/app-store.md](../../docs/app-store.md)).
+- **Station Mac** : rien. Le Mode Jeu y favoriserait l'app au premier plan de l'hôte (le jeu lui-même, s'il le gère), pas l'encodeur de la Station.
+- **Essais** : compilé, clés vérifiées dans l'app construite. Pas encore essayé en session : à vérifier, en plein écran, l'icône manette dans la barre des menus, puis comparer en PyroWave 4K 120 Hz le décodage et les images perdues du panneau Statistiques (⌃⌥⌘S) avec et sans Mode Jeu.
+
 ## Plusieurs écrans
 
 Une session peut prendre tous les écrans de ce Mac (contrat : [docs/multi-ecrans.md](../../docs/multi-ecrans.md) ; textes et comportement : [docs/link-ui.md](../../docs/link-ui.md), « Plusieurs écrans »). Le cœur décide du nombre d'écrans avec les mêmes règles que Windows et Linux ; l'app lui donne ce qui en décide et montre ce qu'il rend.
