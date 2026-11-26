@@ -39,6 +39,7 @@ Kyber can already open “data endpoints” (kyproto's `register_data_endpoint`)
 | `STOP` 0x03 | app → computer | nothing: the tool stops |
 | `STATUS` 0x10 | computer → app | a JSON line: `{"state": "started"}`, `{"state": "busy", "device": "Pixel 9"}`, `{"state": "failed", "reason": "…"}`, `{"state": "stopped"}`, `{"keyframe": true}` |
 
+- **Independent of the transport**: the first byte gives the type, the rest stands on its own (pts in every `MEDIA`, no state between two packets except the last `START`). The same header can therefore travel over unreliable datagrams (the microphone, if it prefers them); the camera takes the data endpoint's reliable stream.
 - **One device at a time** per kind on the computer: a second one gets `busy`, with the first one's name.
 - **kycontroller** starts the tool on the first `START` (`kybernow-camera --uplink`, next to its executable, or in `KYBERNOW_SINKS_DIR`) and passes it `START`, `MEDIA` and `PAUSE` on its standard input, each preceded by its length (u32, big endian). What the tool writes as JSON on its output (one line per message) goes back to the app as `STATUS`. Its input closes on `STOP`, when the app leaves or when the session ends: it stops by itself (killed after 3 s otherwise). A slow tool slows the writing, so the stream, so the app's queue, which drops frames: nothing piles up.
 

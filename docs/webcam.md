@@ -39,6 +39,7 @@ Kyber sait déjà ouvrir des « points de données » (`register_data_endpoint` 
 | `STOP` 0x03 | app → ordinateur | rien : l'outil s'arrête |
 | `STATUS` 0x10 | ordinateur → app | une ligne JSON : `{"state": "started"}`, `{"state": "busy", "device": "Pixel 9"}`, `{"state": "failed", "reason": "…"}`, `{"state": "stopped"}`, `{"keyframe": true}` |
 
+- **Indépendant du transport** : le premier octet dit le type, le reste se suffit à lui-même (pts dans chaque `MEDIA`, aucun état entre deux paquets sauf le dernier `START`). Le même en-tête peut donc passer par des datagrammes non fiables (le micro, s'il les préfère) ; la caméra prend le flux fiable du point de données.
 - **Un seul appareil à la fois** par type sur l'ordinateur : un second reçoit `busy`, avec le nom du premier.
 - **kycontroller** lance l'outil au premier `START` (`kybernow-camera --uplink`, à côté de son exécutable, ou dans `KYBERNOW_SINKS_DIR`) et lui passe `START`, `MEDIA` et `PAUSE` sur son entrée standard, chacun précédé de sa longueur (u32, gros-boutiste). Ce que l'outil écrit en JSON sur sa sortie (une ligne par message) revient à l'app en `STATUS`. Son entrée se ferme sur `STOP`, quand l'app part ou quand la session finit : il s'arrête de lui-même (tué au bout de 3 s sinon). Un outil lent ralentit l'écriture, donc le flux, donc la file de l'app, qui lâche des images : rien ne s'accumule.
 
