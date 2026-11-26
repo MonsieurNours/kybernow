@@ -9,6 +9,10 @@
   leurs ordinateurs arrivent avec les autres (`computers`), avec leur pastille d'origine. Une session
   d'appareil fermée ailleurs : l'avis « Ce compte a été déconnecté de cet appareil : reconnectez-vous. »
   (événement `account-signed-out`).
+
+  Mise à jour des Stations (docs/link-ui.md) : au premier lancement après une mise à jour de l'app, l'avis
+  « … a aussi une mise à jour » (StationNotice, `take_station_notice` après l'événement `station-notice`), montré
+  seulement sur l'accueil, hors session : il attend la fin d'une session ouverte au lancement.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -24,8 +28,9 @@
   import LendSheet from './LendSheet.svelte'
   import PairSheet from './PairSheet.svelte'
   import ConsoleSettings from './ConsoleSettings.svelte'
+  import StationNotice from './StationNotice.svelte'
   import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Chosen, Computer, ConnectInfo, Settings as ComputerSettings, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update, WatchWords } from './lib/api'
-  import type { PsFound, PsState } from './lib/api'
+  import type { PsFound, PsState, StationNotice as StationNoticeData } from './lib/api'
   import { guestComputer, invoke, isConsoleId, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
@@ -105,6 +110,8 @@
   let signingIn = $state(false)
   /** Le refus de la dernière connexion à un compte, montré aussi dans les réglages de l'app. */
   let signInError = $state<string | null>(null)
+  /** L'avis après une mise à jour de l'app : les Stations à mettre à jour aussi. */
+  let stationNotice = $state<StationNoticeData | null>(null)
   /** Profil Auto : l'ordinateur dont le panneau du test est ouvert. */
   let autotestId = $state<string | null>(null)
   /** Profil Auto appliqué : les réglages enregistrés, que l'écran des réglages ouvert reprend. */
@@ -161,6 +168,8 @@
       listen<ThisPc>('this-pc', (p) => (thisPc = p)),
       // Demande d'une autre ouverture, gardée par l'app jusqu'à ce qu'on la prenne.
       listen<null>('action-ready', () => invoke<Action | null>('take_action').then((a) => a && handle(a))),
+      // L'avis après une mise à jour de l'app, prêt une fois les Stations vérifiées.
+      listen<null>('station-notice', takeStationNotice),
       listen<Update | null>('update', (u) => (update = u)),
       listen<string[]>('sessions', (s) => (sessions = s)),
       listen<PsState>('ps-state', (s) => (ps = s)),
@@ -253,10 +262,17 @@
           }),
         )
         .then(() => invoke<Action | null>('take_action'))
-        .then((a) => a && handle(a)),
+        .then((a) => a && handle(a))
+        .then(takeStationNotice),
     )
     return () => off.forEach((p) => p.then((f) => f()))
   })
+
+  function takeStationNotice() {
+    invoke<StationNoticeData | null>('take_station_notice')
+      .then((n) => n && n.stations.length > 0 && (stationNotice = n))
+      .catch(() => {})
+  }
 
   /** Demande venue de l'extérieur : lien, barre des tâches, notification, menu de l'icône. */
   async function handle(a: Action) {
@@ -877,6 +893,11 @@
     wakes={passage.console?.wakes ?? false}
     oncancel={() => passage && invoke('session_command', { id: passage.id, command: 'disconnect' })}
   />
+{/if}
+
+<!-- L'avis après une mise à jour de l'app : sur l'accueil, jamais en session (il attend la fin de celle-ci). -->
+{#if stationNotice && sessions.length === 0 && !passage}
+  <StationNotice notice={stationNotice} onclose={() => (stationNotice = null)} />
 {/if}
 
 <style>
