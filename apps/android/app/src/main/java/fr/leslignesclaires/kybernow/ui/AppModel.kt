@@ -252,7 +252,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val last = store.lastLaunched
-        noticePending = StationOffer.appUpdated(last, appVersion)
+        // Sans version gardée mais avec des ordinateurs, l'app vient d'une version
+        // d'avant l'avis (`station_offer::BEFORE_NOTICE`) : c'est une mise à jour.
+        val from = last ?: StationOffer.BEFORE_NOTICE.takeIf { store.hosts.value.isNotEmpty() }
+        noticePending = StationOffer.appUpdated(from, appVersion)
         if (last != appVersion) store.lastLaunched = appVersion
     }
 

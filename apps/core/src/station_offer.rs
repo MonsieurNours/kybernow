@@ -175,6 +175,12 @@ pub fn should_check(ctx: &Context, memory: &Memory, app_version: &str) -> bool {
     (app_changed || behind) && due
 }
 
+/// Dernière version lancée à passer à [`app_updated`] quand l'app n'en a
+/// pas encore gardé mais connaît déjà au moins un ordinateur : elle vient
+/// d'une version d'avant cet avis (0.11.2 ou plus ancienne), c'est donc une
+/// mise à jour et pas un premier lancement.
+pub const BEFORE_NOTICE: &str = "0.11.2";
+
 /// Premier lancement après une mise à jour de l'app (pas le tout premier
 /// lancement : `last_launched` vide) : l'avis peut s'afficher.
 pub fn app_updated(last_launched: Option<&str>, current: &str) -> bool {

@@ -71,6 +71,9 @@ data class StationOffer(
             )
         }
 
+        /** `station_offer::BEFORE_NOTICE` : dernière version lancée supposée quand l'app n'en a pas gardé mais connaît des ordinateurs. */
+        const val BEFORE_NOTICE = "0.11.2"
+
         /** Premier lancement après une mise à jour de l'app (jamais au tout premier lancement : [last] nul). */
         fun appUpdated(last: String?, current: String): Boolean = Native.stationOfferAppUpdated(last, current)
 
