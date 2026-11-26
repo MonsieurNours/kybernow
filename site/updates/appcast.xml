@@ -3,6 +3,25 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.11.1</title>
+            <pubDate>Thu, 26 Nov 2026 08:14:47 +0100</pubDate>
+            <sparkle:version>202611260809</sparkle:version>
+            <sparkle:shortVersionString>0.11.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+Fixes for 0.11.0.
+
+- **PyroWave works in the apps.** In 0.11.0, the apps never asked the Station for it: “{computer} doesn't offer PyroWave” showed even with a suitable graphics card.
+- **Admin from KyberNow Share, at home.** The account page offers “Open on the network” again when Remote Admin is off: the Station gives the relay its network address again as soon as the connection is ready.
+- **Watch on LG TVs.** A computer you can only watch offers “Watch” instead of “Connect”, as in the other apps.
+- **Automatic bitrate on AMD cards.** The Station changes bitrate live, smoothly, as with NVIDIA cards.
+- **Fewer calls to the relay** when a device's clock runs ahead.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.11.1/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.11.1/KyberNow-Link-macOS.zip" length="51267227" type="application/octet-stream" sparkle:edSignature="V3iCKt15DwjI45UNX78fBhbFcMMiN+dKwUnjcjS9yLm5AWLDq+4L/nWYoSo4UZZEgU4oJDL8Sa5cNfrSJoQ6BQ=="/>
+        </item>
+        <item>
             <title>0.11.0</title>
             <pubDate>Wed, 25 Nov 2026 21:57:04 +0100</pubDate>
             <sparkle:version>202611252129</sparkle:version>
