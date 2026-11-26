@@ -7,7 +7,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import fr.leslignesclaires.kybernow.BuildConfig
 import fr.leslignesclaires.kybernow.KyberNowApp
+import fr.leslignesclaires.kybernow.core.StationInfo
+import fr.leslignesclaires.kybernow.core.StationOffer
 import fr.leslignesclaires.kybernow.core.BorrowAsk
 import fr.leslignesclaires.kybernow.core.BorrowReply
 import fr.leslignesclaires.kybernow.core.ConsoleClient
@@ -47,8 +50,15 @@ import fr.leslignesclaires.kybernow.model.Screen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -74,6 +84,17 @@ sealed interface StationTask {
     data class Done(val action: StationAction, val version: String?) : StationTask
     /** [message] : celui d'Admin ou du cœur, dans la langue de l'app ([StationFailure.OTHER]). */
     data class Failed(val reason: StationFailure, val message: String = "", val version: String? = null) : StationTask
+}
+
+/** Une Station de l'avis après une mise à jour de l'app : l'ordinateur, son nom, la version à installer. */
+data class NoticeEntry(val id: String, val name: String, val version: String)
+
+/**
+ * L'avis après une mise à jour de l'app (docs/link-ui.md, « Mise à jour des Stations ») : [app], la version de l'app ;
+ * les Stations à mettre à jour ([entries]) et celles qui le sont depuis ([updated]).
+ */
+data class StationNotice(val app: String, val entries: List<NoticeEntry>, val updated: Set<String> = emptySet()) {
+    val allDone get() = entries.all { it.id in updated }
 }
 
 /**
@@ -194,6 +215,46 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private val _station = MutableStateFlow<Map<String, StationTask>>(emptyMap())
     /** Redémarrage ou mise à jour de la Station en cours, par ordinateur. */
     val station: StateFlow<Map<String, StationTask>> = _station.asStateFlow()
+
+    // Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations »).
+
+    private val appVersion = BuildConfig.VERSION_NAME
+
+    private val _offers = MutableStateFlow<Map<String, StationOffer>>(emptyMap())
+    /** Le bandeau, la puce et l'avis de chaque ordinateur (calcul du cœur, `station_offer`). */
+    val offers: StateFlow<Map<String, StationOffer>> = _offers.asStateFlow()
+
+    private val _fromOffer = MutableStateFlow<Set<String>>(emptySet())
+    /** Les mises à jour lancées par le bandeau ou l'avis : leur confirmation et leur échec s'y écrivent. */
+    val fromOffer: StateFlow<Set<String>> = _fromOffer.asStateFlow()
+
+    private val _notice = MutableStateFlow<StationNotice?>(null)
+    /** L'avis après une mise à jour de l'app ; nul : fermé. */
+    val notice: StateFlow<StationNotice?> = _notice.asStateFlow()
+
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** Les avis brefs (« KyberNow Station {v} est en place. »). */
+    val notices: SharedFlow<String> = _notices.asSharedFlow()
+
+    /** Les vérifications demandées en ce moment (`Console::station_check`), par ordinateur. */
+    private val checking = MutableStateFlow<Set<String>>(emptySet())
+
+    /** La dernière annonce de la Station lue sur le réseau : le bandeau « Hors de chez vous » (par le relais, pas d'`info`). */
+    private val lastStation = mutableMapOf<String, StationInfo>()
+
+    /** L'accueil est à l'écran (entre `onStart` et `onStop`) ; sinon une session est ouverte (ou l'app est cachée). */
+    @Volatile private var homeShown = false
+
+    /** Premier lancement après une mise à jour de l'app : l'avis reste à préparer, au retour à l'accueil s'il le faut. */
+    private var noticePending = false
+    private var noticeJob: Job? = null
+    private var updateAllJob: Job? = null
+
+    init {
+        val last = store.lastLaunched
+        noticePending = StationOffer.appUpdated(last, appVersion)
+        if (last != appVersion) store.lastLaunched = appVersion
+    }
 
     private var polling: Job? = null
 
@@ -359,12 +420,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         store.remove(id)
         _selected.value = store.selectedId
         _images.value = _images.value - id
+        _offers.value = _offers.value - id
+        lastStation.remove(id)
     }
 
     /** Sondage d'Admin et découverte, tant que l'accueil est à l'écran. */
     fun startPolling() {
         kn.discovery.start()
         kn.gamepads.start()
+        homeShown = true
+        prepareNotice()
         if (polling?.isActive == true) return
         polling = viewModelScope.launch {
             while (true) {
@@ -379,6 +444,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun stopPolling() {
+        homeShown = false
         polling?.cancel()
         polling = null
         kn.discovery.stop()
@@ -413,6 +479,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
         }
         _status.value = _status.value + (h.id to st)
+        refreshOffer(h)
         // Consoles PlayStation : la Station joignable par le relais seulement, ou ses consoles quand elle répond sur le réseau.
         kn.ps.setAway(h.id, st.away)
         if (reply is Reply.Ok) kn.ps.stationReachable(h, password)
@@ -466,6 +533,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             else -> HostStatus(online = false)
         }
         _status.value = _status.value + (h.id to st)
+        refreshOffer(h)
         kn.ps.setAway(h.id, st.away)
         if (_refusals.value.containsKey(h.id) && h.id !in _connecting.value) _refusals.value = _refusals.value - h.id
         if (reply is Reply.Ok && lan != null) {
@@ -823,6 +891,137 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     private fun setStation(id: String, task: StationTask) {
         _station.value = _station.value + (id to task)
+        if (task is StationTask.Done && task.action == StationAction.UPDATE) {
+            val n = _notice.value
+            if (n != null && n.entries.any { it.id == id }) {
+                // Dans l'avis, la ligne passe à « À jour ».
+                _notice.value = n.copy(updated = n.updated + id)
+            } else if (id in _fromOffer.value) {
+                // Lancée par le bandeau : l'avis bref, et le bandeau s'en va.
+                val version = task.version?.takeIf { it.isNotEmpty() }
+                if (version != null) _notices.tryEmit(getApplication<Application>().getString(R.string.station_updated, version))
+            }
+            _fromOffer.value = _fromOffer.value - id
+        }
+    }
+
+    // MARK: - Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations »)
+
+    /**
+     * Cet appareil peut mettre la Station à jour : un ordinateur ajouté avec son compte Kyber (appairé, ou un compte
+     * saisi), ou un ordinateur d'un compte KyberNow avec le droit « Administrer » (`admin`).
+     */
+    private fun mayUpdate(h: Host): Boolean = !h.fromAccount || kn.accounts.computerOf(h)?.can("admin") == true
+
+    private fun offer(h: Host, st: HostStatus?): StationOffer {
+        val away = st?.away == true
+        // Par le relais, l'app ne lit pas `info` : la dernière annonce lue sur le réseau.
+        val station = st?.info?.station ?: if (away) lastStation[h.id] else null
+        return StationOffer.evaluate(station, mayUpdate(h), st?.online == true, away, !homeShown, store.stationMemory(h.id), appVersion)
+    }
+
+    /** Recalcule le bandeau, la puce et l'avis de [h] ; demande à la Station de vérifier quand il le faut. */
+    private fun refreshOffer(h: Host) {
+        val st = _status.value[h.id]
+        st?.info?.station?.let { lastStation[h.id] = it }
+        val o = offer(h, st)
+        _offers.value = _offers.value + (h.id to o)
+        // Jamais par le relais : la vérification attend le retour sur le réseau.
+        if (o.shouldCheck && st?.away != true) stationCheck(h)
+    }
+
+    /**
+     * `Console::station_check` en arrière-plan : la vérification est gardée (version de l'app, date) même sans réponse,
+     * pour ne pas la redemander à chaque sondage ; la nouvelle annonce de la Station remplace l'ancienne.
+     */
+    private fun stationCheck(h: Host) {
+        if (h.id in checking.value) return
+        checking.value = checking.value + h.id
+        viewModelScope.launch {
+            try {
+                val reply = client(h).use { it.stationCheck() }
+                store.setStationMemory(h.id, StationOffer.checked(store.stationMemory(h.id), appVersion))
+                val station = (reply as? Reply.Ok)?.value
+                val st = _status.value[h.id]
+                val info = st?.info
+                if (station != null && st != null && info != null) _status.value = _status.value + (h.id to st.copy(info = info.copy(station = station)))
+                hosts.value.firstOrNull { it.id == h.id }?.let { refreshOffer(it) }
+            } finally {
+                checking.value = checking.value - h.id
+            }
+        }
+    }
+
+    /** « Mettre à jour » du bandeau ou de l'avis : le flux des réglages ([station]) ; [force] : « Mettre à jour quand même ». */
+    fun offerUpdate(id: String, force: Boolean = false) {
+        _fromOffer.value = _fromOffer.value + id
+        station(id, StationAction.UPDATE, force)
+    }
+
+    /** « Plus tard » : le bandeau de cet ordinateur se cache pour [version] (7 jours, ou jusqu'à une version plus récente). */
+    fun offerLater(id: String, version: String) {
+        store.setStationMemory(id, StationOffer.snooze(store.stationMemory(id), version))
+        _fromOffer.value = _fromOffer.value - id
+        stationDismiss(id)
+        hosts.value.firstOrNull { it.id == id }?.let { refreshOffer(it) }
+    }
+
+    /** « Annuler » la confirmation (un appareil en session) : le bandeau revient à la proposition. */
+    fun offerCancel(id: String) {
+        _fromOffer.value = _fromOffer.value - id
+        stationDismiss(id)
+    }
+
+    /**
+     * Premier lancement après une mise à jour de l'app, accueil à l'écran : les ordinateurs en ligne sur le réseau
+     * vérifient (10 s au plus), puis l'avis s'ouvre s'il reste au moins une Station à mettre à jour depuis l'app. Une
+     * session ouverte entre-temps : l'avis attend le retour à l'accueil.
+     */
+    private fun prepareNotice() {
+        if (!noticePending || noticeJob?.isActive == true) return
+        noticeJob = viewModelScope.launch {
+            withTimeoutOrNull(StationOffer.NOTICE_WAIT_MS) {
+                hosts.value.filter { mayUpdate(it) }.map { h ->
+                    async {
+                        val st = check(h)
+                        if (st.online == true && !st.away) checking.first { h.id !in it }
+                    }
+                }.awaitAll()
+            }
+            if (!homeShown) return@launch
+            noticePending = false
+            val entries = hosts.value.mapNotNull { h ->
+                offer(h, _status.value[h.id]).noticeVersion?.let { NoticeEntry(h.id, h.name, it) }
+            }
+            if (entries.isNotEmpty()) _notice.value = StationNotice(appVersion, entries)
+        }
+    }
+
+    /** « Mettre à jour » d'une ligne de l'avis (ou « Mettre à jour la Station » avec une seule). */
+    fun noticeUpdate(id: String, force: Boolean = false) = offerUpdate(id, force)
+
+    /** « Tout mettre à jour » : l'une après l'autre ; un refus (session en cours) garde sa ligne et passe à la suivante. */
+    fun noticeUpdateAll() {
+        val n = _notice.value ?: return
+        if (updateAllJob?.isActive == true) return
+        updateAllJob = viewModelScope.launch {
+            for (e in n.entries) {
+                if (_notice.value == null) break
+                if (e.id in (_notice.value?.updated ?: emptySet())) continue
+                val task = _station.value[e.id]
+                if (task is StationTask.Confirm) continue
+                if (task !is StationTask.Working) offerUpdate(e.id)
+                _station.first { it[e.id] !is StationTask.Working }
+            }
+        }
+    }
+
+    /** « Plus tard » de l'avis : « Plus tard » pour chaque Station qui reste ; « Fermer » quand toutes sont à jour. */
+    fun noticeClose() {
+        val n = _notice.value ?: return
+        updateAllJob?.cancel()
+        n.entries.filter { it.id !in n.updated && _station.value[it.id] !is StationTask.Working }.forEach { offerLater(it.id, it.version) }
+        _notice.value = null
     }
 
     /**
@@ -841,6 +1040,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             when (val reply = client(h).use { it.info() }) {
                 is Reply.Ok -> {
                     _status.value = _status.value + (id to HostStatus(true, reply.value))
+                    refreshOffer(h)
                     val st = reply.value.station
                     val busy = st?.restarting == true || st?.update?.installing == true
                     val back = when {

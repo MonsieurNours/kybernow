@@ -22,6 +22,7 @@ use kybernow_core::i18n::{self, Lang};
 use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
+use kybernow_core::station_offer;
 use kybernow_core::wake;
 
 use crate::jvm::Listener;
@@ -260,6 +261,39 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStat
     let r = c.station_update(device_id.as_deref(), force != JNI_FALSE).map(|version| serde_json::json!({ "version": version }));
     let s = station_envelope(r);
     give(&mut env, &s)
+}
+
+// MARK: - Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations »)
+
+/// `POST /api/stream/station/check` : la Station demande tout de suite la
+/// dernière version. `value` : l'objet `station` (le même que celui
+/// d'`info`), nul avec une Station qui ne connaît pas l'appel (avant la
+/// 0.11.3). Bloquant (20 s au plus).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStationCheck(mut env: Env, _: JClass, h: jlong) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let s = envelope(c.station_check());
+    give(&mut env, &s)
+}
+
+/// Le bandeau, la puce, l'avis et la vérification d'un ordinateur
+/// (`station_offer::evaluate_json`) : en entrée `{station, may_update,
+/// online, away, in_session, now, memory, app_version}`, en sortie
+/// `{banner: {kind, version}, chip, notice_version, should_check}`. Pur, sans
+/// réseau.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationOfferEvaluate(mut env: Env, _: JClass, input: JString) -> jstring {
+    let input = string(&mut env, &input);
+    let s = station_offer::evaluate_json(&input);
+    give(&mut env, &s)
+}
+
+/// Premier lancement après une mise à jour de l'app (`station_offer::app_updated`) :
+/// jamais au tout premier lancement (`last` vide).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationOfferAppUpdated(mut env: Env, _: JClass, last: JString, current: JString) -> jboolean {
+    let (last, current) = (optional(&mut env, &last), string(&mut env, &current));
+    jbool(station_offer::app_updated(last.as_deref(), &current))
 }
 
 /// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`).

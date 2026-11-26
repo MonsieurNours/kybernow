@@ -145,6 +145,9 @@ data class WakeTarget(
 
 /** La Station (`station` de `GET /api/stream/info`) : sa version, sa mise à jour, un redémarrage en cours. */
 data class StationInfo(val version: String, val update: StationUpdate, val restarting: Boolean) {
+    /** Le même objet que `station` d'`info`, pour le calcul du cœur ([StationOffer]). */
+    fun json(): JSONObject = JSONObject().put("version", version).put("update", update.json()).put("restarting", restarting)
+
     companion object {
         fun parse(o: JSONObject) = StationInfo(
             version = o.optString("version"),
@@ -166,6 +169,10 @@ data class StationUpdate(
     val requiresSetup: Boolean = false,
     val installing: Boolean = false,
 ) {
+    fun json(): JSONObject = JSONObject()
+        .put("available", available).put("version", version ?: JSONObject.NULL).put("installable", installable)
+        .put("requires_setup", requiresSetup).put("installing", installing)
+
     companion object {
         fun parse(o: JSONObject?) = if (o == null) StationUpdate() else StationUpdate(
             available = o.optBoolean("available"),
@@ -320,6 +327,14 @@ class ConsoleClient private constructor(private var handle: Long) : AutoCloseabl
      */
     suspend fun stationUpdate(deviceId: String?, force: Boolean = false): Reply<String> = withContext(Dispatchers.IO) {
         parse(Native.consoleStationUpdate(handle, deviceId, force)) { (it as JSONObject).optString("version") }
+    }
+
+    /**
+     * `POST /api/stream/station/check` : la Station demande tout de suite la dernière version (au plus une fois par
+     * 10 min chez elle) ; rend sa nouvelle annonce, nulle avec une Station d'avant la 0.11.3 (on se fie à son `info`).
+     */
+    suspend fun stationCheck(): Reply<StationInfo?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleStationCheck(handle)) { (it as? JSONObject)?.let(StationInfo::parse) }
     }
 
     // KyberNow Share, côté hôte (compte de l'appareil en session). Refus : le texte d'Admin ou du cœur
