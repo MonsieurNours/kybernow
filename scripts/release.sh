@@ -120,7 +120,7 @@ VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo
     apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock
     apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml)
 STATION_LINUX=()
-if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
+if [ "${KYBERNOW_STATION_LINUX:-1}" = 1 ]; then
     STATION_LINUX=(KyberNow-Station-Linux-arm64.deb KyberNow-Station-Linux-arm64.rpm KyberNow-Station-Linux-x86_64.deb KyberNow-Station-Linux-x86_64.rpm
         KyberNow-Station-Linux-aarch64.tar.xz KyberNow-Station-Linux-x86_64.tar.xz)
 fi
@@ -350,11 +350,11 @@ else problem "app Linux : ${CHECK##*$'\n'} (apps/linux/README.md, « Compiler »
 if CHECK="$(apps/linux/os/release-image.sh --check 2>&1)"; then ok "KyberNow Link OS : ${CHECK##*$'\n'}"
 else problem "KyberNow Link OS : ${CHECK##*$'\n'} (apps/linux/os/README.md)"; fi
 VM_TOOLS="$(vm "uname -m; flatpak --version; flatpak-builder --version; ~/.cargo/bin/rustc -V 2>/dev/null || rustc -V" 2>/dev/null || echo "VM injoignable")"
-if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then
+if [ "${KYBERNOW_STATION_LINUX:-1}" = 1 ]; then
     if CHECK="$(server/linux/scripts/release-station.sh --check 2>&1)"; then ok "${CHECK##*$'\n'}"
     else problem "${CHECK##*$'\n'} (docs/station-linux.md, « Compiler »)"; fi
 else
-    ok "Station Linux : pas dans cette version (KYBERNOW_STATION_LINUX=1 pour la publier)"
+    ok "Station Linux : pas dans cette version (KYBERNOW_STATION_LINUX=0)"
 fi
 
 # Copie des sources du Flatpak (apps/linux/scripts/sources.sh, sans scripts/
@@ -514,7 +514,7 @@ TOOLS_ID="$({
 # sources de Kyber, dépendances de third_party/), sa construction
 # (construire_<id>, qui dépose ses fichiers dans $E), ses dépendances.
 ETAPES=(surcouche station windows android webos app_mac notarisation tvos ios station_mac flatpak_aarch64 flatpak_x86_64 deb_pi link_os)
-[ "${KYBERNOW_STATION_LINUX:-0}" = 1 ] && ETAPES+=(station_linux)
+[ "${KYBERNOW_STATION_LINUX:-1}" = 1 ] && ETAPES+=(station_linux)
 libelle() {
     case "$1" in
         surcouche) echo "Surcouche Kyber (Windows)" ;; station) echo "Station Windows" ;; windows) echo "App Windows x64+ARM64" ;;
@@ -811,7 +811,7 @@ voie_autres() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape surcouche; etape statio
 voie_apple() { export CARGO_BUILD_JOBS=$JOBS_MAC; etape app_mac; etape tvos; etape ios; etape station_mac; }
 voie_notarisation() { etape notarisation; }
 voie_linux() { etape flatpak_aarch64; etape flatpak_x86_64; }
-voie_linux_os() { etape deb_pi; etape link_os; if [ "${KYBERNOW_STATION_LINUX:-0}" = 1 ]; then etape station_linux; fi; }
+voie_linux_os() { etape deb_pi; etape link_os; if [ "${KYBERNOW_STATION_LINUX:-1}" = 1 ]; then etape station_linux; fi; }
 
 # --- Affichage ---------------------------------------------------------------
 # shellcheck disable=SC2034  # lus par indirection (${!sym}, ${!nom})

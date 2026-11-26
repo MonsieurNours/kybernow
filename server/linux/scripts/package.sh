@@ -111,6 +111,10 @@ case "$1" in
     remove | purge | 0)
         systemctl disable --now kybernow-station-update.socket 2>/dev/null || true
         systemctl --global disable kybernow-admin.service kybernow-kyber.service kybernow-tray.service 2>/dev/null || true
+        # Les sessions ouvertes gardaient la Station en marche, fichiers effacés.
+        for u in $(loginctl list-users --no-legend 2>/dev/null | awk "{print \$2}"); do
+            systemctl --user -M "$u@" stop kybernow-tray.service kybernow-kyber.service kybernow-admin.service 2>/dev/null || true
+        done
         if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
             firewall-cmd --permanent --remove-service=kybernow-station >/dev/null 2>&1 || true
             firewall-cmd --remove-service=kybernow-station >/dev/null 2>&1 || true
