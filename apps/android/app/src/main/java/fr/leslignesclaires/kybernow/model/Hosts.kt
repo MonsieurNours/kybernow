@@ -69,6 +69,10 @@ data class HostSettings(
     /** Au doigt : pavé tactile ou toucher direct. */
     val directTouch: Boolean = false,
     val clipboard: Boolean = true,
+    /** « Définition de la caméra » (docs/webcam.md) : 1080p, sinon 720p ; hors profil. */
+    val camera1080: Boolean = false,
+    /** L'ordinateur a déjà proposé la caméra : « Définition de la caméra » apparaît dans ses réglages. */
+    val cameraSeen: Boolean = false,
     /** « Ctrl agit comme ⌘ », face à une Station Mac seulement ; nul : jamais changé, allumé (`keymap::control_as_command` du cœur). */
     val ctrlCommand: Boolean? = null,
     val reconnect: Boolean = true,
@@ -134,7 +138,7 @@ data class HostSettings(
         .put("codec", codec).put("mbps", mbps).put("audio", audio).put("xbox360", xbox360).put("combo", combo)
         .put("backOpensMenu", backOpensMenu).put("guide", guide).put("matchDisplay", matchDisplay)
         .put("gameMode", gameMode).put("mouse", mouse).put("directTouch", directTouch)
-        .put("clipboard", clipboard).put("ctrlCommand", ctrlCommand ?: JSONObject.NULL).put("reconnect", reconnect).put("transport", transport)
+        .put("clipboard", clipboard).put("camera1080", camera1080).put("cameraSeen", cameraSeen).put("ctrlCommand", ctrlCommand ?: JSONObject.NULL).put("reconnect", reconnect).put("transport", transport)
         .put("onScreenPad", onScreenPad).put("padLayout", padLayout).put("padSize", padSize)
         .put("padOpacity", padOpacity).put("padHaptics", padHaptics).put("hdr", hdr)
         .put("adaptive", adaptive).put("autoResult", autoResult ?: JSONObject.NULL)
@@ -164,6 +168,8 @@ data class HostSettings(
                 mouse = o.optInt("mouse", d.mouse),
                 directTouch = o.optBoolean("directTouch", d.directTouch),
                 clipboard = o.optBoolean("clipboard", d.clipboard),
+                camera1080 = o.optBoolean("camera1080", d.camera1080),
+                cameraSeen = o.optBoolean("cameraSeen", d.cameraSeen),
                 ctrlCommand = if (o.has("ctrlCommand") && !o.isNull("ctrlCommand")) o.optBoolean("ctrlCommand") else d.ctrlCommand,
                 reconnect = o.optBoolean("reconnect", d.reconnect),
                 // Jusqu'à la 0.4.x : `reliable`, le transport fiable forcé.

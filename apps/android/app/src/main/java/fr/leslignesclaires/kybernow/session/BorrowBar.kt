@@ -86,6 +86,7 @@ internal fun BorrowerBarItems(ui: SessionUi, sec: Second?, first: FocusRequester
     StatsCard(ui, sec, Modifier.focusRequester(first))
     // L'ami a « HDR » comme un hôte (écran HDR seulement).
     HdrChip(ui.hdrState, ui.hdrChoice, { ui.actions.setHdr(!ui.hdrChoice) }, icon = true)
+    CameraButton(ui)
     GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
     GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     GlassButton(

@@ -321,6 +321,22 @@ object Native {
     @JvmStatic external fun sessionSetBackground(handle: Long, background: Boolean, capBitsPerSecond: Int)
     /** PyroWave : débit du lien vers l'ordinateur en Mbit/s, 0 inconnu (docs/pyrowave.md, « Définition ramenée »). */
     @JvmStatic external fun sessionSetLinkMbps(handle: Long, mbps: Int)
+
+    // Caméra de l'appareil vers l'ordinateur (docs/webcam.md) : `CameraSender` capture et encode, le cœur fait le reste.
+    @JvmStatic external fun cameraOffered(handle: Long): Boolean
+    /** Allume la caméra, ou change de caméra ou de définition sans l'éteindre ; faux si l'ordinateur ne la propose pas. */
+    @JvmStatic external fun cameraStart(handle: Long, hevc: Boolean, width: Int, height: Int, resolution1080: Boolean, device: String): Boolean
+    /** Une image encodée (Annex B) d'un `ByteBuffer` direct : 0 partie, 1 lâchée (image clé ensuite), 2 éteinte. */
+    @JvmStatic external fun cameraFrame(handle: Long, buffer: java.nio.ByteBuffer, offset: Int, size: Int, ptsUs: Long, key: Boolean, quarterTurns: Int): Int
+    @JvmStatic external fun cameraPause(handle: Long)
+    @JvmStatic external fun cameraStop(handle: Long)
+    @JvmStatic external fun cameraTargetBitrate(handle: Long): Int
+    /** Les réponses de l'ordinateur en JSON : `[{event, offered, notice}]` (`started`, `busy`, `failed`, `stopped`, `keyframe`, `offer`). */
+    @JvmStatic external fun cameraPoll(handle: Long, computer: String): String
+    /** La ligne « Caméra » des statistiques ; nulle caméra éteinte. */
+    @JvmStatic external fun cameraStatsLine(handle: Long): String?
+    /** L'avis d'un problème de l'appareil (0 refusé, 1 prise, 2 débranchée, 3 pas d'encodeur). */
+    @JvmStatic external fun cameraDeviceNotice(which: Int, camera: String): String
     @JvmStatic external fun sessionPickDisplay(handle: Long, id: Int)
     @JvmStatic external fun sessionSetMode(handle: Long, width: Int, height: Int, refresh: Int)
     @JvmStatic external fun sessionRestoreMode(handle: Long)
@@ -501,6 +517,8 @@ interface SessionListener {
     fun onShareImage(imageJson: String, previousJson: String?, notice: String?) {}
     /** Par où passe la session (`transport` : `direct`, `relay`, `relay_tcp` ; `relay`, `rtt_client`, `rtt_station` en ms) : au début, puis quand il change. */
     fun onRoute(json: String) {}
+    /** Caméra de l'appareil : l'ordinateur la propose pour cette image, ou plus (docs/webcam.md). */
+    fun onCameraOffer(offered: Boolean) {}
     /**
      * Par le relais, la session finit faute de joindre l'ordinateur, juste avant la fin : `code` 32 accès coupé dans
      * Admin, 31 éteint ou en veille, 30 relais muet ; `text` : la raison de la fin (link-ui). Choisir l'état de

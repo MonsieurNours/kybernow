@@ -120,6 +120,8 @@ sealed class Capsule {
     data class ShareRights(@androidx.annotation.StringRes val text: Int) : Capsule()
     /** Invité : la Station a ajusté son image (« Image allégée pour suivre. ») ; [text] : l'avis tel que le cœur l'écrit. */
     data class ShareNotice(val text: String) : Capsule()
+    /** Caméra de l'appareil : un refus ou un problème (le texte du cœur). */
+    data class CameraNotice(val text: String) : Capsule()
     /** Hôte : un invité demande à rejoindre par le relais (« Léa demande à rejoindre »), à accepter ou à refuser dans le panneau. */
     data class ShareRequest(val name: String) : Capsule()
     /** Emprunt : le préavis de 2 min (« Fin du prêt dans 2 min : sauvegardez votre partie. ») ; [text] : celui du cœur. */
@@ -220,6 +222,12 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
      * statistiques et celle de la « Dernière session ».
      */
     val route = MutableStateFlow<RouteInfo?>(null)
+
+    // Caméra de l'appareil (docs/webcam.md).
+    /** L'ordinateur propose la caméra pour cette image : « Caméra » dans la barre. */
+    val cameraOffered = MutableStateFlow(false)
+    /** 0 éteinte, 1 allumage en cours, 2 envoyée (voyant), 3 en pause (app en arrière-plan). */
+    val cameraState = MutableStateFlow(0)
     /**
      * Invité : la « Qualité de l'image » qu'il a choisie (celle de « Rejoindre », puis celle de la barre). L'image
      * qu'il reçoit est [shareImage] : la Station tranche, « Auto » aussi.
@@ -425,6 +433,10 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
 
     override fun onRoute(json: String) {
         RouteInfo.parse(json)?.let { route.value = it }
+    }
+
+    override fun onCameraOffer(offered: Boolean) {
+        cameraOffered.value = offered
     }
 
     override fun onRelayError(code: Int, text: String) {

@@ -108,6 +108,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     /** La session de l'appareil sur un de ses ordinateurs : ni invité, ni emprunt. Elle seule partage et prête. */
     private val hostSession get() = guest == null && loan == null
     private lateinit var state: SessionState
+
+    // Caméra de l'appareil (docs/webcam.md).
+    private val camera by lazy { CameraSender(this) { handle } }
+    private val cameraPoll = android.os.Handler(android.os.Looper.getMainLooper())
+    private var cameraWanted: String? = null
+    private val cameraPermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) cameraOn(cameraWanted) else cameraNotice(Native.cameraDeviceNotice(0, ""))
+    }
     private lateinit var ui: SessionUi
     private lateinit var surfaceView: SurfaceView
     private lateinit var pointerView: PointerView
@@ -471,6 +479,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("combo", host.settings.combo)
             // Face à une Station Mac : « Ctrl agit comme ⌘ » (allumé tant qu'on ne l'a pas éteint ; la règle est au cœur).
             .put("control_as_command", Native.controlAsCommand(host.settings.ctrlCommandCode, host.os ?: ""))
+            // La caméra de l'appareil (docs/webcam.md) : demandée à l'ordinateur si l'appareil en a une (pas un téléviseur).
+            .put("sends_camera", !tv && CameraSender.available(this))
             .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
             .putHdr()
         // Hors de chez soi : « Auto », le réseau d'abord (Admin répond en 1,5 s), le relais de l'ordinateur sinon, Admin
@@ -485,6 +495,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
         handle = Native.sessionStart(params.toString(), null, state, refresh)
         if (handle != 0L) watchLink()
+        // La caméra proposée : son réglage apparaît dans les réglages de l'ordinateur (pas pour un emprunt ni un invité).
+        if (handle != 0L && hostSession) lifecycleScope.launch { state.cameraOffered.collect { if (it) cameraSeen() } }
         if (handle == 0L) {
             // Un invité que la Station a déjà accepté repart tout de suite (sinon elle l'attend 20 s sans signe de vie).
             g?.let(Share::leave)
@@ -620,6 +632,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun onPause() {
         super.onPause()
+        // En arrière-plan, Android coupe la caméra : l'ordinateur garde la dernière image.
+        if (state.cameraState.value != 0 && handle != 0L) {
+            Native.cameraPause(handle)
+            camera.close()
+            state.cameraState.value = 3
+        }
         // Les relâchements qui suivent ne nous parviendraient pas : tout est relâché.
         ui.pad.releaseAll()
         haptics.stop()
@@ -629,6 +647,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun onResume() {
         super.onResume()
+        // Au retour : la caméra repart (une image clé), sans geste.
+        if (::state.isInitialized && state.cameraState.value == 3) {
+            camera.open(cameraChoice(), host.settings.camera1080)
+            state.cameraState.value = 2
+        }
         if (handle != 0L) Native.sessionSetBackground(handle, false, 0)
     }
 
@@ -645,6 +668,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // La manette à l'écran n'existe qu'en session : sa place se libère.
         app.gamepads.setOnScreen(false)
         app.gamepads.stop()
+        cameraPoll.removeCallbacksAndMessages(null)
+        camera.release()
         state.close()
         val h = handle
         handle = 0L
@@ -843,6 +868,94 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         hevcInstead = true
         ui.pyroBanner = false
         Native.sessionSetSettings(handle, settingsJson(ui.profile).toString())
+    }
+
+    // MARK: - Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil »)
+
+    private fun cameraChoice(): String? = getSharedPreferences("camera", MODE_PRIVATE).getString("id", null)
+        ?.takeIf { id -> CameraSender.cameras(this).any { it.first == id } }
+
+    override fun cameras(): List<Pair<String, String>> = CameraSender.cameras(this)
+
+    override fun currentCamera(): String? = cameraChoice() ?: CameraSender.defaultCamera(this)
+
+    override fun cameraStatsLine(): String? = if (handle != 0L) Native.cameraStatsLine(handle) else null
+
+    /** L'ordinateur a proposé la caméra : son réglage apparaît dans les réglages de l'ordinateur. */
+    private fun cameraSeen() {
+        if (!host.settings.cameraSeen) saveSettings { it.copy(cameraSeen = true) }
+    }
+
+    override fun toggleCamera() {
+        if (handle == 0L || !state.cameraOffered.value) return
+        if (state.cameraState.value == 0) cameraOn(cameraChoice()) else cameraOff()
+    }
+
+    override fun pickCamera(id: String) {
+        getSharedPreferences("camera", MODE_PRIVATE).edit().putString("id", id).apply()
+        if (state.cameraState.value != 0) cameraOn(id)
+    }
+
+    private fun cameraOn(id: String?) {
+        if (!CameraSender.permitted(this)) {
+            cameraWanted = id
+            cameraPermission.launch(android.Manifest.permission.CAMERA)
+            return
+        }
+        state.cameraState.value = 1
+        camera.displayDegrees = {
+            @Suppress("DEPRECATION")
+            when (windowManager.defaultDisplay.rotation) { android.view.Surface.ROTATION_90 -> 90; android.view.Surface.ROTATION_180 -> 180; android.view.Surface.ROTATION_270 -> 270; else -> 0 }
+        }
+        camera.onProblem = { which, name -> runOnUiThread { cameraProblem(which, name) } }
+        camera.onOpened = { w, h ->
+            val res1080 = host.settings.camera1080
+            val ok = handle != 0L && Native.cameraStart(handle, false, w, h, res1080, fr.leslignesclaires.kybernow.core.DeviceIdentity.of(this).name)
+            runOnUiThread { if (ok) startCameraPoll() else cameraOff() }
+        }
+        camera.open(id, host.settings.camera1080)
+    }
+
+    private fun cameraOff() {
+        camera.close()
+        cameraPoll.removeCallbacksAndMessages(null)
+        if (handle != 0L) Native.cameraStop(handle)
+        state.cameraState.value = 0
+    }
+
+    private fun cameraNotice(text: String) = state.show(Capsule.CameraNotice(text))
+
+    /** Débranchée : la suivante de la liste prend la relève ; sinon la caméra s'éteint, avec l'avis. */
+    private fun cameraProblem(which: Int, name: String) {
+        val next = CameraSender.cameras(this).firstOrNull { it.second != name }
+        cameraNotice(Native.cameraDeviceNotice(which, name))
+        if (which == 2 && state.cameraState.value != 0 && next != null) cameraOn(next.first) else cameraOff()
+    }
+
+    /** Les réponses de l'ordinateur, quatre fois par seconde tant qu'elle est allumée. */
+    private fun startCameraPoll() {
+        cameraPoll.removeCallbacksAndMessages(null)
+        val tick = object : Runnable {
+            override fun run() {
+                if (handle == 0L || state.cameraState.value == 0) return
+                val events = runCatching { org.json.JSONArray(Native.cameraPoll(handle, ui.computerName)) }.getOrNull()
+                for (i in 0 until (events?.length() ?: 0)) {
+                    val e = events!!.getJSONObject(i)
+                    when (e.optString("event")) {
+                        "started" -> if (state.cameraState.value == 1) state.cameraState.value = 2
+                        "busy", "failed" -> {
+                            e.optString("notice").takeIf { it.isNotEmpty() && it != "null" }?.let { cameraNotice(it) }
+                            cameraOff()
+                            return
+                        }
+                        "keyframe" -> camera.forceKeyframe()
+                        "offer" -> if (!e.optBoolean("offered")) { /* le flux revient : le cœur la relance */ }
+                    }
+                }
+                cameraPoll.postDelayed(this, 250)
+            }
+        }
+        cameraPoll.post(tick)
     }
 
     override fun setHdr(on: Boolean) {
