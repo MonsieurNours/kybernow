@@ -77,6 +77,11 @@ else
 fi
 [ "$CHECK" = 1 ] && { echo "Station Linux : arm64 sur $ARM_HOST, x86_64 sur $X86_WHERE"; exit 0; }
 
+# Interface d'Admin, commune aux deux architectures : construite ici, sur le
+# Mac, comme pour la Station Mac (build-station-app.sh) ; les machines la
+# lisent dans le dépôt partagé (package.sh, server/web/dist).
+(cd "$ROOT/server/web" && npm ci --silent && npm run build --silent)
+
 rm -rf "$OUT"
 mkdir -p "$OUT"
 for arch in aarch64 x86_64; do
