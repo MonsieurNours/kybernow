@@ -87,6 +87,20 @@ static void kyber_options(AVDictionary **o, const char *encoder, const char *cod
     /* KyberNow (0022) : HEVC Main 10 en HDR. */
     if (hdr && hevc && strcmp(encoder, "videotoolbox") && strcmp(encoder, "vaapi"))
         av_dict_set(o, "profile", "main10", 0);
+    /* KyberNow (0030) : contrôle du débit (kyavservice, rate_control.rs) :
+     * mémoire d'une image (FFmpeg 0030-avcodec-kybernow-vbv ; option
+     * ignorée par un FFmpeg sans ce correctif), débit constant, image clé
+     * toutes les 600 images, AMF en faible retard. */
+    av_dict_set(o, "kn_vbv_frames", "1", 0);
+    if (!strcmp(encoder, "nvenc") || !strcmp(encoder, "amf"))
+        av_dict_set(o, "rc", "cbr", 0);
+    if (!strcmp(encoder, "amf") || !strcmp(encoder, "vaapi") || !strcmp(encoder, "videotoolbox"))
+        av_dict_set(o, "g", "600", 0);
+    if (!strcmp(encoder, "amf")) {
+        av_dict_set(o, "enforce_hrd", "1", 0);
+        av_dict_set(o, "filler_data", "0", 0);
+        av_dict_set(o, "latency", (h264 || hevc) ? "1" : "lowest_latency", 0);
+    }
 }
 
 /* Le format des images : NV12, 4:4:4 planaire, P010 en HDR. */

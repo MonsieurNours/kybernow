@@ -1,0 +1,24 @@
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -661,7 +661,6 @@
+         ("prio_speed", true).into(),
+         ("realtime", true).into(),
+         ("power_efficient", 0).into(),
+-        ("low_delay", true).into(),
+         ("bf", 0).into(),
+         ("b_ref_mode", 0).into(),
+         ("b", config.bitrate as i64).into(),
+@@ -677,6 +676,12 @@
+         options.push(("colorspace", "bt2020nc").into());
+         options.push(("color_range", "tv").into());
+     }
++    // KyberNow (server/macos/kyber-patches/0030): frames capped to about one
++    // frame's share (DataRateLimits over one frame), a keyframe every 600
++    // frames instead of FFmpeg's 12 (rate_control.rs). The former
++    // "low_delay" key did nothing (a flag, not an option), and Apple's
++    // low-latency rate control stays off: it ignores DataRateLimits.
++    options.extend(rate_control_options(RateControl::VideoToolbox, &config.codec));
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));

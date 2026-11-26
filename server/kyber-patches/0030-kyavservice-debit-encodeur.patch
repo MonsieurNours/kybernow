@@ -1,0 +1,272 @@
+diff --git a/kyavservice/src/lib.rs b/kyavservice/src/lib.rs
+--- a/kyavservice/src/lib.rs
++++ b/kyavservice/src/lib.rs
+@@ -23,6 +23,7 @@
+ mod hdr;
+ mod kybernow;
+ mod pyrowave;
++mod rate_control;
+ mod txproto;
+ 
+ use kyavservice_types::IpcApi;
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -30,6 +30,7 @@
+ use crate::config::VideoEncoder;
+ use crate::hdr::{self, HdrMode};
+ use crate::kybernow;
++use crate::rate_control::{self, Encoder as RateControl};
+ use crate::txproto::{Event, Result};
+ 
+ pub(crate) struct VideoConfig {
+@@ -93,6 +94,15 @@
+     }
+ }
+ 
++/// KyberNow (0030): the rate control options of the encoder
++/// (rate_control.rs), before a custom encoder configuration, which wins.
++fn rate_control_options(encoder: RateControl, codec: &VideoCodec) -> Vec<DictionaryEntry> {
++    rate_control::options(encoder, codec)
++        .into_iter()
++        .map(|(key, value)| (key, value.as_str()).into())
++        .collect()
++}
++
+ fn encoder_config_to_dict(encoder_config: &config::EncoderConfig) -> Vec<DictionaryEntry> {
+     warn!("Using custom video encoder configuration");
+ 
+@@ -202,6 +212,7 @@
+     if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
+         options.push(("profile", profile).into());
+     }
++    options.extend(rate_control_options(RateControl::Nvenc, &config.codec));
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -327,6 +338,7 @@
+         }
+         VideoCodec::HEVC | VideoCodec::AV1 | VideoCodec::PyroWave => {}
+     };
++    options.extend(rate_control_options(RateControl::Vaapi, &config.codec));
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -449,6 +461,7 @@
+     if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
+         options.push(("profile", profile).into());
+     }
++    options.extend(rate_control_options(RateControl::Qsv, &config.codec));
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -531,6 +544,7 @@
+     if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
+         options.push(("profile", profile).into());
+     }
++    options.extend(rate_control_options(RateControl::Amf, &config.codec));
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+@@ -599,6 +613,7 @@
+     if config.yuv444 {
+         options.push(("profile", "high444").into());
+     }
++    options.extend(rate_control_options(RateControl::X264, &config.codec));
+ 
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -657,6 +657,11 @@
+         options.push(("profile", profile.to_string()));
+     }
+ 
++    // KyberNow (0030): rate control for the lowest delay (rate_control.rs).
++    options.extend(crate::rate_control::options(
++        crate::rate_control::Encoder::Nvenc,
++        &config.codec,
++    ));
+     options
+ }
+ 
+@@ -685,6 +690,11 @@
+         options.push(("profile", profile.to_string()));
+     }
+ 
++    // KyberNow (0030): rate control for the lowest delay (rate_control.rs).
++    options.extend(crate::rate_control::options(
++        crate::rate_control::Encoder::Amf,
++        &config.codec,
++    ));
+     options
+ }
+ 
+@@ -693,6 +703,11 @@
+     if let VideoCodec::H264 = config.codec {
+         options.push(("profile", "high".to_string()));
+     }
++    // KyberNow (0030): rate control for the lowest delay (rate_control.rs).
++    options.extend(crate::rate_control::options(
++        crate::rate_control::Encoder::Vaapi,
++        &config.codec,
++    ));
+     options
+ }
+ 
+@@ -718,6 +733,11 @@
+         options.push(("profile", profile.to_string()));
+     }
+ 
++    // KyberNow (0030): rate control for the lowest delay (rate_control.rs).
++    options.extend(crate::rate_control::options(
++        crate::rate_control::Encoder::Qsv,
++        &config.codec,
++    ));
+     options
+ }
+ 
+@@ -729,6 +749,11 @@
+     if config.yuv444 {
+         options.push(("profile", "high444".to_string()));
+     }
++    // KyberNow (0030): rate control for the lowest delay (rate_control.rs).
++    options.extend(crate::rate_control::options(
++        crate::rate_control::Encoder::X264,
++        &config.codec,
++    ));
+     options
+ }
+ 
+diff --git a/kyavservice/src/rate_control.rs b/kyavservice/src/rate_control.rs
+new file mode 100644
+--- /dev/null
++++ b/kyavservice/src/rate_control.rs
+@@ -0,0 +1,126 @@
++// KyberNow (server/kyber-patches/0030): rate control of the hardware
++// encoders for the lowest delay (docs/debit-automatique.md, « Taille des
++// images »).
++//
++// Each frame is capped to about its share of the bitrate: a rate control
++// buffer (VBV) of one frame at the peak rate, sized by FFmpeg itself from
++// the frame rate (option `kn_vbv_frames`, FFmpeg patch
++// 0030-avcodec-kybernow-vbv), never under a floor that still holds a
++// keyframe, and kept through every bitrate change (/set_bitrate), which
++// stays without a keyframe. Before, NVENC kept FFmpeg's buffer of two
++// seconds: a large frame (a scene change, a window opened) could take
++// several frame times to send, and every frame after it waited.
++//
++// Constant bitrate where the encoder has one (NVENC, AMF; QSV and VAAPI
++// choose it themselves when the peak rate is the bitrate, VideoToolbox
++// takes the buffer as its DataRateLimits window), AMF's low-delay mode, and
++// a keyframe every KEYFRAME_INTERVAL frames where FFmpeg left a short
++// default (AMF: driver's, VAAPI: 120, VideoToolbox: 12, i.e. five keyframes
++// a second at 60 fps) — a client that lost a frame asks for one
++// (/force_idr). VideoToolbox stays out of Apple's low-latency rate control:
++// measured on Apple silicon, it ignores DataRateLimits (same frame sizes
++// with or without) and encodes slower than the normal mode with one frame
++// in, one frame out. PyroWave keeps its own rate control. Any of these options can be overridden by the
++// encoder configuration of kyber_config.toml (`kn_vbv_frames = 0`: FFmpeg's
++// own buffer again).
++
++use kyavservice_types::VideoCodec;
++
++/// Frames of the rate control buffer, at the peak rate.
++pub(crate) const VBV_FRAMES: u32 = 1;
++/// Largest interval between two keyframes, in frames (as NVENC had already).
++pub(crate) const KEYFRAME_INTERVAL: u32 = 600;
++
++/// The encoder families this module configures.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub(crate) enum Encoder {
++    Nvenc,
++    Amf,
++    Qsv,
++    Vaapi,
++    X264,
++    /// Mac Station only (server/macos/kyber-patches/0030).
++    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
++    VideoToolbox,
++}
++
++/// Options to add after the encoder's own (and before a custom encoder
++/// configuration, which wins), as (key, value) strings for av_opt_set.
++pub(crate) fn options(encoder: Encoder, codec: &VideoCodec) -> Vec<(&'static str, String)> {
++    let mut options = vec![("kn_vbv_frames", VBV_FRAMES.to_string())];
++    let keyframes = ("g", KEYFRAME_INTERVAL.to_string());
++    match encoder {
++        // `g` is already set (600, or 120 with intra refresh).
++        Encoder::Nvenc => options.push(("rc", "cbr".to_string())),
++        Encoder::Amf => {
++            options.push(("rc", "cbr".to_string()));
++            options.push(keyframes);
++            // The buffer is the frame size limit: enforced, never padded.
++            options.push(("enforce_hrd", "1".to_string()));
++            options.push(("filler_data", "0".to_string()));
++            let latency = match codec {
++                VideoCodec::AV1 | VideoCodec::PyroWave => "lowest_latency",
++                VideoCodec::H264 | VideoCodec::HEVC => "1",
++            };
++            options.push(("latency", latency.to_string()));
++        }
++        // `g` is already 600; constant bitrate since the peak is the bitrate.
++        Encoder::Qsv => {}
++        // Constant bitrate since the peak is the bitrate (vaapi_encode).
++        Encoder::Vaapi | Encoder::X264 | Encoder::VideoToolbox => options.push(keyframes),
++    }
++    options
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn get<'a>(options: &'a [(&'static str, String)], key: &str) -> Option<&'a str> {
++        options
++            .iter()
++            .rev()
++            .find(|(k, _)| *k == key)
++            .map(|(_, v)| v.as_str())
++    }
++
++    #[test]
++    fn every_encoder_caps_its_frames_to_one() {
++        for encoder in [
++            Encoder::Nvenc,
++            Encoder::Amf,
++            Encoder::Qsv,
++            Encoder::Vaapi,
++            Encoder::X264,
++            Encoder::VideoToolbox,
++        ] {
++            let options = options(encoder, &VideoCodec::HEVC);
++            assert_eq!(get(&options, "kn_vbv_frames"), Some("1"), "{encoder:?}");
++        }
++    }
++
++    #[test]
++    fn constant_bitrate_and_keyframes_where_ffmpeg_left_defaults() {
++        let nvenc = options(Encoder::Nvenc, &VideoCodec::H264);
++        assert_eq!(get(&nvenc, "rc"), Some("cbr"));
++        assert_eq!(get(&nvenc, "g"), None);
++        let amf = options(Encoder::Amf, &VideoCodec::HEVC);
++        assert_eq!(get(&amf, "rc"), Some("cbr"));
++        assert_eq!(get(&amf, "g"), Some("600"));
++        assert_eq!(get(&amf, "latency"), Some("1"));
++        let amf_av1 = options(Encoder::Amf, &VideoCodec::AV1);
++        assert_eq!(get(&amf_av1, "latency"), Some("lowest_latency"));
++        assert_eq!(
++            get(&options(Encoder::Vaapi, &VideoCodec::H264), "g"),
++            Some("600")
++        );
++    }
++
++    #[test]
++    fn videotoolbox_stays_out_of_the_low_latency_mode() {
++        let vt = options(Encoder::VideoToolbox, &VideoCodec::HEVC);
++        assert_eq!(get(&vt, "g"), Some("600"));
++        assert_eq!(get(&vt, "flags"), None);
++        assert_eq!(get(&vt, "maxrate"), None);
++    }
++}

@@ -136,6 +136,13 @@
 #         FFmpeg 0023-avcodec-debit-en-direct ajouté au wrap (comme 0025) :
 #         NVENC sans remise à zéro ni image clé, mémoire VBV qui suit le
 #         débit ; VideoToolbox qui applique un débit changé en cours de session
+#   0030  chaque image dans sa part (docs/debit-automatique.md) : correctif
+#         FFmpeg 0030-avcodec-kybernow-vbv ajouté au wrap après 0023 (option
+#         kn_vbv_frames : mémoire d'une image au débit de crête, plancher pour
+#         les images clés, recalculée à chaque changement de débit) ;
+#         kyavservice (rate_control.rs, deux moteurs) : NVENC et AMF en débit
+#         constant, AMF en faible latence, image clé toutes les 600 images ;
+#         banc d'essai encoder-frame-bench.exe (pas livré, tools/)
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
@@ -255,6 +262,13 @@ x86_64-w64-mingw32-gcc -O2 -o "$PYROWAVE_TEST/pyrowave-capture-test.exe" "$HERE/
     $(PKG_CONFIG_LIBDIR="$ROOTFS/lib/pkgconfig" pkg-config --static --libs libavcodec libavutil) \
     -L"$ROOTFS/lib" -lpyrowave-shared -ld3d11 -ldxgi -static-libgcc
 x86_64-w64-mingw32-strip --strip-debug "$PYROWAVE_TEST/pyrowave-capture-test.exe"
+# Banc d'essai de la taille des images (0030, docs/debit-automatique.md), même
+# dossier : encoder-frame-bench.exe hevc_nvenc avant|apres.
+# shellcheck disable=SC2046  # options de pkg-config, mot à mot
+x86_64-w64-mingw32-gcc -O2 -o "$PYROWAVE_TEST/encoder-frame-bench.exe" "$HERE/tools/encoder-frame-bench.c" \
+    -I"$ROOTFS/include" $(PKG_CONFIG_LIBDIR="$ROOTFS/lib/pkgconfig" pkg-config --static --libs libavcodec libavutil) \
+    -L"$ROOTFS/lib" -lpyrowave-shared -static-libgcc
+x86_64-w64-mingw32-strip --strip-debug "$PYROWAVE_TEST/encoder-frame-bench.exe"
 cp "$ROOTFS/bin/libpyrowave-shared-1.dll" "$ROOTFS/bin/pyrowave-device-validation.exe" \
     "$MINGW/bin/libwinpthread-1.dll" "$PYROWAVE_TEST/"
 
