@@ -1,0 +1,22 @@
+[package]
+name = "kybernow-micro"
+version = "0.11.4"
+edition = "2024"
+rust-version = "1.89"
+description = "Micro de l'appareil sur la Station : décode le micro envoyé en session et le joue dans le micro virtuel de l'ordinateur (docs/micro.md)"
+license = "AGPL-3.0-or-later"
+authors = ["Les Lignes Claires"]
+
+[dependencies]
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.62"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Threading", "Win32_System_Variant", "Win32_UI_Shell_PropertiesSystem", "Win32_Devices_FunctionDiscovery", "Win32_Security"] }
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

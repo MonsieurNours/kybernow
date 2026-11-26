@@ -245,5 +245,30 @@
     "adaptive": "Débit adaptatif",
     "adaptive_help": "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.",
     "adaptive_pyrowave": "En PyroWave, il est en pause : la définition baisse à la place."
+  },
+  "micro": {
+    "not_allowed": "L'hôte ne laisse pas les invités parler.",
+    "no_device": "L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son.",
+    "unsupported": "Cet ordinateur ne reçoit pas le micro.",
+    "old_station": "Mettez à jour la Station pour envoyer le micro.",
+    "sent": "Micro envoyé à {name}.",
+    "permission": "KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages.",
+    "permission_mac": "KyberNow Link n'a pas accès au micro. Autorisez-le dans Réglages Système.",
+    "permission_windows": "KyberNow Link n'a pas accès au micro. Autorisez-le dans les paramètres de confidentialité de Windows.",
+    "permission_web": "KyberNow Link n'a pas accès au micro. Autorisez-le dans le navigateur.",
+    "label": "Micro",
+    "label_off": "Micro coupé",
+    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
+    "tooltip_off": "Micro coupé ({shortcut})",
+    "tile_on": "Envoyé",
+    "tile_off": "Coupé",
+    "tile_waiting": "Envoi…",
+    "setting_help": "Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.",
+    "app_setting": "Micro",
+    "system_default": "Celui du système",
+    "echo": "Réduire l'écho et le bruit",
+    "echo_help": "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.",
+    "guests": "Laisser les invités parler",
+    "guests_help": "Leur micro arrive sur l'ordinateur, pour un jeu ou un appel."
   }
 }

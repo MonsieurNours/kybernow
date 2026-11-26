@@ -56,6 +56,9 @@ install -m 755 "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" 
 # FFmpeg du runtime de Kyber (en-têtes encore là : retirés plus bas).
 "$ROOT/server/encoder-check/build.sh" linux "$RT_SRC" "$LIB/bin/kybernow-encoder-check"
 cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
+# L'aide du micro de l'appareil (docs/micro.md, correctif 0080), à côté de
+# kycontroller ; libopus du runtime. Joue par pactl et pacat (pulseaudio-utils).
+"$ROOT/server/micro/build.sh" linux "$RT_SRC" "$LIB/runtime/bin/kybernow-micro"
 # Fedora range les bibliothèques dans lib64, Debian et Ubuntu dans lib/<triplet>.
 [ -d "$RT_SRC/lib64" ] && cp -a "$RT_SRC/lib64" "$LIB/runtime/"
 # Ce qui ne sert qu'à compiler (en-têtes, .a, pkg-config) reste dehors.

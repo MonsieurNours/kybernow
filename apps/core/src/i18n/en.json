@@ -245,5 +245,30 @@
     "adaptive": "Adaptive bitrate",
     "adaptive_help": "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
     "adaptive_pyrowave": "With PyroWave it pauses: the resolution goes down instead."
+  },
+  "micro": {
+    "not_allowed": "The host isn't letting guests speak.",
+    "no_device": "The computer has no virtual microphone: see Admin › Picture and sound.",
+    "unsupported": "This computer can't receive the microphone.",
+    "old_station": "Update the Station to send your microphone.",
+    "sent": "Microphone sent to {name}.",
+    "permission": "KyberNow Link can't access the microphone. Allow it in Settings.",
+    "permission_mac": "KyberNow Link can't access the microphone. Allow it in System Settings.",
+    "permission_windows": "KyberNow Link can't access the microphone. Allow it in Windows privacy settings.",
+    "permission_web": "KyberNow Link can't access the microphone. Allow it in your browser.",
+    "label": "Microphone",
+    "label_off": "Microphone off",
+    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
+    "tooltip_off": "Microphone off ({shortcut})",
+    "tile_on": "On",
+    "tile_off": "Off",
+    "tile_waiting": "Connecting…",
+    "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
+    "app_setting": "Microphone",
+    "system_default": "System default",
+    "echo": "Reduce echo and noise",
+    "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
+    "guests": "Let guests speak",
+    "guests_help": "Their microphone reaches the computer, for a game or a call."
   }
 }

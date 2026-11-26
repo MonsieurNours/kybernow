@@ -54,7 +54,7 @@ Les paquets : un paquet de codec d'abord (`opus`, 480 échantillons par paquet),
 
 ## VB-CABLE (Windows)
 
-Le pilote de VB-Audio Software, signé et éprouvé ; on ne peut pas écrire de pilote de son à nous sans la signature de Microsoft (en attente, voir la mémoire « Authenticode »). VB-CABLE est un **donationware** : VB-Audio permet de le livrer tel quel avec une autre app, installation silencieuse comprise, à condition que l'utilisateur puisse savoir que c'est un produit de VB-Audio et le soutenir. D'où, partout où on le montre (installateur, Admin › Image et son, cette page) : « VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com. » Le pack est téléchargé par `server/build-windows.sh` (`VBCABLE_Driver_Pack`, empreinte vérifiée) et l'installateur de la Station l'installe s'il manque (`VBCABLE_Setup_x64.exe -i -h`). Ne jamais renommer ses appareils.
+Le pilote de VB-Audio Software, signé et éprouvé ; on ne peut pas écrire de pilote de son à nous sans la signature de Microsoft (en attente, voir la mémoire « Authenticode »). VB-CABLE est un **donationware** : VB-Audio permet de le livrer tel quel avec une autre app, installation silencieuse comprise, à condition que l'utilisateur puisse savoir que c'est un produit de VB-Audio et le soutenir. D'où, partout où on le montre (installateur, Admin › Image et son, cette page) : « VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com. » Le pack de VB-Audio (`VBCABLE_Driver_Pack*.zip`, extrait) se place dans `third_party/payload/vbcable/` avant de construire l'installateur, qui l'installe s'il manque (`VBCABLE_Setup_x64.exe -i -h`, après `kybernow-micro --check`) ; sans lui, l'étape est sautée. Ne jamais renommer ses appareils.
 
 ## Les apps
 

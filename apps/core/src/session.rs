@@ -521,6 +521,11 @@ pub trait Platform: Send + Sync {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     fn on_game_fullscreen(&self, _game: bool) {}
     fn on_notice(&self, _notice: &Notice) {}
+    /// Le micro de l'appareil (docs/micro.md) : à chaque changement d'état.
+    /// L'app capte tant que [`crate::micro::MicState::capturing`] et donne
+    /// ses échantillons à [`Session::push_microphone`]. Jamais appelé sans
+    /// [`crate::micro::set_device_has_microphone`].
+    fn on_microphone(&self, _state: crate::micro::MicState) {}
     /// HDR (docs/hdr.md) : à chaque démarrage de l'image (après `on_display`
     /// et `on_screens`, avant `input_pipeline`), quels écrans sont en HDR,
     /// dans l'ordre des écrans du flux (`on_screens`, le principal en
@@ -1350,6 +1355,8 @@ pub struct Session {
     /// Regarder : l'écran regardé (identifiant de Kyber ; 0 : pas une
     /// session de qui regarde, ou pas encore connu).
     watch_display: Arc<AtomicU32>,
+    /// Le micro de l'appareil (docs/micro.md), partagé avec la session.
+    microphone: Arc<crate::micro::Microphone>,
 }
 
 impl Session {
@@ -1382,6 +1389,7 @@ impl Session {
         let hdr_used = worker.hdr_used.clone();
         let link_mbps = worker.link_mbps.clone();
         let watch_display = worker.watch_display.clone();
+        let microphone = worker.microphone.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
         let thread = std::thread::Builder::new()
@@ -1409,7 +1417,27 @@ impl Session {
             hdr_used,
             link_mbps,
             watch_display,
+            microphone,
         })
+    }
+
+    /// Micro de l'appareil allumé (`true`) ou coupé (docs/micro.md) : le
+    /// choix retenu par l'app pour cet ordinateur, donné au départ et à
+    /// chaque changement (barre, tuile, réglage). Coupé par défaut. Rien ne
+    /// relance l'image : le micro est déjà proposé à l'ordinateur.
+    pub fn set_microphone(&self, on: bool) {
+        self.microphone.set_enabled(on);
+    }
+
+    pub fn microphone(&self) -> crate::micro::MicState {
+        self.microphone.state()
+    }
+
+    /// Des échantillons du micro, mono, à `rate` Hz (n'importe quelle
+    /// fréquence ; depuis le fil de capture de l'app, sans attente). Jetés
+    /// micro coupé ou tant que l'ordinateur ne le prend pas.
+    pub fn push_microphone(&self, samples: &[f32], rate: u32) {
+        self.microphone.push(samples, rate);
     }
 
     // Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md). Le
@@ -1823,6 +1851,8 @@ struct Worker {
     link_mbps: Arc<AtomicU32>,
     /// Regarder : l'écran regardé ([`Session::watch_display`]).
     watch_display: Arc<AtomicU32>,
+    /// Le micro de l'appareil, partagé avec [`Session`].
+    microphone: Arc<crate::micro::Microphone>,
     /// PyroWave : la définition ramenée en place (docs/pyrowave.md).
     lowered: Option<crate::pyrowave::Lowered>,
     /// Une adaptation pour la définition ramenée est en cours : pas d'avis
@@ -2021,6 +2051,7 @@ impl Worker {
             station_pyrowave_max: None,
             link_mbps: Arc::new(AtomicU32::new(0)),
             watch_display: Arc::new(AtomicU32::new(0)),
+            microphone: crate::micro::Microphone::new(),
             lowered: None,
             refitting: false,
             hdr_obtained: Vec::new(),
@@ -3990,6 +4021,11 @@ impl Worker {
                 self.route_check_at = Some(now + ROUTE_CHECK);
                 self.announce_route();
             }
+            if crate::micro::device_has_microphone()
+                && let Some(state) = self.microphone.changed()
+            {
+                self.platform.on_microphone(state);
+            }
             if now >= next_second {
                 next_second += Duration::from_secs(1);
                 let mut second = self.latency.drain();
@@ -4977,6 +5013,8 @@ impl Worker {
             video,
             audio,
             input: input_config,
+            // Le micro de l'appareil, proposé même coupé (docs/micro.md).
+            uplink: self.microphone.for_stream(),
         };
         self.streaming = Some(display.clone());
         self.adaptive.new_path();

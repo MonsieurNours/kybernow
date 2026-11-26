@@ -31,6 +31,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/journal.rs` | Le nom de l'ordinateur au début des lignes du journal de chaque session |
 | `src/input/` | Module d'entrées partagé (ci-dessous) |
 | `src/audio/` | Moteur de son (ci-dessous) |
+| `src/micro.rs` | Micro de l'appareil vers l'ordinateur ([docs/micro.md](../../docs/micro.md)) : rééchantillonnage à 48 kHz, trames de 10 ms, Opus voix (32 kbit/s, correction d'erreurs), état pour les apps (ci-dessous) |
 | `build.rs` | libopus par pkg-config quand il la connaît ; sinon l'exécutable la lie lui-même |
 
 ## La Station dans les réglages d'un ordinateur
@@ -448,6 +449,17 @@ pub trait PacketSink: Send + Sync {
 Et, en dehors des traits : la **capture des événements** (AppKit, GameController, Win32, Raw Input, SDL, Android) traduite en appels à `InputPipeline` (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`) ; l'**usage HID** de chaque touche et la **disposition ISO** (`keymap::scancode(hid, command_as_control, || iso)`) ; le **dessin** du pointeur sur le fil principal depuis `PointerLayer::set_on_changed` ; la **règle du mode de souris** (`MouseModeRules { needs_hidden_pointer }`, `true` sur Mac, Windows et Linux, `false` sur Apple TV, iPhone, iPad et Android) ; les manettes SDL du Mac et de Windows sont lues par le lecteur unique du cœur (`crate::gamepads`, avec une libkynput sans le sien ; par kynput sinon) ; sur Mac, le hook du routeur (`install_gamepad_gate`) les filtre et rend les touches de navigation par `InputPlatform::navigate`.
 
 Création : `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` rend un `Arc` ; `kynput()` donne la chaîne à `session::Platform::input_pipeline` ; `start_clipboard()` une fois le réseau relié ; `stop()` en fin de session (FlushKeys direct, total des pertes au journal), `shutdown()` pour arrêter les gestionnaires de kynput.
+
+## Micro de l'appareil (`src/micro.rs`)
+
+Contrat : [docs/micro.md](../../docs/micro.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Micro ». Le cœur encode, l'app capte.
+
+- `micro::set_device_has_microphone(true)` une fois au lancement, dans une app qui a un micro (jamais l'Apple TV ni les téléviseurs). Le micro est alors proposé à chaque démarrage de l'image, même coupé : l'ordinateur répond tout de suite s'il le prend, et l'allumer en session ne relance rien.
+- `Session::set_microphone(on)` : le choix retenu par l'app pour cet ordinateur, au départ puis à chaque changement (barre, tuile, réglage). Coupé : un paquet vide part (silence tout de suite sur l'ordinateur), puis plus rien.
+- `Platform::on_microphone(MicState)` : `Off`, `Waiting` (allumé, réponse pas encore là), `On`, `Refused(raison)` (`NotAllowed`, `NoDevice`, `Unsupported`, `OldStation` ; `text()` : la phrase de link-ui.md). L'app capte tant que `state.capturing()` (`On` ou `Waiting`). `MicState::to_json()` pour les ponts.
+- `Session::push_microphone(échantillons, fréquence)` : flottants mono, n'importe quelle fréquence, depuis le fil de capture (rien n'attend). Jetés micro coupé ou tant que l'ordinateur ne le prend pas.
+- Textes : `micro.*` dans `src/i18n/` (raisons, autorisation, puce, tuile, réglages).
+- Testé : `cargo test -p kybernow-core --features pyrowave micro` (état, JSON, 16 à 96 kHz ramenés à 48 kHz, encodeur, rien avant l'ouverture).
 
 ## Moteur de son (`src/audio/`)
 

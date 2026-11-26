@@ -146,6 +146,10 @@ else
     "$ROOT/server/encoder-check/build.sh" macos "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos" \
         "$APP/Contents/MacOS/kybernow-encoder-check"
 fi
+# L'aide du micro de l'appareil (docs/micro.md, correctif 0080), à côté de
+# kycontroller ; libopus de Contents/Frameworks.
+"$ROOT/server/micro/build.sh" macos "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos" \
+    "$APP/Contents/MacOS/kybernow-micro"
 cp -R "$KYAPP/Contents/Frameworks/." "$APP/Contents/Frameworks/"
 cp "$KYAPP/Contents/Resources/kyber_config.toml" "$APP/Contents/Resources/kyber/"
 cp "$ROOT/server/admin/target/release/kyber-admin" "$AGENT" "$UI" "$APP/Contents/MacOS/"
@@ -185,7 +189,7 @@ localized "$APP" "KyberNow Station" "KyberNow Station" \
 # exécutables (même droits : le son), puis le paquet.
 find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do sign "$lib"; done
 sign "$APP/Contents/Resources/KyberNow.driver"
-for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kybernow-encoder-check kyber-admin kybernow-display kybernow-ui kybernow-console; do
+for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kybernow-encoder-check kybernow-micro kyber-admin kybernow-display kybernow-ui kybernow-console; do
     sign --entitlements "$ENTITLEMENTS" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
 done
 sign --entitlements "$ENTITLEMENTS" "$APP"

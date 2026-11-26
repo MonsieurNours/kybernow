@@ -6,6 +6,7 @@
 #   kyber-0.29.0/   (installeur officiel Kyber 0.29.0, extrait avec 7-Zip)
 #   apollo-0.4.6/   (Apollo 0.4.6, pour le pilote SudoVDA et ViGEmBus)
 #   kyber-overlay/  (facultatif : binaires corrigés et moteur web, voir server/kyber-patches)
+#   vbcable/        (facultatif : VBCABLE_Driver_Pack de vb-cable.com extrait, micro virtuel)
 #
 # Sortie : server/installer/dist/KyberNow-Station-Setup.exe
 set -euo pipefail
@@ -44,6 +45,15 @@ for f in SudoVDA.dll SudoVDA.inf sudovda.cat sudovda.cer nefconc.exe; do
     cp "$PAYLOAD_SRC/apollo-0.4.6/drivers/sudovda/$f" "$STAGE/drivers/sudovda/"
 done
 cp "$PAYLOAD_SRC/apollo-0.4.6/scripts/vigembus_installer.exe" "$STAGE/drivers/vigembus/ViGEmBus_1.21.442_x64_x86_arm64.exe"
+# VB-CABLE (micro de l'appareil, docs/micro.md) : le pack de VB-Audio
+# (VBCABLE_Driver_Pack*.zip, vb-cable.com) extrait dans third_party/payload/vbcable/,
+# livré tel quel (donationware ; ne jamais renommer ni retoucher ses fichiers).
+if [ -f "$PAYLOAD_SRC/vbcable/VBCABLE_Setup_x64.exe" ]; then
+    mkdir -p "$STAGE/drivers/vbcable"
+    cp -R "$PAYLOAD_SRC/vbcable/." "$STAGE/drivers/vbcable/"
+else
+    echo "    (pas de VB-CABLE dans $PAYLOAD_SRC/vbcable : la Station n'aura pas de micro virtuel)"
+fi
 cp "$ROOT/third_party/kyber-installer/COPYING.AGPLv3" "$STAGE/licenses/AGPL-3.0.txt"
 cp "$PAYLOAD_SRC/kyber-0.29.0/license.txt" "$STAGE/licenses/Kyber.txt"
 cp "$HERE/resources/THIRD-PARTY.txt" "$STAGE/licenses/"

@@ -25,6 +25,7 @@ KyberNow-Station-Setup.exe = [launcher][tar.zst payload][32-byte “KNPAYLD1” 
 7. SudoVDA: certificate in Root + Trusted Publishers, device node and driver through `nefconc`.
 8. ViGEmBus, if it is not already present (`/quiet /norestart`).
 8. bis. Sound on your devices (option): Steam's virtual speakers (`SteamStreamingSpeakers.inf` through `pnputil /add-driver /install`) if Steam is installed. Admin switches Windows output to them during sessions: the sound leaves the computer's speakers and goes out with the right number of channels.
+8. ter. Your devices' microphone ([docs/micro.en.md](../../docs/micro.en.md)): VB-CABLE by VB-Audio Software (`drivers\vbcable\VBCABLE_Setup_x64.exe -i -h`), if it is not already there (`kyber\kybernow-micro.exe --check`); never blocking. The pack (`VBCABLE_Driver_Pack*.zip` from vb-cable.com, extracted) goes into `third_party/payload/vbcable/` before `build.sh`; without it, the step is skipped. VB-CABLE is donationware shipped as is: its mention (“VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.”) is in the step, in “About” and in `THIRD-PARTY.txt`.
 9. `kyber-admin` service (KyberNow Admin, display name set by `kyber-admin service install`, same permissions as `kyber`), High performance power mode (option unticked by default if the computer already uses it; recreated with `powercfg /duplicatescheme` when missing, as on many laptops; if Windows refuses it, the step ends with a warning and the installation goes on), “KyberNow Admin” (`.url`) and “KyberNow Station” (the icon, `.lnk`) shortcuts in the Start menu's `KyberNow` folder; those of versions 0.3.1 and earlier (“Console KyberNow”, “KyberNow console”, “KyberNow”) are removed (`LEGACY_SHORTCUTS`). An update, through `update.ps1` as through Admin's applicator (`server/admin/src/update/apply.rs`), removes these shortcuts the same way and sets the current display names (services, “Installed apps”).
 10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with the computer” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
 11. Checked start: the installer waits for the `kyber` service to be running (`sc query`, state 4) and then for the server and Admin to accept a connection on their ports; otherwise a “ATTENTION” line says so in the log.
@@ -63,7 +64,7 @@ To check on the computer: `icacls C:\ProgramData\KyberNow` must list `NT AUTHORI
 - keeps `C:\ProgramData\KyberNow` if asked to (with a copy of `kyber_config.toml` in `backups\kyber_config.toml.desinstallation`, since the devices' accounts are in it), otherwise deletes it; this folder also holds `relay\station.key`, the Station's identity at the relay (docs/relais.en.md): a reinstallation that keeps the data keeps the identifier, its links and the devices' access away from home (installing never touches this folder);
 - shows the final dialog, then, once it is closed, deletes `C:\Program Files\KyberNow` with a deferred command (the uninstaller runs from that folder).
 
-ViGEmBus stays installed: other software may use it.
+ViGEmBus and VB-CABLE stay installed: other software may use them.
 
 ## Choosing the encoder
 

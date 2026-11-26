@@ -98,6 +98,9 @@ pub struct InstallRequest {
     /// Haut-parleurs virtuels de Steam pour le son pendant le stream.
     #[serde(default = "yes")]
     pub virtual_audio: bool,
+    /// VB-CABLE pour le micro des appareils (docs/micro.md).
+    #[serde(default = "yes")]
+    pub microphone: bool,
     pub max_performance: bool,
     pub start_with_windows: bool,
     /// Réinstallation par-dessus KyberNow : garder `kyber_config.toml`, le

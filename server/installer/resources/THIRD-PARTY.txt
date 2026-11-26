@@ -23,6 +23,12 @@ ViGEmBus 1.21.442 - pilote de manettes virtuelles
   Nefarius Software Solutions - https://github.com/nefarius/ViGEmBus
   Licence : BSD-3-Clause
 
+VB-CABLE - micro virtuel (le micro de vos appareils, docs/micro.md)
+  VB-Audio Software (Vincent Burel) - https://vb-cable.com
+  Donationware : livré tel quel, avec l'accord de VB-Audio pour une
+  distribution avec une autre application. Si vous l'utilisez, vous pouvez
+  soutenir son auteur sur vb-cable.com.
+
 Polices de l'interface : Archivo, Martian Mono
   Licence : SIL Open Font License 1.1
 

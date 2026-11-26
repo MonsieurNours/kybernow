@@ -54,7 +54,7 @@ Packets: a codec packet first (`opus`, 480 samples per packet), then one packet 
 
 ## VB-CABLE (Windows)
 
-VB-Audio Software's driver, signed and proven; we can't write a sound driver of our own without Microsoft's signature (pending, see the “Authenticode” memory). VB-CABLE is **donationware**: VB-Audio allows shipping it as is with another app, silent install included, provided the user can tell it is a VB-Audio product and support it. Hence, wherever we show it (installer, Admin › Picture and sound, this page): “VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.” The pack is downloaded by `server/build-windows.sh` (`VBCABLE_Driver_Pack`, checksum verified) and the Station's installer installs it when missing (`VBCABLE_Setup_x64.exe -i -h`). Never rename its devices.
+VB-Audio Software's driver, signed and proven; we can't write a sound driver of our own without Microsoft's signature (pending, see the “Authenticode” memory). VB-CABLE is **donationware**: VB-Audio allows shipping it as is with another app, silent install included, provided the user can tell it is a VB-Audio product and support it. Hence, wherever we show it (installer, Admin › Picture and sound, this page): “VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.” VB-Audio's pack (`VBCABLE_Driver_Pack*.zip`, extracted) goes into `third_party/payload/vbcable/` before building the installer, which installs it when missing (`VBCABLE_Setup_x64.exe -i -h`, after `kybernow-micro --check`); without it, the step is skipped. Never rename its devices.
 
 ## The apps
 

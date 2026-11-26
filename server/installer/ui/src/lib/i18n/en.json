@@ -121,6 +121,7 @@
       "firewall": { "title": "Access from your devices", "text": "Windows Firewall opens ports {stream} (stream) and {console} (Admin), on your private network only." },
       "vdd": { "title": "Virtual display", "text": "It will take the size of each device that connects." },
       "gamepad": { "title": "Controllers", "text": "The computer will recognise the controllers on your devices." },
+      "micro": { "title": "Your devices' microphone", "text": "VB-CABLE receives the connected device's microphone, for your calls and games. VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com." },
       "audio": { "title": "Sound on your devices", "text": "Steam's virtual speakers send the sound to the connected device." },
       "admin": { "title": "KyberNow Admin", "text": "The Station's settings open in your browser, on port {port}.", "fact": "port {port}" },
       "power": {
@@ -181,6 +182,7 @@
       "sdl": "Controllers",
       "sudovda": "Virtual display driver",
       "vigembus": "Virtual controller driver",
+      "vbcable": "Virtual microphone, donationware: vb-cable.com",
       "nefcon": "Driver installation",
       "fonts": "Interface fonts",
       "rust": "Interface and installer"

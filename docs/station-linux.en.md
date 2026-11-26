@@ -92,6 +92,10 @@ Linux Kyber patch 0007. On Wayland, a program without a window can neither read 
 
 Admin (`audio/mod.rs`, `linux` module) creates at the start of the session a « KyberNow » output (PipeWire's `module-null-sink`, through `pactl`) with the device's channel count (2, 6 or 8, PulseAudio order), makes it the default output and moves the playing sounds to it: nothing comes out of the computer's speakers. Kyber captures the default output's monitor. At the end: original output given back, sounds moved back, module removed (and removed at startup if one was left by an interrupted session).
 
+### The device's microphone
+
+[micro.en.md](micro.en.md). The `kybernow-micro` helper (in `runtime/bin`, next to kycontroller; libopus from the runtime) creates if needed, with `pactl`, a null sink `kybernow_micro_entree` and the “Micro KyberNow” source (`kybernow_micro`, `module-remap-source` on its monitor), once for the user's session, then plays the received microphone through `pacat` (pulseaudio-utils, already a dependency). While it is sent, the source is the default microphone (`pactl set-default-source`); the previous one comes back at the end. Built (`cargo check --target aarch64-unknown-linux-gnu`); not tried in the VM yet.
+
 ### Encoder
 
 Installation picks the card's (`kybernow-station-setup`): NVIDIA → NVENC; AMD or Intel with a render node → VA-API; otherwise x264. Admin offers these three in Settings › Picture (“VA-API — AMD or Intel card”).

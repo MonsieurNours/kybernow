@@ -299,6 +299,38 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         _ => ctx.task("audio", TaskStatus::Skipped),
     }
 
+    // Micro des appareils (docs/micro.md) : VB-CABLE de VB-Audio, livré tel
+    // quel (donationware : vb-cable.com), s'il n'est pas déjà là. Jamais
+    // bloquant : sans lui, la Station marche, sans micro.
+    let vbcable = ctx.dir.join(r"drivers\vbcable\VBCABLE_Setup_x64.exe");
+    if req.microphone && vbcable.exists() {
+        ctx.task("micro", TaskStatus::Running);
+        let check = ctx.kyber().join("kybernow-micro.exe");
+        let present = check.exists() && run(&check.display().to_string(), &["--check"]).is_ok_and(|o| o.status.success());
+        if present {
+            ctx.log("VB-CABLE déjà présent : rien à faire");
+            ctx.task("micro", TaskStatus::Done);
+        } else {
+            match run(&vbcable.display().to_string(), &["-i", "-h"]) {
+                Ok(out) if out.status.success() => {
+                    ctx.log("Micro virtuel VB-CABLE installé (VB-Audio Software, donationware : vb-cable.com)");
+                    ctx.task("micro", TaskStatus::Done);
+                }
+                Ok(out) => {
+                    ctx.log(format!("VB-CABLE n'a pas pu s'installer (code {}) : la Station marche sans micro", out.status.code().unwrap_or(-1)));
+                    ctx.task("micro", TaskStatus::Warn);
+                }
+                Err(e) => {
+                    ctx.log(format!("VB-CABLE n'a pas pu s'installer ({e}) : la Station marche sans micro"));
+                    ctx.task("micro", TaskStatus::Warn);
+                }
+            }
+        }
+        ctx.progress(88.0);
+    } else {
+        ctx.task("micro", TaskStatus::Skipped);
+    }
+
     step(ctx, "admin", || {
         let admin = ctx.path(r"admin\kyber-admin.exe");
         run_ok(&admin, &["service", "install"], &[0])?;
@@ -758,13 +790,14 @@ fn simulate(ctx: &Ctx, req: &InstallRequest) -> Result<bool> {
         ("vdd", 70.0, "Pilote SudoVDA installé (simulation)"),
         ("gamepad", 82.0, "Pilote ViGEmBus installé (simulation)"),
         ("audio", 86.0, "Haut-parleurs virtuels de Steam installés (simulation)"),
+        ("micro", 88.0, "Micro virtuel VB-CABLE installé (simulation)"),
         ("admin", 92.0, "KyberNow Admin en marche (simulation)"),
         ("power", 96.0, "Alimentation réglée (simulation)"),
         ("finish", 100.0, "Terminé (simulation)"),
     ];
     let mut last = 0.0;
     for (id, target, line) in tasks {
-        let skip = (id == "vdd" && !req.virtual_display) || (id == "gamepad" && !req.gamepads) || (id == "audio" && !req.virtual_audio) || (id == "power" && !req.max_performance);
+        let skip = (id == "vdd" && !req.virtual_display) || (id == "gamepad" && !req.gamepads) || (id == "audio" && !req.virtual_audio) || (id == "micro" && !req.microphone) || (id == "power" && !req.max_performance);
         if skip {
             ctx.task(id, TaskStatus::Skipped);
             continue;

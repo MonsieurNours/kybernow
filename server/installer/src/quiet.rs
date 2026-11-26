@@ -131,6 +131,7 @@ pub fn run_windows(args: &QuietArgs, payload: &Path) -> i32 {
         virtual_display: true,
         gamepads: true,
         virtual_audio: info.steam_speakers_inf.is_some(),
+        microphone: true,
         max_performance: info.power_needs_tuning,
         start_with_windows: true,
         keep_settings: keep,

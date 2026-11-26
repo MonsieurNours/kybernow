@@ -16,6 +16,7 @@
     ['SDL2', 'sdl', 'Zlib'],
     ['SudoVDA', 'sudovda', 'MIT / CC0'],
     ['ViGEmBus', 'vigembus', 'BSD-3-Clause'],
+    ['VB-CABLE (VB-Audio Software)', 'vbcable', 'Donationware'],
     ['nefcon', 'nefcon', 'MIT'],
     ['Archivo, Martian Mono', 'fonts', 'OFL-1.1'],
     [t('about.rustLibraries'), 'rust', 'MIT / Apache-2.0'],
