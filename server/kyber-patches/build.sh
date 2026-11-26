@@ -136,6 +136,14 @@
 #         FFmpeg 0023-avcodec-debit-en-direct ajouté au wrap (comme 0025) :
 #         NVENC sans remise à zéro ni image clé, mémoire VBV qui suit le
 #         débit ; VideoToolbox qui applique un débit changé en cours de session
+#   0060  reprise sans image clé (docs/reprise-apres-perte.md, quatre
+#         fichiers) : correctif FFmpeg 0060-avcodec-reprise-sans-image-cle
+#         posé après 0017 dans le wrap (NVENC : invalidation et références
+#         longues ; VideoToolbox : références longues ; options ref_*) ;
+#         txproto : commande recover, numéro de chaque image HEVC/H.264 et
+#         borne de l'image qui répare dans un SEI (kn_recovery.h) ;
+#         kyavservice : VideoRecover, [kyavserver] loss_repair ;
+#         kycontroller : POST /recover
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

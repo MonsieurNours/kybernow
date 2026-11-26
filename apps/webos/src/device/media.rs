@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use kybernow_core::audio::{opus, AudioEngine, MonotonicClock, OutputOrder, MAX_FRAMES};
 use kybernow_core::latency;
-use kybernow_core::media::{OpusHead, Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
+use kybernow_core::media::{OpusHead, Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC_HEVC};
 
 use super::eac3;
 use super::esplayer;
@@ -32,7 +32,8 @@ use super::session::Shared;
 enum Msg {
     Codec(u32),
     Config(Vec<u8>),
-    Frame { key: bool, pts: u64, data: Vec<u8>, received: i64 },
+    /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
+    Frame { key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64> },
     Hole,
     Stop,
 }
@@ -62,11 +63,11 @@ impl PacketHandler for VideoSink {
         match packet {
             Packet::Codec { codec } => self.send(Msg::Codec(codec)),
             Packet::Media { is_config: true, data, .. } => self.send(Msg::Config(data.to_vec())),
-            Packet::Media { is_key, pts, data, .. } => {
+            Packet::Media { is_key, pts, data, resume, .. } => {
                 if let Some(s) = self.shared.session() {
                     s.latency().received_bytes(data.len());
                 }
-                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros() });
+                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume });
             }
             Packet::Hole { .. } => {
                 if let Some(s) = self.shared.session() {
@@ -94,6 +95,8 @@ struct Feeder {
     in_config: bool,
     loaded_config: Option<Vec<u8>>,
     waiting_key: bool,
+    /// Ce que le décodeur a reçu : reprise sans image clé possible.
+    gate: ResumeGate,
     /// Chargement de NDL connu : s'il change (rechargement, repli du son), le
     /// décodeur a besoin des paramètres et d'une image clé.
     generation: u64,
@@ -107,7 +110,7 @@ struct Feeder {
 
 impl Feeder {
     fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, generation: 0, lost_reported: false, last_request: None, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()) }
+        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, gate: ResumeGate::default(), generation: 0, lost_reported: false, last_request: None, failed: false, hdr_on: false, queue: crate::journal::Queue::new(Instant::now()) }
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
@@ -131,9 +134,9 @@ impl Feeder {
                     self.config.extend_from_slice(&bytes);
                     self.in_config = true;
                 }
-                Msg::Frame { key, pts, data, received } => {
+                Msg::Frame { key, pts, data, received, resume } => {
                     self.in_config = false;
-                    self.frame(key, pts, &data, received);
+                    self.frame(key, pts, &data, received, resume);
                 }
                 Msg::Hole => self.lost(),
                 Msg::Stop => break,
@@ -194,11 +197,12 @@ impl Feeder {
         }
     }
 
-    fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64) {
+    fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64, resume: Option<u64>) {
         // Les mires du réglage du HDR tiennent le décodeur : les images de la session attendent, sans redemander
         // d'image clé ; à leur fin, NDL se recharge à l'image clé suivante.
         if ndl::mires_active() {
             self.loaded_config = None;
+            self.gate.reset();
             self.waiting_key = true;
             return;
         }
@@ -226,6 +230,7 @@ impl Feeder {
                 return;
             }
             self.loaded_config = Some(self.config.clone());
+            self.gate.reset();
             self.waiting_key = true;
             self.generation = ndl::generation();
             if self.hdr_on != hdr.is_some() {
@@ -236,11 +241,18 @@ impl Feeder {
         }
         if self.generation != ndl::generation() {
             self.generation = ndl::generation();
+            self.gate.reset();
             self.waiting_key = true;
             log::info!("image : décodeur rechargé, image clé redemandée");
         }
-        if self.waiting_key && !key {
-            self.request_keyframe();
+        // Après une perte : une image clé, ou une image de reprise qui ne
+        // dépend que d'images que NDL a déjà (il n'est pas rechargé).
+        // Décodeur intact : la session a déjà demandé la reprise, et
+        // redemande une image clé si rien ne vient.
+        if self.waiting_key && !key && !self.gate.resumes(resume) {
+            if !self.gate.intact() {
+                self.request_keyframe();
+            }
             return;
         }
         let first = self.waiting_key;
@@ -254,12 +266,13 @@ impl Feeder {
         let call = Instant::now();
         match ndl::play(bytes) {
             Ok(queued) => {
+                self.gate.fed(pts);
                 let now = Instant::now();
                 self.queue.add(queued, now - call);
                 if self.queue.due(now) {
                     self.log_queue(now);
                 }
-                if key && first {
+                if first {
                     self.waiting_key = false;
                     if self.lost_reported {
                         self.lost_reported = false;
@@ -283,6 +296,7 @@ impl Feeder {
             }
             Err(e) if e == ndl::NOT_READY => {
                 // Le décodeur attend sa confirmation : on attend l'image clé suivante.
+                self.gate.reset();
                 self.waiting_key = true;
                 self.request_keyframe();
             }
@@ -295,12 +309,14 @@ impl Feeder {
             Err(e) if e == ndl::UNLOADED_BY_TV || e == ndl::NOT_LOADED => {
                 // Rechargé à l'image clé suivante, avec les paramètres.
                 log::warn!("image : {e} ; rechargement à l'image clé suivante");
+                self.gate.reset();
                 self.loaded_config = None;
                 self.waiting_key = true;
                 self.request_keyframe();
             }
             Err(e) => {
                 log::warn!("image : {e}");
+                self.gate.reset();
                 self.lost();
             }
         }

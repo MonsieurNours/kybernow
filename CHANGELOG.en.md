@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **A lost picture no longer costs a keyframe.** When the network loses a picture, the computer now repairs it at the next picture, relying on pictures your device already has, instead of sending a full picture again, five to ten times heavier: no more drop in quality or wait after each loss, and never a damaged picture on screen. In HEVC, with an NVIDIA card or the Mac Station; otherwise, the keyframe as before. Needs an up-to-date Station and app.
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.

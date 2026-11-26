@@ -1,0 +1,654 @@
+diff --git a/subprojects/ffmpeg.wrap b/subprojects/ffmpeg.wrap
+--- a/subprojects/ffmpeg.wrap
++++ b/subprojects/ffmpeg.wrap
+@@ -42,6 +42,7 @@ diff_files =
+   ffmpeg/patches/0015-h264_early_SAR.patch,
+   ffmpeg/patches/0016-avcodec-videotoolboxenc-switch-to-receive_packet-API.patch,
+   ffmpeg/patches/0017-avcodec-videotoolboxenc-add-signpost-timing.patch,
++  ffmpeg/patches/0060-avcodec-reprise-sans-image-cle.patch,
+   ffmpeg/patches/0018-avcodec-videotoolboxenc-set-expected-framerate.patch,
+   ffmpeg/patches/0019-avcodec-videotoolboxenc-make-VT-blocking.patch,
+   ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
+diff --git a/subprojects/packagefiles/ffmpeg/patches/0060-avcodec-reprise-sans-image-cle.patch b/subprojects/packagefiles/ffmpeg/patches/0060-avcodec-reprise-sans-image-cle.patch
+new file mode 100644
+--- /dev/null
++++ b/subprojects/packagefiles/ffmpeg/patches/0060-avcodec-reprise-sans-image-cle.patch
+@@ -0,0 +1,638 @@
++From: KyberNow
++Subject: [PATCH] avcodec: repair a receiver's loss without a keyframe (NVENC, VideoToolbox)
++
++ref_recovery keeps the references a repair needs. ref_recover asks that
++the next frame depend only on frames up to a pts (the last one a receiver
++decoded): NVENC invalidates the newer frames when that one is still in
++the DPB (4 frames at least), else predicts from the newest long-term
++reference up to it (2 kept, one marked every ref_ltr_ms), else encodes an
++IDR. VideoToolbox acknowledges the long-term references up to it and asks
++for an LTR refresh, else a keyframe. ref_method and ref_bound tell the
++caller how, and the newest pts the frame may depend on. KyberNow,
++docs/reprise-apres-perte.md.
++---
++diff --git a/libavcodec/nvenc.c b/libavcodec/nvenc.c
++index d67166a..d3f1374 100644
++--- a/libavcodec/nvenc.c
+++++ b/libavcodec/nvenc.c
++@@ -680,6 +680,10 @@ static int nvenc_check_capabilities(AVCodecContext *avctx)
++ 
++     ctx->support_dyn_bitrate = nvenc_check_cap(avctx, NV_ENC_CAPS_SUPPORT_DYN_BITRATE_CHANGE);
++ 
+++    /* KyberNow: what a repair without a keyframe can use (ref_recovery). */
+++    ctx->ref_rfi = nvenc_check_cap(avctx, NV_ENC_CAPS_SUPPORT_REF_PIC_INVALIDATION) > 0;
+++    ctx->ref_ltr = FFMIN(FFMAX(nvenc_check_cap(avctx, NV_ENC_CAPS_NUM_MAX_LTR_FRAMES), 0), NVENC_REF_LTR);
+++
++ #ifdef NVENC_HAVE_MVHEVC
++     ctx->multiview_supported = nvenc_check_cap(avctx, NV_ENC_CAPS_SUPPORT_MVHEVC_ENCODE) > 0;
++     if(ctx->profile == NV_ENC_HEVC_PROFILE_MULTIVIEW_MAIN && !ctx->multiview_supported) {
++@@ -1268,6 +1272,38 @@ static av_cold int nvenc_setup_rate_control(AVCodecContext *avctx)
++     return 0;
++ }
++ 
+++/* KyberNow: the references a repair without a keyframe needs (ref_recovery):
+++ * a DPB of 4 frames at least, so that an invalidation finds an older frame
+++ * (ultra low latency keeps only 1 by default), and long-term references,
+++ * which exclude B-frames. False when the device has neither. */
+++static av_cold int nvenc_ref_setup(AVCodecContext *avctx)
+++{
+++    NvencContext *ctx = avctx->priv_data;
+++    int i;
+++
+++    for (i = 0; i < NVENC_REF_FRAMES; i++)
+++        ctx->ref_sent[i] = AV_NOPTS_VALUE;
+++    for (i = 0; i < NVENC_REF_LTR; i++)
+++        ctx->ref_slot[i] = AV_NOPTS_VALUE;
+++    ctx->ref_marked_at = AV_NOPTS_VALUE;
+++    ctx->ref_method = NVENC_REF_NONE;
+++    ctx->ref_bound = AV_NOPTS_VALUE;
+++
+++    if (!ctx->ref_recovery)
+++        return 0;
+++    if (ctx->encode_config.frameIntervalP > 1)
+++        ctx->ref_ltr = 0;
+++    if (!ctx->ref_rfi && !ctx->ref_ltr) {
+++        av_log(avctx, AV_LOG_WARNING, "No invalidation nor long-term reference: losses are repaired by IDR\n");
+++        ctx->ref_recovery = 0;
+++        return 0;
+++    }
+++    ctx->ref_dpb = FFMAX(ctx->dpb_size, 4);
+++    av_log(avctx, AV_LOG_VERBOSE, "Repairs without keyframe: DPB %d, invalidation %s, %d long-term references\n",
+++           ctx->ref_dpb, ctx->ref_rfi ? "yes" : "no", ctx->ref_ltr);
+++    return 1;
+++}
+++
++ static av_cold int nvenc_setup_h264_config(AVCodecContext *avctx)
++ {
++     NvencContext *ctx                      = avctx->priv_data;
++@@ -1329,6 +1365,16 @@ static av_cold int nvenc_setup_h264_config(AVCodecContext *avctx)
++         h264->maxNumRefFrames = ctx->dpb_size;
++     }
++ 
+++    /* KyberNow: references kept for a repair without a keyframe. */
+++    if (nvenc_ref_setup(avctx)) {
+++        h264->maxNumRefFrames = ctx->ref_dpb;
+++        if (ctx->ref_ltr > 0) {
+++            h264->enableLTR    = 1;
+++            h264->ltrTrustMode = 0;
+++            h264->ltrNumFrames = ctx->ref_ltr;
+++        }
+++    }
+++
++     h264->idrPeriod = cc->gopLength;
++ 
++     if (IS_CBR(cc->rcParams.rateControlMode)) {
++@@ -1533,6 +1579,16 @@ static av_cold int nvenc_setup_hevc_config(AVCodecContext *avctx)
++         hevc->maxNumRefFramesInDPB = ctx->dpb_size;
++     }
++ 
+++    /* KyberNow: references kept for a repair without a keyframe. */
+++    if (nvenc_ref_setup(avctx)) {
+++        hevc->maxNumRefFramesInDPB = ctx->ref_dpb;
+++        if (ctx->ref_ltr > 0) {
+++            hevc->enableLTR    = 1;
+++            hevc->ltrTrustMode = 0;
+++            hevc->ltrNumFrames = ctx->ref_ltr;
+++        }
+++    }
+++
++     hevc->idrPeriod = cc->gopLength;
++ 
++     if (IS_CBR(cc->rcParams.rateControlMode)) {
++@@ -2603,6 +2659,155 @@ static void nvenc_fill_time_code(AVCodecContext *avctx, const AVFrame *frame, NV
++ }
++ #endif
++ 
+++/* KyberNow: an IDR (asked for or chosen by the encoder) ends every reference
+++ * before it. */
+++static void nvenc_ref_forget_before(NvencContext *ctx, int64_t pts)
+++{
+++    int i;
+++
+++    for (i = 0; i < NVENC_REF_FRAMES; i++)
+++        if (ctx->ref_sent[i] != AV_NOPTS_VALUE && ctx->ref_sent[i] < pts)
+++            ctx->ref_sent[i] = AV_NOPTS_VALUE;
+++    for (i = 0; i < NVENC_REF_LTR; i++)
+++        if (ctx->ref_slot[i] != AV_NOPTS_VALUE && ctx->ref_slot[i] < pts)
+++            ctx->ref_slot[i] = AV_NOPTS_VALUE;
+++}
+++
+++/* KyberNow: repair asked for (ref_recover) and long-term marks, for the frame
+++ * about to be encoded. The frame may only depend on frames up to the pts
+++ * asked for, the last one the receiver decoded:
+++ *  - invalidation of the newer frames, when that one is still in the DPB;
+++ *  - else, prediction from the newest long-term reference up to it;
+++ *  - else, an IDR.
+++ * The frames past the bound are forgotten: never a reference again. */
+++static void nvenc_ref_before_frame(AVCodecContext *avctx, const AVFrame *frame,
+++                                   NV_ENC_PIC_PARAMS *params, int *mark, int *use)
+++{
+++    NvencContext *ctx = avctx->priv_data;
+++    NV_ENCODE_API_FUNCTION_LIST *p_nvenc = &ctx->nvenc_dload_funcs.nvenc_funcs;
+++    int64_t bound = ctx->ref_recover;
+++    int i;
+++
+++    *mark = -1;
+++    *use = 0;
+++    ctx->ref_recover = AV_NOPTS_VALUE;
+++    if (!ctx->ref_recovery)
+++        return;
+++
+++    if (bound != AV_NOPTS_VALUE) {
+++        int method = NVENC_REF_KEYFRAME, newer = 0, kept = 0, slot = -1;
+++
+++        for (i = 0; i < NVENC_REF_FRAMES; i++) {
+++            if (ctx->ref_sent[i] == AV_NOPTS_VALUE)
+++                continue;
+++            if (ctx->ref_sent[i] > bound)
+++                newer++;
+++            else if (ctx->ref_sent[i] == bound)
+++                kept = 1;
+++        }
+++        ctx->ref_bound = AV_NOPTS_VALUE;
+++
+++        if (params->encodePicFlags & NV_ENC_PIC_FLAG_FORCEIDR) {
+++            /* An IDR on its way repairs everything. */
+++        } else if (ctx->ref_rfi && kept && newer < ctx->ref_dpb) {
+++            method = NVENC_REF_INVALIDATION;
+++            for (i = 0; i < NVENC_REF_FRAMES; i++) {
+++                NVENCSTATUS st;
+++                if (ctx->ref_sent[i] == AV_NOPTS_VALUE || ctx->ref_sent[i] <= bound)
+++                    continue;
+++                st = p_nvenc->nvEncInvalidateRefFrames(ctx->nvencoder, ctx->ref_sent[i]);
+++                if (st != NV_ENC_SUCCESS) {
+++                    nvenc_print_error(avctx, st, "InvalidateRefFrames failed");
+++                    method = NVENC_REF_KEYFRAME;
+++                    break;
+++                }
+++            }
+++            if (method == NVENC_REF_INVALIDATION)
+++                ctx->ref_bound = bound;
+++        }
+++        if (method == NVENC_REF_KEYFRAME && !(params->encodePicFlags & NV_ENC_PIC_FLAG_FORCEIDR)) {
+++            for (i = 0; i < ctx->ref_ltr; i++)
+++                if (ctx->ref_slot[i] != AV_NOPTS_VALUE && ctx->ref_slot[i] <= bound &&
+++                    (slot < 0 || ctx->ref_slot[i] > ctx->ref_slot[slot]))
+++                    slot = i;
+++            if (slot >= 0) {
+++                method = NVENC_REF_LONG_TERM;
+++                *use = 1 << slot;
+++                ctx->ref_bound = ctx->ref_slot[slot];
+++                /* The short-term frames past the bound, when the device
+++                 * can: never a reference again (errors do not matter, the
+++                 * frame only uses the long-term one). */
+++                if (ctx->ref_rfi)
+++                    for (i = 0; i < NVENC_REF_FRAMES; i++)
+++                        if (ctx->ref_sent[i] != AV_NOPTS_VALUE && ctx->ref_sent[i] > bound)
+++                            p_nvenc->nvEncInvalidateRefFrames(ctx->nvencoder, ctx->ref_sent[i]);
+++            }
+++        }
+++
+++        if (method == NVENC_REF_KEYFRAME) {
+++            params->encodePicFlags |= NV_ENC_PIC_FLAG_FORCEIDR;
+++        } else {
+++            for (i = 0; i < NVENC_REF_FRAMES; i++)
+++                if (ctx->ref_sent[i] != AV_NOPTS_VALUE && ctx->ref_sent[i] > bound)
+++                    ctx->ref_sent[i] = AV_NOPTS_VALUE;
+++            for (i = 0; i < NVENC_REF_LTR; i++)
+++                if (ctx->ref_slot[i] != AV_NOPTS_VALUE && ctx->ref_slot[i] > bound)
+++                    ctx->ref_slot[i] = AV_NOPTS_VALUE;
+++        }
+++        ctx->ref_method = method;
+++        av_log(avctx, AV_LOG_VERBOSE, "Repair up to %"PRId64" at %"PRId64": %s\n", bound, frame->pts,
+++               method == NVENC_REF_INVALIDATION ? "invalidation" :
+++               method == NVENC_REF_LONG_TERM ? "long-term reference" : "IDR");
+++    }
+++
+++    if (params->encodePicFlags & NV_ENC_PIC_FLAG_FORCEIDR) {
+++        for (i = 0; i < NVENC_REF_FRAMES; i++)
+++            ctx->ref_sent[i] = AV_NOPTS_VALUE;
+++        for (i = 0; i < NVENC_REF_LTR; i++)
+++            ctx->ref_slot[i] = AV_NOPTS_VALUE;
+++    }
+++
+++    /* A long-term mark every ref_ltr_ms (an IDR at once), in turn over the
+++     * slots, never on the repairing frame itself. */
+++    if (ctx->ref_ltr > 0 && !*use &&
+++        (ctx->ref_marked_at == AV_NOPTS_VALUE || (params->encodePicFlags & NV_ENC_PIC_FLAG_FORCEIDR) ||
+++         frame->pts - ctx->ref_marked_at >=
+++             av_rescale_q(ctx->ref_ltr_ms, (AVRational){ 1, 1000 }, avctx->time_base) ||
+++         frame->pts < ctx->ref_marked_at)) {
+++        *mark = ctx->ref_slot_next;
+++        ctx->ref_slot[*mark] = frame->pts;
+++        ctx->ref_slot_next = (ctx->ref_slot_next + 1) % ctx->ref_ltr;
+++        ctx->ref_marked_at = frame->pts;
+++    }
+++
+++    ctx->ref_sent[ctx->ref_sent_next] = frame->pts;
+++    ctx->ref_sent_next = (ctx->ref_sent_next + 1) % NVENC_REF_FRAMES;
+++}
+++
+++static void nvenc_ref_pic_params(AVCodecContext *avctx, const AVFrame *frame,
+++                                 NV_ENC_PIC_PARAMS *params)
+++{
+++    int mark, use;
+++
+++    nvenc_ref_before_frame(avctx, frame, params, &mark, &use);
+++    switch (avctx->codec->id) {
+++    case AV_CODEC_ID_H264:
+++        params->codecPicParams.h264PicParams.ltrMarkFrame = mark >= 0;
+++        params->codecPicParams.h264PicParams.ltrMarkFrameIdx = FFMAX(mark, 0);
+++        params->codecPicParams.h264PicParams.ltrUseFrames = use != 0;
+++        params->codecPicParams.h264PicParams.ltrUseFrameBitmap = use;
+++        break;
+++    case AV_CODEC_ID_HEVC:
+++        params->codecPicParams.hevcPicParams.ltrMarkFrame = mark >= 0;
+++        params->codecPicParams.hevcPicParams.ltrMarkFrameIdx = FFMAX(mark, 0);
+++        params->codecPicParams.hevcPicParams.ltrUseFrames = use != 0;
+++        params->codecPicParams.hevcPicParams.ltrUseFrameBitmap = use;
+++        break;
+++    default:
+++        break;
+++    }
+++}
+++
++ static void nvenc_codec_specific_pic_params(AVCodecContext *avctx, const AVFrame *frame,
++                                             NV_ENC_PIC_PARAMS *params,
++                                             NV_ENC_SEI_PAYLOAD *sei_data,
++@@ -2866,6 +3071,10 @@ static int process_output_surface(AVCodecContext *avctx, AVPacket *pkt, NvencSur
++     if (res < 0)
++         goto error2;
++ 
+++    /* KyberNow: nothing before an IDR is a reference any more. */
+++    if (ctx->ref_recovery && (pkt->flags & AV_PKT_FLAG_KEY))
+++        nvenc_ref_forget_before(ctx, pkt->pts);
+++
++     res = nvenc_retrieve_frame_data(avctx, &lock_params, pkt);
++     if (res < 0)
++         goto error2;
++@@ -3311,6 +3520,11 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
++     if (res < 0)
++         return res;
++ 
+++    /* KyberNow: repair asked for and long-term marks (context pushed: an
+++     * invalidation is a call to the device). */
+++    if (frame && frame->buf[0] && ctx->ref_recovery)
+++        nvenc_ref_pic_params(avctx, frame, &pic_params);
+++
++     nv_status = p_nvenc->nvEncEncodePicture(ctx->nvencoder, &pic_params);
++ 
++     for (i = 0; i < sei_count; i++)
++diff --git a/libavcodec/nvenc.h b/libavcodec/nvenc.h
++index 069ba82..9eb3cde 100644
++--- a/libavcodec/nvenc.h
+++++ b/libavcodec/nvenc.h
++@@ -39,6 +39,19 @@ typedef void ID3D11Device;
++ #include "avcodec.h"
++ 
++ #define MAX_REGISTERED_FRAMES 64
+++/* Repair of a receiver's loss: the frames remembered (a DPB holds 16 at
+++ * most) and the long-term references kept. */
+++#define NVENC_REF_FRAMES 16
+++#define NVENC_REF_LTR 2
+++
+++/* How a repair request (ref_recover) was met, read back by the caller
+++ * (ref_method): same values for every encoder that takes it. */
+++enum {
+++    NVENC_REF_NONE          = 0,
+++    NVENC_REF_INVALIDATION  = 1,
+++    NVENC_REF_LONG_TERM     = 2,
+++    NVENC_REF_KEYFRAME      = 3,
+++};
++ #define RC_MODE_DEPRECATED 0x800000
++ #define RCD(rc_mode) ((rc_mode) | RC_MODE_DEPRECATED)
++ 
++@@ -306,6 +319,28 @@ typedef struct NvencContext
++     int ldkfs;
++     int extra_sei;
++     int intra_refresh;
+++
+++    /* Repair of a receiver's loss without a keyframe (HEVC and H.264).
+++     * ref_recovery (at init) keeps the references a repair needs: a DPB of
+++     * 4 frames at least and NVENC_REF_LTR long-term references, one marked
+++     * every ref_ltr_ms. ref_recover (for the next frame only): that frame
+++     * may only depend on frames whose pts is at most this one; met by
+++     * invalidating the newer frames, else by predicting from a long-term
+++     * reference, else by an IDR. ref_method and ref_bound tell how, and the
+++     * newest pts the frame may depend on. */
+++    int ref_recovery;
+++    int ref_ltr_ms;
+++    int64_t ref_recover;
+++    int ref_method;
+++    int64_t ref_bound;
+++    int ref_rfi;
+++    int ref_ltr;
+++    int ref_dpb;
+++    int64_t ref_sent[NVENC_REF_FRAMES];
+++    int ref_sent_next;
+++    int64_t ref_slot[NVENC_REF_LTR];
+++    int ref_slot_next;
+++    int64_t ref_marked_at;
++     int single_slice_intra_refresh;
++     int constrained_encoding;
++     int udu_sei;
++diff --git a/libavcodec/nvenc_h264.c b/libavcodec/nvenc_h264.c
++index 842e4ee..06f360d 100644
++--- a/libavcodec/nvenc_h264.c
+++++ b/libavcodec/nvenc_h264.c
++@@ -202,6 +202,16 @@ static const AVOption options[] = {
++ #ifdef NVENC_HAVE_TIME_CODE
++     { "s12m_tc",      "Use timecode (if available)",        OFFSET(s12m_tc),      AV_OPT_TYPE_BOOL,  { .i64 = 1 }, 0, 1, VE },
++ #endif
+++    { "ref_recovery", "Keep the references needed to repair a receiver's loss without a keyframe",
+++                                                            OFFSET(ref_recovery), AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
+++    { "ref_ltr_ms",   "Interval between two long-term references, in ms",
+++                                                            OFFSET(ref_ltr_ms),   AV_OPT_TYPE_INT,   { .i64 = 250 }, 10, 10000, VE },
+++    { "ref_recover",  "The next frame depends only on frames up to this pts (invalidation, long-term reference or IDR)",
+++                                                            OFFSET(ref_recover),  AV_OPT_TYPE_INT64, { .i64 = AV_NOPTS_VALUE }, INT64_MIN, INT64_MAX, VE | AV_OPT_FLAG_RUNTIME_PARAM },
+++    { "ref_method",   "How the last repair was made: 0 none, 1 invalidation, 2 long-term reference, 3 keyframe",
+++                                                            OFFSET(ref_method),   AV_OPT_TYPE_INT,   { .i64 = 0 }, 0, 3, VE | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY },
+++    { "ref_bound",    "Newest pts the repairing frame may depend on",
+++                                                            OFFSET(ref_bound),    AV_OPT_TYPE_INT64, { .i64 = AV_NOPTS_VALUE }, INT64_MIN, INT64_MAX, VE | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY },
++     { "dpb_size",     "Specifies the DPB size used for encoding (0 means automatic)",
++                                                             OFFSET(dpb_size),     AV_OPT_TYPE_INT,   { .i64 = 0 }, 0, INT_MAX, VE },
++ #ifdef NVENC_HAVE_MULTIPASS
++diff --git a/libavcodec/nvenc_hevc.c b/libavcodec/nvenc_hevc.c
++index 31624f4..09db5b9 100644
++--- a/libavcodec/nvenc_hevc.c
+++++ b/libavcodec/nvenc_hevc.c
++@@ -182,6 +182,16 @@ static const AVOption options[] = {
++ #endif
++     { "a53cc",        "Use A53 Closed Captions (if available)", OFFSET(a53_cc),   AV_OPT_TYPE_BOOL,  { .i64 = 1 }, 0, 1,       VE },
++     { "s12m_tc",      "Use timecode (if available)",        OFFSET(s12m_tc),      AV_OPT_TYPE_BOOL,  { .i64 = 1 }, 0, 1,       VE },
+++    { "ref_recovery", "Keep the references needed to repair a receiver's loss without a keyframe",
+++                                                            OFFSET(ref_recovery), AV_OPT_TYPE_BOOL,  { .i64 = 0 }, 0, 1, VE },
+++    { "ref_ltr_ms",   "Interval between two long-term references, in ms",
+++                                                            OFFSET(ref_ltr_ms),   AV_OPT_TYPE_INT,   { .i64 = 250 }, 10, 10000, VE },
+++    { "ref_recover",  "The next frame depends only on frames up to this pts (invalidation, long-term reference or IDR)",
+++                                                            OFFSET(ref_recover),  AV_OPT_TYPE_INT64, { .i64 = AV_NOPTS_VALUE }, INT64_MIN, INT64_MAX, VE | AV_OPT_FLAG_RUNTIME_PARAM },
+++    { "ref_method",   "How the last repair was made: 0 none, 1 invalidation, 2 long-term reference, 3 keyframe",
+++                                                            OFFSET(ref_method),   AV_OPT_TYPE_INT,   { .i64 = 0 }, 0, 3, VE | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY },
+++    { "ref_bound",    "Newest pts the repairing frame may depend on",
+++                                                            OFFSET(ref_bound),    AV_OPT_TYPE_INT64, { .i64 = AV_NOPTS_VALUE }, INT64_MIN, INT64_MAX, VE | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY },
++     { "dpb_size",     "Specifies the DPB size used for encoding (0 means automatic)",
++                                                             OFFSET(dpb_size),     AV_OPT_TYPE_INT,   { .i64 = 0 }, 0, INT_MAX, VE },
++ #ifdef NVENC_HAVE_MULTIPASS
++diff --git a/libavcodec/videotoolboxenc.c b/libavcodec/videotoolboxenc.c
++index bb53367..bdbb31c 100644
++--- a/libavcodec/videotoolboxenc.c
+++++ b/libavcodec/videotoolboxenc.c
++@@ -236,6 +236,16 @@ typedef struct ExtraSEI {
++   size_t size;
++ } ExtraSEI;
++ 
+++/* KyberNow: repair of a receiver's loss without a keyframe (ref_* options).
+++ * The long-term references remembered, and how a repair was met (same
+++ * values as NVENC's ref_method). */
+++#define VT_REF_TOKENS 16
+++enum {
+++    VT_REF_NONE       = 0,
+++    VT_REF_LONG_TERM  = 2,
+++    VT_REF_KEYFRAME   = 3,
+++};
+++
++ typedef struct BufNode {
++     CMSampleBufferRef cm_buffer;
++     ExtraSEI sei;
++@@ -289,6 +299,24 @@ typedef struct VTEncContext {
++     int has_b_frames;
++     bool warned_color_range;
++ 
+++    /* KyberNow: repair of a receiver's loss without a keyframe. With
+++     * ref_recovery, the session keeps long-term references (EnableLTR) and
+++     * names each one by a token; ref_recover asks that the next frame only
+++     * depend on frames up to that pts: the tokens up to it are acknowledged
+++     * and an LTR refresh asked for, else a keyframe. ref_method and
+++     * ref_bound tell how, and the newest pts the frame may depend on. */
+++    int ref_recovery;
+++    int64_t ref_recover;
+++    int ref_method;
+++    int64_t ref_bound;
+++    int ref_ltr;
+++    struct {
+++        int64_t token;
+++        int64_t pts;
+++        int acked;
+++    } ref_tokens[VT_REF_TOKENS];
+++    int ref_tokens_next;
+++
++     /* can't be bool type since AVOption will access it as int */
++     int a53_cc;
++ 
++@@ -1586,6 +1614,25 @@ static int vtenc_create_encoder(AVCodecContext   *avctx,
++         }
++     }
++ 
+++    /* KyberNow: long-term references for repairs without a keyframe. */
+++    vtctx->ref_ltr = 0;
+++    memset(vtctx->ref_tokens, 0, sizeof(vtctx->ref_tokens));
+++    if (vtctx->ref_recovery) {
+++        if (__builtin_available(macOS 12.0, iOS 15.0, tvOS 15.0, *)) {
+++            status = VTSessionSetProperty(vtctx->session,
+++                                          kVTCompressionPropertyKey_EnableLTR,
+++                                          kCFBooleanTrue);
+++            vtctx->ref_ltr = !status;
+++        } else {
+++            status = kVTPropertyNotSupportedErr;
+++        }
+++        if (status)
+++            av_log(avctx, AV_LOG_WARNING,
+++                   "No long-term references (%d): losses are repaired by keyframes\n", (int)status);
+++        else
+++            av_log(avctx, AV_LOG_VERBOSE, "Repairs without keyframe: long-term references\n");
+++    }
+++
++     if ((avctx->flags & AV_CODEC_FLAG_CLOSED_GOP) != 0) {
++         set_encoder_property_or_log(avctx,
++                                     compat_keys.kVTCompressionPropertyKey_AllowOpenGOP,
++@@ -2234,6 +2281,108 @@ static int get_sei_msg_bytes(const ExtraSEI* sei, int type){
++     return copied_size + sei->size / 255 + 1 + type / 255 + 1;
++ }
++ 
+++/* KyberNow: a keyframe ends every long-term reference before it; a frame the
+++ * session marked as one brings its token. */
+++static void vtenc_ref_after_packet(AVCodecContext *avctx, CMSampleBufferRef buffer,
+++                                   const AVPacket *pkt)
+++{
+++    VTEncContext *vtctx = avctx->priv_data;
+++    CFArrayRef attachments;
+++    CFNumberRef number = NULL;
+++    int64_t token = 0;
+++    int i;
+++
+++    if (pkt->flags & AV_PKT_FLAG_KEY)
+++        for (i = 0; i < VT_REF_TOKENS; i++)
+++            if (vtctx->ref_tokens[i].token && vtctx->ref_tokens[i].pts < pkt->pts)
+++                vtctx->ref_tokens[i].token = 0;
+++
+++    if (__builtin_available(macOS 12.0, iOS 15.0, tvOS 15.0, *)) {
+++        attachments = CMSampleBufferGetSampleAttachmentsArray(buffer, false);
+++        if (attachments && CFArrayGetCount(attachments) > 0 &&
+++            CFDictionaryGetValueIfPresent(CFArrayGetValueAtIndex(attachments, 0),
+++                                          kVTSampleAttachmentKey_RequireLTRAcknowledgementToken,
+++                                          (const void **)&number) &&
+++            number && CFNumberGetValue(number, kCFNumberSInt64Type, &token) && token) {
+++            i = vtctx->ref_tokens_next;
+++            vtctx->ref_tokens[i].token = token;
+++            vtctx->ref_tokens[i].pts = pkt->pts;
+++            vtctx->ref_tokens[i].acked = 0;
+++            vtctx->ref_tokens_next = (i + 1) % VT_REF_TOKENS;
+++        }
+++    }
+++}
+++
+++/* KyberNow: the repair asked for (ref_recover), for the frame about to be
+++ * encoded. The session chooses among the acknowledged long-term references:
+++ * every one must be at most the pts asked for, the last frame the receiver
+++ * decoded. The ones up to it are acknowledged and an LTR refresh asked for;
+++ * otherwise (none, or an older acknowledgement past the bound), a keyframe.
+++ * Returns the acknowledgements to give with the frame (or NULL). */
+++static CFArrayRef vtenc_ref_before_frame(AVCodecContext *avctx, int *force_key, int *refresh)
+++{
+++    VTEncContext *vtctx = avctx->priv_data;
+++    int64_t bound = vtctx->ref_recover;
+++    int64_t newest = AV_NOPTS_VALUE;
+++    CFMutableArrayRef acks = NULL;
+++    int i;
+++
+++    *refresh = 0;
+++    vtctx->ref_recover = AV_NOPTS_VALUE;
+++    if (!vtctx->ref_recovery || bound == AV_NOPTS_VALUE)
+++        return NULL;
+++
+++    vtctx->ref_method = VT_REF_KEYFRAME;
+++    vtctx->ref_bound = AV_NOPTS_VALUE;
+++    if (*force_key || !vtctx->ref_ltr) {
+++        *force_key = 1;
+++        return NULL;
+++    }
+++    for (i = 0; i < VT_REF_TOKENS; i++) {
+++        if (!vtctx->ref_tokens[i].token)
+++            continue;
+++        if (vtctx->ref_tokens[i].acked && vtctx->ref_tokens[i].pts > bound) {
+++            *force_key = 1;
+++            return NULL;
+++        }
+++        if (vtctx->ref_tokens[i].pts <= bound &&
+++            (newest == AV_NOPTS_VALUE || vtctx->ref_tokens[i].pts > newest))
+++            newest = vtctx->ref_tokens[i].pts;
+++    }
+++    if (newest == AV_NOPTS_VALUE) {
+++        *force_key = 1;
+++        return NULL;
+++    }
+++
+++    acks = CFArrayCreateMutable(kCFAllocatorDefault, VT_REF_TOKENS, &kCFTypeArrayCallBacks);
+++    if (!acks) {
+++        *force_key = 1;
+++        return NULL;
+++    }
+++    for (i = 0; i < VT_REF_TOKENS; i++) {
+++        CFNumberRef number;
+++        if (!vtctx->ref_tokens[i].token)
+++            continue;
+++        if (vtctx->ref_tokens[i].pts > bound) {
+++            /* Past the bound: never a reference again. */
+++            vtctx->ref_tokens[i].token = 0;
+++            continue;
+++        }
+++        if (vtctx->ref_tokens[i].acked)
+++            continue;
+++        number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &vtctx->ref_tokens[i].token);
+++        if (number) {
+++            CFArrayAppendValue(acks, number);
+++            CFRelease(number);
+++            vtctx->ref_tokens[i].acked = 1;
+++        }
+++    }
+++    vtctx->ref_method = VT_REF_LONG_TERM;
+++    vtctx->ref_bound = newest;
+++    *refresh = 1;
+++    return acks;
+++}
+++
++ static int vtenc_cm_to_avpacket(
++     AVCodecContext    *avctx,
++     CMSampleBufferRef sample_buffer,
++@@ -2357,6 +2506,9 @@ static int vtenc_cm_to_avpacket(
++     pkt->pts = pts.value / time_base_num;
++     pkt->dts = dts.value / time_base_num - dts_delta;
++ 
+++    if (vtctx->ref_ltr)
+++        vtenc_ref_after_packet(avctx, sample_buffer, pkt);
+++
++     return 0;
++ }
++ 
++@@ -2485,16 +2637,39 @@ static int create_cv_pixel_buffer(AVCodecContext   *avctx,
++     return 0;
++ }
++ 
++-static int create_encoder_dict_h264(const AVFrame *frame,
+++static int create_encoder_dict_h264(AVCodecContext *avctx,
+++                                    const AVFrame *frame,
++                                     CFDictionaryRef* dict_out)
++ {
++     CFDictionaryRef dict = NULL;
++-    if (frame->pict_type == AV_PICTURE_TYPE_I) {
++-        const void *keys[] = { kVTEncodeFrameOptionKey_ForceKeyFrame };
++-        const void *vals[] = { kCFBooleanTrue };
++-
++-        dict = CFDictionaryCreate(NULL, keys, vals, 1, NULL, NULL);
+++    const void *keys[3];
+++    const void *vals[3];
+++    int n = 0, force_key = frame->pict_type == AV_PICTURE_TYPE_I, refresh = 0;
+++    /* KyberNow: a repair asked for (long-term reference, else keyframe). */
+++    CFArrayRef acks = vtenc_ref_before_frame(avctx, &force_key, &refresh);
+++
+++    if (force_key) {
+++        keys[n] = kVTEncodeFrameOptionKey_ForceKeyFrame;
+++        vals[n++] = kCFBooleanTrue;
+++    }
+++    if (__builtin_available(macOS 12.0, iOS 15.0, tvOS 15.0, *)) {
+++        if (refresh) {
+++            keys[n] = kVTEncodeFrameOptionKey_ForceLTRRefresh;
+++            vals[n++] = kCFBooleanTrue;
+++        }
+++        if (acks && CFArrayGetCount(acks) > 0) {
+++            keys[n] = kVTEncodeFrameOptionKey_AcknowledgedLTRTokens;
+++            vals[n++] = acks;
+++        }
+++    }
+++    if (n) {
+++        dict = CFDictionaryCreate(NULL, keys, vals, n, &kCFTypeDictionaryKeyCallBacks,
+++                                  &kCFTypeDictionaryValueCallBacks);
+++        if (acks)
+++            CFRelease(acks);
++         if(!dict) return AVERROR(ENOMEM);
+++    } else if (acks) {
+++        CFRelease(acks);
++     }
++ 
++     *dict_out = dict;
++@@ -2523,7 +2698,7 @@ static int vtenc_send_frame(AVCodecContext *avctx,
++     if (status)
++         goto out;
++ 
++-    status = create_encoder_dict_h264(frame, &frame_dict);
+++    status = create_encoder_dict_h264(avctx, frame, &frame_dict);
++     if (status)
++         goto out;
++ 
++@@ -2890,7 +3065,15 @@ static const enum AVPixelFormat prores_pix_fmts[] = {
++         OFFSET(spatialaq), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 1, VE }, \
++     { "max_ref_frames", \
++         "Sets the maximum number of reference frames. This only has an effect when the value is less than the maximum allowed by the profile/level.", \
++-        OFFSET(max_ref_frames), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
+++        OFFSET(max_ref_frames), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE }, \
+++    { "ref_recovery", "Keep long-term references to repair a receiver's loss without a keyframe", \
+++        OFFSET(ref_recovery), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE }, \
+++    { "ref_recover", "The next frame depends only on frames up to this pts (long-term reference or keyframe)", \
+++        OFFSET(ref_recover), AV_OPT_TYPE_INT64, { .i64 = AV_NOPTS_VALUE }, INT64_MIN, INT64_MAX, VE | AV_OPT_FLAG_RUNTIME_PARAM }, \
+++    { "ref_method", "How the last repair was made: 0 none, 2 long-term reference, 3 keyframe", \
+++        OFFSET(ref_method), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 3, VE | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY }, \
+++    { "ref_bound", "Newest pts the repairing frame may depend on", \
+++        OFFSET(ref_bound), AV_OPT_TYPE_INT64, { .i64 = AV_NOPTS_VALUE }, INT64_MIN, INT64_MAX, VE | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY },
++ 
++ static const AVCodecHWConfigInternal *const vt_encode_hw_configs[] = {
++         HW_CONFIG_ENCODER_FRAMES(VIDEOTOOLBOX, VIDEOTOOLBOX),

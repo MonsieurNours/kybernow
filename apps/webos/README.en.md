@@ -147,6 +147,7 @@ Contract: [docs/link-ui.md](../../docs/link-ui.md), “Statistics”, “In sess
 On an LG TV, the picture is decoded and shown by the TV itself (NDL), which says neither when it decoded nor when it shows. The two steps therefore cover:
 
 - **Decoding**: from the full frame received to the frame accepted by NDL, that is the hand-over to the picture thread and the `NDL_DirectVideoPlay` call. The decompression itself, in the TV's chip, is not included.
+- **Recovery after a loss** ([docs/reprise-apres-perte.en.md](../../docs/reprise-apres-perte.en.md)): a lost picture (seen by the core at the skipped number) puts the decoder on hold; it resumes on the Station's repairing picture without being rebuilt, otherwise on a keyframe. Written and compiled, not yet tried against a Station.
 - **Display**: an estimate, one panel period for the frame and one per frame waiting in NDL's queue (`NDL_DirectVideoGetRenderBufferLength`, read after each frame). Decompression and waiting for the refresh are included. The TV's own picture processing (outside Game Optimizer) is not.
 
 One more frame held by the TV therefore shows in “Display” (8.3 ms at 120 Hz); the queue summary every 5 s (next section) confirms it.

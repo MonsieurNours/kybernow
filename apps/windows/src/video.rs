@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::i18n::Lang;
 use kybernow_core::latency::{LatencyTracker, now_micros};
-use kybernow_core::media::{FOURCC_AV1, FOURCC_PYROWAVE, Packet, PacketHandler};
+use kybernow_core::media::{FOURCC_AV1, FOURCC_PYROWAVE, Packet, PacketHandler, ResumeGate};
 use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, codec_name, is_corrupt};
@@ -34,10 +34,12 @@ pub enum VideoMsg {
     Codec(u32),
     Config(Vec<u8>),
     /// `received` : l'image complète vient d'arriver (µs, [`now_micros`]).
-    Frame { data: Vec<u8>, pts: u64, key: bool, received: i64 },
-    /// Console PlayStation : une image perdue que la console n'a pas réparée
-    /// (le décodeur attend une image clé au lieu de décoder des images aux
-    /// références perdues).
+    /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
+    Frame { data: Vec<u8>, pts: u64, key: bool, received: i64, resume: Option<u64> },
+    /// Une image perdue en route (console PlayStation qui ne l'a pas
+    /// réparée, ou numéro d'image sauté sur l'image de la Station) : le
+    /// décodeur attend une image clé ou une image de reprise au lieu de
+    /// décoder des images aux références perdues.
     Lost,
     /// La fenêtre a changé de taille : le fil se réveille pour redessiner
     /// l'image en place tout de suite (bureau immobile, aucune image ne vient).
@@ -207,6 +209,25 @@ impl Shared {
             s.request_keyframe();
         }
     }
+
+    /// Une image perdue sur l'image de la Station : le cœur demande la
+    /// reprise sans image clé, puis une image clé si rien ne vient.
+    fn image_lost(&self) {
+        if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
+            s.keyframe_lost();
+        }
+    }
+
+    /// Le décodeur a repris (image clé ou image de reprise).
+    fn image_recovered(&self) {
+        if let Some(c) = self.link.console.get() {
+            (c.recovered)();
+            return;
+        }
+        if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
+            s.keyframe_recovered();
+        }
+    }
 }
 
 pub struct VideoHandler {
@@ -217,8 +238,6 @@ pub struct VideoHandler {
     pending: AtomicUsize,
     /// Arrêt demandé (le message d'arrêt peut être refusé par une file pleine).
     stopped: AtomicBool,
-    /// Partie sur console : les pertes comptent (`Packet::Hole`).
-    console: bool,
 }
 
 impl PacketHandler for VideoHandler {
@@ -226,15 +245,16 @@ impl PacketHandler for VideoHandler {
         let msg = match p {
             Packet::Codec { codec } => VideoMsg::Codec(codec),
             Packet::Media { is_config: true, data, .. } => VideoMsg::Config(data.to_vec()),
-            Packet::Media { is_key, pts, data, .. } => VideoMsg::Frame {
+            Packet::Media { is_key, pts, data, resume, .. } => VideoMsg::Frame {
                 data: data.to_vec(),
                 pts,
                 key: is_key,
                 received: now_micros(),
+                resume,
             },
-            // Une perte n'a de sens que pour une console (Kyber n'en envoie pas pour l'image).
-            Packet::Hole { .. } if self.console => VideoMsg::Lost,
-            Packet::Hole { .. } => return,
+            // Une perte : d'une console, ou vue par le cœur aux numéros des
+            // images de la Station (Kyber ne le dit pas lui-même).
+            Packet::Hole { .. } => VideoMsg::Lost,
         };
         match msg {
             // Début de flux et paramètres : jamais perdus (rares, et sans eux
@@ -341,7 +361,7 @@ impl LateFeed {
             target.packet(Packet::Codec { codec });
         }
         if let Some(data) = st.config.take() {
-            target.packet(Packet::Media { is_config: true, is_key: false, pts: 0, data: &data });
+            target.packet(Packet::Media { is_config: true, is_key: false, pts: 0, data: &data, resume: None });
         }
         st.target = Some(target);
     }
@@ -365,7 +385,6 @@ pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<Gpu>, opts: VideoOptions,
         overflow: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
         stopped: AtomicBool::new(false),
-        console: shared.link.console.get().is_some(),
     });
     let h = handler.clone();
     let thread = std::thread::Builder::new()
@@ -399,6 +418,8 @@ fn run(
     let mut config: Vec<u8> = Vec::new();
     let mut send_config = false;
     let mut waiting_key = true;
+    // Ce que le décodeur a reçu : reprise sans image clé possible.
+    let mut gate = ResumeGate::default();
     let mut hw_allowed = opts.hardware;
     let mut unsupported_logged = false;
     let mut last_request = Instant::now() - Duration::from_secs(1);
@@ -475,7 +496,9 @@ fn run(
                 // Comme sur Mac : une image clé se demande après une perte,
                 // pas avant les premières données (l'encodeur commence par
                 // une image clé ; le harceler pendant qu'il démarre le bloque).
-                if waiting_key && seen_frame {
+                // Décodeur intact après une perte : le cœur a demandé la
+                // reprise et redemande lui-même une image clé.
+                if waiting_key && seen_frame && !gate.intact() {
                     keyframe(&shared, false);
                 }
                 continue;
@@ -488,10 +511,15 @@ fn run(
             VideoMsg::Resized => {}
             VideoMsg::Lost => {
                 if !waiting_key {
-                    log::info!("image : perte non réparée, attente d'une image clé");
+                    log::info!("image : perte non réparée, attente d'une image clé ou d'une reprise");
                 }
+                let first = !waiting_key;
                 waiting_key = true;
-                keyframe(&shared, true);
+                if shared.link.console.get().is_some() {
+                    keyframe(&shared, true);
+                } else if first {
+                    shared.image_lost();
+                }
             }
             VideoMsg::Codec(c) => {
                 codec_announced = true;
@@ -502,6 +530,7 @@ fn run(
                 // Début d'un flux : décodeur neuf.
                 fourcc = c;
                 decoder.take();
+                gate.reset();
                 pyro.take();
                 if c == FOURCC_PYROWAVE {
                     // Le paquet de configuration suit ; celui d'avant ne vaut plus.
@@ -528,7 +557,7 @@ fn run(
                 config = if fourcc == FOURCC_AV1 && d.len() > 4 && d[0] == 0x81 { d[4..].to_vec() } else { d };
                 send_config = true;
             }
-            VideoMsg::Frame { data, pts, key, received } => {
+            VideoMsg::Frame { data, pts, key, received, resume } => {
                 if arrivals.len() >= 32 {
                     arrivals.pop_front();
                 }
@@ -559,6 +588,7 @@ fn run(
                     fourcc = wanted;
                     // PyroWave n'est pas pour FFmpeg : son décodeur s'ouvre plus bas.
                     decoder = if fourcc == FOURCC_PYROWAVE { None } else { open(fourcc, hw_allowed, &shared) };
+                    gate.reset();
                     send_config = true;
                     waiting_key = true;
                 }
@@ -621,19 +651,25 @@ fn run(
                 if handler.overflow.swap(false, Ordering::Relaxed) {
                     log::warn!("image : file pleine, reprise sur une image clé");
                     waiting_key = true;
+                    gate.reset();
                 }
-                if waiting_key && !key {
-                    keyframe(&shared, false);
+                // Après une perte : une image clé, ou une image de reprise qui
+                // ne dépend que d'images que ce décodeur a déjà (il n'est pas
+                // refait). Décodeur intact : le cœur redemande lui-même.
+                let resuming = waiting_key && !key && decoder.is_some() && gate.resumes(resume);
+                if waiting_key && !key && !resuming {
+                    if !gate.intact() {
+                        keyframe(&shared, false);
+                    }
                     continue;
                 }
-                if key {
-                    if waiting_key {
-                        if let Some(c) = shared.link.console.get() {
-                            (c.recovered)();
-                        }
+                if waiting_key {
+                    if resuming {
+                        log::info!("image : reprise sans image clé");
                     }
-                    waiting_key = false;
+                    shared.image_recovered();
                 }
+                waiting_key = false;
                 let Some(dec) = decoder.as_mut() else {
                     dropped += 1;
                     if dropped == 1 || dropped % 600 == 0 {
@@ -652,9 +688,11 @@ fn run(
                 if let Err(e) = sent {
                     log::warn!("décodage : {}", decoder::error_text(e));
                     waiting_key = true;
+                    gate.reset();
                     keyframe(&shared, true);
                     continue;
                 }
+                gate.fed(pts);
                 let mut fallback = false;
                 while let Some(r) = dec.receive() {
                     match r {
@@ -686,6 +724,7 @@ fn run(
                         Err(e) => {
                             log::warn!("décodage : {}", decoder::error_text(e));
                             waiting_key = true;
+                            gate.reset();
                             keyframe(&shared, true);
                             break;
                         }
@@ -696,6 +735,7 @@ fn run(
                     log::warn!("décodage par le processeur à la place de la carte graphique");
                     hw_allowed = false;
                     decoder = open(fourcc, false, &shared);
+                    gate.reset();
                     send_config = true;
                     waiting_key = true;
                     keyframe(&shared, true);

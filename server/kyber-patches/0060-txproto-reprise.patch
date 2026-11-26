@@ -1,0 +1,430 @@
+diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
+--- a/subprojects/txproto/src/encode.c
++++ b/subprojects/txproto/src/encode.c
+@@ -32,6 +32,7 @@
+ #include "kn_hdr_meta.h"
+ #define KN_TIMING_ENCODER
+ #include "kn_timing.h"
++#include "kn_recovery.h"
+ #include "os_compat.h"
+ #include <libtxproto/utils.h>
+ #include "utils.h"
+@@ -591,6 +592,7 @@ static int recreate_encoder(EncodingContext *ctx, AVFrame *conf)
+     int ret;
+ 
+     sp_log(ctx, SP_LOG_INFO, "Recreate encoder\n");
++    kn_recovery_reset(ctx->kn_recovery); /* KyberNow (0060) */
+ 
+     /* Delete encoder */
+     if (ctx->enc_frames_ref)
+@@ -704,6 +706,14 @@ static void *encoding_thread(void *arg)
+                 out_pkt = av_packet_alloc();
+ 
+                 int clear_forced_idr = 0;
++                /* KyberNow (0060): a loss to repair, without a keyframe when
++                 * the encoder can (kn_recovery.h), else as force_idr. */
++                int kn_repair = 0;
++                if (frame && ctx->codec->type == AVMEDIA_TYPE_VIDEO) {
++                    kn_repair = kn_recovery_before_frame(ctx->kn_recovery, ctx->avctx, frame);
++                    if (kn_repair < 0)
++                        atomic_store(&ctx->force_idr, 1);
++                }
+                 if (frame && atomic_load(&ctx->force_idr)) {
+                     /* Force the next frame to be an IDR. The option name differs
+                      * across encoders: nvenc and x264 expose "forced-idr" (dash),
+@@ -739,6 +749,15 @@ static void *encoding_thread(void *arg)
+                     goto fail;
+                 }
+ 
++                if (kn_repair > 0) {
++                    int method = kn_recovery_after_send(ctx->kn_recovery, ctx->avctx);
++                    sp_log(ctx, SP_LOG_INFO, "Loss repaired by %s\n",
++                           method == KN_RECOVERY_INVALIDATION ? "invalidation" :
++                           method == KN_RECOVERY_LONG_TERM ? "a long-term reference" : "a keyframe");
++                } else if (kn_repair < 0) {
++                    sp_log(ctx, SP_LOG_INFO, "Loss repaired by a keyframe\n");
++                }
++
+                 if (clear_forced_idr) {
+                     /* Restore the default so subsequent frames are not also
+                      * promoted to IDR. */
+@@ -795,6 +814,15 @@ static void *encoding_thread(void *arg)
+                 goto fail;
+             }
+ 
++            /* KyberNow (0060): its number, and the loss it repairs (kn_recovery.h). */
++            if (ctx->codec->type == AVMEDIA_TYPE_VIDEO) {
++                ret = kn_recovery_packet(ctx->kn_recovery, ctx->avctx, out_pkt);
++                if (ret < 0) {
++                    pthread_mutex_unlock(&ctx->lock);
++                    goto fail;
++                }
++            }
++
+             /* KyberNow (0023): the steps of the image, a line every 5 s. */
+             if (ctx->codec->type == AVMEDIA_TYPE_VIDEO) {
+                 char kn_line[512];
+@@ -903,6 +931,17 @@ static int encoder_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
+ 
+             sp_log(ctx, SP_LOG_INFO, "Change bitrate to %d\n", bitrate);
+             ctx->avctx->bit_rate = bitrate;
++        } else if (!strcmp(command, "recover")) {
++            /* KyberNow (0060): a receiver decoded up to last_pts. */
++            const char *pts_str = dict_get(event->cmd, "last_pts");
++            char *end = NULL;
++            long long last_pts = pts_str ? strtoll(pts_str, &end, 10) : -1;
++            if (!pts_str || end == pts_str || last_pts < 0) {
++                sp_log(ctx, SP_LOG_ERROR, "Invalid recovery \"%s\"!\n", pts_str ? pts_str : "");
++                return AVERROR(EINVAL);
++            }
++            sp_log(ctx, SP_LOG_VERBOSE, "Repair asked for, up to %lld\n", last_pts);
++            kn_recovery_request(ctx->kn_recovery, last_pts);
+         } else if (!strcmp(command, "force_idr")) {
+             sp_log(ctx, SP_LOG_INFO, "Force IDR\n");
+             atomic_store(&ctx->force_idr, 1);
+@@ -991,6 +1030,7 @@ static void encoder_free(void *opaque, uint8_t *data)
+ 
+     avcodec_free_context(&ctx->avctx);
+     kn_timing_free(&ctx->kn_timing); /* KyberNow (0023) */
++    kn_recovery_free(&ctx->kn_recovery); /* KyberNow (0060) */
+ 
+     pthread_mutex_destroy(&ctx->lock);
+ 
+@@ -1023,6 +1063,7 @@ AVBufferRef *sp_encoder_alloc(void)
+     ctx->swr = swr_alloc();
+     ctx->soft_flush = ATOMIC_VAR_INIT(0);
+     ctx->force_idr = ATOMIC_VAR_INIT(0);
++    ctx->kn_recovery = kn_recovery_new(); /* KyberNow (0060) */
+ 
+     ctx->src_frames = sp_frame_fifo_create(ctx, 8, FRAME_FIFO_BLOCK_NO_INPUT);
+     ctx->dst_packets = sp_packet_fifo_create(ctx, 0, 0);
+diff --git a/subprojects/txproto/src/include/libtxproto/encode.h b/subprojects/txproto/src/include/libtxproto/encode.h
+--- a/subprojects/txproto/src/include/libtxproto/encode.h
++++ b/subprojects/txproto/src/include/libtxproto/encode.h
+@@ -89,6 +89,9 @@ typedef struct EncodingContext {
+ 
+     /* KyberNow (0023): time of each step, logged every 5 s (kn_timing.h) */
+     struct KnTimingStats *kn_timing;
++
++    /* KyberNow (0060): repair of a loss without a keyframe (kn_recovery.h) */
++    struct KnRecovery *kn_recovery;
+ } EncodingContext;
+ 
+ AVBufferRef *sp_encoder_alloc(void);
+diff --git a/subprojects/txproto/src/include/libtxproto/txproto.h b/subprojects/txproto/src/include/libtxproto/txproto.h
+--- a/subprojects/txproto/src/include/libtxproto/txproto.h
++++ b/subprojects/txproto/src/include/libtxproto/txproto.h
+@@ -77,6 +77,11 @@ int tx_encoder_set_bitrate(TXMainContext *ctx, AVBufferRef *encoder, int bitrate
+ 
+ int tx_encoder_force_idr(TXMainContext *ctx, AVBufferRef *encoder);
+ 
++/* KyberNow (0060): a receiver decoded up to last_pts (the pts of its last
++ * image); the next image depends on nothing newer, without a keyframe when
++ * the encoder can (src/kn_recovery.h). */
++int tx_encoder_recover(TXMainContext *ctx, AVBufferRef *encoder, int64_t last_pts);
++
+ AVBufferRef *tx_muxer_create(TXMainContext *ctx, const char *out_url,
+                              const char *out_format, AVDictionary *options,
+                              AVDictionary *init_opts);
+diff --git a/subprojects/txproto/src/kn_recovery.h b/subprojects/txproto/src/kn_recovery.h
+new file mode 100644
+--- /dev/null
++++ b/subprojects/txproto/src/kn_recovery.h
+@@ -0,0 +1,249 @@
++/*
++ * KyberNow (0060): repair of a receiver's loss without a keyframe
++ * (docs/reprise-apres-perte.md).
++ *
++ * A receiver that lost part of an image names the last image it decoded
++ * (command "recover", last_pts: the pts of its kymux packet, which is the
++ * encoder's pts). The next image must then depend only on images up to that
++ * one. With HEVC, an encoder opened with ref_recovery (FFmpeg patch
++ * 0060-avcodec-reprise-sans-image-cle: NVENC, VideoToolbox) does it without
++ * a keyframe: invalidation of the newer images, or prediction from a
++ * long-term reference. Anything else gets a keyframe, as force_idr.
++ *
++ * The receiver must know that it lost an image, and which image repairs the
++ * loss, without guessing (kymux tells the application nothing of a lost
++ * image). Every HEVC and H.264 image carries a SEI (user data unregistered,
++ * UUID "KyberNow:reprise", about 30 bytes): its number, 4 bytes big-endian,
++ * one more for each image out of this encoder (a gap is a loss); then, on
++ * the image that repairs a loss, the newest pts it may depend on, 8 bytes
++ * big-endian. A decoder that does not know it ignores it. A receiver that
++ * decoded up to that pts resumes on it; another one waits, and asks again.
++ *
++ * Several requests before the next image: the oldest pts wins (it repairs
++ * every receiver of a shared image).
++ */
++
++#ifndef KN_RECOVERY_H
++#define KN_RECOVERY_H
++
++#include <pthread.h>
++#include <stdint.h>
++#include <string.h>
++
++#include <libavcodec/avcodec.h>
++#include <libavutil/mem.h>
++#include <libavutil/opt.h>
++
++#define KN_RECOVERY_SEI_UUID "KyberNow:reprise"
++
++/* Same values as the encoders' ref_method. */
++enum {
++    KN_RECOVERY_NONE         = 0,
++    KN_RECOVERY_INVALIDATION = 1,
++    KN_RECOVERY_LONG_TERM    = 2,
++    KN_RECOVERY_KEYFRAME     = 3,
++};
++
++typedef struct KnRecovery {
++    pthread_mutex_t lock;
++    /* Asked for by "recover", not yet given to the encoder (under lock). */
++    int64_t pending;
++    /* Encoding thread only: the image the encoder was asked to repair with,
++     * then the image that repairs and its bound, until its packet. */
++    int64_t asked_pts;
++    int64_t asked_bound;
++    int64_t frame_pts;
++    int64_t frame_bound;
++    /* Number of the next image out of this encoder. */
++    uint32_t number;
++} KnRecovery;
++
++static inline KnRecovery *kn_recovery_new(void)
++{
++    KnRecovery *r = av_mallocz(sizeof(*r));
++    if (!r)
++        return NULL;
++    pthread_mutex_init(&r->lock, NULL);
++    r->pending = AV_NOPTS_VALUE;
++    r->asked_pts = AV_NOPTS_VALUE;
++    r->frame_pts = AV_NOPTS_VALUE;
++    return r;
++}
++
++static inline void kn_recovery_free(KnRecovery **r)
++{
++    if (!*r)
++        return;
++    pthread_mutex_destroy(&(*r)->lock);
++    av_freep(r);
++}
++
++/* A new encoder keeps none of the old one's references: what was waiting
++ * for its packet is forgotten (a request still pending stays). */
++static inline void kn_recovery_reset(KnRecovery *r)
++{
++    if (!r)
++        return;
++    r->asked_pts = AV_NOPTS_VALUE;
++    r->frame_pts = AV_NOPTS_VALUE;
++    r->number = 0;
++}
++
++/* "recover" (control thread). */
++static inline void kn_recovery_request(KnRecovery *r, int64_t last_pts)
++{
++    if (!r)
++        return;
++    pthread_mutex_lock(&r->lock);
++    if (r->pending == AV_NOPTS_VALUE || last_pts < r->pending)
++        r->pending = last_pts;
++    pthread_mutex_unlock(&r->lock);
++}
++
++/* Whether this encoder repairs without a keyframe: HEVC (H.264 decoders do
++ * not all take the frame_num gap of the images skipped), opened with
++ * ref_recovery (NVENC turns it off when the card can do neither). */
++static inline int kn_recovery_capable(AVCodecContext *avctx)
++{
++    int64_t on = 0;
++    if (!avctx || avctx->codec_id != AV_CODEC_ID_HEVC || !avctx->priv_data)
++        return 0;
++    if (!av_opt_find(avctx->priv_data, "ref_recover", NULL, 0, 0))
++        return 0;
++    return av_opt_get_int(avctx->priv_data, "ref_recovery", 0, &on) >= 0 && on;
++}
++
++/* Before an image goes to the encoder: 0 when nothing is asked for, 1 when
++ * the encoder was asked to repair with it, -1 when it must be a keyframe
++ * (the caller forces an IDR). */
++static inline int kn_recovery_before_frame(KnRecovery *r, AVCodecContext *avctx,
++                                           const AVFrame *frame)
++{
++    int64_t bound;
++
++    if (!r || !frame)
++        return 0;
++    pthread_mutex_lock(&r->lock);
++    bound = r->pending;
++    r->pending = AV_NOPTS_VALUE;
++    pthread_mutex_unlock(&r->lock);
++    if (bound == AV_NOPTS_VALUE)
++        return 0;
++
++    if (!kn_recovery_capable(avctx) || frame->pts == AV_NOPTS_VALUE ||
++        av_opt_set_int(avctx->priv_data, "ref_recover", bound, 0) < 0)
++        return -1;
++    r->asked_pts = frame->pts;
++    r->asked_bound = bound;
++    return 1;
++}
++
++/* After the image went in: how the encoder met the request. Returns the
++ * method (KN_RECOVERY_*), KN_RECOVERY_NONE when nothing was asked for. */
++static inline int kn_recovery_after_send(KnRecovery *r, AVCodecContext *avctx)
++{
++    int64_t method = KN_RECOVERY_KEYFRAME, bound = AV_NOPTS_VALUE;
++
++    if (!r || r->asked_pts == AV_NOPTS_VALUE)
++        return KN_RECOVERY_NONE;
++    av_opt_get_int(avctx->priv_data, "ref_method", 0, &method);
++    av_opt_get_int(avctx->priv_data, "ref_bound", 0, &bound);
++    if ((method == KN_RECOVERY_INVALIDATION || method == KN_RECOVERY_LONG_TERM) &&
++        bound != AV_NOPTS_VALUE && bound <= r->asked_bound) {
++        r->frame_pts = r->asked_pts;
++        r->frame_bound = bound;
++    } else {
++        method = KN_RECOVERY_KEYFRAME;
++    }
++    r->asked_pts = AV_NOPTS_VALUE;
++    return (int)method;
++}
++
++/* RBSP to NAL payload: an emulation prevention byte after two zeros
++ * followed by 0 to 3. `out` holds twice the input at least. */
++static inline size_t kn_recovery_escape(const uint8_t *in, size_t len, uint8_t *out)
++{
++    size_t o = 0;
++    int zeros = 0;
++    for (size_t i = 0; i < len; i++) {
++        if (zeros >= 2 && in[i] <= 3) {
++            out[o++] = 3;
++            zeros = 0;
++        }
++        out[o++] = in[i];
++        zeros = in[i] ? 0 : zeros + 1;
++    }
++    return o;
++}
++
++/* Offset of the start code of the first slice of an Annex B access unit
++ * (HEVC: NAL types 0 to 31; H.264: 1 to 5), or -1. */
++static inline int kn_recovery_first_slice(const uint8_t *data, int size, int hevc)
++{
++    for (int i = 0; i + 3 < size; i++) {
++        if (data[i] || data[i + 1] || data[i + 2] != 1)
++            continue;
++        int slice = hevc ? ((data[i + 3] >> 1) & 0x3f) < 32
++                         : (data[i + 3] & 0x1f) >= 1 && (data[i + 3] & 0x1f) <= 5;
++        if (slice)
++            return i > 0 && !data[i - 1] ? i - 1 : i;
++        i += 2;
++    }
++    return -1;
++}
++
++/* A packet out of the encoder: its number, and the bound of the image that
++ * repairs a loss (a keyframe needs none), in a SEI in front of its first
++ * slice. HEVC and H.264 only. */
++static inline int kn_recovery_packet(KnRecovery *r, AVCodecContext *avctx, AVPacket *pkt)
++{
++    uint8_t rbsp[2 + 16 + 4 + 8 + 1], nal[4 + 2 + 2 * sizeof(rbsp)];
++    size_t len, n = 0, hdr;
++    int at, ret, hevc, repair = 0;
++
++    if (!r || !avctx || (avctx->codec_id != AV_CODEC_ID_HEVC && avctx->codec_id != AV_CODEC_ID_H264))
++        return 0;
++    hevc = avctx->codec_id == AV_CODEC_ID_HEVC;
++    if (r->frame_pts != AV_NOPTS_VALUE && pkt->pts == r->frame_pts) {
++        r->frame_pts = AV_NOPTS_VALUE;
++        repair = !(pkt->flags & AV_PKT_FLAG_KEY);
++    }
++    at = kn_recovery_first_slice(pkt->data, pkt->size, hevc);
++    if (at < 0)
++        return 0;
++
++    /* sei_message: user_data_unregistered (5), then the trailing bits of
++     * the RBSP. */
++    rbsp[n++] = 5;
++    rbsp[n++] = 16 + 4 + (repair ? 8 : 0);
++    memcpy(rbsp + n, KN_RECOVERY_SEI_UUID, 16);
++    n += 16;
++    for (int i = 0; i < 4; i++)
++        rbsp[n++] = (uint8_t)(r->number >> (24 - 8 * i));
++    if (repair)
++        for (int i = 0; i < 8; i++)
++            rbsp[n++] = (uint8_t)((uint64_t)r->frame_bound >> (56 - 8 * i));
++    rbsp[n++] = 0x80;
++    r->number++;
++
++    nal[0] = 0; nal[1] = 0; nal[2] = 0; nal[3] = 1;
++    if (hevc) {
++        nal[4] = 39 << 1; /* PREFIX_SEI_NUT, layer 0 */
++        nal[5] = 1;       /* temporal id 0 */
++        hdr = 6;
++    } else {
++        nal[4] = 6;       /* SEI */
++        hdr = 5;
++    }
++    len = hdr + kn_recovery_escape(rbsp, n, nal + hdr);
++
++    int old = pkt->size;
++    ret = av_grow_packet(pkt, (int)len);
++    if (ret < 0)
++        return ret;
++    memmove(pkt->data + at + len, pkt->data + at, old - at);
++    memcpy(pkt->data + at, nal, len);
++    return 1;
++}
++
++#endif /* KN_RECOVERY_H */
+diff --git a/subprojects/txproto/src/txproto.c b/subprojects/txproto/src/txproto.c
+--- a/subprojects/txproto/src/txproto.c
++++ b/subprojects/txproto/src/txproto.c
+@@ -355,6 +355,44 @@ int tx_encoder_force_idr(TXMainContext *ctx, AVBufferRef *encoder)
+     return 0;
+ }
+ 
++/* KyberNow (0060) */
++int tx_encoder_recover(TXMainContext *ctx, AVBufferRef *encoder, int64_t last_pts)
++{
++    AVDictionary *commands = NULL;
++    int err = 0;
++
++    err = av_dict_set(&commands, "command", "recover", 0);
++    if (err < 0) {
++        sp_log(ctx, SP_LOG_ERROR, "av_dict_set() failed: %s!", av_err2str(err));
++        return err;
++    }
++
++    err = av_dict_set_int(&commands, "last_pts", last_pts, 0);
++    if (err < 0) {
++        sp_log(ctx, SP_LOG_ERROR, "av_dict_set_int() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
++        return err;
++    }
++
++    err = sp_encoder_ctrl(encoder, SP_EVENT_CTRL_COMMAND, commands);
++    if (err < 0) {
++        sp_log(ctx, SP_LOG_ERROR, "sp_encoder_ctrl() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
++        return err;
++    }
++
++    err = sp_add_commit_fn_to_list(ctx, sp_encoder_ctrl, encoder);
++    if (err < 0) {
++        sp_log(ctx, SP_LOG_ERROR, "sp_add_commit_fn_to_list() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
++        return err;
++    }
++
++    av_dict_free(&commands);
++
++    return 0;
++}
++
+ AVBufferRef *tx_muxer_create(TXMainContext *ctx, const char *out_url,
+                              const char *out_format, AVDictionary *options,
+                              AVDictionary *init_opts)

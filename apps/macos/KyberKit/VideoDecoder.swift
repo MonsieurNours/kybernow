@@ -42,9 +42,10 @@ final class VideoDecoder {
     /// Image prête (fil du décodeur).
     var onFrame: ((DecodedFrame) -> Void)?
     /// Une image de référence manque (paquets perdus, image refusée) : il
-    /// faut une image clé pour repartir (fil du décodeur).
+    /// faut une image clé, ou une image de reprise, pour repartir (fil du décodeur).
     var onLostReference: (() -> Void)?
-    /// L'image est repartie sur une image clé (émis une fois l'image clé décodée).
+    /// L'image est repartie sur une image clé ou une image de reprise (émis
+    /// une fois cette image décodée).
     var onRecovered: (() -> Void)?
 
     private(set) var codec: Codec = .hevc
@@ -58,6 +59,11 @@ final class VideoDecoder {
     /// Format de sortie imposé, si celui du décodeur ne convient pas au rendu.
     private var forcedPixelFormat: OSType?
     private var waitingKey = true
+    /// Dernière image donnée à la session sans rien perdre avant
+    /// (docs/reprise-apres-perte.md) : une image de reprise qui ne dépend
+    /// que d'images jusque-là y reprend, sans session refaite. `nil` : seule
+    /// une image clé relance le décodage.
+    private var lastFed: UInt64?
     /// Une référence a été perdue en cours de route (pas au démarrage).
     private var lostReference = false
     /// Numéro de la session en cours : une erreur d'une session déjà remplacée ne la recrée pas.
@@ -105,7 +111,8 @@ final class VideoDecoder {
         KyberLog.video.notice("codec \(String(describing: c), privacy: .public)")
     }
 
-    func decode(_ data: UnsafeBufferPointer<UInt8>, isConfig: Bool, isKey: Bool, pts: UInt64) {
+    /// `resume` : image de reprise, qui ne dépend que d'images jusqu'à ce pts.
+    func decode(_ data: UnsafeBufferPointer<UInt8>, isConfig: Bool, isKey: Bool, pts: UInt64, resume: UInt64? = nil) {
         let received = mach_absolute_time()
         lock.lock()
         defer { lock.unlock() }
@@ -172,11 +179,14 @@ final class VideoDecoder {
             // Sans image clé, une image qui s'appuie sur une référence perdue
             // est refusée : inutile de la donner au décodeur. On en demande
             // une, même sans trou signalé (image clé perdue entière, au début
-            // d'un flux lourd en 4:4:4 par exemple).
-            guard isKey else {
+            // d'un flux lourd en 4:4:4 par exemple). Sauf une image de reprise
+            // qui ne dépend que d'images que la session a déjà.
+            let resumes = !isKey && resume.map { bound in lastFed.map { bound <= $0 } ?? false } ?? false
+            guard isKey || resumes else {
                 markLost()
                 return
             }
+            if resumes { KyberLog.video.notice("reprise sans image clé") }
             waitingKey = false
             if lostReference {
                 lostReference = false
@@ -204,7 +214,10 @@ final class VideoDecoder {
             out.lock()
             failures += 1
             out.unlock()
+            lastFed = nil
             markLost()
+        } else {
+            lastFed = pts
         }
     }
 
@@ -222,7 +235,7 @@ final class VideoDecoder {
         out.unlock()
         onFrame?(frame)
         if recovered {
-            KyberLog.video.notice("image repartie sur une image clé")
+            KyberLog.video.notice("image repartie")
             onRecovered?()
         }
     }
@@ -250,6 +263,8 @@ final class VideoDecoder {
             KyberLog.video.notice("session de décodage en panne (\(status)), recréée")
             rebuild()
         }
+        // Une image refusée : ce que la session a reçu n'est plus sûr.
+        lastFed = nil
         markLost()
     }
 
@@ -279,7 +294,7 @@ final class VideoDecoder {
         out.unlock()
         guard !lostReference else { return }
         lostReference = true
-        KyberLog.video.notice("référence perdue : demande d'une image clé")
+        KyberLog.video.notice("référence perdue : reprise demandée")
         onLostReference?()
     }
 
@@ -307,6 +322,7 @@ final class VideoDecoder {
         session = nil
         format = nil
         waitingKey = true
+        lastFed = nil
     }
 
     // MARK: - Session

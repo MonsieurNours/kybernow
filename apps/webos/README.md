@@ -147,6 +147,7 @@ Contrat : [docs/link-ui.md](../../docs/link-ui.md), « Statistiques », « En se
 Sur un téléviseur LG, l'image est décodée et montrée par le téléviseur lui-même (NDL), qui ne dit ni quand il a décodé ni quand il montre. Les deux étapes couvrent donc :
 
 - **Décodage** : de l'image complète reçue à l'image acceptée par NDL, soit le passage au fil de l'image et l'appel `NDL_DirectVideoPlay`. La décompression elle-même, dans la puce du téléviseur, n'y est pas.
+- **Reprise après une perte** ([docs/reprise-apres-perte.md](../../docs/reprise-apres-perte.md)) : une image perdue (vue par le cœur au numéro sauté) met le décodeur en attente ; il reprend sur l'image de réparation de la Station sans être refait, sinon sur une image clé. Écrit et compilé, pas encore essayé face à une Station.
 - **Affichage** : une estimation, une période de la dalle pour l'image et une par image en attente dans la file de NDL (`NDL_DirectVideoGetRenderBufferLength`, lue après chaque image). La décompression et l'attente du rafraîchissement y sont. Le traitement d'image propre du téléviseur (hors Optimiseur de jeu) n'y est pas.
 
 Une image de plus gardée par le téléviseur se voit donc dans « Affichage » (8,3 ms à 120 Hz) ; le bilan de la file toutes les 5 s (section suivante) le confirme.

@@ -1379,9 +1379,11 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_PACKET_MEDIA:
             guard let data = p.data, p.len > 0, let pipeline = videoPipeline(for: p.stream, screen: Int(p.screen)) else { return }
             if let s = live { kn_session_bytes_received(s, p.len) }
-            pipeline.decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts)
+            pipeline.decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts,
+                                    resume: p.resume_bound == UInt64.max ? nil : p.resume_bound)
         case KN_PACKET_HOLE:
-            // Données perdues : l'image suivante n'a plus sa référence.
+            // Données perdues (le cœur voit les images sautées à leurs
+            // numéros) : l'image suivante n'a plus sa référence.
             if let s = live { kn_session_hole(s) }
             videoPipeline(for: p.stream, screen: Int(p.screen))?.decoder.dataLost()
         default:

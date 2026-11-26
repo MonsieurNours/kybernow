@@ -535,6 +535,10 @@ pub struct KnPacket {
     pub data: *const u8,
     pub len: usize,
     pub missing_samples: u32,
+    /// Image de reprise après une perte (docs/reprise-apres-perte.md) : elle
+    /// ne dépend que d'images jusqu'à ce pts. `u64::MAX` : une image comme
+    /// une autre.
+    pub resume_bound: u64,
     /// Multi-écrans (`screens` dans `kn_session_start`) : index de l'écran de
     /// l'appareil auquel va ce flux d'image (dans `screens.list`) ; 0 sinon,
     /// et pour le son.
@@ -567,6 +571,7 @@ impl Sink {
             data: std::ptr::null(),
             len: 0,
             missing_samples: 0,
+            resume_bound: u64::MAX,
             screen: self.screen,
         }
     }
@@ -576,12 +581,13 @@ impl PacketHandler for Sink {
     fn packet(&self, packet: Packet<'_>) {
         let p = match packet {
             Packet::Codec { codec } => KnPacket { codec, ..self.empty(KN_PACKET_CODEC) },
-            Packet::Media { is_config, is_key, pts, data } => KnPacket {
+            Packet::Media { is_config, is_key, pts, data, resume } => KnPacket {
                 is_config,
                 is_key,
                 pts,
                 data: data.as_ptr(),
                 len: data.len(),
+                resume_bound: resume.unwrap_or(u64::MAX),
                 ..self.empty(KN_PACKET_MEDIA)
             },
             Packet::Hole { missing_samples } => KnPacket { missing_samples, ..self.empty(KN_PACKET_HOLE) },

@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **Une image perdue ne coûte plus une image clé.** Quand le réseau perd une image, l'ordinateur la répare maintenant à l'image suivante en s'appuyant sur des images que votre appareil a déjà, au lieu de renvoyer une image complète, cinq à dix fois plus lourde : plus de chute de qualité ni d'attente après chaque perte, et jamais d'image abîmée à l'écran. En HEVC, avec une carte NVIDIA ou la Station Mac ; sinon, l'image clé comme avant. Demande une Station et une app à jour.
+
 ## 0.11.4
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.

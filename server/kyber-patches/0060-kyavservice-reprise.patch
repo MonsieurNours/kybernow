@@ -1,0 +1,182 @@
+diff --git a/kyavservice-types/src/lib.rs b/kyavservice-types/src/lib.rs
+--- a/kyavservice-types/src/lib.rs
++++ b/kyavservice-types/src/lib.rs
+@@ -97,6 +97,12 @@ pub enum Command {
+     },
+     VideoForceIdr,
+     Stop,
++    /// KyberNow (0060): a client decoded up to `last_pts` (the pts of its
++    /// last image) and lost what followed; the next image depends on
++    /// nothing newer, without a keyframe when the encoder can.
++    VideoRecover {
++        last_pts: u64,
++    },
+ }
+ 
+ /// KyberNow (0020): the size of a scaled-down image (even numbers).
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -466,6 +466,8 @@ async fn handle_command(
+         }
+         Command::VideoSetBitrate { bitrate } => handle_video_set_bitrate(ctx, bitrate)?,
+         Command::VideoForceIdr => handle_video_force_idr(ctx)?,
++        // KyberNow (0060): this engine repairs a loss with a keyframe.
++        Command::VideoRecover { .. } => handle_video_force_idr(ctx)?,
+         Command::Stop => {
+             *stop = true;
+             if let Some(old) = ctx.take() {
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -242,6 +242,9 @@ pub struct Config {
+     backend: Backend,
+     encoder: Option<VideoEncoder>,
+     intra_refresh: Option<bool>,
++    /// KyberNow (0060): repair a client's loss without a keyframe when the
++    /// encoder can (true by default).
++    loss_repair: Option<bool>,
+     minimum_bitrate: Option<u32>,
+     audio_quality: Option<AudioQuality>,
+     audio_bitrate: Option<u32>,
+@@ -276,6 +279,11 @@ impl Config {
+         self.intra_refresh.unwrap_or(true)
+     }
+ 
++    /// KyberNow (0060): `[kyavserver] loss_repair`, true by default.
++    pub(crate) fn loss_repair(&self) -> bool {
++        self.loss_repair.unwrap_or(true)
++    }
++
+     pub(crate) fn clock_type(&self) -> ClockType {
+         *self.clock_type.as_ref().unwrap_or(&ClockType::ZeroedOrigin)
+     }
+diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+--- a/kyavservice/src/txproto/rtp.rs
++++ b/kyavservice/src/txproto/rtp.rs
+@@ -94,6 +94,7 @@ pub(crate) async fn generate_sdp(
+         codec,
+         yuv444,
+         intra_refresh,
++        loss_repair: false,
+         encoder_config: encoder_config.clone(),
+         clock_type: config::ClockType::ZeroedOrigin,
+         cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -101,6 +101,32 @@ fn handle_video_force_idr(
+     Ok(())
+ }
+ 
++/// KyberNow (0060): a client lost what followed `last_pts`.
++fn handle_video_recover(
++    ctx: &mut Option<Context>,
++    response: ReceivedCommand<'_, IpcApi>,
++    last_pts: u64,
++) -> Result<()> {
++    info!("Video repair up to {last_pts}");
++
++    let Some(ctx) = ctx.as_ref() else {
++        response.send(Err(kyavservice_types::Error("No session started".into())))?;
++        return Ok(());
++    };
++
++    let Some(encoder) = ctx.encoder.as_ref() else {
++        response.send(Err(kyavservice_types::Error("No active encoder".into())))?;
++        return Ok(());
++    };
++
++    response.send(Ok(Response::None))?;
++
++    ctx.ctx.encoder_recover(encoder, last_pts)?;
++    ctx.ctx.commit()?;
++
++    Ok(())
++}
++
+ fn ajust_min_bitrate(config: &Config, bitrate: u32, guest_image: bool) -> u32 {
+     // KyberNow (0020): a lower floor for a share guest's own image.
+     let min_bitrate = kybernow::minimum_bitrate(config.minimum_bitrate(), guest_image);
+@@ -185,6 +211,7 @@ async fn handle_command(
+                 codec: VideoCodec::H264,
+                 yuv444,
+                 intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
++                loss_repair: config.loss_repair(),
+                 encoder_config: config.video_encoder_config.clone(),
+                 clock_type: config.clock_type(),
+                 cursor_move_rate: config.cursor_move_rate(),
+@@ -277,6 +304,7 @@ async fn handle_command(
+                 // KyberNow (0020): the scaler outputs NV12 (4:2:0).
+                 yuv444: yuv444 && scale.is_none(),
+                 intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
++                loss_repair: config.loss_repair(),
+                 encoder_config: config.video_encoder_config.clone(),
+                 clock_type: config.clock_type(),
+                 cursor_move_rate: config.cursor_move_rate(),
+@@ -314,6 +342,7 @@ async fn handle_command(
+         }
+         Command::VideoSetBitrate { bitrate } => handle_video_set_bitrate(ctx, response, bitrate)?,
+         Command::VideoForceIdr => handle_video_force_idr(ctx, response)?,
++        Command::VideoRecover { last_pts } => handle_video_recover(ctx, response, last_pts)?,
+         Command::Stop => {
+             response.send(Ok(Response::None))?;
+             *stop = true;
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -39,6 +39,9 @@ pub(crate) struct VideoConfig {
+     pub(crate) codec: VideoCodec,
+     pub(crate) yuv444: bool,
+     pub(crate) intra_refresh: bool,
++    /// KyberNow (0060): references kept to repair a loss without a keyframe
++    /// (HEVC on NVENC and VideoToolbox).
++    pub(crate) loss_repair: bool,
+     pub(crate) encoder_config: Option<config::EncoderConfig>,
+     pub(crate) clock_type: config::ClockType,
+     /// Pointer moves forwarded per second (`[kyavserver] cursor_move_rate`).
+@@ -203,6 +206,11 @@ fn create_nvenc(
+         options.push(("profile", profile).into());
+     }
+ 
++    // KyberNow (0060): repair of a loss without a keyframe.
++    if config.loss_repair && config.codec == VideoCodec::HEVC {
++        options.push(("ref_recovery", true).into());
++    }
++
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+     }
+@@ -649,6 +657,11 @@ fn create_videotoolbox(
+         ("b", config.bitrate as i64).into(),
+     ];
+ 
++    // KyberNow (0060): repair of a loss without a keyframe.
++    if config.loss_repair && config.codec == VideoCodec::HEVC {
++        options.push(("ref_recovery", true).into());
++    }
++
+     if let Some(encoder_config) = &config.encoder_config {
+         options.extend(encoder_config_to_dict(encoder_config));
+     }
+diff --git a/txproto-rs/src/lib.rs b/txproto-rs/src/lib.rs
+--- a/txproto-rs/src/lib.rs
++++ b/txproto-rs/src/lib.rs
+@@ -357,6 +357,17 @@ impl Txproto {
+         Ok(())
+     }
+ 
++    /// KyberNow (0060): see `tx_encoder_recover`.
++    pub fn encoder_recover(&self, encoder: &Handle, last_pts: u64) -> Result<()> {
++        let last_pts = i64::try_from(last_pts).unwrap_or(i64::MAX);
++        let ret = unsafe { sys::tx_encoder_recover(self.inner(), encoder.h, last_pts) };
++        if ret != 0 {
++            return Err(ret.into());
++        }
++
++        Ok(())
++    }
++
+     pub fn ctrl_opts(&self, handle: &Handle, opts: Dictionary) -> Result<()> {
+         let flags = sys::SPEventType_SP_EVENT_CTRL_OPTS | sys::SPEventType_SP_EVENT_FLAG_IMMEDIATE;
+         let ret = unsafe {
