@@ -55,6 +55,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.</string>
 	<key>UIApplicationSceneManifest</key>

@@ -37,6 +37,8 @@ private struct SettingsContent: View {
     @State private var wired = NetworkLink.shared.wired
     /// Mode immersif : l'app a l'autorisation Accessibilité (relue au retour au premier plan).
     @State private var immersiveTrusted = ImmersiveKeyboard.trusted
+    /// « Micro » allumé ici, l'autorisation du système refusée.
+    @State private var micDenied = false
 
     private var info: HostInfo? { status?.info }
     private var s: ConnectionSettings { host.settings }
@@ -665,6 +667,31 @@ private struct SettingsContent: View {
                     .foregroundStyle(s.audio == .surround51 || s.audio == .surround71 ? Theme.warnText : Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // « Micro » : le même interrupteur que celui de la session, retenu pour cet ordinateur (docs/micro.md).
+            SettingsCard(icon: "microphone", title: MicText.label) {
+                HStack(alignment: .top, spacing: 16) {
+                    Text(MicText.settingHelp)
+                        .font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Switch(isOn: Binding(get: { s.microphone }, set: { setMicrophone($0) }), label: MicText.label)
+                }
+                if micDenied {
+                    Text(MicText.permission).font(Theme.sans(12)).foregroundStyle(Theme.warnText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    /// En session, la session s'en charge (autorisation, avis) ; sinon le
+    /// choix est gardé, l'autorisation demandée la première fois qu'on l'allume.
+    private func setMicrophone(_ on: Bool) {
+        if let session = app.sessions.session(for: host.id), session.isLive { return session.setMicrophone(on) }
+        guard on else { return update { $0.microphone = false } }
+        MicrophoneAccess.request { granted in
+            micDenied = !granted
+            if granted { update { $0.microphone = true } }
         }
     }
 

@@ -143,6 +143,10 @@ pub struct HostSettings {
     /// les réglages du flux (`encoder_max`) quel que soit le profil ; `None` : aucun connu. Hors du profil, propre à
     /// cet appareil : jamais synchronisé.
     pub encoder_max: Option<u32>,
+    /// « Micro » (docs/micro.md) : le micro de cet appareil envoyé à cet ordinateur pendant la session. Coupé la
+    /// première fois ; la barre, la tuile du menu et la rubrique Son le changent, la session suivante le reprend.
+    /// Propre à cet appareil : jamais synchronisé.
+    pub mic: bool,
 }
 
 impl Default for HostSettings {
@@ -173,6 +177,7 @@ impl Default for HostSettings {
             adaptive: true,
             auto: None,
             encoder_max: None,
+            mic: false,
         }
     }
 }
@@ -403,11 +408,16 @@ pub struct AppSettings {
     /// Accueil et compte KyberNow (docs/link-ui.md, « Accueil et compte KyberNow ») : l'accueil vu, la carte du compte
     /// fermée, le bandeau après un appairage et le moment « Hors de chez vous ? » déjà montrés (`crate::welcome`).
     pub welcome: crate::welcome::WelcomeState,
+    /// Le micro choisi (Réglages de l'app › « Micro ») : son nom chez SDL ; vide : celui du système. Gardé quand il
+    /// est débranché (celui du système le remplace jusqu'à ce qu'on le rebranche).
+    pub mic_device: String,
+    /// « Réduire l'écho et le bruit » (Réglages de l'app) : allumé par défaut.
+    pub mic_echo: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default() }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
     }
 }
 
@@ -438,6 +448,8 @@ pub struct Borrowed {
     pub remember: bool,
     /// La puce « HDR » de cet ordinateur emprunté éteinte (allumée la première fois, comme celle d'un hôte).
     pub hdr_off: bool,
+    /// « Micro » pour cet ordinateur emprunté : coupé la première fois, retenu comme celui d'un hôte.
+    pub mic: bool,
 }
 
 impl Borrowed {
@@ -844,7 +856,7 @@ impl Store {
         if let Some(old) = self.borrowed.iter_mut().find(|o| o.address == b.address && o.port == b.port && o.login == b.login) {
             let id = old.id.clone();
             // Le choix « HDR » de cet ordinateur reste.
-            *old = Borrowed { id: id.clone(), hdr_off: old.hdr_off, ..b };
+            *old = Borrowed { id: id.clone(), hdr_off: old.hdr_off, mic: old.mic, ..b };
             return id;
         }
         let id = b.id.clone();

@@ -142,6 +142,8 @@ object Native {
     @JvmStatic external fun consoleShareOpen(handle: Long): String?
     @JvmStatic external fun consoleShareState(handle: Long): String?
     @JvmStatic external fun consoleShareCode(handle: Long): String?
+    /** « Laisser les invités parler » (docs/micro.md) : le partage à jour (`guests_speak`). */
+    @JvmStatic external fun consoleShareSpeak(handle: Long, on: Boolean): String?
     @JvmStatic external fun consoleShareGuest(handle: Long, guest: String, role: Int): String?
     /** « Accepter » la demande d'un invité venu par le relais (`guests[].pending`) ; `value` : le partage à jour. Refus 409 : quatre places prises. */
     @JvmStatic external fun consoleShareAccept(handle: Long, guest: String): String?
@@ -358,6 +360,14 @@ object Native {
     /** Le libellé de la ligne : « Débit visé » / “Target bitrate”. */
     @JvmStatic external fun targetBitrateLabel(): String
 
+    // Micro de l'appareil (docs/micro.md).
+    /** L'appareil a un micro (téléphone, tablette ; jamais un téléviseur) : proposé à chaque session. Une fois au lancement. */
+    @JvmStatic external fun setDeviceHasMicrophone(has: Boolean)
+    /** « Micro » allumé ou coupé : juste après [sessionStart], puis à chaque changement ; [SessionListener.onMicrophone] suit. */
+    @JvmStatic external fun sessionSetMicrophone(handle: Long, on: Boolean)
+    /** Les [n] premiers échantillons de [samples] (flottants mono, [rate] Hz), depuis le fil de capture ; ne bloque pas. */
+    @JvmStatic external fun sessionPushMicrophone(handle: Long, samples: FloatArray, n: Int, rate: Int)
+
     // HDR (docs/hdr.md).
     /** Le choix « HDR » changé en session (barre, menu) : l'image est relancée, [SessionListener.onHdr] suit. */
     @JvmStatic external fun sessionSetHdr(handle: Long, hdr: Boolean)
@@ -549,6 +559,13 @@ interface SessionListener {
      * `null`. Une Station qui n'enregistre pas ne l'appelle jamais.
      */
     fun onRecording(json: String, notice: String?) {}
+
+    /**
+     * Micro de l'appareil (docs/micro.md) : `{"state": "off" | "waiting" | "on"}` ou `{"state": "refused", "reason":
+     * "not_allowed" | "no_device" | "unsupported" | "old_station", "text": "…"}` quand il change. L'app capte tant
+     * qu'il est `waiting` ou `on`.
+     */
+    fun onMicrophone(json: String) {}
 }
 
 /**

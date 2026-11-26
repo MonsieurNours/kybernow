@@ -12,7 +12,7 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use jni::objects::{JByteArray, JClass, JObject, JString};
+use jni::objects::{JByteArray, JClass, JFloatArray, JObject, JString};
 use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use ndk::native_window::NativeWindow;
@@ -451,6 +451,56 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionRest
     if let Some(h) = handle(h) {
         h.session.restore_mode();
     }
+}
+
+// MARK: - Micro (docs/micro.md)
+
+/// L'appareil a un micro (téléphone, tablette ; jamais un téléviseur) : le
+/// micro est proposé à chaque session, même coupé. Une fois au lancement.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_setDeviceHasMicrophone(_: Env, _: JClass, has: jboolean) {
+    kybernow_core::micro::set_device_has_microphone(has != 0);
+}
+
+/// « Micro » allumé ou coupé (barre, réglage de l'ordinateur) : juste après
+/// `sessionStart`, puis à chaque changement. `onMicrophone` suit.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetMicrophone(_: Env, _: JClass, h: jlong, on: jboolean) {
+    if let Some(h) = handle(h) {
+        h.session.set_microphone(on != 0);
+    }
+}
+
+/// Les échantillons du micro, depuis le fil de capture : `n` flottants mono
+/// de `samples`, à `rate` Hz (le cœur ramène à 48 kHz). Ne bloque pas.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPushMicrophone(
+    env: Env,
+    _: JClass,
+    h: jlong,
+    samples: JFloatArray,
+    n: jint,
+    rate: jint,
+) {
+    use std::cell::RefCell;
+    thread_local! {
+        static BUF: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+    }
+    let Some(h) = handle(h) else { return };
+    if n <= 0 || rate <= 0 || samples.is_null() {
+        return;
+    }
+    let len = env.get_array_length(&samples).unwrap_or(0).min(n);
+    if len <= 0 {
+        return;
+    }
+    BUF.with(|b| {
+        let mut b = b.borrow_mut();
+        b.resize(len as usize, 0.0);
+        if env.get_float_array_region(&samples, 0, &mut b).is_ok() {
+            h.session.push_microphone(&b, rate as u32);
+        }
+    });
 }
 
 // MARK: - HDR (docs/hdr.md)

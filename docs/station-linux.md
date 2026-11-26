@@ -92,6 +92,10 @@ Correctif Kyber Linux 0007. Sous Wayland, un programme sans fenêtre ne peut ni 
 
 Admin (`audio/mod.rs`, module `linux`) crée au début de la session une sortie « KyberNow » (`module-null-sink` de PipeWire, par `pactl`) au nombre de voies de l'appareil (2, 6 ou 8, ordre de PulseAudio), en fait la sortie par défaut et y déplace les sons en cours : rien ne sort des haut-parleurs de l'ordinateur. Kyber capture le retour de la sortie par défaut. À la fin : sortie d'origine rendue, sons ramenés, module retiré (et retiré au démarrage s'il restait d'une session interrompue).
 
+### Micro de l'appareil
+
+[micro.md](micro.md). L'aide `kybernow-micro` (dans `runtime/bin`, à côté de kycontroller ; libopus du runtime) crée au besoin, par `pactl`, une sortie nulle `kybernow_micro_entree` et la source « Micro KyberNow » (`kybernow_micro`, `module-remap-source` sur son retour), une fois pour la session de l'utilisateur, puis joue le micro reçu par `pacat` (pulseaudio-utils, déjà une dépendance). Pendant l'envoi, la source est le micro par défaut (`pactl set-default-source`) ; le précédent revient à la fin. Compilé (`cargo check --target aarch64-unknown-linux-gnu`) ; pas encore essayé en VM.
+
 ### Encodeur
 
 L'installation choisit celui de la carte (`kybernow-station-setup`) : NVIDIA → NVENC ; AMD ou Intel avec un nœud de rendu → VA-API ; sinon x264. Admin propose ces trois-là dans Réglages › Image (« VA-API — carte AMD ou Intel »).

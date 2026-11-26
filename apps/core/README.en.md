@@ -32,6 +32,7 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/journal.rs` | The computer's name at the start of each session's log lines |
 | `src/input/` | Shared input module (below) |
 | `src/audio/` | Sound engine (below) |
+| `src/micro.rs` | The device's microphone, sent to the computer ([docs/micro.en.md](../../docs/micro.en.md)): resampling to 48 kHz, 10 ms frames, Opus voice (32 kbit/s, error correction), state for the apps (below) |
 | `build.rs` | libopus through pkg-config when it knows it; otherwise the executable links it itself |
 
 ## The Station in a computer's settings
@@ -452,6 +453,17 @@ pub trait PacketSink: Send + Sync {
 And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input, SDL, Android) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac, Windows and Linux, `false` on Apple TV, iPhone, iPad and Android); the Mac's and Windows' SDL gamepads are read by the core's single reader (`crate::gamepads`, with a libkynput without its own; by kynput otherwise); on the Mac, the router hook (`install_gamepad_gate`) filters them and hands navigation keys back through `InputPlatform::navigate`.
 
 Creation: `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` returns an `Arc`; `kynput()` gives the chain to `session::Platform::input_pipeline`; `start_clipboard()` once the network is connected; `stop()` at the end of the session (direct FlushKeys, total losses logged), `shutdown()` to stop kynput's handlers.
+
+## The device's microphone (`src/micro.rs`)
+
+Contract: [docs/micro.en.md](../../docs/micro.en.md); wording: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Microphone”. The core encodes, the app captures.
+
+- `micro::set_device_has_microphone(true)` once at launch, in an app with a microphone (never the Apple TV nor TVs). The microphone is then offered at every start of the picture, even off: the computer answers at once whether it takes it, and turning it on during a session restarts nothing.
+- `Session::set_microphone(on)`: the choice the app keeps for this computer, at start then at each change (bar, tile, setting). Off: an empty packet goes (silence at once on the computer), then nothing.
+- `Platform::on_microphone(MicState)`: `Off`, `Waiting` (on, answer not there yet), `On`, `Refused(reason)` (`NotAllowed`, `NoDevice`, `Unsupported`, `OldStation`; `text()`: the link-ui.md sentence). The app captures while `state.capturing()` (`On` or `Waiting`). `MicState::to_json()` for the bridges.
+- `Session::push_microphone(samples, rate)`: mono floats, any rate, from the capture thread (nothing waits). Dropped with the microphone off or while the computer doesn't take it.
+- Wording: `micro.*` in `src/i18n/` (reasons, permission, chip, tile, settings).
+- Tested: `cargo test -p kybernow-core --features pyrowave micro` (state, JSON, 16 to 96 kHz brought to 48 kHz, encoder, nothing before opening).
 
 ## Sound engine (`src/audio/`)
 

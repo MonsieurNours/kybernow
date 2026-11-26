@@ -648,6 +648,11 @@ let shareRequests: ShareGuest[] = knownRequests.slice(0, Math.max(0, Math.min(3,
 let shareOpen = shareFlag !== null && /^\d+$/.test(shareFlag)
 let sharedGuests: ShareGuest[] = shareOpen ? knownGuests.slice(0, Math.min(4, Number(shareFlag))) : []
 let shareCode = '482 913'
+/** « Laisser les invités parler » : coupé à chaque partage. */
+let guestsSpeak = false
+/** Micro : celui choisi dans les Réglages de l'app, et le traitement voix. */
+let micDevice: string | null = null
+let micVoice = true
 /** Le lien du relais en préparation (`?relais=preparation` 4 s, `?relais=lent` sans fin). */
 let sharePreparing = false
 let shareJoinedLater = false
@@ -685,6 +690,7 @@ const shareView = (): Share => ({
   relay: relayFlag === null ? null : relayFlag === 'injoignable' ? 'unreachable' : sharePreparing ? 'connecting' : 'joined',
   full: sharedGuests.length >= 4,
   qr: shareOpen ? fakeQr() : null,
+  guests_speak: guestsSpeak,
 })
 const emitShare = () => emit('share-state', { id: sessions[0] ?? 'a1', share: shareView() })
 
@@ -1164,6 +1170,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     emitShare()
     return shareView()
   },
+  share_speak: (a) => {
+    guestsSpeak = Boolean(a.on)
+    emitShare()
+    return shareView()
+  },
   share_guest: (a) => {
     sharedGuests = sharedGuests.map((g) => (g.id === a.guest ? { ...g, role: a.role as ShareRole } : g))
     emitShare()
@@ -1295,6 +1306,28 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     if (a.on) keepSound.add(a.id as string)
     else keepSound.delete(a.id as string)
     emit('session-keep-sound', { id: a.id as string, on: Boolean(a.on) } satisfies KeepSound)
+    return null
+  },
+  session_microphone: (a) => {
+    const on = Boolean(a.on)
+    emit('bar-mic', { id: a.id as string, mic: { on, state: on ? 'waiting' : 'off', reason: null } })
+    if (on) setTimeout(() => emit('bar-mic', { id: a.id as string, mic: { on, state: 'on', reason: null } }), 600)
+    return null
+  },
+  mic_settings: () => ({
+    devices: [
+      { id: 'mic-1', name: 'Microphone (Realtek Audio)' },
+      { id: 'mic-2', name: 'Casque (USB Audio)' },
+    ],
+    device: micDevice,
+    voice: micVoice,
+  }),
+  set_mic_device: (a) => {
+    micDevice = (a.device as string | null) ?? null
+    return null
+  },
+  set_mic_voice: (a) => {
+    micVoice = Boolean(a.on)
     return null
   },
   session_mouse: (a) => {
@@ -1958,7 +1991,7 @@ export function mockTauri() {
           const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
           const room = Number(flags.get('largeur') ?? 1240) || 1240
           // `?mac` : une Station Mac (menu Touches du Mac).
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : { on: false, state: 'off', reason: null }, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
           const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined)) || (host && autoFlag === 'reseau')
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.

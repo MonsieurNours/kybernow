@@ -72,6 +72,9 @@ mod link;
 mod login;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod menu;
+// Le micro de ce PC vers l'ordinateur (docs/micro.md) : capture WASAPI.
+#[cfg(windows)]
+mod micro;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod notice;
 #[cfg(windows)]

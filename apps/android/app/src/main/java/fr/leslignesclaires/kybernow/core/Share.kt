@@ -267,6 +267,8 @@ data class ShareState(
     val guests: List<ShareGuest> = emptyList(),
     val relay: ShareRelay? = null,
     val requests: List<ShareGuest> = emptyList(),
+    /** « Laisser les invités parler » (docs/micro.md) ; nul d'une Station d'avant le micro : pas d'interrupteur. */
+    val guestsSpeak: Boolean? = null,
 ) {
     val full get() = guests.size >= MAX_GUESTS
 
@@ -292,6 +294,7 @@ data class ShareState(
                 guests = all.filterNot { it.pending }.take(MAX_GUESTS),
                 relay = ShareRelay.parse(o.optJSONObject("relay")),
                 requests = all.filter { it.pending },
+                guestsSpeak = if (o.has("guests_speak") && !o.isNull("guests_speak")) o.optBoolean("guests_speak") else null,
             )
         }
 

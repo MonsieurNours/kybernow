@@ -12,6 +12,7 @@ mod device;
 mod displays;
 mod hdr;
 mod i18n;
+mod micro;
 mod model;
 mod preview;
 mod ps;

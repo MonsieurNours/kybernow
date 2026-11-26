@@ -4,7 +4,7 @@
   choix s'applique tout de suite.
 -->
 <script lang="ts">
-  import { api, type AudioChannels, type AudioStatus, type DesktopGamma, type DisplayStatus, type HdrCheck, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
+  import { api, type AudioChannels, type AudioStatus, type MicroStatus, type DesktopGamma, type DisplayStatus, type HdrCheck, type HdrSetting, type ModePolicy, type Trigger } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, notify, setValues, value } from '../lib/store.svelte'
   import { mode } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
@@ -91,6 +91,32 @@
 
   let display = $state<DisplayStatus | null>(null)
   let audio = $state<AudioStatus | null>(null)
+  // Micro virtuel (docs/micro.md) : lu une fois, puis après « Installer VB-CABLE ».
+  let micro = $state<MicroStatus | null>(null)
+  let microBusy = $state(false)
+  const vbcable = $derived(
+    !!micro && ((micro.state === 'ready' && micro.device.includes('CABLE')) || (micro.state === 'missing' && (micro.installable || micro.reason.includes('VB-CABLE')))),
+  )
+
+  async function loadMicro() {
+    try {
+      micro = await api.micro()
+    } catch {
+      micro = null
+    }
+  }
+
+  async function installMicro() {
+    microBusy = true
+    try {
+      micro = await api.microInstall()
+      notify(micro.state === 'ready' ? 'ok' : 'error', micro.state === 'ready' ? t('imageSound.micro.installed') : t('imageSound.micro.installFailed'))
+    } catch (e) {
+      notify('error', errorText(e))
+    } finally {
+      microBusy = false
+    }
+  }
   let busy = $state(false)
   let custom = $state<{ width: number; height: number; refresh: number } | null>(null)
 
@@ -104,6 +130,7 @@
 
   $effect(() => {
     load()
+    loadMicro()
     loadKyber()
     const timer = setInterval(load, 2500)
     return () => clearInterval(timer)
@@ -319,6 +346,31 @@
       </div>
     {/if}
   </section>
+
+  <!-- Micro virtuel (docs/micro.md) -->
+  {#if micro}
+    <section id="micro" aria-labelledby="t-micro" class="card">
+      <div class="card-head">
+        <div>
+          <h2 id="t-micro">{t('imageSound.micro.title')}</h2>
+          <span class="sub">{t('imageSound.micro.sub')}</span>
+        </div>
+        {#if micro.state === 'ready'}<span class="pill ok"><Icon name="check" size={13} stroke={2.6} />{micro.device}</span>{/if}
+      </div>
+      {#if micro.state === 'ready'}
+        <p>{vbcable ? t('imageSound.micro.readyWindows') : t('imageSound.micro.ready', { device: micro.device })}</p>
+        <p class="sub">{t('imageSound.micro.help')}</p>
+      {:else if micro.state === 'missing'}
+        <div class="notice warn"><Icon name="info" /><span>{vbcable ? t('imageSound.micro.missingWindows') : t('imageSound.micro.missing')}</span></div>
+        {#if micro.installable}
+          <button type="button" class="ghost" disabled={microBusy} onclick={installMicro}>{microBusy ? t('imageSound.micro.installing') : t('imageSound.micro.install')}</button>
+        {/if}
+      {:else}
+        <div class="notice warn"><Icon name="info" /><span>{t('imageSound.micro.unsupported')}</span></div>
+      {/if}
+      {#if vbcable}<p class="sub">{t('imageSound.micro.donation')}</p>{/if}
+    </section>
+  {/if}
 
   <!-- Commandes -->
   <section id="commandes" aria-labelledby="t-cmd" class="card">

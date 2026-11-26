@@ -956,6 +956,15 @@ pub struct KnPlatform {
     /// l'avis bref de link-ui à montrer, nul s'il n'y a rien à dire. Une
     /// Station qui n'enregistre pas n'appelle jamais.
     pub on_recording: Option<unsafe extern "C" fn(userdata: *mut c_void, recording_json: *const c_char, notice: *const c_char)>,
+    /// Micro de l'appareil (docs/micro.md) : à chaque changement d'état, en
+    /// JSON (`MicState::to_json` du cœur) : `{"state":"off"}`,
+    /// `{"state":"waiting"}` (allumé, réponse pas encore venue), `{"state":"on"}`,
+    /// `{"state":"refused","reason":"no_device","text":"…"}` (`reason` :
+    /// `not_allowed`, `no_device`, `unsupported`, `old_station` ; `text` :
+    /// la raison de link-ui, dans la langue de l'app). L'app capte tant que
+    /// l'état est `on` ou `waiting` (`kn_session_push_microphone`), sinon elle
+    /// arrête la capture. Jamais appelé sans `kn_set_device_has_microphone(true)`.
+    pub on_microphone: Option<unsafe extern "C" fn(userdata: *mut c_void, state_json: *const c_char)>,
     /// Caméra de l'appareil (docs/webcam.md) : l'app sait la capturer et
     /// l'encoder ; le cœur la demande à l'ordinateur à chaque départ de
     /// l'image (jamais pour un invité d'un partage).
@@ -1218,6 +1227,12 @@ impl Platform for ApplePlatform {
         if let Some(f) = self.cb.on_hdr {
             unsafe { f(self.cb.userdata, hdr.as_ptr(), hdr.len()) };
         }
+    }
+
+    fn on_microphone(&self, state: kybernow_core::micro::MicState) {
+        let Some(f) = self.cb.on_microphone else { return };
+        let c = CString::new(state.to_json().replace('\0', " ")).unwrap_or_default();
+        unsafe { f(self.cb.userdata, c.as_ptr()) };
     }
 
     /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
@@ -1783,6 +1798,45 @@ pub unsafe extern "C" fn kn_session_is_muted(s: *const KnSession) -> bool {
 pub unsafe extern "C" fn kn_session_attach_audio(s: *const KnSession, audio: *const audio::KnAudio) {
     let Some(a) = (unsafe { audio.as_ref() }) else { return };
     with(s, |s| s.attach_audio(&a.0));
+}
+
+// MARK: - Micro de l'appareil (docs/micro.md)
+
+/// L'appareil a un micro (Mac, iPhone, iPad ; jamais l'Apple TV) : le micro
+/// est proposé à chaque démarrage de l'image, même coupé (rien ne part), et
+/// la session donne son état par `on_microphone`. Une fois au lancement.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_set_device_has_microphone(has: bool) {
+    kybernow_core::micro::set_device_has_microphone(has);
+}
+
+/// « Micro » allumé (vrai) ou coupé : le choix retenu par l'app pour cet
+/// ordinateur, donné juste après `kn_session_start` puis à chaque changement
+/// (puce de la barre, tuile, réglage « Micro » de la rubrique Son). Ne
+/// relance rien ; l'état suit par `on_microphone`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_microphone(s: *const KnSession, on: bool) {
+    with(s, |s| s.set_microphone(on));
+}
+
+/// L'état du micro maintenant, en JSON (comme `on_microphone`) ; à libérer
+/// par `kn_string_free`. Nul sans session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_microphone(s: *const KnSession) -> *mut c_char {
+    with(s, |s| give(s.microphone().to_json())).unwrap_or(std::ptr::null_mut())
+}
+
+/// Échantillons du micro, flottants mono (`count`), à `rate_hz` (n'importe
+/// quelle fréquence : le cœur ramène à 48 kHz, encode en Opus et envoie).
+/// Depuis le fil de capture : ne bloque pas ; jetés tant que l'ordinateur
+/// ne prend pas le micro.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_push_microphone(s: *const KnSession, samples: *const f32, count: usize, rate_hz: u32) {
+    if samples.is_null() || count == 0 || rate_hz == 0 {
+        return;
+    }
+    let samples = unsafe { std::slice::from_raw_parts(samples, count) };
+    with(s, |s| s.push_microphone(samples, rate_hz));
 }
 
 /// Inscrit la session dans le registre des sessions de l'app, `name` : le

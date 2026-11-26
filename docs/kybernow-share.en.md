@@ -59,6 +59,7 @@ All JSON, on Admin's port, certificate pinned by fingerprint as today. The names
 - `POST /api/share/open` `{}` → `{"code":"123456","link":"kybernow://join?host=…&port=…&fp=…&code=123456","web":"https://<host>:<port>/link/?join=123456","display":{"id":…,"label":"Display 1"}}` (their main display).
 - `GET /api/share` → `{"open":true,"code":"…","link":"…","web":"…","display":{…},"guests":[{"id":"…","name":"Léa","app":"ios","role":"spectator","since":<Unix seconds>}]}`; the same in the reply to the host's sign of life (`heartbeat`, field `share`, absent without a share).
 - `POST /api/share/code` → a new code (same reply as `open`).
+- `POST /api/share/speak` `{"on": true|false}`: “Let guests speak” ([micro.en.md](micro.en.md)); the view gives `guests_speak` (off for every new share). A guest's Kyber token carries `kn_mic`; changed while running, each guest goes up one revision and Kyber applies it at once (`POST /kybernow/role` with `mic`). PC route: `POST /api/local/share/speak`.
 - `POST /api/share/guest/{id}` `{"role":"spectator|player|kbm|player_kbm"}` (`player`: controllers; `kbm`: keyboard and mouse; `player_kbm`: both); `DELETE /api/share/guest/{id}` (remove); `DELETE /api/share` (stop).
 
 **The PC itself** (the clock icon's local routes, the PC user's token): `GET /api/local/displays` → `[{"id":2221634456,"name":"\\\\.\\DISPLAY1","label":"Display 1","width":3840,"height":2160,"primary":true}]`; `POST /api/local/share/open {"display":<id>}` and the same routes as the host under `/api/local/share…`. Admin (its home page) the same with its session.

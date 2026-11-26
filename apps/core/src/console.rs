@@ -1360,6 +1360,14 @@ impl Console {
         self.read(r)
     }
 
+    /// « Laisser les invités parler » (docs/micro.md) : leur micro arrive sur
+    /// l'ordinateur, tout de suite pour les invités déjà là. Rend le partage
+    /// à jour (`guests_speak`).
+    pub fn share_speak(&self, on: bool) -> Result<ShareState> {
+        let r = self.request("POST", "api/share/speak", Duration::from_secs(6)).send_json(serde_json::json!({ "on": on }));
+        self.read(r)
+    }
+
     /// « Arrêter le partage » : tout le monde sort.
     pub fn share_close(&self) -> Result<()> {
         let r = self.request("DELETE", "api/share", Duration::from_secs(6)).call();

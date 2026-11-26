@@ -131,6 +131,18 @@ Text differences: the “No console found…” help points to the “Address”
 
 Opus decoded by the core's engine (`apps/core/src/audio`), pulled straight by AAudio's real-time callback (`jni/src/audio.rs`), in low-latency mode and exclusive when possible, never through Java. Windows channel order (Android's). Auto follows the output: 5.1 or 7.1 to an HDMI amplifier, stereo elsewhere; an output that refuses multichannel gets stereo mixed down by the engine; an output that changes (headphones, HDMI) is reopened. Sound can stay on the computer. On the Shield over 100 Mbit/s Ethernet, at 4K and 60 Hz, sound loses packets.
 
+## Microphone
+
+The device's microphone to the computer ([docs/micro.en.md](../../docs/micro.en.md), [docs/link-ui.en.md](../../docs/link-ui.en.md), “Microphone”), on phones and tablets only: on TV nothing mentions it (the core doesn't offer the microphone).
+
+- **Capture** (`session/MicCapture.kt`): `AudioRecord` on its own thread, 48 kHz mono floats (16-bit turned into floats when the device can't capture floats), 10 ms frames handed to the core (`Native.sessionPushMicrophone`, which encodes Opus and sends). “Reduce echo and noise” on: `VOICE_COMMUNICATION` source, `AcousticEchoCanceler` and `NoiseSuppressor` when the device has them; off: `UNPROCESSED` when the device offers it, otherwise `MIC`. The audio mode (`MODE_IN_COMMUNICATION`) is left alone: it would send the session's sound to the earpiece. The chosen microphone goes through `setPreferredDevice`; unplugged, the system's.
+- **Bridge** (`jni/src/session.rs`, `exports.rs`): `setDeviceHasMicrophone` at launch, `sessionSetMicrophone` right after start and on every change, `sessionPushMicrophone`, callback `SessionListener.onMicrophone` (JSON from `MicState::to_json`); the app captures while it says `waiting` or `on`.
+- **Interface**: “Microphone” in the bar of the host, of a friend borrowing and of a guest the host lets speak (subtitle On / Off / Connecting…, dimmed with the core's reason as a tooltip and as a notice on touch); bar closed, a small microphone icon at the top right while it is sent; notice “Microphone sent to {name}.” when turned on; Ctrl + Alt + Shift + V on a keyboard. Computer settings › Sound: “Microphone”, kept per computer, off by default (never synced); a guest or a borrowing friend starts off each session. App settings, under “Sound”: “Microphone” (“System default”, then the device's microphones, reread when one is plugged in) and “Reduce echo and noise”.
+- **Permission**: `RECORD_AUDIO`, asked the first time it is turned on (or when a session starts with the microphone kept on and the permission lost); refused, “Microphone” stays off, notice “KyberNow Link can't access the microphone. Allow it in Settings.”. In the background the app loses the microphone (Android gives silence).
+- **Sharing, host**: “Let guests speak” switch in the “Share” panel (`Console::share_speak`, `consoleShareSpeak`), missing with a Station from before the microphone (`guests_speak` null).
+
+Written on 26/11/2026, compiled (`cargo check` of the bridge, `compileDebugKotlin`, `MicTest` unit tests): **not yet tried** on a device or against a Station.
+
 ## Rumble
 
 The game's rumble reaches the core (`InputPlatform::rumble`) and is played on the player's controller (`Gamepads.rumble`):

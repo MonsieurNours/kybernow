@@ -34,6 +34,23 @@
           }
         }
       }
+    },
+    "NSMicrophoneUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link sends your microphone to the computer during the session, to talk in a game, a call or a video meeting."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -451,6 +451,11 @@ impl Platform for LinuxPlatform {
         self.0.send(SessionEvent::GameFullscreen(game));
     }
 
+    /// Le micro (docs/micro.md) : la boucle principale ouvre ou ferme la capture (`device::mic`) et l'interface suit.
+    fn on_microphone(&self, state: kybernow_core::micro::MicState) {
+        self.0.send(SessionEvent::Mic(state));
+    }
+
     fn on_notice(&self, notice: &Notice) {
         use crate::i18n::tr;
         let msg = match notice {
@@ -698,6 +703,8 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
             .iter()
             .map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g), pending: g.pending, via_relay: g.via == share::ShareVia::Relay })
             .collect(),
+        // « Laisser les invités parler » ; `None` face à une Station d'avant le micro (pas d'interrupteur).
+        guests_speak: st.guests_speak,
     })
 }
 

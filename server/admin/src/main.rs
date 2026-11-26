@@ -36,6 +36,7 @@ mod linux_net;
 mod linux_screen;
 #[cfg(not(windows))]
 mod mac;
+mod micro;
 mod migrate;
 mod pairing;
 mod preview;

@@ -22,6 +22,8 @@ const ROW: f32 = 58.0;
 /// Une demande : « {prénom} demande à rejoindre » avec ses deux boutons, et dessous son app.
 const REQUEST: f32 = 54.0;
 const FOOT: f32 = 56.0;
+/// « Laisser les invités parler » : l'interrupteur et son aide.
+const SPEAK: f32 = 56.0;
 
 /// Le nom de l'ordinateur qui partage.
 fn computer<'a>(app: &'a App, s: &'a SessionUi) -> &'a str {
@@ -51,7 +53,8 @@ fn height(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, u: f32) -> f32 {
     let asking = if requests > 0 { 26.0 * u + requests as f32 * REQUEST * u + 8.0 * u } else { 0.0 };
     let people = 26.0 * u + if guests == 0 { 36.0 * u } else { guests as f32 * ROW * u };
     let err = s.share_error.as_ref().map(|e| cv.line_count(Text::new(Font::Regular, 12.5 * u, WARN), e, w - 2.0 * PAD * u) as f32 * 17.0 * u + 8.0 * u).unwrap_or(0.0);
-    HEADER * u + QR * u + 14.0 * u + 18.0 * u + help_lines * 17.0 * u + down + 12.0 * u + asking + people + err + FOOT * u
+    let speak = if v.guests_speak.is_some() { SPEAK * u } else { 0.0 };
+    HEADER * u + QR * u + 14.0 * u + 18.0 * u + help_lines * 17.0 * u + down + 12.0 * u + asking + people + err + speak + FOOT * u
 }
 
 /// Au bureau : le menu de la barre, sous le bouton « Partager » (centré sur `anchor`).
@@ -280,6 +283,25 @@ fn card(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, r: Rect, u: f3
     }
     if let Some(e) = &s.share_error {
         y += cv.paragraph(x, y + 4.0 * u, Text::new(Font::Regular, 12.5 * u, WARN), e, inner, 17.0 * u) + 8.0 * u;
+    }
+
+    // « Laisser les invités parler » (Station qui le connaît), coupé à chaque nouveau partage : il vaut tout de suite
+    // pour les invités déjà là.
+    if let Some(on) = v.guests_speak {
+        cv.rect(x, y, inner, 1.0, LINE);
+        let row = Rect::new(x, y + 6.0 * u, inner, SPEAK * u - 12.0 * u);
+        let (focused, hover) = f.state(Target::ShareSpeak, row);
+        if hover {
+            cv.rrect(row.x - 6.0 * u, row.y, row.w + 12.0 * u, row.h, 8.0 * u, Rgba(227, 237, 240, 10));
+        }
+        if focused {
+            widgets::ring(cv, Rect::new(row.x - 6.0 * u, row.y, row.w + 12.0 * u, row.h), 8.0 * u);
+        }
+        let tw = 44.0 * u;
+        cv.text_fit(x, y + 24.0 * u, Text::new(Font::Regular, 13.5 * u, FROST), tr("Laisser les invités parler", "Let guests speak"), inner - tw - 12.0 * u);
+        cv.text_fit(x, y + 42.0 * u, Text::new(Font::Regular, 11.5 * u, FAINT), tr("Leur micro arrive sur l'ordinateur, pour un jeu ou un appel.", "Their microphone reaches the computer, for a game or a call."), inner - tw - 12.0 * u);
+        widgets::toggle(cv, x + inner - tw, y + 16.0 * u, 24.0 * u, on, !s.share_busy);
+        y += SPEAK * u;
     }
 
     // « Nouveau code » (les invités déjà là restent) et « Arrêter le partage » (tout le monde sort).

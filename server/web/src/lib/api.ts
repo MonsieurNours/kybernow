@@ -450,6 +450,8 @@ export interface ShareView {
    * invité part. `null` (ou absent avant la 0.10) : un partage ordinaire.
    */
   watch?: string | null
+  /** « Laisser les invités parler » (docs/micro.md) : leur micro arrive sur l'ordinateur. Absent avant la Station du micro. */
+  guests_speak?: boolean
 }
 
 /** Un écran physique du PC, à partager (`GET /api/local/displays`, l'écran principal d'abord). */
@@ -482,6 +484,12 @@ export function shareRequests(view: ShareView | null | undefined): ShareGuest[] 
  * Ce que le panneau de partage sait faire : les routes du PC (`/api/local/share…`,
  * Admin) ou celles de l'hôte (`/api/share…`, client web).
  */
+/** Le micro virtuel de la Station (`GET /api/micro`, docs/micro.md). */
+export type MicroStatus =
+  | { state: 'ready'; device: string }
+  | { state: 'missing'; reason: string; installable: boolean }
+  | { state: 'unsupported'; reason: string }
+
 export interface ShareOps {
   code(): Promise<ShareView>
   role(id: string, role: ShareRole): Promise<ShareView>
@@ -490,6 +498,8 @@ export interface ShareOps {
   accept(id: string): Promise<ShareView>
   refuse(id: string): Promise<ShareView>
   stop(): Promise<unknown>
+  /** « Laisser les invités parler » (docs/micro.md) ; absent : pas d'interrupteur. */
+  speak?(on: boolean): Promise<ShareView>
 }
 
 /**
@@ -901,6 +911,11 @@ export const api = {
   shareAccept: (id: string) => request<ShareView>('POST', `/api/local/share/guest/${encodeURIComponent(id)}/accept`),
   shareRefuse: (id: string) => request<ShareView>('POST', `/api/local/share/guest/${encodeURIComponent(id)}/refuse`),
   shareStop: () => request<{ open: false }>('DELETE', '/api/local/share'),
+  shareSpeak: (on: boolean) => request<ShareView>('POST', '/api/local/share/speak', { on }),
+
+  // Micro virtuel de la Station (docs/micro.md) : carte d'Image et son.
+  micro: () => request<MicroStatus>('GET', '/api/micro'),
+  microInstall: () => request<MicroStatus>('POST', '/api/micro/install'),
 
   // Relais de KyberNow (« Hors de chez vous ») : session d'Admin, jamais par le relais.
   relay: () => request<RelayStatus>('GET', '/api/relay'),
@@ -977,4 +992,5 @@ export const localShare: ShareOps = {
   accept: api.shareAccept,
   refuse: api.shareRefuse,
   stop: api.shareStop,
+  speak: api.shareSpeak,
 }

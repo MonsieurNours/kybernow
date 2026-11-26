@@ -51,6 +51,8 @@ export type Settings = {
   auto_reconnect: boolean
   /** Le choix « HDR » (docs/hdr.md), hors du profil ; `null` ou absent : jamais changé, allumé. */
   hdr?: boolean | null
+  /** « Micro » pour cet ordinateur (docs/micro.md) : coupé par défaut, le dernier choix ensuite. */
+  microphone?: boolean
 }
 
 /** Mise à jour de la Station, telle qu'Admin la connaît (`installable` : depuis l'app ; `requires_setup` : avec l'installateur, sur l'ordinateur). */
@@ -575,6 +577,16 @@ export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; coun
 export type BarHdr = { on: boolean; available: boolean; reason: string | null }
 
 /**
+ * La puce « Micro » de la barre (docs/link-ui.md « Micro ») : `on` le choix, `state` ce que dit le cœur
+ * (`waiting` : allumé, réponse de l'ordinateur pas encore venue ; `refused` : l'ordinateur ne le prend pas,
+ * `reason` en infobulle). Absente sans micro sur ce PC.
+ */
+export type BarMic = { on: boolean; state: 'off' | 'waiting' | 'on' | 'refused'; reason: string | null }
+
+/** Les micros de ce PC (Réglages de l'app) : `device` nul, celui du système ; `voice` : « Réduire l'écho et le bruit ». */
+export type MicSettings = { devices: { id: string; name: string }[]; device: string | null; voice: boolean }
+
+/**
  * Réponse de `connect` : les écrans que la session prend (« Préparation des écrans ») ;
  * `windowed` : une session suivante (plusieurs ordinateurs), qui s'ouvre dans sa fenêtre avec sa
  * propre fenêtre de connexion, sans passage sur l'accueil, ou un ordinateur déjà en session, dont
@@ -653,6 +665,8 @@ export type Share = {
   relay: RelayState | null
   full: boolean
   qr: ShareQr | null
+  /** « Laisser les invités parler » ; `null` : Station d'avant le micro, pas d'interrupteur. */
+  guests_speak?: boolean | null
 }
 
 /** Le relais d'un code (partage, prêt) : tenu (`joined`), lien du relais en préparation (`connecting`), injoignable. */

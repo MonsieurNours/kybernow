@@ -22,6 +22,7 @@ import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.core.ShareState
 import fr.leslignesclaires.kybernow.model.Gamepads
+import fr.leslignesclaires.kybernow.model.Mic
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -148,6 +149,12 @@ sealed class Capsule {
     data class RecordingNotice(val text: String) : Capsule()
     /** Profil Auto : « Le test se fera à la fin de la session. » (« Refaire le test », ou Auto choisi sans test, en session). */
     data object AutoTestLater : Capsule()
+    /** Micro (docs/link-ui.md, « Micro ») : « Micro envoyé à {nom}. », à l'allumage par l'utilisateur. */
+    data class MicSent(val name: String) : Capsule()
+    /** « KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages. » (autorisation refusée). */
+    data object MicNoAccess : Capsule()
+    /** Au toucher, « Micro » estompé : la raison du refus de l'ordinateur, le texte du cœur. */
+    data class MicRefused(val text: String) : Capsule()
 }
 
 /**
@@ -197,6 +204,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val decoder = MutableStateFlow<String?>(null)
     val audioOutput = MutableStateFlow<Pair<Int, Double>?>(null)
     val gameFullscreen = MutableStateFlow(false)
+    /** Micro de l'appareil : ce que dit le cœur (`onMicrophone`) ; coupé tant qu'il n'a rien dit. */
+    val mic = MutableStateFlow<Mic>(Mic.Off)
     /** HDR : l'image en cours est en HDR (le cœur le dit à chaque démarrage de l'image). */
     val hdr = MutableStateFlow(false)
     /** PyroWave : le texte de la définition ramenée en place (avis du cœur), nul sans ; repris par le bandeau du début. */
@@ -490,6 +499,10 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         lendEnd = LendEnd.of(end)
         lendEndText = text
         android.util.Log.i("KyberNow", "prêt : fin ${lendEnd}")
+    }
+
+    override fun onMicrophone(json: String) {
+        mic.value = Mic.parse(json)
     }
 
     override fun onLend(json: String?) {

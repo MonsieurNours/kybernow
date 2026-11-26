@@ -614,6 +614,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         auto_check: None,
         auto_told: AtomicBool::new(false),
         recording: Mutex::new(None),
+        mic: Default::default(),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
@@ -635,6 +636,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             control_as_command: false,
             // Pas de réglages de l'ordinateur : la règle d'avant le réglage (plein écran).
             immersive: "fullscreen".into(),
+            // Un invité : coupé au départ (l'hôte décide s'il peut parler).
+            microphone: false,
             layout,
         },
         events.clone(),
@@ -766,6 +769,16 @@ pub fn share_code(app: AppHandle, id: String) -> Result<ShareView, String> {
     let console = host_console(&app, &id)?;
     let opened = lift(console.share_code())?;
     let state = state_after(&console, Some(&opened), current_guests(&app, &id))?;
+    Ok(publish(&app, &id, Some(state)))
+}
+
+/// « Laisser les invités parler » : vaut tout de suite pour les invités déjà
+/// là (Admin leur reprend ou leur rend le droit au micro).
+#[tauri::command(async)]
+pub fn share_speak(app: AppHandle, id: String, on: bool) -> Result<ShareView, String> {
+    let console = host_console(&app, &id)?;
+    let state = lift(console.share_speak(on))?;
+    log::info!("[{id}] invités {}", if on { "autorisés à parler" } else { "sans micro" });
     Ok(publish(&app, &id, Some(state)))
 }
 

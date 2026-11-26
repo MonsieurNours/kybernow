@@ -127,6 +127,8 @@ targets:
         NSBonjourServices: [_kybernow._tcp]
         NSLocalNetworkUsageDescription: KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.
         NSCameraUsageDescription: "KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session."
+        # Micro de l'appareil vers l'ordinateur (docs/micro.md), demandé au premier allumage.
+        NSMicrophoneUsageDescription: "KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio."
         UIUserInterfaceStyle: Dark
         # iPhone ProMotion : sans cette clé, iOS limite l'app à 60 Hz (images
         # Metal comprises) alors que la session est demandée à 120 Hz.

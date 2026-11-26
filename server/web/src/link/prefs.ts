@@ -24,6 +24,12 @@ export interface Prefs {
   controlAsCommand: boolean
   /** Fiche des gestes déjà vue. */
   touchGuideSeen: boolean
+  /** Micro envoyé à l'ordinateur : `''` celui du système, sinon l'identifiant du navigateur
+   * (gardé même débranché : il revient quand on le rebranche). Allumé ou coupé : par ordinateur
+   * (micro.svelte.ts). */
+  micDevice: string
+  /** « Réduire l'écho et le bruit » : le traitement voix du navigateur. */
+  micProcessing: boolean
 }
 
 // Clés d'origine (le client web s'appelait /ecran) : gardées telles quelles
@@ -47,6 +53,8 @@ export const defaults: Prefs = {
   mouse: 'auto',
   controlAsCommand: true,
   touchGuideSeen: false,
+  micDevice: '',
+  micProcessing: true,
 }
 
 export function loadPrefs(): Prefs {

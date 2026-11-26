@@ -528,6 +528,28 @@ struct SharePanelView: View {
                 Text(ShareText.fourGuests).font(Theme.sans(13)).foregroundStyle(Theme.faint)
             }
         }
+        // « Laisser les invités parler » : seulement d'une Station qui le sait (docs/micro.md).
+        if let speak = state.guestsSpeak {
+            Button { Task { await share.setGuestsSpeak(!speak) } } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(ShareText.guestsSpeak).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                        Text(ShareText.guestsSpeakHelp).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    SettingsSwitch(on: speak, enabled: !share.busy)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(share.busy)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(ShareText.guestsSpeak))
+            .accessibilityHint(Text(ShareText.guestsSpeakHelp))
+            .accessibilityValue(speak ? Text("Activé") : Text("Désactivé"))
+            .accessibilityAddTraits(.isToggle)
+        }
         if let error = share.error { AddHostNotice(kind: .danger, text: error) }
         HStack(spacing: 10) {
             Button(ShareText.newCode) { Task { await share.newCode() } }

@@ -20,6 +20,7 @@
   import { MAX_MBPS, MAX_MBPS_PYROWAVE, MIN_MBPS, viaRelay, websocketReason } from './plan'
   import { whyUnavailable } from './pyrowave/state.svelte'
   import { isCustom, pickProfile, PROFILES, type Codec, type MouseMode, type Prefs, type TouchMode, type Transport } from './prefs'
+  import { listMicrophones, micAvailable, micOn, probeMicrophone, setMicOn, type MicDevice } from './micro.svelte'
   import Stats from './Stats.svelte'
   import StationPanel from './StationPanel.svelte'
 
@@ -98,6 +99,18 @@
   let dialog: HTMLElement
   let body: HTMLElement
 
+  /** « Micro » (docs/link-ui.md) : seulement quand ce navigateur et le moteur savent l'envoyer.
+   * Un micro choisi absent reste dans la liste (il revient quand on le rebranche). */
+  let micDevices = $state<MicDevice[]>([])
+  const micListed = $derived(
+    prefs.micDevice && !micDevices.some((d) => d.id === prefs.micDevice) ? [...micDevices, { id: prefs.micDevice, label: t('micro.app_setting') }] : micDevices,
+  )
+  async function refreshMics() {
+    if (!micAvailable()) return
+    micDevices = await listMicrophones()
+  }
+  probeMicrophone().then(refreshMics)
+
   function jump(id: string) {
     body.querySelector(`#rubric-${id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }
@@ -106,7 +119,11 @@
     dialog.focus()
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshMics)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMics)
+    }
   })
 </script>
 
@@ -216,6 +233,12 @@
         <div class="text"><span>{t('web.settings.sound')}</span><span class="sub">{t('web.settings.soundSub')}</span></div>
         <Switch checked={prefs.audio} label={t('web.settings.sound')} onchange={(v) => (prefs.audio = v)} />
       </div>
+      {#if micAvailable()}
+        <div class="row">
+          <div class="text"><span>{t('micro.label')}</span><span class="sub">{t('micro.setting_help')}</span></div>
+          <Switch checked={micOn(hostname)} label={t('micro.label')} onchange={(v) => setMicOn(hostname, v)} />
+        </div>
+      {/if}
     </section>
 
     <section aria-labelledby="rubric-controls">
@@ -308,6 +331,19 @@
         <LangChoice />
         <p class="sub">{t('web.settings.languageHint')}</p>
       </div>
+      {#if micAvailable()}
+        <div class="stack">
+          <div class="text"><span>{t('micro.app_setting')}</span></div>
+          <select class="pick" aria-label={t('micro.app_setting')} value={prefs.micDevice} onchange={(e) => (prefs.micDevice = e.currentTarget.value)}>
+            <option value="">{t('micro.system_default')}</option>
+            {#each micListed as d (d.id)}<option value={d.id}>{d.label}</option>{/each}
+          </select>
+        </div>
+        <div class="row">
+          <div class="text"><span>{t('micro.echo')}</span><span class="sub">{t('micro.echo_help')}</span></div>
+          <Switch checked={prefs.micProcessing} label={t('micro.echo')} onchange={(v) => (prefs.micProcessing = v)} />
+        </div>
+      {/if}
       {#if isTouch}
         {#if deviceKind() === 'phone'}
           <p class="tip"><Icon name="phone" size={18} /><span><b>{t('web.settings.rotateTitle')}</b> {t('web.settings.rotate')}</span></p>
@@ -486,6 +522,17 @@
     box-shadow: inset 0 0 0 1px var(--line-3);
   }
 
+  .pick {
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 8px;
+    border: 0;
+    background: var(--ink-2);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: inherit;
+    font-size: 13.5px;
+    max-width: 100%;
+  }
   .row {
     display: flex;
     align-items: center;

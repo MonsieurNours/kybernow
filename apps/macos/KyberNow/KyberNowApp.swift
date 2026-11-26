@@ -730,6 +730,13 @@ struct KyberNowApp: App {
                 }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true || target?.hasKeyboardAndMouse != true)
+                // Micro (docs/micro.md) : allumé ou coupé, retenu pour l'ordinateur.
+                if target?.micShown ?? true {
+                    Toggle(MicText.label, isOn: Binding(get: { target?.micOn == true },
+                                                        set: { _ in app.sessions.commandTarget?.toggleMicrophone() }))
+                    .keyboardShortcut("v", modifiers: [.control, .option, .command])
+                    .disabled(target?.isLive != true || target?.micState.refusal != nil)
+                }
                 Button("Statistiques") {
                     if let ps = app.playstation.keySession { return ps.toggleStatsPanel() }
                     app.sessions.commandTarget?.toggleStatsPanel()

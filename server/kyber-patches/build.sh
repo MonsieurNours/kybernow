@@ -360,6 +360,9 @@ cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 # L'outil par lequel Admin essaie l'encodeur (docs/profil-auto.md), contre le
 # FFmpeg de kyavserver ; lancé depuis le dossier de Kyber.
 "$ROOT/server/encoder-check/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-encoder-check.exe"
+# L'aide du micro de l'appareil (docs/micro.md, flux montant du correctif 0085), que
+# kycontroller cherche à côté de lui ; libopus du rootfs en statique.
+"$ROOT/server/micro/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-micro.exe"
 # La caméra de l'appareil (docs/webcam.md) : l'outil que kycontroller lance
 # pendant que l'appareil l'envoie (0085), la caméra de Windows 11 et le filtre
 # de Windows 10, inscrits par l'installateur (kybernow-camera --install).

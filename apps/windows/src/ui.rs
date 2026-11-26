@@ -54,6 +54,9 @@ use crate::{audio, focus, i18n, instance, login, relais, shell, snapshot, system
 use kybernow_core::share::{ShareEnd, ShareImage, ShareQuality, ShareRole, ShareState};
 use kybernow_core::update::{self, Available, Channel};
 
+// Micro de ce PC vers l'ordinateur : puce de la barre, choix par ordinateur,
+// Réglages de l'app (docs/micro.md).
+mod micro;
 // KyberNow Share : « Rejoindre avec un code » (session d'invité) et « Partager »
 // (panneau de l'hôte dans la barre).
 mod share;
@@ -445,6 +448,13 @@ pub struct Prefs {
     /// jour » au premier lancement d'une nouvelle version (`stations::launched`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_launched: Option<String>,
+    /// « Micro » des Réglages de l'app (docs/micro.md) : l'identifiant de
+    /// Windows du micro choisi ; absent : celui du système.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub microphone: Option<String>,
+    /// « Réduire l'écho et le bruit » ; absent : allumé.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice_processing: Option<bool>,
 }
 
 /// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
@@ -1784,6 +1794,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     let immersive = settings.immersive.clone();
     let adaptive = settings.adaptive;
     let hdr = settings.hdr_on();
+    let microphone = settings.microphone;
     let before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         let before = std::mem::replace(&mut c.settings, settings);
@@ -1796,6 +1807,10 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « HDR » changé dans les réglages pendant sa session : tout de suite.
     if hdr != hdr_before {
         apply_hdr(&app, &id, hdr);
+    }
+    // « Micro » de la rubrique Son pendant sa session : tout de suite.
+    if microphone != before.microphone && state.in_session(&id) {
+        let _ = micro::apply(&app, &id, microphone);
     }
     // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
     let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
@@ -1899,6 +1914,8 @@ struct UiEvents {
     /// la réponse d'Admin à la barre), avec le nom de l'ordinateur pour un
     /// invité ; `None` : la Station n'enregistre pas (ni bouton ni pastille).
     recording: Mutex<Option<recording::Seen>>,
+    /// Le micro de la session : choix, état du cœur, allumage à annoncer.
+    mic: Mutex<micro::MicSlot>,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -1971,6 +1988,8 @@ struct BarShown {
     route: Option<relais::RouteView>,
     /// La puce « HDR » (écran HDR seulement, jamais pour un invité).
     hdr: Option<BarHdr>,
+    /// La puce « Micro » (docs/link-ui.md « Micro ») : absente sans micro sur ce PC.
+    mic: Option<micro::BarMic>,
     /// PyroWave (docs/link-ui.md) : ce PC rejoint l'ordinateur par câble ;
     /// la barre en tire la puce ambre « PyroWave en Wi-Fi » quand l'image est
     /// en PyroWave (format des mesures) sans câble.
@@ -2016,6 +2035,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         notice_icon: None,
         route,
         hdr: None,
+        mic: None,
         wired: None,
         notice_kind: None,
         console: Some(console),
@@ -2316,6 +2336,17 @@ impl HostEvents for UiEvents {
     /// Un avis bref du cœur (HDR refusé) : dans la capsule de la session.
     fn notice(&self, text: &str) {
         share::notice(&self.app, &self.id, &self.connexion.name, text);
+    }
+
+    // Micro (docs/micro.md) : ui/micro.rs.
+    fn microphone(&self, state: kybernow_core::micro::MicState) {
+        self.mic_changed(state);
+    }
+    fn microphone_denied(&self) {
+        self.mic_denied();
+    }
+    fn toggle_microphone(&self) {
+        self.mic_toggle();
     }
 
     fn camera_offer(&self, offered: bool) {
@@ -3402,6 +3433,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         auto_check,
         auto_told: std::sync::atomic::AtomicBool::new(false),
         recording: Mutex::new(None),
+        mic: Mutex::new(micro::MicSlot::new(s.microphone)),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3424,6 +3456,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             layout,
             control_as_command,
             immersive: s.immersive.clone(),
+            microphone: s.microphone,
         },
         events.clone(),
     );
@@ -3902,6 +3935,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         notice_icon: icon,
         route,
         hdr: bar_hdr(&state, id),
+        mic: state.with_session(id, |r| r.events.bar_mic()).flatten(),
         wired: state.with_session(id, |r| r.sent.lock().unwrap().settings.wired),
         notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained", "auto_network"].into_iter().find(|k| *k == p)),
         console: None,
@@ -4340,6 +4374,8 @@ pub fn run(args: Vec<String>) {
     let mut prefs = load_prefs();
     // Premier lancement d'une nouvelle version : l'avis des Stations à mettre à jour.
     let app_updated = stations::launched(&mut prefs);
+    // Micro : celui choisi et le traitement voix, pour toutes les sessions.
+    crate::micro::set_prefs(prefs.microphone.clone(), prefs.voice_processing.unwrap_or(true));
     *state.prefs.lock().unwrap() = prefs;
     let app = tauri::Builder::default()
         .manage(state)
@@ -4375,6 +4411,10 @@ pub fn run(args: Vec<String>) {
             set_channel,
             set_language,
             set_battery,
+            micro::session_microphone,
+            micro::mic_settings,
+            micro::set_mic_device,
+            micro::set_mic_voice,
             synced::set_sync_settings,
             autotest::autotest_run,
             autotest::autotest_cancel,
@@ -4403,6 +4443,7 @@ pub fn run(args: Vec<String>) {
             share::share_connect,
             share::share_open,
             share::share_code,
+            share::share_speak,
             share::share_accept,
             share::share_refuse,
             share::share_guest,

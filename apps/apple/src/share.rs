@@ -500,6 +500,16 @@ pub unsafe extern "C" fn kn_console_share_code(c: *const KnConsole, out: *mut *m
     console_result(c.0.share_code(), out, error)
 }
 
+/// « Laisser les invités parler » (docs/micro.md) : vaut tout de suite pour
+/// les invités déjà là. `out` : la vue du partage, comme
+/// `kn_console_share_state` (`guests_speak` à jour ; absent d'une Station
+/// d'avant le micro : pas d'interrupteur).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_share_speak(c: *const KnConsole, on: bool, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    console_result(c.0.share_speak(on), out, error)
+}
+
 /// Le rôle d'un invité (`KN_SHARE_ROLE_*`) : « Donner les manettes »,
 /// « Reprendre les manettes », « Donner le clavier et la souris »,
 /// « Reprendre le clavier et la souris » (`kn_share_role_with_pads`,

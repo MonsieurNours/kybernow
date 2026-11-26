@@ -182,6 +182,7 @@
     "kyberCertLost": "Certificat de Kyber abîmé et pas refait : Kyber ne peut pas démarrer, réinstallez la Station",
     "shareWatching": "{name} regarde votre écran",
     "sharePlaying": "{name} joue avec vous",
+    "microInstalled": "Micro virtuel VB-CABLE installé",
     "shareLeft": "{name} a quitté le partage",
     "shareRequest": "{name} demande à rejoindre (hors de chez vous)",
     "shareRefused": "{name} : demande refusée",

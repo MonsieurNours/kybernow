@@ -317,6 +317,8 @@ pub fn view(s: &AppState, snapshot: &Snapshot) -> Value {
         // qui l'a fait ouvrir ; pas de code à montrer, il se ferme quand son
         // dernier invité part. `null` pour un partage ordinaire.
         "watch": snapshot.watch,
+        // « Laisser les invités parler » (docs/micro.md).
+        "guests_speak": snapshot.guests_speak,
     })
 }
 
@@ -377,7 +379,9 @@ pub fn guest_names(s: &AppState) -> Option<String> {
 /// Le jeton de Kyber d'un invité : son rôle et son écran, 120 s.
 fn guest_token(s: &AppState, guest: &Guest, display: u32) -> Option<String> {
     let secret = s.kyber.jwt_secret()?;
-    let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev, "kn_quality": guest.preset.as_str() });
+    // `kn_mic` (correctif 0085-kycontroller-micro-droits, docs/micro.md) : le micro de l'invité arrive sur l'ordinateur
+    // quand l'hôte laisse les invités parler.
+    let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev, "kn_quality": guest.preset.as_str(), "kn_mic": s.share.guests_speak() });
     Some(crate::kyber_proxy::jwt_with(&secret, &guest.kyber_user(), share::TOKEN_LIFETIME, claims))
 }
 
@@ -397,7 +401,7 @@ async fn kyber_close(s: &AppState, guest: &Guest) {
 /// Le nouveau rôle d'un invité, appliqué tout de suite par Kyber (sinon à
 /// son prochain renouvellement de jeton).
 async fn kyber_role(s: &AppState, guest: &Guest) {
-    let body = json!({ "user": guest.kyber_user(), "role": guest.role.as_str(), "rev": guest.rev });
+    let body = json!({ "user": guest.kyber_user(), "role": guest.role.as_str(), "rev": guest.rev, "mic": s.share.guests_speak() });
     match crate::kyber_proxy::kyber_call(s, Method::POST, "/kybernow/role", Some(body)).await {
         Ok((status, _)) if status.is_success() => {}
         Ok((status, _)) => tracing::warn!("partage : rôle de {} refusé par Kyber ({status})", guest.name),
@@ -570,6 +574,45 @@ async fn change_role(s: &AppState, id: &str, role: Role) -> ShareResult<Json<Val
         }
     }
     Ok(Json(current_view(s)))
+}
+
+/// « Laisser les invités parler » : pour les invités déjà là tout de suite
+/// (même rôle, une révision de plus), pour les suivants dans leur jeton.
+async fn set_guests_speak(s: &AppState, on: bool) -> ShareResult<Json<Value>> {
+    let guests = s.share.set_guests_speak(on).ok_or_else(no_share)?;
+    for guest in &guests {
+        kyber_role(s, guest).await;
+    }
+    if !guests.is_empty() || on {
+        tracing::info!("partage : invités {}", if on { "autorisés à parler" } else { "sans micro" });
+    }
+    Ok(Json(current_view(s)))
+}
+
+#[derive(Deserialize)]
+pub struct SpeakBody {
+    on: bool,
+}
+
+/// `POST /api/share/speak` `{"on"}` : laisser les invités parler (hôte).
+pub async fn host_speak(State(s): State<AppState>, headers: HeaderMap, body: axum::body::Bytes) -> ShareResult<Json<Value>> {
+    let value: Value = serde_json::from_slice(&body).map_err(|e| ShareError::new(StatusCode::BAD_REQUEST, "bad_request", Msg::new("api.unreadableBody").with("error", e.to_string())))?;
+    let device_id = value["device_id"].as_str().map(str::to_owned);
+    let live = host_session(&s, &headers, device_id.as_deref())?;
+    host_share(&s, &live)?;
+    let SpeakBody { on } = serde_json::from_value(value).map_err(|e| ShareError::new(StatusCode::BAD_REQUEST, "bad_request", Msg::new("api.unreadableBody").with("error", e.to_string())))?;
+    set_guests_speak(&s, on).await
+}
+
+/// `POST /api/local/share/speak` `{"on"}` : la même chose depuis le PC (icône, Admin).
+pub async fn local_speak(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<SpeakBody>,
+) -> ShareResult<Json<Value>> {
+    local_or_admin(&s, peer, &headers)?;
+    set_guests_speak(&s, body.on).await
 }
 
 async fn remove_guest(s: &AppState, id: &str) -> ShareResult<Json<Value>> {
@@ -1632,6 +1675,7 @@ mod tests {
         assert_eq!(token["kn_role"], "spectator");
         assert_eq!(token["kn_display"], opened["display"]["id"]);
         assert_eq!(token["kn_rev"], 1);
+        assert_eq!(token["kn_mic"], false, "les invités ne parlent pas par défaut");
         assert!(token["sub"].as_str().unwrap().starts_with("kn-guest-"));
         assert!(texts(s)[0] == "Léa regarde votre écran");
 
@@ -1649,6 +1693,13 @@ mod tests {
         assert!(beat_v["end"].is_null());
         let renewed = claims(beat_v["token"].as_str().unwrap());
         assert_eq!((renewed["kn_role"].as_str(), renewed["kn_rev"].as_u64()), (Some("player_kbm"), Some(3)));
+        // « Laisser les invités parler » : une révision de plus, et `kn_mic` dans le jeton.
+        let speak = Bytes::from(json!({ "on": true, "device_id": "mac-1" }).to_string());
+        let Json(v) = host_speak(State(s.clone()), basic("mac", "mot-de-passe-mac"), speak).await.ok().unwrap();
+        assert_eq!(v["guests_speak"], true);
+        let (_, beat_v) = body(beat(State(s.clone()), guest_headers(&secret), None, Json(GuestBody { guest: guest.clone(), error: None, started: None })).await).await;
+        let renewed = claims(beat_v["token"].as_str().unwrap());
+        assert_eq!((renewed["kn_mic"].as_bool(), renewed["kn_rev"].as_u64()), (Some(true), Some(4)));
         // Un mauvais secret : inconnu.
         let (status, _) = body(beat(State(s.clone()), guest_headers("faux"), None, Json(GuestBody { guest: guest.clone(), error: None, started: None })).await).await;
         assert_eq!(status, StatusCode::NOT_FOUND);

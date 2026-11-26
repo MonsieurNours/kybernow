@@ -171,6 +171,23 @@
     <string name="settings_game_mode_unsupported">Cet écran ne le propose pas.</string>
     <string name="settings_sound_help">Auto suit la sortie : 5.1 ou 7.1 sur un ampli HDMI, stéréo ailleurs.</string>
     <string name="settings_sound_computer">Sur l\'ordinateur</string>
+    <string name="mic">Micro</string>
+    <string name="mic_off">Micro coupé</string>
+    <string name="mic_sent">Envoyé</string>
+    <string name="mic_cut">Coupé</string>
+    <string name="mic_connecting">Envoi…</string>
+    <string name="mic_tip_on" formatted="true">Micro : envoyé à l\'ordinateur (%1$s)</string>
+    <string name="mic_tip_off" formatted="true">Micro coupé (%1$s)</string>
+    <string name="mic_shortcut">Ctrl + Alt + Maj + V</string>
+    <string name="mic_notice_sent" formatted="true">Micro envoyé à %1$s.</string>
+    <string name="mic_no_access">KyberNow Link n\'a pas accès au micro. Autorisez-le dans les Réglages.</string>
+    <string name="settings_mic_help">Envoie le micro de cet appareil à l\'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.</string>
+    <string name="app_settings_mic_system">Celui du système</string>
+    <string name="app_settings_mic_unnamed">Micro de l\'appareil</string>
+    <string name="share_guests_speak">Laisser les invités parler</string>
+    <string name="share_guests_speak_help">Leur micro arrive sur l\'ordinateur, pour un jeu ou un appel.</string>
+    <string name="app_settings_voice">Réduire l\'écho et le bruit</string>
+    <string name="app_settings_voice_help">Le traitement voix de l\'appareil retire le son de l\'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.</string>
     <string name="settings_gamepad_seen">Manette vue par l\'ordinateur</string>
     <string name="settings_gamepad_seen_help">Xbox 360 : toutes les manettes en deviennent une. Fidèle : une manette Sony reste une DualShock 4.</string>
     <string name="settings_gamepad_faithful">Fidèle</string>

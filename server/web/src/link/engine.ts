@@ -153,6 +153,17 @@ export function engineKnowsPyroWave(): boolean {
   return pyrowaveEngine
 }
 
+/** Le moteur sait-il envoyer le micro de l'appareil (docs/micro.md) ? Pas encore : le moteur web
+ * n'a pas le flux montant. Tant que c'est faux, la page ne montre ni la puce « Micro » ni ses
+ * réglages, et `sendMicrophone` ne part nulle part. */
+export function engineSendsMicrophone(): boolean {
+  return false
+}
+
+/** Ce que l'ordinateur dit du micro : `waiting` (proposé, pas encore de réponse), `open` (il le
+ * prend), `refused` et sa raison. */
+export type EngineMicState = { state: 'idle' | 'waiting' | 'open' } | { state: 'refused'; reason: 'not_allowed' | 'no_device' | 'unsupported' | 'old_station' }
+
 /** Charge le moteur une fois (fichier JS + WebAssembly). */
 export function loadEngine(): Promise<Wasm> {
   if (!modulePromise) {
@@ -484,6 +495,17 @@ export class Engine {
 
   ctrlAltDel() {
     this.client?.send_ctrl_alt_del()
+  }
+
+  /** Un paquet Opus du micro (vide : micro coupé) ; `false` tant que l'ordinateur ne le prend pas.
+   * À brancher sur le flux montant du moteur (`engineSendsMicrophone`). */
+  sendMicrophone(_packet: Uint8Array, _ptsUs: number): boolean {
+    return false
+  }
+
+  /** Ce que l'ordinateur dit du micro, lu par la page (à brancher avec `sendMicrophone`). */
+  microphoneState(): EngineMicState {
+    return { state: 'idle' }
   }
 
   setMute(mute: boolean) {

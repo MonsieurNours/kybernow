@@ -922,6 +922,21 @@
     }
   },
   "imageSound": {
+    "micro": {
+      "title": "Virtual microphone",
+      "sub": "Your devices' microphone, for your calls and games",
+      "ready": "Your devices' microphone arrives in “{device}”.",
+      "readyWindows": "VB-CABLE is installed: your devices' microphone arrives in “CABLE Output”.",
+      "missingWindows": "VB-CABLE is not installed.",
+      "missing": "The virtual microphone isn't there: reinstall or update the Station.",
+      "unsupported": "This Station can't receive the microphone: update it.",
+      "install": "Install VB-CABLE",
+      "installing": "Installing VB-CABLE…",
+      "installed": "VB-CABLE is installed.",
+      "installFailed": "VB-CABLE didn't install: restart the computer, then try again.",
+      "donation": "VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.",
+      "help": "While a device sends its microphone, the virtual microphone becomes the computer's default microphone; the previous one comes back at the end. An app that doesn't follow the system's microphone finds it in its list."
+    },
     "kicker": "During a session",
     "title": "Picture and sound",
     "intro": "What your devices receive, and what happens to this computer during a session. The KyberNow Link apps set the picture quality themselves: there is nothing to set here to get started.",
@@ -1088,6 +1103,8 @@
     "takeKbm": "Take back keyboard and mouse",
     "remove": "Remove",
     "newCode": "New code",
+    "speak": "Let guests speak",
+    "speakHelp": "Their microphone reaches the computer, for a game or a call.",
     "stop": "Stop sharing",
     "stopped": "Sharing stopped.",
     "limit": "Four guests at most.",
@@ -1736,5 +1753,24 @@
       "minutes": "{n} min",
       "hours": "{h} h {m}"
     }
+  },
+  "micro": {
+    "label": "Microphone",
+    "label_off": "Microphone off",
+    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
+    "tooltip_off": "Microphone off ({shortcut})",
+    "sent": "Microphone sent to {name}.",
+    "permission_web": "KyberNow Link can't access the microphone. Allow it in your browser.",
+    "not_allowed": "The host isn't letting guests speak.",
+    "no_device": "The computer has no virtual microphone: see Admin › Picture and sound.",
+    "unsupported": "This computer can't receive the microphone.",
+    "old_station": "Update the Station to send your microphone.",
+    "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
+    "app_setting": "Microphone",
+    "system_default": "System default",
+    "echo": "Reduce echo and noise",
+    "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
+    "no_microphone": "No microphone on this device.",
+    "shortcut": "Ctrl + Alt + Shift + V"
   }
 }

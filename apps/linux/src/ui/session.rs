@@ -448,6 +448,11 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
     if sound {
         v.push(icon(Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
     }
+    // « Micro », après le son (un micro sur l'appareil) : allumé tant qu'il est envoyé, estompé quand l'ordinateur
+    // ne le prend pas (la raison en infobulle). Un invité ne l'a que si l'hôte laisse les invités parler.
+    if let Some(m) = s.mic.filter(|m| !(s.guest.is_some() && m.refused() == Some(crate::micro::MicRefusal::NotAllowed))) {
+        v.push(BarIcon { target: Target::BarMic, icon: if m.lit() { Icon::Mic } else { Icon::MicOff }, on: m.lit(), name: m.tooltip(), dim: m.refused().is_some() });
+    }
     // La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : seulement si l'ordinateur la propose.
     if s.camera_offered {
         let on = s.camera == CameraState::Sending || s.bar_menu == Some(BarMenu::Camera);
@@ -1582,6 +1587,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         tiles.push((MenuItem::Hdr, "HDR".into(), on_off(u.lit()).into(), u.lit(), false));
     }
     tiles.push((MenuItem::Sound, tr("Son", "Sound").into(), audio, s.muted, false));
+    // « Micro » (un micro sur l'appareil) : « Envoyé », « Coupé », « Envoi… » ; estompé, il dit sa raison.
+    let mic = s.mic.filter(|m| !(s.guest.is_some() && m.refused() == Some(crate::micro::MicRefusal::NotAllowed)));
+    if let Some(m) = mic {
+        tiles.push((MenuItem::Mic, crate::micro::label_on().into(), m.tile_sub().into(), m.lit(), false));
+    }
     if kbm {
         tiles.push((MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false));
         tiles.push((MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam", "Steam keyboard").into(), false, false));
@@ -1658,13 +1668,20 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let r = Rect::new(x0 + col as f32 * (tw + gap), ty + row as f32 * (th + gap), tw, th);
         let hdr_blocked = s.hdr.is_some_and(|u| !u.available());
         let rec_blocked = s.recording.as_ref().is_some_and(|r| r.guest || r.blocked());
-        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked) || (*item == MenuItem::Record && rec_blocked);
+        let mic_blocked = mic.is_some_and(|m| m.refused().is_some());
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked) || (*item == MenuItem::Record && rec_blocked) || (*item == MenuItem::Mic && mic_blocked);
         tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, dim);
     }
     // État, au-dessus de la légende.
     let footer = 56.0 * u;
     let sy = h - footer - 30.0 * u;
     widgets::dot(cv, x0 + 4.0 * u, sy - 4.0 * u, 3.5 * u, OK, false);
+    // Le micro envoyé : une petite icône à côté de l'indicateur de la session.
+    let mut line_x = x0 + 16.0 * u;
+    if mic.is_some_and(|m| m.sent()) {
+        cv.icon(&Icon::Mic, line_x - 2.0 * u, sy - 12.0 * u, 14.0 * u, 1.6, SPECTRE);
+        line_x += 18.0 * u;
+    }
     let mut line = s.name.clone();
     if let Some(g) = &s.guest {
         line.push_str(&format!(" · {}", g.role.label()));
@@ -1682,7 +1699,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     if let Some(p) = app.pads.first().filter(|_| pads) {
         line.push_str(&format!(" · {} {}, {}1", tr("manette :", "controller:"), p.name, tr("joueur ", "player ")));
     }
-    cv.text_fit(x0 + 16.0 * u, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
+    cv.text_fit(line_x, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
     if s.role().is_none_or(|r| r.plays()) {
         cv.text(w - x0, sy, Text::new(Font::Mono, 12.0 * u, FAINT).align(Align::Right), tr("Pendant ce menu, l'ordinateur relâche tout", "While this menu is open, the computer releases everything"));
     }

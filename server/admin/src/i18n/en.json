@@ -182,6 +182,7 @@
     "kyberCertLost": "Kyber's certificate is damaged and could not be made again: Kyber can't start, reinstall the Station",
     "shareWatching": "{name} is watching your screen",
     "sharePlaying": "{name} is playing with you",
+    "microInstalled": "VB-CABLE virtual microphone installed",
     "shareLeft": "{name} left the share",
     "shareRequest": "{name} wants to join (away from home)",
     "shareRefused": "{name}: request declined",

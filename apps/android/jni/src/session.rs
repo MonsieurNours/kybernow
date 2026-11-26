@@ -23,6 +23,7 @@ use kybernow_core::input::{Clock, GamepadRumble, InputPipeline, InputPlatform, M
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::media::PacketHandler;
+use kybernow_core::micro::MicState;
 use kybernow_core::profile::{HdrLuminance, StreamSettings};
 use kybernow_core::session::{Notice, Platform, Session, SessionParams, Status};
 use kybernow_core::share::{ShareEnd, ShareImage, ShareRole, ShareState};
@@ -293,6 +294,17 @@ impl Platform for AndroidPlatform {
             let j = env.new_string(&json)?;
             let n = jstring_or_null(env, notice)?;
             env.call_method(obj, "onRecording", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&j), JValue::Object(&n)]).map(|_| ())
+        });
+    }
+
+    /// Micro de l'appareil (docs/micro.md) : `SessionListener.onMicrophone(json)`,
+    /// `MicState::to_json` (`{"state":"on"}`, `{"state":"refused","reason":"no_device","text":"…"}`).
+    /// Kotlin capte tant que l'état est `waiting` ou `on`.
+    fn on_microphone(&self, state: MicState) {
+        let json = state.to_json();
+        self.0.listener.with(|env, obj| {
+            let s = env.new_string(&json)?;
+            env.call_method(obj, "onMicrophone", "(Ljava/lang/String;)V", &[JValue::Object(&s)]).map(|_| ())
         });
     }
 

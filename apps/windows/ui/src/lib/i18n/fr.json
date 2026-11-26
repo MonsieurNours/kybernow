@@ -323,7 +323,8 @@
     "keep": "Garder",
     "battery_help": "Alléger : 30 Hz au plus pendant les sessions, le débit suit.",
     "on_battery_now": " Ce PC est sur batterie.",
-    "probing": "Vérification de la carte graphique…"
+    "probing": "Vérification de la carte graphique…",
+    "mic_unplugged": "Micro choisi (débranché)"
   },
   "passage": {
     "preparing": "Préparation de l'écran",
@@ -839,6 +840,21 @@
     "away_dialog_text": "{name} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.",
     "not_now": "Pas maintenant",
     "paired_text": "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow."
+  },
+  "micro": {
+    "label": "Micro",
+    "label_off": "Micro coupé",
+    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
+    "tooltip_off": "Micro coupé ({shortcut})",
+    "shortcut": "Ctrl+Alt+Maj+V",
+    "setting": "Micro",
+    "setting_help": "Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.",
+    "app_setting": "Micro",
+    "system_default": "Celui du système",
+    "echo": "Réduire l'écho et le bruit",
+    "echo_help": "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.",
+    "guests": "Laisser les invités parler",
+    "guests_help": "Leur micro arrive sur l'ordinateur, pour un jeu ou un appel."
   },
   "camera": {
     "camera": "Caméra",

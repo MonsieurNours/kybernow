@@ -93,6 +93,7 @@ En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), 
 | Son | « Stéréo », « 5.1 », « 7.1 » (les voies de la session), « Son coupé » quand le son est coupé dans les réglages ; à partir de deux sessions, la pastille devient le bouton « Garder le son » | “Stereo”, “5.1”, “7.1”, “Sound off”; “Keep sound” | haut-parleur (barré : son coupé) |
 | Micro (seulement si l'ordinateur le propose ; règles à préciser par le travail du micro) | « Micro » ▾, même dessin que « Caméra » ; menu : « Allumer le micro » ou « Éteindre le micro », puis les micros de l'appareil | “Microphone”; “Turn on microphone”, “Turn off microphone” | micro (barré : éteint) |
 | Caméra (seulement si l'ordinateur la propose et que l'appareil a une caméra, voir « Caméra de l'appareil ») | « Caméra » ▾, estompée quand elle n'envoie pas, allumée en rouge avec un point quand elle envoie ; menu : « Allumer la caméra » ou « Éteindre la caméra », puis les caméras de l'appareil, celle choisie cochée | “Camera”; “Turn on camera”, “Turn off camera” | caméra (barrée : éteinte) |
+| Micro (seulement avec un micro sur l'appareil, voir « Micro ») | « Micro » allumé quand il est envoyé, « Micro coupé » sinon ; un clic l'allume ou le coupe ; estompé quand l'ordinateur ne le prend pas, la raison en infobulle ; infobulle « Micro : envoyé à l'ordinateur ({raccourci}) » ou « Micro coupé ({raccourci}) » | “Microphone”, “Microphone off”; “Microphone: sent to the computer ({shortcut})”, “Microphone off ({shortcut})” | micro (barré : coupé) |
 | Souris | le mode du moment ▾ : « Souris du bureau » ou « Souris des jeux » (en Auto aussi) ; menu : « Auto », « Souris du bureau », « Souris des jeux », le réglage de l'ordinateur coché ; choisir l'applique tout de suite et le garde pour cet ordinateur, comme le menu de l'icône ; infobulle « Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur ({raccourci} bascule) » | “Desktop mouse”, “Game mouse”, “Auto”; “Mouse: Auto switches to the game mouse when a game is full screen on the computer ({shortcut} switches)” | pointeur ; viseur en souris des jeux |
 | Touches (Windows et Linux seulement) | « Touches » ▾ : « Ctrl + Alt + Suppr », « Touche ⊞ seule », « Alt + Tab », « Impr. écran » ; face à une Station Mac, ses équivalents (voir « Face à une Station Mac ») | “Keys” | clavier |
 | Presse-papiers (pastille, sans action) | « Presse-papiers », estompé quand il n'est pas partagé ; infobulle « Presse-papiers partagé avec l'ordinateur (texte) » ou « Presse-papiers non partagé (Réglages) » | “Clipboard”; “Clipboard shared with the computer (text)”, “Clipboard not shared (Settings)” | presse-papiers |
@@ -101,11 +102,11 @@ En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), 
 | Plein écran (absent avec plusieurs écrans) | icône seule ; infobulle « Plein écran ({raccourci}) » | “Full screen ({shortcut})” | quatre coins |
 | Fin | « Se déconnecter », en rouge ; infobulle « Se déconnecter ({raccourci}) » | “Disconnect ({shortcut})” | marche/arrêt |
 
-Raccourcis : ⌃⌥⌘ + lettre sur Mac, Ctrl+Alt+Maj + lettre sur Windows et Linux : C caméra (l'allume ou l'éteint), D se déconnecter, F plein écran, M souris, O ordinateur suivant, R enregistrer, S statistiques.
+Raccourcis : ⌃⌥⌘ + lettre sur Mac, Ctrl+Alt+Maj + lettre sur Windows et Linux : C caméra (l'allume ou l'éteint), D se déconnecter, F plein écran, M souris, O ordinateur suivant, R enregistrer, S statistiques, V micro.
 
 **Barre étroite** (une session de plus, dans une fenêtre aux deux tiers de l'écran) : quand la barre ne tient pas dans la largeur de la fenêtre, ses puces perdent leur texte (icône seule ; libellé accessible et infobulle gardés), sauf le profil et « HDR » ; les pastilles se réduisent au nombre (« 2 ») ; le format des mesures disparaît. Jamais de bouton rogné.
 
-**Invité d'un partage** (barre réduite, voir « Partage ») : le symbole et « Invité sur {nom} » ; son rôle en puce (« Spectateur », icône d'œil ; « Joueur », icône de manette ; clavier et souris seuls : icône de clavier) ; « Par le relais » ; « Enregistrement » pendant que l'hôte enregistre ; les mesures | le son ; « Qualité de l'image » (icône d'écran, la qualité reçue ▾) ; avec le clavier et la souris : la souris et « Touches » (Windows, Linux) | plein écran ; « Quitter le partage » (marche/arrêt, en rouge).
+**Invité d'un partage** (barre réduite, voir « Partage ») : le symbole et « Invité sur {nom} » ; son rôle en puce (« Spectateur », icône d'œil ; « Joueur », icône de manette ; clavier et souris seuls : icône de clavier) ; « Par le relais » ; « Enregistrement » pendant que l'hôte enregistre ; les mesures | le son ; « Micro » quand l'hôte laisse les invités parler ; « Qualité de l'image » (icône d'écran, la qualité reçue ▾) ; avec le clavier et la souris : la souris et « Touches » (Windows, Linux) | plein écran ; « Quitter le partage » (marche/arrêt, en rouge).
 
 **Ami qui emprunte** (barre réduite, voir « Prêt de l'ordinateur ») : le symbole, « Prêté par {hôte} » et le temps restant (« Encore 1 h 20 », ambre pendant le préavis) | « Par le relais » ; les mesures | « HDR » ; le son ; le micro ; la caméra ; la souris ; « Touches » (Windows, Linux) | plein écran ; « Se déconnecter » (marche/arrêt, discret : on peut revenir) ; « Rendre l'ordinateur » (clé, en rouge, confirmation « Rendre l'ordinateur à {hôte} ? »).
 
@@ -191,6 +192,26 @@ Contrat complet : [hdr.md](hdr.md). Le HDR n'est proposé que sur un appareil do
 
 Le HDR est **allumé** la première fois qu'un appareil à écran HDR voit un ordinateur qui le propose ; ensuite l'app garde le choix pour cet ordinateur. Il ne compte pas dans le profil : le changer ne fait pas passer en « Personnalisé ». HDR allumé : « Texte net (4:4:4) » inactif (aide ci-dessous), le profil Bureau envoie du 4:2:0, le format « Auto » prend HEVC ou AV1. Avec plusieurs écrans, chaque écran de la session est en HDR si l'écran de l'appareil qui le reçoit l'est ; un écran de l'appareil qui perd ou retrouve le HDR en session fait repasser son image en SDR ou en HDR, sans message. Invités du partage : pas de puce ; un invité à écran HDR reçoit le HDR quand l'hôte est en HDR, sinon une image à part en SDR. L'ami à qui l'ordinateur est prêté a la puce (écran « Emprunter ») et la ligne de la barre, comme un hôte. Le navigateur n'a pas de HDR. L'écran « Réglage du HDR » ([hdr.md](hdr.md), « Réglage du HDR ») n'existe que sur un écran HDR ; ses mires sont dessinées en HDR par l'app, sans ordinateur ; toucher, flèches, molette ou manette (gauche, droite) font varier la valeur ; valeurs gardées pour cet écran de l'appareil.
 
+## Micro
+
+Contrat : [micro.md](micro.md). Le micro de l'appareil arrive sur l'ordinateur, pour parler dans un jeu, un appel ou une visio. Toutes les apps qui ont un micro (Mac, iPhone et iPad, Android, Windows, Linux, Steam Deck, Raspberry Pi avec un micro USB, client web) ; ni l'Apple TV ni les téléviseurs LG, où rien n'en parle.
+
+- **Coupé au départ, retenu par ordinateur.** La première session avec un ordinateur part micro coupé. « Micro » (barre de session, tuile des menus à tuiles, réglage « Micro » de la rubrique Son) l'allume ou le coupe ; la session suivante avec cet ordinateur reprend le dernier choix. Rien n'est envoyé micro coupé.
+- **Autorisation du système** : demandée la première fois qu'on l'allume, jamais avant. Refusée : « Micro » reste coupé, avis « KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages. » / “KyberNow Link can't access the microphone. Allow it in Settings.” (Mac : « … dans Réglages Système. » / “… in System Settings.” ; Windows : « … dans les paramètres de confidentialité de Windows. » / “… in Windows privacy settings.” ; navigateur : « … dans le navigateur. » / “… in your browser.”).
+- **Indicateur** : tant que le micro est envoyé, la puce « Micro » de la barre est allumée (dans sa partie toujours visible) ; dans les menus à tuiles et sur les apps sans barre permanente (iPhone, iPad, Android, Deck, salon), une petite icône de micro à côté de l'indicateur de la session, et le sous-titre de la tuile « Micro » : « Envoyé » / “On” ou « Coupé » / “Off”.
+- **Ce que l'ordinateur ne prend pas** : « Micro » estompé ; à la souris, inactif avec la raison en infobulle ; au toucher et à la télécommande, il reste sélectionnable et montre la raison en avis. Les raisons : « Mettez à jour la Station pour envoyer le micro. » / “Update the Station to send your microphone.” ; « L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son. » / “The computer has no virtual microphone: see Admin › Picture and sound.” ; « L'hôte ne laisse pas les invités parler. » / “The host isn't letting guests speak.” ; « Cet ordinateur ne reçoit pas le micro. » / “This computer can't receive the microphone.”. Le micro est proposé à chaque session d'une app qui en a un, même coupé (rien ne part) : l'ordinateur répond dès le début, et « Micro » est estompé avec sa raison avant même qu'on l'allume ; l'allumer en session ne relance rien. Allumé, avant la réponse : « Micro » allumé et la tuile dit « Envoi… » / “Connecting…”.
+- **Avis bref à l'allumage** : « Micro envoyé à {nom}. » / “Microphone sent to {name}.” ; à la coupure, rien (la puce suffit).
+- **Sur l'ordinateur** : pendant l'envoi, le micro virtuel est le micro par défaut (« Micro KyberNow » sur Mac et Linux, « CABLE Output » sur Windows) ; l'app de l'appel le prend si elle suit le micro du système, sinon on l'y choisit. Le précédent revient à la fin.
+
+**Réglages de l'app** (« Micro », sous « Son » quand l'app en a une) :
+
+| Élément | Français | English |
+|---|---|---|
+| Micro | « Celui du système » (proposé), puis les micros de l'appareil par leur nom ; un micro choisi débranché : celui du système, sans le perdre (il revient quand on le rebranche) | “Microphone”: “System default”, then the device's microphones |
+| Écho et bruit | interrupteur « Réduire l'écho et le bruit », allumé ; aide « Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio. » | “Reduce echo and noise”; “The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.” |
+
+**Admin › Image et son** (Station), carte « Micro virtuel » : « Micro virtuel » / “Virtual microphone” : Windows : « VB-CABLE est installé : le micro de vos appareils arrive dans « CABLE Output ». » / “VB-CABLE is installed: your devices' microphone arrives in “CABLE Output”.”, ou « VB-CABLE n'est pas installé. » avec « Installer VB-CABLE » / “Install VB-CABLE” ; dessous, toujours : « VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com. » / “VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.” ; Mac : « Le micro de vos appareils arrive dans « Micro KyberNow ». » / “Your devices' microphone arrives in “Micro KyberNow”.” ; Linux : la même phrase.
+
 ## Partage (KyberNow Share)
 
 Contrat : [kybernow-share.md](kybernow-share.md), et [relais.md](relais.md) hors de chez soi. Toutes les apps Link et le client web, mêmes textes partout.
@@ -214,6 +235,7 @@ Contrat : [kybernow-share.md](kybernow-share.md), et [relais.md](relais.md) hors
 | App d'un invité (`app`) | Mac, Windows, Linux, « iPhone ou iPad », Apple TV, Android, « Téléviseur LG », « Navigateur » | Mac, Windows, Linux, “iPhone or iPad”, Apple TV, Android, “LG TV”, “Browser” |
 | Durée (`since`, secondes Unix de la Station) | « moins d'une minute », « 3 min », « 1 h 12 » ; jamais négative (horloges décalées) | “under a minute”, “3 min”, “1 h 12” |
 | Actions sur un invité | deux droits indépendants, chacun donné ou repris sans toucher à l'autre : « Donner les manettes » / « Reprendre les manettes » ; « Donner le clavier et la souris » / « Reprendre le clavier et la souris » ; puis « Retirer » | “Give controllers”; “Take back controllers”; “Give keyboard and mouse”; “Take back keyboard and mouse”; “Remove” |
+| Micro des invités | interrupteur « Laisser les invités parler », coupé à chaque nouveau partage ; aide « Leur micro arrive sur l'ordinateur, pour un jeu ou un appel. » ; le changer vaut tout de suite pour les invités déjà là (voir « Micro ») | “Let guests speak”; “Their microphone reaches the computer, for a game or a call.” |
 | Code changé | « Nouveau code » (les invités déjà là restent) | “New code” |
 | Fin | « Arrêter le partage » (tout le monde sort) | “Stop sharing” |
 | Limite | « Quatre invités au plus. », seulement quand les quatre places sont prises | “Four guests at most.” |
@@ -519,13 +541,13 @@ Titre : « Réglages de {nom} » / “Settings for {name}”. En tête : « Prof
 | Rubrique | Français | English | Contenu |
 |---|---|---|---|
 | 1 | Image | Picture | définition, écrans, fréquence, écran virtuel, format vidéo, texte net (4:4:4), HDR, débit, affichage des images, garder la dernière image |
-| 2 | Son | Sound | voies, son sur l'ordinateur, et ce que la plateforme propose (audio spatial, 5.1 Dolby…) |
+| 2 | Son | Sound | voies, son sur l'ordinateur, micro, et ce que la plateforme propose (audio spatial, 5.1 Dolby…) |
 | 3 | Commandes | Controls | manette vue par l'ordinateur, souris, clavier, toucher, télécommande, vibrations, presse-papiers partagé |
 | 4 | Réseau | Network | transport de l'image, reconnexion automatique, réveil par le réseau |
 | 5 | Statistiques | Statistics | dernière session, cet ordinateur |
 | 6 | Station | Station | Admin, redémarrer, mettre à jour, compte, retirer cet ordinateur |
 
-Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des manettes, ce que l'appareil sait décoder, réglage du HDR) va dans les **Réglages de l'app**, pas ici.
+Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des manettes, ce que l'appareil sait décoder, réglage du HDR, choix du micro) va dans les **Réglages de l'app**, pas ici.
 
 ### Libellés des réglages
 
@@ -542,6 +564,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Affichage des images | Frame display | Synchronisé / Synced ; Immédiat / Immediate |
 | Garder la dernière image | Keep the last image | |
 | Son | Sound | Auto ; Stéréo / Stereo ; 5.1 ; 7.1 ; Sur l'ordinateur / On the computer |
+| Micro | Microphone | interrupteur, le même que « Micro » de la session, retenu pour cet ordinateur ; aide : « Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio. » / “Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.” ; absent sans micro sur l'appareil (Apple TV, téléviseurs) |
 | Manette vue par l'ordinateur | Controller seen by the computer | Xbox 360 ; Fidèle / As is |
 | Souris | Mouse | Auto ; Souris du bureau / Desktop mouse ; Souris des jeux / Game mouse |
 | Mode immersif | Immersive mode | En plein écran / In full screen ; Toujours / Always ; Jamais / Never (voir « Mode immersif ») |

@@ -266,6 +266,9 @@ public final class SessionEngine: @unchecked Sendable {
         /// la Station (`account` du JSON de la session, `user` et `password`
         /// vides), et par où passer. Le cœur demande le jeton d'accès au relais.
         public var account: AccountSession?
+        /// « Micro » de cet ordinateur (docs/micro.md) : le choix retenu par
+        /// l'app, coupé par défaut, donné au cœur juste après le départ.
+        public var microphone = false
 
         /// Session d'invité : la Station trouvée par `Share.join`, ce que
         /// l'appareil décode (le format de l'image est celui de l'hôte) et les
@@ -438,6 +441,11 @@ public final class SessionEngine: @unchecked Sendable {
     /// invité, quand il change ; l'avis bref de link-ui à montrer (nil :
     /// rien à dire). Une Station qui n'enregistre pas ne l'appelle jamais.
     public var onRecording: ((RecordingState, String?) -> Void)?
+    /// Le micro de l'appareil (docs/micro.md) : à chaque changement d'état,
+    /// sur le fil principal ; la capture suit déjà (captée tant que `capturing`).
+    public var onMicrophone: ((MicState) -> Void)?
+    /// L'état du micro au dernier changement (fil principal).
+    public private(set) var microphoneState: MicState = .off
 
     // MARK: Caméra de l'appareil (docs/webcam.md)
 
@@ -487,6 +495,10 @@ public final class SessionEngine: @unchecked Sendable {
     private var ended = false
     /// Par le relais : pourquoi la session a fini faute de joindre l'ordinateur (`on_relay_error`).
     private var relayFailure: RelayFailure?
+    #if os(macOS) || os(iOS)
+    /// La capture du micro, tant que le cœur dit `waiting` ou `on` (fil principal).
+    private var microphoneCapture: MicrophoneCapture?
+    #endif
 
     public init(view: StreamView) {
         Core.install()
@@ -669,6 +681,11 @@ public final class SessionEngine: @unchecked Sendable {
             let screens = (0..<Int(count)).map { list![$0] }
             SessionEngine.from(ud).hdrStarted(screens)
         }
+        platform.on_microphone = { ud, json in
+            let state = MicState(json: json.map { String(cString: $0) })
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.microphoneChanged(state) }
+        }
         platform.on_route = { ud, route in
             guard let info = RouteInfo(json: route.map { String(cString: $0) }) else { return }
             let me = SessionEngine.from(ud)
@@ -698,6 +715,8 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         // Fenêtre déjà cachée au départ : la veille d'image du cœur attend.
         if hidden { kn_session_set_hidden(s, true) }
+        // Le micro retenu pour cet ordinateur (proposé même coupé : l'ordinateur répond dès le début).
+        kn_session_set_microphone(s, p.microphone)
         hasSession = true
         // Plusieurs ordinateurs : inscrite, elle devient la session active ;
         // refusée (registre plein), elle s'arrête aussitôt, jamais hors registre.
@@ -984,6 +1003,63 @@ public final class SessionEngine: @unchecked Sendable {
         }
     }
 
+    // MARK: - Micro (docs/micro.md)
+
+    /// « Micro » de la barre, de la tuile ou des réglages de l'ordinateur :
+    /// allumé ou coupé, sans rien relancer ; l'état suit par `onMicrophone`.
+    /// L'autorisation du système est à demander avant (`MicrophoneAccess`).
+    public func setMicrophone(_ on: Bool) {
+        lock.lock()
+        params?.microphone = on
+        lock.unlock()
+        KyberLog.app.notice("micro \(on ? "allumé" : "coupé", privacy: .public) en session")
+        if let s = live { kn_session_set_microphone(s, on) }
+    }
+
+    /// Réglages de l'app changés (micro choisi, « Réduire l'écho et le
+    /// bruit ») : la capture en cours reprend avec eux.
+    public func microphoneSettingsChanged() {
+        #if os(macOS) || os(iOS)
+        guard let capture = microphoneCapture else { return }
+        capture.stop()
+        do { try capture.start() } catch {
+            KyberLog.app.error("micro : reprise impossible (\(error.localizedDescription, privacy: .public))")
+        }
+        #endif
+    }
+
+    /// Le cœur dit l'état du micro : la capture démarre ou s'arrête, puis l'app le sait.
+    private func microphoneChanged(_ state: MicState) {
+        guard !ended else { return }
+        microphoneState = state
+        #if os(macOS) || os(iOS)
+        if state.capturing, microphoneCapture == nil {
+            let capture = MicrophoneCapture { [weak self] samples, count, rate in
+                guard let s = self?.live else { return }
+                kn_session_push_microphone(s, samples, UInt(count), rate)
+            }
+            do {
+                try capture.start()
+                microphoneCapture = capture
+            } catch {
+                capture.stop()
+                KyberLog.app.error("micro : capture impossible (\(error.localizedDescription, privacy: .public))")
+            }
+        } else if !state.capturing, let capture = microphoneCapture {
+            capture.stop()
+            microphoneCapture = nil
+        }
+        #endif
+        onMicrophone?(state)
+    }
+
+    private func stopMicrophone() {
+        #if os(macOS) || os(iOS)
+        microphoneCapture?.stop()
+        microphoneCapture = nil
+        #endif
+    }
+
     /// Un écran au moins a été en HDR pendant la session (« HDR » de la dernière session).
     public var hdrUsed: Bool {
         guard let s = live else { return false }
@@ -1253,6 +1329,7 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         // Avant `kn_session_free` (fil principal, comme les autres appels au registre).
         unregisterFocus()
+        stopMicrophone()
         lock.lock()
         let videos = Array(self.videos.values)
         let audios = Array(self.audios.values)

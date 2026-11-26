@@ -112,6 +112,10 @@ class KyberNowApp : Application() {
         get() = ShareQuality.parse(getSharedPreferences("share", MODE_PRIVATE).getString("quality", null))
         set(v) = getSharedPreferences("share", MODE_PRIVATE).edit().putString("quality", v.id).apply()
 
+    /** L'appareil envoie son micro aux ordinateurs : « Micro » en session, dans les réglages (jamais au téléviseur). */
+    var hasMicrophone = false
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -121,6 +125,9 @@ class KyberNowApp : Application() {
         device = DeviceIdentity.of(this)
         form = DeviceIdentity.formFactor(this)
         Native.init(language())
+        // Micro (docs/micro.md) : téléphone et tablette qui en ont un ; jamais le téléviseur (rien n'en parle).
+        hasMicrophone = form != FormFactor.TV && packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_MICROPHONE)
+        Native.setDeviceHasMicrophone(hasMicrophone)
         accounts = fr.leslignesclaires.kybernow.model.AccountManager(this)
         welcome = fr.leslignesclaires.kybernow.model.WelcomeStore(this)
         ps = fr.leslignesclaires.kybernow.playstation.PlayStations(this, fr.leslignesclaires.kybernow.playstation.PsStore(this), hosts)

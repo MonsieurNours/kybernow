@@ -171,6 +171,23 @@
     <string name="settings_game_mode_unsupported">This display does not offer it.</string>
     <string name="settings_sound_help">Auto follows the output: 5.1 or 7.1 to an HDMI amplifier, stereo elsewhere.</string>
     <string name="settings_sound_computer">On the computer</string>
+    <string name="mic">Microphone</string>
+    <string name="mic_off">Microphone off</string>
+    <string name="mic_sent">On</string>
+    <string name="mic_cut">Off</string>
+    <string name="mic_connecting">Connecting…</string>
+    <string name="mic_tip_on" formatted="true">Microphone: sent to the computer (%1$s)</string>
+    <string name="mic_tip_off" formatted="true">Microphone off (%1$s)</string>
+    <string name="mic_shortcut">Ctrl + Alt + Shift + V</string>
+    <string name="mic_notice_sent" formatted="true">Microphone sent to %1$s.</string>
+    <string name="mic_no_access">KyberNow Link can\'t access the microphone. Allow it in Settings.</string>
+    <string name="settings_mic_help">Sends this device\'s microphone to the computer during the session, to talk in a game, a call or a video meeting.</string>
+    <string name="app_settings_mic_system">System default</string>
+    <string name="app_settings_mic_unnamed">Device microphone</string>
+    <string name="share_guests_speak">Let guests speak</string>
+    <string name="share_guests_speak_help">Their microphone reaches the computer, for a game or a call.</string>
+    <string name="app_settings_voice">Reduce echo and noise</string>
+    <string name="app_settings_voice_help">The device\'s voice processing removes the computer\'s sound and the noise around you. Turn it off for a studio microphone.</string>
     <string name="settings_gamepad_seen">Controller seen by the computer</string>
     <string name="settings_gamepad_seen_help">Xbox 360: every controller becomes one. As is: a Sony controller stays a DualShock 4.</string>
     <string name="settings_gamepad_faithful">As is</string>

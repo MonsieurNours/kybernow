@@ -531,6 +531,62 @@ final class SessionController: ObservableObject {
         engine?.setHDR(on)
     }
 
+    // MARK: - Micro (docs/micro.md)
+
+    /// L'état du micro dit par le cœur (élément « Micro » de la barre, icône de l'onglet).
+    @Published private(set) var micState: MicState = .off
+    /// Allumé par l'utilisateur, en attente de l'ordinateur : l'avis vient quand il le prend.
+    private var micJustOn = false
+
+    /// « Micro » allumé : le choix de l'ordinateur, sauf refus.
+    var micOn: Bool { host.settings.microphone && micState.refusal == nil }
+    /// Envoyé (ou en route) : l'icône de micro près de l'onglet de la session.
+    var micSending: Bool { micOn && micState.capturing }
+    /// Un invité que l'hôte ne laisse pas parler n'a pas « Micro ».
+    var micShown: Bool { !(isGuest && micState.notAllowed) }
+    /// Le sous-titre de la tuile : « Envoyé », « Envoi… » ou « Coupé ».
+    var micSubtitle: String {
+        guard micOn else { return MicText.tileOff }
+        return micState == .on ? MicText.tileOn : MicText.tileWaiting
+    }
+
+    /// « Micro » touché : allumé ou coupé, gardé pour l'ordinateur ;
+    /// l'autorisation du système est demandée la première fois qu'on
+    /// l'allume. Refusé par l'ordinateur : sa raison, en avis.
+    func toggleMicrophone() {
+        if let reason = micState.refusal { return show(notice: reason, for: 5) }
+        setMicrophone(!host.settings.microphone)
+    }
+
+    func setMicrophone(_ on: Bool) {
+        guard on != host.settings.microphone else { return }
+        guard on else { return applyMicrophone(false) }
+        MicrophoneAccess.request { [weak self] granted in
+            guard let self else { return }
+            guard granted else { return self.show(notice: MicText.permission, for: 6) }
+            self.applyMicrophone(true)
+        }
+    }
+
+    private func applyMicrophone(_ on: Bool) {
+        host.settings.microphone = on
+        if !isVisitor { store.update(host) }
+        micJustOn = on
+        engine?.setMicrophone(on)
+    }
+
+    private func microphoneChanged(_ state: MicState) {
+        micState = state
+        if state.refusal != nil { micJustOn = false }
+        if micJustOn, state == .on {
+            micJustOn = false
+            show(notice: MicText.sent(host.name), for: 3)
+        }
+    }
+
+    /// Réglages de l'app changés (micro choisi, écho et bruit) : la capture reprend avec eux.
+    func microphoneSettingsChanged() { engine?.microphoneSettingsChanged() }
+
     /// « HDR » inactif touché dans la barre : sa raison, en avis.
     func explainHDR() {
         if let reason = hdrState.reason { show(notice: reason, for: 4) }
@@ -684,6 +740,7 @@ final class SessionController: ObservableObject {
         engine.onRecording = { [weak self] state, notice in self?.recordingChanged(state, notice: notice) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
         engine.onHDR = { [weak self] screens in self?.sessionHDR = screens.contains(true) }
+        engine.onMicrophone = { [weak self] in self?.microphoneChanged($0) }
         self.engine = engine
         if !isVisitor {
             share.setConsole(store.console(for: host))
@@ -723,6 +780,9 @@ final class SessionController: ObservableObject {
         params.screenLuminance = HDRCalibrationStore.session(.current(imageScreen), hdr: screenHDR)
         screenLuminance = params.screenLuminance
         params.hdrOffer = isVisitor ? nil : store.status[host.id]?.info?.hdr
+        // Le micro retenu pour cet ordinateur, si le système le permet encore.
+        params.microphone = settings.microphone && MicrophoneAccess.status == .granted
+        if settings.microphone, MicrophoneAccess.status == .denied { show(notice: MicText.permission, for: 6) }
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
         // cellulaire s'allume d'abord, par une requête de l'app vers le relais.

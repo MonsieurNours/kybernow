@@ -24,6 +24,7 @@ mod jobs;
 mod link;
 mod log_file;
 mod media;
+mod mic;
 mod offer;
 mod os;
 mod pads;
@@ -183,6 +184,8 @@ pub enum SessionEvent {
     Rumble(GamepadRumble),
     Combo,
     GameFullscreen(bool),
+    /// Le micro (`Platform::on_microphone`) : coupé, en attente de l'ordinateur, envoyé, ou refusé avec sa raison.
+    Mic(kybernow_core::micro::MicState),
     DecoderFailed(String),
     /// KyberNow Share, hôte : le partage et ses invités (`None` : pas de partage).
     Guests(Option<crate::app::ShareView>),
@@ -714,6 +717,8 @@ struct Live {
     /// un instant : appliqué quand il se stabilise (un branchement en fait plusieurs).
     rescan_at: Instant,
     changed: Option<(screens::Detected, Instant)>,
+    /// Le micro capté pour l'ordinateur (docs/micro.md) : ouvert tant que le cœur dit de capter.
+    mic: Option<mic::Capture>,
 }
 
 /// Ce que tient chaque session en cours (`App::sessions` en est l'interface), dans l'ordre d'ouverture.
@@ -969,6 +974,10 @@ pub fn run(args: &[String]) {
     }
     set_language(&app);
     app.machine = system::machine(window);
+    // Le micro : proposé aux ordinateurs s'il y en a au moins un (sans micro, Pi sans micro USB : rien ne s'affiche).
+    app.mics = mic::devices();
+    kybernow_core::micro::set_device_has_microphone(!app.mics.is_empty());
+    log::info!("micro : {}", if app.mics.is_empty() { "aucun".to_string() } else { app.mics.join(", ") });
     app.screen_hdr = wins.list[0].screen_hdr();
     app.device_name = system::device_name(&app.machine);
     app.net = system::net();
@@ -2355,8 +2364,8 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             }
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris), O (ordinateur
-            // suivant), R (enregistrer), S (statistiques), C (caméra) ; ils visent la session de la fenêtre active.
-            if app_combo && matches!(sc, sdl::SC_C | sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_R | sdl::SC_S) {
+            // suivant), R (enregistrer), S (statistiques), C (caméra), V (micro) ; ils visent la session de la fenêtre active.
+            if app_combo && matches!(sc, sdl::SC_C | sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_R | sdl::SC_S | sdl::SC_V) {
                 if down && !repeat {
                     match sc {
                         sdl::SC_D => actions.extend(routed.map(Action::Disconnect)),
@@ -2367,6 +2376,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                         sdl::SC_R => {
                             if routed.is_some() && routed == app.active {
                                 actions.extend(app.recording_toggle(true));
+                            }
+                            *dirty = true;
+                        }
+                        // V : « Micro » (la raison en capsule quand l'ordinateur ne le prend pas).
+                        sdl::SC_V => {
+                            if let Some(id) = routed {
+                                actions.extend(app.toggle_mic(id, true));
                             }
                             *dirty = true;
                         }
@@ -2632,6 +2648,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             } else if wy != 0.0 {
                 actions.extend(app.nav(if wy > 0.0 { Nav::Up } else { Nav::Down }));
             }
+            *dirty = true;
+        }
+        // Un micro branché ou débranché : la liste des Réglages de l'app suit ; un micro choisi rebranché revient
+        // pour les captures suivantes.
+        sdl::SDL_AUDIODEVICEADDED | sdl::SDL_AUDIODEVICEREMOVED if ev.u8(12) != 0 => {
+            app.mics = mic::devices();
+            kybernow_core::micro::set_device_has_microphone(!app.mics.is_empty());
             *dirty = true;
         }
         sdl::SDL_CONTROLLERDEVICEADDED => {
@@ -3263,6 +3286,17 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 l.game_fullscreen = g;
             }
         }
+        // Le micro : la puce et la tuile suivent ; la capture s'ouvre tant que le cœur dit de capter.
+        SessionEvent::Mic(state) => {
+            log::info!("micro : {state:?}");
+            app.mic_changed(id, mic::state_of(state));
+            if let Some(l) = lives.get_mut(id) {
+                sync_mic(app, l, state.capturing());
+                if state.capturing() && l.mic.is_none() {
+                    actions.extend(app.mic_failed(id));
+                }
+            }
+        }
         SessionEvent::DecoderFailed(e) => {
             if let Some(s) = app.session_by_mut(id) {
                 s.notice = Some((format!("{} ({e})", tr("Décodeur indisponible", "Decoder unavailable")), Instant::now()));
@@ -3613,6 +3647,19 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
         Action::Mute(id, on) => {
             if let Some(l) = lives.get(id) {
                 l.handle.shared.set_silenced(on);
+            }
+        }
+        Action::SetMic(id, on) => {
+            if let Some(l) = lives.get(id) {
+                l.handle.session.set_microphone(on);
+            }
+        }
+        // Le micro choisi ou le traitement voix changés : les captures en cours se rouvrent avec eux.
+        Action::MicConfig => {
+            for l in lives.0.iter_mut() {
+                if l.mic.take().is_some() {
+                    sync_mic(app, l, true);
+                }
             }
         }
         // « Garder le son » : le registre du cœur laisse la session audible sans être active.
@@ -4160,6 +4207,11 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
     ui.fullscreen = first && app.fullscreen;
     ui.pw_wired = wired;
     // « HDR » dans la barre et le menu : la puce de l'ordinateur (hôte, emprunt) sur un écran HDR ; un invité n'en a pas.
+    // « Micro » : le choix retenu pour cet ordinateur (un invité part coupé) ; donné au cœur juste après le départ.
+    ui.mic = app.mic_ui(borrow_key.as_deref().unwrap_or(&h.id), guest.is_some());
+    if let Some(m) = ui.mic {
+        handle.session.set_microphone(m.on);
+    }
     ui.hdr = match (&guest, &borrow_key) {
         (Some(_), _) => None,
         (None, Some(key)) => app.borrowed_hdr_ui(key),
@@ -4211,6 +4263,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         placed: None,
         rescan_at: Instant::now(),
         changed: None,
+        mic: None,
     };
     let vsync = if first { wants_vsync(app, &h) } else { false };
     if first {
@@ -4762,4 +4815,20 @@ mod tests {
         unsafe { sdl::SDL_Quit() };
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// Ouvre ou ferme la capture du micro d'une session : ouverte tant que le cœur dit de capter, avec le micro et le
+/// traitement voix des Réglages de l'app (le micro choisi débranché : celui du système).
+fn sync_mic(app: &App, l: &mut Live, capturing: bool) {
+    if !capturing {
+        if l.mic.take().is_some() {
+            log::info!("micro : capture fermée");
+        }
+        return;
+    }
+    if l.mic.is_some() {
+        return;
+    }
+    let a = &app.store.app;
+    l.mic = mic::Capture::open(Arc::downgrade(&l.handle.session), crate::micro::device_to_open(&a.mic_device, &app.mics), a.mic_echo);
 }

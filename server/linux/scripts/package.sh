@@ -56,6 +56,9 @@ install -m 755 "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" 
 # FFmpeg du runtime de Kyber (en-têtes encore là : retirés plus bas).
 "$ROOT/server/encoder-check/build.sh" linux "$RT_SRC" "$LIB/bin/kybernow-encoder-check"
 cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
+# L'aide du micro de l'appareil (docs/micro.md, flux montant du correctif 0085), à côté de
+# kycontroller ; libopus du runtime. Joue par pactl et pacat (pulseaudio-utils).
+"$ROOT/server/micro/build.sh" linux "$RT_SRC" "$LIB/runtime/bin/kybernow-micro"
 # La caméra de l'appareil (docs/webcam.md) : l'outil que kycontroller lance
 # depuis son dossier (correctif 0085), v4l2loopback ou PipeWire.
 "$ROOT/server/camera/build.sh" linux "$RT_SRC" "$LIB/runtime/bin/kybernow-camera"

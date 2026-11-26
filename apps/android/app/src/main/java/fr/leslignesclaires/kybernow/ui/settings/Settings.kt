@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,6 +54,8 @@ import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
+import fr.leslignesclaires.kybernow.model.MicInputs
+import fr.leslignesclaires.kybernow.model.MicPrefs
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.AutoProfile
 import fr.leslignesclaires.kybernow.ui.LinkButton
@@ -256,6 +259,8 @@ data class HostSettingsState(
     val hdr: HdrState = HdrState.HIDDEN,
     /** PyroWave dans « Format vidéo » (absent avec une Station d'avant PyroWave), docs/link-ui.md, « PyroWave ». */
     val pyrowave: PyroWaveChoice = PyroWaveChoice.HIDDEN,
+    /** L'appareil a un micro : l'interrupteur « Micro » de Réglages › Son (absent au téléviseur). */
+    val microphone: Boolean = false,
 )
 
 /** Ce que les réglages d'un ordinateur demandent à l'app. */
@@ -329,7 +334,7 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
     }
     val mac = remember(host.os) { Native.stationIsMac(host.os ?: "") }
     val pyrowave = PyroWaveChoice.of(host, PyroWave.decodes, PyroWave.wired(context), st.away)
-    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac, hdr = hdr, pyrowave = pyrowave), actions, start)
+    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator, mac = mac, hdr = hdr, pyrowave = pyrowave, microphone = app.hasMicrophone), actions, start)
 }
 
 /**
@@ -586,6 +591,11 @@ private fun SoundRubric(state: HostSettingsState, actions: HostSettingsActions) 
         ),
         state.host.settings.audio,
     ) { v -> actions.update { it.copy(audio = v) } }
+    // « Micro » (docs/link-ui.md, « Micro ») : le même interrupteur que celui de la session, retenu pour cet ordinateur.
+    // L'autorisation du système se demande au premier départ d'une session micro allumé.
+    if (state.microphone) {
+        SwitchRow(stringResource(R.string.mic), stringResource(R.string.settings_mic_help), state.host.settings.microphone) { v -> actions.update { it.copy(microphone = v) } }
+    }
 }
 
 @Composable
@@ -1003,6 +1013,14 @@ data class AppSettingsState(
     val syncSettings: Boolean = true,
     /** Son titre et son aide, du cœur ; nuls : ceux de l'app. */
     val syncTexts: Pair<String, String>? = null,
+    /**
+     * Micro (docs/link-ui.md, « Micro ») : les micros de l'appareil (`clé` → nom), nul sans micro (téléviseur) ; le
+     * choisi ([micDevice], nul : celui du système ; débranché, celui du système s'affiche, le choix reste) ; « Réduire
+     * l'écho et le bruit ».
+     */
+    val mics: List<Pair<String, String>>? = null,
+    val micDevice: String? = null,
+    val voiceProcessing: Boolean = true,
 )
 
 class AppSettingsActions(
@@ -1025,6 +1043,9 @@ class AppSettingsActions(
     val setSyncSettings: (Boolean) -> Unit = {},
     /** « Revoir l'accueil » : les trois écrans du premier lancement (docs/link-ui.md, « Accueil et compte KyberNow »). */
     val replayWelcome: () -> Unit = {},
+    /** Le micro choisi (nul : celui du système). */
+    val setMic: (String?) -> Unit = {},
+    val setVoiceProcessing: (Boolean) -> Unit = {},
 )
 
 @Composable
@@ -1041,8 +1062,25 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     val update by app.updates.state.collectAsState()
     val beta by app.updates.beta.collectAsState()
     val language = AppCompatDelegate.getApplicationLocales().let { if (it.isEmpty) "auto" else it[0]!!.language }
+    // Les micros de l'appareil, relus quand on en branche ou débranche un.
+    val unnamed = stringResource(R.string.app_settings_mic_unnamed)
+    var mics by remember { mutableStateOf(if (app.hasMicrophone) MicInputs.list(context, unnamed) else null) }
+    if (app.hasMicrophone) DisposableEffect(context) {
+        val am = context.getSystemService(android.media.AudioManager::class.java)
+        val cb = object : android.media.AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) { mics = MicInputs.list(context, unnamed) }
+            override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) { mics = MicInputs.list(context, unnamed) }
+        }
+        am?.registerAudioDeviceCallback(cb, null)
+        onDispose { am?.unregisterAudioDeviceCallback(cb) }
+    }
+    var micDevice by remember { mutableStateOf(MicPrefs.device(context)) }
+    var voice by remember { mutableStateOf(MicPrefs.voiceProcessing(context)) }
     AppSettingsContent(
-        AppSettingsState(language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn, syncSettings = syncSettings, syncTexts = syncTexts),
+        AppSettingsState(
+            language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn,
+            syncSettings = syncSettings, syncTexts = syncTexts, mics = mics, micDevice = micDevice, voiceProcessing = voice,
+        ),
         AppSettingsActions(
             setLanguage = { v -> AppCompatDelegate.setApplicationLocales(if (v == "auto") LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(v)) },
             gamepads = onGamepads,
@@ -1055,6 +1093,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             signIn = onSignIn,
             addAccount = onAddAccount,
             replayWelcome = onReplayWelcome,
+            setMic = { k -> MicPrefs.setDevice(context, k); micDevice = k },
+            setVoiceProcessing = { on -> MicPrefs.setVoiceProcessing(context, on); voice = on },
             setSyncSettings = { on ->
                 app.accounts.settings.setEnabled(on)
                 // Rallumé : les réglages du compte arrivent tout de suite.
@@ -1101,6 +1141,15 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
             InfoRow(stringResource(R.string.settings_game_mode), stringResource(if (screen.minimalPostProcessing) R.string.app_settings_available else R.string.app_settings_unavailable))
         }
         InfoRow(stringResource(R.string.app_settings_sound), audioLabel(state.audio), if (state.audio.bluetooth) stringResource(R.string.audio_bluetooth_delay) else null)
+        // « Micro », sous « Son » (docs/link-ui.md, « Micro ») : « Celui du système », puis les micros de l'appareil.
+        state.mics?.let { mics ->
+            ChoiceRow(
+                stringResource(R.string.mic), null,
+                listOf<Pair<String?, String>>(null to stringResource(R.string.app_settings_mic_system)) + mics,
+                state.micDevice?.takeIf { k -> mics.any { it.first == k } },
+            ) { v -> actions.setMic(v) }
+            SwitchRow(stringResource(R.string.app_settings_voice), stringResource(R.string.app_settings_voice_help), state.voiceProcessing) { v -> actions.setVoiceProcessing(v) }
+        }
 
         Section(stringResource(R.string.app_settings_gamepads))
         FocusCard(actions.gamepads, Modifier.fillMaxWidth()) {

@@ -532,6 +532,11 @@ pub trait Platform: Send + Sync {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     fn on_game_fullscreen(&self, _game: bool) {}
     fn on_notice(&self, _notice: &Notice) {}
+    /// Le micro de l'appareil (docs/micro.md) : à chaque changement d'état.
+    /// L'app capte tant que [`crate::micro::MicState::capturing`] et donne
+    /// ses échantillons à [`Session::push_microphone`]. Jamais appelé sans
+    /// [`crate::micro::set_device_has_microphone`].
+    fn on_microphone(&self, _state: crate::micro::MicState) {}
     /// HDR (docs/hdr.md) : à chaque démarrage de l'image (après `on_display`
     /// et `on_screens`, avant `input_pipeline`), quels écrans sont en HDR,
     /// dans l'ordre des écrans du flux (`on_screens`, le principal en
@@ -1372,6 +1377,8 @@ pub struct Session {
     /// Regarder : l'écran regardé (identifiant de Kyber ; 0 : pas une
     /// session de qui regarde, ou pas encore connu).
     watch_display: Arc<AtomicU32>,
+    /// Le micro de l'appareil (docs/micro.md), partagé avec la session.
+    microphone: Arc<crate::micro::Microphone>,
     /// La caméra de l'appareil vers l'ordinateur (docs/webcam.md).
     camera: Arc<crate::camera::CameraLink>,
 }
@@ -1406,6 +1413,7 @@ impl Session {
         let hdr_used = worker.hdr_used.clone();
         let link_mbps = worker.link_mbps.clone();
         let watch_display = worker.watch_display.clone();
+        let microphone = worker.microphone.clone();
         let camera = worker.camera.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
@@ -1434,8 +1442,28 @@ impl Session {
             hdr_used,
             link_mbps,
             watch_display,
+            microphone,
             camera,
         })
+    }
+
+    /// Micro de l'appareil allumé (`true`) ou coupé (docs/micro.md) : le
+    /// choix retenu par l'app pour cet ordinateur, donné au départ et à
+    /// chaque changement (barre, tuile, réglage). Coupé par défaut. Rien ne
+    /// relance l'image : le micro est déjà proposé à l'ordinateur.
+    pub fn set_microphone(&self, on: bool) {
+        self.microphone.set_enabled(on);
+    }
+
+    pub fn microphone(&self) -> crate::micro::MicState {
+        self.microphone.state()
+    }
+
+    /// Des échantillons du micro, mono, à `rate` Hz (n'importe quelle
+    /// fréquence ; depuis le fil de capture de l'app, sans attente). Jetés
+    /// micro coupé ou tant que l'ordinateur ne le prend pas.
+    pub fn push_microphone(&self, samples: &[f32], rate: u32) {
+        self.microphone.push(samples, rate);
     }
 
     /// La caméra de l'appareil vers l'ordinateur de cette session
@@ -1863,6 +1891,8 @@ struct Worker {
     link_mbps: Arc<AtomicU32>,
     /// Regarder : l'écran regardé ([`Session::watch_display`]).
     watch_display: Arc<AtomicU32>,
+    /// Le micro de l'appareil, partagé avec [`Session`].
+    microphone: Arc<crate::micro::Microphone>,
     /// PyroWave : la définition ramenée en place (docs/pyrowave.md).
     lowered: Option<crate::pyrowave::Lowered>,
     /// Une adaptation pour la définition ramenée est en cours : pas d'avis
@@ -2066,6 +2096,7 @@ impl Worker {
             station_pyrowave_max: None,
             link_mbps: Arc::new(AtomicU32::new(0)),
             watch_display: Arc::new(AtomicU32::new(0)),
+            microphone: crate::micro::Microphone::new(),
             lowered: None,
             refitting: false,
             hdr_obtained: Vec::new(),
@@ -2096,6 +2127,7 @@ impl Worker {
         // La caméra s'éteint avec la session.
         self.camera.stop();
         self.camera_offer(None);
+        self.microphone.set_uplink(None, false);
         self.finish(failure.map(|f| f.text));
     }
 
@@ -4080,6 +4112,11 @@ impl Worker {
                 self.route_check_at = Some(now + ROUTE_CHECK);
                 self.announce_route();
             }
+            if crate::micro::device_has_microphone()
+                && let Some(state) = self.microphone.changed()
+            {
+                self.platform.on_microphone(state);
+            }
             if now >= next_second {
                 next_second += Duration::from_secs(1);
                 let mut second = self.latency.drain();
@@ -4333,6 +4370,10 @@ impl Worker {
                 self.latency.reset();
                 let uplink = self.client.as_ref().and_then(|c| c.uplink(crate::camera::KIND));
                 self.camera_offer(uplink);
+                if crate::micro::device_has_microphone() {
+                    let mic = self.client.as_ref().and_then(|c| c.uplink(crate::micro::KIND));
+                    self.microphone.set_uplink(mic, true);
+                }
                 // `retries` n'est pas remis à zéro ici : une image refusée
                 // juste après chaque départ relançait le flux sans fin
                 // (« Reconnexion » en boucle) ; il repart après 30 s sans relance.
@@ -5128,11 +5169,18 @@ impl Worker {
         self.status(Status::FirstImages);
         // Caméra de l'appareil (correctif 0085) : demandée à chaque départ,
         // jamais pour un invité d'un partage.
-        let kinds = if self.platform.sends_camera() && !self.params.is_guest() {
+        let mut kinds = if self.platform.sends_camera() && !self.params.is_guest() {
             vec![crate::camera::KIND.to_owned()]
         } else {
             Vec::new()
         };
+        // Micro de l'appareil (docs/micro.md) : demandé à chaque départ, même
+        // coupé et aussi pour un invité (la Station décide de son droit).
+        if crate::micro::device_has_microphone() {
+            kinds.push(crate::micro::KIND.to_owned());
+            let guest = self.params.is_guest() || self.params.is_borrower();
+            self.microphone.set_identity(&self.params.device.name, guest);
+        }
         client.set_uplink_kinds(kinds);
         match client.start_streaming(config) {
             Ok(()) => self.platform.on_stream_started(),
@@ -5148,6 +5196,7 @@ impl Worker {
             let _ = c.stop_streaming();
         }
         self.camera_offer(None);
+        self.microphone.set_uplink(None, false);
         if self.streaming.take().is_some() || self.pipeline.is_some() {
             self.platform.on_stream_stopped();
         }

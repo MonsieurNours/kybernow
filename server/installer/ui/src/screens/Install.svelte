@@ -24,6 +24,7 @@
     vdd: { ...task('vdd'), fact: 'SudoVDA' },
     gamepad: { ...task('gamepad'), fact: 'ViGEmBus' },
     audio: task('audio'),
+    micro: { ...task('micro'), fact: 'VB-CABLE' },
     admin: { ...task('admin', { port: c }), fact: t('install.tasks.admin.fact', { port: c }) },
     power: { ...task('power'), warn: t('install.tasks.power.warn') },
   })

@@ -392,6 +392,7 @@ pub fn main() -> i32 {
             // Face à un Mac : Ctrl agit comme ⌘ (réglage par défaut du cœur).
             control_as_command: kybernow_core::input::keymap::control_as_command(None, &info.os),
             immersive: "fullscreen".into(),
+            microphone: false,
             layout,
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),

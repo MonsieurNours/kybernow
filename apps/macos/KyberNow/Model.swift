@@ -266,6 +266,11 @@ struct ConnectionSettings: Codable, Hashable {
     /// changer ne fait pas passer en « Personnalisé ». Le cœur ne le demande
     /// que sur un écran HDR, à une Station qui le propose (`hdrState`).
     var hdr = true
+    /// « Micro » (docs/micro.md) : le micro de cet appareil envoyé à cet
+    /// ordinateur pendant la session ; coupé la première fois, gardé ensuite
+    /// (puce de la barre, tuile, rubrique Son). À part du profil. L'Apple TV
+    /// le lit et le garde sans s'en servir.
+    var microphone = false
     /// « Débit adaptatif » (docs/profil-auto.md) : allumé par défaut, gardé
     /// pour cet ordinateur ; le débit baisse quand le réseau sature, puis
     /// remonte. À part du profil : le changer ne fait pas passer en « Personnalisé ».
@@ -432,7 +437,7 @@ extension ConnectionSettings {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
-        case adaptive, autoResult, encoderMax, pyrowaveRateFollows, camera1080
+        case adaptive, autoResult, encoderMax, pyrowaveRateFollows, microphone, camera1080
     }
 
     init(from decoder: Decoder) throws {
@@ -465,6 +470,7 @@ extension ConnectionSettings {
         screenPadHaptics = (try? c.decodeIfPresent(ScreenPadHaptics.self, forKey: .screenPadHaptics)) ?? screenPadHaptics
         hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? hdr
         adaptive = (try? c.decodeIfPresent(Bool.self, forKey: .adaptive)) ?? adaptive
+        microphone = (try? c.decodeIfPresent(Bool.self, forKey: .microphone)) ?? microphone
         autoResult = try? c.decodeIfPresent(String.self, forKey: .autoResult)
         encoderMax = (try? c.decodeIfPresent(Int.self, forKey: .encoderMax)).flatMap { $0 > 0 ? $0 : nil }
         pyrowaveRateFollows = (try? c.decodeIfPresent(Bool.self, forKey: .pyrowaveRateFollows)) ?? pyrowaveRateFollows

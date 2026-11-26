@@ -685,6 +685,8 @@ fn share_run(c: &Console, op: &ShareOp) -> Result<Option<ShareView>, String> {
             c.share_close().map_err(text)?;
             return Ok(None);
         }
+        // La réponse est le partage à jour.
+        ShareOp::Speak(on) => return Ok(super::session::share_view(&c.share_speak(*on).map_err(text)?)),
     }
     Ok(super::session::share_view(&c.share_state().map_err(text)?))
 }
@@ -865,6 +867,7 @@ pub fn friend_add(address: String, port: u16, fingerprint: Option<String>, relay
                     fingerprint: fingerprint.clone(),
                     relay: relay.clone(),
                     sid: sid.clone(),
+                    mic: false,
                     login: login.clone(),
                     password: if remember { password.clone() } else { String::new() },
                     remember,

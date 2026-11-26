@@ -186,6 +186,19 @@ struct SharePanel: View {
                 Text(ShareText.fourGuests).font(Theme.sans(12)).foregroundStyle(Theme.faint)
             }
         }
+        // « Laisser les invités parler » : seulement d'une Station qui le sait (docs/micro.md).
+        if let speak = state.guestsSpeak {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ShareText.guestsSpeak).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text(ShareText.guestsSpeakHelp).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Switch(isOn: Binding(get: { speak }, set: { on in Task { await share.setGuestsSpeak(on) } }), label: ShareText.guestsSpeak)
+            }
+            .disabled(share.busy)
+        }
         if let error = share.error { Notice(kind: .danger, text: error) }
         HStack(spacing: 10) {
             Button(ShareText.newCode) { Task { await share.newCode() } }

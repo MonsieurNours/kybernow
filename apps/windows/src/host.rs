@@ -13,7 +13,7 @@
 //! coupe les entrées et le son de celles qui ne sont pas actives.
 
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
 
 use serde::Serialize;
@@ -24,6 +24,7 @@ use kybernow_core::audio::AudioStats;
 use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
+use kybernow_core::micro::MicState;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::relay::{RelayError, RouteInfo};
 use kybernow_core::screens::session_plan_for;
@@ -229,6 +230,14 @@ pub trait HostEvents: Send + Sync {
     /// Ctrl+Alt+Maj+R sur une fenêtre de la session : l'enregistrement se
     /// lance ou s'arrête (hôte seulement).
     fn record_shortcut(&self) {}
+    /// Micro (docs/micro.md) : son état, à chaque changement (`Platform::on_microphone`) ;
+    /// la capture de ce PC suit déjà.
+    fn microphone(&self, _state: MicState) {}
+    /// Windows refuse l'accès au micro (confidentialité) : le micro est déjà
+    /// coupé pour la session ; l'app le garde coupé et montre l'avis.
+    fn microphone_denied(&self) {}
+    /// Ctrl+Alt+Maj+V sur une fenêtre de la session : « Micro » allumé ou coupé.
+    fn toggle_microphone(&self) {}
 }
 
 pub struct HostOptions {
@@ -257,6 +266,9 @@ pub struct HostOptions {
     pub control_as_command: bool,
     /// « Mode immersif » au départ (`fullscreen`, `always`, `never`) ; ensuite [`SessionHost::set_immersive`].
     pub immersive: String,
+    /// « Micro » au départ (choix retenu pour l'ordinateur, coupé par défaut) ;
+    /// ensuite [`SessionHost::set_microphone`].
+    pub microphone: bool,
 }
 
 pub struct SessionHost {
@@ -450,6 +462,19 @@ impl SessionHost {
         }
     }
 
+    /// « Micro » allumé ou coupé en session (barre, Ctrl+Alt+Maj+V, réglages) :
+    /// rien ne se relance, le cœur dit le nouvel état (`HostEvents::microphone`).
+    /// Faux quand la session n'est pas encore là.
+    pub fn set_microphone(&self, on: bool) -> bool {
+        match self.app().and_then(|a| a.current_session()) {
+            Some(s) => {
+                s.set_microphone(on);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Son inscription au registre des sessions du cœur.
     fn focus_id(&self) -> Option<kybernow_core::focus::FocusId> {
         self.app().and_then(|a| a.focus_id())
@@ -532,6 +557,43 @@ struct WinPlatform {
     /// joignable hors de chez soi (accès coupé dans Admin, éteint ou en veille,
     /// relais muet), tel que le cœur le dit juste avant la fin.
     relay_error: Mutex<Option<RelayError>>,
+    /// La capture du micro de ce PC, tant que le cœur la demande (`on_microphone`).
+    mic: Mutex<Option<crate::micro::Capture>>,
+    /// La session à qui le fil du micro donne ses échantillons (posée juste
+    /// après `Session::start`).
+    mic_session: Arc<Mutex<Option<Weak<Session>>>>,
+}
+
+impl WinPlatform {
+    /// Capte tant que l'état le demande (allumé, en attente ou pris), sinon arrête.
+    fn follow_microphone(&self, state: MicState) {
+        let mut capture = self.mic.lock().unwrap();
+        if !state.capturing() {
+            if capture.take().is_some() {
+                log::info!("micro : capture arrêtée ({state:?})");
+            }
+            return;
+        }
+        if capture.is_some() {
+            return;
+        }
+        let slot = self.mic_session.clone();
+        let sink: crate::micro::Sink = Arc::new(move |samples: &[f32], rate: u32| {
+            let session = slot.lock().unwrap().as_ref().and_then(Weak::upgrade);
+            if let Some(s) = session {
+                s.push_microphone(samples, rate);
+            }
+        });
+        let (slot, events) = (self.mic_session.clone(), self.events.clone());
+        let denied = Box::new(move || {
+            if let Some(s) = slot.lock().unwrap().as_ref().and_then(Weak::upgrade) {
+                s.set_microphone(false);
+            }
+            events.microphone_denied();
+        });
+        log::info!("micro : capture ({state:?})");
+        *capture = Some(crate::micro::Capture::start(sink, denied));
+    }
 }
 
 impl Platform for WinPlatform {
@@ -709,6 +771,11 @@ impl Platform for WinPlatform {
             _ => {}
         }
     }
+    /// Micro (docs/micro.md) : la capture suit l'état, puis l'app (barre, avis).
+    fn on_microphone(&self, state: MicState) {
+        self.follow_microphone(state);
+        self.events.microphone(state);
+    }
     fn on_game_fullscreen(&self, game: bool) {
         self.app.game.store(game, Ordering::Relaxed);
         self.app.post(WM_APP_MOUSE);
@@ -864,8 +931,15 @@ fn run(
         session: Mutex::new(None),
         clipboard: params.clipboard,
         relay_error: Mutex::new(None),
+        mic: Mutex::new(None),
+        mic_session: Arc::new(Mutex::new(None)),
     });
+    // Le micro est proposé à l'ordinateur seulement si ce PC en a un (docs/micro.md).
+    kybernow_core::micro::set_device_has_microphone(crate::micro::has_microphone());
     let session = Session::start_with_screens(params, screens, platform.clone());
+    *platform.mic_session.lock().unwrap() = Some(Arc::downgrade(&session));
+    // Le choix retenu pour l'ordinateur, juste après le départ (coupé par défaut).
+    session.set_microphone(opts.microphone);
     // Plusieurs ordinateurs : inscrite au registre des sessions du cœur, elle
     // devient active, comme sa fenêtre qui s'ouvre par-dessus (le cœur trouve
     // lui-même sa chaîne d'entrées et son moteur de son). Au-delà de quatre
@@ -910,6 +984,9 @@ fn run(
     }
     session.stop();
     session.wait();
+    // La capture du micro s'arrête avec la session.
+    platform.mic.lock().unwrap().take();
+    *platform.mic_session.lock().unwrap() = None;
     // Normalement déjà fait à l'arrêt de l'image.
     retire(app.detach_input());
     // Les fils de l'image finissent (ils gardent la dernière image) avant le résumé.

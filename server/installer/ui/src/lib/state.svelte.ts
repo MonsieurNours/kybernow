@@ -25,7 +25,7 @@ export interface CheckItem {
   detail: string
 }
 
-export const TASK_ORDER = ['files', 'cert', 'service', 'firewall', 'vdd', 'gamepad', 'audio', 'admin', 'power']
+export const TASK_ORDER = ['files', 'cert', 'service', 'firewall', 'vdd', 'gamepad', 'audio', 'micro', 'admin', 'power']
 
 export const app = $state({
   screen: 'welcome' as Screen,
