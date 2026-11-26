@@ -44,7 +44,7 @@ index 122d8bb..2df7a6b 100644
  
  /// Configuration for authentication backends loaded from TOML.
 diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
-index 94664e5..4e25581 100644
+index 94664e5..0621bbc 100644
 --- a/kycontroller/src/controller.rs
 +++ b/kycontroller/src/controller.rs
 @@ -110,6 +110,9 @@ pub(crate) struct ClientSession {
@@ -57,13 +57,21 @@ index 94664e5..4e25581 100644
  }
  
  impl ClientSession {
-@@ -149,6 +152,9 @@ impl ClientSession {
+@@ -137,6 +140,9 @@ impl ClientSession {
+             admin: _,
+         } = session;
+ 
++        // KyberNow (micro): the host, the borrowing friend, a guest with `kn_mic`.
++        let microphone =
++            share.as_ref().is_none_or(|s| s.mic) || crate::uplink::is_borrower(&username);
+         Self {
+             uid,
+             username,
+@@ -149,6 +155,7 @@ impl ClientSession {
              session: None,
              services: Default::default(),
              last_force_idr: None,
-+            microphone: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
-+                share.as_ref().is_none_or(|s| s.mic),
-+            )),
++            microphone: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(microphone)),
              share,
              guest_image: Default::default(),
          }
@@ -121,21 +129,22 @@ index 06ff9c2..d591463 100644
      }
  
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 2bd36ed..2605b16 100644
+index 2580a7a..fdbaef2 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -923,7 +923,8 @@ async fn start_session(
-     // microphone) this computer has a sink for; never for a share guest.
-     let uplink = if let KyTransport::KyProto(connection) = &transport {
-         let guest = crate::kybernow::is_guest(ctrl, &session_id);
+@@ -928,7 +928,9 @@ async fn start_session(
+             .with_session(&session_id, |s| Ok(crate::uplink::is_borrower(&s.username)))
+             .unwrap_or(false);
+         let guest = crate::kybernow::is_guest(ctrl, &session_id) && !borrower;
 -        crate::uplink::start(connection, session_id, guest, &uplink).await
++        // KyberNow (micro): the session's microphone right (`kn_mic`).
 +        let microphone = ctrl.with_session(&session_id, |s| Ok(s.microphone.clone()))?;
 +        crate::uplink::start(connection, session_id, guest, microphone, &uplink).await
      } else {
          crate::uplink::Started::default()
      };
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
-index 89d12a2..0061418 100644
+index ae9526c..2d3829b 100644
 --- a/kycontroller/src/uplink.rs
 +++ b/kycontroller/src/uplink.rs
 @@ -5,7 +5,8 @@
@@ -148,7 +157,7 @@ index 89d12a2..0061418 100644
  // registered; the response gives them in `uplink`
  // (`[{"kind": "camera", "endpoint": 12}]`). A data endpoint is a reliable
  // QUIC stream of its own each way: what goes up never waits behind the
-@@ -104,16 +105,19 @@ pub(crate) async fn start(
+@@ -110,16 +111,19 @@ pub(crate) async fn start(
      connection: &kyproto::Connection,
      session: Uuid,
      guest: bool,
@@ -174,7 +183,7 @@ index 89d12a2..0061418 100644
          let Some((kind, sink)) = kind_of(kind) else {
              info!("Uplink \"{kind}\": no sink on this computer");
              continue;
-@@ -124,7 +128,7 @@ pub(crate) async fn start(
+@@ -130,7 +134,7 @@ pub(crate) async fn start(
                  started.endpoints.push((kind.to_owned(), id));
                  started
                      .tasks
@@ -183,7 +192,7 @@ index 89d12a2..0061418 100644
              }
              Err(err) => warn!("Uplink \"{kind}\": endpoint not registered: {err}"),
          }
-@@ -162,7 +166,18 @@ struct Sending {
+@@ -168,7 +172,18 @@ struct Sending {
      session: Uuid,
  }
  
@@ -202,7 +211,7 @@ index 89d12a2..0061418 100644
      /// `Err` with the device that sends it already.
      fn take(kind: &'static str, session: Uuid, device: &str) -> Result<Self, String> {
          let mut senders = SENDERS.lock().unwrap();
-@@ -195,7 +210,7 @@ impl Drop for Sending {
+@@ -201,7 +216,7 @@ impl Drop for Sending {
  struct Sink {
      child: Child,
      stdin: ChildStdin,
@@ -211,7 +220,7 @@ index 89d12a2..0061418 100644
      _output: Task,
  }
  
-@@ -221,7 +236,7 @@ impl Sink {
+@@ -227,7 +242,7 @@ impl Sink {
  
  async fn spawn_sink(
      path: &PathBuf,
@@ -220,7 +229,7 @@ index 89d12a2..0061418 100644
      to_app: mpsc::Sender<types::DataPacket>,
  ) -> std::io::Result<Sink> {
      let mut child = Command::new(path)
-@@ -254,7 +269,13 @@ async fn spawn_sink(
+@@ -260,7 +275,13 @@ async fn spawn_sink(
      })
  }
  
@@ -235,7 +244,7 @@ index 89d12a2..0061418 100644
      let (mut send, mut recv) = match endpoint.ready().await {
          Ok(protocol) => protocol,
          Err(err) => {
-@@ -299,7 +320,9 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+@@ -305,7 +326,9 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
                      .and_then(serde_json::Value::as_str)
                      .unwrap_or_default()
                      .to_owned();
@@ -246,7 +255,7 @@ index 89d12a2..0061418 100644
                      Ok(sending) => sending,
                      Err(other) => {
                          info!("Uplink \"{kind}\" refused: already sent by \"{other}\"");
-@@ -337,6 +360,14 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+@@ -343,6 +366,14 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
                  let Some(running) = sink.as_mut() else {
                      continue;
                  };
