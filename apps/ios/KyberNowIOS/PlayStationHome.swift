@@ -73,10 +73,31 @@ struct ConsoleStageActions: View {
 
     var body: some View {
         if wide {
-            HStack(spacing: 16) {
-                cta
-                chips
-                settingsButton
+            // Sur une ligne quand elle tient ; sinon les puces et les réglages
+            // passent dessous, puis la puce du compte seule : un bouton ne passe
+            // jamais sur deux lignes (docs/link-ui.md, Principes).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    cta
+                    chips
+                    settingsButton
+                }
+                VStack(alignment: .leading, spacing: 14) {
+                    cta
+                    HStack(spacing: 16) {
+                        chips
+                        settingsButton
+                    }
+                }
+                VStack(alignment: .leading, spacing: 14) {
+                    cta
+                    accountChip
+                    HStack(spacing: 16) {
+                        hdrChip
+                        autoChip
+                        settingsButton
+                    }
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 10) {
@@ -128,7 +149,7 @@ struct ConsoleStageActions: View {
         let busy = m == .waking || m == .reaching
         return Button { act(m) } label: {
             HStack(spacing: 12) {
-                Text(title(m))
+                Text(title(m)).lineLimit(1).fixedSize()
                 if !wide { Spacer(minLength: 0) }
                 if busy {
                     HomeSpinner(size: 20)
@@ -231,7 +252,7 @@ struct ConsoleStageActions: View {
         Button { app.openConsoleSettings(console) } label: {
             HStack(spacing: 8) {
                 Icon("sliders-horizontal", size: 16, bold: true)
-                Text(store.isCustom(console) ? PSText.custom : PSText.auto).lineLimit(1)
+                Text(store.isCustom(console) ? PSText.custom : PSText.auto).lineLimit(1).fixedSize()
             }
             .font(Theme.sans(wide ? 15 : 14, .semibold))
             .foregroundStyle(Theme.text2)
@@ -250,7 +271,7 @@ struct ConsoleStageActions: View {
             if wide {
                 HStack(spacing: 9) {
                     Icon("gear-six", size: 20)
-                    Text("Réglages")
+                    Text("Réglages").lineLimit(1).fixedSize()
                 }
                 .font(Theme.sans(15, .medium))
                 .foregroundStyle(Theme.text)

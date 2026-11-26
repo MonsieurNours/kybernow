@@ -784,6 +784,13 @@
     margin-top: 14px;
   }
 
+  /* Un bouton tient sur une ligne (docs/link-ui.md, Principes) : quand la place manque
+     (Auto, HDR, une langue plus longue), la rangée passe à la ligne, jamais le libellé. */
+  .actions :is(button, .chip, .profiles .custom) {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
   .profiles {
     display: flex;
     padding: 4px;

@@ -35,7 +35,7 @@ pub fn primary_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, 
     let icon = if play { size * 1.05 } else { 0.0 };
     let gap = if play { size * 0.7 } else { 0.0 };
     let pad = h * 0.58;
-    let w = cv.text_width(style, s) + 2.0 * pad + icon + gap;
+    let w = primary_width(cv, h, s, play);
     let r = Rect::new(x, y, w, h);
     let (focused, hover) = f.state(t, r);
     if focused {
@@ -54,6 +54,21 @@ pub fn primary_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, 
     w
 }
 
+/// La largeur du bouton principal, sans le dessiner (une rangée qui doit savoir si elle tient).
+pub fn primary_width(cv: &mut Canvas, h: f32, s: &str, play: bool) -> f32 {
+    let size = h * 0.32;
+    let (icon, gap) = if play { (size * 1.05, size * 0.7) } else { (0.0, 0.0) };
+    cv.text_width(Text::new(Font::Semibold, size, FROST), s) + 2.0 * h * 0.58 + icon + gap
+}
+
+/// La largeur de `segments`, sans les dessiner.
+pub fn segments_width(cv: &mut Canvas, h: f32, size: f32, items: &[(Target, String, bool, bool)]) -> f32 {
+    let style = Text::new(Font::Regular, size, MUTED);
+    let iw = size * 1.35;
+    let widths: f32 = items.iter().map(|(t, s, ..)| cv.text_width(style, s) + size * 2.3 + if profile_icon(*t).is_some() { iw } else { 0.0 }).sum();
+    widths + h * 0.08 * 2.0 + (items.len().saturating_sub(1)) as f32 * 3.0
+}
+
 /// Segments (profils, réglages du bureau) : `items` = (cible, libellé, choisi, indisponible).
 /// Rend la largeur.
 pub fn segments(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f32, items: &[(Target, String, bool, bool)]) -> f32 {
@@ -61,7 +76,7 @@ pub fn segments(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f3
     let style = Text::new(Font::Regular, size, MUTED);
     let iw = size * 1.35;
     let widths: Vec<f32> = items.iter().map(|(t, s, ..)| cv.text_width(style, s) + size * 2.3 + if profile_icon(*t).is_some() { iw } else { 0.0 }).collect();
-    let total = widths.iter().sum::<f32>() + pad * 2.0 + (items.len().saturating_sub(1)) as f32 * 3.0;
+    let total = segments_width(cv, h, size, items);
     cv.rrect(x, y, total, h, h * 0.2, Rgba(9, 13, 18, 190));
     cv.rrect_stroke(x, y, total, h, h * 0.2, 1.0, LINE_2);
     let mut xx = x + pad;
@@ -210,7 +225,7 @@ pub fn nav_button(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, w: 
 pub fn ghost(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, size: f32, icon: Option<Icon>, s: &str, color: Rgba) -> f32 {
     let style = Text::new(Font::Regular, size, color);
     let iw = if icon.is_some() { size * 1.15 + size * 0.6 } else { 0.0 };
-    let w = cv.text_width(style, s) + size * 2.0 + iw;
+    let w = ghost_width(cv, size, icon.is_some(), s);
     let r = Rect::new(x, y, w, h);
     let (focused, hover) = f.state(t, r);
     if focused {
@@ -225,6 +240,16 @@ pub fn ghost(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, 
     }
     cv.text(tx, y + h / 2.0 + size * 0.36, style.color(if hover { FROST } else { color }), s);
     w
+}
+
+/// La largeur de `ghost`, sans le dessiner.
+pub fn ghost_width(cv: &mut Canvas, size: f32, icon: bool, s: &str) -> f32 {
+    cv.text_width(Text::new(Font::Regular, size, MUTED), s) + size * 2.0 + if icon { size * 1.15 + size * 0.6 } else { 0.0 }
+}
+
+/// La largeur de la puce « HDR » (la plus large : allumée, en Semibold), sans la dessiner.
+pub fn hdr_chip_width(cv: &mut Canvas, size: f32) -> f32 {
+    cv.text_width(Text::new(Font::Semibold, size, FROST), "HDR") + size * 2.0 + size * 0.42 + size * 0.55
 }
 
 /// La puce « HDR » (accueil, à côté du profil ; docs/link-ui.md, « HDR ») : « HDR » et un voyant, allumée (fond,

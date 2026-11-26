@@ -56,6 +56,11 @@ fn layout(app: &App, cv: &mut Canvas, b: &HomeBanner, width: f32) -> (f32, f32, 
     (h, bh, size, text_w)
 }
 
+/// La hauteur du bandeau de l'ordinateur sur `width`, sans le dessiner (0 sans bandeau).
+pub fn height(app: &App, cv: &mut Canvas, id: &str, width: f32) -> f32 {
+    app.home_banner(id).map(|b| layout(app, cv, &b, width).0).unwrap_or(0.0)
+}
+
 /// Le bandeau de l'ordinateur choisi, en `(x, y)` sur `width` ; rend sa hauteur (0 sans bandeau).
 #[allow(clippy::too_many_arguments)]
 pub fn banner(app: &App, cv: &mut Canvas, f: &mut Frame, id: &str, x: f32, y: f32, width: f32) -> f32 {
