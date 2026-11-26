@@ -624,6 +624,7 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         pyrowave_strained_pending: AtomicBool::new(false),
         auto_check: None,
         auto_told: AtomicBool::new(false),
+        mic: Default::default(),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(
@@ -645,6 +646,8 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             control_as_command: false,
             // Pas de réglages de l'ordinateur : la règle d'avant le réglage (plein écran).
             immersive: "fullscreen".into(),
+            // L'ami qui emprunte : coupé au départ, comme une première session.
+            microphone: false,
             layout,
         },
         events.clone(),

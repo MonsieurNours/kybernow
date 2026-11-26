@@ -323,7 +323,8 @@
     "keep": "Keep",
     "battery_help": "Save power: 30 Hz at most during sessions, with the bitrate lowered to match.",
     "on_battery_now": " This PC is on battery.",
-    "probing": "Checking the graphics card…"
+    "probing": "Checking the graphics card…",
+    "mic_unplugged": "Chosen microphone (unplugged)"
   },
   "passage": {
     "preparing": "Preparing the display",
@@ -838,5 +839,20 @@
     "away_dialog_text": "{name} isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router.",
     "not_now": "Not now",
     "paired_text": "Find it away from home and on your other devices too: connect a KyberNow account."
+  },
+  "micro": {
+    "label": "Microphone",
+    "label_off": "Microphone off",
+    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
+    "tooltip_off": "Microphone off ({shortcut})",
+    "shortcut": "Ctrl+Alt+Shift+V",
+    "setting": "Microphone",
+    "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
+    "app_setting": "Microphone",
+    "system_default": "System default",
+    "echo": "Reduce echo and noise",
+    "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
+    "guests": "Let guests speak",
+    "guests_help": "Their microphone reaches the computer, for a game or a call."
   }
 }

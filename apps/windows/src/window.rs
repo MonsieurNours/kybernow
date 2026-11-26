@@ -2519,6 +2519,13 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                             }
                             true
                         }
+                        // Micro (docs/link-ui.md « Micro ») : allumé ou coupé.
+                        b'V' => {
+                            if !repeat {
+                                app.events.toggle_microphone();
+                            }
+                            true
+                        }
                         _ => false,
                     };
                     if handled {

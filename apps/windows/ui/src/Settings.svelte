@@ -12,7 +12,7 @@
   import Statistics from './Statistics.svelte'
   import Station from './Station.svelte'
   import { onMount, untrack } from 'svelte'
-  import type { Battery, Computer, DisplaysInfo, Settings, ThisPc } from './lib/api'
+  import type { Battery, Computer, DisplaysInfo, MicSettings, Settings, ThisPc } from './lib/api'
   import { chosenBy, invoke, isCustom, isMacStation, listen, profileBase, pyrowaveOffered, sessionPlan } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
@@ -72,6 +72,21 @@
   $effect(() => {
     const r = known(start)
     if (r) untrack(() => (rubric = r))
+  })
+
+  /** Ce PC a un micro : le réglage « Micro » de la rubrique Son (docs/link-ui.md « Micro »). */
+  let hasMic = $state(false)
+  onMount(() => {
+    invoke<MicSettings>('mic_settings')
+      .then((m) => (hasMic = m.devices.length > 0))
+      .catch(() => (hasMic = false))
+  })
+  // « Micro » changé dans la barre ou par Ctrl+Alt+Maj+V : la copie de travail le reprend.
+  $effect(() => {
+    const on = !!computer.settings.microphone
+    untrack(() => {
+      if (!!s.microphone !== on) s = { ...s, microphone: on }
+    })
   })
 
   // Enregistrements à la suite : le dernier état gagne toujours.
@@ -427,6 +442,16 @@
             </div>
             <span class="help">{t('settings.sound_help')}</span>
           </div>
+          {#if hasMic}
+            <!-- Le même interrupteur que « Micro » de la session, retenu pour cet ordinateur. -->
+            <div class="line stack">
+              <div class="lr">
+                <span>{t('micro.setting')}</span>
+                <Switch label={t('micro.setting')} checked={!!s.microphone} onchange={(v) => save({ microphone: v })} />
+              </div>
+              <span class="help">{t('micro.setting_help')}</span>
+            </div>
+          {/if}
         </section>
       {:else if rubric === 'controls'}
         <section>

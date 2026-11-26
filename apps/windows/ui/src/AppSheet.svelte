@@ -19,7 +19,7 @@
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import Switch from './lib/Switch.svelte'
-  import type { AccountView, AppInfo, Battery, ThisPc, Update } from './lib/api'
+  import type { AccountView, AppInfo, Battery, MicSettings, ThisPc, Update } from './lib/api'
   import { DEFAULT_RELAY, invoke } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
@@ -77,8 +77,14 @@
   let checked = $state(false)
   let error = $state<string | null>(null)
 
+  /** « Micro » et « Réduire l'écho et le bruit » (docs/link-ui.md « Micro ») ; absents sans micro sur ce PC. */
+  let mic = $state<MicSettings | null>(null)
+
   onMount(() => {
     invoke<AppInfo>('app_info').then((i) => (info = i))
+    invoke<MicSettings>('mic_settings')
+      .then((m) => (mic = m))
+      .catch(() => (mic = null))
     if (checkOnOpen && !update) check()
   })
 
@@ -119,6 +125,22 @@
       accountError = String(e)
     }
   }
+
+  /** « Micro » : celui du système (`''`) ou un micro de ce PC ; une session en cours le prend tout de suite. */
+  async function micDevice(device: string) {
+    if (mic) mic.device = device || null
+    await invoke('set_mic_device', { device: device || null }).catch((e) => (error = String(e)))
+  }
+
+  async function micVoice(on: boolean) {
+    if (mic) mic.voice = on
+    await invoke('set_mic_voice', { on }).catch((e) => (error = String(e)))
+  }
+
+  /** Un micro choisi débranché reste choisi (il revient quand on le rebranche) : il garde sa ligne. */
+  const micOptions = $derived(
+    mic ? [...mic.devices, ...(mic.device && !mic.devices.some((d) => d.id === mic!.device) ? [{ id: mic.device, name: t('appsheet.mic_unplugged') }] : [])] : [],
+  )
 
   /** Ouvrir à l'ouverture de session : l'état rendu est celui que Windows suivra. */
   async function openAtLogin(on: boolean) {
@@ -335,6 +357,22 @@
           <Segmented label={t('appsheet.battery')} value={battery} options={[{ value: 'alleger', label: t('appsheet.lighten') }, { value: 'garder', label: t('appsheet.keep') }]} onchange={onbattery} />
         </div>
         <p class="help">{t('appsheet.battery_help')}{thisPc.on_battery ? t('appsheet.on_battery_now') : ''}</p>
+        {#if mic && (mic.devices.length > 0 || mic.device)}
+          <div class="line">
+            <span class="battery"><Icon name="mic" size={16} /> {t('micro.app_setting')}</span>
+            <select class="field mic" aria-label={t('micro.app_setting')} value={mic.device ?? ''} onchange={(e) => micDevice(e.currentTarget.value)}>
+              <option value="">{t('micro.system_default')}</option>
+              {#each micOptions as d (d.id)}
+                <option value={d.id}>{d.name}</option>
+              {/each}
+            </select>
+          </div>
+          <div class="line">
+            <span>{t('micro.echo')}</span>
+            <Switch label={t('micro.echo')} checked={mic.voice} onchange={micVoice} />
+          </div>
+          <p class="help">{t('micro.echo_help')}</p>
+        {/if}
       {:else}
         <p class="help">{t('appsheet.probing')}</p>
       {/if}
@@ -518,6 +556,10 @@
 
   .tr span.no {
     color: var(--faint);
+  }
+
+  .field.mic {
+    max-width: 280px;
   }
 
   .battery {

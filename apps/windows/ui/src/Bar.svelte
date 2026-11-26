@@ -76,7 +76,8 @@
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
-  import type { BarHdr, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
+  import Switch from './lib/Switch.svelte'
+  import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
@@ -175,6 +176,8 @@
   let keepSound = $state(false)
   /** « HDR », cochable, près du profil (docs/link-ui.md, « HDR ») : absent sans écran HDR, et pour un invité. */
   let hdr = $state<BarHdr | null>(null)
+  /** « Micro » (docs/link-ui.md « Micro ») : absent sans micro sur ce PC, et pour un invité que l'hôte ne laisse pas parler. */
+  let mic = $state<BarMic | null>(null)
   /** Sessions ouvertes : le bouton « Garder le son » à partir de deux. */
   let sessionCount = $state(1)
   /** Le menu « Ordinateurs » : tous les ordinateurs (celui de la session est écarté à l'affichage). */
@@ -218,6 +221,8 @@
     route?: RouteView | null
     /** La puce « HDR » (écran HDR seulement). */
     hdr?: BarHdr | null
+    /** La puce « Micro ». */
+    mic?: BarMic | null
     lend?: LendPanel | null
     borrow?: BorrowBar | null
     /** Partie sur une console PlayStation : la barre de la console. */
@@ -318,6 +323,11 @@
       listen<{ id: string; hdr: BarHdr | null }>('bar-hdr', (e) => {
         if (e.id !== id) return
         hdr = e.hdr
+        reportWidth()
+      }),
+      listen<{ id: string; mic: BarMic | null }>('bar-mic', (e) => {
+        if (e.id !== id) return
+        mic = e.mic
         reportWidth()
       }),
       listen<Shown>('bar-label', (s) => {
@@ -472,6 +482,7 @@
         multi = !!s.multi
         keepSound = !!s.keep_sound
         hdr = s.hdr ?? null
+        mic = s.mic ?? null
         wired = s.wired ?? null
         sessionCount = s.sessions ?? 1
         refusal = null
@@ -741,6 +752,18 @@
     await invoke('session_hdr', { id, on: hdr.on }).catch(() => {})
   }
 
+  /** « Micro » allumé ou coupé : retenu pour l'ordinateur, rien ne se relance ; l'état revient par `bar-mic`. */
+  async function toggleMic() {
+    if (!mic || mic.state === 'refused') return
+    mic = { ...mic, on: !mic.on, state: mic.on ? 'off' : 'waiting' }
+    await invoke('session_microphone', { id, on: mic.on }).catch(() => {})
+  }
+  /** Allumé (envoyé, ou en attente de la réponse de l'ordinateur) ; jamais quand l'ordinateur le refuse. */
+  const micLit = $derived(!!mic && mic.on && mic.state !== 'refused')
+  const micTitle = $derived(
+    mic?.reason ?? t(micLit ? 'micro.tooltip_on' : 'micro.tooltip_off', { shortcut: t('micro.shortcut') }),
+  )
+
   async function toggleKeepSound() {
     keepSound = !keepSound
     await invoke('session_keep_sound', { id, on: keepSound })
@@ -946,6 +969,8 @@
   const accept = (g: ShareGuest) => (share?.full ? undefined : shareAction(() => invoke<Share>('share_accept', { id, guest: g.id })))
   const refuse = (g: ShareGuest) => shareAction(() => invoke<Share>('share_refuse', { id, guest: g.id }))
   const newCode = () => shareAction(() => invoke<Share>('share_code', { id }))
+  /** « Laisser les invités parler » : vaut tout de suite pour les invités déjà là. */
+  const guestsSpeak = (on: boolean) => shareAction(() => invoke<Share>('share_speak', { id, on }))
 
   async function stopSharing() {
     await shareAction(() => invoke<Share>('share_close', { id }))
@@ -1179,6 +1204,25 @@
   {/if}
 {/snippet}
 
+<!-- « Micro » : allumé quand il est envoyé, « Micro coupé » sinon (micro barré) ; estompé et inactif avec la raison
+     quand l'ordinateur ne le prend pas. -->
+{#snippet micChip()}
+  {#if mic}
+    <button
+      class="chip"
+      class:on={micLit}
+      class:dim={mic.state === 'refused'}
+      disabled={mic.state === 'refused'}
+      aria-pressed={micLit}
+      aria-label={micLit ? t('micro.label') : t('micro.label_off')}
+      title={micTitle}
+      onclick={toggleMic}
+    >
+      {@render chipBody(micLit ? 'mic' : 'mic-off', micLit ? t('micro.label') : t('micro.label_off'))}
+    </button>
+  {/if}
+{/snippet}
+
 <!-- Souris : le mode du moment ; menu « Auto », « Souris du bureau », « Souris des jeux », le réglage coché. -->
 {#snippet mouseChip()}
   <div class="anchor">
@@ -1402,6 +1446,7 @@
     <span class="sep"></span>
     {@render hdrChip()}
     {@render soundChip()}
+    {@render micChip()}
     {@render mouseChip()}
     {@render keysChip()}
     <span class="sep"></span>
@@ -1434,6 +1479,7 @@
     {@render statsButton()}
     <span class="sep"></span>
     {@render soundChip()}
+    {@render micChip()}
     <!-- « Qualité de l'image » : la qualité reçue, et les cinq choix. -->
     <div class="anchor">
       <button
@@ -1595,6 +1641,14 @@
               </ul>
             {/if}
             {#if share.full}<p class="note" role="note">{t('share.limit')}</p>{/if}
+            {#if share.guests_speak != null}
+              <!-- Micro des invités : coupé à chaque nouveau partage, vaut tout de suite pour ceux déjà là. -->
+              <div class="speak">
+                <span class="speak-title">{t('micro.guests')}</span>
+                <Switch label={t('micro.guests')} checked={share.guests_speak} disabled={acting} onchange={guestsSpeak} />
+              </div>
+              <p class="speak-help">{t('micro.guests_help')}</p>
+            {/if}
             <div class="foot">
               <button class="ghost" onclick={newCode}>{t('share.new_code')}</button>
               <button class="ghost danger" onclick={stopSharing}>{t('share.stop')}</button>
@@ -1718,6 +1772,7 @@
     </div>
     {@render hdrChip()}
     {@render soundChip()}
+    {@render micChip()}
     {@render mouseChip()}
     {@render keysChip()}
     <span class="chip still" class:dim={!clipboard} role="img" aria-label={t('bar.clipboard')} title={clipboard ? t('bar.clipboard_on') : t('bar.clipboard_off')}>
@@ -2478,6 +2533,21 @@
     pointer-events: none;
   }
 
+  .menu.share .speak {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .menu.share .speak-title {
+    font-size: 13px;
+  }
+  .menu.share .speak-help {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
   .menu.share .foot {
     display: flex;
     justify-content: space-between;

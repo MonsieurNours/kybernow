@@ -319,6 +319,9 @@ pub struct ShareView {
     /// Quatre invités : « Quatre invités au plus. »
     pub full: bool,
     pub qr: Option<Qr>,
+    /// « Laisser les invités parler » (docs/link-ui.md « Partage », micro des
+    /// invités) ; `None` : Station d'avant le micro, pas d'interrupteur.
+    pub guests_speak: Option<bool>,
 }
 
 impl ShareView {
@@ -343,6 +346,7 @@ impl ShareView {
                 relay: s.relay.map(|r| r.state.as_str()),
                 full: s.seated().count() >= share::MAX_GUESTS,
                 qr: qr(&s.link),
+                guests_speak: s.guests_speak,
             },
             None => ShareView {
                 availability,
@@ -357,6 +361,7 @@ impl ShareView {
                 relay: None,
                 full: false,
                 qr: None,
+                guests_speak: None,
             },
         }
     }

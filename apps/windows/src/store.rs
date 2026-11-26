@@ -69,6 +69,9 @@ pub struct Settings {
     /// Le choix « HDR » pour cet ordinateur (docs/hdr.md) ; `None` : jamais
     /// changé, allumé (le HDR est automatique sur un écran HDR).
     pub hdr: Option<bool>,
+    /// « Micro » pour cet ordinateur (docs/micro.md) : coupé à la première
+    /// session, puis le dernier choix (barre, Ctrl+Alt+Maj+V, rubrique Son).
+    pub microphone: bool,
 }
 
 impl Settings {
@@ -102,6 +105,7 @@ impl Default for Settings {
             keep_last_image: true,
             auto_reconnect: true,
             hdr: None,
+            microphone: false,
         }
     }
 }
