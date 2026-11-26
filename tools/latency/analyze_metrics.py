@@ -7,7 +7,10 @@ Le fichier est du JSON Lines. Deux formes sont gérées :
     et on compense les horodatages serveur avec le décalage d'horloge mesuré
     par les "network_ping" (offset = serveur - client, en microsecondes).
 
-Usage : analyze_metrics.py metrics.json [--skip-seconds 5]
+Usage : analyze_metrics.py metrics.json [--skip-seconds 5] [--json F --etiquette E]
+
+--json écrit les temps de chaque étape pour le rapport du banc de mesure
+(tools/banc/banc.py rapport, docs/banc-de-mesure.md).
 """
 
 import argparse
@@ -84,6 +87,8 @@ def main():
     ap.add_argument("metrics")
     ap.add_argument("--skip-seconds", type=float, default=5.0,
                     help="ignore le début de session (montée en charge)")
+    ap.add_argument("--json", help="écrit les étapes pour tools/banc/banc.py rapport")
+    ap.add_argument("--etiquette", default="", help="nom de la version, dans le rapport")
     args = ap.parse_args()
 
     frames, offsets, rtts, lost = load(args.metrics)
@@ -110,12 +115,21 @@ def main():
         print(f"Paquets perdus (cumul) : {lost}")
     print()
     print(f"{'étape':<34}{'n':>7}{'p50':>9}{'p95':>9}{'p99':>9}{'max':>9}   (ms)")
+    etapes = []
     for label, a, b in STAGES:
         d = [(f[b] - f[a]) / 1000 for f in frames.values() if a in f and b in f]
         if not d:
             print(f"{label:<34}{'—':>7}")
             continue
         print(f"{label:<34}{len(d):>7}{pct(d, 50):>9.2f}{pct(d, 95):>9.2f}{pct(d, 99):>9.2f}{max(d):>9.2f}")
+        etapes.append({"etape": label, "n": len(d), "p50": pct(d, 50), "p95": pct(d, 95),
+                       "p99": pct(d, 99), "max": max(d)})
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as f:
+            json.dump({"banc": "metriques", "etiquette": args.etiquette or args.metrics,
+                       "fps": len(displayed) / span if span else None, "sautees": skipped,
+                       "rtt_ms": statistics.median(rtts) / 1000 if rtts else None,
+                       "etapes": etapes}, f, ensure_ascii=False, indent=1)
     print()
     # Encodage selon le temps écoulé depuis l'image précédente : les pics après une
     # période sans changement d'écran trahissent une remontée en fréquence du GPU.

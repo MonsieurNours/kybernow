@@ -1,0 +1,27 @@
+# Banc de mesure de KyberNow (docs/banc-de-mesure.md) : outil de
+# développement, hors des apps. Bride réseau, relevé de traces, rejeu du
+# débit automatique. Crate à part (son propre espace de travail) : il se
+# construit sans third_party.
+[package]
+name = "banc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "banc"
+path = "src/main.rs"
+# Le programme reprend apps/core/src/adaptive.rs tel quel : ses propres
+# essais visent le cœur et ne tournent pas ici.
+test = false
+
+[profile.release]
+debug = 1

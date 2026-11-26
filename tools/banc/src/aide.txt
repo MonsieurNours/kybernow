@@ -1,0 +1,15 @@
+banc : la partie réseau du banc de mesure de KyberNow (docs/banc-de-mesure.md)
+
+  banc profils                       les profils de réseau intégrés
+  banc trace <profil|fichier> [--rtt MS] [--json]
+                                     montre (ou écrit en JSON Lines) une trace
+  banc bride --vers STATION --udp PORTS [--tcp PORTS] [--ecoute ADRESSE]
+             [--profil P] [--rtt MS] [--boucle] [--desordre] [--journal F]
+             [--duree S]             relais bridé entre l'appareil et la Station
+                                     (PORTS : 30241,37462 ou 40241:30241, écoute:Station)
+  banc echo [--ecoute 0.0.0.0:7979]  l'autre bout d'un relevé
+  banc enregistre --echo HÔTE:PORT [--debit 30] [--taille 1200] [--duree 60]
+             [--pas 200] [--nom N] [--sortie F]
+                                     relève un vrai lien en trace rejouable
+  banc rejeu-debit [<profil|fichier>…] [--besoin 60] [--rtt MS] [--json F]
+             [--etiquette E]          rejoue le débit automatique sans réseau

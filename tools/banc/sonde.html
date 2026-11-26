@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sonde du banc</title>
+<!--
+  Sonde de l'écran à l'écran (docs/banc-de-mesure.md), ouverte en plein écran
+  sur la Station, servie par `banc.py ecran`. À chaque image, la bande en haut
+  à gauche montre un compteur en code de Gray (11 bits) et un bit de parité,
+  entre deux repères jaune et bleu à chaque bout. La page note l'instant de
+  chaque image sur son horloge et l'envoie au banc, avec l'écart entre son
+  horloge et celle du banc (allers-retours HTTP, le plus court gardé).
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  #bande { position: fixed; display: flex; }
+  #bande div { flex: none; }
+  #etat { position: fixed; left: 2em; bottom: 2em; color: #666; font: 14px ui-monospace, Menlo, Consolas, monospace; white-space: pre; }
+</style>
+</head>
+<body>
+<div id="bande"></div>
+<div id="etat"></div>
+<script>
+"use strict";
+const BITS = 11, PERIODE = 1 << BITS;
+const params = new URLSearchParams(location.search);
+// Taille d'un bloc en pixels CSS : une fois l'image réduite dans la fenêtre de
+// l'app, un bloc doit garder au moins 8 pixels.
+const taille = Number(params.get("bloc") || 40);
+const bande = document.getElementById("bande");
+const etat = document.getElementById("etat");
+bande.style.left = bande.style.top = taille + "px";
+const couleurs = ["#ff0", "#00f"];
+const blocs = [];
+for (let i = 0; i < 16; i++) {
+  const d = document.createElement("div");
+  d.style.width = d.style.height = taille + "px";
+  d.style.background = i < 2 ? couleurs[i] : i >= 14 ? couleurs[15 - i] : "#000";
+  bande.appendChild(d);
+  blocs.push(d);
+}
+const donnees = blocs.slice(2, 14);
+
+function dessiner(n) {
+  const g = n ^ (n >> 1);
+  let uns = 0;
+  for (let i = 0; i < BITS; i++) {
+    const b = (g >> (BITS - 1 - i)) & 1;
+    uns += b;
+    donnees[i].style.background = b ? "#fff" : "#000";
+  }
+  donnees[BITS].style.background = uns % 2 ? "#fff" : "#000";
+}
+
+const maintenant = () => performance.timeOrigin + performance.now();
+let n = 0, lot = [], decalage = null, rtt = null, envoyees = 0;
+
+function image(t) {
+  dessiner(n % PERIODE);
+  // L'instant de l'image (début du rendu, horloge de la page).
+  lot.push([n, performance.timeOrigin + t]);
+  n++;
+  requestAnimationFrame(image);
+}
+requestAnimationFrame(image);
+
+async function synchro() {
+  let meilleur = null;
+  for (let k = 0; k < 25; k++) {
+    const t0 = maintenant();
+    const r = await fetch("/horloge?" + k, { cache: "no-store" }).then(r => r.json());
+    const t1 = maintenant();
+    if (!meilleur || t1 - t0 < meilleur.rtt) meilleur = { rtt: t1 - t0, decalage: r.t - (t0 + t1) / 2, a: t1 };
+  }
+  decalage = meilleur.decalage; rtt = meilleur.rtt;
+  await fetch("/sonde/horloge", { method: "POST", body: JSON.stringify(meilleur) });
+}
+
+async function envoyer() {
+  const l = lot; lot = [];
+  if (l.length) {
+    await fetch("/sonde/images", {
+      method: "POST",
+      body: JSON.stringify({ images: l, ecran: [screen.width, screen.height, devicePixelRatio], bloc: taille }),
+    });
+    envoyees += l.length;
+  }
+  etat.textContent = `${envoyees} images envoyées au banc · écart d'horloge ${decalage?.toFixed(1)} ms (aller-retour ${rtt?.toFixed(1)} ms)`;
+}
+
+(async () => {
+  for (;;) {
+    try { await synchro(); } catch (e) { etat.textContent = "Banc injoignable : " + e; }
+    for (let k = 0; k < 10; k++) {
+      await new Promise(r => setTimeout(r, 500));
+      try { await envoyer(); } catch (e) { etat.textContent = "Banc injoignable : " + e; }
+    }
+  }
+})();
+</script>
+</body>
+</html>
