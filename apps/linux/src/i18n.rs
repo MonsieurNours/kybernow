@@ -31,6 +31,30 @@ pub fn force_english(en: bool) {
     FORCED.with(|f| f.set(Some(en)));
 }
 
+/// La langue de l'app, comme `kybernow_core::i18n::Lang` : les règles de l'accueil (`welcome.rs` du cœur, repris tel
+/// quel par `crate::welcome_rules`) la lisent sans que l'interface ait besoin du cœur.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Lang {
+    #[default]
+    Fr,
+    En,
+}
+
+impl Lang {
+    /// `fr` ou `en`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Lang::Fr => "fr",
+            Lang::En => "en",
+        }
+    }
+
+    /// La langue de l'app en ce moment.
+    pub fn current() -> Lang {
+        if english() { Lang::En } else { Lang::Fr }
+    }
+}
+
 /// Le texte dans la langue de l'app.
 pub fn tr(fr: &'static str, en: &'static str) -> &'static str {
     if english() { en } else { fr }

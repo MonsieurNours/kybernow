@@ -12,7 +12,7 @@
 //!   Link OS n'en a pas.
 //! - **Plusieurs relais** : « Ajouter un compte » demande d'abord le relais (`share.kybernow.app` proposé, « Un autre
 //!   relais… ») ; l'écran du code le montre (« Relais : {relais} ») et propose d'en changer.
-//! - **Accueil** : sans ordinateur, « Retrouvez vos ordinateurs » et « Se connecter à un compte KyberNow » ; avec des
+//! - **Accueil** : sans ordinateur, « Retrouvez vos ordinateurs » et « Connecter un compte » ; avec des
 //!   comptes, leurs ordinateurs sont des ordinateurs de l'accueil comme les autres (`Store::account_hosts`), avec une
 //!   pastille d'origine (`AccountsUi::origins`, calculée par le pilote avec `account::merge` et `origin`).
 //! - **Réglages de l'app › Comptes** : chaque compte (nom, e-mail, relais), « Gérer le compte » (la page du compte :
@@ -135,7 +135,7 @@ pub fn open_step(address: &str) -> String {
     if english() { format!("or open {address} and enter the code,") } else { format!("ou ouvrez {address} et entrez le code,") }
 }
 
-/// L'aide sous « Se connecter à un compte KyberNow » : la page du relais (bureau) ou le code (salon).
+/// L'aide sous « Connecter un compte » : la page du relais (bureau) ou le code (salon).
 pub fn sign_in_help(by_code: bool) -> &'static str {
     if by_code {
         tr("Un code s'affiche : vous l'approuvez depuis votre téléphone.", "A code appears: you approve it from your phone.")
@@ -162,6 +162,11 @@ impl App {
         self.screen == Screen::Account && self.accounts.flow.step == AccountStep::OtherRelay
     }
 
+    /// Le code se montre : l'écran des comptes, ou l'écran 2 de l'accueil au salon (la carte du code à droite).
+    pub fn code_screen(&self) -> bool {
+        self.screen == Screen::Account || self.welcome_code()
+    }
+
     /// Un compte au moins est connecté : les pastilles d'origine se montrent.
     pub fn has_accounts(&self) -> bool {
         !self.store.accounts.is_empty()
@@ -172,7 +177,7 @@ impl App {
         self.has_accounts().then(|| self.accounts.origins.get(host).map(String::as_str)).flatten().filter(|s| !s.is_empty())
     }
 
-    /// « Se connecter à un compte KyberNow » (accueil vide, réglages) : un code au salon, la page du relais
+    /// « Connecter un compte » (accueil vide, bouton et carte du compte, réglages) : un code au salon, la page du relais
     /// (`share.kybernow.app`) sur le bureau.
     pub fn account_sign_in(&mut self, from: Screen) -> Vec<Action> {
         let back_to = Some(self.accounts.flow.back_to.unwrap_or(from));
@@ -206,16 +211,23 @@ impl App {
         f.busy = true;
         f.step = if by_code { AccountStep::Code } else { AccountStep::Browser };
         let attempt = f.attempt;
-        self.go(Screen::Account);
+        // Au salon, l'écran 2 de l'accueil montre le code lui-même : on y reste.
+        if !self.welcome_code() {
+            self.go(Screen::Account);
+        }
         if by_code { vec![Action::AccountCode { attempt, relay }] } else { vec![Action::AccountBrowser { attempt, relay }] }
     }
 
     /// La réponse à la demande d'un code (et chaque nouveau code, quand le précédent est échu) ; un refus du relais.
     pub fn account_code(&mut self, attempt: u32, r: Result<TvCodeUi, String>) {
         let f = &mut self.accounts.flow;
-        if f.attempt != attempt || self.screen != Screen::Account || f.step != AccountStep::Code {
+        if f.attempt != attempt || f.step != AccountStep::Code {
             return;
         }
+        if !self.code_screen() {
+            return;
+        }
+        let f = &mut self.accounts.flow;
         f.busy = false;
         match r {
             Ok(code) => {
@@ -257,13 +269,23 @@ impl App {
     /// La connexion a abouti (code approuvé, retour de la page du relais) ou non. Réussie, le compte est gardé
     /// (même après « Retour » : sa session d'appareil existe déjà), « Connecté à {compte}. », ses ordinateurs arrivent.
     pub fn account_signed_in(&mut self, attempt: u32, r: Result<KnAccount, SignInFail>) -> Vec<Action> {
-        let current = self.screen == Screen::Account && self.accounts.flow.attempt == attempt && matches!(self.accounts.flow.step, AccountStep::Code | AccountStep::Browser);
+        let current = self.code_screen() && self.accounts.flow.attempt == attempt && matches!(self.accounts.flow.step, AccountStep::Code | AccountStep::Browser);
         match r {
             Ok(a) => {
                 self.toast(signed_in_notice(&a.label()));
                 self.store.put_account(a);
+                // Depuis l'accueil en trois écrans : il est fini, son écran 3 est passé (les ordinateurs du compte
+                // arrivent).
+                let from_welcome = self.screen == Screen::Welcome || self.accounts.flow.back_to == Some(Screen::Welcome);
+                if from_welcome {
+                    self.store.app.welcome.welcome_done();
+                    self.accounts.flow.back_to = Some(Screen::Home);
+                }
                 if current || (self.screen == Screen::Account && self.accounts.flow.step == AccountStep::Browser) {
                     self.account_leave();
+                } else if self.screen == Screen::Welcome {
+                    self.accounts.flow = AccountFlow { attempt: self.accounts.flow.attempt + 1, ..AccountFlow::default() };
+                    self.go(Screen::Home);
                 }
                 vec![Action::Save, Action::AccountsRefresh]
             }
@@ -350,6 +372,8 @@ impl App {
         let attempt = self.accounts.flow.attempt + 1;
         self.accounts.flow = AccountFlow { attempt, ..AccountFlow::default() };
         match to {
+            // Annulée depuis l'écran 2 de l'accueil : on y revient.
+            Screen::Welcome => self.go(Screen::Welcome),
             Screen::Settings => {
                 self.screen = Screen::Settings;
                 self.screen_since = std::time::Instant::now();
@@ -512,6 +536,11 @@ impl App {
                 Vec::new()
             }
             Setting::AccountAdd => self.account_add(),
+            // « Revoir l'accueil » : ses trois écrans, depuis le premier.
+            Setting::WelcomeAgain => {
+                self.open_welcome();
+                Vec::new()
+            }
             // Rallumé : les réglages du relais sont relus (ce qui est plus récent s'applique).
             Setting::SyncSettings => {
                 self.store.app.sync_settings = !self.store.app.sync_settings;
@@ -537,8 +566,9 @@ impl App {
         let mut rows = Vec::new();
         if self.store.accounts.is_empty() {
             rows.push(row(Setting::Info, tr("Aucun compte.", "No account.").into(), String::new(), RowKind::Info(String::new())));
-            let text = tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account");
+            let text = tr("Connecter un compte", "Connect an account");
             rows.push(row(Setting::AccountAdd, text.into(), sign_in_help(self.sign_in_by_code()).into(), RowKind::Button { text: text.into(), style: ButtonStyle::Primary }));
+            rows.push(crate::welcome::again_row());
             return rows;
         }
         for (i, a) in self.store.accounts.iter().enumerate().take(u8::MAX as usize) {
@@ -551,6 +581,7 @@ impl App {
         rows.push(row(Setting::SyncSettings, sync_settings_title().into(), sync_settings_help().into(), RowKind::Toggle(self.store.app.sync_settings)));
         let text = tr("Ajouter un compte", "Add an account");
         rows.push(row(Setting::AccountAdd, text.into(), accounts_help().into(), RowKind::Button { text: text.into(), style: ButtonStyle::Ghost }));
+        rows.push(crate::welcome::again_row());
         rows
     }
 
@@ -736,7 +767,7 @@ mod tests {
         assert_eq!((rows[0].label.as_str(), rows[0].hint.as_str()), ("Léa Martin", "lea@exemple.org"));
         assert_eq!(rows[0].kind, RowKind::Info("share.kybernow.app".into()));
         assert_eq!((rows[3].label.as_str(), rows[3].kind.clone()), ("hugo@exemple.org", RowKind::Info("relais.exemple.org:9443".into())));
-        assert_eq!(rows.last().map(|r| r.setting), Some(Setting::AccountAdd));
+        assert_eq!(rows.iter().rev().nth(1).map(|r| r.setting), Some(Setting::AccountAdd));
         // « Gérer le compte » au salon : le QR code de la page du compte.
         app.account_choose(Setting::AccountManage(1));
         assert_eq!(app.managed_account().map(|a| a.console()), Some("https://relais.exemple.org:9443/compte".into()));

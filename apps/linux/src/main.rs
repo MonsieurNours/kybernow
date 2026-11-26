@@ -19,6 +19,11 @@ mod pyrowave;
 mod station_offer;
 mod synced;
 mod ui;
+mod welcome;
+// Les règles de l'accueil et de la carte du compte : celles du cœur, reprises telles quelles (l'interface se compile
+// sans le cœur : captures, essais sur le Mac).
+#[path = "../../core/src/welcome.rs"]
+mod welcome_rules;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

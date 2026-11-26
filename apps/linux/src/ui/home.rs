@@ -257,7 +257,9 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             y += 52.0 + 30.0;
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
             // La mise à jour de la Station, sous la rangée (docs/link-ui.md, « Mise à jour des Stations »).
-            super::offer::banner(app, cv, f, &hst.id, x0, y + 20.0, hero_max);
+            let ob = super::offer::banner(app, cv, f, &hst.id, x0, y + 20.0, hero_max);
+            // Sans compte, après un appairage : le bandeau du compte, sous celui de la mise à jour s'il y en a un.
+            super::welcome::paired_banner(app, cv, f, &hst.id, x0, y + 20.0 + if ob > 0.0 { ob + 12.0 } else { 0.0 }, hero_max, h - 40.0 - 96.0 - 30.0);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(app, cv, f, x0, y, 1.0, hero_max),
@@ -269,8 +271,8 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
     cards(app, cv, f, x0, cy, 244.0, ch, 14.0, w - 2.0 * x0, 1.0, true);
 }
 
-/// Sans ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », le texte, « Se connecter à
-/// un compte KyberNow » et son aide (la page du relais au bureau, un code au salon) ; puis « ou sans compte » et les
+/// Sans ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », le texte, « Connecter un
+/// compte » et son aide (la page du relais au bureau, un code au salon) ; puis « ou sans compte » et les
 /// boutons de toujours : « Ajouter un ordinateur ou une console », « Rejoindre avec un code ».
 fn welcome(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, max: f32) {
     eyebrow(cv, x0, y + 11.0 * u, 11.0 * u, FAINT, tr("Bienvenue", "Welcome"));
@@ -290,7 +292,7 @@ fn welcome(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, u: f32, m
         23.0 * u,
     );
     yy += 4.0 * u;
-    primary(cv, f, Target::AccountSignIn, x0, yy, 52.0 * u, tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), false);
+    primary(cv, f, Target::AccountSignIn, x0, yy, 52.0 * u, tr("Connecter un compte", "Connect an account"), false);
     yy += 52.0 * u + 24.0 * u;
     yy += cv.paragraph(x0, yy, Text::new(Font::Regular, 13.5 * u, FAINT), crate::accounts::sign_in_help(app.sign_in_by_code()), text_w, 20.0 * u);
     yy += 8.0 * u;
@@ -313,6 +315,12 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
     if add_card {
         slots = slots.saturating_sub(1);
     }
+    // La carte du compte (sans compte) : seulement sur des places libres, après les ordinateurs, les consoles et ceux
+    // du réseau ; elle n'en pousse aucun hors de la rangée (docs/link-ui.md, « Accueil et compte KyberNow »).
+    let others = app.store.hosts.len() + app.store.borrowed.len() + app.store.ps_consoles.len() + found.len();
+    let account = if add_card { super::welcome::card_slots(app, slots.saturating_sub(others)) } else { 0 };
+    slots -= account;
+    let gap_row = gap;
     let mut x = x0;
     // Les ordinateurs empruntés et les consoles gardent leur place dans la rangée (une au moins reste aux ordinateurs
     // appairés).
@@ -372,6 +380,11 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
         let hh = (ch - gap) / 2.0;
         action_card(cv, f, Target::AddCard, Rect::new(x, y, cw, hh), u, Icon::Plus, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
         action_card(cv, f, Target::JoinCard, Rect::new(x, y + hh + gap, cw, hh), u, Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
+        // La carte du compte, en dernier.
+        if account > 0 {
+            let aw = account as f32 * cw + (account - 1) as f32 * gap_row;
+            super::welcome::account_card(app, cv, f, Rect::new(x + cw + gap_row, y, aw, ch), u, account >= 2);
+        }
     }
 }
 
@@ -484,7 +497,9 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
         let (lx, ly, lh) = launch::header_logo(app.layout);
         cv.logo_link(lx, ly, lh, 1.0);
     }
-    status_line(app, cv, w - x0, header / 2.0 + 5.0 * u, u);
+    let left = status_line(app, cv, w - x0, header / 2.0 + 5.0 * u, u);
+    // Sans compte : « Connecter un compte », à gauche du réseau et de l'heure.
+    super::welcome::account_button(app, cv, f, left - 24.0 * u, header / 2.0 - 17.0 * u, 34.0 * u, 14.0 * u);
     let hero_max = (w - 2.0 * x0).min(if tv { 1300.0 } else { 900.0 });
     let mut y = header + 36.0 * u;
     if let Some(b) = app.selected_borrowed() {
@@ -535,7 +550,9 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             y += 60.0 * u + 30.0 * u;
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
             // La mise à jour de la Station, sous la rangée ; la flèche bas depuis « Se connecter » y mène.
-            super::offer::banner(app, cv, f, &hst.id, x0, y + 22.0 * u, hero_max);
+            let ob = super::offer::banner(app, cv, f, &hst.id, x0, y + 22.0 * u, hero_max);
+            let limit = h - 56.0 * u - if tv { 4.0 } else { 0.0 } - 28.0 * u - if tv { 132.0 } else { 96.0 } - 30.0 * u;
+            super::welcome::paired_banner(app, cv, f, &hst.id, x0, y + 22.0 * u + if ob > 0.0 { ob + 12.0 * u } else { 0.0 }, hero_max, limit);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(app, cv, f, x0, y, u, hero_max),
@@ -621,7 +638,8 @@ pub(super) fn pills(cv: &mut Canvas, right: f32, cy: f32, items: &[(String, Rgba
     }
 }
 
-fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
+/// Rend le bord gauche de ce qui est écrit.
+fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) -> f32 {
     if app.is_os() && app.layout == Layout::Tv {
         let mut items: Vec<(String, Rgba)> = Vec::new();
         if let crate::app::UpdateState::Available { version, .. } = &app.update {
@@ -634,7 +652,9 @@ fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
         }
         items.push((clock(), MUTED));
         pills(cv, right, y - 6.0 * u, &items);
-        return;
+        let mono = Text::new(Font::Mono, 16.0, MUTED);
+        let total: f32 = items.iter().map(|(s, _)| cv.text_width(mono, s) + 32.0).sum::<f32>() + 16.0 * items.len().saturating_sub(1) as f32;
+        return right - total;
     }
     let mono = Text::new(Font::Mono, 13.0 * u, MUTED);
     let mut parts: Vec<(Option<Icon>, String)> = Vec::new();
@@ -656,7 +676,8 @@ fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
         widths.push(w);
         total += w + gap;
     }
-    let mut x = right - total + gap;
+    let left = right - total + gap;
+    let mut x = left;
     for ((i, s), w) in parts.iter().zip(widths) {
         let mut tx = x;
         if let Some(icon) = i {
@@ -666,6 +687,7 @@ fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
         cv.text(tx, y, mono, s);
         x += w + gap;
     }
+    left
 }
 
 pub fn gbit(m: u32) -> String {

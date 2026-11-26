@@ -394,11 +394,14 @@ pub struct AppSettings {
     /// La version de l'app au dernier lancement (vide : jamais lancée, ou avant la 0.11.3) : au premier lancement
     /// d'une nouvelle version, l'avis « … a aussi une mise à jour » (docs/link-ui.md, « Mise à jour des Stations »).
     pub last_launched: String,
+    /// Accueil et compte KyberNow (docs/link-ui.md, « Accueil et compte KyberNow ») : l'accueil vu, la carte du compte
+    /// fermée, le bandeau après un appairage et le moment « Hors de chez vous ? » déjà montrés (`crate::welcome`).
+    pub welcome: crate::welcome::WelcomeState,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new() }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default() }
     }
 }
 
