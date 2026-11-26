@@ -14,6 +14,7 @@
 //! pause, son coupé) ; l'app lui annonce ses fenêtres et recopie sa réponse.
 
 mod accounts;
+mod autotest;
 mod chime;
 mod focus;
 mod hdr_wl;
@@ -104,6 +105,10 @@ pub enum Event {
     Woken { id: String, result: Result<(), String> },
     /// La réponse d'Admin à un redémarrage ou une mise à jour de la Station.
     StationReply { host: String, kind: crate::app::StationKind, result: Result<Option<String>, crate::app::StationRefusal> },
+    /// Profil Auto : l'avancement du test (les étapes, traduites par le cœur), puis son résultat (les choix et le
+    /// JSON d'`AutoResult` à garder, ou le texte de l'échec), sous le numéro du test.
+    AutoProgress { attempt: u32, steps: Vec<crate::autotest::Step> },
+    AutoDone { attempt: u32, result: Result<(Vec<crate::autotest::Choice>, serde_json::Value), String> },
     Preview { id: String, jpeg: Vec<u8> },
     Found(Vec<Found>),
     /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
@@ -1027,6 +1032,9 @@ pub fn run(args: &[String]) {
             || app.waking_host().is_some() && app.screen == Screen::Home
             || app.station_op.as_ref().is_some_and(|o| o.busy()) && app.screen == Screen::Settings
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
+            // Profil Auto : la roue du test qui tourne ; les bandeaux du début de session, jusqu'à leur départ (8 s).
+            || app.autotest.as_ref().is_some_and(|p| matches!(p.state, crate::autotest::State::Running(_)))
+            || app.sessions.iter().any(|s| s.auto_banner.is_some_and(|t| t.elapsed().as_secs_f32() < 8.2) || s.pw_banner.is_some_and(|t| t.elapsed().as_secs_f32() < 8.2))
             || app.screen == Screen::Gamepads
             || app.screen == Screen::Add
             || app.screen == Screen::Join
@@ -1113,6 +1121,11 @@ pub fn run(args: &[String]) {
         if app.pending_link.is_some() {
             actions.extend(app.poll_link());
             dirty |= app.pending_link.is_none();
+        }
+        // Le test du profil Auto demandé en session : il s'ouvre quand l'app revient à l'accueil, sans session.
+        if app.autotest_pending.is_some() {
+            actions.extend(app.poll_autotest());
+            dirty |= app.autotest_pending.is_none();
         }
         for a in actions.drain(..) {
             if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &lives, &mut wins) {
@@ -2865,6 +2878,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         }
         Event::ShareHost { session, result } => app.share_reply(session, result),
         Event::StationReply { host, kind, result } => app.station_reply(&host, kind, result),
+        Event::AutoProgress { attempt, steps } => app.autotest_progress(attempt, steps),
+        Event::AutoDone { attempt, result } => app.autotest_done(attempt, result),
         Event::Woken { id, result } => {
             if let Err(e) = result {
                 if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
@@ -3108,6 +3123,8 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session, une fois.
                 s.pyrowave_seen();
             }
+            // Profil Auto sur un autre réseau que celui du test : son bandeau, une fois (la route est connue).
+            app.auto_network_check(id);
         }
         SessionEvent::PyroWaveStrained => {
             if let Some(s) = app.session_by_mut(id) {
@@ -3693,6 +3710,8 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 jobs::wake(h, tx.clone());
             }
         }
+        Action::AutoTest { host, attempt } => autotest::start(app, &host, attempt, tx.clone()),
+        Action::AutoTestCancel => autotest::cancel(),
         Action::Rumble { pad, low, high, triggers } => pads.test_rumble(pad, low, high, triggers),
     }
 }

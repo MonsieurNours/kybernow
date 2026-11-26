@@ -79,6 +79,9 @@ typedef struct kn_decoder {
     // Image 4:4:4 convertie en BGRA.
     uint8_t *rgb;
     size_t rgb_size;
+    // Images sorties du décodeur depuis l'ouverture (recopiées de la carte comprises) : le test de décodage du
+    // profil Auto (src/device/autotest.rs) compte ainsi celles que `kn_decoder_receive` ne rend pas une à une.
+    int64_t frames;
 } kn_decoder;
 
 // ---- 4:4:4 → BGRA --------------------------------------------------------
@@ -311,6 +314,9 @@ const char *kn_decoder_name(kn_decoder *d) {
 
 int kn_decoder_is_hw(kn_decoder *d) { return d->hw_active; }
 
+// Images sorties du décodeur depuis son ouverture.
+int64_t kn_decoder_frames(kn_decoder *d) { return d->frames; }
+
 int kn_decoder_send(kn_decoder *d, const uint8_t *data, int len, int64_t pts) {
     av_packet_unref(d->pkt);
     int r = av_new_packet(d->pkt, len);
@@ -357,6 +363,7 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
         av_frame_unref(d->out);
         av_frame_move_ref(d->out, src);
         got = 1;
+        d->frames++;
     }
     if (!got) return 0;
     AVFrame *f = d->out;

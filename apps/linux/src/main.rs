@@ -6,6 +6,7 @@
 mod accounts;
 mod app;
 mod app_time;
+mod autotest;
 #[cfg(feature = "device")]
 mod device;
 mod displays;

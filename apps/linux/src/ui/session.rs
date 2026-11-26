@@ -86,6 +86,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                         drop = PW_BANNER_H + 10.0;
                     }
                 }
+                // Profil Auto sur un autre réseau que celui du test : le bandeau discret du début (8 s, ou la croix).
+                if s.auto_banner_visible() && s.console.is_none() {
+                    auto_banner(app, cv, f);
+                    if app.layout == Layout::Desktop {
+                        drop = super::autotest::BANNER_H + 10.0;
+                    }
+                }
                 if let Phase::Reconnecting { attempt, max } = s.phase {
                     capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), true, drop);
                 } else if let Some((n, t)) = &s.notice
@@ -990,7 +997,12 @@ fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title
         if *on {
             cv.icon(&Icon::Check, r.x + 8.0, r.y + 10.0, 16.0, 2.0, SPECTRE);
         }
-        let lw = cv.text(r.x + 32.0, r.y + 23.0, Text::new(Font::Regular, 13.5, FROST), label);
+        // Auto : les étincelles après le nom.
+        let mut lw = cv.text(r.x + 32.0, r.y + 23.0, Text::new(Font::Regular, 13.5, FROST), label);
+        if let Some(icon) = widgets::profile_icon(*t) {
+            cv.icon(&icon, r.x + 32.0 + lw + 6.0, r.y + 10.0, 15.0, 1.4, SPECTRE);
+            lw += 22.0;
+        }
         if !hint.is_empty() {
             cv.text_fit(r.x + 32.0 + lw + 10.0, r.y + 23.0, Text::new(Font::Regular, 12.0, FAINT), hint, r.w - lw - 50.0);
         }
@@ -1059,6 +1071,43 @@ fn pyrowave_banner(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     widgets::primary(cv, f, Target::PwHevc, bx, y + (h - bh) / 2.0, bh, crate::pyrowave::switch_to_hevc(), false);
     let cr = Rect::new(x + w - pad - close, y + (h - close) / 2.0, close, close);
     let (focused, hover) = f.state(Target::PwClose, cr);
+    if focused {
+        widgets::ring(cv, cr, close / 2.0);
+    }
+    if hover {
+        cv.rrect(cr.x, cr.y, cr.w, cr.h, close / 2.0, Rgba(227, 237, 240, 14));
+    }
+    cv.icon(&Icon::Close, cr.x + 6.0 * u, cr.y + 6.0 * u, close - 12.0 * u, 1.6, MUTED);
+}
+
+/// Le bandeau « Autre réseau que celui du test » (profil Auto, docs/link-ui.md) : en haut, sous la barre ; le titre,
+/// « Le débit adaptatif s'en charge. », « Refaire le test » (le panneau s'ouvre après la session) et la croix. Discret :
+/// liseré Spectre, bouton à contour. Il part seul au bout de 8 s.
+fn auto_banner(app: &App, cv: &mut Canvas, f: &mut Frame) {
+    use crate::autotest as auto;
+    let u = unit(app.layout);
+    let title = Text::new(Font::Semibold, 14.0 * u, FROST);
+    let body = Text::new(Font::Regular, 13.0 * u, MUTED);
+    let bh = 34.0 * u;
+    let pad = 16.0 * u;
+    let size = 13.0 * u;
+    let text_w = cv.text_width(title, auto::other_network()).max(cv.text_width(body, auto::other_network_text()));
+    let button_w = cv.text_width(Text::new(Font::Regular, size, FROST), auto::again()) + 2.0 * size;
+    let close = 28.0 * u;
+    let w = (pad + 10.0 * u + text_w + 20.0 * u + button_w + 10.0 * u + close + pad).min(cv.w - 32.0 * u);
+    let h = super::autotest::BANNER_H * u;
+    let x = (cv.w - w) / 2.0;
+    let y = if app.layout == Layout::Desktop { BAR_H + 22.0 } else { 28.0 * u };
+    cv.rrect(x, y, w, h, 12.0 * u, Rgba(9, 13, 18, 235));
+    cv.rrect_stroke(x, y, w, h, 12.0 * u, 1.0, LINE_2);
+    cv.rrect(x + 1.0, y + 12.0 * u, 3.0 * u, h - 24.0 * u, 1.5 * u, SPECTRE);
+    let tx = x + pad + 10.0 * u;
+    cv.text(tx, y + 25.0 * u, title, auto::other_network());
+    cv.text(tx, y + 45.0 * u, body, auto::other_network_text());
+    let bx = x + w - pad - close - 10.0 * u - button_w;
+    widgets::ghost(cv, f, Target::AutoBannerRetest, bx, y + (h - bh) / 2.0, bh, size, None, auto::again(), FROST);
+    let cr = Rect::new(x + w - pad - close, y + (h - close) / 2.0, close, close);
+    let (focused, hover) = f.state(Target::AutoBannerClose, cr);
     if focused {
         widgets::ring(cv, cr, close / 2.0);
     }

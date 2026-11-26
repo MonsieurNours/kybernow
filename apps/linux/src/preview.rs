@@ -160,7 +160,7 @@ fn session(app: &App) -> SessionUi {
         lowered: None,
         // Le débit des dernières secondes, et le débit visé : baissé par le débit automatique, puis remonté.
         bitrate_history: [31.0, 30.2, 32.5, 29.8, 24.1, 21.7, 22.4, 26.0, 29.5, 30.8, 31.4, 31.0].iter().zip([60.0, 60.0, 60.0, 60.0, 42.0, 42.0, 42.0, 50.0, 60.0, 60.0, 60.0, 60.0]).map(|(m, t)| (*m, Some(t))).collect(),
-        target: Some((crate::i18n::tr("Débit visé", "Target bitrate").into(), crate::i18n::tr("60 Mbit/s · Auto", "60 Mbit/s · Auto").into())),
+        target: Some((crate::i18n::tr("Débit visé", "Target bitrate").into(), crate::i18n::tr("60 Mbit/s · adaptatif", "60 Mbit/s · adaptive").into())),
     });
     s.started = Instant::now() - Duration::from_millis(2100);
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
@@ -1235,6 +1235,8 @@ pub fn run(dir: &Path, lang: &str) {
         hdr_shots(&mut app, &mut cv, &video, dir, prefix);
         // PyroWave (docs/link-ui.md, « PyroWave ») : Format vidéo, avertissements, bandeau, puce, statistiques.
         pyrowave_shots(&mut app, &mut cv, &video, dir, prefix);
+        // Profil Auto et débit adaptatif (docs/link-ui.md) : le test, la carte « Débit », le bandeau en session.
+        auto_shots(&mut app, &mut cv, &video, dir, prefix);
         // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
         account_shots(en, layout, &mut cv, dir, prefix);
         // Regarder (droit « Regarder » d'un compte) : la carte, le menu de l'ordinateur, la session de qui regarde.
@@ -3069,6 +3071,95 @@ fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, pr
     set(app, "auto", false);
     if let Some(h) = app.store.host_mut("a") {
         h.pyrowave = false;
+    }
+    app.go(Screen::Home);
+}
+
+/// Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : l'accueil avec Auto (et ses étincelles), le
+/// panneau du test (en cours, ses réglages proposés, l'échec), la carte « Débit » (« Débit adaptatif », « Choisi par le
+/// test du… », « Refaire le test ») et le bandeau « Autre réseau que celui du test » en session.
+fn auto_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    use crate::autotest::{Choice, Panel, State, Step, StepState};
+    let name = |n: &str| format!("{prefix}-{n}");
+    let en = crate::i18n::english();
+    let t = |fr: &'static str, e: &'static str| -> String { if en { e.into() } else { fr.into() } };
+    let (selected, settings) = (app.store.selected.clone(), app.store.host("a").map(|h| h.settings.clone()));
+    app.set_session(None);
+    app.pointer = None;
+    app.store.selected = Some("a".into());
+    // Le panneau, pendant le test : liaison cochée, latence cochée, débit en cours, décodage en attente.
+    app.go(Screen::Home);
+    let steps = vec![
+        Step { title: t("Liaison", "Connection"), state: StepState::Done(t("Câble", "Cable")) },
+        Step { title: t("Latence au repos", "Latency at rest"), state: StepState::Done(t("2,1 ms · gigue 0,4 ms", "2.1 ms · jitter 0.4 ms")) },
+        Step { title: t("Débit vers cet appareil", "Bitrate to this device"), state: StepState::Running },
+        Step { title: t("Décodage de cet appareil", "Decoding on this device"), state: StepState::Waiting },
+    ];
+    app.autotest = Some(Panel { host: "a".into(), name: "Tour du salon".into(), attempt: 1, state: State::Running(steps) });
+    app.autotest_back = Some(Target::Connect);
+    app.focus = Target::AutoCancel;
+    shot(app, cv, None, dir, &name("47-auto-test"));
+    // Une Station d'avant : l'étape du débit passée avec sa raison.
+    let steps = vec![
+        Step { title: t("Liaison", "Connection"), state: StepState::Done("Wi-Fi".into()) },
+        Step { title: t("Latence au repos", "Latency at rest"), state: StepState::Done(t("4,8 ms · gigue 2,3 ms", "4.8 ms · jitter 2.3 ms")) },
+        Step { title: t("Débit vers cet appareil", "Bitrate to this device"), state: StepState::Skipped(t("Mettez à jour Tour du salon pour mesurer le débit.", "Update Tour du salon to measure the bitrate.")) },
+        Step { title: t("Décodage de cet appareil", "Decoding on this device"), state: StepState::Running },
+    ];
+    app.autotest.as_mut().unwrap().state = State::Running(steps);
+    shot(app, cv, None, dir, &name("47b-auto-test-station-ancienne"));
+    // Les réglages proposés.
+    let choices = vec![
+        Choice { title: t("Format vidéo", "Video format"), value: "PyroWave".into(), reason: t("relié par câble, et le réseau le porte", "connected by cable, and the network can carry it") },
+        Choice { title: t("Définition", "Resolution"), value: t("3840 × 2160 à 120 Hz", "3840 × 2160 at 120 Hz"), reason: t("comme cet écran", "matches this display") },
+        Choice { title: t("Texte net (4:4:4)", "Sharp text (4:4:4)"), value: t("Oui", "On"), reason: t("le réseau et le décodage le permettent", "the network and decoding allow it") },
+        Choice { title: t("Débit", "Bitrate"), value: "420 Mbit/s".into(), reason: t("940 Mbit/s mesurés, avec une marge", "940 Mbit/s measured, with a margin") },
+        Choice { title: t("Transport de l'image", "Picture transport"), value: t("Rapide", "Fast"), reason: t("réseau stable", "steady network") },
+        Choice { title: t("Débit adaptatif", "Adaptive bitrate"), value: t("Oui", "On"), reason: t("suit le réseau pendant la session", "follows the network during the session") },
+    ];
+    let result = serde_json::json!({ "at": 1_795_000_000u64, "network": "Ethernet", "codec": "pyrowave", "yuv444": true, "width": 3840, "height": 2160, "refresh": 120, "mbps": 300, "mode_mbps": 420, "reliable": false, "station": "Tour du salon" });
+    app.autotest.as_mut().unwrap().state = State::Done { choices, result: result.clone() };
+    app.focus = Target::AutoApply;
+    shot(app, cv, None, dir, &name("47c-auto-reglages-proposes"));
+    // L'échec.
+    app.autotest.as_mut().unwrap().state = State::Failed(crate::autotest::unreachable("Tour du salon"));
+    app.focus = Target::AutoRetry;
+    shot(app, cv, None, dir, &name("47d-auto-echec"));
+    app.autotest = None;
+    // Appliqué : l'accueil en Auto, puis la carte « Débit » des réglages.
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.auto = Some(result);
+        h.settings.pick_profile(Profile::Auto);
+    }
+    app.go(Screen::Home);
+    shot(app, cv, None, dir, &name("47e-auto-accueil"));
+    app.open_host_section(Section::Picture, Screen::Home);
+    app.focus = Target::Setting(crate::app::Setting::Adaptive);
+    if app.layout == Layout::Desktop {
+        app.scroll = 520.0;
+    }
+    shot(app, cv, None, dir, &name("47f-auto-carte-debit"));
+    app.scroll = 0.0;
+    if app.layout.console() {
+        app.open_host_section(Section::Profile, Screen::Home);
+        app.focus = Target::Setting(crate::app::Setting::AutoRetest);
+        shot(app, cv, None, dir, &name("47g-auto-reglages-profil"));
+    }
+    // En session, sur un autre réseau que celui du test : le bandeau.
+    let mut s = session(app);
+    s.profile = Profile::Auto;
+    s.menu = false;
+    s.show_stats = false;
+    s.auto_banner = Some(Instant::now());
+    s.auto_checked = true;
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    app.focus = Target::AutoBannerRetest;
+    shot(app, cv, Some(video), dir, &name("47h-auto-autre-reseau"));
+    app.set_session(None);
+    app.store.selected = selected;
+    if let (Some(h), Some(st)) = (app.store.host_mut("a"), settings) {
+        h.settings = st;
     }
     app.go(Screen::Home);
 }

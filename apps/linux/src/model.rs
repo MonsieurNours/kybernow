@@ -29,17 +29,50 @@ pub enum Profile {
     Jeu,
     Bureau,
     Max,
+    /// Les réglages choisis par le test des conditions (docs/profil-auto.md), gardés pour cet ordinateur
+    /// (`HostSettings::auto`).
+    Auto,
 }
 
 impl Profile {
-    pub const ALL: [Profile; 3] = [Profile::Jeu, Profile::Bureau, Profile::Max];
+    pub const ALL: [Profile; 4] = [Profile::Jeu, Profile::Bureau, Profile::Max, Profile::Auto];
 
     pub fn id(self) -> &'static str {
         match self {
             Profile::Jeu => "jeu",
             Profile::Bureau => "bureau",
             Profile::Max => "max",
+            Profile::Auto => "auto",
         }
+    }
+}
+
+/// Ce que l'interface lit du résultat gardé du test (`AutoResult` du cœur, gardé tel quel en JSON) : la date, le
+/// réseau du test et les réglages choisis. Le pilote relit le JSON entier avec le cœur (`device/autotest.rs`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AutoView {
+    /// Date du test (secondes depuis 1970).
+    pub at: u64,
+    /// Le réseau du test (« Ethernet », le nom du Wi-Fi, `relay` par le relais) ; `None` : inconnu.
+    pub network: Option<String>,
+    /// `hevc`, `h264`, `av1`, `pyrowave`.
+    pub codec: String,
+    pub yuv444: bool,
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    pub reliable: bool,
+}
+
+impl AutoView {
+    pub fn of(v: &serde_json::Value) -> Option<Self> {
+        serde_json::from_value::<Self>(v.clone()).ok().filter(|a| a.at > 0 && !a.codec.is_empty())
+    }
+
+    /// Le test a-t-il été fait sur ce réseau ? (`AutoResult::same_network` du cœur : le relais s'appelle `relay`.)
+    pub fn same_network(&self, network: Option<&str>) -> bool {
+        self.network.as_deref() == network
     }
 }
 
@@ -93,6 +126,13 @@ pub struct HostSettings {
     /// première fois (absent d'un fichier d'avant le HDR : allumé aussi). Il ne compte pas dans le profil. Sans
     /// effet sur un écran SDR.
     pub hdr: bool,
+    /// « Débit adaptatif » (docs/profil-auto.md) : allumé par défaut (absent d'un fichier d'avant : allumé), pour un
+    /// profil comme pour un débit choisi ; envoyé dans les réglages du flux (`adaptive`). Ne rend jamais le profil
+    /// « Personnalisé ».
+    pub adaptive: bool,
+    /// Le résultat du test du profil Auto pour cet ordinateur (`AutoResult` du cœur, en JSON), gardé à
+    /// « Appliquer » ; `None` : jamais appliqué (choisir Auto ouvre le test).
+    pub auto: Option<serde_json::Value>,
 }
 
 impl Default for HostSettings {
@@ -118,6 +158,8 @@ impl Default for HostSettings {
             virtual_display: true,
             yuv444: false,
             hdr: true,
+            adaptive: true,
+            auto: None,
         }
     }
 }
@@ -125,17 +167,35 @@ impl Default for HostSettings {
 impl HostSettings {
     /// Les réglages s'écartent du profil (« Personnalisé ») : format ou débit
     /// choisis, 4:4:4 en Jeu (Bureau et Max le prennent quand il est permis),
-    /// transport fiable hors Bureau (Bureau l'est déjà).
+    /// transport fiable hors Bureau (Bureau l'est déjà). Auto : le 4:4:4 et le
+    /// transport sont ceux du test ; « Débit adaptatif » n'y compte jamais.
     pub fn custom(&self) -> bool {
+        if self.profile == Profile::Auto {
+            let a = self.auto_view();
+            return self.codec != "auto" || self.mbps != 0 || a.is_some_and(|a| self.yuv444 != a.yuv444 || self.reliable != a.reliable);
+        }
         self.codec != "auto" || self.mbps != 0 || (self.yuv444 && self.profile == Profile::Jeu) || (self.reliable && self.profile != Profile::Bureau)
     }
 
+    /// Le résultat gardé du test, tel que l'interface le lit.
+    pub fn auto_view(&self) -> Option<AutoView> {
+        self.auto.as_ref().and_then(AutoView::of)
+    }
+
     /// Choisit un profil : ce qui s'en écartait (format, débit, 4:4:4 en Jeu, transport fiable hors Bureau) revient
-    /// au profil. Choisi ici, ou reçu d'un autre appareil (réglages synchronisés, `crate::synced`).
+    /// au profil. Choisi ici, ou reçu d'un autre appareil (réglages synchronisés, `crate::synced`). Auto prend le
+    /// 4:4:4 et le transport du test gardé (la définition et la fréquence, propres à l'écran : `App::apply_auto`).
     pub fn pick_profile(&mut self, p: Profile) {
         self.profile = p;
         self.codec = "auto".into();
         self.mbps = 0;
+        if p == Profile::Auto {
+            if let Some(a) = self.auto_view() {
+                self.yuv444 = a.yuv444;
+                self.reliable = a.reliable;
+            }
+            return;
+        }
         if p == Profile::Jeu {
             self.yuv444 = false;
         }

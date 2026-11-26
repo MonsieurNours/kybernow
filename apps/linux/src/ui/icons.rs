@@ -43,6 +43,8 @@ pub enum Icon {
     Lend,
     /// Regarder (droit « Regarder » d'un compte) : un œil.
     Eye,
+    /// Le profil Auto : des étincelles (sparkles), comme la baguette des autres apps.
+    Sparkles,
 }
 
 impl Icon {
@@ -83,6 +85,7 @@ impl Icon {
             Icon::Battery => (&["M3 8 H18 Q19 8 19 9 V15 Q19 16 18 16 H3 Q2 16 2 15 V9 Q2 8 3 8 Z", "M21 10.5 V13.5"], &[], &[]),
             Icon::Sound => (&["M4 9 H8 L13 5 V19 L8 15 H4 Z", "M16 9 Q18 12 16 15", "M18.5 6.5 Q23 12 18.5 17.5"], &[], &[]),
             Icon::Share => (&["M8.4 10.8 L15.6 6.4", "M8.4 13.2 L15.6 17.6"], &[(6.0, 12.0, 2.6), (18.0, 5.2, 2.6), (18.0, 18.8, 2.6)], &[]),
+            Icon::Sparkles => (&["M10 3.5 Q10.8 9.2 16.5 10 Q10.8 10.8 10 16.5 Q9.2 10.8 3.5 10 Q9.2 9.2 10 3.5 Z", "M18 14 V20", "M15 17 H21"], &[], &[(18.5, 5.0, 1.1)]),
             Icon::Eye => (&["M2 12 Q12 3 22 12 Q12 21 2 12 Z"], &[(12.0, 12.0, 3.2)], &[]),
             Icon::Lend => (&["M11.5 12 H21", "M18 12 V15.5", "M14.8 12 V14.5"], &[(7.5, 12.0, 4.0)], &[]),
             Icon::Cpu => (&["M5 5 H19 Q21 5 21 7 V17 Q21 19 19 19 H5 Q3 19 3 17 V7 Q3 5 5 5 Z", "M8 9 L11 12 L8 15", "M13 15 H16"], &[], &[]),

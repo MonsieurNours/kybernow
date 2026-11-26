@@ -730,7 +730,16 @@ pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), m: &Machine, light: bool) -> StreamSettings {
     // Le texte net vaut en HEVC et en PyroWave (presque sans coût : seul le débit monte).
     let yuv444 = host.settings.yuv444 && matches!(codec, "hevc" | "pyrowave");
-    let mut s = StreamSettings::for_profile(core_profile(profile), capabilities(host, codec, m));
+    // Auto (docs/profil-auto.md) : les réglages du test gardé pour cet ordinateur (`AutoResult::settings`) ; le
+    // format, le 4:4:4 et le transport du test sont déjà dans `codec` et les réglages (`App::codec_for`,
+    // `HostSettings::pick_profile`). Sans test gardé (ne devrait pas arriver : choisir Auto ouvre le test), ceux de Max.
+    let auto = (profile == Profile::Auto).then(|| auto_result(host)).flatten();
+    let mut s = match &auto {
+        Some(r) => r.settings(false, false),
+        None => StreamSettings::for_profile(core_profile(profile), capabilities(host, codec, m)),
+    };
+    // « Débit adaptatif » : l'interrupteur de cet ordinateur, profil comme débit choisi.
+    s.adaptive = host.settings.adaptive;
     s.codec = match codec {
         "h264" => Codec::H264,
         "av1" => Codec::Av1,
@@ -761,6 +770,11 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         }
     }
     s
+}
+
+/// Le résultat gardé du test du profil Auto de cet ordinateur, relu par le cœur.
+pub fn auto_result(host: &Host) -> Option<kybernow_core::autotest::AutoResult> {
+    serde_json::from_value(host.settings.auto.clone()?).ok()
 }
 
 /// Voies de son demandées à l'ordinateur.

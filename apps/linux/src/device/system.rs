@@ -321,7 +321,7 @@ pub fn net() -> NetInfo {
         if path.join("wireless").exists() || path.join("phy80211").exists() || name.starts_with("wl") {
             if info.kind == NetKind::Unknown {
                 info.kind = NetKind::Wifi;
-                info.band = wifi_band();
+                (info.band, info.ssid) = wifi_active();
             }
         } else if name.starts_with("eth") || name.starts_with("en") || name.starts_with("usb") {
             info.kind = NetKind::Ethernet;
@@ -336,31 +336,43 @@ pub fn net() -> NetInfo {
 /// la boucle principale : nmcli part sur un fil, et la bande lue sert au
 /// relevé suivant (5 s plus tard ; une lecture toutes les 4 s au plus, le
 /// lancement de l'OS appelant `net()` plus souvent). Sans nmcli (Flatpak, autre gestionnaire
-/// de réseau) : pas de bande, « Wi-Fi » seul.
-fn wifi_band() -> Option<String> {
-    static BAND: Mutex<Option<String>> = Mutex::new(None);
+/// de réseau) : pas de bande, « Wi-Fi » seul. Avec elle, le nom du réseau (SSID) : le réseau
+/// du test du profil Auto (docs/profil-auto.md).
+fn wifi_active() -> (Option<String>, Option<String>) {
+    static ACTIVE: Mutex<(Option<String>, Option<String>)> = Mutex::new((None, None));
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
     static READING: AtomicBool = AtomicBool::new(false);
     let due = LAST.lock().unwrap().is_none_or(|t| t.elapsed() > Duration::from_secs(4));
     if due && !READING.swap(true, Ordering::AcqRel) {
         *LAST.lock().unwrap() = Some(Instant::now());
         std::thread::spawn(|| {
-            let out = std::process::Command::new("nmcli").args(["-t", "-f", "ACTIVE,FREQ", "dev", "wifi", "list", "--rescan", "no"]).output();
-            let mhz = out.ok().filter(|o| o.status.success()).and_then(|o| {
-                String::from_utf8_lossy(&o.stdout).lines().find_map(|l| l.strip_prefix("yes:").and_then(|f| f.split_whitespace().next()?.parse::<u32>().ok()))
-            });
-            *BAND.lock().unwrap() = mhz.map(|f| {
-                match f {
-                    0..=3000 => crate::i18n::tr("2,4 GHz", "2.4 GHz"),
-                    3001..=5924 => "5 GHz",
-                    _ => "6 GHz",
+            let out = std::process::Command::new("nmcli").args(["-t", "-f", "ACTIVE,FREQ,SSID", "dev", "wifi", "list", "--rescan", "no"]).output();
+            let found = out.ok().filter(|o| o.status.success()).and_then(|o| String::from_utf8_lossy(&o.stdout).lines().find_map(parse_active_wifi));
+            *ACTIVE.lock().unwrap() = match found {
+                Some((mhz, ssid)) => {
+                    let band = match mhz {
+                        0..=3000 => crate::i18n::tr("2,4 GHz", "2.4 GHz"),
+                        3001..=5924 => "5 GHz",
+                        _ => "6 GHz",
+                    };
+                    (Some(band.to_string()), ssid)
                 }
-                .to_string()
-            });
+                None => (None, None),
+            };
             READING.store(false, Ordering::Release);
         });
     }
-    BAND.lock().unwrap().clone()
+    ACTIVE.lock().unwrap().clone()
+}
+
+/// Une ligne de `nmcli -t -f ACTIVE,FREQ,SSID` : « yes:5180 MHz:Maison\:5G » → (5180, « Maison:5G ») ; les deux-points
+/// du nom sont échappés par nmcli. `None` : pas le réseau actif.
+fn parse_active_wifi(line: &str) -> Option<(u32, Option<String>)> {
+    let rest = line.strip_prefix("yes:")?;
+    let (freq, ssid) = rest.split_once(':').unwrap_or((rest, ""));
+    let mhz = freq.split_whitespace().next()?.parse::<u32>().ok()?;
+    let ssid = ssid.replace("\\:", ":").replace("\\\\", "\\");
+    Some((mhz, (!ssid.is_empty()).then_some(ssid)))
 }
 
 /// Moins d'animations, demandé par `KYBERNOW_REDUCE_MOTION=1` (le réglage
