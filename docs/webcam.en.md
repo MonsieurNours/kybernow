@@ -34,7 +34,7 @@ Kyber can already open “data endpoints” (kyproto's `register_data_endpoint`)
 | Type | Direction | Content |
 |---|---|---|
 | `START` 0x01 | app → computer | JSON: `{"codec": "h264", "width": 1280, "height": 720, "fps": 30, "resolution": "720p", "device": "iPhone de Marie"}`. Also to change camera or resolution without turning off. |
-| `MEDIA` 0x02 | app → computer | flags (u8: 1 keyframe), pts in µs (u64, big endian), then the encoded picture (Annex B, SPS/PPS/VPS parameters with every keyframe) |
+| `MEDIA` 0x02 | app → computer | flags (u8: bit 0 keyframe; bits 1 and 2, the clockwise quarter turns that make the picture upright: Android sends the sensor's picture as it is), pts in µs (u64, big endian), then the encoded picture (Annex B, SPS/PPS/VPS parameters with every keyframe) |
 | `PAUSE` 0x04 | app → computer | nothing: the computer keeps the last picture |
 | `STOP` 0x03 | app → computer | nothing: the tool stops |
 | `STATUS` 0x10 | computer → app | a JSON line: `{"state": "started"}`, `{"state": "busy", "device": "Pixel 9"}`, `{"state": "failed", "reason": "…"}`, `{"state": "stopped"}`, `{"keyframe": true}` |
@@ -59,7 +59,7 @@ Kyber can already open “data endpoints” (kyproto's `register_data_endpoint`)
 - `--probe`: `{"ready": true}` if the virtual camera would open, otherwise the reason; `--install` / `--uninstall` (Windows); `--test [720p|1080p]`: 20 s of test pattern, to try the virtual camera without an app.
 - Failure to open the virtual camera: `{"state": "failed", "reason": …}`, which the app shows as “{name} could not open its virtual camera.”.
 
-Another `START` (other camera, other resolution) restarts the tool (kycontroller stops the old one first).
+Another `START` (other camera, other resolution) restarts the tool (kycontroller stops the old one first). The `MEDIA` quarter turns are applied before resizing (YUV planes rotated). **Tried on the Mac** (26/11) with a test output that writes the pictures to a file: an ffmpeg 480 × 640 H.264 stream cut into packets as kycontroller passes them, with one quarter turn: sharp, upright picture, grey-bordered at 1280 × 720, 30 frames per second, clean end when the input closes.
 
 ## Windows Station
 

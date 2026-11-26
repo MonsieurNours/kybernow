@@ -38,8 +38,11 @@ pub const STOP: u8 = 0x03;
 pub const PAUSE: u8 = 0x04;
 pub const STATUS: u8 = 0x10;
 
-/// Drapeaux d'un paquet MEDIA.
+/// Drapeaux d'un paquet MEDIA : image clé ; bits 1 et 2, les quarts de tour
+/// (sens horaire) qui redressent l'image (Android encode l'image du capteur
+/// telle quelle : l'ordinateur la tourne).
 pub const FLAG_KEY: u8 = 1;
+pub const ROTATION_SHIFT: u8 = 1;
 
 /// Images par seconde, toujours.
 pub const FPS: u32 = 30;
@@ -309,6 +312,12 @@ impl CameraLink {
     /// Une image encodée (Annex B, paramètres avec chaque image clé),
     /// horodatée en microsecondes.
     pub fn frame(&self, data: &[u8], pts_us: u64, key: bool) -> FrameOutcome {
+        self.frame_rotated(data, pts_us, key, 0)
+    }
+
+    /// Comme [`Self::frame`], avec les quarts de tour (0 à 3, sens horaire)
+    /// que l'ordinateur applique pour redresser l'image.
+    pub fn frame_rotated(&self, data: &[u8], pts_us: u64, key: bool, quarter_turns: u8) -> FrameOutcome {
         let mut i = self.inner.lock().unwrap();
         match i.state {
             State::Off => return FrameOutcome::Off,
@@ -323,7 +332,7 @@ impl CameraLink {
         }
         let mut payload = Vec::with_capacity(data.len() + 10);
         payload.push(MEDIA);
-        payload.push(if key { FLAG_KEY } else { 0 });
+        payload.push((if key { FLAG_KEY } else { 0 }) | ((quarter_turns & 3) << ROTATION_SHIFT));
         payload.extend_from_slice(&pts_us.to_be_bytes());
         payload.extend_from_slice(data);
         let len = payload.len();
@@ -652,6 +661,18 @@ mod tests {
         c.stop();
         assert!(!c.is_on());
         assert_eq!(c.frame(&[3], 0, true), FrameOutcome::Off);
+    }
+
+    #[test]
+    fn rotation_rides_in_the_flags() {
+        let c = CameraLink::new();
+        let (up, mut peer) = Uplink::pair(KIND, 8);
+        c.set_uplink(Some(up));
+        assert!(c.start(settings(CameraResolution::P720)));
+        peer.sent.try_recv().unwrap();
+        assert_eq!(c.frame_rotated(&[9], 0, true, 3), FrameOutcome::Sent);
+        let media = peer.sent.try_recv().unwrap();
+        assert_eq!(media[1], FLAG_KEY | (3 << ROTATION_SHIFT));
     }
 
     #[test]

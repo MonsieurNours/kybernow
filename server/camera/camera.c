@@ -45,6 +45,9 @@
 #define MEDIA 0x02
 #define PAUSE 0x04
 #define FLAG_KEY 1
+/* Bits 1 et 2 des drapeaux : quarts de tour (sens horaire) qui redressent
+ * l'image (Android envoie l'image du capteur telle quelle). */
+#define ROTATION_SHIFT 1
 /* Une image encodée ne dépasse pas 8 Mo (1080p, image clé). */
 #define MAX_PACKET (8u << 20)
 
@@ -158,6 +161,9 @@ struct decoder {
     AVCodecContext *ctx;
     AVPacket *packet;
     AVFrame *frame;
+    AVFrame *turned;          /* l'image redressée (YUV 4:2:0 planaire) */
+    struct SwsContext *planar; /* vers YUV 4:2:0 planaire avant de tourner */
+    AVFrame *planar_frame;
     struct SwsContext *sws;
     int sws_w, sws_h, sws_fmt;
     uint8_t *scaled;  /* l'image à la taille de la caméra, bordée */
@@ -167,9 +173,13 @@ static void decoder_close(struct decoder *d)
 {
     if (d->sws)
         sws_freeContext(d->sws);
+    if (d->planar)
+        sws_freeContext(d->planar);
     avcodec_free_context(&d->ctx);
     av_packet_free(&d->packet);
     av_frame_free(&d->frame);
+    av_frame_free(&d->turned);
+    av_frame_free(&d->planar_frame);
     free(d->scaled);
     memset(d, 0, sizeof *d);
 }
@@ -197,11 +207,71 @@ static int decoder_open(struct decoder *d, const char *codec)
     return 0;
 }
 
-/* L'image décodée, à la taille de la caméra : agrandie ou réduite en gardant
- * son rapport, centrée sur du gris foncé. */
-static int decoder_scale(struct decoder *d, struct picture *pic)
+/* Un plan de `w`×`h` octets tourné de `turns` quarts de tour (sens horaire). */
+static void rotate_plane(const uint8_t *src, int src_stride, int w, int h, uint8_t *dst, int dst_stride, int turns)
+{
+    for (int y = 0; y < h; y++) {
+        const uint8_t *row = src + (size_t)y * src_stride;
+        for (int x = 0; x < w; x++) {
+            int dx, dy;
+            switch (turns) {
+            case 1: dx = h - 1 - y; dy = x; break;
+            case 2: dx = w - 1 - x; dy = h - 1 - y; break;
+            default: dx = y; dy = w - 1 - x; break; /* 3 */
+            }
+            dst[(size_t)dy * dst_stride + dx] = row[x];
+        }
+    }
+}
+
+/* L'image décodée redressée (d->turned), ou NULL sans rotation. */
+static AVFrame *decoder_turn(struct decoder *d, int turns)
 {
     AVFrame *f = d->frame;
+    if (!turns)
+        return NULL;
+    if (f->format != AV_PIX_FMT_YUV420P && f->format != AV_PIX_FMT_YUVJ420P) {
+        if (!d->planar_frame || d->planar_frame->width != f->width || d->planar_frame->height != f->height) {
+            av_frame_free(&d->planar_frame);
+            d->planar_frame = av_frame_alloc();
+            d->planar_frame->format = AV_PIX_FMT_YUV420P;
+            d->planar_frame->width = f->width;
+            d->planar_frame->height = f->height;
+            if (av_frame_get_buffer(d->planar_frame, 32) < 0)
+                return NULL;
+        }
+        d->planar = sws_getCachedContext(d->planar, f->width, f->height, f->format, f->width, f->height,
+                                         AV_PIX_FMT_YUV420P, SWS_POINT, NULL, NULL, NULL);
+        if (!d->planar)
+            return NULL;
+        sws_scale(d->planar, (const uint8_t *const *)f->data, f->linesize, 0, f->height, d->planar_frame->data,
+                  d->planar_frame->linesize);
+        f = d->planar_frame;
+    }
+    int w = turns == 2 ? f->width : f->height, h = turns == 2 ? f->height : f->width;
+    if (!d->turned || d->turned->width != w || d->turned->height != h) {
+        av_frame_free(&d->turned);
+        d->turned = av_frame_alloc();
+        d->turned->format = AV_PIX_FMT_YUV420P;
+        d->turned->width = w;
+        d->turned->height = h;
+        if (av_frame_get_buffer(d->turned, 32) < 0)
+            return NULL;
+    }
+    rotate_plane(f->data[0], f->linesize[0], f->width, f->height, d->turned->data[0], d->turned->linesize[0], turns);
+    for (int p = 1; p < 3; p++)
+        rotate_plane(f->data[p], f->linesize[p], (f->width + 1) / 2, (f->height + 1) / 2, d->turned->data[p],
+                     d->turned->linesize[p], turns);
+    return d->turned;
+}
+
+/* L'image décodée, à la taille de la caméra : agrandie ou réduite en gardant
+ * son rapport, centrée sur du gris foncé. */
+static int decoder_scale(struct decoder *d, struct picture *pic, int turns)
+{
+    AVFrame *f = decoder_turn(d, turns);
+    if (!f)
+        f = d->frame;
     int W = pic->width, H = pic->height;
     if (f->width <= 0 || f->height <= 0)
         return -1;
@@ -307,6 +377,7 @@ static void *reader_main(void *arg)
                 break;
             rd->paused = 0;
             int key = buf[1] & FLAG_KEY;
+            int turns = (buf[1] >> ROTATION_SHIFT) & 3;
             int64_t pts = 0;
             for (int i = 0; i < 8; i++)
                 pts = pts << 8 | buf[2 + i];
@@ -329,7 +400,7 @@ static void *reader_main(void *arg)
                 rd->keyframe_asked--;
             }
             while (avcodec_receive_frame(rd->dec.ctx, rd->dec.frame) == 0) {
-                decoder_scale(&rd->dec, rd->pic);
+                decoder_scale(&rd->dec, rd->pic, turns);
                 rd->pic->pts = rd->dec.frame->pts;
                 av_frame_unref(rd->dec.frame);
             }

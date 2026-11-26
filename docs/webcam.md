@@ -34,7 +34,7 @@ Kyber sait déjà ouvrir des « points de données » (`register_data_endpoint` 
 | Type | Sens | Contenu |
 |---|---|---|
 | `START` 0x01 | app → ordinateur | JSON : `{"codec": "h264", "width": 1280, "height": 720, "fps": 30, "resolution": "720p", "device": "iPhone de Marie"}`. Aussi pour changer de caméra ou de définition sans éteindre. |
-| `MEDIA` 0x02 | app → ordinateur | drapeaux (u8 : 1 image clé), pts en µs (u64, gros-boutiste), puis l'image encodée (Annex B, paramètres SPS/PPS/VPS avec chaque image clé) |
+| `MEDIA` 0x02 | app → ordinateur | drapeaux (u8 : bit 0 image clé ; bits 1 et 2, les quarts de tour, sens horaire, qui redressent l'image : Android envoie l'image du capteur telle quelle), pts en µs (u64, gros-boutiste), puis l'image encodée (Annex B, paramètres SPS/PPS/VPS avec chaque image clé) |
 | `PAUSE` 0x04 | app → ordinateur | rien : l'ordinateur garde la dernière image |
 | `STOP` 0x03 | app → ordinateur | rien : l'outil s'arrête |
 | `STATUS` 0x10 | ordinateur → app | une ligne JSON : `{"state": "started"}`, `{"state": "busy", "device": "Pixel 9"}`, `{"state": "failed", "reason": "…"}`, `{"state": "stopped"}`, `{"keyframe": true}` |
@@ -59,7 +59,7 @@ Kyber sait déjà ouvrir des « points de données » (`register_data_endpoint` 
 - `--probe` : `{"ready": true}` si la caméra virtuelle s'ouvrirait, sinon la raison ; `--install` / `--uninstall` (Windows) ; `--test [720p|1080p]` : 20 s de mire, pour essayer la caméra virtuelle sans app.
 - Échec à l'ouverture de la caméra virtuelle : `{"state": "failed", "reason": …}`, que l'app dit « {nom} n'a pas pu ouvrir sa caméra virtuelle. ».
 
-Un `START` de plus (autre caméra, autre définition) relance l'outil (kycontroller arrête l'ancien d'abord).
+Un `START` de plus (autre caméra, autre définition) relance l'outil (kycontroller arrête l'ancien d'abord). Les quarts de tour de `MEDIA` sont appliqués avant la mise à la taille (plans YUV tournés). **Essayé sur le Mac** (26/11) avec une sortie d'essai qui écrit les images dans un fichier : un flux H.264 480 × 640 de ffmpeg découpé en paquets comme kycontroller les passe, avec un quart de tour : image nette, redressée, bordée de gris en 1280 × 720, 30 images par seconde, fin propre à la fermeture de l'entrée.
 
 ## Station Windows
 
