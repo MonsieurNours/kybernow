@@ -275,6 +275,10 @@ struct ConnectionSettings: Codable, Hashable {
     /// test Auto ou par une session qui a dû redescendre ; la session ne
     /// demande jamais plus. À part du profil ; nil : aucun connu.
     var encoderMax: Int?
+    /// PyroWave choisi à la main : son débit suit l'écran (définition,
+    /// fréquence, 4:4:4) tant qu'on n'a pas bougé le curseur du débit
+    /// (`PyroWaveRate`) ; le curseur le fige.
+    var pyrowaveRateFollows = false
 
     /// Le résultat gardé du test du profil Auto, lu.
     var auto: AutoTestResult? { autoResult.flatMap(AutoTestResult.init(json:)) }
@@ -425,7 +429,7 @@ extension ConnectionSettings {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
-        case adaptive, autoResult, encoderMax
+        case adaptive, autoResult, encoderMax, pyrowaveRateFollows
     }
 
     init(from decoder: Decoder) throws {
@@ -460,6 +464,7 @@ extension ConnectionSettings {
         adaptive = (try? c.decodeIfPresent(Bool.self, forKey: .adaptive)) ?? adaptive
         autoResult = try? c.decodeIfPresent(String.self, forKey: .autoResult)
         encoderMax = (try? c.decodeIfPresent(Int.self, forKey: .encoderMax)).flatMap { $0 > 0 ? $0 : nil }
+        pyrowaveRateFollows = (try? c.decodeIfPresent(Bool.self, forKey: .pyrowaveRateFollows)) ?? pyrowaveRateFollows
         // Auto sans test lisible (résultat perdu) : Personnalisé, réglages gardés.
         if profile == .auto, auto == nil { profile = nil }
     }

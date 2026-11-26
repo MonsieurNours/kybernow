@@ -242,6 +242,24 @@ private struct SettingsContent: View {
             pictureCard
             bitrateCard
         }
+        // PyroWave choisi à la main : le débit proposé suit la définition, la
+        // fréquence et le 4:4:4 (à 4K60, 800 Mbit/s, pas les 1 669 d'un écran
+        // à 160 Hz choisi avant), tant que le curseur n'a pas été bougé.
+        .onChange(of: pyrowaveRateKey) { _, _ in followPyroWaveRate() }
+    }
+
+    /// Ce dont dépend le débit proposé de PyroWave.
+    private var pyrowaveRateKey: String {
+        let m = sessionMode
+        return "\(m.width)x\(m.height)@\(m.refresh) \(s.yuv444)"
+    }
+
+    private func followPyroWaveRate() {
+        guard s.codec == .pyrowave, s.profile == nil, s.pyrowaveRateFollows else { return }
+        let m = sessionMode
+        let rate = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: s.yuv444)
+        guard rate != s.bitrateMbps else { return }
+        update { $0.bitrateMbps = rate }
     }
 
     private var screen: NSScreen { NSScreen.main ?? NSScreen.screens[0] }
@@ -452,7 +470,9 @@ private struct SettingsContent: View {
 
     private var bitrateCard: some View {
         SettingsCard(icon: "lightning", title: String(localized: "Débit")) {
-            BitrateControl(value: Binding(get: { s.bitrateMbps }, set: { v in update(custom: true) { $0.bitrateMbps = v } }))
+            BitrateControl(value: Binding(get: { s.bitrateMbps }, set: { v in
+                update(custom: true) { $0.bitrateMbps = v; $0.pyrowaveRateFollows = false }
+            }))
             if s.profile != nil {
                 let m = sessionMode
                 let effective = s.bitrate(width: m.width, height: m.height, refresh: m.refresh)
@@ -609,6 +629,7 @@ private struct SettingsContent: View {
             st.codec = c
             if c == .pyrowave {
                 st.bitrateMbps = PyroWaveRate.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
+                st.pyrowaveRateFollows = true
             } else if wasPyroWave {
                 // En quittant PyroWave, un débit d'HEVC.
                 st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps)
