@@ -87,7 +87,12 @@ mkdir -p "$OUT"
 for arch in aarch64 x86_64; do
     if [ "$arch" = aarch64 ]; then host="$ARM_HOST" repo="$ARM_REPO" name=arm64; else host="$X86_HOST" repo="$X86_REPO" name=x86_64; fi
     dist="~/kn-station/release-$name"
-    build="rm -rf $dist && mkdir -p ~/kn-station && cd $repo && KYBER_DIR=$KYBER server/linux/scripts/build-kyber.sh > ~/kn-station/release-$name-kyber.log 2>&1 \
+    # Sources de Kyber de la machine remises à l'origine dans kyctl, kymux et
+    # kynput, comme les arbres de release.sh : après les correctifs des apps
+    # et ceux de la Station qui touchent les mêmes fichiers, un correctif d'app
+    # n'est plus retirable et build-kyber.sh s'arrêtait (« à moitié posé »).
+    reset="for r in kyctl kymux kynput; do git -C $KYBER/kysdk/\$r checkout -q -- . && git -C $KYBER/kysdk/\$r clean -fdq || exit 1; done"
+    build="rm -rf $dist && mkdir -p ~/kn-station && ( $reset ) && cd $repo && KYBER_DIR=$KYBER server/linux/scripts/build-kyber.sh > ~/kn-station/release-$name-kyber.log 2>&1 \
         && KYBER_DIR=$KYBER DIST=$dist server/linux/scripts/package.sh > ~/kn-station/release-$name.log 2>&1"
     if [ "$arch" = x86_64 ] && [ "$X86_CHROOT" = 1 ]; then
         # Dans le chroot, ~ est ~/kn-amd64-home de la VM (sources de Kyber x86_64 à part).
