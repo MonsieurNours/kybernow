@@ -193,6 +193,14 @@ pub struct Computer {
     /// mesures et ses réglages). Choisir Auto sans lui ouvre le test.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto: Option<kybernow_core::autotest::AutoResult>,
+    /// Plafond de l'encodeur de cet ordinateur, en Mbit/s par écran
+    /// (docs/profil-auto.md, « L'encodeur de l'ordinateur ») : la session ne
+    /// demande jamais plus en HEVC, AV1 ou H.264 (`StreamSettings::encoder_max`).
+    /// Trouvé par le test Auto (« Appliquer » : `AutoResult::next_encoder_max`)
+    /// ou par une session qui a dû redescendre (`Notice::EncoderCeiling`).
+    /// Hors du profil et propre à ce PC : jamais synchronisé. Absent : aucun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder_max: Option<u32>,
     /// Mise à jour de la Station proposée à l'accueil (docs/link-ui.md « Mise à
     /// jour des Stations ») : « Plus tard » (version et date) et la dernière
     /// vérification demandée (`station_offer::Memory` du cœur). Absent : rien
@@ -519,5 +527,23 @@ pub fn delete_all_accounts() -> usize {
         }
         CredFree(list as *const _);
         n
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Computer;
+
+    #[test]
+    fn plafond_de_l_encodeur_dans_computers_json() {
+        // Fichier d'avant le plafond : aucun, et rien n'est écrit sans lui.
+        let old = r#"{"id":"a","name":"Atelier","host":"192.168.1.10","port":31544,"user":"link","fingerprint":null}"#;
+        let mut c: Computer = serde_json::from_str(old).unwrap();
+        assert_eq!(c.encoder_max, None);
+        assert!(serde_json::to_value(&c).unwrap().get("encoder_max").is_none());
+        // Gardé d'un lancement à l'autre.
+        c.encoder_max = Some(150);
+        let back: Computer = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();
+        assert_eq!(back.encoder_max, Some(150));
     }
 }

@@ -318,7 +318,8 @@ final class SessionController: ObservableObject {
             reliable: s.transport == .reliable,
             hdr: s.hdr,
             wired: NetworkLink.shared.wired,
-            adaptive: s.adaptive
+            adaptive: s.adaptive,
+            encoderMax: s.encoderMax
         )
     }
 
@@ -589,6 +590,11 @@ final class SessionController: ObservableObject {
         engine.onVideoStats = { [weak self] in self?.received($0) }
         engine.onLowered = { [weak self] mode, text in self?.resolutionLowered(mode, text) }
         engine.onPyroWaveStrained = { [weak self] in self?.pyrowaveStrainedNotice() }
+        engine.onEncoderCeiling = { [weak self] mbps in
+            guard let self, !self.isVisitor else { return }
+            self.host.settings.encoderMax = mbps
+            self.store.update(self.host)
+        }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         engine.onGameFullscreen = { game in

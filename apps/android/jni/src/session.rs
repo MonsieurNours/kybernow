@@ -511,6 +511,8 @@ impl Platform for AndroidPlatform {
             },
             // PyroWave : le réseau sature depuis 5 s (une fois par session, hôte seulement) : bandeau « Le réseau sature ».
             Notice::PyroWaveStrained => (10, 0, 0, false, 0, 0, false, None),
+            // L'encodeur de l'ordinateur a refusé l'image : `mbps`, le plafond à garder pour cet ordinateur (rien à l'écran).
+            Notice::EncoderCeiling { mbps } => (11, 0, 0, false, 0, *mbps, false, None),
         };
         self.0.listener.with(|env, obj| {
             let e = jstring_or_null(env, error.as_deref())?;

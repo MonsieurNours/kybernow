@@ -291,6 +291,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         state.onCombo = { if (host.settings.combo) toggleMenu(fromPad = true) }
         pads.mouse.onCombo = { if (host.settings.combo) toggleMenu(fromPad = true) }
         state.onInputConnected = { pads.reconnected() }
+        // L'image refusée par l'encodeur de l'ordinateur : son plafond, gardé avec lui (docs/profil-auto.md).
+        state.onEncoderCeiling = { mbps -> saveSettings { it.copy(encoderMax = mbps) } }
         start()
         observe()
     }
@@ -339,6 +341,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         base.put("wired", wired)
         // « Débit adaptatif » de cet ordinateur (docs/profil-auto.md).
         base.put("adaptive", set.adaptive)
+        // Le plafond de l'encodeur gardé pour cet ordinateur (celui du test compris, une fois appliqué) ; nul : aucun.
+        base.put("encoder_max", set.encoderMax ?: JSONObject.NULL)
         return base
     }
 

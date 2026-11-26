@@ -309,6 +309,7 @@ fn new_entry(id: String, ac: &AccountComputer) -> Computer {
         relay: None,
         account: None,
         auto: None,
+        encoder_max: None,
     };
     update_entry(&mut c, ac);
     c

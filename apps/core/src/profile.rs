@@ -181,6 +181,10 @@ pub struct SettingsJson {
     /// « Débit adaptatif » (absent : oui).
     #[serde(default = "yes")]
     pub adaptive: bool,
+    /// Plafond de l'encodeur de l'ordinateur, en Mbit/s par écran (absent :
+    /// aucun connu).
+    #[serde(default)]
+    pub encoder_max: Option<u32>,
 }
 
 fn yes() -> bool {
@@ -199,6 +203,7 @@ impl SettingsJson {
             hdr: self.hdr,
             wired: self.wired,
             adaptive: self.adaptive,
+            encoder_max: self.encoder_max.filter(|&n| n > 0),
         })
     }
 }
@@ -226,6 +231,13 @@ pub struct StreamSettings {
     /// réseau sature, puis remonte ; pour un profil comme pour un débit
     /// réglé à la main. Coupé, le débit ne bouge jamais.
     pub adaptive: bool,
+    /// Plafond de l'encodeur de l'ordinateur (docs/profil-auto.md,
+    /// « L'encodeur de l'ordinateur »), en Mbit/s par écran : le débit le
+    /// plus haut que son encodeur a accepté, gardé par l'app pour cet
+    /// ordinateur (test Auto, ou session qui a dû redescendre). La session
+    /// ne demande jamais plus en HEVC, AV1 et H.264, quel que soit le
+    /// réglage ; hors du profil (jamais « Personnalisé »). `None` : aucun connu.
+    pub encoder_max: Option<u32>,
 }
 
 impl StreamSettings {
@@ -254,13 +266,15 @@ impl StreamSettings {
             hdr: false,
             wired: false,
             adaptive: true,
+            encoder_max: None,
         }
     }
 
     /// Réglages en JSON, comme les donnent les ponts des apps (C, JNI) :
     /// `profile` (`jeu`, `bureau`, `max` ; absent : personnalisé), `codec`
     /// (`h264`, `hevc`, `av1`, `pyrowave`), `yuv444`, `mbps`, `reliable`,
-    /// `hdr`, `wired`, `adaptive` (absent : oui).
+    /// `hdr`, `wired`, `adaptive` (absent : oui), `encoder_max` (Mbit/s par
+    /// écran ; absent ou nul : aucun plafond connu).
     pub fn from_json(json: &str) -> Result<Self, String> {
         let wire: SettingsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
         wire.settings()
@@ -278,6 +292,7 @@ impl StreamSettings {
             "hdr": self.hdr,
             "wired": self.wired,
             "adaptive": self.adaptive,
+            "encoder_max": self.encoder_max,
         })
     }
 

@@ -10,6 +10,7 @@ mod auth;
 mod consoles;
 mod discovery;
 mod display;
+mod encoder;
 mod durable;
 mod foreground;
 mod gamepads;

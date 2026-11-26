@@ -118,6 +118,17 @@ pub fn apply(app: &AppHandle, id: &str, result: Option<AutoResult>) -> Result<Co
             r.mbps,
             if r.reliable { "fiable" } else { "rapide" }
         );
+        // Plafond de l'encodeur : recalculé seulement pour un nouveau
+        // résultat (« Appliquer » à la fin d'un test). Le résultat déjà gardé
+        // remis (choisir Auto, profil synchronisé) n'y touche pas : un plafond
+        // trouvé par une session après le test est plus récent.
+        if is_new_result(c.auto.as_ref(), &r) {
+            let next = r.next_encoder_max(c.encoder_max);
+            if next != c.encoder_max {
+                log::info!("plafond de l'encodeur de {} : {:?} → {:?} Mbit/s par écran", c.name, c.encoder_max, next);
+            }
+            c.encoder_max = next;
+        }
         c.auto = Some(r);
         let c = c.clone();
         s.save();
@@ -128,6 +139,13 @@ pub fn apply(app: &AppHandle, id: &str, result: Option<AutoResult>) -> Result<Co
     emit_computers(app);
     apply_to_session(app, id, &c)?;
     Ok(c)
+}
+
+/// `result` est-il un autre test que celui gardé (`kept`) ? Reconnu à sa
+/// date et à sa Station : le résultat gardé repasse par l'interface (JSON),
+/// ses mesures décimales peuvent y bouger au dernier chiffre.
+fn is_new_result(kept: Option<&AutoResult>, result: &AutoResult) -> bool {
+    kept.is_none_or(|k| k.at != result.at || k.station != result.station)
 }
 
 /// Le réseau du test et celui de la session (`Check::differs`).
@@ -228,7 +246,7 @@ pub fn autotest_run(app: AppHandle, id: String) -> Result<Outcome, String> {
     let mut progress = move |p: &Progress| {
         let _ = a.emit_to("main", "autotest-progress", ProgressEvent { id: &pid, progress: p });
     };
-    // Les quatre étapes tout de suite, la liaison en cours (le cœur donne la
+    // Les étapes tout de suite, la liaison en cours (le cœur donne la
     // suite après la première réponse de l'ordinateur).
     progress(&Progress {
         steps: Step::ALL

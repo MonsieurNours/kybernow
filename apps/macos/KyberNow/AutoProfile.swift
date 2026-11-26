@@ -21,10 +21,11 @@ enum AutoText {
     static var again: String { String(localized: "Refaire le test") }
     static var retry: String { String(localized: "Réessayer") }
     /// Les étapes du test (`autotest::Step` du cœur), dans l'ordre.
-    static let stepKeys = ["link", "latency", "bandwidth", "decode"]
+    static let stepKeys = ["link", "latency", "bandwidth", "decode", "encoder"]
     static var stepTitles: [String] {
         [String(localized: "Liaison"), String(localized: "Latence au repos"),
-         String(localized: "Débit vers cet appareil"), String(localized: "Décodage de cet appareil")]
+         String(localized: "Débit vers cet appareil"), String(localized: "Décodage de cet appareil"),
+         String(localized: "Encodeur de l'ordinateur")]
     }
     /// Échec sans console (mot de passe absent) : le texte du cœur pour une Station injoignable.
     static func unreachable(_ name: String) -> String { String(localized: "Le test n'a pas pu joindre \(name).") }
@@ -211,7 +212,7 @@ final class AutoTestModel: ObservableObject {
         demoTask = nil
     }
 
-    /// Les quatre étapes avant le premier avancement du cœur (mêmes titres
+    /// Les cinq étapes avant le premier avancement du cœur (mêmes titres
     /// que les siens), la première en cours.
     private static var waiting: [AutoTestStep] {
         zip(AutoText.stepKeys, AutoText.stepTitles).enumerated().map { i, s in
@@ -225,13 +226,13 @@ final class AutoTestModel: ObservableObject {
         let fr = LanguageChoice.effective == "fr"
         let titles = AutoText.stepTitles
         let measures = fr
-            ? ["Câble", "2,1 ms · gigue 0,4 ms", "940 Mbit/s · latence en charge +3 ms", "HEVC 4K : 240 i/s · PyroWave 4K : 180 i/s"]
-            : ["Cable", "2.1 ms · jitter 0.4 ms", "940 Mbit/s · latency under load +3 ms", "HEVC 4K: 240 fps · PyroWave 4K: 180 fps"]
-        let keys = ["link", "latency", "bandwidth", "decode"]
+            ? ["Câble", "2,1 ms · gigue 0,4 ms", "940 Mbit/s · latence en charge +3 ms", "HEVC 4K : 240 i/s · PyroWave 4K : 180 i/s", "300 Mbit/s acceptés en HEVC"]
+            : ["Cable", "2.1 ms · jitter 0.4 ms", "940 Mbit/s · latency under load +3 ms", "HEVC 4K: 240 fps · PyroWave 4K: 180 fps", "300 Mbit/s accepted in HEVC"]
+        let keys = AutoText.stepKeys
         let stop = UserDefaults.standard.string(forKey: "demoAutoTest")
         demoTask = Task { [weak self] in
-            for done in 0...4 {
-                let steps = (0..<4).map { i in
+            for done in 0...keys.count {
+                let steps = (0..<keys.count).map { i in
                     AutoTestStep(key: keys[i], title: titles[i], state: i < done ? .done(measures[i]) : i == done ? .running : .waiting)
                 }
                 self?.phase = .running(steps)

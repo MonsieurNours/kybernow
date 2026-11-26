@@ -470,6 +470,12 @@ impl Platform for LinuxPlatform {
                 self.0.send(SessionEvent::PyroWaveStrained);
                 return;
             }
+            // L'image refusée au départ, la session a dû redescendre : ce débit devient le plafond de l'encodeur de
+            // cet ordinateur (gardé, renvoyé aux sessions suivantes). Rien à l'écran.
+            Notice::EncoderCeiling { mbps } => {
+                self.0.send(SessionEvent::EncoderCeiling(*mbps));
+                return;
+            }
         };
         self.0.send(SessionEvent::Notice(msg));
     }
@@ -740,6 +746,9 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
     };
     // « Débit adaptatif » : l'interrupteur de cet ordinateur, profil comme débit choisi.
     s.adaptive = host.settings.adaptive;
+    // Le plafond de l'encodeur gardé pour cet ordinateur, quel que soit le profil (celui du test gardé compris : le
+    // plafond gardé est le plus récent, une session a pu le trouver après le test).
+    s.encoder_max = host.settings.encoder_max;
     s.codec = match codec {
         "h264" => Codec::H264,
         "av1" => Codec::Av1,
@@ -1156,6 +1165,18 @@ mod tests {
         let light = settings(&h, Profile::Bureau, "hevc", (3840, 2160, 60), &m, true);
         assert_eq!(light.profile, Some(CoreProfile::Bureau));
         assert_eq!(screens::screens_profile(&light, Some(capabilities(&h, "hevc", &m))), None);
+    }
+
+    /// Le plafond de l'encodeur gardé pour l'ordinateur part dans les réglages du flux, quel que soit le profil, et
+    /// passe avant celui du test gardé (une session a pu le trouver après) ; sans plafond : aucun.
+    #[test]
+    fn the_encoder_ceiling_goes_to_the_session() {
+        let m = Machine::default();
+        assert_eq!(settings(&host(HostSettings::default()), Profile::Max, "hevc", MODE, &m, false).encoder_max, None);
+        let h = host(HostSettings { encoder_max: Some(250), mbps: 400, ..HostSettings::default() });
+        for p in [Profile::Jeu, Profile::Bureau, Profile::Max, Profile::Auto] {
+            assert_eq!(settings(&h, p, "hevc", MODE, &m, false).encoder_max, Some(250), "{p:?}");
+        }
     }
 
     /// Une session à un écran qui suit la fenêtre sur un autre écran de l'appareil (le cœur annonce

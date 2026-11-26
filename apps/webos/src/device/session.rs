@@ -297,6 +297,12 @@ impl Platform for WebOsPlatform {
             Notice::ResolutionLowered { lowered: None } => return,
             // PyroWave : l'app du téléviseur ne le propose pas (pas de « Passer en HEVC ») ; l'avis ne la concerne pas.
             Notice::PyroWaveStrained => return,
+            // L'image a été refusée au départ : le débit qui passe devient le plafond de cet ordinateur (gardé par
+            // l'app pour les sessions suivantes), sans texte à l'écran.
+            Notice::EncoderCeiling { mbps } => {
+                self.0.send(Event::EncoderCeiling(*mbps));
+                return;
+            }
         };
         self.0.send(Event::Notice(msg));
     }
@@ -639,6 +645,10 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
     }
     // « Débit adaptatif » de cet ordinateur (allumé d'office), pour un profil comme pour un débit choisi.
     s.adaptive = host.settings.adaptive;
+    // Le plafond de l'encodeur gardé pour cet ordinateur, quel que soit le profil (Auto compris : c'est celui gardé
+    // qui compte, une session a pu le trouver après le test). Le cœur s'y tient en plus du plafond du téléviseur
+    // (`cap_mbps`) : le plus bas des deux.
+    s.encoder_max = host.settings.encoder_max.filter(|&n| n > 0);
     hdr_settings(&mut s, hdr);
     s
 }

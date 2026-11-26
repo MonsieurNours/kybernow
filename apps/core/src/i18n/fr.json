@@ -167,7 +167,8 @@
     "target_manual": "{target} Mbit/s · fixe",
     "target_pyrowave": "{target} Mbit/s · PyroWave, adaptatif en pause",
     "target_capped": "{target} Mbit/s · fenêtre cachée",
-    "target_fallback": "{target} Mbit/s · flux allégé"
+    "target_fallback": "{target} Mbit/s · flux allégé",
+    "target_encoder": "{target} Mbit/s · plafond de l'encodeur"
   },
   "autotest": {
     "title": "Profil Auto",
@@ -182,7 +183,8 @@
       "link": "Liaison",
       "latency": "Latence au repos",
       "bandwidth": "Débit vers cet appareil",
-      "decode": "Décodage de cet appareil"
+      "decode": "Décodage de cet appareil",
+      "encoder": "Encodeur de l'ordinateur"
     },
     "link": {
       "cable": "Câble",
@@ -194,6 +196,11 @@
     "bandwidth_old": "Mettez à jour {name} pour mesurer le débit.",
     "decode": "{codec} 4K : {fps} i/s",
     "decode_none": "Aucun format essayé.",
+    "encoder_unknown": "{name} n'a pas pu essayer son encodeur.",
+    "encoder_old": "Mettez à jour {name} pour essayer son encodeur.",
+    "encoder_pyrowave": "PyroWave choisi.",
+    "encoder_ok": "{n} Mbit/s acceptés en {codec}",
+    "encoder_limited": "jusqu'à {n} Mbit/s en {codec}",
     "cancelled": "Test arrêté.",
     "unreachable": "Le test n'a pas pu joindre {name}.",
     "choice": {
@@ -229,7 +236,8 @@
       "assumed_from_link": "selon la liaison (Station à mettre à jour)",
       "steady": "réseau stable",
       "unsteady": "réseau irrégulier : ce qui se perd est renvoyé",
-      "adaptive": "suit le réseau pendant la session"
+      "adaptive": "suit le réseau pendant la session",
+      "encoder_limited": "{name} encode jusqu'à {n} Mbit/s"
     },
     "chosen_by": "Choisi par le test du {date} ({network}).",
     "other_network": "Autre réseau que celui du test",

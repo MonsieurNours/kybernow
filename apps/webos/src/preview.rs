@@ -222,6 +222,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
         step(t("Latence au repos", "Latency at rest"), StepState::Done(t("1,4 ms · gigue 0,3 ms", "1.4 ms · jitter 0.3 ms"))),
         step(t("Débit vers cet appareil", "Bitrate to this device"), StepState::Done(t("93 Mbit/s · latence en charge +2 ms", "93 Mbit/s · latency under load +2 ms"))),
         step(t("Décodage de cet appareil", "Decoding on this device"), StepState::Done(t("HEVC 4K : 120 i/s · AV1 4K : 60 i/s · H.264 4K : 60 i/s", "HEVC 4K: 120 fps · AV1 4K: 60 fps · H.264 4K: 60 fps"))),
+        step(t("Encodeur de l'ordinateur", "The computer's encoder"), StepState::Done(t("jusqu'à 440 Mbit/s en HEVC", "up to 440 Mbit/s in HEVC"))),
     ];
     let choice = |title: String, value: String, reason: String| Choice { title, value, reason };
     let choices = vec![
@@ -247,6 +248,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     let mut running = steps_done.clone();
     running[2].state = StepState::Running;
     running[3].state = StepState::Waiting;
+    running[4].state = StepState::Waiting;
     app.auto_progress(attempt, running);
     shot(app, cv, assets, None, dir, "50-profil-auto-test");
     app.auto_progress(attempt, steps_done.clone());
@@ -258,6 +260,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     failed[1].state = StepState::Waiting;
     failed[2].state = StepState::Waiting;
     failed[3].state = StepState::Waiting;
+    failed[4].state = StepState::Waiting;
     app.auto_progress(attempt, failed);
     app.auto_finished(attempt, Err(t("Le test n'a pas pu joindre Atelier.", "The test couldn't reach Atelier.")));
     shot(app, cv, assets, None, dir, "50c-profil-auto-echec");
@@ -268,6 +271,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     let mut old = steps_done.clone();
     old[2].state = StepState::Skipped(t("Mettez à jour Atelier pour mesurer le débit.", "Update Atelier to measure the bitrate."));
     old[3].state = StepState::Running;
+    old[4].state = StepState::Waiting;
     app.auto_progress(attempt, old);
     shot(app, cv, assets, None, dir, "50d-profil-auto-station-ancienne");
     let _ = app.activate(Target::AutoCancel);

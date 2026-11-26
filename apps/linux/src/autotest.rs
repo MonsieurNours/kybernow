@@ -1,5 +1,5 @@
 //! Le profil Auto dans l'interface (docs/link-ui.md, « Profil Auto et débit adaptatif » ; contrat :
-//! docs/profil-auto.md) : le panneau du test (ses quatre étapes, le résumé, l'échec), la carte « Débit », le bandeau
+//! docs/profil-auto.md) : le panneau du test (ses étapes, le résumé, l'échec), la carte « Débit », le bandeau
 //! « Autre réseau que celui du test ». Les textes sont ceux du catalogue du cœur (`autotest.*`), mot pour mot ; ceux
 //! que le test donne en cours de route (étapes, mesures, choix et raisons) arrivent déjà traduits par le cœur
 //! (`device/autotest.rs`). Sans SDL ni cœur : les captures s'en servent.
@@ -36,10 +36,11 @@ pub struct Choice {
 /// Le panneau du test.
 #[derive(Clone, Debug, PartialEq)]
 pub enum State {
-    /// Le test tourne : ses quatre étapes.
+    /// Le test tourne : ses étapes (cinq, celles du cœur).
     Running(Vec<Step>),
-    /// « Réglages proposés » : les choix, et le résultat à garder si l'on applique (`AutoResult` du cœur, en JSON).
-    Done { choices: Vec<Choice>, result: serde_json::Value },
+    /// « Réglages proposés » : les choix, et le résultat à garder si l'on applique (`AutoResult` du cœur, en JSON),
+    /// avec le plafond de l'encodeur de l'ordinateur qui l'accompagne (`AutoResult::next_encoder_max` du plafond gardé).
+    Done { choices: Vec<Choice>, result: serde_json::Value, encoder_max: Option<u32> },
     /// Le test n'a pas pu finir (« Le test n'a pas pu joindre {nom}. »).
     Failed(String),
 }
@@ -54,14 +55,16 @@ pub struct Panel {
     pub state: State,
 }
 
-/// Les quatre étapes en attente, avant le premier avancement du cœur : « Liaison », « Latence au repos », « Débit
-/// vers cet appareil », « Décodage de cet appareil ».
+/// Les cinq étapes en attente, avant le premier avancement du cœur : « Liaison », « Latence au repos », « Débit
+/// vers cet appareil », « Décodage de cet appareil », « Encodeur de l'ordinateur » (textes du catalogue du cœur,
+/// `autotest.step.*`).
 pub fn waiting_steps() -> Vec<Step> {
     [
         tr("Liaison", "Connection"),
         tr("Latence au repos", "Latency at rest"),
         tr("Débit vers cet appareil", "Bitrate to this device"),
         tr("Décodage de cet appareil", "Decoding on this device"),
+        tr("Encodeur de l'ordinateur", "The computer's encoder"),
     ]
     .into_iter()
     .map(|t| Step { title: t.into(), state: StepState::Waiting })

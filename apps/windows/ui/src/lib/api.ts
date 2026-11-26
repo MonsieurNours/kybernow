@@ -389,7 +389,7 @@ export type Action =
 
 /** Une étape du test (`autotest::Progress` du cœur) : titre, état, mesure (cochée) ou raison (passée), dans la langue de l'app. */
 export type AutoStep = {
-  step: 'link' | 'latency' | 'bandwidth' | 'decode'
+  step: 'link' | 'latency' | 'bandwidth' | 'decode' | 'encoder'
   title: string
   state: 'waiting' | 'running' | 'done' | 'skipped'
   text?: string

@@ -8,7 +8,7 @@ fn device(screen: Mode, wired: bool) -> Device {
 }
 
 fn station(pyrowave: bool) -> Station {
-    Station { name: "PC".into(), pyrowave, pyrowave_max: Some(5000) }
+    Station { name: "PC".into(), pyrowave, pyrowave_max: Some(5000), encoder_check: true }
 }
 
 fn fast_decode() -> Vec<DecodeResult> {
@@ -26,6 +26,7 @@ fn measures(link: Link, mbps: Option<f64>, decode: Vec<DecodeResult>) -> Measure
         latency: Some(Latency { min: 1.0, median: 1.5, jitter: 0.5 }),
         bandwidth: mbps.map(|mbps| Bandwidth { mbps, loaded_delta: Some(2.0) }),
         decode,
+        encoder: None,
     }
 }
 
@@ -58,10 +59,50 @@ fn gigabit_ne_porte_pas_pyrowave_en_4k120() {
     assert!(f64::from(r.mode_mbps) < MAX_MBPS * scale(UHD120));
     assert_eq!(r.mode_mbps, 434);
     assert_eq!(r.mbps, (434.0 / scale(UHD120)).round() as u32);
+    assert_eq!(r.reasons.bitrate, Reason::Measured);
     // 10 Gbit/s : plafonné au débit de Max (sans PyroWave proposé).
     let r = decide(&measures(Link::Cable, Some(9400.0), fast_decode()), &device(UHD120, true), &station(false), 1);
     assert_eq!(r.mode_mbps, (MAX_MBPS * scale(UHD120)).round() as u32);
     assert_eq!(r.mbps, 300, "celui de Max");
+}
+
+#[test]
+fn debit_borne_par_l_encodeur_de_l_ordinateur() {
+    // Le cas du 26/11/2026 : câble, 1294 Mbit/s mesurés, écran 4K à 160 Hz,
+    // PyroWave plafonné à 600 par la Station (ne porte pas la 4K160) : HEVC
+    // à 593 Mbit/s, refusé par NVENC ; la sonde a trouvé 443.
+    let st = Station { name: "PC".into(), pyrowave: true, pyrowave_max: Some(600), encoder_check: true };
+    let uhd160 = Mode { width: 3840, height: 2160, refresh: 160 };
+    let mut m = measures(Link::Cable, Some(1294.0), fast_decode());
+    let r = decide(&m, &device(uhd160, true), &st, 1);
+    assert_eq!((r.codec, r.mode_mbps, r.reasons.bitrate), (Codec::Hevc, 597, Reason::Measured));
+    let encoder = EncoderMeasure { codec: Codec::Hevc, yuv444: r.yuv444, width: 3840, height: 2160, refresh: 160, mbps: 447, limited: true };
+    m.encoder = Some(encoder);
+    let r = decide(&m, &device(uhd160, true), &st, 1);
+    assert_eq!((r.mode_mbps, r.reasons.bitrate), (447, Reason::EncoderLimited));
+    assert_eq!(r.encoder_max(), Some(447));
+    assert_eq!(r.settings(false, true).encoder_max, Some(447));
+    let bitrate = r.choices(Lang::Fr).into_iter().find(|c| c.key == "bitrate").unwrap();
+    assert_eq!((bitrate.value.as_str(), bitrate.reason.as_str()), ("447 Mbit/s", "PC encode jusqu'à 447 Mbit/s"));
+    // Accepté du premier coup : pas de plafond trouvé, un plafond gardé plus bas est retiré.
+    m.encoder = Some(EncoderMeasure { mbps: 597, limited: false, ..encoder });
+    let r = decide(&m, &device(uhd160, true), &st, 1);
+    assert_eq!((r.mode_mbps, r.reasons.bitrate), (597, Reason::Measured));
+    assert_eq!((r.encoder_max(), r.encoder_ok()), (None, Some(597)));
+    assert_eq!(r.next_encoder_max(Some(440)), None, "440 gardé, 597 accepté : retiré");
+    assert_eq!(r.next_encoder_max(Some(700)), Some(700));
+    assert_eq!(r.next_encoder_max(None), None);
+    // Une mesure à un autre mode ne borne rien.
+    m.encoder = Some(EncoderMeasure { refresh: 60, ..encoder });
+    assert_eq!(decide(&m, &device(uhd160, true), &st, 1).mode_mbps, 597);
+}
+
+#[test]
+fn descente_de_la_sonde() {
+    assert_eq!(next_step(593), Some(543));
+    assert_eq!(next_step(93), Some(50), "50 au plus bas");
+    assert_eq!(next_step(50), None);
+    assert_eq!(next_step(30), None);
 }
 
 #[test]
@@ -167,6 +208,17 @@ fn extraits_embarques() {
     let hevc = all.iter().find(|s| s.codec == Codec::Hevc && !s.yuv444).unwrap();
     assert_eq!(hevc.packets.len(), 20);
     assert_eq!(hevc.packets.iter().filter(|p| p.is_key).count(), 1);
+    // PyroWave : une image qui commence par son en-tête de séquence (bit
+    // `extended`, 3840 × 2160, chroma), pas par la fin du paquet de
+    // configuration `KNPW` (extraits illisibles de la 0.11.2).
+    for s in all.iter().filter(|s| s.codec == Codec::PyroWave) {
+        let p = &s.packets[0].data;
+        let w0 = u32::from_le_bytes(p[0..4].try_into().unwrap());
+        let w1 = u32::from_le_bytes(p[4..8].try_into().unwrap());
+        assert_eq!(w0 >> 31, 1, "en-tête de séquence PyroWave");
+        assert_eq!(((w0 & 0x3FFF) + 1, ((w0 >> 14) & 0x3FFF) + 1), (3840, 2160));
+        assert_eq!((w1 >> 26) & 1 == 1, s.yuv444);
+    }
     // Un appareil sans HEVC 4:4:4 ni PyroWave n'essaie pas ces extraits.
     let caps = Capabilities { hevc: true, ..Capabilities::default() };
     assert!(samples_for(caps).iter().all(|s| !s.yuv444 && s.codec != Codec::PyroWave && s.codec != Codec::Av1));

@@ -23,7 +23,8 @@ pub enum StepState {
     Skipped(String),
 }
 
-/// Une étape du test : « Liaison », « Latence au repos », « Débit vers cet appareil », « Décodage de cet appareil ».
+/// Une étape du test : « Liaison », « Latence au repos », « Débit vers cet appareil », « Décodage de cet appareil »,
+/// « Encodeur de l'ordinateur ».
 #[derive(Clone, Debug, PartialEq)]
 pub struct Step {
     pub title: String,
@@ -60,13 +61,14 @@ pub struct AutoTestUi {
     pub from_focus: Target,
 }
 
-/// Les quatre étapes en attente, avant le premier avancement du cœur (mêmes titres que son catalogue).
+/// Les cinq étapes en attente, avant le premier avancement du cœur (mêmes titres que son catalogue).
 pub fn waiting_steps() -> Vec<Step> {
     [
         tr("Liaison", "Connection"),
         tr("Latence au repos", "Latency at rest"),
         tr("Débit vers cet appareil", "Bitrate to this device"),
         tr("Décodage de cet appareil", "Decoding on this device"),
+        tr("Encodeur de l'ordinateur", "The computer's encoder"),
     ]
     .iter()
     .map(|t| Step { title: (*t).into(), state: StepState::Waiting })
@@ -251,7 +253,7 @@ impl App {
                 let AutoPhase::Done { result, .. } = a.phase else { return Vec::new() };
                 let (panel, refresh) = (self.tv.panel, self.tv.refresh);
                 if let Some(h) = self.store.host_mut(&a.host) {
-                    h.settings.apply_auto(result, panel, refresh);
+                    h.settings.apply_new_auto(result, panel, refresh);
                 }
                 self.auto_close();
                 vec![Action::Save]
@@ -329,6 +331,20 @@ impl App {
         self.open_auto_test(&id)
     }
 
+    /// La session a dû redescendre sous l'encodeur de l'ordinateur (`Notice::EncoderCeiling` du cœur) : ce débit
+    /// devient le plafond de cet ordinateur, pour les sessions suivantes, sans rien dire à l'écran. Jamais pour une
+    /// session sur l'ordinateur de quelqu'un d'autre (invité, emprunt) ni une console. `true` : à enregistrer.
+    pub fn encoder_ceiling(&mut self, mbps: u32) -> bool {
+        let Some(s) = self.session.as_ref().filter(|s| !s.visitor() && s.ps.is_none()) else { return false };
+        let host = s.host.clone();
+        let Some(h) = self.store.host_mut(&host) else { return false };
+        if mbps == 0 || h.settings.encoder_max == Some(mbps) {
+            return false;
+        }
+        h.settings.encoder_max = Some(mbps);
+        true
+    }
+
     /// Les tuiles des profils du menu de session : Auto sans résultat gardé dit qu'il viendra à la prochaine session.
     pub fn auto_tile_sub(&self, host: &str) -> &'static str {
         if self.store.host(host).is_some_and(|h| h.settings.auto_brief().is_some()) {
@@ -403,7 +419,7 @@ mod tests {
         assert_eq!(acts, vec![Action::AutoTest { host: "a".into(), attempt: 1 }]);
         assert_eq!(app.screen, Screen::AutoTest);
         assert_eq!(app.focus, Target::AutoCancel);
-        assert_eq!(app.auto.as_ref().unwrap().steps.len(), 4);
+        assert_eq!(app.auto.as_ref().unwrap().steps.len(), 5);
         assert_eq!(app.activate(Target::AutoCancel), vec![Action::AutoCancel]);
         assert_eq!(app.screen, Screen::Home);
         assert_eq!(app.store.host("a").unwrap().settings.profile, Profile::Bureau);
@@ -455,6 +471,72 @@ mod tests {
         assert_eq!(app.activate(Target::Chip(Profile::Auto)), vec![Action::Save]);
         assert_eq!(app.screen, Screen::Home);
         assert_eq!(app.store.host("a").unwrap().settings.profile, Profile::Auto);
+    }
+
+    /// Le plafond de l'encodeur : « Appliquer » un nouveau résultat le recalcule (`next_encoder_max`), remettre Auto
+    /// avec le résultat gardé n'y touche pas ; une session le garde pour son ordinateur ; il est dans le fichier.
+    #[test]
+    fn plafond_de_l_encodeur() {
+        let with_encoder = |mbps: u32, limited: bool| {
+            let mut r = result("Ethernet", 2160, 120, false);
+            r["measures"]["encoder"] = serde_json::json!({ "codec": "hevc", "yuv444": false, "width": 3840, "height": 2160, "refresh": 120, "mbps": mbps, "limited": limited });
+            r
+        };
+        let mut app = app();
+        app.activate(Target::Chip(Profile::Auto));
+        done(&mut app, with_encoder(440, true));
+        app.activate(Target::AutoApply);
+        assert_eq!(app.store.host("a").unwrap().settings.encoder_max, Some(440));
+        // Une session redescend : 390 gardé.
+        let mut s = SessionUi::new("a", "Atelier", Profile::Auto, false);
+        s.phase = Phase::Streaming;
+        app.session = Some(s);
+        assert!(app.encoder_ceiling(390));
+        assert!(!app.encoder_ceiling(390), "rien de neuf");
+        app.session = None;
+        // Auto remis avec le résultat gardé : le plafond de la session reste.
+        app.activate(Target::Chip(Profile::Jeu));
+        app.activate(Target::Chip(Profile::Auto));
+        assert_eq!(app.store.host("a").unwrap().settings.encoder_max, Some(390));
+        // Un nouveau test accepte 290 du premier coup : 390 reste (au-dessus) ; un plafond plus bas serait retiré.
+        app.activate(Target::AutoRetest);
+        done(&mut app, with_encoder(290, false));
+        app.activate(Target::AutoApply);
+        assert_eq!(app.store.host("a").unwrap().settings.encoder_max, Some(390));
+        app.store.host_mut("a").unwrap().settings.encoder_max = Some(200);
+        app.activate(Target::AutoRetest);
+        done(&mut app, with_encoder(290, false));
+        app.activate(Target::AutoApply);
+        assert_eq!(app.store.host("a").unwrap().settings.encoder_max, None);
+        // Sans mesure (Station d'avant) : celui d'avant.
+        app.store.host_mut("a").unwrap().settings.encoder_max = Some(200);
+        app.activate(Target::AutoRetest);
+        done(&mut app, result("Ethernet", 2160, 120, false));
+        app.activate(Target::AutoApply);
+        assert_eq!(app.store.host("a").unwrap().settings.encoder_max, Some(200));
+        // Gardé dans le fichier, hors profil ; absent d'un fichier d'avant.
+        let st = app.store.host("a").unwrap().settings.clone();
+        assert!(!st.is_custom());
+        let back: HostSettings = serde_json::from_str(&serde_json::to_string(&st).unwrap()).unwrap();
+        assert_eq!(back.encoder_max, Some(200));
+        let old: HostSettings = serde_json::from_str(r#"{"profile":"max"}"#).unwrap();
+        assert_eq!(old.encoder_max, None);
+        // Sans session, rien.
+        assert!(!app.encoder_ceiling(100));
+    }
+
+    /// Le plafond gardé à l'application d'un résultat : le même que celui du cœur (`AutoResult::next_encoder_max`).
+    #[cfg(feature = "device")]
+    #[test]
+    fn plafond_comme_le_coeur() {
+        for (encoder, previous) in [(None, None), (None, Some(200)), (Some((440, true)), Some(200)), (Some((290, false)), Some(200)), (Some((290, false)), Some(390)), (Some((290, false)), None)] {
+            let mut r = result("Ethernet", 2160, 120, false);
+            if let Some((mbps, limited)) = encoder {
+                r["measures"]["encoder"] = serde_json::json!({ "codec": "hevc", "yuv444": false, "width": 3840, "height": 2160, "refresh": 120, "mbps": mbps, "limited": limited });
+            }
+            let core: kybernow_core::autotest::AutoResult = serde_json::from_value(r.clone()).unwrap();
+            assert_eq!(crate::model::next_encoder_max(&r, previous), core.next_encoder_max(previous), "{encoder:?} {previous:?}");
+        }
     }
 
     /// Le débit adaptatif se coupe sans faire passer en « Personnalisé » ; il est gardé dans le fichier.

@@ -41,6 +41,11 @@ object Native {
     @JvmStatic external fun autotestChoices(resultJson: String): String?
     /** Les réglages de session d'Auto pour ce résultat (`AutoResult::settings`, profil `auto`) ; nul s'il est illisible. */
     @JvmStatic external fun autotestSettings(resultJson: String, hdr: Boolean, wired: Boolean): String?
+    /**
+     * « Appliquer » un nouveau résultat : le plafond de l'encodeur à garder pour l'ordinateur (Mbit/s par écran, 0 : aucun ;
+     * `AutoResult::next_encoder_max`), d'après celui gardé ([previous], 0 : aucun) ; un résultat illisible le laisse.
+     */
+    @JvmStatic external fun autotestEncoderMax(resultJson: String, previous: Int): Int
     /** Le test a-t-il été fait sur ce réseau ([network] : celui du moment, `relay` par le relais) ? */
     @JvmStatic external fun autotestSameNetwork(resultJson: String, network: String?): Boolean
 
@@ -435,6 +440,12 @@ interface SessionListener {
          * sature » avec « Passer en HEVC ». Une fois par session, hôte seulement.
          */
         const val NOTICE_PYROWAVE_STRAINED = 10
+        /**
+         * Avis `onNotice` : l'encodeur de l'ordinateur a refusé l'image, la session a dû redescendre à `mbps` (Mbit/s par
+         * écran) : le plafond à garder pour cet ordinateur ([fr.leslignesclaires.kybernow.model.HostSettings.encoderMax]) et
+         * à redonner aux sessions suivantes (`encoder_max`). Rien à l'écran.
+         */
+        const val NOTICE_ENCODER_CEILING = 11
     }
 
     /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */
@@ -448,14 +459,14 @@ interface SessionListener {
      * clé, paquets perdus, octets, chaîne présente (1/0), puis capture,
      * encodage, envoi, réseau, décodage, affichage (ms), puis l'image en HDR (1/0) ; 18 à 21 la définition
      * ramenée de PyroWave ; 22 à 24 le débit visé (demandé et du profil en bit/s, raison `TargetReason::code` :
-     * 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de l'app, 5 repli ; −1 sans).
+     * 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de l'app, 5 repli, 6 plafond de l'encodeur ; −1 sans).
      */
     fun onSecond(values: DoubleArray)
     /**
      * 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre »,
      * 7 la Station redémarre ([NOTICE_STATION_RESTARTING]), 8 l'ordinateur n'a pas pu passer en HDR
      * ([NOTICE_HDR_REFUSED]), 9 définition ramenée ([NOTICE_RESOLUTION_LOWERED]), 10 le réseau sature en PyroWave
-     * ([NOTICE_PYROWAVE_STRAINED]).
+     * ([NOTICE_PYROWAVE_STRAINED]), 11 plafond de l'encodeur ([NOTICE_ENCODER_CEILING]).
      */
     fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?)
     fun onGameFullscreen(game: Boolean)

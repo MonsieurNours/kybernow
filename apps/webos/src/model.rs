@@ -76,6 +76,26 @@ impl AutoBrief {
     }
 }
 
+/// L'encodeur essayé par le test (`EncoderMeasure` du cœur, ce qu'en lit l'interface) : le débit accepté et s'il est
+/// la limite (un débit plus haut refusé).
+#[derive(Clone, Copy, Debug, Deserialize)]
+struct EncoderBrief {
+    mbps: u32,
+    limited: bool,
+}
+
+/// Le plafond de l'encodeur à garder quand on applique ce résultat (`AutoResult::next_encoder_max` du cœur, repris
+/// ici : l'interface se compile sans lui) : la limite trouvée ; sinon un plafond gardé plus bas que le débit accepté
+/// du premier coup est retiré ; sinon celui d'avant.
+pub fn next_encoder_max(result: &serde_json::Value, previous: Option<u32>) -> Option<u32> {
+    let encoder = result.pointer("/measures/encoder").and_then(|v| serde_json::from_value::<EncoderBrief>(v.clone()).ok());
+    match (encoder, previous) {
+        (Some(e), _) if e.limited => Some(e.mbps),
+        (Some(e), Some(p)) if p < e.mbps => None,
+        (_, p) => p,
+    }
+}
+
 /// Réglages d'un ordinateur, comme Réglages › par ordinateur sur les autres apps.
 /// Le profil donne le format, le débit et le transport ; en choisir un autre
 /// à la main (`codec`, `mbps`, `transport`) rend le profil « Personnalisé ».
@@ -124,6 +144,11 @@ pub struct HostSettings {
     /// Le dernier résultat du test des conditions appliqué pour cet ordinateur (`AutoResult` du cœur, en JSON, gardé
     /// tel quel) : le profil Auto en prend ses réglages.
     pub auto: Option<serde_json::Value>,
+    /// Le plafond de l'encodeur de cet ordinateur (Mbit/s par écran, docs/profil-auto.md, « L'encodeur de
+    /// l'ordinateur ») : trouvé par le test (« Appliquer ») ou par une session dont l'image a été refusée au départ
+    /// (`Notice::EncoderCeiling`). Envoyé dans `StreamSettings::encoder_max` ; vaut pour tous les profils, hors profil
+    /// (jamais « Personnalisé »), propre à ce téléviseur et à cet ordinateur. `None` : aucun.
+    pub encoder_max: Option<u32>,
 }
 
 impl Default for HostSettings {
@@ -147,6 +172,7 @@ impl Default for HostSettings {
             hdr: true,
             adaptive: true,
             auto: None,
+            encoder_max: None,
         }
     }
 }
@@ -199,6 +225,14 @@ impl HostSettings {
             self.resolution = if b.height >= panel.1 || ![2160, 1440, 1080, 720].contains(&b.height) { 0 } else { b.height };
             self.fps = if b.refresh >= refresh || ![30, 60, 120].contains(&b.refresh) { 0 } else { b.refresh };
         }
+    }
+
+    /// « Appliquer » un NOUVEAU résultat du test (fin d'un test seulement : remettre Auto avec le résultat gardé ne
+    /// touche pas au plafond, celui d'une session plus récente serait effacé) : le plafond de l'encodeur devient
+    /// celui du résultat (`AutoResult::next_encoder_max` du cœur), puis comme `apply_auto`.
+    pub fn apply_new_auto(&mut self, result: serde_json::Value, panel: (u32, u32), refresh: u32) {
+        self.encoder_max = next_encoder_max(&result, self.encoder_max);
+        self.apply_auto(result, panel, refresh);
     }
 
     pub fn set_transport(&mut self, t: &str) {

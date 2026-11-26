@@ -226,7 +226,8 @@ pub unsafe extern "C" fn kn_autotest_choices(result_json: *const c_char, lang: *
 
 /// Les réglages de session d'un résultat (`AutoResult::settings`), avec le
 /// choix HDR de l'app et le câble : le JSON des réglages (`profile: "auto"`,
-/// `codec`, `yuv444`, `mbps`, `reliable`, `hdr`, `wired`, `adaptive`), comme
+/// `codec`, `yuv444`, `mbps`, `reliable`, `hdr`, `wired`, `adaptive`,
+/// `encoder_max` : la limite trouvée par le test, sinon nul), comme
 /// `settings` de `kn_session_start`. Nul si le JSON est illisible. À libérer
 /// par `kn_string_free`.
 #[unsafe(no_mangle)]
@@ -234,6 +235,19 @@ pub unsafe extern "C" fn kn_autotest_settings(result_json: *const c_char, hdr: b
     match result(result_json) {
         Some(r) => give(r.settings(hdr, wired).to_json().to_string()),
         None => std::ptr::null_mut(),
+    }
+}
+
+/// Le plafond de l'encodeur à garder pour cet ordinateur quand ce résultat
+/// est appliqué (`AutoResult::next_encoder_max`, docs/profil-auto.md),
+/// d'après celui qu'il avait (`previous`, 0 : aucun) : en Mbit/s par écran,
+/// 0 pour aucun. `previous` pour un JSON illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_autotest_next_encoder_max(result_json: *const c_char, previous: u32) -> u32 {
+    let previous = (previous > 0).then_some(previous);
+    match result(result_json) {
+        Some(r) => r.next_encoder_max(previous).unwrap_or(0),
+        None => previous.unwrap_or(0),
     }
 }
 
@@ -285,7 +299,7 @@ mod tests {
         use kybernow_core::autotest::{Link, Measures, Station, decide};
         let caps = Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: false };
         let device = Device { screen: Mode { width: 2560, height: 1440, refresh: 60 }, caps, hdr: false, network: Some("Maison".into()), wired: false };
-        let m = Measures { link: Link::Wifi, latency: None, bandwidth: None, decode: Vec::new() };
+        let m = Measures { link: Link::Wifi, latency: None, bandwidth: None, decode: Vec::new(), encoder: None };
         let r = decide(&m, &device, &Station { name: "PC".into(), ..Default::default() }, 1);
         let json = cstring(&serde_json::to_string(&r).unwrap());
         let take = |p: *mut c_char| unsafe { CString::from_raw(p) }.into_string().unwrap();

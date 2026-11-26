@@ -36,11 +36,14 @@ pub enum TargetReason {
     AppCapped,
     /// Flux allégé après un repli (`Recovery::fallback_bitrate`).
     Fallback,
+    /// Plafond de l'encodeur de l'ordinateur (`StreamSettings::encoder_max`,
+    /// ou débit redescendu pendant la session : docs/profil-auto.md).
+    EncoderCap,
 }
 
 impl TargetReason {
     /// Code des ponts (C, JNI) : 0 Auto, 1 baissé, 2 à la main, 3 PyroWave,
-    /// 4 plafond de l'app, 5 repli.
+    /// 4 plafond de l'app, 5 repli, 6 plafond de l'encodeur.
     pub fn code(self) -> u32 {
         match self {
             Self::Auto => 0,
@@ -49,6 +52,7 @@ impl TargetReason {
             Self::PyroWavePaused => 3,
             Self::AppCapped => 4,
             Self::Fallback => 5,
+            Self::EncoderCap => 6,
         }
     }
 
@@ -60,6 +64,7 @@ impl TargetReason {
             3 => Self::PyroWavePaused,
             4 => Self::AppCapped,
             5 => Self::Fallback,
+            6 => Self::EncoderCap,
             _ => return None,
         })
     }
@@ -87,6 +92,8 @@ pub struct TargetInputs {
     pub adaptive: Option<u32>,
     /// Plafond du repli (flux allégé), bit/s.
     pub fallback_cap: Option<u32>,
+    /// Plafond de l'encodeur de l'ordinateur, bit/s (tous les écrans).
+    pub encoder_cap: Option<u32>,
     /// Plafond de l'app (fenêtre cachée), bit/s.
     pub app_cap: Option<u32>,
     /// Pas de profil : débit réglé à la main.
@@ -109,6 +116,13 @@ impl TargetBitrate {
         } else {
             TargetReason::Auto
         };
+        if let Some(cap) = i.encoder_cap
+            && cap < b
+        {
+            b = cap;
+            reason = TargetReason::EncoderCap;
+        }
+        let base = b;
         if let Some(a) = i.adaptive
             && a < b
         {
@@ -127,7 +141,7 @@ impl TargetBitrate {
             b = cap;
             reason = TargetReason::AppCapped;
         }
-        Self { bitrate: b, profile: i.base, reason }
+        Self { bitrate: b, profile: base, reason }
     }
 
     /// Mbit/s arrondis, comme les Statistiques les montrent.
@@ -138,7 +152,8 @@ impl TargetBitrate {
     /// La ligne « Débit visé » des Statistiques : « 42 / 60 Mbit/s · baissé,
     /// réseau saturé », « 60 Mbit/s · Auto », « 80 Mbit/s · réglé à la
     /// main », « 320 Mbit/s · PyroWave, Auto en pause », « 20 Mbit/s ·
-    /// fenêtre cachée », « 15 Mbit/s · flux allégé ».
+    /// fenêtre cachée », « 15 Mbit/s · flux allégé », « 440 Mbit/s ·
+    /// plafond de l'encodeur ».
     pub fn text(&self, lang: crate::i18n::Lang) -> String {
         let target = Self::mbps(self.bitrate).to_string();
         let profile = Self::mbps(self.profile).to_string();
@@ -149,6 +164,7 @@ impl TargetBitrate {
             TargetReason::PyroWavePaused => "bitrate.target_pyrowave",
             TargetReason::AppCapped => "bitrate.target_capped",
             TargetReason::Fallback => "bitrate.target_fallback",
+            TargetReason::EncoderCap => "bitrate.target_encoder",
         };
         crate::i18n::tr(lang, key, &[("target", &target), ("profile", &profile)])
     }
@@ -495,9 +511,19 @@ mod tests {
         assert_eq!(t.reason, TargetReason::Manual);
         assert_eq!(TargetBitrate::label(Lang::Fr), "Débit visé");
         assert_eq!(TargetBitrate::label(Lang::En), "Target bitrate");
-        for c in 0..6 {
+        // Plafond de l'encodeur : sous le profil, il le remplace (le débit
+        // automatique part de lui) ; un repli plus bas l'emporte.
+        let t = TargetBitrate::compute(TargetInputs { base: m(593), encoder_cap: Some(m(440)), adaptive: None, ..base });
+        assert_eq!((t.bitrate, t.profile, t.reason), (m(440), m(440), TargetReason::EncoderCap));
+        assert_eq!(t.text(Lang::Fr), "440 Mbit/s · plafond de l'encodeur");
+        assert_eq!(t.text(Lang::En), "440 Mbit/s · encoder ceiling");
+        let t = TargetBitrate::compute(TargetInputs { base: m(593), encoder_cap: Some(m(440)), adaptive: Some(m(300)), ..base });
+        assert_eq!((t.bitrate, t.profile, t.reason), (m(300), m(440), TargetReason::Lowered));
+        let t = TargetBitrate::compute(TargetInputs { base: m(60), encoder_cap: Some(m(440)), ..base });
+        assert_eq!(t.reason, TargetReason::Auto, "plafond au-dessus : rien");
+        for c in 0..7 {
             assert_eq!(TargetReason::from_code(c).map(TargetReason::code), Some(c));
         }
-        assert_eq!(TargetReason::from_code(6), None);
+        assert_eq!(TargetReason::from_code(7), None);
     }
 }
