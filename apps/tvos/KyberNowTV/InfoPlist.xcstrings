@@ -17,6 +17,23 @@
           }
         }
       }
+    },
+    "NSCameraUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link sends your camera to your computer when you turn it on in a session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link envoie votre caméra à votre ordinateur quand vous l'allumez en session."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

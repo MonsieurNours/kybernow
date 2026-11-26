@@ -10,6 +10,9 @@ pub enum Icon {
     Play,
     Monitor,
     Speaker,
+    /// La caméra de l'appareil (allumée, barrée).
+    Camera,
+    CameraOff,
     Pointer,
     Gamepad,
     Keyboard,
@@ -66,6 +69,8 @@ impl Icon {
             Icon::Play => (&["M7 4 L19 12 L7 20 Z"], &[], &[]),
             Icon::Monitor => (&["M5 5 H19 Q21 5 21 7 V15 Q21 17 19 17 H5 Q3 17 3 15 V7 Q3 5 5 5 Z", "M8 21 H16", "M12 17 V21"], &[], &[]),
             Icon::Speaker => (&["M4 9 H8 L13 5 V19 L8 15 H4 Z", "M16 9 Q18 12 16 15", "M18.5 6.5 Q23 12 18.5 17.5"], &[], &[]),
+            Icon::Camera => (&["M3 7 H15 L16 8 V16 L15 17 H3 L2 16 V8 Z", "M16 10.5 L21 7.5 V16.5 L16 13.5"], &[], &[]),
+            Icon::CameraOff => (&["M3 7 H15 L16 8 V16 L15 17 H3 L2 16 V8 Z", "M16 10.5 L21 7.5 V16.5 L16 13.5", "M3 3 L21 21"], &[], &[]),
             Icon::Pointer => (&["M5 3 L17 12 L11 13 L14 20 L11.5 21 L8.5 14 L5 18 Z"], &[], &[]),
             Icon::Gamepad => (
                 &["M6 9 H18 Q21 9 21 12 L20 17 Q19.5 19.3 16.5 17.8 L14.5 15 H9.5 L7.5 17.8 Q4.5 19.3 4 17 L3 12 Q3 9 6 9 Z", "M8 11 V14", "M6.5 12.5 H9.5"],

@@ -268,5 +268,15 @@
     "failed": "Recording could not start.",
     "stopped_disk": "Recording stopped: the computer's disk is full.",
     "stopped_codec": "Recording stopped: PyroWave and AV1 can't be recorded."
+  },
+  "camera": {
+    "paused": "Paused",
+    "busy": "{device} is already sending its camera to {name}.",
+    "busy_unnamed": "Another device is already sending its camera to {name}.",
+    "failed": "{name} could not open its virtual camera.",
+    "denied": "Camera access is denied. Allow it in the device's Settings.",
+    "in_use": "The camera is being used by another app.",
+    "unplugged": "{camera} is no longer connected.",
+    "no_encoder": "This device can't send its camera."
   }
 }

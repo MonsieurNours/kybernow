@@ -33,6 +33,8 @@ object KnIcons {
     val plus = icon("plus", "M12 5v14M5 12h14")
     val back = icon("back", "M15 5l-7 7 7 7")
     val play = icon("play", "M7 4l12 8-12 8z")
+    val camera = icon("camera", "M3 7h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z", "M16 10.5l5-3v9l-5-3")
+    val cameraOff = icon("camera-off", "M3 7h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z", "M16 10.5l5-3v9l-5-3", "M3 3l18 18")
     val sound = icon("sound", "M4 9h4l5-4v14l-5-4H4z", "M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11")
     val screen = icon("screen", "M3 5h18v12H3z", "M8 21h8M12 17v4")
     val keyboard = icon("keyboard", "M2 6h20v12H2z", "M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10")

@@ -1,0 +1,4 @@
+LIBRARY KyberNowCameraSource
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

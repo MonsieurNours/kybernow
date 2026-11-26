@@ -1,0 +1,3 @@
+# KyberNow Station : la Station (session de l'utilisateur) écrit dans la
+# caméra « KyberNow Camera » sans être du groupe video (docs/webcam.md).
+SUBSYSTEM=="video4linux", ATTR{name}=="KyberNow Camera", TAG+="uaccess"

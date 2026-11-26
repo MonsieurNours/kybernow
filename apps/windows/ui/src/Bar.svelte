@@ -99,7 +99,7 @@
   /** Les réglages s'écartent du profil : « Personnalisé ». */
   let custom = $state(false)
   let menu = $state<Menu | null>(null)
-  type Menu = 'profile' | 'mouse' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats' | 'screen'
+  type Menu = 'profile' | 'mouse' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats' | 'screen' | 'camera'
   /**
    * Ce que montre la fenêtre de la barre : la barre (ouverte au pointeur, par « Statistiques », par une capsule
    * choisie), ou la capsule d'un avis bref seule, en haut de l'image (docs/link-ui.md « Barre de session »).
@@ -191,6 +191,10 @@
   let multi = $state(false)
   /** « Garder le son » de cette session. */
   let keepSound = $state(false)
+  /** La caméra de ce PC (docs/link-ui.md, « Caméra de l'appareil ») : proposée par l'ordinateur, son état
+   *  (0 éteinte, 1 allumage, 2 envoyée, 3 en pause), les webcams, celle choisie. */
+  type BarCamera = { id: string; offered: boolean; state: number; cameras: { id: string; name: string }[]; current: string | null; line: string | null }
+  let camera = $state<BarCamera | null>(null)
   /** « HDR », cochable, près du profil (docs/link-ui.md, « HDR ») : absent sans écran HDR, et pour un invité. */
   let hdr = $state<BarHdr | null>(null)
   /** Sessions ouvertes : le bouton « Garder le son » à partir de deux. */
@@ -334,6 +338,9 @@
         losses = entry.losses
         multi = s.screens > 1
         reportWidth()
+      }),
+      listen<BarCamera>('bar-camera', (c) => {
+        if (c.id === id) camera = c
       }),
       listen<{ id: string; hdr: BarHdr | null }>('bar-hdr', (e) => {
         if (e.id !== id) return
@@ -496,6 +503,7 @@
         sentWidth = 0
         multi = !!s.multi
         keepSound = !!s.keep_sound
+        invoke<BarCamera>('session_camera_state', { id: s.id }).then((c) => { if (c.id === id) camera = c }).catch(() => {})
         hdr = s.hdr ?? null
         wired = s.wired ?? null
         sessionCount = s.sessions ?? 1
@@ -766,6 +774,19 @@
     if (!hdr?.available) return
     hdr = { ...hdr, on: !hdr.on }
     await invoke('session_hdr', { id, on: hdr.on }).catch(() => {})
+  }
+
+  /** « Allumer la caméra » / « Éteindre la caméra ». */
+  async function toggleCamera() {
+    if (!camera) return
+    camera = await invoke<BarCamera>('session_camera', { id, on: camera.state === 0 }).catch(() => camera)
+    await closeMenu().then(afterMenu)
+  }
+
+  /** Une webcam de la liste : gardée pour ce PC, prise tout de suite si la caméra est allumée. */
+  async function pickCamera(c: string) {
+    camera = await invoke<BarCamera>('session_camera_pick', { id, camera: c }).catch(() => camera)
+    await closeMenu().then(afterMenu)
   }
 
   async function toggleKeepSound() {
@@ -1257,6 +1278,42 @@
   {/if}
 {/snippet}
 
+<!-- Caméra (seulement si l'ordinateur la propose) : estompée éteinte, rouge avec un point quand elle part ;
+     menu « Allumer la caméra » / « Éteindre la caméra », puis les webcams de ce PC, celle choisie cochée. -->
+{#snippet cameraChip()}
+  {#if camera?.offered}
+    <div class="anchor">
+      <button
+        class="chip"
+        class:open={menu === 'camera'}
+        class:dim={camera.state === 0}
+        class:live={camera.state === 2 || camera.state === 3}
+        aria-haspopup="menu"
+        aria-expanded={menu === 'camera'}
+        aria-label={camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')}
+        title={(camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')) + t('camera.shortcut')}
+        onclick={() => toggle('camera')}
+      >
+        {#if camera.state === 2}<span class="dot" aria-hidden="true"></span>{/if}
+        {@render chipBody(camera.state === 0 ? 'camera-off' : 'camera', camera.state === 1 ? t('camera.starting') : t('camera.camera'), true)}
+      </button>
+      {#if menu === 'camera'}
+        <div class="menu" role="menu" aria-label={t('camera.camera')}>
+          <button role="menuitem" onclick={toggleCamera}>
+            <span class="tick"></span><span class="name">{camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')}</span><span class="hint"></span>
+          </button>
+          {#each camera.cameras as c (c.id)}
+            <button role="menuitemradio" aria-checked={c.id === camera.current} onclick={() => pickCamera(c.id)}>
+              <span class="tick">{#if c.id === camera.current}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+              <span class="name">{c.name}</span><span class="hint"></span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 <!-- Souris : le mode du moment ; menu « Auto », « Souris du bureau », « Souris des jeux », le réglage coché. -->
 {#snippet mouseChip()}
   <div class="anchor">
@@ -1336,7 +1393,7 @@
     </button>
     {#if menu === 'stats'}
       <div class="menu statspanel" role="dialog" aria-label={t('stats.title')}>
-        <StatsPanel {stats} {seconds} {losses} route={route ? t(`relay.path_${route.transport}`) : t('relay.path_direct')} onclose={() => toggle('stats')} />
+        <StatsPanel {stats} {seconds} {losses} route={route ? t(`relay.path_${route.transport}`) : t('relay.path_direct')} camera={camera?.line ?? null} onclose={() => toggle('stats')} />
       </div>
     {/if}
     {#if notice}
@@ -1518,6 +1575,7 @@
     <span class="sep"></span>
     {@render hdrChip()}
     {@render soundChip()}
+    {@render cameraChip()}
     {@render mouseChip()}
     {@render keysChip()}
     <span class="sep"></span>
@@ -1836,6 +1894,7 @@
     </div>
     {@render hdrChip()}
     {@render soundChip()}
+    {@render cameraChip()}
     {@render mouseChip()}
     {@render keysChip()}
     <span class="chip still" class:dim={!clipboard} role="img" aria-label={t('bar.clipboard')} title={clipboard ? t('bar.clipboard_on') : t('bar.clipboard_off')}>
@@ -2754,4 +2813,7 @@
     color: #fff;
     font-weight: 600;
   }
+  /* La caméra part : rouge, avec un point (docs/link-ui.md, « Caméra de l'appareil »). */
+  .chip.live { color: #ff6b6b; }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #ff6b6b; margin-right: 2px; }
 </style>

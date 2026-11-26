@@ -19,10 +19,12 @@ struct SessionMenu: View {
     @State private var showPads = false
     @State private var typing = false
     @State private var sound = false
+    /// Le choix d'un iPhone ou d'un iPad (Caméra de continuité).
+    @State private var cameraPicker = false
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, record, disconnect, quit, restoreMode, hdr, pyrowave, autoTest }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, record, disconnect, quit, restoreMode, hdr, pyrowave, autoTest, camera }
 
     init(session: SessionController) {
         self.session = session
@@ -75,6 +77,15 @@ struct SessionMenu: View {
                         }
                         .font(Theme.sans(18)).foregroundStyle(Theme.warnText)
                     }
+                    // La caméra de l'iPhone, allumée : « 1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s ».
+                    if let camera = session.cameraStatsLine {
+                        HStack(spacing: 14) {
+                            Text(CameraText.camera).foregroundStyle(Theme.muted)
+                            Text(verbatim: camera).font(Theme.mono(18)).foregroundStyle(Theme.text2)
+                        }
+                        .font(Theme.sans(18))
+                        .accessibilityElement(children: .combine)
+                    }
                     // Trajet d'une image : où partent les millisecondes (le HDR les change-t-il ?).
                     FramePath(stats: session.stats)
                 }
@@ -98,6 +109,8 @@ struct SessionMenu: View {
                         tile(.pads, icon: "game-controller", title: String(localized: "Manettes"), detail: padsDetail) { showPads = true }
                     }
                     soundTile
+                    // La caméra d'un iPhone ou d'un iPad (docs/link-ui.md) : seulement si l'ordinateur la propose.
+                    if session.cameraOffered { cameraTile }
                     // Un invité : la qualité de l'image reçue, et le choix des quatre.
                     if session.isGuest { qualityTile }
                     // Regarder, plusieurs écrans : « Écran » et le choix ; en changer relance l'image.
@@ -494,6 +507,26 @@ struct SessionMenu: View {
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .sound)
+    }
+
+    /// « Caméra » : l'allumer ou l'éteindre ; sans iPhone choisi, le choix de
+    /// tvOS d'abord (« Choisir un iPhone ou un iPad… »), puis elle s'allume.
+    private var cameraTile: some View {
+        let state = session.cameraState
+        let detail = state != .off ? CameraText.turnOff
+            : session.cameraReady ? CameraText.turnOn : CameraText.chooseDevice
+        return Button {
+            if state == .off, !session.cameraReady { cameraPicker = true } else { session.toggleCamera() }
+        } label: {
+            tileLabel(icon: state == .off ? "video-camera-slash" : "video-camera",
+                      iconColor: state == .sending ? Theme.danger : Theme.accent,
+                      title: state == .sending ? CameraText.indicator : CameraText.camera, detail: detail)
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .camera)
+        .continuityDevicePicker(isPresented: $cameraPicker) { device in
+            if device != nil { session.toggleCamera() }
+        }
     }
 
     /// « Qualité de l'image » (invité) : la qualité reçue (« 1080p · 60 Hz »,

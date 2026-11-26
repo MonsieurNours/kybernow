@@ -297,6 +297,17 @@ interface SessionActions {
     // KyberNow Share, côté invité (docs/link-ui.md, « Partage », « Qualité de l'image »).
     /** La « Qualité de l'image » choisie : dite à la Station, qui relance l'image de l'invité seulement ; retenue pour la fois suivante. */
     fun setShareQuality(quality: ShareQuality)
+
+    // Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil »).
+    /** « Allumer la caméra » / « Éteindre la caméra ». */
+    fun toggleCamera() {}
+    /** Une caméra de la liste (« Caméra avant », « Caméra arrière ») : gardée, prise tout de suite si elle est allumée. */
+    fun pickCamera(id: String) {}
+    /** Les caméras de l'appareil (identifiant, libellé) et celle choisie. */
+    fun cameras(): List<Pair<String, String>> = emptyList()
+    fun currentCamera(): String? = null
+    /** La ligne « Caméra » des statistiques ; nulle éteinte. */
+    fun cameraStatsLine(): String? = null
     /** Qui regarde : « Écran » choisi (un `id` de [WatchUi.screens]) ; l'image repart sur cet écran. */
     fun watchScreen(id: Int) {}
 
@@ -359,6 +370,7 @@ fun SessionOverlay(ui: SessionUi) {
         // Un invité sans les manettes n'en a pas : rien de ce qu'il toucherait ne partirait.
         if (!ui.tv && ui.padShown && (!ui.guest || role.pads) && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
         Capsules(ui, Modifier.align(Alignment.TopCenter))
+        CameraIndicator(ui, Modifier.align(Alignment.TopStart))
         if (!ui.passageDone) Passage(ui)
         if (ui.tv) {
             AnimatedVisibility(ui.menuOpen, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) { TvMenu(ui) }
@@ -570,6 +582,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.ShareRights -> stringResource(c.text)
     // L'avis de la Station sur l'image de l'invité (« Image allégée pour suivre. ») : le texte du cœur, tel quel.
     is Capsule.ShareNotice -> c.text
+    is Capsule.CameraNotice -> c.text
     // Hôte : une demande venue par le relais, avis bref « {prénom} demande à rejoindre. » (le choisir ouvre le panneau).
     is Capsule.ShareRequest -> stringResource(R.string.share_request_notice, c.name)
     // Emprunt : le préavis de 2 min, tel que le cœur l'écrit.
@@ -667,6 +680,8 @@ private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
     Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p, leading = profileIcon(p)) }
     // « HDR », cochable, près du profil (écran HDR seulement).
     HdrChip(ui.hdrState, ui.hdrChoice, { ui.actions.setHdr(!ui.hdrChoice) }, icon = true)
+    // La caméra de l'appareil (seulement si l'ordinateur la propose).
+    CameraButton(ui)
     GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
     GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     GlassButton(
@@ -1188,6 +1203,9 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
         if (ui.console == null) Mono("${stringResource(R.string.stats_rtt)} ${f(sec?.rttMs)} ms", size = 11f)
         // « Chemin : Direct », « Chemin : Par le relais », « Chemin : Par le relais (TCP) ».
         route?.let { Mono(stringResource(R.string.stats_path, routeLabel(it.transport)), size = 11f) }
+        // La caméra de l'appareil, allumée (docs/webcam.md).
+        val cameraState by ui.state.cameraState.collectAsState()
+        if (cameraState != 0) ui.actions.cameraStatsLine()?.let { Mono(stringResource(R.string.camera_stats, it), size = 11f) }
         if (ui.console == null) {
             Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
             // Sous « Débit » : la courbe des 30 dernières secondes, le trait du débit visé et la ligne « Débit visé ».

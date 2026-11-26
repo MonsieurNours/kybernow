@@ -36,6 +36,7 @@ use kybernow_core::{Display, WindowHandle};
 pub mod account;
 pub mod audio;
 pub mod autotest;
+pub mod camera;
 pub mod input;
 pub mod invite;
 pub mod lend;
@@ -955,6 +956,14 @@ pub struct KnPlatform {
     /// l'avis bref de link-ui à montrer, nul s'il n'y a rien à dire. Une
     /// Station qui n'enregistre pas n'appelle jamais.
     pub on_recording: Option<unsafe extern "C" fn(userdata: *mut c_void, recording_json: *const c_char, notice: *const c_char)>,
+    /// Caméra de l'appareil (docs/webcam.md) : l'app sait la capturer et
+    /// l'encoder ; le cœur la demande à l'ordinateur à chaque départ de
+    /// l'image (jamais pour un invité d'un partage).
+    pub sends_camera: bool,
+    /// L'ordinateur propose la caméra pour cette image, ou plus : l'entrée
+    /// « Caméra » apparaît ou disparaît ; allumée, la caméra repart d'elle-même
+    /// quand le flux revient (`kn_camera_*`).
+    pub on_camera_offer: Option<unsafe extern "C" fn(userdata: *mut c_void, offered: bool)>,
 }
 
 struct ApplePlatform {
@@ -1173,6 +1182,16 @@ impl Platform for ApplePlatform {
     fn on_stream_stopped(&self) {
         if let Some(f) = self.cb.on_stream_stopped {
             unsafe { f(self.cb.userdata) };
+        }
+    }
+
+    fn sends_camera(&self) -> bool {
+        self.cb.sends_camera
+    }
+
+    fn on_camera_offer(&self, offered: bool) {
+        if let Some(f) = self.cb.on_camera_offer {
+            unsafe { f(self.cb.userdata, offered) };
         }
     }
 

@@ -702,6 +702,24 @@ private struct SettingsContent: View {
                 toggleRow(String(localized: "Presse-papiers partagé"),
                           String(localized: "Le texte copié sur ce Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Admin peut l'interdire dans un sens ou dans l'autre."),
                           isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }))
+                // La caméra de ce Mac (docs/webcam.md) : si l'ordinateur l'a déjà proposée.
+                if host.cameraOffered == true {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(CameraText.resolution).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+                        Segmented(
+                            options: [(false, "720p"), (true, "1080p")],
+                            selection: Binding(get: { s.camera1080 }, set: { v in
+                                if let v {
+                                    update { $0.camera1080 = v }
+                                    AppModel.shared.sessions.session(for: host.id)?.cameraResolutionChanged(v)
+                                }
+                            }),
+                            height: 30,
+                            fill: true
+                        )
+                        Text(CameraText.resolutionHelp).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             SettingsCard(icon: "game-controller", title: String(localized: "Manette")) {
                 VStack(alignment: .leading, spacing: 8) {

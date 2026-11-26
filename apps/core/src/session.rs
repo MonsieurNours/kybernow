@@ -511,6 +511,17 @@ pub trait Platform: Send + Sync {
     fn on_mode(&self, _mode: Mode, _virtual_display: bool) {}
     /// L'image vient d'être demandée à Kyber (entrées reliées à sa session).
     fn on_stream_started(&self) {}
+    /// L'app sait envoyer la caméra de l'appareil (docs/webcam.md) : le
+    /// cœur la demande à l'ordinateur à chaque départ de l'image (jamais pour
+    /// un invité d'un partage).
+    fn sends_camera(&self) -> bool {
+        false
+    }
+    /// L'ordinateur propose la caméra pour cette image, ou plus (image
+    /// relancée, arrêtée) : l'entrée « Caméra » apparaît ou disparaît ; une
+    /// caméra allumée repart d'elle-même quand le flux revient
+    /// ([`crate::camera::CameraLink`]).
+    fn on_camera_offer(&self, _offered: bool) {}
     /// L'image vient d'être arrêtée (relance, fin).
     fn on_stream_stopped(&self) {}
     fn on_input_connected(&self) {}
@@ -1361,6 +1372,8 @@ pub struct Session {
     /// Regarder : l'écran regardé (identifiant de Kyber ; 0 : pas une
     /// session de qui regarde, ou pas encore connu).
     watch_display: Arc<AtomicU32>,
+    /// La caméra de l'appareil vers l'ordinateur (docs/webcam.md).
+    camera: Arc<crate::camera::CameraLink>,
 }
 
 impl Session {
@@ -1393,6 +1406,7 @@ impl Session {
         let hdr_used = worker.hdr_used.clone();
         let link_mbps = worker.link_mbps.clone();
         let watch_display = worker.watch_display.clone();
+        let camera = worker.camera.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
         let thread = std::thread::Builder::new()
@@ -1420,7 +1434,14 @@ impl Session {
             hdr_used,
             link_mbps,
             watch_display,
+            camera,
         })
+    }
+
+    /// La caméra de l'appareil vers l'ordinateur de cette session
+    /// ([`crate::camera`]).
+    pub fn camera(&self) -> Arc<crate::camera::CameraLink> {
+        self.camera.clone()
     }
 
     // Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md). Le
@@ -1864,6 +1885,8 @@ struct Worker {
     hdr_pending: bool,
     /// Un écran au moins a été en HDR pendant la session.
     hdr_used: Arc<AtomicBool>,
+    /// La caméra de l'appareil (docs/webcam.md).
+    camera: Arc<crate::camera::CameraLink>,
     /// La fin a été demandée pendant un appel de la mise en route
     /// ([`Worker::step`]) : la tentative s'arrête sans échec.
     cancelled: bool,
@@ -2053,6 +2076,7 @@ impl Worker {
             hdr_asked: 0,
             hdr_pending: false,
             hdr_used: Arc::new(AtomicBool::new(false)),
+            camera: Arc::new(crate::camera::CameraLink::new()),
             cancelled: false,
             step_seq: 0,
             inflight: None,
@@ -2069,6 +2093,9 @@ impl Worker {
         if let Some(Failure { text, relay: Some(e), .. }) = &failure {
             self.platform.on_relay_error(e, text);
         }
+        // La caméra s'éteint avec la session.
+        self.camera.stop();
+        self.camera_offer(None);
         self.finish(failure.map(|f| f.text));
     }
 
@@ -3218,8 +3245,17 @@ impl Worker {
         }
     }
 
+    /// Le flux de la caméra de l'image en cours (`None` : plus d'image) ;
+    /// l'app l'apprend quand l'offre change.
+    fn camera_offer(&mut self, uplink: Option<kyclient::uplink::Uplink>) {
+        if self.camera.set_uplink(uplink) {
+            self.platform.on_camera_offer(self.camera.offered());
+        }
+    }
+
     /// Le chemin à la plateforme quand il change (arrondi à 0,5 ms).
     fn announce_route(&mut self) {
+        self.camera.set_relay(self.relay_tunnel.is_some());
         let route = match &self.relay_tunnel {
             Some(t) => t.route_info().rounded(),
             None => crate::relay::RouteInfo::direct(),
@@ -4295,6 +4331,8 @@ impl Worker {
             Event::DataPlaneConnectFailed => return Some(Failure::kyber(t("session.stream_failed", &[]))),
             Event::StreamingStarted => {
                 self.latency.reset();
+                let uplink = self.client.as_ref().and_then(|c| c.uplink(crate::camera::KIND));
+                self.camera_offer(uplink);
                 // `retries` n'est pas remis à zéro ici : une image refusée
                 // juste après chaque départ relançait le flux sans fin
                 // (« Reconnexion » en boucle) ; il repart après 30 s sans relance.
@@ -5088,6 +5126,14 @@ impl Worker {
         self.has_image.store(false, Ordering::Relaxed);
         self.image_deadline = self.params.recovery.watch_image.then(|| Instant::now() + Duration::from_secs(4));
         self.status(Status::FirstImages);
+        // Caméra de l'appareil (correctif 0085) : demandée à chaque départ,
+        // jamais pour un invité d'un partage.
+        let kinds = if self.platform.sends_camera() && !self.params.is_guest() {
+            vec![crate::camera::KIND.to_owned()]
+        } else {
+            Vec::new()
+        };
+        client.set_uplink_kinds(kinds);
         match client.start_streaming(config) {
             Ok(()) => self.platform.on_stream_started(),
             Err(e) => {
@@ -5101,6 +5147,7 @@ impl Worker {
         if let Some(c) = &self.client {
             let _ = c.stop_streaming();
         }
+        self.camera_offer(None);
         if self.streaming.take().is_some() || self.pipeline.is_some() {
             self.platform.on_stream_stopped();
         }

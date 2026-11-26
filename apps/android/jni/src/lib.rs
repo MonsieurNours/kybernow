@@ -13,6 +13,9 @@ mod account;
 mod audio;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod autotest;
+/// Caméra de l'appareil vers l'ordinateur (docs/webcam.md).
+#[cfg(target_os = "android")]
+mod camera;
 #[cfg(target_os = "android")]
 mod exports;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]

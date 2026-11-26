@@ -360,6 +360,10 @@ cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 # L'outil par lequel Admin essaie l'encodeur (docs/profil-auto.md), contre le
 # FFmpeg de kyavserver ; lancé depuis le dossier de Kyber.
 "$ROOT/server/encoder-check/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-encoder-check.exe"
+# La caméra de l'appareil (docs/webcam.md) : l'outil que kycontroller lance
+# pendant que l'appareil l'envoie (0085), la caméra de Windows 11 et le filtre
+# de Windows 10, inscrits par l'installateur (kybernow-camera --install).
+"$ROOT/server/camera/build.sh" windows "$ROOTFS" "$OVERLAY"
 # Runtime MinGW (UCRT) de la chaîne kyavserver : aucun autre binaire de Kyber
 # n'utilise ces DLL, on peut remplacer celles de la version officielle.
 cp "$MINGW/lib/libstdc++-6.dll" "$MINGW/lib/libgcc_s_seh-1.dll" "$MINGW/bin/libwinpthread-1.dll" "$OVERLAY/"

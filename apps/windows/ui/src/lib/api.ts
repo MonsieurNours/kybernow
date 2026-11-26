@@ -37,6 +37,8 @@ export type Settings = {
   mouse: 'auto' | 'bureau' | 'jeu'
   gamepad: 'xbox360' | 'fidele'
   clipboard: boolean
+  /** « Définition de la caméra » (docs/webcam.md) : 1080p, sinon 720p. */
+  camera_1080?: boolean
   /** « Ctrl agit comme ⌘ », face à une Station Mac ; `null` ou absent : jamais changé, allumé. */
   ctrl_command?: boolean | null
   /** « Mode immersif » (docs/link-ui.md) ; absent des fichiers d'avant : en plein écran. */
@@ -168,6 +170,8 @@ export type LastSession = {
 export type Computer = {
   id: string
   name: string
+  /** L'ordinateur a déjà proposé la caméra (docs/webcam.md) : son réglage apparaît. */
+  camera_offered?: boolean
   host: string
   port: number
   user: string

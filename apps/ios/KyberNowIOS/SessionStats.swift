@@ -263,6 +263,8 @@ struct SessionStatsView: View {
         var tiles = [lossesTile, sessionTile, rttTile, pathTile,
                      StatsTile(label: String(localized: "Images / s"), value: stats.map { "\(Int($0.fps.rounded()))" } ?? "—", warn: false)]
         if let lostFramesTile { tiles.insert(lostFramesTile, at: 1) }
+        // La caméra de cet appareil (docs/webcam.md), quand elle est allumée.
+        if let camera = session.cameraStatsLine { tiles.append(StatsTile(label: CameraText.camera, value: camera, warn: false)) }
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
         } else {
@@ -353,6 +355,8 @@ struct SessionStatsView: View {
         var tiles = [lossesTile, sessionTile, rttTile, pathTile,
                      StatsTile(label: String(localized: "Image"), value: image, warn: keyframes30 > 0)]
         if let lostFramesTile { tiles.insert(lostFramesTile, at: 1) }
+        // La caméra de cet appareil (docs/webcam.md), quand elle est allumée.
+        if let camera = session.cameraStatsLine { tiles.append(StatsTile(label: CameraText.camera, value: camera, warn: false)) }
         if audioOff {
             tiles.append(StatsTile(label: String(localized: "Son"), value: String(localized: "sur l'ordinateur"), warn: false))
         } else {

@@ -59,6 +59,9 @@ pub struct Shared {
     /// Les valeurs HDR de l'écran de l'appareil (données à la Station) :
     /// métadonnées HDR10 de secours du décodeur.
     luminance: Mutex<Option<HdrLuminance>>,
+    /// Caméra de l'appareil (docs/webcam.md) : l'appareil en a une (`sends_camera`
+    /// des paramètres) ; le cœur la demande alors à l'ordinateur.
+    sends_camera: bool,
 }
 
 impl Shared {
@@ -446,6 +449,15 @@ impl Platform for AndroidPlatform {
         }
     }
 
+    fn sends_camera(&self) -> bool {
+        self.0.sends_camera
+    }
+
+    /// Caméra de l'appareil : `SessionListener.onCameraOffer(offered)`.
+    fn on_camera_offer(&self, offered: bool) {
+        self.0.listener.void("onCameraOffer", "(Z)V", &[JValue::Bool(offered as u8)]);
+    }
+
     fn on_stream_stopped(&self) {
         if let Some(p) = self.0.input.lock().unwrap().take() {
             p.stop();
@@ -629,6 +641,9 @@ struct AndroidJson {
     /// « Ctrl agit comme ⌘ » au départ (face à une Station Mac, `keymap::control_as_command`).
     #[serde(default)]
     control_as_command: bool,
+    /// L'appareil a une caméra et l'app a le droit de la demander (docs/webcam.md).
+    #[serde(default)]
+    sends_camera: bool,
 }
 
 fn yes() -> bool {
@@ -669,6 +684,7 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         control_as_command: AtomicBool::new(android.control_as_command),
         hdr: AtomicBool::new(false),
         luminance: Mutex::new(luminance),
+        sends_camera: android.sends_camera,
     });
     // Le pointeur à dessiner : position, visibilité, forme.
     let weak = Arc::downgrade(&shared);

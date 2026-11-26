@@ -15,6 +15,13 @@ sudo dnf install ./kybernow-station-<version>.x86_64.rpm     # Fedora
 
 La Station démarre à votre prochaine ouverture de session.
 
+La caméra de vos appareils (« KyberNow Camera ») passe par PipeWire, vue par les navigateurs et OBS. Pour que Zoom, Discord et toutes les autres apps la voient, installez aussi v4l2loopback, puis redémarrez :
+
+```sh
+sudo apt install v4l2loopback-dkms        # Ubuntu, Debian
+sudo dnf install akmod-v4l2loopback       # Fedora (dépôt RPM Fusion)
+```
+
 ## Bazzite, Fedora Silverblue ou Kinoite, SteamOS
 
 Sur ces systèmes, le dossier du système ne se modifie pas : la Station s'installe dans votre dossier personnel, sans redémarrer, et reste en place quand le système se met à jour. Elle se met ensuite à jour toute seule, depuis Admin, sans mot de passe.

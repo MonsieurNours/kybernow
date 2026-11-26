@@ -92,6 +92,7 @@ pub const KMOD_ALT: u16 = 0x0300;
 pub const KMOD_GUI: u16 = 0x0C00;
 
 pub const SC_A: i32 = 4;
+pub const SC_C: i32 = 6;
 pub const SC_D: i32 = 7;
 pub const SC_F: i32 = 9;
 pub const SC_M: i32 = 16;

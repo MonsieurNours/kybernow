@@ -54,6 +54,12 @@ final class SessionController: ObservableObject {
     @Published private(set) var fallbackNote: String?
     /// Capsule d'information en haut de l'écran (mode de l'ordinateur changé…).
     @Published private(set) var notice: String?
+
+    // MARK: Caméra de l'appareil (docs/webcam.md) : un iPhone ou un iPad à côté.
+
+    /// L'ordinateur propose la caméra (tuile « Caméra »).
+    @Published private(set) var cameraOffered = false
+    @Published private(set) var cameraState: CameraState = .off
     /// Son icône, quand elle en a une (« Manettes indisponibles… » : la manette).
     @Published private(set) var noticeIcon: String?
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
@@ -593,6 +599,16 @@ final class SessionController: ObservableObject {
         let engine = SessionEngine(view: streamView)
         engine.onPhase = { [weak self] in self?.phaseChanged($0) }
         engine.onNotice = { [weak self] in self?.notice($0) }
+        engine.onCameraOffer = { [weak self] offered in
+            guard let self else { return }
+            cameraOffered = offered
+            if offered, host.cameraOffered != true, !isBorrower, !isGuest {
+                host.cameraOffered = true
+                store.update(host)
+            }
+        }
+        engine.onCameraState = { [weak self] in self?.cameraState = $0 }
+        engine.onCameraNotice = { [weak self] text in self?.show(notice: text, for: 4) }
         engine.onMode = { [weak self] mode, _ in
             guard let self else { return }
             self.streamMode = (mode.width, mode.height, mode.refresh)
@@ -970,6 +986,22 @@ final class SessionController: ObservableObject {
     }
 
     /// Capsule en haut de l'écran pendant quelques secondes.
+    /// Une Caméra de continuité est là (un iPhone ou un iPad choisi).
+    var cameraReady: Bool { !CameraCapture.cameras().isEmpty }
+
+    /// La tuile « Caméra » : allume ou éteint la caméra de l'iPhone choisi.
+    func toggleCamera() {
+        guard let engine, cameraOffered else { return }
+        if cameraState == .off {
+            engine.cameraOn(id: CameraCapture.cameras().first?.id, resolution1080: host.settings.camera1080)
+        } else {
+            engine.cameraOff()
+        }
+    }
+
+    /// La ligne « Caméra » des statistiques (nil : éteinte).
+    var cameraStatsLine: String? { engine?.cameraStatsLine }
+
     private func show(notice text: String, for seconds: TimeInterval = 5, icon: String? = nil) {
         withAnimation(.easeOut(duration: 0.35)) {
             notice = text

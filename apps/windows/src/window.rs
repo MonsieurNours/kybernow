@@ -2527,6 +2527,13 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                             }
                             true
                         }
+                        // La caméra de ce PC (docs/link-ui.md, « Caméra de l'appareil »).
+                        b'C' => {
+                            if !repeat {
+                                app.events.toggle_camera();
+                            }
+                            true
+                        }
                         _ => false,
                     };
                     if handled {

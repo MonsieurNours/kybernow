@@ -118,6 +118,7 @@ targets:
             CFBundleURLSchemes: [kybernow-tv]
         NSBonjourServices: [_kybernow._tcp]
         NSLocalNetworkUsageDescription: KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.
+        NSCameraUsageDescription: KyberNow Link envoie votre caméra à votre ordinateur quand vous l'allumez en session.
         UIUserInterfaceStyle: Dark
         UIRequiredDeviceCapabilities: [arm64]
         GCSupportsControllerUserInteraction: true

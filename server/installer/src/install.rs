@@ -299,6 +299,19 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         _ => ctx.task("audio", TaskStatus::Skipped),
     }
 
+    // Caméra de l'appareil (docs/webcam.md, « Station Windows ») : la caméra
+    // de Windows 11 ou le filtre de Windows 10, inscrits par l'outil de la
+    // surcouche. Jamais bloquant : sans elle, les apps ne proposent pas la
+    // caméra, rien d'autre ne change.
+    let camera = ctx.kyber().join("kybernow-camera.exe");
+    if camera.is_file() {
+        match run(&camera.display().to_string(), &["--install"]) {
+            Ok(out) if out.status.success() => ctx.log("Caméra « KyberNow Camera » inscrite : la caméra de vos appareils sur cet ordinateur"),
+            Ok(out) => ctx.log(format!("ATTENTION : caméra « KyberNow Camera » non inscrite ({})", sys::text(&out).trim())),
+            Err(e) => ctx.log(format!("ATTENTION : caméra « KyberNow Camera » non inscrite ({e:#})")),
+        }
+    }
+
     step(ctx, "admin", || {
         let admin = ctx.path(r"admin\kyber-admin.exe");
         run_ok(&admin, &["service", "install"], &[0])?;

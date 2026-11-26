@@ -382,6 +382,23 @@ enum ShareText {
 
 // MARK: - Prêt de l'ordinateur
 
+/// Les textes de la caméra de l'appareil (docs/link-ui.md, « Caméra de
+/// l'appareil ») ; les refus viennent du cœur.
+enum CameraText {
+    static var camera: String { String(localized: "Caméra") }
+    static var starting: String { String(localized: "Caméra…") }
+    static var turnOn: String { String(localized: "Allumer la caméra") }
+    static var turnOff: String { String(localized: "Éteindre la caméra") }
+    /// Le voyant sur l'image, barre fermée.
+    static var indicator: String { String(localized: "● Caméra") }
+    static var resolution: String { String(localized: "Définition de la caméra") }
+    /// Apple TV, sans iPhone choisi : le choix de tvOS (Caméra de continuité).
+    static var chooseDevice: String { String(localized: "Choisir un iPhone ou un iPad…") }
+    static var resolutionHelp: String {
+        String(localized: "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur.")
+    }
+}
+
 /// Les textes du prêt de l'ordinateur (docs/link-ui.md, « Prêt de
 /// l'ordinateur ») ; les refus et les fins viennent du cœur. Ceux qu'il
 /// partage avec le partage (« Accepter », « Copier le lien », le code…) sont

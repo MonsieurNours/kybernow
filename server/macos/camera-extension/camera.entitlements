@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Extension caméra (docs/webcam.md, « Station Mac ») : bac à sable
+         obligatoire, et le groupe d'apps préfixé par l'équipe dont son
+         service Mach porte le nom (CMIOExtensionMachServiceName). Aucun
+         profil : ces deux droits sont ouverts au Developer ID. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>P6DB682S4K.fr.leslignesclaires.kybernow.station.camera</string>
+    </array>
+</dict>
+</plist>

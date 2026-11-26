@@ -746,6 +746,12 @@ struct KyberNowApp: App {
                         .keyboardShortcut("r", modifiers: [.control, .option, .command])
                         .disabled(!target.canToggleRecording || app.playstation.keySession != nil)
                 }
+                // La caméra de ce Mac vers l'ordinateur (docs/webcam.md) : seulement s'il la propose.
+                Button(target?.cameraState == .off || target == nil ? CameraText.turnOn : CameraText.turnOff) {
+                    app.sessions.commandTarget?.toggleCamera()
+                }
+                    .keyboardShortcut("c", modifiers: [.control, .option, .command])
+                    .disabled(target?.cameraOffered != true)
                 // Plusieurs ordinateurs : la fenêtre de l'ordinateur suivant, dans l'ordre d'ouverture.
                 Button("Ordinateur suivant") { app.sessions.showNext() }
                     .keyboardShortcut("o", modifiers: [.control, .option, .command])
