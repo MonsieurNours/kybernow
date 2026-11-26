@@ -3,6 +3,21 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.11.4</title>
+            <pubDate>Thu, 26 Nov 2026 16:07:20 +0100</pubDate>
+            <sparkle:version>202611261603</sparkle:version>
+            <sparkle:shortVersionString>0.11.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.
+- **PyroWave's bitrate follows your screen.** Chosen by hand on Mac, PyroWave kept the bitrate computed when it was chosen (1,669 Mbit/s for a 160 Hz screen, even back at 60 Hz). It now adjusts to the resolution and refresh rate, as long as you haven't set it yourself.
+- **The home screen gets its room back, on Mac, iPhone, iPad, Android and Linux.** Since the Auto profile arrived, the “Connect”, profiles, HDR and settings row didn't always fit on one line: buttons got squeezed (“HD / R” on Mac, “Ga / me” on iPad mini, labels cut on a small Android phone). When space runs short, the profiles now move below “Connect”, and every button keeps its label on one line.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.11.4/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.11.4/KyberNow-Link-macOS.zip" length="61183875" type="application/octet-stream" sparkle:edSignature="ES+C8dYO0poxGg+GJFJ7RfDhG0dHZc9BMDkYxWNqX52JzDRD2YL+Dqo/yrHDcnw7ERE9Z6Sq/MLwAW58MU2tCw=="/>
+        </item>
+        <item>
             <title>0.11.3</title>
             <pubDate>Thu, 26 Nov 2026 14:01:17 +0100</pubDate>
             <sparkle:version>202611261357</sparkle:version>
