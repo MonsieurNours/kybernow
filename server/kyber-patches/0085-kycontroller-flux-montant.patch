@@ -1,5 +1,5 @@
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 6ae6f2b..2bd36ed 100644
+index 6ae6f2b..2580a7a 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
 @@ -765,6 +765,8 @@ pub(crate) struct StartSessionResponse {
@@ -20,14 +20,19 @@ index 6ae6f2b..2bd36ed 100644
  ) -> Result<StartSessionResponse> {
      let transport = if let KymuxConfig::KyProto(_) = &request.kymux_config {
          // Get the pending connection receiver (was created in start_mux)
-@@ -915,6 +919,15 @@ async fn start_session(
+@@ -915,6 +919,20 @@ async fn start_session(
          None
      };
  
 +    // KyberNow (0085): a data endpoint for each upstream kind (camera,
 +    // microphone) this computer has a sink for; never for a share guest.
++    // The friend the computer is lent to holds a guest token too (role
++    // `player_kbm`), but uses the computer as the host does: not a guest here.
 +    let uplink = if let KyTransport::KyProto(connection) = &transport {
-+        let guest = crate::kybernow::is_guest(ctrl, &session_id);
++        let borrower = ctrl
++            .with_session(&session_id, |s| Ok(crate::uplink::is_borrower(&s.username)))
++            .unwrap_or(false);
++        let guest = crate::kybernow::is_guest(ctrl, &session_id) && !borrower;
 +        crate::uplink::start(connection, session_id, guest, &uplink).await
 +    } else {
 +        crate::uplink::Started::default()
@@ -36,7 +41,7 @@ index 6ae6f2b..2bd36ed 100644
      let video_connection_tx = video
          .as_mut()
          .and_then(|vec| vec.first_mut())
-@@ -955,6 +968,7 @@ async fn start_session(
+@@ -955,6 +973,7 @@ async fn start_session(
          input,
          clock_sync,
          metrics,
@@ -109,10 +114,10 @@ index d69a8ec..c75e427 100644
  mod webclient;
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
 new file mode 100644
-index 0000000..89d12a2
+index 0000000..ae9526c
 --- /dev/null
 +++ b/kycontroller/src/uplink.rs
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,415 @@
 +// KyberNow (0085): upstream streams, from the app to the computer (the
 +// device's camera, its microphone).
 +//
@@ -172,6 +177,12 @@ index 0000000..89d12a2
 +/// Who sends each kind now (one at a time on the computer): the session and
 +/// the device it named.
 +static SENDERS: Mutex<Option<HashMap<&'static str, (Uuid, String)>>> = Mutex::new(None);
++
++/// The friend the computer is lent to (KyberNow Admin names its Kyber
++/// account `kn-lend-<loan>`): a guest token, but the host's uses.
++pub(crate) fn is_borrower(username: &str) -> bool {
++    username.starts_with("kn-lend-")
++}
 +
 +/// The kinds asked for in a start request; none when absent.
 +pub(crate) fn requested(request: &serde_json::Value) -> Vec<String> {
@@ -499,6 +510,13 @@ index 0000000..89d12a2
 +        add_to_response(&mut body, &[("camera".to_owned(), 12)]);
 +        assert_eq!(body["uplink"][0]["kind"], "camera");
 +        assert_eq!(body["uplink"][0]["endpoint"], 12);
++    }
++
++    #[test]
++    fn the_borrower_is_not_a_share_guest() {
++        assert!(is_borrower("kn-lend-42"));
++        assert!(!is_borrower("kn-guest-1"));
++        assert!(!is_borrower("matthieu"));
 +    }
 +
 +    #[test]
