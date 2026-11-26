@@ -11,6 +11,8 @@ Toutes les apps KyberNow Link (Mac, Apple TV, iPhone et iPad, Windows, Android e
 - Rien par-dessus l'image quand elle arrive : la connexion montre son avancement, puis l'image seule. Les mesures s'affichent à la demande (barre ou menu de session).
 - Les points de suspension ne servent qu'aux états en cours (« Connexion… ») et, sur Mac, aux commandes qui ouvrent une fenêtre (convention d'Apple).
 - Honnête : on dit combien de temps ça prend et ce qui sera coupé.
+- Un bouton tient sur une ligne : jamais « Se / connecter » sur deux lignes. Quand la place manque (un profil de plus, une langue plus longue), la rangée passe à la ligne ou se réduit ailleurs, pas le libellé du bouton.
+- « Se connecter » veut dire se connecter à un **ordinateur** (ouvrir la session). Pour le compte KyberNow, on dit « Connecter un compte » (et « Créer un compte ») : jamais un « Se connecter » seul pour le compte, qui se confondrait avec celui de l'ordinateur.
 - « de » s'élide devant un nom qui commence par une voyelle ou un h : « Réglages d'Atelier », « Réglages d'Hugo-PC », mais « Réglages de Bureau-Salon ».
 
 ## Accueil

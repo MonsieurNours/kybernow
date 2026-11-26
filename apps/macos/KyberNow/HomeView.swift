@@ -260,32 +260,36 @@ private struct Hero: View {
                         Icon("arrow-elbow-down-left", size: 14, bold: true)
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-                        Text(LinkText.showSession)
+                        Text(LinkText.showSession).lineLimit(1)
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
                 .buttonStyle(PrimaryButton(height: 56, lit: true))
+                .fixedSize()
                 .keyboardShortcut(.defaultAction)
             } else if online == false, app.store.waking.contains(host.id) {
                 // Réveil en cours : l'ordinateur est sondé toutes les 2 s.
                 Button {} label: {
-                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(LinkText.waking) }
+                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(LinkText.waking).lineLimit(1) }
                 }
                 .buttonStyle(GhostButton(height: 56))
+                .fixedSize()
                 .disabled(true)
             } else if online == false, app.store.canWake(host) {
                 Button { app.store.wake(host) } label: {
-                    HStack(spacing: 10) { Icon("power", size: 18, bold: true); Text(LinkText.wake) }
+                    HStack(spacing: 10) { Icon("power", size: 18, bold: true); Text(LinkText.wake).lineLimit(1) }
                 }
                 .buttonStyle(PrimaryButton(height: 56))
+                .fixedSize()
                 .keyboardShortcut(.defaultAction)
             } else if online == false {
                 Button {
                     Task { await app.store.retry(host) }
                 } label: {
-                    HStack(spacing: 10) { Icon("arrows-clockwise", size: 18); Text("Réessayer") }
+                    HStack(spacing: 10) { Icon("arrows-clockwise", size: 18); Text("Réessayer").lineLimit(1) }
                 }
                 .buttonStyle(GhostButton(height: 56))
+                .fixedSize()
             } else {
                 // Le droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
                 Button { app.connect(host) } label: {
@@ -293,11 +297,17 @@ private struct Hero: View {
                         Icon("arrow-elbow-down-left", size: 14, bold: true)
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-                        if app.store.watchOnly(host) { Text(verbatim: Share.watchWord(.action)) } else { Text("Se connecter") }
+                        Group {
+                            if app.store.watchOnly(host) { Text(verbatim: Share.watchWord(.action)) } else { Text("Se connecter") }
+                        }
+                        .lineLimit(1)
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
                 .buttonStyle(PrimaryButton(height: 56))
+                // Jamais sur deux lignes : avec Auto, le profil prend plus de place
+                // et la rangée serrait ce bouton (« Se / connecter »).
+                .fixedSize()
                 .keyboardShortcut(.defaultAction)
                 // Quatre ordinateurs au plus en même temps.
                 .disabled(app.sessions.isFull)
