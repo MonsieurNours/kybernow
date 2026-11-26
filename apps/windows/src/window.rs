@@ -14,6 +14,7 @@
 //! | Ctrl+Alt+Maj+F | plein écran ou fenêtre (un seul écran) |
 //! | Ctrl+Alt+Maj+M | souris des jeux (relative) ou du bureau |
 //! | Ctrl+Alt+Maj+O | ordinateur suivant (plusieurs ordinateurs) |
+//! | Ctrl+Alt+Maj+R | enregistrer la session, ou arrêter (Station qui enregistre, hôte) |
 //! | Ctrl+Alt+Maj+S | statistiques (la barre et son panneau) |
 //!
 //! Tout vit sur le fil de la session (voir `host.rs`) : l'accueil de l'app
@@ -2516,6 +2517,13 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                         b'S' => {
                             if !repeat {
                                 app.events.statistics(win.hwnd);
+                            }
+                            true
+                        }
+                        // Enregistrer, ou arrêter l'enregistrement (hôte seulement).
+                        b'R' => {
+                            if !repeat {
+                                app.events.record_shortcut();
                             }
                             true
                         }

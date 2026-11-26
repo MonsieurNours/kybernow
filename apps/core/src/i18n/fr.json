@@ -245,5 +245,28 @@
     "adaptive": "Débit adaptatif",
     "adaptive_help": "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.",
     "adaptive_pyrowave": "En PyroWave, il est en pause : la définition baisse à la place."
+  },
+  "recording": {
+    "record": "Enregistrer",
+    "pill": "Enregistrement · {time}",
+    "record_tooltip": "Enregistrer la session sur l'ordinateur ({shortcut})",
+    "stop_tooltip": "Arrêter l'enregistrement ({shortcut})",
+    "stop": "Arrêter l'enregistrement",
+    "on_computer": "Sur l'ordinateur",
+    "record_menu": "Enregistrer la session",
+    "stop_menu": "Arrêter l'enregistrement ({time})",
+    "started": "Enregistrement lancé sur l'ordinateur.",
+    "saved": "Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.",
+    "guest_pill": "Enregistrement",
+    "guest_notice": "{name} enregistre la session.",
+    "guest_stopped": "L'enregistrement est arrêté.",
+    "disabled": "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).",
+    "codec": "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.",
+    "disk_full": "Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer.",
+    "folder": "Le dossier des enregistrements est inaccessible (Admin › Enregistrements).",
+    "lent": "{name} utilise l'ordinateur.",
+    "failed": "L'enregistrement n'a pas pu commencer.",
+    "stopped_disk": "L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.",
+    "stopped_codec": "L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas."
   }
 }

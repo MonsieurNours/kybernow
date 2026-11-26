@@ -30,6 +30,8 @@ mod playstation;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod pyrowave;
 #[cfg(target_os = "android")]
+mod recording;
+#[cfg(target_os = "android")]
 mod relay;
 #[cfg(target_os = "android")]
 mod session;

@@ -216,6 +216,14 @@ pub trait HostEvents: Send + Sync {
     /// `mbps` (Mbit/s par écran, avis `EncoderCeiling` du cœur) : le plafond
     /// de l'encodeur à garder pour cet ordinateur. Rien à l'écran.
     fn encoder_ceiling(&self, _mbps: u32) {}
+    /// Enregistrement de la session (docs/link-ui.md « Enregistrement de la
+    /// session ») : l'état quand il change (jamais pour le temps qui passe),
+    /// l'avis bref du cœur tel quel, et pour un invité le nom de l'ordinateur.
+    /// Une Station qui n'enregistre pas ne le dit jamais.
+    fn recording(&self, _state: &kybernow_core::recording::RecordingState, _notice: Option<&str>, _computer: Option<&str>) {}
+    /// Ctrl+Alt+Maj+R sur une fenêtre de la session : l'enregistrement se
+    /// lance ou s'arrête (hôte seulement).
+    fn record_shortcut(&self) {}
 }
 
 pub struct HostOptions {
@@ -724,6 +732,10 @@ impl Platform for WinPlatform {
     }
     fn on_lend(&self, lend: Option<&kybernow_core::lend::LendView>) {
         self.events.lend(lend);
+    }
+    // Enregistrement de la session (docs/enregistrement.md).
+    fn on_recording(&self, state: &kybernow_core::recording::RecordingState, notice: Option<&str>, computer: Option<&str>) {
+        self.events.recording(state, notice, computer);
     }
     /// Par le relais, la session finit parce que l'ordinateur n'est pas joignable
     /// hors de chez soi : l'erreur typée, juste avant la fin. C'est elle qui choisit

@@ -352,6 +352,7 @@ extension AppModel {
             guard let session = sessions.session(for: id) else { return }
             session.bringToFront()
             session.toggleStatsPanel()
+        case let .recording(id): sessions.session(for: id)?.toggleRecording()
         case let .show(id): sessions.session(for: id)?.bringToFront()
         case let .keepSound(id):
             guard let session = sessions.session(for: id) else { return }

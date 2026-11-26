@@ -368,6 +368,7 @@
     "mode": "{width} × {height} · {refresh} Hz",
     "fps": "{fps} i/s",
     "statistics_shortcut": " (Ctrl+Alt+Maj+S)",
+    "record_shortcut": "Ctrl+Alt+Maj+R",
     "close_statistics": "Fermer les statistiques",
     "mac_switch": "⌘ ⇥",
     "mac_switch_hint": "changer d'app",

@@ -85,6 +85,15 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
 
 Release uses automatic signing; it is what `scripts/sideload.sh` builds, also removing the Debug manual signing.
 
+## Session recording
+
+Contract: [docs/enregistrement.md](../../docs/enregistrement.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), "Session recording". The Station writes the file, the app asks for it and shows it; state and texts from the core (`SessionEngine.onRecording`, `RecordingState` in `apps/macos/KyberKit/RecordingCore.swift`).
+
+- **Host**: "Record" (filled circle) in the fixed part of the bar, after "Lend the computer…"; while recording, the red pill and the time, "Stop recording" below, a tap stops it (`ConsoleClient.recording`, off the UI thread). With the bar closed, the tab keeps the red "Recording · 02:14" pill at the top of the picture, always visible; the time every second, the dot pulses once a second (still with "Reduce Motion").
+- **Turned off in Admin**: dimmed, a tap gives the reason as a brief notice. A refusal (PyroWave, disk, folder, loan): its brief notice. The core's notices (started, saved) in the usual capsule.
+- **Guest**: the "Recording" pill, with no action (tab and bar). Friend borrowing, or a Station that doesn't record: nothing.
+- **To try on a device**: nothing was built (no Vendor in this work's worktree, `swiftc -parse` only) nor tried against a recording Station.
+
 ## Tests and limits
 
 - Welcome and KyberNow account (26/11/2026): built for the iOS 27.0 simulator and seen in demo mode on the iPhone 16 Pro (`-demo YES -skipLaunch YES -demoWelcome 1|2|3`, `-demoAccountCard YES`, `-demoPairedHint YES`, `-demoAway YES`): the three welcome screens (`WelcomeViews.swift`), the account icon at the top of the home screen (“Connect an account” label for accessibility), the banner after a pairing. “Show the welcome again” in App settings › Accounts. **Not yet**: the account card seen on screen (at the end of the row), a real sign-in from screen 2, “Create an account” in Safari, “Away from home?” against a really absent computer, English.

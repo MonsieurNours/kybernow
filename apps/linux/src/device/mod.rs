@@ -99,6 +99,8 @@ pub enum Event {
     FriendAdded(Result<Box<(crate::model::Borrowed, crate::app::LendLive, String)>, String>),
     /// Prêt de l'ordinateur, hôte : la vue du prêt après une demande à Admin (en session, sur l'accueil), ou le refus.
     LendHost { session: SessionId, result: Result<crate::app::LendHostView, String> },
+    /// Enregistrement de la session, hôte : la réponse d'Admin (l'état, ou le texte du refus).
+    RecordingReply { session: SessionId, result: Result<Option<crate::app::RecordingUi>, String> },
     LendHome { host: String, result: Result<crate::app::LendHostView, String> },
     /// Un lien `kybernow://` transmis par une app lancée avec lui (`link::listen`).
     Link(crate::app::LinkUi),
@@ -200,6 +202,8 @@ pub enum SessionEvent {
     LendNotice { text: String, at: u64 },
     /// Prêt de l'ordinateur, emprunt : le prêt finit la session (son texte, vide pour l'ordinateur rendu).
     LendEnd(String),
+    /// Enregistrement de la session : l'état quand il change, et l'avis bref à montrer.
+    Recording { state: crate::app::RecordingUi, notice: Option<String> },
 }
 
 /// Règles de la souris Auto : le jeu doit aussi cacher son pointeur (comme Mac et Windows).
@@ -1055,6 +1059,8 @@ pub fn run(args: &[String]) {
             || app.sessions.iter().any(|s| s.share_busy || s.share_copied.is_some_and(|(t, _)| t.elapsed().as_secs_f32() < 4.2))
             // Le lien du relais en préparation : le cercle d'attente tourne, et la fenêtre se redessine à la fin de l'attente.
             || app.sessions.iter().any(|s| s.share.as_ref().is_some_and(crate::app::ShareView::relay_wait_redraw) || s.lend.as_ref().is_some_and(crate::app::LendHostView::relay_wait_redraw))
+            // L'enregistrement en cours, barre ou menu ouverts : le temps et le rond qui bat.
+            || app.recording_redraw()
             || pads.mouse_active();
         let timeout = if animating { 16 } else if streaming { 100 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
@@ -2310,14 +2316,21 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             }
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris), O (ordinateur
-            // suivant), S (statistiques) ; ils visent la session de la fenêtre active.
-            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_S) {
+            // suivant), R (enregistrer), S (statistiques) ; ils visent la session de la fenêtre active.
+            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_R | sdl::SC_S) {
                 if down && !repeat {
                     match sc {
                         sdl::SC_D => actions.extend(routed.map(Action::Disconnect)),
                         sdl::SC_F => actions.push(Action::ToggleFullscreen(routed)),
                         sdl::SC_M => actions.extend(routed.map(Action::ToggleMouse)),
                         sdl::SC_O => actions.push(Action::NextSession),
+                        // Lancer ou arrêter l'enregistrement (hôte) ; coupé dans Admin, la raison en avis.
+                        sdl::SC_R => {
+                            if routed.is_some() && routed == app.active {
+                                actions.extend(app.recording_toggle(true));
+                            }
+                            *dirty = true;
+                        }
                         sdl::SC_S => {
                             if let Some(s) = routed.and_then(|id| app.session_by_mut(id)) {
                                 s.toggle_stats();
@@ -2865,6 +2878,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             Err(e) => app.friend_failed(e),
         },
         Event::LendHost { session, result } => app.lend_reply(session, result),
+        Event::RecordingReply { session, result } => app.recording_reply(session, result),
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         // Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (l'accueil refait quand ils arrivent).
         Event::Account(e) => {
@@ -3237,6 +3251,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         // Prêt de l'ordinateur : la vue du prêt de l'hôte ; le préavis et la fin d'un emprunt.
         SessionEvent::Lend(view) => app.lend_changed(id, view),
         SessionEvent::LendNotice { text, at } => app.lend_notice(id, text, at),
+        SessionEvent::Recording { state, notice } => app.recording_changed(id, state, notice),
         SessionEvent::LendEnd(text) => {
             log::info!("prêt : fin de l'emprunt ({text})");
             app.lend_ended(id, text);
@@ -3715,6 +3730,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             match host {
                 Some(h) => jobs::lend_host(id, h, op, tx.clone()),
                 None => app.lend_reply(id, Err(tr("L'ordinateur n'est plus dans la liste de cet appareil.", "The computer is no longer in this device's list.").into())),
+            }
+        }
+        Action::Recording(id, record) => {
+            let host = lives.get(id).and_then(|l| app.store.host(&l.host)).cloned();
+            match host {
+                Some(h) => jobs::recording(id, h, app.store.device_id.clone(), record, tx.clone()),
+                None => app.recording_reply(id, Err(tr("L'ordinateur n'est plus dans la liste de cet appareil.", "The computer is no longer in this device's list.").into())),
             }
         }
         Action::LendHome { host, op } => {

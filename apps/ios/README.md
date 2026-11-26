@@ -85,6 +85,15 @@ xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-ip
 
 La Release est en signature automatique ; c'est elle que compile `scripts/sideload.sh`, qui retire aussi la signature manuelle du Debug.
 
+## Enregistrement de la session
+
+Contrat : [docs/enregistrement.md](../../docs/enregistrement.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Enregistrement de la session ». La Station écrit le fichier, l'app le demande et le montre ; état et textes du cœur (`SessionEngine.onRecording`, `RecordingState` de `apps/macos/KyberKit/RecordingCore.swift`).
+
+- **Hôte** : « Enregistrer » (rond plein) dans la partie fixe de la barre, après « Prêter l'ordinateur… » ; pendant, la pastille rouge et le temps, « Arrêter l'enregistrement » dessous, un toucher l'arrête (`ConsoleClient.recording`, hors du fil de l'interface). Barre fermée, la languette garde la pastille rouge « Enregistrement · 02:14 » en haut de l'image, toujours visible ; le temps chaque seconde, le rond bat une fois par seconde (fixe avec « Réduire les animations »).
+- **Coupé dans Admin** : estompé, le toucher donne la raison en avis bref. Un refus (PyroWave, disque, dossier, prêt) : son avis bref. Les avis du cœur (lancé, terminé) dans la capsule habituelle.
+- **Invité** : la pastille « Enregistrement », sans action (languette et barre). Ami qui emprunte, ou Station qui n'enregistre pas : rien.
+- **À essayer sur l'appareil** : rien n'a été compilé (pas de Vendor dans le worktree de ce chantier, `swiftc -parse` seulement) ni essayé face à une Station qui enregistre.
+
 ## Essais et limites
 
 - Accueil et compte KyberNow (26/11/2026) : construit pour le simulateur iOS 27.0 et vu en démonstration sur l'iPhone 16 Pro (`-demo YES -skipLaunch YES -demoWelcome 1|2|3`, `-demoAccountCard YES`, `-demoPairedHint YES`, `-demoAway YES`) : les trois écrans de l'accueil (`WelcomeViews.swift`), l'icône du compte en haut de l'accueil (libellé « Connecter un compte » pour l'accessibilité), le bandeau après un appairage. « Revoir l'accueil » dans Réglages de l'app › Comptes. **Pas encore** : la carte du compte vue à l'écran (en fin de rangée), une vraie connexion depuis l'écran 2, « Créer un compte » dans Safari, « Hors de chez vous ? » face à un vrai ordinateur absent, l'anglais.

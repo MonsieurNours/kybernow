@@ -116,6 +116,10 @@ pub enum Event {
     LendHome { host: String, result: Result<crate::app::LendHostView, String> },
     /// Prêt de l'ordinateur, hôte : la vue du prêt du signe de vie, quand elle change.
     Lend(Option<crate::app::LendHostView>),
+    /// Enregistrement de la session : l'état quand il change, et l'avis bref à montrer.
+    Recording { state: crate::app::RecordingUi, notice: Option<String> },
+    /// Enregistrement de la session, hôte : la réponse d'Admin (l'état, ou le texte du refus).
+    RecordingReply(Result<Option<crate::app::RecordingUi>, String>),
     /// Prêt de l'ordinateur, emprunt : le préavis de 2 minutes (son texte, l'heure de la fin).
     LendNotice { text: String, at: u64 },
     /// Prêt de l'ordinateur, emprunt : le prêt finit la session (son texte).
@@ -276,6 +280,7 @@ pub fn run(args: &[String]) {
     let mut ui_shown = true;
     let mut cursor_shown = true;
     let mut quit = false;
+    let mut rec_tick: Option<u64> = None;
 
     while !quit {
         // Animations : l'arrivée en session, les capsules, les vibrations d'essai.
@@ -487,6 +492,12 @@ pub fn run(args: &[String]) {
         if animating {
             dirty = true;
         }
+        // L'enregistrement en cours, menu ouvert : la tuile se redessine à chaque seconde de son temps.
+        let tick = app.recording_tick();
+        if tick.is_some() && tick != rec_tick {
+            dirty = true;
+        }
+        rec_tick = tick;
         let show_ui = app.screen != Screen::Session || ui::session_overlay_visible(&app);
         if dirty {
             if show_ui {
@@ -1101,6 +1112,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         Event::LendHost(result) => app.lend_reply(result),
         Event::LendHome { host, result } => app.lend_home_reply(&host, result),
         Event::Lend(view) => app.lend_changed(view),
+        Event::Recording { state, notice } => app.recording_changed(state, notice),
+        Event::RecordingReply(result) => app.recording_reply(result),
         Event::LendNotice { text, at } => app.lend_notice(text, at),
         Event::LendEnd(text) => {
             log::info!("prêt : fin de l'emprunt ({text})");
@@ -1418,6 +1431,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             match host {
                 Some(h) => jobs::lend_host(h, op, tx.clone()),
                 None => app.lend_reply(Err(tr("L'ordinateur n'est plus dans la liste de ce téléviseur.", "The computer is no longer in this TV's list.").into())),
+            }
+        }
+        Action::Recording(record) => {
+            let host = live.as_ref().and_then(|_| app.session.as_ref()).and_then(|s| app.store.host(&s.host)).cloned();
+            match host {
+                Some(h) => jobs::recording(h, app.store.device_id.clone(), record, tx.clone()),
+                None => app.recording_reply(Err(tr("L'ordinateur n'est plus dans la liste de ce téléviseur.", "The computer is no longer in this TV's list.").into())),
             }
         }
         Action::LendHome { host, op } => {

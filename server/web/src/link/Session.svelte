@@ -39,6 +39,7 @@
   import LendAsk from './LendAsk.svelte'
   import { borrowCaps, clearActive, lendEndText, lendNoticeText, lendRefusalText, markActive, type BorrowStart } from './lend'
   import { leftText } from '../lib/lend'
+  import { elapsedNow, readRecording, recordingClock, recordingNotice, recordingTooltip, type RecordingState } from '../lib/recording'
   import { offer, probeAtLoad } from './pyrowave/state.svelte'
   import { pyrowaveStats, type PyroWaveStats } from './pyrowave/live'
 
@@ -167,6 +168,21 @@
   let lendAbort: AbortController | null = null
   /** Côté ami : le prêt s'est ouvert une fois dans cette page (un refus de « Revenir » se dit sur la carte de fin). */
   let lendOpened = false
+  /** L'enregistrement de la session (docs/link-ui.md, « Enregistrement de la session ») : l'état du
+   * dernier signe de vie (hôte ou invité ; `null` : la Station n'enregistre pas, rien n'est montré),
+   * quand il est arrivé, et l'heure de la page, relue chaque seconde pendant l'enregistrement. */
+  let recording = $state<RecordingState | null>(null)
+  let recordingAt = $state(Date.now())
+  let recordingNow = $state(Date.now())
+  /** Un signe de vie a déjà dit l'état : sans lui, un enregistrement en cours n'est pas « lancé » (hôte). */
+  let recordingSeen = false
+  let recordingBusy = $state(false)
+  /** Le dernier appui sur « Enregistrer » est un doigt ou un stylet (coupé dans Admin : la raison en avis). */
+  let recordingTouch = false
+  const recordingTime = $derived(recordingClock(elapsedNow(recording, recordingAt, recordingNow)))
+  /** « Enregistrement · 02:14 » (hôte), « Enregistrement » (invité). */
+  const recordingPill = $derived(g ? t('recording.guest_pill') : t('recording.pill', { time: recordingTime }))
+  const recordingHint = $derived(!recording ? '' : g ? t('recording.guest_notice', { name: hostname }) : recordingTooltip(recording))
   /** Côté ami : « Rendre l'ordinateur à {hôte} ? » ouvert. */
   let giveBackOpen = $state(false)
   let clockNow = $state(Date.now() / 1000)
@@ -319,6 +335,7 @@
         // Le partage de cet appareil, absent sans partage ; le prêt, absent quand il n'y a rien à dire.
         share = r.data?.share?.open ? (r.data.share as ShareView) : null
         lend = (r.data?.lend as LendView | undefined) ?? null
+        applyRecording(readRecording(r.data?.recording))
       }
     },
     g ? g.join.beat * 1000 : 5000,
@@ -425,6 +442,7 @@
     if (r.status !== 200 || !r.data) return
     const beat = r.data as GuestBeat
     if (beat.end) return endedByHost(beat.end)
+    applyRecording(readRecording(beat.recording))
     if (beat.role && beat.role !== role) changeRole(beat.role)
     if (beat.token) ticketToken = beat.token
     if (beat.image) {
@@ -1095,6 +1113,37 @@
     notice = text
     if (noticeTimer) clearTimeout(noticeTimer)
     noticeTimer = setTimeout(() => (notice = ''), duration)
+  }
+
+  /** Le nouvel état de l'enregistrement (signe de vie, réponse de l'appel) : l'avis bref de link-ui quand il change. */
+  function applyRecording(next: RecordingState | null) {
+    const text = recordingNotice(recordingSeen ? recording : undefined, next, g ? { guest: hostname } : 'host')
+    recording = next
+    recordingAt = recordingNow = Date.now()
+    recordingSeen = true
+    if (!text) return
+    if (phase === 'live') showNotice(text)
+    else pendingNotice = text
+  }
+
+  /** « Enregistrer » ou la pastille (hôte) : lance ou arrête. Coupé dans Admin : rien à la souris
+   * (l'infobulle dit pourquoi), la raison en avis au toucher. Un refus : le texte d'Admin en avis. */
+  async function toggleRecording() {
+    const touched = recordingTouch || isTouch
+    recordingTouch = false
+    if (!recording || recordingBusy || g || b) return
+    if (!recording.active && !recording.allowed) {
+      if (touched) showNotice(t('recording.disabled'))
+      return
+    }
+    recordingBusy = true
+    try {
+      applyRecording(readRecording(await backend.recording(!recording.active, deviceId())))
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : String(e))
+    } finally {
+      recordingBusy = false
+    }
   }
 
   /** « Manettes indisponibles sur cet ordinateur. » : à l'arrivée de l'image si une manette est
@@ -1782,6 +1831,8 @@
     }
     // Le temps qui reste au prêt d'un ami (« Encore 1 h 20 »).
     const lendClock = b ? setInterval(() => (clockNow = Date.now() / 1000), 10_000) : null
+    // Le temps de l'enregistrement, chaque seconde (barre fermée comprise).
+    const recordingClockTimer = setInterval(() => recording?.active && (recordingNow = Date.now()), 1000)
     // Ctrl + Alt + Maj : la barre, et la souris rendue.
     const shortcut = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
@@ -1920,6 +1971,7 @@
       clearInterval(sampler)
       clearInterval(ticketTimer)
       if (lendClock) clearInterval(lendClock)
+      clearInterval(recordingClockTimer)
       lendAbort?.abort()
       heartbeat.stop()
       clearInterval(foreground)
@@ -2050,6 +2102,14 @@
   {/if}
 
   <!-- Barre de session (souris et clavier) -->
+  {#if phase === 'live' && recording?.active && (isTouch ? !touchBar : !barVisible)}
+    <!-- Barre fermée : la pastille reste là, toujours visible (tout le monde dans la session le voit). -->
+    <div class="recfloat" role="status" aria-label={g ? recordingHint : recordingPill}>
+      <span class="beat" aria-hidden="true"></span>
+      <span class="mono">{g ? recordingPill : recordingTime}</span>
+    </div>
+  {/if}
+
   {#if !isTouch && phase === 'live'}
     {#if edgeShown}
       <button type="button" class="edge" aria-label={t('session.bar.show')} title={t('session.bar.showHint')} onpointerdown={(e) => (edgeTouch = e.pointerType === 'touch')} onclick={() => showBar(edgeTouch)}><span></span></button>
@@ -2078,6 +2138,13 @@
           <span class="chip static relay">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
             <span class="label">{t('session.bar.relay')}</span>
+          </span>
+        {/if}
+        {#if recording?.active}
+          <!-- L'hôte enregistre : la pastille rouge, sans action. -->
+          <span class="chip static rec" title={recordingHint} aria-label={recordingHint}>
+            <span class="beat" aria-hidden="true"></span>
+            <span class="label">{recordingPill}</span>
           </span>
         {/if}
         {#if qualityKnown}
@@ -2152,6 +2219,22 @@
           <span class="label">{t('lend.open')}</span>
           {#if lendRequests.length}<span class="count ask" aria-hidden="true"><span class="full">{tn('share.requestCount', lendRequests.length)}</span><span class="num">{lendRequests.length}</span></span>{/if}
         </button>
+      {/if}
+      {#if !g && !b && recording}
+        <!-- « Enregistrer » (docs/link-ui.md) : pendant, la pastille rouge et son temps, un clic l'arrête ;
+             coupé dans Admin : estompé, la raison en infobulle (au toucher, en avis). -->
+        {#if recording.active}
+          <button type="button" class="chip rec" title={recordingHint} aria-label="{recordingPill} · {recordingHint}" disabled={recordingBusy} onclick={toggleRecording}>
+            <span class="beat" aria-hidden="true"></span>
+            <span class="label">{recordingPill}</span>
+            <span class="clock mono" aria-hidden="true">{recordingTime}</span>
+          </button>
+        {:else}
+          <button type="button" class="chip" class:inactive={!recording.allowed} aria-disabled={!recording.allowed} aria-label={t('recording.record')} title={recordingHint} disabled={recordingBusy} onpointerdown={(e) => (recordingTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleRecording}>
+            <span class="dot-rec" aria-hidden="true"></span>
+            <span class="label">{t('recording.record')}</span>
+          </button>
+        {/if}
       {/if}
       <span class="sep" aria-hidden="true"></span>
       <button type="button" class="chip icon" aria-label={fullscreen ? t('session.bar.exitFullscreen') : t('session.bar.fullscreen')} onclick={toggleFullscreen}>
@@ -2255,6 +2338,7 @@
         <span class="mono tlat">{latencyText}</span>
         {#if g}<span class="trole">{roleText}</span>{/if}
         {#if b}<span class="trole ttime" class:soon={lendNoticeAt !== null}>{lendTimeText}</span>{/if}
+        {#if g && recording?.active}<span class="trec" role="img" aria-label={recordingHint}><span class="beat" aria-hidden="true"></span></span>{/if}
         {#if relayed}
           <span class="trelay" role="img" title={t('session.bar.relay')} aria-label={t('session.bar.relay')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></svg>
@@ -2296,6 +2380,15 @@
             <button type="button" class="tb" class:inactive={lendSupport !== 'ok'} aria-expanded={lendOpen} aria-disabled={lendSupport !== 'ok'} aria-label={lendAria} onclick={toggleLend}>
               <Icon name="lend" size={20} stroke={1.7} />
               {#if lendRequests.length}<span class="tcount ask mono" aria-hidden="true">{lendRequests.length}</span>{/if}
+            </button>
+          {/if}
+          {#if recording?.active}
+            <button type="button" class="tb trec-on" aria-label="{recordingPill} · {t('recording.stop')}" disabled={recordingBusy} onclick={toggleRecording}>
+              <span class="beat" aria-hidden="true"></span><span class="mono">{recordingTime}</span>
+            </button>
+          {:else if recording}
+            <button type="button" class="tb" class:inactive={!recording.allowed} aria-disabled={!recording.allowed} aria-label={t('recording.record')} disabled={recordingBusy} onclick={toggleRecording}>
+              <span class="dot-rec" aria-hidden="true"></span>
             </button>
           {/if}
         {/if}
@@ -3387,6 +3480,109 @@
 
     .menu {
       right: 8px;
+    }
+  }
+
+  /* Enregistrement : la pastille rouge (--bad, le --kn-bad de la marque), son rond qui bat une fois
+     par seconde ; « Enregistrer » : le rond plein. Barre étroite : « 02:14 » seul. */
+  .chip.rec,
+  .recfloat,
+  .tb.trec-on {
+    background: var(--bad-bg);
+    box-shadow: inset 0 0 0 1px var(--bad-line);
+    color: var(--bad-text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  button.chip.rec:hover {
+    background: rgb(255 107 107 / 0.22);
+    color: #fff;
+  }
+
+  .chip.rec .clock {
+    display: none;
+    font-size: 11.5px;
+  }
+
+  .beat,
+  .dot-rec {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--bad);
+    flex: none;
+  }
+
+  .beat {
+    animation: beat 1s ease-in-out infinite;
+  }
+
+  @keyframes beat {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .dot-rec {
+    width: 11px;
+    height: 11px;
+  }
+
+  .chip.inactive .dot-rec,
+  .tb.inactive .dot-rec {
+    background: var(--faint);
+  }
+
+  .recfloat {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 14px;
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .tb.trec-on {
+    width: auto;
+    padding: 0 10px;
+    display: flex;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .trec {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+  }
+
+  @media (max-width: 880px) {
+    .chip.rec {
+      width: auto;
+      padding: 0 10px;
+    }
+
+    .chip.rec .clock {
+      display: inline;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .beat {
+      animation: none;
     }
   }
 

@@ -434,6 +434,10 @@ public final class SessionEngine: @unchecked Sendable {
     /// Session d'hôte : la vue du prêt de l'ordinateur, quand elle change (nil
     /// quand il n'y a rien à dire).
     public var onLend: ((LendView?) -> Void)?
+    /// L'enregistrement de la session (docs/enregistrement.md), hôte comme
+    /// invité, quand il change ; l'avis bref de link-ui à montrer (nil :
+    /// rien à dire). Une Station qui n'enregistre pas ne l'appelle jamais.
+    public var onRecording: ((RecordingState, String?) -> Void)?
 
     public let view: StreamView
     private let lock = NSLock()
@@ -638,6 +642,12 @@ public final class SessionEngine: @unchecked Sendable {
             let me = SessionEngine.from(ud)
             let view = LendView(json: lend.map { String(cString: $0) })
             DispatchQueue.main.async { me.onLend?(view) }
+        }
+        platform.on_recording = { ud, json, notice in
+            guard let state = RecordingState(json: json.map { String(cString: $0) }) else { return }
+            let text = notice.map { String(cString: $0) }
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.onRecording?(state, text) }
         }
         platform.on_hdr = { ud, list, count in
             let screens = (0..<Int(count)).map { list![$0] }

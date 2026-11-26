@@ -620,6 +620,17 @@ pub trait Platform: Send + Sync {
     /// signe de vie (champ `lend`) ; `None` : rien à dire (ni code, ni
     /// demande, ni prêt). Appelée quand elle change.
     fn on_lend(&self, _lend: Option<&crate::lend::LendView>) {}
+
+    /// L'enregistrement de la session (docs/enregistrement.md), hôte comme
+    /// invité, tel que le dit le signe de vie : au premier qui en porte un,
+    /// puis quand il change (lancé, arrêté, coupé dans Admin ; jamais pour
+    /// le temps qui passe : la plateforme le compte, chaque seconde, par
+    /// [`crate::recording::RecordingState::clock`]). `notice` : l'avis bref
+    /// de link-ui à montrer, dans la langue de l'app ; `computer` : pour un
+    /// invité, le nom de l'ordinateur (« {nom} enregistre la session. »),
+    /// `None` pour l'hôte. Une Station qui n'enregistre pas n'appelle
+    /// jamais : ni bouton ni pastille.
+    fn on_recording(&self, _state: &crate::recording::RecordingState, _notice: Option<&str>, _computer: Option<&str>) {}
 }
 
 /// Ce qu'une session d'invité ne fait jamais : chaque appel à Admin ou à
@@ -1809,6 +1820,8 @@ struct Worker {
     last_share: Option<ShareState>,
     /// Session d'hôte : la vue du prêt du dernier signe de vie.
     last_lend: Option<crate::lend::LendView>,
+    /// L'enregistrement, tel que le dit le dernier signe de vie.
+    last_recording: Option<crate::recording::RecordingState>,
     /// Session d'emprunt : la réponse de `borrow` (jeton de Kyber à jour).
     borrow: Option<crate::lend::Borrowed>,
     /// Le préavis en cours, la fin dite par le prêt (et son texte), et si
@@ -2019,6 +2032,7 @@ impl Worker {
             quality_asked: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             last_share: None,
             last_lend: None,
+            last_recording: None,
             borrow,
             lend_notice: None,
             lend_end: None,
@@ -3304,6 +3318,11 @@ impl Worker {
         if let Some(image) = b.image {
             self.share_image_changed(image);
         }
+        // L'enregistrement de l'hôte : l'invité le voit.
+        if let Some(rec) = b.recording {
+            let computer = self.guest.as_ref().map(|g| g.joined.computer.clone()).unwrap_or_default();
+            self.recording_changed(rec, crate::recording::Viewer::Guest(&computer));
+        }
         let current = self.guest.as_ref().map(|g| g.joined.display.id);
         match b.display {
             // L'écran partagé a changé (refait par l'hôte) : Kyber ne change
@@ -4158,6 +4177,28 @@ impl Worker {
         None
     }
 
+    /// Un état de l'enregistrement : la plateforme le reçoit quand il change,
+    /// avec l'avis bref de link-ui.
+    fn recording_changed(&mut self, rec: crate::recording::RecordingState, viewer: crate::recording::Viewer<'_>) {
+        if self.last_recording.as_ref() == Some(&rec) {
+            // Le même : seul le temps de la Station est repris (il fait foi).
+            self.last_recording = Some(rec);
+            return;
+        }
+        let notice = crate::recording::notice(self.last_recording.as_ref(), &rec, viewer, i18n::current());
+        info!(
+            "enregistrement : {}{}",
+            if rec.active { "en cours" } else { "arrêté" },
+            if rec.allowed { "" } else { " (coupé dans Admin)" }
+        );
+        let computer = match viewer {
+            crate::recording::Viewer::Guest(name) => Some(name),
+            crate::recording::Viewer::Host => None,
+        };
+        self.platform.on_recording(&rec, notice.as_deref(), computer);
+        self.last_recording = Some(rec);
+    }
+
     fn on_beat(&mut self, r: HeartbeatReply) -> Option<Failure> {
         // Un compte KyberNow : un jeton de Kyber neuf, que Kyber relira s'il se reconnecte.
         if let Some(k) = r.kyber_token.as_ref().filter(|k| !k.token.is_empty())
@@ -4182,6 +4223,10 @@ impl Worker {
                 info!("prêt : {:?}, {} demande(s){}", l.state, l.requests.len(), if l.code.is_some() { ", code en cours" } else { "" });
             }
             self.platform.on_lend(self.last_lend.as_ref());
+        }
+        // L'enregistrement : l'hôte le lance et l'arrête.
+        if let Some(rec) = r.recording {
+            self.recording_changed(rec, crate::recording::Viewer::Host);
         }
         if r.end {
             info!("la console met fin à la session");
@@ -5584,9 +5629,14 @@ mod tests {
         lend_notices: Mutex<Vec<(crate::lend::LendNotice, String)>>,
         lends: Mutex<Vec<Option<crate::lend::LendView>>>,
         notices: Mutex<Vec<Notice>>,
+        /// Enregistrement : actif, et l'avis bref.
+        recordings: Mutex<Vec<(bool, Option<String>)>>,
     }
 
     impl Platform for Recorder {
+        fn on_recording(&self, state: &crate::recording::RecordingState, notice: Option<&str>, _computer: Option<&str>) {
+            self.recordings.lock().unwrap().push((state.active, notice.map(str::to_owned)));
+        }
         fn window_handle(&self) -> WindowHandle {
             unreachable!("pas d'image dans ces tests")
         }
@@ -6229,12 +6279,44 @@ mod tests {
         assert!(r.lend.is_none() && r.active == Some(true));
     }
 
+    #[test]
+    fn enregistrement_dit_a_l_hote_et_a_l_invite() {
+        crate::i18n::set_current(crate::i18n::Lang::Fr);
+        let (mut w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        let hb = |json: &str| serde_json::from_str::<HeartbeatReply>(json).unwrap();
+        let idle = r#"{"recording":{"allowed":true,"active":false}}"#;
+        let on = r#"{"recording":{"allowed":true,"active":true,"elapsed":3,"started_at":9}}"#;
+        let later = r#"{"recording":{"allowed":true,"active":true,"elapsed":5,"started_at":9}}"#;
+        let saved = r#"{"recording":{"allowed":true,"active":false,"last_end":{"reason":"stopped","at":1}}}"#;
+        for json in [idle, idle, on, later, saved, "{}"] {
+            assert!(w.on_beat(hb(json)).is_none());
+        }
+        assert_eq!(
+            *recorder.recordings.lock().unwrap(),
+            [
+                (false, None),
+                (true, Some("Enregistrement lancé sur l'ordinateur.".into())),
+                (false, Some("Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.".into())),
+            ],
+            "dit quand il change, jamais pour le temps qui passe ; une Station muette ne change rien"
+        );
+
+        let (mut g, recorder) = guest(ShareRole::Spectator);
+        let recorded = ShareBeat { recording: serde_json::from_str::<ShareBeat>(r#"{"recording":{"allowed":true,"active":true,"elapsed":40,"started_at":2}}"#).unwrap().recording, ..beat(ShareRole::Spectator) };
+        assert!(g.on_share_beat(recorded.clone()).is_none());
+        assert!(g.on_share_beat(recorded).is_none());
+        let got = recorder.recordings.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        assert!(got[0].0);
+        assert!(got[0].1.as_deref().is_some_and(|n| n.ends_with("enregistre la session.")), "{got:?}");
+    }
+
     fn guest(role: ShareRole) -> (Worker, Arc<Recorder>) {
         guest_with(joined(role, Some("hevc"), Some("sha256:kk")), crate::profile::Capabilities { hevc: true, hevc444: true, av1: false, hdr: false, pyrowave: false })
     }
 
     fn beat(role: ShareRole) -> ShareBeat {
-        ShareBeat { role, token: Some("jwt-2".into()), expires: Some(120), display: Some(ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 60, hdr: false }), image: None, end: None }
+        ShareBeat { role, token: Some("jwt-2".into()), expires: Some(120), display: Some(ShareDisplay { id: 7, width: 1920, height: 1080, refresh: 60, hdr: false }), image: None, end: None, recording: None }
     }
 
     const ALL_HOST_ONLY: [HostOnly; 12] = [
@@ -6505,7 +6587,7 @@ mod tests {
         assert_eq!(*recorder.reports.lock().unwrap(), [false], "pas de rapport d'écrans rendus");
         // Retiré : 200 avec la fin, sans jeton (60 s durant) ; fin propre, rien de renouvelé.
         let (mut w, _) = guest(ShareRole::Spectator);
-        w.tx.send(Msg::ShareBeat(ShareBeat { role: ShareRole::Spectator, token: None, expires: Some(0), display: None, image: None, end: Some(ShareEnd::Removed) })).unwrap();
+        w.tx.send(Msg::ShareBeat(ShareBeat { role: ShareRole::Spectator, token: None, expires: Some(0), display: None, image: None, end: Some(ShareEnd::Removed), recording: None })).unwrap();
         let f = w.event_loop().expect("fin");
         assert_eq!(f.text, ShareEnd::Removed.text(i18n::current(), "Léa"));
         assert_eq!(w.share_end.as_ref().map(|(e, _)| e.clone()), Some(ShareEnd::Removed));

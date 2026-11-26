@@ -18,6 +18,8 @@ pub enum Cmd {
     /// Mode de la souris de la session (`auto`, `bureau`, `jeu`), gardé pour l'ordinateur.
     Mouse(String, &'static str),
     Statistics(String),
+    /// « Enregistrer la session » ou « Arrêter l'enregistrement (02:14) ».
+    Recording(String),
     Disconnect(String),
     /// Sa fenêtre passe devant (plusieurs ordinateurs).
     Show(String),
@@ -142,6 +144,10 @@ pub struct Session {
     /// Regarder avec un compte (session d'invité) : son titre (« Regarder
     /// {nom} ») et « Arrêter de regarder », mots du cœur.
     pub watch: Option<WatchSession>,
+    /// Enregistrement de la session (hôte, Station qui enregistre) : la ligne
+    /// du cœur (« Enregistrer la session », « Arrêter l'enregistrement
+    /// (02:14) ») et si elle est choisissable (coupé dans Admin : inactive).
+    pub recording: Option<(String, bool)>,
 }
 
 /// Les mots d'une session de qui regarde (catalogue du cœur).
@@ -278,6 +284,12 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
             out.push(Item::Sub { text: tr("tray.mouse", &[]), key: None, checked: false, dot: None, items: modes });
         }
         out.push(Item::line(tr("tray.statistics", &[]), Some(Cmd::Statistics(id.clone()))));
+        // Après « Statistiques », pour l'hôte d'une Station qui enregistre.
+        if session.guest.is_none()
+            && let Some((text, enabled)) = &session.recording
+        {
+            out.push(Item::Line { text: text.clone(), cmd: Some(Cmd::Recording(id.clone())), enabled: *enabled, mark: Mark::None, default: false });
+        }
         let leave = match (&session.watch, session.guest.is_some()) {
             (Some(w), _) => w.stop.clone(),
             (None, true) => tr("share.leave", &[]),
@@ -709,7 +721,7 @@ mod tests {
     }
 
     fn session_atelier() -> Session {
-        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, hdr: None, guest: None, watch: None }
+        Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into(), keep_sound: false, hdr: None, guest: None, watch: None, recording: None }
     }
 
     #[test]
@@ -765,6 +777,29 @@ mod tests {
     }
 
     #[test]
+    fn enregistrement_apres_statistiques() {
+        // Station qui enregistre : la ligne du cœur suit « Statistiques », pour l'hôte seulement.
+        let lang = Lang::Fr;
+        let mut state = kybernow_core::recording::RecordingState::default();
+        state.available = true;
+        state.allowed = true;
+        let s = State { sessions: vec![Session { recording: Some((state.menu_item(lang), true)), ..session_atelier() }], ..Default::default() };
+        let l = lines(&s, lang);
+        let at = l.iter().position(|x| x == "Statistiques").unwrap();
+        assert_eq!(l[at + 1..at + 3], ["Enregistrer la session", "Se déconnecter"]);
+        let mut c = Vec::new();
+        cmds(&build(&s, &tr(lang)), &mut c);
+        assert!(c.contains(&Cmd::Recording("a".into())));
+        // Coupé dans Admin : inactive.
+        let off = State { sessions: vec![Session { recording: Some((state.menu_item(lang), false)), ..session_atelier() }], ..Default::default() };
+        assert!(lines(&off, lang).contains(&"~Enregistrer la session".to_string()));
+        // Station qui n'enregistre pas, ou invité : rien.
+        assert!(!lines(&State { sessions: vec![session_atelier()], ..Default::default() }, lang).iter().any(|x| x.contains("Enregistr")));
+        let guest = State { sessions: vec![Session { recording: Some(("Enregistrer la session".into(), true)), ..guest_session(ShareRole::Spectator) }], ..Default::default() };
+        assert!(!lines(&guest, lang).iter().any(|x| x.contains("Enregistr")));
+    }
+
+    #[test]
     fn plusieurs_ecrans_sans_plein_ecran() {
         // « Plein écran » n'est pas proposé : les fenêtres restent en plein écran.
         let s = State {
@@ -798,6 +833,7 @@ mod tests {
             hdr: None,
             guest: None,
             watch: None,
+            recording: None,
         };
         let s = State {
             sessions: vec![session_atelier(), salon_session],
@@ -876,6 +912,7 @@ mod tests {
             hdr: None,
             guest: Some(role),
             watch: None,
+            recording: None,
         }
     }
 

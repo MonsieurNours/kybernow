@@ -696,6 +696,10 @@ pub struct HeartbeatReply {
     /// rien à dire (ni code, ni demande, ni prêt).
     #[serde(default, deserialize_with = "crate::lend::lenient_view")]
     pub lend: Option<crate::lend::LendView>,
+    /// L'enregistrement de la session (docs/enregistrement.md) ; absent :
+    /// Station qui n'enregistre pas.
+    #[serde(default, deserialize_with = "crate::recording::lenient")]
+    pub recording: Option<crate::recording::RecordingState>,
     /// Un compte KyberNow : un jeton de Kyber neuf, pour ses reconnexions.
     #[serde(default)]
     pub kyber_token: Option<KyberToken>,
@@ -1289,6 +1293,30 @@ impl Console {
     pub fn share_state(&self) -> Result<ShareState> {
         let r = self.request("GET", "api/share", Duration::from_secs(6)).call();
         self.read(r)
+    }
+
+    /// Lance (`record`) ou arrête l'enregistrement de la session de cet
+    /// appareil (docs/enregistrement.md) : rend l'état, ou le refus d'Admin
+    /// avec son texte de link-ui. Une Station qui n'enregistre pas : 404,
+    /// [`RecordingError::Failed`](crate::recording::RecordingError::Failed).
+    pub fn recording(&self, device_id: &str, record: bool) -> std::result::Result<crate::recording::RecordingState, crate::recording::RecordingError> {
+        use crate::recording::RecordingError;
+        let r = self
+            .request("POST", "api/stream/recording", Duration::from_secs(15))
+            .send_json(serde_json::json!({ "record": record, "device_id": device_id }));
+        match r {
+            Ok(resp) => {
+                let v: serde_json::Value =
+                    resp.into_json().map_err(|e| RecordingError::Console(ConsoleError::Invalid(e.to_string()).text(i18n::current())))?;
+                crate::recording::from_value(v).ok_or(RecordingError::Failed)
+            }
+            Err(ureq::Error::Status(409, resp)) => {
+                let body: serde_json::Value = resp.into_json().unwrap_or_default();
+                Err(RecordingError::from_code(body["code"].as_str().unwrap_or_default(), body["error"].as_str().unwrap_or_default()))
+            }
+            Err(ureq::Error::Status(404, _)) => Err(RecordingError::Failed),
+            Err(e) => Err(RecordingError::Console(self.read::<serde_json::Value>(Err(e)).err().map(|e| e.text(i18n::current())).unwrap_or_default())),
+        }
     }
 
     /// « Nouveau code » : les invités déjà là restent.

@@ -92,6 +92,16 @@ Team P6DB682S4K, automatic signing. Identifier `fr.leslignesclaires.kybernow` (s
 
 Not on the App Store: the app is installed from a Mac with Xcode, signed with your own Apple account ([SIDELOAD.en.md](SIDELOAD.en.md), `scripts/sideload.sh`). Every release attaches `KyberSDK-tvOS.zip` (the contents of `Vendor/`: Kyber SDK and core), which the script downloads and which CI reuses to build the app for the simulator (build skipped, with a warning, when the core or the Kyber patches changed since the latest release).
 
+## Session recording
+
+Contract: [docs/enregistrement.md](../../docs/enregistrement.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), "Session recording". The Station writes the file, the app asks for it and shows it; state and texts from the core (`SessionEngine.onRecording`, `RecordingState` in `apps/macos/KyberKit/RecordingCore.swift`).
+
+- **Host**: "Record" / "On the computer" tile after "Lend the computer…"; while recording, "Stop recording" / "02:14" in red, the time every second, the dot pulses once a second (still with "Reduce Motion"); the request goes through `ConsoleClient.recording`, off the UI thread.
+- **Turned off in Admin**: dimmed tile, still selectable, that gives the reason as a brief notice. A refusal: its brief notice. With the menu open, brief notices now show above the tiles (they used to appear only once the menu closed).
+- **Guest**: inactive "Recording" tile while the host records. Friend borrowing, or a Station that doesn't record: nothing.
+- **No pill on the picture**: the app has no permanent one, and a layer above the Metal picture would cost a refresh of latency; the menu tile is enough.
+- **To try on a device**: nothing was built (no Vendor in this work's worktree, `swiftc -parse` only) nor tried against a recording Station.
+
 ## Tests
 
 - Welcome and KyberNow account (26/11/2026): built for the tvOS 27.0 simulator and seen in demo mode (Apple TV 1080p, `-demo YES -demoWelcome 1|2|3`, `-demoPairedHint YES`, `-demoAccountCard YES`): the three screens (`WelcomeViews.swift`; screen 2 with the QR code and the sign-in code, “No account yet? Create it on this page.”), “Connect an account” at the top of the home screen, the banner after a pairing in place of the profile sentence. The account card only has room when the row has fewer than six cards (it wasn't visible in demo mode); “Close” by a long press. **Not yet**: the remote on these screens, a real code sign-in from screen 2, “Away from home?” against a really absent computer, a real Apple TV.

@@ -86,6 +86,15 @@ Contrat : [docs/profil-auto.md](../../docs/profil-auto.md) ; textes et écrans :
 
 <img src="screenshots/50b-profil-auto-reglages-proposes.png" width="45%" alt="Profil Auto : réglages proposés"> <img src="screenshots/6c-reglages-image-auto.png" width="45%" alt="Réglages › Image en Auto, débit adaptatif"> <img src="screenshots/51-session-autre-reseau.png" width="45%" alt="Autre réseau que celui du test">
 
+## Enregistrement de la session
+
+Contrat : [docs/enregistrement.md](../../docs/enregistrement.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Enregistrement de la session ». La Station écrit le fichier ; le téléviseur le demande et le montre, avec les textes du cœur (`RecordingState::ui_json`, recopiés dans `app::RecordingUi`).
+
+- `Platform::on_recording` (`src/device/session.rs`) : l'état et l'avis bref du cœur, montré dans la capsule comme ceux du partage et du prêt. Une Station qui n'enregistre pas : pas de tuile. Un emprunt n'en montre rien.
+- **Menu de session** (hôte) : la tuile « Enregistrer » / « Sur l'ordinateur », après « Prêter l'ordinateur… » ; pendant, « Arrêter l'enregistrement » / « 02:14 » en rouge, redessinée à chaque seconde menu ouvert. La choisir ferme le menu et demande `Console::recording` sur un fil (`jobs::recording`), une demande à la fois ; un refus revient en avis (`RecordingError::text`). Coupé dans Admin : estompée, elle donne la raison en avis.
+- **Invité** : pendant l'enregistrement, la tuile inactive « Enregistrement » (« {nom} enregistre la session. »).
+- **Vérifié** (26/11/2026, sur le Mac) : `cargo test -p kybernow-webos --no-default-features recording` (`preview::tests::recording_from_the_menu`), captures `27-enregistrer` à `27d-enregistrement-invite` ; la partie téléviseur vérifiée par un `cargo check` du Mac (crate recopiée avec un build.rs vide : seule erreur, `WindowHandle::Xlib`, propre à Linux, sans rapport). **Pas compilée pour le téléviseur** (`scripts/build.sh --check` pas lancé) ni essayée face à une Station qui enregistre.
+
 ## Décodage (NDL DirectMedia)
 
 `src/device/ndl.rs`. Ce qui compte, vérifié sur la G2 :

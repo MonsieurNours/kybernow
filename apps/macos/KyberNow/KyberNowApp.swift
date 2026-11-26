@@ -736,6 +736,16 @@ struct KyberNowApp: App {
                 }
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true)
+                // Enregistrement (docs/link-ui.md) : l'hôte seul, face à une Station qui enregistre.
+                // Coupé dans Admin, il reste actif : ⌃⌥⌘R donne la raison en avis.
+                if let target, !target.isVisitor, let recording = target.recordingShown {
+                    Button(recording.active ? recording.texts.stop : recording.texts.recordMenu) {
+                        if app.playstation.keySession != nil { return }
+                        app.sessions.commandTarget?.toggleRecording()
+                    }
+                        .keyboardShortcut("r", modifiers: [.control, .option, .command])
+                        .disabled(!target.canToggleRecording || app.playstation.keySession != nil)
+                }
                 // Plusieurs ordinateurs : la fenêtre de l'ordinateur suivant, dans l'ordre d'ouverture.
                 Button("Ordinateur suivant") { app.sessions.showNext() }
                     .keyboardShortcut("o", modifiers: [.control, .option, .command])

@@ -855,6 +855,7 @@ pub fn run(dir: &Path, lang: &str) {
     relay_shots(&mut app, &mut cv, &assets, &video, dir);
     // Le prêt de l'ordinateur (docs/pret.md) : l'ami (carte, attente, compte d'ami, session d'emprunt), l'hôte.
     lend_shots(&mut app, &mut cv, &assets, &video, dir);
+    recording_shots(&mut app, &mut cv, &assets, &video, dir);
     // Les consoles PlayStation (docs/playstation.md ; textes : docs/link-ui.md, « Consoles PlayStation »).
     playstation_shots(&mut app, &mut cv, &assets, &video, dir);
     // Les comptes KyberNow (docs/comptes.md) : accueil vide, code, accueil avec un compte, réglages.
@@ -1184,6 +1185,46 @@ fn lend_view(code: bool, request: bool) -> LendHostView {
 /// « Ordinateur de {hôte} », l'attente, « Avec un compte d'ami », un code de prêt dans « Rejoindre », la session
 /// d'emprunt (menu, « Rendre l'ordinateur », fins) ; chez l'hôte, le panneau « Prêter l'ordinateur… » et l'accueil de
 /// l'ordinateur prêté.
+/// L'enregistrement d'essai, avec les textes de link-ui dans la langue de la capture.
+pub fn recording_sample(allowed: bool, active: bool, guest: bool, elapsed: u64) -> crate::app::RecordingUi {
+    use crate::i18n::tr;
+    crate::app::RecordingUi {
+        allowed,
+        active,
+        guest,
+        elapsed,
+        since: Instant::now(),
+        texts: crate::app::RecordingTexts {
+            record: tr("Enregistrer", "Record").into(),
+            stop: tr("Arrêter l'enregistrement", "Stop recording").into(),
+            on_computer: tr("Sur l'ordinateur", "On the computer").into(),
+            guest_pill: tr("Enregistrement", "Recording").into(),
+            guest_tooltip: tr("Atelier enregistre la session.", "Atelier is recording the session.").into(),
+            disabled: tr("L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).", "Recording is turned off on this computer (Admin › Recordings).").into(),
+        },
+    }
+}
+
+/// L'enregistrement de la session (docs/link-ui.md, « Enregistrement de la session ») : la tuile « Enregistrer »,
+/// pendant (« Arrêter l'enregistrement », le temps en rouge), coupé dans Admin, la tuile inactive d'un invité.
+fn recording_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, dir: &Path) {
+    app.screen = Screen::Session;
+    for (rec, name) in [(recording_sample(true, false, false, 0), "27-enregistrer"), (recording_sample(true, true, false, 134), "27b-enregistrement"), (recording_sample(false, false, false, 0), "27c-enregistrement-coupe")] {
+        let mut s = session(app);
+        s.recording = Some(rec);
+        app.session = Some(s);
+        app.focus = Target::Menu(MenuItem::Record);
+        shot(app, cv, assets, Some(video), dir, name);
+    }
+    let mut s = guest_session(ShareRole::Spectator);
+    s.menu = true;
+    s.recording = Some(recording_sample(true, true, true, 40));
+    app.session = Some(s);
+    app.focus = Target::Menu(MenuItem::Resume);
+    shot(app, cv, assets, Some(video), dir, "27d-enregistrement-invite");
+    app.session = None;
+}
+
 fn lend_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, dir: &Path) {
     let now = crate::model::now_secs();
     let hour = now - now % 3600;
@@ -2832,6 +2873,48 @@ mod tests {
         let acts = app.activate(Target::ComeBack);
         assert!(matches!(&acts[..], [Action::ComeBack(BorrowSource::Account { id, .. })] if id == "lend:m"));
         assert!(app.session.is_none() && app.borrow.busy);
+    }
+
+    /// L'enregistrement : pas de tuile sans `recording` ; « Enregistrer » part (une demande à la fois), le refus en
+    /// avis ; pendant, le temps en sous-titre ; coupé dans Admin, la raison en avis ; la tuile d'un invité ne fait rien.
+    #[test]
+    fn recording_from_the_menu() {
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        let mut app = tv();
+        let mut s = session(&app);
+        s.menu = true;
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(!hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Record)), "Station qui n'enregistre pas");
+        app.recording_changed(recording_sample(true, false, false, 0), None);
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Record)));
+        assert_eq!(app.activate(Target::Menu(MenuItem::Record)), vec![Action::Recording(true)]);
+        assert!(!app.session.as_ref().unwrap().menu);
+        assert!(app.activate(Target::Menu(MenuItem::Record)).is_empty(), "une demande à la fois");
+        app.recording_reply(Err("Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer.".into()));
+        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer."));
+        app.recording_reply(Ok(Some(recording_sample(true, true, false, 134))));
+        let r = app.session.as_ref().unwrap().recording.clone().unwrap();
+        assert_eq!(r.tile().1, "02:14");
+        app.session.as_mut().unwrap().menu = true;
+        assert!(app.recording_tick().is_some_and(|t| t >= 134));
+        assert_eq!(app.activate(Target::Menu(MenuItem::Record)), vec![Action::Recording(false)]);
+        app.recording_reply(Ok(Some(recording_sample(false, false, false, 0))));
+        app.session.as_mut().unwrap().menu = true;
+        assert!(app.activate(Target::Menu(MenuItem::Record)).is_empty());
+        assert_eq!(app.session.as_ref().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some(crate::i18n::tr("L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).", "Recording is turned off on this computer (Admin › Recordings).")));
+        // Un invité : la tuile inactive, rien ne part.
+        let mut g = guest_session(ShareRole::Spectator);
+        g.menu = true;
+        app.session = Some(g);
+        app.recording_changed(recording_sample(true, true, true, 3), Some("Atelier enregistre la session.".into()));
+        let hits = ui::draw(&app, &mut cv, &assets);
+        assert!(hits.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Record)));
+        assert!(app.activate(Target::Menu(MenuItem::Record)).is_empty());
+        assert_eq!(crate::app::recording_clock(3734), "1:02:14");
     }
 
     /// L'hôte : la tuile « Prêter l'ordinateur… » ouvre le panneau ; « Créer un code » part avec la durée et le compte

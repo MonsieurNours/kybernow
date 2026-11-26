@@ -658,6 +658,10 @@ private struct SessionBar: View {
             divider
             chip(icon: ShareText.icon(role), text: ShareText.role(role), tint: role.plays ? Theme.accent : Theme.text2, compact: compact)
             relayChip(compact: compact)
+            // L'hôte enregistre : la pastille, sans action.
+            if let recording = session.recordingShown, recording.active {
+                RecordingGuestPill(state: recording, compact: compact)
+            }
             statsButton(compact: compact)
             pyrowaveChip(compact: compact)
             divider
@@ -823,6 +827,9 @@ private struct SessionBar: View {
             ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
             ShareBarButton(session: session, share: session.share, compact: compact)
             LendBarButton(session: session, lend: session.lend, compact: compact)
+            if let recording = session.recordingShown {
+                RecordingBarButton(session: session, state: recording, compact: compact)
+            }
             relayChip(compact: compact)
             divider
             statsButton(compact: compact)
@@ -1011,6 +1018,106 @@ struct BarChip: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(text))
+    }
+}
+
+/// Enregistrement de la session (docs/link-ui.md, « Enregistrement de la
+/// session »), hôte : « Enregistrer » (un rond plein) après « Prêter
+/// l'ordinateur… » ; pendant, la pastille rouge « Enregistrement · 02:14 »
+/// à la même place, qu'un clic arrête ; barre étroite : « 02:14 » seul.
+/// Coupé dans Admin : estompé et inactif, la raison en infobulle. Textes du cœur.
+struct RecordingBarButton: View {
+    @ObservedObject var session: SessionController
+    let state: RecordingState
+    var compact = false
+    @State private var hovering = false
+
+    static let shortcut = "⌃⌥⌘R"
+
+    private var enabled: Bool { state.allowed || state.active }
+
+    var body: some View {
+        Button { session.toggleRecording() } label: {
+            Group {
+                if state.active {
+                    // Le temps, chaque seconde, depuis `elapsed` du dernier signe de vie.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        RecordingPillLabel(text: compact ? state.clock(at: context.date) : state.label(at: context.date))
+                            .accessibilityLabel(Text(state.label(at: context.date)))
+                    }
+                } else {
+                    HStack(spacing: 7) {
+                        Circle().fill(Theme.text2).frame(width: 11, height: 11).frame(width: 16, height: 16)
+                        if !compact {
+                            Text(state.texts.record).font(Theme.sans(13)).foregroundStyle(Theme.text2).lineLimit(1).fixedSize()
+                        }
+                    }
+                    .padding(.horizontal, compact ? 8 : 10)
+                    .frame(height: 34)
+                    .background(Color.white.opacity(hovering && enabled ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .opacity(enabled ? 1 : 0.45)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(state.texts.record))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { hovering = $0 }
+        .help(state.tooltip(shortcut: Self.shortcut))
+    }
+}
+
+/// Invité d'un partage : la pastille rouge « Enregistrement », le même
+/// rond, sans action ; infobulle « {nom} enregistre la session. ».
+struct RecordingGuestPill: View {
+    let state: RecordingState
+    var compact = false
+
+    var body: some View {
+        RecordingPillLabel(text: compact ? nil : state.texts.guestPill)
+            .help(state.texts.guestTooltip)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(state.texts.guestTooltip))
+    }
+}
+
+/// La pastille rouge (`--kn-bad`) : le rond qui bat doucement (une
+/// pulsation par seconde, fixe avec « Réduire les animations »), et son texte.
+struct RecordingPillLabel: View {
+    /// nil : le rond seul.
+    let text: String?
+
+    var body: some View {
+        HStack(spacing: 7) {
+            RecordingDot()
+            if let text {
+                Text(text).font(Theme.sans(12.5, .semibold)).monospacedDigit().foregroundStyle(Theme.dangerText).lineLimit(1).fixedSize()
+            }
+        }
+        .padding(.horizontal, text == nil ? 9 : 10)
+        .frame(height: 28)
+        .background(Capsule().fill(Theme.danger.opacity(0.16)))
+        .overlay(Capsule().strokeBorder(Theme.danger.opacity(0.45)))
+        .padding(.horizontal, 2)
+        .frame(height: 34)
+    }
+}
+
+/// Le rond rouge de l'enregistrement.
+struct RecordingDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let dot = Circle().fill(Theme.danger).frame(width: 9, height: 9)
+        if reduceMotion {
+            dot
+        } else {
+            dot.phaseAnimator([1.0, 0.35]) { view, opacity in
+                view.opacity(opacity)
+            } animation: { _ in .easeInOut(duration: 0.5) }
+        }
     }
 }
 

@@ -83,6 +83,7 @@ En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), 
 | Autres ordinateurs (absent sans autre ordinateur) | « Ordinateurs » ▾ (voir « Plusieurs ordinateurs ») | “Computers” | tour d'ordinateur |
 | Partage | « Partager », ses pastilles dans le bouton : « 2 invités », « 1 demande » (voir « Partage ») | “Share” | partage (trois points reliés) |
 | Prêt | « Prêter l'ordinateur… », sa pastille « 1 demande » dans le bouton (voir « Prêt de l'ordinateur ») | “Lend the computer…” | clé |
+| Enregistrement (Station qui enregistre) | « Enregistrer » ; pendant : pastille rouge « Enregistrement · 02:14 » (voir « Enregistrement de la session ») | “Record”; “Recording · 02:14” | rond plein |
 | Relais (seulement par le relais) | « Par le relais » | “Via the relay” | globe |
 | *trait* | | | |
 | Mesures (un bouton : il ouvre « Statistiques ») | « 12,4 ms » allumé et la courbe des dernières secondes, puis le format : « 2560 × 1440 · 120 Hz · HEVC » (la définition et la fréquence de l'écran de la session, le format ; plusieurs écrans : « 3 écrans · » d'abord ; Mac : « 4:4:4 » ou « 4:2:0 » après le format) ; avant la première latence, « 60 i/s » | “12.4 ms”; “2560 × 1440 · 120 Hz · HEVC”; “60 fps” | |
@@ -98,11 +99,11 @@ En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), 
 | Plein écran (absent avec plusieurs écrans) | icône seule ; infobulle « Plein écran ({raccourci}) » | “Full screen ({shortcut})” | quatre coins |
 | Fin | « Se déconnecter », en rouge ; infobulle « Se déconnecter ({raccourci}) » | “Disconnect ({shortcut})” | marche/arrêt |
 
-Raccourcis : ⌃⌥⌘ + lettre sur Mac, Ctrl+Alt+Maj + lettre sur Windows et Linux : D se déconnecter, F plein écran, M souris, O ordinateur suivant, S statistiques.
+Raccourcis : ⌃⌥⌘ + lettre sur Mac, Ctrl+Alt+Maj + lettre sur Windows et Linux : D se déconnecter, F plein écran, M souris, O ordinateur suivant, R enregistrer, S statistiques.
 
 **Barre étroite** (une session de plus, dans une fenêtre aux deux tiers de l'écran) : quand la barre ne tient pas dans la largeur de la fenêtre, ses puces perdent leur texte (icône seule ; libellé accessible et infobulle gardés), sauf le profil et « HDR » ; les pastilles se réduisent au nombre (« 2 ») ; le format des mesures disparaît. Jamais de bouton rogné.
 
-**Invité d'un partage** (barre réduite, voir « Partage ») : le symbole et « Invité sur {nom} » ; son rôle en puce (« Spectateur », icône d'œil ; « Joueur », icône de manette ; clavier et souris seuls : icône de clavier) ; « Par le relais » ; les mesures | le son ; « Qualité de l'image » (icône d'écran, la qualité reçue ▾) ; avec le clavier et la souris : la souris et « Touches » (Windows, Linux) | plein écran ; « Quitter le partage » (marche/arrêt, en rouge).
+**Invité d'un partage** (barre réduite, voir « Partage ») : le symbole et « Invité sur {nom} » ; son rôle en puce (« Spectateur », icône d'œil ; « Joueur », icône de manette ; clavier et souris seuls : icône de clavier) ; « Par le relais » ; « Enregistrement » pendant que l'hôte enregistre ; les mesures | le son ; « Qualité de l'image » (icône d'écran, la qualité reçue ▾) ; avec le clavier et la souris : la souris et « Touches » (Windows, Linux) | plein écran ; « Quitter le partage » (marche/arrêt, en rouge).
 
 **Ami qui emprunte** (barre réduite, voir « Prêt de l'ordinateur ») : le symbole, « Prêté par {hôte} » et le temps restant (« Encore 1 h 20 », ambre pendant le préavis) | « Par le relais » ; les mesures | « HDR » ; le son ; la souris ; « Touches » (Windows, Linux) | plein écran ; « Se déconnecter » (marche/arrêt, discret : on peut revenir) ; « Rendre l'ordinateur » (clé, en rouge, confirmation « Rendre l'ordinateur à {hôte} ? »).
 
@@ -385,6 +386,42 @@ Contrat : [pret.md](pret.md). Toutes les apps Link, le client web, Admin et l'ic
 | Code de prêt et relais | comme le partage : « Préparation du lien hors de chez vous… », « Copier le lien » et le QR code retenus 10 s au plus, puis « Pas encore joignable hors de chez vous. » (`code.relay`) | as for sharing |
 
 **Fil d'Admin** : « Ordinateur prêté à {prénom} » / “Computer lent to {name}” ; « {prénom} a rendu l'ordinateur » / “{name} gave back the computer” ; « Vous avez repris l'ordinateur » / “You took back the computer” ; « {prénom} veut emprunter l'ordinateur » / “{name} wants to borrow the computer” ; « {prénom} : demande refusée » / “{name}: request declined”.
+
+## Enregistrement de la session
+
+Contrat : [enregistrement.md](enregistrement.md). Toutes les apps Link et le client web, mêmes textes partout ; les textes viennent du cœur (`recording`), le client web a les mêmes dans son catalogue. La Station écrit le fichier (image et son de l'ordinateur, sans réencodage) ; l'app ne fait que le demander et le montrer. Une Station qui n'enregistre pas (avant ce chantier) ne dit rien (`recording` absent du signe de vie) : ni bouton, ni pastille.
+
+**Qui** : l'appareil en session de l'hôte, seul, et Admin. Un invité du partage le voit sans pouvoir l'arrêter ; l'ami qui emprunte ne voit rien (pas d'enregistrement pendant un prêt : un prêt qui commence l'arrête).
+
+| Élément | Français | English |
+|---|---|---|
+| Barre de session (hôte), après « Prêter l'ordinateur… » | bouton « Enregistrer » (icône d'un rond plein) ; infobulle « Enregistrer la session sur l'ordinateur ({raccourci}) » | “Record”; “Record the session on the computer ({shortcut})” |
+| Pendant l'enregistrement, même place, dans la partie toujours visible de la barre | pastille rouge (`--kn-bad`) « Enregistrement · 02:14 », le rond qui bat doucement (une pulsation par seconde, fixe quand le système demande moins d'animations) ; un clic l'arrête ; infobulle « Arrêter l'enregistrement ({raccourci}) » ; barre étroite : « 02:14 » seul | “Recording · 02:14”; “Stop recording ({shortcut})” |
+| Raccourci | ⌃⌥⌘R sur Mac, Ctrl+Alt+Maj+R sur Windows et Linux : lance ou arrête | |
+| Menus à tuiles (Apple TV, téléviseurs, salon, Deck, Android TV) | tuile « Enregistrer », sous-titre « Sur l'ordinateur » ; pendant : « Arrêter l'enregistrement », sous-titre « 02:14 », en rouge | “Record”, “On the computer”; “Stop recording”, “02:14” |
+| Menu de l'icône (Mac, Windows), en session, après « Statistiques » | « Enregistrer la session » ; pendant : « Arrêter l'enregistrement (02:14) » | “Record the session”; “Stop recording (02:14)” |
+| iPhone, iPad, Android (menu de la session) | comme la barre : « Enregistrer » ; pendant, la pastille rouge en haut de l'image, toujours visible, et « Arrêter l'enregistrement » dans le menu | |
+| Avis bref, lancé (hôte) | « Enregistrement lancé sur l'ordinateur. » | “Recording started on the computer.” |
+| Avis bref, arrêté (hôte) | « Enregistrement terminé : retrouvez-le dans Admin › Enregistrements. » | “Recording saved: find it in Admin › Recordings.” |
+| Invité du partage, pastille | « Enregistrement » rouge, le même rond, sans action ; infobulle « {nom} enregistre la session. » ; tuile inactive dans les menus à tuiles | “Recording”; “{name} is recording the session.” |
+| Invité, avis bref (au lancement, ou en arrivant dans une session enregistrée) | « {nom} enregistre la session. » ; à l'arrêt : « L'enregistrement est arrêté. » | “{name} is recording the session.”; “Recording stopped.” |
+| Enregistrement coupé dans Admin | bouton estompé ; à la souris, inactif avec la raison en infobulle ; au toucher et à la télécommande, sélectionnable, il donne la raison en avis : « L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements). » | “Recording is turned off on this computer (Admin › Recordings).” |
+| Refus au lancement (avis bref) | PyroWave ou AV1 : « PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264. » ; disque : « Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer. » ; dossier : « Le dossier des enregistrements est inaccessible (Admin › Enregistrements). » ; pendant un prêt : « {prénom} utilise l'ordinateur. » ; autre : « L'enregistrement n'a pas pu commencer. » | “PyroWave and AV1 can't be recorded: switch to HEVC or H.264.”; “Less than 2 GB free on the computer: can't record.”; “The recordings folder can't be reached (Admin › Recordings).”; “{name} is using the computer.”; “Recording could not start.” |
+| Arrêt de lui-même (avis bref, hôte) | disque plein : « L'enregistrement s'est arrêté : le disque de l'ordinateur est plein. » ; profil passé en PyroWave ou AV1 : « L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas. » ; un prêt commence : rien (la session se ferme) | “Recording stopped: the computer's disk is full.”; “Recording stopped: PyroWave and AV1 can't be recorded.” |
+
+Le temps (« 02:14 », puis « 1:02:14 » au-delà d'une heure) part de `started_at` de la Station, pas de l'appareil : tous les appareils montrent le même. La pastille se met à jour chaque seconde, barre fermée comprise. Fermer la session arrête l'enregistrement (la Station le ferme quand l'hôte part). Plusieurs écrans : seul l'écran principal est enregistré ; rien ne change dans les textes. Windows : barre fermée, la pastille ne se voit pas (la barre y est une fenêtre à part) ; le menu de l'icône donne le temps. Client web : sa barre se cache entièrement, une petite pastille rouge sans action reste dans le coin haut gauche. Android TV : la pastille rouge reste aussi en haut de l'image, en plus de la tuile.
+
+**Admin** (page « Enregistrements » / “Recordings”) :
+
+| Élément | Français | English |
+|---|---|---|
+| Interrupteur | « Permettre l'enregistrement des sessions », allumé par défaut ; aide « L'appareil en session peut enregistrer l'image et le son dans un fichier sur cet ordinateur. Tout le monde dans la session le voit. » | “Allow session recording”; “The device in a session can record the picture and sound into a file on this computer. Everyone in the session sees it.” |
+| Dossier | « Dossier » et le chemin ; « Modifier » ouvre un champ (« Enregistrer », « Annuler », « Dossier par défaut ») ; dessous « {n} Go libres » | “Folder”; “Change”; “Save”, “Cancel”, “Default folder”; “{n} GB free” |
+| Durée | « Garder » : « 7 jours », « 30 jours » (par défaut), « 90 jours », « Toujours » ; aide « Les enregistrements plus anciens sont effacés. » | “Keep”: “7 days”, “30 days”, “90 days”, “Forever”; “Older recordings are deleted.” |
+| Pendant une session | « Enregistrer la session de {appareil} » ; pendant : la pastille et « Arrêter l'enregistrement » | “Record {device}'s session”; “Stop recording” |
+| Liste | titre « Fichiers » ; aucun : « Aucun enregistrement. » ; chaque fichier : la date et l'heure (« 26 nov. 2026 · 14:32 »), la durée et la taille (« 12 min · 1,4 Go ») ; « En cours » pour celui qui s'écrit ; « Lire » (lecteur dans la page), « Télécharger », « Supprimer », confirmé par « Supprimer cet enregistrement ? Il ne pourra pas être récupéré. » | “Files”; “No recordings.”; “In progress”; “Play”, “Download”, “Delete”; “Delete this recording? It can't be recovered.” |
+| Formats d'Admin | durée « 40 s », « 12 min », « 1 h 05 » ; taille « 820 Mo », « 1,4 Go » ; lecteur : « Fermer » ; onglet du téléphone : « Vidéos » (« Enregistrements » ne tient pas) | “40 s”, “12 min”, “1 h 05”; “820 MB”, “1.4 GB”; “Close”; phone tab “Videos” |
+| Fil d'Admin | « {appareil} enregistre la session », « Enregistrement terminé ({durée}) », « Enregistrement arrêté : disque plein » | “{device} is recording the session”, “Recording saved ({duration})”, “Recording stopped: disk full” |
 
 ## Invitations
 
@@ -751,6 +788,7 @@ De haut en bas. Pendant une session, d'abord (avec plusieurs ordinateurs, pour l
 | Plein écran (coché en plein écran ; absent avec plusieurs écrans) | « Plein écran » | “Full screen” |
 | Souris | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (l'ordre des réglages), le mode de l'ordinateur coché ; choisir un mode l'applique tout de suite et le garde pour cet ordinateur | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
 | Mesures en direct | « Statistiques » (le panneau des statistiques de la barre ; Mac : en bas à droite de l'image ; Windows : la barre de session s'affiche avec lui et reste jusqu'au passage du pointeur ; un second clic les cache) | “Statistics” |
+| Enregistrement (Station qui enregistre) | « Enregistrer la session » ; pendant : « Arrêter l'enregistrement (02:14) » | “Record the session”; “Stop recording (02:14)” |
 | Fin | « Se déconnecter » | “Disconnect” |
 
 Puis vos ordinateurs, dans l'ordre de l'accueil : « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), chacun précédé d'un petit point de couleur : vert en ligne, rouge hors ligne, ambre pendant le réveil et pendant un redémarrage ou une mise à jour de la Station, gris pendant la recherche (couleurs d'état de [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, en version claire ou sombre selon le menu) ; le texte de l'état reste, la couleur seule ne suffit pas à tout le monde. Ceux qui sont en session sont cochés ; leur sous-menu commence par « Afficher » / “Show”, « Garder le son » / “Keep sound” (à partir de deux sessions ouvertes, coché quand il est allumé) et « Se déconnecter » / “Disconnect”. Chacun ouvre un sous-menu :

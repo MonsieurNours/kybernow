@@ -45,7 +45,8 @@ minisign-verify = "0.3.0"
 zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 # Station Linux : le service root des mises à jour lit qui le sollicite (SO_PEERCRED).
-[target.'cfg(target_os = "linux")'.dependencies]
+# Mac et Linux : la place libre du dossier des enregistrements (statvfs).
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target."cfg(windows)".dependencies]

@@ -112,6 +112,17 @@ Texts and screens: [docs/link-ui.md](../../docs/link-ui.md), “Profil Auto et d
 - **Encoder ceiling** (docs/profil-auto.md, « L'encodeur de l'ordinateur »): kept per computer (`HostSettings::encoder_max`, Mbit/s per screen, in kybernow.json, never synced) and sent in the stream settings' `encoder_max`, whatever the profile. Updated by “Apply” of a new result (`AutoResult::next_encoder_max` of the kept ceiling, computed at the end of the test) and by the session (`Notice::EncoderCeiling`: the bitrate it had to step down to, nothing on screen); picking Auto again with the already kept test leaves it alone.
 - Tests: `cargo test -p kybernow-linux --no-default-features profil_auto` (choosing Auto, cancel, again, failure, apply and its encoder ceiling, resolution and refresh rate, “Bitrate” card, PyroWave, session and banner), `plafond_de_l_encodeur`; captures `47-auto-*` (test running, older Station, suggested settings, failure, home, “Bitrate” card, Profile section with a controller, banner).
 
+## Session recording
+
+Contract: [docs/enregistrement.md](../../docs/enregistrement.md); texts: [docs/link-ui.md](../../docs/link-ui.md), "Enregistrement de la session". The Station writes the file; the app asks for it and shows it, with the core's texts (`RecordingState::ui_json`, copied into `app::RecordingUi`: the interface builds without the core).
+
+- **State**: `Platform::on_recording` (`src/device/session.rs`) hands the core's state and brief notice to the app (`App::recording_changed`), shown in the capsule like those of sharing and lending. A Station that does not record says nothing: no button, no pill, no tile. A borrowing session shows nothing.
+- **Start, stop** (host): `Action::Recording` → `Console::recording` on a thread (`jobs::recording`), one request at a time; a refusal comes back as a notice (`RecordingError::text`).
+- **Desktop**: in the bar, the "Record" icon (filled dot) after "Lend the computer…", its tooltip with Ctrl+Alt+Shift+R; turned off in Admin, dimmed and inactive, the reason as its tooltip. While recording: the red pill "Recording · 02:14" in the same place, the dot pulsing once a second (still with `KYBERNOW_REDUCE_MOTION=1`), a click stops it; narrow bar: "02:14" alone. Shortcut Ctrl+Alt+Shift+R (starts or stops; turned off: the reason as a notice).
+- **Deck, living room, Raspberry Pi, KyberNow Link OS**: the "Record" / "On the computer" tile, while recording "Stop recording" / "02:14" in red, updated every second; turned off in Admin, dimmed, it gives the reason as a notice.
+- **Guest**: the red "Recording" pill, without action (tooltip "{name} is recording the session."); with a controller, the inactive tile.
+- **Checked** (26/11/2026, on the Mac): `cargo test -p kybernow-linux --no-default-features recording` (`app::tests::recording_from_the_session`), screenshots `bureau-27-enregistrer` to `bureau-27d-enregistrement-invite` (`--preview`; the Deck and living-room tile screenshots are written but were not regenerated); the device part checked by a `cargo check` on the Mac (crate copied with an empty build.rs: only error, `WindowHandle::Xlib`, Linux-only, unrelated). **Not built on Linux** (VM not started) nor tried with a Station that records.
+
 ## Raspberry Pi
 
 The same app, on Raspberry Pi OS (Debian 13 "trixie", arm64), as a `.deb` package, or alone on the card with KyberNow Link OS (below); the decision is in [PROJECT.en.md](../../PROJECT.en.md) ("Raspberry Pi client"), mock-ups: https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft.

@@ -245,5 +245,28 @@
     "adaptive": "Adaptive bitrate",
     "adaptive_help": "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
     "adaptive_pyrowave": "With PyroWave it pauses: the resolution goes down instead."
+  },
+  "recording": {
+    "record": "Record",
+    "pill": "Recording · {time}",
+    "record_tooltip": "Record the session on the computer ({shortcut})",
+    "stop_tooltip": "Stop recording ({shortcut})",
+    "stop": "Stop recording",
+    "on_computer": "On the computer",
+    "record_menu": "Record the session",
+    "stop_menu": "Stop recording ({time})",
+    "started": "Recording started on the computer.",
+    "saved": "Recording saved: find it in Admin › Recordings.",
+    "guest_pill": "Recording",
+    "guest_notice": "{name} is recording the session.",
+    "guest_stopped": "Recording stopped.",
+    "disabled": "Recording is turned off on this computer (Admin › Recordings).",
+    "codec": "PyroWave and AV1 can't be recorded: switch to HEVC or H.264.",
+    "disk_full": "Less than 2 GB free on the computer: can't record.",
+    "folder": "The recordings folder can't be reached (Admin › Recordings).",
+    "lent": "{name} is using the computer.",
+    "failed": "Recording could not start.",
+    "stopped_disk": "Recording stopped: the computer's disk is full.",
+    "stopped_codec": "Recording stopped: PyroWave and AV1 can't be recorded."
   }
 }

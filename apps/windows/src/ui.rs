@@ -82,6 +82,9 @@ mod welcome;
 // jour »), vérification demandée à la Station, avis après une mise à jour de
 // l'app (docs/link-ui.md « Mise à jour des Stations »).
 mod stations;
+// Enregistrement de la session : le bouton et la pastille de la barre, le menu
+// de l'icône, Ctrl+Alt+Maj+R (docs/link-ui.md « Enregistrement de la session »).
+mod recording;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -1888,6 +1891,10 @@ struct UiEvents {
     auto_check: Option<autotest::Check>,
     /// Le bandeau « Autre réseau que celui du test » déjà montré.
     auto_told: std::sync::atomic::AtomicBool,
+    /// Enregistrement de la session : le dernier état dit par le cœur (ou par
+    /// la réponse d'Admin à la barre), avec le nom de l'ordinateur pour un
+    /// invité ; `None` : la Station n'enregistre pas (ni bouton ni pastille).
+    recording: Mutex<Option<recording::Seen>>,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -1936,6 +1943,9 @@ struct BarShown {
     share: Option<crate::sharing::ShareView>,
     /// Session d'hôte : « Prêter l'ordinateur… » et son panneau (code, demandes).
     lend: Option<crate::lending::LendPanel>,
+    /// Enregistrement de la session : l'état et les textes du cœur
+    /// (`RecordingState::ui_json`) ; absent : Station qui n'enregistre pas.
+    recording: Option<serde_json::Value>,
     /// Session d'emprunt : la barre est réduite (« Prêté par {hôte} », temps
     /// restant, « Rendre l'ordinateur »).
     borrow: Option<crate::lending::BorrowBar>,
@@ -1995,6 +2005,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         share: None,
         lend: None,
         borrow: None,
+        recording: None,
         notice: None,
         notice_opens_share: false,
         notice_opens_lend: false,
@@ -2389,6 +2400,14 @@ impl HostEvents for UiEvents {
 
     fn lend(&self, view: Option<&kybernow_core::lend::LendView>) {
         self.on_lend_view(view);
+    }
+
+    fn recording(&self, state: &kybernow_core::recording::RecordingState, notice: Option<&str>, computer: Option<&str>) {
+        self.on_recording(state, notice, computer);
+    }
+
+    fn record_shortcut(&self) {
+        recording::toggle_in_background(&self.app, &self.id);
     }
 
     fn ended(&self, s: &Summary) {
@@ -3369,6 +3388,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         pyrowave_strained_pending: std::sync::atomic::AtomicBool::new(false),
         auto_check,
         auto_told: std::sync::atomic::AtomicBool::new(false),
+        recording: Mutex::new(None),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3862,6 +3882,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         share,
         lend,
         borrow,
+        recording: recording::bar_view(app, id),
         notice,
         notice_opens_share: panel == Some("share"),
         notice_opens_lend: panel == Some("lend"),
@@ -4059,6 +4080,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                     .map(|h| h.on),
                 guest: guest.map(|(_, role)| role),
                 watch: r.guest.as_ref().and_then(|g| g.watch.as_ref().map(|w| menu::WatchSession { title: g.title.clone(), stop: w.stop.clone() })),
+                recording: if r.guest.is_none() && r.borrow.is_none() { recording::menu_item(&r.events) } else { None },
             }
         })
         .collect();
@@ -4146,6 +4168,7 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
                 session(&id, Command::Focus);
             }
             Cmd::Statistics(id) => toggle_stats(&app, &id),
+            Cmd::Recording(id) => recording::toggle(&app, &id),
             Cmd::Disconnect(id) => {
                 end_session(&app, &id, "« Se déconnecter » du menu de l'icône");
             }
@@ -4373,6 +4396,7 @@ pub fn run(args: Vec<String>) {
             share::share_watch_screen,
             share::share_watch_display,
             share::share_kick,
+            recording::session_record,
             share::share_close,
             share::copy_text,
             lend::lend_friends,

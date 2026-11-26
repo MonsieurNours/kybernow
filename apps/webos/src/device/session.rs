@@ -358,6 +358,27 @@ impl Platform for WebOsPlatform {
     fn on_lend_end(&self, _end: kybernow_core::lend::LendEnd, text: &str) {
         self.0.send(Event::LendEnd(text.to_string()));
     }
+
+    /// L'enregistrement de la session, hôte comme invité (`computer` : le nom de l'ordinateur, pour un invité), quand
+    /// il change ; `notice` : l'avis bref de link-ui, montré tel quel.
+    fn on_recording(&self, state: &kybernow_core::recording::RecordingState, notice: Option<&str>, computer: Option<&str>) {
+        self.0.send(Event::Recording { state: recording_ui(state, computer), notice: notice.map(str::to_string) });
+    }
+}
+
+/// L'enregistrement de l'interface d'après celui du cœur, avec les textes des tuiles dans la langue de l'app
+/// (`ui_json`) ; `computer` : pour un invité, le nom de l'ordinateur.
+pub fn recording_ui(state: &kybernow_core::recording::RecordingState, computer: Option<&str>) -> crate::app::RecordingUi {
+    let v = state.ui_json(kybernow_core::i18n::current(), computer);
+    let t = |key: &str| v["texts"][key].as_str().unwrap_or_default().to_string();
+    crate::app::RecordingUi {
+        allowed: state.allowed,
+        active: state.active,
+        guest: computer.is_some(),
+        elapsed: state.elapsed_secs(),
+        since: std::time::Instant::now(),
+        texts: crate::app::RecordingTexts { record: t("record"), stop: t("stop"), on_computer: t("on_computer"), guest_pill: t("guest_pill"), guest_tooltip: t("guest_tooltip"), disabled: t("disabled") },
+    }
 }
 
 /// Le chemin de l'interface d'après celui du cœur.

@@ -179,6 +179,8 @@ export interface GuestBeat {
   display?: GuestDisplay
   /** Son image : absente d'une Station qui ne connaît pas la qualité (avant le correctif Kyber 0020). */
   image?: GuestImage
+  /** L'enregistrement de l'hôte (docs/enregistrement.md) : absent d'une Station qui n'enregistre pas. */
+  recording?: unknown
 }
 
 /**
@@ -266,6 +268,8 @@ export const backend = {
   heartbeat: (latency: number | null, profile: string, extra: Extra = {}) =>
     call<{ active: boolean; end: boolean }>('POST', '/api/stream/heartbeat', heartbeatBody(latency, profile, extra)),
   foreground: () => call<{ known: boolean; fullscreen: boolean; game: boolean }>('GET', '/api/stream/foreground'),
+  /** Lance ou arrête l'enregistrement de la session (docs/enregistrement.md) : rend l'état ; refus : `ApiError` avec le texte d'Admin. */
+  recording: (record: boolean, deviceId: string) => call<unknown>('POST', '/api/stream/recording', { record, device_id: deviceId }),
   end: (latency: number | null, extra: Extra = {}) => call('POST', '/api/stream/end', endBody(latency, extra)),
 
   // KyberNow Share, côté invité (sans compte : le secret de l'invité, puis son cookie).

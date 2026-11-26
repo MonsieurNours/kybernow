@@ -12,6 +12,7 @@ import fr.leslignesclaires.kybernow.core.LendNotice
 import fr.leslignesclaires.kybernow.core.LendNoticeReason
 import fr.leslignesclaires.kybernow.core.LendView
 import fr.leslignesclaires.kybernow.core.Native
+import fr.leslignesclaires.kybernow.core.RecordingState
 import fr.leslignesclaires.kybernow.core.RelayFailure
 import fr.leslignesclaires.kybernow.core.RouteInfo
 import fr.leslignesclaires.kybernow.core.SessionListener
@@ -137,6 +138,12 @@ sealed class Capsule {
     data class HdrRefused(val text: String) : Capsule()
     /** PyroWave : la définition ramenée, le texte du cœur (docs/link-ui.md, « PyroWave »). */
     data class ResolutionLowered(val text: String) : Capsule()
+    /**
+     * Enregistrement de la session : l'avis bref du cœur (« Enregistrement lancé sur l'ordinateur. », « {nom} enregistre
+     * la session. »), ou le texte d'un refus (« PyroWave et AV1 ne s'enregistrent pas… », « L'enregistrement est coupé
+     * sur cet ordinateur… »), tel quel.
+     */
+    data class RecordingNotice(val text: String) : Capsule()
     /** Profil Auto : « Le test se fera à la fin de la session. » (« Refaire le test », ou Auto choisi sans test, en session). */
     data object AutoTestLater : Capsule()
 }
@@ -267,6 +274,15 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     @Volatile private var lendEndText: String? = null
     /** Le texte d'un préavis chez l'hôte (le cœur) ; les essais sans bibliothèque native en donnent un. */
     internal var lendNoticeText: (LendNotice, String) -> String? = { n, name -> Native.lendNoticeText(n.json().toString(), name) }
+
+    // Enregistrement de la session (docs/enregistrement.md).
+    /**
+     * L'enregistrement tel que le dit le signe de vie (hôte comme invité) ; nul tant que la Station n'en a rien dit, et
+     * toujours pour une Station qui n'enregistre pas (ni bouton, ni pastille, ni tuile).
+     */
+    val recording = MutableStateFlow<RecordingState?>(null)
+    /** L'horloge du temps de l'enregistrement (ms, monotone) ; les essais en donnent une. */
+    internal var clockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }
 
     /** Le texte de la fin par le relais (avec le nom de l'ordinateur) ; nul si la session n'a pas fini ainsi. */
     internal fun relayEndText(): String? = relayEnd?.let { (failure, text) -> relayText(context, failure, computerName) ?: text }
@@ -476,6 +492,13 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         if (notice != null && notice.reason == LendNoticeReason.SLOT_START && notice != before?.notice) {
             lendNoticeText(notice, now.borrower?.name ?: "")?.takeIf { it.isNotBlank() }?.let { show(Capsule.LendHostNotice(it), 8000) }
         }
+    }
+
+    // MARK: - Enregistrement de la session
+
+    override fun onRecording(json: String, notice: String?) {
+        RecordingState.parse(json, clockMs())?.let { recording.value = it }
+        if (!notice.isNullOrBlank()) show(Capsule.RecordingNotice(notice), 6000)
     }
 
     override fun onPointer(hasPosition: Boolean, x: Double, y: Double, remoteHidden: Boolean, width: Int, height: Int, hotX: Int, hotY: Int, pixels: IntArray?) {

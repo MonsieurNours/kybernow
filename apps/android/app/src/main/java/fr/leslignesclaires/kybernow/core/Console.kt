@@ -411,6 +411,14 @@ class ConsoleClient private constructor(private var handle: Long) : AutoCloseabl
         parse(Native.consoleLendTakeBack(handle, now)) { LendView.parse(it as? JSONObject) }
     }
 
+    /**
+     * Lance ([record]) ou arrête l'enregistrement de la session de cet appareil ([deviceId], docs/enregistrement.md) ;
+     * rend l'état, ou le refus avec son avis bref (`message`).
+     */
+    suspend fun recording(deviceId: String, record: Boolean): Reply<RecordingState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleRecording(handle, deviceId, record)) { RecordingState.of(it as? JSONObject, android.os.SystemClock.elapsedRealtime()) }
+    }
+
     /** Rend la poignée du cœur à qui la prend ([Native.autotestStart]) : ce client ne la libère plus. */
     fun detach(): Long = handle.also { handle = 0L }
 

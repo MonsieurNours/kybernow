@@ -79,6 +79,17 @@ KyberNow Link on Android: a single app for phone, tablet, TV (Android TV, Google
 
 No layout of its own for foldables. The TV adds its computers itself (network, code, address): it does not receive the phone's.
 
+## Session recording
+
+Contract: [docs/enregistrement.en.md](../../docs/enregistrement.en.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Session recording”. The Station writes the file; the app asks for it and shows it, with the core's texts (`recording`). JNI bridge: `jni/src/recording.rs` (`Native.consoleRecording`, refusals 90 to 95 with the brief notice) and `SessionListener.onRecording` (`jni/src/session.rs`); Kotlin: `core/Recording.kt`, `session/RecordingUi.kt`.
+
+- **Phone and tablet** (host): “Record” in the bar, after “Lend the computer…”; while recording, “Stop recording” and the red pill “Recording · 02:14” at the top of the picture, bar closed included (dot beating once a second, still when Android asks for less motion; time counted every second from the Station's `elapsed`). Turned off in Admin: dimmed, it gives the reason as a notice.
+- **Android TV**: tile “Record” / “On the computer”, while recording “Stop recording” / “02:14” in red; the same pill at the top of the picture.
+- **Guest**: the “Recording” pill only, and an inactive tile on TV. The friend who borrows sees nothing.
+- Brief notices (started, saved, stopped by itself, refusals) in the capsules, like the sharing ones. A Station that does not record: nothing.
+
+Tried: `cargo check` of the bridge for `aarch64-linux-android` and the `RecordingTest` tests (Robolectric and Compose). Still to try on a device against a Station that records (start, stop, refusals, guest, Android TV).
+
 ## PlayStation consoles
 
 Contract: [docs/playstation.en.md](../../docs/playstation.en.md); texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “PlayStation consoles”. The protocol is the core's (`apps/core/src/playstation`), driven by the JNI bridge `jni/src/playstation.rs` (Kotlin object `core/PsNative`), the counterpart of the Apple apps' bridge (`apps/apple/src/playstation.rs`). Not affiliated with Sony: “PS5” and “PS4” written out, no logo.

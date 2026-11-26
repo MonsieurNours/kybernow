@@ -703,6 +703,8 @@ pub enum MenuItem {
     Lend,
     /// Prêt de l'ordinateur, session d'emprunt : « Rendre l'ordinateur » (après sa confirmation).
     GiveBack,
+    /// Enregistrement de la session : « Enregistrer » / « Arrêter l'enregistrement » (hôte) ; inactive pour un invité.
+    Record,
     /// Partie sur une console PlayStation : « Réglages de {nom} », « Mettre la console en veille ».
     PsSettings,
     PsRest,
@@ -1601,6 +1603,102 @@ impl LendCodeUi {
     }
 }
 
+// MARK: - Enregistrement de la session (docs/enregistrement.md ; textes : docs/link-ui.md, « Enregistrement de la session »)
+
+/// Le raccourci de l'enregistrement, tel qu'il s'écrit dans les infobulles.
+pub fn recording_shortcut() -> &'static str {
+    tr("Ctrl+Alt+Maj+R", "Ctrl+Alt+Shift+R")
+}
+
+/// Les textes de l'enregistrement, donnés par le cœur (`RecordingState::ui_json`) dans la langue de l'app :
+/// `{time}` reste à remplir (`pill`, chaque seconde) ; les infobulles ont déjà leur raccourci.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct RecordingTexts {
+    pub record: String,
+    pub pill: String,
+    pub record_tooltip: String,
+    pub stop_tooltip: String,
+    pub stop: String,
+    pub on_computer: String,
+    pub guest_pill: String,
+    pub guest_tooltip: String,
+    pub disabled: String,
+}
+
+/// L'enregistrement de la session, tel que le dit le cœur (`Platform::on_recording`, ou la réponse de
+/// `Console::recording`) : miroir de `kybernow_core::recording::RecordingState` (l'interface seule n'a pas le cœur).
+/// Absent (`SessionUi::recording` nul) : la Station n'enregistre pas, ni bouton, ni pastille, ni tuile.
+#[derive(Clone, Debug)]
+pub struct RecordingUi {
+    /// Permis dans Admin (sinon le bouton est estompé, avec la raison).
+    pub allowed: bool,
+    pub active: bool,
+    /// Un invité du partage : il voit, sans rien pouvoir lancer ni arrêter.
+    pub guest: bool,
+    /// Secondes écoulées sur la Station quand l'état est arrivé, et quand : le temps se compte ensuite ici.
+    pub elapsed: u64,
+    pub since: Instant,
+    pub texts: RecordingTexts,
+}
+
+impl RecordingUi {
+    /// Secondes écoulées depuis le début, maintenant.
+    pub fn secs(&self) -> u64 {
+        if self.active { self.elapsed + self.since.elapsed().as_secs() } else { 0 }
+    }
+
+    /// « 02:14 », « 1:02:14 » (comme `kybernow_core::recording::clock`).
+    pub fn clock(&self) -> String {
+        recording_clock(self.secs())
+    }
+
+    /// Le bouton de l'hôte : « Enregistrer », ou la pastille « Enregistrement · 02:14 » ; un invité : « Enregistrement ».
+    pub fn label(&self) -> String {
+        if self.guest {
+            self.texts.guest_pill.clone()
+        } else if self.active {
+            self.texts.pill.replace("{time}", &self.clock())
+        } else {
+            self.texts.record.clone()
+        }
+    }
+
+    /// L'infobulle : arrêter, lancer, la raison quand c'est coupé dans Admin ; un invité : « {nom} enregistre la session. »
+    pub fn tooltip(&self) -> &str {
+        if self.guest {
+            &self.texts.guest_tooltip
+        } else if self.active {
+            &self.texts.stop_tooltip
+        } else if !self.allowed {
+            &self.texts.disabled
+        } else {
+            &self.texts.record_tooltip
+        }
+    }
+
+    /// Menus à tuiles : (titre, sous-titre) ; un invité : « Enregistrement », « {nom} enregistre la session. ».
+    pub fn tile(&self) -> (String, String) {
+        if self.guest {
+            (self.texts.guest_pill.clone(), self.texts.guest_tooltip.clone())
+        } else if self.active {
+            (self.texts.stop.clone(), self.clock())
+        } else {
+            (self.texts.record.clone(), self.texts.on_computer.clone())
+        }
+    }
+
+    /// Coupé dans Admin (et rien en cours) : estompé ; à la souris inactif, ailleurs la raison en avis.
+    pub fn blocked(&self) -> bool {
+        !self.guest && !self.allowed && !self.active
+    }
+}
+
+/// « 02:14 », « 59:59 », « 1:02:14 ».
+pub fn recording_clock(seconds: u64) -> String {
+    let (h, m, s) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
+    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
+}
+
 /// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct LendHostView {
@@ -2055,6 +2153,10 @@ pub struct SessionUi {
     /// test », montré depuis (8 s, ou la croix) ; le réseau a été comparé à celui du test (une fois par session).
     pub auto_banner: Option<Instant>,
     pub auto_checked: bool,
+    /// L'enregistrement de la session (`Platform::on_recording`) ; `None` : la Station n'enregistre pas (rien à
+    /// montrer). `recording_busy` : une demande à Admin en cours (une à la fois).
+    pub recording: Option<RecordingUi>,
+    pub recording_busy: bool,
 }
 
 impl SessionUi {
@@ -2171,6 +2273,8 @@ impl SessionUi {
             pw_strained: false,
             auto_banner: None,
             auto_checked: false,
+            recording: None,
+            recording_busy: false,
         }
     }
 
@@ -2797,6 +2901,9 @@ pub enum Target {
     /// Prêt de l'ordinateur, hôte : « Prêter l'ordinateur… » dans la barre ; le panneau (durée, compte Steam,
     /// « Créer un code », copier le lien, « Annuler le code », accepter ou refuser une demande, fermer).
     BarLend,
+    /// Enregistrement de la session, hôte : « Enregistrer » dans la barre, puis la pastille « Enregistrement · 02:14 »
+    /// (un clic l'arrête).
+    BarRecord,
     LendDuration(usize),
     LendSteamPick(LendSteam),
     LendCreate,
@@ -2956,6 +3063,8 @@ pub enum Action {
     Lend(SessionId, LendOp),
     /// Prêt de l'ordinateur, hôte, sur l'accueil : « Reprendre l'ordinateur » de cet ordinateur.
     LendHome { host: String, op: LendOp },
+    /// Enregistrement de la session, hôte : lancer (`true`) ou arrêter (`Console::recording`, hors du fil de l'interface).
+    Recording(SessionId, bool),
     /// Copier ce texte (le lien du partage) dans le presse-papiers du système.
     CopyText(String),
     /// La saisie de texte de SDL, sans le clavier de Steam (« Rejoindre un partage »).
@@ -4518,6 +4627,7 @@ impl App {
             Target::ComeBack => self.come_back(),
             Target::BarGiveBack => self.give_back_ask(),
             Target::BarLend => self.lend_button(false),
+            Target::BarRecord => self.recording_toggle(false),
             Target::LendDuration(i) => {
                 if let Some(s) = self.session_mut() {
                     s.lend_duration = i.min(LEND_DURATIONS.len() - 1);
@@ -5779,6 +5889,7 @@ impl App {
                 self.lend_button(true)
             }
             MenuItem::GiveBack => self.give_back_ask(),
+            MenuItem::Record => self.recording_toggle(true),
             MenuItem::PsSettings | MenuItem::PsRest => Vec::new(),
             MenuItem::Disconnect => vec![Action::Disconnect(id)],
         }
@@ -6237,6 +6348,66 @@ impl App {
         }
         let before = std::mem::replace(&mut s.lend, view);
         self.notice_lend(id, before.as_ref());
+    }
+
+    // MARK: - Enregistrement de la session
+
+    /// L'enregistrement tel que le dit le cœur (`Platform::on_recording`, quand il change) et l'avis bref à montrer
+    /// (« Enregistrement lancé sur l'ordinateur. », « {nom} enregistre la session. »…). Un emprunt n'en montre rien.
+    pub fn recording_changed(&mut self, id: SessionId, state: RecordingUi, notice: Option<String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        if s.borrow.is_some() || s.console.is_some() {
+            return;
+        }
+        s.recording = Some(state);
+        if let Some(text) = notice {
+            s.notice = Some((text, Instant::now()));
+        }
+    }
+
+    /// Lancer ou arrêter (hôte) : le bouton ou la pastille de la barre (`menu` faux, à la souris), la tuile du menu
+    /// ou Ctrl+Alt+Maj+R. Coupé dans Admin : rien à la souris (la raison est l'infobulle), la raison en avis
+    /// ailleurs. Un invité, ou une Station qui n'enregistre pas : rien.
+    pub fn recording_toggle(&mut self, menu: bool) -> Vec<Action> {
+        let Some(s) = self.session_mut() else { return Vec::new() };
+        if s.visitor() {
+            return Vec::new();
+        }
+        let Some((blocked, active, disabled)) = s.recording.as_ref().map(|r| (r.blocked(), r.active, r.texts.disabled.clone())) else { return Vec::new() };
+        if blocked {
+            if menu {
+                s.menu = false;
+                s.notice = Some((disabled, Instant::now()));
+            }
+            return Vec::new();
+        }
+        if s.recording_busy {
+            return Vec::new();
+        }
+        let record = !active;
+        s.recording_busy = true;
+        if menu {
+            s.menu = false;
+        }
+        vec![Action::Recording(s.id, record)]
+    }
+
+    /// La réponse d'Admin : l'état tel qu'il est maintenant (l'avis vient du signe de vie qui suit), ou le refus,
+    /// en avis bref (« PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264. »…).
+    pub fn recording_reply(&mut self, id: SessionId, r: Result<Option<RecordingUi>, String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.recording_busy = false;
+        match r {
+            Ok(Some(state)) => s.recording = Some(state),
+            Ok(None) => {}
+            Err(text) => s.notice = Some((text, Instant::now())),
+        }
+    }
+
+    /// Une session montre l'enregistrement en cours dans un dessin qui bouge (barre ouverte, menu) : la fenêtre se
+    /// redessine (le temps, chaque seconde ; le rond qui bat).
+    pub fn recording_redraw(&self) -> bool {
+        self.sessions.iter().any(|s| s.recording.as_ref().is_some_and(|r| r.active) && (s.bar || s.menu))
     }
 
     /// La réponse d'Admin à « Reprendre l'ordinateur » depuis l'accueil : la vue du prêt de l'ordinateur, ou le refus.
@@ -9367,6 +9538,60 @@ mod tests {
         let acts = app.activate(Target::ComeBack);
         assert!(matches!(&acts[..], [Action::ComeBack(BorrowSource::Account { id, .. })] if id == "lend:m"));
         assert!(app.sessions.is_empty() && app.screen == Screen::Home && app.borrow.busy);
+    }
+
+    /// L'enregistrement d'essai, avec les textes français de link-ui.
+    pub(crate) fn recording_sample(allowed: bool, active: bool, guest: bool, elapsed: u64) -> RecordingUi {
+        RecordingUi {
+            allowed,
+            active,
+            guest,
+            elapsed,
+            since: Instant::now(),
+            texts: RecordingTexts {
+                record: "Enregistrer".into(),
+                pill: "Enregistrement · {time}".into(),
+                record_tooltip: "Enregistrer la session sur l'ordinateur (Ctrl+Alt+Maj+R)".into(),
+                stop_tooltip: "Arrêter l'enregistrement (Ctrl+Alt+Maj+R)".into(),
+                stop: "Arrêter l'enregistrement".into(),
+                on_computer: "Sur l'ordinateur".into(),
+                guest_pill: "Enregistrement".into(),
+                guest_tooltip: "Bureau enregistre la session.".into(),
+                disabled: "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).".into(),
+            },
+        }
+    }
+
+    /// L'enregistrement : rien sans `recording` ; lancer et arrêter (barre, tuile), une demande à la fois, le refus
+    /// en avis ; coupé dans Admin : rien à la souris, la raison en avis à la tuile ; un invité ne fait rien.
+    #[test]
+    fn recording_from_the_session() {
+        let mut app = desk();
+        let id = open(&mut app, "a");
+        assert!(app.activate(Target::BarRecord).is_empty(), "Station qui n'enregistre pas");
+        app.recording_changed(id, recording_sample(true, false, false, 0), None);
+        assert_eq!(app.activate(Target::BarRecord), vec![Action::Recording(id, true)]);
+        assert!(app.activate(Target::BarRecord).is_empty(), "une demande à la fois");
+        app.recording_reply(id, Err("PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.".into()));
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264."));
+        app.recording_reply(id, Ok(Some(recording_sample(true, true, false, 134))));
+        let r = app.session().unwrap().recording.clone().unwrap();
+        assert_eq!((r.label(), r.tile()), ("Enregistrement · 02:14".to_string(), ("Arrêter l'enregistrement".to_string(), "02:14".to_string())));
+        assert_eq!(r.tooltip(), "Arrêter l'enregistrement (Ctrl+Alt+Maj+R)");
+        app.recording_changed(id, recording_sample(true, true, false, 134), Some("Enregistrement lancé sur l'ordinateur.".into()));
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("Enregistrement lancé sur l'ordinateur."));
+        app.session_mut().unwrap().menu = true;
+        assert_eq!(app.activate(Target::Menu(MenuItem::Record)), vec![Action::Recording(id, false)]);
+        assert!(!app.session().unwrap().menu);
+        // Coupé dans Admin.
+        app.recording_reply(id, Ok(Some(recording_sample(false, false, false, 0))));
+        assert!(app.activate(Target::BarRecord).is_empty());
+        assert!(app.activate(Target::Menu(MenuItem::Record)).is_empty());
+        assert_eq!(app.session().unwrap().notice.as_ref().map(|n| n.0.as_str()), Some("L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements)."));
+        // Un invité voit, sans rien lancer.
+        let guest = recording_sample(true, true, true, 5);
+        assert_eq!((guest.label(), guest.tooltip()), ("Enregistrement".to_string(), "Bureau enregistre la session."));
+        assert_eq!(recording_clock(3734), "1:02:14");
     }
 
     /// L'hôte : « Prêter l'ordinateur… » ouvre le panneau (réduit à la raison avec une Station trop ancienne), « Créer un

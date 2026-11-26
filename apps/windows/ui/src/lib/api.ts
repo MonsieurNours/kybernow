@@ -934,6 +934,39 @@ export type LendPanel = {
 export type LendStateEvent = { id: string; lend: LendPanel }
 export type BorrowEvent = { id: string; borrow: BorrowBar }
 
+/**
+ * Enregistrement de la session (docs/link-ui.md « Enregistrement de la session ») : l'état et les textes du cœur
+ * (`RecordingState::ui_json`), `{time}` et `{shortcut}` à remplir. `elapsed` : les secondes écoulées quand l'état est parti.
+ */
+export type RecordingTexts = {
+  record: string
+  pill: string
+  record_tooltip: string
+  stop_tooltip: string
+  stop: string
+  on_computer: string
+  record_menu: string
+  stop_menu: string
+  guest_pill: string
+  guest_tooltip: string
+  disabled: string
+}
+export type RecordingView = { available: boolean; allowed: boolean; active: boolean; elapsed: number; texts: RecordingTexts }
+/** `recording-state` : l'enregistrement de la session `id` (nul : la Station n'enregistre pas). */
+export type RecordingEvent = { id: string; recording: RecordingView | null }
+
+/** « 02:14 », « 59:59 », puis « 1:02:14 » au-delà d'une heure (la règle de `kybernow_core::recording::clock`). */
+export function recordingClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(total / 3600)
+  const two = (n: number) => String(n).padStart(2, '0')
+  const ms = `${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`
+  return h > 0 ? `${h}:${ms}` : ms
+}
+
+/** Un texte du cœur, `{time}` et `{shortcut}` remplis. */
+export const fillRecording = (text: string, time: string, shortcut: string) => text.split('{time}').join(time).split('{shortcut}').join(shortcut)
+
 /** L'accueil de l'hôte pendant un prêt : « Prêté à {prénom} » (jusqu'à `until`), « Reprise dans 1:42 » jusqu'à `notice_at`. */
 export type HomeLend = { state: 'preparing' | 'lent' | 'ending'; name: string; until: number | null; notice_at: number | null; notice: LendNotice['reason'] | null }
 

@@ -359,6 +359,8 @@
       "overviewShort": "Ensemble",
       "imageSound": "Image et son",
       "imageSoundShort": "Image et son",
+      "recordings": "Enregistrements",
+      "recordingsShort": "Vidéos",
       "devices": "Appareils Link",
       "devicesShort": "Appareils",
       "lend": "Prêt",
@@ -1670,6 +1672,69 @@
           "warning": "Votre ami joue dans votre session, en mode console : il ne voit que les apps que vous choisissez. Un jeu peut tout de même lire vos fichiers : prêtez à des amis de confiance."
         }
       }
+    }
+  },
+  "recording": {
+    "record": "Enregistrer",
+    "pill": "Enregistrement · {time}",
+    "record_tooltip": "Enregistrer la session sur l'ordinateur ({shortcut})",
+    "stop_tooltip": "Arrêter l'enregistrement ({shortcut})",
+    "stop": "Arrêter l'enregistrement",
+    "on_computer": "Sur l'ordinateur",
+    "record_menu": "Enregistrer la session",
+    "stop_menu": "Arrêter l'enregistrement ({time})",
+    "started": "Enregistrement lancé sur l'ordinateur.",
+    "saved": "Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.",
+    "guest_pill": "Enregistrement",
+    "guest_notice": "{name} enregistre la session.",
+    "guest_stopped": "L'enregistrement est arrêté.",
+    "disabled": "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).",
+    "codec": "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.",
+    "disk_full": "Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer.",
+    "folder": "Le dossier des enregistrements est inaccessible (Admin › Enregistrements).",
+    "lent": "{name} utilise l'ordinateur.",
+    "failed": "L'enregistrement n'a pas pu commencer.",
+    "stopped_disk": "L'enregistrement s'est arrêté : le disque de l'ordinateur est plein.",
+    "stopped_codec": "L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas."
+  },
+  "recordings": {
+    "eyebrow": "Ce qui se passe dans les sessions",
+    "title": "Enregistrements",
+    "intro": "L'appareil en session peut enregistrer l'image et le son dans un fichier sur cet ordinateur. Vous les retrouvez ici.",
+    "settings": "Réglages",
+    "allow": "Permettre l'enregistrement des sessions",
+    "allowHelp": "L'appareil en session peut enregistrer l'image et le son dans un fichier sur cet ordinateur. Tout le monde dans la session le voit.",
+    "folder": "Dossier",
+    "change": "Modifier",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "defaultFolder": "Dossier par défaut",
+    "free": "{n} Go libres",
+    "keep": "Garder",
+    "keepHelp": "Les enregistrements plus anciens sont effacés.",
+    "days7": "7 jours",
+    "days30": "30 jours",
+    "days90": "90 jours",
+    "forever": "Toujours",
+    "session": "Session en cours",
+    "recordDevice": "Enregistrer la session de {device}",
+    "stop": "Arrêter l'enregistrement",
+    "files": "Fichiers",
+    "none": "Aucun enregistrement.",
+    "inProgress": "En cours",
+    "play": "Lire",
+    "close": "Fermer",
+    "download": "Télécharger",
+    "delete": "Supprimer",
+    "confirmDelete": "Supprimer cet enregistrement ? Il ne pourra pas être récupéré.",
+    "size": {
+      "gb": "{n} Go",
+      "mb": "{n} Mo"
+    },
+    "duration": {
+      "seconds": "{n} s",
+      "minutes": "{n} min",
+      "hours": "{h} h {m}"
     }
   }
 }

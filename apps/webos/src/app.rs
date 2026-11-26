@@ -483,6 +483,8 @@ pub enum MenuItem {
     Lend,
     /// Prêt de l'ordinateur, emprunt : « Rendre l'ordinateur » (après sa confirmation).
     GiveBack,
+    /// Enregistrement de la session : « Enregistrer » / « Arrêter l'enregistrement » (hôte) ; inactive pour un invité.
+    Record,
     Settings,
     /// Console PlayStation : « Couper le son » / « Rétablir le son », « Mettre la console en veille ».
     Mute,
@@ -1343,6 +1345,70 @@ impl LendCodeUi {
     }
 }
 
+// MARK: - Enregistrement de la session (docs/enregistrement.md ; textes : docs/link-ui.md, « Enregistrement de la session »)
+
+/// Les textes de l'enregistrement pour les tuiles, donnés par le cœur (`RecordingState::ui_json`) dans la langue de l'app.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct RecordingTexts {
+    pub record: String,
+    pub stop: String,
+    pub on_computer: String,
+    pub guest_pill: String,
+    pub guest_tooltip: String,
+    pub disabled: String,
+}
+
+/// L'enregistrement de la session, tel que le dit le cœur (`Platform::on_recording`, ou la réponse de
+/// `Console::recording`) : miroir de `kybernow_core::recording::RecordingState` (l'interface seule n'a pas le cœur).
+/// Absent (`SessionUi::recording` nul) : la Station n'enregistre pas, pas de tuile.
+#[derive(Clone, Debug)]
+pub struct RecordingUi {
+    /// Permis dans Admin (sinon la tuile est estompée et donne la raison en avis).
+    pub allowed: bool,
+    pub active: bool,
+    /// Un invité du partage : il voit, sans rien pouvoir lancer ni arrêter.
+    pub guest: bool,
+    /// Secondes écoulées sur la Station quand l'état est arrivé, et quand : le temps se compte ensuite ici.
+    pub elapsed: u64,
+    pub since: Instant,
+    pub texts: RecordingTexts,
+}
+
+impl RecordingUi {
+    /// Secondes écoulées depuis le début, maintenant.
+    pub fn secs(&self) -> u64 {
+        if self.active { self.elapsed + self.since.elapsed().as_secs() } else { 0 }
+    }
+
+    /// « 02:14 », « 1:02:14 » (comme `kybernow_core::recording::clock`).
+    pub fn clock(&self) -> String {
+        recording_clock(self.secs())
+    }
+
+    /// Le menu à tuiles : (titre, sous-titre) ; « Enregistrer » / « Sur l'ordinateur », pendant « Arrêter
+    /// l'enregistrement » / « 02:14 » ; un invité : « Enregistrement » / « {nom} enregistre la session. ».
+    pub fn tile(&self) -> (String, String) {
+        if self.guest {
+            (self.texts.guest_pill.clone(), self.texts.guest_tooltip.clone())
+        } else if self.active {
+            (self.texts.stop.clone(), self.clock())
+        } else {
+            (self.texts.record.clone(), self.texts.on_computer.clone())
+        }
+    }
+
+    /// Coupé dans Admin (et rien en cours) : la tuile est estompée et donne la raison en avis.
+    pub fn blocked(&self) -> bool {
+        !self.guest && !self.allowed && !self.active
+    }
+}
+
+/// « 02:14 », « 59:59 », « 1:02:14 ».
+pub fn recording_clock(seconds: u64) -> String {
+    let (h, m, s) = (seconds / 3600, (seconds / 60) % 60, seconds % 60);
+    if h > 0 { format!("{h}:{m:02}:{s:02}") } else { format!("{m:02}:{s:02}") }
+}
+
 /// La vue du prêt chez l'hôte (`LendView` du cœur) : ce qui est prêté, à qui, le préavis, les demandes, le code.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct LendHostView {
@@ -1784,6 +1850,10 @@ pub struct SessionUi {
     /// s'il a déjà été décidé pour cette session (une fois, à la première image).
     pub auto_banner: Option<Instant>,
     pub auto_checked: bool,
+    /// L'enregistrement de la session (`Platform::on_recording`) ; `None` : la Station n'enregistre pas (pas de
+    /// tuile). `recording_busy` : une demande à Admin en cours (une à la fois).
+    pub recording: Option<RecordingUi>,
+    pub recording_busy: bool,
 }
 
 impl SessionUi {
@@ -1826,6 +1896,8 @@ impl SessionUi {
             pads_unavailable_said: false,
             auto_banner: None,
             auto_checked: false,
+            recording: None,
+            recording_busy: false,
         }
     }
 
@@ -2231,6 +2303,8 @@ pub enum Action {
     Lend(LendOp),
     /// Prêt de l'ordinateur, hôte, sur l'accueil : « Reprendre l'ordinateur ».
     LendHome { host: String, op: LendOp },
+    /// Enregistrement de la session, hôte : lancer (`true`) ou arrêter (`Console::recording`, hors du fil de l'interface).
+    Recording(bool),
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
     Shortcut(Vec<u16>),
     /// « Ctrl agit comme ⌘ » changé pour l'ordinateur de la session : elle le prend tout de suite.
@@ -4211,6 +4285,59 @@ impl App {
         self.notice_lend(before.as_ref());
     }
 
+    // MARK: - Enregistrement de la session
+
+    /// L'enregistrement tel que le dit le cœur (`Platform::on_recording`, quand il change) et l'avis bref à montrer
+    /// (« Enregistrement lancé sur l'ordinateur. », « {nom} enregistre la session. »…). Un emprunt n'en montre rien.
+    pub fn recording_changed(&mut self, state: RecordingUi, notice: Option<String>) {
+        let Some(s) = self.session.as_mut() else { return };
+        if s.borrow.is_some() || s.ps.is_some() {
+            return;
+        }
+        s.recording = Some(state);
+        if let Some(text) = notice {
+            s.notice = Some((text, Instant::now()));
+        }
+    }
+
+    /// La tuile « Enregistrer » / « Arrêter l'enregistrement » (hôte) : le menu se ferme et la demande part. Coupé
+    /// dans Admin : la raison en avis. Un invité, ou une Station qui n'enregistre pas : rien.
+    pub fn recording_toggle(&mut self) -> Vec<Action> {
+        let Some(s) = self.session.as_mut() else { return Vec::new() };
+        if s.visitor() {
+            return Vec::new();
+        }
+        let Some((blocked, active, disabled)) = s.recording.as_ref().map(|r| (r.blocked(), r.active, r.texts.disabled.clone())) else { return Vec::new() };
+        s.menu = false;
+        if blocked {
+            s.notice = Some((disabled, Instant::now()));
+            return Vec::new();
+        }
+        if s.recording_busy {
+            return Vec::new();
+        }
+        s.recording_busy = true;
+        vec![Action::Recording(!active)]
+    }
+
+    /// La réponse d'Admin : l'état tel qu'il est maintenant (l'avis vient du signe de vie qui suit), ou le refus,
+    /// en avis bref (« PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264. »…).
+    pub fn recording_reply(&mut self, r: Result<Option<RecordingUi>, String>) {
+        let Some(s) = self.session.as_mut() else { return };
+        s.recording_busy = false;
+        match r {
+            Ok(Some(state)) => s.recording = Some(state),
+            Ok(None) => {}
+            Err(text) => s.notice = Some((text, Instant::now())),
+        }
+    }
+
+    /// Le menu ouvert pendant un enregistrement : la seconde de son temps (la tuile se redessine quand elle change).
+    pub fn recording_tick(&self) -> Option<u64> {
+        let s = self.session.as_ref().filter(|s| s.menu)?;
+        s.recording.as_ref().filter(|r| r.active).map(RecordingUi::secs)
+    }
+
     /// La réponse d'Admin à « Reprendre l'ordinateur » depuis l'accueil.
     pub fn lend_home_reply(&mut self, host: &str, r: Result<LendHostView, String>) {
         match r {
@@ -4346,6 +4473,7 @@ impl App {
             MenuItem::Route => Vec::new(),
             // « Prêter l'ordinateur… » : le menu se ferme, le panneau du prêt s'ouvre sur l'image.
             MenuItem::Lend => self.lend_button(),
+            MenuItem::Record => self.recording_toggle(),
             // « Rendre l'ordinateur » : sa confirmation.
             MenuItem::GiveBack => {
                 let Some(host) = s.borrow.as_ref().map(|b| b.host.clone()) else { return Vec::new() };

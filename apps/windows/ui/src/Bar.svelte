@@ -61,6 +61,14 @@
   {hôte} ? ») ; ni profil de la Station, ni partage, ni « Ordinateurs ». Le préavis de 2 minutes
   s'affiche comme un avis bref.
 
+  Enregistrement de la session (docs/link-ui.md « Enregistrement de la session ») : pour une session d'hôte
+  face à une Station qui enregistre, « Enregistrer » (un rond plein) après « Prêter l'ordinateur… » ; pendant,
+  la pastille rouge « Enregistrement · 02:14 » à sa place, le rond qui bat (fixe quand Windows demande moins
+  d'animations), un clic l'arrête ; barre étroite : « 02:14 » seul. Coupé dans Admin : estompé, la raison en
+  infobulle (au toucher, en avis). Un invité voit la pastille « Enregistrement », sans action ; l'ami qui
+  emprunte ne voit rien. Les textes sont ceux du cœur (`recording-state`, `bar-shown`), le temps compte chaque
+  seconde à partir de `elapsed`. Une Station qui n'enregistre pas : rien.
+
   Consoles PlayStation (docs/link-ui.md « Consoles PlayStation », « Barre de la partie ») : la même
   barre, avec ce qui a du sens pour une console (`console` dans `bar-shown`, événement `ps-bar`) : son
   nom, les statistiques (un clic ouvre les mesures de la partie : demandé, reçu, pertes, chemin), « Par
@@ -71,15 +79,15 @@
   le dit sous la barre.
 -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import type { BarHdr, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
-  import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
+  import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
+  import { fillRecording, invoke, leftText, lendDurations, listen, ms, recordingClock, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
   import { relayPhase, type RelayPhase } from './lib/relay.svelte'
 
@@ -127,6 +135,16 @@
   let trustOnce = $state(false)
   /** Session d'invité (KyberNow Share) : rôle, hôte et image ; la barre est réduite. */
   let guest = $state<GuestBar | null>(null)
+  /** Enregistrement de la session servie : l'état et les textes du cœur ; nul : la Station n'enregistre pas. */
+  let recording = $state<RecordingView | null>(null)
+  /** Quand `recording` est arrivé (ms) : le temps compte à partir de son `elapsed`. */
+  let recordingAt = $state(Date.now())
+  /** L'heure, revue chaque seconde pendant un enregistrement. */
+  let recordingTick = $state(Date.now())
+  /** « Enregistrer » ou l'arrêt attend la réponse d'Admin. */
+  let recordActing = $state(false)
+  /** « Enregistrer » touché du doigt ou du stylet (coupé dans Admin : la raison en avis). */
+  let recordTouch = false
   /**
    * La qualité que l'invité vient de choisir, tant que la Station n'a pas répondu : un signe de vie
    * parti avant le changement porte encore l'ancienne et ne la remet pas dans le menu.
@@ -220,6 +238,8 @@
     hdr?: BarHdr | null
     lend?: LendPanel | null
     borrow?: BorrowBar | null
+    /** L'enregistrement de la session (absent : la Station n'enregistre pas). */
+    recording?: RecordingView | null
     /** Partie sur une console PlayStation : la barre de la console. */
     console?: PsBar | null
   }
@@ -407,6 +427,11 @@
         reportWidth()
         if (menu === 'lend') growForMenu()
       }),
+      // L'enregistrement de la session change (lancé, arrêté, coupé dans Admin) : le bouton et la pastille suivent.
+      listen<RecordingEvent>('recording-state', (e) => {
+        if (e.id !== id) return
+        setRecording(e.recording)
+      }),
       // L'ami qui emprunte : le préavis arrive (le temps restant suit).
       listen<BorrowEvent>('lend-borrow', (e) => {
         if (e.id !== id) return
@@ -491,6 +516,8 @@
         if (s.lend) lends.set(s.id, s.lend)
         lendError = null
         lendCopied = null
+        // Enregistrement : l'état du moment (le temps écoulé compris) ; rien pour l'ami qui emprunte.
+        setRecording(s.borrow ? null : (s.recording ?? null))
         // Partie sur une console : sa barre et ses mesures.
         psBar = s.console ?? null
         psStats = psSeen.get(s.id) ?? null
@@ -1001,6 +1028,57 @@
   // MARK: - Prêt de l'ordinateur
 
   /** « Prêter l'ordinateur… » inactif : Station trop ancienne, prêt impossible sur cet ordinateur, ou coupé dans Admin (avec la raison). */
+  /** L'état de l'enregistrement de la session servie ; le temps repart de son `elapsed`. */
+  function setRecording(view: RecordingView | null) {
+    recording = view?.available ? view : null
+    recordingAt = Date.now()
+    recordingTick = recordingAt
+    reportWidth()
+  }
+
+  /** Le temps écoulé, chaque seconde (le même que sur les autres appareils : il part de la Station). */
+  const recordingTime = $derived(recording?.active ? recordingClock(recording.elapsed + Math.max(0, Math.floor((recordingTick - recordingAt) / 1000))) : '')
+  const recordShortcut = $derived(t('bar.record_shortcut'))
+  const recordText = (text: string) => fillRecording(text, recordingTime, recordShortcut)
+  /** Coupé dans Admin (et rien en cours) : estompé, avec la raison. */
+  const recordBlocked = $derived(!!recording && !recording.allowed && !recording.active)
+
+  $effect(() => {
+    if (!recording?.active) return
+    let width = untrack(() => recordingTime.length)
+    const timer = setInterval(() => {
+      recordingTick = Date.now()
+      // « 59:59 » devient « 1:00:00 » : la barre s'élargit, l'app le sait.
+      if (recordingTime.length !== width) {
+        width = recordingTime.length
+        reportWidth()
+      }
+    }, 1000)
+    return () => clearInterval(timer)
+  })
+
+  /** « Enregistrer » ou la pastille : lance ou arrête ; le refus s'affiche à la place des mesures. */
+  async function record() {
+    const touched = recordTouch
+    recordTouch = false
+    if (!recording || recordActing) return
+    if (recordBlocked) {
+      // À la souris, l'infobulle dit la raison ; au toucher, un avis.
+      if (touched) showNotice(recording.texts.disabled)
+      return
+    }
+    const mine = id
+    recordActing = true
+    try {
+      const view = await invoke<RecordingView | null>('session_record', { id: mine, record: !recording.active })
+      if (id === mine) setRecording(view)
+    } catch (e) {
+      if (id === mine) showNotice(String(e))
+    } finally {
+      recordActing = false
+    }
+  }
+
   const lendBlocked = $derived(lend?.availability === 'unsupported' || lend?.availability === 'unavailable' || lend?.availability === 'disabled')
   const lendText = $derived(
     lend?.availability === 'unsupported'
@@ -1268,6 +1346,44 @@
   </div>
 {/snippet}
 
+<!-- Enregistrement de la session, hôte : « Enregistrer », ou pendant la pastille rouge qui l'arrête (« 02:14 » seul en barre étroite). -->
+{#snippet recordButton()}
+  {#if recording?.active}
+    <button
+      class="chip rec"
+      aria-label={recording.texts.stop}
+      title={recordText(recording.texts.stop_tooltip)}
+      aria-disabled={recordActing}
+      onclick={record}
+    >
+      <span class="recdot beat" aria-hidden="true"></span>
+      <span class="ctext" role="timer">{compact ? recordingTime : recordText(recording.texts.pill)}</span>
+    </button>
+  {:else if recording}
+    <button
+      class="chip"
+      class:inert={recordBlocked}
+      aria-disabled={recordBlocked || recordActing}
+      aria-label={recordBlocked ? recording.texts.disabled : recording.texts.record}
+      title={recordBlocked ? recording.texts.disabled : recordText(recording.texts.record_tooltip)}
+      onpointerdown={(e) => (recordTouch = e.pointerType === 'touch' || e.pointerType === 'pen')}
+      onclick={record}
+    >
+      <span class="recdot" aria-hidden="true"></span>
+      {#if !compact}<span class="ctext">{recording.texts.record}</span>{/if}
+    </button>
+  {/if}
+{/snippet}
+
+<!-- Enregistrement de la session, invité : la pastille seule, sans action. -->
+{#snippet guestRecordPill()}
+  {#if recording?.active}
+    <span class="chip still rec" role="img" aria-label={recording.texts.guest_pill} title={recording.texts.guest_tooltip}>
+      <span class="recdot beat" aria-hidden="true"></span><span class="ctext">{recording.texts.guest_pill}</span>
+    </span>
+  {/if}
+{/snippet}
+
 <!-- Par le relais (hors de chez vous) : toujours visible, dans la barre. -->
 {#snippet relayChip()}
   {#if route?.via_relay}
@@ -1430,6 +1546,7 @@
     <span class="title">{title}</span>
     <span class="sep"></span>
     <span class="chip still" class:play={rolePlays(guest.role)} role="img" aria-label={roleName(guest.role)}>{@render chipBody(roleIcon(guest.role), roleName(guest.role))}</span>
+    {@render guestRecordPill()}
     {@render relayChip()}
     {@render statsButton()}
     <span class="sep"></span>
@@ -1696,6 +1813,7 @@
         </div>
       {/if}
     </div>
+    {@render recordButton()}
     {@render relayChip()}
     <span class="sep"></span>
     {@render statsButton()}
@@ -1869,6 +1987,52 @@
   .chip.relay.tcp :global(svg),
   .chip.relay.tcp .ctext {
     color: var(--warn);
+  }
+
+  /* Enregistrement : le rond plein de « Enregistrer », et la pastille rouge (--kn-bad de brand/v2) pendant. */
+  .recdot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .chip.rec,
+  button.chip.rec:hover {
+    background: rgb(255 107 107 / 0.16);
+    border-color: rgb(255 107 107 / 0.6);
+  }
+
+  button.chip.rec:hover {
+    background: rgb(255 107 107 / 0.26);
+  }
+
+  .chip.rec .recdot {
+    background: var(--bad);
+  }
+
+  .chip.rec .ctext {
+    color: var(--bad-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Le rond bat doucement, une fois par seconde ; fixe quand Windows demande moins d'animations. */
+  .recdot.beat {
+    animation: beat 1s ease-in-out infinite;
+  }
+
+  @keyframes beat {
+    50% {
+      opacity: 0.35;
+      transform: scale(0.8);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .recdot.beat {
+      animation: none;
+    }
   }
 
   /* Une pastille sans action (son, presse-papiers, rôle, relais). */

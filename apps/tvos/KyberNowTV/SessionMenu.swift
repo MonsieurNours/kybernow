@@ -22,7 +22,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr, pyrowave, autoTest }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, record, disconnect, quit, restoreMode, hdr, pyrowave, autoTest }
 
     init(session: SessionController) {
         self.session = session
@@ -113,6 +113,8 @@ struct SessionMenu: View {
                         tile(.disconnect, icon: "power", title: LendText.disconnect, detail: LendText.comeBackHint) { session.end() }
                         tile(.quit, icon: "key", iconColor: Theme.danger, title: LendText.giveBack, detail: LendText.lentBy(session.lendHost)) { session.giveBackAsked = true }
                     } else if session.isGuest {
+                        // L'hôte enregistre : la tuile inactive « Enregistrement » (« {nom} enregistre la session. »).
+                        if session.recordingActive, let state = session.recording { guestRecordingTile(state) }
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: session.leaveLabel,
                              detail: session.isWatching ? session.title : ShareText.guestOn(session.guest?.computer ?? "")) { session.end() }
                     } else {
@@ -128,6 +130,8 @@ struct SessionMenu: View {
                         }
                         shareTile
                         if showsLend { lendTile }
+                        // « Enregistrer », après « Prêter l'ordinateur… » ; seulement face à une Station qui enregistre.
+                        if session.recordingShown, let state = session.recording { recordingTile(state) }
                         tile(.quit, icon: "power", iconColor: Theme.danger, title: String(localized: "Se déconnecter"), detail: String(localized: "L'ordinateur retrouve ses écrans")) { session.end() }
                     }
                 }
@@ -160,6 +164,14 @@ struct SessionMenu: View {
             }
             .frame(width: 1920 - 192)
             .padding(.leading, 96).padding(.top, 1080 - 72 - 230 - 22 - 28)
+
+            // Les avis brefs, menu ouvert (le refus d'un enregistrement, sa raison
+            // quand il est coupé dans Admin) : au-dessus des tuiles.
+            if let note = session.notice, session.fallbackNote == nil {
+                MenuHint(text: note, icon: session.noticeIcon)
+                    .padding(.leading, 96).padding(.top, 1080 - 72 - 230 - 22 - 28 - 60 - 28)
+                    .transition(.opacity)
+            }
 
             if typing {
                 typingPanel
@@ -324,9 +336,11 @@ struct SessionMenu: View {
         if session.isBorrower { return 8 }
         if session.isGuest {
             return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) + (session.watchScreens.isEmpty ? 0 : 1)
+                + (session.recordingActive ? 1 : 0)
         }
-        // La tuile ambre de PyroWave (en Wi-Fi ou par le relais) en plus.
+        // La tuile ambre de PyroWave (en Wi-Fi ou par le relais) en plus, et celle de l'enregistrement.
         return (showsLend ? 9 : 8) + (session.pyrowaveChip != nil ? 1 : 0) + (session.autoOtherNetwork ? 1 : 0)
+            + (session.recordingShown ? 1 : 0)
     }
 
     /// Neuf tuiles (« Partager » et « Prêter l'ordinateur… ») : plus serrées, des titres un peu plus petits.
@@ -417,6 +431,48 @@ struct SessionMenu: View {
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .lend)
         .opacity(availability.isAvailable ? 1 : 0.5)
+    }
+
+    /// « Enregistrer » / « Sur l'ordinateur » ; pendant : « Arrêter
+    /// l'enregistrement » / « 02:14 » en rouge, le temps chaque seconde.
+    /// Coupé dans Admin : estompée, elle reste sélectionnable et donne la
+    /// raison en avis bref.
+    private func recordingTile(_ state: RecordingState) -> some View {
+        Button { session.toggleRecording() } label: {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let tile = state.tile(at: context.date)
+                recordingTileLabel(title: tile.title, detail: tile.subtitle, red: state.active)
+            }
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .record)
+        .opacity(state.allowed || state.active ? 1 : 0.5)
+        .accessibilityHint(Text(verbatim: !state.allowed && !state.active ? state.texts.disabled : ""))
+    }
+
+    /// Un invité : « Enregistrement », inactive, pendant que l'hôte enregistre.
+    private func guestRecordingTile(_ state: RecordingState) -> some View {
+        Button {} label: {
+            recordingTileLabel(title: state.texts.guestPill, detail: state.texts.guestTooltip, red: true)
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .disabled(true)
+    }
+
+    /// Les tuiles de l'enregistrement : le rond plein (rouge pendant, il bat
+    /// une fois par seconde, fixe si le système demande moins d'animations).
+    private func recordingTileLabel(title: String, detail: String, red: Bool) -> some View {
+        VStack(alignment: .leading) {
+            RecordingDotTV(active: red).frame(width: 40, height: 40)
+            Spacer()
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: title).font(Theme.sans(compact ? 22 : 26, .semibold)).foregroundStyle(Theme.text).lineLimit(2).minimumScaleFactor(0.85)
+                Text(verbatim: detail).font(red ? Theme.mono(compact ? 16 : 18) : Theme.sans(compact ? 16 : 18))
+                    .foregroundStyle(red ? Theme.danger : Theme.muted).lineLimit(2)
+            }
+        }
+        .padding(compact ? 18 : 26)
+        .frame(width: tileWidth, height: 230, alignment: .leading)
     }
 
     private var padsDetail: String {
@@ -639,4 +695,24 @@ struct RoutePicker: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+
+/// Le rond de l'enregistrement : plein, dans la couleur des icônes ; rouge et
+/// battant (une pulsation par seconde) pendant, fixe quand le système demande
+/// moins d'animations.
+struct RecordingDotTV: View {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        Circle()
+            .fill(active ? Theme.danger : Theme.accent)
+            .frame(width: 30, height: 30)
+            .opacity(active && dim && !reduceMotion ? 0.4 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) { dim = true }
+            }
+            .accessibilityHidden(true)
+    }
 }
