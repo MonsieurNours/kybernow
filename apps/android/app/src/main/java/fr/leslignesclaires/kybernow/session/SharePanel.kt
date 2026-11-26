@@ -263,6 +263,11 @@ private fun ShareGuests(share: ShareState, relay: RelayPhase?, busy: Boolean, ac
             share.guests.forEach { GuestRow(it, now, busy, actions) }
         }
         if (share.full) Body(stringResource(R.string.share_limit), color = Kn.muted, size = 13f)
+        // « Laisser les invités parler » (docs/link-ui.md, « Partage », « Micro des invités ») : coupé à chaque nouveau
+        // partage, tout de suite pour les invités déjà là ; absent face à une Station d'avant le micro.
+        share.guestsSpeak?.let { on ->
+            fr.leslignesclaires.kybernow.ui.settings.SwitchRow(stringResource(R.string.share_guests_speak), stringResource(R.string.share_guests_speak_help), on, enabled = !busy) { actions.shareSetSpeak(it) }
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
             GlassButton(stringResource(R.string.share_new_code), { actions.shareNewCode() }, enabled = !busy)
             GlassButton(stringResource(R.string.share_stop), { actions.shareStop() }, enabled = !busy)

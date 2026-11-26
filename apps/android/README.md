@@ -118,6 +118,18 @@ Différences de texte : l'aide « Aucune console trouvée… » renvoie à l'ong
 
 Opus décodé par le moteur du cœur (`apps/core/src/audio`), tiré directement par le rappel temps réel d'AAudio (`jni/src/audio.rs`), en mode faible latence et exclusif si possible, sans passer par Java. Ordre des voies de Windows (celui d'Android). Auto suit la sortie : 5.1 ou 7.1 sur un ampli HDMI, stéréo ailleurs ; une sortie qui refuse le multicanal reçoit la stéréo mixée par le moteur ; une sortie qui change (casque, HDMI) est rouverte. Le son peut rester sur l'ordinateur. Sur la Shield en Ethernet 100 Mbit/s, en 4K à 60 Hz, le son perd des paquets.
 
+## Micro
+
+Le micro de l'appareil vers l'ordinateur ([docs/micro.md](../../docs/micro.md), [docs/link-ui.md](../../docs/link-ui.md), « Micro »), sur téléphone et tablette seulement : au téléviseur, rien n'en parle (le cœur ne propose pas le micro).
+
+- **Capture** (`session/MicCapture.kt`) : `AudioRecord` sur son fil, 48 kHz mono en flottants (16 bits ramenés en flottants si l'appareil ne les capte pas), trames de 10 ms données au cœur (`Native.sessionPushMicrophone`, qui encode en Opus et envoie). « Réduire l'écho et le bruit » allumé : source `VOICE_COMMUNICATION`, `AcousticEchoCanceler` et `NoiseSuppressor` quand l'appareil les a ; coupé : `UNPROCESSED` si l'appareil la propose, sinon `MIC`. Le mode du son (`MODE_IN_COMMUNICATION`) n'est pas touché, il ferait passer le son de la session dans l'écouteur. Le micro choisi passe par `setPreferredDevice` ; débranché, celui du système.
+- **Pont** (`jni/src/session.rs`, `exports.rs`) : `setDeviceHasMicrophone` au lancement, `sessionSetMicrophone` juste après le départ et à chaque changement, `sessionPushMicrophone`, rappel `SessionListener.onMicrophone` (JSON de `MicState::to_json`) ; l'app capte tant qu'il dit `waiting` ou `on`.
+- **Interface** : « Micro » dans la barre de l'hôte, de l'ami qui emprunte et de l'invité que l'hôte laisse parler (sous-titre Envoyé / Coupé / Envoi…, estompé avec la raison du cœur en infobulle et en avis au toucher) ; barre fermée, une petite icône de micro en haut à droite tant qu'il est envoyé ; avis « Micro envoyé à {nom}. » à l'allumage ; raccourci Ctrl + Alt + Maj + V au clavier. Réglages de l'ordinateur › Son : « Micro », retenu par ordinateur, coupé par défaut (jamais synchronisé) ; un invité ou un ami qui emprunte part coupé à chaque session. Réglages de l'app, sous « Son » : « Micro » (« Celui du système », puis les micros de l'appareil, relus au branchement) et « Réduire l'écho et le bruit ».
+- **Autorisation** : `RECORD_AUDIO`, demandée la première fois qu'on l'allume (ou au départ d'une session micro retenu allumé quand l'autorisation a été perdue) ; refusée, « Micro » reste coupé, avis « KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages. ». L'app en arrière-plan n'a plus le micro (Android donne du silence).
+- **Partage, hôte** : interrupteur « Laisser les invités parler » dans le panneau « Partager » (`Console::share_speak`, `consoleShareSpeak`), absent face à une Station d'avant le micro (`guests_speak` nul).
+
+Écrit le 26/11/2026, compilé (`cargo check` du pont, `compileDebugKotlin`, essais unitaires `MicTest`) : **pas encore essayé** sur un appareil ni face à une Station.
+
 ## Vibrations
 
 Les vibrations du jeu arrivent au cœur (`InputPlatform::rumble`) et sont jouées sur la manette du joueur (`Gamepads.rumble`) :

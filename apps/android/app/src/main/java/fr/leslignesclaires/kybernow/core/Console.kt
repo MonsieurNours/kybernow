@@ -355,6 +355,11 @@ class ConsoleClient private constructor(private var handle: Long) : AutoCloseabl
         parse(Native.consoleShareCode(handle)) { ShareState.parse(it as? JSONObject) }
     }
 
+    /** « Laisser les invités parler » (docs/micro.md) : tout de suite pour les invités déjà là ; le partage à jour. */
+    suspend fun shareSpeak(on: Boolean): Reply<ShareState?> = withContext(Dispatchers.IO) {
+        parse(Native.consoleShareSpeak(handle, on)) { ShareState.parse(it as? JSONObject) }
+    }
+
     /** Le rôle d'un invité, ses deux droits (manettes, clavier et souris) : donner ou reprendre l'un, l'autre, ou les deux. */
     suspend fun shareGuest(guest: String, role: ShareRole): Reply<Unit> = withContext(Dispatchers.IO) {
         parse(Native.consoleShareGuest(handle, guest, role.code)) { }

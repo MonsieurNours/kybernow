@@ -87,6 +87,7 @@ import fr.leslignesclaires.kybernow.core.ShareAvailability
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
+import fr.leslignesclaires.kybernow.model.Mic
 import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.PyroWaveLink
@@ -167,6 +168,13 @@ class SessionUi(
      */
     var hdrState by mutableStateOf(HdrState.HIDDEN)
     var hdrChoice by mutableStateOf(true)
+    /**
+     * « Micro » (docs/link-ui.md, « Micro ») : [micShown] quand l'appareil a un micro (jamais au téléviseur), le choix
+     * ([micChoice], retenu pour l'ordinateur ; pour la session chez un invité ou un ami qui emprunte) et ce que dit le cœur.
+     */
+    var micShown by mutableStateOf(false)
+    var micChoice by mutableStateOf(false)
+    var mic by mutableStateOf<Mic>(Mic.Off)
     /**
      * PyroWave (docs/link-ui.md, « PyroWave ») : choisi à la main pour cet ordinateur ([pyroChosen], hôte seulement),
      * le réseau de l'appareil au début ([pyroLink] : câble ou Wi-Fi ; le relais se lit dans la route), le bandeau du
@@ -275,6 +283,8 @@ interface SessionActions {
     fun setProfile(p: Profile)
     /** « HDR » coché ou non en session : gardé pour cet ordinateur, l'image est relancée. */
     fun setHdr(on: Boolean) {}
+    /** « Micro » allumé ou coupé (barre, raccourci V) ; refusé par l'ordinateur : la raison en avis. */
+    fun setMicrophone(on: Boolean) {}
     /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */
     fun switchToHevc() {}
     /** « Refaire le test » du profil Auto : le panneau du test s'ouvre après la session. */
@@ -305,6 +315,8 @@ interface SessionActions {
     fun share()
     /** « Nouveau code » : les invités déjà là restent. */
     fun shareNewCode()
+    /** « Laisser les invités parler » (docs/micro.md) : leur micro arrive sur l'ordinateur, tout de suite pour ceux déjà là. */
+    fun shareSetSpeak(on: Boolean) {}
     /** « Donner les manettes » (`on`) ou « Reprendre les manettes » : le clavier et la souris de l'invité ne changent pas. */
     fun shareSetPads(guest: ShareGuest, on: Boolean)
     /** « Donner le clavier et la souris » (`on`) ou « Reprendre le clavier et la souris » : ses manettes ne changent pas. */
@@ -355,6 +367,8 @@ fun SessionOverlay(ui: SessionUi) {
         // Un invité sans les manettes n'en a pas : rien de ce qu'il toucherait ne partirait.
         if (!ui.tv && ui.padShown && (!ui.guest || role.pads) && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
         Capsules(ui, Modifier.align(Alignment.TopCenter))
+        // Barre fermée (téléphone, tablette : pas de barre permanente) : la petite icône du micro tant qu'il est envoyé.
+        if (!ui.tv && !ui.barOpen && ui.passageDone && !ui.leaving && ui.mic == Mic.On) MicIndicator(Modifier.align(Alignment.TopEnd))
         if (!ui.passageDone) Passage(ui)
         if (ui.tv) {
             AnimatedVisibility(ui.menuOpen, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) { TvMenu(ui) }
@@ -575,6 +589,9 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.HdrRefused -> c.text.ifBlank { stringResource(R.string.hdr_refused) }
     is Capsule.ResolutionLowered -> c.text
     Capsule.AutoTestLater -> stringResource(R.string.autotest_later)
+    is Capsule.MicSent -> stringResource(R.string.mic_notice_sent, c.name)
+    Capsule.MicNoAccess -> stringResource(R.string.mic_no_access)
+    is Capsule.MicRefused -> c.text
 }
 
 // MARK: - Téléphone et tablette
@@ -658,6 +675,7 @@ private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
     Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p, leading = profileIcon(p)) }
     // « HDR », cochable, près du profil (écran HDR seulement).
     HdrChip(ui.hdrState, ui.hdrChoice, { ui.actions.setHdr(!ui.hdrChoice) }, icon = true)
+    MicChip(ui)
     GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
     GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
     GlassButton(
@@ -681,6 +699,8 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
     val s = LocalScale.current
     StatsCard(ui, sec, Modifier.focusRequester(first))
     QualityButton(ui)
+    // « Micro » quand l'hôte laisse les invités parler.
+    if ((ui.mic as? Mic.Refused)?.reason != Mic.NOT_ALLOWED) MicChip(ui)
     // Qui regarde, sur un PC à plusieurs écrans : « Écran » et celui qu'on regarde.
     ui.watch?.takeIf { it.screens.isNotEmpty() }?.let { w ->
         val shown by ui.state.watchDisplay.collectAsState()

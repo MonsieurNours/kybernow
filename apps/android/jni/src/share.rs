@@ -307,6 +307,15 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShar
     give(&mut env, &s)
 }
 
+/// « Laisser les invités parler » (docs/micro.md) : `value`, le partage à
+/// jour (`guests_speak`) ; vaut tout de suite pour les invités déjà là.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareSpeak(mut env: Env, _: JClass, h: jlong, on: jboolean) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let s = envelope(c.share_speak(on != 0));
+    give(&mut env, &s)
+}
+
 /// `role` : 0 spectateur, 1 manettes, 2 manettes avec clavier et souris, 3
 /// clavier et souris seuls.
 #[unsafe(no_mangle)]

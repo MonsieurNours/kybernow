@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow.session
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
@@ -50,6 +51,8 @@ import fr.leslignesclaires.kybernow.core.ShareFound
 import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
+import fr.leslignesclaires.kybernow.model.Mic
+import fr.leslignesclaires.kybernow.model.MicPrefs
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.AutoProfile
 import fr.leslignesclaires.kybernow.model.AutoSummary
@@ -159,6 +162,23 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var hdrInfo: HostInfo? = null
     private var hdrWatch: AutoCloseable? = null
 
+    /**
+     * Micro (docs/micro.md) : la capture (tant que le cœur dit `waiting` ou `on`), l'avis « Micro envoyé à {nom}. » dû
+     * après un allumage par l'utilisateur, et la demande d'autorisation (première fois qu'on l'allume ; [micAskByUser] :
+     * l'allumage vient d'un toucher, pas du choix retenu au départ).
+     */
+    private val micCapture by lazy { MicCapture(this) { buf, n, rate -> val h = handle; if (h != 0L) Native.sessionPushMicrophone(h, buf, n, rate) } }
+    private var micAnnounce = false
+    private var micAskByUser = false
+    private val micAsk = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) applyMic(true, announce = micAskByUser)
+        else {
+            // Refusée : « Micro » reste coupé (et retenu coupé), avis de link-ui.
+            applyMic(false, announce = false)
+            state.show(Capsule.MicNoAccess, 6000)
+        }
+    }
+
     /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
     private val padDowns = mutableSetOf<Int>()
     private var quitting = false
@@ -236,6 +256,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             autoResult = host.settings.takeIf { hostSession && it.profile == Profile.AUTO && !it.custom }?.autoResult
             autoNetwork = AutoProfile.networkName(this@SessionActivity)
             hdrChoice = host.settings.hdr
+            // Micro : téléphone et tablette qui en ont un ; le choix de cet ordinateur (coupé pour un invité ou un emprunt).
+            micShown = app.hasMicrophone && !tv
+            micChoice = micShown && hostSession && host.settings.microphone
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
             backOpensMenu = host.settings.backOpensMenu
@@ -494,12 +517,50 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         updateHdrState()
         refreshHdr()
         watchHdr()
+        // Micro retenu allumé pour cet ordinateur : dit au cœur juste après le départ ; l'autorisation perdue entre-temps
+        // (« Seulement cette fois ») est redemandée, sans avis à l'arrivée.
+        if (ui.micChoice) {
+            if (MicPrefs.granted(this)) Native.sessionSetMicrophone(handle, true) else { micAskByUser = false; micAsk.launch(Manifest.permission.RECORD_AUDIO) }
+        }
+    }
+
+    // MARK: - Micro (docs/micro.md)
+
+    override fun setMicrophone(on: Boolean) {
+        if (!ui.micShown) return
+        // L'ordinateur ne le prend pas : au toucher, la raison en avis.
+        (ui.mic as? Mic.Refused)?.let { state.show(Capsule.MicRefused(it.text), 6000); return }
+        if (on && !MicPrefs.granted(this)) {
+            micAskByUser = true
+            micAsk.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        applyMic(on, announce = on)
+    }
+
+    /** Le choix gardé pour cet ordinateur (pour la session chez un invité ou un emprunt) et dit au cœur. */
+    private fun applyMic(on: Boolean, announce: Boolean) {
+        ui.micChoice = on
+        micAnnounce = announce
+        saveSettings { it.copy(microphone = on) }
+        if (handle != 0L) Native.sessionSetMicrophone(handle, on)
+    }
+
+    /** Ce que dit le cœur : capter ou non ; l'avis bref quand il passe à « Envoyé » après un allumage. */
+    private fun onMic(m: Mic) {
+        ui.mic = m
+        if (m.capturing && MicPrefs.granted(this)) micCapture.start() else micCapture.stop()
+        when {
+            m == Mic.On && micAnnounce -> { micAnnounce = false; state.show(Capsule.MicSent(host.name)) }
+            m !is Mic.Waiting -> micAnnounce = false
+        }
     }
 
     private fun observe() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.CREATED) {
                 launch { state.videoSize.collect { it?.let { (w, h) -> fitSurface(w, h) } } }
+                if (ui.micShown) launch { state.mic.collect { onMic(it) } }
                 launch {
                     state.ended.collect { e ->
                         if (e == null) return@collect
@@ -640,6 +701,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (::haptics.isInitialized) haptics.stop()
         hdrWatch?.close()
         hdrWatch = null
+        if (::ui.isInitialized && ui.micShown) micCapture.stop()
         linkWatch?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         linkWatch = null
         // La manette à l'écran n'existe qu'en session : sa place se libère.
@@ -1084,6 +1146,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun shareNewCode() = shareCall { it.shareCode() }
 
+    override fun shareSetSpeak(on: Boolean) = shareCall { it.shareSpeak(on) }
+
     override fun shareSetPads(guest: ShareGuest, on: Boolean) = shareRights(guest) { it.withPads(on) }
 
     override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) = shareRights(guest) { it.withKeyboardMouse(on) }
@@ -1399,6 +1463,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 when (code) {
                     KeyEvent.KEYCODE_M -> { Native.inputReleaseAll(handle); toggleMenu(); return true }
                     KeyEvent.KEYCODE_Q -> { quit(); return true }
+                    KeyEvent.KEYCODE_V -> { setMicrophone(!ui.micChoice); return true }
                 }
             }
             // Un invité sans le clavier : ses touches ne partent pas.

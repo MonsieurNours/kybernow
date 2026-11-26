@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- QR code d'Admin, à la caméra (téléphone, tablette). -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Micro de l'appareil vers l'ordinateur (docs/micro.md), demandé au premier allumage seulement. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Rangée « Reprendre sur un ordinateur » de l'accueil d'Android TV. -->
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
     <!-- Mises à jour de l'app : APK vérifié par le manifeste signé, installé par PackageInstaller
@@ -22,6 +24,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
 
