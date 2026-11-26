@@ -147,7 +147,8 @@ class MainActivity : AppCompatActivity() {
                             addAnnounced = { a -> route = Route.Add(Target(a.address, a.port, a.name, a.fingerprint)) },
                             hostSettings = { h -> route = Route.HostSettings(h.id) },
                             appSettings = { route = Route.AppSettings },
-                            wake = { h -> awayFirst(h) { wake(h) } },
+                            // Réveiller : l'ordinateur dort chez vous, il n'est pas « hors de chez vous ».
+                            wake = { h -> wake(h) },
                             join = { route = Route.Join() },
                             signIn = { signIn(Accounts.DEFAULT_RELAY, Route.Home) },
                             // Sans compte : « Créer un compte », la carte du compte, le bandeau après un appairage.
