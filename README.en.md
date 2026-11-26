@@ -33,7 +33,8 @@ KyberNow brings together three products:
 | `brand/v2/` | Visual identity: guidelines, symbol, logos, tokens, see [its README](brand/v2/README.en.md); `brand/` keeps the previous logo, unused |
 | `docs/` | [Changes to Kyber](docs/kyber-changes.en.md), [build notes](docs/build-notes.en.md), [publishing releases](docs/releases.en.md), [the Rust core in the Apple apps](docs/coeur-apple.en.md), [languages and writing rules](docs/i18n.en.md), [shared screens and texts of the Link apps](docs/link-ui.en.md), [multiple displays](docs/multi-ecrans.en.md), [KyberNow Share](docs/kybernow-share.en.md), [the relay](docs/relais.en.md), [tone of the texts](docs/ton-du-site.en.md) |
 | `docs/archives/` | Dated records, which do not describe the current state: reference prototype and its results (19 October 2026), audit and requested measurements (20 October 2026), proposals on HDR, Apple TV latency and app at start (22 October 2026; the audit and proposals are in French only) |
-| `tools/latency/` | Latency measurement |
+| `tools/latency/` | Latency of a session (stages of the chain) |
+| `tools/banc/` | Measurement bench: screen-to-screen latency, network shaper, trace recording and replay, report comparing two versions, see [docs/banc-de-mesure.en.md](docs/banc-de-mesure.en.md) |
 
 Documentation exists in French (`*.md`, the source) and in English (`*.en.md`, next to each French file); every change updates both in the same commit. It describes the project as it is; history lives in `CHANGELOG.md` and in git, planned work in `ROADMAP.md`. Writing rules: [docs/i18n.en.md](docs/i18n.en.md#documentation).
 

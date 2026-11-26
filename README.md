@@ -33,7 +33,8 @@ KyberNow réunit trois produits :
 | `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) ; `brand/` garde le logo précédent, inutilisé |
 | `docs/` | [Changements de Kyber](docs/kyber-changes.md), [notes de compilation](docs/build-notes.md), [publication des versions](docs/releases.md), [cœur Rust des apps Apple](docs/coeur-apple.md), [langues et règles d'écriture](docs/i18n.md), [écrans et textes communs des apps Link](docs/link-ui.md), [multi-écrans](docs/multi-ecrans.md), [KyberNow Share](docs/kybernow-share.md), [le relais](docs/relais.md), [ton des textes](docs/ton-du-site.md) |
 | `docs/archives/` | Relevés datés, qui ne décrivent pas l'état actuel : prototype de référence et ses résultats (19 octobre 2026), audit et mesures demandées (20 octobre 2026), propositions HDR, latence Apple TV et app au démarrage (22 octobre 2026) |
-| `tools/latency/` | Mesure de latence |
+| `tools/latency/` | Mesure de latence d'une session (étapes de la chaîne) |
+| `tools/banc/` | Banc de mesure : latence de l'écran à l'écran, bride réseau, relevé et rejeu de traces, rapport qui compare deux versions, voir [docs/banc-de-mesure.md](docs/banc-de-mesure.md) |
 
 La documentation existe en français (`*.md`, la source) et en anglais (`*.en.md`, à côté de chaque fichier français) ; chaque évolution met à jour les deux dans le même commit. Elle décrit le projet tel qu'il est ; l'historique est dans `CHANGELOG.md` et dans git, le prévu dans `ROADMAP.md`. Règles d'écriture : [docs/i18n.md](docs/i18n.md#documentation).
 

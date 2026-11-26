@@ -5,6 +5,7 @@ node_modules/
 server/web/dist/
 # Sessions de mesure
 tools/latency/runs/
+tools/banc/mesures/
 # Données locales du service d'admin en dev
 server/admin/dev-data/
 .DS_Store
