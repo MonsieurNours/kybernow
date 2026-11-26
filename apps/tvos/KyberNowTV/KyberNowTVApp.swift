@@ -101,6 +101,9 @@ struct RootView: View {
             case .accountRelay:
                 AccountRelayView()
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case .welcome:
+                WelcomeTVView(welcome: app.welcome)
+                    .transition(.opacity)
             }
         }
         // Le panneau du test du profil Auto (plein écran), de l'accueil ou des réglages.

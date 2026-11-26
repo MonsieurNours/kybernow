@@ -274,6 +274,8 @@ struct HomeScreen: View {
                     }
                     .buttonStyle(HomePillStyle())
                 }
+                // Sans compte : « Connecter un compte » (iPhone : l'icône seule ; WelcomeViews.swift).
+                AccountTopButton(accounts: app.accounts, wide: wide)
                 if wide {
                     Button { app.sheet = .appSettings } label: {
                         HStack(spacing: 10) {
@@ -486,7 +488,16 @@ struct HomeScreen: View {
             }
             .padding(.top, wide ? 4 : 2)
             .transition(.opacity)
+        } else if app.welcome.showsPairedBanner(host, stationBanner: false) {
+            // Sinon, après un appairage sans compte (un seul bandeau à la fois ; WelcomeViews.swift).
+            PairedBannerCard(welcome: app.welcome, accounts: app.accounts, wide: wide)
+                .padding(.top, wide ? 4 : 2)
+                .transition(.opacity)
         }
+        Color.clear.frame(height: 0)
+            .task(id: "\(app.welcome.pairedPending?.uuidString ?? "")|\(store.stationBanner(host) != nil)") {
+                app.welcome.revealPaired(host, stationBanner: store.stationBanner(host) != nil)
+            }
     }
 
     @ViewBuilder private func actions(wide: Bool) -> some View {
@@ -715,6 +726,12 @@ struct HomeScreen: View {
                         Button { app.sheet = .join(nil) } label: { HomeJoinCard(m: m, wide: wide) }
                             .buttonStyle(HomePressStyle())
                             .hoverEffect(.lift)
+                        // Sans compte, en dernier : la carte du compte (WelcomeViews.swift) ;
+                        // sans ordinateur, l'accueil vide reste tel quel.
+                        if host != nil, app.welcome.cardVisible {
+                            HomeAccountCard(welcome: app.welcome, accounts: app.accounts, m: m, wide: wide)
+                                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        }
                     }
                     .padding(.horizontal, wide ? 0 : 24)
                     .padding(.bottom, 8)
@@ -846,6 +863,8 @@ struct HomeScreen: View {
         Task {
             await store.retry(host)
             retrying = nil
+            // Toujours rien sur ce réseau, sans route par le relais : peut-être « Hors de chez vous ? ».
+            if app.welcome.offerAway(host, status: store.status[host.id]) { return }
             if !(store.status[host.id]?.online ?? false) {
                 app.show(String(localized: "\(host.name) ne répond pas encore"))
             }

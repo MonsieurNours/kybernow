@@ -550,6 +550,7 @@ struct AddHostCodePane: View {
                     app.store.add(host, password: password)
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     app.selected = host.id
+                    app.welcome.paired(host)
                     app.sheet = nil
                     app.show(String(localized: "\(host.name) est ajouté"))
                     return
@@ -887,6 +888,7 @@ struct AddHostAccountPane: View {
         app.store.add(host, password: password)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         app.selected = host.id
+        app.welcome.paired(host)
         app.sheet = nil
         app.show(String(localized: "\(name) est ajouté"))
     }

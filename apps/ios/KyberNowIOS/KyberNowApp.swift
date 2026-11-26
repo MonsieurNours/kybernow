@@ -122,6 +122,8 @@ struct RootView: View {
         .hdrCalibrationCover(isPresented: $app.calibrating)
         // Le panneau du test du profil Auto, ouvert depuis l'accueil.
         .modifier(AutoTestPresenter(model: app.autoTest, origin: .home))
+        // Accueil au premier lancement, « Hors de chez vous ? » (WelcomeViews.swift).
+        .modifier(WelcomePresenter(app: app, welcome: app.welcome))
         .sheet(item: $app.sheet) { sheet in
             switch sheet {
             case let .addHost(candidate): AddHostView(link: candidate)

@@ -29,6 +29,8 @@ struct HomeView: View {
         case signIn, emptyAdd, emptyJoin
         /// Le bandeau de la mise à jour de la Station, sous la rangée « Se connecter ».
         case stationUpdate, stationLater
+        /// Compte KyberNow (WelcomeViews.swift) : le bouton du haut, la carte, le bandeau après un appairage.
+        case accountTop, accountCard, pairedConnect, pairedLater
     }
     @FocusState private var focus: Focus?
     @State private var pulse = false
@@ -140,11 +142,52 @@ struct HomeView: View {
         } message: { c in
             Text(c.message)
         }
+        // « Hors de chez vous ? » (Welcome.swift) : sans navigateur, « Connecter un compte » ouvre le code.
+        .alert(WelcomeText.awayTitle, isPresented: Binding(get: { app.welcome.away != nil }, set: { if !$0 { app.welcome.away = nil } }),
+               presenting: app.welcome.away) { _ in
+            Button(WelcomeText.connect) { app.showAccountCode(from: .home) }
+            Button(WelcomeText.notNow, role: .cancel) {}
+        } message: { host in
+            Text(WelcomeText.awayText(host.name))
+        }
+        // Le bandeau après un appairage, quand la place sous les boutons est libre.
+        .task(id: "\(app.welcome.pairedPending?.uuidString ?? "")|\(host.map { store.stationBanner($0) != nil } ?? false)") {
+            if let host { app.welcome.revealPaired(host, stationBanner: store.stationBanner(host) != nil) }
+        }
         .onAppear {
+            app.welcome.showIfNeeded()
             if app.selected == nil { app.selected = store.ordered.first?.id }
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
         }
+    }
+
+    /// Le bandeau après un appairage (sans compte), à la place de la phrase du profil.
+    private var pairedBanner: some View {
+        HStack(spacing: 20) {
+            Icon("globe-hemisphere-west", size: 30).foregroundStyle(Theme.accentLight).frame(width: 36)
+            Text(WelcomeText.pairedText)
+                .font(Theme.sans(21)).foregroundStyle(Theme.text2)
+                .lineLimit(2).minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { app.showAccountCode(from: .home) } label: {
+                Text(WelcomeText.connect).padding(.horizontal, 8).lineLimit(1)
+            }
+            .buttonStyle(PrimaryButton(height: 60, fontSize: 22))
+            .focused($focus, equals: .pairedConnect)
+            Button { withAnimation(Theme.join) { app.welcome.dismissPairedBanner() } } label: {
+                Text(WelcomeText.later).font(Theme.sans(22, .medium)).lineLimit(1)
+                    .padding(.horizontal, 24).frame(height: 60)
+            }
+            .buttonStyle(GlassButton(radius: 16))
+            .focused($focus, equals: .pairedLater)
+        }
+        .padding(.leading, 24).padding(.trailing, 14).padding(.vertical, 10)
+        .frame(maxWidth: 1240, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.accentFill.opacity(0.12)))
+        .glass(20)
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Theme.accent.opacity(0.5)))
+        .focusSection()
     }
 
     /// La confirmation demandée par le bandeau de la mise à jour de la Station.
@@ -205,6 +248,20 @@ struct HomeView: View {
             Wordmark(size: 28)
             Spacer(minLength: 0)
             padsLine
+            // Sans compte : « Connecter un compte » (le code et son QR code).
+            if accounts.accounts.isEmpty {
+                Button { app.showAccountCode(from: .home) } label: {
+                    HStack(spacing: 12) {
+                        Icon("user", size: 28).foregroundStyle(Theme.accent)
+                        Text(WelcomeText.connect).font(Theme.sans(22, .medium)).lineLimit(1)
+                    }
+                    .padding(.leading, 20).padding(.trailing, 24)
+                    .frame(height: 60)
+                }
+                .buttonStyle(GlassButton(radius: 30))
+                .fixedSize()
+                .focused($focus, equals: .accountTop)
+            }
             Button { app.screen = .appSettings } label: {
                 HStack(spacing: 12) {
                     Icon("sliders-horizontal", size: 28).foregroundStyle(Theme.accent)
@@ -337,6 +394,10 @@ struct HomeView: View {
                     // (la rangée des cartes reste libre en dessous). Flèche bas depuis
                     // « Se connecter » : ses boutons.
                     stationBanner(host, banner)
+                        .transition(.opacity)
+                } else if app.welcome.showsPairedBanner(host, stationBanner: false) {
+                    // Sinon, après un appairage sans compte (un seul bandeau à la fois).
+                    pairedBanner
                         .transition(.opacity)
                 } else {
                     Text(focus == .hdr ? HDRText.help : Profile.hint(host.settings.profile))
@@ -784,6 +845,12 @@ struct HomeView: View {
                 }
                 addCard
                 joinCard
+                // Sans compte, en dernier, s'il reste une place : la carte du compte.
+                let used = ownCards + (computerFound == nil ? 0 : 1) + (playstation.newcomers.first != nil && ownCards + (computerFound == nil ? 0 : 1) < 4 ? 1 : 0) + 2
+                if host != nil, used < 6, app.welcome.cardVisible {
+                    TVAccountCard(welcome: app.welcome, width: Self.cardWidth) { app.showAccountCode(from: .home) }
+                        .focused($focus, equals: .accountCard)
+                }
                 Spacer(minLength: 0)
             }
             .focusSection()
@@ -917,7 +984,14 @@ struct HomeView: View {
     private func primaryAction(_ host: Host, state: Bool?) {
         guard state == false else { app.connect(host.id); return }
         guard !store.waking.contains(host.id) else { return }
-        if store.canWake(host) { store.wake(host) } else { Task { await store.retry(host) } }
+        // « Réessayer » sans réponse sur ce réseau, sans route par le relais : peut-être
+        // « Hors de chez vous ? » (jamais pour « Réveiller » : un ordinateur qu'on réveille est chez soi).
+        if store.canWake(host) { store.wake(host) } else {
+            Task {
+                await store.retry(host)
+                app.welcome.offerAway(host, status: store.status[host.id])
+            }
+        }
     }
 
     // MARK: Textes

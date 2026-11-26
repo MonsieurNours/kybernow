@@ -173,6 +173,20 @@ private struct AppSettingsContent: View {
         .disabled(accounts.signingIn)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+        // L'accueil du premier lancement, rejoué (Welcome.swift).
+        Button {
+            app.sheet = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [app] in app.welcome.replay() }
+        } label: {
+            HStack(spacing: 12) {
+                Text(WelcomeText.replay).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Icon("arrow-right", size: 18).foregroundStyle(Theme.text2)
+            }
+            .modifier(SettingsRowBackground())
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// « Réglage du HDR », avec l'état en dessous : « Automatique » ou « Réglé à l'œil ».
