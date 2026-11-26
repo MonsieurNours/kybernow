@@ -1,9 +1,11 @@
 //! PyroWave (docs/pyrowave.md, « Définition ramenée ») : le débit dont une
 //! image PyroWave a besoin, et la définition (puis la fréquence) ramenée pour
-//! tenir dans le plafond de la session. PyroWave ne compresse presque pas :
-//! lui donner moins de débit que nécessaire rend l'image floue. La règle de
-//! docs/link-ui.md (« PyroWave ») est donc de baisser la définition, puis la
-//! fréquence, jamais la netteté, et de le dire.
+//! tenir dans le plafond de la session. Un profil demande le débit de la
+//! netteté pleine ([`needed_mbps`], 1,5 bit par pixel) ; sous un plafond plus
+//! bas, la définition de l'écran reste jusqu'à [`MIN_BITS_PER_PIXEL`] (0,5) :
+//! mesuré, elle fait mieux que la définition ramenée puis agrandie. Au-dessous
+//! seulement, la définition baisse, puis la fréquence (docs/link-ui.md,
+//! « PyroWave »), et l'app le dit.
 //!
 //! Tout ici est du calcul pur ; la session ([`crate::session`]) s'en sert
 //! pour la définition demandée à la Station (`prepare`) et pour le débit.
@@ -22,6 +24,19 @@ pub const BITS_PER_PIXEL: f64 = 1.5;
 /// d'échantillons de couleur, mais la couleur pèse moins que la luminance.
 pub const BITS_PER_PIXEL_444: f64 = 2.25;
 
+/// Bits par pixel au-dessous desquels la définition est ramenée (4:2:0) :
+/// jusque-là, PyroWave garde la définition de l'écran avec moins de bits par
+/// pixel. Mesuré le 26/11/2026 (encodeur Metal et décodeur de l'app, trois
+/// images 4K réelles, VMAF, SSIM et PSNR) : à débit égal, la définition
+/// gardée fait mieux que la définition ramenée puis agrandie à chaque palier,
+/// de 1,5 jusqu'à 0,5 bit par pixel (4K60 : VMAF 93,5 à 250 Mbit/s contre
+/// 92,3 en 1248p, 95,2 à 500 contre 94,2 en 1764p). Docs : pyrowave.md,
+/// « Définition ramenée ».
+pub const MIN_BITS_PER_PIXEL: f64 = 0.5;
+
+/// Le même plancher en 4:4:4 (moitié plus, comme [`BITS_PER_PIXEL_444`]).
+pub const MIN_BITS_PER_PIXEL_444: f64 = 0.75;
+
 /// Définition la plus basse à laquelle la session descend avant de toucher
 /// à la fréquence (hauteur de l'écran principal ; celle de l'écran si elle
 /// est plus petite).
@@ -38,6 +53,18 @@ const REFRESH_STEPS: [u32; 5] = [120, 100, 60, 50, 30];
 /// Bits par pixel de PyroWave pour ce sous-échantillonnage.
 pub fn bits_per_pixel(yuv444: bool) -> f64 {
     if yuv444 { BITS_PER_PIXEL_444 } else { BITS_PER_PIXEL }
+}
+
+/// Débit au-dessous duquel ces écrans ne tiennent plus à leur définition
+/// ([`MIN_BITS_PER_PIXEL`]), en bit/s.
+fn floor_bits_per_second(modes: &[Mode], yuv444: bool) -> f64 {
+    let bpp = if yuv444 { MIN_BITS_PER_PIXEL_444 } else { MIN_BITS_PER_PIXEL };
+    modes.iter().map(|m| f64::from(m.width) * f64::from(m.height) * f64::from(m.refresh.max(1))).sum::<f64>() * bpp
+}
+
+/// Le plancher en Mbit/s ([`MIN_BITS_PER_PIXEL`]) : au-dessous, la définition baisse.
+pub fn floor_mbps(modes: &[Mode], yuv444: bool) -> u32 {
+    (floor_bits_per_second(modes, yuv444) / 1e6).ceil() as u32
 }
 
 fn bits_per_second(modes: &[Mode], yuv444: bool) -> f64 {
@@ -102,8 +129,9 @@ fn scaled(modes: &[Mode], k: f64, refresh: u32) -> Vec<Mode> {
         .collect()
 }
 
-/// Les écrans ramenés pour tenir dans `ceiling_mbps` ; `None` s'ils y
-/// tiennent déjà (ou s'il n'y en a pas). `primary` : l'index de l'écran
+/// Les écrans ramenés pour tenir dans `ceiling_mbps` au plancher de
+/// [`MIN_BITS_PER_PIXEL`] ; `None` s'ils y tiennent déjà (ou s'il n'y en a
+/// pas). `primary` : l'index de l'écran
 /// principal, qui donne l'échelle (les autres suivent la même).
 ///
 /// D'abord la plus grande définition paire qui tient (proportions gardées),
@@ -117,7 +145,10 @@ pub fn fit(modes: &[Mode], primary: usize, yuv444: bool, ceiling_mbps: u32) -> O
         return None;
     }
     let budget = f64::from(ceiling_mbps) * 1e6;
-    let fits = |ms: &[Mode]| bits_per_second(ms, yuv444) <= budget;
+    // La définition reste tant que le plafond donne au moins le plancher de
+    // bits par pixel ([`MIN_BITS_PER_PIXEL`]) ; le profil demande, lui, le
+    // débit de la netteté pleine ([`needed_mbps`]) quand il le peut.
+    let fits = |ms: &[Mode]| floor_bits_per_second(ms, yuv444) <= budget;
     if fits(modes) {
         return None;
     }
@@ -132,7 +163,7 @@ pub fn fit(modes: &[Mode], primary: usize, yuv444: bool, ceiling_mbps: u32) -> O
         }
         // Échelle qui tient à peu près (le débit suit le carré de l'échelle),
         // puis la hauteur paire au-dessous, deux pixels à la fois.
-        let guess = (budget / bits_per_second(&full, yuv444)).sqrt();
+        let guess = (budget / floor_bits_per_second(&full, yuv444)).sqrt();
         let mut h = (even(f64::from(reference.height) * guess) + 4).min(reference.height & !1);
         while h >= min_h {
             let candidate = scaled(modes, f64::from(h) / f64::from(reference.height), refresh);
@@ -187,47 +218,52 @@ mod tests {
 
     #[test]
     fn largest_even_definition_that_fits() {
-        // 4K60 4:2:0 dans 500 Mbit/s : ≈ 0,82 de l'échelle.
-        let (modes, l) = lowered(&[m(3840, 2160, 60)], 0, false, 500).unwrap();
+        // 4K60 4:2:0 : la définition reste jusqu'au plancher (≈ 249 Mbit/s,
+        // 0,5 bit par pixel), même sous le débit de la netteté pleine (747).
+        assert_eq!(fit(&[m(3840, 2160, 60)], 0, false, 500), None);
+        assert_eq!(fit(&[m(3840, 2160, 60)], 0, false, 250), None);
+        // Dans 160 Mbit/s : ≈ 0,8 de l'échelle.
+        let (modes, l) = lowered(&[m(3840, 2160, 60)], 0, false, 160).unwrap();
         let r = modes[0];
         assert_eq!((r.width % 2, r.height % 2, r.refresh), (0, 0, 60));
-        assert!(needed_mbps(&modes, false) <= 500, "{r:?}");
+        assert!(floor_mbps(&modes, false) <= 160, "{r:?}");
         // La hauteur paire au-dessus ne tient plus.
         let above = scaled(&[m(3840, 2160, 60)], f64::from(r.height + 2) / 2160.0, 60);
-        assert!(needed_mbps(&above, false) > 500, "{above:?}");
-        assert_eq!(l, Lowered { width: r.width, height: r.height, refresh: 60, mbps: 500 });
+        assert!(floor_mbps(&above, false) > 160, "{above:?}");
+        assert_eq!(l, Lowered { width: r.width, height: r.height, refresh: 60, mbps: 160 });
         // Proportions gardées.
         assert!((f64::from(r.width) / f64::from(r.height) - 16.0 / 9.0).abs() < 0.01);
     }
 
     #[test]
     fn four_four_four_costs_more() {
-        let a = fit(&[m(3840, 2160, 60)], 0, false, 800);
-        let b = fit(&[m(3840, 2160, 60)], 0, true, 800).unwrap();
+        // 300 Mbit/s : 4K60 tient en 4:2:0 (plancher 249), pas en 4:4:4 (373).
+        let a = fit(&[m(3840, 2160, 60)], 0, false, 300);
+        let b = fit(&[m(3840, 2160, 60)], 0, true, 300).unwrap();
         assert_eq!(a, None);
-        assert!(b[0].height < 2160 && needed_mbps(&b, true) <= 800);
+        assert!(b[0].height < 2160 && floor_mbps(&b, true) <= 300);
     }
 
     #[test]
     fn then_the_refresh_rate() {
-        // 4K120 dans 150 Mbit/s : 720p120 demande 166 Mbit/s, donc 100 Hz,
-        // avec la plus grande définition qui tient à 100 Hz.
-        let modes = fit(&[m(3840, 2160, 120)], 0, false, 150).unwrap();
+        // 4K120 dans 50 Mbit/s : 720p120 demande 56 Mbit/s au plancher, donc
+        // 100 Hz, avec la plus grande définition qui tient à 100 Hz.
+        let modes = fit(&[m(3840, 2160, 120)], 0, false, 50).unwrap();
         assert_eq!(modes[0].refresh, 100);
-        assert!(modes[0].height >= MIN_HEIGHT && needed_mbps(&modes, false) <= 150);
+        assert!(modes[0].height >= MIN_HEIGHT && floor_mbps(&modes, false) <= 50);
         // Rien ne tient : 720p à 30 Hz.
         let floor = fit(&[m(3840, 2160, 120)], 0, false, 10).unwrap();
         assert_eq!(floor[0], m(1280, 720, 30));
         // Un écran plus petit que 720p descend en fréquence tout de suite.
-        let small = fit(&[m(1280, 600, 60)], 0, false, 50).unwrap();
+        let small = fit(&[m(1280, 600, 60)], 0, false, 17).unwrap();
         assert_eq!((small[0].width, small[0].height, small[0].refresh), (1280, 600, 30));
     }
 
     #[test]
     fn several_screens_share_the_scale() {
         let screens = [m(2560, 1440, 60), m(3840, 2160, 60)];
-        let (modes, l) = lowered(&screens, 1, false, 600).unwrap();
-        assert!(needed_mbps(&modes, false) <= 600);
+        let (modes, l) = lowered(&screens, 1, false, 200).unwrap();
+        assert!(floor_mbps(&modes, false) <= 200);
         let k0 = f64::from(modes[0].height) / 1440.0;
         let k1 = f64::from(modes[1].height) / 2160.0;
         assert!((k0 - k1).abs() < 0.01, "{modes:?}");

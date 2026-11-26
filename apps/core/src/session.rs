@@ -5186,11 +5186,13 @@ mod tests {
     #[test]
     fn pyrowave_definition_ramenee_demandee() {
         let m = |width, height, refresh| Mode { width, height, refresh };
-        // Un écran : 4K60 4:2:0 dans 500 Mbit/s.
-        let (mode, plan, l) = pyrowave_request(m(3840, 2160, 60), &[], false, 500).unwrap();
+        // Un écran : 4K60 4:2:0 dans 160 Mbit/s (sous le plancher de 249).
+        let (mode, plan, l) = pyrowave_request(m(3840, 2160, 60), &[], false, 160).unwrap();
         assert!(plan.is_empty());
         assert_eq!((mode.width, mode.height, mode.refresh), (l.width, l.height, 60));
-        assert!(crate::pyrowave::needed_mbps(&[mode], false) <= 500 && mode.height < 2160);
+        assert!(crate::pyrowave::floor_mbps(&[mode], false) <= 160 && mode.height < 2160);
+        // 500 Mbit/s : la 4K reste (0,67 bit par pixel, au-dessus du plancher).
+        assert_eq!(pyrowave_request(m(3840, 2160, 60), &[], false, 500), None);
         assert_eq!(pyrowave_request(m(3840, 2160, 60), &[], false, 800), None);
         // Deux écrans bord à bord (4K principal à gauche, 1440p à droite) :
         // même échelle, toujours bord à bord.
@@ -5198,11 +5200,11 @@ mod tests {
             PlannedScreen { device: 0, mode: m(3840, 2160, 60), x: 0, y: 0, primary: true },
             PlannedScreen { device: 1, mode: m(2560, 1440, 60), x: 3840, y: 360, primary: false },
         ];
-        let (mode, lowered, l) = pyrowave_request(plan[0].mode, &plan, false, 700).unwrap();
+        let (mode, lowered, l) = pyrowave_request(plan[0].mode, &plan, false, 230).unwrap();
         assert_eq!(mode, lowered[0].mode);
         assert_eq!((l.width, l.height), (lowered[0].mode.width, lowered[0].mode.height));
         assert_eq!(lowered[1].x, lowered[0].mode.width as i32, "{lowered:?}");
-        assert!(crate::pyrowave::needed_mbps(&lowered.iter().map(|p| p.mode).collect::<Vec<_>>(), false) <= 700);
+        assert!(crate::pyrowave::floor_mbps(&lowered.iter().map(|p| p.mode).collect::<Vec<_>>(), false) <= 230);
         assert_eq!((lowered[1].device, lowered[1].primary), (1, false));
     }
 
