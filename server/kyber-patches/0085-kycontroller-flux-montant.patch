@@ -1,17 +1,16 @@
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 6ae6f2b..2580a7a 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -765,6 +765,8 @@ pub(crate) struct StartSessionResponse {
-     pub(crate) input: Option<StartSessionInputResponse>,
-     pub(crate) clock_sync: Option<StartSessionClockSyncResponse>,
+@@ -774,6 +774,8 @@
      pub(crate) metrics: Option<StartSessionMetricsResponse>,
+     /// KyberNow (0052): the feedback channel, for a viewer that asked.
+     pub(crate) feedback: Option<kyproto::FeedbackHost>,
 +    /// KyberNow (0085): the upstream endpoints, and their tasks.
 +    pub(crate) uplink: crate::uplink::Started,
  }
  
  fn run_clock_sync_task(endpoint: kyproto::ClockSyncServerEndpoint) -> Task {
-@@ -798,6 +800,8 @@ async fn start_session(
+@@ -807,6 +809,8 @@
      request: requests::StartRequest,
      // KyberNow (0022): `hdr` of each `request.video` entry.
      hdr: Vec<bool>,
@@ -20,7 +19,7 @@ index 6ae6f2b..2580a7a 100644
  ) -> Result<StartSessionResponse> {
      let transport = if let KymuxConfig::KyProto(_) = &request.kymux_config {
          // Get the pending connection receiver (was created in start_mux)
-@@ -915,6 +919,20 @@ async fn start_session(
+@@ -941,6 +945,20 @@
          None
      };
  
@@ -41,19 +40,18 @@ index 6ae6f2b..2580a7a 100644
      let video_connection_tx = video
          .as_mut()
          .and_then(|vec| vec.first_mut())
-@@ -955,6 +973,7 @@ async fn start_session(
-         input,
+@@ -982,6 +1000,7 @@
          clock_sync,
          metrics,
+         feedback,
 +        uplink,
      })
  }
  
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
-index 0dedc45..4ff1b0f 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
-@@ -67,6 +67,8 @@ pub(crate) async fn start_session(
+@@ -68,6 +68,8 @@
  ) -> HttpResponse {
      // KyberNow (0022): `hdr` of each display, read beside the request.
      let hdr = crate::hdr::requested(&request);
@@ -62,7 +60,7 @@ index 0dedc45..4ff1b0f 100644
      let request: StartRequest = match serde_json::from_value(request.into_inner()) {
          Ok(request) => request,
          Err(err) => {
-@@ -115,13 +117,16 @@ pub(crate) async fn start_session(
+@@ -116,13 +118,16 @@
      };
  
      // Start session
@@ -80,7 +78,7 @@ index 0dedc45..4ff1b0f 100644
  
              let video = response.video.map(|video| {
                  video
-@@ -220,7 +225,8 @@ pub(crate) async fn start_session(
+@@ -243,7 +248,8 @@
                  ));
              }
  
@@ -90,9 +88,9 @@ index 0dedc45..4ff1b0f 100644
                  session_id: Some(numeric_session_id),
                  video,
                  audio,
-@@ -228,6 +234,9 @@ pub(crate) async fn start_session(
-                 clock_sync,
+@@ -252,6 +258,9 @@
                  metrics,
+                 feedback,
              })
 +            .unwrap_or_default();
 +            crate::uplink::add_to_response(&mut body, &uplink);
@@ -101,10 +99,9 @@ index 0dedc45..4ff1b0f 100644
          // KyberNow: no image the share guest's device reads.
          Err(crate::error::Error::ShareNoImage) => {
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index d69a8ec..c75e427 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
-@@ -61,6 +61,7 @@ mod session;
+@@ -64,6 +64,7 @@
  mod statemachine;
  mod tls;
  mod tray;
@@ -114,7 +111,6 @@ index d69a8ec..c75e427 100644
  mod webclient;
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
 new file mode 100644
-index 0000000..ae9526c
 --- /dev/null
 +++ b/kycontroller/src/uplink.rs
 @@ -0,0 +1,415 @@

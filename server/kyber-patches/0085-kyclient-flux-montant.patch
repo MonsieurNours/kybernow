@@ -1,8 +1,7 @@
 diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
-index 7187cf3..c6db58b 100644
 --- a/kyclient/src/kymux_backend/host_service.rs
 +++ b/kyclient/src/kymux_backend/host_service.rs
-@@ -26,7 +26,7 @@ use kyctl_common::kymux::{
+@@ -26,7 +26,7 @@
  };
  
  use crate::CursorFormat;
@@ -11,7 +10,7 @@ index 7187cf3..c6db58b 100644
  use crate::http::HttpClient;
  use crate::platform::get_cursor_format;
  
-@@ -58,7 +58,7 @@ pub(crate) async fn start_kymux(
+@@ -58,7 +58,7 @@
  pub(crate) async fn start_stream(
      backend_config: &KymuxBackendConfig<'_>,
      metrics: bool,
@@ -20,8 +19,8 @@ index 7187cf3..c6db58b 100644
      let url = format!(
          "{base_url}/kymux/start_session",
          base_url = backend_config.http_client.base_url()
-@@ -106,16 +106,23 @@ pub(crate) async fn start_stream(
-         metrics,
+@@ -114,16 +114,23 @@
+         }),
      };
  
 +    // KyberNow (0085): `uplink` beside kyctl-common's request and response.
@@ -46,7 +45,7 @@ index 7187cf3..c6db58b 100644
      info!(
          "Session started. SessionId: {}",
          response
-@@ -134,5 +141,5 @@ pub(crate) async fn start_stream(
+@@ -142,5 +149,5 @@
          warn!("Requested clipboard forwarding but server did not enable it.");
      }
  
@@ -54,10 +53,9 @@ index 7187cf3..c6db58b 100644
 +    Ok((response, uplink))
  }
 diff --git a/kyclient/src/kymux_backend/mod.rs b/kyclient/src/kymux_backend/mod.rs
-index 1903798..244d72d 100644
 --- a/kyclient/src/kymux_backend/mod.rs
 +++ b/kyclient/src/kymux_backend/mod.rs
-@@ -53,6 +53,8 @@ pub(crate) struct KymuxBackendConfig<'a> {
+@@ -53,6 +53,8 @@
      pub(crate) streaming_config: StreamingSessionConfig,
      pub(crate) kymux_config: KymuxConfig,
      pub(crate) msg_sender: MessageSender,
@@ -67,49 +65,50 @@ index 1903798..244d72d 100644
  
  #[cfg(not(target_family = "wasm"))]
 diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_backend/net_kyproto.rs
-index 84565ef..27b8662 100644
 --- a/kyclient/src/kymux_backend/net_kyproto.rs
 +++ b/kyclient/src/kymux_backend/net_kyproto.rs
-@@ -39,6 +39,9 @@ pub(crate) struct KyProtoTransport {
-     pub connection: KyArc<kyproto::Connection>,
-     pub closed_task: Option<runtime::Task>,
+@@ -41,6 +41,9 @@
      pub metrics_tasks: Vec<runtime::Task>,
+     /// KyberNow (0051): the feedback channel, when the Station opened one.
+     pub feedback: Option<kyproto::FeedbackClient>,
 +    /// KyberNow (0085): the upstream streams of this stream.
 +    uplinks: crate::uplink::Uplinks,
 +    uplink_tasks: Vec<runtime::Task>,
  }
  
  impl KyProtoTransport {
-@@ -52,7 +55,7 @@ impl KyProtoTransport {
+@@ -54,7 +57,7 @@
          let has_metrics = metrics.is_some();
  
          // Start stream
 -        let host_config = host_service::start_stream(backend_config, has_metrics).await?;
 +        let (host_config, uplink) = host_service::start_stream(backend_config, has_metrics).await?;
  
-         let metrics_tasks = if let Some(metrics) = metrics {
+         let mut metrics_tasks = if let Some(metrics) = metrics {
              start_metrics(&connection, &host_config, metrics.clone()).await?
-@@ -67,10 +70,17 @@ impl KyProtoTransport {
+@@ -89,12 +92,19 @@
+         let closed_task = kymux_closed_task(connection.clone(), msg_sender);
  
          let endpoints = create_platform_endpoints(&connection, backend_config, &host_config)?;
- 
++
 +        // KyberNow (0085): the upstream streams the computer offered.
 +        let uplinks = backend_config.uplinks.clone();
 +        uplinks.clear();
 +        let uplink_tasks = uplinks.connect(&connection, &uplink);
-+
+ 
          let transport = Self {
              connection,
              closed_task: Some(closed_task),
              metrics_tasks,
+             feedback,
 +            uplinks,
 +            uplink_tasks,
          };
  
          Ok((transport, endpoints))
-@@ -81,6 +91,8 @@ impl KyProtoTransport {
-         // with the data plane instead of erroring against a dead connection.
+@@ -106,6 +116,8 @@
          self.metrics_tasks.clear();
+         self.feedback = None;
          self.closed_task = None;
 +        self.uplinks.clear();
 +        self.uplink_tasks.clear();
@@ -117,10 +116,9 @@ index 84565ef..27b8662 100644
          self.connection.close();
      }
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index 26a11ab..3ff5ab7 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
-@@ -40,6 +40,10 @@ pub mod capi;
+@@ -39,6 +39,10 @@
  #[cfg(feature = "kymux")]
  mod kymux_backend;
  
@@ -131,7 +129,7 @@ index 26a11ab..3ff5ab7 100644
  #[cfg(feature = "rtp")]
  mod rtp_backend;
  
-@@ -209,6 +213,10 @@ struct Handler {
+@@ -206,6 +210,10 @@
      reconnection_state: ReconnectionState,
  
      connection: Option<Connection>,
@@ -142,7 +140,7 @@ index 26a11ab..3ff5ab7 100644
  }
  
  struct Connection {
-@@ -240,6 +248,7 @@ impl Handler {
+@@ -237,6 +245,7 @@
          message_sender: MessageSender,
          metrics: Option<MetricsProducer>,
          state: Arc<Mutex<State>>,
@@ -150,7 +148,7 @@ index 26a11ab..3ff5ab7 100644
      ) -> Result<Self> {
          let auto_reconnection = connect_config.auto_reconnection;
          let conn_params = ConnectionParams::new(connect_config)?;
-@@ -256,6 +265,9 @@ impl Handler {
+@@ -252,6 +261,9 @@
              reconnection_state: ReconnectionState::new(auto_reconnection),
  
              connection: None,
@@ -160,7 +158,7 @@ index 26a11ab..3ff5ab7 100644
          })
      }
  
-@@ -391,6 +403,7 @@ impl Handler {
+@@ -387,6 +399,7 @@
                      streaming_config,
                      kymux_config,
                      msg_sender,
@@ -168,7 +166,7 @@ index 26a11ab..3ff5ab7 100644
                  };
  
                  let backend = Box::new(
-@@ -1054,6 +1067,10 @@ pub struct Client {
+@@ -1020,6 +1033,10 @@
      state: Arc<Mutex<State>>,
  
      metrics_cb: KyArc<KyMutex<Option<Box<MetricsCallback>>>>,
@@ -179,7 +177,7 @@ index 26a11ab..3ff5ab7 100644
  }
  
  impl Client {
-@@ -1069,6 +1086,8 @@ impl Client {
+@@ -1035,6 +1052,8 @@
          let metrics_producer = metrics_collector.as_ref().map(|mc| mc.producer());
  
          let state = Arc::new(Mutex::new(State::default()));
@@ -188,7 +186,7 @@ index 26a11ab..3ff5ab7 100644
  
          let handler = Handler::new(
              connect_config,
-@@ -1076,6 +1095,8 @@ impl Client {
+@@ -1042,6 +1061,8 @@
              msg_sender.clone(),
              metrics_producer,
              state.clone(),
@@ -197,7 +195,7 @@ index 26a11ab..3ff5ab7 100644
          )?;
  
          let metrics_cb = KyArc::new(KyMutex::new(None));
-@@ -1089,6 +1110,8 @@ impl Client {
+@@ -1055,6 +1076,8 @@
              mainloop_engine,
              state,
              metrics_cb,
@@ -206,7 +204,7 @@ index 26a11ab..3ff5ab7 100644
          })
      }
  
-@@ -1225,6 +1248,20 @@ impl Client {
+@@ -1184,6 +1207,20 @@
          self.event_manager.clone()
      }
  
@@ -229,7 +227,6 @@ index 26a11ab..3ff5ab7 100644
          (*state).clone()
 diff --git a/kyclient/src/uplink.rs b/kyclient/src/uplink.rs
 new file mode 100644
-index 0000000..69c1b2d
 --- /dev/null
 +++ b/kyclient/src/uplink.rs
 @@ -0,0 +1,271 @@
