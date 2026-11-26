@@ -210,10 +210,10 @@ index 26a11ab..3df0144 100644
  }
 diff --git a/kyclient/src/uplink.rs b/kyclient/src/uplink.rs
 new file mode 100644
-index 0000000..f6f3132
+index 0000000..8d689bc
 --- /dev/null
 +++ b/kyclient/src/uplink.rs
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,212 @@
 +//! KyberNow (patch 0080): what the device sends to the computer, its
 +//! microphone (docs/micro.md).
 +//!
@@ -305,14 +305,18 @@ index 0000000..f6f3132
 +    /// One encoded packet, captured at `pts` microseconds. `false` when the
 +    /// computer does not take the microphone (nothing sent). An empty packet
 +    /// says the device stopped sending: the computer plays silence at once.
++    /// It travels as one byte marked `is_config` (the transport's error
++    /// correction wants a payload).
 +    pub fn send(&self, payload: &[u8], pts: u64) -> bool {
 +        let inner = self.0.lock().unwrap();
 +        let Some(tx) = &inner.tx else {
 +            return false;
 +        };
++        let silence = payload.is_empty();
++        let payload: &[u8] = if silence { &[0] } else { payload };
 +        let packet = AVPacket::Media(MediaPacket {
 +            header: MediaPacketHeader {
-+                is_config: false,
++                is_config: silence,
 +                is_key: true,
 +                pts,
 +                size: payload.len() as u32,
@@ -337,13 +341,26 @@ index 0000000..f6f3132
 +        self.0.lock().unwrap().state = state;
 +    }
 +
-+    /// The computer connected: the queue its task drains, the codec first.
++    /// The computer connected: the queue its task drains, the codec first,
++    /// then the Opus header as a configuration packet: Kymux's audio
++    /// receiver delivers nothing of a group before its configuration packet
++    /// (the computer's sound starts the same way).
 +    pub(crate) fn open(&self) -> mpsc::Receiver<AVPacket> {
 +        let (tx, rx) = mpsc::channel(QUEUED);
 +        let mut inner = self.0.lock().unwrap();
 +        if let Some(header) = inner.codec.clone() {
 +            let _ = tx.try_send(AVPacket::Codec(CodecPacket { header }));
 +        }
++        let head = opus_head();
++        let _ = tx.try_send(AVPacket::Media(MediaPacket {
++            header: MediaPacketHeader {
++                is_config: true,
++                is_key: true,
++                pts: 0,
++                size: head.len() as u32,
++            },
++            payload: head.into(),
++        }));
 +        inner.tx = Some(tx);
 +        inner.state = UplinkState::Open;
 +        rx
@@ -359,6 +376,18 @@ index 0000000..f6f3132
 +    }
 +}
 +
++/// Opus identification header (RFC 7845): mono, 48 kHz, no gain.
++fn opus_head() -> Vec<u8> {
++    let mut head = b"OpusHead".to_vec();
++    head.push(1); // version
++    head.push(1); // channels
++    head.extend_from_slice(&312u16.to_le_bytes()); // pre-skip
++    head.extend_from_slice(&48_000u32.to_le_bytes());
++    head.extend_from_slice(&0i16.to_le_bytes()); // gain
++    head.push(0); // mapping family
++    head
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
@@ -371,6 +400,8 @@ index 0000000..f6f3132
 +        let mut rx = uplink.open();
 +        assert!(uplink.is_open());
 +        assert!(matches!(rx.try_recv(), Ok(AVPacket::Codec(c)) if c.header.frame_size == 480));
++        // The configuration packet, without which nothing of the group is delivered.
++        assert!(matches!(rx.try_recv(), Ok(AVPacket::Media(m)) if m.header.is_config && m.payload.starts_with(b"OpusHead")));
 +        assert!(uplink.send(&[1, 2], 10_000));
 +        assert!(matches!(rx.try_recv(), Ok(AVPacket::Media(m)) if m.header.pts == 10_000));
 +        uplink.close();

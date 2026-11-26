@@ -195,10 +195,10 @@ index d69a8ec..c75e427 100644
  mod webclient;
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
 new file mode 100644
-index 0000000..6452623
+index 0000000..9570e34
 --- /dev/null
 +++ b/kycontroller/src/uplink.rs
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,334 @@
 +//! KyberNow (patch 0080): the device's microphone, sent to this computer.
 +//!
 +//! The device registers a Kymux audio endpoint on the session's connection
@@ -218,9 +218,12 @@ index 0000000..6452623
 +//! - `b'C'`, the codec (big-endian `u32`, Kymux ids: `opus`), the samples per
 +//!   packet (`u16`) and the channels (`u8`), before the first media packet
 +//!   and at every change;
-+//! - `b'M'`, the capture time in microseconds (`u64`), then the packet;
-+//! - `b'S'`, alone: the device stopped sending (muted); the helper plays
-+//!   silence at once instead of waiting for its jitter buffer to run dry.
++//! - `b'M'`, the capture time in microseconds (`u64`), then the packet (the
++//!   Opus header that opens the stream, a configuration packet for Kymux,
++//!   is not passed);
++//! - `b'S'`, alone: the device stopped sending (muted, a one-byte packet
++//!   marked `is_config`); the helper plays silence at once instead of
++//!   waiting for its jitter buffer to run dry.
 +//!
 +//! `kybernow-micro --check` answers whether the virtual microphone is there
 +//! (exit 0), missing (exit 3), or cannot work on this computer (other).
@@ -331,7 +334,9 @@ index 0000000..6452623
 +            // Kymux's codec header has no channel count: the microphone is mono.
 +            body.push(1);
 +        }
-+        AVPacket::Media(media) if media.payload.is_empty() => body.push(b'S'),
++        // The Opus header the device sends as configuration: nothing to pass.
++        AVPacket::Media(media) if media.header.is_config && media.payload.starts_with(b"OpusHead") => return None,
++        AVPacket::Media(media) if media.header.is_config && media.payload.len() <= 1 => body.push(b'S'),
 +        AVPacket::Media(media) => {
 +            body.push(b'M');
 +            body.extend_from_slice(&media.header.pts.to_be_bytes());
@@ -481,12 +486,12 @@ index 0000000..6452623
 +fn silence() -> AVPacket {
 +    AVPacket::Media(kymux::types::MediaPacket {
 +        header: kymux::types::MediaPacketHeader {
-+            is_config: false,
-+            is_key: false,
++            is_config: true,
++            is_key: true,
 +            pts: 0,
-+            size: 0,
++            size: 1,
 +        },
-+        payload: Default::default(),
++        payload: bytes::Bytes::from_static(&[0]),
 +    })
 +}
 +
