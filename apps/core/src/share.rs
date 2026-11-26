@@ -331,6 +331,10 @@ pub struct ShareState {
     /// injoignable.
     #[serde(default, deserialize_with = "lenient_relay")]
     pub relay: Option<ShareRelay>,
+    /// « Laisser les invités parler » (docs/micro.md) : `None` d'une Station
+    /// d'avant le micro (pas d'interrupteur dans le panneau).
+    #[serde(default)]
+    pub guests_speak: Option<bool>,
 }
 
 impl ShareState {
