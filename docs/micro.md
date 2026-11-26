@@ -13,34 +13,20 @@ Choix de l'auteur (26/11/2026) :
 - toutes les apps qui ont un micro : Mac, iPhone et iPad, Android, Windows, Linux (bureau, Steam Deck, Raspberry Pi avec un micro USB), client web ; ni l'Apple TV (son micro est réservé à Siri) ni les téléviseurs LG ;
 - réglage « Micro » dans les Réglages de l'app (celui du système ou un micro choisi) et indicateur dans la barre de session tant qu'il est envoyé.
 
-Kyber 0.29 n'a aucun son montant : seul un type « micro » existe dans la capture de la Station (txproto), sans usage. Tout ce qui suit est à nous (correctifs 0080).
+Kyber 0.29 n'a aucun son montant : seul un type « micro » existe dans la capture de la Station (txproto), sans usage.
 
 ## Le son
 
 Opus, mono, 48 kHz, trames de 10 ms (480 échantillons), mode voix (`OPUS_APPLICATION_VOIP`), 32 kbit/s, correction d'erreurs intégrée d'Opus (FEC, pertes prévues 10 %), sans DTX. Encodé par le cœur pour toutes les apps (`apps/core/src/micro.rs`) : l'app ne fait que capter et donner ses échantillons, à n'importe quelle fréquence (le cœur ramène à 48 kHz).
 
-Le transport est celui du son de l'ordinateur, dans l'autre sens : un point d'accès audio Kymux de plus sur la connexion de la session, avec le protocole audio de la session (`UnreliableFec`). Le son descendant n'est pas touché ; si la redondance du son descendant change (chantier du transport), le son montant reprendra la même.
+Le transport est le **flux montant commun** de la caméra et du micro (correctifs 0085, écrits avec la session webcam : [webcam.md](webcam.md), « Le flux montant ») : un point de données kyproto par type, un flux QUIC fiable à lui, à part de l'image, du son et des entrées. Le son descendant n'est pas touché. Un flux fiable attend ce qui se perd : avec des trames de 10 ms, une perte en Wi-Fi retarde d'un aller-retour ; le tampon de la Station (60 ms au plus, le reste jeté) l'absorbe. À mesurer ; si c'est trop, une voie non fiable pour le micro seul (le correctif d'abord écrit ici le faisait sur le protocole audio de Kymux, `UnreliableFec`).
 
-## Protocole (correctifs 0080)
+## Protocole (correctif 0085, type `microphone`)
 
-**Demande** (`POST /kymux/start_session`, `kyctl-common`) : `uplink: { microphone: <id> }`, l'identifiant du point d'accès audio que l'appareil a enregistré juste avant sur la connexion Kymux. Absent : rien n'est proposé (comme avant). Une Station d'avant ignore le champ.
-
-**Réponse** : `uplink: { microphone: true }` quand l'ordinateur le prend, sinon `microphone: false` et `microphone_refused` :
-
-| Raison | Sens | Ce que dit l'app |
-|---|---|---|
-| `not_allowed` | invité de KyberNow Share sans le droit | « L'hôte ne laisse pas les invités parler. » |
-| `no_device` | pas de micro virtuel sur l'ordinateur (VB-CABLE pas installé, pilote KyberNow.driver absent, PipeWire injoignable) | « L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son. » |
-| `unsupported` | la Station ne peut pas le prendre (aide absente, transport WebSocket) | « Cet ordinateur ne reçoit pas le micro. » |
-| `old_station` (dit par kyclient : réponse sans `uplink`) | Station d'avant le micro | « Mettez à jour la Station pour envoyer le micro. » |
-
-Les paquets : un paquet de codec d'abord (`opus`, 480 échantillons par paquet), puis l'en-tête Opus (`OpusHead`, mono, 48 kHz) en paquet de configuration, puis un paquet par trame avec l'heure de capture en microsecondes. **Piège** : le récepteur audio de Kymux ne délivre rien d'un groupe avant son paquet de configuration (le son de l'ordinateur commence de la même façon) ; sans l'en-tête, rien n'arriverait. « L'appareil a coupé son micro » part en paquet de configuration d'un octet (sur le flux fiable de Kymux, il arrive toujours) : l'ordinateur joue du silence tout de suite, sans attendre que son tampon se vide. Rien n'attend : un paquet que la connexion ne peut pas prendre est jeté (10 en file au plus, 100 ms).
-
-**Droit** (kycontroller) : l'hôte toujours ; un invité du partage ou l'ami qui emprunte seulement avec `kn_mic: true` dans son jeton de Kyber. Admin le met pour le prêt, et pour les invités quand l'hôte les laisse parler. En session, `POST /kybernow/role` accepte `mic` (avec la même révision que le rôle) : le droit repris, les paquets sont jetés et le micro virtuel joue du silence ; rendu, ils repassent.
-
-**kyclient** (`uplink.rs`) : `Uplink`, gardé par le cœur pour toute la session (il survit aux relances de l'image) et donné à chaque `StreamingSessionConfig` (`uplink`). `set_offer(true)` : proposé au prochain démarrage de l'image ; `set_codec`, `send(paquet, heure)` (`false` tant que l'ordinateur ne le prend pas), `state()` : `Idle`, `Offered`, `Open`, `Refused(raison)`.
-
-**kycontroller** (`uplink.rs`) : vérifie le droit, demande à l'aide de la Station si le micro virtuel est là (`kybernow-micro --check`, 3 s au plus), se relie au point d'accès de l'appareil, lance l'aide pour la session et lui passe chaque paquet sur son entrée standard, un enregistrement par paquet (longueur sur 2 octets, puis `C` codec, nombre d'échantillons et voies ; `M` heure et paquet ; `S` silence). L'entrée se ferme avec la session ; l'aide est arrêtée une seconde plus tard.
+- **Départ de l'image** : le cœur demande `uplink: ["camera", "microphone"]` (le micro dès que l'app en a un, même coupé, et aussi pour un invité) ; la Station rend un point de données pour le micro quand `kybernow-micro` est à côté de kycontroller. Pas de flux : « Mettez à jour la Station pour envoyer le micro. » pour l'hôte, « L'hôte ne laisse pas les invités parler. » pour un invité ou l'ami qui emprunte.
+- **Allumer** : `START` + `{"codec": "opus", "rate": 48000, "channels": 1, "frame": 480, "bitrate": 32000, "device": "…"}` ; kycontroller lance `kybernow-micro --uplink` et répond `{"state": "started"}`. Puis un `MEDIA` par trame : drapeaux (0), heure de capture en µs, paquet Opus. **Couper** : `PAUSE` (l'aide joue du silence tout de suite, reste prête). Image relancée : `START` repart sur le nouveau flux.
+- **Réponses** (`STATUS`, JSON) : `started` → « Micro » allumé ; `failed` avec `reason` `no_device` (écrit par l'aide quand le micro virtuel manque) → « L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son. » ; autre refus → « Cet ordinateur ne reçoit pas le micro. »
+- **Droit et nombre** : 0085 refuse les invités et n'accepte qu'un appareil à la fois par type. Pour le micro, les choix de l'auteur demandent l'ami qui emprunte et les invités que l'hôte laisse parler (`kn_mic` dans leur jeton, déjà posé par Admin ; `POST /kybernow/role` avec `mic` en session), et plusieurs micros à la fois (le système les mélange). Proposé à la session principale le 26/11 : un correctif à nous posé après 0085 (`0081-kycontroller-micro-droits`), pas encore écrit.
 
 ## L'aide de la Station : `kybernow-micro`
 

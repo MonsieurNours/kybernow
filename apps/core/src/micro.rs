@@ -4,10 +4,11 @@
 //! compris) et donne ses échantillons à [`crate::session::Session::push_microphone`] :
 //! flottants mono, à n'importe quelle fréquence. Le cœur les ramène à 48 kHz,
 //! les découpe en trames de 10 ms, les encode en Opus (voix, 32 kbit/s,
-//! correction d'erreurs intégrée) et les donne à kyclient (correctif 0080).
+//! correction d'erreurs intégrée) et les envoie sur le flux montant commun
+//! (correctif 0085, type `microphone`, paquets START/MEDIA/PAUSE).
 //!
 //! Une app qui a un micro le dit une fois au lancement ([`set_device_has_microphone`]) :
-//! le micro est alors proposé à chaque démarrage de l'image, même coupé (rien
+//! le micro est alors demandé à chaque démarrage de l'image, même coupé (rien
 //! ne part micro coupé), si bien que l'ordinateur dit tout de suite s'il le
 //! prend et que l'allumer en session ne relance rien. L'état arrive à l'app par
 //! [`crate::session::Platform::on_microphone`] ; elle capte tant qu'il est
@@ -18,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use kyclient::uplink::{Uplink, UplinkState};
+use kyclient::uplink::Uplink;
 use serde::Serialize;
 
 use crate::i18n;
@@ -34,8 +35,6 @@ pub const FRAME: usize = 480;
 pub const BITRATE: i32 = 32_000;
 /// Pertes prévues pour la correction d'erreurs d'Opus, en %.
 pub const EXPECTED_LOSS: i32 = 10;
-/// Identifiant Kymux du codec.
-pub const OPUS: u32 = u32::from_be_bytes(*b"opus");
 
 static HAS_MICROPHONE: AtomicBool = AtomicBool::new(false);
 
@@ -66,15 +65,6 @@ pub enum MicRefusal {
 }
 
 impl MicRefusal {
-    fn from_reason(reason: &str) -> Self {
-        match reason {
-            "not_allowed" => Self::NotAllowed,
-            "no_device" => Self::NoDevice,
-            "old_station" => Self::OldStation,
-            _ => Self::Unsupported,
-        }
-    }
-
     /// Le texte de link-ui.md (« Micro »), dans la langue de l'app.
     pub fn text(self) -> String {
         t(
@@ -117,16 +107,6 @@ impl MicState {
             map.insert("text".into(), r.text().into());
         }
         value.to_string()
-    }
-}
-
-/// L'état d'après le choix de l'app et la réponse de l'ordinateur.
-pub fn state(enabled: bool, uplink: &UplinkState) -> MicState {
-    match uplink {
-        UplinkState::Refused(reason) => MicState::Refused(MicRefusal::from_reason(reason)),
-        _ if !enabled => MicState::Off,
-        UplinkState::Open => MicState::On,
-        UplinkState::Idle | UplinkState::Offered => MicState::Waiting,
     }
 }
 
@@ -256,7 +236,16 @@ impl Resampler {
 }
 
 // ---------------------------------------------------------------------------
-// Le micro d'une session
+// Le micro d'une session, sur le flux montant commun (correctif 0085)
+
+/// Le type du flux montant du micro (kyclient `Client::uplink`).
+pub const KIND: &str = "microphone";
+
+/// Paquets du flux montant (correctif 0085, docs/webcam.md « Le flux montant »).
+const START: u8 = 0x01;
+const MEDIA: u8 = 0x02;
+const PAUSE: u8 = 0x04;
+const STATUS: u8 = 0x10;
 
 struct Pipe {
     encoder: Option<Encoder>,
@@ -264,15 +253,36 @@ struct Pipe {
     pending: Vec<f32>,
     /// Heure de capture de la prochaine trame, en microsecondes depuis `epoch`.
     next_pts: u64,
-    /// L'app a cessé d'envoyer : le paquet vide est parti.
+    /// Rien n'est parti depuis `START` ou `PAUSE` : l'heure repart de maintenant.
     silent: bool,
 }
 
-/// Le micro d'une session : gardé pour toute la session, donné à chaque
-/// démarrage de l'image.
+/// Où en est le flux de ce démarrage de l'image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Link {
+    /// Pas d'image en cours.
+    NoStream,
+    /// Image en cours, l'ordinateur n'a pas proposé de flux du micro.
+    NotOffered,
+    /// Flux là, `START` pas encore envoyé (micro coupé) ou réponse attendue.
+    Offered,
+    /// L'ordinateur a répondu `started`.
+    Started,
+    /// L'ordinateur a refusé (`failed`, `busy`).
+    Failed(MicRefusal),
+}
+
+/// Le micro d'une session : gardé pour toute la session ; chaque démarrage
+/// de l'image lui donne le flux montant proposé par l'ordinateur.
 pub struct Microphone {
-    uplink: Uplink,
+    uplink: Mutex<Option<Uplink>>,
+    link: Mutex<Link>,
     enabled: AtomicBool,
+    /// Invité d'un partage ou ami qui emprunte : un flux pas proposé veut
+    /// dire « pas le droit », pas « Station d'avant ».
+    guest: AtomicBool,
+    /// Le nom de l'appareil, dans `START`.
+    device: Mutex<String>,
     epoch: Instant,
     pipe: Mutex<Pipe>,
     /// Dernier état dit à l'app.
@@ -281,11 +291,12 @@ pub struct Microphone {
 
 impl Microphone {
     pub fn new() -> Arc<Self> {
-        let uplink = Uplink::new();
-        uplink.set_codec(OPUS, FRAME as u16);
         Arc::new(Self {
-            uplink,
+            uplink: Mutex::new(None),
+            link: Mutex::new(Link::NoStream),
             enabled: AtomicBool::new(false),
+            guest: AtomicBool::new(false),
+            device: Mutex::new(String::new()),
             epoch: Instant::now(),
             pipe: Mutex::new(Pipe {
                 encoder: None,
@@ -298,13 +309,49 @@ impl Microphone {
         })
     }
 
-    /// Le micro à donner à kyclient pour ce démarrage de l'image : `None`
-    /// sans micro sur l'appareil.
-    pub(crate) fn for_stream(&self) -> Option<Uplink> {
-        device_has_microphone().then(|| {
-            self.uplink.set_offer(true);
-            self.uplink.clone()
-        })
+    pub(crate) fn set_identity(&self, device: &str, guest: bool) {
+        *self.device.lock().unwrap() = device.to_owned();
+        self.guest.store(guest, Ordering::Relaxed);
+    }
+
+    /// Le flux de ce démarrage de l'image : `Some` proposé, `None` pas
+    /// proposé ; `stream` faux : plus d'image. Allumé, `START` repart sur le
+    /// nouveau flux.
+    pub(crate) fn set_uplink(&self, uplink: Option<Uplink>, stream: bool) {
+        let offered = uplink.is_some();
+        *self.uplink.lock().unwrap() = uplink;
+        *self.link.lock().unwrap() = match (stream, offered) {
+            (false, _) => Link::NoStream,
+            (true, false) => Link::NotOffered,
+            (true, true) => Link::Offered,
+        };
+        if offered && self.enabled() {
+            self.send_start();
+        }
+    }
+
+    fn send_start(&self) {
+        let settings = serde_json::json!({
+            "codec": "opus",
+            "rate": SAMPLE_RATE,
+            "channels": 1,
+            "frame": FRAME,
+            "bitrate": BITRATE,
+            "device": *self.device.lock().unwrap(),
+        });
+        let mut packet = vec![START];
+        packet.extend_from_slice(settings.to_string().as_bytes());
+        self.pipe.lock().unwrap().silent = true;
+        if let Some(u) = self.uplink.lock().unwrap().as_ref() {
+            u.try_send(packet);
+        }
+    }
+
+    fn send(&self, packet: Vec<u8>) -> bool {
+        match self.uplink.lock().unwrap().as_ref() {
+            Some(u) => matches!(u.try_send(packet), kyclient::uplink::UplinkSend::Sent),
+            None => false,
+        }
     }
 
     pub fn set_enabled(&self, enabled: bool) {
@@ -312,12 +359,15 @@ impl Microphone {
             return;
         }
         log::info!("micro {}", if enabled { "allumé" } else { "coupé" });
-        let mut pipe = self.pipe.lock().unwrap();
-        pipe.pending.clear();
-        if !enabled && !pipe.silent {
-            // Silence tout de suite chez l'ordinateur.
-            pipe.silent = true;
-            self.uplink.send(&[], 0);
+        self.pipe.lock().unwrap().pending.clear();
+        if enabled {
+            if self.uplink.lock().unwrap().is_some() {
+                self.send_start();
+            }
+        } else {
+            // Silence tout de suite chez l'ordinateur ; l'aide reste prête.
+            self.send(vec![PAUSE]);
+            self.pipe.lock().unwrap().silent = true;
         }
     }
 
@@ -326,11 +376,27 @@ impl Microphone {
     }
 
     pub fn state(&self) -> MicState {
-        state(self.enabled(), &self.uplink.state())
+        let link = *self.link.lock().unwrap();
+        match link {
+            Link::Failed(r) => MicState::Refused(r),
+            Link::NotOffered if self.guest.load(Ordering::Relaxed) => MicState::Refused(MicRefusal::NotAllowed),
+            Link::NotOffered => MicState::Refused(MicRefusal::OldStation),
+            _ if !self.enabled() => MicState::Off,
+            Link::Started => MicState::On,
+            Link::NoStream | Link::Offered => MicState::Waiting,
+        }
     }
 
-    /// L'état s'il a changé depuis le dernier dit à l'app.
+    /// Lit les réponses de l'ordinateur (`STATUS`), puis l'état s'il a
+    /// changé depuis le dernier dit à l'app.
     pub(crate) fn changed(&self) -> Option<MicState> {
+        loop {
+            let packet = self.uplink.lock().unwrap().as_ref().and_then(|u| u.try_recv());
+            let Some(packet) = packet else { break };
+            if let Some(link) = parse_status(&packet) {
+                *self.link.lock().unwrap() = link;
+            }
+        }
         let now = self.state();
         let mut told = self.told.lock().unwrap();
         (*told != Some(now)).then(|| {
@@ -340,9 +406,9 @@ impl Microphone {
     }
 
     /// Des échantillons mono captés à `rate` Hz. Jetés micro coupé ou tant
-    /// que l'ordinateur ne le prend pas.
+    /// que l'ordinateur ne l'a pas pris.
     pub fn push(&self, samples: &[f32], rate: u32) {
-        if !self.enabled() || !self.uplink.is_open() {
+        if !self.enabled() || *self.link.lock().unwrap() != Link::Started {
             return;
         }
         let mut pipe = self.pipe.lock().unwrap();
@@ -357,7 +423,6 @@ impl Microphone {
             }
         }
         if pipe.silent {
-            // Reprise : l'heure repart de maintenant, moins ce qui est déjà là.
             pipe.silent = false;
             pipe.next_pts = self.epoch.elapsed().as_micros() as u64;
         }
@@ -366,8 +431,14 @@ impl Microphone {
         while pipe.pending.len() - offset >= FRAME {
             let frame = &pipe.pending[offset..offset + FRAME];
             offset += FRAME;
-            if let Some(packet) = pipe.encoder.as_mut().and_then(|e| e.encode(frame)) {
-                self.uplink.send(&packet, pipe.next_pts);
+            if let Some(opus) = pipe.encoder.as_mut().and_then(|e| e.encode(frame)) {
+                let mut packet = Vec::with_capacity(10 + opus.len());
+                packet.push(MEDIA);
+                packet.push(0);
+                packet.extend_from_slice(&pipe.next_pts.to_be_bytes());
+                packet.extend_from_slice(&opus);
+                // File pleine : la trame est perdue, l'ordinateur la masque.
+                let _ = self.send(packet);
             }
             pipe.next_pts += 10_000;
         }
@@ -375,20 +446,75 @@ impl Microphone {
     }
 }
 
+/// Une réponse de l'ordinateur (`STATUS` + JSON) : ce qu'elle change.
+fn parse_status(packet: &[u8]) -> Option<Link> {
+    if packet.first() != Some(&STATUS) {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_slice(&packet[1..]).ok()?;
+    match json.get("state")?.as_str()? {
+        "started" => Some(Link::Started),
+        "stopped" => Some(Link::Offered),
+        "busy" => Some(Link::Failed(MicRefusal::Unsupported)),
+        "failed" => Some(Link::Failed(match json.get("reason").and_then(|r| r.as_str()) {
+            Some("no_device") => MicRefusal::NoDevice,
+            Some("not_allowed") => MicRefusal::NotAllowed,
+            _ => MicRefusal::Unsupported,
+        })),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn status(json: &str) -> Vec<u8> {
+        let mut p = vec![STATUS];
+        p.extend_from_slice(json.as_bytes());
+        p
+    }
+
     #[test]
-    fn letat_suit_le_choix_et_la_reponse() {
-        assert_eq!(state(false, &UplinkState::Idle), MicState::Off);
-        assert_eq!(state(false, &UplinkState::Open), MicState::Off);
-        assert_eq!(state(true, &UplinkState::Offered), MicState::Waiting);
-        assert_eq!(state(true, &UplinkState::Open), MicState::On);
-        // Refusé : estompé, allumé ou pas.
-        assert_eq!(state(false, &UplinkState::Refused("no_device".into())), MicState::Refused(MicRefusal::NoDevice));
-        assert_eq!(state(true, &UplinkState::Refused("old_station".into())), MicState::Refused(MicRefusal::OldStation));
-        assert_eq!(state(true, &UplinkState::Refused("autre".into())), MicState::Refused(MicRefusal::Unsupported));
+    fn letat_suit_le_choix_et_les_reponses() {
+        let mic = Microphone::new();
+        assert_eq!(mic.state(), MicState::Off, "pas d'image, coupé");
+        let (uplink, mut peer) = Uplink::pair(KIND, 24);
+        mic.set_uplink(Some(uplink), true);
+        assert_eq!(mic.state(), MicState::Off);
+        mic.set_enabled(true);
+        assert_eq!(mic.state(), MicState::Waiting);
+        let start = peer.sent.try_recv().unwrap();
+        assert_eq!(start[0], START);
+        let json: serde_json::Value = serde_json::from_slice(&start[1..]).unwrap();
+        assert_eq!((json["codec"].as_str(), json["frame"].as_u64()), (Some("opus"), Some(480)));
+        peer.answer.send(status(r#"{"state":"started"}"#)).unwrap();
+        assert_eq!(mic.changed(), Some(MicState::On));
+        mic.push(&[0.1; 960], 48_000);
+        assert_eq!(peer.sent.try_recv().unwrap()[0], MEDIA);
+        assert!(peer.sent.try_recv().is_ok(), "deux trames de 10 ms");
+        mic.set_enabled(false);
+        assert_eq!(peer.sent.try_recv().unwrap(), vec![PAUSE]);
+        assert_eq!(mic.changed(), Some(MicState::Off));
+    }
+
+    #[test]
+    fn pas_propose_hote_ou_invite() {
+        let mic = Microphone::new();
+        mic.set_uplink(None, true);
+        assert_eq!(mic.state(), MicState::Refused(MicRefusal::OldStation));
+        mic.set_identity("iPad", true);
+        assert_eq!(mic.state(), MicState::Refused(MicRefusal::NotAllowed));
+    }
+
+    #[test]
+    fn micro_virtuel_absent() {
+        let mic = Microphone::new();
+        let (uplink, peer) = Uplink::pair(KIND, 24);
+        mic.set_uplink(Some(uplink), true);
+        mic.set_enabled(true);
+        peer.answer.send(status(r#"{"state":"failed","reason":"no_device"}"#)).unwrap();
+        assert_eq!(mic.changed(), Some(MicState::Refused(MicRefusal::NoDevice)));
     }
 
     #[test]
@@ -405,7 +531,6 @@ mod tests {
         for rate in [16_000u32, 44_100, 48_000, 96_000] {
             let mut r = Resampler::default();
             let mut out = Vec::new();
-            // Une seconde en paquets de 10 ms de l'entrée.
             let chunk = (rate / 100) as usize;
             for n in 0..100 {
                 let input: Vec<f32> = (0..chunk).map(|i| (((n * chunk + i) as f32) * 0.01).sin()).collect();
@@ -423,19 +548,5 @@ mod tests {
         let frame: Vec<f32> = (0..FRAME).map(|i| (i as f32 * 0.05).sin() * 0.3).collect();
         let packet = e.encode(&frame).unwrap();
         assert!(!packet.is_empty() && packet.len() < 200);
-    }
-
-    #[test]
-    fn rien_ne_part_avant_louverture_ni_micro_coupe() {
-        let mic = Microphone::new();
-        set_device_has_microphone(true);
-        assert!(mic.for_stream().is_some());
-        mic.set_enabled(true);
-        assert_eq!(mic.state(), MicState::Waiting);
-        // Pas ouvert : jeté sans rien encoder.
-        mic.push(&[0.0; 480], 48_000);
-        assert!(mic.pipe.lock().unwrap().encoder.is_none());
-        assert_eq!(mic.changed(), Some(MicState::Waiting));
-        assert_eq!(mic.changed(), None);
     }
 }

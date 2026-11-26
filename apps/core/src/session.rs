@@ -2105,6 +2105,7 @@ impl Worker {
         // La caméra s'éteint avec la session.
         self.camera.stop();
         self.camera_offer(None);
+        self.microphone.set_uplink(None, false);
         self.finish(failure.map(|f| f.text));
     }
 
@@ -4273,6 +4274,10 @@ impl Worker {
                 self.latency.reset();
                 let uplink = self.client.as_ref().and_then(|c| c.uplink(crate::camera::KIND));
                 self.camera_offer(uplink);
+                if crate::micro::device_has_microphone() {
+                    let mic = self.client.as_ref().and_then(|c| c.uplink(crate::micro::KIND));
+                    self.microphone.set_uplink(mic, true);
+                }
                 // `retries` n'est pas remis à zéro ici : une image refusée
                 // juste après chaque départ relançait le flux sans fin
                 // (« Reconnexion » en boucle) ; il repart après 30 s sans relance.
@@ -5051,8 +5056,6 @@ impl Worker {
             video,
             audio,
             input: input_config,
-            // Le micro de l'appareil, proposé même coupé (docs/micro.md).
-            uplink: self.microphone.for_stream(),
         };
         self.streaming = Some(display.clone());
         self.adaptive.new_path();
@@ -5064,11 +5067,18 @@ impl Worker {
         self.status(Status::FirstImages);
         // Caméra de l'appareil (correctif 0085) : demandée à chaque départ,
         // jamais pour un invité d'un partage.
-        let kinds = if self.platform.sends_camera() && !self.params.is_guest() {
+        let mut kinds = if self.platform.sends_camera() && !self.params.is_guest() {
             vec![crate::camera::KIND.to_owned()]
         } else {
             Vec::new()
         };
+        // Micro de l'appareil (docs/micro.md) : demandé à chaque départ, même
+        // coupé et aussi pour un invité (la Station décide de son droit).
+        if crate::micro::device_has_microphone() {
+            kinds.push(crate::micro::KIND.to_owned());
+            let guest = self.params.is_guest() || self.params.is_borrower();
+            self.microphone.set_identity(&self.params.device.name, guest);
+        }
         client.set_uplink_kinds(kinds);
         match client.start_streaming(config) {
             Ok(()) => self.platform.on_stream_started(),
@@ -5084,6 +5094,7 @@ impl Worker {
             let _ = c.stop_streaming();
         }
         self.camera_offer(None);
+        self.microphone.set_uplink(None, false);
         if self.streaming.take().is_some() || self.pipeline.is_some() {
             self.platform.on_stream_stopped();
         }

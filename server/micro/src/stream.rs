@@ -1,9 +1,11 @@
-//! Ce que kycontroller passe sur l'entrée standard (correctif 0080,
-//! `kycontroller/src/uplink.rs`), et son décodage.
+//! Ce que kycontroller passe sur l'entrée standard (flux montant commun,
+//! correctif 0085, `kycontroller/src/uplink.rs`), et son décodage.
 //!
-//! Un enregistrement par paquet : longueur (u16, gros-boutiste), puis
-//! `C` codec (u32), échantillons par paquet (u16), voies (u8) ; `M` heure de
-//! capture en µs (u64), paquet Opus ; `S` : l'appareil a coupé son micro.
+//! Chaque paquet est précédé de sa longueur (u32, gros-boutiste) ; son
+//! premier octet dit lequel : `START` 0x01 + JSON (`{"codec": "opus",
+//! "rate": 48000, "channels": 1, "frame": 480, …}`), `MEDIA` 0x02 + drapeaux
+//! (u8) + heure de capture en µs (u64, gros-boutiste) + paquet Opus,
+//! `PAUSE` 0x04 (l'appareil a coupé son micro).
 
 use std::ffi::c_void;
 use std::io::{self, Read};
@@ -12,38 +14,47 @@ use crate::RATE;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Record {
-    Codec { codec: u32, frame: u16, channels: u8 },
+    /// Le format : échantillons par paquet et voies (seul Opus est pris).
+    Start { opus: bool, frame: u16, channels: u8 },
     Media { pts: u64, packet: Vec<u8> },
     Silence,
+    /// Un paquet d'un autre type : ignoré.
+    Other,
 }
 
-pub const OPUS: u32 = u32::from_be_bytes(*b"opus");
+/// Le plus gros paquet accepté (une trame Opus fait au plus 1 275 octets).
+const MAX_PACKET: usize = 64 * 1024;
 
-/// Le prochain enregistrement ; `Ok(None)` à la fin de l'entrée.
+/// Le prochain paquet ; `Ok(None)` à la fin de l'entrée.
 pub fn read(input: &mut impl Read) -> io::Result<Option<Record>> {
-    let mut len = [0u8; 2];
+    let mut len = [0u8; 4];
     match input.read_exact(&mut len) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(e) => return Err(e),
     }
-    let len = usize::from(u16::from_be_bytes(len));
+    let len = u32::from_be_bytes(len) as usize;
+    if len > MAX_PACKET {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "paquet trop gros"));
+    }
     let mut body = vec![0u8; len];
     input.read_exact(&mut body)?;
-    let bad = || io::Error::new(io::ErrorKind::InvalidData, "enregistrement illisible");
-    match body.first() {
-        Some(b'C') if body.len() >= 8 => Ok(Some(Record::Codec {
-            codec: u32::from_be_bytes(body[1..5].try_into().unwrap()),
-            frame: u16::from_be_bytes(body[5..7].try_into().unwrap()),
-            channels: body[7],
-        })),
-        Some(b'M') if body.len() >= 9 => Ok(Some(Record::Media {
-            pts: u64::from_be_bytes(body[1..9].try_into().unwrap()),
-            packet: body[9..].to_vec(),
-        })),
-        Some(b'S') => Ok(Some(Record::Silence)),
-        _ => Err(bad()),
-    }
+    Ok(Some(match body.first() {
+        Some(0x01) => {
+            let json: serde_json::Value = serde_json::from_slice(&body[1..]).unwrap_or_default();
+            Record::Start {
+                opus: json["codec"].as_str() == Some("opus"),
+                frame: json["frame"].as_u64().unwrap_or(480) as u16,
+                channels: json["channels"].as_u64().unwrap_or(1) as u8,
+            }
+        }
+        Some(0x02) if body.len() >= 10 => Record::Media {
+            pts: u64::from_be_bytes(body[2..10].try_into().unwrap()),
+            packet: body[10..].to_vec(),
+        },
+        Some(0x04) => Record::Silence,
+        _ => Record::Other,
+    }))
 }
 
 unsafe extern "C" {
@@ -162,15 +173,16 @@ mod tests {
     }
 
     #[test]
-    fn lit_les_enregistrements_de_kycontroller() {
-        let bytes = [
-            &[0u8, 8, b'C', b'o', b'p', b'u', b's', 0x01, 0xe0, 1][..],
-            &[0, 11, b'M', 0, 0, 0, 0, 0, 0, 0x27, 0x10, 9, 8][..],
-            &[0, 1, b'S'][..],
-        ]
-        .concat();
+    fn lit_les_paquets_de_kycontroller() {
+        let start = br#"{"codec":"opus","rate":48000,"channels":1,"frame":480}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&((start.len() + 1) as u32).to_be_bytes());
+        bytes.push(0x01);
+        bytes.extend_from_slice(start);
+        bytes.extend_from_slice(&[0, 0, 0, 12, 0x02, 0, 0, 0, 0, 0, 0, 0, 0x27, 0x10, 9, 8]);
+        bytes.extend_from_slice(&[0, 0, 0, 1, 0x04]);
         let mut input = &bytes[..];
-        assert_eq!(read(&mut input).unwrap(), Some(Record::Codec { codec: OPUS, frame: 480, channels: 1 }));
+        assert_eq!(read(&mut input).unwrap(), Some(Record::Start { opus: true, frame: 480, channels: 1 }));
         assert_eq!(read(&mut input).unwrap(), Some(Record::Media { pts: 10_000, packet: vec![9, 8] }));
         assert_eq!(read(&mut input).unwrap(), Some(Record::Silence));
         assert_eq!(read(&mut input).unwrap(), None);

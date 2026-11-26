@@ -8,6 +8,7 @@ license = "AGPL-3.0-or-later"
 authors = ["Les Lignes Claires"]
 
 [dependencies]
+serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.62"

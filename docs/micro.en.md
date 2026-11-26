@@ -13,34 +13,20 @@ The author's choices (26/11/2026):
 - every app with a microphone: Mac, iPhone and iPad, Android, Windows, Linux (desktop, Steam Deck, Raspberry Pi with a USB microphone), web client; neither the Apple TV (its microphone is Siri's) nor LG TVs;
 - a « Micro » setting in the App settings (the system's or a chosen microphone) and an indicator in the session bar while it is sent.
 
-Kyber 0.29 has no upstream sound at all: only a “microphone” type exists in the Station's capture (txproto), unused. Everything below is ours (patches 0080).
+Kyber 0.29 has no upstream sound at all: only a “microphone” type exists in the Station's capture (txproto), unused.
 
 ## The sound
 
 Opus, mono, 48 kHz, 10 ms frames (480 samples), voice mode (`OPUS_APPLICATION_VOIP`), 32 kbit/s, Opus's in-band forward error correction (FEC, 10 % expected loss), no DTX. Encoded by the core for every app (`apps/core/src/micro.rs`): the app only captures and hands its samples, at any rate (the core brings them to 48 kHz).
 
-The transport is the one of the computer's sound, the other way round: one more Kymux audio endpoint on the session's connection, with the session's audio protocol (`UnreliableFec`). The downstream sound is untouched; if the downstream sound's redundancy changes (transport work), the upstream sound will take the same.
+The transport is the camera's and microphone's **common upstream channel** (patches 0085, written with the webcam session: [webcam.en.md](webcam.en.md), “The upstream stream”): one kyproto data endpoint per kind, a reliable QUIC stream of its own, apart from the picture, sound and inputs. The downstream sound is untouched. A reliable stream waits for what gets lost: with 10 ms frames, a loss on Wi-Fi delays by one round trip; the Station's buffer (60 ms at most, the rest dropped) absorbs it. To be measured; if it is too much, an unreliable path for the microphone alone (the patch first written here did it over Kymux's audio protocol, `UnreliableFec`).
 
-## Protocol (patches 0080)
+## Protocol (patch 0085, kind `microphone`)
 
-**Request** (`POST /kymux/start_session`, `kyctl-common`): `uplink: { microphone: <id> }`, the id of the audio endpoint the device registered just before on the Kymux connection. Absent: nothing offered (as before). An older Station ignores the field.
-
-**Answer**: `uplink: { microphone: true }` when the computer takes it, otherwise `microphone: false` and `microphone_refused`:
-
-| Reason | Meaning | What the app says |
-|---|---|---|
-| `not_allowed` | KyberNow Share guest without the right | “The host isn't letting guests speak.” |
-| `no_device` | no virtual microphone on the computer (VB-CABLE not installed, KyberNow.driver missing, PipeWire unreachable) | “The computer has no virtual microphone: see Admin › Picture and sound.” |
-| `unsupported` | the Station can't take it (helper missing, WebSocket transport) | “This computer can't receive the microphone.” |
-| `old_station` (said by kyclient: answer without `uplink`) | Station from before the microphone | “Update the Station to send your microphone.” |
-
-Packets: a codec packet first (`opus`, 480 samples per packet), then the Opus header (`OpusHead`, mono, 48 kHz) as a configuration packet, then one packet per frame with the capture time in microseconds. **Pitfall**: Kymux's audio receiver delivers nothing of a group before its configuration packet (the computer's sound starts the same way); without the header, nothing would arrive. “The device muted its microphone” goes as a one-byte configuration packet (on Kymux's reliable stream, it always arrives): the computer plays silence at once, without waiting for its buffer to run dry. Nothing waits: a packet the connection can't take is dropped (10 queued at most, 100 ms).
-
-**Right** (kycontroller): the host always; a share guest or the borrowing friend only with `kn_mic: true` in their Kyber token. Admin sets it for a loan, and for guests when the host lets them speak. During a session, `POST /kybernow/role` accepts `mic` (with the same revision as the role): with the right taken back, packets are dropped and the virtual microphone plays silence; given back, they go through again.
-
-**kyclient** (`uplink.rs`): `Uplink`, kept by the core for the whole session (it outlives the picture's restarts) and given to each `StreamingSessionConfig` (`uplink`). `set_offer(true)`: offered at the next start of the picture; `set_codec`, `send(packet, time)` (`false` while the computer doesn't take it), `state()`: `Idle`, `Offered`, `Open`, `Refused(reason)`.
-
-**kycontroller** (`uplink.rs`): checks the right, asks the Station's helper whether the virtual microphone is there (`kybernow-micro --check`, 3 s at most), connects to the device's endpoint, starts the helper for the session and passes it every packet on its standard input, one record per packet (2-byte length, then `C` codec, samples and channels; `M` time and packet; `S` silence). The input closes with the session; the helper is stopped a second later.
+- **Start of the picture**: the core asks for `uplink: ["camera", "microphone"]` (the microphone as soon as the app has one, even off, and for a guest too); the Station returns a data endpoint for the microphone when `kybernow-micro` sits next to kycontroller. No stream: “Update the Station to send your microphone.” for the host, “The host isn't letting guests speak.” for a guest or the borrowing friend.
+- **Turning on**: `START` + `{"codec": "opus", "rate": 48000, "channels": 1, "frame": 480, "bitrate": 32000, "device": "…"}`; kycontroller starts `kybernow-micro --uplink` and answers `{"state": "started"}`. Then one `MEDIA` per frame: flags (0), capture time in µs, Opus packet. **Turning off**: `PAUSE` (the helper plays silence at once, stays ready). Picture restarted: `START` goes again on the new stream.
+- **Answers** (`STATUS`, JSON): `started` → « Micro » lit; `failed` with `reason` `no_device` (written by the helper when the virtual microphone is missing) → “The computer has no virtual microphone: see Admin › Picture and sound.”; any other refusal → “This computer can't receive the microphone.”
+- **Right and count**: 0085 refuses guests and takes one device at a time per kind. For the microphone, the author's choices ask for the borrowing friend and the guests the host lets speak (`kn_mic` in their token, already set by Admin; `POST /kybernow/role` with `mic` during a session), and several microphones at once (the system mixes them). Proposed to the main session on 26/11: a patch of ours applied after 0085 (`0081-kycontroller-micro-droits`), not written yet.
 
 ## The Station's helper: `kybernow-micro`
 

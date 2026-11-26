@@ -221,7 +221,7 @@ fn kyber_token(s: &AppState, loan: &lend::Loan) -> Option<String> {
 /// en HDR ; personne d'autre n'y a d'image, c'est à Kyber de le capter en HDR
 /// (sinon la capture SDR refuse les images HDR et l'ami n'a jamais d'image).
 fn lend_claims(display: u32, hdr: bool) -> serde_json::Value {
-    // `kn_mic` (correctif 0080) : l'ami parle comme le propriétaire (docs/micro.md).
+    // `kn_mic` (correctif 0081, docs/micro.md) : l'ami parle comme le propriétaire (docs/micro.md).
     json!({ "kn_role": "player_kbm", "kn_display": display, "kn_rev": 1, "kn_hdr": hdr, "kn_mic": true })
 }
 
