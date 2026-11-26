@@ -42,6 +42,7 @@ pub mod lend;
 pub mod playstation;
 pub mod relay;
 pub mod share;
+pub mod welcome;
 
 // MARK: - Chaînes
 
