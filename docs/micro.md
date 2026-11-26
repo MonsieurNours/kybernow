@@ -40,7 +40,7 @@ Le transport est le **flux montant commun** de la caméra et du micro (correctif
 
 ## VB-CABLE (Windows)
 
-Le pilote de VB-Audio Software, signé et éprouvé ; on ne peut pas écrire de pilote de son à nous sans la signature de Microsoft (en attente, voir la mémoire « Authenticode »). VB-CABLE est un **donationware** : VB-Audio permet de le livrer tel quel avec une autre app, installation silencieuse comprise, à condition que l'utilisateur puisse savoir que c'est un produit de VB-Audio et le soutenir. D'où, partout où on le montre (installateur, Admin › Image et son, cette page) : « VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com. » Le pack de VB-Audio (`VBCABLE_Driver_Pack*.zip`, extrait) se place dans `third_party/payload/vbcable/` avant de construire l'installateur, qui l'installe s'il manque (`VBCABLE_Setup_x64.exe -i -h`, après `kybernow-micro --check`) ; sans lui, l'étape est sautée. Ne jamais renommer ses appareils.
+Le pilote de VB-Audio Software, signé et éprouvé ; on ne peut pas écrire de pilote de son à nous sans la signature de Microsoft (en attente, voir la mémoire « Authenticode »). VB-CABLE est un **donationware** de VB-Audio ; KyberNow le livre avec la Station Windows, installation silencieuse comprise, avec l'accord de VB-Audio Software (26/11/2026). L'utilisateur doit pouvoir savoir que c'est un produit de VB-Audio et le soutenir. D'où, partout où on le montre (installateur, Admin › Image et son, cette page) : « VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com. » Le pack officiel de VB-Audio (`VBCABLE_Driver_Pack46.zip` du 31/10/2026, sur vb-audio.com/Cable, extrait) est dans `third_party/payload/vbcable/` ; l'installateur l'emporte et l'installe s'il manque (`VBCABLE_Setup_x64.exe -i -h`, après `kybernow-micro --check`). `release.sh` refuse de publier sans lui ; une construction à la main sans lui saute l'étape. Ne jamais renommer ses appareils.
 
 ## Les apps
 
@@ -67,7 +67,7 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 | Droit et plusieurs micros (ami, invités autorisés, pas de `busy`) | `0085-kycontroller-micro-droits.patch`, posé après le canal commun ; 114 essais de kycontroller |
 | Aide `kybernow-micro` | compilée Mac, Windows, Linux ; 7 essais (paquets, pertes, tampon) ; `--check` vérifié sur ce Mac (3 : pilote d'avant) |
 | Pilote Mac « Micro KyberNow » | compilé ; pas installé (administrateur) |
-| VB-CABLE | étape de l'installateur et carte d'Admin écrites ; le pack est à placer dans `third_party/payload/vbcable/` |
+| VB-CABLE | livré par l'installateur de la Station Windows à partir de la 0.11.6 (pack 46 dans `third_party/payload/vbcable/`) ; pas encore essayé sur un PC |
 | Admin | `kn_mic`, « Laisser les invités parler », carte « Micro virtuel » ; 368 essais |
 | Cœur | `micro.rs` ; 6 essais |
 | Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) compilées ; Mac (`042715b6`) et iPhone, iPad (`ec8521d8`) : pont compilé, Swift vérifié par `swiftc -typecheck` (pas de build Xcode) ; le traitement voix d'Apple ne voit pas le son de la session (autre unité de sortie) : l'écho est à vérifier ; client web : la page est prête (`d9c3dc4d`) mais cachée, son moteur (wasm, sa propre copie de Kyber) n'a pas encore le flux montant |

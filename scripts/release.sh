@@ -310,7 +310,7 @@ else problem "app webOS : rustup target add armv7-unknown-linux-gnueabi"; fi
 
 # Sources de Kyber et dépendances lues par les arbres (third_party/ partagé).
 for f in third_party/kyber-desktop/kysdk/kyctl third_party/kyber-desktop-macos/kysdk/kyctl third_party/kyber-web/Cargo.toml \
-    third_party/payload/kyber-0.29.0/SDL2.dll third_party/rootfs-winarm64/lib/libavcodec.a \
+    third_party/payload/kyber-0.29.0/SDL2.dll third_party/payload/vbcable/VBCABLE_Setup_x64.exe third_party/rootfs-winarm64/lib/libavcodec.a \
     "third_party/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"; do
     if [ -e "$f" ]; then ok "${f#third_party/}"
     else problem "$f absent (docs/build-notes.md)"; fi
@@ -572,7 +572,7 @@ empreinte_de() {
 }
 
 entrees_surcouche() { chemins server/kyber-patches server/encoder-check server/camera server/micro apps/macos/kyber-patches apps/webos/kyber-patches scripts/kyber-toolchain.sh; kyber_tetes station-windows kyber-desktop; kyber_tetes station-windows kyber-web; tp_id payload/kyber-0.29.0; }
-entrees_station() { chemins $(server_sauf macos linux) scripts/kyber-toolchain.sh brand; echo "maj ${UPDATE_FLAGS[*]+"${UPDATE_FLAGS[*]}"}"; empreinte_de surcouche; tp_id payload/kyber-0.29.0; tp_id kyber-installer; }
+entrees_station() { chemins $(server_sauf macos linux) scripts/kyber-toolchain.sh brand; echo "maj ${UPDATE_FLAGS[*]+"${UPDATE_FLAGS[*]}"}"; empreinte_de surcouche; tp_id payload/kyber-0.29.0; tp_id payload/vbcable; tp_id kyber-installer; }
 entrees_windows() { chemins "${COEUR[@]}" apps/windows apps/macos/PyroWave; empreinte_de surcouche; kyber_tetes windows-app kyber-desktop; tp_id rootfs-winarm64; tp_id "toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"; }
 entrees_android() { chemins "${COEUR[@]}" apps/android; kyber_tetes android kyber-desktop; tp_id opus-1.6.1; }
 entrees_webos() { chemins "${COEUR[@]}" apps/webos; kyber_tetes webos kyber-desktop; tp_id webos-toolchain-mac; tp_id ffmpeg-7.1.1; tp_id opus-1.6.1; }

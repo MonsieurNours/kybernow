@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **The microphone reaches a Windows PC on its own.** The Windows Station installer now installs VB-CABLE, VB-Audio Software's virtual microphone (donationware: vb-cable.com), which receives your devices' microphone. Before, you had to install it yourself.
+
 ## 0.11.5
 
 - **KyberNow Station for Linux, in beta.** A Linux computer becomes a Station, like a Windows PC or a Mac: the same Admin, the same apps to connect to it. For gaming (Steam, Proton, Lutris, Heroic) or remote work, on GNOME, KDE Plasma 6, Sway or Hyprland, with Ubuntu 24.04, Debian 13, Fedora 42 and later, on x86_64 and arm64. `.deb` and `.rpm` packages on the release page; later updates install from Admin.

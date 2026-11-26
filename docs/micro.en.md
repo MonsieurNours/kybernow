@@ -40,7 +40,7 @@ The transport is the camera's and microphone's **common upstream channel** (patc
 
 ## VB-CABLE (Windows)
 
-VB-Audio Software's driver, signed and proven; we can't write a sound driver of our own without Microsoft's signature (pending, see the “Authenticode” memory). VB-CABLE is **donationware**: VB-Audio allows shipping it as is with another app, silent install included, provided the user can tell it is a VB-Audio product and support it. Hence, wherever we show it (installer, Admin › Picture and sound, this page): “VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.” VB-Audio's pack (`VBCABLE_Driver_Pack*.zip`, extracted) goes into `third_party/payload/vbcable/` before building the installer, which installs it when missing (`VBCABLE_Setup_x64.exe -i -h`, after `kybernow-micro --check`); without it, the step is skipped. Never rename its devices.
+VB-Audio Software's driver, signed and proven; we can't write a sound driver of our own without Microsoft's signature (pending, see the “Authenticode” memory). VB-CABLE is VB-Audio **donationware**; KyberNow ships it with the Windows Station, silent install included, with VB-Audio Software's agreement (26/11/2026). The user must be able to tell it is a VB-Audio product and support it. Hence, wherever we show it (installer, Admin › Picture and sound, this page): “VB-CABLE, by VB-Audio Software, is donationware: vb-cable.com.” VB-Audio's official pack (`VBCABLE_Driver_Pack46.zip` of 31/10/2026, from vb-audio.com/Cable, extracted) is in `third_party/payload/vbcable/`; the installer carries it and installs it when missing (`VBCABLE_Setup_x64.exe -i -h`, after `kybernow-micro --check`). `release.sh` refuses to publish without it; a manual build without it skips the step. Never rename its devices.
 
 ## The apps
 
@@ -67,7 +67,7 @@ Written on 26/11/2026, branch `claude/micro-5db32e`; **nothing has been tried en
 | Right and several microphones (friend, allowed guests, no `busy`) | `0085-kycontroller-micro-droits.patch`, applied after the common channel; 114 kycontroller tests |
 | `kybernow-micro` helper | built for Mac, Windows, Linux; 7 tests (packets, losses, buffer); `--check` checked on this Mac (3: older driver) |
 | Mac driver “Micro KyberNow” | built; not installed (administrator) |
-| VB-CABLE | installer step and Admin card written; the pack goes into `third_party/payload/vbcable/` |
+| VB-CABLE | shipped by the Windows Station installer from 0.11.6 on (pack 46 in `third_party/payload/vbcable/`); not yet tried on a PC |
 | Admin | `kn_mic`, “Let guests speak”, “Virtual microphone” card; 368 tests |
 | Core | `micro.rs`; 6 tests |
 | Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) built; Mac (`042715b6`) and iPhone, iPad (`ec8521d8`): bridge built, Swift checked with `swiftc -typecheck` (no Xcode build); Apple's voice processing doesn't see the session's sound (another output unit): echo is to be checked; web client: the page is ready (`d9c3dc4d`) but hidden, its engine (wasm, its own copy of Kyber) doesn't have the upstream channel yet |

@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **Le micro arrive tout seul sur un PC Windows.** L'installateur de la Station Windows installe maintenant VB-CABLE, le micro virtuel de VB-Audio Software (offert en donationware : vb-cable.com), qui reçoit le micro de vos appareils. Avant, il fallait l'installer soi-même.
+
 ## 0.11.5
 
 - **KyberNow Station pour Linux, en bêta.** Un ordinateur sous Linux devient une Station, comme un PC Windows ou un Mac : même Admin, mêmes apps pour s'y connecter. Pour jouer (Steam, Proton, Lutris, Heroic) ou travailler à distance, sous GNOME, KDE Plasma 6, Sway ou Hyprland, avec Ubuntu 24.04, Debian 13, Fedora 42 et plus récentes, sur x86_64 et arm64. Paquets `.deb` et `.rpm` sur la page de la version ; les mises à jour suivantes s'installent depuis Admin.
