@@ -22,6 +22,11 @@
 //! Fils : l'état est sous verrou ; `on_changed` est appelé hors du verrou,
 //! sur le fil qui a changé l'état (celui de kynput pour les annonces de
 //! l'ordinateur, celui des entrées de l'appareil pour la position tenue).
+//! L'envoi d'une position à kynput se fait aussi hors du verrou : kynput
+//! tient le sien en nous livrant le pointeur de l'ordinateur
+//! (`remote_cursor_changed`), et envoyer sous le nôtre figeait l'app pour de
+//! bon (fil principal et fil de kynput chacun en attente de l'autre ; gel
+//! de l'iPhone du 27/11/2026, rapports 8BADF00D).
 //! Le dessin est à la charge de la vue, qui repasse sur son fil principal.
 
 use std::sync::{Arc, Mutex};
@@ -194,7 +199,21 @@ struct Inner {
     /// main sur elle qu'au repos de nos entrées.
     last_local_move: Option<Duration>,
     /// Envoi d'une position absolue à l'ordinateur (`InputPipeline::mouse`).
-    send: Option<Box<dyn Fn(i16, i16) + Send + Sync>>,
+    send: Option<SendFn>,
+}
+
+/// Envoi d'une position absolue à l'ordinateur.
+type SendFn = Arc<dyn Fn(i16, i16) + Send + Sync>;
+
+/// Une position à envoyer, prise sous le verrou, envoyée après ([`PointerLayer::send_held`]).
+struct Pending(Option<(SendFn, i16, i16)>);
+
+impl Pending {
+    fn send(self) {
+        if let Some((send, x, y)) = self.0 {
+            send(x, y);
+        }
+    }
 }
 
 /// État du pointeur de l'ordinateur.
@@ -259,7 +278,7 @@ impl PointerLayer {
     pub fn attach(&self, host_size: (f64, f64), send: impl Fn(i16, i16) + Send + Sync + 'static) {
         let mut inner = self.inner.lock().unwrap();
         inner.host_size = host_size;
-        inner.send = Some(Box::new(send));
+        inner.send = Some(Arc::new(send));
     }
 
     /// Annonce de l'ordinateur (depuis le gestionnaire de kynput).
@@ -295,7 +314,7 @@ impl PointerLayer {
     /// envoie sa position (Apple TV : télécommande, manette, souris Bluetooth
     /// en mode bureau). Il part du dernier pointeur connu, ou du centre.
     pub fn move_by(&self, dx: f64, dy: f64) {
-        let state = {
+        let (state, pending) = {
             let mut inner = self.inner.lock().unwrap();
             let (w, h) = inner.host_size;
             if !self.holds_position || w <= 0.0 || h <= 0.0 {
@@ -305,9 +324,9 @@ impl PointerLayer {
             let p = ((x + dx).clamp(0.0, w - 1.0), (y + dy).clamp(0.0, h - 1.0));
             inner.state.held = Some(p);
             inner.last_local_move = Some(self.clock.now());
-            Self::send_held(&inner);
-            inner.state.clone()
+            (inner.state.clone(), Self::send_held(&inner))
         };
+        pending.send();
         self.changed(&state, Change::default());
     }
 
@@ -315,33 +334,37 @@ impl PointerLayer {
     /// position tenue garde sa place relative (le centre reste au centre), et
     /// l'ordinateur l'apprend tout de suite.
     pub fn set_host_size(&self, size: (f64, f64)) {
-        let state = {
+        let (state, pending) = {
             let mut inner = self.inner.lock().unwrap();
             let (ow, oh) = inner.host_size;
             inner.host_size = size;
+            let mut pending = Pending(None);
             if let Some((x, y)) = inner.state.held
                 && ow > 0.0
                 && oh > 0.0
             {
                 inner.state.held = Some(((x * size.0 / ow).clamp(0.0, size.0 - 1.0), (y * size.1 / oh).clamp(0.0, size.1 - 1.0)));
-                Self::send_held(&inner);
+                pending = Self::send_held(&inner);
             }
-            inner.state.clone()
+            (inner.state.clone(), pending)
         };
+        pending.send();
         self.changed(&state, Change::default());
     }
 
     /// Entrées reliées de nouveau à l'ordinateur (service d'entrées relancé) :
     /// la position tenue est renvoyée à sa place.
     pub fn resend_held(&self) {
-        let inner = self.inner.lock().unwrap();
-        Self::send_held(&inner);
+        let pending = Self::send_held(&self.inner.lock().unwrap());
+        pending.send();
     }
 
-    fn send_held(inner: &Inner) {
-        if let (Some((x, y)), Some(send)) = (inner.state.held, &inner.send) {
-            send(clamp_i16(x), clamp_i16(y));
-        }
+    /// La position tenue à envoyer ; l'appelant l'envoie une fois le verrou rendu.
+    fn send_held(inner: &Inner) -> Pending {
+        Pending(match (inner.state.held, &inner.send) {
+            (Some((x, y)), Some(send)) => Some((send.clone(), clamp_i16(x), clamp_i16(y))),
+            _ => None,
+        })
     }
 
     /// Fin de session : la position tenue et la visibilité sont oubliées, la
@@ -473,6 +496,29 @@ mod tests {
         layer.reset();
         let s = layer.state();
         assert!(!s.remote_hidden && s.shape.is_some(), "fin de session : la forme reste");
+    }
+
+    /// L'envoi d'une position se fait hors du verrou : kynput peut nous livrer
+    /// le pointeur de l'ordinateur pendant ce temps (ici, depuis l'envoi
+    /// lui-même ; sous le verrou, ce test resterait bloqué, comme l'iPhone
+    /// le 27/11/2026).
+    #[test]
+    fn envoi_hors_du_verrou() {
+        let clock = Arc::new(ManualClock::new());
+        let layer = Arc::new(PointerLayer::with_host_size(clock, true, (100.0, 50.0)));
+        let weak = Arc::downgrade(&layer);
+        let sent = Arc::new(Mutex::new(0));
+        let s = sent.clone();
+        layer.attach((100.0, 50.0), move |x, y| {
+            *s.lock().unwrap() += 1;
+            if let Some(l) = weak.upgrade() {
+                l.remote_cursor_changed(RemoteCursor { visible: true, image: None, position: (i32::from(x), i32::from(y)) });
+            }
+        });
+        layer.move_by(5.0, 5.0);
+        layer.set_host_size((200.0, 100.0));
+        layer.resend_held();
+        assert_eq!(*sent.lock().unwrap(), 3);
     }
 
     #[test]

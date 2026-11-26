@@ -4178,6 +4178,13 @@ impl Worker {
         }
         if self.has_image.load(Ordering::Relaxed) {
             self.image_deadline = None;
+            // Une image est là : les relances sans image repartent de zéro. Trois
+            // de suite au plus, pas trois sur toute la session (une relance de
+            // temps en temps, Wi-Fi qui perd des paquets, finissait par l'arrêter).
+            if self.no_image > 0 {
+                info!("image revenue après {} relance(s) sans image", self.no_image);
+                self.no_image = 0;
+            }
         } else if let Some(deadline) = self.image_deadline {
             if now >= deadline {
                 self.image_deadline = None;
@@ -5801,6 +5808,17 @@ mod tests {
 
     fn device_screen(x: f64, primary: bool) -> crate::screens::DeviceScreen {
         crate::screens::DeviceScreen { x, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary, hdr: false, luminance: None }
+    }
+
+    /// Les relances sans image se comptent de suite, pas sur toute la session :
+    /// une image revenue les remet à zéro.
+    #[test]
+    fn une_image_remet_les_relances_sans_image_a_zero() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        w.no_image = 3;
+        w.has_image.store(true, Ordering::Relaxed);
+        assert!(w.watch_image(Instant::now()).is_none());
+        assert_eq!(w.no_image, 0);
     }
 
     /// Deux écrans côte à côte, « Cet écran » = `current`, Station à quatre écrans.
