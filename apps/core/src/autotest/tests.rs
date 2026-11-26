@@ -167,6 +167,17 @@ fn extraits_embarques() {
     let hevc = all.iter().find(|s| s.codec == Codec::Hevc && !s.yuv444).unwrap();
     assert_eq!(hevc.packets.len(), 20);
     assert_eq!(hevc.packets.iter().filter(|p| p.is_key).count(), 1);
+    // PyroWave : une image qui commence par son en-tête de séquence (bit
+    // `extended`, 3840 × 2160, chroma), pas par la fin du paquet de
+    // configuration `KNPW` (extraits illisibles de la 0.11.2).
+    for s in all.iter().filter(|s| s.codec == Codec::PyroWave) {
+        let p = &s.packets[0].data;
+        let w0 = u32::from_le_bytes(p[0..4].try_into().unwrap());
+        let w1 = u32::from_le_bytes(p[4..8].try_into().unwrap());
+        assert_eq!(w0 >> 31, 1, "en-tête de séquence PyroWave");
+        assert_eq!(((w0 & 0x3FFF) + 1, ((w0 >> 14) & 0x3FFF) + 1), (3840, 2160));
+        assert_eq!((w1 >> 26) & 1 == 1, s.yuv444);
+    }
     // Un appareil sans HEVC 4:4:4 ni PyroWave n'essaie pas ces extraits.
     let caps = Capabilities { hevc: true, ..Capabilities::default() };
     assert!(samples_for(caps).iter().all(|s| !s.yuv444 && s.codec != Codec::PyroWave && s.codec != Codec::Av1));

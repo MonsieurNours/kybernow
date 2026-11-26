@@ -337,6 +337,12 @@ Contract: [docs/hdr.en.md](../../docs/hdr.en.md); texts: [docs/link-ui.en.md](..
 
 **Bridges.** C (`apps/apple`): `kn_session_set_hdr`, `kn_session_screen_hdr_changed`, `kn_session_hdr_used`, `kn_hdr_state(info_json, settings_json, capabilities_json, screen_hdr)` (JSON `{shown, available, reason, kind}`), callback `on_hdr(userdata, const bool *, count)` (at the end of `KnPlatform`), `KnSecond::hdr`, `KN_NOTICE_HDR_REFUSED` (text in `error`); `settings.hdr`, `screen_hdr`, `screen_luminance`, `capabilities`, `screens.list[i].hdr` and `screens.list[i].luminance` in `kn_session_start`; `KnHdrLuminance`, `kn_hdr_luminance_default`, `kn_hdr_luminance_clamp`, and the values in `kn_session_screen_hdr_changed(s, screen, hdr, const KnHdrLuminance *)` (null: default); `screen.hdr` and `screen.luminance` in `kn_lend_borrow`. JNI: in the second stage (Android); the Android platform already gets the notice (`onNotice`, kind 8).
 
+## Auto profile and adaptive bitrate (`src/autotest.rs`, `src/profile.rs`, `src/console.rs`)
+
+Contract: [docs/profil-auto.en.md](../../docs/profil-auto.en.md); the full description is in the French README, same section. The test's decoding step passes the embedded samples (`autotest::samples_for(caps)`, `samples/*.kns`, made by `scripts/samples.sh`) to the app's decoder (`SampleDecoder`: frames per second, `None` if not decoded).
+
+PyroWave samples (`samples/pyrowave-*.kns`): one frame starting with PyroWave's sequence header. In 0.11.2, `scripts/samples-pack.py` read the `encode` tool's file from its start, where the `KNPW` configuration packet sits (16 bytes): the single stored packet began with the end of that packet, no decoder could read it (“incomplete frame”), and the Mac app crashed behind it (see [apps/macos/README.en.md](../macos/README.en.md#auto-profile-and-adaptive-bitrate)). The script now skips those 16 bytes; both samples were repaired as they were (the 16 extra bytes removed, the frame untouched); `extraits_embarques` checks the header (`extended` bit, 3840 × 2160, chroma).
+
 ## Target bitrate in the statistics (`src/adaptive.rs`, `src/session.rs`, `src/latency.rs`)
 
 Texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Statistics”; bitrate rules: [docs/debit-automatique.en.md](../../docs/debit-automatique.en.md).

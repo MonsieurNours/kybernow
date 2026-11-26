@@ -4,6 +4,11 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.11.3
+
+- **Auto profile: the Mac, iPhone, iPad and Apple TV apps no longer stop at “Decoding on this device”.** The app closed at that step, after the connection, latency and bitrate. The test now runs to the end.
+- **Auto profile: PyroWave measured.** The test's PyroWave samples were unreadable: no device could decode them, and the test never suggested PyroWave. They are rebuilt.
+
 ## 0.11.2
 
 - **Auto profile.** Next to Game, Desktop and Max, a fourth profile tests your network and your device: the connection, latency, the real bitrate to the computer and this device's decoding, step by step. It then suggests the format, resolution, refresh rate, sharp text, bitrate and transport, each with its reason; nothing changes before “Apply”. Run the test again whenever you like (“Run the test again”), and a banner tells you when you play on another network than the test's. Measuring the bitrate needs an up-to-date Station.
