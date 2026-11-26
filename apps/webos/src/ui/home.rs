@@ -37,6 +37,10 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     let gw = widgets::icon_chip_width(cv, label);
     let mut x = W - 96.0 - gw;
     widgets::icon_chip(cv, f, Target::AppSettings, x, 64.0, Icon::Gear, label);
+    // Sans compte : « Connecter un compte », à côté (docs/link-ui.md, « Accueil et compte KyberNow »).
+    if app.account_button_shown() {
+        x -= 16.0 + super::welcome::account_button(cv, f, x - 16.0, 64.0);
+    }
     x -= 36.0;
     let pads = pads_label(app.pads.len(), app.selected().is_some_and(|h| app.live.get(&h.id).is_some_and(|l| l.pads_unavailable)));
     let style = Text::new(Font::Regular, 22.0, FROST_2);
@@ -84,7 +88,9 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             };
             // Une erreur prend une ligne de plus, le bandeau de la mise à jour de la Station la sienne : le bloc
             // remonte d'autant.
-            let banner = app.home_banner(&h.id).is_some();
+            // Sans compte, après un appairage : le bandeau du compte, à la même place (la mise à jour d'abord).
+            let paired = app.home_banner(&h.id).is_none() && app.paired_banner(&h.id);
+            let banner = app.home_banner(&h.id).is_some() || paired;
             let y0 = if live.problem.is_some() { 202.0 } else { 240.0 } - if banner { super::offer::BANNER_H - 22.0 } else { 0.0 };
             if lit {
                 cv.circle(101.0, y0 - 6.0, 13.0, HALO.alpha(0.35));
@@ -161,12 +167,14 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             };
             cv.text_fit(chips_x + 4.0, by + 84.0 + 44.0, Text::new(Font::Regular, 22.0, FROST_3), phrase, W - chips_x - 200.0);
             // La mise à jour de la Station, sous la rangée (docs/link-ui.md, « Mise à jour des Stations »).
-            if banner {
+            if paired {
+                super::welcome::paired_banner(cv, f, by + 84.0 + 70.0);
+            } else if banner {
                 super::offer::banner(app, cv, f, &h.id, by + 84.0 + 70.0);
             }
         }
         // Sans ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », le texte,
-        // « Se connecter à un compte KyberNow » et son aide (le code) ; « ou sans compte » au-dessus de la rangée, où
+        // « Connecter un compte » et son aide (le code) ; « ou sans compte » au-dessus de la rangée, où
         // sont « Ajouter un ordinateur ou une console » et « Rejoindre avec un code ».
         None => {
             let y0 = 250.0;
@@ -184,7 +192,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                 36.0,
             );
             let by = y0 + 262.0;
-            let bw = widgets::primary(cv, f, Target::AccountSignIn, 96.0, by, tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"));
+            let bw = widgets::primary(cv, f, Target::AccountSignIn, 96.0, by, crate::welcome::connect_account());
             cv.paragraph(96.0 + bw + 36.0, by + 36.0, Text::new(Font::Regular, 22.0, FROST_3), crate::accounts::sign_in_help(), W - 96.0 - bw - 36.0 - 96.0, 30.0);
             // « ou sans compte » : au-dessus de la rangée, dont les seules cartes sont alors l'ajout et « Rejoindre ».
             if app.new_found().is_empty() && app.store.borrowed.is_empty() && super::consoles::card_count(app, FOUND_MAX) == (0, 0) {
@@ -300,7 +308,9 @@ pub fn row_offset(app: &App, focus: Target) -> f32 {
     let hosts = paired + app.store.borrowed.len() + consoles;
     let found = app.new_found().len().min(FOUND_MAX);
     let x_add = 96.0 + (hosts + found + found_consoles) as f32 * PITCH;
-    let end = x_add + ACTION_PITCH + 168.0;
+    let join_end = x_add + ACTION_PITCH + 168.0;
+    // Sans compte : la carte du compte, après « Rejoindre avec un code ».
+    let end = if app.account_card_shown() { join_end + 28.0 + super::welcome::CARD_W } else { join_end };
     let limit = W - 96.0;
     if end <= limit {
         return 0.0;
@@ -313,7 +323,8 @@ pub fn row_offset(app: &App, focus: Target) -> f32 {
         Target::Ps(crate::ps::PsTarget::Card(i)) => 96.0 + (paired + app.store.borrowed.len() + super::consoles::card_slot(app, i)) as f32 * PITCH + 300.0,
         Target::Ps(crate::ps::PsTarget::FoundCard(i)) => 96.0 + (hosts + found + i) as f32 * PITCH + 300.0,
         Target::AddCard => x_add + 168.0,
-        Target::JoinCard => end,
+        Target::JoinCard => join_end,
+        Target::WelcomeCardConnect | Target::WelcomeCardClose => end,
         _ => 96.0 + selected as f32 * PITCH + 300.0,
     };
     (right - limit).clamp(0.0, end - limit)
@@ -406,6 +417,10 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
     action_card(cv, f, Target::AddCard, Rect::new(x, y, 168.0, 168.0), Icon::Plus, tr("Ajouter un ordinateur ou une console", "Add a computer or a console"));
     // KyberNow Share : rejoindre le partage de quelqu'un, à côté de « Ajouter un ordinateur ».
     action_card(cv, f, Target::JoinCard, Rect::new(x + ACTION_PITCH, y, 168.0, 168.0), Icon::Share, tr("Rejoindre avec un code", "Join with a code"));
+    // Sans compte : la carte du compte, en dernier, avec la lueur de « Sur le réseau ».
+    if app.account_card_shown() {
+        super::welcome::account_card(app, cv, f, x + ACTION_PITCH + 168.0 + 28.0, y);
+    }
 }
 
 /// Une carte carrée, une action : son icône, et son libellé dessous sur deux lignes au plus.

@@ -17,6 +17,7 @@ mod preview;
 mod ps;
 mod station_offer;
 mod ui;
+mod welcome;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

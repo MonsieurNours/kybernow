@@ -38,7 +38,7 @@ fn spinner(cv: &mut Canvas, x: f32, cy: f32) {
 fn code(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let fl = &app.accounts.flow;
     widgets::label(cv, 96.0, 104.0, "KyberNow");
-    cv.text_fit(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), W - 190.0);
+    cv.text_fit(90.0, 196.0, Text::new(Font::Title, 64.0, FROST).tracking(-1.5), tr("Connecter un compte KyberNow", "Connect a KyberNow account"), W - 190.0);
     let url_label = fl.code.as_ref().map(|c| c.url_label.clone()).unwrap_or_else(|| format!("{}/tv", crate::model::relay_label(&fl.relay)));
     let steps = [tr("Scannez le QR code avec votre téléphone,", "Scan the QR code with your phone,").to_string(), open_step(&url_label), tr("puis touchez « Connecter ».", "then tap “Connect”.").to_string()];
     let mut y = 272.0;
@@ -47,7 +47,9 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.text_fit(140.0, y, Text::new(Font::Regular, 28.0, FROST_2), s, 1060.0);
         y += 50.0;
     }
-    y += 30.0;
+    // Pas de navigateur sur le téléviseur : « Créer un compte », c'est cette ligne (docs/link-ui.md).
+    cv.text_fit(140.0, y + 2.0, Text::new(Font::Regular, 24.0, FROST_3), crate::welcome::no_account_yet(), 1060.0);
+    y += 36.0;
     let code_style = Text::new(Font::MonoMedium, 120.0, FROST).tracking(8.0);
     if fl.denied || fl.message.is_some() {
         let m = if fl.denied { tr("Connexion refusée sur le téléphone.", "Sign-in declined on the phone.").to_string() } else { fl.message.clone().unwrap_or_default() };

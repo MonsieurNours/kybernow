@@ -236,6 +236,8 @@ pub fn run(args: &[String]) {
         }
     }
     app.go(Screen::Home);
+    // L'accueil au premier lancement, et une fois après la mise à jour qui l'apporte, sans compte (crate::welcome).
+    let _ = app.welcome_at_launch();
     // Un lien `kybernow://` dans les paramètres de lancement : il s'ouvre sur l'accueil.
     if let Some(l) = link::from_args(args).as_deref().and_then(link::parse) {
         log::info!("liens : lien reçu au lancement");
@@ -284,6 +286,8 @@ pub fn run(args: &[String]) {
             || app.screen == Screen::Join
             // Comptes KyberNow : l'attente du code (« Le code change dans {n} min. »).
             || app.screen == Screen::Account
+            // L'accueil : l'attente du code de l'écran 2.
+            || app.welcome_code_shown()
             // Profil Auto : la roue du test, et le bandeau de la session qui s'efface.
             || (app.screen == Screen::AutoTest && app.auto.as_ref().is_some_and(|a| a.phase == crate::autotest::AutoPhase::Running))
             || app.auto_banner_visible()
@@ -346,6 +350,10 @@ pub fn run(args: &[String]) {
         let (acts, changed) = offers.tick(&mut app, &tx);
         actions.extend(acts);
         dirty |= changed;
+        // Le bandeau après un appairage, à l'écran : compté comme vu (crate::welcome).
+        if app.paired_banner_seen() {
+            actions.push(Action::Save);
+        }
         for a in actions {
             match a {
                 Action::Ps(a) => {
@@ -870,6 +878,8 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             }
             let name = host.name.clone();
             let id = app.store.put(host);
+            // Sans compte : le bandeau « Retrouvez-le aussi hors de chez vous… », une fois (crate::welcome).
+            app.after_pairing(&id);
             app.store.selected = Some(id);
             app.store.save();
             app.toast(format!("{name} {}", tr("est ajouté", "added")));

@@ -30,6 +30,25 @@ pub fn force_english(en: bool) {
     FORCED.with(|f| f.set(Some(en)));
 }
 
+/// La langue, pour les règles communes reprises telles quelles du cœur (`apps/core/src/welcome.rs`, voir
+/// `crate::welcome`) : l'interface se compile sans le cœur. Le téléviseur n'ouvre pas `sign_up_url` (pas de navigateur) :
+/// seuls les essais du cœur s'en servent.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lang {
+    Fr,
+    En,
+}
+
+impl Lang {
+    pub fn code(self) -> &'static str {
+        match self {
+            Lang::Fr => "fr",
+            Lang::En => "en",
+        }
+    }
+}
+
 /// Le texte dans la langue de l'app.
 pub fn tr(fr: &'static str, en: &'static str) -> &'static str {
     if english() { en } else { fr }

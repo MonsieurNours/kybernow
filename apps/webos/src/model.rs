@@ -594,6 +594,9 @@ pub struct Store {
     /// vérification demandée. Gardé sur ce téléviseur seulement.
     pub station_offers: std::collections::HashMap<String, StationMemory>,
     pub app: AppSettings,
+    /// Accueil et compte KyberNow (docs/link-ui.md) : l'accueil vu, la carte du compte fermée, les bandeaux montrés
+    /// (`welcome::WelcomeState` du cœur, même JSON).
+    pub welcome: crate::welcome::WelcomeState,
     #[serde(skip)]
     path: Option<PathBuf>,
 }
