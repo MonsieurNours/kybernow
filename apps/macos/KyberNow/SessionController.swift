@@ -366,6 +366,14 @@ final class SessionController: NSObject, ObservableObject {
     /// Écran affiché en ce moment.
     @Published private(set) var shownDisplay: UInt32?
 
+    // MARK: Caméra de l'appareil (docs/webcam.md)
+
+    /// L'ordinateur propose la caméra (entrée « Caméra » de la barre et du menu).
+    @Published private(set) var cameraOffered = false
+    @Published private(set) var cameraState: CameraState = .off
+    /// Les caméras de ce Mac, relues à chaque ouverture du menu.
+    @Published private(set) var cameras: [CameraChoice] = []
+
     // MARK: HDR (docs/hdr.md)
 
     /// Les écrans de la session en HDR, au dernier démarrage de l'image
@@ -1552,6 +1560,16 @@ final class SessionController: NSObject, ObservableObject {
         let engine = SessionEngine(view: streamView)
         engine.onPhase = { [weak self] in self?.phaseChanged($0) }
         engine.onNotice = { [weak self] in self?.notice($0) }
+        engine.onCameraOffer = { [weak self] offered in
+            guard let self else { return }
+            cameraOffered = offered
+            if offered {
+                cameras = CameraCapture.cameras()
+                if host.cameraOffered != true { commit { $0.cameraOffered = true } }
+            }
+        }
+        engine.onCameraState = { [weak self] in self?.cameraState = $0 }
+        engine.onCameraNotice = { [weak self] text in self?.showHint(.notice(text), after: 0, for: 4) }
         engine.onDisplays = { [weak self] in self?.screens = $0 }
         engine.onShownDisplay = { [weak self] in self?.shownDisplay = $0.id }
         engine.onMode = { [weak self] mode, virtualDisplay in
@@ -2129,6 +2147,44 @@ final class SessionController: NSObject, ObservableObject {
     func toggleStatsPanel() {
         withAnimation(Theme.easeOut) { statsPanel.toggle() }
         if !statsPanel { statsCloseRect = .zero }
+    }
+
+    /// La caméra choisie dans la liste, gardée pour ce Mac (pas par ordinateur).
+    static var cameraChoice: String? {
+        get { UserDefaults.standard.string(forKey: "kybernow.camera") }
+        set { UserDefaults.standard.set(newValue, forKey: "kybernow.camera") }
+    }
+
+    /// ⌃⌥⌘C, la puce, le menu : allume ou éteint la caméra.
+    func toggleCamera() {
+        guard let engine, cameraOffered else { return }
+        if cameraState == .off {
+            cameras = CameraCapture.cameras()
+            let id = Self.cameraChoice.flatMap { id in cameras.contains { $0.id == id } ? id : nil }
+            engine.cameraOn(id: id, resolution1080: host.settings.camera1080)
+        } else {
+            engine.cameraOff()
+        }
+    }
+
+    /// Une caméra de la liste : gardée, et prise tout de suite si la caméra est allumée.
+    func pickCamera(_ id: String) {
+        Self.cameraChoice = id
+        guard let engine, cameraState != .off else { return }
+        engine.cameraOn(id: id, resolution1080: host.settings.camera1080)
+    }
+
+    /// La caméra choisie (pour la coche du menu).
+    var currentCamera: String? {
+        engine?.cameraID ?? Self.cameraChoice ?? CameraCapture.defaultCamera()
+    }
+
+    /// La ligne « Caméra » des statistiques (nil : éteinte).
+    var cameraStatsLine: String? { engine?.cameraStatsLine }
+
+    /// « Définition de la caméra » changée dans les réglages en session.
+    func cameraResolutionChanged(_ on1080: Bool) {
+        engine?.cameraSetResolution(on1080)
     }
 
     /// ⌃⌥⌘M : mode jeu si la souris est en mode bureau, et inversement.

@@ -24,13 +24,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "KyberNow Link reads the QR code shown in KyberNow Admin."
+            "value": "KyberNow Link reads the QR code shown in KyberNow Admin, and sends your camera to your computer when you turn it on in a session."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "KyberNow Link lit le QR code affiché dans KyberNow Admin."
+            "value": "KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session."
           }
         }
       }

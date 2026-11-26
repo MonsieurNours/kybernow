@@ -84,7 +84,12 @@ Another `START` (other camera, other resolution) restarts the tool (kycontroller
 
 ## The apps
 
-Coming: capture and hardware encoding in each app.
+| App | Capture and encoding | Interface | State |
+|---|---|---|---|
+| Mac, iPhone and iPad, Apple TV | `apps/macos/KyberKit/CameraCapture.swift`, shared by the three: AVFoundation (Mac: built-in, USB, iPhone through Continuity Camera; iPhone, iPad: front and back, upright picture through `RotationCoordinator`; Apple TV: Continuity Camera only), 720p or 1080p preset, 30 frames per second, not mirrored; hardware H.264 through `VTCompressionSession` (real time, Main profile, no B-frames, a keyframe every 2 s and on demand, the core's bitrate read every second, capped at 1.5 times over a second), AVCC to Annex B with SPS and PPS before every keyframe. Interruption (background): `kn_camera_pause`, keyframe on return. `SessionEngine`: `cameraOn`, `cameraOff`, `cameraSetResolution`, `onCameraOffer`, `onCameraState`, `onCameraNotice`. Bridge: `apps/apple/src/camera.rs` (`kn_camera_*`), `KnPlatform::sends_camera` and `on_camera_offer`. | Mac: bar chip and menu, ⌃⌥⌘C, capsule, statistics, setting. iPhone, iPad: bar button and menu, capsule, statistics tile, setting. Apple TV: menu tile and tvOS's picker (`continuityDevicePicker`), statistics line, capsule. Setting kept per computer (`camera1080`), offer remembered (`cameraOffered`) so that the setting only shows for computers that offer it. | written, types checked (KyberKit for macOS, iOS and tvOS, the three apps); not built in Xcode, not tried |
+| Android | coming in this series | | |
+| Windows | coming | | |
+| Linux | coming | | |
 
 ## Tests to do
 

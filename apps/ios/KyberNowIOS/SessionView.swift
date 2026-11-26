@@ -119,6 +119,22 @@ struct SessionView: View {
     @ViewBuilder
     private func chrome(size: CGSize) -> some View {
         ZStack {
+            // Le voyant de la caméra (docs/link-ui.md) : barre fermée, tant
+            // qu'elle part, une petite capsule en haut à gauche.
+            if streaming, !session.barOpen, session.cameraState == .sending {
+                VStack {
+                    HStack {
+                        Text(CameraText.indicator)
+                            .font(Theme.sans(11, .semibold)).foregroundStyle(Theme.dangerText)
+                            .padding(.horizontal, 8).frame(height: 20)
+                            .background(Color.black.opacity(0.55), in: Capsule())
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .padding(.top, 8).padding(.leading, 12)
+                .allowsHitTesting(false)
+            }
             // Pupitre : l'image est sur l'écran externe, l'appareil est le pavé.
             if session.external {
                 ConsoleSurface(deviceIsPad: DeviceDisplay.isPad)
@@ -616,6 +632,8 @@ struct SessionBar: View {
                     // « HDR », cochable, près du profil : seulement sur un écran HDR, jamais pour un invité.
                     if session.hdrState.shown { hdrToggle }
                     item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
+                    // La caméra de l'appareil (docs/link-ui.md) : seulement si l'ordinateur la propose.
+                    if session.cameraOffered { cameraMenu }
                     // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
                     if keyboardAndMouse { touchAndMouse }
                     screenAndOffer
@@ -686,6 +704,29 @@ struct SessionBar: View {
     private var guestRole: some View {
         item(ShareText.icon(session.shareRole), ShareText.role(session.shareRole))
             .accessibilityElement(children: .combine)
+    }
+
+    /// « Caméra » : l'allumer ou l'éteindre, puis les caméras de l'appareil,
+    /// celle choisie cochée ; estompée éteinte, rouge avec un point quand elle part.
+    private var cameraMenu: some View {
+        Menu {
+            Button(session.cameraState == .off ? CameraText.turnOn : CameraText.turnOff) { session.toggleCamera() }
+            Section {
+                ForEach(session.cameras) { cam in
+                    Button { session.pickCamera(cam.id) } label: {
+                        if cam.id == session.currentCamera { Label(cam.name, systemImage: "checkmark") } else { Text(cam.name) }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                if session.cameraState == .sending { Circle().fill(Theme.danger).frame(width: 6, height: 6) }
+                BarItemLabel(icon: session.cameraState == .off ? "video-camera-slash" : "video-camera",
+                             text: session.cameraState == .starting ? CameraText.starting : CameraText.camera)
+            }
+            .opacity(session.cameraState == .off ? 0.55 : 1)
+        }
+        .accessibilityLabel(Text(session.cameraState == .off ? CameraText.turnOn : CameraText.turnOff))
     }
 
     /// « Qualité de l'image » d'un invité : la qualité reçue (« 1080p · 60 Hz »)

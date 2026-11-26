@@ -63,6 +63,14 @@ final class SessionController: ObservableObject {
     @Published private(set) var startedAt = Date()
     /// Capsule d'information en haut de l'image (mode changé, image relancée…).
     @Published private(set) var notice: String?
+
+    // MARK: Caméra de l'appareil (docs/webcam.md)
+
+    /// L'ordinateur propose la caméra (bouton « Caméra » de la barre).
+    @Published private(set) var cameraOffered = false
+    @Published private(set) var cameraState: CameraState = .off
+    /// Les caméras de cet appareil (avant, arrière), relues à l'ouverture du menu.
+    @Published private(set) var cameras: [CameraChoice] = []
     /// Son icône, quand elle en a une (« Manettes indisponibles… » : la manette).
     @Published private(set) var noticeIcon: String?
     /// La capsule se choisit : elle ouvre le panneau du partage (la demande d'un invité, « Léa demande à rejoindre. »).
@@ -472,6 +480,36 @@ final class SessionController: ObservableObject {
 
     /// « HDR » de la barre : gardé pour l'ordinateur (pas le profil), puis le
     /// cœur relance l'image (étape « Premières images »).
+    /// La caméra choisie dans la liste, gardée pour cet appareil (pas par ordinateur).
+    static var cameraChoice: String? {
+        get { UserDefaults.standard.string(forKey: "kybernow.camera") }
+        set { UserDefaults.standard.set(newValue, forKey: "kybernow.camera") }
+    }
+
+    /// Le bouton « Caméra » : allume ou éteint la caméra.
+    func toggleCamera() {
+        guard let engine, cameraOffered else { return }
+        if cameraState == .off {
+            cameras = CameraCapture.cameras()
+            let id = Self.cameraChoice.flatMap { id in cameras.contains { $0.id == id } ? id : nil }
+            engine.cameraOn(id: id, resolution1080: host.settings.camera1080)
+        } else {
+            engine.cameraOff()
+        }
+    }
+
+    /// « Caméra avant » / « Caméra arrière » : gardée, prise tout de suite si elle est allumée.
+    func pickCamera(_ id: String) {
+        Self.cameraChoice = id
+        guard let engine, cameraState != .off else { return }
+        engine.cameraOn(id: id, resolution1080: host.settings.camera1080)
+    }
+
+    var currentCamera: String? { engine?.cameraID ?? Self.cameraChoice ?? CameraCapture.defaultCamera() }
+
+    /// La ligne « Caméra » des statistiques (nil : éteinte).
+    var cameraStatsLine: String? { engine?.cameraStatsLine }
+
     func setHDR(_ on: Bool) {
         guard !isGuest, hdrState.available, on != host.settings.hdr else { return }
         host.settings.hdr = on
@@ -579,6 +617,19 @@ final class SessionController: ObservableObject {
         let engine = SessionEngine(view: streamView)
         engine.onPhase = { [weak self] in self?.phaseChanged($0) }
         engine.onNotice = { [weak self] in self?.notice($0) }
+        engine.onCameraOffer = { [weak self] offered in
+            guard let self else { return }
+            cameraOffered = offered
+            if offered {
+                cameras = CameraCapture.cameras()
+                if host.cameraOffered != true, !isBorrower, !isGuest {
+                    host.cameraOffered = true
+                    store.update(host)
+                }
+            }
+        }
+        engine.onCameraState = { [weak self] in self?.cameraState = $0 }
+        engine.onCameraNotice = { [weak self] text in self?.show(notice: text, for: 4) }
         engine.onDisplays = { [weak self] in self?.screens = $0 }
         engine.onShownDisplay = { [weak self] in self?.shownDisplay = $0.id }
         engine.onMode = { [weak self] mode, virtualDisplay in

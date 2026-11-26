@@ -84,7 +84,12 @@ Un `START` de plus (autre caméra, autre définition) relance l'outil (kycontrol
 
 ## Les apps
 
-À venir : capture et encodage matériel dans chaque app.
+| App | Capture et encodage | Interface | État |
+|---|---|---|---|
+| Mac, iPhone et iPad, Apple TV | `apps/macos/KyberKit/CameraCapture.swift`, commun aux trois : AVFoundation (Mac : caméra intégrée, USB, iPhone par la Caméra de continuité ; iPhone, iPad : avant et arrière, image droite par `RotationCoordinator` ; Apple TV : Caméra de continuité seulement), préréglage 720p ou 1080p, 30 images par seconde, pas en miroir ; H.264 matériel par `VTCompressionSession` (temps réel, profil Main, sans images B, une image clé toutes les 2 s et sur demande, débit du cœur relu chaque seconde, plafond à 1,5 fois sur une seconde), AVCC vers Annex B avec SPS et PPS devant chaque image clé. Interruption (arrière-plan) : `kn_camera_pause`, image clé au retour. `SessionEngine` : `cameraOn`, `cameraOff`, `cameraSetResolution`, `onCameraOffer`, `onCameraState`, `onCameraNotice`. Pont : `apps/apple/src/camera.rs` (`kn_camera_*`), `KnPlatform::sends_camera` et `on_camera_offer`. | Mac : puce et menu de la barre, ⌃⌥⌘C, capsule, statistiques, réglage. iPhone, iPad : bouton et menu de la barre, capsule, tuile des statistiques, réglage. Apple TV : tuile du menu et choix de tvOS (`continuityDevicePicker`), ligne des statistiques, capsule. Réglage gardé par ordinateur (`camera1080`), offre retenue (`cameraOffered`) pour n'afficher le réglage qu'aux ordinateurs qui la proposent. | écrit, types vérifiés (KyberKit pour macOS, iOS et tvOS, les trois apps) ; pas compilé dans Xcode, pas essayé |
+| Android | à venir dans cette série | | |
+| Windows | à venir | | |
+| Linux | à venir | | |
 
 ## Essais à faire
 

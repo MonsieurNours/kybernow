@@ -111,7 +111,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.games
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Les Lignes Claires · AGPL-3.0"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "KyberNow Link se connecte à vos ordinateurs sur le réseau local."
-        INFOPLIST_KEY_NSCameraUsageDescription: "KyberNow Link lit le QR code affiché dans KyberNow Admin."
+        INFOPLIST_KEY_NSCameraUsageDescription: "KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/Frameworks

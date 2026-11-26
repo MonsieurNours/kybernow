@@ -54,7 +54,7 @@
 		<string>_kybernow._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>KyberNow Link lit le QR code affiché dans KyberNow Admin.</string>
+	<string>KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.</string>
 	<key>UIApplicationSceneManifest</key>

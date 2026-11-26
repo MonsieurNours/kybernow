@@ -35,6 +35,19 @@ struct SessionView: View {
             SessionStage(view: session.streamView, gameOnly: streaming && !session.menuOpen && session.phase != .ending,
                          scale: revealed ? (session.menuOpen ? 0.94 : 1) : 1.06, corner: session.menuOpen ? 28 : 0)
                 .frame(width: 1920, height: 1080)
+                .overlay(alignment: .topLeading) {
+                    // Le voyant de la caméra (docs/link-ui.md), menu fermé : une capsule
+                    // seulement tant qu'elle part (une couche de plus sur l'image, le temps
+                    // d'un appel).
+                    if streaming, !session.menuOpen, session.cameraState == .sending {
+                        Text(CameraText.indicator)
+                            .font(Theme.sans(20, .semibold)).foregroundStyle(Theme.dangerText)
+                            .padding(.horizontal, 14).frame(height: 36)
+                            .background(Color.black.opacity(0.55), in: Capsule())
+                            .padding(.top, 40).padding(.leading, 60)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .overlay {
                     if !revealed || session.menuOpen {
                         ZStack {

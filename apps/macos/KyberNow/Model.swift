@@ -245,6 +245,9 @@ struct ConnectionSettings: Codable, Hashable {
     var mouse: MouseChoice = .auto
     /// Presse-papiers partagé avec l'ordinateur (texte).
     var clipboard = true
+    /// « Définition de la caméra » (docs/webcam.md) : 1080p, sinon 720p.
+    /// Hors profil (comme le HDR) : la changer ne fait pas « Personnalisé ».
+    var camera1080 = false
     /// Garder la dernière image de la session sur ce Mac (fond de l'accueil).
     var keepLastImage = true
     /// Manette vue par l'ordinateur : Xbox 360 (compatible) ou fidèle.
@@ -429,7 +432,7 @@ extension ConnectionSettings {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
-        case adaptive, autoResult, encoderMax, pyrowaveRateFollows
+        case adaptive, autoResult, encoderMax, pyrowaveRateFollows, camera1080
     }
 
     init(from decoder: Decoder) throws {
@@ -465,6 +468,7 @@ extension ConnectionSettings {
         autoResult = try? c.decodeIfPresent(String.self, forKey: .autoResult)
         encoderMax = (try? c.decodeIfPresent(Int.self, forKey: .encoderMax)).flatMap { $0 > 0 ? $0 : nil }
         pyrowaveRateFollows = (try? c.decodeIfPresent(Bool.self, forKey: .pyrowaveRateFollows)) ?? pyrowaveRateFollows
+        camera1080 = (try? c.decodeIfPresent(Bool.self, forKey: .camera1080)) ?? camera1080
         // Auto sans test lisible (résultat perdu) : Personnalisé, réglages gardés.
         if profile == .auto, auto == nil { profile = nil }
     }
@@ -498,6 +502,9 @@ struct Host: Codable, Identifiable, Hashable {
     var lastScreens: Int?
     /// Un écran au moins de la dernière session était en HDR (absent : non).
     var lastHDR: Bool?
+    /// L'ordinateur a proposé la caméra à la dernière session (docs/webcam.md) :
+    /// « Définition de la caméra » apparaît dans ses réglages.
+    var cameraOffered: Bool?
     /// Par où elle est passée : sur le réseau ou par le relais (ligne « Chemin » de
     /// la « Dernière session » ; absent : une session d'avant le relais).
     var lastRoute: RouteInfo.Transport?
@@ -575,7 +582,7 @@ struct Host: Codable, Identifiable, Hashable {
     // précédentes n'avaient qu'un profil, ni le détail de la dernière session.
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
-        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, lastHDR, pairedByCode, wake, relay
+        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, lastRoute, lastHDR, pairedByCode, wake, relay, cameraOffered
         case os, gamepadsUnavailable, account
     }
 
@@ -600,6 +607,7 @@ struct Host: Codable, Identifiable, Hashable {
         lastScreens = try? c.decodeIfPresent(Int.self, forKey: .lastScreens)
         lastRoute = try? c.decodeIfPresent(RouteInfo.Transport.self, forKey: .lastRoute)
         lastHDR = try? c.decodeIfPresent(Bool.self, forKey: .lastHDR)
+        cameraOffered = try? c.decodeIfPresent(Bool.self, forKey: .cameraOffered)
         pairedByCode = try? c.decodeIfPresent(Bool.self, forKey: .pairedByCode)
         wake = try? c.decodeIfPresent([WakeTarget].self, forKey: .wake)
         relay = try? c.decodeIfPresent(RelayInfo.self, forKey: .relay)
@@ -635,6 +643,7 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(lastScreens, forKey: .lastScreens)
         try c.encodeIfPresent(lastRoute, forKey: .lastRoute)
         try c.encodeIfPresent(lastHDR, forKey: .lastHDR)
+        try c.encodeIfPresent(cameraOffered, forKey: .cameraOffered)
         try c.encodeIfPresent(pairedByCode, forKey: .pairedByCode)
         try c.encodeIfPresent(wake, forKey: .wake)
         try c.encodeIfPresent(relay, forKey: .relay)
