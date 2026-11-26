@@ -49,7 +49,7 @@ use crate::console::{
 use crate::i18n::{self, Lang};
 use crate::adaptive::{AdaptiveBitrate, Load, TargetBitrate, TargetInputs};
 use crate::latency::{LatencyTracker, Second};
-use crate::media::{Packet, PacketHandler, packet_sink};
+use crate::media::{Packet, PacketHandler, StreamLoss, packet_sink, packet_sink_tracked};
 use crate::profile::{Capabilities, Codec, HdrLuminance, SettingsJson, StreamSettings};
 use crate::screens::{self, PlannedScreen, Screens};
 use crate::share::{self, Found, ShareBeat, ShareDisplay, ShareEnd, ShareError, ShareImage, ShareJoined, ShareQuality, ShareRole, ShareState};
@@ -1756,6 +1756,9 @@ struct Worker {
     /// Écrans du flux en cours (principal en premier) et leurs premières données.
     streams: Vec<StreamScreen>,
     first_data: Vec<Arc<AtomicBool>>,
+    /// Pertes de l'image d'une session à un écran (docs/reprise-apres-perte.md) :
+    /// la reprise sans image clé part de la dernière image reçue avant elles.
+    stream_loss: Option<Arc<StreamLoss>>,
     keyframe_held_logged: bool,
     /// Écrans de l'appareil arrivés pendant une adaptation.
     pending_screens: Option<Screens>,
@@ -1992,6 +1995,7 @@ impl Worker {
             targets: Vec::new(),
             streams: Vec::new(),
             first_data: Vec::new(),
+            stream_loss: None,
             keyframe_held_logged: false,
             pending_screens: None,
             single_mode,
@@ -3838,12 +3842,16 @@ impl Worker {
                     if self.keyframe.is_none() && self.streaming.is_some() {
                         let now = Instant::now();
                         self.keyframe = Some((now, now));
-                        self.request_keyframe();
+                        // D'abord une reprise sans image clé ; la veille
+                        // redemande ensuite une image clé (`watch_image`).
+                        if !self.repair() {
+                            self.request_keyframe();
+                        }
                     }
                 }
                 Ok(Msg::KeyframeRecovered) => {
                     if let Some((asked, _)) = self.keyframe.take() {
-                        info!("image clé reçue en {} ms", asked.elapsed().as_millis());
+                        info!("image reprise en {} ms", asked.elapsed().as_millis());
                     }
                 }
                 Ok(Msg::Settings(_)) if !self.host_only(HostOnly::Settings) => {}
@@ -4030,6 +4038,21 @@ impl Worker {
                 self.platform.on_second(&second);
             }
         }
+    }
+
+    /// Perte d'image venue du réseau : l'ordinateur répare à partir de la
+    /// dernière image reçue avant elle, sans image clé s'il le peut
+    /// (docs/reprise-apres-perte.md) ; l'image qui répare porte une marque
+    /// sur laquelle le décodeur reprend. Faux quand seule une image clé
+    /// répare : plusieurs écrans, rien reçu avant la perte, perte qui ne vient
+    /// pas du réseau (décodeur en erreur, image écartée par l'app).
+    fn repair(&mut self) -> bool {
+        let Some(Some(last)) = self.stream_loss.as_ref().and_then(|l| l.loss_point()) else {
+            return false;
+        };
+        let Some(c) = &self.client else { return false };
+        info!("image perdue après le pts {last} : reprise demandée");
+        c.recover(last).is_ok()
     }
 
     fn request_keyframe(&mut self) {
@@ -4886,6 +4909,7 @@ impl Worker {
         self.stream_mode.height = self.host_size.1;
         self.streams = screens;
         self.first_data = self.streams.iter().map(|_| Arc::new(AtomicBool::new(false))).collect();
+        self.stream_loss = (self.streams.len() == 1).then(|| Arc::new(StreamLoss::default()));
         self.keyframe_held_logged = false;
         self.mute_check_at = (self.streams.len() > 1).then(|| Instant::now() + MUTED_AFTER);
         let bitrate = self.effective_bitrate();
@@ -4960,6 +4984,7 @@ impl Worker {
         };
         self.stream_input = wants_input;
         let window_handle = self.platform.window_handle();
+        let stream_loss = if multi { None } else { self.stream_loss.clone() };
         let video: Vec<VideoSessionConfig> = self
             .streams
             .iter()
@@ -4987,7 +5012,10 @@ impl Worker {
                         window_handle,
                         software_decode: false,
                         video_buffer: 0,
-                        packet_sink: Some(packet_sink(handler)),
+                        packet_sink: Some(match &stream_loss {
+                            Some(loss) => packet_sink_tracked(handler, loss.clone()),
+                            None => packet_sink(handler),
+                        }),
                     },
                 }
             })
@@ -5033,6 +5061,7 @@ impl Worker {
         }
         self.streams.clear();
         self.first_data.clear();
+        self.stream_loss = None;
         self.mute_check_at = None;
         self.keyframe = None;
         self.image_deadline = None;
@@ -5530,7 +5559,7 @@ mod tests {
         let sink = ScreenSink { inner: inner.clone(), first_data: flag.clone() };
         sink.packet_from(4, Packet::Codec { codec: crate::media::FOURCC_HEVC });
         assert!(!flag.load(Ordering::SeqCst), "le format n'est pas une donnée");
-        sink.packet_from(4, Packet::Media { is_config: true, is_key: false, pts: 0, data: &[0, 0, 1] });
+        sink.packet_from(4, Packet::Media { is_config: true, is_key: false, pts: 0, data: &[0, 0, 1], resume: None });
         assert!(flag.load(Ordering::SeqCst));
         assert_eq!(inner.0.load(Ordering::SeqCst), 2, "tout passe à la plateforme");
     }

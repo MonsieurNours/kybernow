@@ -558,7 +558,7 @@ fn run(
                 if let Some(a) = audio {
                     a.packet(Packet::Codec { codec: FOURCC_OPUS });
                     let head = opus_head(header.channels, header.rate);
-                    a.packet(Packet::Media { is_config: true, is_key: false, pts: 0, data: &head });
+                    a.packet(Packet::Media { is_config: true, is_key: false, pts: 0, data: &head, resume: None });
                     audio_configured = true;
                 }
             }
@@ -574,7 +574,7 @@ fn run(
                 if frame.recovered {
                     counters.recovered.fetch_add(1, Ordering::Relaxed);
                 }
-                video.packet(Packet::Media { is_config: false, is_key, pts, data: &frame.data });
+                video.packet(Packet::Media { is_config: false, is_key, pts, data: &frame.data, resume: None });
             }
             StreamEvent::Audio(p) if !p.is_haptics => {
                 let Some(a) = audio.filter(|_| audio_configured) else { continue };
@@ -582,7 +582,7 @@ fn run(
                     match out {
                         AudioOut::Frame(data) => {
                             let pts = clock.elapsed().as_micros() as u64;
-                            a.packet(Packet::Media { is_config: false, is_key: true, pts, data: &data });
+                            a.packet(Packet::Media { is_config: false, is_key: true, pts, data: &data, resume: None });
                         }
                         AudioOut::Hole => a.packet(Packet::Hole { missing_samples: FRAME_SAMPLES }),
                     }

@@ -1,0 +1,123 @@
+diff --git a/kyclient/src/enums.rs b/kyclient/src/enums.rs
+--- a/kyclient/src/enums.rs
++++ b/kyclient/src/enums.rs
+@@ -123,6 +123,11 @@ pub(crate) enum Message {
+ 
+     /// KyberNow: ask the host for a keyframe (decoder lost a reference).
+     RequestKeyframe,
++    /// KyberNow (0060): the decoder resumes after `last_pts`, without a
++    /// keyframe when the host can (`POST /recover`, else `/force_idr`).
++    Recover {
++        last_pts: u64,
++    },
+     SetBitrate {
+         bitrate: u32,
+     },
+diff --git a/kyclient/src/host_service.rs b/kyclient/src/host_service.rs
+--- a/kyclient/src/host_service.rs
++++ b/kyclient/src/host_service.rs
+@@ -249,6 +249,25 @@ pub(crate) async fn force_idr(http_client: &HttpClient) -> Result<()> {
+     Ok(())
+ }
+ 
++/// KyberNow (0060): `POST /recover` (kycontroller patched by KyberNow): the
++/// application decoded up to `last_pts` and lost what followed. `false`:
++/// a host without it (404), which only takes `/force_idr`.
++pub(crate) async fn recover(http_client: &HttpClient, last_pts: u64) -> Result<bool> {
++    let url = format!("{base_url}/recover", base_url = http_client.base_url());
++
++    let response = http_client
++        .post(&url)
++        .json(&serde_json::json!({ "last_pts": last_pts }))
++        .send()
++        .await?;
++    if response.status() == StatusCode::NOT_FOUND {
++        return Ok(false);
++    }
++    response.error_for_status()?;
++
++    Ok(true)
++}
++
+ pub(crate) async fn set_bitrate(http_client: &HttpClient, bitrate: u32) -> Result<()> {
+     let url = format!("{base_url}/set_bitrate", base_url = http_client.base_url());
+ 
+diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
+--- a/kyclient/src/lib.rs
++++ b/kyclient/src/lib.rs
+@@ -204,6 +204,8 @@ struct Handler {
+     metrics: Option<MetricsProducer>,
+     /// KyberNow: a keyframe request is being sent (see `Message::RequestKeyframe`).
+     keyframe_in_flight: Arc<std::sync::atomic::AtomicBool>,
++    /// KyberNow (0060): the host has no `/recover` (an older Station).
++    recover_unsupported: Arc<std::sync::atomic::AtomicBool>,
+ 
+     state: Arc<Mutex<State>>,
+     reconnection_state: ReconnectionState,
+@@ -252,6 +254,7 @@ impl Handler {
+             message_sender,
+             metrics,
+             keyframe_in_flight: Arc::new(std::sync::atomic::AtomicBool::new(false)),
++            recover_unsupported: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+             state,
+             reconnection_state: ReconnectionState::new(auto_reconnection),
+ 
+@@ -703,6 +706,41 @@ impl Handler {
+                     });
+                 }
+             }
++            Message::Recover { last_pts } => {
++                // KyberNow (0060): as RequestKeyframe (off the main loop,
++                // bounded, one request at a time with keyframes); a host
++                // without /recover gets /force_idr, now and from then on.
++                use std::sync::atomic::Ordering::SeqCst;
++                if !self.keyframe_in_flight.swap(true, SeqCst) {
++                    let http_client = self.http_client.clone();
++                    let in_flight = self.keyframe_in_flight.clone();
++                    let unsupported = self.recover_unsupported.clone();
++                    runtime::spawn(async move {
++                        let request = async {
++                            if !unsupported.load(SeqCst) {
++                                if host_service::recover(&http_client, last_pts).await? {
++                                    return Ok(());
++                                }
++                                info!("Host without /recover: keyframes instead");
++                                unsupported.store(true, SeqCst);
++                            }
++                            host_service::force_idr(&http_client).await
++                        };
++                        let deadline = runtime::sleep(Duration::from_secs(1));
++                        futures::pin_mut!(request, deadline);
++                        match futures::future::select(request, deadline).await {
++                            futures::future::Either::Left((Ok(()), _)) => {}
++                            futures::future::Either::Left((Err(err), _)) => {
++                                warn!("Repair request failed: {err:?}");
++                            }
++                            futures::future::Either::Right(_) => {
++                                warn!("Repair request not answered within 1 s");
++                            }
++                        }
++                        in_flight.store(false, SeqCst);
++                    });
++                }
++            }
+             Message::BitrateChanged { bitrate } => self.bitrate_changed(bitrate)?,
+             Message::PlayerStarted => {
+                 info!("Player started");
+@@ -1211,6 +1249,16 @@ impl Client {
+         Ok(())
+     }
+ 
++    /// KyberNow (0060): the application decoded up to `last_pts` (the pts of
++    /// its last image) and lost what followed. The host repairs it without
++    /// a keyframe when it can; the repairing image carries the SEI the
++    /// application resumes on (see the host's kn_recovery.h). A host without
++    /// it sends a keyframe.
++    pub fn recover(&self, last_pts: u64) -> Result<()> {
++        self.msg_sender.send(Message::Recover { last_pts })?;
++        Ok(())
++    }
++
+     pub fn get_event_manager(&self) -> EventManager {
+         self.event_manager.clone()
+     }

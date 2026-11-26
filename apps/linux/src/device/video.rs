@@ -26,7 +26,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use kybernow_core::latency;
-use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
+use kybernow_core::media::{Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
 
 use super::sdl;
 use super::session::Shared;
@@ -210,7 +210,8 @@ impl Latest {
 enum Msg {
     Codec(u32),
     Config(Vec<u8>),
-    Frame { key: bool, pts: u64, data: Vec<u8>, received: i64 },
+    /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
+    Frame { key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64> },
     Hole,
     Stop,
 }
@@ -242,11 +243,11 @@ impl PacketHandler for VideoSink {
         match packet {
             Packet::Codec { codec } => self.send(Msg::Codec(codec)),
             Packet::Media { is_config: true, data, .. } => self.send(Msg::Config(data.to_vec())),
-            Packet::Media { is_key, pts, data, .. } => {
+            Packet::Media { is_key, pts, data, resume, .. } => {
                 if let Some(s) = self.shared.session() {
                     s.latency().received_bytes(data.len());
                 }
-                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros() });
+                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume });
             }
             Packet::Hole { .. } => {
                 if let Some(s) = self.shared.session() {
@@ -280,6 +281,8 @@ struct Decoder {
     /// Décodeur matériel refusé ou en échec : le processeur décode.
     software: bool,
     waiting_key: bool,
+    /// Ce que le décodeur a reçu : reprise sans image clé possible.
+    gate: ResumeGate,
     lost_reported: bool,
     last_request: Option<Instant>,
     errors: u32,
@@ -308,6 +311,7 @@ impl Decoder {
             dec: std::ptr::null_mut(),
             software: false,
             waiting_key: true,
+            gate: ResumeGate::default(),
             lost_reported: false,
             last_request: None,
             errors: 0,
@@ -362,9 +366,9 @@ impl Decoder {
                     self.config.extend_from_slice(&bytes);
                     self.in_config = true;
                 }
-                Msg::Frame { key, pts, data, received } => {
+                Msg::Frame { key, pts, data, received, resume } => {
                     self.in_config = false;
-                    self.frame(key, pts, &data, received);
+                    self.frame(key, pts, &data, received, resume);
                 }
                 Msg::Hole => self.lost(),
                 Msg::Stop => break,
@@ -374,6 +378,7 @@ impl Decoder {
     }
 
     fn close(&mut self) {
+        self.gate.reset();
         if !self.dec.is_null() {
             unsafe { kn_decoder_close(self.dec) };
             self.dec = std::ptr::null_mut();
@@ -506,7 +511,7 @@ impl Decoder {
         }
     }
 
-    fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64) {
+    fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64, resume: Option<u64>) {
         // Nouveau jeu de paramètres sur une image clé : le décodeur est refait.
         let stale = key && !self.config.is_empty() && self.loaded_config.as_ref().is_some_and(|c| *c != self.config);
         if self.dec.is_null() || stale {
@@ -526,8 +531,14 @@ impl Decoder {
             self.loaded_config = Some(self.config.clone());
             self.waiting_key = true;
         }
-        if self.waiting_key && !key {
-            self.request_keyframe();
+        // Après une perte : une image clé, ou une image de reprise qui ne
+        // dépend que d'images que ce décodeur a déjà (il n'est pas refait).
+        // Décodeur intact : la session a déjà demandé la reprise, et
+        // redemande une image clé si rien ne vient.
+        if self.waiting_key && !key && !self.gate.resumes(resume) {
+            if !self.gate.intact() {
+                self.request_keyframe();
+            }
             return;
         }
         let first = self.waiting_key;
@@ -543,6 +554,7 @@ impl Decoder {
             self.decode_error(r);
             return;
         }
+        self.gate.fed(pts);
         let mut f = KnFrame {
             width: 0,
             height: 0,
@@ -564,7 +576,7 @@ impl Decoder {
             self.decode_error(got);
             return;
         }
-        if key && first {
+        if first {
             self.waiting_key = false;
             self.errors = 0;
             if self.lost_reported {
@@ -585,6 +597,8 @@ impl Decoder {
     }
 
     fn decode_error(&mut self, code: c_int) {
+        // Décodeur en erreur : ses images ne sont plus sûres.
+        self.gate.reset();
         self.errors += 1;
         if self.errors <= 3 || self.errors % 100 == 0 {
             log::warn!("image : erreur de décodage {code} ({} de suite)", self.errors);

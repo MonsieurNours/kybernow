@@ -1,0 +1,210 @@
+diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
+--- a/kycontroller/src/avservice.rs
++++ b/kycontroller/src/avservice.rs
+@@ -320,11 +320,27 @@ impl Handler {
+ 
+         Ok(())
+     }
++
++    /// KyberNow (0060): a client decoded up to `last_pts` and lost what
++    /// followed; the encoder repairs it, without a keyframe if it can.
++    pub(crate) async fn video_recover(&mut self, last_pts: u64) -> Result<()> {
++        debug!("Requesting a repair up to {last_pts}");
++        tokio::time::timeout(
++            CMD_ACK_TIMEOUT,
++            self.commands.send(Command::VideoRecover { last_pts }),
++        )
++        .await
++        .map_err(|_| Error::Timeout)???;
++
++        Ok(())
++    }
+ }
+ 
+ /// Commands accepted by a [`SharedHandler`]'s actor task.
+ enum SharedCmd {
+     VideoForceIdr,
++    /// KyberNow (0060)
++    VideoRecover(u64),
+     VideoSetBitrate(i32),
+     Stop(oneshot::Sender<()>),
+ }
+@@ -390,6 +406,13 @@ impl SharedHandler {
+             .map_err(|_| Error::StreamerStopped)
+     }
+ 
++    /// KyberNow (0060): fire-and-forget, like `video_force_idr`.
++    pub(crate) fn video_recover(&self, last_pts: u64) -> Result<()> {
++        self.cmd_tx
++            .send(SharedCmd::VideoRecover(last_pts))
++            .map_err(|_| Error::StreamerStopped)
++    }
++
+     pub(crate) async fn stop(mut self) {
+         let (tx, rx) = oneshot::channel();
+         if self.cmd_tx.send(SharedCmd::Stop(tx)).is_err() {
+@@ -427,6 +450,9 @@ impl SharedHandler {
+             // `CMD_ACK_TIMEOUT`, so without draining the actor would otherwise
+             // fall behind one queued command per timeout under sustained lag.
+             let mut want_idr = false;
++            // KyberNow (0060): repairs collapse to the oldest image named,
++            // which repairs every client of the stream; an IDR repairs all.
++            let mut recover: Option<u64> = None;
+             let mut bitrate = None;
+             let mut stop_ack = None;
+ 
+@@ -441,6 +467,9 @@ impl SharedHandler {
+                 };
+                 match cmd {
+                     SharedCmd::VideoForceIdr => want_idr = true,
++                    SharedCmd::VideoRecover(pts) => {
++                        recover = Some(recover.map_or(pts, |r: u64| r.min(pts)))
++                    }
+                     SharedCmd::VideoSetBitrate(b) => bitrate = Some(b),
+                     SharedCmd::Stop(ack) => stop_ack = Some(ack),
+                 }
+@@ -461,6 +490,12 @@ impl SharedHandler {
+             if want_idr && let Err(e) = handler.video_force_idr().await {
+                 warn!("Force IDR failed: {e:?}");
+             }
++            if !want_idr
++                && let Some(pts) = recover
++                && let Err(e) = handler.video_recover(pts).await
++            {
++                warn!("Repair failed: {e:?}");
++            }
+         }
+     }
+ }
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+--- a/kycontroller/src/kybernow.rs
++++ b/kycontroller/src/kybernow.rs
+@@ -1025,6 +1025,30 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+     }
+ }
+ 
++/// KyberNow (0060): `/recover` from a share guest: on the images it gets
++/// (its own, or the host's: a repair without a keyframe costs the others
++/// next to nothing, and the encoder falls back to a keyframe by itself).
++pub(crate) async fn guest_recover(ctrl: &Controller, uid: &Uuid, last_pts: u64) {
++    let Ok(services) = ctrl.session_services(uid) else {
++        return;
++    };
++    let keys: Vec<VideoStreamKey> = services
++        .lock()
++        .await
++        .guest_outputs
++        .iter()
++        .filter_map(|output| output.current.clone())
++        .collect();
++    let manager = ctrl.av_services_manager.lock().await;
++    for key in &keys {
++        if let Some(stream) = manager.video_streams.get(key)
++            && let Err(err) = stream.avservice.video_recover(last_pts)
++        {
++            warn!("Session {uid}: repair on {key:?} failed: {err:?}");
++        }
++    }
++}
++
+ /// `/set_bitrate` from a share guest: only on images of its own that it
+ /// is alone on, within its preset's ceiling and the host's bitrate.
+ /// `false`: refused (403).
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -763,6 +763,84 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+     HttpResponse::Ok().finish()
+ }
+ 
++/// KyberNow (0060): body of `POST /recover`.
++#[derive(Deserialize)]
++pub(crate) struct Recover {
++    /// The pts of the last image the client decoded (its kymux packet).
++    last_pts: u64,
++}
++
++/// KyberNow (0060): the client decoded up to `last_pts` and lost what
++/// followed (packets lost beyond FEC). The next image of this session's
++/// video streams depends on nothing newer: without a keyframe when the
++/// encoder can (HEVC on NVENC and VideoToolbox), else a keyframe. The
++/// repairing image carries a SEI naming the newest image it depends on, for
++/// the client to resume on it. A client keeps `/force_idr` for anything
++/// else (a decoder that failed, a request that brought nothing).
++#[post("/recover")]
++pub(crate) async fn recover(
++    ctrl: web::Data<Controller>,
++    request: web::Json<Recover>,
++    user: Identity,
++) -> HttpResponse {
++    let Ok(uid) = user.uid() else {
++        return HttpResponse::Unauthorized().finish();
++    };
++    if repair(&ctrl, &uid, request.last_pts, false).await {
++        HttpResponse::Ok().finish()
++    } else {
++        HttpResponse::Forbidden().finish()
++    }
++}
++
++/// KyberNow (0060): repairs session `uid`'s video streams after a loss
++/// that followed `last_pts` (`/recover`, and the feedback channel's losses
++/// with patch 0061). `single`: only a session with one video stream (the
++/// pts of a loss belong to one stream; a session with several displays
++/// keeps the application's requests). False: no such session.
++pub(crate) async fn repair(ctrl: &Controller, uid: &uuid::Uuid, last_pts: u64, single: bool) -> bool {
++    let services = match ctrl.with_session(uid, |s| Ok(s.services.clone())) {
++        Ok(s) => s,
++        Err(err) => {
++            warn!("Session not found: {err}");
++            return false;
++        }
++    };
++
++    if kybernow::is_guest(ctrl, uid) {
++        drop(services);
++        debug!("Repair up to {last_pts} for a share guest");
++        kybernow::guest_recover(ctrl, uid, last_pts).await;
++        return true;
++    }
++
++    let mut services = services.lock().await;
++    let streams = services.video_subscriptions.len().max(services.video.len());
++    if single && streams != 1 {
++        return true;
++    }
++    debug!("Repair up to {last_pts}");
++
++    if !services.video_subscriptions.is_empty() {
++        let av_services_manager = ctrl.av_services_manager.lock().await;
++        for sub in &services.video_subscriptions {
++            let Some(stream) = av_services_manager.video_streams.get(sub.key()) else {
++                continue;
++            };
++            if let Err(err) = stream.avservice.video_recover(last_pts) {
++                warn!("Failed to repair: {err:?}");
++            }
++        }
++    } else {
++        for avserver in &mut services.video {
++            if let Err(err) = avserver.video_recover(last_pts).await {
++                warn!("Failed to repair: {err:?}");
++            }
++        }
++    }
++    true
++}
++
+ fn create_listening_socket(config: &config::Config) -> std::io::Result<std::net::TcpListener> {
+     use socket2::{Domain, Protocol, Socket, Type};
+     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+@@ -964,7 +1042,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+                 .service(enumerate_displays)
+                 .service(stop_streaming)
+                 .service(set_bitrate)
+-                .service(force_idr);
++                .service(force_idr)
++                .service(recover);
+ 
+             if let Some(webclient_root) = &webclient_root {
+                 app.service(web::redirect("/webclient", "/webclient/"))

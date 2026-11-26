@@ -30,7 +30,7 @@ use ndk::media::media_codec::{DequeuedInputBufferResult, DequeuedOutputBufferInf
 use ndk::media::media_format::MediaFormat;
 
 use kybernow_core::latency;
-use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
+use kybernow_core::media::{Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC_HEVC, FOURCC_PYROWAVE};
 
 use crate::media::MediaHost;
 use crate::pyrowave::{PwConfig, PwSession, Shown};
@@ -40,7 +40,8 @@ const BUFFER_FLAG_KEY_FRAME: u32 = 1;
 pub enum Msg {
     Codec(u32),
     Config(Vec<u8>),
-    Frame { key: bool, pts: u64, data: Vec<u8>, received: i64 },
+    /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
+    Frame { key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64> },
     Hole,
     /// La surface a changé (recréée, ou retirée en arrière-plan).
     Surface,
@@ -76,9 +77,9 @@ impl PacketHandler for VideoSink {
         match packet {
             Packet::Codec { codec } => self.send(Msg::Codec(codec)),
             Packet::Media { is_config: true, data, .. } => self.send(Msg::Config(data.to_vec())),
-            Packet::Media { is_key, pts, data, .. } => {
+            Packet::Media { is_key, pts, data, resume, .. } => {
                 self.host.received_bytes(data.len());
-                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros() });
+                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume });
             }
             Packet::Hole { .. } => {
                 self.host.hole();
@@ -132,6 +133,8 @@ struct DecodeLoop {
     decoder: Option<Decoder>,
     /// Après une perte ou un décodeur refait : rien avant une image clé.
     waiting_key: bool,
+    /// Ce que le décodeur a reçu : reprise sans image clé possible.
+    gate: ResumeGate,
     lost_reported: bool,
     last_request: Option<Instant>,
     received: Received,
@@ -153,6 +156,7 @@ impl DecodeLoop {
             in_config: false,
             decoder: None,
             waiting_key: true,
+            gate: ResumeGate::default(),
             lost_reported: false,
             last_request: None,
             received: Arc::new(Mutex::new(VecDeque::with_capacity(64))),
@@ -198,6 +202,7 @@ impl DecodeLoop {
                 Msg::Codec(c) => {
                     self.fourcc = c;
                     self.decoder = None;
+                    self.gate.reset();
                     self.config.clear();
                     self.waiting_key = true;
                     self.pw = None;
@@ -217,9 +222,9 @@ impl DecodeLoop {
                     self.in_config = true;
                 }
                 Msg::Frame { pts, data, received, .. } if self.pyrowave() => self.pyrowave_frame(pts, data, received),
-                Msg::Frame { key, pts, data, received } => {
+                Msg::Frame { key, pts, data, received, resume } => {
                     self.in_config = false;
-                    self.frame(key, pts, data, received);
+                    self.frame(key, pts, data, received, resume);
                 }
                 // PyroWave : chaque image se décode seule, rien à attendre ni à demander.
                 Msg::Hole if self.pyrowave() => {}
@@ -230,6 +235,7 @@ impl DecodeLoop {
                 }
                 Msg::Surface => {
                     self.decoder = None;
+                    self.gate.reset();
                     self.waiting_key = true;
                     self.request_keyframe();
                 }
@@ -321,7 +327,7 @@ impl DecodeLoop {
         }
     }
 
-    fn frame(&mut self, key: bool, pts: u64, data: Vec<u8>, received: i64) {
+    fn frame(&mut self, key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64>) {
         let stale = self.decoder.as_ref().is_some_and(|d| key && !self.config.is_empty() && d.config != self.config);
         if self.decoder.is_none() || stale {
             if !key {
@@ -329,12 +335,15 @@ impl DecodeLoop {
                 return;
             }
             self.decoder = None;
+            self.gate.reset();
             match self.open() {
                 Some(d) => self.decoder = Some(d),
                 None => return,
             }
         }
-        if self.waiting_key && !key {
+        // Après une perte : une image clé, ou une image de reprise qui ne
+        // dépend que d'images que ce décodeur a déjà (il n'est pas refait).
+        if self.waiting_key && !key && !self.gate.resumes(resume) {
             return;
         }
         let first = self.waiting_key;
@@ -372,7 +381,8 @@ impl DecodeLoop {
                     self.lost();
                     return;
                 }
-                if key && first {
+                self.gate.fed(pts);
+                if first {
                     self.waiting_key = false;
                     if self.lost_reported {
                         self.lost_reported = false;
@@ -387,6 +397,7 @@ impl DecodeLoop {
             Err(e) => {
                 log::warn!("image : décodeur en erreur ({e:?}), refait à la prochaine image clé");
                 self.decoder = None;
+                self.gate.reset();
                 self.lost();
             }
         }
