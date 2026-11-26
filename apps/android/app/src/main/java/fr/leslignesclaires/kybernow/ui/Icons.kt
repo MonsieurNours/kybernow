@@ -54,6 +54,13 @@ object KnIcons {
     val pulse = icon("pulse", "M3 12h4l2-6 4 12 2-6h6")
     val chevron = icon("chevron", "M9 5l7 7-7 7")
     val download = icon("download", "M12 4v11", "M7 10l5 5 5-5", "M5 20h14")
+    // Accueil et compte KyberNow : la personne (bouton du compte), le globe (hors de chez vous), les appareils, les
+    // amis, les réglages qui suivent (maquettes de l'accueil).
+    val person = icon("person", "M12 4a4 4 0 1 0 0 8a4 4 0 1 0 0-8z", "M4 21c1-4 4-6 8-6s7 2 8 6")
+    val globe = icon("globe", "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z", "M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18")
+    val devices = icon("devices", "M2 4h14v10H2z", "M6 18h6", "M17 8h5v12h-5z")
+    val friends = icon("friends", "M9 4.5a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7z", "M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5", "M17.5 6.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M17 14.5c2.3.2 4 1.8 4.5 4.5")
+    val sliders = icon("sliders", "M4 7h10M4 17h6M18 7h2M14 17h6", "M16 5a2 2 0 1 0 0 4a2 2 0 1 0 0-4z", "M12 15a2 2 0 1 0 0 4a2 2 0 1 0 0-4z")
     /** Partager : trois points reliés. */
     /** HDR : une étincelle (docs/link-ui.md, barre de session). */
     val warning = icon("warning", "M12 3l10 18H2L12 3z", "M12 10v5M12 18v.5")

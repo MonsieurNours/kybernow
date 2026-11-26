@@ -109,16 +109,27 @@ internal fun pollNext(code: Int): PollNext = when (code) {
 }
 
 /**
- * « Se connecter à un compte KyberNow » au téléviseur : un code de huit signes et son QR code, approuvés depuis le
- * téléphone. Le relais est demandé toutes les `interval` secondes tant que l'écran est là (la boucle s'arrête en le
- * quittant) ; un code échu est remplacé de lui-même ; approuvé, [onApproved] garde le compte.
+ * « Connecter un compte » au téléviseur : un code de huit signes et son QR code, approuvés depuis le téléphone. Le
+ * relais est demandé toutes les `interval` secondes tant que l'écran est là (la boucle s'arrête en le quittant) ; un
+ * code échu est remplacé de lui-même ; approuvé, [onApproved] garde le compte.
  */
 @Composable
 fun AccountCodeScreen(relay: String, onApproved: (StoredAccount) -> Unit, onOtherRelay: () -> Unit, onBack: () -> Unit) {
-    val app = KyberNowApp.instance
-    var step by remember { mutableStateOf<CodeStep>(CodeStep.Asking) }
     // « Nouveau code » relance tout (un nouveau code, une nouvelle attente).
     var attempt by remember { mutableIntStateOf(0) }
+    val step = rememberTvCode(relay, attempt, onApproved)
+    AccountCodeContent(step, Accounts.relayLabel(relay), onOtherRelay = onOtherRelay, onBack = onBack, onNewCode = { attempt++ })
+}
+
+/**
+ * La connexion par code (`accountTvCode`, puis `accountTvPoll` toutes les `interval` secondes), tant que l'écran qui
+ * l'appelle est là : l'écran du code, et l'écran 2 de l'accueil au téléviseur. [attempt] qui change relance tout
+ * (« Nouveau code ») ; approuvé, [onApproved] reçoit le compte.
+ */
+@Composable
+fun rememberTvCode(relay: String, attempt: Int, onApproved: (StoredAccount) -> Unit): CodeStep {
+    val app = KyberNowApp.instance
+    var step by remember { mutableStateOf<CodeStep>(CodeStep.Asking) }
     val approved by rememberUpdatedState(onApproved)
     LaunchedEffect(relay, attempt) {
         step = CodeStep.Asking
@@ -159,7 +170,7 @@ fun AccountCodeScreen(relay: String, onApproved: (StoredAccount) -> Unit, onOthe
             }
         }
     }
-    AccountCodeContent(step, Accounts.relayLabel(relay), onOtherRelay = onOtherRelay, onBack = onBack, onNewCode = { attempt++ })
+    return step
 }
 
 /**
@@ -183,10 +194,12 @@ fun AccountCodeContent(step: CodeStep, relayLabel: String, onOtherRelay: () -> U
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = s.dp(if (s.tv) 56f else 20f), vertical = s.dp(if (s.tv) 32f else 20f)),
                 verticalArrangement = Arrangement.spacedBy(s.dp(16f)),
             ) {
-                Title(stringResource(R.string.account_sign_in), size = if (s.tv) 36f else 26f)
+                Title(stringResource(R.string.account_code_title), size = if (s.tv) 36f else 26f)
                 val text: @Composable () -> Unit = {
                     Column(verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
                         Steps(code?.urlLabel ?: "${relayLabel}/tv")
+                        // Pas de navigateur au téléviseur : le compte se crée sur la page du code (docs/link-ui.md).
+                        Body(stringResource(R.string.welcome_tv_no_account), size = if (s.tv) 16f else 15f, color = Kn.frost2)
                         when (step) {
                             CodeStep.Asking -> Waiting(null)
                             is CodeStep.Showing -> {
@@ -226,7 +239,7 @@ fun AccountCodeContent(step: CodeStep, relayLabel: String, onOtherRelay: () -> U
 
 /** « Scannez le QR code avec votre téléphone, », « ou ouvrez {adresse} et entrez le code, », « puis touchez « Connecter ». ». */
 @Composable
-private fun Steps(address: String) {
+internal fun Steps(address: String) {
     val s = LocalScale.current
     Column(verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
         listOf(
@@ -247,7 +260,7 @@ private fun Steps(address: String) {
 
 /** L'indicateur et « En attente de votre téléphone… Le code change dans {n} min. » ([minutes] nul : le code n'est pas encore là). */
 @Composable
-private fun Waiting(minutes: Int?) {
+internal fun Waiting(minutes: Int?) {
     val s = LocalScale.current
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(12f))) {
         CircularProgressIndicator(Modifier.size(s.dp(22f)), color = Kn.spectre, strokeWidth = s.dp(3f))
@@ -345,7 +358,7 @@ fun AccountRelayContent(typing: Boolean, error: String?, onDefault: () -> Unit, 
 /**
  * Les comptes dans les réglages de l'app : chacun avec son nom, son e-mail, son relais, « Gérer le compte » (la page du
  * compte dans le navigateur) et « Se déconnecter » (confirmé : « Se déconnecter de {compte} ? Ses ordinateurs quittent
- * cet appareil ; ceux que vous avez appairés restent. ») ; sans compte, « Aucun compte. » et « Se connecter à un compte
+ * cet appareil ; ceux que vous avez appairés restent. ») ; sans compte, « Aucun compte. » et « Connecter un compte
  * KyberNow » ; avec, « Ajouter un compte » ; puis l'aide (créer, changer le mot de passe, supprimer : sur la page du compte).
  */
 @OptIn(ExperimentalLayoutApi::class)

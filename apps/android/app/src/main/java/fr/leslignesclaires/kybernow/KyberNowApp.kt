@@ -32,6 +32,9 @@ class KyberNowApp : Application() {
     /** Comptes KyberNow : comptes connectés, ordinateurs des comptes à l'accueil (docs/comptes.md). */
     lateinit var accounts: fr.leslignesclaires.kybernow.model.AccountManager
         private set
+    /** Accueil au premier lancement et incitation au compte KyberNow (docs/link-ui.md, « Accueil et compte KyberNow »). */
+    lateinit var welcome: fr.leslignesclaires.kybernow.model.WelcomeStore
+        private set
     /** Consoles PlayStation : comptes, associations, recherche (docs/playstation.md). */
     lateinit var ps: fr.leslignesclaires.kybernow.playstation.PlayStations
         private set
@@ -119,6 +122,7 @@ class KyberNowApp : Application() {
         form = DeviceIdentity.formFactor(this)
         Native.init(language())
         accounts = fr.leslignesclaires.kybernow.model.AccountManager(this)
+        welcome = fr.leslignesclaires.kybernow.model.WelcomeStore(this)
         ps = fr.leslignesclaires.kybernow.playstation.PlayStations(this, fr.leslignesclaires.kybernow.playstation.PsStore(this), hosts)
         updates = fr.leslignesclaires.kybernow.update.Updates(this).also { it.start() }
         // PyroWave : la sonde du lancement (device Vulkan, image de test), hors du fil principal.

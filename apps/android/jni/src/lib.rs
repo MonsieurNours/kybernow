@@ -39,3 +39,5 @@ mod share;
 mod update;
 #[cfg(target_os = "android")]
 mod video;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod welcome;

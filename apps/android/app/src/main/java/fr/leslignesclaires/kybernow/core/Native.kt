@@ -205,12 +205,24 @@ object Native {
      */
     @JvmStatic external fun inviteRedeem(codeJson: String, password: String, deviceJson: String): String
 
+    // Accueil et compte KyberNow (docs/link-ui.md, « Accueil et compte KyberNow » ; apps/android/jni/src/welcome.rs).
+    /**
+     * Une règle de l'accueil (`welcome::WelcomeState` du cœur) appliquée à l'état gardé par l'app : `op` `should_show`,
+     * `done`, `card_visible`, `card_close_is_final`, `close_card`, `take_paired_hint`, `take_away_hint` ; `now` en
+     * secondes. Rend `{"state": {…}, "value": bool}`, le nouvel état à garder.
+     */
+    @JvmStatic external fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long): String
+    /** « Créer un compte » : la page d'inscription du relais (vide : le relais public), dans la langue de l'app. */
+    @JvmStatic external fun welcomeSignUpUrl(relay: String): String
+    /** La page de téléchargement de KyberNow Station (écran 3 de l'accueil). */
+    @JvmStatic external fun welcomeStationUrl(): String
+
     // Comptes KyberNow (docs/comptes.md, lot 3 ; textes : docs/link-ui.md, « Comptes KyberNow »). Réponses
     // `{"code": 0, "value": …}` ou `{"code": 70…80, "error", "kind"}` (voir [AccountCode]) ; 1 : JSON illisible.
     // Les appels marqués bloquants : jamais sur le fil principal (8 s au plus chacun).
     /** La forme normale d'un relais tapé (« Un autre relais… ») ; vide : `share.kybernow.app` ; refus 78. */
     @JvmStatic external fun accountNormalizeRelay(relay: String): String
-    /** « Se connecter à un compte KyberNow » : `value` `{relay, url, state, callback_scheme}`, à garder jusqu'au retour. */
+    /** « Connecter un compte » : `value` `{relay, url, state, callback_scheme}`, à garder jusqu'au retour. */
     @JvmStatic external fun accountSignIn(relay: String, deviceName: String): String
     /** Le retour `kybernow://compte?…` : `value`, le compte à garder entier (jeton compris). 75 : annulé. Bloquant. */
     @JvmStatic external fun accountFinishSignIn(signInJson: String, callback: String): String

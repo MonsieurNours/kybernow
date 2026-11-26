@@ -423,7 +423,8 @@
     <string name="share_notice_keyboard_mouse">Vous avez le clavier et la souris.</string>
     <string name="share_notice_keyboard_mouse_back">Le clavier et la souris sont repris.</string>
     <string name="share_notice_watch">Vous regardez de nouveau.</string>
-    <string name="account_sign_in">Se connecter à un compte KyberNow</string>
+    <string name="account_sign_in">Connecter un compte</string>
+    <string name="account_code_title">Connecter un compte KyberNow</string>
     <string name="account_sign_in_help_window">La page du relais s\'ouvre : mot de passe, passkey ou double authentification s\'y font, jamais dans l\'app. Pas encore de compte : « Créer un compte » sur cette page.</string>
     <string name="account_sign_in_help_code">Un code s\'affiche : vous l\'approuvez depuis votre téléphone.</string>
     <string name="account_without">ou sans compte</string>
@@ -452,6 +453,47 @@
     <string name="account_signed_out">Ce compte a été déconnecté de cet appareil : reconnectez-vous.</string>
     <string name="account_unknown_computer">Cet ordinateur n\'est plus sur votre compte.</string>
     <string name="account_bad_relay">Adresse du relais illisible.</string>
+    <string name="welcome_skip">Passer</string>
+    <string name="welcome_later">Plus tard</string>
+    <string name="welcome_step" formatted="true">Bienvenue · %1$d / 3</string>
+    <string name="welcome_progress" formatted="true">Écran %1$d sur 3</string>
+    <string name="welcome_continue">Continuer</string>
+    <string name="welcome1_title">Votre ordinateur, sur tous vos appareils</string>
+    <string name="welcome1_body">Jouez, travaillez et retrouvez votre bureau depuis un autre écran, comme si vous étiez devant.</string>
+    <string name="welcome2_title">Avec un compte, tout vous suit</string>
+    <string name="welcome2_body">Un compte KyberNow, et vos ordinateurs vous attendent partout.</string>
+    <string name="welcome2_away_title">Hors de chez vous</string>
+    <string name="welcome2_away_body">Rejoignez votre ordinateur de n\'importe où, sans rien régler sur votre box.</string>
+    <string name="welcome2_devices_title">Tous vos appareils</string>
+    <string name="welcome2_devices_body">Vos ordinateurs apparaissent d\'eux-mêmes partout où vous vous connectez.</string>
+    <string name="welcome2_share_title">Partager et prêter</string>
+    <string name="welcome2_share_body">Invitez un ami à jouer, prêtez votre PC, ouvrez-le à la famille ou à votre équipe.</string>
+    <string name="welcome2_settings_title">Vos réglages</string>
+    <string name="welcome2_settings_body">Profil, format et débit vous suivent d\'un appareil à l\'autre.</string>
+    <string name="welcome_create">Créer un compte</string>
+    <string name="welcome_without">Continuer sans compte</string>
+    <string name="welcome2_help" formatted="true">La page de %1$s s\'ouvre : votre mot de passe ne passe jamais par l\'app.</string>
+    <string name="welcome_create_notice">Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte ».</string>
+    <string name="welcome_tv_no_account">Pas encore de compte ? Créez-le sur cette page.</string>
+    <string name="welcome3_title">Ajoutez votre ordinateur</string>
+    <string name="welcome3_body">Installez KyberNow Station sur l\'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le.</string>
+    <string name="welcome3_in_reach">Ordinateurs à portée</string>
+    <string name="welcome3_on_network">Sur le réseau</string>
+    <string name="welcome3_add">Ajouter</string>
+    <string name="welcome3_code_title">Un code</string>
+    <string name="welcome3_code_body">Un ami vous ouvre son ordinateur : entrez le code qu\'il vous a donné.</string>
+    <string name="welcome3_station_title">Pas encore installé</string>
+    <string name="welcome3_station_body">Téléchargez KyberNow Station sur l\'ordinateur à rejoindre.</string>
+    <string name="welcome_replay">Revoir l\'accueil</string>
+    <string name="account_card_eyebrow">Compte KyberNow</string>
+    <string name="account_card_title">Retrouvez vos ordinateurs partout</string>
+    <string name="account_card_body">Sur tous vos appareils, même hors de chez vous.</string>
+    <string name="account_card_close">Fermer</string>
+    <string name="account_card_never">Ne plus afficher</string>
+    <string name="away_hint_title">Hors de chez vous ?</string>
+    <string name="away_hint_body" formatted="true">%1$s n\'est pas sur ce réseau. Pour le rejoindre d\'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.</string>
+    <string name="away_hint_not_now">Pas maintenant</string>
+    <string name="paired_hint">Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow.</string>
     <string name="share_quality_title">Qualité de l\'image</string>
     <string name="share_quality_auto">Auto</string>
     <string name="share_quality_host">Comme l\'hôte</string>
