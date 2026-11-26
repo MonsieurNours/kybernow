@@ -2,7 +2,7 @@
 
 English · [Français](debit-automatique.md)
 
-With “Auto” bitrate (a profile: Game, Desktop or Max), the app lowers the picture's bitrate when the network is saturated, then raises it again once the network is clean. A bitrate set by hand (“Custom”) never moves. The logic lives in the core (`apps/core/src/adaptive.rs`), so it is the same in every app that uses it; the browser's web client doesn't have it yet.
+With the “Adaptive bitrate” switch of the settings (on by default, [profil-auto.en.md](profil-auto.en.md)), the app lowers the picture's bitrate when the network is saturated, then raises it again once the network is clean: for a profile (Game, Desktop, Max, Auto) as for a bitrate set by hand. Off, the bitrate never moves. The logic lives in the core (`apps/core/src/adaptive.rs`), so it is the same in every app that uses it; the browser's web client doesn't have it yet.
 
 ## What the app looks at
 

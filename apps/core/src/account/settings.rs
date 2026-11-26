@@ -62,7 +62,7 @@ fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D:
 /// `"profile": null` dit « Personnalisé ».
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SyncedValues {
-    /// `Some(Some("jeu" | "bureau" | "max"))` : un profil ; `Some(None)` :
+    /// `Some(Some("jeu" | "bureau" | "max" | "auto"))` : un profil ; `Some(None)` :
     /// personnalisé (format, 4:4:4 et débit réglés à la main).
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
     pub profile: Option<Option<String>>,
@@ -172,7 +172,8 @@ impl SyncedValues {
     /// ordinateur) avec les valeurs synchronisées, ramenés à ce que
     /// l'appareil décode (`caps`) :
     ///
-    /// - un profil : ses réglages pour cet appareil
+    /// - Auto : ceux de `base` (le test est propre à chaque appareil) ;
+    /// - un autre profil : ses réglages pour cet appareil
     ///   ([`StreamSettings::for_profile`]) ; le format, le 4:4:4 et le débit
     ///   reçus ne servent pas (ils suivent le profil sur chaque appareil) ;
     /// - personnalisé (ou profil absent et `base` personnalisé) : le format
@@ -184,6 +185,10 @@ impl SyncedValues {
     /// `reliable` et `wired` restent ceux de `base`.
     pub fn apply_to(&self, base: &StreamSettings, caps: Capabilities) -> StreamSettings {
         let mut s = match self.profile() {
+            // Auto : les réglages viennent du test de chaque appareil
+            // (docs/profil-auto.md) ; reçu d'un autre appareil, on garde ceux
+            // de cet appareil pour cet ordinateur.
+            Some(Some(Profile::Auto)) => base.clone(),
             Some(Some(p)) => StreamSettings { hdr: base.hdr, wired: base.wired, ..StreamSettings::for_profile(p, caps) },
             Some(None) => StreamSettings { profile: None, ..base.clone() },
             None => base.clone(),

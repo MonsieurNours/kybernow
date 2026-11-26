@@ -29,8 +29,8 @@ Pour l'ordinateur choisi, dans cet ordre et rien d'autre :
 | Bouton principal, en ligne | « Se connecter » | “Connect” |
 | Bouton principal, ordinateur déjà en session (Mac, Windows) | « Afficher la session » : sa fenêtre passe devant | “Show session” |
 | Bouton principal, hors ligne | « Réveiller l'ordinateur » quand l'app connaît son adresse MAC, sinon « Réessayer » ; pendant le réveil : « Réveil de l'ordinateur… » | “Wake the computer” when the app knows its MAC address, otherwise “Try again”; while waking: “Waking the computer…” |
-| Profils | « Jeu », « Bureau », « Max », et « Personnalisé » quand les réglages s'en écartent | “Game”, “Desktop”, “Max”, “Custom” |
-| Phrase du profil | Jeu : « La réactivité d'abord, pour jouer. » Bureau : « Un texte net, pour travailler. » Max : « La meilleure image que cet appareil affiche. » Personnalisé : « Vos propres réglages. » | Game: “Responsiveness first, for gaming.” Desktop: “Sharp text, for work.” Max: “The best picture this device can show.” Custom: “Your own settings.” |
+| Profils | « Jeu », « Bureau », « Max », « Auto », et « Personnalisé » quand les réglages s'en écartent | “Game”, “Desktop”, “Max”, “Auto”, “Custom” |
+| Phrase du profil | Jeu : « La réactivité d'abord, pour jouer. » Bureau : « Un texte net, pour travailler. » Max : « La meilleure image que cet appareil affiche. » Auto : « Les meilleurs réglages pour ce réseau et cet appareil. » Personnalisé : « Vos propres réglages. » | Game: “Responsiveness first, for gaming.” Desktop: “Sharp text, for work.” Max: “The best picture this device can show.” Custom: “Your own settings.” |
 | Accès aux réglages | « Réglages » (icône d'engrenage ; libellé accessible « Réglages de {nom} ») | “Settings” (“Settings for {name}”) |
 | Apps de salon seulement (Apple TV, Android TV, téléviseurs LG, Linux au salon et Link OS) | « 2 manettes », « 1 manette », « Aucune manette » ; « Manettes indisponibles sur cet ordinateur » quand l'ordinateur n'en crée pas (voir « Manettes indisponibles ») | “2 controllers”, “1 controller”, “No controller”; “Controllers unavailable on this computer” |
 
@@ -495,7 +495,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Format vidéo | Video format | Auto ; HEVC ; H.264 ; AV1 ; PyroWave (seulement si l'ordinateur le propose ; voir « PyroWave ») |
 | Texte net (4:4:4) | Sharp text (4:4:4) | aide : « Couleurs complètes : le texte reste net, au prix d'un débit plus élevé. » / “Full colour: text stays sharp, at the cost of a higher bitrate.” Inactif avec le HDR allumé, aide : « Le HDR n'existe pas en 4:4:4. » / “HDR doesn't exist in 4:4:4.” |
 | HDR | HDR | seulement sur un écran HDR ; aide : « Couleurs plus riches et lumières plus vives, sur cet écran HDR. Le texte net (4:4:4) n'existe pas en HDR. » / “Richer colours and brighter highlights, on this HDR screen. Sharp text (4:4:4) doesn't exist in HDR.” ; inactif avec les raisons de la section « HDR » |
-| Débit | Bitrate | Auto ; « 80 Mbit/s » ; Auto : le débit du profil, baissé quand le réseau sature puis remonté, en pause en PyroWave ([debit-automatique.md](debit-automatique.md)) ; une valeur reste fixe |
+| Débit | Bitrate | Auto ; « 80 Mbit/s » ; interrupteur « Débit adaptatif » (voir « Profil Auto et débit adaptatif ») : le débit baissé quand le réseau sature puis remonté, en pause en PyroWave ([debit-automatique.md](debit-automatique.md)) ; coupé, le débit reste fixe |
 | Affichage des images | Frame display | Synchronisé / Synced ; Immédiat / Immediate |
 | Garder la dernière image | Keep the last image | |
 | Son | Sound | Auto ; Stéréo / Stereo ; 5.1 ; 7.1 ; Sur l'ordinateur / On the computer |
@@ -509,11 +509,58 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Reconnexion automatique | Reconnect automatically | |
 | Réveil par le réseau | Wake on LAN | « Prêt » avec l'adresse MAC apprise de la Station, ou « Pas encore d'adresse : connectez-vous une fois à cet ordinateur. » ; aide : « Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système). » |
 
+## Profil Auto et débit adaptatif
+
+Contrat technique : [profil-auto.md](profil-auto.md). Toutes les apps sauf le client web du navigateur.
+
+- **Profils** : « Jeu », « Bureau », « Max », « Auto », et « Personnalisé » quand les réglages s'en écartent, partout où les profils sont listés (accueil, menu du profil, menu de l'icône, en tête des réglages). Icône d'Auto : baguette (sparkles). Phrase : « Les meilleurs réglages pour ce réseau et cet appareil. » / “The best settings for this network and this device.”
+- **Choisir Auto** sans résultat gardé, ou **« Refaire le test »** : ouvre le panneau du test. Avec un résultat gardé : Auto s'applique tout de suite (ses réglages), sans test.
+- **PyroWave par câble** : Max et Auto seulement. Aide de « Format vidéo », Auto, par câble, en Jeu et Bureau : « Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble. » / “Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.”
+
+### Panneau du test
+
+Titre « Profil Auto » / “Auto profile”. Sous-titre « KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages. » / “KyberNow measures your network and this device, then suggests the best settings.”
+
+Pendant le test, quatre étapes, chacune avec son état (en attente, en cours avec une roue, cochée avec sa mesure, passée avec sa raison) :
+
+| Étape | Français | English | Mesure une fois cochée |
+|---|---|---|---|
+| link | Liaison | Connection | « Câble » / « Wi-Fi » / « Par le relais » (“Cable”, “Wi-Fi”, “Through the relay”) |
+| latency | Latence au repos | Latency at rest | « 2,1 ms · gigue 0,4 ms » (“2.1 ms · jitter 0.4 ms”) |
+| bandwidth | Débit vers cet appareil | Bitrate to this device | « 940 Mbit/s · latence en charge +3 ms » (“940 Mbit/s · latency under load +3 ms”) ; passée : « Mettez à jour {nom} pour mesurer le débit. » / “Update {name} to measure the bitrate.” |
+| decode | Décodage de cet appareil | Decoding on this device | « HEVC 4K : 240 i/s · PyroWave 4K : 180 i/s » (le meilleur de chaque famille, “fps”) |
+
+Bouton « Annuler » / “Cancel” (arrête le test, garde le profil d'avant).
+
+**Résumé** : titre « Réglages proposés » / “Suggested settings”, une ligne par choix, valeur puis raison :
+
+| Réglage | Exemple FR | Exemple EN |
+|---|---|---|
+| Format vidéo | « PyroWave » — « relié par câble, et le réseau le porte » | “PyroWave” — “connected by cable, and the network can carry it” |
+| | « HEVC » — « PyroWave demande un câble » / « le réseau ne porte pas PyroWave » / « {nom} ne propose pas PyroWave » / « cet appareil ne décode pas PyroWave assez vite » | “HEVC” — “PyroWave needs a cable” / “the network can't carry PyroWave” / “{name} doesn't offer PyroWave” / “this device doesn't decode PyroWave fast enough” |
+| Définition | « 3840 × 2160 à 120 Hz » — « comme cet écran » / « décodage limité à {n} i/s en 4K » | “3840 × 2160 at 120 Hz” — “matches this display” / “decoding limited to {n} fps in 4K” |
+| Texte net (4:4:4) | « Oui » — « le réseau et le décodage le permettent » ; « Non » — « débit trop juste » / « cet appareil ne le décode pas » | “On” — “the network and decoding allow it”; “Off” — “bitrate too tight” / “this device can't decode it” |
+| Débit | « 420 Mbit/s » — « {mesuré} Mbit/s mesurés, avec une marge » ; sans mesure : « selon la liaison (Station à mettre à jour) » | “420 Mbit/s” — “{measured} Mbit/s measured, with a margin”; “based on the connection (Station to update)” |
+| Transport de l'image | « Rapide » — « réseau stable » ; « Fiable » — « réseau irrégulier : ce qui se perd est renvoyé » | “Fast” — “steady network”; “Reliable” — “unsteady network: what gets lost is resent” |
+| Débit adaptatif | « Oui » — « suit le réseau pendant la session » | “On” — “follows the network during the session” |
+
+Boutons « Appliquer » / “Apply” (Auto devient le profil de cet ordinateur avec ces réglages) et « Annuler » / “Cancel”. Lien « Refaire le test » / “Run the test again”. Échec (Station injoignable) : « Le test n'a pas pu joindre {nom}. » / “The test couldn't reach {name}.” avec « Réessayer » / “Try again”.
+
+### Carte « Débit »
+
+- Interrupteur **« Débit adaptatif »** / “Adaptive bitrate”, allumé par défaut, aide : « Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais. » / “Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.” En PyroWave, aide en plus : « En PyroWave, il est en pause : la définition baisse à la place. » / “With PyroWave it pauses: the resolution goes down instead.”
+- Profil Auto : sous le curseur, « Choisi par le test du {date} ({réseau}). » / “Chosen by the test of {date} ({network}).” et « Refaire le test » / “Run the test again”.
+
+### En session
+
+- **Autre réseau que celui du test** (Auto, réseau ou relais différent du test) : bandeau discret au début, 8 s ou la croix, titre « Autre réseau que celui du test » / “Different network from the test”, « Le débit adaptatif s'en charge. » / “Adaptive bitrate will handle it.”, bouton « Refaire le test » / “Run the test again” (ouvre le panneau après la session, ou tout de suite sur les apps qui le peuvent en session).
+- **Statistiques**, débit visé : « 60 Mbit/s · fixe » / “60 Mbit/s · fixed” quand le débit adaptatif est coupé (à la place de « réglé à la main »).
+
 ## PyroWave
 
 Contrat technique : [pyrowave.md](pyrowave.md). PyroWave est une valeur de « Format vidéo », sous son nom, dans toutes les apps qui le décodent ; maquettes : https://claude.ai/artifact/9mTTKtn4zLc2zaERtpcDf1.
 
-- **Auto** le prend seulement quand l'appareil est relié par câble (Ethernet), sur le même réseau que l'ordinateur, et que l'ordinateur le propose ; sinon HEVC comme aujourd'hui. En Wi-Fi et par le relais, il faut le choisir soi-même.
+- **Auto** (le format des profils Max et Auto ; Jeu et Bureau restent en HEVC) le prend seulement quand l'appareil est relié par câble (Ethernet), sur le même réseau que l'ordinateur, et que l'ordinateur le propose ; sinon HEVC comme aujourd'hui. En Wi-Fi et par le relais, il faut le choisir soi-même.
 - **Apps Apple** (Mac, Apple TV, iPhone, iPad) : « Auto » y est un profil (Jeu, Bureau, Max) ; « Format vidéo » montre « Auto » et « PyroWave » seulement quand l'ordinateur connaît PyroWave, « Auto » coché quand un profil est actif ; le choisir depuis « Personnalisé » reprend Jeu ([pyrowave-client-apple.md](pyrowave-client-apple.md)).
 - **Débit trop haut** pour le plafond de l'ordinateur ou le débit mesuré : l'app baisse la définition (puis la fréquence), jamais la netteté, et le dit.
 - **Par le relais** : permis, avertissement seul, sans plafond de débit au relais.

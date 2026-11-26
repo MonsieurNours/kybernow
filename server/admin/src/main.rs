@@ -38,6 +38,7 @@ mod mac;
 mod migrate;
 mod pairing;
 mod preview;
+mod probe;
 mod pyrowave;
 mod relay;
 mod schema;

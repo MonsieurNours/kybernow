@@ -1,5 +1,6 @@
-//! Profils Jeu, Bureau et Max, et débit selon les pixels par seconde, comme
-//! l'app Mac (`Model.swift`).
+//! Profils Jeu, Bureau, Max et Auto, et débit selon les pixels par seconde,
+//! comme l'app Mac (`Model.swift`). Auto : réglages choisis par le test des
+//! conditions ([`crate::autotest`], docs/profil-auto.md).
 
 /// Format vidéo demandé à l'ordinateur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,6 +95,9 @@ pub enum Profile {
     Jeu,
     Bureau,
     Max,
+    /// Réglages proposés par le test des conditions ([`crate::autotest`]),
+    /// gardés par l'app pour cet ordinateur.
+    Auto,
 }
 
 impl Profile {
@@ -102,15 +106,17 @@ impl Profile {
             Self::Jeu => "Jeu",
             Self::Bureau => "Bureau",
             Self::Max => "Max",
+            Self::Auto => "Auto",
         }
     }
 
-    /// Nom du profil dans les JSON : `jeu`, `bureau`, `max`.
+    /// Nom du profil dans les JSON : `jeu`, `bureau`, `max`, `auto`.
     pub fn key(self) -> &'static str {
         match self {
             Self::Jeu => "jeu",
             Self::Bureau => "bureau",
             Self::Max => "max",
+            Self::Auto => "auto",
         }
     }
 
@@ -119,16 +125,23 @@ impl Profile {
             "jeu" | "game" => Some(Self::Jeu),
             "bureau" | "desktop" => Some(Self::Bureau),
             "max" => Some(Self::Max),
+            "auto" => Some(Self::Auto),
             _ => None,
         }
     }
 
     /// Ce que la console fait d'un changement de mode de l'ordinateur.
+    /// Prend PyroWave par câble ([`pyrowave_format`]) : Max et Auto ; Jeu
+    /// et Bureau restent en HEVC (docs/profil-auto.md).
+    pub fn takes_pyrowave(self) -> bool {
+        matches!(self, Self::Max | Self::Auto)
+    }
+
     pub fn mode_policy(self) -> &'static str {
         match self {
             Self::Jeu => "follow",
             Self::Bureau => "restore",
-            Self::Max => "default",
+            Self::Max | Self::Auto => "default",
         }
     }
 }
@@ -165,6 +178,13 @@ pub struct SettingsJson {
     /// (absent : `false`) : « Auto » prend alors PyroWave ([`pyrowave_format`]).
     #[serde(default)]
     pub wired: bool,
+    /// « Débit adaptatif » (absent : oui).
+    #[serde(default = "yes")]
+    pub adaptive: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl SettingsJson {
@@ -178,6 +198,7 @@ impl SettingsJson {
             reliable: self.reliable,
             hdr: self.hdr,
             wired: self.wired,
+            adaptive: self.adaptive,
         })
     }
 }
@@ -201,6 +222,10 @@ pub struct StreamSettings {
     /// l'app pour la session) : « Auto » (un profil) prend alors PyroWave si
     /// l'ordinateur le propose ([`pyrowave_format`]).
     pub wired: bool,
+    /// « Débit adaptatif » (docs/profil-auto.md) : le débit baisse quand le
+    /// réseau sature, puis remonte ; pour un profil comme pour un débit
+    /// réglé à la main. Coupé, le débit ne bouge jamais.
+    pub adaptive: bool,
 }
 
 impl StreamSettings {
@@ -209,7 +234,7 @@ impl StreamSettings {
         let (yuv444, mut mbps, reliable) = match profile {
             Profile::Jeu => (false, 60, false),
             Profile::Bureau => (true, 90, true),
-            Profile::Max => (true, 300, false),
+            Profile::Max | Profile::Auto => (true, 300, false),
         };
         let codec = if caps.hevc { Codec::Hevc } else { Codec::H264 };
         let mut yuv = yuv444;
@@ -228,13 +253,14 @@ impl StreamSettings {
             reliable,
             hdr: false,
             wired: false,
+            adaptive: true,
         }
     }
 
     /// Réglages en JSON, comme les donnent les ponts des apps (C, JNI) :
     /// `profile` (`jeu`, `bureau`, `max` ; absent : personnalisé), `codec`
     /// (`h264`, `hevc`, `av1`, `pyrowave`), `yuv444`, `mbps`, `reliable`,
-    /// `hdr`, `wired`.
+    /// `hdr`, `wired`, `adaptive` (absent : oui).
     pub fn from_json(json: &str) -> Result<Self, String> {
         let wire: SettingsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
         wire.settings()
@@ -251,6 +277,7 @@ impl StreamSettings {
             "reliable": self.reliable,
             "hdr": self.hdr,
             "wired": self.wired,
+            "adaptive": self.adaptive,
         })
     }
 
@@ -462,7 +489,9 @@ pub fn pyrowave_fallback(caps: Capabilities) -> Codec {
 /// - Choisi à la main (format sans profil) : gardé si la Station le propose
 ///   et que l'appareil le décode (Wi-Fi et relais compris : les apps
 ///   avertissent), sinon HEVC (AV1, H.264 selon l'appareil).
-/// - « Auto » (un profil) : PyroWave seulement par câble, sur le réseau de
+/// - Auto : PyroWave si le test l'a choisi, par câble hors relais ; sinon
+///   HEVC (AV1, H.264) au débit gardé.
+/// - Max ([`Profile::takes_pyrowave`]) : PyroWave seulement par câble, sur le réseau de
 ///   l'ordinateur (pas par le relais), s'il est proposé et décodé ; le
 ///   4:4:4 du profil revient (presque sans coût en PyroWave) et le débit
 ///   passe à [`PYROWAVE_MBPS`] ou [`PYROWAVE_MBPS_444`]. Sinon, inchangé.
@@ -470,6 +499,20 @@ pub fn pyrowave_fallback(caps: Capabilities) -> Codec {
 pub fn pyrowave_format(settings: &StreamSettings, caps: Capabilities, offered: bool, relayed: bool) -> StreamSettings {
     let possible = PYROWAVE_KYBER && offered && caps.pyrowave;
     let mut s = settings.clone();
+    // Auto : PyroWave seulement si le test l'a choisi (format `pyrowave`, le
+    // débit restant celui de HEVC), et par câble sur le réseau de
+    // l'ordinateur ; sinon HEVC à ce débit. Jamais pris de lui-même.
+    if s.profile == Some(Profile::Auto) {
+        if s.codec == Codec::PyroWave {
+            if possible && s.wired && !relayed {
+                s.mbps = if s.yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS };
+            } else {
+                s.codec = pyrowave_fallback(caps);
+                s.yuv444 = s.yuv444 && s.codec == Codec::Hevc && caps.hevc444;
+            }
+        }
+        return s;
+    }
     if s.codec == Codec::PyroWave {
         if !possible {
             s.codec = pyrowave_fallback(caps);
@@ -478,11 +521,12 @@ pub fn pyrowave_format(settings: &StreamSettings, caps: Capabilities, offered: b
         return s;
     }
     if let Some(profile) = s.profile
+        && profile.takes_pyrowave()
         && possible
         && s.wired
         && !relayed
     {
-        let yuv444 = matches!(profile, Profile::Bureau | Profile::Max);
+        let yuv444 = profile == Profile::Max;
         s.codec = Codec::PyroWave;
         s.yuv444 = yuv444;
         s.mbps = if yuv444 { PYROWAVE_MBPS_444 } else { PYROWAVE_MBPS };
@@ -529,21 +573,36 @@ mod tests {
         assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, true, 500));
         let wifi = StreamSettings { wired: false, ..choisi.clone() };
         assert_eq!(pyrowave_format(&wifi, all, true, false).codec, Codec::PyroWave);
-        // Auto : par câble, sur le réseau de l'ordinateur seulement.
-        let s = pyrowave_format(&jeu, all, true, false);
-        assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, false, PYROWAVE_MBPS));
-        let s = pyrowave_format(&bureau, all, true, false);
+        // Jeu et Bureau restent en HEVC, même par câble (docs/profil-auto.md).
+        assert_eq!(pyrowave_format(&jeu, all, true, false).codec, Codec::Hevc);
+        assert_eq!(pyrowave_format(&bureau, all, true, false).codec, Codec::Hevc);
+        // Max : par câble, sur le réseau de l'ordinateur seulement, en 4:4:4.
+        let max = StreamSettings { wired: true, ..StreamSettings::for_profile(Profile::Max, all) };
+        let s = pyrowave_format(&max, all, true, false);
         assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, true, PYROWAVE_MBPS_444));
-        assert_eq!(pyrowave_format(&jeu, all, true, true).codec, Codec::Hevc, "par le relais");
-        assert_eq!(pyrowave_format(&StreamSettings { wired: false, ..jeu.clone() }, all, true, false).codec, Codec::Hevc, "Wi-Fi");
+        assert_eq!(pyrowave_format(&max, all, true, true).codec, Codec::Hevc, "par le relais");
+        assert_eq!(pyrowave_format(&StreamSettings { wired: false, ..max.clone() }, all, true, false).codec, Codec::Hevc, "Wi-Fi");
+        // Auto : PyroWave seulement si le test l'a choisi, et par câble hors
+        // relais ; sinon HEVC au débit gardé (celui de HEVC).
+        let auto = StreamSettings { profile: Some(Profile::Auto), codec: Codec::PyroWave, yuv444: false, mbps: 200, ..max.clone() };
+        let s = pyrowave_format(&auto, all, true, false);
+        assert_eq!((s.codec, s.yuv444, s.mbps), (Codec::PyroWave, false, PYROWAVE_MBPS));
+        let s = pyrowave_format(&auto, all, true, true);
+        assert_eq!((s.codec, s.mbps), (Codec::Hevc, 200), "par le relais");
+        let s = pyrowave_format(&StreamSettings { wired: false, ..auto.clone() }, all, true, false);
+        assert_eq!((s.codec, s.mbps), (Codec::Hevc, 200), "Wi-Fi");
+        let hevc = StreamSettings { codec: Codec::Hevc, ..auto.clone() };
+        assert_eq!(pyrowave_format(&hevc, all, true, false).codec, Codec::Hevc, "le test a choisi HEVC");
         // HDR : PyroWave reste, en 4:2:0.
-        let hdr = hdr_format(&pyrowave_format(&bureau, all, true, false), all);
+        let hdr = hdr_format(&pyrowave_format(&max, all, true, false), all);
         assert_eq!((hdr.codec, hdr.yuv444), (Codec::PyroWave, false));
-        // Débit d'Auto en 1080p60 : la règle de tous les formats ne descend
-        // pas sous 40 % du débit du profil, soit 0,4 × 800 = 320 Mbit/s ; au
-        // moins le débit nécessaire (≈ 187, docs/pyrowave.md), autour des
-        // « environ 300 Mbit/s en 1080p » de l'avertissement (docs/link-ui.md).
-        let mbps = pyrowave_format(&jeu, all, true, false).bitrate(1920, 1080, 60) / 1_000_000;
+        // Débit de Max en 1080p60, 4:2:0 : la règle de tous les formats ne
+        // descend pas sous 40 % du débit du profil, soit 0,4 × 800 = 320
+        // Mbit/s ; au moins le débit nécessaire (≈ 187, docs/pyrowave.md),
+        // autour des « environ 300 Mbit/s en 1080p » de l'avertissement.
+        let max420 = StreamSettings { yuv444: false, ..pyrowave_format(&max, all, true, false) };
+        let max420 = StreamSettings { mbps: PYROWAVE_MBPS, ..max420 };
+        let mbps = max420.bitrate(1920, 1080, 60) / 1_000_000;
         assert_eq!(mbps, PYROWAVE_MBPS * 4 / 10);
         assert!(mbps >= crate::pyrowave::needed_mbps(&[crate::console::Mode { width: 1920, height: 1080, refresh: 60 }], false));
     }
