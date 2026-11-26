@@ -1,0 +1,4 @@
+[KyberNow Station]
+title=KyberNow Station
+description=Streaming (8080), Admin (9443) and local network discovery (Bonjour, 5353)
+ports=8080/tcp|8080/udp|9443/tcp|5353/udp

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- KyberNow Station pour Linux : ports ouverts dans firewalld (Fedora,
+     openSUSE…), comme le pare-feu de Windows à l'installation de la Station
+     (docs/station-linux.md, « Services et paquet »). -->
+<service>
+  <short>KyberNow Station</short>
+  <description>KyberNow Station: streaming (8080), Admin (9443) and local network discovery (Bonjour, 5353).</description>
+  <port protocol="tcp" port="8080"/>
+  <port protocol="udp" port="8080"/>
+  <port protocol="tcp" port="9443"/>
+  <port protocol="udp" port="5353"/>
+</service>

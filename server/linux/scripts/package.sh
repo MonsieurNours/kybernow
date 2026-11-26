@@ -65,6 +65,11 @@ install -m 644 "$ROOT/server/linux/packaging/kybernow-station-update.socket" "$R
     "$TREE/usr/lib/systemd/system/"
 install -m 644 "$ROOT/server/linux/packaging/60-kybernow-uinput.rules" "$TREE/usr/lib/udev/rules.d/"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station-modules.conf" "$TREE/usr/lib/modules-load.d/kybernow-station.conf"
+# Pare-feu : firewalld (Fedora, dont la zone par défaut ferme Bonjour) et le
+# profil de ufw (Ubuntu), ouverts à l'installation comme sous Windows.
+install -d "$TREE/usr/lib/firewalld/services" "$TREE/etc/ufw/applications.d"
+install -m 644 "$ROOT/server/linux/packaging/kybernow-station.firewalld.xml" "$TREE/usr/lib/firewalld/services/kybernow-station.xml"
+install -m 644 "$ROOT/server/linux/packaging/kybernow-station.ufw" "$TREE/etc/ufw/applications.d/kybernow-station"
 # KDE Plasma : le droit de l'agent au protocole d'écrans de KWin.
 install -m 644 "$ROOT/server/linux/packaging/fr.leslignesclaires.kybernow.station.display.desktop" "$TREE/usr/share/applications/"
 install -m 644 "$ROOT/LICENSE" "$TREE/usr/share/doc/kybernow-station/copyright" 2>/dev/null || true
@@ -82,6 +87,16 @@ udevadm trigger --name-match=uhid 2>/dev/null || true
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable --now kybernow-station-update.socket 2>/dev/null || true
 systemctl --global enable kybernow-admin.service kybernow-kyber.service kybernow-tray.service 2>/dev/null || true
+# Pare-feu actif : les ports de la Station ouverts (zone par défaut de
+# firewalld, ufw), comme sous Windows ; un pare-feu arrêté reste tel quel.
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --reload >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-service=kybernow-station >/dev/null 2>&1 || true
+    firewall-cmd --add-service=kybernow-station >/dev/null 2>&1 || true
+fi
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow "KyberNow Station" >/dev/null 2>&1 || true
+fi
 echo "KyberNow Station démarrera à votre prochaine ouverture de session (ou maintenant : systemctl --user start kybernow-admin kybernow-kyber kybernow-tray)."
 '
 # Seulement à la désinstallation : une mise à jour (dpkg « upgrade », rpm
@@ -93,6 +108,13 @@ case "$1" in
     remove | purge | 0)
         systemctl disable --now kybernow-station-update.socket 2>/dev/null || true
         systemctl --global disable kybernow-admin.service kybernow-kyber.service kybernow-tray.service 2>/dev/null || true
+        if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+            firewall-cmd --permanent --remove-service=kybernow-station >/dev/null 2>&1 || true
+            firewall-cmd --remove-service=kybernow-station >/dev/null 2>&1 || true
+        fi
+        if command -v ufw >/dev/null 2>&1; then
+            ufw delete allow "KyberNow Station" >/dev/null 2>&1 || true
+        fi
         ;;
 esac
 '
@@ -136,6 +158,7 @@ Description: KyberNow Station : votre ordinateur sur tous vos appareils
  Fait de cet ordinateur sous Linux une Station KyberNow : son écran, son son
  et ses manettes sur vos autres appareils, avec les apps KyberNow Link.
 EOF
+echo /etc/ufw/applications.d/kybernow-station > "$WORK/deb/DEBIAN/conffiles"
 printf '%s' "$POSTINST" > "$WORK/deb/DEBIAN/postinst"
 printf '%s' "$PRERM" > "$WORK/deb/DEBIAN/prerm"
 chmod 755 "$WORK/deb/DEBIAN/postinst" "$WORK/deb/DEBIAN/prerm"
@@ -192,6 +215,8 @@ $(printf '%s' "$PRERM" | sed 1d)
 /usr/lib/udev/rules.d/60-kybernow-uinput.rules
 /usr/lib/modules-load.d/kybernow-station.conf
 /usr/share/applications/fr.leslignesclaires.kybernow.station.display.desktop
+/usr/lib/firewalld/services/kybernow-station.xml
+%config(noreplace) /etc/ufw/applications.d/kybernow-station
 /usr/share/doc/kybernow-station
 EOF
     rpmbuild --quiet --define "_topdir $WORK/rpm" -bb "$WORK/rpm/SPECS/kybernow-station.spec"
