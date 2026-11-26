@@ -16,6 +16,7 @@ mod model;
 mod preview;
 mod ps;
 mod pyrowave;
+mod station_offer;
 mod synced;
 mod ui;
 

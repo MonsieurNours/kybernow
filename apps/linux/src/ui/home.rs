@@ -256,6 +256,8 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             watch_button(app, cv, f, hst, x, y + 3.0, 46.0, 14.0);
             y += 52.0 + 30.0;
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
+            // La mise à jour de la Station, sous la rangée (docs/link-ui.md, « Mise à jour des Stations »).
+            super::offer::banner(app, cv, f, &hst.id, x0, y + 20.0, hero_max);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(app, cv, f, x0, y, 1.0, hero_max),
@@ -332,8 +334,11 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y: f32, cw: f32, ch
             Some(l) => (WARN, l.as_str()),
             None => (dot, line),
         };
+        // « En ligne · Mise à jour » : la Station a une mise à jour que cet appareil peut proposer (« Plus tard » ne
+        // l'enlève pas).
+        let line = if lent.is_none() && app.live.get(&h.id).is_some_and(|l| l.offer.chip) { format!("{line}{}", crate::station_offer::chip_suffix()) } else { line.to_string() };
         // La pastille d'origine (« Compte », « Appairé »…), seulement quand un compte est connecté.
-        let lines: Vec<&str> = std::iter::once(line).chain(app.origin(&h.id)).collect();
+        let lines: Vec<&str> = std::iter::once(line.as_str()).chain(app.origin(&h.id)).collect();
         card(cv, f, Target::Host(i), Rect::new(x, y, cw, ch), u, &h.name, Some(dot), None, &lines, selected.as_deref() == Some(&h.id), false, live == Online::Offline);
         x += cw + gap;
         slots -= 1;
@@ -529,6 +534,8 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             watch_button(app, cv, f, hst, x, y + 4.0 * u, 52.0 * u, 17.0 * u);
             y += 60.0 * u + 30.0 * u;
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
+            // La mise à jour de la Station, sous la rangée ; la flèche bas depuis « Se connecter » y mène.
+            super::offer::banner(app, cv, f, &hst.id, x0, y + 22.0 * u, hero_max);
         }
         None if app.selected_borrowed().is_some() || app.selected_console().is_some() => {}
         None => welcome(app, cv, f, x0, y, u, hero_max),

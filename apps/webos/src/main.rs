@@ -15,6 +15,7 @@ mod mires;
 mod model;
 mod preview;
 mod ps;
+mod station_offer;
 mod ui;
 
 fn main() {

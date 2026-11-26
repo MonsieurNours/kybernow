@@ -11,7 +11,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError, StationInfo};
 use kybernow_core::invite;
 use kybernow_core::lend;
 use kybernow_core::profile::Capabilities;
@@ -39,15 +39,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
         match c.info() {
             Ok(info) => {
                 let station = match &info.station {
-                    Some(st) => StationKnown::Info(StationLive {
-                        version: st.version.clone(),
-                        update_available: st.update.available,
-                        update_version: st.update.version.clone(),
-                        installable: st.update.installable,
-                        requires_setup: st.update.requires_setup,
-                        installing: st.update.installing,
-                        restarting: st.restarting,
-                    }),
+                    Some(st) => StationKnown::Info(station_live_of(st)),
                     None => StationKnown::Old(info.admin_version.clone()),
                 };
                 // Prêt de l'ordinateur : ce que « Prêter l'ordinateur… » peut faire, et, le prêt activé, la vue du prêt.
@@ -154,6 +146,36 @@ fn wake_targets(info: &Info) -> Vec<crate::model::WakeTarget> {
         .iter()
         .map(|t| crate::model::WakeTarget { mac: t.mac.clone(), ipv4: t.ipv4.clone(), broadcast: t.broadcast.clone(), kind: t.kind.clone(), armed: t.armed, name: t.name.clone() })
         .collect()
+}
+
+/// La Station du cœur (`StationInfo`) vue par l'interface.
+pub fn station_live_of(st: &StationInfo) -> StationLive {
+    StationLive {
+        version: st.version.clone(),
+        update_available: st.update.available,
+        update_version: st.update.version.clone(),
+        installable: st.update.installable,
+        requires_setup: st.update.requires_setup,
+        installing: st.update.installing,
+        restarting: st.restarting,
+    }
+}
+
+/// Mise à jour des Stations : demande à la Station de vérifier ses mises à jour tout de suite
+/// (`POST /api/stream/station/check`, `Console::station_check`) ; ce qu'elle annonce ensuite revient en
+/// `Event::StationChecked` (`None` : une Station d'avant la 0.11.3, ou pas de réponse : on se fie à son annonce).
+pub fn station_check(host: Host, tx: Sender<Event>) {
+    std::thread::spawn(move || {
+        let c = super::accounts::console_of(&host);
+        let station = match c.station_check() {
+            Ok(s) => s.map(|s| station_live_of(&s)),
+            Err(e) => {
+                log::info!("{} : vérification des mises à jour de la Station impossible ({e})", host.name);
+                None
+            }
+        };
+        let _ = tx.send(Event::StationChecked { id: host.id.clone(), station });
+    });
 }
 
 /// Redémarre ou met à jour la Station (rubrique Station des réglages) ; la
