@@ -1,6 +1,6 @@
 [package]
 name = "kybernow-micro"
-version = "0.11.6"
+version = "0.11.7"
 edition = "2024"
 rust-version = "1.89"
 description = "Micro de l'appareil sur la Station : décode le micro envoyé en session et le joue dans le micro virtuel de l'ordinateur (docs/micro.md)"

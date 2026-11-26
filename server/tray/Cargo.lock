@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-tray"
-version = "0.11.6"
+version = "0.11.7"
 dependencies = [
  "anyhow",
  "embed-resource",
