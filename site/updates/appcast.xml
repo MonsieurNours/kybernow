@@ -3,6 +3,26 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.11.3</title>
+            <pubDate>Thu, 26 Nov 2026 14:01:17 +0100</pubDate>
+            <sparkle:version>202611261357</sparkle:version>
+            <sparkle:shortVersionString>0.11.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **A welcome to get started, and your account up front.** On first launch, three screens introduce KyberNow, the benefits of an account (your computer away from home, on all your devices, to share or lend, your settings following you) and how to add your computer. Without an account, “Connect an account” now sits at the top of the home screen, with a card after your computers. “Create an account” opens the sign-up page in your browser. On a TV, everything happens with the code and your phone.
+- **Signing in to your KyberNow account from Safari.** When already signed in on share.kybernow.app, the app's sign-in stopped at “Sign-in didn't go through”. Fixed.
+- **Buttons on a single line.** On Mac, “Connect” and “Settings” wrapped onto two lines since the Auto profile arrived.
+- **Auto profile: the Mac, iPhone, iPad and Apple TV apps no longer stop at “Decoding on this device”.** The app closed at that step, after the connection, latency and bitrate. The test now runs to the end.
+- **The bitrate the computer's graphics card accepts, found and remembered.** The Auto profile (and Max at a high refresh rate) could ask for nearly 600 Mbit/s, more than the card accepts: the picture didn't start. The Auto test has a fifth step, “The computer's encoder”: the Station tries its encoder at the chosen bitrate, then 50 Mbit/s less at each refusal. And when the computer refuses the picture at the start, the session steps down by itself, 50 Mbit/s at a time. The bitrate that works is remembered for this computer, for all its profiles. Trying the encoder needs an up-to-date Station; PyroWave is not affected.
+- **No more endless “Reconnecting” when the computer refuses the picture.** A picture refused right from the start (the Auto profile could ask for HEVC at nearly 600 Mbit/s in 4K at 160 Hz) restarted the stream at the same bitrate, forever. The bitrate now steps down, then the stream is lightened (4:2:0); if it is still refused, the session stops with a message instead of looping.
+- **Auto profile: PyroWave measured.** The test's PyroWave samples were unreadable: no device could decode them, and the test never suggested PyroWave. They are rebuilt.
+- **Your Stations up to date, without thinking about it.** When your computer has a new version of the Station, the app's home screen offers it right away, under “Connect”: “Update”, about a minute. After an app update, a notice gathers the computers that have one too, with “Update all”. No need to look for it in the settings anymore; “Later” puts it off for a week. The other computers show “· Update” next to their state.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.11.3/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.11.3/KyberNow-Link-macOS.zip" length="61176293" type="application/octet-stream" sparkle:edSignature="VboCCtwXVXL0AU+RaEFhi4l1arr0YMoFnm4KShcwlV3hZzFzHrJLlspDOUVh9XWFZ5Ktk5qHv/fcK0Idap8rBA=="/>
+        </item>
+        <item>
             <title>0.11.2</title>
             <pubDate>Thu, 26 Nov 2026 12:09:59 +0100</pubDate>
             <sparkle:version>202611261149</sparkle:version>

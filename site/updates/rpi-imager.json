@@ -1,16 +1,16 @@
 {
   "os_list": [
     {
-      "name": "KyberNow Link OS 0.11.2",
+      "name": "KyberNow Link OS 0.11.3",
       "description": "Votre ordinateur sur votre Raspberry Pi : KyberNow Link seul, au téléviseur à la manette ou au bureau. Pi 3, 4 et 5 (64 bits). · Your computer on your Raspberry Pi: KyberNow Link alone, on a TV with a controller or at a desk.",
-      "url": "https://github.com/MonsieurNours/kybernow/releases/download/v0.11.2/KyberNow-Link-OS.img.xz",
+      "url": "https://github.com/MonsieurNours/kybernow/releases/download/v0.11.3/KyberNow-Link-OS.img.xz",
       "icon": "https://www.kybernow.app/apple-touch-icon.png",
       "website": "https://www.kybernow.app",
       "release_date": "2026-11-26",
-      "image_download_size": 728344444,
-      "image_download_sha256": "b9bcd5cdd9512aec60f0d488f8f8fc9bc776bcd18d87fc89ab105d2ad05d3903",
+      "image_download_size": 731092412,
+      "image_download_sha256": "ca78ba54d1be44c3149ed668bba910da367eeb8ee58c060a2d854204d871d581",
       "extract_size": 7549747200,
-      "extract_sha256": "75f395bea410f99badaba7a3499311c36d7e6844bbf4fc731c02278dd3f6a0a6",
+      "extract_sha256": "b7f17df8fba5b0065f29aea391ba1780bdfeab340272537c6376c0dd6d6c07ac",
       "init_format": "none",
       "devices": ["pi5-64bit", "pi4-64bit", "pi3-64bit"]
     }
