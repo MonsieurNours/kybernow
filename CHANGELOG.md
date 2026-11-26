@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **Moins de retard quand la carte graphique est très sollicitée, sur les Stations Windows, Mac et Linux.** Quand un jeu lourd occupe la carte graphique, l'encodeur de l'ordinateur prend parfois du retard. Jusqu'ici, les images capturées faisaient alors la queue et il traitait d'abord la plus ancienne, avec jusqu'à deux images de retard (huit sur la Station Linux). Il prend maintenant toujours la plus récente, et les plus anciennes sont abandonnées : ce que vous voyez est plus proche de ce qui se passe à l'écran. Rien ne change quand l'ordinateur suit sans peine. Les images abandonnées sont comptées dans le journal de la Station.
+
 ## 0.11.4
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.

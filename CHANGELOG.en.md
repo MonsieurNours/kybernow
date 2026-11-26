@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **Less delay when the graphics card is very busy, on Windows, Mac and Linux Stations.** When a heavy game keeps the graphics card busy, the computer's encoder sometimes falls behind. Until now, captured images then queued up and it handled the oldest first, up to two images late (eight on the Linux Station). It now always takes the newest, and older ones are let go: what you see is closer to what is happening on screen. Nothing changes when the computer keeps up easily. The images let go are counted in the Station's log.
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.
