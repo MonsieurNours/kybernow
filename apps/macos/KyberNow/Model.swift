@@ -676,6 +676,24 @@ final class HostStore: ObservableObject {
     @Published var relaySessions: Set<UUID> = []
     /// Un appareil est en session : « Redémarrer quand même » à confirmer.
     @Published var stationConfirm: StationConfirm?
+    /// Mise à jour des Stations proposée par l'app (LinkUI.swift) : « Plus
+    /// tard » et la dernière vérification, par ordinateur, gardés dans les
+    /// préférences de l'app (`stationOffers`).
+    @Published var stationMemory: [UUID: StationOffer.Memory] = [:]
+    /// Mises à jour lancées depuis le bandeau de l'accueil : le bandeau en
+    /// montre la suite (pendant, en place, échec).
+    @Published var stationBannerFollow: Set<UUID> = []
+    /// L'avis après une mise à jour de l'app (« {nom} a aussi une mise à jour »).
+    @Published var stationNotice: StationNotice?
+    /// Une session de cet appareil est ouverte (l'app le dit) : ni bandeau, ni
+    /// vérification, ni avis ; l'avis attend le retour à l'accueil.
+    @Published var sessionOpen = false {
+        didSet { if oldValue, !sessionOpen { showPendingStationNotice() } }
+    }
+    /// Vérifications des Stations en cours (`stationCheck`).
+    var stationChecking: Set<UUID> = []
+    /// L'avis est prêt mais une session est ouverte.
+    var pendingStationNotice: StationNotice?
     /// Réveil par le réseau en cours (« Réveil de l'ordinateur… »), par ordinateur.
     @Published private(set) var waking: Set<UUID> = []
     /// Prêter l'ordinateur : la vue du prêt de chaque ordinateur dont la
@@ -690,12 +708,12 @@ final class HostStore: ObservableObject {
     /// quand sa fenêtre est fermée (elle ne vit plus que dans la barre des menus).
     var pollInterval: TimeInterval = 8
     /// Fin du dernier tour de sondage.
-    private var lastPoll = Date.distantPast
+    private(set) var lastPoll = Date.distantPast
     /// Ordinateurs de démonstration (`-demo YES`, en Debug) : leurs propres
     /// préférences, mots de passe en mémoire, états posés par l'app, aucun
     /// appel réseau.
     let demo: Bool
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     private var demoPasswords: [UUID: String] = [:]
     /// Appelé après chaque ajout, modification ou retrait : l'app Mac publie
     /// ses ordinateurs dans iCloud pour l'Apple TV (CloudPublisher).
@@ -723,6 +741,7 @@ final class HostStore: ObservableObject {
            let saved = try? JSONDecoder().decode([Host].self, from: data) {
             hosts = saved
         }
+        stationMemory = Self.loadStationMemory(defaults)
         if !demo { startPolling() }
     }
 
@@ -934,6 +953,8 @@ final class HostStore: ObservableObject {
         do {
             let info = try await console.info()
             status[host.id] = HostStatus(online: true, info: info)
+            // Mise à jour des Stations : demander à la Station de vérifier, quand c'est le moment (LinkUI.swift).
+            stationCheckIfDue(host)
             // Le prêt de l'ordinateur (Station 0.9.0 et suivantes) : « Prêté à {prénom} » sur l'accueil.
             if info.lend?.available == true {
                 if let view = try? await console.lendState() { setLend(view, for: host.id) }
@@ -1062,6 +1083,15 @@ final class HostStore: ObservableObject {
     }
 
     /// La vue du prêt de cet ordinateur (sondage, réponse d'Admin, signe de vie de sa session).
+    /// Ce que la Station annonce après `stationCheck` : remplace `station` de
+    /// son dernier état (le sondage suivant le relira).
+    func setStation(_ station: StationInfo, for id: UUID) {
+        guard var s = status[id], var info = s.info else { return }
+        info.station = station
+        s.info = info
+        if status[id] != s { status[id] = s }
+    }
+
     func setLend(_ view: LendView?, for id: UUID) {
         if lends[id] != view { lends[id] = view }
     }

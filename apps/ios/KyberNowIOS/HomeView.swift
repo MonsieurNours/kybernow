@@ -72,6 +72,9 @@ struct HomeScreen: View {
 
     private static let space = "home"
 
+    /// La confirmation demandée par le bandeau de la mise à jour de la Station.
+    private var homeConfirm: StationConfirm? { store.stationConfirm.flatMap { $0.home ? $0 : nil } }
+
     /// La console PlayStation en scène : choisie, ou la première quand il
     /// n'y a ni ordinateur à soi ni ordinateur prêté.
     private var console: PlayStationConsole? {
@@ -128,6 +131,21 @@ struct HomeScreen: View {
             Button("Annuler", role: .cancel) {}
         } message: { _ in
             Text("Une session peut consommer plusieurs gigaoctets par heure sur votre forfait.")
+        }
+        // « {appareil} est connecté » après « Mettre à jour » du bandeau : la confirmation des réglages.
+        .alert(Text(homeConfirm?.title ?? ""), isPresented: Binding(get: { homeConfirm != nil && app.sheet == nil },
+                                                                   set: { if !$0, let c = homeConfirm { store.stationConfirm = nil; store.cancelStationFromBanner(c.hostID) } }),
+               presenting: homeConfirm) { c in
+            Button(c.confirmLabel, role: .destructive) {
+                store.stationConfirm = nil
+                if let host = store.host(c.hostID) { store.updateStationFromBanner(host, force: true) }
+            }
+            Button(StationText.cancel, role: .cancel) {
+                store.stationConfirm = nil
+                store.cancelStationFromBanner(c.hostID)
+            }
+        } message: { c in
+            Text(c.message)
         }
         .onAppear {
             if app.selected == nil { app.selected = store.ordered.first?.id }
@@ -457,6 +475,20 @@ struct HomeScreen: View {
 
     // MARK: Se connecter, puis le profil
 
+    /// Sous la rangée « Se connecter » et profils, un bandeau au plus : la
+    /// mise à jour de la Station (docs/link-ui.md, « Mise à jour des Stations »).
+    @ViewBuilder private func stationBanner(_ host: Host, wide: Bool) -> some View {
+        if let banner = store.stationBanner(host) {
+            StationBannerCard(banner: banner, wide: wide) {
+                store.updateStationFromBanner(host)
+            } later: {
+                store.stationLater(host, version: banner.version)
+            }
+            .padding(.top, wide ? 4 : 2)
+            .transition(.opacity)
+        }
+    }
+
     @ViewBuilder private func actions(wide: Bool) -> some View {
         if let console {
             ConsoleStageActions(app: app, console: console, store: playstation, wide: wide, glow: ctaGlow)
@@ -534,9 +566,11 @@ struct HomeScreen: View {
                         settingsButton(host, wide: true)
                     }
                     hint
+                    stationBanner(host, wide: true)
                 }
                 .homeRise(revealed, 0.48)
                 .animation(Theme.easeOut, value: host.settings.profile)
+                .animation(Theme.easeOut, value: store.stationBanner(host))
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     cta
@@ -546,9 +580,11 @@ struct HomeScreen: View {
                         settingsButton(host, wide: false)
                     }
                     hint
+                    stationBanner(host, wide: false)
                 }
                 .homeRise(revealed, 0.48)
                 .animation(Theme.easeOut, value: host.settings.profile)
+                .animation(Theme.easeOut, value: store.stationBanner(host))
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
@@ -701,7 +737,9 @@ struct HomeScreen: View {
         return Button {
             withAnimation(Theme.easeOut) { app.selected = h.id }
         } label: {
-            HomeHostCard(host: h, online: on, status: LinkText.status(on, away: store.status[h.id]?.away == true), selected: h.id == host?.id, m: m,
+            // « En ligne · Mise à jour » quand sa Station en a une (docs/link-ui.md).
+            let state = LinkText.status(on, away: store.status[h.id]?.away == true)
+            HomeHostCard(host: h, online: on, status: h.id != host?.id && store.stationChip(h) ? StationOfferText.chipped(state) : state, selected: h.id == host?.id, m: m,
                          origin: app.accounts.origins[h.id])
         }
         .buttonStyle(HomePressStyle())

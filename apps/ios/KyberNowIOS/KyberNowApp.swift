@@ -139,8 +139,13 @@ struct RootView: View {
         .sheet(item: Binding(get: { app.playstation.pairing }, set: { app.playstation.pairing = $0 })) { target in
             PairConsoleSheet(target: target, store: app.playstation)
         }
+        // Après une mise à jour de l'app : les Stations à mettre à jour aussi
+        // (LinkUI.swift), sur l'accueil seulement.
+        .modifier(StationNoticePresenter(store: app.store, free: app.launched && app.sheet == nil && !app.inSession))
         .onChange(of: app.inSession, initial: true) { _, inSession in
             Orientation.lockLandscape(inSession)
+            // Mise à jour des Stations : ni bandeau ni vérification en session ; l'avis attend la fin.
+            app.store.sessionOpen = inSession
         }
     }
 }
