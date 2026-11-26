@@ -10,6 +10,8 @@
   ses ordinateurs quittent cet appareil, les appairés restent) ; « Ajouter un compte » demande d'abord
   le relais (share.kybernow.app proposé, ou « Un autre relais… » tapé), puis la page du relais s'ouvre.
   L'app ne crée ni ne supprime de compte : la page du compte le fait.
+
+  « Revoir l'accueil » (docs/link-ui.md « Accueil et compte KyberNow ») : les trois écrans du premier lancement.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -35,6 +37,7 @@
     onbattery,
     onclose,
     oninstall,
+    onwelcome,
   }: {
     update: Update | null
     progress: number | null
@@ -54,6 +57,8 @@
     onbattery: (b: Battery) => void
     onclose: () => void
     oninstall: () => void
+    /** « Revoir l'accueil » : les réglages se ferment, l'accueil du premier lancement s'ouvre. */
+    onwelcome?: () => void
   } = $props()
 
   const decodes = $derived(
@@ -229,6 +234,12 @@
     {#if error}<div class="error">{error}</div>{/if}
 
     <p class="help">{t('appsheet.help')}</p>
+
+    {#if onwelcome}
+      <div class="row">
+        <button class="ghost" onclick={onwelcome}>{t('welcome.replay')}</button>
+      </div>
+    {/if}
 
     <div class="pc accounts">
       <div class="eyebrow">{t('account.section')}</div>

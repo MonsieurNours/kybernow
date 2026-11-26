@@ -131,6 +131,10 @@ mod ui;
 mod video;
 #[cfg(windows)]
 mod window;
+// Accueil au premier lancement et carte du compte KyberNow : ce que
+// l'interface lit (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod welcome;
 
 #[cfg(windows)]
 fn main() {

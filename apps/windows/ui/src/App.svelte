@@ -13,6 +13,12 @@
   Mise à jour des Stations (docs/link-ui.md) : au premier lancement après une mise à jour de l'app, l'avis
   « … a aussi une mise à jour » (StationNotice, `take_station_notice` après l'événement `station-notice`), montré
   seulement sur l'accueil, hors session : il attend la fin d'une session ouverte au lancement.
+
+  Accueil et compte KyberNow (docs/link-ui.md) : l'accueil en trois écrans au premier lancement (Welcome,
+  `welcome_state`, « Revoir l'accueil » dans les réglages de l'app), fermé par un compte connecté ; sans compte, le
+  bouton « Connecter un compte » de la barre de titre, la carte du compte, le bandeau après un appairage
+  (`welcome_paired_hint`) et « Hors de chez vous ? » (AwayPrompt, `welcome_away_hint`) quand « Réessayer » ou
+  « Se connecter » laisse hors ligne un ordinateur appairé que le relais ne tient pas.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -29,9 +35,12 @@
   import PairSheet from './PairSheet.svelte'
   import ConsoleSettings from './ConsoleSettings.svelte'
   import StationNotice from './StationNotice.svelte'
+  import Welcome from './Welcome.svelte'
+  import AwayPrompt from './AwayPrompt.svelte'
   import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Chosen, Computer, ConnectInfo, Settings as ComputerSettings, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update, WatchWords } from './lib/api'
   import type { PsFound, PsState, StationNotice as StationNoticeData } from './lib/api'
-  import { guestComputer, invoke, isConsoleId, listen } from './lib/api'
+  import type { WelcomeView } from './lib/api'
+  import { guestComputer, invoke, isConsoleId, listen, stationBannerFor } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let computers = $state<Computer[]>([])
@@ -110,6 +119,16 @@
   let signingIn = $state(false)
   /** Le refus de la dernière connexion à un compte, montré aussi dans les réglages de l'app. */
   let signInError = $state<string | null>(null)
+  /** L'incitation au compte : accueil du premier lancement, carte du compte (`welcome_state`). */
+  let welcome = $state<WelcomeView | null>(null)
+  /** L'accueil en trois écrans est ouvert (premier lancement, ou « Revoir l'accueil »). */
+  let welcomeOpen = $state(false)
+  /** L'ordinateur dont le bandeau « après un appairage » se montre (sans compte). */
+  let pairedHint = $state<string | null>(null)
+  /** L'ordinateur qui vient d'être ajouté : son bandeau attend que celui de la mise à jour de sa Station soit parti. */
+  let pairedPending = $state<string | null>(null)
+  /** « Hors de chez vous ? » : l'ordinateur appairé absent de ce réseau. */
+  let awayPrompt = $state<{ id: string; name: string } | null>(null)
   /** L'avis après une mise à jour de l'app : les Stations à mettre à jour aussi. */
   let stationNotice = $state<StationNoticeData | null>(null)
   /** Profil Auto : l'ordinateur dont le panneau du test est ouvert. */
@@ -175,11 +194,18 @@
       listen<PsState>('ps-state', (s) => (ps = s)),
       listen<string>('lang', setLang),
       listen<number>('update-progress', (p) => (progress = p)),
-      listen<AccountView[]>('accounts', (a) => (accounts = a)),
+      listen<AccountView[]>('accounts', (a) => {
+        accounts = a
+        refreshWelcome()
+      }),
       listen<AccountSignIn>('account-sign-in', (r) => {
         signingIn = false
         if (r.kind === 'signed_in') {
           signInError = null
+          // Connecté depuis l'accueil du premier lancement : l'écran 3 est passé, les ordinateurs du compte arrivent.
+          if (welcomeOpen) finishWelcome()
+          pairedHint = null
+          awayPrompt = null
           notice = t('account.signed_in', { account: r.account })
         } else if (r.kind === 'failed') {
           signInError = r.message
@@ -255,6 +281,14 @@
         .then(() => invoke<PsState>('ps_state').then((s) => (ps = s)))
         .then(() => invoke<AccountView[]>('account_list').then((a) => (accounts = a)))
         .then(() =>
+          invoke<WelcomeView>('welcome_state')
+            .then((w) => {
+              welcome = w
+              if (w.show) welcomeOpen = true
+            })
+            .catch(() => {}),
+        )
+        .then(() =>
           invoke<AppInfo>('app_info').then((i) => {
             update = i.update
             battery = i.battery ?? battery
@@ -276,6 +310,9 @@
 
   /** Demande venue de l'extérieur : lien, barre des tâches, notification, menu de l'icône. */
   async function handle(a: Action) {
+    // Une demande venue d'ailleurs (lien, menu de l'icône…) passe avant l'accueil du premier lancement, qui revient au
+    // prochain lancement (il n'est pas marqué vu).
+    if (a.kind !== 'updated' && a.kind !== 'show') welcomeOpen = false
     settingsId = null
     settingsRubric = null
     consoleSettingsId = null
@@ -497,6 +534,77 @@
     }
   }
 
+  // MARK: - Accueil et compte KyberNow
+
+  function refreshWelcome() {
+    invoke<WelcomeView>('welcome_state')
+      .then((w) => (welcome = w))
+      .catch(() => {})
+  }
+
+  /** « Passer », « Plus tard », un compte connecté, « Ajouter » ou « Rejoindre avec un code » : l'accueil est vu. */
+  function finishWelcome() {
+    welcomeOpen = false
+    invoke<WelcomeView>('welcome_done')
+      .then((w) => (welcome = w))
+      .catch(() => {})
+  }
+
+  /** « Créer un compte » (carte, « Hors de chez vous ? ») : la page d'inscription dans le navigateur, puis l'avis. */
+  async function signUp() {
+    error = null
+    try {
+      await invoke('welcome_sign_up')
+      notice = t('welcome.sign_up_notice')
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
+  /** « Connecter un compte » (barre de titre, carte, bandeaux, « Hors de chez vous ? ») : le relais public. */
+  async function connectAccount() {
+    awayPrompt = null
+    const e = await signIn()
+    if (e) error = e
+  }
+
+  async function closeCard() {
+    try {
+      welcome = await invoke<WelcomeView>('welcome_close_card')
+    } catch {}
+  }
+
+  /** Un ordinateur ajouté (appairage, invitation) : le bandeau, une fois, sans compte (voir l'effet ci-dessous). */
+  function pairedOnce(id: string) {
+    if (accounts.length === 0) pairedPending = id
+  }
+
+  /**
+   * Un seul bandeau à la fois sous la rangée « Se connecter » : la mise à jour de la Station passe d'abord. Le bandeau
+   * après un appairage n'est demandé (et compté comme montré) que quand il peut vraiment se montrer : l'ordinateur
+   * ajouté choisi sur l'accueil, sans bandeau de sa Station.
+   */
+  $effect(() => {
+    const id = pairedPending
+    if (!id || accounts.length > 0 || welcomeOpen || selected?.id !== id || stationBannerFor(selected, sessions)) return
+    pairedPending = null
+    invoke<boolean>('welcome_paired_hint', { id, stationBanner: false })
+      .then((show) => show && (pairedHint = id))
+      .catch(() => {})
+  })
+
+  /**
+   * « Réessayer » ou « Se connecter » laisse hors ligne un ordinateur appairé que le relais ne tient pas (pas « Hors de
+   * chez vous ») : « Hors de chez vous ? », une fois par jour au plus, sans compte.
+   */
+  function awayOnce(id: string) {
+    const c = computers.find((x) => x.id === id)
+    if (!c || c.online !== false || c.away || c.account || accounts.length > 0) return
+    invoke<boolean>('welcome_away_hint', { id })
+      .then((show) => show && (awayPrompt = { id, name: c.name }))
+      .catch(() => {})
+  }
+
   // MARK: - Comptes KyberNow
 
   /**
@@ -554,6 +662,7 @@
     } catch (e) {
       if (passage?.id === id && !passage.opening) passage = null
       error = t('app.connect_failed', { error: String(e) })
+      awayOnce(id)
     }
   }
 
@@ -572,6 +681,7 @@
     retrying = id
     try {
       await invoke('poll_now', { id })
+      awayOnce(id)
     } catch (e) {
       error = String(e)
     } finally {
@@ -620,6 +730,7 @@
   function added(id: string) {
     adding = null
     select(id)
+    pairedOnce(id)
   }
 
   // MARK: - Consoles PlayStation
@@ -690,6 +801,9 @@
   onback={settingsFor ? () => (settingsId = null) : consoleSettingsFor ? () => (consoleSettingsId = null) : undefined}
   onapp={() => ((appCheck = false), (appSheet = true))}
   badge={update !== null}
+  onaccount={accounts.length === 0 && welcome && !welcomeOpen && !notice && !settingsFor && !consoleSettingsFor ? connectAccount : undefined}
+  {signingIn}
+  crowded={update !== null && !passage}
 />
 
 {#if (update || notice) && !settingsFor && !consoleSettingsFor && !passage}
@@ -751,6 +865,11 @@
       if (e) error = e
     }}
     oncancelsignin={cancelSignIn}
+    {welcome}
+    {pairedHint}
+    onsignup={signUp}
+    onclosecard={closeCard}
+    onpairedlater={() => (pairedHint = null)}
     busy={passage !== null && !passage.opening}
     retrying={retrying !== null && retrying === selected?.id}
     {error}
@@ -798,6 +917,7 @@
       consoleSettingsId = null
       select(added.id)
       notice = t('invite.added', { name: added.name })
+      pairedOnce(added.id)
     }}
   />
 {/if}
@@ -875,7 +995,34 @@
     onbattery={setBattery}
     onclose={() => (appSheet = false)}
     oninstall={installUpdate}
+    onwelcome={() => ((appSheet = false), (error = null), (welcomeOpen = true))}
   />
+{/if}
+
+{#if welcomeOpen && !passage}
+  <Welcome
+    {computers}
+    {discovered}
+    relay={welcome?.relay ?? 'share.kybernow.app'}
+    {signingIn}
+    error={signInError}
+    onsignin={connectAccount}
+    oncancelsignin={cancelSignIn}
+    onadd={(found) => {
+      finishWelcome()
+      addingWay = null
+      adding = { found }
+    }}
+    onjoin={() => {
+      finishWelcome()
+      join()
+    }}
+    ondone={finishWelcome}
+  />
+{/if}
+
+{#if awayPrompt}
+  <AwayPrompt name={awayPrompt.name} onsignin={connectAccount} onsignup={() => ((awayPrompt = null), signUp())} onclose={() => (awayPrompt = null)} />
 {/if}
 
 {#if passage && passageFor}

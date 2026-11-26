@@ -75,6 +75,9 @@ mod synced;
 // Consoles PlayStation : recherche, comptes PSN, association, partie et sa
 // barre, réglages, envoi entre appareils (docs/playstation.md).
 mod playstation;
+// Accueil au premier lancement et incitation au compte KyberNow : état gardé
+// dans `app.json`, carte du compte, bandeaux (docs/link-ui.md).
+mod welcome;
 // Mise à jour des Stations proposée à l'accueil (bandeau, puce « · Mise à
 // jour »), vérification demandée à la Station, avis après une mise à jour de
 // l'app (docs/link-ui.md « Mise à jour des Stations »).
@@ -428,6 +431,10 @@ pub struct Prefs {
     /// absent : allumé.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_settings: Option<bool>,
+    /// L'accueil au premier lancement et l'incitation au compte KyberNow
+    /// (`kybernow_core::welcome`, docs/link-ui.md « Accueil et compte
+    /// KyberNow ») ; absent des fichiers d'avant : l'accueil se montre une fois.
+    pub welcome: kybernow_core::welcome::WelcomeState,
     /// La dernière version de l'app lancée : l'avis « … a aussi une mise à
     /// jour » au premier lancement d'une nouvelle version (`stations::launched`).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4370,6 +4377,13 @@ pub fn run(args: Vec<String>) {
             account::account_sign_in_cancel,
             account::account_manage,
             account::account_sign_out,
+            welcome::welcome_state,
+            welcome::welcome_done,
+            welcome::welcome_close_card,
+            welcome::welcome_paired_hint,
+            welcome::welcome_away_hint,
+            welcome::welcome_sign_up,
+            welcome::welcome_station_download,
             playstation::ps_state,
             playstation::ps_search_now,
             playstation::ps_login,
