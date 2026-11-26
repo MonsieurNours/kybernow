@@ -205,9 +205,16 @@ fn connecter_une_app_par_la_fenetre_du_systeme() {
     assert_eq!(t.body["relay"], "share.test");
     let token = t.body["token"].as_str().unwrap().to_string();
     assert_eq!(api(&w, true, "/v1/devices/token", None, json!({ "code": code })).status, 400, "code déjà servi");
-    // Déjà connectée dans ce navigateur : l'app suivante va droit à la question.
-    let r = b.get("/compte/connexion?lang=fr&appareil=Mac&retour=kybernow://compte");
-    assert_eq!(location(&r), "/compte/connecter-appareil?lang=fr&appareil=Mac");
+    // Déjà connectée dans ce navigateur : l'app suivante va droit à la question,
+    // avec son `etat` (sans lui, l'app refusait le retour).
+    let r = b.get("/compte/connexion?lang=fr&appareil=Mac&retour=kybernow://compte&etat=premier");
+    assert_eq!(location(&r), "/compte/connecter-appareil?lang=fr&appareil=Mac&etat=premier");
+    // Une demande abandonnée ne remplace pas la suivante : chaque demande va à
+    // sa propre question, avec son `etat`.
+    let r = b.get("/compte/connexion?lang=fr&appareil=Mac&retour=kybernow://compte&etat=second");
+    assert_eq!(location(&r), "/compte/connecter-appareil?lang=fr&appareil=Mac&etat=second");
+    let consent = b.get(location(&r));
+    assert!(html(&consent).contains(r#"name="etat" value="second""#));
 
     // Les ordinateurs du compte, puis un jeton d'accès pour l'un d'eux.
     let st = station(3);

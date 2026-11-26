@@ -422,10 +422,22 @@ impl Accounts {
             ("/compte", false) => account_page(cx, None),
             ("/compte/connexion", false) => {
                 // Depuis une app (lot 3) : sa demande est retenue pour après la connexion.
-                if appareil(req).is_some() && !device_pages::remember_device_request(&mut cx) {
-                    return device_pages::bad_return(cx);
-                }
+                let request = if appareil(req).is_some() {
+                    match device_pages::remember_device_request(&mut cx) {
+                        Some(path) => Some(path),
+                        None => return device_pages::bad_return(cx),
+                    }
+                } else {
+                    None
+                };
                 if cx.full_session().is_some() {
+                    // Déjà connecté : cette demande-ci, tout de suite. La suite
+                    // retenue par le cookie reçu peut être celle d'une demande
+                    // abandonnée (autre `etat` : l'app refusait le retour).
+                    if let Some(path) = request {
+                        cx.cookies.push(device_pages::clear_next());
+                        return cx.redirect(path);
+                    }
                     return device_pages::after_sign_in(cx);
                 }
                 let page = pages::sign_in(&cx.view(), "", None, self.mailer.is_some(), self.mailer.is_some());

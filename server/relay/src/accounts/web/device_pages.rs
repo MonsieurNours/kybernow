@@ -78,16 +78,22 @@ pub(super) fn after_sign_in(mut cx: Cx<'_>) -> Reply {
     cx.redirect(format!("/compte/ordinateurs{q}"))
 }
 
+/// Efface la suite retenue (en-tête à ajouter aux cookies de la réponse).
+pub(super) fn clear_next() -> String {
+    clear_cookie(NEXT_COOKIE)
+}
+
 /// `etat` donné par l'app : 128 signes d'adresse au plus, sinon rien.
 fn etat(value: &str) -> &str {
     if value.len() <= 128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~')) { value } else { "" }
 }
 
 /// `GET /compte/connexion?appareil=…&retour=kybernow://compte` : la demande
-/// de l'app est retenue pour après la connexion. `false` : retour refusé.
-pub(super) fn remember_device_request(cx: &mut Cx<'_>) -> bool {
+/// de l'app est retenue pour après la connexion ; rend la page de la demande
+/// (« Connecter KyberNow Link sur … ? », avec son `etat`). `None` : retour refusé.
+pub(super) fn remember_device_request(cx: &mut Cx<'_>) -> Option<String> {
     if cx.req.query("retour").is_some_and(|r| r != RETURN_URI) {
-        return false;
+        return None;
     }
     let mut path = format!("/compte/connecter-appareil{}", cx.q());
     let state = etat(cx.req.query("etat").unwrap_or(""));
@@ -95,7 +101,7 @@ pub(super) fn remember_device_request(cx: &mut Cx<'_>) -> bool {
         path.push_str(&format!("&etat={state}"));
     }
     set_next(cx, &path);
-    true
+    Some(path)
 }
 
 /// Le retour vers l'app refusé (`retour` autre que `kybernow://compte`).
