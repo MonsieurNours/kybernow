@@ -13,7 +13,10 @@
 #   arm64  : la VM « KyberNow Linux » (KYBERNOW_STATION_ARM64_SSH, défaut
 #            kybernow-vm ; dépôt en dossier partagé, KYBERNOW_LINUX_REPO) ;
 #   x86_64 : un PC ou une VM x86_64 (KYBERNOW_STATION_X86_SSH, dépôt dans
-#            KYBERNOW_STATION_X86_REPO, défaut ~/kyber-apps).
+#            KYBERNOW_STATION_X86_REPO, défaut ~/kyber-apps) ; sans elle, la
+#            même VM arm64, dans son Ubuntu x86_64 par Rosetta
+#            (server/linux/scripts/x86-chroot.sh, sources de Kyber x86_64 dans
+#            ~/kn-amd64-home/kyber-desktop).
 # Sources de Kyber sur chaque machine : KYBERNOW_STATION_KYBER_DIR (défaut
 # ~/kn-station/kyber-desktop).
 #
@@ -27,6 +30,9 @@ ARM_HOST="${KYBERNOW_STATION_ARM64_SSH:-kybernow-vm}"
 ARM_REPO="${KYBERNOW_LINUX_REPO:-/media/psf/kyber-apps}"
 X86_HOST="${KYBERNOW_STATION_X86_SSH:-}"
 X86_REPO="${KYBERNOW_STATION_X86_REPO:-~/kyber-apps}"
+# Sans machine x86_64 : le chroot x86_64 de la VM arm64 (Rosetta).
+X86_CHROOT=0
+if [ -z "$X86_HOST" ]; then X86_CHROOT=1; X86_HOST="$ARM_HOST" X86_REPO="$ARM_REPO"; fi
 KYBER="${KYBERNOW_STATION_KYBER_DIR:-~/kn-station/kyber-desktop}"
 OUT="$ROOT/server/linux/dist/release"
 CHECK=0 DEST=""
@@ -57,18 +63,35 @@ ready() {
 }
 
 msg="$(ready "$ARM_HOST" "$ARM_REPO" aarch64)" || { echo "Station Linux arm64 : $msg" >&2; exit 1; }
-msg="$(ready "$X86_HOST" "$X86_REPO" x86_64)" || { echo "Station Linux x86_64 : $msg" >&2; exit 1; }
-[ "$CHECK" = 1 ] && { echo "Station Linux : arm64 sur $ARM_HOST, x86_64 sur $X86_HOST"; exit 0; }
+if [ "$X86_CHROOT" = 1 ]; then
+    remote "$ARM_HOST" "$ARM_REPO/server/linux/scripts/x86-chroot.sh run 'test \"\$(uname -m)\" = x86_64 && command -v cargo-cbuild >/dev/null && test -d ~/kyber-desktop'" >/dev/null 2>&1 \
+        || { echo "Station Linux x86_64 : chroot x86_64 de $ARM_HOST pas prêt (x86-chroot.sh setup, sources de Kyber dans ~/kn-amd64-home/kyber-desktop)" >&2; exit 1; }
+    X86_WHERE="$ARM_HOST, Ubuntu x86_64 par Rosetta"
+else
+    msg="$(ready "$X86_HOST" "$X86_REPO" x86_64)" || { echo "Station Linux x86_64 : $msg" >&2; exit 1; }
+    X86_WHERE="$X86_HOST"
+fi
+[ "$CHECK" = 1 ] && { echo "Station Linux : arm64 sur $ARM_HOST, x86_64 sur $X86_WHERE"; exit 0; }
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
 for arch in aarch64 x86_64; do
     if [ "$arch" = aarch64 ]; then host="$ARM_HOST" repo="$ARM_REPO" name=arm64; else host="$X86_HOST" repo="$X86_REPO" name=x86_64; fi
-    echo "==> Station Linux $name ($host)"
     dist="~/kn-station/release-$name"
-    remote "$host" "rm -rf $dist && cd $repo && KYBER_DIR=$KYBER server/linux/scripts/build-kyber.sh > ~/kn-station/release-$name-kyber.log 2>&1 \
-        && KYBER_DIR=$KYBER DIST=$dist server/linux/scripts/package.sh > ~/kn-station/release-$name.log 2>&1" \
-        || { echo "échec ; journaux sur $host : ~/kn-station/release-$name*.log" >&2; remote "$host" "tail -20 ~/kn-station/release-$name.log" >&2 || true; exit 1; }
+    build="rm -rf $dist && mkdir -p ~/kn-station && cd $repo && KYBER_DIR=$KYBER server/linux/scripts/build-kyber.sh > ~/kn-station/release-$name-kyber.log 2>&1 \
+        && KYBER_DIR=$KYBER DIST=$dist server/linux/scripts/package.sh > ~/kn-station/release-$name.log 2>&1"
+    if [ "$arch" = x86_64 ] && [ "$X86_CHROOT" = 1 ]; then
+        # Dans le chroot, ~ est ~/kn-amd64-home de la VM (sources de Kyber x86_64 à part).
+        echo "==> Station Linux $name ($X86_WHERE)"
+        build="${build//$KYBER/~/kyber-desktop}"
+        remote "$host" "$repo/server/linux/scripts/x86-chroot.sh run '$build'" \
+            || { echo "échec ; journaux sur $host : ~/kn-amd64-home/kn-station/release-$name*.log" >&2; remote "$host" "tail -20 ~/kn-amd64-home/kn-station/release-$name.log" >&2 || true; exit 1; }
+        dist="~/kn-amd64-home/kn-station/release-$name"
+    else
+        echo "==> Station Linux $name ($host)"
+        remote "$host" "$build" \
+            || { echo "échec ; journaux sur $host : ~/kn-station/release-$name*.log" >&2; remote "$host" "tail -20 ~/kn-station/release-$name.log" >&2 || true; exit 1; }
+    fi
     deb="$(remote "$host" "ls $dist/*.deb" | head -1)"
     rpm="$(remote "$host" "ls $dist/*.rpm 2>/dev/null" | head -1)"
     [ -n "$deb" ] && [ -n "$rpm" ] || { echo "$host : .deb ou .rpm absent de $dist (rpmbuild ?)" >&2; exit 1; }
