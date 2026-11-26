@@ -36,11 +36,14 @@ windows)
     for c in camera out_windows; do
         x86_64-w64-mingw32-gcc -O2 -Wall -c -o "$OBJ/$c.o" "$HERE/$c.c" -I"$HERE" -I"$ROOTFS/include"
     done
+    # Sans fenêtre (-mwindows) : lancé par kycontroller pendant une session, un
+    # programme console ouvrait un terminal noir sur le bureau ; l'entrée et la
+    # sortie standard restent les tubes de kycontroller, d'Admin ou de l'installateur.
     # shellcheck disable=SC2046  # options de pkg-config, mot à mot
     x86_64-w64-mingw32-g++ "${CXXFLAGS[@]}" -o "$OUTPUT/kybernow-camera.exe" \
         "$OBJ/camera.o" "$OBJ/out_windows.o" "$OBJ/install.o" \
         $(PKG_CONFIG_LIBDIR="$PC" pkg-config --static --libs $FFMPEG) \
-        -lole32 -luuid -ladvapi32 -lpthread
+        -lole32 -luuid -ladvapi32 -lpthread -mwindows
     rm -rf "$OBJ"
     x86_64-w64-mingw32-strip --strip-debug "$OUTPUT"/kybernow-camera.exe "$OUTPUT"/KyberNowCamera*.dll
     ;;

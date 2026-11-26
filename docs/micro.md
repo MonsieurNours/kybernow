@@ -30,7 +30,7 @@ Le transport est le **flux montant commun** de la caméra et du micro (correctif
 
 ## L'aide de la Station : `kybernow-micro`
 
-`server/micro` (Rust), installée à côté de kycontroller (`KYBERNOW_MICRO` pour une autre). Une par session qui envoie son micro ; plusieurs (l'hôte et ses invités) se mélangent dans le micro virtuel, le système fait le mélange.
+`server/micro` (Rust), installée à côté de kycontroller (`KYBERNOW_MICRO` pour une autre). Sans fenêtre sur Windows (sous-système « windows » : un programme console ouvrait un terminal noir sur le bureau de l'hôte) ; son entrée et sa sortie restent les tubes de kycontroller. Une par session qui envoie son micro ; plusieurs (l'hôte et ses invités) se mélangent dans le micro virtuel, le système fait le mélange.
 
 - **Décodage** : libopus ; tampon de gigue de 20 ms visé, 60 ms au plus (au-delà, le plus ancien est jeté) ; une trame perdue est refaite par la correction d'erreurs du paquet suivant s'il est là, sinon masquée par Opus (PLC) ; au silence quand rien n'arrive depuis 60 ms.
 - **Micro par défaut** : au premier paquet, si le micro par défaut de l'ordinateur n'est pas déjà le micro virtuel, elle le note et met le micro virtuel par défaut ; en partant, elle remet le précédent s'il n'a pas changé entre-temps. Une seconde aide (un invité) trouve le micro virtuel déjà par défaut et ne touche à rien.

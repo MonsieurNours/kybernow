@@ -30,7 +30,7 @@ The transport is the camera's and microphone's **common upstream channel** (patc
 
 ## The Station's helper: `kybernow-micro`
 
-`server/micro` (Rust), installed next to kycontroller (`KYBERNOW_MICRO` for another one). One per session sending its microphone; several (the host and their guests) mix in the virtual microphone, the system does the mixing.
+`server/micro` (Rust), installed next to kycontroller (`KYBERNOW_MICRO` for another one). Windowless on Windows ("windows" subsystem: a console program opened a black terminal on the host's desktop); its input and output stay kycontroller's pipes. One per session sending its microphone; several (the host and their guests) mix in the virtual microphone, the system does the mixing.
 
 - **Decoding**: libopus; 20 ms jitter buffer aimed for, 60 ms at most (beyond, the oldest is dropped); a lost frame is rebuilt from the next packet's error correction when it is there, otherwise concealed by Opus (PLC); silence when nothing has come for 60 ms.
 - **Default microphone**: at the first packet, if the computer's default microphone isn't the virtual one already, it notes it and makes the virtual microphone the default; when leaving, it puts the previous one back if it hasn't changed meanwhile. A second helper (a guest) finds the virtual microphone already default and touches nothing.

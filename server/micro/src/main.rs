@@ -14,6 +14,11 @@
 //! 3 s'il manque, 1 si rien ne peut marcher ici. Le journal va sur la sortie
 //! d'erreur (dans celui de kycontroller).
 
+// Sans fenêtre sur Windows : lancé par kycontroller pendant une session, un
+// programme console ouvrait un terminal noir sur le bureau. L'entrée et la
+// sortie standard restent les tubes de kycontroller (ou d'Admin, `--check`).
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod jitter;
 mod out;
 mod stream;

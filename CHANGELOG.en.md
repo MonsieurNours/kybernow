@@ -4,6 +4,15 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **iPhone, iPad and Apple TV: the app no longer freezes mid-session.** After a few minutes, the pointer stopped moving, the menu wouldn't open, and the app had to be force-quit. Moving the pointer at the exact moment the computer announced its own locked the app up for good. Fixed.
+- **Windows Station: no more black window when the microphone or camera turns on.** A terminal window opened on the PC's desktop while the device sent its microphone or camera. It no longer does.
+- **No more sessions ending after a few minutes on patchy Wi-Fi.** When the picture was slow to come back, the app restarted the stream, and the fourth time it ended the session ("the computer is not sending a picture"). But those restarts were counted over the whole session, even minutes apart and followed by a normal picture. They are now counted in a row: a picture that comes back resets the count. In every app.
+- **Android: mice no longer pass for gamepads.** Some mice (Logitech in particular) also announce a "joystick" to Android: the app took them for gamepads, and the computer saw one more gamepad per mouse. A mouse now stays a mouse.
+- **Android: a properly sized pointer in desktop mode.** On a large screen (Android desktop mode, a TV plugged into the phone), the computer's pointer was drawn tiny. It is now never smaller than on the computer's own screen.
+- **Android: an account on another relay, from the first one.** With no account connected, Settings › Accounts only offered the public relay. "Another relay…" is now there, as in the other apps.
+
 ## 0.11.6
 
 - **The microphone reaches a Windows PC on its own.** The Windows Station now installs VB-CABLE, VB-Audio Software's virtual microphone (donationware: vb-cable.com), which receives your devices' microphone: at install time and when updating from Admin, if it isn't already there. Before, you had to install it yourself.

@@ -5,6 +5,15 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **iPhone, iPad et Apple TV : l'app ne se fige plus en pleine session.** Au bout de quelques minutes, le pointeur ne bougeait plus, le menu ne s'ouvrait plus, et il fallait fermer l'app de force. Bouger le pointeur au moment exact où l'ordinateur annonçait le sien bloquait l'app pour de bon. C'est corrigé.
+- **Station Windows : plus de fenêtre noire quand le micro ou la caméra s'allume.** Une fenêtre de terminal s'ouvrait sur le bureau du PC pendant que l'appareil envoyait son micro ou sa caméra. Elle ne s'ouvre plus.
+- **Plus de session coupée au bout de quelques minutes sur un Wi-Fi capricieux.** Quand l'image tardait à repartir, l'app relançait le flux, et à la quatrième fois elle arrêtait la session (« l'ordinateur n'envoie pas d'image »). Mais ces relances se comptaient sur toute la session, même espacées de plusieurs minutes et suivies d'une image normale. Elles se comptent maintenant de suite : une image revenue remet le compte à zéro. Sur toutes les apps.
+- **Android : les souris ne passent plus pour des manettes.** Certaines souris (Logitech notamment) annoncent aussi un « joystick » à Android : l'app les prenait pour des manettes, et l'ordinateur voyait une manette de plus par souris. Une souris reste maintenant une souris.
+- **Android : un pointeur à la bonne taille en mode bureau.** Sur un grand écran (mode bureau d'Android, téléviseur branché au téléphone), le pointeur de l'ordinateur était dessiné tout petit. Il n'est plus jamais plus petit qu'à l'écran de l'ordinateur.
+- **Android : un compte sur un autre relais, dès le premier.** Sans compte connecté, Réglages › Comptes ne proposait que le relais public. « Un autre relais… » y est maintenant, comme sur les autres apps.
+
 ## 0.11.6
 
 - **Le micro arrive tout seul sur un PC Windows.** La Station Windows installe maintenant VB-CABLE, le micro virtuel de VB-Audio Software (offert en donationware : vb-cable.com), qui reçoit le micro de vos appareils : à l'installation comme à la mise à jour depuis Admin, s'il n'est pas déjà là. Avant, il fallait l'installer soi-même.
