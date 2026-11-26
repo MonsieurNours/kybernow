@@ -59,11 +59,22 @@ App settings: « Micro » (« Celui du système » or one of the device's microp
 
 ## Where things stand
 
-Written on 26/11/2026, branch `claude/micro-5db32e`:
+Written on 26/11/2026, branch `claude/micro-5db32e`; **nothing has been tried end to end yet** (no microphone has reached a computer).
 
-- patches 0080 (kycontroller, kyclient), built and tested (`cargo test -p kycontroller uplink`, `cargo test -p kyclient --features kymux uplink`);
-- see the following sections as commits come; what isn't written is in “Still to do”.
+| Part | State |
+|---|---|
+| Transport | common upstream channel 0085 (webcam session), merged into the branch; “microphone” asked at every start |
+| Right and several microphones (friend, allowed guests, no `busy`) | written and tested on 0085 (`micro-droits-sur-0085.diff`, shared notes folder), to be put into 0085 by the main session |
+| `kybernow-micro` helper | built for Mac, Windows, Linux; 7 tests (packets, losses, buffer); `--check` checked on this Mac (3: older driver) |
+| Mac driver “Micro KyberNow” | built; not installed (administrator) |
+| VB-CABLE | installer step and Admin card written; the pack goes into `third_party/payload/vbcable/` |
+| Admin | `kn_mic`, “Let guests speak”, “Virtual microphone” card; 368 tests |
+| Core | `micro.rs`; 6 tests |
+| Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) built; Mac, iPhone, iPad: see below; web client: the page is ready (`d9c3dc4d`) but hidden, its engine (wasm, its own copy of Kyber) doesn't have the upstream channel yet |
 
 ### Still to do
 
-- Try it end to end: no session has sent a microphone yet.
+- Put the microphone's right into 0085.
+- Web client: the upstream channel in the engine (web copy of kyclient and kyber-web), then `engineSendsMicrophone()`.
+- Tests: microphone received in “CABLE Output” (Windows, the helper runs as SYSTEM: WASAPI and the default microphone from session 0 are to be checked), “Micro KyberNow” (Mac, once the driver is installed), PipeWire (VM); echo with and without voice processing; Wi-Fi loss on the reliable stream; guests and lending.
+- `scripts/release.sh`: the Windows overlay's fingerprint (`kyber-overlay.stamp`) doesn't count `server/micro`; `server/micro/Cargo.toml`'s version isn't aligned.

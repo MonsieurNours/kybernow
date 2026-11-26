@@ -59,11 +59,22 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 
 ## Où en est-on
 
-Écrit le 26/11/2026, branche `claude/micro-5db32e` :
+Écrit le 26/11/2026, branche `claude/micro-5db32e` ; **rien n'a encore été essayé de bout en bout** (aucun micro n'est arrivé sur un ordinateur).
 
-- correctifs 0080 (kycontroller, kyclient), compilés et testés (`cargo test -p kycontroller uplink`, `cargo test -p kyclient --features kymux uplink`) ;
-- voir les sections suivantes au fil des commits ; ce qui n'est pas écrit est dans « Reste à faire ».
+| Partie | État |
+|---|---|
+| Transport | flux montant commun 0085 (session webcam), fusionné dans la branche ; « microphone » demandé à chaque départ |
+| Droit et plusieurs micros (ami, invités autorisés, pas de `busy`) | écrit et testé sur 0085 (`micro-droits-sur-0085.diff`, dossier des notes partagées), à poser dans 0085 par la session principale |
+| Aide `kybernow-micro` | compilée Mac, Windows, Linux ; 7 essais (paquets, pertes, tampon) ; `--check` vérifié sur ce Mac (3 : pilote d'avant) |
+| Pilote Mac « Micro KyberNow » | compilé ; pas installé (administrateur) |
+| VB-CABLE | étape de l'installateur et carte d'Admin écrites ; le pack est à placer dans `third_party/payload/vbcable/` |
+| Admin | `kn_mic`, « Laisser les invités parler », carte « Micro virtuel » ; 368 essais |
+| Cœur | `micro.rs` ; 6 essais |
+| Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) compilées ; Mac, iPhone, iPad : voir plus bas ; client web : la page est prête (`d9c3dc4d`) mais cachée, son moteur (wasm, sa propre copie de Kyber) n'a pas encore le flux montant |
 
 ### Reste à faire
 
-- Essayer de bout en bout : aucune session n'a encore envoyé de micro.
+- Poser les droits du micro dans 0085.
+- Client web : le flux montant dans le moteur (copie web de kyclient et kyber-web), puis `engineSendsMicrophone()`.
+- Essais : micro reçu dans « CABLE Output » (Windows, l'aide tourne en SYSTEM : WASAPI et le micro par défaut en session 0 sont à vérifier), « Micro KyberNow » (Mac, après pose du pilote), PipeWire (VM) ; écho avec et sans le traitement voix ; perte en Wi-Fi sur le flux fiable ; invités et prêt.
+- `scripts/release.sh` : l'empreinte de la surcouche Windows (`kyber-overlay.stamp`) ne compte pas `server/micro` ; la version de `server/micro/Cargo.toml` n'est pas alignée.
