@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.11.2
+
+- **PyroWave proposé par les PC qui le peuvent.** La Station vérifiait la carte graphique sous un identifiant que Vulkan ne reconnaissait pas toujours : « {ordinateur} ne propose pas PyroWave » s'affichait avec une carte qui convient (RTX 3080 Ti). Elle la cherche maintenant aussi par son fabricant et son modèle, revérifie après un échec au démarrage du PC, et dit la raison dans son journal.
+
 ## 0.11.1
 
 Corrections de la 0.11.0.

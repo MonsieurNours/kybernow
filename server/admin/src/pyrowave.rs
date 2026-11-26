@@ -8,8 +8,11 @@
 //! `pyrowave-device-validation.exe` (dans le dossier de Kyber, surcouche de
 //! KyberNow) le vérifie sur la carte qui encode (`--luid`), dans un processus
 //! à part (un pilote qui plante n'emporte pas Admin), avec un aller-retour
-//! d'encodage et de décodage. Le résultat est gardé pour chaque carte, le
-//! temps qu'Admin tourne.
+//! d'encodage et de décodage. Si aucune carte Vulkan ne porte ce LUID (le
+//! service d'Admin ne voit pas toujours la carte sous le même), elle est
+//! cherchée par son fabricant et son modèle PCI (`--vid`/`--pid`). Une réussite est gardée pour chaque carte, le
+//! temps qu'Admin tourne ; un échec, 2 minutes seulement (au démarrage du
+//! PC, le pilote peut ne pas être prêt quand Admin vérifie).
 //!
 //! Station Mac : la puce Apple doit être de la famille Apple7 ou plus (toutes
 //! les puces M) et l'encodeur Metal de la Station doit démarrer :
@@ -113,9 +116,18 @@ pub fn warm_up(kyber_dir: &Path) {
     });
 }
 
-fn results() -> &'static Mutex<HashMap<Option<u64>, bool>> {
-    static RESULTS: OnceLock<Mutex<HashMap<Option<u64>, bool>>> = OnceLock::new();
+/// Durée pendant laquelle un échec est gardé avant une nouvelle vérification.
+const FAILURE_KEPT: std::time::Duration = std::time::Duration::from_secs(120);
+
+fn results() -> &'static Mutex<HashMap<Option<u64>, (bool, std::time::Instant)>> {
+    static RESULTS: OnceLock<Mutex<HashMap<Option<u64>, (bool, std::time::Instant)>>> = OnceLock::new();
     RESULTS.get_or_init(Default::default)
+}
+
+/// Un résultat gardé vaut-il encore ? Une réussite toujours, un échec
+/// [`FAILURE_KEPT`].
+fn still_valid(ok: bool, at: std::time::Instant) -> bool {
+    ok || at.elapsed() < FAILURE_KEPT
 }
 
 /// Appel bloquant (jusqu'à 20 s la première fois pour une carte).
@@ -123,11 +135,13 @@ fn vulkan_ok(kyber_dir: &Path, luid: Option<u64>) -> bool {
     // Verrou tenu pendant l'outil : deux demandes simultanées n'en lancent
     // qu'un.
     let mut results = results().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(ok) = results.get(&luid) {
-        return *ok;
+    if let Some(&(ok, at)) = results.get(&luid)
+        && still_valid(ok, at)
+    {
+        return ok;
     }
     let ok = run_validation(kyber_dir, luid);
-    results.insert(luid, ok);
+    results.insert(luid, (ok, std::time::Instant::now()));
     ok
 }
 
@@ -144,30 +158,36 @@ fn validation_args(luid: Option<u64>) -> Vec<String> {
 
 #[cfg(windows)]
 fn run_validation(kyber_dir: &Path, luid: Option<u64>) -> bool {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let exe = kyber_dir.join("pyrowave-device-validation.exe");
     if !exe.is_file() {
         tracing::warn!("PyroWave : {} introuvable, pas proposé", exe.display());
         return false;
     }
-    let status = std::process::Command::new(&exe)
-        .args(validation_args(luid))
-        .current_dir(kyber_dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .status();
-    match status {
-        Ok(s) if s.success() => {
+    let mut output = run_tool(&exe, kyber_dir, validation_args(luid));
+    // Code 2 avec un LUID : aucune carte Vulkan ne porte ce LUID. Le service
+    // d'Admin (session 0) ne voit pas toujours la carte sous le même LUID que
+    // Vulkan (essai du 26/11/2026, RTX 3080 Ti : code 2 avec le LUID, 0 sans) ;
+    // la carte est alors cherchée par son fabricant et son modèle PCI.
+    if luid.is_some()
+        && matches!(&output, Ok(o) if o.status.code() == Some(2))
+        && let Some(ids) = crate::gpu::encoding_pci_ids()
+    {
+        tracing::info!("PyroWave : aucune carte Vulkan au LUID {luid:x?}, essai par fabricant et modèle {:04x}:{:04x}", ids.0, ids.1);
+        output = run_tool(&exe, kyber_dir, pci_validation_args(ids));
+    }
+    match output {
+        Ok(o) if o.status.success() => {
             tracing::info!("PyroWave : Vulkan convient (carte {luid:x?})");
             true
         }
         // 2 : pas de carte Vulkan 1.3 qui convient ; 3 : délai dépassé ;
         // 4 : pas d'import D3D11 ; 5 : aller-retour faux.
-        Ok(s) => {
-            tracing::warn!("PyroWave : Vulkan ne convient pas (carte {luid:x?}, code {:?}), pas proposé", s.code());
+        Ok(o) => {
+            tracing::warn!(
+                "PyroWave : Vulkan ne convient pas (carte {luid:x?}, code {:?}), pas proposé ; l'outil dit : {}",
+                o.status.code(),
+                tool_said(&o.stdout, &o.stderr)
+            );
             false
         }
         Err(e) => {
@@ -175,6 +195,42 @@ fn run_validation(kyber_dir: &Path, luid: Option<u64>) -> bool {
             false
         }
     }
+}
+
+#[cfg(windows)]
+fn run_tool(exe: &Path, dir: &Path, args: Vec<String>) -> std::io::Result<std::process::Output> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new(exe)
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+}
+
+/// Arguments de l'outil pour la carte de fabricant et de modèle PCI `ids`
+/// (repli quand le LUID ne désigne aucune carte Vulkan).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn pci_validation_args(ids: (u16, u16)) -> Vec<String> {
+    let mut args = validation_args(None);
+    args.extend(["--vid".to_string(), format!("{:x}", ids.0), "--pid".to_string(), format!("{:x}", ids.1)]);
+    args
+}
+
+/// Les dernières lignes que l'outil a écrites (sortie d'erreur d'abord), sur
+/// une ligne, pour le journal : pourquoi Vulkan ne convient pas.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn tool_said(stdout: &[u8], stderr: &[u8]) -> String {
+    let text = format!("{}\n{}", String::from_utf8_lossy(stderr), String::from_utf8_lossy(stdout));
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    if lines.is_empty() {
+        return "rien".into();
+    }
+    let start = lines.len().saturating_sub(12);
+    lines[start..].join(" | ")
 }
 
 /// Station Linux : l'outil de la copie de Kyber, à côté d'Admin
@@ -370,6 +426,33 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    #[test]
+    fn without_a_matching_luid_the_card_is_found_by_its_pci_ids() {
+        assert_eq!(
+            pci_validation_args((0x10de, 0x2208)),
+            ["--external", "--roundtrip", "--timeout", "15", "--vid", "10de", "--pid", "2208"]
+        );
+    }
+
+    #[test]
+    fn the_tool_output_goes_to_the_log_on_one_line() {
+        assert_eq!(tool_said(b"", b""), "rien");
+        assert_eq!(tool_said(b"ok\n", b"[ERROR]: vkCreateInstance failed\n\n"), "[ERROR]: vkCreateInstance failed | ok");
+        let many: String = (0..20).map(|i| format!("l{i}\n")).collect();
+        assert!(tool_said(b"", many.as_bytes()).starts_with("l8 | "));
+    }
+
+    #[test]
+    fn a_failure_is_checked_again_after_two_minutes() {
+        let now = std::time::Instant::now();
+        assert!(still_valid(true, now));
+        assert!(still_valid(false, now), "échec récent : gardé");
+        if let Some(old) = now.checked_sub(FAILURE_KEPT + std::time::Duration::from_secs(1)) {
+            assert!(!still_valid(false, old), "échec ancien : nouvelle vérification");
+            assert!(still_valid(true, old), "réussite : gardée");
+        }
+    }
+
     #[test]
     fn a_mac_without_the_check_tool_does_not_offer_it() {
         // Les tests tournent sans l'outil à côté d'eux : « metal ».

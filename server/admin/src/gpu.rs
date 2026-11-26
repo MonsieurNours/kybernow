@@ -52,6 +52,16 @@ impl Vendor {
         }
     }
 
+    /// Le fabricant PCI (`None` pour une puce Apple).
+    pub(crate) fn pci(self) -> Option<u16> {
+        match self {
+            Self::Nvidia => Some(0x10DE),
+            Self::Amd => Some(0x1002),
+            Self::Intel => Some(0x8086),
+            Self::Apple => None,
+        }
+    }
+
     pub(crate) fn fallback_name(self) -> &'static str {
         match self {
             Self::Nvidia => "Carte NVIDIA",
@@ -210,6 +220,14 @@ pub fn encoding() -> bool {
 /// (`pyrowave.rs`) ; `None` tant que DXGI ne l'a pas donné, ou hors Windows.
 pub fn encoding_luid() -> Option<u64> {
     shared().lock().unwrap().adapters.first().and_then(|a| a.luid)
+}
+
+/// Fabricant et modèle PCI de la première carte (celle qui encode), pour
+/// PyroWave quand son LUID ne désigne aucune carte Vulkan (`pyrowave.rs`).
+pub fn encoding_pci_ids() -> Option<(u16, u16)> {
+    let s = shared().lock().unwrap();
+    let a = s.adapters.first()?;
+    Some((a.vendor.pci()?, a.device_id?))
 }
 
 /// Appel bloquant : à lancer dans `spawn_blocking`.

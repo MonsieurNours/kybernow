@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.11.2
+
+- **PyroWave offered by the PCs that can.** The Station checked the graphics card under an identifier Vulkan did not always recognise: “{computer} doesn't offer PyroWave” showed with a suitable card (RTX 3080 Ti). It now also looks the card up by its vendor and model, checks again after a failure at PC start-up, and writes the reason to its log.
+
 ## 0.11.1
 
 Fixes for 0.11.0.
