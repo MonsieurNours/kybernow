@@ -11,6 +11,8 @@
 mod account;
 #[cfg(target_os = "android")]
 mod audio;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod autotest;
 #[cfg(target_os = "android")]
 mod exports;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]

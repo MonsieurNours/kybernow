@@ -77,6 +77,20 @@ class KyberNowApp : Application() {
 
     fun takeRemote(): fr.leslignesclaires.kybernow.playstation.PsRemote? = pendingRemote.also { pendingRemote = null }
 
+    /**
+     * Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : « Refaire le test » demandé pendant une
+     * session (bandeau « Autre réseau que celui du test », Auto choisi sans test) ; le panneau du test s'ouvre au retour
+     * à l'accueil. En mémoire seulement.
+     */
+    @Volatile private var pendingAutoTest: String? = null
+
+    fun autoTestAfterSession(hostId: String) {
+        pendingAutoTest = hostId
+    }
+
+    /** Prend l'ordinateur remis par [autoTestAfterSession] (une seule fois). */
+    fun takeAutoTest(): String? = pendingAutoTest.also { pendingAutoTest = null }
+
     /** L'avertissement du prêt (« Votre ami joue dans votre session Windows… ») a été montré une fois dans le panneau. */
     var lendWarned: Boolean
         get() = getSharedPreferences("share", MODE_PRIVATE).getBoolean("lend_warned", false)

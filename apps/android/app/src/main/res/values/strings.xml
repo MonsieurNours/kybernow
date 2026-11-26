@@ -45,6 +45,25 @@
     <string name="profile_desktop_help">Sharp text, for work.</string>
     <string name="profile_max_help">The best picture this device can show.</string>
     <string name="profile_custom_help">Your own settings.</string>
+    <string name="profile_auto">Auto</string>
+    <string name="profile_auto_help">The best settings for this network and this device.</string>
+    <string name="autotest_title">Auto profile</string>
+    <string name="autotest_subtitle">KyberNow measures your network and this device, then suggests the best settings.</string>
+    <string name="autotest_summary">Suggested settings</string>
+    <string name="autotest_apply">Apply</string>
+    <string name="autotest_cancel">Cancel</string>
+    <string name="autotest_again">Run the test again</string>
+    <string name="autotest_retry">Try again</string>
+    <string name="autotest_unreachable" formatted="true">The test couldn\'t reach %1$s.</string>
+    <string name="autotest_chosen_by" formatted="true">Chosen by the test of %1$s (%2$s).</string>
+    <string name="autotest_link_cable">Cable</string>
+    <string name="autotest_link_wifi">Wi-Fi</string>
+    <string name="autotest_link_relay">Through the relay</string>
+    <string name="autotest_other_network">Different network from the test</string>
+    <string name="autotest_other_network_text">Adaptive bitrate will handle it.</string>
+    <string name="settings_adaptive">Adaptive bitrate</string>
+    <string name="settings_adaptive_help">Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.</string>
+    <string name="settings_adaptive_pyrowave">With PyroWave it pauses: the resolution goes down instead.</string>
     <string name="motors_two">2 motors</string>
     <string name="motors_one">1 motor</string>
     <string name="motors_none">no rumble</string>
@@ -117,6 +136,7 @@
     <string name="pyrowave_help_chosen">Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable.</string>
     <string name="pyrowave_help_auto_wired">Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.</string>
     <string name="pyrowave_help_auto_wifi">Auto: HEVC. PyroWave is only used when this device is connected by cable.</string>
+    <string name="pyrowave_help_auto_profile">Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.</string>
     <string name="pyrowave_warn_wifi">On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you\'re not sure.</string>
     <string name="pyrowave_warn_relay">Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you\'re not sure.</string>
     <string name="pyrowave_wifi">PyroWave on Wi-Fi</string>
@@ -129,6 +149,9 @@
     <string name="pyrowave_not_offered" formatted="true">%1$s doesn\'t offer PyroWave.</string>
     <string name="pyrowave_no_decoder">This device can\'t decode PyroWave.</string>
     <string name="stats_lost_frames">Lost frames</string>
+    <string name="stats_target_bitrate">Target bitrate</string>
+    <string name="account_sync_settings">Sync computer settings</string>
+    <string name="account_sync_settings_help">Each computer\'s profile, format, bitrate, HDR and immersive mode follow you on your devices.</string>
     <string name="hdr">HDR</string>
     <string name="hdr_on">HDR, on</string>
     <string name="hdr_off">HDR, off</string>
@@ -371,8 +394,6 @@
     <string name="stats_network">network</string>
     <string name="stats_decode">decoding</string>
     <string name="stats_display">display</string>
-    <!-- Repli sans bibliothèque native : le cœur donne ce libellé (TargetBitrate::label). -->
-    <string name="stats_target_bitrate">Target bitrate</string>
     <string name="stats_rtt">Round trip</string>
     <string name="stats_losses" formatted="true">Losses: %1$d frames, %2$d gaps, %3$d packets</string>
     <string name="share_join_title">Join with a code</string>
@@ -421,9 +442,6 @@
     <string name="account_relay_field">Relay</string>
     <string name="account_relay_help">Your account\'s relay address, if it isn\'t share.kybernow.app.</string>
     <string name="account_section">Accounts</string>
-    <!-- Repli sans bibliothèque native : le cœur donne ces textes (account::sync_settings_texts). -->
-    <string name="account_sync_settings">Sync computer settings</string>
-    <string name="account_sync_settings_help">Each computer\'s profile, format, bitrate, HDR and immersive mode follow you on your devices.</string>
     <string name="account_section_help">Create an account, change its password or delete it: on the account\'s page.</string>
     <string name="account_manage">Manage account</string>
     <string name="account_sign_out">Sign out</string>

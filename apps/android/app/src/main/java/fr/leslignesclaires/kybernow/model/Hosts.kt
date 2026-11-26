@@ -22,12 +22,15 @@ import javax.crypto.spec.GCMParameterSpec
 /**
  * Profils, dans le vocabulaire du cœur. [reliable] : le transport du profil, comme
  * `StreamSettings::for_profile` du cœur (Bureau fiable, Jeu et Max rapides), pour
- * l'afficher sans la bibliothèque native.
+ * l'afficher sans la bibliothèque native. [AUTO] : les réglages choisis par le test des
+ * conditions (docs/profil-auto.md), gardés avec l'ordinateur ([HostSettings.autoResult]) ;
+ * son transport est celui du test ([HostSettings.profileReliable]).
  */
 enum class Profile(val id: String, val reliable: Boolean) {
     GAME("jeu", false),
     DESKTOP("bureau", true),
     MAX("max", false),
+    AUTO("auto", false),
 }
 
 /**
@@ -87,6 +90,13 @@ data class HostSettings(
      * ([Hdr.state]).
      */
     val hdr: Boolean = true,
+    /**
+     * « Débit adaptatif » (docs/profil-auto.md) : le débit baisse quand le réseau sature, puis remonte ; allumé par
+     * défaut, pour un profil comme pour un débit choisi. À part du profil : il ne fait jamais passer en « Personnalisé ».
+     */
+    val adaptive: Boolean = true,
+    /** Le dernier test du profil Auto appliqué pour cet ordinateur (`AutoResult` du cœur, JSON) ; nul : jamais fait. */
+    val autoResult: String? = null,
 ) {
     val padSimple get() = padLayout == "simple"
 
@@ -96,18 +106,21 @@ data class HostSettings(
     /** Les réglages s'écartent du profil : « Personnalisé ». */
     val custom get() = codec != "auto" || mbps != 0 || transport != "auto"
 
+    /** Le transport du profil : celui du test pour Auto, sinon celui du profil. */
+    val profileReliable: Boolean get() = if (profile == Profile.AUTO) AutoProfile.reliable(autoResult) ?: profile.reliable else profile.reliable
+
     /** Le transport en vigueur : choisi, sinon celui du profil. */
-    val reliable get() = when (transport) {
+    val reliable: Boolean get() = when (transport) {
         "reliable" -> true
         "fast" -> false
-        else -> profile.reliable
+        else -> profileReliable
     }
 
     /** Choisir un profil remet le format, le débit et le transport à ceux du profil. */
     fun apply(p: Profile) = copy(profile = p, codec = "auto", mbps = 0, transport = "auto")
 
     /** Choisir le transport : celui du profil n'est pas un écart. */
-    fun withTransport(reliable: Boolean) = copy(transport = if (reliable == profile.reliable) "auto" else if (reliable) "reliable" else "fast")
+    fun withTransport(reliable: Boolean) = copy(transport = if (reliable == profileReliable) "auto" else if (reliable) "reliable" else "fast")
 
     fun json(): JSONObject = JSONObject()
         .put("profile", profile.id).put("resolution", resolution).put("refresh", refresh).put("virtualDisplay", virtualDisplay)
@@ -117,6 +130,7 @@ data class HostSettings(
         .put("clipboard", clipboard).put("ctrlCommand", ctrlCommand ?: JSONObject.NULL).put("reconnect", reconnect).put("transport", transport)
         .put("onScreenPad", onScreenPad).put("padLayout", padLayout).put("padSize", padSize)
         .put("padOpacity", padOpacity).put("padHaptics", padHaptics).put("hdr", hdr)
+        .put("adaptive", adaptive).put("autoResult", autoResult ?: JSONObject.NULL)
 
     companion object {
         /** Les opacités proposées pour la manette à l'écran. */
@@ -153,7 +167,9 @@ data class HostSettings(
                 padOpacity = o.optInt("padOpacity", d.padOpacity).takeIf { it in PAD_OPACITIES } ?: d.padOpacity,
                 padHaptics = o.optInt("padHaptics", d.padHaptics).coerceIn(0, 3),
                 hdr = o.optBoolean("hdr", d.hdr),
-            ).let { if (it.transport == "reliable" && it.profile.reliable) it.copy(transport = "auto") else it }
+                adaptive = o.optBoolean("adaptive", d.adaptive),
+                autoResult = if (o.has("autoResult") && !o.isNull("autoResult")) o.optString("autoResult").takeIf { it.isNotEmpty() } else null,
+            ).let { if (it.transport == "reliable" && it.profileReliable) it.copy(transport = "auto") else it }
         }
     }
 }

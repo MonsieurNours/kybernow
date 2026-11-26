@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -430,7 +431,7 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                 // Prêté : « Reprendre l'ordinateur » à la place de « Se connecter » (pendant un prêt, pas de session d'un appareil).
                 if (lent != null) TakeBackButton(lent, { now -> actions.takeBack(host, now) }, first) else MainButton(host, st, state, actions, first)
                 Profile.entries.forEach { p ->
-                    GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = !set.custom && set.profile == p)
+                    GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = !set.custom && set.profile == p, leading = profileIcon(p))
                 }
                 // « Personnalisé » n'est pas un choix : il dit que les réglages s'écartent du profil.
                 if (set.custom) GlassButton(stringResource(R.string.profile_custom), { actions.hostSettings(host) }, selected = true)
@@ -482,14 +483,14 @@ private fun ProfileSegments(set: HostSettings, pick: (Profile) -> Unit, custom: 
         modifier.clip(pill).background(Kn.frost.copy(alpha = 0.06f)).border(BorderStroke(1.dp, Kn.frost.copy(alpha = 0.16f)), pill).padding(s.dp(3f)),
         horizontalArrangement = Arrangement.spacedBy(s.dp(2f)),
     ) {
-        Profile.entries.forEach { p -> Segment(profileLabel(p), !set.custom && set.profile == p, Modifier.weight(1f)) { pick(p) } }
+        Profile.entries.forEach { p -> Segment(profileLabel(p), !set.custom && set.profile == p, Modifier.weight(1f), icon = p == Profile.AUTO) { pick(p) } }
         // Plus long : il prend un peu plus de place que les autres.
-        if (set.custom) Segment(stringResource(R.string.profile_custom), true, Modifier.weight(1.7f), custom)
+        if (set.custom) Segment(stringResource(R.string.profile_custom), true, Modifier.weight(1.7f), onClick = custom)
     }
 }
 
 @Composable
-private fun Segment(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun Segment(label: String, selected: Boolean, modifier: Modifier, icon: Boolean = false, onClick: () -> Unit) {
     val s = LocalScale.current
     val pill = RoundedCornerShape(999.dp)
     val i = remember { MutableInteractionSource() }
@@ -501,10 +502,17 @@ private fun Segment(label: String, selected: Boolean, modifier: Modifier, onClic
             .padding(horizontal = s.dp(4f), vertical = s.dp(10f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            label, maxLines = 1, color = if (selected) Kn.frost else Kn.frost2,
-            style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(15f), fontWeight = FontWeight(if (selected) 600 else 500)),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Auto : sa baguette devant le nom (docs/link-ui.md, « Profil Auto et débit adaptatif »).
+            if (icon) {
+                KnIcon(KnIcons.sparkles, tint = if (selected) Kn.frost else Kn.frost2, size = 14f)
+                Spacer(Modifier.width(s.dp(4f)))
+            }
+            Text(
+                label, maxLines = 1, color = if (selected) Kn.frost else Kn.frost2,
+                style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(15f), fontWeight = FontWeight(if (selected) 600 else 500)),
+            )
+        }
     }
 }
 
@@ -566,8 +574,16 @@ fun profileLabel(p: Profile) = stringResource(
         Profile.GAME -> R.string.profile_game
         Profile.DESKTOP -> R.string.profile_desktop
         Profile.MAX -> R.string.profile_max
+        Profile.AUTO -> R.string.profile_auto
     },
 )
+
+/** L'icône d'un profil devant son nom : la baguette d'Auto ; rien pour les autres. */
+fun profileIcon(p: Profile): (@Composable RowScope.() -> Unit)? =
+    if (p != Profile.AUTO) null else ({
+        KnIcon(KnIcons.sparkles, size = 16f)
+        Spacer(Modifier.width(6.dp))
+    })
 
 /** La phrase du profil, ou celle de « Personnalisé ». */
 @Composable
@@ -576,6 +592,7 @@ fun profileHelp(set: HostSettings) = stringResource(
         set.custom -> R.string.profile_custom_help
         set.profile == Profile.GAME -> R.string.profile_game_help
         set.profile == Profile.DESKTOP -> R.string.profile_desktop_help
+        set.profile == Profile.AUTO -> R.string.profile_auto_help
         else -> R.string.profile_max_help
     },
 )

@@ -15,7 +15,10 @@ object SessionMode {
      */
     fun codec(host: Host, decoders: Decoders): String {
         val profile = if (decoders.hevc != null) "hevc" else "h264"
-        return when (host.settings.codec) {
+        // Le profil Auto : le format de son test (PyroWave se juge comme HEVC pour la définition).
+        val set = host.settings
+        val auto = if (set.profile == Profile.AUTO && set.codec == "auto") AutoProfile.codec(set.autoResult) else null
+        return when (auto ?: set.codec) {
             "hevc" -> if (decoders.hevc != null) "hevc" else profile
             "h264" -> "h264"
             "av1" -> if (decoders.av1 != null && host.av1) "av1" else profile

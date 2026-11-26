@@ -51,6 +51,8 @@ import fr.leslignesclaires.kybernow.core.ShareGuest
 import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.AudioOutput
+import fr.leslignesclaires.kybernow.model.AutoProfile
+import fr.leslignesclaires.kybernow.model.AutoSummary
 import fr.leslignesclaires.kybernow.model.Gamepads
 import fr.leslignesclaires.kybernow.model.Hdr
 import fr.leslignesclaires.kybernow.model.HdrScreen
@@ -230,6 +232,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             // PyroWave choisi à la main hors câble : le bandeau du début et la puce de la barre (docs/link-ui.md).
             pyroChosen = hostSession && host.settings.codec == "pyrowave"
             pyroLink = if (PyroWave.wired(this@SessionActivity)) PyroWaveLink.CABLE else PyroWaveLink.WIFI
+            // Profil Auto : le test gardé et le réseau du moment, pour le bandeau « Autre réseau que celui du test ».
+            autoResult = host.settings.takeIf { hostSession && it.profile == Profile.AUTO && !it.custom }?.autoResult
+            autoNetwork = AutoProfile.networkName(this@SessionActivity)
             hdrChoice = host.settings.hdr
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
@@ -312,8 +317,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     private fun settingsJson(profile: Profile): JSONObject {
         val d = app.decoders
-        val base = JSONObject(Native.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1))
         val set = host.settings
+        val wired = PyroWave.wired(this)
+        val profileBase = { JSONObject(Native.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1)) }
+        // Profil Auto : les réglages de son test (docs/profil-auto.md) ; sans test (reçu d'un autre appareil), ceux du cœur.
+        val base = if (profile == Profile.AUTO) AutoProfile.settings(set.autoResult, Hdr.wanted(host), wired, profileBase) else profileBase()
         when (if (hevcInstead) "hevc" else set.codec) {
             // PyroWave (docs/pyrowave.md) : le cœur le garde si la Station le propose et que l'appareil le décode,
             // sinon HEVC ; « Passer en HEVC » le remplace pour cette session seulement.
@@ -326,8 +334,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (set.transport != "auto") base.put("reliable", set.reliable)
         // Le choix « HDR » de cet ordinateur ; le cœur ne s'en sert que sur un écran HDR, quand la Station le propose.
         base.put("hdr", Hdr.wanted(host))
-        // Relié par câble : « Auto » (un profil) prend PyroWave quand l'ordinateur le propose (`profile::pyrowave_format`).
-        base.put("wired", PyroWave.wired(this))
+        // Relié par câble : « Auto » de Max prend PyroWave quand l'ordinateur le propose, le profil Auto quand son test
+        // l'a choisi (`profile::pyrowave_format`).
+        base.put("wired", wired)
+        // « Débit adaptatif » de cet ordinateur (docs/profil-auto.md).
+        base.put("adaptive", set.adaptive)
         return base
     }
 
@@ -778,6 +789,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     override fun setProfile(p: Profile) {
+        // Auto sans test pour cet ordinateur : le test ne se fait pas pendant la session ; son panneau s'ouvre après.
+        if (p == Profile.AUTO && hostSession && AutoSummary.parse(host.settings.autoResult) == null) {
+            app.autoTestAfterSession(host.id)
+            if (tv) resume()
+            return
+        }
         ui.profile = p
         Native.sessionSetSettings(handle, settingsJson(p).toString())
         if (tv) resume()
@@ -805,6 +822,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             override fun onLost(network: android.net.Network) = sendLink()
         }
         if (runCatching { getSystemService(android.net.ConnectivityManager::class.java).registerDefaultNetworkCallback(cb) }.isSuccess) linkWatch = cb
+    }
+
+    override fun retestAuto() {
+        if (hostSession) app.autoTestAfterSession(host.id)
     }
 
     /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */

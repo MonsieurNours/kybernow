@@ -58,6 +58,10 @@ object KnIcons {
     /** HDR : une étincelle (docs/link-ui.md, barre de session). */
     val warning = icon("warning", "M12 3l10 18H2L12 3z", "M12 10v5M12 18v.5")
     val sparkle = icon("sparkle", "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z", "M18.5 15.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z")
+    /** Profil Auto : une baguette et ses étincelles (docs/link-ui.md, « Profil Auto et débit adaptatif »). */
+    val sparkles = icon("sparkles", "M4 20L14 10", "M15.5 3l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z", "M19.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z", "M8.5 3.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z")
+    /** Étape passée du test : une flèche qui saute. */
+    val skip = icon("skip", "M4 15a8 8 0 0 1 14-5", "M18 5v5h-5", "M12 19h.01")
     val share = icon("share", "M18 3a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M6 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M18 16a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z", "M8.2 13.2l7.6 3.6M15.8 7.2L8.2 10.8")
 }
 

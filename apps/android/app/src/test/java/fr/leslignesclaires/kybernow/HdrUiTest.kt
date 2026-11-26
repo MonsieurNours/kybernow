@@ -79,7 +79,8 @@ class HdrUiTest {
         val toggled = mutableListOf<Boolean>()
         home(on, toggled = toggled)
         rule.onNodeWithText("Écran de 3840${nb}×${nb}2160 à 60${nb}Hz, à la taille de cet écran, en HDR").assertExists()
-        rule.onNodeWithText("HDR").assertIsEnabled().performClick()
+        // Avec Auto, la puce passe à la ligne : elle reste à portée en faisant défiler.
+        rule.onNodeWithText("HDR").performScrollTo().assertIsEnabled().performClick()
         assertEquals(listOf(false), toggled)
     }
 

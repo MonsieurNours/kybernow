@@ -41,6 +41,9 @@ import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.session.SessionActivity
 import fr.leslignesclaires.kybernow.tv.TvChannel
 import fr.leslignesclaires.kybernow.ui.AppModel
+import fr.leslignesclaires.kybernow.ui.AutoTestActions
+import fr.leslignesclaires.kybernow.ui.AutoTestPanel
+import androidx.compose.runtime.collectAsState
 import fr.leslignesclaires.kybernow.ui.KnTheme
 import fr.leslignesclaires.kybernow.ui.add.AddHostScreen
 import fr.leslignesclaires.kybernow.ui.add.PairingLink
@@ -111,7 +114,7 @@ class MainActivity : AppCompatActivity() {
                         model,
                         HomeActions(
                             select = model::select,
-                            setProfile = model::setProfile,
+                            setProfile = model::pickProfile,
                             setHdr = { h, on -> app.hosts.update(h.id) { it.copy(settings = it.settings.copy(hdr = on)) } },
                             connect = ::connect,
                             retry = { h -> model.retry(h.id) },
@@ -174,6 +177,11 @@ class MainActivity : AppCompatActivity() {
                         }
                         GamepadsScreen(onBack = { route = Route.AppSettings })
                     }
+                }
+                // Profil Auto : le panneau du test, par-dessus l'écran du moment (docs/link-ui.md).
+                val autoTest by model.autoTest.collectAsState()
+                autoTest?.let { st ->
+                    AutoTestPanel(st, AutoTestActions(apply = model::applyAutoTest, cancel = model::closeAutoTest, again = { model.openAutoTest(st.hostId) }))
                 }
             }
         }
@@ -276,6 +284,8 @@ class MainActivity : AppCompatActivity() {
         KyberNowApp.instance.accounts.refresh()
         model.startPolling()
         model.refreshAfterSession()
+        // « Refaire le test » demandé pendant la session : le panneau du test s'ouvre maintenant.
+        KyberNowApp.instance.takeAutoTest()?.let(model::openAutoTest)
         TvChannel.publish(this, KyberNowApp.instance.hosts.hosts.value)
     }
 

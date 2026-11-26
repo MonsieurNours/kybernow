@@ -38,7 +38,7 @@ object SyncedKeys {
             val (yuv, mbps, reliable) = when (profile) {
                 Profile.GAME -> Triple(false, 60, false)
                 Profile.DESKTOP -> Triple(true, 90, true)
-                Profile.MAX -> Triple(true, 300, false)
+                Profile.MAX, Profile.AUTO -> Triple(true, 300, false)
             }
             JSONObject().put("profile", profile.id).put("codec", if (hevc) "hevc" else "h264").put("yuv444", yuv && hevc && hevc444)
                 .put("mbps", mbps).put("reliable", reliable)

@@ -396,6 +396,9 @@ class ConsoleClient private constructor(private var handle: Long) : AutoCloseabl
         parse(Native.consoleLendTakeBack(handle, now)) { LendView.parse(it as? JSONObject) }
     }
 
+    /** Rend la poignée du cœur à qui la prend ([Native.autotestStart]) : ce client ne la libère plus. */
+    fun detach(): Long = handle.also { handle = 0L }
+
     override fun close() {
         if (handle != 0L) {
             Native.consoleFree(handle)
