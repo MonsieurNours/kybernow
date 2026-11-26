@@ -128,6 +128,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber,
         // ou par le jeton d'un compte KyberNow qui a le droit Session.
         .route("/api/stream/info", get(stream_info))
+        // Test du profil Auto des apps (docs/profil-auto.md) : la rafale.
+        .route("/api/stream/probe", get(crate::probe::stream_probe))
+        .route("/api/stream/ping", get(crate::probe::ping))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
         .route("/api/stream/hdr", post(stream_hdr))

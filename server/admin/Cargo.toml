@@ -10,6 +10,8 @@ license = "AGPL-3.0-or-later"
 anyhow = "1.0.104"
 argon2 = "0.5"
 axum = "0.8"
+bytes = "1"
+http-body = "1"
 axum-server = { version = "0.8.0", features = ["tls-rustls-no-provider"] }
 clap = { version = "4.6.7", features = ["derive"] }
 flate2 = "1"
@@ -57,3 +59,4 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Devices
 # Relais simulé (connexion de contrôle) pour les essais de l'enrôlement.
 kybernow-tunnel = { path = "../relay/tunnel", default-features = false, features = ["station", "test-relay"] }
 minisign = "0.10.0"
+http-body-util = "0.1"

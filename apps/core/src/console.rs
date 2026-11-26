@@ -975,6 +975,31 @@ impl Console {
         }
     }
 
+    /// `GET /api/stream/ping` (docs/profil-auto.md) : un aller-retour vers Admin, en
+    /// millisecondes. `Ok(None)` : Station d'avant (404).
+    pub fn ping(&self) -> Result<Option<f64>> {
+        let started = std::time::Instant::now();
+        let r = self.request("GET", "api/stream/ping", Duration::from_secs(2)).call();
+        match r {
+            Ok(_) => Ok(Some(started.elapsed().as_secs_f64() * 1000.0)),
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+        }
+    }
+
+    /// `GET /api/stream/probe?ms=…` (docs/profil-auto.md) : la rafale de la
+    /// Station, à lire aussi vite que possible. `Ok(None)` : Station d'avant
+    /// (404).
+    pub fn burst(&self, ms: u32) -> Result<Option<Box<dyn std::io::Read + Send + Sync>>> {
+        let timeout = Duration::from_millis(u64::from(ms) + 5000);
+        let r = self.with_fresh_token(|| match self.request("GET", &format!("api/stream/probe?ms={ms}"), timeout).call() {
+            Ok(resp) => Ok(Some(resp)),
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+        })?;
+        Ok(r.map(|resp| resp.into_reader()))
+    }
+
     pub fn info(&self) -> Result<Info> {
         self.info_within(Duration::from_secs(4))
     }

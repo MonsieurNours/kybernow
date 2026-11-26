@@ -9,6 +9,7 @@
 
 pub mod account;
 pub mod adaptive;
+pub mod autotest;
 pub mod audio;
 pub mod console;
 pub mod focus;

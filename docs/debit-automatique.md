@@ -2,7 +2,7 @@
 
 [English](debit-automatique.en.md) · Français
 
-Avec le débit « Auto » (un profil : Jeu, Bureau ou Max), l'app baisse le débit de l'image quand le réseau sature, puis le remonte quand il redevient propre. Un débit réglé à la main (« Personnalisé ») ne bouge jamais. Le calcul est dans le cœur (`apps/core/src/adaptive.rs`), donc le même dans toutes les apps qui l'utilisent ; le client web du navigateur n'en a pas encore.
+Avec l'interrupteur « Débit adaptatif » des réglages (allumé par défaut, [profil-auto.md](profil-auto.md)), l'app baisse le débit de l'image quand le réseau sature, puis le remonte quand il redevient propre : pour un profil (Jeu, Bureau, Max, Auto) comme pour un débit réglé à la main. Coupé, le débit ne bouge jamais. Le calcul est dans le cœur (`apps/core/src/adaptive.rs`), donc le même dans toutes les apps qui l'utilisent ; le client web du navigateur n'en a pas encore.
 
 ## Ce que regarde l'app
 

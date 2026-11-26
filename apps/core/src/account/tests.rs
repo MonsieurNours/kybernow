@@ -491,7 +491,7 @@ fn reglages_synchronises_envoyes() {
         updated_at: 1,
         values: json!({ "profile": "jeu", "codec": "hevc", "immersive": "always", "futur": 3 }).as_object().unwrap().clone(),
     };
-    let custom = crate::profile::StreamSettings { profile: None, codec: crate::profile::Codec::Av1, yuv444: false, mbps: 80, reliable: false, hdr: true, wired: false };
+    let custom = crate::profile::StreamSettings { profile: None, codec: crate::profile::Codec::Av1, yuv444: false, mbps: 80, reliable: false, hdr: true, wired: false, adaptive: true };
     let values = SyncedValues::from_stream(&custom).with_immersive(Some("never"));
     let new = settings::put_settings_with(&*fake, &account(), STATION, Some(&last), &values).unwrap();
     assert_eq!(new.updated_at, 1795000500);
@@ -540,7 +540,7 @@ fn reglages_synchronises_appliques() {
     assert_eq!((s.profile, s.mbps, s.hdr), (Some(Profile::Jeu), jeu.mbps, false));
     // Aller-retour : les réglages d'une app donnent les mêmes réglages ailleurs
     // (le transport n'est pas synchronisé).
-    let custom = StreamSettings { profile: None, codec: Codec::Hevc, yuv444: true, mbps: 120, reliable: true, hdr: false, wired: false };
+    let custom = StreamSettings { profile: None, codec: Codec::Hevc, yuv444: true, mbps: 120, reliable: true, hdr: false, wired: false, adaptive: true };
     assert_eq!(SyncedValues::from_stream(&custom).apply_to(&base, caps).to_json(), StreamSettings { wired: true, reliable: base.reliable, ..custom.clone() }.to_json(), "transport et câble : ceux de l'appareil");
     assert_eq!(StreamSettings::from_json(&custom.to_json().to_string()).unwrap().to_json(), custom.to_json());
     // Textes de l'interrupteur.

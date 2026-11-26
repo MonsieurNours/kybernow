@@ -2608,7 +2608,7 @@ impl Worker {
         let pyrowave = crate::profile::PYROWAVE_KYBER
             && self.guest.is_none()
             && self.capabilities().is_some_and(|c| c.pyrowave)
-            && (s.codec == Codec::PyroWave || (s.profile.is_some() && s.wired));
+            && (s.codec == Codec::PyroWave || (s.profile.is_some_and(|p| p.takes_pyrowave()) && s.wired));
         if !any_hdr && !pyrowave {
             return Ok(());
         }
@@ -3564,13 +3564,13 @@ impl Worker {
         settings.bitrate(m.width, m.height, m.refresh)
     }
 
-    /// Débit automatique : un profil (débit « Auto »), sur l'image de l'hôte.
-    /// Un débit réglé à la main reste ; l'image à part d'un invité est
-    /// ajustée par la Station (correctif 0020).
+    /// Débit adaptatif : l'interrupteur des réglages (`settings.adaptive`,
+    /// profil comme débit réglé à la main), sur l'image de l'hôte ; l'image
+    /// à part d'un invité est ajustée par la Station (correctif 0020).
     /// En pause en PyroWave : son image a besoin de tout son débit, et la
     /// définition ramenée l'ajuste déjà au lien ([`Self::watch_pyrowave`]).
     fn auto_bitrate(&self) -> bool {
-        self.params.settings.profile.is_some() && !self.visitor() && self.effective().codec != Codec::PyroWave
+        self.params.settings.adaptive && !self.visitor() && self.effective().codec != Codec::PyroWave
     }
 
     fn effective_bitrate(&self) -> u32 {
@@ -3589,9 +3589,9 @@ impl Worker {
             adaptive: auto.then(|| self.adaptive.bitrate(base)),
             fallback_cap,
             app_cap: self.bitrate_cap,
-            manual: self.params.settings.profile.is_none(),
+            manual: !self.params.settings.adaptive,
             pyrowave_paused: !auto
-                && self.params.settings.profile.is_some()
+                && self.params.settings.adaptive
                 && !self.visitor()
                 && self.effective().codec == Codec::PyroWave,
         })
@@ -6249,7 +6249,7 @@ mod tests {
     }
 
     #[test]
-    fn debit_automatique_du_profil_seulement() {
+    fn debit_adaptatif_selon_l_interrupteur() {
         let charge = |rtt: f64| Second { rtt_ms: Some(rtt), bytes: 5_000_000, ..Second::default() };
         // Profil (débit « Auto ») : une file qui monte fait baisser le débit.
         let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
@@ -6285,9 +6285,19 @@ mod tests {
         // Sans image : rien à montrer.
         w.streaming = None;
         assert_eq!(w.stats_target(), None);
-        // Débit réglé à la main : jamais touché.
+        // Débit réglé à la main, débit adaptatif allumé : il baisse aussi.
         let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
         w.params.settings.profile = None;
+        w.streaming = Some(display(7, 0, 0, 1920, 1080));
+        let hand = w.effective_bitrate();
+        for rtt in [2.0, 2.0, 60.0, 60.0, 60.0, 60.0] {
+            w.adapt_bitrate(&charge(rtt));
+        }
+        assert!(w.effective_bitrate() < hand);
+        // Débit adaptatif coupé : jamais touché.
+        let (mut w, _) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.params.settings.profile = None;
+        w.params.settings.adaptive = false;
         w.streaming = Some(display(7, 0, 0, 1920, 1080));
         let fixed = w.effective_bitrate();
         for rtt in [2.0, 2.0, 60.0, 60.0, 60.0, 60.0] {

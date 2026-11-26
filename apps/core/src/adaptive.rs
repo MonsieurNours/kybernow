@@ -463,22 +463,22 @@ mod tests {
         let base = TargetInputs { base: m(60), adaptive: Some(m(60)), ..Default::default() };
         let t = TargetBitrate::compute(base);
         assert_eq!((t.bitrate, t.profile, t.reason), (m(60), m(60), TargetReason::Auto));
-        assert_eq!(t.text(Lang::Fr), "60 Mbit/s · Auto");
-        assert_eq!(t.text(Lang::En), "60 Mbit/s · Auto");
+        assert_eq!(t.text(Lang::Fr), "60 Mbit/s · adaptatif");
+        assert_eq!(t.text(Lang::En), "60 Mbit/s · adaptive");
         // Baissé par le débit automatique.
         let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(42)), ..base });
         assert_eq!((t.bitrate, t.reason), (m(42), TargetReason::Lowered));
         assert_eq!(t.text(Lang::Fr), "42 / 60 Mbit/s · baissé, réseau saturé");
         assert_eq!(t.text(Lang::En), "42 / 60 Mbit/s · lowered, network saturated");
-        // À la main, PyroWave en pause.
+        // Débit adaptatif coupé (fixe), PyroWave en pause.
         let t = TargetBitrate::compute(TargetInputs { base: m(80), manual: true, ..Default::default() });
         assert_eq!(t.reason, TargetReason::Manual);
-        assert_eq!(t.text(Lang::Fr), "80 Mbit/s · réglé à la main");
-        assert_eq!(t.text(Lang::En), "80 Mbit/s · set by hand");
+        assert_eq!(t.text(Lang::Fr), "80 Mbit/s · fixe");
+        assert_eq!(t.text(Lang::En), "80 Mbit/s · fixed");
         let t = TargetBitrate::compute(TargetInputs { base: m(320), pyrowave_paused: true, ..Default::default() });
         assert_eq!(t.reason, TargetReason::PyroWavePaused);
-        assert_eq!(t.text(Lang::Fr), "320 Mbit/s · PyroWave, Auto en pause");
-        assert_eq!(t.text(Lang::En), "320 Mbit/s · PyroWave, Auto paused");
+        assert_eq!(t.text(Lang::Fr), "320 Mbit/s · PyroWave, adaptatif en pause");
+        assert_eq!(t.text(Lang::En), "320 Mbit/s · PyroWave, adaptive paused");
         // Plafond de l'app, repli : celui qui fixe la valeur l'emporte.
         let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(42)), fallback_cap: Some(m(15)), app_cap: Some(m(20)), ..base });
         assert_eq!((t.bitrate, t.reason), (m(15), TargetReason::Fallback));
