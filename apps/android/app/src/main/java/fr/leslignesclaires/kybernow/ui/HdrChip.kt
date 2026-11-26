@@ -63,7 +63,7 @@ fun HdrChip(state: HdrState, choice: Boolean, onToggle: () -> Unit, modifier: Mo
     ) {
         GlassButton(
             stringResource(R.string.hdr), onToggle, modifier.semantics { stateDescription = desc },
-            selected = on, enabled = state.available,
+            selected = on, enabled = state.available, singleLine = true,
             leading = if (icon) ({ KnIcon(KnIcons.sparkle, tint = if (on) Kn.spectre else Kn.frost2, size = 16f); Spacer(Modifier.width(6.dp)) }) else null,
         )
     }

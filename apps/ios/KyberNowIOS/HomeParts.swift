@@ -172,6 +172,7 @@ struct HomePillStyle: ButtonStyle {
         configuration.label
             .font(Theme.sans(15, .medium))
             .foregroundStyle(Theme.text)
+            .lineLimit(1)
             .padding(.leading, 14).padding(.trailing, 18)
             .frame(height: 44)
             .glass(22)
@@ -209,8 +210,11 @@ struct HomeProfilePicker: View {
                 Button { pick(p) } label: {
                     Text(p.label)
                         .font(Theme.sans(fontSize, .semibold))
+                        // Jamais « Bu / re / au » : la rangée passe à la ligne avant.
+                        .lineLimit(1)
+                        .fixedSize()
                         .foregroundStyle(on ? Theme.text : Theme.muted)
-                        .padding(.horizontal, fill ? 0 : 18)
+                        .padding(.horizontal, fill ? 6 : 18)
                         .frame(maxWidth: fill ? .infinity : nil, minHeight: height)
                         .background {
                             if on {
@@ -259,6 +263,8 @@ struct HomeHDRChip: View {
         Button { state.available ? toggle() : showReason() } label: {
             Text(HDRText.label)
                 .font(Theme.sans(fontSize, .semibold))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(lit ? Theme.text : Theme.muted)
                 .padding(.horizontal, 16)
                 .frame(minHeight: height)

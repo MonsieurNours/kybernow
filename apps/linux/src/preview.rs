@@ -1726,6 +1726,67 @@ mod tests {
         [(Layout::Desktop, 1280.0, 800.0), (Layout::Desktop, 960.0, 600.0), (Layout::Handheld, 1280.0, 800.0), (Layout::Tv, 1920.0, 1080.0)]
     }
 
+    /// La rangée la plus large de l'accueil (docs/link-ui.md, « Principes ») : « Se connecter », les quatre profils
+    /// avec Auto et « Personnalisé », la puce HDR, « Réglages » et « Regarder », en anglais et en français, à chaque
+    /// interface et dans la fenêtre la plus étroite du bureau (960 × 600) : chaque bouton est entier dans l'écran, sans
+    /// chevauchement ; sans compte, avec le bandeau de la mise à jour de la Station, puis celui du compte, aussi.
+    #[test]
+    fn widest_home_row_fits() {
+        use crate::app::StationHdr;
+        for en in [true, false] {
+            // Plus les écrans les plus étroits que l'échelle permet (`ui_scale` : 1100 points au Deck, 1700 au salon, en 4:3).
+            for (layout, w, h) in sizes().into_iter().chain([(Layout::Handheld, 1100.0, 825.0), (Layout::Tv, 1700.0, 1275.0)]) {
+                crate::i18n::force_english(en);
+                let what = |s: &str| format!("{s} {layout:?} {w}×{h} {en}");
+                let widest = |app: &mut App, id: &str| {
+                    app.screen_hdr = Some(crate::hdr::Luminance { max: 600.0, full_frame: 350.0, min: 0.005, sdr_white: 203.0 });
+                    app.live.entry(id.to_string()).or_default().hdr = Some(StationHdr::Available);
+                    let hst = app.store.host_mut(id).expect("ordinateur");
+                    hst.settings.profile = Profile::Auto;
+                    hst.settings.mbps = 30;
+                };
+                let mut cv = Canvas::new();
+                cv.resize(w as u32, h as u32, 1.0);
+                // Avec un compte : « Regarder » à côté de « Réglages ».
+                let mut app = with_account(en, layout);
+                let id = app.store.account_hosts[0].id.clone();
+                app.store.selected = Some(id.clone());
+                set_rights(&mut app, &["session", "view"]);
+                widest(&mut app, &id);
+                app.go(Screen::Home);
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("rangée avec compte"));
+                for t in [Target::Connect, Target::Chip(Profile::Auto), Target::CustomChip, Target::HdrChip, Target::HostSettings, Target::Watch] {
+                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée avec compte"));
+                }
+                // Sur deux lignes, la flèche bas mène de « Se connecter » à la seconde ligne, même avec le bandeau
+                // de la mise à jour dessous.
+                let rect = |t: Target| hits.iter().find(|(x, _)| *x == t).unwrap().1;
+                if rect(Target::HostSettings).y >= rect(Target::Connect).y + rect(Target::Connect).h {
+                    app.live.entry(id.clone()).or_default().offer.banner = crate::station_offer::OfferBanner::Update("0.11.3".into());
+                    app.hits = ui::draw(&app, &mut cv);
+                    fits(&app.hits, w, h, &what("deux lignes et mise à jour"));
+                    app.focus = Target::Connect;
+                    app.nav(Nav::Down);
+                    assert!(matches!(app.focus, Target::Chip(_) | Target::CustomChip | Target::HdrChip | Target::HostSettings | Target::Watch), "{} : {:?}", what("flèche bas"), app.focus);
+                }
+                // Sans compte, après un appairage : la mise à jour de la Station, puis le bandeau du compte.
+                let mut app = one_computer(en, layout);
+                let hst = app.store.hosts.remove(0);
+                let id = app.paired(hst);
+                widest(&mut app, &id);
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("rangée sans compte"));
+                app.live.entry(id.clone()).or_default().offer.banner = crate::station_offer::OfferBanner::Update("0.11.3".into());
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("rangée et mise à jour"));
+                for t in [Target::Connect, Target::CustomChip, Target::HdrChip, Target::HostSettings, Target::OfferUpdate] {
+                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée et mise à jour"));
+                }
+            }
+        }
+    }
+
     /// L'accueil en trois écrans, l'accueil sans compte (bouton, carte, bandeau après un appairage, bandeau de la
     /// mise à jour) et « Hors de chez vous ? » : tout tient sans chevauchement, en français et en anglais, dans chaque
     /// interface et dans la fenêtre la plus petite du bureau (les boutons, d'une ligne, ne sortent pas de l'écran).

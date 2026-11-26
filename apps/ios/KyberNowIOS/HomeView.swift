@@ -244,28 +244,54 @@ struct HomeScreen: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             brand
+                .layoutPriority(1)
             Spacer(minLength: 0)
-            HStack(spacing: 10) {
+            Group {
                 if wide {
-                    Button { app.sheet = .addHost(nil) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "qrcode").font(.system(size: 17, weight: .regular))
-                            Text("Scanner un QR code")
-                        }
+                    // iPad : les libellés tant qu'ils tiennent, puis l'icône seule
+                    // (QR code et partage d'abord, puis le compte et les réglages) ;
+                    // un libellé ne passe jamais sur deux lignes (docs/link-ui.md, Principes).
+                    ViewThatFits(in: .horizontal) {
+                        topActions(labels: 3)
+                        topActions(labels: 2)
+                        topActions(labels: 1)
+                        topActions(labels: 0)
                     }
-                    .buttonStyle(HomePillStyle())
                 } else {
-                    Button { app.sheet = .addHost(nil) } label: {
-                        Image(systemName: "qrcode").font(.system(size: 18, weight: .regular))
-                    }
-                    .buttonStyle(HomeCircleStyle())
-                    .accessibilityLabel(Text("Scanner un QR code"))
+                    topActions(labels: 0)
                 }
-                Button { app.sheet = .addHost(nil) } label: { Icon("plus", size: 20, bold: true) }
-                    .buttonStyle(HomeCircleStyle())
-                    .accessibilityLabel(Text(LinkText.addTitle))
-                // KyberNow Share : rejoindre le partage de quelqu'un (sur iPhone : la carte de la rangée).
-                if wide {
+            }
+            .homeRise(revealed, 0.1)
+        }
+        .padding(.leading, wide ? 0 : 4)
+    }
+
+    /// Les boutons de droite de la barre du haut. `labels` : 3, tous avec
+    /// leur libellé ; 2, le QR code en icône ; 1, le compte seul avec le sien ;
+    /// 0, des icônes seules (l'iPhone).
+    private func topActions(labels: Int) -> some View {
+        HStack(spacing: 10) {
+            if labels >= 3 {
+                Button { app.sheet = .addHost(nil) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "qrcode").font(.system(size: 17, weight: .regular))
+                        Text("Scanner un QR code")
+                    }
+                }
+                .buttonStyle(HomePillStyle())
+            } else {
+                Button { app.sheet = .addHost(nil) } label: {
+                    Image(systemName: "qrcode").font(.system(size: 18, weight: .regular))
+                }
+                .buttonStyle(HomeCircleStyle())
+                .accessibilityLabel(Text("Scanner un QR code"))
+            }
+            Button { app.sheet = .addHost(nil) } label: { Icon("plus", size: 20, bold: true) }
+                .buttonStyle(HomeCircleStyle())
+                .accessibilityLabel(Text(LinkText.addTitle))
+            // KyberNow Share : rejoindre le partage de quelqu'un (sur iPhone : la carte de la rangée).
+            if wide {
+                if labels >= 2 {
                     Button { app.sheet = .join(nil) } label: {
                         HStack(spacing: 10) {
                             Icon("share-network", size: 18)
@@ -273,26 +299,30 @@ struct HomeScreen: View {
                         }
                     }
                     .buttonStyle(HomePillStyle())
-                }
-                // Sans compte : « Connecter un compte » (iPhone : l'icône seule ; WelcomeViews.swift).
-                AccountTopButton(accounts: app.accounts, wide: wide)
-                if wide {
-                    Button { app.sheet = .appSettings } label: {
-                        HStack(spacing: 10) {
-                            Icon("sliders-horizontal", size: 18)
-                            Text("Réglages de l'app")
-                        }
-                    }
-                    .buttonStyle(HomePillStyle())
                 } else {
-                    Button { app.sheet = .appSettings } label: { Icon("sliders-horizontal", size: 20) }
+                    Button { app.sheet = .join(nil) } label: { Icon("share-network", size: 18) }
                         .buttonStyle(HomeCircleStyle())
-                        .accessibilityLabel(Text("Réglages de l'app"))
+                        .accessibilityLabel(Text(ShareText.join))
                 }
             }
-            .homeRise(revealed, 0.1)
+            // Sans compte : « Connecter un compte » (iPhone : l'icône seule ; WelcomeViews.swift).
+            AccountTopButton(accounts: app.accounts, wide: labels >= 1)
+            if labels >= 2 {
+                Button { app.sheet = .appSettings } label: {
+                    HStack(spacing: 10) {
+                        Icon("sliders-horizontal", size: 18)
+                        Text("Réglages de l'app")
+                    }
+                }
+                .buttonStyle(HomePillStyle())
+            } else {
+                Button { app.sheet = .appSettings } label: { Icon("sliders-horizontal", size: 20) }
+                    .buttonStyle(HomeCircleStyle())
+                    .accessibilityLabel(Text("Réglages de l'app"))
+            }
         }
-        .padding(.leading, wide ? 0 : 4)
+        // Jamais serrés ni sur deux lignes : la barre passe aux icônes avant.
+        .fixedSize()
     }
 
     /// Les réglages de l'ordinateur en scène : l'engrenage, à côté du profil.
@@ -301,7 +331,7 @@ struct HomeScreen: View {
             if wide {
                 HStack(spacing: 9) {
                     Icon("gear-six", size: 20)
-                    Text("Réglages")
+                    Text("Réglages").lineLimit(1).fixedSize()
                 }
                 .font(Theme.sans(15, .medium))
                 .foregroundStyle(Theme.text)
@@ -526,6 +556,8 @@ struct HomeScreen: View {
                 HStack(spacing: 12) {
                     // Le droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
                     Text(on ? (store.watchOnly(host) ? Share.watchWord(.action) : String(localized: "Se connecter")) : waking ? LinkText.waking : canWake ? LinkText.wake : String(localized: "Réessayer"))
+                        .lineLimit(1)
+                        .fixedSize()
                     if !wide { Spacer(minLength: 0) }
                     if busy {
                         HomeSpinner(size: 20)
@@ -570,11 +602,33 @@ struct HomeScreen: View {
 
             if wide {
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 16) {
-                        cta
-                        picker
-                        if hdrState.shown { hdrChip }
-                        settingsButton(host, wide: true)
+                    // Sur une ligne quand elle tient ; sinon les profils, le HDR et
+                    // les réglages passent dessous, puis le HDR et les réglages sous
+                    // les profils (iPad mini en portrait, fenêtre étroite) : un bouton
+                    // ne passe jamais sur deux lignes (docs/link-ui.md, Principes).
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 16) {
+                            cta
+                            picker
+                            if hdrState.shown { hdrChip }
+                            settingsButton(host, wide: true)
+                        }
+                        VStack(alignment: .leading, spacing: 14) {
+                            cta
+                            HStack(spacing: 16) {
+                                picker
+                                if hdrState.shown { hdrChip }
+                                settingsButton(host, wide: true)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 14) {
+                            cta
+                            picker
+                            HStack(spacing: 16) {
+                                if hdrState.shown { hdrChip }
+                                settingsButton(host, wide: true)
+                            }
+                        }
                     }
                     hint
                     stationBanner(host, wide: true)
@@ -585,10 +639,21 @@ struct HomeScreen: View {
             } else {
                 VStack(alignment: .leading, spacing: 10) {
                     cta
-                    HStack(spacing: 8) {
-                        picker
-                        if hdrState.shown { hdrChip }
-                        settingsButton(host, wide: false)
+                    // Petit iPhone, anglais : les profils seuls sur leur ligne quand
+                    // le HDR et l'engrenage les serreraient.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            picker
+                            if hdrState.shown { hdrChip }
+                            settingsButton(host, wide: false)
+                        }
+                        VStack(alignment: .leading, spacing: 10) {
+                            picker
+                            HStack(spacing: 8) {
+                                if hdrState.shown { hdrChip }
+                                settingsButton(host, wide: false)
+                            }
+                        }
                     }
                     hint
                     stationBanner(host, wide: false)

@@ -1447,6 +1447,60 @@ mod tests {
         assert_eq!(app.origin("a"), Some("Appairé"));
     }
 
+    /// La rangée la plus large de l'accueil (docs/link-ui.md, « Principes ») : « Se connecter », les quatre profils
+    /// avec Auto et « Personnalisé », la puce HDR, « Réglages » et « Regarder », en français et en anglais ; puis
+    /// « Reprendre l'ordinateur » (prêté) ; sans compte, avec le bandeau de la mise à jour de la Station, puis celui
+    /// du compte : chaque bouton est entier dans l'écran, sans chevauchement.
+    #[test]
+    fn widest_home_row_fits() {
+        use crate::app::StationHdr;
+        let assets = Assets::load();
+        let mut cv = Canvas::new();
+        let widest = |app: &mut App, id: &str| {
+            app.tv.hdr = true;
+            let live = app.live.entry(id.to_string()).or_default();
+            live.online = Online::Away;
+            live.hdr = Some(StationHdr::Available);
+            let h = app.store.host_mut(id).expect("ordinateur");
+            h.settings.profile = Profile::Auto;
+            h.settings.mbps = 30;
+        };
+        for en in [true, false] {
+            crate::i18n::force_english(en);
+            let what = |s: &str| format!("{s} ({})", if en { "en" } else { "fr" });
+            let mut app = with_account(en);
+            let id = app.store.account_hosts[0].id.clone();
+            app.store.selected = Some(id.clone());
+            set_rights(&mut app, &["session", "view"]);
+            widest(&mut app, &id);
+            app.go(Screen::Home);
+            let hits = ui::draw(&app, &mut cv, &assets);
+            let visible: Vec<_> = hits.iter().filter(|(t, _)| !matches!(t, Target::Host(_) | Target::AddCard | Target::JoinCard | Target::Borrowed(_))).cloned().collect();
+            fits(&visible, &what("rangée avec compte"));
+            for t in [Target::Connect, Target::Chip(Profile::Auto), Target::HdrChip, Target::HostSettings, Target::Watch] {
+                assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?} manque", what("rangée avec compte"));
+            }
+            // Sans compte : la mise à jour de la Station, le bandeau du compte.
+            let mut app = demo(en);
+            app.store.welcome.welcome_done();
+            app.store.selected = Some("a".into());
+            widest(&mut app, "a");
+            app.go(Screen::Home);
+            for (offer, paired) in [(true, false), (false, true)] {
+                app.live.get_mut("a").unwrap().offer.banner = if offer { crate::station_offer::OfferBanner::Update("0.11.3".into()) } else { crate::station_offer::OfferBanner::None };
+                app.welcome.paired = paired.then(|| "a".to_string());
+                let hits = ui::draw(&app, &mut cv, &assets);
+                let visible: Vec<_> = hits.iter().filter(|(_, r)| r.x >= 0.0 && r.x + r.w <= 1920.5).cloned().collect();
+                fits(&visible, &what("rangée et bandeau"));
+                for t in [Target::Connect, Target::HdrChip, Target::HostSettings] {
+                    let r = hits.iter().find(|(x, _)| *x == t).unwrap_or_else(|| panic!("{} : {t:?} manque", what("rangée et bandeau"))).1;
+                    assert!(r.x + r.w <= 1920.0, "{} : {t:?} sort de l'écran", what("rangée et bandeau"));
+                }
+            }
+        }
+        crate::i18n::force_english(false);
+    }
+
     /// Regarder, sur l'accueil (docs/link-ui.md, « Droit « Regarder » seul ») : le droit seul fait du bouton principal
     /// « Regarder » (OK aussi) ; avec « Ouvrir le bureau », « Se connecter » reste et « Regarder » est à côté de
     /// « Réglages », atteint à la croix ; sans le droit, rien. Une demande en cours n'est pas refaite ; un refus vient en

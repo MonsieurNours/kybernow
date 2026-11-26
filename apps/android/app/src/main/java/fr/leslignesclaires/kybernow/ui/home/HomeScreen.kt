@@ -381,27 +381,37 @@ private fun Backdrop(image: ImageBitmap?, offline: Boolean, wide: Boolean) {
     }
 }
 
-/** En haut : le logo, la mise à jour de l'app quand il y en a une, les réglages de l'app. */
+/**
+ * En haut : le logo, la mise à jour de l'app quand il y en a une, « Connecter un compte », les réglages de l'app. Les
+ * boutons gardent leur libellé sur une ligne (docs/link-ui.md, « Principes ») : quand ils ne tiennent pas à côté du logo
+ * (tablette en portrait, téléphone avec une mise à jour), ceux qui débordent passent dessous, alignés à droite.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun TopBar(actions: HomeActions, update: String?, modifier: Modifier = Modifier, account: Boolean = false) {
     val s = LocalScale.current
     val phone = LocalForm.current == FormFactor.PHONE
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.kn_logo_link), contentDescription = "KyberNow Link", modifier = Modifier.height(s.dp(if (s.tv) 40f else 26f)))
-        Spacer(Modifier.weight(1f))
+    FlowRow(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(s.dp(10f), Alignment.End),
+        verticalArrangement = Arrangement.spacedBy(s.dp(10f)),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Le logo prend la place qui reste sur la première ligne : les boutons à droite.
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            Image(painterResource(R.drawable.kn_logo_link), contentDescription = "KyberNow Link", modifier = Modifier.height(s.dp(if (s.tv) 40f else 26f)))
+        }
         update?.let {
-            GlassButton(stringResource(R.string.updates_available, it), actions.appSettings, selected = true, leading = { KnIcon(KnIcons.download, size = 16f); Spacer(Modifier.width(6.dp)) })
-            Spacer(Modifier.width(s.dp(10f)))
+            GlassButton(stringResource(R.string.updates_available, it), actions.appSettings, selected = true, leading = { KnIcon(KnIcons.download, size = 16f); Spacer(Modifier.width(6.dp)) }, singleLine = true)
         }
         // Sans compte : « Connecter un compte », à côté des réglages de l'app (au téléphone, l'icône seule).
         if (account) {
             if (phone) IconPill(KnIcons.person, stringResource(R.string.account_sign_in), actions.signIn)
-            else GlassButton(stringResource(R.string.account_sign_in), actions.signIn, selected = true, leading = { KnIcon(KnIcons.person, size = 16f); Spacer(Modifier.width(6.dp)) })
-            Spacer(Modifier.width(s.dp(10f)))
+            else GlassButton(stringResource(R.string.account_sign_in), actions.signIn, selected = true, leading = { KnIcon(KnIcons.person, size = 16f); Spacer(Modifier.width(6.dp)) }, singleLine = true)
         }
         // Au téléphone, la place manque : l'icône seule, nommée pour l'accessibilité.
         if (phone) IconPill(KnIcons.settings, stringResource(R.string.home_app_settings), actions.appSettings)
-        else GlassButton(stringResource(R.string.home_app_settings), actions.appSettings, leading = { KnIcon(KnIcons.settings, size = 16f); Spacer(Modifier.width(6.dp)) })
+        else GlassButton(stringResource(R.string.home_app_settings), actions.appSettings, leading = { KnIcon(KnIcons.settings, size = 16f); Spacer(Modifier.width(6.dp)) }, singleLine = true)
     }
 }
 
@@ -466,18 +476,23 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
         val a11y = settingsTitle(host.name)
         if (stacked) {
             // Téléphone et tablette en portrait (comme le client web au téléphone) : le bouton sur
-            // toute la largeur, puis les profils sur une ligne et l'engrenage au bout.
-            // Sur la largeur du téléphone ; à la tablette en portrait, pas plus de 560 dp.
+            // toute la largeur, puis les profils en commande segmentée, « Personnalisé », la puce
+            // « HDR » et l'engrenage au bout. Sur la largeur du téléphone ; à la tablette en portrait,
+            // pas plus de 560 dp. Ce qui ne tient pas à côté des profils passe dessous : jamais un
+            // libellé serré ou rogné (avec Auto et « Personnalisé », la ligne dépassait le téléphone).
             if (lent != null) TakeBackButton(lent, { now -> actions.takeBack(host, now) }, first.widthIn(max = s.dp(560f)).fillMaxWidth())
             else MainButton(host, st, state, actions, first.widthIn(max = s.dp(560f)).fillMaxWidth())
-            Row(Modifier.widthIn(max = s.dp(560f)), verticalAlignment = Alignment.CenterVertically) {
-                ProfileSegments(set, { p -> actions.setProfile(host.id, p) }, { actions.hostSettings(host) }, Modifier.weight(1f))
+            FlowRow(
+                Modifier.widthIn(max = s.dp(560f)).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f)),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Les profils prennent la place qui reste sur leur ligne, jamais moins que leurs libellés.
+                ProfileSegments(set, { p -> actions.setProfile(host.id, p) }, Modifier.weight(1f))
+                // « Personnalisé » n'est pas un choix : il dit que les réglages s'écartent du profil.
+                if (set.custom) GlassButton(stringResource(R.string.profile_custom), { actions.hostSettings(host) }, selected = true, singleLine = true)
                 // La puce « HDR » à côté du profil (écran HDR seulement).
-                if (hdr.shown) {
-                    Spacer(Modifier.width(s.dp(10f)))
-                    HdrChip(hdr, set.hdr, { actions.setHdr(host, !set.hdr) })
-                }
-                Spacer(Modifier.width(s.dp(10f)))
+                HdrChip(hdr, set.hdr, { actions.setHdr(host, !set.hdr) })
                 IconPill(KnIcons.settings, a11y) { actions.hostSettings(host) }
             }
             StationBanner(host, state, actions, Modifier.widthIn(max = s.dp(560f)))
@@ -488,16 +503,16 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                 // Prêté : « Reprendre l'ordinateur » à la place de « Se connecter » (pendant un prêt, pas de session d'un appareil).
                 if (lent != null) TakeBackButton(lent, { now -> actions.takeBack(host, now) }, first) else MainButton(host, st, state, actions, first)
                 Profile.entries.forEach { p ->
-                    GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = !set.custom && set.profile == p, leading = profileIcon(p))
+                    GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = !set.custom && set.profile == p, leading = profileIcon(p), singleLine = true)
                 }
                 // « Personnalisé » n'est pas un choix : il dit que les réglages s'écartent du profil.
-                if (set.custom) GlassButton(stringResource(R.string.profile_custom), { actions.hostSettings(host) }, selected = true)
+                if (set.custom) GlassButton(stringResource(R.string.profile_custom), { actions.hostSettings(host) }, selected = true, singleLine = true)
                 // La puce « HDR », à côté du profil (écran HDR seulement ; à part du profil : jamais « Personnalisé »).
                 HdrChip(hdr, set.hdr, { actions.setHdr(host, !set.hdr) })
                 GlassButton(
                     stringResource(R.string.home_host_settings), { actions.hostSettings(host) },
                     Modifier.semantics { contentDescription = a11y },
-                    leading = { KnIcon(KnIcons.settings, size = 16f); Spacer(Modifier.width(6.dp)) },
+                    leading = { KnIcon(KnIcons.settings, size = 16f); Spacer(Modifier.width(6.dp)) }, singleLine = true,
                 )
             }
             StationBanner(host, state, actions)
@@ -523,14 +538,14 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
 @Composable
 private fun MainButton(host: Host, st: HostStatus, state: HomeState, actions: HomeActions, modifier: Modifier) = when {
     // Sans effet, mais toujours focalisable : au téléviseur, le focus ne se perd pas pendant le réveil.
-    host.id in state.waking && st.online != true -> PrimaryButton(stringResource(R.string.home_waking), {}, modifier)
+    host.id in state.waking && st.online != true -> PrimaryButton(stringResource(R.string.home_waking), {}, modifier, singleLine = true)
     // Hors de chez vous : l'ordinateur est vérifié par le relais avant d'ouvrir la session.
-    host.id in state.connecting -> PrimaryButton(stringResource(R.string.home_connecting), {}, modifier)
-    st.online == false && host.wakeTargets.isNotEmpty() -> PrimaryButton(stringResource(R.string.home_wake), { actions.wake(host) }, modifier)
-    st.online == false -> PrimaryButton(stringResource(R.string.home_retry), { actions.retry(host) }, modifier)
+    host.id in state.connecting -> PrimaryButton(stringResource(R.string.home_connecting), {}, modifier, singleLine = true)
+    st.online == false && host.wakeTargets.isNotEmpty() -> PrimaryButton(stringResource(R.string.home_wake), { actions.wake(host) }, modifier, singleLine = true)
+    st.online == false -> PrimaryButton(stringResource(R.string.home_retry), { actions.retry(host) }, modifier, singleLine = true)
     // Droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
-    state.watch[host.id] == true -> PrimaryButton(state.watchWord, { actions.watch(host) }, modifier)
-    else -> PrimaryButton(stringResource(R.string.home_connect), { actions.connect(host) }, modifier)
+    state.watch[host.id] == true -> PrimaryButton(state.watchWord, { actions.watch(host) }, modifier, singleLine = true)
+    else -> PrimaryButton(stringResource(R.string.home_connect), { actions.connect(host) }, modifier, singleLine = true)
 }
 
 /**
@@ -569,9 +584,12 @@ private fun AccountBanner(host: Host, state: HomeState, actions: HomeActions, mo
     )
 }
 
-/** Les profils en commande segmentée (téléphone et tablette en portrait) ; « Personnalisé » au bout quand il y a lieu. */
+/**
+ * Les profils en commande segmentée (téléphone et tablette en portrait), à parts égales. « Personnalisé » n'y est plus :
+ * à côté, en puce (avec Auto, cinq segments ne tenaient pas sur un téléphone de 360 dp sans rogner les libellés).
+ */
 @Composable
-private fun ProfileSegments(set: HostSettings, pick: (Profile) -> Unit, custom: () -> Unit, modifier: Modifier) {
+private fun ProfileSegments(set: HostSettings, pick: (Profile) -> Unit, modifier: Modifier) {
     val s = LocalScale.current
     val pill = RoundedCornerShape(999.dp)
     Row(
@@ -579,8 +597,6 @@ private fun ProfileSegments(set: HostSettings, pick: (Profile) -> Unit, custom: 
         horizontalArrangement = Arrangement.spacedBy(s.dp(2f)),
     ) {
         Profile.entries.forEach { p -> Segment(profileLabel(p), !set.custom && set.profile == p, Modifier.weight(1f), icon = p == Profile.AUTO) { pick(p) } }
-        // Plus long : il prend un peu plus de place que les autres.
-        if (set.custom) Segment(stringResource(R.string.profile_custom), true, Modifier.weight(1.7f), onClick = custom)
     }
 }
 
@@ -594,7 +610,7 @@ private fun Segment(label: String, selected: Boolean, modifier: Modifier, icon: 
             .background(if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.frost.copy(alpha = 0f))
             .border(BorderStroke(1.dp, if (selected) Kn.spectre else Kn.frost.copy(alpha = 0f)), pill)
             .selectable(selected = selected, interactionSource = i, indication = null, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = s.dp(4f), vertical = s.dp(10f)),
+            .padding(horizontal = s.dp(8f), vertical = s.dp(10f)),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -604,7 +620,7 @@ private fun Segment(label: String, selected: Boolean, modifier: Modifier, icon: 
                 Spacer(Modifier.width(s.dp(4f)))
             }
             Text(
-                label, maxLines = 1, color = if (selected) Kn.frost else Kn.frost2,
+                label, maxLines = 1, softWrap = false, color = if (selected) Kn.frost else Kn.frost2,
                 style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(15f), fontWeight = FontWeight(if (selected) 600 else 500)),
             )
         }

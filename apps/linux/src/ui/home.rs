@@ -152,14 +152,6 @@ fn pads_label(n: usize, unavailable: bool) -> String {
     }
 }
 
-/// Le bouton principal : se connecter ; hors ligne, réveiller l'ordinateur
-/// (l'app connaît une de ses cartes réseau) puis « Réveil de l'ordinateur… »
-/// le temps qu'il revienne, ou réessayer. Rend sa largeur.
-fn main_button(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, y: f32, height: f32) -> f32 {
-    let (target, label, play) = main_action(app, h);
-    primary(cv, f, target, x, y, height, label, play)
-}
-
 /// Ce que fait le bouton principal (et A sur l'accueil) : cible, libellé, symbole ▶.
 pub(super) fn main_action(app: &App, h: &Host) -> (Target, &'static str, bool) {
     // Prêté : « Reprendre l'ordinateur » ; pendant la reprise (préavis de 2 min), « Reprendre tout de suite ».
@@ -182,32 +174,51 @@ pub(super) fn main_action(app: &App, h: &Host) -> (Target, &'static str, bool) {
     }
 }
 
-/// « Regarder » dans le menu de l'ordinateur (les boutons à côté de « Se connecter ») : un ordinateur d'un compte avec
-/// les droits « Ouvrir le bureau » et « Regarder » (docs/link-ui.md, « Comptes KyberNow »). « Regarder… » le temps
-/// d'entrer dans le partage.
-#[allow(clippy::too_many_arguments)]
-fn watch_button(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, y: f32, height: f32, size: f32) {
-    if !app.watch_in_menu(&h.id) || app.live.get(&h.id).is_some_and(|l| l.online == Online::Offline) {
-        return;
-    }
-    let label = if app.watch_waiting(&h.id) { tr("Regarder…", "Watch…") } else { crate::app::watch_word() };
-    widgets::ghost(cv, f, Target::Watch, x, y, height, size, Some(Icon::Eye), label, MUTED);
-}
-
 /// Ce que fait A sur l'accueil, pour la légende.
 fn main_label(app: &App, h: &Host) -> &'static str {
     main_action(app, h).1
 }
 
-/// Les profils, et « Personnalisé » quand les réglages s'en écartent (il
-/// ouvre les réglages). Rend la largeur.
-fn profiles(cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, y: f32, height: f32, size: f32) -> f32 {
+/// Les profils, et « Personnalisé » quand les réglages s'en écartent (il ouvre les réglages).
+fn profile_items(h: &Host) -> Vec<(Target, String, bool, bool)> {
     let custom = h.settings.custom();
     let mut items: Vec<(Target, String, bool, bool)> = Profile::ALL.iter().map(|p| (Target::Chip(*p), profile_label(*p).to_string(), !custom && h.settings.profile == *p, false)).collect();
     if custom {
         items.push((Target::CustomChip, tr("Personnalisé", "Custom").into(), true, false));
     }
-    segments(cv, f, x, y, height, size, &items)
+    items
+}
+
+/// La rangée de l'accueil : le bouton principal, puis les profils, la puce HDR, « Réglages » et « Regarder » (un
+/// ordinateur d'un compte avec les droits « Ouvrir le bureau » et « Regarder », docs/link-ui.md, « Comptes
+/// KyberNow »). Sur une ligne quand elle tient dans `max` (la largeur de l'écran, marges ôtées), sinon les profils et la suite passent dessous
+/// (docs/link-ui.md, « Principes » : un bouton ne passe jamais sur deux lignes, ni ne sort de l'écran). `bh` :
+/// hauteur du bouton principal ; `ch`, `size` : hauteur et texte des autres ; `gap1` : écart après le bouton
+/// principal, `gap` entre les autres. Rend la hauteur de la rangée et l'aide de la puce HDR.
+#[allow(clippy::too_many_arguments)]
+fn action_row(app: &App, cv: &mut Canvas, f: &mut Frame, hst: &Host, x0: f32, y: f32, max: f32, bh: f32, ch: f32, size: f32, gap1: f32, gap: f32) -> (f32, Option<&'static str>) {
+    let (target, label, play) = main_action(app, hst);
+    let items = profile_items(hst);
+    let hdr = app.hdr_ui(hst);
+    let watch = app.watch_in_menu(&hst.id) && !app.live.get(&hst.id).is_some_and(|l| l.online == Online::Offline);
+    let watch_label = if app.watch_waiting(&hst.id) { tr("Regarder…", "Watch…") } else { crate::app::watch_word() };
+    let mw = widgets::primary_width(cv, bh, label, play);
+    let rest = widgets::segments_width(cv, ch, size, &items)
+        + gap
+        + if hdr.is_some() { widgets::hdr_chip_width(cv, size) + gap } else { 0.0 }
+        + widgets::ghost_width(cv, size, true, tr("Réglages", "Settings"))
+        + if watch { gap + widgets::ghost_width(cv, size, true, watch_label) } else { 0.0 };
+    let one_line = mw + gap1 + rest <= max;
+    primary(cv, f, target, x0, y, bh, label, play);
+    let (mut x, cy, height) = if one_line { (x0 + mw + gap1, y + (bh - ch) / 2.0, bh) } else { (x0, y + bh + gap, bh + gap + ch) };
+    x += segments(cv, f, x, cy, ch, size, &items) + gap;
+    let (hw, help) = hdr_chip(cv, f, hdr, x, cy, ch, size, gap);
+    x += hw;
+    x += widgets::ghost(cv, f, Target::HostSettings, x, cy, ch, size, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED) + gap;
+    if watch {
+        widgets::ghost(cv, f, Target::Watch, x, cy, ch, size, Some(Icon::Eye), watch_label, MUTED);
+    }
+    (height, help)
 }
 
 fn phrase(h: &Host) -> &'static str {
@@ -247,15 +258,18 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
             }
             display_chip(app, cv, hst, x0, y, 36.0, 14.0);
             y += 36.0 + 24.0;
-            let mut x = x0;
-            x += main_button(app, cv, f, hst, x, y, 52.0) + 18.0;
-            x += profiles(cv, f, hst, x, y + 3.0, 46.0, 14.0) + 12.0;
-            let (hw, help) = hdr_chip(cv, f, app.hdr_ui(hst), x, y + 3.0, 46.0, 14.0, 12.0);
-            x += hw;
-            x += widgets::ghost(cv, f, Target::HostSettings, x, y + 3.0, 46.0, 14.0, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED) + 12.0;
-            watch_button(app, cv, f, hst, x, y + 3.0, 46.0, 14.0);
-            y += 52.0 + 30.0;
-            cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
+            // Le bouton principal, puis (sur la même ligne, ou dessous quand elle ne tient pas) profils, HDR, réglages.
+            let (rh, help) = action_row(app, cv, f, hst, x0, y, w - 2.0 * x0, 52.0, 46.0, 14.0, 18.0, 12.0);
+            y += rh + 30.0;
+            // La rangée sur deux lignes dans la fenêtre la plus basse : le bandeau de la mise à jour prend la place
+            // de la phrase du profil plutôt que de passer sur « Vos ordinateurs ».
+            let room = h - 40.0 - 96.0 - 14.0 - 16.0;
+            let banner_h = super::offer::height(app, cv, &hst.id, hero_max);
+            if banner_h > 0.0 && y + 20.0 + banner_h > room {
+                y -= 34.0;
+            } else {
+                cv.text_fit(x0, y, Text::new(Font::Regular, 14.0, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
+            }
             // La mise à jour de la Station, sous la rangée (docs/link-ui.md, « Mise à jour des Stations »).
             let ob = super::offer::banner(app, cv, f, &hst.id, x0, y + 20.0, hero_max);
             // Sans compte, après un appairage : le bandeau du compte, sous celui de la mise à jour s'il y en a un.
@@ -539,15 +553,10 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
                 widgets::info_chip(cv, x0 + cw + 14.0 * u, y, 40.0 * u, 16.0 * u, Icon::Gamepad, &[(&pads_label(app.pads.len(), app.live.get(&hst.id).is_some_and(|l| l.pads_unavailable)), false)]);
             }
             y += 40.0 * u + 28.0 * u;
-            let mut x = x0;
-            x += main_button(app, cv, f, hst, x, y, 60.0 * u) + 22.0 * u;
-            x += profiles(cv, f, hst, x, y + 4.0 * u, 52.0 * u, 17.0 * u) + 14.0 * u;
-            let (hw, help) = hdr_chip(cv, f, app.hdr_ui(hst), x, y + 4.0 * u, 52.0 * u, 17.0 * u, 14.0 * u);
-            x += hw;
-            // « Réglages » se voit et se touche (écran tactile du Deck, souris) ; Y l'ouvre aussi.
-            x += widgets::ghost(cv, f, Target::HostSettings, x, y + 4.0 * u, 52.0 * u, 17.0 * u, Some(Icon::Gear), tr("Réglages", "Settings"), MUTED) + 14.0 * u;
-            watch_button(app, cv, f, hst, x, y + 4.0 * u, 52.0 * u, 17.0 * u);
-            y += 60.0 * u + 30.0 * u;
+            // « Réglages » se voit et se touche (écran tactile du Deck, souris) ; Y l'ouvre aussi. Sur une ligne, ou
+            // les profils et la suite dessous quand elle ne tient pas.
+            let (rh, help) = action_row(app, cv, f, hst, x0, y, w - 2.0 * x0, 60.0 * u, 52.0 * u, 17.0 * u, 22.0 * u, 14.0 * u);
+            y += rh + 30.0 * u;
             cv.text_fit(x0, y, Text::new(Font::Regular, 15.0 * u, FAINT), help.unwrap_or_else(|| phrase(hst)), hero_max);
             // La mise à jour de la Station, sous la rangée ; la flèche bas depuis « Se connecter » y mène.
             let ob = super::offer::banner(app, cv, f, &hst.id, x0, y + 22.0 * u, hero_max);
@@ -582,11 +591,14 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     }
     x += legend(cv, x, gy, g, &["X"], tr("Ajouter un ordinateur ou une console", "Add a computer or a console")) + 28.0 * u;
     x += legend(cv, x, gy, g, &["⧉"], tr("Rejoindre avec un code", "Join with a code")) + 28.0 * u;
-    if host.is_some() {
-        legend(cv, x, gy, g, &["L1", "R1"], tr("Profil", "Profile"));
-    }
     let label = if app.is_os() { tr("Réglages de l'appareil", "Device settings") } else { tr("Réglages de l'app", "App settings") };
     let lw = legend_width(cv, g, &["☰"], label);
+    // « Profil » (L1 R1) seulement s'il tient avant ☰ (et ⏻ sur l'OS) : un écran étroit (4:3) le laisse de côté
+    // plutôt que de le passer sous « Réglages de l'app ».
+    let os_w = if app.is_os() { 28.0 * u + legend_width(cv, g, &["⏻"], tr("Veille", "Standby")) } else { 0.0 };
+    if host.is_some() && x + legend_width(cv, g, &["L1", "R1"], tr("Profil", "Profile")) + 28.0 * u <= w - x0 - lw - os_w {
+        legend(cv, x, gy, g, &["L1", "R1"], tr("Profil", "Profile"));
+    }
     let mut rx = w - x0 - lw;
     if app.is_os() {
         // ⏻ Veille, à gauche de ☰ (le bouton Guide ou PS de la manette aussi).

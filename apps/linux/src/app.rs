@@ -3968,7 +3968,11 @@ impl App {
         // Le bandeau de la mise à jour de la Station se prend à la flèche bas depuis « Se connecter » et la rangée des
         // profils ; la flèche haut y revient.
         if self.screen == Screen::Home {
-            let row = matches!(self.focus, Target::Connect | Target::Chip(_) | Target::CustomChip | Target::HdrChip | Target::HostSettings | Target::Watch);
+            let in_row = |t: Target| matches!(t, Target::Connect | Target::Chip(_) | Target::CustomChip | Target::HdrChip | Target::HostSettings | Target::Watch);
+            // La rangée passée sur deux lignes (fenêtre étroite) : la flèche bas mène d'abord à sa seconde ligne.
+            let cur = self.hits.iter().find(|(t, _)| *t == self.focus).map(|(_, r)| *r);
+            let below = cur.is_some_and(|c| self.hits.iter().any(|(t, r)| in_row(*t) && r.y >= c.y + c.h));
+            let row = in_row(self.focus) && !below;
             match (n, self.banner_target()) {
                 (Nav::Down, Some(t)) if row => {
                     self.focus = t;

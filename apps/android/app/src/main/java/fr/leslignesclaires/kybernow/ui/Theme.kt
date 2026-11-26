@@ -201,9 +201,12 @@ fun Modifier.neon(interaction: MutableInteractionSource, shape: Shape = RoundedC
         }
 }
 
-/** Bouton principal (néon allumé au focus). */
+/**
+ * Bouton principal (néon allumé au focus). [singleLine] : le libellé ne passe jamais à la ligne (rangées de l'accueil,
+ * docs/link-ui.md, « Principes ») ; la rangée qui le porte lui laisse sa largeur (c'est elle qui passe à la ligne).
+ */
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, singleLine: Boolean = false) {
     val s = LocalScale.current
     val i = remember { MutableInteractionSource() }
     val focused by i.collectIsFocusedAsState()
@@ -216,13 +219,22 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
             .padding(horizontal = s.dp(28f), vertical = s.dp(15f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (enabled) Kn.ink else Kn.muted, style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(17f), fontWeight = FontWeight(650)))
+        Text(
+            text, color = if (enabled) Kn.ink else Kn.muted, softWrap = !singleLine, maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+            style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(17f), fontWeight = FontWeight(650)),
+        )
     }
 }
 
-/** Bouton secondaire, en verre ; [detail] : une valeur en chasse fixe après le texte (la qualité reçue de « Qualité de l'image »). */
+/**
+ * Bouton secondaire, en verre ; [detail] : une valeur en chasse fixe après le texte (la qualité reçue de « Qualité de
+ * l'image ») ; [singleLine] : comme pour [PrimaryButton], le libellé ne passe jamais à la ligne.
+ */
 @Composable
-fun GlassButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true, leading: (@Composable RowScope.() -> Unit)? = null, detail: String? = null) {
+fun GlassButton(
+    text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
+    leading: (@Composable RowScope.() -> Unit)? = null, detail: String? = null, singleLine: Boolean = false,
+) {
     val s = LocalScale.current
     val i = remember { MutableInteractionSource() }
     Row(
@@ -236,7 +248,10 @@ fun GlassButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
         verticalAlignment = Alignment.CenterVertically,
     ) {
         leading?.invoke(this)
-        Text(text, color = if (!enabled) Kn.muted else if (selected) Kn.frost else Kn.frost2, style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(15f), fontWeight = FontWeight(if (selected) 600 else 500)))
+        Text(
+            text, color = if (!enabled) Kn.muted else if (selected) Kn.frost else Kn.frost2, softWrap = !singleLine, maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+            style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(15f), fontWeight = FontWeight(if (selected) 600 else 500)),
+        )
         if (detail != null) {
             Spacer(Modifier.width(s.dp(8f)))
             Text(detail, color = if (enabled) Kn.spectre else Kn.muted, style = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(12f), fontWeight = FontWeight(500)))
