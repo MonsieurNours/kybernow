@@ -37,6 +37,8 @@ use super::{RESULT, package, valid_version};
 
 /// Dossiers remplacés, dans l'ordre de la bascule ; le paquet doit les avoir tous.
 pub const PARTS: [&str; 3] = ["kyber", "admin", "tray"];
+/// Installateur de VB-CABLE dans `drivers\vbcable` (paquet et installation).
+pub const VBCABLE_SETUP: &str = "VBCABLE_Setup_x64.exe";
 /// Nom de la copie de la console qui applique la mise à jour (jamais arrêtée
 /// avec les processus `kyber-admin.exe`).
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -126,6 +128,10 @@ pub trait System {
     fn rebrand(&mut self, layout: &Layout) -> Vec<String>;
     /// Version d'une console, lue sur l'exécutable (`--version`).
     fn exe_version(&mut self, exe: &Path) -> Result<String>;
+    /// Micro virtuel VB-CABLE (docs/micro.md) : `setup` (copié dans
+    /// `drivers\vbcable`) est lancé en silence si `kybernow-micro --check` ne le
+    /// trouve pas. Jamais bloquant : rend ce qui a été fait, pour le journal.
+    fn virtual_microphone(&mut self, layout: &Layout, setup: &Path) -> Result<String>;
 }
 
 /// Journal de l'applicateur (`update\<version>\update.log`), recopié sur la sortie.
@@ -547,6 +553,19 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
         log.line("==> Noms affichés : KyberNow Station, KyberNow Admin, raccourcis");
         for failure in sys.rebrand(layout) {
             log.line(format!("    non fait : {failure}"));
+        }
+        // Micro virtuel (docs/micro.md) : le pack VB-CABLE du paquet, gardé dans
+        // drivers\vbcable (Admin › Image et son le réinstalle de là), installé
+        // s'il manque, comme le fait l'installateur. Un échec est seulement
+        // journalisé : la Station marche sans micro.
+        let pack = package.join("drivers").join("vbcable");
+        if pack.join(VBCABLE_SETUP).is_file() {
+            log.line("==> Micro virtuel VB-CABLE (VB-Audio Software, donationware : vb-cable.com)");
+            let dest = layout.part("drivers").join("vbcable");
+            match copy_tree(&pack, &dest, &[]).and_then(|_| sys.virtual_microphone(layout, &dest.join(VBCABLE_SETUP))) {
+                Ok(done) => log.line(format!("    {done}")),
+                Err(e) => log.line(format!("    non fait : {e:#}")),
+            }
         }
     }
     if undo_failed {
@@ -1042,6 +1061,18 @@ mod windows {
         fn exe_version(&mut self, exe: &Path) -> Result<String> {
             exe_version(exe)
         }
+
+        fn virtual_microphone(&mut self, layout: &Layout, setup: &Path) -> Result<String> {
+            let check = layout.part("kyber").join("kybernow-micro.exe");
+            if check.exists() && run(&check.display().to_string(), &["--check"]).is_ok_and(|o| o.status.success()) {
+                return Ok("déjà présent".into());
+            }
+            let out = run(&setup.display().to_string(), &["-i", "-h"])?;
+            if !out.status.success() {
+                bail!("l'installateur de VB-CABLE a rendu le code {}", out.status.code().unwrap_or(-1));
+            }
+            Ok("installé".into())
+        }
     }
 
     /// « kyber-admin 0.2.5 » → « 0.2.5 ».
@@ -1139,6 +1170,10 @@ mod tests {
         fn exe_version(&mut self, exe: &Path) -> Result<String> {
             // Les faux exécutables contiennent « kyber-admin X.Y.Z ».
             Ok(fs::read_to_string(exe)?.split_whitespace().last().unwrap_or_default().to_string())
+        }
+        fn virtual_microphone(&mut self, _: &Layout, setup: &Path) -> Result<String> {
+            self.calls.push(format!("micro {}", fs::read_to_string(setup)?));
+            Ok("installé".into())
         }
     }
 
@@ -1278,6 +1313,23 @@ mod tests {
         });
         assert_eq!(extract(&fine, &bench.root.join("out4")).unwrap(), 1);
         assert_eq!(fs::read_to_string(bench.root.join("out4/kyber/webclient/index.html")).unwrap(), "<html>");
+    }
+
+    #[test]
+    fn update_installs_the_virtual_microphone_from_the_package() {
+        let bench = Bench::new("micro");
+        let zip = bench.package("0.2.6", &[("drivers/vbcable/VBCABLE_Setup_x64.exe", "vbcable 46"), ("drivers/vbcable/readme.txt", "VB-Audio")]);
+        let mut sys = Fake::default();
+        bench.apply(&mut sys, &zip, "0.2.6").unwrap();
+        // Après la bascule et les noms affichés ; le pack reste dans drivers\vbcable.
+        assert_eq!(sys.calls.last().unwrap(), "micro vbcable 46");
+        assert_eq!(bench.read("drivers/vbcable/readme.txt"), "VB-Audio");
+        // Paquet sans VB-CABLE : rien n'est tenté.
+        let bench = Bench::new("sans-micro");
+        let zip = bench.package("0.2.6", &[]);
+        let mut sys = Fake::default();
+        bench.apply(&mut sys, &zip, "0.2.6").unwrap();
+        assert!(!sys.calls.iter().any(|c| c.starts_with("micro")));
     }
 
     #[test]

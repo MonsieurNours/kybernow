@@ -347,6 +347,30 @@ try {
         Write-Warning 'Steam absent : le son restera sur la sortie de Windows.'
     }
 
+    # Micro virtuel VB-CABLE (VB-Audio Software, donationware : vb-cable.com ;
+    # docs/micro.md) : le pack du paquet, garde dans drivers\vbcable, installe
+    # s'il manque. Jamais bloquant : la Station marche sans micro.
+    $vbPack = Join-Path $pkg 'drivers\vbcable'
+    if (Test-Path (Join-Path $vbPack 'VBCABLE_Setup_x64.exe')) {
+        Write-Host '==> Micro virtuel VB-CABLE (VB-Audio Software)'
+        try {
+            $vbDest = Join-Path $dir 'drivers\vbcable'
+            New-Item -ItemType Directory -Force $vbDest | Out-Null
+            Copy-Item -Path (Join-Path $vbPack '*') -Destination $vbDest -Recurse -Force
+            $check = Join-Path $dir 'kyber\kybernow-micro.exe'
+            $present = $false
+            if (Test-Path $check) { & $check --check | Out-Null; $present = ($LASTEXITCODE -eq 0) }
+            if ($present) {
+                Write-Host '    deja present'
+            } else {
+                $p = Start-Process -FilePath (Join-Path $vbDest 'VBCABLE_Setup_x64.exe') -ArgumentList '-i', '-h' -Wait -PassThru
+                if ($p.ExitCode -eq 0) { Write-Host '    installe' } else { Write-Warning "VB-CABLE n'a pas pu s'installer (code $($p.ExitCode)) : la Station marche sans micro." }
+            }
+        } catch {
+            Write-Warning "VB-CABLE n'a pas pu s'installer ($_) : la Station marche sans micro."
+        }
+    }
+
     Write-Host '==> Menu Demarrer'
     # Le dossier KyberNow reste. Raccourcis des versions 0.3.1 et avant :
     # KyberNow.lnk -> KyberNow Station.lnk (icone), Console KyberNow.url et

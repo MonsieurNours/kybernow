@@ -11,7 +11,7 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 | Fichier | Pour quoi |
 |---|---|
 | `KyberNow-Station-Setup.exe` | KyberNow Station : première installation sur l'ordinateur Windows qui diffusera son image (installation complète, ou réinstallation quand une mise à jour l'exige) |
-| `kybernow-update.zip` | Mise à jour d'une Station déjà installée : surcouche Kyber, Admin, icône, `update.ps1` |
+| `kybernow-update.zip` | Mise à jour d'une Station déjà installée : surcouche Kyber, Admin, icône, `update.ps1`, et le pack VB-CABLE (`drivers/vbcable`, installé s'il manque, [micro.md](micro.md)) |
 | `KyberNow-Station-Mac.dmg` | Installateur de la Station pour Mac : « Installer KyberNow Station » et « Désinstaller KyberNow Station », signés Developer ID et notarisés (`server/macos/scripts/build-station-app.sh`) |
 | `KyberNow-Station-Mac-update.zip` | Mise à jour d'une Station Mac déjà installée : l'app « KyberNow Station » entière, notarisée |
 | `KyberNow-Station-Linux-x86_64.deb`, `-arm64.deb`, `-x86_64.rpm`, `-arm64.rpm` | KyberNow Station pour Linux (docs/station-linux.md) : première installation (`sudo apt install ./…deb`, `sudo dnf install ./…rpm`) et mise à jour depuis Admin, par le paquet de son architecture et de son format. Publiés dans chaque version (`KYBERNOW_STATION_LINUX=0` pour les laisser de côté) |

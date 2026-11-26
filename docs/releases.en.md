@@ -11,7 +11,7 @@ One version number for all of KyberNow: KyberNow Station (installer, icon, servi
 | File | What for |
 |---|---|
 | `KyberNow-Station-Setup.exe` | KyberNow Station: first installation on the Windows computer that will stream its image (full installation, or reinstallation when an update requires it) |
-| `kybernow-update.zip` | Update of a Station that is already installed: Kyber overlay, Admin, icon, `update.ps1` |
+| `kybernow-update.zip` | Update of a Station that is already installed: Kyber overlay, Admin, icon, `update.ps1`, and the VB-CABLE pack (`drivers/vbcable`, installed when missing, [micro.en.md](micro.en.md)) |
 | `KyberNow-Station-Mac.dmg` | Station installer for Mac: "Install KyberNow Station" and "Uninstall KyberNow Station", Developer ID signed and notarized (`server/macos/scripts/build-station-app.sh`) |
 | `KyberNow-Station-Mac-update.zip` | Update of a Mac Station that is already installed: the whole "KyberNow Station" app, notarized |
 | `KyberNow-Station-Linux-x86_64.deb`, `-arm64.deb`, `-x86_64.rpm`, `-arm64.rpm` | KyberNow Station for Linux (docs/station-linux.en.md): first install (`sudo apt install ./…deb`, `sudo dnf install ./…rpm`) and update from Admin, with the package for its architecture and format. Published in every release (`KYBERNOW_STATION_LINUX=0` to leave them out) |

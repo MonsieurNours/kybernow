@@ -6,7 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## Unreleased
 
-- **The microphone reaches a Windows PC on its own.** The Windows Station installer now installs VB-CABLE, VB-Audio Software's virtual microphone (donationware: vb-cable.com), which receives your devices' microphone. Before, you had to install it yourself.
+- **The microphone reaches a Windows PC on its own.** The Windows Station now installs VB-CABLE, VB-Audio Software's virtual microphone (donationware: vb-cable.com), which receives your devices' microphone: at install time and when updating from Admin, if it isn't already there. Before, you had to install it yourself.
 
 ## 0.11.5
 
