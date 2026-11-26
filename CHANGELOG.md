@@ -9,7 +9,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.
 - **Le débit de PyroWave suit votre écran.** Choisi à la main sur Mac, PyroWave gardait le débit calculé au moment du choix (1 669 Mbit/s pour un écran en 160 Hz, même repassé en 60 Hz). Il s'ajuste maintenant à la définition et à la fréquence, tant que vous ne l'avez pas réglé vous-même.
-- **L'accueil du Mac retrouve sa place.** Depuis l'arrivée du profil Auto, la rangée « Se connecter », profils, HDR et réglages ne tenait plus sur une ligne : les boutons se serraient (« HD / R »). Quand la place manque, les profils passent maintenant sous « Se connecter », et chaque bouton garde son libellé sur une ligne.
+- **L'accueil retrouve sa place, sur Mac, iPhone, iPad, Android et Linux.** Depuis l'arrivée du profil Auto, la rangée « Se connecter », profils, HDR et réglages ne tenait plus toujours sur une ligne : les boutons se serraient (« HD / R » sur Mac, « Au / to » sur iPad mini, libellés coupés sur un petit téléphone Android). Quand la place manque, les profils passent maintenant sous « Se connecter », et chaque bouton garde son libellé sur une ligne.
 
 ## 0.11.3
 
