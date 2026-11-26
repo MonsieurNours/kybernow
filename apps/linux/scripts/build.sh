@@ -72,26 +72,42 @@ cargo_quiet() {
     "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
 }
 
-# 1. Correctifs.
+# 1. Correctifs. Sources de git (arbre de construction, copie de travail) :
+# remis à l'origine puis tous reposés dans l'ordre, Station d'abord
+# (scripts/kyber-client-patches.sh), comme les autres apps ; un correctif
+# posé puis recouvert par un suivant (0022 puis 0025) n'était ni reconnu ni
+# applicable tel quel (« 0022 inapplicable »). Sans git (sources du Flatpak,
+# déjà prises à l'origine) : un à un, ceux déjà posés passés.
+PATCHES=()
 for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$APPS"/webos/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue; repo="$KYSDK/kyctl" ;;
-        *-kyclient-*) repo="$KYSDK/kyctl" ;;
-        *-kynput-*) repo="$KYSDK/kynput" ;;
-        *-kynet-*) repo="$KYSDK/kymux" ;;
-        *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
+        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
     esac
-    # Déjà appliqué (les sources viennent souvent d'un arbre déjà corrigé) : rien à faire.
-    if (cd "$repo" && patch -p1 -R --dry-run -s -f < "$patch" >/dev/null 2>&1); then
-        continue
-    fi
-    if (cd "$repo" && patch -p1 --dry-run -s -f -F0 < "$patch" >/dev/null 2>&1); then
-        (cd "$repo" && patch -p1 -s -f -F0 < "$patch") && echo "==> $(basename "$patch") appliqué"
-    else
-        echo "Correctif $(basename "$patch") inapplicable" >&2
-        exit 1
-    fi
+    PATCHES+=("$patch")
 done
+if [ -f "$ROOT/scripts/kyber-client-patches.sh" ] && git -C "$KYSDK/kyctl" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+    . "$ROOT/scripts/kyber-client-patches.sh"
+    kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+else
+    for patch in "${PATCHES[@]}"; do
+        case "$(basename "$patch")" in
+            *-kyclient-*) repo="$KYSDK/kyctl" ;;
+            *-kynput-*) repo="$KYSDK/kynput" ;;
+            *-kynet-*) repo="$KYSDK/kymux" ;;
+            *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
+        esac
+        # Déjà appliqué : rien à faire.
+        if (cd "$repo" && patch -p1 -R --dry-run -s -f < "$patch" >/dev/null 2>&1); then
+            continue
+        fi
+        if (cd "$repo" && patch -p1 --dry-run -s -f -F0 < "$patch" >/dev/null 2>&1); then
+            (cd "$repo" && patch -p1 -s -f -F0 < "$patch") && echo "==> $(basename "$patch") appliqué"
+        else
+            echo "Correctif $(basename "$patch") inapplicable" >&2
+            exit 1
+        fi
+    done
+fi
 
 # kynput en client seul, comme sur webOS et Android.
 export RUSTFLAGS="${RUSTFLAGS:-} --cfg kybernow_webos"
