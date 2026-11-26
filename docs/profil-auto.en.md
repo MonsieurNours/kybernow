@@ -28,7 +28,7 @@ The core runs it (`apps/core/src/autotest.rs`) and gives the apps its progress, 
 
 The core decides (`autotest::decide`), in this order, and gives the reason for each choice:
 
-1. **Budget**: the measured bitrate, minus a margin (cable 40 %, Wi-Fi and relay 50 %), minus error correction (30 %).
+1. **Budget**: the measured bitrate, minus a margin (cable 40 %, Wi-Fi and relay 50 %), minus error correction (30 %, the largest share it takes without lowering the bitrate: [canal-de-retour.en.md](canal-de-retour.en.md)).
 2. **Format**: PyroWave if the computer offers it, the device decodes it fast enough, it is connected by cable (not through the relay) and the budget covers its bitrate at the display's resolution; otherwise HEVC (AV1 if the device doesn't decode HEVC, H.264 last).
 3. **Resolution and refresh rate**: the device display's, as long as decoding keeps up with the refresh rate with a 20 % margin; otherwise the rate goes down (120 → 60 Hz), then the resolution (4K → 1440p → 1080p).
 4. **Sharp text (4:4:4)**: if the device decodes it fast enough and the budget covers a third more bitrate (with PyroWave: half).

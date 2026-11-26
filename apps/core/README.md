@@ -367,6 +367,14 @@ Textes : [docs/link-ui.md](../../docs/link-ui.md), « Statistiques » ; règles 
 - **Ponts.** C : `KnSecond.has_target`, `target_bitrate`, `target_profile`, `target_reason` (`KN_TARGET_AUTO` 0, `LOWERED` 1, `MANUAL` 2, `PYROWAVE_PAUSED` 3, `APP_CAPPED` 4, `FALLBACK` 5 = `TargetReason::code`), `char *kn_target_bitrate_text(uint32_t bitrate, uint32_t profile, uint32_t reason)`, `char *kn_target_bitrate_label(void)`. JNI : valeurs 22, 23, 24 de `onSecond` (débit, débit du profil, raison ; -1 sans), `Native.targetBitrateText(bitrate: Long, profile: Long, reason: Int): String?`, `Native.targetBitrateLabel(): String` (à déclarer dans `Native.kt`). Windows, Linux, webOS : la structure Rust.
 - **Tests** : `cargo test -p kybernow-core debit_vise` (raisons, priorités, textes FR et EN) et `… debit_automatique` (la session : Auto, baissé, repli, plafond de l'app, à la main, PyroWave en pause), `… image_de_l_invite` (pas de débit visé sur l'image de l'hôte).
 
+## Canal de retour (`src/latency.rs`, `src/adaptive.rs`, `src/session.rs`)
+
+Contrat : [docs/canal-de-retour.md](../../docs/canal-de-retour.md). Avec une Station qui l'ouvre (correctifs 0050 à 0052), kyclient donne chaque seconde `Metric::Feedback` ; `LatencyTracker` en tire `Second::feedback` (`latency::Feedback` : datagrammes décidés et perdus avant réparation, images abandonnées, réparation envoyée, attente en place).
+
+- **Débit automatique** : `AdaptiveBitrate::judge` compte les pertes sur ces datagrammes, sinon comme avant (pertes de QUIC sur les paquets déduits des octets).
+- **Réparation dans le budget** : `Session::follow_repair` garde la part de réparation de la Station ; `TargetInputs::repair_pm` baisse le débit demandé à `débit × 1,3 / (1 + r)` au-delà de 30 % (raison `Lowered`), redemandé à 5 % d'écart.
+- **Tests** : `cargo test -p kybernow-core canal_de_retour reparation_dans_le_budget pertes_exactes` ; côté Kyber, `cargo test -p kyproto feedback` (réparation, arrivées, messages, et bout en bout sur une connexion en mémoire qui perd un datagramme sur 20). Écrit et vérifié par ces tests seulement : jamais essayé face à une vraie Station.
+
 ## Réglages synchronisés (`src/account/settings.rs`)
 
 Contrat : [docs/comptes.md](../../docs/comptes.md), « Réglages synchronisés et déplacer un ordinateur ». Le profil, le format vidéo, le débit, le texte net (4:4:4), le HDR et le mode immersif de chaque ordinateur d'un compte suivent la personne d'un appareil à l'autre ; le relais les garde par compte et par ordinateur (4 Ko au plus), le dernier changement l'emporte. Ce qui reste sur l'appareil : écran et définition, son, manettes, raccourcis, préférences de l'app.

@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **Moins de débit perdu en réparation, et des images perdues qui coûtent moins.** L'ordinateur ajoutait toujours 30 % de réparation à l'image, même sur un câble qui ne perd rien. Votre appareil lui dit maintenant ce qu'il reçoit vraiment (paquets perdus, paquets en désordre) et la réparation suit le réseau : quelques pour cent sur un réseau propre, davantage quand le Wi-Fi perd des paquets, sans jamais dépasser ce que la session envoyait avant. Une image perdue malgré la réparation fige l'écran 8 ms au lieu de 50 sur un réseau ordinaire. Le son porte le paquet précédent dans chaque paquet : un paquet perdu ne s'entend plus, avec trois fois moins de paquets qu'avant. Une Station ou une app d'avant continue comme avant.
+
 ## 0.11.4
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.

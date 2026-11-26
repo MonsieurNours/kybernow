@@ -100,7 +100,16 @@ pub struct TargetInputs {
     pub manual: bool,
     /// PyroWave avec un profil : débit automatique en pause.
     pub pyrowave_paused: bool,
+    /// Réparation des images envoyée par la Station, rapportée à l'image
+    /// (canal de retour, docs/canal-de-retour.md). Au-delà de
+    /// [`REPAIR_BUDGET`], le débit baisse pour que l'image et sa réparation
+    /// tiennent dans ce que la session envoyait avant. En ‰ (300 = 30 %).
+    pub repair_pm: Option<u32>,
 }
+
+/// Part de réparation que le débit d'un profil laisse déjà
+/// (docs/profil-auto.md : « moins la correction d'erreurs (30 %) »).
+pub const REPAIR_BUDGET: f64 = 0.3;
 
 impl TargetBitrate {
     /// Le débit visé et la raison qui le fixe : la dernière étape qui l'a
@@ -128,6 +137,17 @@ impl TargetBitrate {
         {
             b = a;
             reason = TargetReason::Lowered;
+        }
+        // Réparation au-delà de sa part : image et réparation ensemble ne
+        // dépassent pas le débit visé plus 30 %.
+        if let Some(r) = i.repair_pm.map(|pm| f64::from(pm) / 1000.0)
+            && r > REPAIR_BUDGET
+        {
+            let cap = (f64::from(base) * (1.0 + REPAIR_BUDGET) / (1.0 + r)) as u32;
+            if cap < b {
+                b = cap;
+                reason = TargetReason::Lowered;
+            }
         }
         if let Some(cap) = i.fallback_cap
             && cap < b
@@ -265,9 +285,16 @@ impl AdaptiveBitrate {
 
     /// Ce que dit une seconde, d'après l'aller-retour au repos connu.
     pub fn judge(&self, s: &Second) -> Load {
-        let packets = s.bytes / PACKET_BYTES + u64::from(s.lost_packets);
-        let loss = if packets > 0 { f64::from(s.lost_packets) * 100.0 / packets as f64 } else { 0.0 };
-        let lost = s.lost_packets >= MIN_LOST;
+        // Canal de retour (docs/canal-de-retour.md) : les datagrammes de la
+        // Station et ceux perdus, comptés exactement par l'app. Sinon,
+        // l'estimation d'avant : pertes de QUIC sur les paquets déduits des
+        // octets reçus.
+        let (packets, lost_packets) = match s.feedback {
+            Some(f) if f.datagrams > 0 => (f.datagrams, f.lost),
+            _ => (s.bytes / PACKET_BYTES + u64::from(s.lost_packets), u64::from(s.lost_packets)),
+        };
+        let loss = if packets > 0 { lost_packets as f64 * 100.0 / packets as f64 } else { 0.0 };
+        let lost = lost_packets >= u64::from(MIN_LOST);
         if lost && loss >= HEAVY_LOSS_PCT {
             return Load::Heavy;
         }
@@ -525,5 +552,40 @@ mod tests {
             assert_eq!(TargetReason::from_code(c).map(TargetReason::code), Some(c));
         }
         assert_eq!(TargetReason::from_code(7), None);
+    }
+
+    #[test]
+    fn reparation_dans_le_budget_du_debit() {
+        let m = |v: u32| v * 1_000_000;
+        let base = TargetInputs { base: m(60), adaptive: Some(m(60)), ..Default::default() };
+        // Sous les 30 % que le profil laisse : rien ne change.
+        let t = TargetBitrate::compute(TargetInputs { repair_pm: Some(50), ..base });
+        assert_eq!((t.bitrate, t.reason), (m(60), TargetReason::Auto));
+        let t = TargetBitrate::compute(TargetInputs { repair_pm: Some(300), ..base });
+        assert_eq!(t.bitrate, m(60));
+        // Au-delà : image et réparation tiennent dans 60 × 1,3.
+        let t = TargetBitrate::compute(TargetInputs { repair_pm: Some(500), ..base });
+        assert_eq!((t.bitrate, t.reason), (52_000_000, TargetReason::Lowered));
+        // Un débit automatique déjà plus bas l'emporte.
+        let t = TargetBitrate::compute(TargetInputs { adaptive: Some(m(40)), repair_pm: Some(500), ..base });
+        assert_eq!(t.bitrate, m(40));
+    }
+
+    #[test]
+    fn pertes_exactes_du_canal_de_retour() {
+        use crate::latency::Feedback;
+        let a = AdaptiveBitrate::new();
+        // 60 Mb/s : l'estimation d'avant voit 6 250 paquets ; 100 perdus,
+        // c'est 1,6 %, propre. Le canal compte 2 000 datagrammes : 5 %.
+        let mut s = sec(2.0, 100, 60);
+        assert_eq!(a.judge(&s), Load::Clean);
+        s.feedback = Some(Feedback { datagrams: 2_000, lost: 100, ..Default::default() });
+        assert_eq!(a.judge(&s), Load::Loaded);
+        // Le canal sans perte l'emporte sur les compteurs de QUIC.
+        s.feedback = Some(Feedback { datagrams: 2_000, lost: 0, ..Default::default() });
+        assert_eq!(a.judge(&s), Load::Clean);
+        // Un canal qui n'a rien vu cette seconde : l'estimation d'avant.
+        s.feedback = Some(Feedback::default());
+        assert_eq!(a.judge(&s), Load::Clean);
     }
 }

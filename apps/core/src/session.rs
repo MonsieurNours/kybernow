@@ -1717,6 +1717,9 @@ struct Worker {
     /// Débit automatique (docs/debit-automatique.md) : part du débit du
     /// profil que le réseau laisse passer.
     adaptive: AdaptiveBitrate,
+    /// Réparation des images que la Station envoie (canal de retour,
+    /// docs/canal-de-retour.md), rapportée à l'image ; `None` sans canal.
+    repair: Option<f64>,
     /// PyroWave : secondes chargées d'affilée, et l'avis déjà donné.
     pyrowave_strain: u8,
     pyrowave_strain_told: bool,
@@ -1969,6 +1972,7 @@ impl Worker {
             list_size: (0, 0),
             bitrate_cap: None,
             adaptive: AdaptiveBitrate::new(),
+            repair: None,
             pyrowave_strain: 0,
             pyrowave_strain_told: false,
             picked: None,
@@ -3609,6 +3613,7 @@ impl Worker {
                 && self.params.settings.adaptive
                 && !self.visitor()
                 && self.effective().codec == Codec::PyroWave,
+            repair_pm: self.repair.map(|r| (r * 1000.0).round() as u32),
         })
     }
 
@@ -3757,6 +3762,28 @@ impl Worker {
                 );
                 self.apply_bitrate();
             }
+        }
+    }
+
+    /// Canal de retour : la réparation que la Station envoie. Au-delà de la
+    /// part que le profil lui laisse (30 %), le débit demandé baisse
+    /// d'autant ([`TargetInputs::repair`]) ; redemandé quand il bouge de
+    /// 5 % ou plus.
+    fn follow_repair(&mut self, second: &Second) {
+        let Some(r) = second.feedback.and_then(|f| f.repair_ratio) else {
+            return;
+        };
+        let before = self.effective_bitrate();
+        self.repair = Some(r);
+        let after = self.effective_bitrate();
+        if self.streaming.is_some() && after.abs_diff(before) as f64 >= f64::from(before.max(1)) * 0.05 {
+            info!(
+                "réparation des images à {:.0} % : débit {} → {} Mb/s",
+                r * 100.0,
+                before / 1_000_000,
+                after / 1_000_000
+            );
+            self.apply_bitrate();
         }
     }
 
@@ -3998,6 +4025,7 @@ impl Worker {
                 second.target = self.stats_target();
                 *self.last_latency.lock().unwrap() = second.latency_ms;
                 self.platform.on_latency(second.latency_ms);
+                self.follow_repair(&second);
                 self.adapt_bitrate(&second);
                 self.platform.on_second(&second);
             }
@@ -4980,6 +5008,7 @@ impl Worker {
         };
         self.streaming = Some(display.clone());
         self.adaptive.new_path();
+        self.repair = None;
         self.last_shown = Some(display);
         self.streaming_fallback = self.fallback;
         self.keyframe = None;

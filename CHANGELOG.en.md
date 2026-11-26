@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **Less bitrate spent on repair, and lost frames that cost less.** The computer always added 30 % repair to the picture, even on a cable that loses nothing. Your device now tells it what it really receives (packets lost, packets out of order) and repair follows the network: a few percent on a clean network, more when Wi-Fi loses packets, never more than what the session sent before. A frame lost despite repair freezes the screen 8 ms instead of 50 on an ordinary network. Sound carries the previous packet in each packet: a lost packet can no longer be heard, with three times fewer packets than before. An older Station or app carries on as before.
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.

@@ -28,7 +28,7 @@ Le cœur le mène (`apps/core/src/autotest.rs`) et en donne l'avancement aux app
 
 Le cœur décide (`autotest::decide`), dans cet ordre, et donne la raison de chaque choix :
 
-1. **Budget** : le débit mesuré, moins une marge (câble 40 %, Wi-Fi et relais 50 %), moins la correction d'erreurs (30 %).
+1. **Budget** : le débit mesuré, moins une marge (câble 40 %, Wi-Fi et relais 50 %), moins la correction d'erreurs (30 %, la part la plus haute qu'elle prend sans baisser le débit : [canal-de-retour.md](canal-de-retour.md)).
 2. **Format** : PyroWave si l'ordinateur le propose, que l'appareil le décode assez vite, qu'il est relié par câble (pas par le relais) et que le budget couvre son débit à la définition de l'écran ; sinon HEVC (AV1 si l'appareil ne décode pas HEVC, H.264 en dernier).
 3. **Définition et fréquence** : celles de l'écran de l'appareil, tant que le décodage tient la fréquence avec une marge de 20 % ; sinon la fréquence baisse (120 → 60 Hz), puis la définition (4K → 1440p → 1080p).
 4. **Texte net (4:4:4)** : si l'appareil le décode assez vite et que le budget couvre un tiers de débit en plus (en PyroWave : la moitié).

@@ -55,7 +55,8 @@ Every second, the core gives the apps the bitrate it asks of the computer and wh
 - Nothing warns of a link that is too weak, apart from the target bitrate in the statistics (below; not in the LG TV app).
 - **AMD cards** (AMF encoder): the bitrate changes live since 0.11.1 (FFmpeg patch 0023 of 0026); **Intel** (Quick Sync): each change resets the encoder (a keyframe), which FFmpeg does on its own.
 - No lower resolution or frame rate: only the bitrate moves.
-- Error correction keeps its fixed 30 % share.
+- Error correction no longer moves on its own: with a Station that has the feedback channel, it follows the measured losses and stays within the 30 % share the profile leaves it; beyond, the bitrate asked for drops accordingly (`TargetInputs::repair_pm`, reason "lowered"), PyroWave included. With an older Station it keeps its fixed 30 % share ([canal-de-retour.en.md](canal-de-retour.en.md)).
+- With the feedback channel, losses are the ones the app counts on the Station's datagrams (`Second::feedback`), no longer an estimate from QUIC's counters.
 - The browser's web client keeps its fixed bitrate, and doesn't show the “The network is saturated” banner with PyroWave.
 - Values set by reasoning and the core's tests, not yet on a really saturated network (loaded Wi-Fi, 4G, relay).
 
