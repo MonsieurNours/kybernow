@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.11.6</title>
+            <pubDate>Thu, 26 Nov 2026 21:57:06 +0100</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>202611262153</sparkle:version>
+            <sparkle:shortVersionString>0.11.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **The microphone reaches a Windows PC on its own.** The Windows Station now installs VB-CABLE, VB-Audio Software's virtual microphone (donationware: vb-cable.com), which receives your devices' microphone: at install time and when updating from Admin, if it isn't already there. Before, you had to install it yourself.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.11.6/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.11.6/KyberNow-Link-macOS.zip" length="61704352" type="application/octet-stream" sparkle:edSignature="1icxHPONhQBzqOMYa+PGpaRj+D4ih6yGRuZmKuG7FAOc4RFR8syPexIOQiwxRvu80l1WMbyf6CNKAfR10IAKAg=="/>
+        </item>
+        <item>
             <title>0.11.5</title>
             <pubDate>Thu, 26 Nov 2026 21:08:47 +0100</pubDate>
             <sparkle:channel>beta</sparkle:channel>
