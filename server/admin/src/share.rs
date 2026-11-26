@@ -300,6 +300,9 @@ pub struct Snapshot {
     /// le prénom de qui l'a fait ouvrir. Pas de code à montrer (il ne fait
     /// entrer personne) ; il se ferme quand son dernier invité part.
     pub watch: Option<String>,
+    /// « Laisser les invités parler » (docs/micro.md) : leur micro arrive sur
+    /// l'ordinateur. Coupé à chaque nouveau partage.
+    pub guests_speak: bool,
 }
 
 struct Open {
@@ -309,6 +312,7 @@ struct Open {
     opened_at: u64,
     guests: Vec<Guest>,
     watch: Option<String>,
+    guests_speak: bool,
 }
 
 impl Open {
@@ -320,6 +324,7 @@ impl Open {
             opened_at: self.opened_at,
             guests: self.guests.clone(),
             watch: self.watch.clone(),
+            guests_speak: self.guests_speak,
         }
     }
 
@@ -539,7 +544,7 @@ impl Share {
             }
             Some(_) => Err(OpenError::Other),
             None => {
-                let open = Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new(), watch: None };
+                let open = Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new(), watch: None, guests_speak: false };
                 let snapshot = open.snapshot();
                 s.open = Some(open);
                 Ok((snapshot, true))
@@ -609,6 +614,33 @@ impl Share {
     }
 
     /// Change le rôle d'un invité. `None` : invité inconnu.
+    /// « Laisser les invités parler » : `None` sans partage ; sinon les
+    /// invités assis, chacun à une révision de plus (Kyber n'applique un
+    /// changement de droit que d'une révision plus récente), si le choix a
+    /// changé, et rien sinon.
+    pub fn set_guests_speak(&self, on: bool) -> Option<Vec<Guest>> {
+        let mut s = self.state.lock().unwrap();
+        let open = s.open.as_mut()?;
+        if open.guests_speak == on {
+            return Some(Vec::new());
+        }
+        open.guests_speak = on;
+        Some(
+            open.guests
+                .iter_mut()
+                .filter(|g| !g.pending)
+                .map(|g| {
+                    g.rev += 1;
+                    g.clone()
+                })
+                .collect(),
+        )
+    }
+
+    pub fn guests_speak(&self) -> bool {
+        self.state.lock().unwrap().open.as_ref().is_some_and(|o| o.guests_speak)
+    }
+
     pub fn set_role(&self, id: &str, role: Role) -> Option<RoleChange> {
         let mut s = self.state.lock().unwrap();
         let guest = s.open.as_mut()?.guests.iter_mut().find(|g| g.id == id && !g.pending)?;
@@ -888,7 +920,7 @@ impl Share {
         let mut s = self.state.lock().unwrap();
         let fresh = s.open.is_none();
         if fresh {
-            s.open = Some(Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new(), watch: Some(name.clone()) });
+            s.open = Some(Open { code: new_code(), origin, display, opened_at: now_secs(), guests: Vec::new(), watch: Some(name.clone()), guests_speak: false });
         }
         let open = s.open.as_mut().expect("partage ouvert");
         let (guest, new) = seat_trusted(open, name, device, app, browser, relay)?;

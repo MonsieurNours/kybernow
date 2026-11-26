@@ -13,6 +13,7 @@
   import Icon from './Icon.svelte'
   import Qr from './Qr.svelte'
   import { t, tn } from './i18n/index.svelte'
+  import Switch from './Switch.svelte'
 
   let {
     share,
@@ -234,6 +235,13 @@
     {/each}
   </div>
 
+  {#if ops.speak && !share.watch && share.guests_speak !== undefined}
+    <div class="speak">
+      <div><h3>{t('share.speak')}</h3><p>{t('share.speakHelp')}</p></div>
+      <Switch checked={!!share.guests_speak} label={t('share.speak')} disabled={busy !== null} onchange={(v) => run('speak', () => ops.speak!(v))} />
+    </div>
+  {/if}
+
   <div class="foot">
     {#if !share.watch}
       <button type="button" class="ghost" disabled={busy !== null} onclick={() => run('code', () => ops.code())}><Icon name="restart" size={15} />{t('share.newCode')}</button>
@@ -243,6 +251,25 @@
 </div>
 
 <style>
+  .speak {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+  }
+
+  .speak h3 {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .speak p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    opacity: 0.75;
+  }
+
   .share {
     display: flex;
     flex-direction: column;

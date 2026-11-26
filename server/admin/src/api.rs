@@ -52,6 +52,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/local/share", get(share_api::local_get).delete(share_api::local_close))
         .route("/api/local/share/open", post(share_api::local_open))
         .route("/api/local/share/code", post(share_api::local_code))
+        .route("/api/local/share/speak", post(share_api::local_speak))
         .route("/api/local/share/guest/{id}", post(share_api::local_guest_role).delete(share_api::local_guest_remove))
         .route("/api/local/share/guest/{id}/{action}", post(share_api::local_guest_answer))
         // Prêt de l'ordinateur depuis le PC (icône, ou Admin avec sa session).
@@ -112,6 +113,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/events", get(events))
         .route("/api/session/end", post(end_session))
         .route("/api/preview", get(admin_preview))
+        .route("/api/micro", get(crate::micro::get))
+        .route("/api/micro/install", post(crate::micro::install))
         // Client web (/link) : jeton Kyber pour la session de la console.
         .route("/api/web/ticket", get(web_ticket))
         // Lien d'appairage (QR code de la page Appareils Link, session de la console).
@@ -152,6 +155,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/share", get(share_api::host_get).delete(share_api::host_close))
         .route("/api/share/open", post(share_api::host_open))
         .route("/api/share/code", post(share_api::host_code))
+        .route("/api/share/speak", post(share_api::host_speak))
         .route("/api/share/guest/{id}", post(share_api::host_guest_role).delete(share_api::host_guest_remove))
         .route("/api/share/guest/{id}/{action}", post(share_api::host_guest_answer))
         .route("/api/share/join", post(share_api::join))

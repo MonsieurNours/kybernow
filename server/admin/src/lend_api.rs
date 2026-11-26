@@ -217,11 +217,12 @@ fn kyber_token(s: &AppState, loan: &lend::Loan) -> Option<String> {
 }
 
 /// Les droits de l'ami dans Kyber : joueur au clavier, à la souris et aux
-/// manettes, sur son écran. `kn_hdr` (correctif Kyber 0022) : son écran est
+/// manettes, et son micro, sur son écran. `kn_hdr` (correctif Kyber 0022) : son écran est
 /// en HDR ; personne d'autre n'y a d'image, c'est à Kyber de le capter en HDR
 /// (sinon la capture SDR refuse les images HDR et l'ami n'a jamais d'image).
 fn lend_claims(display: u32, hdr: bool) -> serde_json::Value {
-    json!({ "kn_role": "player_kbm", "kn_display": display, "kn_rev": 1, "kn_hdr": hdr })
+    // `kn_mic` (correctif 0080) : l'ami parle comme le propriétaire (docs/micro.md).
+    json!({ "kn_role": "player_kbm", "kn_display": display, "kn_rev": 1, "kn_hdr": hdr, "kn_mic": true })
 }
 
 /// Plus d'entrées pour l'ami (rôle spectateur, révision 2 : un jeton renouvelé
@@ -1555,6 +1556,7 @@ mod tests {
         let sdr = lend_claims(7, false);
         assert_eq!(sdr["kn_display"], 7);
         assert_eq!(sdr["kn_role"], "player_kbm");
+        assert_eq!(sdr["kn_mic"], true, "l'ami parle comme le propriétaire");
         assert_eq!(sdr["kn_hdr"], false);
         assert_eq!(lend_claims(7, true)["kn_hdr"], true);
     }

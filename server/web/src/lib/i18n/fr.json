@@ -920,6 +920,21 @@
     }
   },
   "imageSound": {
+    "micro": {
+      "title": "Micro virtuel",
+      "sub": "Le micro de vos appareils, pour vos appels et vos jeux",
+      "ready": "Le micro de vos appareils arrive dans « {device} ».",
+      "readyWindows": "VB-CABLE est installé : le micro de vos appareils arrive dans « CABLE Output ».",
+      "missingWindows": "VB-CABLE n'est pas installé.",
+      "missing": "Le micro virtuel n'est pas là : réinstallez ou mettez à jour la Station.",
+      "unsupported": "Cette Station ne reçoit pas le micro : mettez-la à jour.",
+      "install": "Installer VB-CABLE",
+      "installing": "Installation de VB-CABLE…",
+      "installed": "VB-CABLE est installé.",
+      "installFailed": "VB-CABLE ne s'est pas installé : redémarrez l'ordinateur, puis réessayez.",
+      "donation": "VB-CABLE, de VB-Audio Software, est offert en donationware : vb-cable.com.",
+      "help": "Pendant qu'un appareil envoie son micro, le micro virtuel devient le micro par défaut de l'ordinateur ; le précédent revient à la fin. Une app qui ne suit pas le micro du système le trouve dans sa liste."
+    },
     "kicker": "Pendant une session",
     "title": "Image et son",
     "intro": "Ce que vos appareils reçoivent, et ce que devient cet ordinateur le temps d'une session. Les apps KyberNow Link règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.",
@@ -1086,6 +1101,8 @@
     "takeKbm": "Reprendre le clavier et la souris",
     "remove": "Retirer",
     "newCode": "Nouveau code",
+    "speak": "Laisser les invités parler",
+    "speakHelp": "Leur micro arrive sur l'ordinateur, pour un jeu ou un appel.",
     "stop": "Arrêter le partage",
     "stopped": "Partage arrêté.",
     "limit": "Quatre invités au plus.",
