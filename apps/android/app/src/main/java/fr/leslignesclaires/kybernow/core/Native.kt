@@ -25,6 +25,25 @@ object Native {
     /** Horloge des mesures de Kyber (µs, CLOCK_MONOTONIC). */
     @JvmStatic external fun nowMicros(): Long
 
+    // Profil Auto (docs/profil-auto.md ; apps/android/jni/src/autotest.rs).
+    /**
+     * Lance le test des conditions sur un fil du cœur : [console] est une poignée de `consoleNew…` que le test prend
+     * ([ConsoleClient.detach] : ne pas la libérer) ; [deviceJson] `{screen: {width, height, refresh}, caps: {hevc,
+     * hevc444, av1, hdr, pyrowave}, hdr, network, wired}` ; [name] le nom de l'ordinateur. [listener] reçoit
+     * l'avancement puis la fin, depuis ce fil. 0 si rien n'a pu partir. À rendre par [autotestFree].
+     */
+    @JvmStatic external fun autotestStart(console: Long, deviceJson: String, name: String, listener: AutotestListener): Long
+    /** « Annuler » : le test s'arrête entre deux mesures (`onDone` : `{"cancelled": true}`). */
+    @JvmStatic external fun autotestCancel(handle: Long)
+    /** Rend la poignée : le test s'arrête et ne dit plus rien. */
+    @JvmStatic external fun autotestFree(handle: Long)
+    /** Le résumé d'un résultat gardé, dans la langue de l'app : `[{key, title, value, reason}]` ; nul s'il est illisible. */
+    @JvmStatic external fun autotestChoices(resultJson: String): String?
+    /** Les réglages de session d'Auto pour ce résultat (`AutoResult::settings`, profil `auto`) ; nul s'il est illisible. */
+    @JvmStatic external fun autotestSettings(resultJson: String, hdr: Boolean, wired: Boolean): String?
+    /** Le test a-t-il été fait sur ce réseau ([network] : celui du moment, `relay` par le relais) ? */
+    @JvmStatic external fun autotestSameNetwork(resultJson: String, network: String?): Boolean
+
     // Admin (hors session). Appels bloquants : jamais sur le fil principal.
     @JvmStatic external fun consoleNew(host: String, port: Int, user: String, password: String, pinned: String?): Long
     /** Comme [consoleNew], par le relais quand `routeJson` est donné (`{server, station, admin_fp}`) ; erreurs : 30 relais muet, 31 ordinateur éteint ou en veille, 32 accès coupé dans Admin. */
@@ -467,4 +486,14 @@ interface SessionListener {
     fun onLendEnd(end: Int, text: String) {}
     /** Hôte : la vue du prêt quand elle change (`null` : rien à dire). */
     fun onLend(json: String?) {}
+}
+
+/**
+ * Le test du profil Auto ([Native.autotestStart]), depuis le fil du cœur : remonter sur le fil principal.
+ * [onProgress] : `{"steps": [{step, title, state: waiting|running|done|skipped, text}]}` ; [onDone] : `{"result": …,
+ * "choices": […]}`, `{"cancelled": true}` ou `{"error": "Le test n'a pas pu joindre {nom}."}`.
+ */
+interface AutotestListener {
+    fun onProgress(json: String)
+    fun onDone(json: String)
 }

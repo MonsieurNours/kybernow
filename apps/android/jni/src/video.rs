@@ -438,7 +438,7 @@ impl DecodeLoop {
 /// en HDR ; sur un écran qui ne l'est plus, Android ramène l'image au SDR.
 /// `luminance` : les métadonnées HDR10 de secours (`hdr-static-info`), que le
 /// décodeur ne prend que si le flux n'a pas les siennes.
-fn format(mime: &str, w: u32, h: u32, hdr: bool, luminance: Option<kybernow_core::profile::HdrLuminance>, vendor: bool) -> MediaFormat {
+pub(crate) fn format(mime: &str, w: u32, h: u32, hdr: bool, luminance: Option<kybernow_core::profile::HdrLuminance>, vendor: bool) -> MediaFormat {
     let mut f = MediaFormat::new();
     f.set_str("mime", mime);
     f.set_i32("width", w as i32);

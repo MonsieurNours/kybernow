@@ -34,6 +34,16 @@ import fr.leslignesclaires.kybernow.model.BorrowedComputer
 import fr.leslignesclaires.kybernow.ui.lend.Borrowing
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.Profile
+import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.AutotestListener
+import fr.leslignesclaires.kybernow.model.AutoChoice
+import fr.leslignesclaires.kybernow.model.AutoProfile
+import fr.leslignesclaires.kybernow.model.AutoStep
+import fr.leslignesclaires.kybernow.model.AutoSummary
+import fr.leslignesclaires.kybernow.model.Hdr
+import fr.leslignesclaires.kybernow.model.HdrScreen
+import fr.leslignesclaires.kybernow.model.PyroWave
+import fr.leslignesclaires.kybernow.model.Screen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -135,6 +145,22 @@ sealed interface BorrowStep {
     data class Waiting(val host: String) : BorrowStep
 }
 
+/**
+ * Le panneau du test du profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») pour l'ordinateur [hostId] :
+ * les quatre étapes au fil du test ([steps], les textes du cœur), puis « Réglages proposés » ([result], le JSON
+ * `AutoResult` à garder, et [choices]), ou l'échec ([error] : « Le test n'a pas pu joindre {nom}. »).
+ */
+data class AutoTestState(
+    val hostId: String,
+    val name: String,
+    val steps: List<AutoStep> = emptyList(),
+    val result: String? = null,
+    val choices: List<AutoChoice> = emptyList(),
+    val error: String? = null,
+) {
+    val running get() = result == null && error == null
+}
+
 /** Le relais n'est pas interrogé plus d'une fois toutes les 30 s pour savoir qui est connecté. */
 private const val PRESENCE_EVERY_MS = 30_000L
 
@@ -218,6 +244,109 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     /** Choisir un profil remet le format, le débit et le transport aux siens (« Personnalisé » s'efface). */
     fun setProfile(id: String, p: Profile) = store.update(id) { it.copy(settings = it.settings.apply(p)) }
+
+    // MARK: - Profil Auto (docs/profil-auto.md)
+
+    private val _autoTest = MutableStateFlow<AutoTestState?>(null)
+    /** Le panneau du test du profil Auto, ouvert par-dessus l'écran du moment ; nul : fermé. */
+    val autoTest: StateFlow<AutoTestState?> = _autoTest.asStateFlow()
+
+    /** Le test en cours ([Native.autotestStart]) et son numéro : les rappels d'un test arrêté sont ignorés. */
+    private var autoHandle = 0L
+    @Volatile private var autoRun = 0
+
+    /**
+     * Choisir un profil partout où ils sont listés : Auto avec un test gardé pour cet ordinateur s'applique tout de
+     * suite (ses réglages, sa définition et sa fréquence) ; sans test, le panneau du test s'ouvre (rien ne change avant
+     * « Appliquer »). Les autres profils, comme [setProfile].
+     */
+    fun pickProfile(id: String, p: Profile) {
+        if (p != Profile.AUTO) return setProfile(id, p)
+        val h = hosts.value.firstOrNull { it.id == id } ?: return
+        val result = h.settings.autoResult
+        if (result == null || AutoSummary.parse(result) == null) return openAutoTest(id)
+        val screen = Screen.of(getApplication<Application>())
+        store.update(id) { it.copy(settings = AutoProfile.apply(it.settings, result, screen)) }
+    }
+
+    /** « Refaire le test », ou Auto choisi sans test : le panneau s'ouvre et le test part. */
+    fun openAutoTest(id: String) {
+        val h = hosts.value.firstOrNull { it.id == id } ?: return
+        freeAutoTest()
+        val run = ++autoRun
+        _autoTest.value = AutoTestState(id, h.name)
+        val app = getApplication<Application>()
+        val away = _status.value[id]?.away == true
+        viewModelScope.launch {
+            val console = withContext(Dispatchers.IO) { testConsole(h, away) }
+            if (run != autoRun) { console?.close(); return@launch }
+            if (console == null) {
+                _autoTest.value = _autoTest.value?.copy(error = app.getString(R.string.autotest_unreachable, h.name))
+                return@launch
+            }
+            val d = kn.decoders
+            val hdr = Hdr.wanted(h) && HdrScreen.of(app).hdr && Hdr.decodes(h, d)
+            val device = AutoProfile.deviceJson(Screen.of(app), Hdr.capabilities(h, d), hdr, AutoProfile.networkName(app), PyroWave.wired(app))
+            val listener = object : AutotestListener {
+                override fun onProgress(json: String) {
+                    val steps = AutoStep.parseProgress(json)
+                    if (run == autoRun && steps.isNotEmpty()) _autoTest.value = _autoTest.value?.copy(steps = steps)
+                }
+
+                override fun onDone(json: String) {
+                    if (run != autoRun) return
+                    val o = runCatching { org.json.JSONObject(json) }.getOrNull()
+                    val result = o?.optJSONObject("result")?.toString()
+                    _autoTest.value = when {
+                        o?.optBoolean("cancelled") == true -> null
+                        result != null -> _autoTest.value?.copy(result = result, choices = AutoChoice.parseList(o.optJSONArray("choices")))
+                        else -> _autoTest.value?.copy(error = o?.optString("error")?.takeIf { it.isNotEmpty() } ?: app.getString(R.string.autotest_unreachable, h.name))
+                    }
+                    viewModelScope.launch { if (run == autoRun) freeAutoTest() }
+                }
+            }
+            autoHandle = Native.autotestStart(console.detach(), device, h.name, listener)
+            if (autoHandle == 0L) _autoTest.value = _autoTest.value?.copy(error = app.getString(R.string.autotest_unreachable, h.name))
+        }
+    }
+
+    /** « Annuler » : le test s'arrête (ou le résumé se ferme) ; le profil d'avant reste. */
+    fun closeAutoTest() {
+        autoRun++
+        freeAutoTest()
+        _autoTest.value = null
+    }
+
+    /** « Appliquer » : Auto devient le profil de cet ordinateur avec ces réglages (gardés avec lui). */
+    fun applyAutoTest() {
+        val st = _autoTest.value ?: return
+        val result = st.result ?: return
+        val screen = Screen.of(getApplication<Application>())
+        store.update(st.hostId) { it.copy(settings = AutoProfile.apply(it.settings, result, screen)) }
+        closeAutoTest()
+    }
+
+    private fun freeAutoTest() {
+        if (autoHandle != 0L) {
+            Native.autotestFree(autoHandle)
+            autoHandle = 0L
+        }
+    }
+
+    /**
+     * La console du test, celle que l'app utilise pour cet ordinateur : le compte KyberNow (réseau, sinon relais), le
+     * relais quand l'ordinateur n'est joignable que par lui (« Hors de chez vous »), sinon Admin sur le réseau.
+     */
+    private fun testConsole(h: Host, away: Boolean): ConsoleClient? = when {
+        h.fromAccount -> kn.accounts.console(h)
+        away -> h.relayRoute?.let { ConsoleClient(h.address, h.port, h.user, store.password(h.id) ?: "", h.fingerprint, it) }
+        else -> ConsoleClient(h.address, h.port, h.user, store.password(h.id) ?: "", h.fingerprint)
+    }
+
+    override fun onCleared() {
+        closeAutoTest()
+        super.onCleared()
+    }
 
     /** « Réessayer » : « Recherche… » le temps d'interroger Admin de nouveau. */
     fun retry(id: String) {

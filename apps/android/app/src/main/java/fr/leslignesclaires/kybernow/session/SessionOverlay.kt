@@ -106,6 +106,7 @@ import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.fmt
 import fr.leslignesclaires.kybernow.ui.home.motorsLabel
 import fr.leslignesclaires.kybernow.ui.home.profileLabel
+import fr.leslignesclaires.kybernow.ui.home.profileIcon
 import fr.leslignesclaires.kybernow.ui.panel
 import fr.leslignesclaires.kybernow.ui.share.QualityChoices
 import fr.leslignesclaires.kybernow.ui.share.qualityLabel
@@ -177,6 +178,15 @@ class SessionUi(
     var pyroBanner by mutableStateOf(false)
     var pyroBannerDone by mutableStateOf(false)
     var pyroStrained by mutableStateOf(false)
+    /**
+     * Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : le test gardé quand la session part en Auto
+     * ([autoResult], hôte seulement), le réseau de l'appareil au début ([autoNetwork] : « Wi-Fi », « Ethernet », le nom
+     * du Wi-Fi), et le bandeau « Autre réseau que celui du test » ([otherNetwork]) déjà jugé ([otherNetworkDone]).
+     */
+    var autoResult by mutableStateOf<String?>(null)
+    var autoNetwork by mutableStateOf<String?>(null)
+    var otherNetwork by mutableStateOf(false)
+    var otherNetworkDone by mutableStateOf(false)
     var mouseMode by mutableStateOf(0)
     var directTouch by mutableStateOf(false)
     var remoteMouse by mutableStateOf(false)
@@ -267,6 +277,8 @@ interface SessionActions {
     fun setHdr(on: Boolean) {}
     /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */
     fun switchToHevc() {}
+    /** « Refaire le test » du profil Auto : le panneau du test s'ouvre après la session. */
+    fun retestAuto() {}
     fun setMouseMode(m: Int)
     fun setDirectTouch(on: Boolean)
     fun setRemoteMouse(on: Boolean)
@@ -533,6 +545,7 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
             }
         }
         PyroBanner(ui)
+        OtherNetworkBanner(ui)
         if (ui.menuOpen || ui.barOpen) restore?.let { (w, h) ->
             GlassButton(stringResource(R.string.session_restore, w, h), { ui.actions.restoreMode() })
         }
@@ -641,7 +654,7 @@ internal fun StatsCard(ui: SessionUi, sec: Second?, modifier: Modifier) {
 @Composable
 private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
     StatsCard(ui, sec, Modifier.focusRequester(first))
-    Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
+    Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p, leading = profileIcon(p)) }
     // « HDR », cochable, près du profil (écran HDR seulement).
     HdrChip(ui.hdrState, ui.hdrChoice, { ui.actions.setHdr(!ui.hdrChoice) }, icon = true)
     GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
@@ -1009,7 +1022,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         PyroTile(ui)
         Profile.entries.forEach { p ->
-            if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
+            if (p != ui.profile) Tile(if (p == Profile.AUTO) KnIcons.sparkles else KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
         HdrTile(ui)
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }

@@ -73,8 +73,8 @@ class PyroWaveUiTest {
 
     private fun fr(s: String) = s.replace(" :", "$n:").replace("« ", "«$n").replace(" »", "$n»")
 
-    private fun settings(codec: String, pw: PyroWaveChoice, updates: MutableList<HostSettings> = mutableListOf()) {
-        var current = host.settings.copy(codec = codec)
+    private fun settings(codec: String, pw: PyroWaveChoice, updates: MutableList<HostSettings> = mutableListOf(), profile: Profile = Profile.GAME) {
+        var current = host.settings.copy(codec = codec, profile = profile)
         val h = host.copy(settings = current)
         val actions = HostSettingsActions({ f -> current = f(current); updates += current }, { _, _ -> }, {}, {}, { _, _ -> }, {}, {}, {}, {})
         show(FormFactor.PHONE) {
@@ -99,9 +99,17 @@ class PyroWaveUiTest {
 
     @Test
     fun format_video_auto_par_cable_et_en_wifi() {
-        settings("auto", PyroWaveChoice.of(host, decodes = true, wired = true, relayed = false))
+        settings("auto", PyroWaveChoice.of(host, decodes = true, wired = true, relayed = false), profile = Profile.MAX)
         rule.onNodeWithText(fr("Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.")).assertExists()
         rule.onNodeWithText(fr("En Wi-Fi, PyroWave peut saccader : il lui faut environ 300\u00a0Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.")).assertDoesNotExist()
+    }
+
+    @Test
+    fun format_video_auto_par_cable_en_jeu_et_bureau() {
+        // Jeu et Bureau restent en HEVC par câble : seuls Max et Auto prennent PyroWave (docs/profil-auto.md).
+        settings("auto", PyroWaveChoice.of(host, decodes = true, wired = true, relayed = false))
+        rule.onNodeWithText(fr("Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.")).assertExists()
+        rule.onNodeWithText(fr("Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.")).assertDoesNotExist()
     }
 
     @Test

@@ -54,6 +54,10 @@ import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.model.AudioOutput
+import fr.leslignesclaires.kybernow.model.AutoProfile
+import fr.leslignesclaires.kybernow.ui.LinkButton
+import fr.leslignesclaires.kybernow.ui.autoChosenBy
+import fr.leslignesclaires.kybernow.ui.home.profileIcon
 import fr.leslignesclaires.kybernow.model.Decoders
 import fr.leslignesclaires.kybernow.model.Hdr
 import fr.leslignesclaires.kybernow.model.HdrState
@@ -265,7 +269,16 @@ class HostSettingsActions(
     val trustFingerprint: (String) -> Unit,
     val remove: () -> Unit,
     val back: () -> Unit,
-)
+    /**
+     * Choisir un profil (le profil Auto sans test ouvre le panneau du test, docs/link-ui.md) ; nul : le profil est
+     * appliqué tel quel ([HostSettings.apply]).
+     */
+    val pickProfile: ((Profile) -> Unit)? = null,
+    /** « Refaire le test » du profil Auto (carte « Débit »). */
+    val retest: () -> Unit = {},
+) {
+    fun pick(p: Profile) = pickProfile?.invoke(p) ?: update { it.apply(p) }
+}
 
 /** Réglages d'un ordinateur, branchés sur l'app. */
 @Composable
@@ -306,6 +319,8 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
         trustFingerprint = { fp -> model.trustFingerprint(hostId, fp) },
         remove = { model.remove(hostId); onRemoved() },
         back = onBack,
+        pickProfile = { p -> model.pickProfile(hostId, p) },
+        retest = { model.openAutoTest(hostId) },
     )
     val start = when {
         st.certificateChanged -> Rubric.STATS
@@ -404,7 +419,7 @@ private fun ProfileRow(set: HostSettings, actions: HostSettingsActions) {
     val options: List<Pair<Profile?, String>> = Profile.entries.map { it to profileLabel(it) } +
         if (set.custom) listOf<Pair<Profile?, String>>(null to stringResource(R.string.profile_custom)) else emptyList()
     ChoiceRow(stringResource(R.string.settings_profile), profileHelp(set), options, if (set.custom) null else set.profile) { p ->
-        p?.let { actions.update { it.apply(p) } }
+        p?.let { actions.pick(it) }
     }
 }
 
@@ -419,7 +434,7 @@ private fun ProfileBar(set: HostSettings, actions: HostSettingsActions) {
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         Eyebrow(stringResource(R.string.settings_profile), color = Kn.spectre, modifier = Modifier.padding(end = s.dp(4f)))
-        Profile.entries.forEach { p -> GlassButton(profileLabel(p), { actions.update { it.apply(p) } }, selected = !set.custom && set.profile == p) }
+        Profile.entries.forEach { p -> GlassButton(profileLabel(p), { actions.pick(p) }, selected = !set.custom && set.profile == p, leading = profileIcon(p)) }
         if (set.custom) GlassButton(stringResource(R.string.profile_custom), {}, selected = true)
         Body(profileHelp(set), size = 14f, color = Kn.muted, modifier = Modifier.padding(start = s.dp(6f)))
     }
@@ -462,9 +477,11 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
     // choisi hors câble, l'avertissement Wi-Fi ou relais sous le choix.
     val pw = state.pyrowave
     val pyroChosen = set.codec == "pyrowave" && pw.usable
-    val pyroAuto = set.codec == "auto" && pw.usable && pw.link == PyroWaveLink.CABLE
+    // « Auto » prend PyroWave par câble pour Max, et pour le profil Auto quand le test l'a choisi (docs/profil-auto.md).
+    val pyroAuto = set.codec == "auto" && pw.usable && pw.link == PyroWaveLink.CABLE &&
+        (set.profile == Profile.MAX || (set.profile == Profile.AUTO && AutoProfile.codec(set.autoResult) == "pyrowave"))
     ChoiceRow(
-        stringResource(R.string.settings_codec), codecHelp(set.codec, pw, state.host.name),
+        stringResource(R.string.settings_codec), codecHelp(set, pw, state.host.name),
         listOfNotNull(
             "auto" to auto, if (d.hevc != null) "hevc" to "HEVC" else null, "h264" to "H.264", if (d.av1 != null && state.host.av1) "av1" to "AV1" else null,
             if (pw.shown) "pyrowave" to "PyroWave" else null,
@@ -477,6 +494,19 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
         listOf(0 to auto) + listOf(20, 40, 60, 90, 150, 300).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
     ) { v -> actions.update { it.copy(mbps = v) } }
+    // Carte « Débit » (docs/link-ui.md, « Profil Auto et débit adaptatif ») : sous le débit, profil Auto, le test qui
+    // l'a choisi et « Refaire le test » ; puis « Débit adaptatif », à part du profil (jamais « Personnalisé »), avec
+    // l'aide de PyroWave en plus quand PyroWave est pris.
+    if (set.profile == Profile.AUTO && !set.custom) {
+        autoChosenBy(set)?.let { Body(it, size = 13f, color = Kn.muted) }
+        LinkButton(stringResource(R.string.autotest_again), actions.retest)
+    }
+    val adaptiveHelp = stringResource(R.string.settings_adaptive_help)
+    SwitchRow(
+        stringResource(R.string.settings_adaptive),
+        if (pyroChosen || pyroAuto) adaptiveHelp + " " + stringResource(R.string.settings_adaptive_pyrowave) else adaptiveHelp,
+        set.adaptive,
+    ) { v -> actions.update { it.copy(adaptive = v) } }
     // Le 4:4:4 vient du profil (Bureau, Max) quand l'appareil le décode : pas de choix à faire ici. Le HDR allumé
     // l'éteint (le HDR n'existe qu'en 4:2:0) : la rangée s'estompe et le dit.
     val hdrOn = state.hdr.on(set.hdr)
@@ -507,7 +537,8 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
 
 /** L'aide de « Format vidéo » : celle de PyroWave quand il compte (choisi, ou « Auto » qui peut le prendre), la raison d'une valeur inactive. */
 @Composable
-private fun codecHelp(codec: String, pw: PyroWaveChoice, name: String): String {
+private fun codecHelp(set: HostSettings, pw: PyroWaveChoice, name: String): String {
+    val codec = set.codec
     val reason = when (pw.block) {
         PyroWaveBlock.NOT_OFFERED -> stringResource(R.string.pyrowave_not_offered, name)
         PyroWaveBlock.NO_DECODER -> stringResource(R.string.pyrowave_no_decoder)
@@ -515,6 +546,11 @@ private fun codecHelp(codec: String, pw: PyroWaveChoice, name: String): String {
     }
     val help = when {
         codec == "pyrowave" && pw.usable -> stringResource(R.string.pyrowave_help_chosen)
+        // Par câble, Jeu et Bureau restent en HEVC : seuls Max et Auto prennent PyroWave.
+        codec == "auto" && pw.usable && pw.link == PyroWaveLink.CABLE && (set.profile == Profile.GAME || set.profile == Profile.DESKTOP) ->
+            stringResource(R.string.pyrowave_help_auto_profile)
+        // Le profil Auto suit son test : PyroWave par câble seulement s'il l'a choisi.
+        codec == "auto" && set.profile == Profile.AUTO && AutoProfile.codec(set.autoResult) != "pyrowave" -> stringResource(R.string.settings_codec_help)
         codec == "auto" && pw.usable && pw.link == PyroWaveLink.CABLE -> stringResource(R.string.pyrowave_help_auto_wired)
         codec == "auto" && pw.usable -> stringResource(R.string.pyrowave_help_auto_wifi)
         else -> stringResource(R.string.settings_codec_help)
@@ -862,7 +898,7 @@ private fun StationRubric(state: HostSettingsState, actions: HostSettingsActions
 
 /** Un arc qui tourne (attente) ; immobile sans animations sans fin ([LocalMotion], captures). */
 @Composable
-private fun Spinner(size: Float) {
+internal fun Spinner(size: Float) {
     val s = LocalScale.current
     val turn = if (LocalMotion.current) {
         val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "attente")
