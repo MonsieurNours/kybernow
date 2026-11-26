@@ -9,7 +9,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
  #include "os_compat.h"
  #include <libtxproto/utils.h>
  #include "utils.h"
-@@ -591,6 +592,7 @@ static int recreate_encoder(EncodingContext *ctx, AVFrame *conf)
+@@ -591,6 +592,7 @@
      int ret;
  
      sp_log(ctx, SP_LOG_INFO, "Recreate encoder\n");
@@ -17,7 +17,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
  
      /* Delete encoder */
      if (ctx->enc_frames_ref)
-@@ -704,6 +706,14 @@ static void *encoding_thread(void *arg)
+@@ -738,6 +740,14 @@
                  out_pkt = av_packet_alloc();
  
                  int clear_forced_idr = 0;
@@ -32,7 +32,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
                  if (frame && atomic_load(&ctx->force_idr)) {
                      /* Force the next frame to be an IDR. The option name differs
                       * across encoders: nvenc and x264 expose "forced-idr" (dash),
-@@ -739,6 +749,15 @@ static void *encoding_thread(void *arg)
+@@ -773,6 +783,15 @@
                      goto fail;
                  }
  
@@ -48,7 +48,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
                  if (clear_forced_idr) {
                      /* Restore the default so subsequent frames are not also
                       * promoted to IDR. */
-@@ -795,6 +814,15 @@ static void *encoding_thread(void *arg)
+@@ -829,6 +848,15 @@
                  goto fail;
              }
  
@@ -64,7 +64,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
              /* KyberNow (0023): the steps of the image, a line every 5 s. */
              if (ctx->codec->type == AVMEDIA_TYPE_VIDEO) {
                  char kn_line[512];
-@@ -903,6 +931,17 @@ static int encoder_ioctx_ctrl_cb(AVBufferRef *event_ref, void *callback_ctx,
+@@ -943,6 +971,17 @@
  
              sp_log(ctx, SP_LOG_INFO, "Change bitrate to %d\n", bitrate);
              ctx->avctx->bit_rate = bitrate;
@@ -82,7 +82,7 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
          } else if (!strcmp(command, "force_idr")) {
              sp_log(ctx, SP_LOG_INFO, "Force IDR\n");
              atomic_store(&ctx->force_idr, 1);
-@@ -991,6 +1030,7 @@ static void encoder_free(void *opaque, uint8_t *data)
+@@ -1035,6 +1074,7 @@
  
      avcodec_free_context(&ctx->avctx);
      kn_timing_free(&ctx->kn_timing); /* KyberNow (0023) */
@@ -90,31 +90,29 @@ diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
  
      pthread_mutex_destroy(&ctx->lock);
  
-@@ -1023,6 +1063,7 @@ AVBufferRef *sp_encoder_alloc(void)
-     ctx->swr = swr_alloc();
+@@ -1068,6 +1108,7 @@
      ctx->soft_flush = ATOMIC_VAR_INIT(0);
      ctx->force_idr = ATOMIC_VAR_INIT(0);
+     ctx->kn_latest_only = 1; /* KyberNow (0040) */
 +    ctx->kn_recovery = kn_recovery_new(); /* KyberNow (0060) */
  
      ctx->src_frames = sp_frame_fifo_create(ctx, 8, FRAME_FIFO_BLOCK_NO_INPUT);
      ctx->dst_packets = sp_packet_fifo_create(ctx, 0, 0);
-diff --git a/subprojects/txproto/src/include/libtxproto/encode.h b/subprojects/txproto/src/include/libtxproto/encode.h
 --- a/subprojects/txproto/src/include/libtxproto/encode.h
 +++ b/subprojects/txproto/src/include/libtxproto/encode.h
-@@ -89,6 +89,9 @@ typedef struct EncodingContext {
- 
-     /* KyberNow (0023): time of each step, logged every 5 s (kn_timing.h) */
-     struct KnTimingStats *kn_timing;
+@@ -98,6 +98,9 @@
+     int64_t kn_dropped_sent_at;
+     int kn_dropped_logged;
+     int64_t kn_dropped_logged_at;
 +
 +    /* KyberNow (0060): repair of a loss without a keyframe (kn_recovery.h) */
 +    struct KnRecovery *kn_recovery;
  } EncodingContext;
  
  AVBufferRef *sp_encoder_alloc(void);
-diff --git a/subprojects/txproto/src/include/libtxproto/txproto.h b/subprojects/txproto/src/include/libtxproto/txproto.h
 --- a/subprojects/txproto/src/include/libtxproto/txproto.h
 +++ b/subprojects/txproto/src/include/libtxproto/txproto.h
-@@ -77,6 +77,11 @@ int tx_encoder_set_bitrate(TXMainContext *ctx, AVBufferRef *encoder, int bitrate
+@@ -77,6 +77,11 @@
  
  int tx_encoder_force_idr(TXMainContext *ctx, AVBufferRef *encoder);
  
@@ -126,9 +124,7 @@ diff --git a/subprojects/txproto/src/include/libtxproto/txproto.h b/subprojects/
  AVBufferRef *tx_muxer_create(TXMainContext *ctx, const char *out_url,
                               const char *out_format, AVDictionary *options,
                               AVDictionary *init_opts);
-diff --git a/subprojects/txproto/src/kn_recovery.h b/subprojects/txproto/src/kn_recovery.h
-new file mode 100644
---- /dev/null
+--- a/subprojects/txproto/src/kn_recovery.h
 +++ b/subprojects/txproto/src/kn_recovery.h
 @@ -0,0 +1,277 @@
 +/*
@@ -408,43 +404,26 @@ new file mode 100644
 +}
 +
 +#endif /* KN_RECOVERY_H */
-diff --git a/subprojects/txproto/src/txproto.c b/subprojects/txproto/src/txproto.c
 --- a/subprojects/txproto/src/txproto.c
 +++ b/subprojects/txproto/src/txproto.c
-@@ -355,6 +355,44 @@ int tx_encoder_force_idr(TXMainContext *ctx, AVBufferRef *encoder)
-     return 0;
- }
+@@ -333,20 +333,58 @@
+     int err = 0;
  
-+/* KyberNow (0060) */
-+int tx_encoder_recover(TXMainContext *ctx, AVBufferRef *encoder, int64_t last_pts)
-+{
-+    AVDictionary *commands = NULL;
-+    int err = 0;
-+
-+    err = av_dict_set(&commands, "command", "recover", 0);
+     err = av_dict_set(&commands, "command", "force_idr", 0);
 +    if (err < 0) {
 +        sp_log(ctx, SP_LOG_ERROR, "av_dict_set() failed: %s!", av_err2str(err));
-+        return err;
-+    }
-+
-+    err = av_dict_set_int(&commands, "last_pts", last_pts, 0);
-+    if (err < 0) {
-+        sp_log(ctx, SP_LOG_ERROR, "av_dict_set_int() failed: %s!", av_err2str(err));
-+        av_dict_free(&commands);
 +        return err;
 +    }
 +
 +    err = sp_encoder_ctrl(encoder, SP_EVENT_CTRL_COMMAND, commands);
 +    if (err < 0) {
 +        sp_log(ctx, SP_LOG_ERROR, "sp_encoder_ctrl() failed: %s!", av_err2str(err));
-+        av_dict_free(&commands);
 +        return err;
 +    }
 +
 +    err = sp_add_commit_fn_to_list(ctx, sp_encoder_ctrl, encoder);
 +    if (err < 0) {
 +        sp_log(ctx, SP_LOG_ERROR, "sp_add_commit_fn_to_list() failed: %s!", av_err2str(err));
-+        av_dict_free(&commands);
 +        return err;
 +    }
 +
@@ -453,6 +432,36 @@ diff --git a/subprojects/txproto/src/txproto.c b/subprojects/txproto/src/txproto
 +    return 0;
 +}
 +
- AVBufferRef *tx_muxer_create(TXMainContext *ctx, const char *out_url,
-                              const char *out_format, AVDictionary *options,
-                              AVDictionary *init_opts)
++/* KyberNow (0060) */
++int tx_encoder_recover(TXMainContext *ctx, AVBufferRef *encoder, int64_t last_pts)
++{
++    AVDictionary *commands = NULL;
++    int err = 0;
++
++    err = av_dict_set(&commands, "command", "recover", 0);
+     if (err < 0) {
+         sp_log(ctx, SP_LOG_ERROR, "av_dict_set() failed: %s!", av_err2str(err));
+         return err;
+     }
+ 
++    err = av_dict_set_int(&commands, "last_pts", last_pts, 0);
++    if (err < 0) {
++        sp_log(ctx, SP_LOG_ERROR, "av_dict_set_int() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
++        return err;
++    }
++
+     err = sp_encoder_ctrl(encoder, SP_EVENT_CTRL_COMMAND, commands);
+     if (err < 0) {
+         sp_log(ctx, SP_LOG_ERROR, "sp_encoder_ctrl() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
+         return err;
+     }
+ 
+     err = sp_add_commit_fn_to_list(ctx, sp_encoder_ctrl, encoder);
+     if (err < 0) {
+         sp_log(ctx, SP_LOG_ERROR, "sp_add_commit_fn_to_list() failed: %s!", av_err2str(err));
++        av_dict_free(&commands);
+         return err;
+     }
+ 
