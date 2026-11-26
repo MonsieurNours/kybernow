@@ -146,7 +146,7 @@ else
     "$ROOT/server/encoder-check/build.sh" macos "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos" \
         "$APP/Contents/MacOS/kybernow-encoder-check"
 fi
-# L'aide du micro de l'appareil (docs/micro.md, correctif 0080), à côté de
+# L'aide du micro de l'appareil (docs/micro.md, flux montant du correctif 0085), à côté de
 # kycontroller ; libopus de Contents/Frameworks.
 "$ROOT/server/micro/build.sh" macos "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos" \
     "$APP/Contents/MacOS/kybernow-micro"

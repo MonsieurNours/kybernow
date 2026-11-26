@@ -330,7 +330,7 @@ cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 # L'outil par lequel Admin essaie l'encodeur (docs/profil-auto.md), contre le
 # FFmpeg de kyavserver ; lancé depuis le dossier de Kyber.
 "$ROOT/server/encoder-check/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-encoder-check.exe"
-# L'aide du micro de l'appareil (docs/micro.md, correctif 0080), que
+# L'aide du micro de l'appareil (docs/micro.md, flux montant du correctif 0085), que
 # kycontroller cherche à côté de lui ; libopus du rootfs en statique.
 "$ROOT/server/micro/build.sh" windows "$ROOTFS" "$OVERLAY/kybernow-micro.exe"
 # Runtime MinGW (UCRT) de la chaîne kyavserver : aucun autre binaire de Kyber
