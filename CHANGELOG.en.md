@@ -4,8 +4,15 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
-## Unreleased
+## 0.11.7
 
+First stable release since 0.11.4: it brings together everything the 0.11.5 and 0.11.6 betas added, with their fixes.
+
+- **Your microphone on the computer.** “Microphone” in the session bar sends the microphone of your Mac, iPhone, iPad, Android phone, PC or browser to the computer, for a game, a call or a video meeting. On a PC, VB-CABLE, VB-Audio Software's virtual microphone (donationware: vb-cable.com), installs with the Station or when it updates; on Mac and Linux, it's “Micro KyberNow”.
+- **Your device's camera becomes a webcam.** “Camera” in the bar sends the camera of your iPhone, iPad, Android phone, Mac or PC to the computer, which sees it as an ordinary webcam, “KyberNow Camera”, in Teams, Zoom, Discord, OBS or the browser.
+- **Record your sessions.** “Record” keeps what you see and hear in a video on the computer, with no extra work for the graphics card; a red dot shows it to everyone. Admin has a “Recordings” page to watch, download or delete them.
+- **A more responsive picture.** Each frame fits in its share of the bitrate, the encoder always takes the most recent frame when the graphics card is busy, the Mac Station only sends keyframes when needed, and repair follows what your device actually receives: less delay, less bitrate wasted, and a lost frame is repaired without a keyframe (HEVC, with an NVIDIA card or the Mac Station).
+- **KyberNow Station for Linux, in beta.** A Linux computer becomes a Station, like a PC or a Mac: GNOME, KDE Plasma 6, Sway or Hyprland, Ubuntu 24.04, Debian 13, Fedora 42 and newer, x86_64 and arm64. `.deb` and `.rpm` packages on the release page.
 - **iPhone, iPad and Apple TV: the app no longer freezes mid-session.** After a few minutes, the pointer stopped moving, the menu wouldn't open, and the app had to be force-quit. Moving the pointer at the exact moment the computer announced its own locked the app up for good. Fixed.
 - **Windows Station: no more black window when the microphone or camera turns on.** A terminal window opened on the PC's desktop while the device sent its microphone or camera. It no longer does.
 - **No more sessions ending after a few minutes on patchy Wi-Fi.** When the picture was slow to come back, the app restarted the stream, and the fourth time it ended the session ("the computer is not sending a picture"). But those restarts were counted over the whole session, even minutes apart and followed by a normal picture. They are now counted in a row: a picture that comes back resets the count. In every app.

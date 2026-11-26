@@ -5,8 +5,15 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
-## Non publié
+## 0.11.7
 
+Première version stable depuis la 0.11.4 : elle réunit tout ce que les bêtas 0.11.5 et 0.11.6 ont apporté, avec leurs correctifs.
+
+- **Votre micro sur l'ordinateur.** « Micro » dans la barre de session envoie le micro de votre Mac, iPhone, iPad, téléphone Android, PC ou navigateur à l'ordinateur, pour un jeu, un appel ou une visio. Sur un PC, VB-CABLE, le micro virtuel de VB-Audio Software (offert en donationware : vb-cable.com), s'installe avec la Station ou à sa mise à jour ; sur Mac et Linux, c'est « Micro KyberNow ».
+- **La caméra de votre appareil devient une webcam.** « Caméra » dans la barre envoie la caméra de votre iPhone, iPad, téléphone Android, Mac ou PC à l'ordinateur, qui la voit comme une webcam ordinaire, « KyberNow Camera », dans Teams, Zoom, Discord, OBS ou le navigateur.
+- **Enregistrez vos sessions.** « Enregistrer » garde ce que vous voyez et entendez dans une vidéo sur l'ordinateur, sans travail en plus pour la carte graphique ; une pastille rouge le signale à tous. Admin a une page « Enregistrements » pour les regarder, les télécharger ou les supprimer.
+- **Une image plus réactive.** Chaque image tient dans sa part du débit, l'encodeur prend toujours l'image la plus récente quand la carte graphique est chargée, la Station Mac n'envoie plus d'image clé qu'au besoin, et la réparation suit ce que votre appareil reçoit vraiment : moins de retard, moins de débit perdu, et une image perdue se répare sans image clé (HEVC, avec une carte NVIDIA ou la Station Mac).
+- **KyberNow Station pour Linux, en bêta.** Un ordinateur sous Linux devient une Station, comme un PC ou un Mac : GNOME, KDE Plasma 6, Sway ou Hyprland, Ubuntu 24.04, Debian 13, Fedora 42 et plus récentes, x86_64 et arm64. Paquets `.deb` et `.rpm` sur la page de la version.
 - **iPhone, iPad et Apple TV : l'app ne se fige plus en pleine session.** Au bout de quelques minutes, le pointeur ne bougeait plus, le menu ne s'ouvrait plus, et il fallait fermer l'app de force. Bouger le pointeur au moment exact où l'ordinateur annonçait le sien bloquait l'app pour de bon. C'est corrigé.
 - **Station Windows : plus de fenêtre noire quand le micro ou la caméra s'allume.** Une fenêtre de terminal s'ouvrait sur le bureau du PC pendant que l'appareil envoyait son micro ou sa caméra. Elle ne s'ouvre plus.
 - **Plus de session coupée au bout de quelques minutes sur un Wi-Fi capricieux.** Quand l'image tardait à repartir, l'app relançait le flux, et à la quatrième fois elle arrêtait la session (« l'ordinateur n'envoie pas d'image »). Mais ces relances se comptaient sur toute la session, même espacées de plusieurs minutes et suivies d'une image normale. Elles se comptent maintenant de suite : une image revenue remet le compte à zéro. Sur toutes les apps.
