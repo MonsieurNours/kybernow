@@ -838,5 +838,15 @@
     "away_dialog_text": "{name} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box.",
     "not_now": "Pas maintenant",
     "paired_text": "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow."
+  },
+  "camera": {
+    "camera": "Caméra",
+    "starting": "Caméra…",
+    "turn_on": "Allumer la caméra",
+    "turn_off": "Éteindre la caméra",
+    "shortcut": " (Ctrl+Alt+Maj+C)",
+    "indicator": "● Caméra",
+    "resolution": "Définition de la caméra",
+    "resolution_help": "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur."
   }
 }

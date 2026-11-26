@@ -466,6 +466,16 @@
             <span>{t('settings.clipboard')}</span>
             <Switch label={t('settings.clipboard')} checked={s.clipboard} onchange={(v) => save({ clipboard: v })} />
           </div>
+          {#if computer.camera_offered}
+            <!-- La caméra de ce PC (docs/webcam.md) : une fois que l'ordinateur l'a proposée. -->
+            <div class="line stack">
+              <div class="lr">
+                <span>{t('camera.resolution')}</span>
+                <Segmented label={t('camera.resolution')} value={s.camera_1080 ? '1080p' : '720p'} options={[{ value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }]} onchange={(v) => save({ camera_1080: v === '1080p' })} />
+              </div>
+              <span class="help">{t('camera.resolution_help')}</span>
+            </div>
+          {/if}
         </section>
       {:else if rubric === 'network'}
         <section>

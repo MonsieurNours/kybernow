@@ -20,6 +20,11 @@ use windows::core::{PCWSTR, w};
 
 use kybernow_core::console::{DeviceInfo, Mode};
 
+/// La webcam choisie dans le menu « Caméra », gardée pour ce PC (docs/webcam.md).
+pub fn camera_choice_path() -> PathBuf {
+    data_dir("APPDATA").join("camera.txt")
+}
+
 fn data_dir(var: &str) -> PathBuf {
     let base = std::env::var_os(var).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let dir = base.join("KyberNow");

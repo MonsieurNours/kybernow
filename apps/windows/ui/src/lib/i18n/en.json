@@ -838,5 +838,15 @@
     "away_dialog_text": "{name} isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router.",
     "not_now": "Not now",
     "paired_text": "Find it away from home and on your other devices too: connect a KyberNow account."
+  },
+  "camera": {
+    "camera": "Camera",
+    "starting": "Camera…",
+    "turn_on": "Turn on camera",
+    "turn_off": "Turn off camera",
+    "shortcut": " (Ctrl+Alt+Shift+C)",
+    "indicator": "● Camera",
+    "resolution": "Camera resolution",
+    "resolution_help": "30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer."
   }
 }

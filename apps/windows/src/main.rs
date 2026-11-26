@@ -20,6 +20,8 @@ mod audio;
 #[cfg(windows)]
 mod autotest_decode;
 #[cfg(windows)]
+mod camera;
+#[cfg(windows)]
 mod cli;
 // Consoles PlayStation : comptes, associations, état, envoi entre appareils
 // (se teste sur le Mac).
