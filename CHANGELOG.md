@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **La caméra de votre appareil, sur votre ordinateur.** Pendant une session, « Caméra » dans la barre (ou Ctrl+Alt+Maj+C, ⌃⌥⌘C sur Mac) envoie la caméra de votre iPhone, iPad, téléphone Android, Mac ou PC à l'ordinateur, qui la voit comme une webcam ordinaire, « KyberNow Camera » : Teams, Zoom, Discord, OBS ou votre navigateur la proposent dans leur liste. Choisissez la caméra avant ou arrière, une webcam USB, ou sur Apple TV l'iPhone posé à côté. Un voyant rouge la signale tant qu'elle part ; elle s'éteint à chaque fin de session. 720p par défaut, 1080p dans les réglages de l'ordinateur. Elle demande une Station à jour : sous Windows 11, une vraie caméra de Windows ; sous Windows 10, une caméra que voient Zoom, Teams, Discord, OBS et les navigateurs ; sur Mac, une extension caméra à autoriser une fois ; sous Linux, v4l2loopback pour toutes les apps (sinon PipeWire, pour les navigateurs et OBS).
+
 ## 0.11.4
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.

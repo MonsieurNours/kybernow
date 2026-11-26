@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **Your device's camera, on your computer.** During a session, “Camera” in the bar (or Ctrl+Alt+Shift+C, ⌃⌥⌘C on Mac) sends the camera of your iPhone, iPad, Android phone, Mac or PC to the computer, which sees it as an ordinary webcam, “KyberNow Camera”: Teams, Zoom, Discord, OBS or your browser offer it in their list. Pick the front or back camera, a USB webcam, or on Apple TV the iPhone sitting next to it. A red indicator shows while it is sending; it turns off at the end of every session. 720p by default, 1080p in the computer's settings. It needs an up-to-date Station: on Windows 11, a real Windows camera; on Windows 10, a camera that Zoom, Teams, Discord, OBS and browsers see; on Mac, a camera extension to allow once; on Linux, v4l2loopback for every app (otherwise PipeWire, for browsers and OBS).
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.
