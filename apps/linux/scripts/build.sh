@@ -134,8 +134,13 @@ if ! kynput_current; then
 fi
 
 # 3. FFmpeg réduit au décodage (VA-API ; V4L2 M2M partout sur Linux ; avec --rpi,
-#    le FFmpeg de Raspberry Pi et son hwaccel HEVC V4L2 request).
+#    le FFmpeg de Raspberry Pi et son hwaccel HEVC V4L2 request), plus ce que
+#    demande la caméra de l'appareil (docs/webcam.md) : les encodeurs H.264
+#    matériels (VA-API, V4L2 M2M) et le décodeur MJPEG des webcams USB.
+#    FFMPEG_FEATURES nomme ces ajouts : un FFmpeg construit sans eux est refait.
 FFMPEG_VERSION=7.1.1
+FFMPEG_FEATURES=camera-1
+[ -f "$PREFIX/lib/libavcodec.a" ] && [ "$(cat "$PREFIX/lib/.kybernow-ffmpeg" 2>/dev/null)" != "$FFMPEG_FEATURES" ] && rm -f "$PREFIX/lib/libavcodec.a"
 RPI_FFMPEG_BRANCH="dev/7.1.1/rpi_import_1"
 if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
     if [ "$RPI" = 1 ]; then
@@ -175,7 +180,8 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
         --enable-vaapi --enable-libdrm --enable-v4l2-m2m \
         --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=av1 --enable-decoder=h264_v4l2m2m \
         --enable-hwaccel=h264_vaapi --enable-hwaccel=hevc_vaapi --enable-hwaccel=av1_vaapi \
-        --enable-parser=h264 --enable-parser=hevc --enable-parser=av1 "${extra[@]}" > "$build/configure.log" 2>&1); then
+        --enable-parser=h264 --enable-parser=hevc --enable-parser=av1 \
+        --enable-encoder=h264_vaapi --enable-encoder=h264_v4l2m2m --enable-decoder=mjpeg "${extra[@]}" > "$build/configure.log" 2>&1); then
         tail -30 "$build/configure.log" >&2
         [ -f "$build/ffbuild/config.log" ] && tail -40 "$build/ffbuild/config.log" >&2
         echo "configure de FFmpeg en échec (journal : $build/configure.log)" >&2
@@ -183,6 +189,7 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
     fi
     (cd "$build" && make -j"$JOBS" >/dev/null && make install >/dev/null)
     [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
+    echo "$FFMPEG_FEATURES" > "$PREFIX/lib/.kybernow-ffmpeg"
 fi
 
 # 4. PyroWave (docs/pyrowave-client-linux.md) : l'API C de l'amont, chemin

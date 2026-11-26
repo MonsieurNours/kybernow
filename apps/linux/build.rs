@@ -77,6 +77,7 @@ fn main() {
         .file("src/native/wayland/color-management-v1.c")
         .file("src/native/wayland/viewporter.c")
         .file("src/native/pen.c")
+        .file("src/native/camera.c")
         .file("src/native/wayland/tablet-v2.c")
         .include(prefix.join("include"))
         .flag_if_supported("-Wno-deprecated-declarations")

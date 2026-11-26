@@ -15,7 +15,7 @@ use super::quality;
 use super::share;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{share_tile, shortcuts, App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target};
+use crate::app::{share_tile, shortcuts, App, BarMenu, CameraState, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, ShareAvail, Target};
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
@@ -76,6 +76,15 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 }
                 if !view.main {
                     return;
+                }
+                // Le voyant de la caméra (docs/link-ui.md) : barre fermée, tant qu'elle part, une petite
+                // capsule « ● Caméra » en haut à gauche.
+                if !s.bar && s.camera == CameraState::Sending {
+                    let style = Text::new(Font::Semibold, 11.0, Rgba(255, 201, 196, 255));
+                    let label = tr("● Caméra", "● Camera");
+                    let w = cv.text_width(style, label) + 16.0;
+                    cv.rrect(10.0, 10.0, w, 20.0, 10.0, Rgba(0, 0, 0, 140));
+                    cv.text(18.0, 24.0, style, label);
                 }
                 // PyroWave en Wi-Fi ou par le relais : le bandeau du début de session (8 s, ou la croix).
                 // Au bureau, la capsule passe sous le bandeau (« Définition ramenée » peut arriver en même temps).
@@ -439,6 +448,13 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
     if sound {
         v.push(icon(Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
     }
+    // La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : seulement si l'ordinateur la propose.
+    if s.camera_offered {
+        let on = s.camera == CameraState::Sending || s.bar_menu == Some(BarMenu::Camera);
+        let name = if s.camera == CameraState::Off { tr("Allumer la caméra", "Turn on camera") } else { tr("Éteindre la caméra", "Turn off camera") };
+        let glyph = if s.camera == CameraState::Off { Icon::CameraOff } else { Icon::Camera };
+        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} (Ctrl+Alt+Maj+C)").replace("Maj", if crate::i18n::english() { "Shift" } else { "Maj" }), dim: s.camera == CameraState::Off });
+    }
     if !s.multi() {
         v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
     }
@@ -770,7 +786,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
     // écran, « Partager » ; chacun nomme son bouton au survol.
-    let (mut keys_x, mut computers_x, mut share_x, mut lend_x) = (x, x, x, x);
+    let (mut keys_x, mut computers_x, mut share_x, mut lend_x, mut camera_x) = (x, x, x, x, x);
     for BarIcon { target: t, icon, on, name, dim } in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, ir);
@@ -790,6 +806,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             Target::BarKeys => keys_x = ir.x,
             Target::BarShare => share_x = ir.x,
             Target::BarLend => lend_x = ir.x,
+            Target::BarCamera => camera_x = ir.x,
             _ => {}
         }
         cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else if dim { GHOST } else { MUTED });
@@ -862,6 +879,13 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         Some(BarMenu::Lend) => lend::dropdown(cv, f, app, s, lend_x + 17.0, h + 6.0),
         Some(BarMenu::Quality) => dropdown_titled(cv, f, quality_x, h + 6.0, 300.0, Some(tr("Qualité de l'image", "Picture quality")), &quality::items(s)),
         Some(BarMenu::Screen) => dropdown_titled(cv, f, screen_x, h + 6.0, 300.0, Some(crate::app::watch_screen_word()), &quality::screen_items(s)),
+        Some(BarMenu::Camera) => {
+            // « Allumer la caméra » / « Éteindre la caméra », puis les webcams, celle choisie cochée.
+            let toggle = if s.camera == CameraState::Off { tr("Allumer la caméra", "Turn on camera") } else { tr("Éteindre la caméra", "Turn off camera") };
+            let mut items: Vec<(Target, String, String, bool)> = vec![(Target::BarCameraToggle, toggle.to_string(), String::new(), false)];
+            items.extend(s.cameras.iter().enumerate().map(|(i, (path, name))| (Target::BarCameraPick(i), name.clone(), String::new(), s.camera_current.as_deref() == Some(path.as_str()))));
+            dropdown_titled(cv, f, camera_x, h + 6.0, 300.0, Some(tr("Caméra", "Camera")), &items);
+        }
         None => {
             // Le nom du bouton survolé, sous la barre (jamais par-dessus un menu).
             if let Some((r, name)) = tip {
@@ -1410,6 +1434,10 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     // « Chemin » : Direct, Par le relais, Par le relais (TCP) ; par le relais, l'aller-retour mesuré s'y ajoute.
     let ms = s.route.and_then(|r| r.total_ms()).filter(|_| s.via_relay()).map(|v| format!(" · {} ms", decimal(v, 0))).unwrap_or_default();
     cv.text_fit(ix, yy, mono, &format!("{}{} {}{ms}", tr("Chemin", "Path"), if crate::i18n::english() { ":" } else { " :" }, s.path().label()), w - 32.0 * u);
+    // La caméra de l'appareil, allumée : « Caméra : 1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s ».
+    if let Some(line) = &s.camera_line {
+        cv.text_fit(ix, yy + 19.0 * u, mono, &format!("{}{} {line}", tr("Caméra", "Camera"), if crate::i18n::english() { ":" } else { " :" }), w - 32.0 * u);
+    }
     // L'aide de l'étape survolée (bureau, Deck).
     if !tv && let Some(i) = s.stats_help.filter(|&i| i < 6) {
         stage_help(cv, &b, i);
