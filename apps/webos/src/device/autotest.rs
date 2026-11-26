@@ -37,8 +37,18 @@ pub fn cancel() {
 /// Une seconde au plus par extrait (docs/profil-auto.md).
 const SAMPLE_BUDGET: Duration = Duration::from_secs(1);
 
-/// Le décodeur du téléviseur pour le test : NDL, par le chemin de la session ; PyroWave n'existe pas ici.
-fn decode(sample: &Sample) -> Option<f64> {
+/// Le décodeur du téléviseur pour le test : NDL, par le chemin de la session ; PyroWave n'existe pas ici. Une mesure
+/// bornée par l'affichage (au moins la fréquence de la dalle) n'est pas rendue (`crate::autotest::decode_rate`).
+fn decode(sample: &Sample, panel_refresh: u32) -> Option<f64> {
+    let measured = bench(sample);
+    let rate = crate::autotest::decode_rate(measured, panel_refresh);
+    if let (Some(fps), None) = (measured, rate) {
+        log::info!("profil auto : {} 4K : {fps:.0} i/s mesurées, au moins la fréquence de la dalle ({panel_refresh} Hz) : bornée par l'affichage, pas rendue au cœur (le format matériel est supposé tenir)", sample.codec.label());
+    }
+    rate
+}
+
+fn bench(sample: &Sample) -> Option<f64> {
     let kind = match sample.codec {
         Codec::Hevc => ndl::VIDEO_H265,
         Codec::Av1 => ndl::VIDEO_AV1,
@@ -95,7 +105,8 @@ pub fn start(app: &App, host: &str, attempt: u32, tx: Sender<Event>) {
         // Le réseau du moment, gardé avec le résultat : « Ethernet », le nom du Wi-Fi.
         let device = Device { network: system::network_name(kind), ..device };
         log::info!("profil auto : test de {} ({:?}, {:?}{})", h.name, device.screen, device.network, if relay { ", par le relais" } else { "" });
-        let mut decoder = decode;
+        let panel_refresh = device.screen.refresh;
+        let mut decoder = |s: &Sample| decode(s, panel_refresh);
         let tx2 = tx.clone();
         let mut progress = |p: &Progress| send(&tx2, AutoEvent::Progress { attempt, steps: steps(p) });
         let result = autotest::run(console, &device, &mut decoder, &mut progress, &flag, lang);

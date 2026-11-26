@@ -73,6 +73,14 @@ pub fn waiting_steps() -> Vec<Step> {
     .collect()
 }
 
+/// Ce que l'app rend au cœur pour un extrait décodé par NDL (`SampleDecoder`) : NDL n'a pas de décodage sans
+/// affichage ; une mesure qui atteint au moins la fréquence de la dalle est bornée par l'affichage, pas par le
+/// décodeur : `None` (le cœur suppose alors que le format matériel tient). Sous la fréquence de la dalle, la mesure.
+pub fn decode_rate(measured: Option<f64>, panel_refresh: u32) -> Option<f64> {
+    let fps = measured?;
+    if panel_refresh > 0 && fps >= f64::from(panel_refresh) { None } else { Some(fps) }
+}
+
 /// « Profil Auto ».
 pub fn title() -> &'static str {
     tr("Profil Auto", "Auto profile")
@@ -525,6 +533,17 @@ mod tests {
         assert!(app.choose_auto("a").is_empty());
         assert_eq!(app.auto_after.as_deref(), Some("a"));
         assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Profil Auto : prochaine session"));
+    }
+
+    /// Une mesure de NDL bornée par l'affichage (au moins la fréquence de la dalle) n'est pas rendue au cœur.
+    #[test]
+    fn mesure_bornee_par_la_dalle() {
+        assert_eq!(decode_rate(Some(120.0), 120), None);
+        assert_eq!(decode_rate(Some(131.5), 120), None);
+        assert_eq!(decode_rate(Some(60.0), 60), None);
+        assert_eq!(decode_rate(Some(119.0), 120), Some(119.0));
+        assert_eq!(decode_rate(Some(60.0), 120), Some(60.0), "AV1 montré à 60 sur une dalle à 120 Hz");
+        assert_eq!(decode_rate(None, 120), None, "format refusé");
     }
 
     #[test]
