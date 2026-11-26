@@ -184,7 +184,8 @@
     "n_consoles_other": "{n} consoles"
   },
   "session": {
-    "gamepads_unavailable": "Manettes indisponibles sur cet ordinateur."
+    "gamepads_unavailable": "Manettes indisponibles sur cet ordinateur.",
+    "autotest_later": "Le test se fera à la fin de la session."
   },
   "pyrowave": {
     "banner_text": "L'image peut saccader."

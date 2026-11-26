@@ -574,6 +574,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     Capsule.PadsUnavailable -> stringResource(R.string.capsule_pads_unavailable)
     is Capsule.HdrRefused -> c.text.ifBlank { stringResource(R.string.hdr_refused) }
     is Capsule.ResolutionLowered -> c.text
+    Capsule.AutoTestLater -> stringResource(R.string.autotest_later)
 }
 
 // MARK: - Téléphone et tablette

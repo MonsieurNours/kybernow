@@ -792,6 +792,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Auto sans test pour cet ordinateur : le test ne se fait pas pendant la session ; son panneau s'ouvre après.
         if (p == Profile.AUTO && hostSession && AutoSummary.parse(host.settings.autoResult) == null) {
             app.autoTestAfterSession(host.id)
+            state.show(Capsule.AutoTestLater)
             if (tv) resume()
             return
         }
@@ -825,7 +826,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     override fun retestAuto() {
-        if (hostSession) app.autoTestAfterSession(host.id)
+        if (!hostSession) return
+        app.autoTestAfterSession(host.id)
+        state.show(Capsule.AutoTestLater)
     }
 
     /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */

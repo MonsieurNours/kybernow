@@ -61,6 +61,7 @@
     <string name="autotest_link_relay">Par le relais</string>
     <string name="autotest_other_network">Autre réseau que celui du test</string>
     <string name="autotest_other_network_text">Le débit adaptatif s\'en charge.</string>
+    <string name="autotest_later">Le test se fera à la fin de la session.</string>
     <string name="settings_adaptive">Débit adaptatif</string>
     <string name="settings_adaptive_help">Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.</string>
     <string name="settings_adaptive_pyrowave">En PyroWave, il est en pause : la définition baisse à la place.</string>

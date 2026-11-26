@@ -1388,9 +1388,13 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   bar_menu: () => null,
   bar_width: () => null,
   session_profile: async (a) => {
+    // Auto sans test gardé : le panneau du test à la fin de la session (`later`, la barre le dit).
+    const kept = computers.find((c) => c.id === a.id) as (Computer & { auto?: AutoResult | null }) | undefined
+    if (a.profile === 'auto' && !kept?.auto) return 'later'
     // L'app écrit le profil en français, l'interface le traduit (localLabel).
     const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max', auto: 'Auto' }
     emit('bar-label', { id: a.id, label: `${names[a.profile as string]} · HEVC`, profile: a.profile })
+    return 'applied'
   },
   // La Station : un appareil est « en session » (le premier appel demande de forcer) ;
   // elle redémarre (Admin ne répond plus 5 s), sa mise à jour s'installe (8 s).

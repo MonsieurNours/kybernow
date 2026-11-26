@@ -773,6 +773,7 @@
     "chosen_by": "Chosen by the test of {date} ({network}).",
     "other_network": "Different network from the test",
     "other_network_text": "Adaptive bitrate will handle it.",
+    "later": "The test will run when the session ends.",
     "adaptive": "Adaptive bitrate",
     "adaptive_help": "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
     "adaptive_pyrowave": "With PyroWave it pauses: the resolution goes down instead.",

@@ -61,6 +61,7 @@
     <string name="autotest_link_relay">Through the relay</string>
     <string name="autotest_other_network">Different network from the test</string>
     <string name="autotest_other_network_text">Adaptive bitrate will handle it.</string>
+    <string name="autotest_later">The test will run when the session ends.</string>
     <string name="settings_adaptive">Adaptive bitrate</string>
     <string name="settings_adaptive_help">Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.</string>
     <string name="settings_adaptive_pyrowave">With PyroWave it pauses: the resolution goes down instead.</string>

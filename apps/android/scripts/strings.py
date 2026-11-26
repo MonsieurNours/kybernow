@@ -95,6 +95,8 @@ S = [
 ("autotest_link_relay", "Par le relais", "Through the relay"),
 ("autotest_other_network", "Autre réseau que celui du test", "Different network from the test"),
 ("autotest_other_network_text", "Le débit adaptatif s'en charge.", "Adaptive bitrate will handle it."),
+# « Refaire le test », ou Auto choisi sans test, pendant la session : le panneau attend la fin de la session (capsule).
+("autotest_later", "Le test se fera à la fin de la session.", "The test will run when the session ends."),
 ("settings_adaptive", "Débit adaptatif", "Adaptive bitrate"),
 ("settings_adaptive_help", "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.", "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves."),
 ("settings_adaptive_pyrowave", "En PyroWave, il est en pause : la définition baisse à la place.", "With PyroWave it pauses: the resolution goes down instead."),
