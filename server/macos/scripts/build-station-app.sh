@@ -138,6 +138,14 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources/kyber" "$APP/Contents/Resources/licenses"
 cp "$MENUBAR" "$APP/Contents/MacOS/KyberNow Station"
 cp "$KYAPP"/Contents/MacOS/{kycontroller,kyavserver,kynputserver,kybernow-pyrowave-check} "$APP/Contents/MacOS/"
+# L'outil par lequel Admin essaie l'encodeur (docs/profil-auto.md), contre le
+# FFmpeg de Kyber (rootfs) ; avec KYBER_FROM_APP, celui de l'app donnée s'il y est.
+if [ -n "${KYBER_FROM_APP:-}" ] && [ -x "$KYBER_FROM_APP/Contents/MacOS/kybernow-encoder-check" ]; then
+    cp "$KYBER_FROM_APP/Contents/MacOS/kybernow-encoder-check" "$APP/Contents/MacOS/"
+else
+    "$ROOT/server/encoder-check/build.sh" macos "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos" \
+        "$APP/Contents/MacOS/kybernow-encoder-check"
+fi
 cp -R "$KYAPP/Contents/Frameworks/." "$APP/Contents/Frameworks/"
 cp "$KYAPP/Contents/Resources/kyber_config.toml" "$APP/Contents/Resources/kyber/"
 cp "$ROOT/server/admin/target/release/kyber-admin" "$AGENT" "$UI" "$APP/Contents/MacOS/"
@@ -177,7 +185,7 @@ localized "$APP" "KyberNow Station" "KyberNow Station" \
 # exécutables (même droits : le son), puis le paquet.
 find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do sign "$lib"; done
 sign "$APP/Contents/Resources/KyberNow.driver"
-for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kyber-admin kybernow-display kybernow-ui kybernow-console; do
+for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kybernow-encoder-check kyber-admin kybernow-display kybernow-ui kybernow-console; do
     sign --entitlements "$ENTITLEMENTS" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
 done
 sign --entitlements "$ENTITLEMENTS" "$APP"

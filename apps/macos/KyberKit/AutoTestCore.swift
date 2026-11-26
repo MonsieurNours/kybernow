@@ -162,7 +162,16 @@ public struct AutoTestResult: Sendable, Equatable {
         return SessionEngine.Settings(profile: j["profile"] as? String, codec: codec, yuv444: j["yuv444"] as? Bool ?? false,
                                       mbps: j["mbps"] as? Int ?? mbps, reliable: j["reliable"] as? Bool ?? false,
                                       hdr: j["hdr"] as? Bool ?? hdr, wired: j["wired"] as? Bool ?? wired,
-                                      adaptive: j["adaptive"] as? Bool ?? true)
+                                      adaptive: j["adaptive"] as? Bool ?? true, encoderMax: j["encoder_max"] as? Int)
+    }
+
+    /// Le plafond de l'encodeur à garder pour cet ordinateur quand ce
+    /// résultat est appliqué (`AutoResult::next_encoder_max` du cœur), d'après
+    /// celui qu'il avait : la limite trouvée par le test ; sinon un plafond
+    /// gardé plus bas que le débit accepté du premier coup est retiré.
+    public func nextEncoderMax(previous: Int?) -> Int? {
+        let n = kn_autotest_next_encoder_max(json, UInt32(max(0, previous ?? 0)))
+        return n > 0 ? Int(n) : nil
     }
 
     /// Le test a-t-il été fait sur ce réseau ? (`CurrentNetwork.name`, `relay`
@@ -242,15 +251,9 @@ public final class AutoTestRun: @unchecked Sendable {
 
 // MARK: - Décodage des extraits
 
-/// Le décodage des extraits du test (`SampleDecoder` du cœur) : les paquets
-/// donnés au décodeur de la session (`VideoDecoder`) aussi vite qu'il les
-/// prend, en boucle depuis l'image clé, pendant 1 s au plus ; les images
-/// par seconde, comptées entre la première et la dernière image sortie.
-enum AutoTestBench {
-    /// Images au plus chez le décodeur à la fois (PyroWave : sa limite).
-    private static let inFlight = 4
-    private static let budget: TimeInterval = 1
-
+extension AutoTestBench {
+    /// L'extrait du cœur (`kn_auto_sample_*`, valable pendant le rappel),
+    /// copié puis décodé par `run`.
     static func fps(_ sample: OpaquePointer?) -> Double? {
         guard let sample else { return nil }
         let fourcc = kn_auto_sample_fourcc(sample)
@@ -268,60 +271,6 @@ enum AutoTestBench {
                              width: Int(kn_auto_sample_width(sample)), height: Int(kn_auto_sample_height(sample)))
             : nil
         return run(codec: codec, packets: packets, pyrowave: config)
-    }
-
-    static func run(codec: VideoDecoder.Codec, packets: [(data: Data, key: Bool)], pyrowave: PyroWaveConfig?) -> Double? {
-        let decoder = VideoDecoder()
-        let slots = DispatchSemaphore(value: codec == .pyrowave ? PyroWaveDecoder.maxInFlight : inFlight)
-        let lock = NSLock()
-        var frames = 0
-        var first: UInt64?
-        var last: UInt64 = 0
-        var lost = false
-        decoder.onFrame = { _ in
-            let now = DispatchTime.now().uptimeNanoseconds
-            lock.lock()
-            frames += 1
-            if first == nil { first = now }
-            last = now
-            lock.unlock()
-            slots.signal()
-        }
-        decoder.onLostReference = {
-            lock.lock()
-            lost = true
-            lock.unlock()
-        }
-        decoder.setCodec(codec.rawValue)
-        if let pyrowave {
-            pyrowave.bytes.withUnsafeBufferPointer { decoder.decode($0, isConfig: true, isKey: true, pts: 0) }
-        }
-        let start = Date()
-        var pts: UInt64 = 1
-        var index = 0
-        while Date().timeIntervalSince(start) < budget {
-            // Le décodeur n'a rien rendu depuis 300 ms : refusé, ou trop lent.
-            guard slots.wait(timeout: .now() + .milliseconds(300)) == .success else { break }
-            lock.lock()
-            let stop = lost
-            lock.unlock()
-            if stop { break }
-            let p = packets[index]
-            p.data.withUnsafeBytes { decoder.decode($0.bindMemory(to: UInt8.self), isConfig: false, isKey: p.key, pts: pts) }
-            pts += 1
-            index = (index + 1) % packets.count
-        }
-        decoder.flush()
-        decoder.invalidate()
-        lock.lock()
-        defer { lock.unlock() }
-        guard frames >= 2, let first, last > first else {
-            KyberLog.video.notice("profil Auto : \(String(describing: codec), privacy: .public) pas décodé (\(frames) image(s))")
-            return nil
-        }
-        let fps = Double(frames - 1) / (Double(last - first) / 1e9)
-        KyberLog.video.notice("profil Auto : \(String(describing: codec), privacy: .public)\(pyrowave?.chroma444 == true ? " 4:4:4" : "", privacy: .public) \(Int(fps)) i/s (\(frames) images)")
-        return fps
     }
 }
 

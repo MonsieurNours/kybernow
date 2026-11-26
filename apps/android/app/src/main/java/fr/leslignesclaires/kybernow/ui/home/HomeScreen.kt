@@ -109,6 +109,7 @@ import fr.leslignesclaires.kybernow.ui.StationBannerActions
 import fr.leslignesclaires.kybernow.ui.StationBannerView
 import fr.leslignesclaires.kybernow.ui.StationTask
 import fr.leslignesclaires.kybernow.ui.withUpdateChip
+import fr.leslignesclaires.kybernow.ui.stationBannerVisible
 import fr.leslignesclaires.kybernow.ui.panel
 import fr.leslignesclaires.kybernow.ui.playstation.ConsoleCard
 import fr.leslignesclaires.kybernow.ui.playstation.ConsoleHero
@@ -146,7 +147,7 @@ class HomeActions(
     val ps: PsHomeActions = PsHomeActions(),
     /** La puce « HDR » d'un ordinateur : le choix gardé pour lui (docs/hdr.md). */
     val setHdr: (Host, Boolean) -> Unit = { _, _ -> },
-    /** « Se connecter à un compte KyberNow » (accueil sans ordinateur) : onglet personnalisé, ou le code au téléviseur. */
+    /** « Connecter un compte » (accueil sans ordinateur) : onglet personnalisé, ou le code au téléviseur. */
     val signIn: () -> Unit = {},
     /** « Regarder » un ordinateur du compte (droit « Regarder ») : comme un invité spectateur de son partage. */
     val watch: (Host) -> Unit = {},
@@ -157,6 +158,15 @@ class HomeActions(
     val stationLater: (Host, String) -> Unit = { _, _ -> },
     /** « Annuler » la confirmation du bandeau. */
     val stationCancel: (Host) -> Unit = {},
+    // Accueil et compte KyberNow, sans compte (docs/link-ui.md, « Sans compte, ensuite »).
+    /** « Créer un compte » : la page d'inscription dans le navigateur (le code au téléviseur). */
+    val createAccount: () -> Unit = {},
+    /** La croix de la carte du compte (« Fermer », ou « Ne plus afficher »). */
+    val closeAccountCard: () -> Unit = {},
+    /** « Plus tard » du bandeau après un appairage (« Connecter un compte » le ferme aussi). */
+    val dismissPairedBanner: () -> Unit = {},
+    /** Le bandeau après l'appairage de cet ordinateur a sa place (pas de bandeau de la Station) : le compter et l'afficher. */
+    val showPairedBanner: (Host) -> Unit = {},
 )
 
 /** Tout ce que l'accueil montre. */
@@ -211,6 +221,15 @@ data class HomeState(
     val stationTasks: Map<String, StationTask> = emptyMap(),
     /** Les mises à jour lancées par le bandeau ou l'avis : leur confirmation et leur échec s'écrivent dans le bandeau. */
     val fromOffer: Set<String> = emptySet(),
+    /** Un compte KyberNow est connecté : ni bouton du compte, ni carte, ni bandeau. */
+    val hasAccount: Boolean = true,
+    /** La carte du compte en fin de rangée (`welcome::card_visible`), et sa croix : « Ne plus afficher » ([accountCardFinal]). */
+    val accountCard: Boolean = false,
+    val accountCardFinal: Boolean = false,
+    /** L'ordinateur qui vient d'être appairé, sous lequel s'affiche le bandeau du compte. */
+    val pairedBanner: String? = null,
+    /** L'ordinateur appairé dont le bandeau attend que celui de la mise à jour de la Station soit parti. */
+    val pairedPending: String? = null,
 )
 
 @Composable
@@ -241,6 +260,14 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val offers by model.offers.collectAsState()
     val stationTasks by model.station.collectAsState()
     val fromOffer by model.fromOffer.collectAsState()
+    // Sans compte : le bouton et la carte du compte, le bandeau après un appairage (règles du cœur, `welcome`).
+    val accountList by app.accounts.accounts.collectAsState()
+    val welcomeState by app.welcome.state.collectAsState()
+    val pairedBanner by app.welcome.pairedBanner.collectAsState()
+    val pairedPending by app.welcome.pairedPending.collectAsState()
+    val hasAccount = accountList.isNotEmpty()
+    val accountCard = remember(welcomeState, hasAccount) { app.welcome.cardVisible(hasAccount) }
+    val accountCardFinal = remember(welcomeState) { app.welcome.cardCloseIsFinal() }
     val known = remember(borrowed, friends, borrowing) { borrowed.filter { model.friendPassword(it.id) != null }.map { it.id }.toSet() }
     val ps = app.ps
     val consoles by ps.store.consoles.collectAsState()
@@ -275,7 +302,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
         HomeState(
             hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
             borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr, origins, signingIn, watch, watchWord,
-            offers, stationTasks, fromOffer,
+            offers, stationTasks, fromOffer, hasAccount, accountCard, accountCardFinal, pairedBanner, pairedPending,
         ),
         actions,
     )
@@ -356,7 +383,7 @@ private fun Backdrop(image: ImageBitmap?, offline: Boolean, wide: Boolean) {
 
 /** En haut : le logo, la mise à jour de l'app quand il y en a une, les réglages de l'app. */
 @Composable
-private fun TopBar(actions: HomeActions, update: String?, modifier: Modifier = Modifier) {
+private fun TopBar(actions: HomeActions, update: String?, modifier: Modifier = Modifier, account: Boolean = false) {
     val s = LocalScale.current
     val phone = LocalForm.current == FormFactor.PHONE
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -364,6 +391,12 @@ private fun TopBar(actions: HomeActions, update: String?, modifier: Modifier = M
         Spacer(Modifier.weight(1f))
         update?.let {
             GlassButton(stringResource(R.string.updates_available, it), actions.appSettings, selected = true, leading = { KnIcon(KnIcons.download, size = 16f); Spacer(Modifier.width(6.dp)) })
+            Spacer(Modifier.width(s.dp(10f)))
+        }
+        // Sans compte : « Connecter un compte », à côté des réglages de l'app (au téléphone, l'icône seule).
+        if (account) {
+            if (phone) IconPill(KnIcons.person, stringResource(R.string.account_sign_in), actions.signIn)
+            else GlassButton(stringResource(R.string.account_sign_in), actions.signIn, selected = true, leading = { KnIcon(KnIcons.person, size = 16f); Spacer(Modifier.width(6.dp)) })
             Spacer(Modifier.width(s.dp(10f)))
         }
         // Au téléphone, la place manque : l'icône seule, nommée pour l'accessibilité.
@@ -448,6 +481,7 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                 IconPill(KnIcons.settings, a11y) { actions.hostSettings(host) }
             }
             StationBanner(host, state, actions, Modifier.widthIn(max = s.dp(560f)))
+            AccountBanner(host, state, actions, Modifier.widthIn(max = s.dp(560f)))
         } else {
             // Une seule rangée qui passe à la ligne si la place manque : rien n'est écrasé.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f)), itemVerticalAlignment = Alignment.CenterVertically) {
@@ -467,6 +501,7 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                 )
             }
             StationBanner(host, state, actions)
+            AccountBanner(host, state, actions, Modifier.widthIn(max = s.dp(620f)))
         }
         Body(profileHelp(set), size = 14f, color = Kn.muted)
         if (LocalForm.current == FormFactor.TV) {
@@ -513,6 +548,24 @@ private fun StationBanner(host: Host, state: HomeState, actions: HomeActions, mo
             cancel = { actions.stationCancel(host) },
         ),
         modifier,
+    )
+}
+
+/**
+ * Après un appairage, sans compte : le bandeau du compte sous les boutons de l'ordinateur ajouté (une fois). Un seul
+ * bandeau à la fois à cet endroit : tant que celui de la mise à jour de la Station est là, il attend (et n'est pas
+ * compté comme vu).
+ */
+@Composable
+private fun AccountBanner(host: Host, state: HomeState, actions: HomeActions, modifier: Modifier = Modifier) {
+    if (state.hasAccount) return
+    val lent = state.lend[host.id]?.lent == true
+    val station = !lent && stationBannerVisible(state.offers[host.id], state.stationTasks[host.id], host.id in state.fromOffer)
+    if (station) return
+    if (state.pairedPending == host.id) LaunchedEffect(host.id) { actions.showPairedBanner(host) }
+    if (state.pairedBanner != host.id) return
+    fr.leslignesclaires.kybernow.ui.welcome.PairedBanner(
+        onSignIn = { actions.dismissPairedBanner(); actions.signIn() }, onLater = actions.dismissPairedBanner, modifier = modifier,
     )
 }
 
@@ -726,6 +779,12 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 Body(stringResource(R.string.home_join), size = 15f, maxLines = 2)
             }
         }
+        // Sans compte : la carte du compte, en dernier (docs/link-ui.md, « Sans compte, ensuite »).
+        if (state.accountCard && !state.hasAccount) item(key = "compte") {
+            fr.leslignesclaires.kybernow.ui.welcome.AccountCard(
+                state.accountCardFinal, actions.signIn, actions.createAccount, actions.closeAccountCard, Modifier.width(s.dp(card * 2f)),
+            )
+        }
     }
 }
 
@@ -737,7 +796,7 @@ private fun WideHome(key: String, state: HomeState, actions: HomeActions, hero: 
     LaunchedEffect(key) { if (s.tv) runCatching { focus.requestFocus() } }
     val pad = if (s.tv) 56f else 28f
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = s.dp(pad), vertical = s.dp(if (s.tv) 32f else 18f))) {
-        TopBar(actions, state.update)
+        TopBar(actions, state.update, account = !state.hasAccount)
         // Centré dans la place qui reste ; s'il ne tient pas (alertes, « Personnalisé »), il défile.
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
             Box(Modifier.fillMaxWidth(if (s.tv) 0.8f else 0.66f).widthIn(max = s.dp(720f)).verticalScroll(rememberScrollState())) {
@@ -756,7 +815,7 @@ private fun TallHome(state: HomeState, actions: HomeActions, hero: @Composable (
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(s.dp(20f)),
         verticalArrangement = Arrangement.spacedBy(s.dp(18f)),
     ) {
-        TopBar(actions, state.update)
+        TopBar(actions, state.update, account = !state.hasAccount)
         Spacer(Modifier.height(s.dp(150f)))
         hero(54f, null, true)
         Spacer(Modifier.height(s.dp(6f)))
@@ -776,8 +835,8 @@ private fun OriginChip(text: String) {
 }
 
 /**
- * Aucun ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », « Se connecter à un compte
- * KyberNow » et son aide (la page du relais au téléphone et à la tablette, un code au téléviseur), puis « ou sans
+ * Aucun ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », « Connecter un compte »
+ * et son aide (la page du relais au téléphone et à la tablette, un code au téléviseur), puis « ou sans
  * compte » et les boutons de toujours : ceux annoncés sur le réseau, l'ajout, « Rejoindre avec un code ». Pendant
  * l'échange du retour de la page contre le compte, « Connexion au compte… ».
  */

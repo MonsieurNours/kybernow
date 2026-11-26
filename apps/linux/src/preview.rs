@@ -3273,13 +3273,14 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix
     app.set_session(None);
     app.pointer = None;
     app.store.selected = Some("a".into());
-    // Le panneau, pendant le test : liaison cochée, latence cochée, débit en cours, décodage en attente.
+    // Le panneau, pendant le test : liaison cochée, latence cochée, débit en cours, décodage et encodeur en attente.
     app.go(Screen::Home);
     let steps = vec![
         Step { title: t("Liaison", "Connection"), state: StepState::Done(t("Câble", "Cable")) },
         Step { title: t("Latence au repos", "Latency at rest"), state: StepState::Done(t("2,1 ms · gigue 0,4 ms", "2.1 ms · jitter 0.4 ms")) },
         Step { title: t("Débit vers cet appareil", "Bitrate to this device"), state: StepState::Running },
         Step { title: t("Décodage de cet appareil", "Decoding on this device"), state: StepState::Waiting },
+        Step { title: t("Encodeur de l'ordinateur", "The computer's encoder"), state: StepState::Waiting },
     ];
     app.autotest = Some(Panel { host: "a".into(), name: "Tour du salon".into(), attempt: 1, state: State::Running(steps) });
     app.autotest_back = Some(Target::Connect);
@@ -3291,6 +3292,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix
         Step { title: t("Latence au repos", "Latency at rest"), state: StepState::Done(t("4,8 ms · gigue 2,3 ms", "4.8 ms · jitter 2.3 ms")) },
         Step { title: t("Débit vers cet appareil", "Bitrate to this device"), state: StepState::Skipped(t("Mettez à jour Tour du salon pour mesurer le débit.", "Update Tour du salon to measure the bitrate.")) },
         Step { title: t("Décodage de cet appareil", "Decoding on this device"), state: StepState::Running },
+        Step { title: t("Encodeur de l'ordinateur", "The computer's encoder"), state: StepState::Waiting },
     ];
     app.autotest.as_mut().unwrap().state = State::Running(steps);
     shot(app, cv, None, dir, &name("47b-auto-test-station-ancienne"));
@@ -3304,7 +3306,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix
         Choice { title: t("Débit adaptatif", "Adaptive bitrate"), value: t("Oui", "On"), reason: t("suit le réseau pendant la session", "follows the network during the session") },
     ];
     let result = serde_json::json!({ "at": 1_795_000_000u64, "network": "Ethernet", "codec": "pyrowave", "yuv444": true, "width": 3840, "height": 2160, "refresh": 120, "mbps": 300, "mode_mbps": 420, "reliable": false, "station": "Tour du salon" });
-    app.autotest.as_mut().unwrap().state = State::Done { choices, result: result.clone() };
+    app.autotest.as_mut().unwrap().state = State::Done { choices, result: result.clone(), encoder_max: None };
     app.focus = Target::AutoApply;
     shot(app, cv, None, dir, &name("47c-auto-reglages-proposes"));
     // L'échec.

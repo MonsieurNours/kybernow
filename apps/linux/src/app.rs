@@ -3704,11 +3704,12 @@ impl App {
     }
 
     /// La fin du test : « Réglages proposés » (focus sur « Appliquer »), ou l'échec (focus sur « Réessayer »).
-    pub fn autotest_done(&mut self, attempt: u32, result: Result<(Vec<crate::autotest::Choice>, serde_json::Value), String>) {
+    /// `Ok` : les choix, le résultat (JSON d'`AutoResult`) et le plafond de l'encodeur à garder si l'on applique.
+    pub fn autotest_done(&mut self, attempt: u32, result: Result<(Vec<crate::autotest::Choice>, serde_json::Value, Option<u32>), String>) {
         let Some(p) = self.autotest.as_mut().filter(|p| p.attempt == attempt) else { return };
         match result {
-            Ok((choices, result)) => {
-                p.state = crate::autotest::State::Done { choices, result };
+            Ok((choices, result, encoder_max)) => {
+                p.state = crate::autotest::State::Done { choices, result, encoder_max };
                 self.focus = Target::AutoApply;
             }
             Err(e) => {
@@ -3727,12 +3728,14 @@ impl App {
     }
 
     /// « Appliquer » : le résultat gardé pour cet ordinateur, Auto devient son profil avec ces réglages (et la
-    /// définition et la fréquence choisies).
+    /// définition et la fréquence choisies). Le plafond de l'encodeur ne change qu'ici, avec un nouveau résultat :
+    /// remettre Auto avec le résultat déjà gardé (`set_profile`) n'y touche pas (celui d'une session est plus récent).
     fn autotest_apply(&mut self) -> Vec<Action> {
         let Some(p) = self.autotest.clone() else { return Vec::new() };
-        let crate::autotest::State::Done { result, .. } = p.state else { return Vec::new() };
+        let crate::autotest::State::Done { result, encoder_max, .. } = p.state else { return Vec::new() };
         if let Some(h) = self.store.host_mut(&p.host) {
             h.settings.auto = Some(result);
+            h.settings.encoder_max = encoder_max;
         }
         self.set_profile(&p.host, Profile::Auto);
         self.close_autotest();
@@ -3751,6 +3754,21 @@ impl App {
         if a.refresh > 0 {
             h.settings.fps = if a.refresh >= refresh { 0 } else { [144u32, 120, 90, 60, 30].into_iter().find(|f| *f <= a.refresh).unwrap_or(30) };
         }
+    }
+
+    /// L'encodeur de l'ordinateur a refusé l'image au départ (`Notice::EncoderCeiling` du cœur) : le débit où la
+    /// session a dû redescendre devient le plafond de cet ordinateur (gardé, renvoyé aux sessions suivantes). Rien à
+    /// l'écran. `true` : le plafond a changé (à enregistrer). Un ordinateur emprunté ou d'un partage n'a pas de
+    /// réglages ici : rien.
+    pub fn encoder_ceiling(&mut self, id: SessionId, mbps: u32) -> bool {
+        let Some(host) = self.session_by(id).map(|s| s.host.clone()) else { return false };
+        let Some(h) = self.store.host_mut(&host) else { return false };
+        if h.settings.encoder_max == Some(mbps) {
+            return false;
+        }
+        log::info!("{} : plafond de l'encodeur {mbps} Mbit/s par écran", h.name);
+        h.settings.encoder_max = Some(mbps);
+        true
     }
 
     /// Le début d'une session en profil Auto : son réseau (le relais, ou celui de cet appareil) comparé à celui du
@@ -7849,24 +7867,28 @@ mod tests {
         assert_eq!(app.activate(Target::AutoRetry), vec![Action::AutoTest { host: "a".into(), attempt: 3 }]);
         // Fin : « Réglages proposés », puis « Appliquer » (1440p à 60 Hz sur un écran 4K à 120 Hz).
         let choices = vec![crate::autotest::Choice { title: "Format vidéo".into(), value: "HEVC".into(), reason: "PyroWave demande un câble".into() }];
-        app.autotest_done(3, Ok((choices, auto_result("hevc", 1440, 60, "Maison"))));
+        // Le plafond de l'encodeur qui l'accompagne (`AutoResult::next_encoder_max`, calculé par le pilote) est gardé.
+        app.autotest_done(3, Ok((choices, auto_result("hevc", 1440, 60, "Maison"), Some(200))));
         assert_eq!(app.focus, Target::AutoApply);
         assert_eq!(app.activate(Target::AutoApply), vec![Action::Save]);
         assert!(app.autotest.is_none());
         let st = &app.selected().unwrap().settings;
         assert_eq!((st.profile, st.resolution, st.fps, st.yuv444, st.reliable), (Profile::Auto, 1440, 60, true, false));
+        assert_eq!(st.encoder_max, Some(200));
+        // Une session trouve ensuite un plafond plus bas : remettre Auto avec le résultat gardé n'y touche pas.
         assert!(!st.custom());
         assert_eq!(app.codec_for(app.selected().unwrap()), "hevc");
         // « Débit adaptatif » ne rend pas « Personnalisé » ; le débit choisi, si.
         app.store.hosts[0].settings.adaptive = false;
         assert!(!app.store.hosts[0].settings.custom());
         // Un autre profil, puis Auto à nouveau : tout de suite, sans test (la définition revient à celle du test).
+        app.store.hosts[0].settings.encoder_max = Some(150);
         app.activate(Target::Chip(Profile::Bureau));
         app.store.hosts[0].settings.resolution = 0;
         assert_eq!(app.activate(Target::Chip(Profile::Auto)), vec![Action::Save]);
         assert!(app.autotest.is_none());
         let st = &app.selected().unwrap().settings;
-        assert_eq!((st.profile, st.resolution, st.fps), (Profile::Auto, 1440, 60));
+        assert_eq!((st.profile, st.resolution, st.fps, st.encoder_max), (Profile::Auto, 1440, 60, Some(150)));
         // La rubrique Image : « Refaire le test » avec la date et le réseau du test, puis « Débit adaptatif ».
         let rows = app.rows(Section::Picture);
         let i = rows.iter().position(|r| r.setting == Setting::AutoRetest).expect("Refaire le test");
@@ -7956,6 +7978,37 @@ mod tests {
         app.screen = Screen::Home;
         assert_eq!(app.poll_autotest(), vec![Action::AutoTest { host: "a".into(), attempt: 1 }]);
         assert!(app.autotest_pending.is_none());
+    }
+
+    /// L'encodeur de l'ordinateur refuse l'image au départ (`Notice::EncoderCeiling`) : le débit où la session a dû
+    /// redescendre devient le plafond de cet ordinateur, gardé (à enregistrer une fois) ; pas d'avis à l'écran ; un
+    /// ordinateur sans réglages ici (emprunté, partage) n'en garde pas. Un fichier d'avant n'en a pas.
+    #[test]
+    fn plafond_de_l_encodeur() {
+        let old: crate::model::HostSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.encoder_max, None);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        let mut s = SessionUi::new(1, "a", "A", Profile::Jeu, false, false, 1);
+        s.phase = Phase::Streaming;
+        app.sessions.push(s);
+        app.active = Some(1);
+        assert!(app.encoder_ceiling(1, 250));
+        assert_eq!(app.store.hosts[0].settings.encoder_max, Some(250));
+        assert!(!app.encoder_ceiling(1, 250), "le même : rien à enregistrer");
+        assert!(app.encoder_ceiling(1, 200));
+        assert_eq!(app.store.hosts[0].settings.encoder_max, Some(200));
+        assert!(app.session().unwrap().notice.is_none());
+        // Gardé dans le fichier, relu tel quel ; hors du profil (jamais « Personnalisé »).
+        let json = serde_json::to_value(&app.store.hosts[0].settings).unwrap();
+        assert_eq!(json["encoder_max"], 200);
+        let back: crate::model::HostSettings = serde_json::from_value(json).unwrap();
+        assert_eq!(back.encoder_max, Some(200));
+        assert!(!back.custom());
+        // Une session d'un ordinateur inconnu ici, ou finie : rien.
+        app.sessions.push(SessionUi::new(2, "zz", "Z", Profile::Jeu, false, false, 1));
+        assert!(!app.encoder_ceiling(2, 100));
+        assert!(!app.encoder_ceiling(9, 100));
     }
 
     #[test]

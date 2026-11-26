@@ -1,11 +1,32 @@
-<!-- Barre de titre dessinée par l'app (fenêtre sans cadre), boutons de Windows 11 à droite. -->
+<!--
+  Barre de titre dessinée par l'app (fenêtre sans cadre), boutons de Windows 11 à droite. Sans compte KyberNow, sur
+  l'accueil : « Connecter un compte » (icône d'une personne) à côté de « Réglages de l'app » (docs/link-ui.md « Accueil
+  et compte KyberNow ») ; « Connexion au compte… » pendant la connexion.
+-->
 <script lang="ts">
   import Mark from './lib/Mark.svelte'
   import Icon from './lib/Icon.svelte'
   import { currentWindow } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
-  let { title = 'KyberNow Link', onback, onapp, badge = false }: { title?: string; onback?: () => void; onapp?: () => void; badge?: boolean } = $props()
+  let {
+    title = 'KyberNow Link',
+    onback,
+    onapp,
+    badge = false,
+    onaccount,
+    signingIn = false,
+    crowded = false,
+  }: {
+    title?: string
+    onback?: () => void
+    onapp?: () => void
+    badge?: boolean
+    onaccount?: () => void
+    signingIn?: boolean
+    /** L'avis de la mise à jour occupe le milieu de la barre : dans une fenêtre étroite, l'icône seule. */
+    crowded?: boolean
+  } = $props()
 </script>
 
 <header data-tauri-drag-region>
@@ -17,6 +38,11 @@
     <span data-tauri-drag-region>{title}</span>
   </div>
   <div class="caption">
+    {#if onaccount}
+      <button class="account" class:crowded disabled={signingIn} aria-label={signingIn ? t('account.signing_in') : t('account.sign_in')} onclick={onaccount}
+        ><Icon name="user" size={15} stroke={2} /><span class="label">{signingIn ? t('account.signing_in') : t('account.sign_in')}</span></button
+      >
+    {/if}
     {#if onapp}
       <button aria-label={t('titlebar.app_settings')} class="gear" onclick={onapp}><Icon name="gear" size={16} stroke={1.6} />{#if badge}<span class="badge"></span>{/if}</button>
     {/if}
@@ -83,6 +109,40 @@
 
   .caption .close:hover {
     background: #c42b1c;
+  }
+
+  /* « Connecter un compte » : sur une ligne, à côté de l'engrenage des réglages de l'app. */
+  .caption .account {
+    width: auto;
+    align-self: center;
+    height: 28px;
+    margin-right: 6px;
+    padding: 0 12px;
+    gap: 8px;
+    border-radius: 7px;
+    background: var(--signal-strong);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Fenêtre étroite et avis au milieu : l'icône seule (libellé pour l'accessibilité), rien ne se chevauche. */
+  @media (max-width: 1239px) {
+    .caption .account.crowded {
+      width: 32px;
+      padding: 0;
+      justify-content: center;
+    }
+
+    .caption .account.crowded .label {
+      display: none;
+    }
+  }
+
+  .caption .account:hover:not(:disabled) {
+    background: var(--signal-strong);
+    filter: brightness(1.12);
   }
 
   .gear {

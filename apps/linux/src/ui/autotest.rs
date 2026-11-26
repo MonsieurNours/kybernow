@@ -1,5 +1,5 @@
 //! Le panneau du test du profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif »), par-dessus l'accueil ou
-//! les réglages, au bureau comme à la manette : le titre et son sous-titre ; pendant le test, les quatre étapes (en
+//! les réglages, au bureau comme à la manette : le titre et son sous-titre ; pendant le test, les étapes du cœur (en
 //! attente, la roue, cochée avec sa mesure, passée avec sa raison) et « Annuler » ; à la fin, « Réglages proposés »
 //! (une ligne par choix : réglage, valeur, raison), « Annuler », « Appliquer » et « Refaire le test » ; l'échec et
 //! « Réessayer ». Seuls ses boutons se choisissent.

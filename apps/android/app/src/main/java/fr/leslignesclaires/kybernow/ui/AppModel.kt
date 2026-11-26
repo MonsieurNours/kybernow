@@ -168,7 +168,7 @@ sealed interface BorrowStep {
 
 /**
  * Le panneau du test du profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») pour l'ordinateur [hostId] :
- * les quatre étapes au fil du test ([steps], les textes du cœur), puis « Réglages proposés » ([result], le JSON
+ * les étapes au fil du test ([steps], les textes du cœur), puis « Réglages proposés » ([result], le JSON
  * `AutoResult` à garder, et [choices]), ou l'échec ([error] : « Le test n'a pas pu joindre {nom}. »).
  */
 data class AutoTestState(
@@ -381,12 +381,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         _autoTest.value = null
     }
 
-    /** « Appliquer » : Auto devient le profil de cet ordinateur avec ces réglages (gardés avec lui). */
+    /**
+     * « Appliquer » : Auto devient le profil de cet ordinateur avec ces réglages (gardés avec lui), et le plafond de
+     * l'encodeur suit ce nouveau résultat ([AutoProfile.applyTest]).
+     */
     fun applyAutoTest() {
         val st = _autoTest.value ?: return
         val result = st.result ?: return
         val screen = Screen.of(getApplication<Application>())
-        store.update(st.hostId) { it.copy(settings = AutoProfile.apply(it.settings, result, screen)) }
+        store.update(st.hostId) { it.copy(settings = AutoProfile.applyTest(it.settings, result, screen)) }
         closeAutoTest()
     }
 

@@ -162,6 +162,19 @@ object AutoProfile {
     }
 
     /**
+     * « Appliquer » à la fin d'un test : [apply], et le plafond de l'encodeur gardé pour cet ordinateur d'après ce
+     * nouveau résultat (`AutoResult::next_encoder_max` : la limite trouvée ; un plafond gardé sous le débit accepté du
+     * premier coup est retiré ; sinon celui d'avant). Remettre Auto avec le résultat déjà gardé passe par [apply] seul :
+     * un plafond trouvé par une session après le test est plus récent.
+     */
+    fun applyTest(set: HostSettings, result: String, screen: Screen): HostSettings =
+        apply(set, result, screen).copy(encoderMax = nextEncoderMax(result, set.encoderMax))
+
+    /** Le plafond à garder (`AutoResult::next_encoder_max`) ; sans bibliothèque native, celui d'avant. */
+    fun nextEncoderMax(result: String, previous: Int?): Int? =
+        runCatching { Native.autotestEncoderMax(result, previous ?: 0) }.getOrElse { previous ?: 0 }.takeIf { it > 0 }
+
+    /**
      * Les réglages de session d'Auto (le JSON de `sessionStart`) : ceux du test ([Native.autotestSettings]) ; sans
      * résultat lisible (Auto reçu d'un autre appareil), ceux que le cœur donne au profil `auto` ([fallback]).
      */

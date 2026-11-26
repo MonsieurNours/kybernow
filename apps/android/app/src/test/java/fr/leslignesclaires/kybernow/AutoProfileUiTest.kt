@@ -93,6 +93,7 @@ class AutoProfileUiTest {
         AutoStep("latency", "Latence au repos", AutoStep.State.DONE, "2,1 ms · gigue 0,4 ms"),
         AutoStep("bandwidth", "Débit vers cet appareil", AutoStep.State.RUNNING, null),
         AutoStep("decode", "Décodage de cet appareil", AutoStep.State.WAITING, null),
+        AutoStep("encoder", "Encodeur de l'ordinateur", AutoStep.State.WAITING, null),
     )
 
     @Test
@@ -104,6 +105,8 @@ class AutoProfileUiTest {
         rule.onNodeWithText("Latence au repos").assertExists()
         rule.onNodeWithText("2,1 ms · gigue 0,4 ms").assertExists()
         rule.onNodeWithText("Décodage de cet appareil").assertExists()
+        // La 5e étape (le cœur en donne la liste : rien n'en suppose quatre).
+        rule.onNodeWithText("Encodeur de l'ordinateur").assertExists()
         rule.onNodeWithText("Annuler").performClick()
         assertTrue(cancelled)
     }

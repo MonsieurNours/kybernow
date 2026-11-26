@@ -133,6 +133,12 @@ pub struct HostSettings {
     /// Le résultat du test du profil Auto pour cet ordinateur (`AutoResult` du cœur, en JSON), gardé à
     /// « Appliquer » ; `None` : jamais appliqué (choisir Auto ouvre le test).
     pub auto: Option<serde_json::Value>,
+    /// Le plafond de l'encodeur de cet ordinateur (Mbit/s par écran, docs/profil-auto.md, « L'encodeur de
+    /// l'ordinateur ») : le débit le plus haut qu'il encode, trouvé par le test (« Appliquer » d'un nouveau résultat :
+    /// `AutoResult::next_encoder_max`) ou par une session qui a dû redescendre (`Notice::EncoderCeiling`). Envoyé dans
+    /// les réglages du flux (`encoder_max`) quel que soit le profil ; `None` : aucun connu. Hors du profil, propre à
+    /// cet appareil : jamais synchronisé.
+    pub encoder_max: Option<u32>,
 }
 
 impl Default for HostSettings {
@@ -160,6 +166,7 @@ impl Default for HostSettings {
             hdr: true,
             adaptive: true,
             auto: None,
+            encoder_max: None,
         }
     }
 }

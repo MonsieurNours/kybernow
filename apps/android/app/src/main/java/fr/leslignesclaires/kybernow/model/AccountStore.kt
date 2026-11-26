@@ -312,7 +312,7 @@ class AccountManager(private val app: KyberNowApp) {
     // MARK: - Se connecter
 
     /**
-     * « Se connecter à un compte KyberNow » par la fenêtre du système : la page de connexion du relais, à ouvrir dans un
+     * « Connecter un compte » par la fenêtre du système : la page de connexion du relais, à ouvrir dans un
      * onglet personnalisé ; la demande est gardée jusqu'au retour. Nul (et l'avis du refus) si le relais ne se lit pas.
      */
     fun beginSignIn(relay: String): String? = when (val r = Accounts.signIn(relay, app.device.name)) {

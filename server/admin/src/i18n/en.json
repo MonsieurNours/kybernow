@@ -26,7 +26,8 @@
     "pairTooMany": "too many pairing requests: try again in a minute",
     "requestGone": "this request has expired: the device will send a new one with another code",
     "unknownRoute": "route unknown to this version of Admin",
-    "probeBusy": "A measurement is already running."
+    "probeBusy": "A measurement is already running.",
+    "encoderQuery": "Unreadable encoder test request."
   },
   "auth": {
     "adminHeader": "missing x-kyber-admin header",

@@ -1010,16 +1010,18 @@ class AppSettingsActions(
     val manageAccount: (fr.leslignesclaires.kybernow.core.AccountSummary) -> Unit = {},
     /** « Se déconnecter », confirmé. */
     val signOut: (fr.leslignesclaires.kybernow.core.AccountSummary) -> Unit = {},
-    /** « Se connecter à un compte KyberNow » (aucun compte) : le relais public. */
+    /** « Connecter un compte » (aucun compte) : le relais public. */
     val signIn: () -> Unit = {},
     /** « Ajouter un compte » : le relais d'abord. */
     val addAccount: () -> Unit = {},
     /** « Synchroniser les réglages des ordinateurs ». */
     val setSyncSettings: (Boolean) -> Unit = {},
+    /** « Revoir l'accueil » : les trois écrans du premier lancement (docs/link-ui.md, « Accueil et compte KyberNow »). */
+    val replayWelcome: () -> Unit = {},
 )
 
 @Composable
-fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -> Unit = {}, onAddAccount: () -> Unit = {}) {
+fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -> Unit = {}, onAddAccount: () -> Unit = {}, onReplayWelcome: () -> Unit = {}) {
     val app = KyberNowApp.instance
     val context = LocalContext.current
     val stored by app.accounts.accounts.collectAsState()
@@ -1045,6 +1047,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             signOut = { a -> app.accounts.signOut(a.key) },
             signIn = onSignIn,
             addAccount = onAddAccount,
+            replayWelcome = onReplayWelcome,
             setSyncSettings = { on ->
                 app.accounts.settings.setEnabled(on)
                 // Rallumé : les réglages du compte arrivent tout de suite.
@@ -1114,6 +1117,7 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
 
         Section(stringResource(R.string.app_settings_about))
         InfoRow("KyberNow Link", state.version, stringResource(R.string.app_settings_about_body))
+        GlassButton(stringResource(R.string.welcome_replay), actions.replayWelcome)
         InfoRow(stringResource(R.string.app_settings_licenses), "AGPL-3.0", stringResource(R.string.app_settings_licenses_body))
     }
 }

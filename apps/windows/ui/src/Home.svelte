@@ -37,6 +37,10 @@
   bandeau de la mise à jour de sa Station (StationBanner, un bandeau au plus à cet endroit), jamais en session ; dans la
   rangée, « · Mise à jour » après l'état d'un ordinateur dont la Station en a une (calcul du cœur, `offer`).
 
+  Accueil et compte KyberNow (docs/link-ui.md) : sans compte, la carte du compte en dernier dans la rangée
+  (AccountCard, avec au moins un ordinateur), et le bandeau après l'appairage de l'ordinateur choisi (PairedBanner,
+  sous les boutons et la phrase du profil, avant celui de la Station).
+
   HDR (docs/link-ui.md « HDR ») : sur un écran HDR seulement, la puce « HDR » à côté du profil,
   allumée la première fois, gardée pour l'ordinateur (`Settings.hdr`) ; inactive avec la raison du
   cœur ; la ligne « Écran » dit alors « …, en HDR ». Ailleurs, aucune trace du HDR.
@@ -45,9 +49,11 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import StationBanner from './StationBanner.svelte'
+  import AccountCard from './AccountCard.svelte'
+  import PairedBanner from './PairedBanner.svelte'
   import { onMount } from 'svelte'
-  import type { AccountView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc, WatchWords } from './lib/api'
-  import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText, watchRight } from './lib/api'
+  import type { AccountView, WelcomeView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc, WatchWords } from './lib/api'
+  import { MAX_SESSIONS, stationBannerFor, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText, watchRight } from './lib/api'
   import { i18n, t } from './lib/i18n/index.svelte'
 
   let {
@@ -88,6 +94,11 @@
     signingIn = false,
     onsignin,
     oncancelsignin,
+    welcome = null,
+    pairedHint = null,
+    onsignup,
+    onclosecard,
+    onpairedlater,
   }: {
     computers: Computer[]
     discovered: Found[]
@@ -150,6 +161,16 @@
     onsignin?: () => void
     /** « Annuler » pendant « Connexion au compte… ». */
     oncancelsignin?: () => void
+    /** L'incitation au compte (carte du compte) ; `null` tant qu'elle n'est pas lue. */
+    welcome?: WelcomeView | null
+    /** L'ordinateur dont le bandeau « après un appairage » se montre. */
+    pairedHint?: string | null
+    /** « Créer un compte » : la page d'inscription dans le navigateur. */
+    onsignup?: () => void
+    /** La croix de la carte du compte. */
+    onclosecard?: () => void
+    /** « Plus tard » du bandeau après un appairage. */
+    onpairedlater?: () => void
   } = $props()
 
   /** Les consoles trouvées sur le réseau et pas encore gardées : « Sur le réseau ». */
@@ -474,6 +495,10 @@
         <p class="sentence limit" id="four-at-most">{t('common.four_at_most')}</p>
       {/if}
       {#if !watching?.only}<p class="sentence">{sentence}</p>{/if}
+      {#if pairedHint === selected.id && accounts.length === 0 && !stationBannerFor(selected, sessions)}
+        <!-- Après l'appairage de cet ordinateur, sans compte : une fois. -->
+        <PairedBanner {signingIn} onsignin={() => onsignin?.()} onlater={() => onpairedlater?.()} />
+      {/if}
       {#if sessions.length === 0}
         <!-- Sous la rangée et sa phrase : la mise à jour de la Station (jamais en session). -->
         {#key selected.id}<StationBanner computer={selected} />{/key}
@@ -558,6 +583,10 @@
         <Icon name="key" size={24} stroke={1.6} />
         <span>{t('home.join')}</span>
       </button>
+      {#if welcome?.card && accounts.length === 0 && computers.length > 0}
+        <!-- Sans compte : la carte du compte, en dernier (l'accueil vide sans ordinateur reste tel quel). -->
+        <AccountCard final={welcome.card_final} {signingIn} onsignin={() => onsignin?.()} onsignup={() => onsignup?.()} onclose={() => onclosecard?.()} />
+      {/if}
     </div>
   </section>
   </div>

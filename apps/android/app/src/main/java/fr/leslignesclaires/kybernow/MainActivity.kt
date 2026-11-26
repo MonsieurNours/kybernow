@@ -55,6 +55,11 @@ import fr.leslignesclaires.kybernow.ui.gamepads.PadMonitor
 import fr.leslignesclaires.kybernow.ui.home.HomeActions
 import fr.leslignesclaires.kybernow.ui.home.HomeScreen
 import fr.leslignesclaires.kybernow.ui.share.JoinScreen
+import fr.leslignesclaires.kybernow.core.Welcome
+import fr.leslignesclaires.kybernow.ui.welcome.AwayHintDialog
+import fr.leslignesclaires.kybernow.ui.welcome.WelcomeActions
+import fr.leslignesclaires.kybernow.ui.welcome.WelcomeContent
+import fr.leslignesclaires.kybernow.ui.welcome.WelcomeUi
 import fr.leslignesclaires.kybernow.ui.settings.AppSettingsScreen
 import fr.leslignesclaires.kybernow.ui.settings.HostSettingsScreen
 
@@ -83,17 +88,27 @@ sealed class Route {
      * [other] : le champ « Un autre relais » ouvert d'emblée (depuis l'écran du code).
      */
     data class AccountRelay(val other: Boolean = false, val back: Route = AppSettings) : Route()
+    /**
+     * L'accueil en trois écrans (docs/link-ui.md, « Accueil et compte KyberNow ») : [page] 0, 1 ou 2 ; [accounts] : les
+     * comptes connectés à son ouverture (un compte de plus : la connexion a réussi, l'accueil se termine).
+     */
+    data class Welcome(val page: Int = 0, val accounts: Int = 0) : Route()
 }
 
 class MainActivity : AppCompatActivity() {
     private val model: AppModel by viewModels()
     private var route by mutableStateOf<Route>(Route.Home)
+    /** « Hors de chez vous ? » : l'ordinateur, et ce que « Pas maintenant » laisse faire (réessayer, réveiller). */
+    private var awayHint by mutableStateOf<Pair<Host, () -> Unit>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         handle(intent)
         val app = KyberNowApp.instance
+        // Au premier lancement, et une fois après la mise à jour qui l'apporte, sans compte : l'accueil en trois écrans
+        // (pas par-dessus un lien qui ouvre un autre écran).
+        if (route == Route.Home && app.welcome.shouldShow(app.accounts.accounts.value.isNotEmpty())) route = Route.Welcome()
         // Les avis brefs des comptes (« Connecté à {compte}. », « Ce compte a été déconnecté de cet appareil… »).
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -114,6 +129,8 @@ class MainActivity : AppCompatActivity() {
                         Route.Gamepads -> Route.AppSettings
                         is Route.AccountCode -> r.back
                         is Route.AccountRelay -> r.back
+                        // L'accueil : l'écran d'avant ; au premier, comme « Passer ».
+                        is Route.Welcome -> if (r.page > 0) r.copy(page = r.page - 1) else { app.welcome.done(); Route.Home }
                         else -> Route.Home
                     }
                 }
@@ -124,15 +141,21 @@ class MainActivity : AppCompatActivity() {
                             select = model::select,
                             setProfile = model::pickProfile,
                             setHdr = { h, on -> app.hosts.update(h.id) { it.copy(settings = it.settings.copy(hdr = on)) } },
-                            connect = ::connect,
-                            retry = { h -> model.retry(h.id) },
+                            connect = { h -> awayFirst(h) { connect(h) } },
+                            retry = { h -> awayFirst(h) { model.retry(h.id) } },
                             add = { route = Route.Add() },
                             addAnnounced = { a -> route = Route.Add(Target(a.address, a.port, a.name, a.fingerprint)) },
                             hostSettings = { h -> route = Route.HostSettings(h.id) },
                             appSettings = { route = Route.AppSettings },
-                            wake = ::wake,
+                            // Réveiller : l'ordinateur dort chez vous, il n'est pas « hors de chez vous ».
+                            wake = { h -> wake(h) },
                             join = { route = Route.Join() },
                             signIn = { signIn(Accounts.DEFAULT_RELAY, Route.Home) },
+                            // Sans compte : « Créer un compte », la carte du compte, le bandeau après un appairage.
+                            createAccount = { createAccount(Route.Home) },
+                            closeAccountCard = { app.welcome.closeCard() },
+                            dismissPairedBanner = app.welcome::dismissPairedBanner,
+                            showPairedBanner = { h -> app.welcome.showPaired(app.accounts.accounts.value.isNotEmpty(), h.id) },
                             // « Regarder » (droit d'un compte) : la session d'un invité spectateur, comme « Rejoindre avec un code ».
                             watch = { h -> model.watch(h.id, fr.leslignesclaires.kybernow.model.Screen.of(this).current, ::joined) },
                             borrow = { b, password -> model.borrow(b.id, password, ::borrowed) },
@@ -153,7 +176,7 @@ class MainActivity : AppCompatActivity() {
                         ),
                     )
                     is Route.Add -> AddHostScreen(
-                        r.target, onDone = { h -> model.select(h.id); route = Route.Home }, onBack = { route = Route.Home },
+                        r.target, onDone = { h -> model.select(h.id); paired(h); route = Route.Home }, onBack = { route = Route.Home },
                         onShareLink = { link -> route = Route.Join(link) },
                         invite = r.invite,
                         inviteUnreadable = r.inviteUnreadable,
@@ -168,7 +191,9 @@ class MainActivity : AppCompatActivity() {
                         onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads },
                         onSignIn = { signIn(Accounts.DEFAULT_RELAY, Route.AppSettings) },
                         onAddAccount = { route = Route.AccountRelay(back = Route.AppSettings) },
+                        onReplayWelcome = { route = Route.Welcome(accounts = app.accounts.accounts.value.size) },
                     )
+                    is Route.Welcome -> WelcomeRoute(r)
                     is Route.AccountCode -> AccountCodeScreen(
                         r.relay,
                         onApproved = { a -> app.accounts.added(a); route = Route.Home },
@@ -189,6 +214,15 @@ class MainActivity : AppCompatActivity() {
                         GamepadsScreen(onBack = { route = Route.AppSettings })
                     }
                 }
+                // « Hors de chez vous ? » (sans compte), par-dessus l'accueil.
+                awayHint?.let { (h, then) ->
+                    AwayHintDialog(
+                        h.name,
+                        onNotNow = { awayHint = null; then() },
+                        onCreate = { awayHint = null; createAccount(Route.Home) },
+                        onSignIn = { awayHint = null; signIn(Accounts.DEFAULT_RELAY, Route.Home) },
+                    )
+                }
                 // Profil Auto : le panneau du test, par-dessus l'écran du moment (docs/link-ui.md).
                 val autoTest by model.autoTest.collectAsState()
                 autoTest?.let { st ->
@@ -202,6 +236,80 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * L'accueil en trois écrans : « Continuer », « Passer » et « Plus tard » ; « Connecter un compte » (la fenêtre du
+     * système, ou le code de l'écran 2 au téléviseur) : réussie, l'écran 3 est passé ; « Créer un compte » ; à l'écran 3,
+     * les ordinateurs vus sur le réseau, « Rejoindre avec un code » et le lien de la Station.
+     */
+    @androidx.compose.runtime.Composable
+    private fun WelcomeRoute(r: Route.Welcome) {
+        val app = KyberNowApp.instance
+        val accounts by app.accounts.accounts.collectAsState()
+        // Un compte de plus qu'à l'ouverture : la connexion a réussi, l'accueil se termine (ses ordinateurs arrivent).
+        androidx.compose.runtime.LaunchedEffect(accounts.size) { if (accounts.size > r.accounts) finishWelcome(Route.Home) }
+        val announced by model.announced.collectAsState()
+        val signingIn by app.accounts.signingIn.collectAsState()
+        var attempt by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val code = if (app.form == FormFactor.TV && r.page == 1) {
+            fr.leslignesclaires.kybernow.ui.account.rememberTvCode(Accounts.DEFAULT_RELAY, attempt) { a -> app.accounts.added(a) }
+        } else null
+        val station = Welcome.stationUrl
+        WelcomeContent(
+            WelcomeUi(r.page, announced, Accounts.relayLabel(Accounts.DEFAULT_RELAY), Welcome.stationLabel(station), code, signingIn),
+            WelcomeActions(
+                next = { route = r.copy(page = (r.page + 1).coerceAtMost(2)) },
+                skip = { finishWelcome(Route.Home) },
+                signIn = { signIn(Accounts.DEFAULT_RELAY, r) },
+                createAccount = { createAccount(r) },
+                addAnnounced = { a -> finishWelcome(Route.Add(Target(a.address, a.port, a.name, a.fingerprint))) },
+                join = { finishWelcome(Route.Join()) },
+                download = { openBrowser(station) },
+                newCode = { attempt++ },
+            ),
+        )
+    }
+
+    /** L'accueil est vu (« Passer », « Plus tard », fin, ou un compte connecté) : l'écran [next]. */
+    private fun finishWelcome(next: Route) {
+        KyberNowApp.instance.welcome.done()
+        route = next
+    }
+
+    /**
+     * « Créer un compte » : la page d'inscription du relais dans le navigateur (l'app ne crée pas de compte), puis l'avis
+     * « Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte ». » ; au téléviseur, l'écran du
+     * code, qui dit « Pas encore de compte ? Créez-le sur cette page. ».
+     */
+    private fun createAccount(back: Route) {
+        val app = KyberNowApp.instance
+        if (app.form == FormFactor.TV) {
+            route = Route.AccountCode(Accounts.DEFAULT_RELAY, back)
+            return
+        }
+        if (openBrowser(Welcome.signUpUrl("", app.language()))) Toast.makeText(this, R.string.welcome_create_notice, Toast.LENGTH_LONG).show()
+    }
+
+    /** Une page dans le navigateur de l'appareil ; faux s'il n'y en a pas (téléviseur sans navigateur). */
+    private fun openBrowser(url: String): Boolean =
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
+
+    /** Un ordinateur vient d'être appairé (ou ajouté par une invitation) : sans compte, le bandeau du compte, une fois. */
+    private fun paired(h: Host) {
+        val app = KyberNowApp.instance
+        app.welcome.paired(app.accounts.accounts.value.isNotEmpty(), h.id)
+    }
+
+    /**
+     * « Hors de chez vous ? » (sans compte, une fois par ordinateur et par jour) : l'ordinateur appairé ne répond pas sur ce
+     * réseau et n'a pas de route par le relais ; « Pas maintenant » laisse faire [then]. Sinon, [then] tout de suite.
+     */
+    private fun awayFirst(h: Host, then: () -> Unit) {
+        val app = KyberNowApp.instance
+        val st = model.status.value[h.id]
+        val absent = !h.fromAccount && st?.online == false && h.relayRoute == null
+        if (absent && app.welcome.takeAwayHint(app.accounts.accounts.value.isNotEmpty(), h.id)) awayHint = h to then else then()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -265,12 +373,13 @@ class MainActivity : AppCompatActivity() {
      */
     private fun invited(h: Host) {
         model.select(h.id)
+        paired(h)
         route = Route.Home
         Toast.makeText(this, getString(R.string.invite_added, h.name), Toast.LENGTH_SHORT).show()
     }
 
     /**
-     * « Se connecter à un compte KyberNow » sur [relay] : au téléviseur, l'écran du code ; ailleurs, la page de connexion
+     * « Connecter un compte » sur [relay] : au téléviseur, l'écran du code ; ailleurs, la page de connexion
      * du relais dans un onglet personnalisé (le retour `kybernow://compte` arrive à [handle]), puis l'écran [back].
      */
     private fun signIn(relay: String, back: Route) {

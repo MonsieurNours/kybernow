@@ -87,6 +87,24 @@ class AutoProfileTest {
     }
 
     @Test
+    fun plafondDeLEncodeur() {
+        // Gardé avec l'ordinateur ; absent, nul ou 0 : aucun.
+        val set = HostSettings(encoderMax = 200)
+        assertEquals(200, HostSettings.parse(set.json()).encoderMax)
+        assertNull(HostSettings.parse(JSONObject()).encoderMax)
+        assertNull(HostSettings.parse(HostSettings().json()).encoderMax)
+        assertNull(HostSettings.parse(JSONObject().put("encoderMax", 0)).encoderMax)
+        // Hors du profil : jamais « Personnalisé ».
+        assertFalse(HostSettings(profile = Profile.AUTO, encoderMax = 150).custom)
+        // Remettre Auto avec le résultat gardé (accueil, profil synchronisé) ne touche pas au plafond d'une session.
+        assertEquals(200, AutoProfile.apply(set, result(), tv).encoderMax)
+        // « Appliquer » un nouveau test : `next_encoder_max` du cœur ; sans bibliothèque native (ici), celui d'avant.
+        assertEquals(200, AutoProfile.applyTest(set, result(), tv).encoderMax)
+        assertNull(AutoProfile.applyTest(HostSettings(), result(), tv).encoderMax)
+        assertEquals(Profile.AUTO, AutoProfile.applyTest(set, result(), tv).profile)
+    }
+
+    @Test
     fun resultatLu() {
         val s = AutoSummary.parse(result(codec = "pyrowave", network = null, link = "cable"))!!
         assertEquals("pyrowave", s.codec)
@@ -112,10 +130,11 @@ class AutoProfileTest {
     fun avancementDuTest() {
         val steps = AutoStep.parseProgress(
             """{"steps":[{"step":"link","title":"Liaison","state":"done","text":"Câble"},{"step":"latency","title":"Latence au repos","state":"running"},""" +
-                """{"step":"bandwidth","title":"Débit vers cet appareil","state":"skipped","text":"Mettez à jour PC pour mesurer le débit."},{"step":"decode","title":"Décodage de cet appareil","state":"waiting"}]}""",
+                """{"step":"bandwidth","title":"Débit vers cet appareil","state":"skipped","text":"Mettez à jour PC pour mesurer le débit."},{"step":"decode","title":"Décodage de cet appareil","state":"waiting"},""" +
+                """{"step":"encoder","title":"Encodeur de l'ordinateur","state":"waiting"}]}""",
         )
-        assertEquals(listOf("link", "latency", "bandwidth", "decode"), steps.map { it.key })
-        assertEquals(listOf(AutoStep.State.DONE, AutoStep.State.RUNNING, AutoStep.State.SKIPPED, AutoStep.State.WAITING), steps.map { it.state })
+        assertEquals(listOf("link", "latency", "bandwidth", "decode", "encoder"), steps.map { it.key })
+        assertEquals(listOf(AutoStep.State.DONE, AutoStep.State.RUNNING, AutoStep.State.SKIPPED, AutoStep.State.WAITING, AutoStep.State.WAITING), steps.map { it.state })
         assertEquals("Câble", steps[0].text)
         assertNull(steps[1].text)
         assertTrue(AutoStep.parseProgress("pas du JSON").isEmpty())
