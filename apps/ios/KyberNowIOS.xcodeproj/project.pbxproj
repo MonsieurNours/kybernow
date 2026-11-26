@@ -45,6 +45,7 @@
 		50285EC8D793EA615CE2608A /* PyroWaveDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 882EFF24BC854CDF3B71DB93 /* PyroWaveDecoder.swift */; };
 		523DECF3B68F3B51B2E41970 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FCC6D0F079A62951A979AFFB /* libiconv.tbd */; };
 		54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */; };
+		59AFBCA41BD9FC543CB38DAD /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D968F90149429705D464253 /* CameraCapture.swift */; };
 		5B8FF1569490F358E421AEFD /* pyrowave_common.mm in Sources */ = {isa = PBXBuildFile; fileRef = E3D818E5A38E5B48DAACECBE /* pyrowave_common.mm */; };
 		6044180EED63D7C090C56C5A /* KeymapIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C8E35A110CBAFE43FA26DF /* KeymapIOS.swift */; };
 		60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFEE158257746E0783DAB51 /* VideoPipeline.swift */; };
@@ -158,6 +159,7 @@
 		2BB7B0671210C532F6EDFD65 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
 		2C0CE22A2224056B9FD056FE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2C465535454BA9CB60049064 /* PlayStationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationViews.swift; sourceTree = "<group>"; };
+		2D968F90149429705D464253 /* CameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		306546BE41AD345E7A328812 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		33BFA98ADC8A49589A10B603 /* RelayCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayCore.swift; sourceTree = "<group>"; };
@@ -434,6 +436,7 @@
 				61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */,
 				84866482E10A62F84B93EDD4 /* AutoTestCore.swift */,
 				ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */,
+				2D968F90149429705D464253 /* CameraCapture.swift */,
 				9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */,
 				A311A16A82D70847AAB768D2 /* CoreBridge.swift */,
 				3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */,
@@ -638,6 +641,7 @@
 				B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */,
 				79E2046132B6B2E0A05052EB /* AutoTestBench.swift in Sources */,
 				2B4250B1508169AFF498AA14 /* AutoTestCore.swift in Sources */,
+				59AFBCA41BD9FC543CB38DAD /* CameraCapture.swift in Sources */,
 				86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */,
 				0186090A9EACDF478809466D /* ConsolePads.swift in Sources */,
 				1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */,
@@ -757,7 +761,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202611261603;
+				CURRENT_PROJECT_VERSION = 202611262105;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -780,7 +784,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.11.4;
+				MARKETING_VERSION = 0.11.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -830,7 +834,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202611261603;
+				CURRENT_PROJECT_VERSION = 202611262105;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -847,7 +851,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.11.4;
+				MARKETING_VERSION = 0.11.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -36,6 +36,7 @@
 		3D442A68A579DAF586A3BA99 /* WelcomeCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B48C69DD1CF663E0FC01EB6E /* WelcomeCore.swift */; };
 		40FCBB71B3EDC857AD1AB68C /* SharePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5C11D7DB21D2ED25AAAC45 /* SharePanel.swift */; };
 		449C629E0CD8B9E1C4F77532 /* PyroWaveDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9959EAF050CC646C3E4D4F5E /* PyroWaveDecoder.swift */; };
+		49E3399AD4313547BCAA2ABB /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F4F15744E9094F9FACBE85 /* CameraCapture.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		4CFE95BEEB7F832B4C07FDD4 /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D53565DD3FA5B79DF1D652 /* SessionStats.swift */; };
 		50406270A670BB5C2BA37545 /* MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D483541A3EAA9029B05A3FBD /* MenuBar.swift */; };
@@ -128,6 +129,7 @@
 
 /* Begin PBXFileReference section */
 		01C32CCA3D27566E365281AC /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
+		01F4F15744E9094F9FACBE85 /* CameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		09097EF9FD0A52E596CF313E /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		0B24F6100CB4E6124445AC55 /* PlayStation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStation.swift; sourceTree = "<group>"; };
@@ -319,6 +321,7 @@
 				A90E4E33C6E941BC6A6CE488 /* AutoTestBench.swift */,
 				709E1B34D6D39E4AF68740C7 /* AutoTestCore.swift */,
 				6CB6F1E3DF88493B2CF6D20F /* AV1.swift */,
+				01F4F15744E9094F9FACBE85 /* CameraCapture.swift */,
 				D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */,
 				74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
@@ -570,6 +573,7 @@
 				E7E30A2139A8B73DF65145C7 /* AudioPlayerCore.swift in Sources */,
 				3317CC220B1D8A10541D57ED /* AutoTestBench.swift in Sources */,
 				DE1F27E722CA3C6537882A48 /* AutoTestCore.swift in Sources */,
+				49E3399AD4313547BCAA2ABB /* CameraCapture.swift in Sources */,
 				356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */,
 				66D0265DCF4DC01F8E7FF6A3 /* CoreBridge.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
@@ -705,7 +709,7 @@
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202611261603;
+				CURRENT_PROJECT_VERSION = 202611262105;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -722,7 +726,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.11.4;
+				MARKETING_VERSION = 0.11.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -746,10 +750,10 @@
 				INFOPLIST_FILE = KyberNow/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "KyberNow Link";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
-				INFOPLIST_KEY_NSCameraUsageDescription = "KyberNow Link lit le QR code affiché dans KyberNow Admin.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Les Lignes Claires · AGPL-3.0";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "KyberNow Link se connecte à vos ordinateurs sur le réseau local.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
@@ -798,7 +802,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development: info@leslignesclaires.fr (FSBFCDSH25)";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202611261603;
+				CURRENT_PROJECT_VERSION = 202611262105;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -821,7 +825,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.11.4;
+				MARKETING_VERSION = 0.11.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -844,10 +848,10 @@
 				INFOPLIST_FILE = KyberNow/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "KyberNow Link";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
-				INFOPLIST_KEY_NSCameraUsageDescription = "KyberNow Link lit le QR code affiché dans KyberNow Admin.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "KyberNow Link lit le QR code affiché dans KyberNow Admin, et envoie votre caméra à votre ordinateur quand vous l'allumez en session.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Les Lignes Claires · AGPL-3.0";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "KyberNow Link se connecte à vos ordinateurs sur le réseau local.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "KyberNow Link envoie votre micro à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;

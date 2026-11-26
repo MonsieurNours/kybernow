@@ -96,6 +96,7 @@
 		C3E62956C630251A7B89D7B7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */; };
 		CF1E220035C7C3FE22C05461 /* RecordingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3860E7BC575C8A285DB18440 /* RecordingCore.swift */; };
 		D13262077E649595A39D82B3 /* Lend.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCB0A07752E4AD009B4519E9 /* Lend.swift */; };
+		D37AF9A4E1209C9CFC4DB7AF /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB818A858CCA532E18CB74A5 /* CameraCapture.swift */; };
 		E500B3D5892A7F414E0B3893 /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */; };
 		E6D050DC393637D95EC5439E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272FAFC7C3A7322B56993025 /* AppSettingsView.swift */; };
 		E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AAACDD20D1A7BE25E7960F /* Discovery.swift */; };
@@ -232,6 +233,7 @@
 		AC0716FDE27E489961A197FD /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
 		B5F933505AA41A6122515B30 /* CoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridge.swift; sourceTree = "<group>"; };
 		B6D77E82DEC090B1E6892D2A /* TopShelfStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfStore.swift; sourceTree = "<group>"; };
+		BB818A858CCA532E18CB74A5 /* CameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
 		C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
@@ -430,6 +432,7 @@
 				F1D3AB7D624C345D7CB5ED10 /* AutoTestBench.swift */,
 				E8E65510FEFF17583E72ED75 /* AutoTestCore.swift */,
 				967E9CA93E220D6FB480C877 /* AV1.swift */,
+				BB818A858CCA532E18CB74A5 /* CameraCapture.swift */,
 				068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */,
 				B5F933505AA41A6122515B30 /* CoreBridge.swift */,
 				BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */,
@@ -733,6 +736,7 @@
 				02646086A5CA49D6860CA49F /* AudioPlayerCore.swift in Sources */,
 				04A35027F26693487E8DA01B /* AutoTestBench.swift in Sources */,
 				F7D9EAC6E5D20253D0746D21 /* AutoTestCore.swift in Sources */,
+				D37AF9A4E1209C9CFC4DB7AF /* CameraCapture.swift in Sources */,
 				FDB08F08EAF177204FF53CEC /* ConsoleClientCore.swift in Sources */,
 				00A1BD2C9C445702697ABF3A /* ConsolePads.swift in Sources */,
 				A56EAA94638A85D6DD0CBFCA /* CoreBridge.swift in Sources */,
@@ -939,7 +943,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202611261603;
+				CURRENT_PROJECT_VERSION = 202611262105;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -955,7 +959,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.11.4;
+				MARKETING_VERSION = 0.11.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1040,7 +1044,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 202611261603;
+				CURRENT_PROJECT_VERSION = 202611262105;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = P6DB682S4K;
@@ -1062,7 +1066,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.11.4;
+				MARKETING_VERSION = 0.11.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
