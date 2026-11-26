@@ -54,6 +54,8 @@ object KnIcons {
     val pulse = icon("pulse", "M3 12h4l2-6 4 12 2-6h6")
     val chevron = icon("chevron", "M9 5l7 7-7 7")
     val download = icon("download", "M12 4v11", "M7 10l5 5 5-5", "M5 20h14")
+    /** Mise à jour de la Station (bandeau de l'accueil) : une flèche vers le haut. */
+    val arrowUp = icon("arrowUp", "M12 20V5", "M6 11l6-6 6 6")
     /** Partager : trois points reliés. */
     /** HDR : une étincelle (docs/link-ui.md, barre de session). */
     val warning = icon("warning", "M12 3l10 18H2L12 3z", "M12 10v5M12 18v.5")

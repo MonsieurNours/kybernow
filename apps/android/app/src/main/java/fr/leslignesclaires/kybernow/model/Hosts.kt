@@ -487,6 +487,7 @@ class HostStore(private val context: Context) {
         save(_hosts.value.filterNot { it.id == id })
         secrets.edit().remove(id).apply()
         imageFile(id).delete()
+        forgetStationMemory(id)
         if (selectedId == id) selectedId = _hosts.value.firstOrNull()?.id
     }
 
@@ -500,12 +501,37 @@ class HostStore(private val context: Context) {
         if (after == before) return
         save(after)
         val gone = before.filter { b -> after.none { it.id == b.id } }
-        gone.forEach { imageFile(it.id).delete() }
+        gone.forEach { imageFile(it.id).delete(); forgetStationMemory(it.id) }
         if (gone.any { it.id == selectedId }) selectedId = after.firstOrNull()?.id ?: _borrowed.value.firstOrNull()?.id
     }
 
     /** La dernière image de l'ordinateur (fin de session, aperçu d'Admin). */
     fun imageFile(id: String): File = File(context.filesDir, "images").apply { mkdirs() }.resolve("$id.jpg")
+
+    // MARK: - Mise à jour des Stations (docs/link-ui.md, « Mise à jour des Stations »)
+
+    private fun stationMemories(): JSONObject = runCatching { JSONObject(prefs.getString("station_offer", null) ?: "{}") }.getOrDefault(JSONObject())
+
+    /**
+     * Le `Memory` du cœur (`station_offer`) de l'ordinateur [id], en JSON : « Plus tard » (la version et la date) et la
+     * dernière vérification demandée (la version de l'app et la date). `{}` sans rien de gardé.
+     */
+    fun stationMemory(id: String): String = stationMemories().optJSONObject(id)?.toString() ?: "{}"
+
+    fun setStationMemory(id: String, json: String) {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: return
+        prefs.edit().putString("station_offer", stationMemories().put(id, o).toString()).apply()
+    }
+
+    private fun forgetStationMemory(id: String) {
+        val all = stationMemories()
+        if (all.has(id)) prefs.edit().putString("station_offer", all.apply { remove(id) }.toString()).apply()
+    }
+
+    /** La dernière version de l'app lancée sur cet appareil (nulle au tout premier lancement) : l'avis après une mise à jour de l'app. */
+    var lastLaunched: String?
+        get() = prefs.getString("last_launched", null)
+        set(v) = prefs.edit().putString("last_launched", v).apply()
 
     // MARK: - Mots de passe
 

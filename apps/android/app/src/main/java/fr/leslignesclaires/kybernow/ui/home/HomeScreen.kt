@@ -104,6 +104,11 @@ import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.ui.Title
+import fr.leslignesclaires.kybernow.core.StationOffer
+import fr.leslignesclaires.kybernow.ui.StationBannerActions
+import fr.leslignesclaires.kybernow.ui.StationBannerView
+import fr.leslignesclaires.kybernow.ui.StationTask
+import fr.leslignesclaires.kybernow.ui.withUpdateChip
 import fr.leslignesclaires.kybernow.ui.panel
 import fr.leslignesclaires.kybernow.ui.playstation.ConsoleCard
 import fr.leslignesclaires.kybernow.ui.playstation.ConsoleHero
@@ -145,6 +150,13 @@ class HomeActions(
     val signIn: () -> Unit = {},
     /** « Regarder » un ordinateur du compte (droit « Regarder ») : comme un invité spectateur de son partage. */
     val watch: (Host) -> Unit = {},
+    // Mise à jour des Stations (docs/link-ui.md, « Mise à jour des Stations »).
+    /** « Mettre à jour » du bandeau (`true` : « Mettre à jour quand même »). */
+    val stationUpdate: (Host, Boolean) -> Unit = { _, _ -> },
+    /** « Plus tard » du bandeau, pour cette version. */
+    val stationLater: (Host, String) -> Unit = { _, _ -> },
+    /** « Annuler » la confirmation du bandeau. */
+    val stationCancel: (Host) -> Unit = {},
 )
 
 /** Tout ce que l'accueil montre. */
@@ -193,6 +205,12 @@ data class HomeState(
     val watch: Map<String, Boolean> = emptyMap(),
     /** « Regarder » / “Watch”, le mot du cœur. */
     val watchWord: String = "",
+    /** Mise à jour des Stations : le bandeau et la puce de chaque ordinateur (calcul du cœur). */
+    val offers: Map<String, StationOffer> = emptyMap(),
+    /** La mise à jour (ou le redémarrage) de la Station en cours, par ordinateur : le flux des réglages. */
+    val stationTasks: Map<String, StationTask> = emptyMap(),
+    /** Les mises à jour lancées par le bandeau ou l'avis : leur confirmation et leur échec s'écrivent dans le bandeau. */
+    val fromOffer: Set<String> = emptySet(),
 )
 
 @Composable
@@ -220,6 +238,9 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val signingIn by app.accounts.signingIn.collectAsState()
     val watch by model.watch.collectAsState()
     val watchWord = remember { fr.leslignesclaires.kybernow.core.Share.watchWord("action") }
+    val offers by model.offers.collectAsState()
+    val stationTasks by model.station.collectAsState()
+    val fromOffer by model.fromOffer.collectAsState()
     val known = remember(borrowed, friends, borrowing) { borrowed.filter { model.friendPassword(it.id) != null }.map { it.id }.toSet() }
     val ps = app.ps
     val consoles by ps.store.consoles.collectAsState()
@@ -254,6 +275,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
         HomeState(
             hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking, connecting, refusals,
             borrowed, friends, borrowing, borrowErrors, known, lend, lendErrors, psState, hdr, origins, signingIn, watch, watchWord,
+            offers, stationTasks, fromOffer,
         ),
         actions,
     )
@@ -425,6 +447,7 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                 Spacer(Modifier.width(s.dp(10f)))
                 IconPill(KnIcons.settings, a11y) { actions.hostSettings(host) }
             }
+            StationBanner(host, state, actions, Modifier.widthIn(max = s.dp(560f)))
         } else {
             // Une seule rangée qui passe à la ligne si la place manque : rien n'est écrasé.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f)), itemVerticalAlignment = Alignment.CenterVertically) {
@@ -443,6 +466,7 @@ private fun Hero(host: Host, st: HostStatus, state: HomeState, actions: HomeActi
                     leading = { KnIcon(KnIcons.settings, size = 16f); Spacer(Modifier.width(6.dp)) },
                 )
             }
+            StationBanner(host, state, actions)
         }
         Body(profileHelp(set), size = 14f, color = Kn.muted)
         if (LocalForm.current == FormFactor.TV) {
@@ -472,6 +496,24 @@ private fun MainButton(host: Host, st: HostStatus, state: HomeState, actions: Ho
     // Droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
     state.watch[host.id] == true -> PrimaryButton(state.watchWord, { actions.watch(host) }, modifier)
     else -> PrimaryButton(stringResource(R.string.home_connect), { actions.connect(host) }, modifier)
+}
+
+/**
+ * Le bandeau de mise à jour de la Station (docs/link-ui.md, « Mise à jour des Stations »), sous la rangée « Se connecter »
+ * et profils : un seul bandeau à cet endroit. Pendant un prêt, rien (l'ordinateur est à l'ami).
+ */
+@Composable
+private fun StationBanner(host: Host, state: HomeState, actions: HomeActions, modifier: Modifier = Modifier) {
+    if (state.lend[host.id]?.lent == true) return
+    StationBannerView(
+        state.offers[host.id], state.stationTasks[host.id], host.id in state.fromOffer,
+        StationBannerActions(
+            update = { force -> actions.stationUpdate(host, force) },
+            later = { v -> actions.stationLater(host, v) },
+            cancel = { actions.stationCancel(host) },
+        ),
+        modifier,
+    )
 }
 
 /** Les profils en commande segmentée (téléphone et tablette en portrait) ; « Personnalisé » au bout quand il y a lieu. */
@@ -631,7 +673,8 @@ private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
                 }
                 Column {
                     Body(h.name, size = 15f, weight = if (h.id == selected) 600 else 400, maxLines = 1)
-                    Mono(statusLabel(status[h.id]), size = 10f, color = if (status[h.id]?.online == true) Kn.frost2 else Kn.muted, maxLines = 1)
+                    // « En ligne · Mise à jour » : la Station a une mise à jour que cet appareil peut proposer.
+                    Mono(withUpdateChip(statusLabel(status[h.id]), state.offers[h.id]?.chip == true), size = 10f, color = if (status[h.id]?.online == true) Kn.frost2 else Kn.muted, maxLines = 1)
                     state.origins[h.id]?.let { Mono(it, size = 10f, color = Kn.spectre, maxLines = 1) }
                 }
                 DropdownMenu(menu, { menu = false }) {

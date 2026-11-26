@@ -11,6 +11,8 @@ Toutes les apps KyberNow Link (Mac, Apple TV, iPhone et iPad, Windows, Android e
 - Rien par-dessus l'image quand elle arrive : la connexion montre son avancement, puis l'image seule. Les mesures s'affichent à la demande (barre ou menu de session).
 - Les points de suspension ne servent qu'aux états en cours (« Connexion… ») et, sur Mac, aux commandes qui ouvrent une fenêtre (convention d'Apple).
 - Honnête : on dit combien de temps ça prend et ce qui sera coupé.
+- Un bouton tient sur une ligne : jamais « Se / connecter » sur deux lignes. Quand la place manque (un profil de plus, une langue plus longue), la rangée passe à la ligne ou se réduit ailleurs, pas le libellé du bouton.
+- « Se connecter » veut dire se connecter à un **ordinateur** (ouvrir la session). Pour le compte KyberNow, on dit « Connecter un compte » (et « Créer un compte ») : jamais un « Se connecter » seul pour le compte, qui se confondrait avec celui de l'ordinateur.
 - « de » s'élide devant un nom qui commence par une voyelle ou un h : « Réglages d'Atelier », « Réglages d'Hugo-PC », mais « Réglages de Bureau-Salon ».
 
 ## Accueil
@@ -38,7 +40,9 @@ L'écran affiché est celui que la session demandera (même calcul que la sessio
 
 Erreurs sous le nom, quand il y en a : « Mot de passe refusé : mettez-le à jour dans les réglages. » / “Password refused: update it in the settings.” ; « La Station a été réinstallée : vérifiez son empreinte dans les réglages. » / “The Station was reinstalled: check its fingerprint in the settings.”
 
-Les autres ordinateurs (rangée ou liste) : le nom et l'état (« En ligne », « Hors ligne »), rien d'autre. Un ordinateur annoncé sur le réseau et pas encore ajouté : « Sur le réseau » / “On your network”. Ajout : « Ajouter un ordinateur » / “Add a computer”.
+Les autres ordinateurs (rangée ou liste) : le nom et l'état (« En ligne », « Hors ligne »), rien d'autre, sauf « · Mise à jour » quand leur Station en a une (voir « Mise à jour des Stations »). Un ordinateur annoncé sur le réseau et pas encore ajouté : « Sur le réseau » / “On your network”. Ajout : « Ajouter un ordinateur » / “Add a computer”.
+
+Sous la rangée « Se connecter » et profils, un bandeau au plus : d'abord la mise à jour de la Station quand elle en a une (voir « Mise à jour des Stations »), sinon les invitations au compte KyberNow.
 
 En haut : « Réglages de l'app » / “App settings” (Link OS : « Réglages de l'appareil » / “Device settings”), et la mise à jour de l'app quand il y en a une : « Version {v} disponible » / “Version {v} available”.
 
@@ -409,14 +413,14 @@ Contrat : [comptes.md](comptes.md) (lot 3) ; maquette : rangée « Apps Link » 
 |---|---|---|
 | Accueil sans ordinateur, titre | « Retrouvez vos ordinateurs » | “Find your computers” |
 | Accueil sans ordinateur, texte | « Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez. » | “With a KyberNow account, your computers and the ones opened to you show up here, wherever you are.” |
-| Bouton principal | « Se connecter à un compte KyberNow » | “Sign in to a KyberNow account” |
+| Bouton principal | « Connecter un compte » | “Connect an account” |
 | Aide sous le bouton, fenêtre du système (iPhone, iPad, Mac, Windows, Linux de bureau, Android) | « La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page. » | “The relay's page opens: password, passkey or two-factor authentication happen there, never in the app. No account yet: “Create an account” on that page.” |
 | Aide sous le bouton, code (Apple TV, Android TV, téléviseurs LG, salon, Deck) | « Un code s'affiche : vous l'approuvez depuis votre téléphone. » | “A code appears: you approve it from your phone.” |
 | Séparateur, puis les boutons de toujours | « ou sans compte » ; « Ajouter un ordinateur », « Rejoindre avec un code » | “or without an account”; “Add a computer”, “Join with a code” |
 | Fenêtre du système, pendant | « Connexion au compte… » | “Signing in…” |
 | Réussite | avis bref « Connecté à {compte}. » ({compte} : le nom, sinon l'e-mail) ; les ordinateurs du compte arrivent à l'accueil | brief notice “Signed in to {account}.” |
 | « Annuler » dans la page du relais, fenêtre fermée | rien : l'accueil reste tel quel | nothing |
-| Code, titre | « Se connecter à un compte KyberNow » | “Sign in to a KyberNow account” |
+| Code, titre | « Connecter un compte KyberNow » | “Connect a KyberNow account” |
 | Code, étapes | « Scannez le QR code avec votre téléphone, », « ou ouvrez {adresse} et entrez le code, », « puis touchez « Connecter ». » ({adresse} : `share.kybernow.app/tv`) | “Scan the QR code with your phone,”, “or open {address} and enter the code,”, “then tap “Connect”.” |
 | Code, le code | « KQ7M-4XPA », en chasse fixe, gros ; QR code de la page avec le code, libellé « QR code de connexion » | “QR code to sign in” |
 | Code, attente | indicateur, « En attente de votre téléphone… Le code change dans {n} min. » ; échu : un nouveau code s'affiche de lui-même | “Waiting for your phone… The code changes in {n} min.” |
@@ -438,7 +442,7 @@ Contrat : [comptes.md](comptes.md) (lot 3) ; maquette : rangée « Apps Link » 
 | Réglages d'un ordinateur du compte, rubrique Station | « Compte KyberNow » et le relais à la place du compte Admin ; pas de « Retirer » (il part avec le compte) | “KyberNow account” and the relay; no “Remove” |
 | Se déconnecter, confirmation | « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent. » ; « Se déconnecter », « Annuler » | “Sign out of {account}? Its computers leave this device; the ones you paired stay.”; “Sign out”, “Cancel” |
 | Ajouter | « Ajouter un compte » : le relais d'abord (« share.kybernow.app » proposé, « Un autre relais… »), puis la connexion | “Add an account”: the relay first, then sign-in |
-| Aucun compte | « Aucun compte. » et « Se connecter à un compte KyberNow » | “No account.” |
+| Aucun compte | « Aucun compte. » et « Connecter un compte » | “No account.”, “Connect an account” |
 | Station trop ancienne | « Cette Station ne donne pas encore de jeton aux comptes KyberNow : mettez-la à jour. » | “This Station doesn't give tokens to KyberNow accounts yet: update it.” |
 | Autres refus du relais | « La connexion n'a pas abouti : réessayez. » (retour refusé) ; « Ce code ne sert plus : un nouveau s'affiche. » ; « Trop d'essais : réessayez dans {n} min. » ; « Réponse inattendue du relais ({erreur}). » | “Sign-in didn't go through: try again.”; “This code is no longer valid: a new one is shown.”; “Too many attempts: try again in {n} min.”; “Unexpected answer from the relay ({error}).” |
 
@@ -508,6 +512,45 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Transport de l'image | Picture transport | Rapide / Fast ; Fiable / Reliable ; aide : « Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai. » / “Fast suits your home network and gaming. Reliable resends what gets lost, at the cost of a little delay.” |
 | Reconnexion automatique | Reconnect automatically | |
 | Réveil par le réseau | Wake on LAN | « Prêt » avec l'adresse MAC apprise de la Station, ou « Pas encore d'adresse : connectez-vous une fois à cet ordinateur. » ; aide : « Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système). » |
+
+## Accueil et compte KyberNow
+
+Maquettes : https://claude.ai/artifact/K6tgZaZC8dqeBxGnTBenru (au style réel de l'app : logo `brand/v2/logo`, Archivo étendu en capitales pour les titres, Martian Mono pour les étiquettes). Toutes les apps Link ; le client web du navigateur n'est pas concerné. Logique commune : `apps/core/src/welcome.rs`.
+
+**Libellés.** « Se connecter » veut dire se connecter à un ordinateur ; pour le compte, « Connecter un compte » / “Connect an account” et « Créer un compte » / “Create an account” (voir « Principes »).
+
+### Accueil (premier lancement)
+
+Trois écrans, montrés au premier lancement, et **une fois** après la mise à jour qui l'apporte aux personnes sans compte (`welcome::should_show`). Rejouable : Réglages de l'app, « Revoir l'accueil » / “Show the welcome again”. Chaque écran : le logo de l'app en haut à gauche, « Passer » / “Skip” en haut à droite (écran 3 : « Plus tard » / “Later”), l'étiquette « BIENVENUE · {n} / 3 » / “WELCOME · {n} / 3”, un grand titre, un texte, les boutons, trois traits d'avancement en bas.
+
+| Écran | Français | English |
+|---|---|---|
+| 1, titre | « Votre ordinateur, sur tous vos appareils » | “Your computer, on all your devices” |
+| 1, texte | « Jouez, travaillez et retrouvez votre bureau depuis un autre écran, comme si vous étiez devant. » | “Play, work and get back to your desktop from another screen, as if you were sitting in front of it.” |
+| 1, bouton | « Continuer » | “Continue” |
+| 2, titre | « Avec un compte, tout vous suit » | “With an account, everything follows you” |
+| 2, texte | « Un compte KyberNow, et vos ordinateurs vous attendent partout. » | “A KyberNow account, and your computers wait for you everywhere.” |
+| 2, avantage 1 | « HORS DE CHEZ VOUS » ; « Rejoignez votre ordinateur de n'importe où, sans rien régler sur votre box. » | “AWAY FROM HOME”; “Reach your computer from anywhere, with nothing to set up on your router.” |
+| 2, avantage 2 | « TOUS VOS APPAREILS » ; « Vos ordinateurs apparaissent d'eux-mêmes partout où vous vous connectez. » | “ALL YOUR DEVICES”; “Your computers show up by themselves wherever you sign in.” |
+| 2, avantage 3 | « PARTAGER ET PRÊTER » ; « Invitez un ami à jouer, prêtez votre PC, ouvrez-le à la famille ou à votre équipe. » | “SHARE AND LEND”; “Invite a friend to play, lend your PC, open it to your family or your team.” |
+| 2, avantage 4 | « VOS RÉGLAGES » ; « Profil, format et débit vous suivent d'un appareil à l'autre. » | “YOUR SETTINGS”; “Profile, format and bitrate follow you from one device to another.” |
+| 2, boutons | « Connecter un compte » (principal) ; « Créer un compte » ; « Continuer sans compte » (lien) | “Connect an account”; “Create an account”; “Continue without an account” |
+| 2, aide | « La page de {relais} s'ouvre : votre mot de passe ne passe jamais par l'app. » | “{relay}'s page opens: your password never goes through the app.” |
+| 3, titre | « Ajoutez votre ordinateur » | “Add your computer” |
+| 3, texte | « Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le. » | “Install KyberNow Station on the computer you want to reach: on the same network, it shows up here by itself. A friend gave you a code? Enter it.” |
+| 3, rangée | « ORDINATEURS À PORTÉE » : les ordinateurs vus sur le réseau (carte « SUR LE RÉSEAU », « Ajouter ») ; carte « UN CODE », « Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné. », « Rejoindre avec un code » ; carte « PAS ENCORE INSTALLÉ », « Téléchargez KyberNow Station sur l'ordinateur à rejoindre. », lien `www.kybernow.app` (ouvre `https://www.kybernow.app/#telecharger`) | “COMPUTERS IN REACH”; “ON THE NETWORK”, “Add”; “A CODE”, “A friend opens their computer to you: enter the code they gave you.”, “Join with a code”; “NOT INSTALLED YET”, “Download KyberNow Station on the computer you want to reach.” |
+
+- « Connecter un compte » : la connexion de toujours (fenêtre du système, ou code sur un téléviseur) ; réussie, l'écran 3 est passé (les ordinateurs du compte arrivent) ; annulée, on reste sur l'écran 2.
+- « Créer un compte » : ouvre `https://{relais}/compte/inscription?lang={fr|en}` dans le **navigateur** de l'appareil (pas dans la fenêtre de connexion : l'app ne crée pas de compte, règle 5.1.1(v) de l'App Store), puis l'avis « Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte ». » / “Create your account in the browser, then come back here: “Connect an account”.” Sur un téléviseur : l'écran du code dit « Pas encore de compte ? Créez-le sur cette page. » / “No account yet? Create it on this page.”
+- Téléviseurs (Apple TV, Android TV, LG, Deck, salon) : mêmes écrans à la télécommande ; l'écran 2 montre à droite le QR code et le code de la connexion par code (textes de « Comptes KyberNow »), titre de la carte « CONNECTER UN COMPTE » / “CONNECT AN ACCOUNT”, et « Continuer sans compte » en bouton.
+
+### Sans compte, ensuite
+
+- **Bouton du compte** : en haut de l'accueil, à côté de « Réglages de l'app », « Connecter un compte » avec l'icône d'une personne (téléphone : icône seule, libellé pour l'accessibilité). Avec un compte : il disparaît (le compte est dans les Réglages de l'app).
+- **Carte du compte** dans la rangée « VOS AUTRES ORDINATEURS » (en dernier, avec la lueur de « SUR LE RÉSEAU ») : « COMPTE KYBERNOW », « Retrouvez vos ordinateurs partout » / “Find your computers everywhere”, « Sur tous vos appareils, même hors de chez vous. » / “On all your devices, even away from home.”, « Connecter un compte », « Créer un compte », croix « Fermer » / “Close”. Fermée, elle revient 30 jours plus tard ; revenue, sa croix dit « Ne plus afficher » / “Don't show again” et la ferme pour de bon (`welcome::card_visible`). Sans ordinateur, l'accueil vide de « Comptes KyberNow » reste tel quel.
+- **Moment utile, hors de chez vous** : « Se connecter » sur un ordinateur appairé qui n'est pas sur ce réseau (pas de route par le relais) : fenêtre « Hors de chez vous ? » / “Away from home?”, « {nom} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box. » / “{name} isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router.” ; « Pas maintenant » / “Not now”, « Créer un compte », « Connecter un compte ». Une fois par ordinateur et par jour au plus.
+- **Après un appairage** (sans compte) : sous les boutons de l'ordinateur ajouté, un bandeau « Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow. » / “Find it away from home and on your other devices too: connect a KyberNow account.” ; « Connecter un compte », « Plus tard » / “Later”. Une fois par ordinateur. C'est le bandeau sous la rangée « Se connecter » : tant que le bandeau de mise à jour de la Station y est (section « Mise à jour des Stations »), il attend, sans être compté comme montré (`take_paired_hint` seulement quand il s'affiche vraiment).
+- **Avec la mise à jour des Stations** : le bouton « Connecter un compte » et la carte du compte ne sont pas des bandeaux et restent affichés ; seul le bandeau après un appairage cède la place.
 
 ## Profil Auto et débit adaptatif
 
@@ -655,6 +698,40 @@ Données gardées par l'app pour chaque ordinateur, à la fin de chaque session 
 Le redémarrage et la mise à jour passent par Admin (`POST /api/stream/station/restart` et `/update`, voir [server/README.md](../server/README.md)) ; l'app suit ensuite l'état de la Station par `GET /api/stream/info` jusqu'à son retour. Tout appareil ajouté peut le faire.
 
 Le réveil par le réseau : Admin donne dans `GET /api/stream/info` les cartes réseau de l'ordinateur (adresse MAC, adresse IPv4, adresse de diffusion) ; l'app les garde pour chaque ordinateur et le cœur envoie le paquet de réveil. Sur iPhone, iPad et Apple TV, l'envoi en diffusion demande une autorisation d'Apple : l'app envoie aussi le paquet directement à la dernière adresse connue, qui ne réveille pas toujours.
+
+## Mise à jour des Stations
+
+Les apps proposent la mise à jour de la Station là où on la voit, sans attendre qu'on ouvre les Réglages : un bandeau sur l'accueil et, au premier lancement après une mise à jour de l'app, un avis qui reprend toutes les Stations à mettre à jour. La rubrique « Station » des réglages reste la même. Toutes les apps Link sauf le client web (`/link`, qui n'appaire pas d'ordinateur).
+
+**Qui le voit** : les mêmes que « Mettre à jour la Station » des réglages, c'est-à-dire un ordinateur appairé sur cet appareil, ou un ordinateur d'un compte KyberNow avec le droit « Administrer » (`admin`). Jamais un invité du partage, un prêt, ni « Regarder » seul. Le calcul est celui du cœur (`station_offer`), pareil partout.
+
+**Quand** : ce que la Station annonce (`GET /api/stream/info`, `station.update`), relu comme aujourd'hui. La Station vérifie seule toutes les 6 heures ; l'app lui demande de vérifier tout de suite (`POST /api/stream/station/check`) quand la version de l'app a changé depuis sa dernière demande à cet ordinateur, ou quand la Station est plus ancienne que l'app, au plus une fois par jour et par ordinateur, jamais en session. Une Station qui ne connaît pas cette route (avant la 0.11.3) n'est pas relancée : on se fie à son annonce.
+
+| Élément | Français | English |
+|---|---|---|
+| Bandeau de l'accueil, ordinateur choisi | sous la rangée « Se connecter » et profils, sur toute sa largeur ; icône de flèche vers le haut ; « KyberNow Station {v} est disponible pour cet ordinateur. Environ une minute. » ; boutons « Mettre à jour » (le principal) et « Plus tard » | under the “Connect” and profiles row; “KyberNow Station {v} is available for this computer. About a minute.”; “Update”, “Later” |
+| Bandeau, pendant | « Mise à jour de la Station… », indicateur, sans bouton ; puis l'avis bref « KyberNow Station {v} est en place. » et le bandeau s'en va | “Updating the Station…”; then “KyberNow Station {v} is installed.” |
+| Bandeau, un appareil est en session | la confirmation des réglages (« {appareil} est connecté », « La mise à jour coupera sa session. », « Mettre à jour quand même », « Annuler ») | the settings' confirmation |
+| Bandeau, échec | le texte des réglages dans le bandeau (« La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus. », « La Station tarde à revenir… », « Trop tôt… »), bouton « Réessayer » et « Plus tard » | the settings' text, “Try again”, “Later” |
+| Bandeau, version qui exige l'installateur | « KyberNow Station {v} est disponible. Elle s'installe sur l'ordinateur, avec l'installateur. » ; seulement « Plus tard » | “KyberNow Station {v} is available. It installs on the computer, with the installer.”; only “Later” |
+| Bandeau, hors de chez vous | « KyberNow Station {v} est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré. » ; seulement « Plus tard » | “KyberNow Station {v} is available. Away from home, the app can't update the Station: do it once you're back.”; only “Later” |
+| Autres ordinateurs (rangée ou liste) | l'état suivi de « · Mise à jour » : « En ligne · Mise à jour » | “Online · Update” |
+| « Plus tard » | le bandeau de cet ordinateur se cache pour cette version ; il revient au bout de 7 jours, ou tout de suite si une version plus récente sort ; la puce « · Mise à jour » reste | hides it for this version and this computer; back after 7 days or with a newer version |
+| Avis après une mise à jour de l'app, une Station | fenêtre (feuille sur Mac, iPhone et iPad ; plein écran sur les téléviseurs) ; titre « {nom} a aussi une mise à jour » ; texte « KyberNow Link est passée en {app}. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée. » ; boutons « Mettre à jour la Station » et « Plus tard » | “{name} has an update too”; “KyberNow Link is now {app}. Update the Station too: about a minute, a session in progress will be cut off.”; “Update the Station”, “Later” |
+| Avis, plusieurs Stations | titre « Vos Stations aussi ont une mise à jour » ; texte « KyberNow Link est passée en {app}. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée. » ; une ligne par ordinateur : le nom, « Version {v} », bouton « Mettre à jour » ; en bas « Tout mettre à jour » et « Plus tard » | “Your Stations have an update too”; “KyberNow Link is now {app}. Update your computers too: about a minute each, a session in progress will be cut off.”; “Version {v}”, “Update”; “Update all”, “Later” |
+| Avis, une ligne pendant et après | « Mise à jour… » ; « À jour » ; un refus : son texte court sous le nom (« {appareil} est connecté », avec « Mettre à jour quand même ») ; quand toutes sont à jour, « Plus tard » devient « Fermer » | “Updating…”; “Up to date”; “Close” |
+
+Règles :
+
+- Un seul bandeau à la fois sous la rangée « Se connecter » : la mise à jour de la Station passe avant les invitations au compte KyberNow (maquettes de l'accueil), qui attendent qu'elle soit faite ou remise à plus tard.
+- Le bandeau ne s'affiche que pour l'ordinateur choisi, en ligne ou hors de chez vous ; jamais pendant une session (ni dans la barre de session). Hors ligne : rien.
+- L'avis après une mise à jour de l'app : une fois par version de l'app, pas au tout premier lancement (l'app garde la version lancée ; sans version gardée mais avec au moins un ordinateur connu, elle vient de la 0.11.2 ou d'avant : c'est une mise à jour, `station_offer::BEFORE_NOTICE`) ; l'app demande d'abord aux ordinateurs en ligne sur le réseau de vérifier (10 secondes au plus), puis n'affiche l'avis que s'il reste au moins une Station à mettre à jour qu'elle peut installer. Les ordinateurs hors de chez vous ou qui exigent l'installateur n'y sont pas (leur bandeau suffit). Si une session s'ouvre d'elle-même au lancement, l'avis attend le retour à l'accueil. « Plus tard » dans l'avis vaut « Plus tard » pour chaque Station de la liste.
+- « Tout mettre à jour » met les Stations à jour l'une après l'autre ; un refus (session en cours) laisse sa ligne avec « Mettre à jour quand même » et passe à la suivante.
+- Mettre à jour suit ensuite la Station comme les réglages (`GET /api/stream/info` jusqu'à son retour dans la nouvelle version).
+- « Plus tard » est gardé sur l'appareil, par ordinateur : la version et la date.
+- Téléviseurs et salon : le bandeau prend le focus après « Se connecter » (flèche bas) ; l'avis met le focus sur le bouton principal.
+
+Contrat d'Admin : `POST /api/stream/station/check` (même compte que `GET /api/stream/info`) demande au flux des mises à jour la dernière version tout de suite, au plus une fois par 10 minutes (sinon le résultat gardé), et répond `{"ok": true, "station": …}` (le même objet que `station` d'`info`). Cœur : `Console::station_check`, et le module `station_offer` (bandeau, avis, quand demander la vérification).
 
 ## Icône près de l'horloge (Mac, Windows)
 

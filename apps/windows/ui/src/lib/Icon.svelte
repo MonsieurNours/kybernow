@@ -10,6 +10,7 @@
     check: 'M5 12l5 5 9-10',
     plus: 'M12 5v14M5 12h14',
     download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+    upgrade: 'M12 20V6M6 12l6-6 6 6M5 3h14',
     copy: 'M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3',
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
     warning: 'M12 3l9.5 17h-19zM12 10v4M12 17.5v.01',

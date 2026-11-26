@@ -82,8 +82,10 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                 }
                 None => status,
             };
-            // Une erreur prend une ligne de plus : le bloc remonte d'autant.
-            let y0 = if live.problem.is_some() { 202.0 } else { 240.0 };
+            // Une erreur prend une ligne de plus, le bandeau de la mise à jour de la Station la sienne : le bloc
+            // remonte d'autant.
+            let banner = app.home_banner(&h.id).is_some();
+            let y0 = if live.problem.is_some() { 202.0 } else { 240.0 } - if banner { super::offer::BANNER_H - 22.0 } else { 0.0 };
             if lit {
                 cv.circle(101.0, y0 - 6.0, 13.0, HALO.alpha(0.35));
                 cv.circle(101.0, y0 - 6.0, 5.0, SPECTRE);
@@ -158,6 +160,10 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                 _ => profile_phrase(h.settings.profile),
             };
             cv.text_fit(chips_x + 4.0, by + 84.0 + 44.0, Text::new(Font::Regular, 22.0, FROST_3), phrase, W - chips_x - 200.0);
+            // La mise à jour de la Station, sous la rangée (docs/link-ui.md, « Mise à jour des Stations »).
+            if banner {
+                super::offer::banner(app, cv, f, &h.id, by + 84.0 + 70.0);
+            }
         }
         // Sans ordinateur (docs/link-ui.md, « Comptes KyberNow ») : « Retrouvez vos ordinateurs », le texte,
         // « Se connecter à un compte KyberNow » et son aide (le code) ; « ou sans compte » au-dessus de la rangée, où
@@ -354,7 +360,9 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
             };
             // Prêté (vu de l'hôte) : « Prêté à Léa » à la place de son état.
             let lent = app.live.get(&h.id).and_then(|l| l.lend_view.as_ref()).and_then(|v| v.lent_line());
-            cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, if lent.is_some() { WARN } else { FROST_3 }), lent.as_deref().unwrap_or(state));
+            // « En ligne · Mise à jour » : la Station a une mise à jour que ce téléviseur peut proposer.
+            let state = if lent.is_none() && app.live.get(&h.id).is_some_and(|l| l.offer.chip) { format!("{state}{}", crate::station_offer::chip_suffix()) } else { state.to_string() };
+            cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, if lent.is_some() { WARN } else { FROST_3 }), lent.as_deref().unwrap_or(&state));
         }
         x += PITCH;
     }

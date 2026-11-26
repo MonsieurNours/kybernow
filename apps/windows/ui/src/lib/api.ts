@@ -218,6 +218,50 @@ export type Computer = {
    * l'organisation, « Ouvert par {prénom} », « Appairé » (texte du cœur, dans la langue de l'app).
    */
   origin?: string | null
+  /**
+   * La mise à jour de sa Station proposée à l'accueil (docs/link-ui.md « Mise à jour des Stations », calcul du cœur) :
+   * le bandeau de l'ordinateur choisi et la puce « · Mise à jour » de la rangée.
+   */
+  offer?: StationOffer
+}
+
+/**
+ * Le bandeau de l'accueil (`station_offer::Banner` du cœur) : `update` (« Mettre à jour », « Plus tard »),
+ * `installing` (« Mise à jour de la Station… »), `setup` (l'installateur, sur l'ordinateur) et `away` (hors de chez
+ * vous) avec « Plus tard » seul.
+ */
+export type StationBanner = { kind: 'none' } | { kind: 'installing' } | { kind: 'update' | 'setup' | 'away'; version: string }
+
+/** `chip` : la puce « · Mise à jour » (« Plus tard » ne l'enlève pas). */
+export type StationOffer = { banner: StationBanner; chip: boolean }
+
+/**
+ * L'avis au premier lancement après une mise à jour de l'app (`take_station_notice`, après l'événement
+ * `station-notice`) : la version de l'app et les Stations qu'elle peut mettre à jour maintenant.
+ */
+export type StationNotice = { app: string; stations: { id: string; name: string; version: string }[] }
+
+/** Un refus de `station_update` (ou `station_restart`), quelle que soit sa forme. */
+export const stationRefusal = (e: unknown): StationRefusal =>
+  (typeof e === 'object' && e && 'kind' in e ? e : { kind: 'other', message: String(e), device: null, seconds: null }) as StationRefusal
+
+/**
+ * Le texte d'un refus de la mise à jour, comme la rubrique Station des réglages ; `null` pour `in_session` (la
+ * confirmation « {appareil} est connecté » à la place).
+ */
+export function stationRefusalText(r: StationRefusal, version: string): string | null {
+  switch (r.kind) {
+    case 'in_session':
+      return null
+    case 'too_soon':
+      return t('station.too_soon')
+    case 'unsupported':
+      return t('station.too_old')
+    case 'requires_setup':
+      return t('station.requires_setup', { version })
+    default:
+      return r.message
+  }
 }
 
 /**

@@ -142,6 +142,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Réglages « Station » des apps : redémarrer, mettre à jour.
         .route("/api/stream/station/restart", post(stream_station_restart))
         .route("/api/stream/station/update", post(stream_station_update))
+        .route("/api/stream/station/check", post(stream_station_check))
         // Consoles PlayStation du réseau (docs/relais.md, « Consoles
         // PlayStation ») : la liste, et le signe de vie par le relais.
         .route("/api/consoles", get(crate::consoles::get))
@@ -1318,6 +1319,27 @@ async fn admin_station_restart(State(s): State<AppState>, body: Bytes) -> Result
     share_api::close_share(&s).await;
     Ok(accepted(json!({ "ok": true })))
 }
+
+/// Vérification des mises à jour demandée par une app KyberNow Link (même
+/// compte que `GET /api/stream/info`) : au premier lancement après une mise
+/// à jour de l'app, ou quand la Station est plus ancienne qu'elle. Le flux
+/// est interrogé au plus une fois par 10 minutes (sinon le résultat gardé) ;
+/// rend `{"ok": true, "station": …}`, l'objet `station` d'`info`.
+async fn stream_station_check(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    match crate::accounts::authorize(&s, &headers, None, Use::Reusable, false) {
+        Some(Ok(g)) if g.claims.rights.has(Right::View) || g.claims.rights.has(Right::Session) => {}
+        _ => {
+            stream_user(&s, &headers)?;
+        }
+    }
+    let updater = s.updater.clone();
+    blocking(move || Ok(updater.check_unless_fresh(STATION_CHECK_FRESH))).await?;
+    Ok(Json(json!({ "ok": true, "station": station_info(&s) })))
+}
+
+/// Une vérification demandée par une app réutilise le résultat d'une autre
+/// de moins de 10 minutes.
+const STATION_CHECK_FRESH: Duration = Duration::from_secs(600);
 
 /// « Mettre à jour la Station » d'une app : la même installation
 /// qu'« Installer maintenant » dans Admin. 409 sans version installable
@@ -2502,6 +2524,15 @@ mod tests {
                         { "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }] })).unwrap();
         assert!(body.hdr);
         assert_eq!(body.screens.unwrap().iter().map(|p| p.hdr).collect::<Vec<_>>(), vec![true, false]);
+    }
+
+    #[tokio::test]
+    async fn station_check_needs_the_same_account_as_info() {
+        let c = console_with_account();
+        let refused = stream_station_check(State(c.s.clone()), basic("mac", "faux")).await;
+        assert_eq!(refused.err().map(|e| e.0), Some(StatusCode::UNAUTHORIZED));
+        let refused = stream_station_check(State(c.s.clone()), HeaderMap::new()).await;
+        assert_eq!(refused.err().map(|e| e.0), Some(StatusCode::UNAUTHORIZED));
     }
 
     async fn info_hdr(c: &Console) -> Value {

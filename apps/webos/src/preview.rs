@@ -713,20 +713,20 @@ pub fn run(dir: &Path, lang: &str) {
     shot(&mut app, &mut cv, &assets, None, dir, "11c-reglages-station-installateur");
     set_station(&mut app, available);
     open(&mut app, Section::Station, Target::Section(5));
-    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Update), message: None });
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Update), message: None, done: false });
     shot(&mut app, &mut cv, &assets, None, dir, "11d-reglages-station-mise-a-jour-en-cours");
-    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Waiting { op: StationOp::Restart, since: Instant::now(), down: true, target: None }, message: None });
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Waiting { op: StationOp::Restart, since: Instant::now(), down: true, target: None }, message: None, done: false });
     shot(&mut app, &mut cv, &assets, None, dir, "11e-reglages-station-redemarre");
     // Retour de la Station après la mise à jour : le message de fin.
-    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Waiting { op: StationOp::Update, since: Instant::now(), down: true, target: Some("0.5.1".into()) }, message: None });
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Waiting { op: StationOp::Update, since: Instant::now(), down: true, target: Some("0.5.1".into()) }, message: None, done: false });
     app.polled("a", Polled { online: true, station: station("0.5.1"), virtual_display: Some(true), ..Default::default() });
     open(&mut app, Section::Station, Target::Setting(Setting::Restart));
     shot(&mut app, &mut cv, &assets, None, dir, "11f-reglages-station-mise-a-jour-faite");
-    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Restart), message: None });
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Restart), message: None, done: false });
     app.station_answer("a", StationOp::Restart, Err(StationRefusal::TooSoon));
     open(&mut app, Section::Station, Target::Setting(Setting::Restart));
     shot(&mut app, &mut cv, &assets, None, dir, "11g-reglages-station-trop-tot");
-    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Restart), message: None });
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Restart), message: None, done: false });
     app.station_answer("a", StationOp::Restart, Err(StationRefusal::InSession(Some("Pixel 9".into()))));
     shot(&mut app, &mut cv, &assets, None, dir, "11h-reglages-station-appareil-en-session");
     app.dialog = None;
@@ -776,6 +776,8 @@ pub fn run(dir: &Path, lang: &str) {
     shot(&mut app, &mut cv, &assets, None, dir, "13-manettes");
 
     auto_shots(&mut app, &mut cv, &assets, &video, dir, en);
+    // La mise à jour des Stations (docs/link-ui.md) : le bandeau de l'accueil et ses états, la puce, l'avis.
+    offer_shots(&mut app, &mut cv, &assets, dir, en);
 
     // Session.
     let mut s = session(&app);
@@ -2880,4 +2882,67 @@ mod tests {
         let late = LendCodeUi { relay_since: Instant::now().checked_sub(crate::app::RELAY_LINK_WAIT + Duration::from_secs(1)), ..c };
         assert_eq!((late.relay_preparing(), late.relay_wait_text(), late.relay_down_text()), (false, None, Some("Pas encore joignable hors de chez vous.")));
     }
+}
+
+/// La mise à jour des Stations (docs/link-ui.md, « Mise à jour des Stations ») : le bandeau (à mettre à jour, avec le
+/// focus, pendant, échec, hors de chez vous), la puce « · Mise à jour » d'une autre carte, l'avis pour une Station et
+/// pour plusieurs (une à jour, une refusée, une en cours).
+fn offer_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, dir: &Path, en: bool) {
+    use crate::station_offer::{OfferBanner, RowState};
+    let selected = app.store.selected.clone();
+    let ids: Vec<String> = app.store.hosts.iter().map(|h| h.id.clone()).collect();
+    let (first, other) = (ids[0].clone(), ids.get(1).cloned().unwrap_or_default());
+    app.store.selected = Some(first.clone());
+    let before = app.live.get(&first).cloned().unwrap_or_default();
+    if let Some(l) = app.live.get_mut(&first) {
+        l.online = Online::Online;
+        l.station = StationKnown::Info(StationLive { version: "0.11.2".into(), update_available: true, update_version: Some("0.11.3".into()), installable: true, ..Default::default() });
+        l.offer.banner = OfferBanner::Update("0.11.3".into());
+    }
+    if let Some(l) = app.live.get_mut(&other) {
+        l.offer.chip = true;
+    }
+    app.go(Screen::Home);
+    app.focus = Target::OfferUpdate;
+    shot(app, cv, assets, None, dir, "40-maj-station-bandeau");
+    app.station_origin = crate::station_offer::Origin::Banner;
+    app.station = Some(StationUi { host: first.clone(), phase: StationPhase::Asking(StationOp::Update), message: None, done: false });
+    app.focus = Target::Connect;
+    shot(app, cv, assets, None, dir, "40b-maj-station-pendant");
+    let late = if en { "The Station is taking a while to come back. Open Admin to find out more." } else { "La Station tarde à revenir. Ouvrez Admin pour en savoir plus." };
+    app.station = Some(StationUi { host: first.clone(), phase: StationPhase::Idle, message: Some(late.into()), done: false });
+    app.focus = Target::OfferUpdate;
+    shot(app, cv, assets, None, dir, "40c-maj-station-echec");
+    app.station = None;
+    app.station_origin = Default::default();
+    if let Some(l) = app.live.get_mut(&first) {
+        l.offer.banner = OfferBanner::Away("0.11.3".into());
+    }
+    app.focus = Target::OfferLater;
+    shot(app, cv, assets, None, dir, "40d-maj-station-hors-de-chez-vous");
+    if let Some(l) = app.live.get_mut(&first) {
+        l.offer.banner = OfferBanner::None;
+    }
+    let name = |id: &str| app.store.host(id).map(|h| h.name.clone()).unwrap_or_default();
+    let rows = vec![(first.clone(), name(&first), "0.11.3".to_string())];
+    let many: Vec<(String, String, String)> = ids.iter().take(3).map(|id| (id.clone(), name(id), "0.11.3".to_string())).collect();
+    app.open_station_notice(rows, "0.11.3");
+    shot(app, cv, assets, None, dir, "41-maj-station-avis");
+    app.open_station_notice(many, "0.11.3");
+    if let Some(n) = app.station_notice.as_mut() {
+        n.rows[0].state = RowState::Done;
+        if n.rows.len() > 1 {
+            n.rows[1].state = RowState::Refused("Pixel 9".into());
+        }
+        if n.rows.len() > 2 {
+            n.rows[2].state = RowState::Busy;
+        }
+    }
+    shot(app, cv, assets, None, dir, "41b-maj-station-avis-plusieurs");
+    app.station_notice = None;
+    if let Some(l) = app.live.get_mut(&other) {
+        l.offer.chip = false;
+    }
+    app.live.insert(first, before);
+    app.store.selected = selected;
 }

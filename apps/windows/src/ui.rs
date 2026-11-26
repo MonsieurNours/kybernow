@@ -75,6 +75,10 @@ mod synced;
 // Consoles PlayStation : recherche, comptes PSN, association, partie et sa
 // barre, réglages, envoi entre appareils (docs/playstation.md).
 mod playstation;
+// Mise à jour des Stations proposée à l'accueil (bandeau, puce « · Mise à
+// jour »), vérification demandée à la Station, avis après une mise à jour de
+// l'app (docs/link-ui.md « Mise à jour des Stations »).
+mod stations;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -122,6 +126,9 @@ pub struct ComputerView {
     /// connecté) : « Compte », « Compte · {relais} », l'organisation, « Ouvert
     /// par {prénom} », « Appairé ».
     origin: Option<String>,
+    /// La mise à jour de sa Station proposée à l'accueil : le bandeau (ordinateur
+    /// choisi) et la puce « · Mise à jour » (calcul du cœur, `stations::offer`).
+    offer: stations::Offer,
 }
 
 /// Un ordinateur à ajouter : adresse et port de sa console, empreinte
@@ -320,6 +327,11 @@ pub struct UiState {
     invite: invite::InviteState,
     /// Consoles PlayStation : comptes, consoles, parties en cours.
     ps: playstation::PsState,
+    /// Les ordinateurs dont la Station vérifie ses mises à jour en ce moment
+    /// (`stations::check`).
+    checking: Mutex<std::collections::HashSet<String>>,
+    /// L'avis après une mise à jour de l'app, en attente de l'interface.
+    station_notice: Mutex<Option<stations::StationNotice>>,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -416,6 +428,10 @@ pub struct Prefs {
     /// absent : allumé.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_settings: Option<bool>,
+    /// La dernière version de l'app lancée : l'avis « … a aussi une mise à
+    /// jour » au premier lancement d'une nouvelle version (`stations::launched`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_launched: Option<String>,
 }
 
 /// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
@@ -468,6 +484,8 @@ impl UiState {
         let pending: HashMap<String, Kind> = self.following.lock().unwrap().iter().map(|(id, (p, _))| (id.clone(), p.kind)).collect();
         // Les ordinateurs dont une session passe par le relais (lu avant `live` : les deux verrous ne se tiennent jamais ensemble).
         let relayed = self.sessions_via_relay();
+        // Une session ouverte : ni bandeau ni avis de la mise à jour de la Station.
+        let in_session = !self.session_ids().is_empty();
         let mut live = self.live.lock().unwrap();
         computers
             .into_iter()
@@ -481,6 +499,7 @@ impl UiState {
                     }
                 }
                 let l = l.clone();
+                let offer = stations::offer(&c, &l, in_session);
                 let (preview, preview_source) = match (l.last, l.preview) {
                     (Some(last), _) => (Some(last), Some("last")),
                     (None, Some(p)) => (Some(p), Some("preview")),
@@ -491,7 +510,7 @@ impl UiState {
                 let via_relay = l.away || relayed.contains(&c.id);
                 let lend = l.lend.as_ref().and_then(crate::lending::HomeLend::of);
                 let origin = origins.remove(&c.id);
-                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin }
+                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
             })
             .collect()
     }
@@ -672,6 +691,8 @@ fn emit_sessions(app: &AppHandle) {
     // Les parties sur console aussi (« Afficher la session », la barre).
     ids.extend(playstation::session_ids(app));
     let _ = app.emit("sessions", &ids);
+    // Le bandeau de la mise à jour de la Station se cache en session, et revient après.
+    let _ = app.emit_to("main", "computers", app.state::<UiState>().views());
     emit_bar_computers(app);
     tray::refresh();
 }
@@ -1110,12 +1131,18 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     l.online = online;
     l.away = away;
     l.lend = lend_view;
+    let on_network = info.is_some();
     if info.is_some() {
         l.info = info;
     }
     if let Some(p) = preview {
         l.preview = Some(p);
         l.preview_at = Some(Instant::now());
+    }
+    drop(live);
+    // La Station vérifie ses mises à jour quand l'app a changé de version (ou qu'elle est en retard sur l'app).
+    if on_network {
+        stations::check(app, c);
     }
     changed
 }
@@ -1499,6 +1526,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             by_code,
             wake: info.wake.clone(),
             station_notified: None,
+            station_offer: Default::default(),
             relay: info.relay.clone(),
             account: None,
             auto: None,
@@ -4266,7 +4294,10 @@ pub fn run(args: Vec<String>) {
     };
     let state = UiState::default();
     *state.action.lock().unwrap() = parse_action(&args);
-    *state.prefs.lock().unwrap() = load_prefs();
+    let mut prefs = load_prefs();
+    // Premier lancement d'une nouvelle version : l'avis des Stations à mettre à jour.
+    let app_updated = stations::launched(&mut prefs);
+    *state.prefs.lock().unwrap() = prefs;
     let app = tauri::Builder::default()
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -4307,6 +4338,8 @@ pub fn run(args: Vec<String>) {
             poll_now,
             station_restart,
             station_update,
+            stations::station_later,
+            stations::take_station_notice,
             open_admin,
             wake,
             set_profile,
@@ -4458,6 +4491,10 @@ pub fn run(args: Vec<String>) {
             std::thread::spawn(move || lend::poll_friends(h));
             let h = handle.clone();
             std::thread::spawn(move || follow_loop(h));
+            if app_updated {
+                let h = handle.clone();
+                std::thread::spawn(move || stations::notice_after_update(h));
+            }
             // Consoles PlayStation : le fichier, les secrets, la recherche.
             playstation::start(&handle);
             log::info!("app : prête");

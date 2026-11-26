@@ -10,6 +10,8 @@ struct HomeView: View {
     @EnvironmentObject var app: AppModel
     @ObservedObject var playstation = AppModel.shared.playstation
 
+    private var homeConfirm: StationConfirm? { app.store.stationConfirm.flatMap { $0.home ? $0 : nil } }
+
     var body: some View {
         HomeContent(imagery: app.store.imagery, discovery: app.discovery)
             .sheet(isPresented: $app.adding) { AddHostSheet(initialLink: app.pendingLink, initialTab: app.addTab) }
@@ -19,6 +21,26 @@ struct HomeView: View {
             .sheet(item: $app.borrowPassword) { BorrowPasswordSheet(computer: $0) }
             // Consoles PlayStation : l'association (compte PSN, puis le code de la console).
             .sheet(item: $playstation.pairing) { PairConsoleSheet(target: $0) }
+            // Après une mise à jour de l'app : les Stations à mettre à jour aussi (LinkUI.swift).
+            .sheet(isPresented: Binding(get: { app.store.stationNotice != nil && app.route == .home },
+                                        set: { if !$0, app.store.stationNotice != nil { app.store.noticeDismiss() } })) {
+                StationNoticeSheet(store: app.store)
+            }
+            // « {appareil} est connecté » après « Mettre à jour » du bandeau : la confirmation des réglages.
+            .alert(homeConfirm?.title ?? "", isPresented: Binding(get: { homeConfirm != nil && app.route == .home },
+                                                               set: { if !$0, let c = homeConfirm { app.store.stationConfirm = nil; app.store.cancelStationFromBanner(c.hostID) } }),
+                   presenting: homeConfirm) { c in
+                Button(c.confirmLabel, role: .destructive) {
+                    app.store.stationConfirm = nil
+                    if let host = app.store.host(c.hostID) { app.store.updateStationFromBanner(host, force: true) }
+                }
+                Button(StationText.cancel, role: .cancel) {
+                    app.store.stationConfirm = nil
+                    app.store.cancelStationFromBanner(c.hostID)
+                }
+            } message: { c in
+                Text(c.message)
+            }
             .preferredColorScheme(.dark)
             .frame(minWidth: 1100, minHeight: 760)
     }
@@ -245,7 +267,15 @@ private struct Hero: View {
                 .font(Theme.sans(13.5))
                 .foregroundStyle(Theme.muted)
                 .modifier(rise(4))
+            // Sous la rangée « Se connecter » et profils, un bandeau au plus : la mise à jour de la Station.
+            if let banner = app.store.stationBanner(host) {
+                StationBannerView(host: host, banner: banner)
+                    .padding(.top, 4)
+                    .modifier(rise(5))
+                    .transition(.opacity)
+            }
         }
+        .animation(Theme.easeOut, value: app.store.stationBanner(host))
         .frame(maxWidth: 820, alignment: .leading)
     }
 
@@ -260,32 +290,36 @@ private struct Hero: View {
                         Icon("arrow-elbow-down-left", size: 14, bold: true)
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-                        Text(LinkText.showSession)
+                        Text(LinkText.showSession).lineLimit(1)
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
                 .buttonStyle(PrimaryButton(height: 56, lit: true))
+                .fixedSize()
                 .keyboardShortcut(.defaultAction)
             } else if online == false, app.store.waking.contains(host.id) {
                 // Réveil en cours : l'ordinateur est sondé toutes les 2 s.
                 Button {} label: {
-                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(LinkText.waking) }
+                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(LinkText.waking).lineLimit(1) }
                 }
                 .buttonStyle(GhostButton(height: 56))
+                .fixedSize()
                 .disabled(true)
             } else if online == false, app.store.canWake(host) {
                 Button { app.store.wake(host) } label: {
-                    HStack(spacing: 10) { Icon("power", size: 18, bold: true); Text(LinkText.wake) }
+                    HStack(spacing: 10) { Icon("power", size: 18, bold: true); Text(LinkText.wake).lineLimit(1) }
                 }
                 .buttonStyle(PrimaryButton(height: 56))
+                .fixedSize()
                 .keyboardShortcut(.defaultAction)
             } else if online == false {
                 Button {
                     Task { await app.store.retry(host) }
                 } label: {
-                    HStack(spacing: 10) { Icon("arrows-clockwise", size: 18); Text("Réessayer") }
+                    HStack(spacing: 10) { Icon("arrows-clockwise", size: 18); Text("Réessayer").lineLimit(1) }
                 }
                 .buttonStyle(GhostButton(height: 56))
+                .fixedSize()
             } else {
                 // Le droit « Regarder » seul (compte KyberNow) : « Regarder » à la place de « Se connecter ».
                 Button { app.connect(host) } label: {
@@ -293,11 +327,17 @@ private struct Hero: View {
                         Icon("arrow-elbow-down-left", size: 14, bold: true)
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-                        if app.store.watchOnly(host) { Text(verbatim: Share.watchWord(.action)) } else { Text("Se connecter") }
+                        Group {
+                            if app.store.watchOnly(host) { Text(verbatim: Share.watchWord(.action)) } else { Text("Se connecter") }
+                        }
+                        .lineLimit(1)
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
                 .buttonStyle(PrimaryButton(height: 56))
+                // Jamais sur deux lignes : avec Auto, le profil prend plus de place
+                // et la rangée serrait ce bouton (« Se / connecter »).
+                .fixedSize()
                 .keyboardShortcut(.defaultAction)
                 // Quatre ordinateurs au plus en même temps.
                 .disabled(app.sessions.isFull)
@@ -623,7 +663,9 @@ private struct HostCard: View {
                             .fill(status?.online == true ? Theme.ok : .clear)
                             .overlay(Circle().strokeBorder(status?.online == true ? .clear : Theme.faint))
                             .frame(width: 6, height: 6)
-                        Text(LinkText.status(status?.online, away: status?.away == true)).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
+                        // « En ligne · Mise à jour » quand sa Station en a une (docs/link-ui.md).
+                        let state = LinkText.status(status?.online, away: status?.away == true)
+                        Text(app.store.stationChip(host) ? StationOfferText.chipped(state) : state).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 14).padding(.vertical, 11)
@@ -653,6 +695,150 @@ private struct HostCard: View {
             }
             Button(LinkText.settingsTitle(host.name)) { app.openSettings(host) }
         }
+    }
+}
+
+// MARK: - Mise à jour des Stations
+
+/// Le bandeau de l'accueil (maquette « MajStationBandeau ») : sous la rangée
+/// « Se connecter », sur sa largeur ; la flèche, le texte, « Mettre à jour »
+/// et « Plus tard » ; la suite d'une mise à jour lancée ici.
+private struct StationBannerView: View {
+    @EnvironmentObject var app: AppModel
+    let host: Host
+    let banner: StationBanner
+
+    private var failed: Bool { if case .failed = banner { return true } else { return false } }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Group {
+                switch banner {
+                case .updating: ProgressView().controlSize(.small)
+                case .done: Icon("check-circle", size: 20).foregroundStyle(Theme.ok)
+                case .failed: Icon("warning", size: 20).foregroundStyle(Theme.warn)
+                default: Icon("arrow-up", size: 20, bold: true).foregroundStyle(Theme.accent)
+                }
+            }
+            .frame(width: 24)
+            Text(banner.text)
+                .font(Theme.sans(14))
+                .foregroundStyle(failed ? Theme.warnText : Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if banner.canUpdate {
+                Button(banner.updateLabel) { app.store.updateStationFromBanner(host) }
+                    .buttonStyle(PrimaryButton(height: 36))
+                    .fixedSize()
+            }
+            if banner.canLater {
+                Button(StationOfferText.later) { app.store.stationLater(host, version: banner.version) }
+                    .buttonStyle(GhostButton(height: 36))
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .glass(12)
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(failed ? Theme.warnLine : Theme.accentLine.opacity(0.6)))
+    }
+}
+
+/// L'avis après une mise à jour de l'app (maquette « MajStationAvis ») : une
+/// feuille ; une Station, ou une ligne par Station avec « Tout mettre à jour ».
+struct StationNoticeSheet: View {
+    @ObservedObject var store: HostStore
+
+    var body: some View {
+        if let notice = store.stationNotice {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 12) {
+                    Icon("arrow-up", size: 22, bold: true).foregroundStyle(Theme.accent)
+                    Text(notice.title).font(Theme.sans(20, .semibold)).foregroundStyle(Theme.text)
+                }
+                Text(notice.text).font(Theme.sans(14)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                if notice.single, let line = notice.lines.first {
+                    if let status = line.status { lineStatus(line, status) }
+                } else {
+                    VStack(spacing: 0) {
+                        ForEach(notice.lines) { line in
+                            row(line)
+                            if line.id != notice.lines.last?.id { Divider().overlay(Theme.line) }
+                        }
+                    }
+                    .glass(12)
+                }
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button(notice.dismissLabel) { store.noticeDismiss() }
+                        .buttonStyle(GhostButton(height: 38))
+                        .keyboardShortcut(.cancelAction)
+                    if !notice.allDone {
+                        if notice.single, let line = notice.lines.first {
+                            if case .inSession = line.state {
+                                Button(StationConfirm(hostID: line.hostID, kind: .update, device: "").confirmLabel) { Task { await store.noticeUpdate(line.hostID, force: true) } }
+                                    .buttonStyle(PrimaryButton(height: 38))
+                            } else {
+                                Button(StationText.update) { Task { await store.noticeUpdate(line.hostID) } }
+                                    .buttonStyle(PrimaryButton(height: 38))
+                                    .disabled(notice.busy)
+                                    .keyboardShortcut(.defaultAction)
+                            }
+                        } else {
+                            Button(StationOfferText.updateAll) { store.noticeUpdateAll() }
+                                .buttonStyle(PrimaryButton(height: 38))
+                                .disabled(notice.busy)
+                                .keyboardShortcut(.defaultAction)
+                        }
+                    }
+                }
+            }
+            .padding(28)
+            .frame(width: 520)
+            .background(Theme.surface)
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    private func lineStatus(_ line: StationNotice.Line, _ status: String) -> some View {
+        HStack(spacing: 8) {
+            if line.state == .updating { ProgressView().controlSize(.small) }
+            if line.state == .done { Icon("check", size: 14, bold: true).foregroundStyle(Theme.ok) }
+            Text(status).font(Theme.sans(13)).foregroundStyle(lineColor(line))
+        }
+    }
+
+    private func lineColor(_ line: StationNotice.Line) -> Color {
+        switch line.state {
+        case .failed, .inSession: return Theme.warnText
+        case .done: return Theme.ok
+        default: return Theme.muted
+        }
+    }
+
+    private func row(_ line: StationNotice.Line) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(line.name).font(Theme.sans(14.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                if let status = line.status {
+                    lineStatus(line, status)
+                } else {
+                    Text(StationOfferText.version(line.version)).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                }
+            }
+            Spacer(minLength: 12)
+            switch line.state {
+            case .pending, .failed:
+                Button(StationOfferText.update) { Task { await store.noticeUpdate(line.hostID) } }
+                    .buttonStyle(GhostButton(height: 32))
+                    .disabled(store.stationNotice?.busy == true)
+            case .inSession:
+                Button(StationConfirm(hostID: line.hostID, kind: .update, device: "").confirmLabel) { Task { await store.noticeUpdate(line.hostID, force: true) } }
+                    .buttonStyle(GhostButton(height: 32))
+            case .updating, .done:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
     }
 }
 

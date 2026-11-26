@@ -77,6 +77,14 @@ object Native {
     @JvmStatic external fun consoleStationUpdate(handle: Long, deviceId: String?, force: Boolean): String?
     @JvmStatic external fun consoleAdminUrl(handle: Long): String?
 
+    // Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations » ; cœur : `station_offer`).
+    /** `POST /api/stream/station/check` : `value`, l'objet `station` d'`info`, nul avant la Station 0.11.3. Bloquant (20 s au plus). */
+    @JvmStatic external fun consoleStationCheck(handle: Long): String?
+    /** `{station, may_update, online, away, in_session, now, memory, app_version}` → `{banner: {kind, version}, chip, notice_version, should_check}`. Pur. */
+    @JvmStatic external fun stationOfferEvaluate(inputJson: String): String
+    /** Premier lancement après une mise à jour de l'app ([last] : la dernière version lancée, nulle au tout premier lancement). */
+    @JvmStatic external fun stationOfferAppUpdated(last: String?, current: String): Boolean
+
     // Réveil par le réseau (Wake-on-LAN) : les cartes gardées pour l'ordinateur ([WakeTarget.toJson]).
     /** 0 : le paquet magique est parti ; 20 : aucune cible lisible ; 1 : rien n'est parti. Hors du fil principal. */
     @JvmStatic external fun wake(targetsJson: String): Int

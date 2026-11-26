@@ -33,6 +33,10 @@
   ordinateurs des comptes ont les mêmes cartes, une seule fois (l'app écarte ceux déjà appairés) ; avec un
   compte connecté, chaque carte porte sa pastille d'origine (« Compte », « Appairé »…).
 
+  Mise à jour des Stations (docs/link-ui.md) : sous la rangée « Se connecter » et profils de l'ordinateur choisi, le
+  bandeau de la mise à jour de sa Station (StationBanner, un bandeau au plus à cet endroit), jamais en session ; dans la
+  rangée, « · Mise à jour » après l'état d'un ordinateur dont la Station en a une (calcul du cœur, `offer`).
+
   HDR (docs/link-ui.md « HDR ») : sur un écran HDR seulement, la puce « HDR » à côté du profil,
   allumée la première fois, gardée pour l'ordinateur (`Settings.hdr`) ; inactive avec la raison du
   cœur ; la ligne « Écran » dit alors « …, en HDR ». Ailleurs, aucune trace du HDR.
@@ -40,6 +44,7 @@
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
+  import StationBanner from './StationBanner.svelte'
   import { onMount } from 'svelte'
   import type { AccountView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc, WatchWords } from './lib/api'
   import { MAX_SESSIONS, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText, watchRight } from './lib/api'
@@ -469,6 +474,10 @@
         <p class="sentence limit" id="four-at-most">{t('common.four_at_most')}</p>
       {/if}
       {#if !watching?.only}<p class="sentence">{sentence}</p>{/if}
+      {#if sessions.length === 0}
+        <!-- Sous la rangée et sa phrase : la mise à jour de la Station (jamais en session). -->
+        {#key selected.id}<StationBanner computer={selected} />{/key}
+      {/if}
     {:else}
       <!-- Sans aucun ordinateur : un compte KyberNow d'abord, puis l'ajout et « Rejoindre » sans compte. -->
       <div class="eyebrow">{t('home.welcome')}</div>
@@ -502,7 +511,7 @@
           {#if accounts.length > 0 && c.origin}<span class="origin">{c.origin}</span>{/if}
           <span class="label">
             <span class="name">{c.name}</span>
-            <span class="state">{stateOf(c, retrying && c.id === selected?.id)}</span>
+            <span class="state">{stateOf(c, retrying && c.id === selected?.id)}{#if c.offer?.chip}<span class="update">{` · ${t('station_offer.chip')}`}</span>{/if}</span>
           </span>
         </button>
       {/each}
@@ -899,6 +908,11 @@
   .card .state {
     font-size: 12px;
     color: var(--muted);
+  }
+
+  /* « · Mise à jour » : la Station de cet ordinateur en a une. */
+  .card .state .update {
+    color: var(--signal);
   }
 
   .card.found {
