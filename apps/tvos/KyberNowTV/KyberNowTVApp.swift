@@ -105,6 +105,9 @@ struct RootView: View {
         }
         // Le panneau du test du profil Auto (plein écran), de l'accueil ou des réglages.
         .modifier(AutoTestPresenter(model: app.autoTest))
+        // Après une mise à jour de l'app : les Stations à mettre à jour aussi
+        // (LinkUI.swift), en plein écran, depuis l'accueil seulement.
+        .modifier(StationNoticePresenter(store: app.store, free: app.screen == .home))
         .overlay(alignment: .top) {
             if let notice = app.notice {
                 HStack(spacing: 14) {

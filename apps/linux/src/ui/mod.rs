@@ -13,6 +13,7 @@ pub mod icons;
 mod join;
 mod launch;
 mod lend;
+mod offer;
 mod pads;
 mod pair;
 mod ps;
@@ -134,6 +135,10 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
     // les réglages dessinent la leur.
     if view.main && !background && app.confirm.is_some() && matches!(app.screen, Screen::Home | Screen::Session) {
         settings::confirm(app, cv, &mut f);
+    }
+    // L'avis « … a aussi une mise à jour », par-dessus l'accueil (docs/link-ui.md, « Mise à jour des Stations »).
+    if view.main && !background && app.station_notice.is_some() && app.screen == Screen::Home && app.confirm.is_none() {
+        offer::notice(app, cv, &mut f);
     }
     // Le panneau du test du profil Auto, par-dessus l'accueil ou les réglages.
     if view.main && !background && app.autotest.is_some() && matches!(app.screen, Screen::Home | Screen::Settings) {

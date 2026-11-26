@@ -818,17 +818,8 @@ private fun StationRubric(state: HostSettingsState, actions: HostSettingsActions
             )
         }
         task is StationTask.Failed -> Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
-            Body(
-                when (task.reason) {
-                    fr.leslignesclaires.kybernow.ui.StationFailure.TOO_SOON -> stringResource(R.string.station_too_soon)
-                    fr.leslignesclaires.kybernow.ui.StationFailure.TOO_OLD -> stringResource(R.string.station_too_old)
-                    fr.leslignesclaires.kybernow.ui.StationFailure.REQUIRES_SETUP -> stringResource(R.string.station_requires_setup, task.version ?: update?.version ?: "")
-                    fr.leslignesclaires.kybernow.ui.StationFailure.NOT_BACK -> stringResource(R.string.station_not_back)
-                    fr.leslignesclaires.kybernow.ui.StationFailure.UPDATE_FAILED -> stringResource(R.string.station_update_failed)
-                    fr.leslignesclaires.kybernow.ui.StationFailure.OTHER -> task.message.replaceFirstChar { it.uppercase() }
-                },
-                size = 14f, color = Kn.warn,
-            )
+            // Le même texte dans le bandeau de l'accueil et l'avis (docs/link-ui.md, « Mise à jour des Stations »).
+            Body(fr.leslignesclaires.kybernow.ui.stationFailureText(task, update?.version), size = 14f, color = Kn.warn)
             GlassButton(stringResource(R.string.session_close), actions.stationDismiss)
         }
         task is StationTask.Confirm -> {

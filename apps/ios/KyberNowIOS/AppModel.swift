@@ -143,6 +143,9 @@ final class AppModel: ObservableObject {
                 }
                 .store(in: &bag)
         }
+        // Mise à jour des Stations : la version lancée, et l'avis au premier
+        // lancement après une mise à jour de l'app (LinkUI.swift).
+        store.stationNoticeAtLaunch()
         #if DEBUG && targetEnvironment(simulator)
         // Vérification des écrans sans Station (simulateur) : `-demo YES`, les
         // ordinateurs de démonstration de LinkUI.swift (`-demoState`, `-demoStation`,

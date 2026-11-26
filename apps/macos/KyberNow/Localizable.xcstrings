@@ -12291,6 +12291,182 @@
           }
         }
       }
+    },
+    "KyberNow Station %@ est disponible pour cet ordinateur. Environ une minute." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Station %@ is available for this computer. About a minute."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Station %@ est disponible pour cet ordinateur. Environ une minute."
+          }
+        }
+      }
+    },
+    "KyberNow Station %@ est disponible. Elle s'installe sur l'ordinateur, avec l'installateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Station %@ is available. It installs on the computer, with the installer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Station %@ est disponible. Elle s'installe sur l'ordinateur, avec l'installateur."
+          }
+        }
+      }
+    },
+    "KyberNow Station %@ est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Station %@ is available. Away from home, the app can't update the Station: do it once you're back."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Station %@ est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré."
+          }
+        }
+      }
+    },
+    "Mise à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour"
+          }
+        }
+      }
+    },
+    "%@ a aussi une mise à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ has an update too"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ a aussi une mise à jour"
+          }
+        }
+      }
+    },
+    "KyberNow Link est passée en %@. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link is now %@. Update the Station too: about a minute, a session in progress will be cut off."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link est passée en %@. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée."
+          }
+        }
+      }
+    },
+    "Vos Stations aussi ont une mise à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Stations have an update too"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos Stations aussi ont une mise à jour"
+          }
+        }
+      }
+    },
+    "KyberNow Link est passée en %@. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link is now %@. Update your computers too: about a minute each, a session in progress will be cut off."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link est passée en %@. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée."
+          }
+        }
+      }
+    },
+    "Version %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %@"
+          }
+        }
+      }
+    },
+    "Tout mettre à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update all"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout mettre à jour"
+          }
+        }
+      }
+    },
+    "Mise à jour…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour…"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

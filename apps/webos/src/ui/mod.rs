@@ -13,6 +13,7 @@ mod home;
 pub mod icons;
 mod join;
 mod lend;
+mod offer;
 mod pads;
 mod pair;
 mod quality;
@@ -102,6 +103,10 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
     // seuls ses boutons se choisissent.
+    // L'avis « … a aussi une mise à jour », en plein écran par-dessus l'accueil (docs/link-ui.md).
+    if app.station_notice.is_some() && app.screen == Screen::Home && app.dialog.is_none() {
+        offer::notice(app, cv, &mut f);
+    }
     if app.dialog.is_some() && matches!(app.screen, Screen::Home | Screen::Session) {
         f.hits.clear();
         settings::dialog(app, cv, &mut f);

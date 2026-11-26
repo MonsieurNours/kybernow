@@ -344,11 +344,15 @@ pub struct AppSettings {
     /// HDR : les valeurs de l'écran du téléviseur réglées à l'œil (« Réglage du HDR ») ; `None` : automatiques
     /// (webOS ne les donne pas : `Luminance::default()`).
     pub hdr_luminance: Option<Luminance>,
+    /// La version de l'app au dernier lancement (vide : jamais lancée, ou avant la 0.11.3) : au premier lancement
+    /// d'une nouvelle version, l'avis « … a aussi une mise à jour » (docs/link-ui.md, « Mise à jour des Stations »).
+    /// L'app ne se met pas à jour elle-même sur le téléviseur : c'est le lancement d'une nouvelle version qui compte.
+    pub last_launched: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new(), lend_warned: false, hdr_luminance: None }
+        Self { language: "auto".into(), beta: false, share_name: String::new(), share_quality: String::new(), lend_warned: false, hdr_luminance: None, last_launched: String::new() }
     }
 }
 
@@ -552,9 +556,25 @@ pub struct Store {
     pub accounts: Vec<KnAccount>,
     pub account_computers: Vec<KnComputer>,
     pub account_hosts: Vec<AccountHost>,
+    /// Mise à jour des Stations (docs/link-ui.md) : pour chaque ordinateur (`Host::id`), « Plus tard » et la dernière
+    /// vérification demandée. Gardé sur ce téléviseur seulement.
+    pub station_offers: std::collections::HashMap<String, StationMemory>,
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
+}
+
+/// Ce que l'app garde d'un ordinateur pour la mise à jour de sa Station : le même JSON que `station_offer::Memory` du
+/// cœur, que la couche appareil relit pour le calcul (l'interface seule n'a pas le cœur).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct StationMemory {
+    /// « Plus tard » : la version remise à plus tard, et quand (secondes Unix).
+    pub snoozed_version: Option<String>,
+    pub snoozed_at: u64,
+    /// Dernière vérification demandée à la Station : la version de l'app d'alors, et quand.
+    pub checked_app_version: Option<String>,
+    pub checked_at: u64,
 }
 
 impl Store {
@@ -792,6 +812,7 @@ impl Store {
     }
 
     pub fn remove(&mut self, id: &str) {
+        self.station_offers.remove(id);
         self.account_hosts.retain(|a| a.id != id);
         self.hosts.retain(|h| h.id != id);
         self.borrowed.retain(|b| b.id != id);

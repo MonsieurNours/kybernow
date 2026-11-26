@@ -45,6 +45,8 @@ import fr.leslignesclaires.kybernow.ui.AutoTestActions
 import fr.leslignesclaires.kybernow.ui.AutoTestPanel
 import androidx.compose.runtime.collectAsState
 import fr.leslignesclaires.kybernow.ui.KnTheme
+import fr.leslignesclaires.kybernow.ui.StationNoticeActions
+import fr.leslignesclaires.kybernow.ui.StationNoticePanel
 import fr.leslignesclaires.kybernow.ui.add.AddHostScreen
 import fr.leslignesclaires.kybernow.ui.add.PairingLink
 import fr.leslignesclaires.kybernow.ui.add.Target
@@ -98,6 +100,12 @@ class MainActivity : AppCompatActivity() {
                 app.accounts.notices.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
             }
         }
+        // L'avis bref de la mise à jour de la Station lancée par le bandeau (« KyberNow Station {v} est en place. »).
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                model.notices.collect { Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show() }
+            }
+        }
         setContent {
             KnTheme(app.form) {
                 // Le test des manettes s'ouvre depuis les réglages de l'app : Retour y revient.
@@ -131,6 +139,9 @@ class MainActivity : AppCompatActivity() {
                             cancelBorrow = { b -> model.cancelBorrow(b.id) },
                             removeBorrowed = { b -> model.removeBorrowed(b.id) },
                             takeBack = { h, now -> model.takeBack(h.id, now) },
+                            stationUpdate = { h, force -> model.offerUpdate(h.id, force) },
+                            stationLater = { h, version -> model.offerLater(h.id, version) },
+                            stationCancel = { h -> model.offerCancel(h.id) },
                             ps = PsHomeActions(
                                 play = ::playConsole,
                                 pair = { f -> route = Route.Add(pairConsole = f.hostId) },
@@ -182,6 +193,12 @@ class MainActivity : AppCompatActivity() {
                 val autoTest by model.autoTest.collectAsState()
                 autoTest?.let { st ->
                     AutoTestPanel(st, AutoTestActions(apply = model::applyAutoTest, cancel = model::closeAutoTest, again = { model.openAutoTest(st.hostId) }))
+                }
+                // Après une mise à jour de l'app : l'avis des Stations à mettre à jour aussi (docs/link-ui.md, « Mise à jour des Stations »).
+                val notice by model.notice.collectAsState()
+                val stationTasks by model.station.collectAsState()
+                notice?.let { n ->
+                    StationNoticePanel(n, stationTasks, StationNoticeActions(update = model::noticeUpdate, updateAll = model::noticeUpdateAll, close = model::noticeClose))
                 }
             }
         }
