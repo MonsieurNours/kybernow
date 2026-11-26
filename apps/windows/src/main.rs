@@ -15,6 +15,10 @@ fn main() {
 mod accounts;
 #[cfg(windows)]
 mod audio;
+// Profil Auto : le décodage des extraits du test par le décodeur de l'app,
+// dans un processus à part (`--decode-samples`).
+#[cfg(windows)]
+mod autotest_decode;
 #[cfg(windows)]
 mod cli;
 // Consoles PlayStation : comptes, associations, état, envoi entre appareils
@@ -145,6 +149,8 @@ fn main() {
         let has = |f: &str| args.iter().any(|a| a == f);
         let name = if has("--probe-json") {
             "kybernow-probe"
+        } else if has("--decode-samples") {
+            "kybernow-autotest"
         } else if has("--setup-shell") || has("--clear-shell") || has("--forget-all") {
             "kybernow-setup"
         } else {

@@ -260,18 +260,20 @@
     const s = selected.settings
     if (!virtualDisplay) return t('home.screens_as_is')
     if (screens > 1) return t(hdrOn ? 'home.screens_many_hdr' : 'home.screens_many', { count: screens })
-    const p = sessionPlan(s, thisPc, battery)
+    const p = sessionPlan(s, thisPc, battery, selected.auto ?? null)
     if (!p) return null
     const params = { width: p.width, height: p.height, refresh: p.refresh }
     const match = !s.custom && p.width === thisPc.width && p.height === thisPc.height
     return t(match ? (hdrOn ? 'home.screen_match_hdr' : 'home.screen_match') : hdrOn ? 'home.screen_hdr' : 'home.screen', params)
   })
 
-  const custom = $derived(selected ? isCustom(selected.settings, thisPc) : false)
+  const custom = $derived(selected ? isCustom(selected.settings, thisPc, selected.auto ?? null) : false)
+  // Auto (docs/link-ui.md « Profil Auto et débit adaptatif ») : sans test gardé, le choisir ouvre le panneau du test.
   const profiles: { value: Settings['profile']; label: string }[] = $derived([
     { value: 'jeu', label: t('profiles.jeu') },
     { value: 'bureau', label: t('profiles.bureau') },
     { value: 'max', label: t('profiles.max') },
+    { value: 'auto', label: t('profiles.auto') },
   ])
   const sentence = $derived(selected ? (custom ? t('profiles.custom_sub') : t(`profiles.${selected.settings.profile}_sub`)) : '')
 
@@ -448,7 +450,9 @@
         <div class="profiles" role="radiogroup" aria-label={t('home.profile')}>
           {#each profiles as p (p.value)}
             {@const on = !custom && selected.settings.profile === p.value}
-            <button role="radio" aria-checked={on} class:on onclick={() => onprofile(selected!.id, p.value)}>{p.label}</button>
+            <button role="radio" aria-checked={on} class:on onclick={() => onprofile(selected!.id, p.value)}>
+              {#if p.value === 'auto'}<Icon name="wand" size={15} stroke={1.8} />{/if}{p.label}
+            </button>
           {/each}
           {#if custom}<span class="on custom" role="radio" aria-checked="true" aria-disabled="true">{t('profiles.custom')}</span>{/if}
         </div>
@@ -751,6 +755,9 @@
   }
 
   .profiles button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     height: 42px;
     padding: 0 18px;
     border: 0;

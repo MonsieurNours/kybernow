@@ -6,6 +6,7 @@
 import { i18n, langFromTag, t } from './i18n/index.svelte'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
+import type { AutoChoice, AutoResult, AutoStep } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
@@ -284,6 +285,10 @@ let computers = [
   },
 ]
 if (flags.has('vide')) computers = []
+// `?auto` : Bureau-Salon a un test gardé, profil Auto.
+if (flags.has('auto') && !['echec', 'ancienne'].includes(flags.get('auto') ?? '')) {
+  computers = computers.map((c) => (c.id === 'a1' ? ({ ...c, settings: { ...c.settings, profile: 'auto' }, auto: autoResult() } as unknown as typeof c) : c))
+}
 // `?relais` : Atelier ne répond pas sur le réseau, mais le relais le tient (« Hors de chez vous ») ; les autres
 // ordinateurs sont chez soi, et la dernière session de Bureau-Salon est passée par le réseau (ligne « Chemin »).
 type Relayed = (typeof computers)[number] & { away?: boolean; via_relay?: boolean; relay?: Computer['relay'] }
@@ -354,6 +359,67 @@ const emitComputers = () => {
 
 /** « Passer en HEVC » choisi (bandeau de PyroWave) : les mesures redisent HEVC. */
 let pyroHevc = false
+
+// Profil Auto (docs/profil-auto.md) : `?auto` (Bureau-Salon a un test gardé, profil Auto), `?auto=reseau` (en plus,
+// `/bar.html` montre le bandeau « Autre réseau que celui du test »), `?auto=echec` (le test ne joint pas l'ordinateur :
+// « Réessayer »), `?auto=ancienne` (Station d'avant : l'étape du débit est passée). Sans `?auto`, choisir Auto ouvre le
+// panneau du test, qui dure 4 s ici (une dizaine dans l'app).
+const autoFlag = flags.has('auto') ? flags.get('auto') || 'garde' : null
+const fr = () => i18n.lang === 'fr'
+function autoResult(): AutoResult {
+  return {
+    at: Math.floor(Date.now() / 1000) - 86400 * 2,
+    network: 'Ethernet',
+    measures: { link: 'cable', latency: { min: 1.6, median: 2.1, jitter: 0.4 }, bandwidth: { mbps: 940, loaded_delta: 3 }, decode: [] },
+    codec: 'hevc',
+    yuv444: true,
+    width: 1920,
+    height: 1200,
+    refresh: 60,
+    mbps: 420,
+    mode_mbps: 120,
+    reliable: false,
+    reasons: { codec: 'best_format', mode: 'matches_display', yuv444: 'yuv444_allowed', bitrate: 'measured', transport: 'steady' },
+    station: 'BUREAU-SALON',
+  }
+}
+let autoCancelled = false
+/** Les étapes du test imité (titres et mesures du cœur, en français ou en anglais). */
+function autoSteps(at: number): AutoStep[] {
+  const old = autoFlag === 'ancienne'
+  const all: [AutoStep['step'], string, string, boolean][] = [
+    ['link', fr() ? 'Liaison' : 'Connection', fr() ? 'Câble' : 'Cable', false],
+    ['latency', fr() ? 'Latence au repos' : 'Latency at rest', fr() ? '2,1 ms · gigue 0,4 ms' : '2.1 ms · jitter 0.4 ms', false],
+    [
+      'bandwidth',
+      fr() ? 'Débit vers cet appareil' : 'Bitrate to this device',
+      old ? (fr() ? 'Mettez à jour BUREAU-SALON pour mesurer le débit.' : 'Update BUREAU-SALON to measure the bitrate.') : fr() ? '940 Mbit/s · latence en charge +3 ms' : '940 Mbit/s · latency under load +3 ms',
+      old,
+    ],
+    ['decode', fr() ? 'Décodage de cet appareil' : 'Decoding on this device', fr() ? 'HEVC 4K : 240 i/s · AV1 4K : 120 i/s' : 'HEVC 4K: 240 fps · AV1 4K: 120 fps', false],
+  ]
+  return all.map(([step, title, text, skipped], i) =>
+    i < at ? { step, title, state: skipped ? 'skipped' : 'done', text } : i === at ? { step, title, state: 'running' } : { step, title, state: 'waiting' },
+  )
+}
+const autoChoices = (): AutoChoice[] =>
+  fr()
+    ? [
+        { key: 'codec', title: 'Format vidéo', value: 'HEVC', reason: 'le meilleur format que cet appareil décode' },
+        { key: 'mode', title: 'Définition', value: '1920 × 1200 à 60 Hz', reason: 'comme cet écran' },
+        { key: 'yuv444', title: 'Texte net (4:4:4)', value: 'Oui', reason: 'le réseau et le décodage le permettent' },
+        { key: 'bitrate', title: 'Débit', value: '120 Mbit/s', reason: '940 Mbit/s mesurés, avec une marge' },
+        { key: 'transport', title: "Transport de l'image", value: 'Rapide', reason: 'réseau stable' },
+        { key: 'adaptive', title: 'Débit adaptatif', value: 'Oui', reason: 'suit le réseau pendant la session' },
+      ]
+    : [
+        { key: 'codec', title: 'Video format', value: 'HEVC', reason: 'the best format this device decodes' },
+        { key: 'mode', title: 'Resolution', value: '1920 × 1200 at 60 Hz', reason: 'matches this display' },
+        { key: 'yuv444', title: 'Sharp text (4:4:4)', value: 'On', reason: 'the network and decoding allow it' },
+        { key: 'bitrate', title: 'Bitrate', value: '120 Mbit/s', reason: '940 Mbit/s measured, with a margin' },
+        { key: 'transport', title: 'Picture transport', value: 'Fast', reason: 'steady network' },
+        { key: 'adaptive', title: 'Adaptive bitrate', value: 'On', reason: 'follows the network during the session' },
+      ]
 
 const thisPc = {
   name: 'PORTABLE-BUREAU',
@@ -1263,9 +1329,46 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   set_sync_settings: (a) => (syncSettings = Boolean(a.on)),
   set_open_at_login: (a) => (openAtLogin = Boolean(a.on)),
   set_profile: (a) => {
+    // Auto sans test gardé : le panneau du test (comme l'app, `autotest::choose`).
+    const kept = computers.find((c) => c.id === a.id) as (Computer & { auto?: AutoResult | null }) | undefined
+    if (a.profile === 'auto' && !kept?.auto) return 'test'
     computers = computers.map((c) => (c.id === a.id ? { ...c, settings: { ...c.settings, profile: a.profile as string, codec: null, yuv444: null, mbps: null, reliable: null } } : c))
     emitComputers()
+    return 'applied'
   },
+  // Le test imité : les quatre étapes en 4 s, « Annuler » l'arrête.
+  autotest_run: async (a) => {
+    autoCancelled = false
+    for (let i = 0; i <= 4; i++) {
+      emit('autotest-progress', { id: a.id, progress: { steps: autoSteps(i) } })
+      if (i === 4) break
+      await sleep(i === 3 ? 1500 : 800)
+      if (autoCancelled) return { result: null, choices: [], error: null, cancelled: true }
+      if (autoFlag === 'echec' && i === 0) {
+        return { result: null, choices: [], error: fr() ? "Le test n'a pas pu joindre Bureau-Salon." : "The test couldn't reach Bureau-Salon.", cancelled: false }
+      }
+    }
+    return { result: autoResult(), choices: autoChoices(), error: null, cancelled: false }
+  },
+  autotest_cancel: () => {
+    autoCancelled = true
+    return null
+  },
+  autotest_apply: (a) => {
+    const result = a.result as AutoResult
+    let out: Settings | null = null
+    computers = computers.map((c) => {
+      if (c.id !== a.id) return c
+      const s = { ...c.settings, profile: 'auto', codec: null, yuv444: null, mbps: null, reliable: null }
+      const match = result.width === thisPc.width && result.height === thisPc.height && result.refresh === thisPc.refresh
+      const next = { ...s, custom: match ? null : { width: result.width, height: result.height, refresh: result.refresh }, ...(match ? { max_4k: false } : {}) }
+      out = next as unknown as Settings
+      return { ...c, settings: next, auto: result } as unknown as typeof c
+    })
+    emitComputers()
+    return out
+  },
+  autotest_later: () => null,
   set_battery: (a) => {
     battery = a.battery === 'garder' ? 'garder' : 'alleger'
     return battery
@@ -1286,7 +1389,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   bar_width: () => null,
   session_profile: async (a) => {
     // L'app écrit le profil en français, l'interface le traduit (localLabel).
-    const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max' }
+    const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max', auto: 'Auto' }
     emit('bar-label', { id: a.id, label: `${names[a.profile as string]} · HEVC`, profile: a.profile })
   },
   // La Station : un appareil est « en session » (le premier appel demande de forcer) ;
@@ -1728,7 +1831,7 @@ export function mockTauri() {
           // `?mac` : une Station Mac (menu Touches du Mac).
           const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
-          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined))
+          const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined)) || (host && autoFlag === 'reseau')
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.
           if (psBarFlag && flags.has('manette')) {
             const keys = ['right', 'right', 'right', 'right', 'left', 'left', 'left', 'left'] as const
@@ -1740,6 +1843,10 @@ export function mockTauri() {
           if (host && pyroFlag && (pyroFlag === 'wifi' || relayJoined)) {
             const kind = relayJoined ? 'pyrowave_relay' : 'pyrowave_wifi'
             setTimeout(() => cb({ payload: { ...shown, wired: pyroFlag !== 'wifi', pinned: true, notice: t('pyrowave.banner_text'), notice_kind: kind } }), 2000)
+          }
+          // `?auto=reseau` : profil Auto sur un autre réseau que celui du test, son bandeau discret.
+          if (host && autoFlag === 'reseau') {
+            setTimeout(() => cb({ payload: { ...shown, label: 'Auto · HEVC 4:4:4', profile: 'auto', pinned: true, notice: t('autotest.other_network_text'), notice_kind: 'auto_network' } }), 2000)
           }
           // `?pyrowave=sature` : le réseau sature depuis 5 s, le même bandeau titré « Le réseau sature ».
           if (host && pyroFlag === 'sature' && !relayJoined) {

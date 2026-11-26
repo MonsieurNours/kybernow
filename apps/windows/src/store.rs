@@ -24,12 +24,18 @@ use windows::core::{PCWSTR, PWSTR};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// `jeu`, `bureau`, `max` ; `perso` dès qu'un réglage s'écarte du profil.
+    /// `jeu`, `bureau`, `max`, `auto` (profil Auto, avec le résultat du test
+    /// gardé dans `Computer::auto`) ; « Personnalisé » dès qu'un réglage
+    /// s'écarte du profil (retouches ci-dessous).
     pub profile: String,
     pub codec: Option<String>,
     pub yuv444: Option<bool>,
     pub mbps: Option<u32>,
     pub reliable: Option<bool>,
+    /// « Débit adaptatif » de la carte « Débit » (docs/profil-auto.md) :
+    /// allumé par défaut (absent des fichiers d'avant), hors du profil (le
+    /// couper ne rend pas « Personnalisé »).
+    pub adaptive: bool,
     pub max_4k: bool,
     /// Écran virtuel sur mesure (définition et fréquence) ; sinon comme cet écran.
     pub custom: Option<kybernow_core::console::Mode>,
@@ -80,6 +86,7 @@ impl Default for Settings {
             yuv444: None,
             mbps: None,
             reliable: None,
+            adaptive: true,
             max_4k: false,
             custom: None,
             displays: "auto".into(),
@@ -181,6 +188,11 @@ pub struct Computer {
     /// invitation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<AccountComputer>,
+    /// Profil Auto (docs/profil-auto.md) : le dernier test appliqué pour cet
+    /// ordinateur sur ce PC (`AutoResult` du cœur, sa date, son réseau, ses
+    /// mesures et ses réglages). Choisir Auto sans lui ouvre le test.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto: Option<kybernow_core::autotest::AutoResult>,
 }
 
 /// `accounts.json` : la dernière liste des ordinateurs des comptes, appairés

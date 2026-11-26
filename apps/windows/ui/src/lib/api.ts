@@ -20,11 +20,14 @@ export const listen = <T>(name: string, cb: (payload: T) => void) => tauri.event
 export const currentWindow = () => tauri.window.getCurrentWindow()
 
 export type Settings = {
-  profile: 'jeu' | 'bureau' | 'max'
+  /** `auto` : le profil Auto, avec le test gardé (`Computer.auto`). */
+  profile: 'jeu' | 'bureau' | 'max' | 'auto'
   codec: 'h264' | 'hevc' | 'av1' | 'pyrowave' | null
   yuv444: boolean | null
   mbps: number | null
   reliable: boolean | null
+  /** « Débit adaptatif » (carte « Débit ») : hors du profil ; absent des fichiers d'avant : allumé. */
+  adaptive?: boolean
   max_4k: boolean
   /** Écran virtuel sur mesure ; sinon comme cet écran. */
   custom: { width: number; height: number; refresh: number } | null
@@ -173,6 +176,8 @@ export type Computer = {
   gpu: string | null
   settings: Settings
   last: LastSession | null
+  /** Profil Auto : le dernier test appliqué pour cet ordinateur (choisir Auto sans lui ouvre le test). */
+  auto?: AutoResult | null
   /** Ajouté avec un code : un compte propre à ce PC. */
   by_code?: boolean
   /**
@@ -319,6 +324,59 @@ export type Action =
   | { kind: 'ps_settings'; id: string }
   /** L'ajout, sur l'onglet PlayStation (pas encore demandé par l'app). */
   | { kind: 'add_console' }
+  /** Le panneau du test du profil Auto (Auto sans test dans le menu de l'icône, ou demandé pendant la session). */
+  | { kind: 'autotest'; id: string }
+
+// Profil Auto et débit adaptatif (docs/profil-auto.md, textes de docs/link-ui.md « Profil Auto et débit adaptatif »).
+
+/** Une étape du test (`autotest::Progress` du cœur) : titre, état, mesure (cochée) ou raison (passée), dans la langue de l'app. */
+export type AutoStep = {
+  step: 'link' | 'latency' | 'bandwidth' | 'decode'
+  title: string
+  state: 'waiting' | 'running' | 'done' | 'skipped'
+  text?: string
+}
+
+/** Événement `autotest-progress` : l'avancement du test de l'ordinateur `id`. */
+export type AutoProgress = { id: string; progress: { steps: AutoStep[] } }
+
+/** Une ligne de « Réglages proposés » (`AutoResult::choices`) : titre, valeur, raison. */
+export type AutoChoice = { key: string; title: string; value: string; reason: string }
+
+/**
+ * Le résultat du test (`autotest::AutoResult`, JSON stable gardé par l'app) : la date (secondes), le réseau du test
+ * (`relay` par le relais, `null` inconnu), les mesures et les réglages choisis.
+ */
+export type AutoResult = {
+  at: number
+  network: string | null
+  measures: { link: 'cable' | 'wifi' | 'relay'; [k: string]: unknown }
+  codec: 'h264' | 'hevc' | 'av1' | 'pyrowave'
+  yuv444: boolean
+  width: number
+  height: number
+  refresh: number
+  mbps: number
+  mode_mbps: number
+  reliable: boolean
+  reasons: Record<string, unknown>
+  station?: string
+}
+
+/** Réponse de `autotest_run` : le résultat et son résumé, « Annuler » (`cancelled`), ou l'échec (`error`). */
+export type AutoOutcome = { result: AutoResult | null; choices: AutoChoice[]; error: string | null; cancelled: boolean }
+
+/** Réponse de `set_profile` : réglages appliqués, panneau du test à ouvrir, ou ouvert à la fin de la session. */
+export type Chosen = 'applied' | 'test' | 'later'
+
+/** « Choisi par le test du {date} ({réseau}). » : la date du test, le réseau (le relais, la liaison s'il est inconnu). */
+export function chosenBy(r: AutoResult) {
+  const locale = i18n.lang === 'fr' ? 'fr-FR' : 'en-GB'
+  const date = new Date(r.at * 1000).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
+  const link = r.measures?.link ?? 'wifi'
+  const network = r.network === 'relay' || (!r.network && link === 'relay') ? t('autotest.link_relay') : (r.network ?? t(`autotest.link_${link}`))
+  return t('autotest.chosen_by', { date, network })
+}
 
 /**
  * Événement `station-outcome` : fin du suivi d'un redémarrage ou d'une mise à jour de la Station,
@@ -608,8 +666,11 @@ export type ShareStateEvent = { id: string; share: Share }
  * `share-open-panel` (le choix d'une notification de demande : le panneau de « Partager » de la session s'ouvre ;
  * charge : l'identifiant de la session).
  */
-/** Le bandeau de PyroWave : début de session en Wi-Fi ou par le relais, ou réseau qui sature (docs/link-ui.md). */
-export type PyroWaveBanner = 'pyrowave_wifi' | 'pyrowave_relay' | 'pyrowave_strained'
+/**
+ * Les bandeaux du début de session (docs/link-ui.md) : PyroWave en Wi-Fi ou par le relais, réseau qui sature
+ * (« Passer en HEVC ») ; profil Auto sur un autre réseau que celui du test (`auto_network`, « Refaire le test »).
+ */
+export type PyroWaveBanner = 'pyrowave_wifi' | 'pyrowave_relay' | 'pyrowave_strained' | 'auto_network'
 export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | PyroWaveBanner }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
@@ -665,17 +726,21 @@ export function moment(at: number, now = Date.now()) {
  * Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». Un format
  * choisi égal à celui du profil n'en est pas un écart (comme `plan` de plan.rs).
  */
-export const isCustom = (s: Settings, pc: ThisPc | null) =>
-  (s.codec != null && s.codec !== profileBase(s.profile, pc).codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
+export const isCustom = (s: Settings, pc: ThisPc | null, auto: AutoResult | null = null) =>
+  (s.codec != null && s.codec !== profileBase(s.profile, pc, auto).codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
 
 /** Les quatre premiers groupes de l'empreinte d'Admin, comme Admin les montre (« 7C41 E09B AABB CCDD »). */
 export const fingerprintGroups = (fp: string | null) =>
   (fp ?? '').replace(/^sha256:/, '').replaceAll(':', '').toUpperCase().match(/.{1,4}/g) ?? []
 
-/** Valeurs d'un profil pour ce PC, comme le cœur les calcule (`StreamSettings::for_profile`, profile.rs). */
-export function profileBase(profile: Settings['profile'], pc: ThisPc | null) {
+/**
+ * Valeurs d'un profil pour ce PC, comme le cœur les calcule (`StreamSettings::for_profile`, profile.rs) ; Auto : celles
+ * du test gardé (`AutoResult::settings`, `profile_settings` de plan.rs), celles de Jeu sans test.
+ */
+export function profileBase(profile: Settings['profile'], pc: ThisPc | null, auto: AutoResult | null = null): { codec: NonNullable<Settings['codec']>; yuv444: boolean; mbps: number; reliable: boolean } {
+  if (profile === 'auto' && auto) return { codec: auto.codec, yuv444: auto.yuv444, mbps: auto.mbps, reliable: auto.reliable }
   const codec: 'h264' | 'hevc' = (pc?.hevc ?? true) ? 'hevc' : 'h264'
-  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false] }[profile] as [boolean, number, boolean]
+  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false], auto: [false, 60, false] }[profile] as [boolean, number, boolean]
   if (yuv444 && !(codec === 'hevc' && pc?.hevc444)) {
     yuv444 = false
     mbps += Math.floor(mbps / 3)
@@ -699,13 +764,13 @@ function fit(m: Mode, maxW: number, maxH: number): Mode {
  * Mbit/s ; `null` sans écran connu (ni ce PC ni taille sur mesure).
  * `battery` : « Sur batterie » des réglages de l'app.
  */
-export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery): (Mode & { mbps: number }) | null {
+export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery, auto: AutoResult | null = null): (Mode & { mbps: number }) | null {
   const custom = s.custom && s.custom.width >= 640 && s.custom.height >= 360 && s.custom.refresh >= 24 ? s.custom : null
   let mode: Mode | null = custom ?? (pc ? { width: pc.width, height: pc.height, refresh: pc.refresh } : null)
   if (!mode) return null
   if (s.max_4k && !s.custom) mode = fit(mode, 3840, 2160)
   if (battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
-  let base = profileBase(s.profile, pc)
+  let base = profileBase(s.profile, pc, auto)
   // PyroWave choisi à la main : le débit de PyroWave pour ce mode (plan.rs).
   if (s.codec === 'pyrowave') {
     const yuv444 = (s.yuv444 ?? base.yuv444) && !!pc?.pyrowave
@@ -721,7 +786,7 @@ export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery): (
 }
 
 /** Noms des profils tels que le côté Rust les écrit (« Bureau · HEVC 4:4:4 » : barre, et dernière session de la 0.4.x). */
-const profileNames: Record<string, string> = { Jeu: 'jeu', Bureau: 'bureau', Max: 'max', Personnalisé: 'custom' }
+const profileNames: Record<string, string> = { Jeu: 'jeu', Bureau: 'bureau', Max: 'max', Auto: 'auto', Personnalisé: 'custom' }
 
 /** « Bureau · HEVC 4:4:4 » dans la langue de l'interface. */
 export const localLabel = (label: string) => {

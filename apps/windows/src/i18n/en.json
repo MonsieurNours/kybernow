@@ -106,6 +106,7 @@
       "jeu": "Game",
       "bureau": "Desktop",
       "max": "Max",
+      "auto": "Auto",
       "custom": "Custom"
     },
     "settings": "Settings",

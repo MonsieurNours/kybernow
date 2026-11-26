@@ -13,7 +13,7 @@
   import Station from './Station.svelte'
   import { onMount, untrack } from 'svelte'
   import type { Battery, Computer, DisplaysInfo, Settings, ThisPc } from './lib/api'
-  import { invoke, isCustom, isMacStation, listen, profileBase, pyrowaveOffered, sessionPlan } from './lib/api'
+  import { chosenBy, invoke, isCustom, isMacStation, listen, profileBase, pyrowaveOffered, sessionPlan } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
   let {
@@ -22,6 +22,10 @@
     battery,
     start = null,
     accountName = null,
+    applied = null,
+    inSession = false,
+    onprofile,
+    onautotest,
     onremoved,
   }: {
     computer: Computer
@@ -31,6 +35,14 @@
     start?: string | null
     /** Un ordinateur d'un compte KyberNow : le compte qui le donne (rubrique Station). */
     accountName?: string | null
+    /** Profil Auto appliqué par le panneau du test : les réglages enregistrés, repris ici. */
+    applied?: Settings | null
+    /** L'ordinateur est en session : Auto choisi sans test, le panneau s'ouvrira à sa fin. */
+    inSession?: boolean
+    /** Auto choisi sans test gardé (comme l'accueil : `set_profile`). */
+    onprofile: (id: string, p: Settings['profile']) => void
+    /** « Refaire le test » : le panneau du test du profil Auto. */
+    onautotest: (id: string) => void
     onremoved: () => void
   } = $props()
 
@@ -38,6 +50,12 @@
   // pour un autre ordinateur).
   let s = $state<Settings>(untrack(() => structuredClone($state.snapshot(computer.settings)) as Settings))
   let name = $state(untrack(() => computer.name))
+  // Profil Auto appliqué (panneau du test) : ses réglages remplacent la copie de travail.
+  $effect(() => {
+    if (applied) s = structuredClone($state.snapshot(applied)) as Settings
+  })
+  /** Le test gardé pour cet ordinateur (profil Auto). */
+  const auto = $derived(computer.auto ?? null)
 
   type Rubric = 'image' | 'sound' | 'controls' | 'network' | 'stats' | 'station'
   const rubrics: { id: Rubric; icon: string }[] = [
@@ -64,13 +82,15 @@
     saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch(() => {})
   }
 
-  const custom = $derived(isCustom(s, thisPc))
+  const custom = $derived(isCustom(s, thisPc, auto))
   /** Une Station Mac : « Ctrl agit comme ⌘ » et l'aide du clavier face à un Mac. */
   const mac = $derived(isMacStation(computer.info?.os || computer.os))
-  const profiles = $derived((['jeu', 'bureau', 'max'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`profiles.${value}_sub`) })))
+  const profiles = $derived((['jeu', 'bureau', 'max', 'auto'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`profiles.${value}_sub`) })))
+  /** Le profil Auto est celui de l'ordinateur (sans retouche), avec son test. */
+  const autoOn = $derived(s.profile === 'auto' && !custom && !!auto)
 
-  /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs). */
-  const base = $derived(profileBase(s.profile, thisPc))
+  /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs) ; Auto : celles du test. */
+  const base = $derived(profileBase(s.profile, thisPc, auto))
 
   const codec = $derived(s.codec ?? base.codec)
   const yuv444 = $derived(s.yuv444 ?? base.yuv444)
@@ -100,7 +120,14 @@
     // Valeur inactive : sa raison.
     if (pyroShown && pyroReason) return pyroReason
     if (s.codec === 'pyrowave') return t('pyrowave.chosen_help')
-    if (s.codec == null && pyroOffered && pyroDecodes) return wired && !relayed ? t('pyrowave.auto_wired') : t('pyrowave.auto_unwired')
+    if (s.codec == null && pyroOffered && pyroDecodes) {
+      const cable = wired && !relayed
+      // PyroWave par câble : Max et Auto seulement (docs/link-ui.md « Profil Auto et débit adaptatif »).
+      if (s.profile === 'jeu' || s.profile === 'bureau') return cable ? t('pyrowave.auto_profile_only') : t('pyrowave.auto_unwired')
+      // Auto : PyroWave seulement si le test l'a choisi (son résumé dit pourquoi sinon).
+      if (s.profile === 'auto' && auto?.codec !== 'pyrowave') return null
+      return cable ? t('pyrowave.auto_wired') : t('pyrowave.auto_unwired')
+    }
     return null
   })
   const formatWarn = $derived(
@@ -110,7 +137,7 @@
   const pyro444 = $derived(codec === 'pyrowave' && pyroDecodes)
 
   /** Débit réel d'une session : celui que plan.rs demandera. */
-  const realMbps = $derived(sessionPlan(s, thisPc, battery)?.mbps ?? s.mbps ?? base.mbps)
+  const realMbps = $derived(sessionPlan(s, thisPc, battery, auto)?.mbps ?? s.mbps ?? base.mbps)
 
   // Le réglage « Écrans » : actif ou non, et ce qu'il montre, comme le cœur le
   // décide (la session fait le même calcul). Revu à chaque réglage changé, et
@@ -143,8 +170,25 @@
   const hdr = $derived(displaysInfo?.hdr ?? null)
   const hdrOn = $derived(!!displaysInfo?.hdr_on)
 
-  function pickProfile(p: Settings['profile']) {
-    save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })
+  /**
+   * Un profil : ses réglages, retouches effacées. Auto (docs/link-ui.md) : avec un test gardé, ses réglages tout de
+   * suite (définition comprise, `autotest_apply`) ; sans test, le panneau du test (à la fin de la session si
+   * l'ordinateur est en session).
+   */
+  async function pickProfile(p: Settings['profile']) {
+    if (p !== 'auto') {
+      save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })
+      return
+    }
+    if (!auto) {
+      if (inSession) onprofile(computer.id, 'auto')
+      else onautotest(computer.id)
+      return
+    }
+    await saving
+    try {
+      s = await invoke<Settings>('autotest_apply', { id: computer.id, result: $state.snapshot(auto) })
+    } catch {}
   }
 
   // Un réglage égal à celui du profil n'en est pas un écart.
@@ -185,7 +229,7 @@
     {#each profiles as p (p.value)}
       {@const on = !custom && s.profile === p.value}
       <button role="radio" aria-checked={on} class:on onclick={() => pickProfile(p.value)}>
-        <span class="t">{p.title}</span><span class="s">{p.sub}</span>
+        <span class="t">{#if p.value === 'auto'}<Icon name="wand" size={15} stroke={1.8} />{/if}{p.title}</span><span class="s">{p.sub}</span>
       </button>
     {/each}
     <div class="custom" class:on={custom}>
@@ -337,6 +381,16 @@
             />
             {#if s.mbps != null}<button class="reset" onclick={() => save({ mbps: null })}>{t('settings.reset_bitrate')}</button>{/if}
             {#if sliderMbps > 300 && codec !== 'pyrowave'}<span class="help warn">{t('settings.wifi_warn')}</span>{/if}
+            {#if autoOn && auto}
+              <!-- Profil Auto : le test qui a choisi ces réglages, et « Refaire le test ». -->
+              <span class="help chosen">{chosenBy(auto)} <button class="again" onclick={() => onautotest(computer.id)}>{t('autotest.again')}</button></span>
+            {/if}
+            <!-- « Débit adaptatif » (docs/link-ui.md) : hors du profil, il ne rend pas « Personnalisé ». -->
+            <div class="lr adaptive">
+              <span>{t('autotest.adaptive')}</span>
+              <Switch label={t('autotest.adaptive')} checked={s.adaptive ?? true} onchange={(v) => save({ adaptive: v })} />
+            </div>
+            <span class="help">{t('autotest.adaptive_help')}{codec === 'pyrowave' ? ` ${t('autotest.adaptive_pyrowave')}` : ''}</span>
           </div>
           <div class="line stack">
             <div class="lr">
@@ -488,7 +542,7 @@
 
   .profiles {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 14px;
   }
@@ -512,6 +566,9 @@
   }
 
   .t {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 16px;
     font-weight: 600;
   }
@@ -724,6 +781,23 @@
     padding: 0;
     font-size: 12px;
     color: var(--signal);
+  }
+
+  /* Profil Auto : « Choisi par le test du … » et « Refaire le test », puis l'interrupteur « Débit adaptatif ». */
+  .again {
+    border: 0;
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--signal);
+  }
+
+  .again:hover {
+    text-decoration: underline;
+  }
+
+  .adaptive {
+    margin-top: 10px;
   }
 
   @media (max-width: 1280px) {

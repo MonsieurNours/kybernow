@@ -3,6 +3,7 @@
 //! graphique décode et de l'écran de ce PC. Partagé par l'app et la ligne de
 //! commande.
 
+use kybernow_core::autotest::AutoResult;
 use kybernow_core::console::Mode;
 use kybernow_core::profile::{Capabilities, Codec, PYROWAVE_MBPS, PYROWAVE_MBPS_444, Profile, StreamSettings};
 
@@ -20,6 +21,24 @@ pub struct Choices {
     pub size: Option<Mode>,
     /// Sur batterie : 30 Hz au plus (le débit d'un profil suit).
     pub lighten: bool,
+    /// Profil Auto : le résultat du test gardé pour cet ordinateur
+    /// (`Computer::auto`), qui donne les réglages du profil
+    /// (`AutoResult::settings`). Auto sans résultat : ceux de Jeu.
+    pub auto: Option<AutoResult>,
+    /// « Débit adaptatif » coupé (carte « Débit ») : le débit reste fixe.
+    /// Hors du profil, il ne rend pas « Personnalisé ».
+    pub fixed: bool,
+}
+
+/// Les réglages d'un profil sur ce PC : ceux du test pour Auto
+/// (`AutoResult::settings` ; HDR et câble posés ensuite par la session),
+/// `StreamSettings::for_profile` pour les autres.
+pub fn profile_settings(profile: Profile, auto: Option<&AutoResult>, caps: Capabilities) -> StreamSettings {
+    match (profile, auto) {
+        (Profile::Auto, Some(r)) => r.settings(false, false),
+        (Profile::Auto, None) => StreamSettings::for_profile(Profile::Jeu, caps),
+        (p, _) => StreamSettings::for_profile(p, caps),
+    }
 }
 
 /// Réduit un mode pour tenir dans `max_w` × `max_h`, en gardant les
@@ -41,7 +60,7 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
     if c.lighten {
         mode.refresh = mode.refresh.min(30);
     }
-    let mut settings = StreamSettings::for_profile(c.profile.unwrap_or(Profile::Jeu), caps);
+    let mut settings = profile_settings(c.profile.unwrap_or(Profile::Jeu), c.auto.as_ref(), caps);
     let mut custom = c.profile.is_none();
     if let Some(codec) = c.codec {
         if codec != settings.codec {
@@ -95,5 +114,85 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
         settings.profile = None;
         settings.mbps = c.mbps.unwrap_or(profile_mbps);
     }
+    settings.adaptive = !c.fixed;
     (settings, mode)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kybernow_core::autotest::{Link, Measures, Reason, Reasons};
+
+    fn caps() -> Capabilities {
+        Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: true }
+    }
+
+    fn screen() -> Mode {
+        Mode { width: 3840, height: 2160, refresh: 60 }
+    }
+
+    fn result(codec: Codec) -> AutoResult {
+        AutoResult {
+            at: 1_790_000_000,
+            network: Some("Ethernet".into()),
+            measures: Measures { link: Link::Cable, latency: None, bandwidth: None, decode: Vec::new() },
+            codec,
+            yuv444: true,
+            width: 2560,
+            height: 1440,
+            refresh: 120,
+            mbps: 180,
+            mode_mbps: 150,
+            reliable: true,
+            reasons: Reasons {
+                codec: Reason::BestFormat,
+                mode: Reason::DecodeLimited,
+                yuv444: Reason::Yuv444Allowed,
+                bitrate: Reason::Measured,
+                transport: Reason::Unsteady,
+                decode_fps: Some(90.0),
+            },
+            station: "Atelier".into(),
+        }
+    }
+
+    #[test]
+    fn profil_auto_reglages_du_test() {
+        let c = Choices { profile: Some(Profile::Auto), auto: Some(result(Codec::Hevc)), ..Default::default() };
+        let (s, mode) = plan(&c, caps(), screen());
+        assert_eq!(s.profile, Some(Profile::Auto));
+        assert_eq!((s.codec, s.yuv444, s.mbps, s.reliable, s.adaptive), (Codec::Hevc, true, 180, true, true));
+        // La définition du test passe par les réglages de définition (`size`), pas par le plan.
+        assert_eq!(mode, screen());
+        // PyroWave choisi par le test : gardé tel quel (la session le prend par câble seulement).
+        let c = Choices { profile: Some(Profile::Auto), auto: Some(result(Codec::PyroWave)), ..Default::default() };
+        let (s, _) = plan(&c, caps(), screen());
+        assert_eq!((s.profile, s.codec, s.mbps), (Some(Profile::Auto), Codec::PyroWave, 180));
+    }
+
+    #[test]
+    fn profil_auto_sans_test_comme_jeu() {
+        let (s, _) = plan(&Choices { profile: Some(Profile::Auto), ..Default::default() }, caps(), screen());
+        assert_eq!(s.profile, Some(Profile::Jeu));
+    }
+
+    #[test]
+    fn auto_retouche_devient_personnalise() {
+        // Le format du test n'est pas un écart ; un autre l'est.
+        let same = Choices { profile: Some(Profile::Auto), auto: Some(result(Codec::Av1)), codec: Some(Codec::Av1), ..Default::default() };
+        assert_eq!(plan(&same, caps(), screen()).0.profile, Some(Profile::Auto));
+        let other = Choices { codec: Some(Codec::Hevc), ..same };
+        assert_eq!(plan(&other, caps(), screen()).0.profile, None);
+    }
+
+    #[test]
+    fn debit_adaptatif_hors_du_profil() {
+        let (s, _) = plan(&Choices { profile: Some(Profile::Bureau), fixed: true, ..Default::default() }, caps(), screen());
+        assert_eq!(s.profile, Some(Profile::Bureau));
+        assert!(!s.adaptive);
+        let (s, _) = plan(&Choices { profile: Some(Profile::Jeu), mbps: Some(80), fixed: true, ..Default::default() }, caps(), screen());
+        assert_eq!((s.profile, s.mbps, s.adaptive), (None, 80, false));
+        let (s, _) = plan(&Choices { profile: Some(Profile::Jeu), mbps: Some(80), ..Default::default() }, caps(), screen());
+        assert!(s.adaptive);
+    }
 }
