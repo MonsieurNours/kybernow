@@ -1,0 +1,156 @@
+diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
+index 94664e5..7e1490e 100644
+--- a/kycontroller/src/controller.rs
++++ b/kycontroller/src/controller.rs
+@@ -219,6 +219,10 @@ pub(crate) struct StreamingServices {
+     /// command that moves it to another image; its subscription is in
+     /// `video_subscriptions` (none while it waits for the host's image).
+     pub(crate) guest_outputs: Vec<crate::kybernow::GuestOutput>,
++    /// KyberNow (0052): the session's feedback channel (docs/canal-de-retour.md):
++    /// its losses (`subscribe`) and the Station's view of the path. Dropped
++    /// with the session.
++    pub(crate) feedback: Option<kyproto::FeedbackHost>,
+ }
+ 
+ impl StreamingServices {
+diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index 6ae6f2b..f4b41d1 100644
+--- a/kycontroller/src/kymux_controller/mod.rs
++++ b/kycontroller/src/kymux_controller/mod.rs
+@@ -34,7 +34,7 @@ use kymux::{kynet, kyproto, kywebsocket, types};
+ use log::{info, warn};
+ use tokio::sync::oneshot;
+ 
+-use kyctl_common::kymux::{KymuxConfig, VideoProtocol};
++use kyctl_common::kymux::{AudioProtocol, KymuxConfig, VideoProtocol};
+ 
+ pub(crate) use server::{IncomingConnectionRouter, KymuxServer};
+ 
+@@ -596,6 +596,8 @@ async fn start_audio(
+     session_id: uuid::Uuid,
+     av_services_manager: &mut crate::avservices_manager::AVServicesManager,
+     mode: SessionMode,
++    // KyberNow (0052): plain datagrams, each carrying the previous packet.
++    audio_redundancy: bool,
+ ) -> Result<Option<StartSessionAudioResponse>> {
+     if !request.audio {
+         warn!("Audio disabled");
+@@ -605,9 +607,14 @@ async fn start_audio(
+     let (endpoint_id, client_endpoint, connection_tx) = match &transport {
+         KyTransport::KyProto(connection) => {
+             let audio_protocol = request.kymux_config.kyproto_config().audio_protocol;
++            let audio_protocol: kyproto::AudioProtocol = if audio_redundancy {
++                kyproto::AudioProtocol::Unreliable
++            } else {
++                audio_protocol.into()
++            };
+ 
+             let (endpoint_id, endpoint) = connection
+-                .register_audio_endpoint(audio_protocol.into())
++                .register_audio_endpoint(audio_protocol)
+                 .await?;
+             (Some(endpoint_id), endpoint, None)
+         }
+@@ -765,6 +772,8 @@ pub(crate) struct StartSessionResponse {
+     pub(crate) input: Option<StartSessionInputResponse>,
+     pub(crate) clock_sync: Option<StartSessionClockSyncResponse>,
+     pub(crate) metrics: Option<StartSessionMetricsResponse>,
++    /// KyberNow (0052): the feedback channel, for a viewer that asked.
++    pub(crate) feedback: Option<kyproto::FeedbackHost>,
+ }
+ 
+ fn run_clock_sync_task(endpoint: kyproto::ClockSyncServerEndpoint) -> Task {
+@@ -845,6 +854,22 @@ async fn start_session(
+ 
+     let mode = ctrl.config.session_mode();
+ 
++    // KyberNow (0052): the feedback channel before any media endpoint, so
++    // that every datagram of the session is numbered. The sound carries the
++    // previous packet only if it was asked to go in datagrams.
++    let feedback = match (&transport, &request.feedback) {
++        (KyTransport::KyProto(connection), Some(asked)) => {
++            let audio = request.kymux_config.kyproto_config().audio_protocol;
++            let redundancy = asked.audio_redundancy
++                && matches!(audio, AudioProtocol::Unreliable | AudioProtocol::UnreliableFec);
++            let (endpoint_id, host) = connection.register_feedback_endpoint(redundancy).await?;
++            info!("Feedback channel: endpoint {endpoint_id:X}, sound redundancy {redundancy}");
++            Some(host)
++        }
++        _ => None,
++    };
++    let audio_redundancy = feedback.as_ref().is_some_and(|f| f.audio_redundancy());
++
+     let av_services_manager = &mut ctrl.av_services_manager.lock().await;
+ 
+     let mut video = start_video(
+@@ -865,6 +890,7 @@ async fn start_session(
+         session_id,
+         av_services_manager,
+         mode,
++        audio_redundancy,
+     )
+     .await?;
+ 
+@@ -955,6 +981,7 @@ async fn start_session(
+         input,
+         clock_sync,
+         metrics,
++        feedback,
+     })
+ }
+ 
+diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index 0dedc45..cc69269 100644
+--- a/kycontroller/src/kymux_controller/requests.rs
++++ b/kycontroller/src/kymux_controller/requests.rs
+@@ -23,8 +23,9 @@ use log::{error, info, warn};
+ 
+ pub(crate) use kyctl_common::kymux::{
+     StartKymux, StartKymuxCertificateHash, StartKymuxResponse, StartRequest,
+-    StartSessionAudioResponse, StartSessionClockSyncResponse, StartSessionInputResponse,
+-    StartSessionMetricsResponse, StartSessionResponse, StartSessionVideoResponse,
++    StartSessionAudioResponse, StartSessionClockSyncResponse, StartSessionFeedbackResponse,
++    StartSessionInputResponse, StartSessionMetricsResponse, StartSessionResponse,
++    StartSessionVideoResponse,
+ };
+ 
+ use crate::controller::StreamingServices;
+@@ -190,6 +191,17 @@ pub(crate) async fn start_session(
+                 None
+             };
+ 
++            // KyberNow (0052)
++            let feedback = response.feedback.map(|host| {
++                let answer = StartSessionFeedbackResponse {
++                    v: kymux::kyproto::FEEDBACK_VERSION,
++                    endpoint: host.endpoint(),
++                    audio_redundancy: host.audio_redundancy(),
++                };
++                services.feedback = Some(host);
++                answer
++            });
++
+             let res = ctrl.with_session(&session_id, |session| Ok(session.services.clone()));
+ 
+             let Ok(session_services) = res else {
+@@ -227,6 +239,7 @@ pub(crate) async fn start_session(
+                 input,
+                 clock_sync,
+                 metrics,
++                feedback,
+             })
+         }
+         // KyberNow: no image the share guest's device reads.
+diff --git a/kycontroller/src/rtp/mod.rs b/kycontroller/src/rtp/mod.rs
+index c666f0a..0427e10 100644
+--- a/kycontroller/src/rtp/mod.rs
++++ b/kycontroller/src/rtp/mod.rs
+@@ -133,6 +133,8 @@ pub async fn start(
+         audio_subscription: None,
+         input_rights: None,
+         guest_outputs: Vec::new(),
++        // KyberNow (0052): no feedback channel over RTP.
++        feedback: None,
+     };
+ 
+     time::sleep(Duration::from_millis(100)).await;

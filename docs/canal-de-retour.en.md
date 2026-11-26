@@ -2,7 +2,7 @@
 
 English · [Français](canal-de-retour.md)
 
-This document is the contract of the app → Station feedback channel (Kyber patches 0050 to 0052) and of what uses it: the repair of video datagrams (RaptorQ), the wait for out-of-order packets and the sound's redundancy. Status: **written and built, tried only through the core's and kyproto's tests; never on a real network** (see "To try").
+This document is the contract of the app → Station feedback channel (Kyber patches 0050 to 0052) and of what uses it: the repair of video datagrams (RaptorQ), the wait for out-of-order packets and the sound's redundancy. Status: **written and built (kyproto for Mac, Windows and the web engine; kycontroller for Windows and Mac; kyclient and the core for Mac), checked by the core's and kyproto's tests, including an end-to-end one over an in-memory connection losing one datagram in 20; never tried on a real network** (see "To try").
 
 ## Why
 
@@ -82,7 +82,7 @@ For each reported interval (at least 20 settled datagrams), the share lost; over
 
 For a frame of `K` source symbols, the Station sends the **smallest number `R` of repair symbols** such that the probability of losing more than `R` of the `K + R` datagrams (binomial law of parameter `p`) stays under **1 in 1,000**. `R` is at least 1, and at most half of `K` (at least 3 for the very smallest frames). Exact up to 128 symbols (table rebuilt when `p` changes), normal approximation beyond.
 
-Orders of magnitude, clean network (`p` = 0.5 %): 1 repair symbol for a one-symbol frame, 2 for 10, 3 for 50, 6 for 300 (2 %). Before: 2, 3, 15 and 90.
+Orders of magnitude, clean network (`p` = 0.5 %): 1 repair symbol for a one-symbol frame, 2 for 10, 3 for 50, 8 for 300 (2.7 %). Before: 2, 3, 16 and 90. Beyond 128 symbols, the normal approximation takes 2 more symbols for the binomial law's heavier tail.
 
 Safe fallback: before the first second of reports, or after a second without one, the Station goes back to the former 30 % and at least 2.
 
@@ -120,7 +120,7 @@ Every second the session gets the channel's summary (kyclient's `Metric::Feedbac
 
 ## To try on a real network
 
-- Cable: repair share around 2 to 7 % depending on frame size, no frame lost; wait at 8 ms.
+- Cable: repair share around 3 to 20 % depending on frame size (the tiny frames of a still desktop take the most, in symbols), no frame lost; wait at 8 ms.
 - Loaded Wi-Fi (microwave oven, a second device downloading): the share follows losses, lost frames stay rare; check that burst losses (Wi-Fi dropping out 20 to 50 ms) cost no more than before.
 - Relay over UDP and over TCP (over TCP, no loss: share at its minimum).
 - Sound: drop 1 datagram in 20 (`pfctl`/`dnctl` or Network Link Conditioner): no audible gap.

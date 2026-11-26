@@ -2,7 +2,7 @@
 
 [English](canal-de-retour.en.md) · Français
 
-Ce document est le contrat du canal de retour app → Station (correctifs Kyber 0050 à 0052) et de ce qui s'en sert : la réparation des datagrammes vidéo (RaptorQ), l'attente des paquets en désordre et la redondance du son. État : **écrit et compilé, essayé seulement par les tests du cœur et de kyproto ; jamais sur un vrai réseau** (voir « À essayer »).
+Ce document est le contrat du canal de retour app → Station (correctifs Kyber 0050 à 0052) et de ce qui s'en sert : la réparation des datagrammes vidéo (RaptorQ), l'attente des paquets en désordre et la redondance du son. État : **écrit et compilé (kyproto pour Mac, Windows et le moteur web ; kycontroller pour Windows et Mac ; kyclient et le cœur pour Mac), vérifié par les tests du cœur et de kyproto, dont un de bout en bout sur une connexion en mémoire qui perd un datagramme sur 20 ; jamais essayé sur un vrai réseau** (voir « À essayer »).
 
 ## Pourquoi
 
@@ -82,7 +82,7 @@ Pour chaque intervalle rapporté (au moins 20 datagrammes décidés), la part pe
 
 Pour une image de `K` symboles source, la Station envoie le **plus petit nombre `R` de symboles de réparation** tel que la probabilité de perdre plus de `R` des `K + R` datagrammes (loi binomiale de paramètre `p`) reste sous **1 sur 1 000**. `R` vaut au moins 1, et au plus la moitié de `K` (au moins 3 pour les toutes petites images). Calcul exact jusqu'à 128 symboles (table refaite quand `p` change), approximation normale au-delà.
 
-Ordres de grandeur, réseau propre (`p` = 0,5 %) : 1 symbole de réparation pour une image d'un symbole, 2 pour 10, 3 pour 50, 6 pour 300 (2 %). Avant : 2, 3, 15 et 90.
+Ordres de grandeur, réseau propre (`p` = 0,5 %) : 1 symbole de réparation pour une image d'un symbole, 2 pour 10, 3 pour 50, 8 pour 300 (2,7 %). Avant : 2, 3, 16 et 90. Au-delà de 128 symboles, l'approximation normale prend 2 symboles de plus pour la queue de la loi binomiale, plus lourde.
 
 Repli sûr : avant la première seconde de rapports, ou après une seconde sans rapport, la Station revient aux 30 % et 2 au moins d'avant.
 
@@ -120,7 +120,7 @@ Chaque seconde, la session reçoit le bilan du canal (`Metric::Feedback` de kycl
 
 ## À essayer sur un vrai réseau
 
-- Câble : part de réparation vers 2 à 7 % selon la taille des images, aucune image perdue ; attente à 8 ms.
+- Câble : part de réparation vers 3 à 20 % selon la taille des images (les toutes petites images d'un bureau immobile en prennent le plus, en symboles), aucune image perdue ; attente à 8 ms.
 - Wi-Fi chargé (micro-ondes, deuxième appareil qui télécharge) : la part suit les pertes, les images perdues restent rares ; vérifier que les pertes en rafale (Wi-Fi qui décroche 20 à 50 ms) ne coûtent pas plus qu'avant.
 - Relais en UDP et en TCP (en TCP, aucune perte : part au minimum).
 - Son : couper 1 datagramme sur 20 (`pfctl`/`dnctl` ou Network Link Conditioner) : aucun trou audible.
