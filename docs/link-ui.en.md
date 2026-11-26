@@ -11,6 +11,8 @@ Every KyberNow Link app (Mac, Apple TV, iPhone and iPad, Windows, Android and An
 - Nothing over the picture when it arrives: connecting shows its progress, then the picture alone. Measurements show on demand (session bar or menu).
 - Ellipses only for states in progress (“Connecting…”) and, on Mac, for commands that open a window (Apple's convention).
 - Honest: say how long it takes and what will be cut off.
+- A button fits on one line: never “Se / connecter” on two lines. When space runs short (one more profile, a longer language), the row wraps or shrinks elsewhere, not the button's label.
+- « Se connecter » (“Connect”) means connecting to a **computer** (opening the session). For the KyberNow account, say « Connecter un compte » (“Connect an account”) and « Créer un compte » (“Create an account”): never a bare « Se connecter » for the account, which would be mistaken for the computer's.
 - In French, « de » elides before a name starting with a vowel or an h: « Réglages d'Atelier », « Réglages d'Hugo-PC », but « Réglages de Bureau-Salon ».
 
 ## Home screen
@@ -411,14 +413,14 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 |---|---|---|
 | Home with no computer, title | “Find your computers” | « Retrouvez vos ordinateurs » |
 | Home with no computer, text | “With a KyberNow account, your computers and the ones opened to you show up here, wherever you are.” | « Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez. » |
-| Main button | “Sign in to a KyberNow account” | « Se connecter à un compte KyberNow » |
+| Main button | “Connect an account” | « Connecter un compte » |
 | Help under the button, system window (iPhone, iPad, Mac, Windows, desktop Linux, Android) | “The relay's page opens: password, passkey or two-factor authentication happen there, never in the app. No account yet: “Create an account” on that page.” | « La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page. » |
 | Help under the button, code (Apple TV, Android TV, LG TVs, living room, Deck) | “A code appears: you approve it from your phone.” | « Un code s'affiche : vous l'approuvez depuis votre téléphone. » |
 | Separator, then the usual buttons | “or without an account”; “Add a computer”, “Join with a code” | « ou sans compte » ; « Ajouter un ordinateur », « Rejoindre avec un code » |
 | System window, meanwhile | “Signing in…” | « Connexion au compte… » |
 | Success | brief notice “Signed in to {account}.” ({account}: the name, otherwise the e-mail); the account's computers arrive on the home screen | « Connecté à {compte}. » |
 | “Cancel” on the relay's page, window closed | nothing: the home screen stays as it is | rien |
-| Code, title | “Sign in to a KyberNow account” | « Se connecter à un compte KyberNow » |
+| Code, title | “Connect a KyberNow account” | « Connecter un compte KyberNow » |
 | Code, steps | “Scan the QR code with your phone,”, “or open {address} and enter the code,”, “then tap “Connect”.” ({address}: `share.kybernow.app/tv`) | « Scannez le QR code avec votre téléphone, », « ou ouvrez {adresse} et entrez le code, », « puis touchez « Connecter ». » |
 | Code, the code | “KQ7M-4XPA”, monospaced, large; QR code of the page with the code, labelled “QR code to sign in” | « QR code de connexion » |
 | Code, waiting | spinner, “Waiting for your phone… The code changes in {n} min.”; expired: a new code appears by itself | « En attente de votre téléphone… Le code change dans {n} min. » |
@@ -440,7 +442,7 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 | Settings of an account computer, Station section | “KyberNow account” and the relay instead of the Admin account; no “Remove” (it leaves with the account) | « Compte KyberNow » ; pas de « Retirer » |
 | Sign out, confirmation | “Sign out of {account}? Its computers leave this device; the ones you paired stay.”; “Sign out”, “Cancel” | « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent. » |
 | Add | “Add an account”: the relay first (“share.kybernow.app” offered, “Another relay…”), then sign-in | « Ajouter un compte » |
-| No account | “No account.” and “Sign in to a KyberNow account” | « Aucun compte. » |
+| No account | “No account.” and “Connect an account” | « Aucun compte. » et « Connecter un compte » |
 | Station too old | “This Station doesn't give tokens to KyberNow accounts yet: update it.” | « Cette Station ne donne pas encore de jeton aux comptes KyberNow : mettez-la à jour. » |
 | Other relay refusals | “Sign-in didn't go through: try again.” (return refused); “This code is no longer valid: a new one is shown.”; “Too many attempts: try again in {n} min.”; “Unexpected answer from the relay ({error}).” | « La connexion n'a pas abouti : réessayez. » ; « Ce code ne sert plus : un nouveau s'affiche. » ; « Trop d'essais : réessayez dans {n} min. » ; « Réponse inattendue du relais ({erreur}). » |
 
@@ -510,6 +512,94 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Transport de l'image | Picture transport | Rapide / Fast; Fiable / Reliable; help: « Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai. » / “Fast suits your home network and gaming. Reliable resends what gets lost, at the cost of a little delay.” |
 | Reconnexion automatique | Reconnect automatically | |
 | Réveil par le réseau | Wake on LAN | « Prêt » / “Ready” with the MAC address learnt from the Station, or « Pas encore d'adresse : connectez-vous une fois à cet ordinateur. » / “No address yet: connect to this computer once.”; help: « Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système). » / “Turns the computer on remotely when it is asleep. It must also be allowed on the computer (Admin › System).” |
+
+## Welcome and KyberNow account
+
+Mock-ups: https://claude.ai/artifact/K6tgZaZC8dqeBxGnTBenru (in the app's real style: `brand/v2/logo` logo, extended Archivo in capitals for titles, Martian Mono for labels). Every Link app; the browser's web client is not concerned. Shared logic: `apps/core/src/welcome.rs`.
+
+**Labels.** « Se connecter » (“Connect”) means connecting to a computer; for the account, « Connecter un compte » / “Connect an account” and « Créer un compte » / “Create an account” (see “Principles”).
+
+### Welcome (first launch)
+
+Three screens, shown on the first launch, and **once** after the update that brings them to people with no account (`welcome::should_show`). Replayable: app settings, « Revoir l'accueil » / “Show the welcome again”. Each screen: the app's logo top left, « Passer » / “Skip” top right (screen 3: « Plus tard » / “Later”), the label « BIENVENUE · {n} / 3 » / “WELCOME · {n} / 3”, a big title, a text, the buttons, three progress bars at the bottom.
+
+| Screen | English | Français |
+|---|---|---|
+| 1, title | “Your computer, on all your devices” | « Votre ordinateur, sur tous vos appareils » |
+| 1, text | “Play, work and get back to your desktop from another screen, as if you were sitting in front of it.” | « Jouez, travaillez et retrouvez votre bureau depuis un autre écran, comme si vous étiez devant. » |
+| 1, button | “Continue” | « Continuer » |
+| 2, title | “With an account, everything follows you” | « Avec un compte, tout vous suit » |
+| 2, text | “A KyberNow account, and your computers wait for you everywhere.” | « Un compte KyberNow, et vos ordinateurs vous attendent partout. » |
+| 2, benefit 1 | “AWAY FROM HOME”; “Reach your computer from anywhere, with nothing to set up on your router.” | « HORS DE CHEZ VOUS » ; « Rejoignez votre ordinateur de n'importe où, sans rien régler sur votre box. » |
+| 2, benefit 2 | “ALL YOUR DEVICES”; “Your computers show up by themselves wherever you sign in.” | « TOUS VOS APPAREILS » ; « Vos ordinateurs apparaissent d'eux-mêmes partout où vous vous connectez. » |
+| 2, benefit 3 | “SHARE AND LEND”; “Invite a friend to play, lend your PC, open it to your family or your team.” | « PARTAGER ET PRÊTER » ; « Invitez un ami à jouer, prêtez votre PC, ouvrez-le à la famille ou à votre équipe. » |
+| 2, benefit 4 | “YOUR SETTINGS”; “Profile, format and bitrate follow you from one device to another.” | « VOS RÉGLAGES » ; « Profil, format et débit vous suivent d'un appareil à l'autre. » |
+| 2, buttons | “Connect an account” (primary); “Create an account”; “Continue without an account” (link) | « Connecter un compte » ; « Créer un compte » ; « Continuer sans compte » |
+| 2, help | “{relay}'s page opens: your password never goes through the app.” | « La page de {relais} s'ouvre : votre mot de passe ne passe jamais par l'app. » |
+| 3, title | “Add your computer” | « Ajoutez votre ordinateur » |
+| 3, text | “Install KyberNow Station on the computer you want to reach: on the same network, it shows up here by itself. A friend gave you a code? Enter it.” | « Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le. » |
+| 3, row | “COMPUTERS IN REACH”: the computers seen on the network (card “ON THE NETWORK”, “Add”); card “A CODE”, “A friend opens their computer to you: enter the code they gave you.”, “Join with a code”; card “NOT INSTALLED YET”, “Download KyberNow Station on the computer you want to reach.”, link `www.kybernow.app` (opens `https://www.kybernow.app/#telecharger`) | « ORDINATEURS À PORTÉE » ; « SUR LE RÉSEAU », « Ajouter » ; « UN CODE », « Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné. », « Rejoindre avec un code » ; « PAS ENCORE INSTALLÉ », « Téléchargez KyberNow Station sur l'ordinateur à rejoindre. » |
+
+- “Connect an account”: the usual sign-in (system window, or a code on a TV); once it succeeds, screen 3 is skipped (the account's computers arrive); if cancelled, you stay on screen 2.
+- “Create an account”: opens `https://{relay}/compte/inscription?lang={fr|en}` in the device's **browser** (not in the sign-in window: the app creates no account, App Store guideline 5.1.1(v)), then the notice “Create your account in the browser, then come back here: “Connect an account”.” / « Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte ». » On a TV: the code screen says “No account yet? Create it on this page.” / « Pas encore de compte ? Créez-le sur cette page. »
+- TVs (Apple TV, Android TV, LG, Deck, living room): the same screens, with the remote; screen 2 shows on the right the QR code and the code of the code sign-in (texts of “KyberNow accounts”), card title “CONNECT AN ACCOUNT” / « CONNECTER UN COMPTE », and “Continue without an account” as a button.
+
+### With no account, afterwards
+
+- **Account button**: at the top of the home screen, next to the app settings, “Connect an account” with a person icon (phone: icon only, label for accessibility). With an account: it disappears (the account is in the app settings).
+- **Account card** in the “YOUR OTHER COMPUTERS” row (last, with the “ON THE NETWORK” glow): « COMPTE KYBERNOW » (“KYBERNOW ACCOUNT”), “Find your computers everywhere” / « Retrouvez vos ordinateurs partout », “On all your devices, even away from home.” / « Sur tous vos appareils, même hors de chez vous. », “Connect an account”, “Create an account”, cross “Close” / « Fermer ». Closed, it comes back 30 days later; once back, its cross says “Don't show again” / « Ne plus afficher » and closes it for good (`welcome::card_visible`). With no computer, the empty home screen of “KyberNow accounts” stays as it is.
+- **Useful moment, away from home**: “Connect” on a paired computer that isn't on this network (no route through the relay): a window “Away from home?” / « Hors de chez vous ? », “{name} isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router.” / « {nom} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box. » ; “Not now” / « Pas maintenant », “Create an account”, “Connect an account”. At most once per computer and per day.
+- **After pairing** (with no account): under the added computer's buttons, a banner “Find it away from home and on your other devices too: connect a KyberNow account.” / « Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow. » ; “Connect an account”, “Later” / « Plus tard ». Once per computer. It is the banner under the “Connect” row: as long as the Station update banner is there (section “Station updates”), it waits, without being counted as shown (`take_paired_hint` only when it really shows).
+- **With the Stations update**: the “Connect an account” button and the account card are not banners and stay displayed; only the banner after pairing gives way.
+
+## Auto profile and adaptive bitrate
+
+Technical contract: [profil-auto.en.md](profil-auto.en.md). Every app except the browser's web client.
+
+- **Profiles**: « Jeu » (“Game”), « Bureau » (“Desktop”), « Max », « Auto », and « Personnalisé » (“Custom”) when the settings depart from them, wherever profiles are listed (home screen, profile menu, icon menu, top of the settings). Auto's icon: wand (sparkles). Sentence: “The best settings for this network and this device.” / « Les meilleurs réglages pour ce réseau et cet appareil. »
+- **Choosing Auto** with no kept result, or **“Run the test again”** / « Refaire le test »: opens the test panel. With a kept result: Auto applies right away (its settings), with no test.
+- **PyroWave over a cable**: Max and Auto only. Help for “Video format”, Auto, over a cable, in Game and Desktop: “Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.” / « Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble. »
+
+### Test panel
+
+Title “Auto profile” / « Profil Auto ». Subtitle “KyberNow measures your network and this device, then suggests the best settings.” / « KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages. »
+
+During the test, five steps, each with its state (waiting, in progress with a spinner, ticked with its measurement, skipped with its reason):
+
+| Step | English | Français | Measurement once ticked |
+|---|---|---|---|
+| link | Connection | Liaison | “Cable”, “Wi-Fi”, “Through the relay” (« Câble » / « Wi-Fi » / « Par le relais ») |
+| latency | Latency at rest | Latence au repos | “2.1 ms · jitter 0.4 ms” (« 2,1 ms · gigue 0,4 ms ») |
+| bandwidth | Bitrate to this device | Débit vers cet appareil | “940 Mbit/s · latency under load +3 ms” (« 940 Mbit/s · latence en charge +3 ms ») ; skipped: “Update {name} to measure the bitrate.” (« Mettez à jour {nom} pour mesurer le débit. ») |
+| decode | Decoding on this device | Décodage de cet appareil | “HEVC 4K: 240 fps · PyroWave 4K: 180 fps” (« HEVC 4K : 240 i/s · PyroWave 4K : 180 i/s »; the best of each family) |
+| encoder | The computer's encoder | Encodeur de l'ordinateur | “up to 440 Mbit/s in HEVC” (« jusqu'à 440 Mbit/s en HEVC », a bitrate refused); “290 Mbit/s accepted in HEVC” (« 290 Mbit/s acceptés en HEVC », first try); skipped: “PyroWave chosen.” (« PyroWave choisi. »), “Update {name} to try its encoder.” (« Mettez à jour {nom} pour essayer son encodeur. »), “{name} couldn't try its encoder.” (« {nom} n'a pas pu essayer son encodeur. ») |
+
+Button “Cancel” / « Annuler » (stops the test, keeps the previous profile).
+
+**Summary**: title “Suggested settings” / « Réglages proposés », one line per choice, value then reason:
+
+| Setting | English example | Exemple FR |
+|---|---|---|
+| Video format | “PyroWave” — “connected by cable, and the network can carry it” | « PyroWave » — « relié par câble, et le réseau le porte » |
+| | “HEVC” — “PyroWave needs a cable” / “the network can't carry PyroWave” / “{name} doesn't offer PyroWave” / “this device doesn't decode PyroWave fast enough” | « HEVC » — « PyroWave demande un câble » / « le réseau ne porte pas PyroWave » / « {nom} ne propose pas PyroWave » / « cet appareil ne décode pas PyroWave assez vite » |
+| Resolution | “3840 × 2160 at 120 Hz” — “matches this display” / “decoding limited to {n} fps in 4K” | « 3840 × 2160 à 120 Hz » — « comme cet écran » / « décodage limité à {n} i/s en 4K » |
+| Sharp text (4:4:4) | “On” — “the network and decoding allow it”; “Off” — “bitrate too tight” / “this device can't decode it” | « Oui » — « le réseau et le décodage le permettent » ; « Non » — « débit trop juste » / « cet appareil ne le décode pas » |
+| Bitrate | “420 Mbit/s” — “{measured} Mbit/s measured, with a margin”; “based on the connection (Station to update)”; bounded by the encoder: “{name} encodes up to {n} Mbit/s” | « 420 Mbit/s » — « {mesuré} Mbit/s mesurés, avec une marge » ; « selon la liaison (Station à mettre à jour) » ; « {nom} encode jusqu'à {n} Mbit/s » |
+| Picture transport | “Fast” — “steady network”; “Reliable” — “unsteady network: what gets lost is resent” | « Rapide » — « réseau stable » ; « Fiable » — « réseau irrégulier : ce qui se perd est renvoyé » |
+| Adaptive bitrate | “On” — “follows the network during the session” | « Oui » — « suit le réseau pendant la session » |
+
+Buttons “Apply” / « Appliquer » (Auto becomes this computer's profile with these settings) and “Cancel” / « Annuler ». Link “Run the test again” / « Refaire le test ». Failure (Station unreachable): “The test couldn't reach {name}.” / « Le test n'a pas pu joindre {nom}. » with “Try again” / « Réessayer ».
+
+### “Bitrate” card
+
+- Switch **“Adaptive bitrate”** / « Débit adaptatif », on by default, help: “Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.” / « Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais. » With PyroWave, extra help: “With PyroWave it pauses: the resolution goes down instead.” / « En PyroWave, il est en pause : la définition baisse à la place. »
+- Auto profile: under the slider, “Chosen by the test of {date} ({network}).” / « Choisi par le test du {date} ({réseau}). » and “Run the test again” / « Refaire le test ».
+
+### During a session
+
+- **Different network from the test** (Auto, network or relay different from the test): a discreet banner at the start, 8 s or the cross, title “Different network from the test” / « Autre réseau que celui du test », “Adaptive bitrate will handle it.” / « Le débit adaptatif s'en charge. », button “Run the test again” / « Refaire le test » (opens the panel after the session, or right away on the apps that can do it during a session). Every app: the panel opens when the session ends (the test measures the free network); “Run the test again”, or Auto chosen with no test during the session, says so in a notice (capsule): “The test will run when the session ends.” / « Le test se fera à la fin de la session. » ; on Apple TV, “Run the test again” is a menu tile (Back), titled “Different network from the test”, like “Switch to HEVC” / « Passer en HEVC ».
+- **Statistics**, target bitrate: “60 Mbit/s · fixed” / « 60 Mbit/s · fixe » when adaptive bitrate is off (instead of “set by hand”); “440 Mbit/s · encoder ceiling” / « 440 Mbit/s · plafond de l'encodeur » when the computer's ceiling sets it.
+- **The computer's encoder** (every app, no on-screen text): a picture refused at the start lowers the bitrate by 50 Mbit/s and restarts, the status stays “Reconnecting…” (« Reconnexion… »); the bitrate that goes through is kept for this computer (encoder ceiling, [profil-auto.en.md](profil-auto.en.md), “The computer's encoder”) and applies to all its profiles. “Run the test again” measures it again.
 
 ## PyroWave
 
