@@ -9,6 +9,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - **Auto profile.** Next to Game, Desktop and Max, a fourth profile tests your network and your device: the connection, latency, the real bitrate to the computer and this device's decoding, step by step. It then suggests the format, resolution, refresh rate, sharp text, bitrate and transport, each with its reason; nothing changes before “Apply”. Run the test again whenever you like (“Run the test again”), and a banner tells you when you play on another network than the test's. Measuring the bitrate needs an up-to-date Station.
 - **Adaptive bitrate, as a setting.** An “Adaptive bitrate” switch in the Bitrate card: on, the bitrate goes down when the network is saturated and back up afterwards, for a profile as for a bitrate set by hand; off, it no longer moves.
 - **PyroWave by cable with Max and Auto.** Game and Desktop stay on HEVC, even by cable.
+- **“Open Admin” from KyberNow Share on iPhone and iPad.** Safari stopped at “Adresse d'Admin illisible.”: the Station now also reads the address Safari gives over HTTP/2.
 - **PyroWave offered by the PCs that can.** The Station checked the graphics card under an identifier Vulkan did not always recognise: “{computer} doesn't offer PyroWave” showed with a suitable card (RTX 3080 Ti). It now also looks the card up by its vendor and model, checks again after a failure at PC start-up, and writes the reason to its log.
 
 ## 0.11.1

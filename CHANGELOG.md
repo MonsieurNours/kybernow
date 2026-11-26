@@ -10,6 +10,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - **Profil Auto.** À côté de Jeu, Bureau et Max, un quatrième profil teste votre réseau et votre appareil : la liaison, la latence, le débit réel jusqu'à l'ordinateur et le décodage de cet appareil, étape par étape. Il propose ensuite le format, la définition, la fréquence, le texte net, le débit et le transport, chacun avec sa raison ; rien ne change avant « Appliquer ». Le test se refait quand vous voulez (« Refaire le test »), et un bandeau vous prévient si vous jouez sur un autre réseau que celui du test. La mesure du débit demande une Station à jour.
 - **Débit adaptatif, réglable.** Un interrupteur « Débit adaptatif » dans la carte Débit : allumé, le débit baisse quand le réseau sature puis remonte, pour un profil comme pour un débit réglé à la main ; coupé, il ne bouge plus.
 - **PyroWave par câble avec Max et Auto.** Jeu et Bureau restent en HEVC, même par câble.
+- **« Ouvrir Admin » depuis KyberNow Share sur iPhone et iPad.** Safari s'arrêtait sur « Adresse d'Admin illisible. » : la Station lit maintenant aussi l'adresse que Safari donne en HTTP/2.
 - **PyroWave proposé par les PC qui le peuvent.** La Station vérifiait la carte graphique sous un identifiant que Vulkan ne reconnaissait pas toujours : « {ordinateur} ne propose pas PyroWave » s'affichait avec une carte qui convient (RTX 3080 Ti). Elle la cherche maintenant aussi par son fabricant et son modèle, revérifie après un échec au démarrage du PC, et dit la raison dans son journal.
 
 ## 0.11.1

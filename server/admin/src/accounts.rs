@@ -956,6 +956,7 @@ pub async fn web_login_begin(
     State(s): State<AppState>,
     via: Option<axum::Extension<crate::relay::Via>>,
     headers: HeaderMap,
+    uri: axum::http::Uri,
     axum::extract::Query(q): axum::extract::Query<WebLoginBegin>,
 ) -> Response {
     let remote = via.is_some();
@@ -966,7 +967,7 @@ pub async fn web_login_begin(
         return web_login_page(&Msg::new("accounts.webLoginOff").text(), false, vec![]);
     }
     // L'adresse d'Admin telle que le navigateur la voit (le relais passe `Host` tel quel).
-    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("").trim().to_string();
+    let host = browser_host(&headers, &uri);
     if host.is_empty() || host.len() > 200 || host.contains(['/', '?', '#', '@', ' ']) {
         return web_login_page(&Msg::new("accounts.badOrigin").text(), false, vec![]);
     }
@@ -990,6 +991,20 @@ pub async fn web_login_begin(
         res.headers_mut().append(header::SET_COOKIE, v);
     }
     res
+}
+
+/// L'adresse d'Admin telle que le navigateur l'a appelée : l'en-tête `Host`
+/// (HTTP/1.1), sinon l'autorité de la requête (HTTP/2 : `:authority`, sans
+/// `Host`, ce que fait Safari sur iPhone en HTTPS).
+fn browser_host(headers: &HeaderMap, uri: &axum::http::Uri) -> String {
+    headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| uri.authority().map(|a| a.as_str().to_string()))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
 /// La connexion avec KyberNow est-elle possible (rattachée, comptes acceptés, pas en mode d'essai) ?
@@ -1301,6 +1316,17 @@ mod tests {
 
     fn signer() -> Signer {
         Signer::from_pkcs8(&Signer::generate_pkcs8().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn adresse_vue_par_le_navigateur_en_http1_et_http2() {
+        let mut h = HeaderMap::new();
+        h.insert(header::HOST, "192.168.1.100:35555".parse().unwrap());
+        assert_eq!(browser_host(&h, &"/api/login/kybernow/start".parse().unwrap()), "192.168.1.100:35555");
+        // HTTP/2 (Safari sur iPhone) : pas de `Host`, l'autorité de la requête.
+        let uri: axum::http::Uri = "https://192.168.1.100:35555/api/login/kybernow/start?lang=fr".parse().unwrap();
+        assert_eq!(browser_host(&HeaderMap::new(), &uri), "192.168.1.100:35555");
+        assert_eq!(browser_host(&HeaderMap::new(), &"/api/login/kybernow/start".parse().unwrap()), "");
     }
 
     fn owner() -> Owner {
