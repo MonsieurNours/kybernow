@@ -123,6 +123,8 @@ private struct SettingsPane: View {
             presented = await store.presentedFingerprint(of: host)
         }
         .hdrCalibrationCover(isPresented: $calibrating)
+        // Le panneau du test du profil Auto, par-dessus les réglages.
+        .modifier(AutoTestPresenter(model: app.autoTest, origin: .settings))
     }
 
     // MARK: - Mises en page
@@ -163,7 +165,7 @@ private struct SettingsPane: View {
                 title
                 Theme.eyebrow(String(localized: "Profil"))
                     .padding(.top, 2)
-                SettingsProfilePicker(current: s.profile, fill: true) { p in update { $0.apply(p) } }
+                SettingsProfilePicker(current: s.profile, fill: true) { p in app.autoTest.choose(p, for: host, origin: .settings) }
                 Text(Profile.hint(s.profile))
                     .font(Theme.sans(12))
                     .foregroundStyle(Theme.muted)
@@ -227,7 +229,7 @@ private struct SettingsPane: View {
                     .font(Theme.sans(14))
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
-                SettingsProfilePicker(current: s.profile, fill: false) { p in update { $0.apply(p) } }
+                SettingsProfilePicker(current: s.profile, fill: false) { p in app.autoTest.choose(p, for: host, origin: .settings) }
                     .fixedSize()
             }
             .padding(.horizontal, gutter)
@@ -474,7 +476,7 @@ private struct SettingsPane: View {
         let hdrState = s.hdrState(info, screenHDR: HDRDisplay.isHDR(nil))
         let hdrOn = hdrState.on(s.hdr)
         let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
-        let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.profile != nil)
+        let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.takesPyroWave)
         rows.toggle(String(localized: "Texte net (4:4:4)"), hdrOn ? SettingsText.sharpTextHDR : pyroImage ? PyroWaveText.sharpText : can444 ? SettingsText.sharpTextHelp : yuvNote,
                     s.yuv444 && can444, enabled: can444) {
             update(custom: true) { $0.yuv444 = !($0.yuv444 && can444) }
@@ -501,6 +503,24 @@ private struct SettingsPane: View {
         }
 
         rateRow
+
+        // Profil Auto : d'où viennent ces réglages, et « Refaire le test ».
+        if s.profile == .auto, let r = s.auto {
+            rows.container {
+                HStack(alignment: .center, spacing: 12) {
+                    Text(AutoText.chosenBy(r)).font(Theme.sans(wideRows ? 12.5 : 12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Button(AutoText.again) { app.autoTest.open(host, origin: .settings) }
+                        .buttonStyle(GlassButton(height: 44, fontSize: 14))
+                }
+            }
+        }
+        // Débit adaptatif : à part du profil (jamais « Personnalisé »).
+        let pyroRate = s.codec == .pyrowave || pw.auto(profile: s.takesPyroWave)
+        rows.toggle(AutoText.adaptive, pyroRate ? AutoText.adaptiveHelp + " " + AutoText.adaptivePyroWave : AutoText.adaptiveHelp, s.adaptive) {
+            update { $0.adaptive.toggle() }
+        }
 
         rows.choice(String(localized: "Affichage des images"),
                     s.vsync ? String(localized: "Synchronisé : l'image n'est jamais coupée.") : String(localized: "Immédiat : un peu moins de délai ; l'image peut se couper dans les mouvements rapides."),
@@ -586,7 +606,11 @@ private struct SettingsPane: View {
                 : String(localized: "Cet iPhone ne sait pas décoder PyroWave.")
         case nil: break
         }
-        if s.profile != nil { return pw.link == .cable ? PyroWaveText.helpAutoWired : PyroWaveText.helpAutoWireless }
+        if s.profile != nil {
+            guard pw.link == .cable else { return PyroWaveText.helpAutoWireless }
+            // Par câble, PyroWave n'est pris que par Max et Auto (Auto : si le test l'a choisi).
+            return s.takesPyroWave ? PyroWaveText.helpAutoWired : AutoText.formatJeuBureauWired
+        }
         return s.codec == .pyrowave ? PyroWaveText.helpChosen : codecNote
     }
 

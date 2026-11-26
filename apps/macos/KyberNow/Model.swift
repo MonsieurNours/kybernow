@@ -5,7 +5,9 @@ import KyberKit
 import Security
 
 enum Profile: String, Codable, CaseIterable, Identifiable {
-    case jeu, bureau, max
+    /// Auto (docs/profil-auto.md) : les réglages choisis par le test des
+    /// conditions, gardés pour chaque ordinateur (`ConnectionSettings.autoResult`).
+    case jeu, bureau, max, auto
 
     var id: String { rawValue }
 
@@ -14,6 +16,17 @@ enum Profile: String, Codable, CaseIterable, Identifiable {
         case .jeu: return String(localized: "Jeu")
         case .bureau: return String(localized: "Bureau")
         case .max: return "Max"
+        case .auto: return String(localized: "Auto")
+        }
+    }
+
+    /// Icône du profil (Phosphor, `Icons/…` des catalogues) ; Auto : la baguette.
+    var icon: String {
+        switch self {
+        case .jeu: return "game-controller"
+        case .bureau: return "article"
+        case .max: return "lightning"
+        case .auto: return "sparkle"
         }
     }
 
@@ -23,6 +36,7 @@ enum Profile: String, Codable, CaseIterable, Identifiable {
         case .jeu: return String(localized: "La réactivité d'abord, pour jouer.")
         case .bureau: return String(localized: "Un texte net, pour travailler.")
         case .max: return String(localized: "La meilleure image que cet appareil affiche.")
+        case .auto: return String(localized: "Les meilleurs réglages pour ce réseau et cet appareil.")
         }
     }
 
@@ -249,6 +263,20 @@ struct ConnectionSettings: Codable, Hashable {
     /// changer ne fait pas passer en « Personnalisé ». Le cœur ne le demande
     /// que sur un écran HDR, à une Station qui le propose (`hdrState`).
     var hdr = true
+    /// « Débit adaptatif » (docs/profil-auto.md) : allumé par défaut, gardé
+    /// pour cet ordinateur ; le débit baisse quand le réseau sature, puis
+    /// remonte. À part du profil : le changer ne fait pas passer en « Personnalisé ».
+    var adaptive = true
+    /// Le résultat du test du profil Auto pour cet ordinateur (`AutoResult` du
+    /// cœur en JSON), gardé à « Appliquer » ; nil : jamais testé.
+    var autoResult: String?
+
+    /// Le résultat gardé du test du profil Auto, lu.
+    var auto: AutoTestResult? { autoResult.flatMap(AutoTestResult.init(json:)) }
+
+    /// Le profil prend PyroWave par câble (`Profile::takes_pyrowave` du
+    /// cœur) : Max, et Auto quand son test l'a choisi ; Jeu et Bureau restent en HEVC.
+    var takesPyroWave: Bool { profile == .max || (profile == .auto && codec == .pyrowave) }
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -257,6 +285,12 @@ struct ConnectionSettings: Codable, Hashable {
     /// Applique un profil, ramené à ce que ce Mac décode en matériel : sans
     /// HEVC, du H.264 ; sans 4:4:4 matériel, du 4:2:0 avec un peu plus de débit.
     mutating func apply(_ profile: Profile) {
+        // Auto : les réglages du test gardé ; sans test, rien ne change (l'app
+        // ouvre alors le panneau du test, `AutoProfile.choose`).
+        if profile == .auto {
+            if let r = auto { apply(auto: r) }
+            return
+        }
         self.profile = profile
         let caps = DecoderCapabilities.current
         codec = caps.hevc ? .hevc : .h264
@@ -264,12 +298,35 @@ struct ConnectionSettings: Codable, Hashable {
         case .jeu: yuv444 = false; bitrateMbps = 60; transport = .fast
         case .bureau: yuv444 = true; bitrateMbps = 90; transport = .reliable
         case .max: yuv444 = true; bitrateMbps = 300; transport = .fast
+        case .auto: break
         }
         if yuv444, !Self.decodes444(codec) {
             yuv444 = false
             bitrateMbps += bitrateMbps / 3
         }
         if codec == .h264 { bitrateMbps += bitrateMbps / 2 }
+    }
+
+    /// Auto avec ce résultat du test : le profil, ses réglages
+    /// (`AutoResult::settings` du cœur : format, 4:4:4, débit, transport), le
+    /// débit adaptatif allumé, et la définition et la fréquence choisies
+    /// (« Comme cet écran » quand le test a gardé celles de l'écran, sinon
+    /// une définition sur mesure). Le résultat est gardé pour cet ordinateur.
+    mutating func apply(auto r: AutoTestResult) {
+        autoResult = r.json
+        profile = .auto
+        let s = r.settings(wired: NetworkLink.shared.wired)
+        codec = s?.codec ?? r.codec
+        yuv444 = s?.yuv444 ?? r.yuv444
+        bitrateMbps = min(max(s?.mbps ?? r.mbps, Self.minBitrate), Self.maxBitrate)
+        transport = (s?.reliable ?? r.reliable) ? .reliable : .fast
+        adaptive = true
+        if r.matchesDisplay {
+            if display == .custom { display = .match }
+        } else {
+            display = .custom
+            (customWidth, customHeight, customRefresh) = (r.width, r.height, r.refresh)
+        }
     }
 
     /// Le 4:4:4 n'est proposé que si ce Mac le décode en matériel. En AV1,
@@ -334,6 +391,7 @@ struct ConnectionSettings: Codable, Hashable {
         case .jeu?: return "Jeu"
         case .bureau?: return "Bureau"
         case .max?: return "Max"
+        case .auto?: return "Auto"
         case nil: return "Personnalisé"
         }
     }
@@ -359,6 +417,7 @@ extension ConnectionSettings {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
+        case adaptive, autoResult
     }
 
     init(from decoder: Decoder) throws {
@@ -390,6 +449,10 @@ extension ConnectionSettings {
         screenPadOpacity = (try? c.decodeIfPresent(Double.self, forKey: .screenPadOpacity)).map { min(1, max(0.2, $0)) } ?? screenPadOpacity
         screenPadHaptics = (try? c.decodeIfPresent(ScreenPadHaptics.self, forKey: .screenPadHaptics)) ?? screenPadHaptics
         hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? hdr
+        adaptive = (try? c.decodeIfPresent(Bool.self, forKey: .adaptive)) ?? adaptive
+        autoResult = try? c.decodeIfPresent(String.self, forKey: .autoResult)
+        // Auto sans test lisible (résultat perdu) : Personnalisé, réglages gardés.
+        if profile == .auto, auto == nil { profile = nil }
     }
 }
 

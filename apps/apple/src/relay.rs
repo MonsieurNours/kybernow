@@ -26,7 +26,7 @@ pub unsafe extern "C" fn kn_console_new_relay(
 ) -> *mut KnConsole {
     let route = optional(route_json).and_then(|r| serde_json::from_str::<RelayRoute>(&r).ok());
     let console = Console::new(&text(host), port, &text(user), &text(password), optional(pinned)).with_relay(route);
-    Box::into_raw(Box::new(KnConsole(console)))
+    Box::into_raw(Box::new(KnConsole(std::sync::Arc::new(console))))
 }
 
 /// La route d'un ordinateur par son relais, d'après son `info` (`relay`) et

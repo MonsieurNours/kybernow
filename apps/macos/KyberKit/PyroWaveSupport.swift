@@ -72,8 +72,9 @@ public struct PyroWaveChoice: Sendable, Equatable {
         return PyroWaveChoice(shown: true, block: block, link: link)
     }
 
-    /// « Auto » (un profil) prend PyroWave : utilisable, par câble, hors
-    /// relais (règle du cœur, `profile::pyrowave_format`).
+    /// « Auto » prend PyroWave : un profil qui le prend (`profile` : Max, ou
+    /// le profil Auto quand son test l'a choisi ; jamais Jeu ni Bureau),
+    /// utilisable, par câble, hors relais (règle du cœur, `profile::pyrowave_format`).
     public func auto(profile: Bool) -> Bool { profile && usable && link == .cable }
 }
 
@@ -103,9 +104,14 @@ public final class NetworkLink: @unchecked Sendable {
     /// Posté (fil principal) quand le lien change.
     public static let changed = Notification.Name("fr.leslignesclaires.kybernow.network-link")
 
+    /// Le genre de lien du chemin par défaut (le réseau du profil Auto,
+    /// `CurrentNetwork`).
+    public enum Kind: Sendable { case ethernet, wifi, cellular, other }
+
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
     private var current = false
+    private var currentKind = Kind.other
 
     /// Relié par câble (Ethernet).
     public var wired: Bool {
@@ -114,13 +120,24 @@ public final class NetworkLink: @unchecked Sendable {
         return current
     }
 
+    public var kind: Kind {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentKind
+    }
+
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             let wired = path.status == .satisfied && path.usesInterfaceType(.wiredEthernet)
+            let kind: Kind = path.status != .satisfied ? .other
+                : wired ? .ethernet
+                : path.usesInterfaceType(.wifi) ? .wifi
+                : path.usesInterfaceType(.cellular) ? .cellular : .other
             self.lock.lock()
             let changed = wired != self.current
             self.current = wired
+            self.currentKind = kind
             self.lock.unlock()
             if changed {
                 KyberLog.video.notice("lien réseau : \(wired ? "Ethernet" : "sans câble", privacy: .public)")

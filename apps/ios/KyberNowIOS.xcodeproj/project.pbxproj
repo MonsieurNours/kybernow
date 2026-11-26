@@ -33,6 +33,7 @@
 		2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B1FC1C1CB40956666D1104 /* Discovery.swift */; };
 		263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91FD6F412BECA15E4705994A /* AddHostScanner.swift */; };
 		2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C924F6C6F8139DA17F956040 /* KyberLog.swift */; };
+		2B4250B1508169AFF498AA14 /* AutoTestCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84866482E10A62F84B93EDD4 /* AutoTestCore.swift */; };
 		33EBC4B0D83EB9730FAEF3F8 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9DA666EFDB697E3073C49AC0 /* AppIcon.icon */; };
 		3AF2A47B1780A6EF38E902EF /* PlayStationCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E507C6F92BBBC66E91277CD6 /* PlayStationCore.swift */; };
 		3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F54BF416D5315CDBC05036 /* SessionStats.swift */; };
@@ -74,6 +75,7 @@
 		A45FF4CDC0895C8FD97A9715 /* LendCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA048343AC7B500A33C2331 /* LendCore.swift */; };
 		A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */; };
 		AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */; };
+		B06A29E06BBE505CCA9BDCE1 /* AutoTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7075E01B3DE975548C5DD81C /* AutoTestView.swift */; };
 		B18CE821A6BF0895849FDB99 /* AddHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7769E5B65C16814E172611B0 /* AddHostView.swift */; };
 		B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5209938CBDB61B7A681C9DB /* Platform.swift */; };
 		B807C6D5D7D989473B8C327D /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383556364DF843C9D46F9B81 /* AppModel.swift */; };
@@ -95,6 +97,7 @@
 		E8DE8C2727D5FF30241722F8 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0226C33E74431675895CF43B /* SystemConfiguration.framework */; };
 		EEE6FB1A2ADA531B262CDB3C /* PlayStationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C465535454BA9CB60049064 /* PlayStationViews.swift */; };
 		EFBB54B2A3267D21FD5F7228 /* PlayStationKeyMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216A2A00CF555F2A470BEDAD /* PlayStationKeyMouse.swift */; };
+		F2E1C103FC4F99AA4EEBE269 /* AutoProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A940CD2E9BEF2AB9FFC201 /* AutoProfile.swift */; };
 		F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 942EA9510C5B257877855EB8 /* SessionController.swift */; };
 		F7F8816C831CE386C3848E6F /* TouchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE9798DFB50233072B5736FF /* TouchRules.swift */; };
 		F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */; };
@@ -140,6 +143,7 @@
 		1A902278E773A170D6D6A7A8 /* HDRVideoLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRVideoLayer.swift; sourceTree = "<group>"; };
 		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		1F7DE9C5954CF031E79AD56B /* DualSenseHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualSenseHaptics.swift; sourceTree = "<group>"; };
+		20A940CD2E9BEF2AB9FFC201 /* AutoProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoProfile.swift; sourceTree = "<group>"; };
 		216A2A00CF555F2A470BEDAD /* PlayStationKeyMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationKeyMouse.swift; sourceTree = "<group>"; };
 		216B5AACD7FD091DD1CF9E3A /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
 		25D44B7B7CC32E4F400A995C /* Backdrops.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backdrops.swift; sourceTree = "<group>"; };
@@ -166,6 +170,7 @@
 		62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
 		66675E7942D7F082D80B96EB /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchView.swift; sourceTree = "<group>"; };
+		7075E01B3DE975548C5DD81C /* AutoTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestView.swift; sourceTree = "<group>"; };
 		74C7A88CB55772D75805439E /* LendViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendViews.swift; sourceTree = "<group>"; };
 		7769E5B65C16814E172611B0 /* AddHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostView.swift; sourceTree = "<group>"; };
 		7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
@@ -174,6 +179,7 @@
 		7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		7D8BB04C66D705435D022452 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		83DD82B5F895B89661901570 /* PlayStationHandoffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffViews.swift; sourceTree = "<group>"; };
+		84866482E10A62F84B93EDD4 /* AutoTestCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestCore.swift; sourceTree = "<group>"; };
 		85AB88A76316A54F8E3A2F1D /* pyrowave_bitstream.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = pyrowave_bitstream.cpp; sourceTree = "<group>"; };
 		87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
 		882EFF24BC854CDF3B71DB93 /* PyroWaveDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveDecoder.swift; sourceTree = "<group>"; };
@@ -304,6 +310,7 @@
 				383556364DF843C9D46F9B81 /* AppModel.swift */,
 				7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */,
 				BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */,
+				7075E01B3DE975548C5DD81C /* AutoTestView.swift */,
 				D2FAD67B06247A688500776D /* ExternalDisplay.swift */,
 				0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */,
 				DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */,
@@ -381,6 +388,7 @@
 			children = (
 				7B5B4BA304FBE4823B808F3D /* Accounts.swift */,
 				9DA666EFDB697E3073C49AC0 /* AppIcon.icon */,
+				20A940CD2E9BEF2AB9FFC201 /* AutoProfile.swift */,
 				A2B1FC1C1CB40956666D1104 /* Discovery.swift */,
 				12873856FE243A1B653ADFD4 /* Lend.swift */,
 				B15AA9F9EFA3E6C151832988 /* LinkUI.swift */,
@@ -411,6 +419,7 @@
 			children = (
 				DA2A882F8116B9EEFC430402 /* AccountCore.swift */,
 				9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */,
+				84866482E10A62F84B93EDD4 /* AutoTestCore.swift */,
 				ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */,
 				9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */,
 				A311A16A82D70847AAB768D2 /* CoreBridge.swift */,
@@ -563,6 +572,8 @@
 				B18CE821A6BF0895849FDB99 /* AddHostView.swift in Sources */,
 				B807C6D5D7D989473B8C327D /* AppModel.swift in Sources */,
 				A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */,
+				F2E1C103FC4F99AA4EEBE269 /* AutoProfile.swift in Sources */,
+				B06A29E06BBE505CCA9BDCE1 /* AutoTestView.swift in Sources */,
 				812AD19263390D73ABB5265E /* Backdrops.swift in Sources */,
 				C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */,
 				2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */,
@@ -608,6 +619,7 @@
 				6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */,
 				948D97D7ADAA3A9AAB0A310F /* AccountCore.swift in Sources */,
 				B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */,
+				2B4250B1508169AFF498AA14 /* AutoTestCore.swift in Sources */,
 				86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */,
 				0186090A9EACDF478809466D /* ConsolePads.swift in Sources */,
 				1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */,

@@ -787,7 +787,7 @@ extension ConnectionSettings {
     /// `kn_session_start`), pour les réglages synchronisés.
     var syncedBase: SessionEngine.Settings {
         SessionEngine.Settings(profile: profile?.rawValue, codec: codec, yuv444: yuv444, mbps: bitrateMbps,
-                               reliable: transport == .reliable, hdr: hdr)
+                               reliable: transport == .reliable, hdr: hdr, adaptive: adaptive)
     }
 
     /// Le mode immersif à synchroniser : sur Mac seulement (l'Apple TV,
@@ -832,7 +832,9 @@ extension ConnectionSettings {
     /// appareil (et son transport), sinon le format, le 4:4:4 et le débit ;
     /// le HDR ; le mode immersif sur Mac.
     mutating func applySynced(_ keys: SyncedKeys) {
-        if keys.profile != nil || keys.codec != nil || keys.yuv444 != nil || keys.mbps != nil || keys.hdr != nil,
+        // Auto vient du test de chaque appareil : sans test ici, les réglages de l'image restent.
+        let untestedAuto = keys.profile == Profile.auto.rawValue && auto == nil
+        if !untestedAuto, keys.profile != nil || keys.codec != nil || keys.yuv444 != nil || keys.mbps != nil || keys.hdr != nil,
            let r = Accounts.apply(keys, to: syncedBase) {
             if let p = r.profile.flatMap(Profile.init(rawValue:)) {
                 if keys.profile != nil || profile != p { apply(p) }

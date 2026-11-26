@@ -120,6 +120,8 @@ struct RootView: View {
             }
         }
         .hdrCalibrationCover(isPresented: $app.calibrating)
+        // Le panneau du test du profil Auto, ouvert depuis l'accueil.
+        .modifier(AutoTestPresenter(model: app.autoTest, origin: .home))
         .sheet(item: $app.sheet) { sheet in
             switch sheet {
             case let .addHost(candidate): AddHostView(link: candidate)

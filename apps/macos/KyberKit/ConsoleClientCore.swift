@@ -278,6 +278,12 @@ public final class ConsoleClient: @unchecked Sendable {
         kn_console_free(console)
     }
 
+    /// La console du pont, le temps d'un appel qui la partage (le test du
+    /// profil Auto la garde sur son fil : `AutoTestRun`).
+    func withRaw<T>(_ body: (OpaquePointer) -> T) -> T {
+        body(console)
+    }
+
     /// Empreinte vue au premier contact (à enregistrer avec l'ordinateur).
     public var fingerprint: String? {
         Core.take(kn_console_fingerprint_seen(console)) ?? pinned

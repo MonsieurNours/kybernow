@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     let borrowed: BorrowedStore
     /// Les consoles PlayStation associées à ce Mac (PlayStation.swift).
     let playstation: PlayStationStore
+    /// Le panneau du test du profil Auto (AutoProfile.swift, AutoTestSheet.swift).
+    let autoTest: AutoTestModel
     @Published var route: Route = .home
     /// Ordinateur mis en avant sur l'accueil (le plus récent par défaut).
     @Published var selectedID: UUID?
@@ -77,9 +79,15 @@ final class AppModel: ObservableObject {
         accounts = AccountStore(hosts: store)
         borrowed = BorrowedStore(demo: Self.demo)
         playstation = PlayStationStore(demo: Self.demo)
+        autoTest = AutoTestModel(store: store)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
         // Les consoles passent hors de chez soi par une Station qui les voit (docs/relais.md).
         playstation.attach(hosts: store)
+        // L'écran du test du profil Auto : celui de la fenêtre de l'accueil, comme « Comme cet écran ».
+        autoTest.screen = { [weak self] host in
+            guard let screen = self?.homeWindow?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return (1920, 1080, 60) }
+            return DisplayInfo.mode(for: screen, codec: .hevc, limit4K: host.settings.limit4K)
+        }
         // Les sessions (ouvertes, fermées, active) redessinent l'accueil et les menus.
         sessions.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
@@ -664,6 +672,7 @@ struct KyberNowApp: App {
             }
             .animation(.easeInOut(duration: 0.25), value: app.route)
             .environmentObject(app)
+            .modifier(AutoTestPresenter(model: app.autoTest))
             .onOpenURL { app.open($0) }
             .onReceive(app.store.objectWillChange) { app.objectWillChange.send() }
             // La fenêtre de l'accueil : fermée, elle se cache (AppLife.swift) ; un

@@ -82,6 +82,15 @@ struct SessionView: View {
             // PyroWave choisi, en Wi-Fi ou par le relais : le bandeau du début (8 s) ;
             // aussi quand le réseau sature (« Le réseau sature »).
             // « Passer en HEVC » est dans le menu (Retour), tuile « PyroWave en Wi-Fi ».
+            // Profil Auto, autre réseau que celui du test : le bandeau discret du début (8 s) ;
+            // « Refaire le test » est dans le menu (Retour).
+            if session.autoNetworkBanner, !session.pyrowaveBanner, !session.menuOpen {
+                AutoNetworkBannerTV()
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, session.notice == nil ? 48 : 124)
+                    .transition(.opacity)
+            }
+
             if session.pyrowaveBanner, !session.menuOpen {
                 PyroWaveBannerTV(title: session.pyrowaveBannerTitle, lowered: session.loweredText)
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -477,6 +486,29 @@ struct MenuHint: View {
 /// qui sature (docs/link-ui.md, « PyroWave ») : à lire de loin ; « Passer en
 /// HEVC » derrière le bouton Retour (le menu de session), la télécommande
 /// n'ayant pas de focus en jeu.
+/// Le bandeau du profil Auto sur un autre réseau que celui du test
+/// (docs/link-ui.md) : discret ; « Refaire le test » par le menu (Retour).
+struct AutoNetworkBannerTV: View {
+    var body: some View {
+        HStack(alignment: .center, spacing: 20) {
+            Icon("info", size: 32).foregroundStyle(Theme.accentLight)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(AutoText.otherNetwork).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
+                Text(AutoText.otherNetworkText).font(Theme.sans(20)).foregroundStyle(Theme.muted)
+            }
+            Rectangle().fill(Theme.line2).frame(width: 1, height: 48)
+            HStack(spacing: 12) {
+                Glyph(kind: .remote, role: .back, size: 26)
+                Text(AutoText.again).font(Theme.sans(20, .medium)).foregroundStyle(Theme.text2)
+            }
+        }
+        .padding(.horizontal, 30)
+        .padding(.vertical, 16)
+        .glass(24)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct PyroWaveBannerTV: View {
     /// « PyroWave en Wi-Fi » / « PyroWave hors de chez vous » / « Le réseau sature ».
     let title: String

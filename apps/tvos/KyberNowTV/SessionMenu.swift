@@ -22,7 +22,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr, pyrowave }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, disconnect, quit, restoreMode, hdr, pyrowave, autoTest }
 
     init(session: SessionController) {
         self.session = session
@@ -120,6 +120,11 @@ struct SessionMenu: View {
                         if let chip = session.pyrowaveChip {
                             tile(.pyrowave, icon: "warning", iconColor: Theme.warn, title: chip, detail: PyroWaveText.switchToHEVC) { session.switchToHEVC() }
                                 .accessibilityHint(Text(PyroWaveText.bannerBody))
+                        }
+                        // Profil Auto, autre réseau que celui du test : « Refaire le test » (à la fin de la session).
+                        if session.autoOtherNetwork {
+                            tile(.autoTest, icon: "sparkle", title: AutoText.otherNetwork, detail: AutoText.again) { session.runAutoTest() }
+                                .accessibilityHint(Text(AutoText.otherNetworkText))
                         }
                         shareTile
                         if showsLend { lendTile }
@@ -321,7 +326,7 @@ struct SessionMenu: View {
             return 4 + (session.shareRole.pads ? 1 : 0) + (session.shareRole.keyboardAndMouse ? 3 : 0) + (session.watchScreens.isEmpty ? 0 : 1)
         }
         // La tuile ambre de PyroWave (en Wi-Fi ou par le relais) en plus.
-        return (showsLend ? 9 : 8) + (session.pyrowaveChip != nil ? 1 : 0)
+        return (showsLend ? 9 : 8) + (session.pyrowaveChip != nil ? 1 : 0) + (session.autoOtherNetwork ? 1 : 0)
     }
 
     /// Neuf tuiles (« Partager » et « Prêter l'ordinateur… ») : plus serrées, des titres un peu plus petits.

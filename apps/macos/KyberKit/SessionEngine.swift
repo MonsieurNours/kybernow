@@ -33,7 +33,7 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// Réglages du flux, ceux d'un profil ou d'un réglage à la main.
     public struct Settings: Equatable, Sendable {
-        /// `jeu`, `bureau`, `max` ; nil : personnalisé (le débit reste tel quel).
+        /// `jeu`, `bureau`, `max`, `auto` ; nil : personnalisé (le débit reste tel quel).
         public var profile: String?
         public var codec: VideoCodec
         public var yuv444: Bool
@@ -49,7 +49,11 @@ public final class SessionEngine: @unchecked Sendable {
         /// (`StreamSettings.wired` du cœur) : « Auto » peut alors prendre
         /// PyroWave (docs/pyrowave.md).
         public var wired: Bool
-        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false, wired: Bool = false) {
+        /// « Débit adaptatif » (`StreamSettings.adaptive` du cœur,
+        /// docs/profil-auto.md) : le débit baisse quand le réseau sature, puis
+        /// remonte ; coupé, il ne bouge jamais.
+        public var adaptive: Bool
+        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false, wired: Bool = false, adaptive: Bool = true) {
             self.profile = profile
             self.codec = codec
             self.yuv444 = yuv444
@@ -57,10 +61,11 @@ public final class SessionEngine: @unchecked Sendable {
             self.reliable = reliable
             self.hdr = hdr
             self.wired = wired
+            self.adaptive = adaptive
         }
 
         var json: [String: Any] {
-            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr, "wired": wired]
+            var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr, "wired": wired, "adaptive": adaptive]
             if let profile { j["profile"] = profile }
             return j
         }

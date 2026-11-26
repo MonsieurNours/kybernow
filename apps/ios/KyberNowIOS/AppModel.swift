@@ -42,7 +42,10 @@ final class AppModel: ObservableObject {
     @Published var calibrating = false
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
-    @Published private(set) var session: SessionController?
+    @Published private(set) var session: SessionController? {
+        // « Refaire le test » ou Auto choisi pendant la session : le panneau du test à sa fin.
+        didSet { if session == nil, let id = oldValue?.host.id { autoTest.sessionEnded(id) } }
+    }
     /// La partie en cours sur une console PlayStation (une session à la fois).
     @Published private(set) var consoleSession: PlayStationSession?
     /// Le modèle de l'app (la partie l'atteint pour ouvrir les réglages de la console).
@@ -63,6 +66,8 @@ final class AppModel: ObservableObject {
     let borrowed: BorrowedStore
     /// Consoles PlayStation : comptes PSN, consoles, associations (docs/playstation.md).
     let playstation: PlayStationStore
+    /// Le panneau du test du profil Auto (AutoProfile.swift, AutoTestView.swift).
+    let autoTest: AutoTestModel
     /// Comptes et associations PlayStation par iCloud, dans les deux sens.
     private var playstationCloud: PlayStationCloud?
     let discovery = Discovery()
@@ -82,6 +87,9 @@ final class AppModel: ObservableObject {
         accounts = AccountStore(hosts: store)
         borrowed = BorrowedStore(demo: demo)
         playstation = PlayStationStore(demo: demo)
+        // L'écran du test du profil Auto : celui de l'appareil (« Comme cet écran »).
+        autoTest = AutoTestModel(store: store)
+        autoTest.screen = { _ in DeviceDisplay.native() }
         borrowed.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
         playstation.attach(hosts: store)
         playstation.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)

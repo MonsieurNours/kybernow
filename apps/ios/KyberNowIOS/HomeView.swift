@@ -503,10 +503,9 @@ struct HomeScreen: View {
             .disabled(busy)
             .accessibilityHint(on ? Text("Ouvre la session sur \(host.name)") : canWake ? Text(SettingsText.wakeHelp) : Text("Cherche l'ordinateur à nouveau"))
 
+            // Auto sans test gardé : le panneau du test (AutoProfile.swift).
             let picker = HomeProfilePicker(selected: host.settings.profile, fill: !wide, height: 44, fontSize: wide ? 15 : 14) { p in
-                var h = host
-                h.settings.apply(p)
-                store.update(h)
+                app.autoTest.choose(p, for: host)
             }
             // HDR : seulement sur un écran HDR ; choix gardé pour l'ordinateur, à part du profil.
             let hdrState = host.settings.hdrState(store.status[host.id]?.info, screenHDR: HDRDisplay.isHDR(nil))

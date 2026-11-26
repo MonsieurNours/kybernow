@@ -261,7 +261,7 @@ pub unsafe extern "C" fn kn_console_new_account(
     let route = optional(route_json).and_then(|r| serde_json::from_str::<RelayRoute>(&r).ok());
     let access = account::StationAccess::new(params);
     let console = Console::account(&text(host), port, access, optional(pinned)).with_relay(route);
-    Box::into_raw(Box::new(KnConsole(console)))
+    Box::into_raw(Box::new(KnConsole(std::sync::Arc::new(console))))
 }
 
 // MARK: - Réglages synchronisés

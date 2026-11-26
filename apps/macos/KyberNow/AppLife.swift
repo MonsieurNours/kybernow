@@ -296,6 +296,11 @@ extension AppModel {
     /// « Fermer », pas de doublon), et la fin de l'app si elle l'attendait.
     func sessionEnded(_ session: SessionController) {
         sessions.ended(session)
+        // « Refaire le test » ou Auto choisi pendant la session : le panneau maintenant.
+        if autoTest.afterSession == session.host.id, afterSessionEnded == nil {
+            showWindow()
+            autoTest.sessionEnded(session.host.id)
+        }
         if session.endedByComputer {
             var shownInWindow = false
             if case .failed = session.phase { shownInWindow = true }
@@ -411,13 +416,24 @@ extension AppModel {
     /// Profil choisi dans le menu : comme sur l'accueil ; en session sur cet
     /// ordinateur, tout de suite (comme le menu de la barre).
     func apply(_ profile: Profile, to host: Host) {
+        // Auto sans test gardé : le panneau du test (après la session s'il y en a une).
+        let untested = profile == .auto && host.settings.auto == nil
         if let session = sessions.session(for: host.id), session.isLive {
-            session.select(profile)
+            if untested { session.runAutoTest() } else { session.select(profile) }
             return
         }
-        var h = host
-        h.settings.apply(profile)
-        store.update(h)
+        if untested { showWindow() }
+        autoTest.choose(profile, for: host)
+    }
+
+    /// « Refaire le test » : le panneau du test (après la session de cet ordinateur s'il y en a une).
+    func runAutoTest(_ host: Host) {
+        if let session = sessions.session(for: host.id), session.isLive {
+            session.runAutoTest()
+            return
+        }
+        showWindow()
+        autoTest.open(host)
     }
 
     func openAdmin(_ host: Host) {

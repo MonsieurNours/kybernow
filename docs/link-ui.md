@@ -553,7 +553,7 @@ Boutons « Appliquer » / “Apply” (Auto devient le profil de cet ordinateur 
 
 ### En session
 
-- **Autre réseau que celui du test** (Auto, réseau ou relais différent du test) : bandeau discret au début, 8 s ou la croix, titre « Autre réseau que celui du test » / “Different network from the test”, « Le débit adaptatif s'en charge. » / “Adaptive bitrate will handle it.”, bouton « Refaire le test » / “Run the test again” (ouvre le panneau après la session, ou tout de suite sur les apps qui le peuvent en session).
+- **Autre réseau que celui du test** (Auto, réseau ou relais différent du test) : bandeau discret au début, 8 s ou la croix, titre « Autre réseau que celui du test » / “Different network from the test”, « Le débit adaptatif s'en charge. » / “Adaptive bitrate will handle it.”, bouton « Refaire le test » / “Run the test again” (ouvre le panneau après la session, ou tout de suite sur les apps qui le peuvent en session). Apps Apple : le panneau s'ouvre à la fin de la session (le test mesure le réseau libre) ; « Refaire le test », ou Auto choisi sans test pendant la session, le dit en capsule : « Le test se fera à la fin de la session. » / “The test will run when the session ends.” ; sur l'Apple TV, « Refaire le test » est une tuile du menu (Retour), titrée « Autre réseau que celui du test », comme « Passer en HEVC ».
 - **Statistiques**, débit visé : « 60 Mbit/s · fixe » / “60 Mbit/s · fixed” quand le débit adaptatif est coupé (à la place de « réglé à la main »).
 
 ## PyroWave

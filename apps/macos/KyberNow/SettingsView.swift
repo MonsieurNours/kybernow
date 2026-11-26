@@ -50,7 +50,8 @@ private struct SettingsContent: View {
 
     private var profile: Binding<ProfilePick?> {
         Binding(get: { s.profile.map { .profile($0) } ?? .custom }, set: { p in
-            if case let .profile(p)? = p { update { $0.apply(p) } }
+            // Auto sans test gardé : le panneau du test (AutoProfile.swift).
+            if case let .profile(p)? = p { app.apply(p, to: host) }
         })
     }
 
@@ -146,7 +147,7 @@ private struct SettingsContent: View {
                     Theme.eyebrow(String(localized: "Profil"), color: Theme.muted)
                     Segmented(options: Profile.allCases.map { (ProfilePick.profile($0), $0.label) } + (s.profile == nil ? [(.custom, Profile.label(nil))] : []),
                               selection: profile,
-                              icons: [.profile(.jeu): "game-controller", .profile(.bureau): "article", .profile(.max): "lightning", .custom: "sliders-horizontal"],
+                              icons: Dictionary(uniqueKeysWithValues: Profile.allCases.map { (ProfilePick.profile($0), $0.icon) }).merging([.custom: "sliders-horizontal"]) { a, _ in a },
                               height: 36)
                         .fixedSize()
                 }
@@ -409,7 +410,7 @@ private struct SettingsContent: View {
             }
             // HDR allumé : pas de 4:4:4 (le HDR n'existe qu'en 4:2:0).
             let pw = pyrowave
-            let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.profile != nil)
+            let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.takesPyroWave)
             toggleRow(String(localized: "Texte net (4:4:4)"),
                       hdrOn ? SettingsText.sharpTextHDR
                           : pyroImage ? PyroWaveText.sharpText
@@ -460,6 +461,20 @@ private struct SettingsContent: View {
                         .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            // Profil Auto : d'où viennent ces réglages, et « Refaire le test ».
+            if s.profile == .auto, let r = s.auto {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(AutoText.chosenBy(r)).font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(AutoText.again) { app.runAutoTest(host) }
+                        .buttonStyle(GhostButton(height: 30))
+                }
+            }
+            // Débit adaptatif : à part du profil (jamais « Personnalisé »).
+            let pyro = s.codec == .pyrowave || pyrowave.auto(profile: s.takesPyroWave)
+            toggleRow(AutoText.adaptive, pyro ? AutoText.adaptiveHelp + " " + AutoText.adaptivePyroWave : AutoText.adaptiveHelp,
+                      isOn: Binding(get: { s.adaptive }, set: { v in update { $0.adaptive = v } }))
         }
     }
 
@@ -573,7 +588,11 @@ private struct SettingsContent: View {
         case .noDecoder?: return String(localized: "Ce Mac ne sait pas décoder PyroWave.")
         case nil: break
         }
-        if s.profile != nil { return pw.link == .cable ? PyroWaveText.helpAutoWired : PyroWaveText.helpAutoWireless }
+        if let p = s.profile {
+            guard pw.link == .cable else { return PyroWaveText.helpAutoWireless }
+            // Par câble, PyroWave n'est pris que par Max et Auto (Auto : si le test l'a choisi).
+            return p == .max || (p == .auto && s.codec == .pyrowave) ? PyroWaveText.helpAutoWired : AutoText.formatJeuBureauWired
+        }
         return s.codec == .pyrowave ? PyroWaveText.helpChosen : codecHint
     }
 
