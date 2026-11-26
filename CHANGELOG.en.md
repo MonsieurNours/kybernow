@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.11.3
+
+- **Your Stations up to date, without thinking about it.** When your computer has a new version of the Station, the app's home screen offers it right away, under “Connect”: “Update”, about a minute. After an app update, a notice gathers the computers that have one too, with “Update all”. No need to look for it in the settings anymore; “Later” puts it off for a week. The other computers show “· Update” next to their state.
+
 ## 0.11.2
 
 - **Auto profile.** Next to Game, Desktop and Max, a fourth profile tests your network and your device: the connection, latency, the real bitrate to the computer and this device's decoding, step by step. It then suggests the format, resolution, refresh rate, sharp text, bitrate and transport, each with its reason; nothing changes before “Apply”. Run the test again whenever you like (“Run the test again”), and a banner tells you when you play on another network than the test's. Measuring the bitrate needs an up-to-date Station.
