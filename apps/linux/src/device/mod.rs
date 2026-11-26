@@ -972,7 +972,8 @@ pub fn run(args: &[String]) {
         }
     }
     if !layout.console() && !os {
-        app.go(Screen::Home);
+        // La première fois (et une fois après la mise à jour, sans compte) : l'accueil en trois écrans.
+        app.home_or_welcome();
     }
 
     let (tx, rx) = channel::<Event>();
@@ -1046,6 +1047,8 @@ pub fn run(args: &[String]) {
             || app.screen == Screen::Join
             // Comptes KyberNow : l'attente du code ou de la page du relais (indicateur, « Le code change dans {n} min. »).
             || app.screen == Screen::Account
+            // Accueil en trois écrans, au salon : l'attente du code de l'écran 2 ; l'écran 3 suit les ordinateurs du réseau.
+            || app.screen == Screen::Welcome
             || app.sessions.iter().any(|s| s.share_busy || s.share_copied.is_some_and(|(t, _)| t.elapsed().as_secs_f32() < 4.2))
             // Le lien du relais en préparation : le cercle d'attente tourne, et la fenêtre se redessine à la fin de l'attente.
             || app.sessions.iter().any(|s| s.share.as_ref().is_some_and(crate::app::ShareView::relay_wait_redraw) || s.lend.as_ref().is_some_and(crate::app::LendHostView::relay_wait_redraw))
@@ -2776,12 +2779,9 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
             for c in pairing.drain(..) {
                 c.store(true, Ordering::Relaxed);
             }
-            let name = host.name.clone();
-            let id = app.store.put(host);
-            app.store.selected = Some(id);
+            // Gardé, choisi, l'accueil ; sans compte, le bandeau du compte sous ses boutons (`App::paired`).
+            app.paired(host);
             app.store.save();
-            app.toast(format!("{name} {}", tr("est ajouté", "added")));
-            app.go(Screen::Home);
         }
         Event::PairFailed(msg) => app.add.message = Some(msg),
         Event::Session(id, e) => session_event(id, e, app, pads, lives, wins, actions),

@@ -2385,12 +2385,14 @@ pub enum Setting {
     PsRumble,
     PsTriggers,
     /// Réglages de l'app › Comptes (comptes KyberNow) : « Gérer le compte », « Se déconnecter » (indice dans
-    /// `Store::accounts`), « Ajouter un compte » (ou « Se connecter à un compte KyberNow » sans compte).
+    /// `Store::accounts`), « Ajouter un compte » (ou « Connecter un compte » sans compte).
     AccountManage(u8),
     AccountSignOut(u8),
     AccountAdd,
     /// « Synchroniser les réglages des ordinateurs » (avec un compte connecté).
     SyncSettings,
+    /// « Revoir l'accueil » (Réglages de l'app › Comptes) : l'accueil en trois écrans.
+    WelcomeAgain,
 }
 
 /// Une rubrique des réglages.
@@ -2573,6 +2575,8 @@ pub enum Screen {
     Standby,
     /// Comptes KyberNow : se connecter (le code, ou la page du relais), un autre relais, gérer le compte au salon.
     Account,
+    /// L'accueil au premier lancement, en trois écrans (`crate::welcome`, `App::welcome.step`).
+    Welcome,
 }
 
 /// KyberNow Link OS : les étapes du premier démarrage, dans l'ordre.
@@ -2853,7 +2857,7 @@ pub enum Target {
     BarPsMute,
     BarPsSettings,
     BarPsRest,
-    /// Comptes KyberNow (`crate::accounts`) : « Se connecter à un compte KyberNow » ; sur l'écran du code « Un autre
+    /// Comptes KyberNow (`crate::accounts`) : « Connecter un compte » ; sur l'écran du code « Un autre
     /// relais… », « Nouveau code », « Retour » ; le relais d'abord (« share.kybernow.app ») ; « Un autre relais » : le
     /// champ « Relais », « Continuer », « Annuler ».
     AccountSignIn,
@@ -2864,6 +2868,28 @@ pub enum Target {
     AccountRelayField,
     AccountRelayGo,
     AccountRelayCancel,
+    /// Accueil et compte KyberNow (`crate::welcome`) : l'accueil en trois écrans (« Passer » ou « Plus tard »,
+    /// « Continuer », « Connecter un compte », « Créer un compte », « Continuer sans compte », « Ajouter » d'un
+    /// ordinateur du réseau, « Rejoindre avec un code », le lien de la Station) ; le bouton du compte en haut de
+    /// l'accueil ; la carte du compte (ses deux boutons, sa croix) ; le bandeau après un appairage ; la fenêtre
+    /// « Hors de chez vous ? ».
+    WelcomeSkip,
+    WelcomeNext,
+    WelcomeSignIn,
+    WelcomeSignUp,
+    WelcomeNoAccount,
+    WelcomeFound(usize),
+    WelcomeJoin,
+    WelcomeDownload,
+    AccountTop,
+    CardSignIn,
+    CardSignUp,
+    CardClose,
+    PairedSignIn,
+    PairedLater,
+    AwayLater,
+    AwaySignUp,
+    AwaySignIn,
     /// Mise à jour des Stations : le bandeau de l'accueil (« Mettre à jour » ou « Réessayer », « Plus tard ») ; l'avis
     /// après une mise à jour de l'app (le bouton principal, « Plus tard » ou « Fermer », « Mettre à jour » d'une ligne).
     OfferUpdate,
@@ -3113,6 +3139,8 @@ pub struct App {
     pub ps: crate::ps::PsUi,
     /// Comptes KyberNow : la connexion en cours, les pastilles d'origine de l'accueil.
     pub accounts: crate::accounts::AccountsUi,
+    /// Accueil et compte KyberNow : l'écran de l'accueil, le bandeau après un appairage, « Hors de chez vous ? ».
+    pub welcome: crate::welcome::WelcomeUi,
 }
 
 impl App {
@@ -3330,6 +3358,7 @@ impl App {
             pending_link: None,
             ps: crate::ps::PsUi::default(),
             accounts: crate::accounts::AccountsUi::default(),
+            welcome: crate::welcome::WelcomeUi::default(),
         }
     }
 
@@ -3350,7 +3379,7 @@ impl App {
             self.pending_link = None;
             return vec![Action::AccountCallback(url)];
         }
-        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account);
+        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account | Screen::Welcome);
         if !ready {
             return Vec::new();
         }
@@ -3497,7 +3526,7 @@ impl App {
             Screen::Launch | Screen::Home if self.selected_console().is_some() => Target::PsPlay,
             Screen::Launch | Screen::Home => {
                 if self.store.hosts.is_empty() {
-                    // Sans ordinateur : « Se connecter à un compte KyberNow » d'abord (sur Link OS, l'ajout reste le premier pas).
+                    // Sans ordinateur : « Connecter un compte » d'abord (sur Link OS, l'ajout reste le premier pas).
                     if !self.new_found().is_empty() {
                         Target::Found(0)
                     } else if self.store.borrowed.is_empty() && self.store.ps_consoles.is_empty() {
@@ -3574,6 +3603,7 @@ impl App {
             Screen::Device => Target::DeviceSection(self.device_section),
             Screen::Standby => Target::Back,
             Screen::Account => self.account_focus(),
+            Screen::Welcome => self.welcome_focus(),
         };
     }
 
@@ -3827,17 +3857,17 @@ impl App {
     pub fn finish_setup(&mut self) -> Vec<Action> {
         self.setup.active = false;
         self.store.app.os_setup_done = true;
-        self.go(Screen::Home);
+        self.home_or_welcome();
         vec![Action::Save, Action::Interface, Action::Os(OsAction::SetupDone), Action::StopPairing]
     }
 
-    /// Fin du lancement animé : l'accueil prend la main.
+    /// Fin du lancement animé : l'accueil prend la main (ou, la première fois, l'accueil en trois écrans).
     pub fn launch_done(&mut self) {
         if self.screen == Screen::Launch {
             if self.is_os() && !self.store.app.os_setup_done {
                 self.start_setup();
             } else {
-                self.go(Screen::Home);
+                self.home_or_welcome();
             }
         }
     }
@@ -3899,6 +3929,10 @@ impl App {
                 _ => {}
             }
             return Vec::new();
+        }
+        // « Hors de chez vous ? » : ses trois boutons, B vaut « Pas maintenant ».
+        if let Some(acts) = self.welcome_nav(n) {
+            return acts;
         }
         // L'avis « … a aussi une mise à jour » : ses boutons, B vaut « Plus tard ».
         if self.station_notice.is_some() && self.screen == Screen::Home {
@@ -4089,7 +4123,7 @@ impl App {
     }
 
     /// Navigation spatiale : l'élément le plus proche dans la direction.
-    fn move_focus(&mut self, n: Nav) {
+    pub(crate) fn move_focus(&mut self, n: Nav) {
         let Some(cur) = self.hits.iter().find(|(t, _)| *t == self.focus).map(|(_, r)| *r) else {
             if let Some((t, _)) = self.hits.first() {
                 self.focus = *t;
@@ -4254,6 +4288,7 @@ impl App {
             }
             Screen::Session => self.session_back(),
             Screen::Account => self.account_back(),
+            Screen::Welcome => self.welcome_back(),
         }
     }
 
@@ -4339,6 +4374,9 @@ impl App {
     }
 
     pub fn activate(&mut self, t: Target) -> Vec<Action> {
+        if let Some(acts) = self.welcome_activate(t) {
+            return acts;
+        }
         if let Some(acts) = self.account_activate(t) {
             return acts;
         }

@@ -79,7 +79,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
     let fl = &app.accounts.flow;
     let left_w = (w * 0.5).min(760.0 * u);
     let mut y = y0;
-    y += heading(cv, x0, y, u, "KyberNow", tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), left_w + 120.0 * u);
+    y += heading(cv, x0, y, u, "KyberNow", tr("Connecter un compte KyberNow", "Connect a KyberNow account"), left_w + 120.0 * u);
     let url_label = fl.code.as_ref().map(|c| c.url_label.clone()).unwrap_or_else(|| format!("{}/tv", crate::model::relay_label(&fl.relay)));
     let steps = [tr("Scannez le QR code avec votre téléphone,", "Scan the QR code with your phone,").to_string(), open_step(&url_label), tr("puis touchez « Connecter ».", "then tap “Connect”.").to_string()];
     let body = Text::new(Font::Regular, 17.0 * u, MUTED);
@@ -87,6 +87,8 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
         cv.text(x0, y + 20.0 * u, Text::new(Font::Mono, 14.0 * u, SPECTRE), &format!("{}", i + 1));
         y += cv.paragraph(x0 + 28.0 * u, y + 20.0 * u, body, s, left_w - 28.0 * u, 26.0 * u) + 6.0 * u;
     }
+    // « Pas encore de compte ? Créez-le sur cette page. » (docs/link-ui.md, « Accueil et compte KyberNow »).
+    y += cv.paragraph(x0 + 28.0 * u, y + 20.0 * u, body.color(FROST), crate::welcome::no_account_yet(), left_w - 28.0 * u, 26.0 * u) + 6.0 * u;
     y += 24.0 * u;
     // Le code, en chasse fixe, gros.
     let code_style = Text::new(Font::MonoMedium, 64.0 * u, FROST).tracking(4.0 * u);
@@ -136,7 +138,7 @@ fn browser(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
     let fl = &app.accounts.flow;
     let max = (w - 2.0 * x0).min(680.0);
     let mut y = y0;
-    y += heading(cv, x0, y, u, "KyberNow", tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), max);
+    y += heading(cv, x0, y, u, "KyberNow", tr("Connecter un compte KyberNow", "Connect a KyberNow account"), max);
     match &fl.message {
         Some(m) => {
             y += cv.paragraph(x0, y + 22.0 * u, Text::new(Font::Regular, 16.0 * u, WARN), m, max, 24.0 * u) + 12.0 * u;

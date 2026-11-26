@@ -25,6 +25,7 @@ mod share;
 mod device;
 mod station;
 pub mod theme;
+mod welcome;
 mod widgets;
 
 use std::time::Instant;
@@ -130,6 +131,7 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
         Screen::Device => device::draw(app, cv, &mut f),
         Screen::Standby => cv.clear(INK),
         Screen::Account => account::draw(app, cv, &mut f),
+        Screen::Welcome => welcome::draw(app, cv, &mut f),
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) ;
     // les réglages dessinent la leur.
@@ -139,6 +141,10 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
     // L'avis « … a aussi une mise à jour », par-dessus l'accueil (docs/link-ui.md, « Mise à jour des Stations »).
     if view.main && !background && app.station_notice.is_some() && app.screen == Screen::Home && app.confirm.is_none() {
         offer::notice(app, cv, &mut f);
+    }
+    // « Hors de chez vous ? », par-dessus l'accueil (docs/link-ui.md, « Accueil et compte KyberNow »).
+    if view.main && !background && app.welcome.away.is_some() && app.screen == Screen::Home {
+        welcome::away(app, cv, &mut f);
     }
     // Le panneau du test du profil Auto, par-dessus l'accueil ou les réglages.
     if view.main && !background && app.autotest.is_some() && matches!(app.screen, Screen::Home | Screen::Settings) {
@@ -315,6 +321,10 @@ pub fn title_bar(app: &App, cv: &mut Canvas, f: &mut Frame) -> f32 {
         cv.text(cx, 25.0, Text::new(Font::Regular, 14.0, FROST), if app.settings_global { crate::i18n::tr("Réglages de l'app", "App settings") } else { crate::i18n::tr("Réglages", "Settings") });
         return h;
     }
+    // L'accueil en trois écrans : ni réglages ni version, « Passer » est sous la barre.
+    if app.screen == Screen::Welcome {
+        return h;
+    }
     x -= 36.0;
     let r = Rect::new(x, 3.0, 34.0, 34.0);
     let (focused, hover) = f.state(Target::AppSettings, r);
@@ -323,21 +333,23 @@ pub fn title_bar(app: &App, cv: &mut Canvas, f: &mut Frame) -> f32 {
     }
     cv.icon(&icons::Icon::Gear, x + 8.0, 11.0, 18.0, 1.6, MUTED);
     // Version, ou la mise à jour publiée.
-    match &app.update {
+    let vw = match &app.update {
         crate::app::UpdateState::Available { version, .. } => {
             let s = format!("{} {version} {}", crate::i18n::tr("Version", "Version"), crate::i18n::tr("disponible", "available"));
             let st = Text::new(Font::Mono, 11.0, SPECTRE).align(Align::Right);
             let w = cv.text_width(st, &s);
             let r = Rect::new(x - 16.0 - w, 8.0, w + 8.0, 24.0);
             f.state(Target::UpdateNotice, r);
-            cv.text(x - 12.0, 24.0, st, &s);
+            cv.text(x - 12.0, 24.0, st, &s)
         }
         _ => {
             // Sur le Pi, l'architecture suit la version (« 0.6.0 · aarch64 »), comme sur la maquette.
             let v = if app.machine.pi.is_some() { format!("{} · {}", app.version, std::env::consts::ARCH) } else { app.version.to_string() };
-            cv.text(x - 12.0, 24.0, Text::new(Font::Mono, 11.0, FAINT).align(Align::Right), &v);
+            cv.text(x - 12.0, 24.0, Text::new(Font::Mono, 11.0, FAINT).align(Align::Right), &v)
         }
-    }
+    };
+    // Sans compte, « Connecter un compte » à gauche de la version (docs/link-ui.md, « Accueil et compte KyberNow »).
+    welcome::account_button(app, cv, f, x - 12.0 - vw - 16.0, 6.0, 28.0, 13.0);
     h
 }
 

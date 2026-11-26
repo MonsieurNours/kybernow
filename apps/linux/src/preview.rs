@@ -50,7 +50,7 @@ fn station(version: &str, update: Option<&str>) -> StationLive {
     }
 }
 
-fn host(id: &str, name: &str, addr: &str) -> Host {
+pub(crate) fn host(id: &str, name: &str, addr: &str) -> Host {
     Host {
         id: id.into(),
         name: name.into(),
@@ -1241,6 +1241,8 @@ pub fn run(dir: &Path, lang: &str) {
         offer_shots(&mut app, &mut cv, dir, prefix);
         // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
         account_shots(en, layout, &mut cv, dir, prefix);
+        // L'accueil en trois écrans et l'incitation au compte (docs/link-ui.md, « Accueil et compte KyberNow »).
+        welcome_shots(en, layout, &mut cv, dir, prefix);
         // Regarder (droit « Regarder » d'un compte) : la carte, le menu de l'ordinateur, la session de qui regarde.
         watch_shots(en, layout, &mut cv, &video, dir, prefix);
     }
@@ -1266,6 +1268,70 @@ pub fn run(dir: &Path, lang: &str) {
     pi_pyrowave_shots(&mut app, &mut cv, dir);
 
     os_shots(en, dir);
+}
+
+// MARK: - Accueil et compte KyberNow
+
+/// Un premier ordinateur, appairé sans compte (l'accueil des maquettes « sans compte »).
+pub(crate) fn one_computer(en: bool, layout: Layout) -> App {
+    let mut app = demo(en, layout);
+    app.store.hosts.truncate(1);
+    app.store.app.welcome.welcome_done();
+    app
+}
+
+/// L'accueil en trois écrans (au salon, l'écran 2 par code, et refusé), l'accueil sans compte (bouton et carte du
+/// compte, carte revenue), « Hors de chez vous ? », le bandeau après un appairage, et ce même accueil quand la
+/// Station a une mise à jour (un seul bandeau : celui de la mise à jour).
+fn welcome_shots(en: bool, layout: Layout, cv: &mut Canvas, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let mut app = empty(en, layout);
+    app.found = demo(en, layout).found;
+    app.home_or_welcome();
+    shot(&mut app, cv, None, dir, &name("70-bienvenue-1"));
+    app.activate(Target::WelcomeNext);
+    if app.sign_in_by_code() {
+        shot(&mut app, cv, None, dir, &name("71a-bienvenue-2-code-demande"));
+        let attempt = app.accounts.flow.attempt;
+        app.account_code(attempt, Ok(kn_code()));
+        shot(&mut app, cv, None, dir, &name("71-bienvenue-2"));
+        app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+        shot(&mut app, cv, None, dir, &name("71b-bienvenue-2-refuse"));
+    } else {
+        shot(&mut app, cv, None, dir, &name("71-bienvenue-2"));
+        app.activate(Target::WelcomeSignUp);
+        shot(&mut app, cv, None, dir, &name("71b-bienvenue-2-creer-un-compte"));
+        app.toast = None;
+    }
+    app.activate(Target::WelcomeNoAccount);
+    shot(&mut app, cv, None, dir, &name("72-bienvenue-3"));
+    app.found.clear();
+    app.go(crate::app::Screen::Welcome);
+    shot(&mut app, cv, None, dir, &name("72b-bienvenue-3-sans-ordinateur"));
+
+    let mut app = one_computer(en, layout);
+    app.go(Screen::Home);
+    shot(&mut app, cv, None, dir, &name("73-sans-compte"));
+    app.store.app.welcome.close_card(1);
+    shot(&mut app, cv, None, dir, &name("73b-sans-compte-carte-revenue"));
+    // Hors ligne, loin de chez soi.
+    app.live.insert("a".into(), HostLive { online: Online::Offline, ..Default::default() });
+    app.images.clear();
+    if let Some(h) = app.store.host_mut("a") {
+        h.wake.clear();
+    }
+    app.go(Screen::Home);
+    app.activate(Target::Retry);
+    shot(&mut app, cv, None, dir, &name("74-hors-de-chez-vous"));
+    // Après un appairage.
+    let mut app = one_computer(en, layout);
+    let h = app.store.hosts.remove(0);
+    let id = app.paired(h);
+    app.toast = None;
+    shot(&mut app, cv, None, dir, &name("75-apres-appairage"));
+    // La Station a une mise à jour : son bandeau seul, le bouton et la carte du compte restent.
+    app.live.entry(id).or_default().offer.banner = crate::station_offer::OfferBanner::Update("0.11.3".into());
+    shot(&mut app, cv, None, dir, &name("75b-apres-appairage-mise-a-jour-d-abord"));
 }
 
 // MARK: - Comptes KyberNow
@@ -1656,7 +1722,63 @@ mod tests {
         [(Layout::Desktop, 1280.0, 800.0), (Layout::Desktop, 960.0, 600.0), (Layout::Handheld, 1280.0, 800.0), (Layout::Tv, 1920.0, 1080.0)]
     }
 
-    /// Sans ordinateur : « Se connecter à un compte KyberNow » a le focus, avec « Ajouter » et « Rejoindre avec un
+    /// L'accueil en trois écrans, l'accueil sans compte (bouton, carte, bandeau après un appairage, bandeau de la
+    /// mise à jour) et « Hors de chez vous ? » : tout tient sans chevauchement, en français et en anglais, dans chaque
+    /// interface et dans la fenêtre la plus petite du bureau (les boutons, d'une ligne, ne sortent pas de l'écran).
+    #[test]
+    fn welcome_and_account_hints_fit() {
+        for en in [false, true] {
+            for (layout, w, h) in sizes() {
+                crate::i18n::force_english(en);
+                let mut cv = Canvas::new();
+                cv.resize(w as u32, h as u32, 1.0);
+                let what = |s: &str| format!("{s} {layout:?} {w}×{h} {en}");
+                let mut app = empty(en, layout);
+                app.found = super::demo(en, layout).found;
+                app.home_or_welcome();
+                assert_eq!(app.screen, Screen::Welcome);
+                fits(&ui::draw(&app, &mut cv), w, h, &what("écran 1"));
+                app.activate(Target::WelcomeNext);
+                if app.sign_in_by_code() {
+                    let attempt = app.accounts.flow.attempt;
+                    app.account_code(attempt, Ok(kn_code()));
+                }
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("écran 2"));
+                assert!(hits.iter().any(|(t, _)| *t == Target::WelcomeNoAccount));
+                app.activate(Target::WelcomeNoAccount);
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("écran 3"));
+                assert!(hits.iter().any(|(t, _)| *t == Target::WelcomeFound(0)) && hits.iter().any(|(t, _)| *t == Target::WelcomeJoin));
+                // Sans compte, après un appairage : bouton, carte, bandeau ; puis la mise à jour de la Station d'abord.
+                let mut app = one_computer(en, layout);
+                let hst = app.store.hosts.remove(0);
+                let id = app.paired(hst);
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("sans compte"));
+                for t in [Target::AccountTop, Target::CardSignIn, Target::CardClose] {
+                    assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?}", what("sans compte"));
+                }
+                if layout != Layout::Desktop || h >= 800.0 {
+                    assert!(hits.iter().any(|(x, _)| *x == Target::PairedSignIn), "{}", what("bandeau"));
+                }
+                app.live.entry(id.clone()).or_default().offer.banner = crate::station_offer::OfferBanner::Update("0.11.3".into());
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("mise à jour d'abord"));
+                assert!(hits.iter().any(|(x, _)| *x == Target::OfferUpdate) && !hits.iter().any(|(x, _)| *x == Target::PairedSignIn));
+                assert!(hits.iter().any(|(x, _)| *x == Target::AccountTop) && hits.iter().any(|(x, _)| *x == Target::CardSignIn));
+                app.live.entry(id.clone()).or_default().offer.banner = crate::station_offer::OfferBanner::None;
+                // Hors de chez vous.
+                app.live.entry(id.clone()).or_default().online = Online::Offline;
+                app.activate(Target::Retry);
+                let hits = ui::draw(&app, &mut cv);
+                fits(&hits, w, h, &what("hors de chez vous"));
+                assert!(hits.iter().any(|(t, _)| *t == Target::AwaySignIn));
+            }
+        }
+    }
+
+    /// Sans ordinateur : « Connecter un compte » a le focus, avec « Ajouter » et « Rejoindre avec un
     /// code » ; tout tient, en français et en anglais, dans la fenêtre la plus basse du bureau aussi.
     #[test]
     fn empty_home_offers_an_account() {

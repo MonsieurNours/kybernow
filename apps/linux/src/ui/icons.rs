@@ -45,6 +45,16 @@ pub enum Icon {
     Eye,
     /// Le profil Auto : des étincelles (sparkles), comme la baguette des autres apps.
     Sparkles,
+    /// Compte KyberNow (bouton du compte) : une personne.
+    Person,
+    /// Accueil, écran 2 : hors de chez vous (un globe), tous vos appareils, partager et prêter (deux personnes), vos
+    /// réglages (des curseurs).
+    Globe,
+    Devices,
+    People,
+    Sliders,
+    /// « Continuer » : une flèche vers la droite.
+    Arrow,
 }
 
 impl Icon {
@@ -88,6 +98,12 @@ impl Icon {
             Icon::Sparkles => (&["M10 3.5 Q10.8 9.2 16.5 10 Q10.8 10.8 10 16.5 Q9.2 10.8 3.5 10 Q9.2 9.2 10 3.5 Z", "M18 14 V20", "M15 17 H21"], &[], &[(18.5, 5.0, 1.1)]),
             Icon::Eye => (&["M2 12 Q12 3 22 12 Q12 21 2 12 Z"], &[(12.0, 12.0, 3.2)], &[]),
             Icon::Lend => (&["M11.5 12 H21", "M18 12 V15.5", "M14.8 12 V14.5"], &[(7.5, 12.0, 4.0)], &[]),
+            Icon::Person => (&["M4 21 Q5 15 12 15 Q19 15 20 21"], &[(12.0, 8.0, 4.0)], &[]),
+            Icon::Globe => (&["M3 12 H21", "M12 3 Q16 7.5 16 12 Q16 16.5 12 21", "M12 3 Q8 7.5 8 12 Q8 16.5 12 21"], &[(12.0, 12.0, 9.0)], &[]),
+            Icon::Devices => (&["M4 4 H14 Q16 4 16 6 V12 Q16 14 14 14 H4 Q2 14 2 12 V6 Q2 4 4 4 Z", "M6 18 H12", "M9 14 V18", "M18.5 8 H20.5 Q22 8 22 9.5 V18.5 Q22 20 20.5 20 H18.5 Q17 20 17 18.5 V9.5 Q17 8 18.5 8 Z"], &[], &[]),
+            Icon::People => (&["M2.5 20 Q3.5 14.5 9 14.5 Q14.5 14.5 15.5 20", "M17 14.5 Q20.5 15 21.5 19"], &[(9.0, 8.0, 3.5), (17.5, 9.0, 2.5)], &[]),
+            Icon::Sliders => (&["M4 7 H14", "M18 7 H20", "M4 17 H10", "M14 17 H20"], &[(16.0, 7.0, 2.0), (12.0, 17.0, 2.0)], &[]),
+            Icon::Arrow => (&["M5 12 H19", "M13 6 L19 12 L13 18"], &[], &[]),
             Icon::Cpu => (&["M5 5 H19 Q21 5 21 7 V17 Q21 19 19 19 H5 Q3 19 3 17 V7 Q3 5 5 5 Z", "M8 9 L11 12 L8 15", "M13 15 H16"], &[], &[]),
         }
     }
