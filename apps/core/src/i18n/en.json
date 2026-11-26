@@ -167,7 +167,8 @@
     "target_manual": "{target} Mbit/s · fixed",
     "target_pyrowave": "{target} Mbit/s · PyroWave, adaptive paused",
     "target_capped": "{target} Mbit/s · window hidden",
-    "target_fallback": "{target} Mbit/s · lightened stream"
+    "target_fallback": "{target} Mbit/s · lightened stream",
+    "target_encoder": "{target} Mbit/s · encoder ceiling"
   },
   "autotest": {
     "title": "Auto profile",
@@ -182,7 +183,8 @@
       "link": "Connection",
       "latency": "Latency at rest",
       "bandwidth": "Bitrate to this device",
-      "decode": "Decoding on this device"
+      "decode": "Decoding on this device",
+      "encoder": "The computer's encoder"
     },
     "link": {
       "cable": "Cable",
@@ -194,6 +196,11 @@
     "bandwidth_old": "Update {name} to measure the bitrate.",
     "decode": "{codec} 4K: {fps} fps",
     "decode_none": "No format tried.",
+    "encoder_unknown": "{name} couldn't try its encoder.",
+    "encoder_old": "Update {name} to try its encoder.",
+    "encoder_pyrowave": "PyroWave chosen.",
+    "encoder_ok": "{n} Mbit/s accepted in {codec}",
+    "encoder_limited": "up to {n} Mbit/s in {codec}",
     "cancelled": "Test stopped.",
     "unreachable": "The test couldn't reach {name}.",
     "choice": {
@@ -229,7 +236,8 @@
       "assumed_from_link": "based on the connection (Station to update)",
       "steady": "steady network",
       "unsteady": "unsteady network: what gets lost is resent",
-      "adaptive": "follows the network during the session"
+      "adaptive": "follows the network during the session",
+      "encoder_limited": "{name} encodes up to {n} Mbit/s"
     },
     "chosen_by": "Chosen by the test of {date} ({network}).",
     "other_network": "Different network from the test",

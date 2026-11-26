@@ -212,6 +212,10 @@ pub trait HostEvents: Send + Sync {
     /// d'affilée (avis `PyroWaveStrained` du cœur, une fois par session,
     /// hôte seulement) : bandeau « Le réseau sature » avec « Passer en HEVC ».
     fn pyrowave_strained(&self) {}
+    /// L'image a été refusée au départ et la session a dû redescendre à
+    /// `mbps` (Mbit/s par écran, avis `EncoderCeiling` du cœur) : le plafond
+    /// de l'encodeur à garder pour cet ordinateur. Rien à l'écran.
+    fn encoder_ceiling(&self, _mbps: u32) {}
 }
 
 pub struct HostOptions {
@@ -678,6 +682,10 @@ impl Platform for WinPlatform {
             kybernow_core::session::Notice::PyroWaveStrained => {
                 log::warn!("PyroWave : le réseau sature, « Passer en HEVC » proposé");
                 self.events.pyrowave_strained();
+            }
+            kybernow_core::session::Notice::EncoderCeiling { mbps } => {
+                log::warn!("encodeur : image refusée au départ, plafond de {mbps} Mbit/s par écran");
+                self.events.encoder_ceiling(*mbps);
             }
             _ => {}
         }

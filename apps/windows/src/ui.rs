@@ -1502,6 +1502,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             relay: info.relay.clone(),
             account: None,
             auto: None,
+            encoder_max: None,
         })
     });
     if !store::set_password(&id, user, password) {
@@ -2287,6 +2288,24 @@ impl HostEvents for UiEvents {
         });
     }
 
+    /// Le plafond de l'encodeur trouvé par la session : gardé pour
+    /// l'ordinateur (`Computer::encoder_max`, `computers.json`) et donné aux
+    /// sessions suivantes. Pas pour un invité : l'image est celle de l'hôte.
+    fn encoder_ceiling(&self, mbps: u32) {
+        if self.guest.is_some() || mbps == 0 {
+            return;
+        }
+        let state = self.app.state::<UiState>();
+        state.with_store(|s| {
+            let Some(c) = s.get_mut(&self.id) else { return };
+            if c.encoder_max != Some(mbps) {
+                log::info!("[{}] plafond de l'encodeur gardé : {mbps} Mbit/s par écran (avant : {:?})", self.connexion.name, c.encoder_max);
+                c.encoder_max = Some(mbps);
+                s.save();
+            }
+        });
+    }
+
     fn share_image(&self, image: &ShareImage, _previous: Option<&ShareImage>, notice: Option<&str>) {
         let Some(g) = &self.guest else { return };
         let view = crate::sharing::ImageView::from(image);
@@ -2736,6 +2755,7 @@ fn session_plan(
         lighten,
         auto: c.auto.clone(),
         fixed: !s.adaptive,
+        encoder_max: c.encoder_max,
     };
     let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.

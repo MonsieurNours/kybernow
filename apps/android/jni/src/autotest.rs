@@ -76,6 +76,13 @@ pub fn settings_json(result_json: &str, hdr: bool, wired: bool) -> Option<String
     result(result_json).map(|r| r.settings(hdr, wired).to_json().to_string())
 }
 
+/// Le plafond de l'encodeur à garder pour l'ordinateur quand ce résultat est
+/// appliqué (« Appliquer » à la fin d'un test : `AutoResult::next_encoder_max`),
+/// d'après celui qu'il avait (`previous`) ; un résultat illisible le laisse.
+pub fn next_encoder_max(result_json: &str, previous: Option<u32>) -> Option<u32> {
+    result(result_json).map_or(previous, |r| r.next_encoder_max(previous))
+}
+
 /// Le test a-t-il été fait sur ce réseau (`relay` par le relais) ? Un
 /// résultat illisible compte comme fait ailleurs.
 pub fn same_network(result_json: &str, network: Option<&str>) -> bool {
@@ -89,7 +96,7 @@ mod android {
     use std::time::{Duration, Instant};
 
     use jni::objects::{JClass, JObject, JString, JValue};
-    use jni::sys::{jboolean, jlong, jstring, JNI_FALSE};
+    use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE};
     use ndk::hardware_buffer::HardwareBufferUsage;
     use ndk::media::image_reader::{AcquireResult, ImageFormat, ImageReader};
     use ndk::media::media_codec::{DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection};
@@ -219,6 +226,14 @@ mod android {
             Some(s) => give(&mut env, &s),
             None => std::ptr::null_mut(),
         }
+    }
+
+    /// « Appliquer » : le plafond de l'encodeur à garder (Mbit/s par écran, 0 : aucun), d'après celui gardé (`previous`, 0 : aucun).
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestEncoderMax(mut env: Env, _: JClass, result: JString, previous: jint) -> jint {
+        let r = string(&mut env, &result);
+        let previous = u32::try_from(previous).ok().filter(|&p| p > 0);
+        super::next_encoder_max(&r, previous).map_or(0, |n| n.min(i32::MAX as u32) as jint)
     }
 
     /// Le test a-t-il été fait sur ce réseau (`network` : celui du moment, `relay` par le relais) ?
@@ -403,7 +418,7 @@ mod android {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kybernow_core::autotest::{Link, Measures};
+    use kybernow_core::autotest::{EncoderMeasure, Link, Measures};
 
     #[test]
     fn appareil_lu() {
@@ -424,7 +439,7 @@ mod tests {
 
     fn resultat(network: Option<&str>) -> AutoResult {
         let device = device_from_json(r#"{"screen":{"width":3840,"height":2160,"refresh":60},"caps":{"hevc":true}}"#).unwrap();
-        let measures = Measures { link: Link::Wifi, latency: None, bandwidth: None, decode: Vec::new() };
+        let measures = Measures { link: Link::Wifi, latency: None, bandwidth: None, decode: Vec::new(), encoder: None };
         kybernow_core::autotest::decide(&measures, &Device { network: network.map(str::to_string), ..device }, &Default::default(), 1_700_000_000)
     }
 
@@ -450,5 +465,37 @@ mod tests {
         assert!(choices_json("illisible", Lang::Fr).is_none());
         let cancelled: Value = serde_json::from_str(&done_json(&Err(AutoError::Cancelled), Lang::Fr, "Bureau")).unwrap();
         assert_eq!(cancelled["cancelled"], true);
+    }
+
+    #[test]
+    fn plafond_encodeur_applique() {
+        let mesure = |mbps, limited| EncoderMeasure {
+            codec: kybernow_core::profile::Codec::Hevc,
+            yuv444: false,
+            width: 3840,
+            height: 2160,
+            refresh: 60,
+            mbps,
+            limited,
+        };
+        let avec = |encoder: Option<EncoderMeasure>| {
+            let device = device_from_json(r#"{"screen":{"width":3840,"height":2160,"refresh":60},"caps":{"hevc":true}}"#).unwrap();
+            let measures = Measures { link: Link::Cable, latency: None, bandwidth: None, decode: Vec::new(), encoder };
+            serde_json::to_string(&kybernow_core::autotest::decide(&measures, &device, &Default::default(), 1_700_000_000)).unwrap()
+        };
+        // Limite trouvée : elle remplace celle gardée.
+        let limite = avec(Some(mesure(200, true)));
+        assert_eq!(next_encoder_max(&limite, None), Some(200));
+        assert_eq!(next_encoder_max(&limite, Some(150)), Some(200));
+        let settings: Value = serde_json::from_str(&settings_json(&limite, false, true).unwrap()).unwrap();
+        assert_eq!(settings["encoder_max"], 200);
+        // Accepté du premier coup au-dessus du plafond gardé : il est retiré ; en dessous, il reste.
+        let ok = avec(Some(mesure(300, false)));
+        assert_eq!(next_encoder_max(&ok, Some(250)), None);
+        assert_eq!(next_encoder_max(&ok, Some(350)), Some(350));
+        // Étape sautée (Station ancienne, PyroWave) ou résultat illisible : le plafond gardé reste.
+        assert_eq!(next_encoder_max(&avec(None), Some(250)), Some(250));
+        assert_eq!(next_encoder_max("illisible", Some(250)), Some(250));
+        assert_eq!(next_encoder_max("illisible", None), None);
     }
 }

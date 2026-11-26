@@ -7,8 +7,8 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## 0.11.3
 
 - **Auto profile: the Mac, iPhone, iPad and Apple TV apps no longer stop at “Decoding on this device”.** The app closed at that step, after the connection, latency and bitrate. The test now runs to the end.
-- **HEVC, AV1 and H.264 at most 290 Mbit/s per screen.** The Auto profile (and Max at a high refresh rate) could ask for nearly 600 Mbit/s, more than the computer's graphics card accepts: the picture didn't start. PyroWave is not affected.
-- **No more endless “Reconnecting” when the computer refuses the picture.** A picture refused right from the start (the Auto profile could ask for HEVC at nearly 600 Mbit/s in 4K at 160 Hz) restarted the stream at the same bitrate, forever. The stream is now lightened (lower bitrate, then 4:2:0); if it is still refused, the session stops with a message instead of looping.
+- **The bitrate the computer's graphics card accepts, found and remembered.** The Auto profile (and Max at a high refresh rate) could ask for nearly 600 Mbit/s, more than the card accepts: the picture didn't start. The Auto test has a fifth step, “The computer's encoder”: the Station tries its encoder at the chosen bitrate, then 50 Mbit/s less at each refusal. And when the computer refuses the picture at the start, the session steps down by itself, 50 Mbit/s at a time. The bitrate that works is remembered for this computer, for all its profiles. Trying the encoder needs an up-to-date Station; PyroWave is not affected.
+- **No more endless “Reconnecting” when the computer refuses the picture.** A picture refused right from the start (the Auto profile could ask for HEVC at nearly 600 Mbit/s in 4K at 160 Hz) restarted the stream at the same bitrate, forever. The bitrate now steps down, then the stream is lightened (4:2:0); if it is still refused, the session stops with a message instead of looping.
 - **Auto profile: PyroWave measured.** The test's PyroWave samples were unreadable: no device could decode them, and the test never suggested PyroWave. They are rebuilt.
 
 ## 0.11.2

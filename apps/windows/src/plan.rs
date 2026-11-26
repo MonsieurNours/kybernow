@@ -28,6 +28,10 @@ pub struct Choices {
     /// « Débit adaptatif » coupé (carte « Débit ») : le débit reste fixe.
     /// Hors du profil, il ne rend pas « Personnalisé ».
     pub fixed: bool,
+    /// Plafond de l'encodeur gardé pour cet ordinateur (`Computer::encoder_max`),
+    /// en Mbit/s par écran, quel que soit le profil ; sans lui, aucun (même
+    /// pour Auto : le plafond gardé passe avant celui du résultat).
+    pub encoder_max: Option<u32>,
 }
 
 /// Les réglages d'un profil sur ce PC : ceux du test pour Auto
@@ -115,13 +119,15 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
         settings.mbps = c.mbps.unwrap_or(profile_mbps);
     }
     settings.adaptive = !c.fixed;
+    // Hors du profil : il ne rend pas « Personnalisé ».
+    settings.encoder_max = c.encoder_max.filter(|&n| n > 0);
     (settings, mode)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kybernow_core::autotest::{Link, Measures, Reason, Reasons};
+    use kybernow_core::autotest::{EncoderMeasure, Link, Measures, Reason, Reasons};
 
     fn caps() -> Capabilities {
         Capabilities { hevc: true, hevc444: true, av1: true, hdr: true, pyrowave: true }
@@ -135,7 +141,7 @@ mod tests {
         AutoResult {
             at: 1_790_000_000,
             network: Some("Ethernet".into()),
-            measures: Measures { link: Link::Cable, latency: None, bandwidth: None, decode: Vec::new() },
+            measures: Measures { link: Link::Cable, latency: None, bandwidth: None, decode: Vec::new(), encoder: None },
             codec,
             yuv444: true,
             width: 2560,
@@ -194,5 +200,25 @@ mod tests {
         assert_eq!((s.profile, s.mbps, s.adaptive), (None, 80, false));
         let (s, _) = plan(&Choices { profile: Some(Profile::Jeu), mbps: Some(80), ..Default::default() }, caps(), screen());
         assert!(s.adaptive);
+    }
+
+    #[test]
+    fn plafond_de_l_encodeur_garde() {
+        // Quel que soit le profil, sans le rendre « Personnalisé ».
+        let (s, _) = plan(&Choices { profile: Some(Profile::Jeu), encoder_max: Some(150), ..Default::default() }, caps(), screen());
+        assert_eq!((s.profile, s.encoder_max), (Some(Profile::Jeu), Some(150)));
+        assert_eq!(s.to_json()["encoder_max"], 150);
+        // Sans plafond gardé : aucun ; zéro compte comme aucun.
+        let (s, _) = plan(&Choices { profile: Some(Profile::Bureau), ..Default::default() }, caps(), screen());
+        assert_eq!(s.encoder_max, None);
+        let (s, _) = plan(&Choices { profile: Some(Profile::Bureau), encoder_max: Some(0), ..Default::default() }, caps(), screen());
+        assert_eq!(s.encoder_max, None);
+        // Auto : le plafond gardé passe avant celui du résultat (une session
+        // a pu redescendre depuis le test).
+        let mut r = result(Codec::Hevc);
+        r.measures.encoder = Some(EncoderMeasure { codec: Codec::Hevc, yuv444: true, width: 2560, height: 1440, refresh: 120, mbps: 200, limited: true });
+        let c = Choices { profile: Some(Profile::Auto), auto: Some(r.clone()), encoder_max: Some(r.next_encoder_max(None).unwrap() - 50), ..Default::default() };
+        let (s, _) = plan(&c, caps(), screen());
+        assert_eq!((s.profile, s.encoder_max), (Some(Profile::Auto), Some(150)));
     }
 }

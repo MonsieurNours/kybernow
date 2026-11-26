@@ -397,6 +397,12 @@ function autoSteps(at: number): AutoStep[] {
       old,
     ],
     ['decode', fr() ? 'Décodage de cet appareil' : 'Decoding on this device', fr() ? 'HEVC 4K : 240 i/s · AV1 4K : 120 i/s' : 'HEVC 4K: 240 fps · AV1 4K: 120 fps', false],
+    [
+      'encoder',
+      fr() ? "Encodeur de l'ordinateur" : "The computer's encoder",
+      old ? (fr() ? 'Mettez à jour BUREAU-SALON pour essayer son encodeur.' : 'Update BUREAU-SALON to try its encoder.') : fr() ? "jusqu'à 250 Mbit/s en HEVC" : 'up to 250 Mbit/s in HEVC',
+      old,
+    ],
   ]
   return all.map(([step, title, text, skipped], i) =>
     i < at ? { step, title, state: skipped ? 'skipped' : 'done', text } : i === at ? { step, title, state: 'running' } : { step, title, state: 'waiting' },
@@ -1336,12 +1342,13 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     emitComputers()
     return 'applied'
   },
-  // Le test imité : les quatre étapes en 4 s, « Annuler » l'arrête.
+  // Le test imité : les cinq étapes en 5 s, « Annuler » l'arrête.
   autotest_run: async (a) => {
     autoCancelled = false
-    for (let i = 0; i <= 4; i++) {
+    const count = autoSteps(0).length
+    for (let i = 0; i <= count; i++) {
       emit('autotest-progress', { id: a.id, progress: { steps: autoSteps(i) } })
-      if (i === 4) break
+      if (i === count) break
       await sleep(i === 3 ? 1500 : 800)
       if (autoCancelled) return { result: null, choices: [], error: null, cancelled: true }
       if (autoFlag === 'echec' && i === 0) {

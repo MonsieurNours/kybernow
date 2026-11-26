@@ -1,5 +1,5 @@
-//! Le panneau du test du profil Auto (docs/link-ui.md, « Panneau du test ») : « Profil Auto », sa phrase, les quatre
-//! étapes (en attente, en cours avec une roue, cochée avec sa mesure, passée avec sa raison) et « Annuler » ; puis
+//! Le panneau du test du profil Auto (docs/link-ui.md, « Panneau du test ») : « Profil Auto », sa phrase, les étapes
+//! du cœur (en attente, en cours avec une roue, cochée avec sa mesure, passée avec sa raison) et « Annuler » ; puis
 //! « Réglages proposés » (une ligne par réglage : valeur, raison), « Appliquer », « Annuler », « Refaire le test » ;
 //! ou l'échec et « Réessayer ». Tout se fait à la croix et OK ; Retour vaut « Annuler ».
 
@@ -35,10 +35,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     // Les étapes : en colonne à gauche (seule pendant le test).
     let done = matches!(a.phase, AutoPhase::Done { .. });
     let sw = if done { 700.0 } else { 1100.0 };
+    // Cinq étapes (le cœur en donne la liste) : un peu plus serrées que quatre, les boutons restent au-dessus des
+    // aides.
+    let pitch = if a.steps.len() > 4 { 100.0 } else { 112.0 };
     let mut y = 316.0;
     for step in &a.steps {
-        step_row(cv, x0, y, sw, step);
-        y += 112.0;
+        step_row(cv, x0, y, sw, pitch - 16.0, step);
+        y += pitch;
     }
 
     match &a.phase {
@@ -84,8 +87,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
 }
 
 /// Une étape : son état à gauche (cercle vide, roue, coche, flèche passée), son titre, sa mesure ou sa raison dessous.
-fn step_row(cv: &mut Canvas, x: f32, y: f32, w: f32, step: &autotest::Step) {
-    let h = 96.0;
+fn step_row(cv: &mut Canvas, x: f32, y: f32, w: f32, h: f32, step: &autotest::Step) {
     let running = step.state == StepState::Running;
     cv.rrect(x, y, w, h, 18.0, if running { Rgba(30, 28, 56, 255) } else { PANEL });
     cv.rrect_stroke(x, y, w, h, 18.0, if running { 1.5 } else { 1.0 }, if running { SPECTRE } else { LINE });
@@ -119,11 +121,11 @@ fn step_row(cv: &mut Canvas, x: f32, y: f32, w: f32, step: &autotest::Step) {
     let title_color = if step.state == StepState::Waiting { FROST_3 } else { FROST };
     match sub {
         Some(s) => {
-            cv.text_fit(tx, y + 42.0, Text::new(Font::Semibold, 26.0, title_color), &step.title, w - 130.0);
-            cv.text_fit(tx, y + 76.0, Text::new(Font::Mono, 19.0, sub_color), s, w - 130.0);
+            cv.text_fit(tx, y + h / 2.0 - 6.0, Text::new(Font::Semibold, 26.0, title_color), &step.title, w - 130.0);
+            cv.text_fit(tx, y + h / 2.0 + 28.0, Text::new(Font::Mono, 19.0, sub_color), s, w - 130.0);
         }
         None => {
-            cv.text_fit(tx, y + 58.0, Text::new(Font::Semibold, 26.0, title_color), &step.title, w - 130.0);
+            cv.text_fit(tx, y + h / 2.0 + 10.0, Text::new(Font::Semibold, 26.0, title_color), &step.title, w - 130.0);
         }
     }
 }

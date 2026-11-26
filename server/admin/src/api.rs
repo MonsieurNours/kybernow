@@ -131,6 +131,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Test du profil Auto des apps (docs/profil-auto.md) : la rafale.
         .route("/api/stream/probe", get(crate::probe::stream_probe))
         .route("/api/stream/ping", get(crate::probe::ping))
+        // L'encodeur de l'ordinateur (docs/profil-auto.md) : accepte-t-il ce débit ?
+        .route("/api/stream/encoder", get(crate::encoder::stream_encoder))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
         .route("/api/stream/hdr", post(stream_hdr))
@@ -1008,6 +1010,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         "gamepads": gamepads,
         // PyroWave (docs/pyrowave.md) : `reason` dit pourquoi il n'est pas proposé.
         "pyrowave": pyrowave,
+        // L'encodeur se laisse essayer (`/api/stream/encoder`, docs/profil-auto.md).
+        "encoder_check": crate::encoder::available(&s.kyber_dir),
     })))
 }
 

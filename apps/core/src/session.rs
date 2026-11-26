@@ -466,6 +466,11 @@ pub enum Notice {
     /// [`PYROWAVE_STRAIN`] secondes. Bandeau « Le réseau sature » avec
     /// « Passer en HEVC » ; une fois par session, pour l'hôte seulement.
     PyroWaveStrained,
+    /// L'encodeur de l'ordinateur a refusé l'image au départ et le débit a
+    /// dû redescendre jusqu'à `mbps` (Mbit/s par écran) : l'app le garde
+    /// comme plafond de cet ordinateur (`StreamSettings::encoder_max`,
+    /// docs/profil-auto.md). Une fois par session, à la première image.
+    EncoderCeiling { mbps: u32 },
 }
 
 /// PyroWave : secondes chargées d'affilée avant [`Notice::PyroWaveStrained`].
@@ -1683,6 +1688,11 @@ struct Worker {
     /// Profil et règle de mode annoncés par le signal de vie (ils peuvent changer en session).
     profile_label: Arc<Mutex<(String, String)>>,
     last_retry: Option<Instant>,
+    /// Débit redescendu par écran (Mbit/s) après une image refusée au
+    /// départ (docs/profil-auto.md, « L'encodeur de l'ordinateur »).
+    encoder_step: Option<u32>,
+    /// `encoder_step` à dire à l'app dès la première image (`Notice::EncoderCeiling`).
+    ceiling_pending: bool,
     reconnected_at: Option<Instant>,
     restored_after_reconnect: bool,
     ending: bool,
@@ -1938,6 +1948,8 @@ impl Worker {
             wait_until: None,
             start_at: None,
             retries: 0,
+            encoder_step: None,
+            ceiling_pending: false,
             no_image: 0,
             last_restore: None,
             profile_label,
@@ -3582,17 +3594,14 @@ impl Worker {
     /// besoin), débit automatique, repli, plafond de l'app, dans cet ordre.
     fn target_bitrate(&self) -> TargetBitrate {
         let base = self.pyrowave_bitrate(self.profile_bitrate());
-        // HEVC, AV1, H.264 : au plus ce qu'un encodeur matériel accepte, par écran.
-        let base = if self.effective().codec == Codec::PyroWave {
-            base
-        } else {
-            base.min(encoder_cap(self.streams.len()))
-        };
+        let encoder_cap = self.encoder_cap();
+        let capped = encoder_cap.map_or(base, |c| base.min(c));
         let auto = self.auto_bitrate();
         let fallback_cap = if self.fallback >= 1 { self.params.recovery.fallback_bitrate } else { None };
         TargetBitrate::compute(TargetInputs {
             base,
-            adaptive: auto.then(|| self.adaptive.bitrate(base)),
+            adaptive: auto.then(|| self.adaptive.bitrate(capped)),
+            encoder_cap,
             fallback_cap,
             app_cap: self.bitrate_cap,
             manual: !self.params.settings.adaptive,
@@ -3601,6 +3610,36 @@ impl Worker {
                 && !self.visitor()
                 && self.effective().codec == Codec::PyroWave,
         })
+    }
+
+    /// Plafond de l'encodeur de l'ordinateur pour le flux en cours, en bit/s
+    /// (tous les écrans) : le plus bas du plafond gardé par l'app
+    /// (`StreamSettings::encoder_max`) et du débit redescendu pendant la
+    /// session. Jamais en PyroWave (ses propres plafonds).
+    fn encoder_cap(&self) -> Option<u32> {
+        if self.effective().codec == Codec::PyroWave {
+            return None;
+        }
+        let per_screen = match (self.params.settings.encoder_max, self.encoder_step) {
+            (Some(a), Some(b)) => a.min(b),
+            (a, b) => a.or(b)?,
+        };
+        Some(encoder_cap_of(per_screen, self.streams.len()))
+    }
+
+    /// Image refusée au départ : 50 Mbit/s de moins par écran, 50 au plus
+    /// bas (docs/profil-auto.md, « L'encodeur de l'ordinateur »). `None` :
+    /// déjà au plus bas, PyroWave, ou un invité sur l'image de l'hôte.
+    fn step_encoder_down(&mut self) -> Option<u32> {
+        if self.visitor() || self.effective().codec == Codec::PyroWave {
+            return None;
+        }
+        let screens = self.streams.len().max(1) as u32;
+        let now = TargetBitrate::mbps(self.effective_bitrate()) / screens;
+        let next = now.checked_sub(ENCODER_STEP_MBPS).filter(|&n| n >= ENCODER_STEP_MBPS)?;
+        self.encoder_step = Some(next);
+        self.ceiling_pending = true;
+        Some(next)
     }
 
     /// Le débit visé de la seconde, pour les Statistiques : seulement quand
@@ -3930,6 +3969,13 @@ impl Worker {
                     return Some(e);
                 }
             }
+            if self.ceiling_pending && self.streaming.is_some() && self.has_image.load(Ordering::Relaxed) {
+                self.ceiling_pending = false;
+                if let Some(mbps) = self.encoder_step {
+                    info!("plafond de l'encodeur trouvé : {mbps} Mbit/s par écran");
+                    self.notice(Notice::EncoderCeiling { mbps });
+                }
+            }
             if self.mute_check_at.is_some_and(|at| now >= at) {
                 self.mute_check_at = None;
                 self.check_muted();
@@ -4236,8 +4282,9 @@ impl Worker {
     }
 
     /// Erreur de la chaîne d'image (`kind` : son étage) : écran redemandé
-    /// juste après une reconnexion ; sans image encore sur ce flux, flux
-    /// allégé (`degrade`) ; sinon image relancée (3 fois au plus, le compte
+    /// juste après une reconnexion ; sans image encore sur ce flux, débit
+    /// redescendu de 50 Mbit/s (`step_encoder_down`), puis flux allégé
+    /// (`degrade`) ; sinon image relancée (3 fois au plus, le compte
     /// repart après 30 s sans relance).
     fn pipeline_failed(&mut self, kind: &str) -> Option<Failure> {
         warn!("{}", i18n::tr(Lang::Fr, "session.pipeline", &[("kind", kind)]));
@@ -4254,9 +4301,19 @@ impl Worker {
         }
         // Jamais d'image sur ce flux : l'encodeur de l'ordinateur le refuse
         // sans doute (HEVC à 593 Mbit/s en 4K 160 Hz, 0.11.2) ; relancé tel
-        // quel, il retombe aussitôt. On l'allège d'abord, comme sans image en 4 s.
-        if !self.has_image.load(Ordering::Relaxed) && self.degrade() {
-            return None;
+        // quel, il retombe aussitôt. Le débit redescend de 50 Mbit/s par
+        // écran, puis le flux est allégé comme sans image en 4 s.
+        if !self.has_image.load(Ordering::Relaxed) {
+            if let Some(mbps) = self.step_encoder_down() {
+                warn!("image refusée au départ : débit ramené à {mbps} Mbit/s par écran");
+                self.last_retry = Some(Instant::now());
+                self.relaunched = true;
+                self.restart_streaming(Duration::from_secs(1));
+                return None;
+            }
+            if self.degrade() {
+                return None;
+            }
         }
         if self.last_retry.is_some_and(|t| t.elapsed() > Duration::from_secs(30)) {
             self.retries = 0;
@@ -5103,21 +5160,24 @@ impl Worker {
     }
 }
 
-/// Plafond des formats matériels pour `streams` écrans, en bit/s
-/// ([`crate::profile::ENCODER_MAX_MBPS`] par écran : la Station partage le
-/// débit entre eux).
-fn encoder_cap(streams: usize) -> u32 {
-    crate::profile::ENCODER_MAX_MBPS.saturating_mul(streams.max(1) as u32).saturating_mul(1_000_000)
+/// Pas de la descente du débit quand l'encodeur refuse l'image, et débit
+/// le plus bas essayé (Mbit/s par écran).
+const ENCODER_STEP_MBPS: u32 = 50;
+
+/// Plafond de l'encodeur pour `streams` écrans, en bit/s (`per_screen` en
+/// Mbit/s : la Station partage le débit entre eux).
+fn encoder_cap_of(per_screen: u32, streams: usize) -> u32 {
+    per_screen.saturating_mul(streams.max(1) as u32).saturating_mul(1_000_000)
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn plafond_des_encodeurs_par_ecran() {
-        assert_eq!(super::encoder_cap(1), 290_000_000);
-        assert_eq!(super::encoder_cap(0), 290_000_000, "aucun flux compté : un écran");
-        assert_eq!(super::encoder_cap(3), 870_000_000);
-        assert_eq!(super::encoder_cap(100), u32::MAX, "sans débordement");
+        assert_eq!(super::encoder_cap_of(290, 1), 290_000_000);
+        assert_eq!(super::encoder_cap_of(290, 0), 290_000_000, "aucun flux compté : un écran");
+        assert_eq!(super::encoder_cap_of(290, 3), 870_000_000);
+        assert_eq!(super::encoder_cap_of(290, 100), u32::MAX, "sans débordement");
     }
 
     use super::*;

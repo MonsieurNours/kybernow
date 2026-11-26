@@ -8,7 +8,7 @@ fn device(screen: Mode, wired: bool) -> Device {
 }
 
 fn station(pyrowave: bool) -> Station {
-    Station { name: "PC".into(), pyrowave, pyrowave_max: Some(5000) }
+    Station { name: "PC".into(), pyrowave, pyrowave_max: Some(5000), encoder_check: true }
 }
 
 fn fast_decode() -> Vec<DecodeResult> {
@@ -26,6 +26,7 @@ fn measures(link: Link, mbps: Option<f64>, decode: Vec<DecodeResult>) -> Measure
         latency: Some(Latency { min: 1.0, median: 1.5, jitter: 0.5 }),
         bandwidth: mbps.map(|mbps| Bandwidth { mbps, loaded_delta: Some(2.0) }),
         decode,
+        encoder: None,
     }
 }
 
@@ -54,29 +55,54 @@ fn gigabit_ne_porte_pas_pyrowave_en_4k120() {
     }
     assert_eq!(r.codec, Codec::Hevc);
     assert_eq!((r.width, r.refresh), (3840, 120));
-    // HEVC : le budget (434 Mbit/s) passe le plafond d'un encodeur matériel,
-    // calé sur la 4K à 60 Hz.
-    assert_eq!(r.mode_mbps, crate::profile::ENCODER_MAX_MBPS);
-    assert_eq!(r.mbps, (f64::from(crate::profile::ENCODER_MAX_MBPS) / scale(UHD120)).round() as u32);
-    // 10 Gbit/s : le même plafond (sans PyroWave proposé).
+    // HEVC au débit du budget (sous celui de Max à ce mode), calé sur la 4K à 60 Hz.
+    assert!(f64::from(r.mode_mbps) < MAX_MBPS * scale(UHD120));
+    assert_eq!(r.mode_mbps, 434);
+    assert_eq!(r.mbps, (434.0 / scale(UHD120)).round() as u32);
+    assert_eq!(r.reasons.bitrate, Reason::Measured);
+    // 10 Gbit/s : plafonné au débit de Max (sans PyroWave proposé).
     let r = decide(&measures(Link::Cable, Some(9400.0), fast_decode()), &device(UHD120, true), &station(false), 1);
-    assert_eq!(r.mode_mbps, crate::profile::ENCODER_MAX_MBPS);
+    assert_eq!(r.mode_mbps, (MAX_MBPS * scale(UHD120)).round() as u32);
+    assert_eq!(r.mbps, 300, "celui de Max");
 }
 
 #[test]
-fn hevc_plafonne_a_ce_qu_un_encodeur_accepte() {
+fn debit_borne_par_l_encodeur_de_l_ordinateur() {
     // Le cas du 26/11/2026 : câble, 1294 Mbit/s mesurés, écran 4K à 160 Hz,
     // PyroWave plafonné à 600 par la Station (ne porte pas la 4K160) : HEVC
-    // demandait 593 Mbit/s, refusé par NVENC à chaque départ.
-    let st = Station { name: "PC".into(), pyrowave: true, pyrowave_max: Some(600) };
+    // à 593 Mbit/s, refusé par NVENC ; la sonde a trouvé 443.
+    let st = Station { name: "PC".into(), pyrowave: true, pyrowave_max: Some(600), encoder_check: true };
     let uhd160 = Mode { width: 3840, height: 2160, refresh: 160 };
-    let r = decide(&measures(Link::Cable, Some(1294.0), fast_decode()), &device(uhd160, true), &st, 1);
-    assert_eq!(r.codec, Codec::Hevc);
-    assert_eq!(r.mode_mbps, crate::profile::ENCODER_MAX_MBPS);
-    assert!(f64::from(r.mbps) * scale(uhd160) <= f64::from(crate::profile::ENCODER_MAX_MBPS) + 1.0);
-    // Sous le plafond, le budget mesuré reste pris tel quel.
-    let r = decide(&measures(Link::Wifi, Some(200.0), fast_decode()), &device(uhd160, false), &st, 1);
-    assert!(r.mode_mbps < crate::profile::ENCODER_MAX_MBPS);
+    let mut m = measures(Link::Cable, Some(1294.0), fast_decode());
+    let r = decide(&m, &device(uhd160, true), &st, 1);
+    assert_eq!((r.codec, r.mode_mbps, r.reasons.bitrate), (Codec::Hevc, 597, Reason::Measured));
+    let encoder = EncoderMeasure { codec: Codec::Hevc, yuv444: r.yuv444, width: 3840, height: 2160, refresh: 160, mbps: 447, limited: true };
+    m.encoder = Some(encoder);
+    let r = decide(&m, &device(uhd160, true), &st, 1);
+    assert_eq!((r.mode_mbps, r.reasons.bitrate), (447, Reason::EncoderLimited));
+    assert_eq!(r.encoder_max(), Some(447));
+    assert_eq!(r.settings(false, true).encoder_max, Some(447));
+    let bitrate = r.choices(Lang::Fr).into_iter().find(|c| c.key == "bitrate").unwrap();
+    assert_eq!((bitrate.value.as_str(), bitrate.reason.as_str()), ("447 Mbit/s", "PC encode jusqu'à 447 Mbit/s"));
+    // Accepté du premier coup : pas de plafond trouvé, un plafond gardé plus bas est retiré.
+    m.encoder = Some(EncoderMeasure { mbps: 597, limited: false, ..encoder });
+    let r = decide(&m, &device(uhd160, true), &st, 1);
+    assert_eq!((r.mode_mbps, r.reasons.bitrate), (597, Reason::Measured));
+    assert_eq!((r.encoder_max(), r.encoder_ok()), (None, Some(597)));
+    assert_eq!(r.next_encoder_max(Some(440)), None, "440 gardé, 597 accepté : retiré");
+    assert_eq!(r.next_encoder_max(Some(700)), Some(700));
+    assert_eq!(r.next_encoder_max(None), None);
+    // Une mesure à un autre mode ne borne rien.
+    m.encoder = Some(EncoderMeasure { refresh: 60, ..encoder });
+    assert_eq!(decide(&m, &device(uhd160, true), &st, 1).mode_mbps, 597);
+}
+
+#[test]
+fn descente_de_la_sonde() {
+    assert_eq!(next_step(593), Some(543));
+    assert_eq!(next_step(93), Some(50), "50 au plus bas");
+    assert_eq!(next_step(50), None);
+    assert_eq!(next_step(30), None);
 }
 
 #[test]

@@ -270,6 +270,11 @@ struct ConnectionSettings: Codable, Hashable {
     /// Le résultat du test du profil Auto pour cet ordinateur (`AutoResult` du
     /// cœur en JSON), gardé à « Appliquer » ; nil : jamais testé.
     var autoResult: String?
+    /// Plafond de l'encodeur de cet ordinateur, en Mbit/s par écran
+    /// (docs/profil-auto.md, « L'encodeur de l'ordinateur ») : trouvé par le
+    /// test Auto ou par une session qui a dû redescendre ; la session ne
+    /// demande jamais plus. À part du profil ; nil : aucun connu.
+    var encoderMax: Int?
 
     /// Le résultat gardé du test du profil Auto, lu.
     var auto: AutoTestResult? { autoResult.flatMap(AutoTestResult.init(json:)) }
@@ -313,6 +318,9 @@ struct ConnectionSettings: Codable, Hashable {
     /// (« Comme cet écran » quand le test a gardé celles de l'écran, sinon
     /// une définition sur mesure). Le résultat est gardé pour cet ordinateur.
     mutating func apply(auto r: AutoTestResult) {
+        // Un nouveau résultat seulement : le plafond trouvé par une session
+        // après le test est plus récent que le résultat gardé.
+        if r.json != autoResult { encoderMax = r.nextEncoderMax(previous: encoderMax) }
         autoResult = r.json
         profile = .auto
         let s = r.settings(wired: NetworkLink.shared.wired)
@@ -417,7 +425,7 @@ extension ConnectionSettings {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, immersive, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics, hdr
-        case adaptive, autoResult
+        case adaptive, autoResult, encoderMax
     }
 
     init(from decoder: Decoder) throws {
@@ -451,6 +459,7 @@ extension ConnectionSettings {
         hdr = (try? c.decodeIfPresent(Bool.self, forKey: .hdr)) ?? hdr
         adaptive = (try? c.decodeIfPresent(Bool.self, forKey: .adaptive)) ?? adaptive
         autoResult = try? c.decodeIfPresent(String.self, forKey: .autoResult)
+        encoderMax = (try? c.decodeIfPresent(Int.self, forKey: .encoderMax)).flatMap { $0 > 0 ? $0 : nil }
         // Auto sans test lisible (résultat perdu) : Personnalisé, réglages gardés.
         if profile == .auto, auto == nil { profile = nil }
     }

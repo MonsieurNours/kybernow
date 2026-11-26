@@ -162,7 +162,16 @@ public struct AutoTestResult: Sendable, Equatable {
         return SessionEngine.Settings(profile: j["profile"] as? String, codec: codec, yuv444: j["yuv444"] as? Bool ?? false,
                                       mbps: j["mbps"] as? Int ?? mbps, reliable: j["reliable"] as? Bool ?? false,
                                       hdr: j["hdr"] as? Bool ?? hdr, wired: j["wired"] as? Bool ?? wired,
-                                      adaptive: j["adaptive"] as? Bool ?? true)
+                                      adaptive: j["adaptive"] as? Bool ?? true, encoderMax: j["encoder_max"] as? Int)
+    }
+
+    /// Le plafond de l'encodeur à garder pour cet ordinateur quand ce
+    /// résultat est appliqué (`AutoResult::next_encoder_max` du cœur), d'après
+    /// celui qu'il avait : la limite trouvée par le test ; sinon un plafond
+    /// gardé plus bas que le débit accepté du premier coup est retiré.
+    public func nextEncoderMax(previous: Int?) -> Int? {
+        let n = kn_autotest_next_encoder_max(json, UInt32(max(0, previous ?? 0)))
+        return n > 0 ? Int(n) : nil
     }
 
     /// Le test a-t-il été fait sur ce réseau ? (`CurrentNetwork.name`, `relay`

@@ -23,13 +23,6 @@ pub const PYROWAVE_KYBER: bool = cfg!(feature = "pyrowave");
 /// docs/link-ui.md) ; 4:4:4 : moitié plus. Provisoire, à régler sur des
 /// flux de la Station ; le plafond de l'ordinateur passe avant.
 pub const PYROWAVE_MBPS: u32 = 800;
-/// Débit au plus d'un encodeur matériel (HEVC, AV1, H.264), par écran, en
-/// Mbit/s. NVENC d'une RTX 3080 Ti refusait HEVC 4:2:0 à 593 Mbit/s (4K
-/// 160 Hz, profil Auto de la 0.11.2 : « erreur de la chaîne d'image » à
-/// chaque départ) et tenait 300 ; les limites des autres cartes ne sont pas
-/// connues : une image refusée malgré ce plafond est allégée par le repli
-/// de la session. PyroWave a les siens ([`crate::pyrowave::ceiling`]).
-pub const ENCODER_MAX_MBPS: u32 = 290;
 pub const PYROWAVE_MBPS_444: u32 = 1200;
 
 impl Codec {
@@ -188,6 +181,10 @@ pub struct SettingsJson {
     /// « Débit adaptatif » (absent : oui).
     #[serde(default = "yes")]
     pub adaptive: bool,
+    /// Plafond de l'encodeur de l'ordinateur, en Mbit/s par écran (absent :
+    /// aucun connu).
+    #[serde(default)]
+    pub encoder_max: Option<u32>,
 }
 
 fn yes() -> bool {
@@ -206,6 +203,7 @@ impl SettingsJson {
             hdr: self.hdr,
             wired: self.wired,
             adaptive: self.adaptive,
+            encoder_max: self.encoder_max.filter(|&n| n > 0),
         })
     }
 }
@@ -233,6 +231,13 @@ pub struct StreamSettings {
     /// réseau sature, puis remonte ; pour un profil comme pour un débit
     /// réglé à la main. Coupé, le débit ne bouge jamais.
     pub adaptive: bool,
+    /// Plafond de l'encodeur de l'ordinateur (docs/profil-auto.md,
+    /// « L'encodeur de l'ordinateur »), en Mbit/s par écran : le débit le
+    /// plus haut que son encodeur a accepté, gardé par l'app pour cet
+    /// ordinateur (test Auto, ou session qui a dû redescendre). La session
+    /// ne demande jamais plus en HEVC, AV1 et H.264, quel que soit le
+    /// réglage ; hors du profil (jamais « Personnalisé »). `None` : aucun connu.
+    pub encoder_max: Option<u32>,
 }
 
 impl StreamSettings {
@@ -261,13 +266,15 @@ impl StreamSettings {
             hdr: false,
             wired: false,
             adaptive: true,
+            encoder_max: None,
         }
     }
 
     /// Réglages en JSON, comme les donnent les ponts des apps (C, JNI) :
     /// `profile` (`jeu`, `bureau`, `max` ; absent : personnalisé), `codec`
     /// (`h264`, `hevc`, `av1`, `pyrowave`), `yuv444`, `mbps`, `reliable`,
-    /// `hdr`, `wired`, `adaptive` (absent : oui).
+    /// `hdr`, `wired`, `adaptive` (absent : oui), `encoder_max` (Mbit/s par
+    /// écran ; absent ou nul : aucun plafond connu).
     pub fn from_json(json: &str) -> Result<Self, String> {
         let wire: SettingsJson = serde_json::from_str(json).map_err(|e| e.to_string())?;
         wire.settings()
@@ -285,6 +292,7 @@ impl StreamSettings {
             "hdr": self.hdr,
             "wired": self.wired,
             "adaptive": self.adaptive,
+            "encoder_max": self.encoder_max,
         })
     }
 

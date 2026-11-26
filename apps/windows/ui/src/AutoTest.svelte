@@ -1,7 +1,7 @@
 <!--
   Le panneau du test du profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif » ; contrat :
   docs/profil-auto.md). Il s'ouvre en choisissant Auto sans test gardé, ou par « Refaire le test » ; le test
-  part tout de suite (`autotest_run`, une dizaine de secondes) et montre ses quatre étapes au fil des
+  part tout de suite (`autotest_run`, une dizaine de secondes) et montre ses étapes (cinq) au fil des
   `autotest-progress` du cœur : en attente, en cours (roue), cochée avec sa mesure, passée avec sa raison.
   « Annuler » arrête le test et garde le profil d'avant. À la fin, « Réglages proposés » (une ligne par
   choix : titre, valeur, raison), « Appliquer » (Auto devient le profil de cet ordinateur avec ces

@@ -210,6 +210,10 @@ pub struct Info {
     /// Voir [`Info::gamepads_available`].
     #[serde(default)]
     pub gamepads: Option<GamepadsInfo>,
+    /// La Station sait essayer son encodeur (`GET /api/stream/encoder`,
+    /// docs/profil-auto.md, « L'encodeur de l'ordinateur ») ; absent : non.
+    #[serde(default)]
+    pub encoder_check: bool,
 }
 
 impl Info {
@@ -223,6 +227,37 @@ impl Info {
     pub fn gamepads_available(&self) -> bool {
         self.gamepads.as_ref().is_none_or(|g| g.available)
     }
+}
+
+/// Ce que [`Console::encoder_check`] demande à la Station : un écran, son
+/// format et son débit (Mbit/s).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EncoderQuery {
+    pub codec: crate::profile::Codec,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub mbps: u32,
+    pub yuv444: bool,
+    pub hdr: bool,
+}
+
+/// La réponse de la sonde de l'encodeur.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EncoderAnswer {
+    Accepted,
+    /// L'encodeur refuse (son message).
+    Refused(String),
+    /// La Station n'a pas pu essayer (outil absent, sonde occupée).
+    Unknown(String),
+}
+
+#[derive(Deserialize)]
+struct EncoderReply {
+    #[serde(default)]
+    ok: Option<bool>,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 /// `gamepads` de `GET /api/stream/info`.
@@ -998,6 +1033,35 @@ impl Console {
             Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
         })?;
         Ok(r.map(|resp| resp.into_reader()))
+    }
+
+    /// `GET /api/stream/encoder?…` (docs/profil-auto.md, « L'encodeur de
+    /// l'ordinateur ») : l'encodeur de la Station accepte-t-il ce format à ce
+    /// débit ? `Ok(None)` : Station d'avant (404).
+    pub fn encoder_check(&self, q: &EncoderQuery) -> Result<Option<EncoderAnswer>> {
+        let path = format!(
+            "api/stream/encoder?codec={}&width={}&height={}&fps={}&mbps={}&yuv444={}&hdr={}",
+            q.codec.key(),
+            q.width,
+            q.height,
+            q.fps,
+            q.mbps,
+            u8::from(q.yuv444),
+            u8::from(q.hdr)
+        );
+        self.with_fresh_token(|| match self.request("GET", &path, Duration::from_secs(15)).call() {
+            Ok(resp) => {
+                let body: EncoderReply = resp.into_json().map_err(|e| ConsoleError::Invalid(e.to_string()))?;
+                Ok(Some(match body.ok {
+                    Some(true) => EncoderAnswer::Accepted,
+                    Some(false) => EncoderAnswer::Refused(body.error.unwrap_or_default()),
+                    None => EncoderAnswer::Unknown(body.error.unwrap_or_default()),
+                }))
+            }
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(ureq::Error::Status(429, _)) => Ok(Some(EncoderAnswer::Unknown("busy".into()))),
+            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+        })
     }
 
     pub fn info(&self) -> Result<Info> {

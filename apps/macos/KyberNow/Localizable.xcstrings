@@ -273,6 +273,22 @@
         }
       }
     },
+    "Encodeur de l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer's encoder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encodeur de l'ordinateur"
+          }
+        }
+      }
+    },
     "Envoyer" : {
       "localizations" : {
         "en" : {

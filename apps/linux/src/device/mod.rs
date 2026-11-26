@@ -163,6 +163,9 @@ pub enum SessionEvent {
     /// PyroWave : le réseau sature (`Notice::PyroWaveStrained`, une fois par session) : le bandeau « Le réseau
     /// sature » avec « Passer en HEVC ».
     PyroWaveStrained,
+    /// L'encodeur de l'ordinateur a refusé l'image au départ (`Notice::EncoderCeiling`) : le débit (Mbit/s par écran)
+    /// où la session a dû redescendre, gardé comme plafond de cet ordinateur.
+    EncoderCeiling(u32),
     /// Le pointeur de l'ordinateur sur l'écran `screen` de l'appareil (multi-écrans :
     /// une couche par écran ; la forme est celle de l'écran où il se trouve).
     Pointer { screen: usize, position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
@@ -2879,7 +2882,17 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         Event::ShareHost { session, result } => app.share_reply(session, result),
         Event::StationReply { host, kind, result } => app.station_reply(&host, kind, result),
         Event::AutoProgress { attempt, steps } => app.autotest_progress(attempt, steps),
-        Event::AutoDone { attempt, result } => app.autotest_done(attempt, result),
+        Event::AutoDone { attempt, result } => {
+            // Le plafond de l'encodeur à garder si l'on applique ce résultat, d'après celui gardé maintenant
+            // (`AutoResult::next_encoder_max`) : le test ne tourne jamais pendant une session, rien ne le change d'ici
+            // « Appliquer ».
+            let result = result.map(|(choices, json)| {
+                let previous = app.autotest.as_ref().and_then(|p| app.store.host(&p.host)).and_then(|h| h.settings.encoder_max);
+                let encoder_max = serde_json::from_value::<kybernow_core::autotest::AutoResult>(json.clone()).ok().map_or(previous, |r| r.next_encoder_max(previous));
+                (choices, json, encoder_max)
+            });
+            app.autotest_done(attempt, result)
+        }
         Event::Woken { id, result } => {
             if let Err(e) = result {
                 if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
@@ -3129,6 +3142,11 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::PyroWaveStrained => {
             if let Some(s) = app.session_by_mut(id) {
                 s.pyrowave_strained();
+            }
+        }
+        SessionEvent::EncoderCeiling(mbps) => {
+            if app.encoder_ceiling(id, mbps) {
+                actions.push(Action::Save);
             }
         }
         SessionEvent::Notice(n) => {

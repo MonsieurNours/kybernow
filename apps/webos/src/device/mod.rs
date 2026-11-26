@@ -65,6 +65,8 @@ pub enum Event {
     /// `hdr` : le décodeur a mis la dalle en HDR pour cette image.
     Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String, hdr: bool, path: [Option<f64>; 6] },
     Notice(String),
+    /// La session a trouvé le plafond de l'encodeur de son ordinateur (Mbit/s par écran) : à garder.
+    EncoderCeiling(u32),
     Pointer { position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
     Rumble(GamepadRumble),
     Combo,
@@ -944,6 +946,12 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         Event::Notice(n) => {
             if let Some(s) = app.session.as_mut() {
                 s.notice = Some((n, Instant::now()));
+            }
+        }
+        Event::EncoderCeiling(mbps) => {
+            if app.encoder_ceiling(mbps) {
+                log::info!("session : plafond de l'encodeur gardé pour l'ordinateur, {mbps} Mbit/s par écran");
+                actions.push(Action::Save);
             }
         }
         Event::Pointer { position, hidden, shape } => {

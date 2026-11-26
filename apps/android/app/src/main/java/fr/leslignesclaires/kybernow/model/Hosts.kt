@@ -97,6 +97,13 @@ data class HostSettings(
     val adaptive: Boolean = true,
     /** Le dernier test du profil Auto appliqué pour cet ordinateur (`AutoResult` du cœur, JSON) ; nul : jamais fait. */
     val autoResult: String? = null,
+    /**
+     * Le plafond de l'encodeur de cet ordinateur (Mbit/s par écran ; docs/profil-auto.md, « L'encodeur de
+     * l'ordinateur ») : trouvé par le test d'Auto (« Appliquer ») ou par une session dont l'image a été refusée
+     * (`Notice::EncoderCeiling`) ; nul : aucun. La session ne demande jamais plus en HEVC, AV1 ou H.264. Hors du profil
+     * (jamais « Personnalisé ») et propre à cet appareil : jamais synchronisé.
+     */
+    val encoderMax: Int? = null,
 ) {
     val padSimple get() = padLayout == "simple"
 
@@ -131,6 +138,7 @@ data class HostSettings(
         .put("onScreenPad", onScreenPad).put("padLayout", padLayout).put("padSize", padSize)
         .put("padOpacity", padOpacity).put("padHaptics", padHaptics).put("hdr", hdr)
         .put("adaptive", adaptive).put("autoResult", autoResult ?: JSONObject.NULL)
+        .put("encoderMax", encoderMax ?: JSONObject.NULL)
 
     companion object {
         /** Les opacités proposées pour la manette à l'écran. */
@@ -169,6 +177,7 @@ data class HostSettings(
                 hdr = o.optBoolean("hdr", d.hdr),
                 adaptive = o.optBoolean("adaptive", d.adaptive),
                 autoResult = if (o.has("autoResult") && !o.isNull("autoResult")) o.optString("autoResult").takeIf { it.isNotEmpty() } else null,
+                encoderMax = if (o.isNull("encoderMax")) null else o.optInt("encoderMax", 0).takeIf { it > 0 },
             ).let { if (it.transport == "reliable" && it.profileReliable) it.copy(transport = "auto") else it }
         }
     }

@@ -8,8 +8,8 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 ## 0.11.3
 
 - **Profil Auto : l'app Mac, l'iPhone, l'iPad et l'Apple TV ne s'arrêtent plus au « Décodage de cet appareil ».** L'app se fermait à cette étape, après la liaison, la latence et le débit. Le test va maintenant jusqu'au bout.
-- **HEVC, AV1 et H.264 au plus à 290 Mbit/s par écran.** Le profil Auto (et Max à haute fréquence) pouvait demander près de 600 Mbit/s, plus que ce que la carte graphique de l'ordinateur accepte : l'image ne démarrait pas. PyroWave n'est pas concerné.
-- **Plus de « Reconnexion » sans fin quand l'ordinateur refuse l'image.** Une image refusée dès le départ (le profil Auto pouvait demander du HEVC à près de 600 Mbit/s en 4K à 160 Hz) relançait le flux au même débit, sans fin. Le flux est maintenant allégé (débit ramené, puis 4:2:0) ; s'il est encore refusé, la session s'arrête avec un message au lieu de boucler.
+- **Le débit que la carte graphique de l'ordinateur accepte, trouvé et retenu.** Le profil Auto (et Max à haute fréquence) pouvait demander près de 600 Mbit/s, plus que ce que la carte accepte : l'image ne démarrait pas. Le test Auto a une cinquième étape, « Encodeur de l'ordinateur » : la Station essaie son encodeur au débit choisi, puis 50 Mbit/s de moins à chaque refus. Et quand l'ordinateur refuse l'image au départ, la session redescend d'elle-même par paliers de 50 Mbit/s. Le débit qui passe est retenu pour cet ordinateur, pour tous ses profils. L'essai de l'encodeur demande une Station à jour ; PyroWave n'est pas concerné.
+- **Plus de « Reconnexion » sans fin quand l'ordinateur refuse l'image.** Une image refusée dès le départ (le profil Auto pouvait demander du HEVC à près de 600 Mbit/s en 4K à 160 Hz) relançait le flux au même débit, sans fin. Le débit redescend maintenant par paliers, puis le flux est allégé (4:2:0) ; s'il est encore refusé, la session s'arrête avec un message au lieu de boucler.
 - **Profil Auto : PyroWave mesuré.** Les extraits PyroWave du test étaient illisibles : aucun appareil ne pouvait les décoder, et PyroWave n'était jamais proposé par le test. Ils sont refaits.
 
 ## 0.11.2

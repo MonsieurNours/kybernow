@@ -182,14 +182,15 @@ impl SyncedValues {
     /// - le HDR reçu, tel quel (la session ne s'en sert que si l'écran et
     ///   l'ordinateur le permettent).
     ///
-    /// `reliable` et `wired` restent ceux de `base`.
+    /// `reliable`, `wired` et `encoder_max` (plafond de l'encodeur, propre à
+    /// cet appareil) restent ceux de `base`.
     pub fn apply_to(&self, base: &StreamSettings, caps: Capabilities) -> StreamSettings {
         let mut s = match self.profile() {
             // Auto : les réglages viennent du test de chaque appareil
             // (docs/profil-auto.md) ; reçu d'un autre appareil, on garde ceux
             // de cet appareil pour cet ordinateur.
             Some(Some(Profile::Auto)) => base.clone(),
-            Some(Some(p)) => StreamSettings { hdr: base.hdr, wired: base.wired, ..StreamSettings::for_profile(p, caps) },
+            Some(Some(p)) => StreamSettings { hdr: base.hdr, wired: base.wired, encoder_max: base.encoder_max, ..StreamSettings::for_profile(p, caps) },
             Some(None) => StreamSettings { profile: None, ..base.clone() },
             None => base.clone(),
         };
