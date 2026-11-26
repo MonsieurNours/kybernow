@@ -130,7 +130,7 @@ diff --git a/subprojects/txproto/src/kn_recovery.h b/subprojects/txproto/src/kn_
 new file mode 100644
 --- /dev/null
 +++ b/subprojects/txproto/src/kn_recovery.h
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,277 @@
 +/*
 + * KyberNow (0060): repair of a receiver's loss without a keyframe
 + * (docs/reprise-apres-perte.md).
@@ -153,7 +153,11 @@ new file mode 100644
 + * decoded up to that pts resumes on it; another one waits, and asks again.
 + *
 + * Several requests before the next image: the oldest pts wins (it repairs
-+ * every receiver of a shared image).
++ * every receiver of a shared image). The same loss may be reported twice:
++ * by the Station's feedback channel (kycontroller, FeedbackEvent::Lost) and
++ * by the application (POST /recover). A request that the last repair
++ * already meets (its pts at least that repair's bound, older than the
++ * repairing image) within KN_RECOVERY_SAME_US is ignored.
 + */
 +
 +#ifndef KN_RECOVERY_H
@@ -166,8 +170,10 @@ new file mode 100644
 +#include <libavcodec/avcodec.h>
 +#include <libavutil/mem.h>
 +#include <libavutil/opt.h>
++#include <libavutil/time.h>
 +
 +#define KN_RECOVERY_SEI_UUID "KyberNow:reprise"
++#define KN_RECOVERY_SAME_US 200000
 +
 +/* Same values as the encoders' ref_method. */
 +enum {
@@ -189,6 +195,11 @@ new file mode 100644
 +    int64_t frame_bound;
 +    /* Number of the next image out of this encoder. */
 +    uint32_t number;
++    /* The last repair: its image, its bound (INT64_MIN for a keyframe,
++     * which meets everything before it) and when. */
++    int64_t repair_pts;
++    int64_t repair_bound;
++    int64_t repair_at;
 +} KnRecovery;
 +
 +static inline KnRecovery *kn_recovery_new(void)
@@ -200,6 +211,7 @@ new file mode 100644
 +    r->pending = AV_NOPTS_VALUE;
 +    r->asked_pts = AV_NOPTS_VALUE;
 +    r->frame_pts = AV_NOPTS_VALUE;
++    r->repair_pts = AV_NOPTS_VALUE;
 +    return r;
 +}
 +
@@ -220,6 +232,15 @@ new file mode 100644
 +    r->asked_pts = AV_NOPTS_VALUE;
 +    r->frame_pts = AV_NOPTS_VALUE;
 +    r->number = 0;
++    r->repair_pts = AV_NOPTS_VALUE;
++}
++
++/* A repair went out (encoding thread). */
++static inline void kn_recovery_repaired(KnRecovery *r, int64_t pts, int64_t bound)
++{
++    r->repair_pts = pts;
++    r->repair_bound = bound;
++    r->repair_at = av_gettime_relative();
 +}
 +
 +/* "recover" (control thread). */
@@ -262,10 +283,15 @@ new file mode 100644
 +    pthread_mutex_unlock(&r->lock);
 +    if (bound == AV_NOPTS_VALUE)
 +        return 0;
++    if (r->repair_pts != AV_NOPTS_VALUE && bound >= r->repair_bound && bound < r->repair_pts &&
++        av_gettime_relative() - r->repair_at < KN_RECOVERY_SAME_US)
++        return 0; /* already repaired */
 +
 +    if (!kn_recovery_capable(avctx) || frame->pts == AV_NOPTS_VALUE ||
-+        av_opt_set_int(avctx->priv_data, "ref_recover", bound, 0) < 0)
++        av_opt_set_int(avctx->priv_data, "ref_recover", bound, 0) < 0) {
++        kn_recovery_repaired(r, frame->pts, INT64_MIN);
 +        return -1;
++    }
 +    r->asked_pts = frame->pts;
 +    r->asked_bound = bound;
 +    return 1;
@@ -285,8 +311,10 @@ new file mode 100644
 +        bound != AV_NOPTS_VALUE && bound <= r->asked_bound) {
 +        r->frame_pts = r->asked_pts;
 +        r->frame_bound = bound;
++        kn_recovery_repaired(r, r->asked_pts, bound);
 +    } else {
 +        method = KN_RECOVERY_KEYFRAME;
++        kn_recovery_repaired(r, r->asked_pts, INT64_MIN);
 +    }
 +    r->asked_pts = AV_NOPTS_VALUE;
 +    return (int)method;

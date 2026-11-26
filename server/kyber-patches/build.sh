@@ -143,7 +143,10 @@
 #         txproto : commande recover, numéro de chaque image HEVC/H.264 et
 #         borne de l'image qui répare dans un SEI (kn_recovery.h) ;
 #         kyavservice : VideoRecover, [kyavserver] loss_repair ;
-#         kycontroller : POST /recover
+#         kycontroller : POST /recover ; txproto ignore la même perte
+#         signalée deux fois
+#   0061  kycontroller (après 0052, qu'il demande) : pertes du canal de
+#         retour (FeedbackEvent::Lost) réparées aussitôt
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

@@ -40,8 +40,22 @@ l'app a bien reçues.
 5. Rien ne vient en 300 ms : le cœur demande une image clé, puis relance le
    flux à 1,5 s, comme avant.
 
+**Avec le canal de retour** ([canal-de-retour.md](canal-de-retour.md),
+correctifs 0050 à 0052), la Station n'attend pas l'app : le message `Lost`
+nomme les images perdues, et kycontroller (correctif 0061) demande aussitôt
+la réparation jusqu'à l'image d'avant la première perdue (l'encodeur prend
+la plus récente qu'il a envoyée jusque-là). La demande de l'app (étape 2)
+reste le filet de sécurité, pour une app ou une Station sans canal de
+retour, et une session à plusieurs écrans.
+
 Plusieurs demandes avant l'image suivante (plusieurs apps sur une image
-partagée) : la plus ancienne l'emporte, elle répare tout le monde.
+partagée) : la plus ancienne l'emporte, elle répare tout le monde. La même
+perte signalée deux fois (canal de retour, puis l'app) : la seconde demande,
+que la réparation déjà partie satisfait, est ignorée pendant 200 ms.
+
+Limite : une perte n'est vue qu'à l'arrivée de l'image suivante (numéro
+sauté, ou `Lost` qui part au paquet suivant). Sur un écran immobile, la
+dernière image perdue attend la prochaine image de la Station.
 
 ## Encodeurs
 
@@ -89,7 +103,7 @@ Ses images ne sont pas numérotées : rien ne change pour elle.
 | FFmpeg | `server/kyber-patches/0060-kymedia-ffmpeg-reprise.patch` : `0060-avcodec-reprise-sans-image-cle.patch` posé dans le wrap après 0017 (`nvenc.c`, `nvenc.h`, `nvenc_h264.c`, `nvenc_hevc.c`, `videotoolboxenc.c`). Options `ref_recovery` (à l'ouverture), `ref_recover` (pour l'image suivante), `ref_method` et `ref_bound` (lues par l'appelant). |
 | txproto | `0060-txproto-reprise.patch` : `kn_recovery.h` (nouveau), commande `recover` (`last_pts`), `tx_encoder_recover`, numéro et borne dans le SEI. |
 | kyavservice | `0060-kyavservice-reprise.patch` : `Command::VideoRecover { last_pts }`, `ref_recovery` donné à NVENC et VideoToolbox en HEVC, `[kyavserver] loss_repair` ; moteur libavconv : image clé. |
-| kycontroller | `0060-kycontroller-reprise.patch` : `POST /recover`, même portée que `/force_idr` ; un invité du partage répare sur les images qu'il reçoit ; demandes regroupées par flux partagé. |
+| kycontroller | `0060-kycontroller-reprise.patch` : `POST /recover`, même portée que `/force_idr` ; un invité du partage répare sur les images qu'il reçoit ; demandes regroupées par flux partagé. `0061-kycontroller-reprise-canal-de-retour.patch` (après 0052, qu'il demande) : les `FeedbackEvent::Lost` réparés aussitôt, session à un flux d'image seulement. |
 | kyclient (apps) | `apps/macos/kyber-patches/0060-kyclient-reprise.patch` : `Client::recover(last_pts)`, repli sur `/force_idr` (404). |
 | Cœur | `apps/core/src/media.rs` (`image_mark`, `StreamLoss`, `ResumeGate`), `session.rs` (`repair`). |
 
@@ -117,3 +131,8 @@ compilé, tests du cœur seulement) :
    qui perd des paquets ; l'autre ne doit rien voir.
 5. **Station ancienne** : une app à jour face à une Station sans le
    correctif garde l'image clé (404 une fois, puis `/force_idr`).
+6. **Canal de retour** : avec 0050 à 0052, la réparation part sur `Lost`
+   (journal de kycontroller : « picture lost from … , repaired », niveau
+   debug), avant la demande de l'app, qui doit être ignorée. Écran immobile :
+   la Station renvoie-t-elle une image, pour qu'une perte sur la dernière
+   soit vue ?

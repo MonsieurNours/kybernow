@@ -13,7 +13,7 @@ diff --git a/subprojects/packagefiles/ffmpeg/patches/0060-avcodec-reprise-sans-i
 new file mode 100644
 --- /dev/null
 +++ b/subprojects/packagefiles/ffmpeg/patches/0060-avcodec-reprise-sans-image-cle.patch
-@@ -0,0 +1,638 @@
+@@ -0,0 +1,641 @@
 +From: KyberNow
 +Subject: [PATCH] avcodec: repair a receiver's loss without a keyframe (NVENC, VideoToolbox)
 +
@@ -28,7 +28,7 @@ new file mode 100644
 +docs/reprise-apres-perte.md.
 +---
 +diff --git a/libavcodec/nvenc.c b/libavcodec/nvenc.c
-+index d67166a..d3f1374 100644
++index d67166a..c3aca9e 100644
 +--- a/libavcodec/nvenc.c
 ++++ b/libavcodec/nvenc.c
 +@@ -680,6 +680,10 @@ static int nvenc_check_capabilities(AVCodecContext *avctx)
@@ -115,7 +115,7 @@ new file mode 100644
 +     hevc->idrPeriod = cc->gopLength;
 + 
 +     if (IS_CBR(cc->rcParams.rateControlMode)) {
-+@@ -2603,6 +2659,155 @@ static void nvenc_fill_time_code(AVCodecContext *avctx, const AVFrame *frame, NV
++@@ -2603,6 +2659,158 @@ static void nvenc_fill_time_code(AVCodecContext *avctx, const AVFrame *frame, NV
 + }
 + #endif
 + 
@@ -155,21 +155,24 @@ new file mode 100644
 ++        return;
 ++
 ++    if (bound != AV_NOPTS_VALUE) {
-++        int method = NVENC_REF_KEYFRAME, newer = 0, kept = 0, slot = -1;
+++        int method = NVENC_REF_KEYFRAME, newer = 0, slot = -1;
+++        /* The newest frame sent up to the bound: the caller may name the
+++         * first frame lost minus one rather than the last one received. */
+++        int64_t kept = AV_NOPTS_VALUE;
 ++
 ++        for (i = 0; i < NVENC_REF_FRAMES; i++) {
 ++            if (ctx->ref_sent[i] == AV_NOPTS_VALUE)
 ++                continue;
 ++            if (ctx->ref_sent[i] > bound)
 ++                newer++;
-++            else if (ctx->ref_sent[i] == bound)
-++                kept = 1;
+++            else if (kept == AV_NOPTS_VALUE || ctx->ref_sent[i] > kept)
+++                kept = ctx->ref_sent[i];
 ++        }
 ++        ctx->ref_bound = AV_NOPTS_VALUE;
 ++
 ++        if (params->encodePicFlags & NV_ENC_PIC_FLAG_FORCEIDR) {
 ++            /* An IDR on its way repairs everything. */
-++        } else if (ctx->ref_rfi && kept && newer < ctx->ref_dpb) {
+++        } else if (ctx->ref_rfi && kept != AV_NOPTS_VALUE && newer < ctx->ref_dpb) {
 ++            method = NVENC_REF_INVALIDATION;
 ++            for (i = 0; i < NVENC_REF_FRAMES; i++) {
 ++                NVENCSTATUS st;
@@ -183,7 +186,7 @@ new file mode 100644
 ++                }
 ++            }
 ++            if (method == NVENC_REF_INVALIDATION)
-++                ctx->ref_bound = bound;
+++                ctx->ref_bound = kept;
 ++        }
 ++        if (method == NVENC_REF_KEYFRAME && !(params->encodePicFlags & NV_ENC_PIC_FLAG_FORCEIDR)) {
 ++            for (i = 0; i < ctx->ref_ltr; i++)
@@ -271,7 +274,7 @@ new file mode 100644
 + static void nvenc_codec_specific_pic_params(AVCodecContext *avctx, const AVFrame *frame,
 +                                             NV_ENC_PIC_PARAMS *params,
 +                                             NV_ENC_SEI_PAYLOAD *sei_data,
-+@@ -2866,6 +3071,10 @@ static int process_output_surface(AVCodecContext *avctx, AVPacket *pkt, NvencSur
++@@ -2866,6 +3074,10 @@ static int process_output_surface(AVCodecContext *avctx, AVPacket *pkt, NvencSur
 +     if (res < 0)
 +         goto error2;
 + 
@@ -282,7 +285,7 @@ new file mode 100644
 +     res = nvenc_retrieve_frame_data(avctx, &lock_params, pkt);
 +     if (res < 0)
 +         goto error2;
-+@@ -3311,6 +3520,11 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
++@@ -3311,6 +3523,11 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
 +     if (res < 0)
 +         return res;
 + 

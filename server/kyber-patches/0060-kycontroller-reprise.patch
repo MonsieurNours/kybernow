@@ -113,7 +113,7 @@ diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
-@@ -763,6 +763,70 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
+@@ -763,6 +763,84 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
      HttpResponse::Ok().finish()
  }
  
@@ -140,25 +140,40 @@ diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
 +    let Ok(uid) = user.uid() else {
 +        return HttpResponse::Unauthorized().finish();
 +    };
-+    let last_pts = request.last_pts;
++    if repair(&ctrl, &uid, request.last_pts, false).await {
++        HttpResponse::Ok().finish()
++    } else {
++        HttpResponse::Forbidden().finish()
++    }
++}
 +
-+    let services = match ctrl.with_session(&uid, |s| Ok(s.services.clone())) {
++/// KyberNow (0060): repairs session `uid`'s video streams after a loss
++/// that followed `last_pts` (`/recover`, and the feedback channel's losses
++/// with patch 0061). `single`: only a session with one video stream (the
++/// pts of a loss belong to one stream; a session with several displays
++/// keeps the application's requests). False: no such session.
++pub(crate) async fn repair(ctrl: &Controller, uid: &uuid::Uuid, last_pts: u64, single: bool) -> bool {
++    let services = match ctrl.with_session(uid, |s| Ok(s.services.clone())) {
 +        Ok(s) => s,
 +        Err(err) => {
 +            warn!("Session not found: {err}");
-+            return HttpResponse::Forbidden().finish();
++            return false;
 +        }
 +    };
 +
-+    if kybernow::is_guest(&ctrl, &uid) {
++    if kybernow::is_guest(ctrl, uid) {
 +        drop(services);
-+        debug!("Repair up to {last_pts} asked by a share guest");
-+        kybernow::guest_recover(&ctrl, &uid, last_pts).await;
-+        return HttpResponse::Ok().finish();
++        debug!("Repair up to {last_pts} for a share guest");
++        kybernow::guest_recover(ctrl, uid, last_pts).await;
++        return true;
 +    }
 +
 +    let mut services = services.lock().await;
-+    debug!("Repair up to {last_pts} asked by the client");
++    let streams = services.video_subscriptions.len().max(services.video.len());
++    if single && streams != 1 {
++        return true;
++    }
++    debug!("Repair up to {last_pts}");
 +
 +    if !services.video_subscriptions.is_empty() {
 +        let av_services_manager = ctrl.av_services_manager.lock().await;
@@ -177,14 +192,13 @@ diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
 +            }
 +        }
 +    }
-+
-+    HttpResponse::Ok().finish()
++    true
 +}
 +
  fn create_listening_socket(config: &config::Config) -> std::io::Result<std::net::TcpListener> {
      use socket2::{Domain, Protocol, Socket, Type};
      use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-@@ -964,7 +1028,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -964,7 +1042,8 @@ async fn real_main(config: config::Config) -> Result<()> {
                  .service(enumerate_displays)
                  .service(stop_streaming)
                  .service(set_bitrate)

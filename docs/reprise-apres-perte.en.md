@@ -39,8 +39,22 @@ encoder can: the next picture relies only on pictures the app did receive.
 5. Nothing within 300 ms: the core asks for a keyframe, then restarts the
    stream at 1.5 s, as before.
 
+**With the feedback channel** ([canal-de-retour.en.md](canal-de-retour.en.md),
+patches 0050 to 0052), the Station doesn't wait for the app: the `Lost`
+message names the lost pictures, and kycontroller (patch 0061) asks at once
+for a repair up to the picture before the first lost one (the encoder takes
+the newest it sent up to there). The app's request (step 2) stays the safety
+net, for an app or a Station without the feedback channel, and a session
+with several displays.
+
 Several requests before the next picture (several apps on a shared
-picture): the oldest one wins, it repairs everyone.
+picture): the oldest one wins, it repairs everyone. The same loss reported
+twice (feedback channel, then the app): the second request, which the repair
+already sent meets, is ignored for 200 ms.
+
+Limit: a loss is only seen when the next picture arrives (skipped number, or
+`Lost`, which leaves with the next packet). On a still screen, the last lost
+picture waits for the Station's next picture.
 
 ## Encoders
 
@@ -88,7 +102,7 @@ pictures are not numbered: nothing changes for it.
 | FFmpeg | `server/kyber-patches/0060-kymedia-ffmpeg-reprise.patch`: `0060-avcodec-reprise-sans-image-cle.patch` put in the wrap after 0017 (`nvenc.c`, `nvenc.h`, `nvenc_h264.c`, `nvenc_hevc.c`, `videotoolboxenc.c`). Options `ref_recovery` (when opening), `ref_recover` (for the next picture), `ref_method` and `ref_bound` (read by the caller). |
 | txproto | `0060-txproto-reprise.patch`: `kn_recovery.h` (new), `recover` command (`last_pts`), `tx_encoder_recover`, number and bound in the SEI. |
 | kyavservice | `0060-kyavservice-reprise.patch`: `Command::VideoRecover { last_pts }`, `ref_recovery` given to NVENC and VideoToolbox in HEVC, `[kyavserver] loss_repair`; libavconv engine: keyframe. |
-| kycontroller | `0060-kycontroller-reprise.patch`: `POST /recover`, same scope as `/force_idr`; a share guest repairs on the pictures it gets; requests merged per shared stream. |
+| kycontroller | `0060-kycontroller-reprise.patch`: `POST /recover`, same scope as `/force_idr`; a share guest repairs on the pictures it gets; requests merged per shared stream. `0061-kycontroller-reprise-canal-de-retour.patch` (after 0052, which it needs): `FeedbackEvent::Lost` repaired at once, one-picture-stream sessions only. |
 | kyclient (apps) | `apps/macos/kyber-patches/0060-kyclient-reprise.patch`: `Client::recover(last_pts)`, falls back to `/force_idr` (404). |
 | Core | `apps/core/src/media.rs` (`image_mark`, `StreamLoss`, `ResumeGate`), `session.rs` (`repair`). |
 
@@ -115,3 +129,7 @@ tests only):
    losing packets; the other one must see nothing.
 5. **Older Station**: an up-to-date app facing a Station without the patch
    keeps the keyframe (404 once, then `/force_idr`).
+6. **Feedback channel**: with 0050 to 0052, the repair leaves on `Lost`
+   (kycontroller log: “picture lost from …, repaired”, debug level), before
+   the app's request, which must be ignored. Still screen: does the Station
+   send a picture again, so that a loss on the last one is seen?

@@ -1,0 +1,68 @@
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+--- a/kycontroller/src/kybernow.rs
++++ b/kycontroller/src/kybernow.rs
+@@ -1025,6 +1025,36 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+     }
+ }
+ 
++/// KyberNow (0061): the picture losses the feedback channel reports
++/// (`FeedbackEvent::Lost`, patch 0052) repaired at once, without waiting
++/// for the application to see them: the repair goes up to the frame before
++/// the first one lost (the encoder takes the newest it sent up to there).
++/// Only for a session with one video stream; the application's
++/// `/recover` stays the fallback, and the encoder drops the same request
++/// twice. Ends with the channel.
++pub(crate) async fn repair_on_loss(
++    ctrl: Arc<Controller>,
++    uid: Uuid,
++    mut lost: tokio::sync::broadcast::Receiver<kymux::kyproto::FeedbackEvent>,
++) {
++    use tokio::sync::broadcast::error::RecvError;
++    loop {
++        match lost.recv().await {
++            Ok(kymux::kyproto::FeedbackEvent::Lost { frames, .. }) => {
++                let Some(first) = frames.iter().map(|f| f.pts).min() else {
++                    continue;
++                };
++                debug!("Session {uid}: picture lost from {first}, repaired");
++                if !crate::repair(&ctrl, &uid, first.saturating_sub(1), true).await {
++                    return;
++                }
++            }
++            Ok(_) | Err(RecvError::Lagged(_)) => {}
++            Err(RecvError::Closed) => return,
++        }
++    }
++}
++
+ /// KyberNow (0060): `/recover` from a share guest: on the images it gets
+ /// (its own, or the host's: a repair without a keyframe costs the others
+ /// next to nothing, and the encoder falls back to a keyframe by itself).
+diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+--- a/kycontroller/src/kymux_controller/requests.rs
++++ b/kycontroller/src/kymux_controller/requests.rs
+@@ -191,6 +191,9 @@ pub(crate) async fn start_session(
+                 None
+             };
+ 
++            // KyberNow (0061): the losses the channel reports, repaired at
++            // once (docs/reprise-apres-perte.md).
++            let lost = response.feedback.as_ref().map(|host| host.subscribe());
+             // KyberNow (0052)
+             let feedback = response.feedback.map(|host| {
+                 let answer = StartSessionFeedbackResponse {
+@@ -210,6 +213,14 @@ pub(crate) async fn start_session(
+             };
+             let guest = !services.guest_outputs.is_empty();
+             *session_services.lock().await = services;
++            // KyberNow (0061)
++            if let Some(lost) = lost {
++                tokio::spawn(crate::kybernow::repair_on_loss(
++                    ctrl.clone().into_inner(),
++                    session_id,
++                    lost,
++                ));
++            }
+             // KyberNow: a role changed while the services started applies now.
+             crate::kybernow::apply_input_rights(&ctrl, &session_id).await;
+             // KyberNow: a guest's image chosen again now that its output can
