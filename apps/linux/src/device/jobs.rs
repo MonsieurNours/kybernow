@@ -9,7 +9,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, Mode, PairStatus, StationError, StationInfo};
 use kybernow_core::invite;
 use kybernow_core::lend;
 use kybernow_core::profile::Capabilities;
@@ -154,18 +154,43 @@ fn share_avail(info: &Info) -> ShareAvail {
 /// d'avant la 0.5.0 n'en dit rien (sa version est celle d'Admin).
 fn station_live(info: &Info) -> StationLive {
     match &info.station {
-        Some(s) => StationLive {
-            version: s.version.clone(),
-            supported: true,
-            available: s.update.available,
-            update_version: s.update.version.clone(),
-            installable: s.update.installable,
-            requires_setup: s.update.requires_setup,
-            installing: s.update.installing,
-            restarting: s.restarting,
-        },
+        Some(s) => station_live_of(s),
         None => StationLive { version: info.admin_version.clone().unwrap_or_default(), ..Default::default() },
     }
+}
+
+/// La Station du cœur (`StationInfo`) vue par l'interface.
+pub fn station_live_of(s: &StationInfo) -> StationLive {
+    StationLive {
+        version: s.version.clone(),
+        supported: true,
+        available: s.update.available,
+        update_version: s.update.version.clone(),
+        installable: s.update.installable,
+        requires_setup: s.update.requires_setup,
+        installing: s.update.installing,
+        restarting: s.restarting,
+    }
+}
+
+/// Mise à jour des Stations : demande à la Station de vérifier ses mises à jour tout de suite
+/// (`POST /api/stream/station/check`, `Console::station_check`) ; ce qu'elle annonce ensuite revient en
+/// `Event::StationChecked` (`None` : une Station d'avant la 0.11.3, ou pas de réponse : on se fie à son annonce).
+pub fn station_check(host: Host, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("station-check".into())
+        .spawn(move || {
+            let c = super::accounts::console_of(&host);
+            let station = match c.station_check() {
+                Ok(s) => s.map(|s| station_live_of(&s)),
+                Err(e) => {
+                    log::info!("{} : vérification des mises à jour de la Station impossible ({e})", host.name);
+                    None
+                }
+            };
+            let _ = tx.send(Event::StationChecked { id: host.id.clone(), station });
+        })
+        .ok();
 }
 
 /// Redémarre ou met à jour la Station (`POST /api/stream/station/restart`,

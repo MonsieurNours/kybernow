@@ -27,6 +27,7 @@ pub mod pyrowave;
 pub mod relay;
 pub mod screens;
 pub mod share;
+pub mod station_offer;
 pub mod session;
 pub mod update;
 pub mod wake;

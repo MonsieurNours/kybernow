@@ -22,6 +22,7 @@ mod jobs;
 mod link;
 mod log_file;
 mod media;
+mod offer;
 mod os;
 mod pads;
 mod pen;
@@ -105,6 +106,9 @@ pub enum Event {
     Woken { id: String, result: Result<(), String> },
     /// La réponse d'Admin à un redémarrage ou une mise à jour de la Station.
     StationReply { host: String, kind: crate::app::StationKind, result: Result<Option<String>, crate::app::StationRefusal> },
+    /// Mise à jour des Stations : la vérification demandée à la Station est faite (`Console::station_check`) ; ce
+    /// qu'elle annonce (`None` : Station d'avant la 0.11.3, ou pas de réponse).
+    StationChecked { id: String, station: Option<crate::app::StationLive> },
     /// Profil Auto : l'avancement du test (les étapes, traduites par le cœur), puis son résultat (les choix et le
     /// JSON d'`AutoResult` à garder, ou le texte de l'échec), sous le numéro du test.
     AutoProgress { attempt: u32, steps: Vec<crate::autotest::Step> },
@@ -986,6 +990,8 @@ pub fn run(args: &[String]) {
     // Les consoles PlayStation : recherche, association, parties ; les noms des touches de ce clavier.
     let mut ps = ps::Runtime::new(tx.clone());
     app.ps.key_names = ps::key_names();
+    // Mise à jour des Stations : la version lancée gardée ; l'avis attendu au premier lancement d'une nouvelle version.
+    let mut offers = offer::Offers::start(&mut app);
     let mut last_update = Instant::now();
     app.update = crate::app::UpdateState::Checking;
     jobs::check_update(app.store.app.beta, tx.clone());
@@ -1030,7 +1036,7 @@ pub fn run(args: &[String]) {
             })
             || app.ps.live.values().any(|l| l.waking.is_some()) && app.screen == Screen::Home
             || app.waking_host().is_some() && app.screen == Screen::Home
-            || app.station_op.as_ref().is_some_and(|o| o.busy()) && app.screen == Screen::Settings
+            || app.station_op.as_ref().is_some_and(|o| o.busy()) && matches!(app.screen, Screen::Settings | Screen::Home)
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             // Profil Auto : la roue du test qui tourne ; les bandeaux du début de session, jusqu'à leur départ (8 s).
             || app.autotest.as_ref().is_some_and(|p| matches!(p.state, crate::autotest::State::Running(_)))
@@ -1127,6 +1133,10 @@ pub fn run(args: &[String]) {
             actions.extend(app.poll_autotest());
             dirty |= app.autotest_pending.is_none();
         }
+        // Mise à jour des Stations : le calcul du cœur pour chaque ordinateur, les vérifications en arrière-plan, l'avis.
+        let (acts, changed) = offers.tick(&mut app, &tx);
+        actions.extend(acts);
+        dirty |= changed;
         for a in actions.drain(..) {
             if let Some(a) = route_ps(a, &mut ps, &mut app, &mut pads, &lives, &mut wins) {
                 perform(a, &mut app, &mut pads, &mut lives, &mut wins, &tx, &mut pairing, &mut quit);
@@ -2878,6 +2888,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, lives: &mut Live
         }
         Event::ShareHost { session, result } => app.share_reply(session, result),
         Event::StationReply { host, kind, result } => app.station_reply(&host, kind, result),
+        Event::StationChecked { id, station } => offer::checked(app, &id, station),
         Event::AutoProgress { attempt, steps } => app.autotest_progress(attempt, steps),
         Event::AutoDone { attempt, result } => app.autotest_done(attempt, result),
         Event::Woken { id, result } => {

@@ -793,6 +793,9 @@ struct StationConfirm: Identifiable, Equatable {
     let hostID: UUID
     let kind: Kind
     let device: String
+    /// Demandée par le bandeau de l'accueil (mise à jour des Stations) :
+    /// l'accueil la pose, et « Mettre à jour quand même » y garde la suite.
+    var home = false
 
     var id: String { "\(hostID)-\(kind)" }
 
@@ -910,6 +913,19 @@ extension HostStore {
         }
     }
 
+    /// « {appareil} est connecté » : dans la ligne de l'avis après une mise à
+    /// jour de l'app quand l'ordinateur y est ; sinon la confirmation des
+    /// réglages (posée par l'accueil quand le bandeau a lancé la mise à jour).
+    private func askStationConfirm(_ confirm: StationConfirm) {
+        if confirm.kind == .update, stationNotice?.contains(confirm.hostID) == true {
+            setNoticeLine(confirm.hostID, .inSession(confirm.device))
+            return
+        }
+        var confirm = confirm
+        confirm.home = confirm.kind == .update && stationBannerFollow.contains(confirm.hostID)
+        stationConfirm = confirm
+    }
+
     /// Refus d'Admin : confirmation, message, ou suivi d'une action déjà en cours.
     private func stationRefused(_ error: Error, host: Host, kind: StationConfirm.Kind) {
         guard let e = error as? StationError else {
@@ -919,7 +935,7 @@ extension HostStore {
         switch e {
         case let .inSession(device):
             stationTasks[host.id] = nil
-            stationConfirm = StationConfirm(hostID: host.id, kind: kind, device: device ?? String(localized: "Un appareil"))
+            askStationConfirm(StationConfirm(hostID: host.id, kind: kind, device: device ?? String(localized: "Un appareil")))
         case .tooSoon:
             stationTasks[host.id] = .failed(StationText.tooSoon)
         case .unsupported:
@@ -981,7 +997,7 @@ extension HostStore {
         if !force, UserDefaults.standard.bool(forKey: "stationInSession") {
             var kind = StationConfirm.Kind.update
             if case .restarting = task { kind = .restart }
-            stationConfirm = StationConfirm(hostID: host.id, kind: kind, device: "iPhone de Camille")
+            askStationConfirm(StationConfirm(hostID: host.id, kind: kind, device: "iPhone de Camille"))
             return
         }
         stationTasks[host.id] = task
@@ -1003,6 +1019,376 @@ extension HostStore {
         }
     }
     #endif
+}
+
+// MARK: - Mise à jour des Stations proposée par l'app
+
+/// Les textes du bandeau de l'accueil, de la puce et de l'avis après une
+/// mise à jour de l'app (docs/link-ui.md, « Mise à jour des Stations ») ; la
+/// suite reprend ceux de la rubrique Station (`StationText`).
+enum StationOfferText {
+    static func available(_ v: String) -> String { String(localized: "KyberNow Station \(v) est disponible pour cet ordinateur. Environ une minute.") }
+    static func setup(_ v: String) -> String { String(localized: "KyberNow Station \(v) est disponible. Elle s'installe sur l'ordinateur, avec l'installateur.") }
+    static func away(_ v: String) -> String {
+        String(localized: "KyberNow Station \(v) est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré.")
+    }
+    static var update: String { String(localized: "Mettre à jour") }
+    static var later: String { String(localized: "Plus tard") }
+    static var retry: String { String(localized: "Réessayer") }
+    /// La puce des autres ordinateurs : « En ligne · Mise à jour ».
+    static var chip: String { String(localized: "Mise à jour") }
+    static func chipped(_ state: String) -> String { "\(state) · \(chip)" }
+    static func noticeTitle(_ name: String) -> String { String(localized: "\(name) a aussi une mise à jour") }
+    static func noticeText(_ app: String) -> String {
+        String(localized: "KyberNow Link est passée en \(app). Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée.")
+    }
+    static var noticeTitleMany: String { String(localized: "Vos Stations aussi ont une mise à jour") }
+    static func noticeTextMany(_ app: String) -> String {
+        String(localized: "KyberNow Link est passée en \(app). Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée.")
+    }
+    static func version(_ v: String) -> String { String(localized: "Version \(v)") }
+    static var updateAll: String { String(localized: "Tout mettre à jour") }
+    static var lineUpdating: String { String(localized: "Mise à jour…") }
+    static var close: String { String(localized: "Fermer") }
+}
+
+/// Le bandeau de l'accueil, pour l'ordinateur choisi : ce que le cœur en dit
+/// (`StationOffer.Banner`), puis la suite d'une mise à jour lancée par lui.
+enum StationBanner: Equatable {
+    /// « Mettre à jour » (le principal) et « Plus tard ».
+    case update(String)
+    /// Elle s'installe avec l'installateur : « Plus tard » seul.
+    case setup(String)
+    /// Hors de chez vous : « Plus tard » seul.
+    case away(String)
+    /// « Mise à jour de la Station… », indicateur, sans bouton.
+    case updating
+    /// L'avis bref « KyberNow Station {v} est en place. », puis le bandeau s'en va.
+    case done(String)
+    /// Le texte des réglages, « Réessayer » et « Plus tard ».
+    case failed(String, version: String?)
+
+    var text: String {
+        switch self {
+        case let .update(v): return StationOfferText.available(v)
+        case let .setup(v): return StationOfferText.setup(v)
+        case let .away(v): return StationOfferText.away(v)
+        case .updating: return StationText.updating
+        case let .done(text), let .failed(text, _): return text
+        }
+    }
+
+    /// La version que « Plus tard » remet à plus tard.
+    var version: String? {
+        switch self {
+        case let .update(v), let .setup(v), let .away(v): return v
+        case let .failed(_, v): return v
+        case .updating, .done: return nil
+        }
+    }
+
+    /// « Mettre à jour » ou « Réessayer » : la mise à jour depuis l'app.
+    var canUpdate: Bool {
+        switch self {
+        case .update, .failed: return true
+        default: return false
+        }
+    }
+
+    var canLater: Bool {
+        switch self {
+        case .update, .setup, .away, .failed: return true
+        case .updating, .done: return false
+        }
+    }
+
+    var updateLabel: String {
+        if case .failed = self { return StationOfferText.retry }
+        return StationOfferText.update
+    }
+}
+
+/// L'avis après une mise à jour de l'app : les Stations que l'app peut mettre
+/// à jour, une ligne chacune.
+struct StationNotice: Equatable {
+    struct Line: Equatable, Identifiable {
+        enum State: Equatable {
+            case pending
+            case updating
+            case done
+            /// Le texte des réglages (échec, « Trop tôt… »).
+            case failed(String)
+            /// « {appareil} est connecté », avec « Mettre à jour quand même ».
+            case inSession(String)
+        }
+        let hostID: UUID
+        let name: String
+        let version: String
+        var state: State = .pending
+
+        var id: UUID { hostID }
+
+        /// Ce que la ligne dit sous le nom (ou dans l'avis d'une seule Station).
+        var status: String? {
+            switch state {
+            case .pending: return nil
+            case .updating: return StationOfferText.lineUpdating
+            case .done: return StationText.upToDate
+            case let .failed(text): return text
+            case let .inSession(device): return StationConfirm(hostID: hostID, kind: .update, device: device).title
+            }
+        }
+    }
+
+    var lines: [Line]
+    /// La version de l'app.
+    let app: String
+    /// « Tout mettre à jour » en cours.
+    var updatingAll = false
+
+    var single: Bool { lines.count == 1 }
+    var allDone: Bool { lines.allSatisfy { $0.state == .done } }
+    var busy: Bool { updatingAll || lines.contains { $0.state == .updating } }
+    func contains(_ id: UUID) -> Bool { lines.contains { $0.hostID == id } }
+
+    var title: String { single ? StationOfferText.noticeTitle(lines[0].name) : StationOfferText.noticeTitleMany }
+    var text: String { single ? StationOfferText.noticeText(app) : StationOfferText.noticeTextMany(app) }
+    /// « Plus tard », « Fermer » quand tout est à jour.
+    var dismissLabel: String { allDone ? StationOfferText.close : StationOfferText.later }
+}
+
+extension HostStore {
+    private static let stationMemoryKey = "stationOffers"
+    private static let lastLaunchedKey = "stationOfferLastLaunched"
+
+    static func loadStationMemory(_ defaults: UserDefaults) -> [UUID: StationOffer.Memory] {
+        guard let data = defaults.data(forKey: stationMemoryKey),
+              let saved = try? JSONDecoder().decode([String: StationOffer.Memory].self, from: data) else { return [:] }
+        return Dictionary(saved.compactMap { k, v in UUID(uuidString: k).map { ($0, v) } }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// « Plus tard » et la dernière vérification, gardés sur l'appareil.
+    func setStationMemory(_ memory: StationOffer.Memory, for id: UUID) {
+        guard stationMemory[id] != memory else { return }
+        stationMemory[id] = memory
+        let saved = Dictionary(stationMemory.compactMap { k, v in host(k) != nil ? (k.uuidString, v) : nil }, uniquingKeysWith: { a, _ in a })
+        if let data = try? JSONEncoder().encode(saved) { defaults.set(data, forKey: Self.stationMemoryKey) }
+    }
+
+    /// Cet appareil peut mettre la Station à jour : ordinateur appairé, ou
+    /// ordinateur d'un compte KyberNow avec le droit « Administrer ».
+    func mayUpdateStation(_ host: Host) -> Bool {
+        let current = self.host(host.id) ?? host
+        guard current.account != nil else { return true }
+        return accounts?.computer(for: current)?.rights.contains("admin") == true
+    }
+
+    /// Le calcul du cœur pour cet ordinateur ; `inSession` à part pour l'avis,
+    /// qui attend la fin d'une session ouverte au lancement.
+    func stationOffer(_ host: Host, inSession: Bool? = nil) -> StationOffer.Result {
+        let s = status[host.id]
+        return StationOffer.evaluate(station: s?.info?.station, mayUpdate: mayUpdateStation(host), online: s?.online == true,
+                                     away: s?.away == true, inSession: inSession ?? sessionOpen, memory: stationMemory[host.id] ?? .init())
+    }
+
+    /// « · Mise à jour » après l'état, dans la rangée des autres ordinateurs.
+    func stationChip(_ host: Host) -> Bool { stationOffer(host).chip }
+
+    /// Le bandeau de l'accueil pour l'ordinateur choisi (nil : aucun).
+    func stationBanner(_ host: Host) -> StationBanner? {
+        guard !sessionOpen else { return nil }
+        let task = stationTasks[host.id]
+        if case .updating = task { return .updating }
+        if stationBannerFollow.contains(host.id) {
+            switch task {
+            case let .done(text)?: return .done(text)
+            case let .failed(text)?: return .failed(text, version: status[host.id]?.info?.station?.updateVersion)
+            default: break
+            }
+        }
+        switch stationOffer(host).banner {
+        case .none: return nil
+        case .installing: return .updating
+        case let .update(v): return .update(v)
+        case let .setup(v): return .setup(v)
+        case let .away(v): return .away(v)
+        }
+    }
+
+    /// « Mettre à jour » (ou « Réessayer ») du bandeau : le flux de « Mettre à
+    /// jour la Station » des réglages ; le bandeau en montre la suite, puis
+    /// s'en va quelques secondes après « … est en place. ».
+    func updateStationFromBanner(_ host: Host, force: Bool = false) {
+        if stationTasks[host.id]?.working == false { stationTasks[host.id] = nil }
+        stationBannerFollow.insert(host.id)
+        updateStation(host, force: force)
+        Task {
+            while stationTasks[host.id]?.working == true { try? await Task.sleep(for: .seconds(1)) }
+            switch stationTasks[host.id] {
+            case .done?:
+                try? await Task.sleep(for: .seconds(5))
+                if case .done? = stationTasks[host.id] { stationTasks[host.id] = nil }
+                stationBannerFollow.remove(host.id)
+            case nil where stationConfirm?.hostID != host.id:
+                stationBannerFollow.remove(host.id)
+            default:
+                break
+            }
+        }
+    }
+
+    /// « Annuler » de la confirmation posée par le bandeau.
+    func cancelStationFromBanner(_ id: UUID) {
+        stationBannerFollow.remove(id)
+    }
+
+    /// « Plus tard » : le bandeau se cache pour cette version, 7 jours au plus
+    /// (une version plus récente le ramène) ; la puce reste.
+    func stationLater(_ host: Host, version: String?) {
+        if let version {
+            var m = stationMemory[host.id] ?? .init()
+            m.snooze(version)
+            setStationMemory(m, for: host.id)
+        }
+        stationBannerFollow.remove(host.id)
+        if stationTasks[host.id]?.working == false { stationTasks[host.id] = nil }
+    }
+
+    // MARK: Vérification
+
+    /// Après un sondage réussi : demander à la Station de vérifier, quand le
+    /// cœur dit que c'est le moment (une nouvelle version de l'app, ou une
+    /// Station plus ancienne qu'elle ; une fois par jour au plus).
+    func stationCheckIfDue(_ host: Host) {
+        guard !demo, stationOffer(host).shouldCheck else { return }
+        startStationCheck(host)
+    }
+
+    /// `stationCheck` en arrière-plan (jamais sur le fil de l'interface : le
+    /// cœur l'appelle sur la file de la console) ; la Station annonce ensuite
+    /// sa nouvelle version, qui remplace la précédente.
+    private func startStationCheck(_ host: Host) {
+        guard !stationChecking.contains(host.id), let console = console(for: host, route: .direct) else { return }
+        stationChecking.insert(host.id)
+        Task {
+            let station = try? await console.stationCheck()
+            var m = stationMemory[host.id] ?? .init()
+            m.checked(StationOffer.appVersion)
+            setStationMemory(m, for: host.id)
+            if let station { setStation(station, for: host.id) }
+            stationChecking.remove(host.id)
+        }
+    }
+
+    // MARK: Avis après une mise à jour de l'app
+
+    /// À chaque lancement : garde la version lancée ; au premier lancement
+    /// après une mise à jour de l'app (jamais au tout premier), demande aux
+    /// ordinateurs en ligne sur le réseau de vérifier (10 s au plus), puis
+    /// pose l'avis s'il reste une Station à mettre à jour.
+    func stationNoticeAtLaunch() {
+        let current = StationOffer.appVersion
+        // Rien de gardé mais des ordinateurs déjà là : l'app vient d'une version
+        // d'avant cet avis (`StationOffer.beforeNotice`), pas d'un premier lancement.
+        let last = defaults.string(forKey: Self.lastLaunchedKey) ?? (hosts.isEmpty ? nil : StationOffer.beforeNotice)
+        defaults.set(current, forKey: Self.lastLaunchedKey)
+        #if DEBUG
+        // Démonstration : `-demoStationNotice YES`, l'avis d'après l'état posé (`-demoStation update`).
+        if demo, UserDefaults.standard.bool(forKey: "demoStationNotice") {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                await prepareStationNotice()
+            }
+            return
+        }
+        #endif
+        guard !demo, StationOffer.appUpdated(lastLaunched: last, current: current) else { return }
+        Task { await prepareStationNotice() }
+    }
+
+    private func prepareStationNotice() async {
+        let deadline = Date().addingTimeInterval(StationOffer.noticeWait)
+        // Le premier tour du sondage dit qui est en ligne sur le réseau.
+        while !demo, lastPoll == .distantPast, Date() < deadline { try? await Task.sleep(for: .milliseconds(250)) }
+        let targets = hosts.filter { h in
+            let s = status[h.id]
+            return s?.online == true && s?.away != true && mayUpdateStation(h)
+        }
+        if !demo { for h in targets { startStationCheck(h) } }
+        while targets.contains(where: { stationChecking.contains($0.id) }), Date() < deadline { try? await Task.sleep(for: .milliseconds(250)) }
+        guard let notice = makeStationNotice() else { return }
+        if sessionOpen { pendingStationNotice = notice } else { stationNotice = notice }
+    }
+
+    private func makeStationNotice() -> StationNotice? {
+        let lines = ordered.compactMap { h -> StationNotice.Line? in
+            stationOffer(h, inSession: false).noticeVersion.map { StationNotice.Line(hostID: h.id, name: h.name, version: $0) }
+        }
+        return lines.isEmpty ? nil : StationNotice(lines: lines, app: StationOffer.appVersion)
+    }
+
+    /// Retour à l'accueil après une session : l'avis qui l'attendait, s'il a
+    /// encore une Station à mettre à jour.
+    func showPendingStationNotice() {
+        guard pendingStationNotice != nil else { return }
+        pendingStationNotice = nil
+        stationNotice = makeStationNotice()
+    }
+
+    func setNoticeLine(_ id: UUID, _ state: StationNotice.Line.State) {
+        guard var n = stationNotice, let i = n.lines.firstIndex(where: { $0.hostID == id }) else { return }
+        n.lines[i].state = state
+        stationNotice = n
+    }
+
+    /// « Mettre à jour » d'une ligne (ou « Mettre à jour la Station », ou
+    /// « Mettre à jour quand même » avec `force`) : le flux des réglages,
+    /// suivi jusqu'à la fin dans la ligne.
+    func noticeUpdate(_ id: UUID, force: Bool = false) async {
+        guard let host = host(id), stationNotice?.contains(id) == true else { return }
+        if stationTasks[id]?.working == false { stationTasks[id] = nil }
+        setNoticeLine(id, .updating)
+        updateStation(host, force: force)
+        while stationTasks[id]?.working == true { try? await Task.sleep(for: .seconds(1)) }
+        guard let line = stationNotice?.lines.first(where: { $0.hostID == id }) else { return }
+        switch stationTasks[id] {
+        case .done?: setNoticeLine(id, .done)
+        case let .failed(text)?: setNoticeLine(id, .failed(text))
+        default:
+            // Refus « en session » : la ligne le dit déjà (`askStationConfirm`).
+            if line.state == .updating { setNoticeLine(id, viaRelay(id) ? .failed(StationText.viaRelay) : .pending) }
+        }
+    }
+
+    /// « Tout mettre à jour » : l'une après l'autre ; un refus laisse sa ligne
+    /// (« Mettre à jour quand même ») et passe à la suivante.
+    func noticeUpdateAll() {
+        guard var n = stationNotice, !n.busy else { return }
+        n.updatingAll = true
+        stationNotice = n
+        Task {
+            for line in n.lines where line.state != .done {
+                if case .inSession = line.state { continue }
+                await noticeUpdate(line.hostID)
+            }
+            if var n = stationNotice {
+                n.updatingAll = false
+                stationNotice = n
+            }
+        }
+    }
+
+    /// « Plus tard » : « Plus tard » pour chaque Station de la liste ;
+    /// « Fermer » quand tout est à jour.
+    func noticeDismiss() {
+        guard let n = stationNotice else { return }
+        for line in n.lines where line.state != .done {
+            var m = stationMemory[line.hostID] ?? .init()
+            m.snooze(line.version)
+            setStationMemory(m, for: line.hostID)
+        }
+        stationNotice = nil
+    }
 }
 
 #if DEBUG

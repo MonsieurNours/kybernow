@@ -1237,6 +1237,8 @@ pub fn run(dir: &Path, lang: &str) {
         pyrowave_shots(&mut app, &mut cv, &video, dir, prefix);
         // Profil Auto et débit adaptatif (docs/link-ui.md) : le test, la carte « Débit », le bandeau en session.
         auto_shots(&mut app, &mut cv, &video, dir, prefix);
+        // La mise à jour des Stations (docs/link-ui.md) : le bandeau de l'accueil et ses états, la puce, l'avis.
+        offer_shots(&mut app, &mut cv, dir, prefix);
         // Les comptes KyberNow (docs/comptes.md) : accueil vide, connexion, accueil avec un compte, réglages.
         account_shots(en, layout, &mut cv, dir, prefix);
         // Regarder (droit « Regarder » d'un compte) : la carte, le menu de l'ordinateur, la session de qui regarde.
@@ -3078,6 +3080,68 @@ fn pyrowave_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, pr
 /// Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : l'accueil avec Auto (et ses étincelles), le
 /// panneau du test (en cours, ses réglages proposés, l'échec), la carte « Débit » (« Débit adaptatif », « Choisi par le
 /// test du… », « Refaire le test ») et le bandeau « Autre réseau que celui du test » en session.
+/// La mise à jour des Stations (docs/link-ui.md, « Mise à jour des Stations ») : le bandeau (à mettre à jour, avec le
+/// focus à la manette, pendant, échec, installateur, hors de chez vous), la puce « · Mise à jour » d'une autre carte,
+/// l'avis pour une Station et pour plusieurs (une à jour, une refusée, une en cours).
+fn offer_shots(app: &mut App, cv: &mut Canvas, dir: &Path, prefix: &str) {
+    use crate::station_offer::{OfferBanner, RowState};
+    let name = |n: &str| format!("{prefix}-{n}");
+    let en = crate::i18n::english();
+    let selected = app.store.selected.clone();
+    app.set_session(None);
+    app.pointer = None;
+    app.store.selected = Some("a".into());
+    let before = app.live.get("a").cloned().unwrap_or_default();
+    if let Some(l) = app.live.get_mut("a") {
+        l.station = Some(station("0.11.2", Some("0.11.3")));
+        l.offer.banner = OfferBanner::Update("0.11.3".into());
+    }
+    if let Some(l) = app.live.get_mut("c") {
+        l.offer.chip = true;
+    }
+    app.go(Screen::Home);
+    app.focus = if app.layout.console() { Target::OfferUpdate } else { Target::Connect };
+    shot(app, cv, None, dir, &name("40-maj-station-bandeau"));
+    app.station_origin = crate::station_offer::Origin::Banner;
+    app.station_op = Some(StationOp { host: "a".into(), kind: StationKind::Update, step: StationStep::Asking });
+    app.focus = Target::Connect;
+    shot(app, cv, None, dir, &name("40b-maj-station-pendant"));
+    app.station_op = Some(StationOp {
+        host: "a".into(),
+        kind: StationKind::Update,
+        step: StationStep::Failed(if en { "The Station is taking a while to come back. Open Admin to find out more." } else { "La Station tarde à revenir. Ouvrez Admin pour en savoir plus." }.into()),
+    });
+    shot(app, cv, None, dir, &name("40c-maj-station-echec"));
+    app.station_op = None;
+    app.station_origin = Default::default();
+    if let Some(l) = app.live.get_mut("a") {
+        l.offer.banner = OfferBanner::Away("0.11.3".into());
+    }
+    shot(app, cv, None, dir, &name("40d-maj-station-hors-de-chez-vous"));
+    if let Some(l) = app.live.get_mut("a") {
+        l.offer.banner = OfferBanner::Setup("0.12.0".into());
+    }
+    shot(app, cv, None, dir, &name("40e-maj-station-installateur"));
+    if let Some(l) = app.live.get_mut("a") {
+        l.offer.banner = OfferBanner::None;
+    }
+    app.open_station_notice(vec![("a".into(), "Tour du salon".into(), "0.11.3".into())], "0.11.3");
+    shot(app, cv, None, dir, &name("41-maj-station-avis"));
+    app.open_station_notice(vec![("a".into(), "Tour du salon".into(), "0.11.3".into()), ("c".into(), "Bureau".into(), "0.11.3".into()), ("b".into(), "Portable".into(), "0.11.3".into())], "0.11.3");
+    if let Some(n) = app.station_notice.as_mut() {
+        n.rows[0].state = RowState::Done;
+        n.rows[1].state = RowState::Refused("iPad".into());
+        n.rows[2].state = RowState::Busy;
+    }
+    shot(app, cv, None, dir, &name("41b-maj-station-avis-plusieurs"));
+    app.station_notice = None;
+    if let Some(l) = app.live.get_mut("c") {
+        l.offer.chip = false;
+    }
+    app.live.insert("a".into(), before);
+    app.store.selected = selected;
+}
+
 fn auto_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
     use crate::autotest::{Choice, Panel, State, Step, StepState};
     let name = |n: &str| format!("{prefix}-{n}");

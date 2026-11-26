@@ -1151,6 +1151,28 @@ impl Console {
         Ok(v.get("version").and_then(|v| v.as_str()).unwrap_or_default().to_string())
     }
 
+    /// Demande à la Station de vérifier ses mises à jour tout de suite
+    /// (`POST /api/stream/station/check`, docs/link-ui.md « Mise à jour des
+    /// Stations ») et rend ce qu'elle annonce ensuite. `Ok(None)` : une
+    /// Station antérieure à la 0.11.3, qui ne connaît pas la route (404, ou la
+    /// page d'Admin) ; on se fie alors à son annonce.
+    pub fn station_check(&self) -> Result<Option<StationInfo>> {
+        #[derive(Deserialize)]
+        struct Checked {
+            #[serde(default)]
+            ok: bool,
+            station: Option<StationInfo>,
+        }
+        let r = self.with_fresh_token(|| {
+            match self.request("POST", "api/stream/station/check", Duration::from_secs(20)).send_json(serde_json::json!({})) {
+                Ok(resp) => Ok(resp.into_json::<Checked>().ok()),
+                Err(ureq::Error::Status(404 | 405, _)) => Ok(None),
+                Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| None),
+            }
+        })?;
+        Ok(r.filter(|c| c.ok).and_then(|c| c.station))
+    }
+
     fn station_call(
         &self,
         path: &str,
@@ -1944,6 +1966,24 @@ mod tests {
         let c = Console::account("127.0.0.1", port, access(Tokens { closed: true, ..Default::default() }), None);
         assert!(matches!(c.info(), Err(ConsoleError::Account(AccountError::SignedOut))));
         assert_eq!(ConsoleError::Account(AccountError::SignedOut).text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+    }
+
+    /// Vérification des mises à jour de la Station (docs/link-ui.md, « Mise à
+    /// jour des Stations ») : ce qu'elle annonce ensuite ; une Station qui ne
+    /// connaît pas la route (404) rend `None` sans erreur.
+    #[test]
+    fn verification_des_mises_a_jour_de_la_station() {
+        let (port, seen) = fake_admin(vec![
+            (200, r#"{"ok":true,"station":{"version":"0.11.2","update":{"available":true,"version":"0.11.3","installable":true},"restarting":false}}"#),
+            (404, r#"{"error":"Introuvable."}"#),
+        ]);
+        let c = Console::account("127.0.0.1", port, access(Tokens::default()), None);
+        let station = c.station_check().unwrap().unwrap();
+        assert_eq!(station.update.version.as_deref(), Some("0.11.3"));
+        assert!(station.update.available && station.update.installable);
+        assert!(c.station_check().unwrap().is_none());
+        let seen = seen.lock().unwrap().clone();
+        assert!(seen[0].0.starts_with("POST /api/stream/station/check"), "{seen:?}");
     }
 
     /// Regarder (docs/comptes.md) : `POST /api/share/watch` avec le jeton du

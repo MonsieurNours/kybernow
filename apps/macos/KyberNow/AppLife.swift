@@ -35,6 +35,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // chaîne d'entrées (première image d'une session), pas au lancement.
         menuBar = MenuBarController(app: app)
         app.watchStationConfirmations()
+        // Mise à jour des Stations (LinkUI.swift) : ni bandeau ni vérification
+        // pendant une session ; l'avis après une mise à jour de l'app attend
+        // la fin des sessions.
+        app.sessions.$all
+            .map { !$0.isEmpty }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { open in MainActor.assumeIsolated { app.store.sessionOpen = open } }
+            .store(in: &app.watchers)
+        app.store.stationNoticeAtLaunch()
         // Icône du Dock et sondage : à chaque fenêtre qui s'ouvre, se ferme, se réduit.
         let names: [Notification.Name] = [
             NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification, NSWindow.willCloseNotification,

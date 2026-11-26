@@ -193,6 +193,16 @@ pub struct Computer {
     /// mesures et ses réglages). Choisir Auto sans lui ouvre le test.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto: Option<kybernow_core::autotest::AutoResult>,
+    /// Mise à jour de la Station proposée à l'accueil (docs/link-ui.md « Mise à
+    /// jour des Stations ») : « Plus tard » (version et date) et la dernière
+    /// vérification demandée (`station_offer::Memory` du cœur). Absent : rien
+    /// de remis ni de demandé.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub station_offer: kybernow_core::station_offer::Memory,
+}
+
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
 
 /// `accounts.json` : la dernière liste des ordinateurs des comptes, appairés
@@ -283,6 +293,7 @@ impl Store {
                 c.wake = std::mem::take(&mut old.wake);
             }
             c.station_notified = old.station_notified.take();
+            c.station_offer = std::mem::take(&mut old.station_offer);
             // Une Station qui ne dit pas son relais (ajout par une adresse que le
             // relais ne connaît pas encore) garde celui qu'on connaît.
             if c.relay.is_none() {

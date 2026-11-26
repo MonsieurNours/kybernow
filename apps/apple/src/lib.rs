@@ -428,6 +428,49 @@ pub unsafe extern "C" fn kn_console_station_update(
     }
 }
 
+/// Demande à la Station de vérifier ses mises à jour tout de suite
+/// (`POST /api/stream/station/check`, docs/link-ui.md « Mise à jour des
+/// Stations ») : `out`, le `station` qu'elle annonce ensuite (comme dans
+/// `kn_console_info`), ou nul pour une Station antérieure à la 0.11.3, qui ne
+/// connaît pas la route (on se fie alors à son annonce). Appel bloquant
+/// (20 s au plus), hors du fil principal.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_station_check(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    match c.0.station_check() {
+        Ok(Some(station)) => {
+            give_to(out, serde_json::to_string(&station).unwrap_or_default());
+            KN_OK
+        }
+        Ok(None) => KN_OK,
+        Err(e) => failure(e, error),
+    }
+}
+
+/// Mise à jour des Stations proposée par l'app (`station_offer::evaluate`) :
+/// `input_json`, ce que l'app sait de l'ordinateur (`station` de
+/// `kn_console_info`, `may_update`, `online`, `away`, `in_session`, `now` en
+/// secondes Unix), sa mémoire pour cet ordinateur (`memory` :
+/// `snoozed_version`, `snoozed_at`, `checked_app_version`, `checked_at`) et
+/// `app_version`. Rend `{"banner": {"kind": "none" | "update" | "installing"
+/// | "setup" | "away", "version"?}, "chip", "notice_version", "should_check"}`
+/// ; une entrée illisible donne « rien à montrer ». À libérer par
+/// `kn_string_free`. Calcul local, sans réseau.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_station_offer_evaluate(input_json: *const c_char) -> *mut c_char {
+    give(kybernow_core::station_offer::evaluate_json(&text(input_json)))
+}
+
+/// Premier lancement après une mise à jour de l'app
+/// (`station_offer::app_updated`) : `last_launched`, la dernière version
+/// lancée que l'app a gardée (vide au tout premier lancement : faux),
+/// `current`, la sienne. L'avis « {nom} a aussi une mise à jour » peut alors
+/// s'afficher.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_station_offer_app_updated(last_launched: *const c_char, current: *const c_char) -> bool {
+    kybernow_core::station_offer::app_updated(optional(last_launched).as_deref(), &text(current))
+}
+
 /// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`,
 /// IPv6 entre crochets) ; à libérer par `kn_string_free`.
 #[unsafe(no_mangle)]

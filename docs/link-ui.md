@@ -40,7 +40,9 @@ L'écran affiché est celui que la session demandera (même calcul que la sessio
 
 Erreurs sous le nom, quand il y en a : « Mot de passe refusé : mettez-le à jour dans les réglages. » / “Password refused: update it in the settings.” ; « La Station a été réinstallée : vérifiez son empreinte dans les réglages. » / “The Station was reinstalled: check its fingerprint in the settings.”
 
-Les autres ordinateurs (rangée ou liste) : le nom et l'état (« En ligne », « Hors ligne »), rien d'autre. Un ordinateur annoncé sur le réseau et pas encore ajouté : « Sur le réseau » / “On your network”. Ajout : « Ajouter un ordinateur » / “Add a computer”.
+Les autres ordinateurs (rangée ou liste) : le nom et l'état (« En ligne », « Hors ligne »), rien d'autre, sauf « · Mise à jour » quand leur Station en a une (voir « Mise à jour des Stations »). Un ordinateur annoncé sur le réseau et pas encore ajouté : « Sur le réseau » / “On your network”. Ajout : « Ajouter un ordinateur » / “Add a computer”.
+
+Sous la rangée « Se connecter » et profils, un bandeau au plus : d'abord la mise à jour de la Station quand elle en a une (voir « Mise à jour des Stations »), sinon les invitations au compte KyberNow.
 
 En haut : « Réglages de l'app » / “App settings” (Link OS : « Réglages de l'appareil » / “Device settings”), et la mise à jour de l'app quand il y en a une : « Version {v} disponible » / “Version {v} available”.
 
@@ -693,6 +695,40 @@ Données gardées par l'app pour chaque ordinateur, à la fin de chaque session 
 Le redémarrage et la mise à jour passent par Admin (`POST /api/stream/station/restart` et `/update`, voir [server/README.md](../server/README.md)) ; l'app suit ensuite l'état de la Station par `GET /api/stream/info` jusqu'à son retour. Tout appareil ajouté peut le faire.
 
 Le réveil par le réseau : Admin donne dans `GET /api/stream/info` les cartes réseau de l'ordinateur (adresse MAC, adresse IPv4, adresse de diffusion) ; l'app les garde pour chaque ordinateur et le cœur envoie le paquet de réveil. Sur iPhone, iPad et Apple TV, l'envoi en diffusion demande une autorisation d'Apple : l'app envoie aussi le paquet directement à la dernière adresse connue, qui ne réveille pas toujours.
+
+## Mise à jour des Stations
+
+Les apps proposent la mise à jour de la Station là où on la voit, sans attendre qu'on ouvre les Réglages : un bandeau sur l'accueil et, au premier lancement après une mise à jour de l'app, un avis qui reprend toutes les Stations à mettre à jour. La rubrique « Station » des réglages reste la même. Toutes les apps Link sauf le client web (`/link`, qui n'appaire pas d'ordinateur).
+
+**Qui le voit** : les mêmes que « Mettre à jour la Station » des réglages, c'est-à-dire un ordinateur appairé sur cet appareil, ou un ordinateur d'un compte KyberNow avec le droit « Administrer » (`admin`). Jamais un invité du partage, un prêt, ni « Regarder » seul. Le calcul est celui du cœur (`station_offer`), pareil partout.
+
+**Quand** : ce que la Station annonce (`GET /api/stream/info`, `station.update`), relu comme aujourd'hui. La Station vérifie seule toutes les 6 heures ; l'app lui demande de vérifier tout de suite (`POST /api/stream/station/check`) quand la version de l'app a changé depuis sa dernière demande à cet ordinateur, ou quand la Station est plus ancienne que l'app, au plus une fois par jour et par ordinateur, jamais en session. Une Station qui ne connaît pas cette route (avant la 0.11.3) n'est pas relancée : on se fie à son annonce.
+
+| Élément | Français | English |
+|---|---|---|
+| Bandeau de l'accueil, ordinateur choisi | sous la rangée « Se connecter » et profils, sur toute sa largeur ; icône de flèche vers le haut ; « KyberNow Station {v} est disponible pour cet ordinateur. Environ une minute. » ; boutons « Mettre à jour » (le principal) et « Plus tard » | under the “Connect” and profiles row; “KyberNow Station {v} is available for this computer. About a minute.”; “Update”, “Later” |
+| Bandeau, pendant | « Mise à jour de la Station… », indicateur, sans bouton ; puis l'avis bref « KyberNow Station {v} est en place. » et le bandeau s'en va | “Updating the Station…”; then “KyberNow Station {v} is installed.” |
+| Bandeau, un appareil est en session | la confirmation des réglages (« {appareil} est connecté », « La mise à jour coupera sa session. », « Mettre à jour quand même », « Annuler ») | the settings' confirmation |
+| Bandeau, échec | le texte des réglages dans le bandeau (« La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus. », « La Station tarde à revenir… », « Trop tôt… »), bouton « Réessayer » et « Plus tard » | the settings' text, “Try again”, “Later” |
+| Bandeau, version qui exige l'installateur | « KyberNow Station {v} est disponible. Elle s'installe sur l'ordinateur, avec l'installateur. » ; seulement « Plus tard » | “KyberNow Station {v} is available. It installs on the computer, with the installer.”; only “Later” |
+| Bandeau, hors de chez vous | « KyberNow Station {v} est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré. » ; seulement « Plus tard » | “KyberNow Station {v} is available. Away from home, the app can't update the Station: do it once you're back.”; only “Later” |
+| Autres ordinateurs (rangée ou liste) | l'état suivi de « · Mise à jour » : « En ligne · Mise à jour » | “Online · Update” |
+| « Plus tard » | le bandeau de cet ordinateur se cache pour cette version ; il revient au bout de 7 jours, ou tout de suite si une version plus récente sort ; la puce « · Mise à jour » reste | hides it for this version and this computer; back after 7 days or with a newer version |
+| Avis après une mise à jour de l'app, une Station | fenêtre (feuille sur Mac, iPhone et iPad ; plein écran sur les téléviseurs) ; titre « {nom} a aussi une mise à jour » ; texte « KyberNow Link est passée en {app}. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée. » ; boutons « Mettre à jour la Station » et « Plus tard » | “{name} has an update too”; “KyberNow Link is now {app}. Update the Station too: about a minute, a session in progress will be cut off.”; “Update the Station”, “Later” |
+| Avis, plusieurs Stations | titre « Vos Stations aussi ont une mise à jour » ; texte « KyberNow Link est passée en {app}. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée. » ; une ligne par ordinateur : le nom, « Version {v} », bouton « Mettre à jour » ; en bas « Tout mettre à jour » et « Plus tard » | “Your Stations have an update too”; “KyberNow Link is now {app}. Update your computers too: about a minute each, a session in progress will be cut off.”; “Version {v}”, “Update”; “Update all”, “Later” |
+| Avis, une ligne pendant et après | « Mise à jour… » ; « À jour » ; un refus : son texte court sous le nom (« {appareil} est connecté », avec « Mettre à jour quand même ») ; quand toutes sont à jour, « Plus tard » devient « Fermer » | “Updating…”; “Up to date”; “Close” |
+
+Règles :
+
+- Un seul bandeau à la fois sous la rangée « Se connecter » : la mise à jour de la Station passe avant les invitations au compte KyberNow (maquettes de l'accueil), qui attendent qu'elle soit faite ou remise à plus tard.
+- Le bandeau ne s'affiche que pour l'ordinateur choisi, en ligne ou hors de chez vous ; jamais pendant une session (ni dans la barre de session). Hors ligne : rien.
+- L'avis après une mise à jour de l'app : une fois par version de l'app, pas au tout premier lancement (l'app garde la version lancée ; sans version gardée mais avec au moins un ordinateur connu, elle vient de la 0.11.2 ou d'avant : c'est une mise à jour, `station_offer::BEFORE_NOTICE`) ; l'app demande d'abord aux ordinateurs en ligne sur le réseau de vérifier (10 secondes au plus), puis n'affiche l'avis que s'il reste au moins une Station à mettre à jour qu'elle peut installer. Les ordinateurs hors de chez vous ou qui exigent l'installateur n'y sont pas (leur bandeau suffit). Si une session s'ouvre d'elle-même au lancement, l'avis attend le retour à l'accueil. « Plus tard » dans l'avis vaut « Plus tard » pour chaque Station de la liste.
+- « Tout mettre à jour » met les Stations à jour l'une après l'autre ; un refus (session en cours) laisse sa ligne avec « Mettre à jour quand même » et passe à la suivante.
+- Mettre à jour suit ensuite la Station comme les réglages (`GET /api/stream/info` jusqu'à son retour dans la nouvelle version).
+- « Plus tard » est gardé sur l'appareil, par ordinateur : la version et la date.
+- Téléviseurs et salon : le bandeau prend le focus après « Se connecter » (flèche bas) ; l'avis met le focus sur le bouton principal.
+
+Contrat d'Admin : `POST /api/stream/station/check` (même compte que `GET /api/stream/info`) demande au flux des mises à jour la dernière version tout de suite, au plus une fois par 10 minutes (sinon le résultat gardé), et répond `{"ok": true, "station": …}` (le même objet que `station` d'`info`). Cœur : `Console::station_check`, et le module `station_offer` (bandeau, avis, quand demander la vérification).
 
 ## Icône près de l'horloge (Mac, Windows)
 

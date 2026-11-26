@@ -542,3 +542,177 @@ struct HomeStripes: View {
         .accessibilityHidden(true)
     }
 }
+
+// MARK: - Mise à jour des Stations
+
+/// Le bandeau de l'accueil (maquette « MajStationBandeau ») : sous la rangée
+/// « Se connecter », sur sa largeur ; la flèche, le texte, « Mettre à jour »
+/// (le principal) et « Plus tard » ; la suite d'une mise à jour lancée ici.
+struct StationBannerCard: View {
+    let banner: StationBanner
+    let wide: Bool
+    let update: () -> Void
+    let later: () -> Void
+
+    private var failed: Bool { if case .failed = banner { return true } else { return false } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Group {
+                    switch banner {
+                    case .updating: HomeSpinner(size: 18)
+                    case .done: Icon("check-circle", size: 20).foregroundStyle(Theme.ok)
+                    case .failed: Icon("warning", size: 20).foregroundStyle(Theme.warn)
+                    default: Icon("arrow-up", size: 20, bold: true).foregroundStyle(Theme.accent)
+                    }
+                }
+                .frame(width: 22, height: 22)
+                Text(banner.text)
+                    .font(Theme.sans(wide ? 14.5 : 13.5))
+                    .foregroundStyle(failed ? Theme.warnText : Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if banner.canUpdate || banner.canLater {
+                HStack(spacing: 10) {
+                    if banner.canUpdate {
+                        Button(action: update) {
+                            Text(banner.updateLabel).lineLimit(1).padding(.horizontal, 18)
+                        }
+                        .buttonStyle(HomeCTAStyle(online: true, height: 40, fontSize: 15))
+                    }
+                    if banner.canLater {
+                        Button(action: later) { Text(StationOfferText.later).lineLimit(1) }
+                            .buttonStyle(HomePillStyle())
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: wide ? 640 : .infinity, alignment: .leading)
+        .glass(16)
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(failed ? Theme.warnLine : Theme.accent.opacity(0.35)))
+    }
+}
+
+/// L'avis après une mise à jour de l'app (maquette « MajStationAvis ») : une
+/// feuille par-dessus l'accueil, jamais pendant une session ni par-dessus une
+/// autre feuille ; il attend leur fin.
+struct StationNoticePresenter: ViewModifier {
+    @ObservedObject var store: HostStore
+    let free: Bool
+
+    func body(content: Content) -> some View {
+        content.sheet(isPresented: Binding(get: { free && store.stationNotice != nil },
+                                           set: { if !$0, store.stationNotice != nil { store.noticeDismiss() } })) {
+            StationNoticeSheet(store: store)
+                .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+struct StationNoticeSheet: View {
+    @ObservedObject var store: HostStore
+
+    var body: some View {
+        if let notice = store.stationNotice {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Icon("arrow-up", size: 26, bold: true).foregroundStyle(Theme.accent)
+                    Text(notice.title).font(Theme.sans(22, .semibold)).foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(notice.text).font(Theme.sans(15)).foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if notice.single, let line = notice.lines.first {
+                        if let status = line.status { lineStatus(line, status) }
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(notice.lines) { line in
+                                row(line, busy: notice.busy)
+                                if line.id != notice.lines.last?.id { Divider().overlay(Theme.line) }
+                            }
+                        }
+                        .glass(14)
+                    }
+                    VStack(spacing: 10) {
+                        if !notice.allDone {
+                            if notice.single, let line = notice.lines.first {
+                                if case .inSession = line.state {
+                                    primary(StationConfirm(hostID: line.hostID, kind: .update, device: "").confirmLabel) {
+                                        Task { await store.noticeUpdate(line.hostID, force: true) }
+                                    }
+                                } else {
+                                    primary(StationText.update) { Task { await store.noticeUpdate(line.hostID) } }
+                                        .disabled(notice.busy)
+                                }
+                            } else {
+                                primary(StationOfferText.updateAll) { store.noticeUpdateAll() }
+                                    .disabled(notice.busy)
+                            }
+                        }
+                        Button { store.noticeDismiss() } label: {
+                            Text(notice.dismissLabel).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(HomePillStyle())
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(24)
+            }
+            .background(Theme.surface.ignoresSafeArea())
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    private func primary(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).lineLimit(1).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(HomeCTAStyle(online: true, height: 52, fontSize: 17))
+    }
+
+    private func lineStatus(_ line: StationNotice.Line, _ status: String) -> some View {
+        HStack(spacing: 8) {
+            if line.state == .updating { HomeSpinner(size: 14) }
+            if line.state == .done { Icon("check", size: 14, bold: true).foregroundStyle(Theme.ok) }
+            Text(status).font(Theme.sans(13.5)).foregroundStyle(lineColor(line)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func lineColor(_ line: StationNotice.Line) -> Color {
+        switch line.state {
+        case .failed, .inSession: return Theme.warnText
+        case .done: return Theme.ok
+        default: return Theme.muted
+        }
+    }
+
+    private func row(_ line: StationNotice.Line, busy: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(line.name).font(Theme.sans(15.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                if let status = line.status {
+                    lineStatus(line, status)
+                } else {
+                    Text(StationOfferText.version(line.version)).font(Theme.sans(13.5)).foregroundStyle(Theme.muted)
+                }
+            }
+            Spacer(minLength: 10)
+            switch line.state {
+            case .pending, .failed:
+                Button { Task { await store.noticeUpdate(line.hostID) } } label: { Text(StationOfferText.update).lineLimit(1) }
+                    .buttonStyle(HomePillStyle())
+                    .disabled(busy)
+            case .inSession:
+                Button { Task { await store.noticeUpdate(line.hostID, force: true) } } label: {
+                    Text(StationConfirm(hostID: line.hostID, kind: .update, device: "").confirmLabel).lineLimit(1)
+                }
+                .buttonStyle(HomePillStyle())
+            case .updating, .done:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+    }
+}

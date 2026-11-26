@@ -305,6 +305,7 @@ fn new_entry(id: String, ac: &AccountComputer) -> Computer {
         by_code: false,
         wake: Vec::new(),
         station_notified: None,
+        station_offer: Default::default(),
         relay: None,
         account: None,
         auto: None,
