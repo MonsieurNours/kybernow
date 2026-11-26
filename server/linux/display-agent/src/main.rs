@@ -240,6 +240,17 @@ fn nearest_scale(scales: &[f64], want: f64) -> f64 {
 
 /// Applique `layout` si tous ses écrans virtuels sont sur le bureau. Rend
 /// vrai une fois appliquée.
+/// Ce qu'il faut ajouter aux places pour que la plus à gauche et la plus haute
+/// soient en 0.
+fn shift_to_origin(places: impl Iterator<Item = (i32, i32)>) -> (i32, i32) {
+    let (mut min_x, mut min_y) = (i32::MAX, i32::MAX);
+    for (x, y) in places {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+    }
+    if min_x == i32::MAX { (0, 0) } else { (-min_x, -min_y) }
+}
+
 fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Result<bool> {
     // Aucun écran virtuel en place : rien à disposer (sous KDE, une
     // disposition vide désactiverait tous les écrans).
@@ -296,15 +307,24 @@ fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Res
         let touching = chosen.iter().find(|(o, ..)| edge(o) == v).map_or(own, |c| c.2);
         (v as f64 / touching).round() as i32
     };
-    let mut places = Vec::new();
-    let mut right = 0;
-    for (i, (ls, connector, scale)) in chosen.iter().enumerate() {
+    let mut placed = Vec::new();
+    for (ls, connector, scale) in &chosen {
         let x = to_units(ls.x, *scale, &|o: &LayoutScreen| o.x + o.width as i32);
         let y = to_units(ls.y, *scale, &|o: &LayoutScreen| o.y + o.height as i32);
         let width = if physical { ls.width as i32 } else { (ls.width as f64 / scale).round() as i32 };
+        placed.push((ls.slot, connector.clone(), x, y, width, *scale));
+    }
+    // Le bureau commence en (0, 0) : Mutter refuse une place négative
+    // (« Invalid logical monitor position »), que donne un écran de l'appareil
+    // à gauche ou au-dessus du principal ; toute la disposition glisse d'autant.
+    let (dx, dy) = shift_to_origin(placed.iter().map(|p| (p.2, p.3)));
+    let mut places = Vec::new();
+    let mut right = 0;
+    for (i, (slot, connector, x, y, width, scale)) in placed.into_iter().enumerate() {
+        let (x, y) = (x + dx, y + dy);
         right = right.max(x + width);
-        sh.places[ls.slot] = Some((x, y));
-        places.push(Place { connector: connector.clone(), x, y, scale: *scale, primary: i == 0 });
+        sh.places[slot] = Some((x, y));
+        places.push(Place { connector, x, y, scale, primary: i == 0 });
     }
     // Prêt de l'ordinateur : les écrans de l'ordinateur restent, à droite.
     if layout.keep_others {
@@ -752,4 +772,18 @@ fn main() {
         let _ = stdout.flush();
     }
     agent.shutdown();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shift_to_origin;
+
+    #[test]
+    fn un_ecran_a_gauche_fait_glisser_le_bureau() {
+        // L'écran de gauche d'un Mac : (-1920, 0) ; Mutter veut tout en positif.
+        assert_eq!(shift_to_origin([(0, 0), (1920, 0), (-1920, 0)].into_iter()), (1920, 0));
+        assert_eq!(shift_to_origin([(0, 0), (0, -1080)].into_iter()), (0, 1080));
+        assert_eq!(shift_to_origin([(0, 0), (2560, 200)].into_iter()), (0, 0));
+        assert_eq!(shift_to_origin(std::iter::empty()), (0, 0));
+    }
 }
