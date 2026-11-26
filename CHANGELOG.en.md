@@ -8,6 +8,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 - **Less delay when the picture changes all at once.** At a scene change or when a window opens, the computer could send a frame much heavier than the others: it took several frame times to arrive, and everything waited behind it. Every frame now fits its share of the bitrate, with NVIDIA, AMD and Intel cards as on Mac, and still without a hiccup when the bitrate changes.
 - **Mac Station: far fewer keyframes.** The Mac Station sent a keyframe (the heaviest frame) every 12 frames, five a second. It now sends one only when needed, and at most every 10 seconds. In our measurements, with a network just fast enough, the average delay to send the frames drops from about a second to 20 ms.
+- **Less delay when the graphics card is very busy, on Windows, Mac and Linux Stations.** When a heavy game keeps the graphics card busy, the computer's encoder sometimes falls behind. Until now, captured images then queued up and it handled the oldest first, up to two images late (eight on the Linux Station). It now always takes the newest, and older ones are let go: what you see is closer to what is happening on screen. Nothing changes when the computer keeps up easily. The images let go are counted in the Station's log.
 
 ## 0.11.4
 

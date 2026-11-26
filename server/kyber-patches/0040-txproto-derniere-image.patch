@@ -1,0 +1,206 @@
+--- a/subprojects/txproto/src/encode.c
++++ b/subprojects/txproto/src/encode.c
+@@ -624,7 +624,39 @@
+            (ctx->avctx->height != frame->height) ||
+            (ctx->rotation != fe->rotation);
+ }
++
++/* KyberNow (0040): images dropped at the input, for a newer one. In the
++ * metrics (`encoder_input_dropped`, the count since the encoder started,
++ * with the pts of the image that goes in) at most once a second, and in the
++ * log at most once every 5 s, when it changed. */
++static void kn_report_dropped(EncodingContext *ctx, const AVFrame *frame)
++{
++    const int dropped = sp_frame_fifo_get_dropped(ctx->src_frames);
++    const int64_t now = av_gettime_relative();
++
++    if (dropped == ctx->kn_dropped_sent && dropped == ctx->kn_dropped_logged)
++        return;
+ 
++    if (dropped != ctx->kn_dropped_sent && ctx->metrics &&
++        now - ctx->kn_dropped_sent_at >= 1000000) {
++        const tx_metrics_entry metrics[] = {
++            { .key = "pts", .value = frame->pts },
++            { .key = "encoder_input_dropped", .value = dropped },
++        };
++        tx_metrics_push(ctx->metrics, metrics, SP_ARRAY_ELEMS(metrics));
++        ctx->kn_dropped_sent = dropped;
++        ctx->kn_dropped_sent_at = now;
++    }
++
++    if (dropped != ctx->kn_dropped_logged &&
++        now - ctx->kn_dropped_logged_at >= 5000000) {
++        sp_log(ctx, SP_LOG_INFO, "Encoder busy: %d older images dropped for a newer one "
++               "(%d in all)\n", dropped - ctx->kn_dropped_logged, dropped);
++        ctx->kn_dropped_logged = dropped;
++        ctx->kn_dropped_logged_at = now;
++    }
++}
++
+ static void *encoding_thread(void *arg)
+ {
+     EncodingContext *ctx = arg;
+@@ -663,6 +695,8 @@
+         } else if (!flush) {
+             frame = sp_frame_fifo_pop(ctx->src_frames);
+             flush = !frame;
++            if (frame && ctx->codec->type == AVMEDIA_TYPE_VIDEO)
++                kn_report_dropped(ctx, frame); /* KyberNow (0040) */
+         }
+ 
+         if (ctx->codec->type == AVMEDIA_TYPE_VIDEO) {
+@@ -879,6 +913,12 @@
+             else
+                 sp_packet_fifo_set_max_queued(ctx->src_frames, len);
+         }
++        /* KyberNow (0040): "latest_only" = 0 brings back the plain FIFO. */
++        if ((tmp_val = dict_get(event->opts, "latest_only"))) {
++            ctx->kn_latest_only = !!strtol(tmp_val, NULL, 10);
++            if (ctx->codec && ctx->codec->type == AVMEDIA_TYPE_VIDEO)
++                sp_frame_fifo_set_latest_only(ctx->src_frames, ctx->kn_latest_only);
++        }
+         if ((tmp_val = dict_get(event->opts, "fifo_flags"))) {
+             enum SPFrameFIFOFlags new_block_flags = 0;
+             int res = sp_frame_fifo_string_to_block_flags(&new_block_flags, tmp_val);
+@@ -936,6 +976,10 @@
+     assert(!metrics || metrics->cb);
+     ctx->metrics = metrics;
+ 
++    /* KyberNow (0040): images only; sound is never dropped. */
++    if (ctx->codec->type == AVMEDIA_TYPE_VIDEO)
++        sp_frame_fifo_set_latest_only(ctx->src_frames, ctx->kn_latest_only);
++
+     ctx->avctx = avcodec_alloc_context3(ctx->codec);
+     if (!ctx->avctx)
+         return AVERROR(ENOMEM);
+@@ -1023,6 +1067,7 @@
+     ctx->swr = swr_alloc();
+     ctx->soft_flush = ATOMIC_VAR_INIT(0);
+     ctx->force_idr = ATOMIC_VAR_INIT(0);
++    ctx->kn_latest_only = 1; /* KyberNow (0040) */
+ 
+     ctx->src_frames = sp_frame_fifo_create(ctx, 8, FRAME_FIFO_BLOCK_NO_INPUT);
+     ctx->dst_packets = sp_packet_fifo_create(ctx, 0, 0);
+--- a/subprojects/txproto/src/fifo_template.c
++++ b/subprojects/txproto/src/fifo_template.c
+@@ -30,6 +30,13 @@
+ 
+     SPBufferList *dests;
+     SPBufferList *sources;
++
++    /* KyberNow (0040): with latest_only, a push takes the place of the items
++     * still waiting (never of an end of stream or a flush, NULL): only the
++     * newest one waits, and a push never blocks nor fails for room.
++     * `dropped` counts the items it replaced. */
++    int latest_only;
++    int dropped;
+ } SNAME;
+ 
+ static AVBufferRef *find_ref_by_data(AVBufferRef *entry, void *opaque)
+@@ -198,6 +205,28 @@
+     pthread_mutex_unlock(&ctx->lock);
+ }
+ 
++/* KyberNow (0040): see SNAME.latest_only. */
++void RENAME(fifo_set_latest_only)(AVBufferRef *dst, int latest_only)
++{
++    SNAME *ctx = (SNAME *)dst->data;
++    pthread_mutex_lock(&ctx->lock);
++    ctx->latest_only = !!latest_only;
++    pthread_mutex_unlock(&ctx->lock);
++}
++
++/* KyberNow (0040): items replaced by a newer one since the FIFO was made. */
++int RENAME(fifo_get_dropped)(AVBufferRef *src)
++{
++    if (!src)
++        return 0;
++
++    SNAME *ctx = (SNAME *)src->data;
++    pthread_mutex_lock(&ctx->lock);
++    int ret = ctx->dropped;
++    pthread_mutex_unlock(&ctx->lock);
++    return ret;
++}
++
+ void RENAME(fifo_set_block_flags)(AVBufferRef *dst, FNAME block_flags)
+ {
+     SNAME *ctx = (SNAME *)dst->data;
+@@ -246,6 +275,20 @@
+     if (ctx->max_queued == 0)
+         goto distribute;
+ 
++    /* KyberNow (0040): the newest takes the place of those still waiting;
++     * ends of stream and flushes stay, in their order. */
++    if (in && ctx->latest_only) {
++        int kept = 0;
++        for (int i = 0; i < ctx->num_queued; i++) {
++            if (ctx->queued[i]) {
++                FREE_FN(&ctx->queued[i]);
++                ctx->dropped++;
++            } else {
++                ctx->queued[kept++] = NULL;
++            }
++        }
++        ctx->num_queued = kept;
++    } else
+     /* Block or error, but only for non-NULL pushes */
+     if (in && (ctx->max_queued != -1) &&
+         (ctx->num_queued > (ctx->max_queued + 1))) {
+--- a/subprojects/txproto/src/include/libtxproto/encode.h
++++ b/subprojects/txproto/src/include/libtxproto/encode.h
+@@ -89,6 +89,15 @@
+ 
+     /* KyberNow (0023): time of each step, logged every 5 s (kn_timing.h) */
+     struct KnTimingStats *kn_timing;
++
++    /* KyberNow (0040): a video encoder takes the newest capture only, the
++     * older ones waiting are dropped ("latest_only" option, on by default).
++     * The drops as last sent in the metrics and as last logged. */
++    int kn_latest_only;
++    int kn_dropped_sent;
++    int64_t kn_dropped_sent_at;
++    int kn_dropped_logged;
++    int64_t kn_dropped_logged_at;
+ } EncodingContext;
+ 
+ AVBufferRef *sp_encoder_alloc(void);
+--- a/subprojects/txproto/src/include/libtxproto/fifo_bufferref.h
++++ b/subprojects/txproto/src/include/libtxproto/fifo_bufferref.h
+@@ -25,6 +25,10 @@
+ /* Modify */
+ void RENAME(fifo_set_max_queued)(AVBufferRef *dst, int max_queued);
+ void RENAME(fifo_set_block_flags)(AVBufferRef *dst, FNAME block_flags);
++/* KyberNow (0040): only the newest item waits, a push takes the place of
++ * the others (counted); ends of stream and flushes stay. */
++void RENAME(fifo_set_latest_only)(AVBufferRef *dst, int latest_only);
++int  RENAME(fifo_get_dropped)(AVBufferRef *src);
+ int  RENAME(fifo_string_to_block_flags)(FNAME *dst, const char *in_str);
+ 
+ /* Up/downstreaming */
+--- a/subprojects/txproto/src/include/libtxproto/fifo_frame.h
++++ b/subprojects/txproto/src/include/libtxproto/fifo_frame.h
+@@ -44,6 +44,10 @@
+ /* Modify */
+ void RENAME(fifo_set_max_queued)(AVBufferRef *dst, int max_queued);
+ void RENAME(fifo_set_block_flags)(AVBufferRef *dst, FNAME block_flags);
++/* KyberNow (0040): only the newest item waits, a push takes the place of
++ * the others (counted); ends of stream and flushes stay. */
++void RENAME(fifo_set_latest_only)(AVBufferRef *dst, int latest_only);
++int  RENAME(fifo_get_dropped)(AVBufferRef *src);
+ int  RENAME(fifo_string_to_block_flags)(FNAME *dst, const char *in_str);
+ 
+ /* Up/downstreaming */
+--- a/subprojects/txproto/src/include/libtxproto/fifo_packet.h
++++ b/subprojects/txproto/src/include/libtxproto/fifo_packet.h
+@@ -44,6 +44,10 @@
+ /* Modify */
+ void RENAME(fifo_set_max_queued)(AVBufferRef *dst, int max_queued);
+ void RENAME(fifo_set_block_flags)(AVBufferRef *dst, FNAME block_flags);
++/* KyberNow (0040): only the newest item waits, a push takes the place of
++ * the others (counted); ends of stream and flushes stay. */
++void RENAME(fifo_set_latest_only)(AVBufferRef *dst, int latest_only);
++int  RENAME(fifo_get_dropped)(AVBufferRef *src);
+ int  RENAME(fifo_string_to_block_flags)(FNAME *dst, const char *in_str);
+ 
+ /* Up/downstreaming */

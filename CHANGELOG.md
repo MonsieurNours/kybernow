@@ -9,6 +9,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 - **Moins de retard quand l'image change d'un coup.** Au moment d'un changement de scène ou d'une fenêtre qui s'ouvre, l'ordinateur pouvait envoyer une image bien plus lourde que les autres : elle mettait plusieurs images de temps à arriver, et tout attendait derrière elle. Chaque image tient maintenant dans sa part du débit, avec les cartes NVIDIA, AMD et Intel comme sur Mac, et toujours sans à-coup quand le débit change.
 - **Station Mac : bien moins d'images clés.** La Station Mac envoyait une image clé (la plus lourde) toutes les 12 images, cinq par seconde. Elle n'en envoie plus qu'au besoin, et au plus toutes les 10 secondes. Sur nos mesures, avec un réseau tout juste suffisant, le retard moyen dû à l'envoi des images passe d'environ une seconde à 20 ms.
+- **Moins de retard quand la carte graphique est très sollicitée, sur les Stations Windows, Mac et Linux.** Quand un jeu lourd occupe la carte graphique, l'encodeur de l'ordinateur prend parfois du retard. Jusqu'ici, les images capturées faisaient alors la queue et il traitait d'abord la plus ancienne, avec jusqu'à deux images de retard (huit sur la Station Linux). Il prend maintenant toujours la plus récente, et les plus anciennes sont abandonnées : ce que vous voyez est plus proche de ce qui se passe à l'écran. Rien ne change quand l'ordinateur suit sans peine. Les images abandonnées sont comptées dans le journal de la Station.
 
 ## 0.11.4
 

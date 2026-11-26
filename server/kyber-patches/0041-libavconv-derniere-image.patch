@@ -1,0 +1,103 @@
+--- a/subprojects/libavconv/libavconv/sched.c
++++ b/subprojects/libavconv/libavconv/sched.c
+@@ -225,6 +225,14 @@
+      */
+     int               (*open_cb)(void *opaque, AVConvFrameParams *par);
+     int                 opened;
++
++    /* KyberNow (0041): a video encoder fed by a filtergraph takes the newest
++     * image only: one still waiting is dropped for a newer one (counted, and
++     * logged at most every 5 s). Set by avconv_connect(). */
++    int                 kn_latest;
++    int                 kn_dropped;
++    int                 kn_dropped_logged;
++    int64_t             kn_dropped_logged_at;
+ } SchEnc;
+ 
+ typedef struct SchDemux {
+@@ -1949,6 +1957,17 @@
+ 
+     in->src = src;
+     in->send_nonblock = !!(flags & AVCONV_CONNECT_SEND_NONBLOCK);
++
++    /* KyberNow (0041): only the newest image waits before a video encoder
++     * fed by a filtergraph; room for new parameters next to it, unless the
++     * caller chose a size. Sound keeps its queue. */
++    if (dst->type == HANDLE_TYPE_ENC && dst->media_type == AVMEDIA_TYPE_VIDEO &&
++        src->type == HANDLE_TYPE_FILTER) {
++        SchEnc *enc = (SchEnc *)node_dst;
++        enc->kn_latest = 1;
++        if (!node_dst->queue_size)
++            node_dst->queue_size = 2;
++    }
+ 
+     return 0;
+ }
+@@ -2554,6 +2573,28 @@
+         return 0;
+     }
+ 
++    /* KyberNow (0041): an image takes the place of the one still waiting;
++     * parameters and heartbeats wait their turn. */
++    if (enc->kn_latest &&
++        (enum AVConvRawDataType)(intptr_t)frame->opaque == AVCONV_RAW_DATA_FRAME) {
++        int ret = avconvi_tq_send(enc->node.queue, 0, TQFRAME(frame),
++                                  THREAD_QUEUE_SEND_FLAG_DROPPABLE |
++                                  THREAD_QUEUE_SEND_FLAG_LATEST);
++        if (ret == THREAD_QUEUE_SEND_DROPPED) {
++            const int64_t now = av_gettime_relative();
++            enc->kn_dropped++;
++            if (now - enc->kn_dropped_logged_at >= 5000000) {
++                av_log(&enc->node, AV_LOG_INFO, "Encoder busy: %d older images "
++                       "dropped for a newer one (%d in all)\n",
++                       enc->kn_dropped - enc->kn_dropped_logged, enc->kn_dropped);
++                enc->kn_dropped_logged = enc->kn_dropped;
++                enc->kn_dropped_logged_at = now;
++            }
++            ret = 0;
++        }
++        return ret;
++    }
++
+     return send_to_node(&enc->node, 0, TQFRAME(frame));
+ }
+ 
+--- a/subprojects/libavconv/libavconv/thread_queue.c
++++ b/subprojects/libavconv/libavconv/thread_queue.c
+@@ -211,6 +211,19 @@
+         goto finish;
+     }
+ 
++    /* KyberNow (0041): the newest takes the place of the one waiting. */
++    if ((flags & THREAD_QUEUE_SEND_FLAG_LATEST) &&
++        (flags & THREAD_QUEUE_SEND_FLAG_DROPPABLE) &&
++        !(*finished & FINISHED_RECV)) {
++        ret = tq_send_replace(tq, stream_idx, frame, flags);
++        if (ret != AVERROR(EAGAIN)) {
++            if (ret >= 0)
++                pthread_cond_broadcast(&tq->cond);
++            goto finish;
++        }
++        ret = 0;
++    }
++
+     while (!(*finished & FINISHED_RECV) && !av_fifo_can_write(tq->fifo_info)) {
+         if (flags & THREAD_QUEUE_SEND_FLAG_NONBLOCK) {
+             ret = tq_send_replace(tq, stream_idx, frame, flags);
+--- a/subprojects/libavconv/libavconv/thread_queue.h
++++ b/subprojects/libavconv/libavconv/thread_queue.h
+@@ -51,6 +51,14 @@
+      * THREAD_QUEUE_SEND_FLAG_NONBLOCK.
+      */
+     THREAD_QUEUE_SEND_FLAG_DROPPABLE    = (1 << 1),
++
++    /**
++     * KyberNow (0041): with THREAD_QUEUE_SEND_FLAG_DROPPABLE, the frame being
++     * sent takes the place of a droppable frame of the same stream still
++     * waiting, even when the queue has room: only the newest one waits.
++     * Returns THREAD_QUEUE_SEND_DROPPED when it did.
++     */
++    THREAD_QUEUE_SEND_FLAG_LATEST       = (1 << 2),
+ };
+ 
+ enum ThreadQueueSend {
