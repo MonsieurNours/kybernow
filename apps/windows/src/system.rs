@@ -88,19 +88,14 @@ pub fn is_this_pc(host: &str) -> bool {
     addrs.into_iter().any(|a| a.ip().is_loopback() || UdpSocket::bind((a.ip(), 0)).is_ok())
 }
 
-/// PyroWave (docs/link-ui.md, « PyroWave ») : ce PC joint l'ordinateur
-/// `host` par une carte réseau filaire (Ethernet), celle que Windows prend
-/// pour cette adresse. Faux pour le Wi-Fi, le réseau mobile, une adresse
-/// introuvable ou qu'on ne sait pas lire : « Auto » prend alors HEVC.
-pub fn wired_to(host: &str) -> bool {
+/// La carte réseau que Windows prend pour joindre `host` (`GetBestInterfaceEx`),
+/// `None` pour une adresse introuvable ou qu'on ne sait pas lire.
+fn interface_to(host: &str) -> Option<windows::Win32::NetworkManagement::IpHelper::MIB_IF_ROW2> {
     use std::net::{IpAddr, ToSocketAddrs};
     use windows::Win32::NetworkManagement::IpHelper::{GetBestInterfaceEx, GetIfEntry2, MIB_IF_ROW2};
-    use windows::Win32::NetworkManagement::Ndis::{NdisPhysicalMedium802_3, NdisPhysicalMediumUnspecified};
     use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, IN_ADDR, IN6_ADDR, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6};
-    /// `IF_TYPE_ETHERNET_CSMACD` (ipifcons.h).
-    const ETHERNET: u32 = 6;
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    let Some(ip) = (host, 0u16).to_socket_addrs().ok().and_then(|mut a| a.next()).map(|a| a.ip()) else { return false };
+    let ip = (host, 0u16).to_socket_addrs().ok().and_then(|mut a| a.next()).map(|a| a.ip())?;
     let mut index = 0u32;
     let found = unsafe {
         match ip {
@@ -117,18 +112,96 @@ pub fn wired_to(host: &str) -> bool {
         }
     };
     if found != 0 {
-        return false;
+        return None;
     }
     let mut row = MIB_IF_ROW2 { InterfaceIndex: index, ..Default::default() };
     if unsafe { GetIfEntry2(&mut row) }.is_err() {
-        return false;
+        return None;
     }
-    // Une carte Wi-Fi se dit IEEE 802.11 (71) ; certaines cartes Wi-Fi ou
-    // mobiles se disent Ethernet : leur support physique les trahit.
+    Some(row)
+}
+
+/// La carte est filaire (Ethernet). Une carte Wi-Fi se dit IEEE 802.11 (71) ;
+/// certaines cartes Wi-Fi ou mobiles se disent Ethernet : leur support
+/// physique les trahit.
+fn is_wired(row: &windows::Win32::NetworkManagement::IpHelper::MIB_IF_ROW2) -> bool {
+    use windows::Win32::NetworkManagement::Ndis::{NdisPhysicalMedium802_3, NdisPhysicalMediumUnspecified};
+    /// `IF_TYPE_ETHERNET_CSMACD` (ipifcons.h).
+    const ETHERNET: u32 = 6;
     let medium = row.PhysicalMediumType;
-    let wired = row.Type == ETHERNET && (medium == NdisPhysicalMedium802_3 || medium == NdisPhysicalMediumUnspecified);
-    log::info!("réseau vers {host} : carte {index}, type {}, support {}, {}", row.Type, medium.0, if wired { "câble" } else { "sans fil" });
+    row.Type == ETHERNET && (medium == NdisPhysicalMedium802_3 || medium == NdisPhysicalMediumUnspecified)
+}
+
+/// PyroWave (docs/link-ui.md, « PyroWave ») : ce PC joint l'ordinateur
+/// `host` par une carte réseau filaire (Ethernet), celle que Windows prend
+/// pour cette adresse. Faux pour le Wi-Fi, le réseau mobile, une adresse
+/// introuvable ou qu'on ne sait pas lire : « Auto » prend alors HEVC.
+pub fn wired_to(host: &str) -> bool {
+    let Some(row) = interface_to(host) else { return false };
+    let wired = is_wired(&row);
+    log::info!(
+        "réseau vers {host} : carte {}, type {}, support {}, {}",
+        row.InterfaceIndex,
+        row.Type,
+        row.PhysicalMediumType.0,
+        if wired { "câble" } else { "sans fil" }
+    );
     wired
+}
+
+/// Profil Auto (docs/profil-auto.md) : le nom du réseau par lequel ce PC
+/// joint `host`, gardé avec le résultat du test et comparé au début de
+/// chaque session : « Ethernet » par câble, le nom du Wi-Fi sinon (lu par
+/// l'API WLAN ; Windows 11 le refuse quand la localisation est coupée pour
+/// les apps de bureau). `None` : inconnu (une carte ni filaire ni Wi-Fi, un
+/// nom refusé).
+pub fn network_name(host: &str) -> Option<String> {
+    let row = interface_to(host)?;
+    if is_wired(&row) {
+        return Some("Ethernet".into());
+    }
+    /// `IF_TYPE_IEEE80211` (ipifcons.h).
+    const WIFI: u32 = 71;
+    if row.Type != WIFI {
+        return None;
+    }
+    let name = wifi_name(&row.InterfaceGuid);
+    if name.is_none() {
+        log::info!("profil Auto : nom du Wi-Fi illisible (localisation coupée ?)");
+    }
+    name
+}
+
+/// Le nom (SSID) du Wi-Fi auquel la carte `guid` est connectée.
+fn wifi_name(guid: &windows::core::GUID) -> Option<String> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::NetworkManagement::WiFi::{
+        WLAN_CONNECTION_ATTRIBUTES, WlanCloseHandle, WlanFreeMemory, WlanOpenHandle, WlanQueryInterface, wlan_intf_opcode_current_connection,
+    };
+    unsafe {
+        let mut version = 0u32;
+        let mut handle = HANDLE::default();
+        if WlanOpenHandle(2, None, &mut version, &mut handle) != 0 {
+            return None;
+        }
+        let mut size = 0u32;
+        let mut data: *mut std::ffi::c_void = std::ptr::null_mut();
+        let r = WlanQueryInterface(handle, guid, wlan_intf_opcode_current_connection, None, &mut size, &mut data, None);
+        let name = if r == 0 && !data.is_null() && size as usize >= std::mem::size_of::<WLAN_CONNECTION_ATTRIBUTES>() {
+            let attrs = &*(data as *const WLAN_CONNECTION_ATTRIBUTES);
+            let ssid = &attrs.wlanAssociationAttributes.dot11Ssid;
+            let len = (ssid.uSSIDLength as usize).min(ssid.ucSSID.len());
+            let s = String::from_utf8_lossy(&ssid.ucSSID[..len]).trim().to_string();
+            (!s.is_empty()).then_some(s)
+        } else {
+            None
+        };
+        if !data.is_null() {
+            WlanFreeMemory(data);
+        }
+        WlanCloseHandle(handle, None);
+        name
+    }
 }
 
 /// Cette app x64 tourne-t-elle émulée sur un processeur ARM64 ?

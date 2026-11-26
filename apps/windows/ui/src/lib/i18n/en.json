@@ -11,10 +11,12 @@
     "jeu": "Game",
     "bureau": "Desktop",
     "max": "Max",
+    "auto": "Auto",
     "custom": "Custom",
     "jeu_sub": "Responsiveness first, for gaming.",
     "bureau_sub": "Sharp text, for work.",
     "max_sub": "The best picture this device can show.",
+    "auto_sub": "The best settings for this network and this device.",
     "custom_sub": "Your own settings."
   },
   "time": {
@@ -745,6 +747,7 @@
     "chosen_help": "Almost no compression delay, but 5 to 10 times the bitrate of HEVC. Made for an Ethernet cable.",
     "auto_wired": "Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.",
     "auto_unwired": "Auto: HEVC. PyroWave is only used when this device is connected by cable.",
+    "auto_profile_only": "Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.",
     "warn_wifi": "On Wi-Fi, PyroWave may stutter: it needs about 300 Mbit/s at 1080p. Keep “Auto” if you're not sure.",
     "warn_relay": "Away from home, PyroWave goes through the relay and your internet connection: the picture may stutter. Keep “Auto” if you're not sure.",
     "banner_wifi": "PyroWave on Wi-Fi",
@@ -758,5 +761,23 @@
     "cannot_decode": "{device} can't decode PyroWave.",
     "this_device": "This PC",
     "lost_frames": "Lost frames"
+  },
+  "autotest": {
+    "title": "Auto profile",
+    "subtitle": "KyberNow measures your network and this device, then suggests the best settings.",
+    "summary": "Suggested settings",
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "again": "Run the test again",
+    "retry": "Try again",
+    "chosen_by": "Chosen by the test of {date} ({network}).",
+    "other_network": "Different network from the test",
+    "other_network_text": "Adaptive bitrate will handle it.",
+    "adaptive": "Adaptive bitrate",
+    "adaptive_help": "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves.",
+    "adaptive_pyrowave": "With PyroWave it pauses: the resolution goes down instead.",
+    "link_cable": "Cable",
+    "link_wifi": "Wi-Fi",
+    "link_relay": "Through the relay"
   }
 }

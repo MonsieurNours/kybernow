@@ -307,6 +307,7 @@ fn new_entry(id: String, ac: &AccountComputer) -> Computer {
         station_notified: None,
         relay: None,
         account: None,
+        auto: None,
     };
     update_entry(&mut c, ac);
     c

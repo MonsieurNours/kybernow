@@ -73,6 +73,8 @@ struct Args {
     station_restart: bool,
     probe: bool,
     probe_json: bool,
+    /// Processus de décodage du test du profil Auto (autotest_decode.rs).
+    decode_samples: bool,
     forget_all: bool,
     clear_shell: bool,
     setup_shell: bool,
@@ -100,6 +102,7 @@ fn parse_args() -> Result<Args, String> {
         station_restart: true,
         probe: false,
         probe_json: false,
+        decode_samples: false,
         forget_all: false,
         clear_shell: false,
         setup_shell: false,
@@ -146,6 +149,8 @@ fn parse_args() -> Result<Args, String> {
             "--probe" => a.probe = true,
             // Processus de sonde lancé par l'app (pc.rs).
             "--probe-json" => a.probe_json = true,
+            // Processus de décodage du test du profil Auto, lancé par l'app.
+            "--decode-samples" => a.decode_samples = true,
             // Installation : lien kybernow://, notifications, raccourcis.
             "--setup-shell" => a.setup_shell = true,
             "--desktop" => a.desktop = true,
@@ -160,7 +165,7 @@ fn parse_args() -> Result<Args, String> {
             }
         }
     }
-    if a.host.is_empty() && !a.probe && !a.probe_json && !a.forget_all && !a.clear_shell && !a.setup_shell {
+    if a.host.is_empty() && !a.probe && !a.probe_json && !a.decode_samples && !a.forget_all && !a.clear_shell && !a.setup_shell {
         return Err(String::new());
     }
     Ok(a)
@@ -263,6 +268,10 @@ pub fn main() -> i32 {
         let m = forget_accounts();
         log::info!("désinstallation : {m} comptes KyberNow oubliés");
         return 0;
+    }
+
+    if args.decode_samples {
+        return crate::autotest_decode::serve();
     }
 
     if args.probe_json {

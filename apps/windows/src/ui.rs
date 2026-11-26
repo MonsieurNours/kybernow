@@ -57,6 +57,9 @@ use kybernow_core::update::{self, Available, Channel};
 // KyberNow Share : « Rejoindre avec un code » (session d'invité) et « Partager »
 // (panneau de l'hôte dans la barre).
 mod share;
+// Profil Auto : le test des conditions, ses réglages appliqués, le bandeau
+// « Autre réseau que celui du test » (docs/profil-auto.md).
+mod autotest;
 // Prêt de l'ordinateur (KyberNow Share) : l'ami (ordinateurs empruntés, session
 // d'emprunt) et l'hôte (« Prêter l'ordinateur… », « Reprendre l'ordinateur »).
 mod lend;
@@ -343,6 +346,9 @@ pub enum Action {
     /// Les réglages d'une console PlayStation (« Réglages de {nom} » de la barre de la partie).
     #[serde(rename = "ps_settings")]
     PsSettings { id: String },
+    /// Le panneau du test du profil Auto (Auto choisi sans test dans le menu de
+    /// l'icône, ou demandé pendant la session de cet ordinateur).
+    Autotest { id: String },
 }
 
 fn parse_action(args: &[String]) -> Option<Action> {
@@ -1495,6 +1501,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             station_notified: None,
             relay: info.relay.clone(),
             account: None,
+            auto: None,
         })
     });
     if !store::set_password(&id, user, password) {
@@ -1732,6 +1739,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     }
     let ctrl_command = settings.ctrl_command;
     let immersive = settings.immersive.clone();
+    let adaptive = settings.adaptive;
     let hdr = settings.hdr_on();
     let before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
@@ -1751,6 +1759,17 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     state.with_session(&id, |r| r.host.set_control_as_command(on));
     // « Mode immersif » : tout de suite aussi.
     state.with_session(&id, |r| r.host.set_immersive(&immersive));
+    // « Débit adaptatif » : tout de suite aussi (le reste de l'image ne bouge pas).
+    if adaptive != before.adaptive {
+        let changed = state.with_session(&id, |r| {
+            let mut sent = r.sent.lock().unwrap();
+            sent.settings.adaptive = adaptive;
+            r.host.set_settings(sent.settings.clone())
+        });
+        if changed.is_some() {
+            log::info!("débit adaptatif {} pendant la session", if adaptive { "allumé" } else { "coupé" });
+        }
+    }
     emit_computers(&app);
     Ok(())
 }
@@ -1827,6 +1846,12 @@ struct UiEvents {
     /// ([`show_pending_strained`]), oublié si la session finit ou si l'image
     /// est déjà en HEVC.
     pyrowave_strained_pending: std::sync::atomic::AtomicBool,
+    /// Profil Auto : le test gardé et le réseau de ce PC au lancement (nom du
+    /// Wi-Fi, « Ethernet ») ; le bandeau « Autre réseau que celui du test »
+    /// au début de la session (`autotest::tell_other_network`).
+    auto_check: Option<autotest::Check>,
+    /// Le bandeau « Autre réseau que celui du test » déjà montré.
+    auto_told: std::sync::atomic::AtomicBool,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -2068,6 +2093,7 @@ impl HostEvents for UiEvents {
         *self.stats.lock().unwrap() = Some(s.clone());
         self.tell_pads_off();
         self.tell_pyrowave(s);
+        self.tell_other_network();
         tray::refresh();
     }
 
@@ -2541,6 +2567,30 @@ impl UiEvents {
         share::panel_notice(&self.app, &self.id, &self.connexion.name, &t("pyrowave.banner_text", &[]), kind);
     }
 
+    /// Profil Auto, réseau (ou relais) différent de celui du test : le bandeau
+    /// discret du début de session (docs/link-ui.md, « Profil Auto et débit
+    /// adaptatif »), une fois, à la première seconde d'image à l'écran.
+    fn tell_other_network(&self) {
+        use std::sync::atomic::Ordering;
+        let Some(check) = &self.auto_check else { return };
+        if self.auto_told.load(Ordering::Relaxed) || !self.spot.lock().unwrap().shown {
+            return;
+        }
+        let relayed = self.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay);
+        if !check.differs(relayed) || self.auto_told.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        log::info!("[{}] profil Auto : autre réseau que celui du test, bandeau", self.connexion.name);
+        let lang = i18n::lang();
+        share::panel_notice(
+            &self.app,
+            &self.id,
+            &kybernow_core::i18n::tr(lang, "autotest.other_network", &[]),
+            &kybernow_core::i18n::tr(lang, "autotest.other_network_text", &[]),
+            "auto_network",
+        );
+    }
+
     fn tell_pads_off(&self) {
         use std::sync::atomic::Ordering;
         if !self.pads_off || self.pads_told.load(Ordering::Relaxed) || !self.spot.lock().unwrap().shown {
@@ -2684,6 +2734,8 @@ fn session_plan(
         max_4k: s.max_4k && s.custom.is_none(),
         size: window.or_else(|| custom_mode(s)),
         lighten,
+        auto: c.auto.clone(),
+        fixed: !s.adaptive,
     };
     let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.
@@ -2940,6 +2992,11 @@ fn show_home_if_idle(app: &AppHandle) {
     if state.quitting.load(Ordering::Relaxed) || !idle(&state) {
         return;
     }
+    // Profil Auto : le test demandé pendant la session, maintenant qu'elle est finie.
+    if let Some(id) = autotest::take_later() {
+        show_action(app, Action::Autotest { id });
+        return;
+    }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -3145,6 +3202,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let (mut settings, mode, label) = session_plan(&c, &pc, lighten, follow.as_ref().map(|f| f.mode));
     // PyroWave (docs/link-ui.md « PyroWave ») : « Auto » le prend seulement par câble.
     settings.wired = !host.is_empty() && system::wired_to(&host);
+    // Profil Auto : le réseau de ce PC, comparé à celui du test au début de la session.
+    let auto_check = autotest::check(&c, &host);
     let plan = screens::session_plan_for(&layout.screens(), &settings, s.virtual_display);
     // HDR : l'écran de la session (« Cet écran », ou dès qu'un des écrans pris l'est) ;
     // le cœur relit chaque écran dans les écrans de ce PC.
@@ -3186,7 +3245,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     if let Some(p) = &plan {
         log::info!("session sur {} écrans de ce PC (la Station en crée {} au plus)", p.len(), layout.spec.max_screens);
     }
-    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone(), custom: is_custom(s, Some(&pc)) }));
+    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone(), custom: is_custom(&c, Some(&pc)) }));
     let sent = Arc::new(Mutex::new(Sent {
         settings,
         mode,
@@ -3253,6 +3312,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         pads_told: std::sync::atomic::AtomicBool::new(false),
         pyrowave_told: std::sync::atomic::AtomicBool::new(false),
         pyrowave_strained_pending: std::sync::atomic::AtomicBool::new(false),
+        auto_check,
+        auto_told: std::sync::atomic::AtomicBool::new(false),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3430,24 +3491,41 @@ fn apply_hdr(app: &AppHandle, id: &str, on: bool) -> bool {
 #[tauri::command(async)]
 fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), String> {
     let state = app.state::<UiState>();
-    let Some((bar, sent)) = state.with_session(&id, |r| (r.bar.clone(), r.sent.clone())) else {
+    if state.with_session(&id, |_| ()).is_none() {
         return Err(t("errors.no_session", &[]));
-    };
+    }
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
+    // Auto (docs/profil-auto.md) : avec un test gardé, ses réglages tout de
+    // suite ; sans test, le panneau du test s'ouvre à la fin de la session.
+    if profile == "auto" {
+        return autotest::choose(&app, &id).map(|_| ());
+    }
     let c = save_profile(&app, &id, &profile)?;
     emit_computers(&app);
+    apply_to_session(&app, &id, &c)
+}
+
+/// Le profil de l'ordinateur `id`, tel qu'il est enregistré (`c`), appliqué
+/// tout de suite à sa session (les réglages du profil seulement : la taille
+/// de l'écran ne change pas) et à la barre. Rien sans session.
+fn apply_to_session(app: &AppHandle, id: &str, c: &Computer) -> Result<(), String> {
+    let state = app.state::<UiState>();
+    let Some((bar, sent)) = state.with_session(id, |r| (r.bar.clone(), r.sent.clone())) else {
+        return Ok(());
+    };
+    let profile = c.settings.profile.clone();
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
     // Les réglages du profil seulement : la taille de l'écran ne change pas.
-    let (mut settings, _, label) = session_plan(&c, &pc, lighten, None);
+    let (mut settings, _, label) = session_plan(c, &pc, lighten, None);
     // Le câble ne change pas avec le profil.
     settings.wired = sent.lock().unwrap().settings.wired;
     sent.lock().unwrap().settings = settings.clone();
     // Un profil choisi remet ses réglages (`save_profile`) : plus de « Personnalisé ».
     let shown = BarLabel { label, profile, custom: false };
     *bar.lock().unwrap() = shown.clone();
-    let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.clone(), label: shown });
-    let applied = state.with_session(&id, |r| r.host.set_settings(settings)).unwrap_or(false);
+    let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.to_string(), label: shown });
+    let applied = state.with_session(id, |r| r.host.set_settings(settings)).unwrap_or(false);
     if applied { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
 }
 
@@ -3523,17 +3601,23 @@ fn save_profile(app: &AppHandle, id: &str, profile: &str) -> Result<Computer, St
 
 /// Un profil choisi sur l'accueil ou dans le menu de l'icône : enregistré
 /// pour cet ordinateur ; pendant sa session, appliqué tout de suite, comme
-/// depuis la barre.
+/// depuis la barre. Auto (`autotest::choose`) : avec un test gardé, ses
+/// réglages (`applied`) ; sans test, l'interface ouvre le panneau du test
+/// (`test`), ou il s'ouvrira à la fin de la session (`later`).
 #[tauri::command(async)]
-fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String> {
+fn set_profile(app: AppHandle, id: String, profile: String) -> Result<autotest::Chosen, String> {
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
+    if profile == "auto" {
+        return autotest::choose(&app, &id);
+    }
     let state = app.state::<UiState>();
     if state.in_session(&id) {
-        return session_profile(app.clone(), id, profile);
+        session_profile(app.clone(), id, profile)?;
+        return Ok(autotest::Chosen::Applied);
     }
     save_profile(&app, &id, &profile)?;
     emit_computers(&app);
-    Ok(())
+    Ok(autotest::Chosen::Applied)
 }
 
 /// Largeur de la fenêtre de la barre de session à sa création, en points ;
@@ -3725,7 +3809,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         route,
         hdr: bar_hdr(&state, id),
         wired: state.with_session(id, |r| r.sent.lock().unwrap().settings.wired),
-        notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained"].into_iter().find(|k| *k == p)),
+        notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained", "auto_network"].into_iter().find(|k| *k == p)),
         console: None,
     };
     let _ = app.emit_to("bar", "bar-shown", shown);
@@ -3860,9 +3944,14 @@ fn show_pending_strained(app: &AppHandle) {
 }
 
 /// Les réglages s'écartent du profil (« Personnalisé ») : `isCustom` de
-/// l'interface (ui/src/lib/api.ts).
-fn is_custom(s: &Settings, pc: Option<&ThisPc>) -> bool {
-    let base = if pc.is_none_or(|p| p.hevc) { "hevc" } else { "h264" };
+/// l'interface (ui/src/lib/api.ts). Le format du profil Auto est celui du test.
+fn is_custom(c: &Computer, pc: Option<&ThisPc>) -> bool {
+    let s = &c.settings;
+    let base = match c.auto.as_ref().filter(|_| s.profile == "auto") {
+        Some(r) => r.codec.key(),
+        None if pc.is_none_or(|p| p.hevc) => "hevc",
+        None => "h264",
+    };
     s.codec.as_deref().is_some_and(|c| c != base) || s.yuv444.is_some() || s.mbps.is_some() || s.reliable.is_some()
 }
 
@@ -3938,7 +4027,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
                 away: l.is_some_and(|l| l.away),
                 via_relay: l.is_some_and(|l| l.away) || relayed.contains(&c.id),
                 profile: c.settings.profile.clone(),
-                custom: is_custom(&c.settings, pc.as_ref()),
+                custom: is_custom(c, pc.as_ref()),
                 can_wake: !c.wake.is_empty(),
                 waking: waking.contains(&c.id),
                 station,
@@ -4017,7 +4106,12 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
             Cmd::Retry(id) => {
                 let _ = poll_now(app.clone(), id);
             }
-            Cmd::Profile(id, p) => fail(set_profile(app.clone(), id, p.into())),
+            // Auto sans test gardé : l'accueil revient sur le panneau du test.
+            Cmd::Profile(id, "auto") => match autotest::choose(&app, &id) {
+                Ok(autotest::Chosen::Test) => show_action(&app, Action::Autotest { id }),
+                r => fail(r.map(|_| ())),
+            },
+            Cmd::Profile(id, p) => fail(set_profile(app.clone(), id, p.into()).map(|_| ())),
             Cmd::Settings(id) => show_action(&app, Action::Settings { id, rubric: None }),
             Cmd::Admin(id) => fail(open_admin(app.clone(), id)),
             Cmd::Restart(id) => station_from_menu(&app, &id, Kind::Restart),
@@ -4179,6 +4273,10 @@ pub fn run(args: Vec<String>) {
             set_language,
             set_battery,
             synced::set_sync_settings,
+            autotest::autotest_run,
+            autotest::autotest_cancel,
+            autotest::autotest_apply,
+            autotest::autotest_later,
             install_update,
             poll_now,
             station_restart,

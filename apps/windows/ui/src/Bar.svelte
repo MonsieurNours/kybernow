@@ -253,7 +253,7 @@
   /** Les trois lignes des mesures, et le chemin. */
   const psLines = $derived(psStats && psStats.width > 0 ? [...psStatsLines(psStats), ...(route ? [t('ps.path_line', { path: route.label })] : [])] : [])
   const profiles = $derived(
-    ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
+    ['jeu', 'bureau', 'max', 'auto'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
   /** Le menu Touches : celles d'un PC, ou face à une Station Mac leurs équivalents (docs/link-ui.md « Face à une Station Mac »). */
   const keys = $derived(
@@ -386,7 +386,8 @@
       // panneau de « Partager » ouvert (il montre la demande, l'avis ne le ferme pas).
       listen<ShareRequestEvent>('share-request', (e) => {
         // Le bandeau de PyroWave : seulement en capsule (barre ouverte, la puce ambre le dit déjà).
-        if (e.panel === 'pyrowave_wifi' || e.panel === 'pyrowave_relay' || e.panel === 'pyrowave_strained') {
+        // Celui du profil Auto (« Autre réseau que celui du test ») aussi.
+        if (e.panel === 'pyrowave_wifi' || e.panel === 'pyrowave_relay' || e.panel === 'pyrowave_strained' || e.panel === 'auto_network') {
           if (e.id === id && view === 'capsule') {
             showNotice(e.text, null, 8000)
             noticeKind = e.panel
@@ -573,9 +574,9 @@
   })
   const soundOff = $derived(stats?.audio_channels === 0)
   /** Le nom du profil (« Jeu », « Bureau », « Max », « Personnalisé ») : le format est dans les mesures. */
-  const profileName = $derived(custom ? t('profiles.custom') : ['jeu', 'bureau', 'max'].includes(profile) ? t(`profiles.${profile}`) : t('bar.profile'))
+  const profileName = $derived(custom ? t('profiles.custom') : ['jeu', 'bureau', 'max', 'auto'].includes(profile) ? t(`profiles.${profile}`) : t('bar.profile'))
   /** L'icône du profil : manette (Jeu), texte (Bureau), éclair (Max), curseurs (Personnalisé). */
-  const profileIcon = $derived(custom ? 'sliders' : (({ jeu: 'gamepad', bureau: 'article', max: 'lightning' } as Record<string, string>)[profile] ?? 'sliders'))
+  const profileIcon = $derived(custom ? 'sliders' : (({ jeu: 'gamepad', bureau: 'article', max: 'lightning', auto: 'wand' } as Record<string, string>)[profile] ?? 'sliders'))
   /** La souris du moment (en Auto aussi) : celle des jeux quand le pointeur est capturé. */
   const mouseLabel = $derived(stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop'))
   const mouseChoices = $derived([
@@ -816,6 +817,13 @@
   function closeBanner() {
     clearNotice()
     if (view === 'capsule') invoke('bar_hide', { id, focus: false })
+  }
+
+  /** « Refaire le test » du bandeau du profil Auto : le panneau du test s'ouvre sur l'accueil à la fin de la session. */
+  function testAgain() {
+    const session = id
+    closeBanner()
+    invoke('autotest_later', { id: session }).catch(() => {})
   }
 
   /** « Passer en HEVC » : l'image repart en HEVC pour cette session (le choix de l'ordinateur reste). */
@@ -1281,7 +1289,16 @@
 
 {#if view === 'capsule'}
   <!-- Un avis bref seul, en haut de l'image ; celui d'une demande se choisit et ouvre son panneau. -->
-  {#if notice && noticeKind}
+  {#if notice && noticeKind === 'auto_network'}
+    <!-- Profil Auto, autre réseau que celui du test : titre, « Le débit adaptatif s'en charge. », « Refaire le test » (le panneau à la fin de la session), croix. -->
+    <div class="capsule banner" role="status" bind:this={bar}>
+      <Icon name="wand" size={15} stroke={1.8} />
+      <strong>{t('autotest.other_network')}</strong>
+      <span>{t('autotest.other_network_text')}</span>
+      <button class="switch" onclick={testAgain}>{t('autotest.again')}</button>
+      <button class="x" aria-label={t('common.close')} title={t('common.close')} onclick={closeBanner}>✕</button>
+    </div>
+  {:else if notice && noticeKind}
     <!-- Le bandeau de PyroWave (Wi-Fi, relais, réseau qui sature) : titre, texte, « Passer en HEVC », croix. -->
     <div class="capsule banner" role="status" bind:this={bar}>
       <Icon name={noticeKind === 'pyrowave_relay' ? 'globe' : noticeKind === 'pyrowave_strained' ? 'warning' : 'wifi'} size={15} stroke={1.8} />

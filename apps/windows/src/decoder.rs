@@ -40,6 +40,12 @@ struct AVD3D11VADeviceContext {
     lock_ctx: *mut c_void,
 }
 
+/// Journal de FFmpeg : erreurs seulement (processus du test du profil Auto,
+/// dont les extraits bouclent sans fin propre).
+pub fn ffmpeg_quiet() {
+    unsafe { av_log_set_level(AV_LOG_ERROR as i32) };
+}
+
 pub fn error_text(code: i32) -> String {
     let mut buf = [0i8; 128];
     unsafe { av_strerror(code, buf.as_mut_ptr(), buf.len()) };

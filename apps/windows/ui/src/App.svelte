@@ -18,12 +18,13 @@
   import Settings from './Settings.svelte'
   import Passage from './Passage.svelte'
   import AppSheet from './AppSheet.svelte'
+  import AutoTest from './AutoTest.svelte'
   import JoinSheet from './JoinSheet.svelte'
   import InviteSheet from './InviteSheet.svelte'
   import LendSheet from './LendSheet.svelte'
   import PairSheet from './PairSheet.svelte'
   import ConsoleSettings from './ConsoleSettings.svelte'
-  import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Computer, ConnectInfo, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update, WatchWords } from './lib/api'
+  import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Chosen, Computer, ConnectInfo, Settings as ComputerSettings, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update, WatchWords } from './lib/api'
   import type { PsFound, PsState } from './lib/api'
   import { guestComputer, invoke, isConsoleId, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
@@ -104,6 +105,15 @@
   let signingIn = $state(false)
   /** Le refus de la dernière connexion à un compte, montré aussi dans les réglages de l'app. */
   let signInError = $state<string | null>(null)
+  /** Profil Auto : l'ordinateur dont le panneau du test est ouvert. */
+  let autotestId = $state<string | null>(null)
+  /** Profil Auto appliqué : les réglages enregistrés, que l'écran des réglages ouvert reprend. */
+  let autoApplied = $state<{ id: string; settings: ComputerSettings } | null>(null)
+  // Un autre écran des réglages (ou aucun) : il part des réglages enregistrés, déjà à jour.
+  $effect(() => {
+    void settingsId
+    autoApplied = null
+  })
 
   function read(k: string) {
     try {
@@ -277,6 +287,13 @@
       adding = null
       appCheck = a.check
       appSheet = true
+    } else if (a.kind === 'autotest') {
+      // Le panneau du test du profil Auto (menu de l'icône, ou demandé pendant la session).
+      if (!computers.some((c) => c.id === a.id)) return
+      adding = null
+      appSheet = false
+      select(a.id)
+      autotestId = a.id
     } else if (a.kind === 'connect') {
       if (!computers.some((c) => c.id === a.id)) return
       select(a.id)
@@ -564,13 +581,23 @@
     battery = await invoke<Battery>('set_battery', { battery: b })
   }
 
-  /** Comme le menu de l'icône : retouches effacées, appliqué tout de suite pendant sa session. */
+  /**
+   * Comme le menu de l'icône : retouches effacées, appliqué tout de suite pendant sa session. Auto sans test gardé :
+   * le panneau du test (ou à la fin de la session de cet ordinateur).
+   */
   async function setProfile(id: string, profile: Computer['settings']['profile']) {
     try {
-      await invoke('set_profile', { id, profile })
+      const chosen = await invoke<Chosen>('set_profile', { id, profile })
+      if (chosen === 'test') autotestId = id
     } catch (e) {
       error = String(e)
     }
+  }
+
+  /** « Refaire le test » : le panneau, ou à la fin de la session si cet ordinateur est en session. */
+  function runAutotest(id: string) {
+    if (sessions.includes(id)) invoke('autotest_later', { id }).catch(() => {})
+    else autotestId = id
   }
 
   function added(id: string) {
@@ -670,6 +697,10 @@
       {battery}
       start={settingsRubric}
       accountName={settingsFor.account ? (accounts.find((a) => a.key === settingsFor!.account!.account)?.name ?? null) : null}
+      applied={autoApplied?.id === settingsFor.id ? autoApplied.settings : null}
+      inSession={sessions.includes(settingsFor.id)}
+      onprofile={setProfile}
+      onautotest={runAutotest}
       onremoved={() => (settingsId = null)}
     />
   {/key}
@@ -797,6 +828,19 @@
       select(id)
     }}
   />
+{/if}
+
+{#if autotestId}
+  {@const target = computers.find((c) => c.id === autotestId)}
+  {#if target}
+    {#key target.id}
+      <AutoTest
+        computer={target}
+        onclose={() => (autotestId = null)}
+        onapplied={(settings) => (autoApplied = { id: target.id, settings })}
+      />
+    {/key}
+  {/if}
 {/if}
 
 {#if appSheet}

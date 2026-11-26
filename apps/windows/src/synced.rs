@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 
 use kybernow_core::account::{SyncedSettings, SyncedValues, settings};
-use kybernow_core::profile::{Capabilities, StreamSettings};
+use kybernow_core::profile::{Capabilities, Profile, StreamSettings};
 use serde::{Deserialize, Serialize};
 
 /// Les réglages synchronisés d'un ordinateur sur ce PC (ceux de
@@ -118,6 +118,10 @@ pub fn apply(local: &Local, values: &SyncedValues, caps: Capabilities, effective
     let r = values.apply_to(&base, caps);
     let mut out = local.clone();
     match values.profile() {
+        // Auto : ses réglages viennent du test de chaque appareil
+        // (docs/profil-auto.md) ; reçu d'un autre appareil, ce PC garde les
+        // siens pour cet ordinateur (`apply_to` du cœur fait de même).
+        Some(Some(Profile::Auto)) => {}
         Some(Some(p)) => {
             out.profile = p.key().to_string();
             out.codec = None;
@@ -359,6 +363,11 @@ mod tests {
         assert_eq!(out, jeu);
         // Le débit seul sur un profil : rien (il suit le profil).
         assert_eq!(apply(&jeu, &values(json!({"mbps": 33})), caps(), eff), jeu);
+        // Auto, choisi sur un autre appareil : ce PC garde ses réglages (le test est
+        // propre à chaque appareil) ; le HDR, lui, est pris.
+        assert_eq!(apply(&retouched, &values(json!({"profile": "auto", "codec": "pyrowave", "mbps": 400})), caps(), eff), retouched);
+        let out = apply(&jeu, &values(json!({"profile": "auto", "hdr": false})), caps(), eff);
+        assert_eq!((out.profile.as_str(), out.hdr), ("jeu", Some(false)));
     }
 
     fn synced(station: &str, at: u64, v: serde_json::Value) -> SyncedSettings {

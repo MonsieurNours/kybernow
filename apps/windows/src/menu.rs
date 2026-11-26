@@ -231,7 +231,8 @@ impl State {
     }
 }
 
-const PROFILES: [&str; 3] = ["jeu", "bureau", "max"];
+/// Dans l'ordre de l'accueil ; Auto sans test gardé ouvre le panneau du test.
+const PROFILES: [&str; 4] = ["jeu", "bureau", "max", "auto"];
 /// Dans l'ordre des réglages de l'ordinateur.
 const MOUSE_MODES: [&str; 3] = ["auto", "bureau", "jeu"];
 
@@ -635,6 +636,7 @@ mod tests {
             "    (o) Jeu",
             "    Bureau",
             "    Max",
+            "    Auto",
             "  Réglages",
             "  ---",
             "  Ouvrir Admin",
@@ -646,6 +648,7 @@ mod tests {
             "    Jeu",
             "    (o) Bureau",
             "    Max",
+            "    Auto",
             "  Réglages",
             "---",
         ];
@@ -972,7 +975,7 @@ mod tests {
         c.station.as_mut().unwrap().busy = Some(Busy::Restarting);
         let s = State { computers: vec![c.clone()], ..Default::default() };
         let l = lines(&s, Lang::Fr);
-        assert_eq!(l[9..11], ["  ~La Station redémarre…", "  ~Mettre à jour la Station (0.5.3)"]);
+        assert_eq!(l[10..12], ["  ~La Station redémarre…", "  ~Mettre à jour la Station (0.5.3)"]);
         // Partie pendant le redémarrage : elle revient d'elle-même, pas de réveil.
         c.online = Some(false);
         c.can_wake = true;
@@ -993,7 +996,7 @@ mod tests {
         let s = State { computers: vec![c], ..Default::default() };
         let l = lines(&s, Lang::Fr);
         assert_eq!(
-            l[..10],
+            l[..11],
             [
                 "{vert} Atelier — En ligne >",
                 "  Se connecter (Personnalisé)",
@@ -1001,13 +1004,19 @@ mod tests {
                 "    Jeu",
                 "    Bureau",
                 "    Max",
+                "    Auto",
                 "    (o) ~Personnalisé",
                 "  Réglages",
                 "  ---",
                 "  Ouvrir Admin",
             ]
         );
-        assert_eq!(l[10], "---");
+        assert_eq!(l[11], "---");
+        // Profil Auto : coché comme les autres, « Se connecter (Auto) ».
+        let c = Computer { profile: "auto".into(), ..atelier() };
+        let l = lines(&State { computers: vec![c], ..Default::default() }, Lang::Fr);
+        assert_eq!(l[1], "  Se connecter (Auto)");
+        assert_eq!(l[6], "    (o) Auto");
     }
 
     #[test]

@@ -11,10 +11,12 @@
     "jeu": "Jeu",
     "bureau": "Bureau",
     "max": "Max",
+    "auto": "Auto",
     "custom": "Personnalisé",
     "jeu_sub": "La réactivité d'abord, pour jouer.",
     "bureau_sub": "Un texte net, pour travailler.",
     "max_sub": "La meilleure image que cet appareil affiche.",
+    "auto_sub": "Les meilleurs réglages pour ce réseau et cet appareil.",
     "custom_sub": "Vos propres réglages."
   },
   "time": {
@@ -745,6 +747,7 @@
     "chosen_help": "Presque aucun délai de compression, mais 5 à 10 fois plus de débit que HEVC. Fait pour un câble Ethernet.",
     "auto_wired": "Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.",
     "auto_unwired": "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble.",
+    "auto_profile_only": "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.",
     "warn_wifi": "En Wi-Fi, PyroWave peut saccader : il lui faut environ 300 Mbit/s en 1080p. Gardez « Auto » si vous n'êtes pas sûr.",
     "warn_relay": "Hors de chez vous, PyroWave passe par le relais et par votre connexion Internet : l'image risque de saccader. Gardez « Auto » si vous n'êtes pas sûr.",
     "banner_wifi": "PyroWave en Wi-Fi",
@@ -758,5 +761,23 @@
     "cannot_decode": "{device} ne sait pas décoder PyroWave.",
     "this_device": "Ce PC",
     "lost_frames": "Images perdues"
+  },
+  "autotest": {
+    "title": "Profil Auto",
+    "subtitle": "KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages.",
+    "summary": "Réglages proposés",
+    "apply": "Appliquer",
+    "cancel": "Annuler",
+    "again": "Refaire le test",
+    "retry": "Réessayer",
+    "chosen_by": "Choisi par le test du {date} ({network}).",
+    "other_network": "Autre réseau que celui du test",
+    "other_network_text": "Le débit adaptatif s'en charge.",
+    "adaptive": "Débit adaptatif",
+    "adaptive_help": "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.",
+    "adaptive_pyrowave": "En PyroWave, il est en pause : la définition baisse à la place.",
+    "link_cable": "Câble",
+    "link_wifi": "Wi-Fi",
+    "link_relay": "Par le relais"
   }
 }
