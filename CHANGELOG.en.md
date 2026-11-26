@@ -4,6 +4,11 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **Less delay when the picture changes all at once.** At a scene change or when a window opens, the computer could send a frame much heavier than the others: it took several frame times to arrive, and everything waited behind it. Every frame now fits its share of the bitrate, with NVIDIA, AMD and Intel cards as on Mac, and still without a hiccup when the bitrate changes.
+- **Mac Station: far fewer keyframes.** The Mac Station sent a keyframe (the heaviest frame) every 12 frames, five a second. It now sends one only when needed, and at most every 10 seconds. In our measurements, with a network just fast enough, the average delay to send the frames drops from about a second to 20 ms.
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.

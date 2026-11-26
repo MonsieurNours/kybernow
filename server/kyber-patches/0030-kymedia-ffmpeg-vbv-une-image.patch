@@ -1,0 +1,349 @@
+diff --git a/subprojects/ffmpeg.wrap b/subprojects/ffmpeg.wrap
+--- a/subprojects/ffmpeg.wrap
++++ b/subprojects/ffmpeg.wrap
+@@ -46,7 +46,8 @@ diff_files =
+   ffmpeg/patches/0019-avcodec-videotoolboxenc-make-VT-blocking.patch,
+   ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
+   ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
+-  ffmpeg/patches/0023-avcodec-debit-en-direct.patch
++  ffmpeg/patches/0023-avcodec-debit-en-direct.patch,
++  ffmpeg/patches/0030-avcodec-kybernow-vbv.patch
+ 
+ [provide]
+ dependency_names = ffmpeg, libavcodec, libavformat, libavutil, libswresample, libswscale, libavfilter, libavdevice
+diff --git a/subprojects/packagefiles/ffmpeg/patches/0030-avcodec-kybernow-vbv.patch b/subprojects/packagefiles/ffmpeg/patches/0030-avcodec-kybernow-vbv.patch
+new file mode 100644
+--- /dev/null
++++ b/subprojects/packagefiles/ffmpeg/patches/0030-avcodec-kybernow-vbv.patch
+@@ -0,0 +1,331 @@
++From: KyberNow
++Subject: [PATCH] avcodec: rate control buffer of about one frame (kn_vbv_frames)
++
++New option kn_vbv_frames: avcodec_open2() and avcodec_send_frame() size
++rc_buffer_size to this many frames at the peak rate (rc_max_rate, the
++bitrate when the caller gives none), never under a floor that holds a
++keyframe (150 kbit, or 0.1 bit per pixel), and move rc_max_rate and the
++buffer with every bit_rate the caller changes while encoding, before the
++encoder reads them. NVENC and VAAPI take that buffer as it is instead of
++scaling their own, AMF applies the peak rate and the buffer during the
++session, and VideoToolbox holds the buffer over the time the peak rate
++takes to send it (DataRateLimits), at creation and after each change. Off
++by default. KyberNow, docs/debit-automatique.md.
++---
++diff --git a/libavcodec/amfenc.c b/libavcodec/amfenc.c
++index 2d5cfcb..7a95b89 100644
++--- a/libavcodec/amfenc.c
+++++ b/libavcodec/amfenc.c
++@@ -422,7 +422,7 @@ static AMF_RESULT amf_release_attached_frame_ref(AMFEncoderContext *ctx, AMFBuff
++ static void kn_amf_update_bitrate(AVCodecContext *avctx)
++ {
++     AMFEncoderContext *ctx = avctx->priv_data;
++-    const wchar_t *target, *peak;
+++    const wchar_t *target, *peak, *vbv;
++     AMFVariantStruct var;
++     AMF_RESULT res;
++     int64_t old = ctx->kn_applied_bit_rate, new_peak = 0;
++@@ -431,14 +431,17 @@ static void kn_amf_update_bitrate(AVCodecContext *avctx)
++     case AV_CODEC_ID_H264:
++         target = AMF_VIDEO_ENCODER_TARGET_BITRATE;
++         peak   = AMF_VIDEO_ENCODER_PEAK_BITRATE;
+++        vbv    = AMF_VIDEO_ENCODER_VBV_BUFFER_SIZE;
++         break;
++     case AV_CODEC_ID_HEVC:
++         target = AMF_VIDEO_ENCODER_HEVC_TARGET_BITRATE;
++         peak   = AMF_VIDEO_ENCODER_HEVC_PEAK_BITRATE;
+++        vbv    = AMF_VIDEO_ENCODER_HEVC_VBV_BUFFER_SIZE;
++         break;
++     case AV_CODEC_ID_AV1:
++         target = AMF_VIDEO_ENCODER_AV1_TARGET_BITRATE;
++         peak   = AMF_VIDEO_ENCODER_AV1_PEAK_BITRATE;
+++        vbv    = AMF_VIDEO_ENCODER_AV1_VBV_BUFFER_SIZE;
++         break;
++     default:
++         return;
++@@ -461,8 +464,17 @@ static void kn_amf_update_bitrate(AVCodecContext *avctx)
++         ctx->kn_applied_bit_rate = avctx->bit_rate;
++         return;
++     }
+++    /* KyberNow: with kn_vbv_frames, avcodec_send_frame() has moved
+++     * rc_max_rate and the buffer already (floor included). */
+++    if (avctx->kn_vbv_frames && avctx->rc_max_rate > 0)
+++        new_peak = avctx->rc_max_rate;
++     if (new_peak > 0)
++         AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, peak, new_peak);
+++    if (avctx->kn_vbv_frames && avctx->rc_buffer_size > 0) {
+++        AMF_ASSIGN_PROPERTY_INT64(res, ctx->encoder, vbv, avctx->rc_buffer_size);
+++        if (res != AMF_OK)
+++            av_log(avctx, AV_LOG_WARNING, "VBV change refused by AMF (%d)\n", res);
+++    }
++     av_log(avctx, AV_LOG_VERBOSE, "avg bitrate change: %"PRId64" -> %"PRId64"\n", old, (int64_t)avctx->bit_rate);
++     ctx->kn_applied_bit_rate = avctx->bit_rate;
++ }
++diff --git a/libavcodec/avcodec.h b/libavcodec/avcodec.h
++index 6824bfc..30c46d4 100644
++--- a/libavcodec/avcodec.h
+++++ b/libavcodec/avcodec.h
++@@ -1942,6 +1942,17 @@ typedef struct AVCodecContext {
++      * - decoding: Set by libavcodec
++      */
++     enum AVAlphaMode alpha_mode;
+++
+++    /**
+++     * KyberNow: rate control buffer (rc_buffer_size) of this many frames at
+++     * the peak rate (rc_max_rate, set to bit_rate when the caller gives
+++     * none), never under a floor that holds a keyframe. A bit_rate changed
+++     * while encoding moves rc_max_rate in proportion and the buffer with it,
+++     * before the encoder reads them. 0: off (FFmpeg's own sizing).
+++     * - encoding: Set by user (option kn_vbv_frames).
+++     * - decoding: unused.
+++     */
+++    int kn_vbv_frames;
++ } AVCodecContext;
++ 
++ /**
++diff --git a/libavcodec/encode.c b/libavcodec/encode.c
++index f1a65a9..0698dbc 100644
++--- a/libavcodec/encode.c
+++++ b/libavcodec/encode.c
++@@ -24,6 +24,7 @@
++ #include "libavutil/frame.h"
++ #include "libavutil/internal.h"
++ #include "libavutil/intreadwrite.h"
+++#include "libavutil/mathematics.h"
++ #include "libavutil/mem.h"
++ #include "libavutil/pixdesc.h"
++ #include "libavutil/samplefmt.h"
++@@ -51,6 +52,12 @@ typedef struct EncodeContext {
++      * potentially padded with silence). Reject all subsequent frames.
++      */
++     int last_audio_frame;
+++
+++    /**
+++     * KyberNow: bit_rate the rate control buffer was last sized for
+++     * (kn_vbv_frames).
+++     */
+++    int64_t kn_vbv_bit_rate;
++ } EncodeContext;
++ 
++ static EncodeContext *encode_ctx(AVCodecInternal *avci)
++@@ -488,6 +495,58 @@ finish:
++     return 0;
++ }
++ 
+++/* KyberNow: the smallest rate control buffer, in bits: what a keyframe of
+++ * a low bitrate needs, at least KN_VBV_MIN_BITS and one bit for every
+++ * KN_VBV_PIXELS_PER_BIT pixels (207 kbit in 1080p, 829 kbit in 4K). One
+++ * frame of a low bitrate at a high frame rate (8 kbit at 500 kbit/s and
+++ * 60 fps) holds no keyframe: the encoder would crush it or drop it. */
+++#define KN_VBV_MIN_BITS       150000
+++#define KN_VBV_PIXELS_PER_BIT 10
+++
+++static int kn_vbv_bits(const AVCodecContext *avctx, int64_t peak)
+++{
+++    AVRational fps = avctx->framerate;
+++    int64_t bits, floor;
+++
+++    if (fps.num <= 0 || fps.den <= 0)
+++        fps = (AVRational){ 60, 1 };
+++    bits  = av_rescale(peak, (int64_t)avctx->kn_vbv_frames * fps.den, fps.num);
+++    floor = FFMAX(KN_VBV_MIN_BITS,
+++                  (int64_t)avctx->width * avctx->height / KN_VBV_PIXELS_PER_BIT);
+++    return (int)av_clip64(FFMAX(bits, floor), 1, INT_MAX);
+++}
+++
+++/* KyberNow: sizes the rate control buffer from kn_vbv_frames, when the
+++ * encoder opens and whenever the caller changed bit_rate since (Kyber's
+++ * /set_bitrate, from another thread: read once). rc_max_rate keeps its
+++ * ratio to bit_rate, the buffer its length in frames, the initial
+++ * occupancy its share of the buffer. The encoders read these values before
+++ * their next frame (NVENC, AMF, QSV, VAAPI, VideoToolbox and x264 apply
+++ * them during the session, without a keyframe). */
+++static void kn_vbv_update(AVCodecContext *avctx)
+++{
+++    EncodeContext *ec = encode_ctx(avctx->internal);
+++    int64_t old = ec->kn_vbv_bit_rate, now = avctx->bit_rate;
+++
+++    if (avctx->kn_vbv_frames <= 0 || avctx->codec_type != AVMEDIA_TYPE_VIDEO ||
+++        now <= 0 || now == old)
+++        return;
+++
+++    if (old > 0 && avctx->rc_max_rate > 0)
+++        avctx->rc_max_rate = av_rescale(avctx->rc_max_rate, now, old);
+++    else if (avctx->rc_max_rate < now)
+++        avctx->rc_max_rate = now;
+++    avctx->rc_buffer_size = kn_vbv_bits(avctx, avctx->rc_max_rate);
+++    avctx->rc_initial_buffer_occupancy = avctx->rc_buffer_size * 3LL / 4;
+++    ec->kn_vbv_bit_rate = now;
+++
+++    av_log(avctx, old > 0 ? AV_LOG_VERBOSE : AV_LOG_INFO,
+++           "Rate control: %"PRId64" b/s, peak %"PRId64" b/s, buffer %d bits "
+++           "(%d frame(s) at %d/%d fps, or the floor)\n", now,
+++           avctx->rc_max_rate, avctx->rc_buffer_size, avctx->kn_vbv_frames,
+++           avctx->framerate.num, avctx->framerate.den);
+++}
+++
++ int attribute_align_arg avcodec_send_frame(AVCodecContext *avctx, const AVFrame *frame)
++ {
++     AVCodecInternal *avci = avctx->internal;
++@@ -496,6 +555,8 @@ int attribute_align_arg avcodec_send_frame(AVCodecContext *avctx, const AVFrame
++     if (!avcodec_is_open(avctx) || !av_codec_is_encoder(avctx->codec))
++         return AVERROR(EINVAL);
++ 
+++    kn_vbv_update(avctx);
+++
++     if (avci->draining)
++         return AVERROR_EOF;
++ 
++@@ -779,6 +840,10 @@ int ff_encode_preinit(AVCodecContext *avctx)
++         av_log(avctx, AV_LOG_WARNING, "Bitrate %"PRId64" is extremely low, maybe you mean %"PRId64"k\n", avctx->bit_rate, avctx->bit_rate);
++     }
++ 
+++    /* KyberNow: before the default occupancy below, which kn_vbv_update()
+++     * sets itself. */
+++    kn_vbv_update(avctx);
+++
++     if (!avctx->rc_initial_buffer_occupancy)
++         avctx->rc_initial_buffer_occupancy = avctx->rc_buffer_size * 3LL / 4;
++ 
++diff --git a/libavcodec/nvenc.c b/libavcodec/nvenc.c
++index efeb95f..ef6380f 100644
++--- a/libavcodec/nvenc.c
+++++ b/libavcodec/nvenc.c
++@@ -3042,7 +3042,7 @@ static void reconfig_encoder(AVCodecContext *avctx, const AVFrame *frame)
++             /* KyberNow: a buffer the caller didn't change keeps the same
++              * length in time (2 s of the initial bitrate by default), or a
++              * lowered bitrate would still allow the bursts of the old one. */
++-            if (avctx->rc_buffer_size > 0 &&
+++            if (!avctx->kn_vbv_frames && avctx->rc_buffer_size > 0 &&
++                 avctx->rc_buffer_size == ctx->encode_config.rcParams.vbvBufferSize &&
++                 ctx->encode_config.rcParams.averageBitRate > 0) {
++                 uint64_t vbv = (uint64_t)ctx->encode_config.rcParams.vbvBufferSize * avctx->bit_rate /
++diff --git a/libavcodec/options_table.h b/libavcodec/options_table.h
++index 99e7002..5d83458 100644
++--- a/libavcodec/options_table.h
+++++ b/libavcodec/options_table.h
++@@ -211,6 +211,7 @@ static const AVOption avcodec_options[] = {
++ {"simple", "use mbcmp", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MB_DECISION_SIMPLE }, INT_MIN, INT_MAX, V|E, .unit = "mbd"},
++ {"bits", "use fewest bits", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MB_DECISION_BITS }, INT_MIN, INT_MAX, V|E, .unit = "mbd"},
++ {"rd", "use best rate distortion", 0, AV_OPT_TYPE_CONST, {.i64 = FF_MB_DECISION_RD }, INT_MIN, INT_MAX, V|E, .unit = "mbd"},
+++{"kn_vbv_frames", "KyberNow: rate control buffer of this many frames at the peak rate, kept through bitrate changes (0: off)", OFFSET(kn_vbv_frames), AV_OPT_TYPE_INT, {.i64 = 0 }, 0, 60, V|E},
++ {"rc_init_occupancy", "number of bits which should be loaded into the rc buffer before decoding starts", OFFSET(rc_initial_buffer_occupancy), AV_OPT_TYPE_INT, {.i64 = DEFAULT }, INT_MIN, INT_MAX, V|E},
++ {"threads", "set the number of threads", OFFSET(thread_count), AV_OPT_TYPE_INT, {.i64 = 1 }, 0, INT_MAX, V|A|E|D, .unit = "threads"},
++ {"auto", "autodetect a suitable number of threads to use", 0, AV_OPT_TYPE_CONST, {.i64 = 0 }, INT_MIN, INT_MAX, V|E|D, .unit = "threads"},
++diff --git a/libavcodec/vaapi_encode.c b/libavcodec/vaapi_encode.c
++index 64edf15..0eced34 100644
++--- a/libavcodec/vaapi_encode.c
+++++ b/libavcodec/vaapi_encode.c
++@@ -283,21 +283,30 @@ static int vaapi_encode_follow_bitrate(AVCodecContext *avctx)
++     bps  = av_rescale(ctx->rc_params.bits_per_second, now, old);
++     buf  = av_rescale(ctx->hrd_params.buffer_size, now, old);
++     full = av_rescale(ctx->hrd_params.initial_buffer_fullness, now, old);
+++    /* KyberNow: with kn_vbv_frames, avcodec_send_frame() has already sized
+++     * the buffer and moved rc_max_rate (floor included): taken as is. */
+++    if (avctx->kn_vbv_frames && avctx->rc_buffer_size > 0) {
+++        buf  = avctx->rc_buffer_size;
+++        full = avctx->rc_initial_buffer_occupancy > 0 ?
+++               avctx->rc_initial_buffer_occupancy : buf * 3 / 4;
+++    }
++     if (bps == 0 || bps > UINT32_MAX || buf > UINT32_MAX || full > UINT32_MAX) {
++         av_log(avctx, AV_LOG_WARNING, "Bitrate %"PRId64" out of range "
++                "for VAAPI: kept at %"PRId64".\n", now, old);
++         avctx->bit_rate = old;
++         return 0;
++     }
++-    if (avctx->rc_max_rate > 0)
+++    if (avctx->rc_max_rate > 0 && !avctx->kn_vbv_frames)
++         avctx->rc_max_rate = av_rescale(avctx->rc_max_rate, now, old);
++-    if (avctx->rc_buffer_size > 0)
+++    if (avctx->rc_buffer_size > 0 && !avctx->kn_vbv_frames)
++         avctx->rc_buffer_size = (int)FFMIN(buf, INT_MAX);
++ 
++     av_log(avctx, AV_LOG_VERBOSE, "Bitrate changed: %"PRId64" -> %"PRId64
++            " (RC %u -> %"PRIu64" bps).\n", old, now,
++            ctx->rc_params.bits_per_second, bps);
++     ctx->rc_params.bits_per_second       = bps;
+++    if (avctx->kn_vbv_frames)
+++        ctx->rc_params.window_size       = (uint32_t)FFMAX(buf * 1000 / bps, 1);
++     ctx->hrd_params.buffer_size          = buf;
++     ctx->hrd_params.initial_buffer_fullness = full;
++     ctx->va_bit_rate = bps;
++diff --git a/libavcodec/videotoolboxenc.c b/libavcodec/videotoolboxenc.c
++index d191fc9..bb91c30 100644
++--- a/libavcodec/videotoolboxenc.c
+++++ b/libavcodec/videotoolboxenc.c
++@@ -1199,6 +1199,52 @@ static int set_encoder_int_property_or_log(AVCodecContext* avctx,
++     return 0;
++ }
++ 
+++/*
+++ * KyberNow: with kn_vbv_frames, DataRateLimits holds the rate control
+++ * buffer (rc_buffer_size, about one frame) over the time the peak rate
+++ * (rc_max_rate) takes to send it, instead of the peak rate over one
+++ * second: no frame much larger than its share. H.264 and HEVC only.
+++ * Returns the session's status (0 when set or not needed).
+++ */
+++static OSStatus kn_vtenc_set_rate_window(AVCodecContext *avctx, VTEncContext *vtctx)
+++{
+++    int64_t bytes;
+++    double seconds;
+++    CFNumberRef nums[2];
+++    CFArrayRef limits = NULL;
+++    OSStatus status;
+++
+++    if (!avctx->kn_vbv_frames || avctx->rc_max_rate <= 0 || avctx->rc_buffer_size <= 0 ||
+++        (vtctx->codec_id != AV_CODEC_ID_H264 && vtctx->codec_id != AV_CODEC_ID_HEVC))
+++        return 0;
+++
+++    bytes   = FFMAX(avctx->rc_buffer_size / 8, 1);
+++    seconds = (double)avctx->rc_buffer_size / avctx->rc_max_rate;
+++    nums[0] = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &bytes);
+++    nums[1] = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &seconds);
+++    if (nums[0] && nums[1])
+++        limits = CFArrayCreate(kCFAllocatorDefault, (const void **)nums, 2,
+++                               &kCFTypeArrayCallBacks);
+++    if (nums[0])
+++        CFRelease(nums[0]);
+++    if (nums[1])
+++        CFRelease(nums[1]);
+++    if (!limits)
+++        return kVTAllocationFailedErr;
+++
+++    status = VTSessionSetProperty(vtctx->session,
+++                                  kVTCompressionPropertyKey_DataRateLimits,
+++                                  limits);
+++    CFRelease(limits);
+++    if (status)
+++        av_log(avctx, AV_LOG_WARNING, "DataRateLimits of %"PRId64" bytes over %.4f s "
+++               "refused: %d\n", bytes, seconds, (int)status);
+++    else
+++        av_log(avctx, AV_LOG_VERBOSE, "DataRateLimits: %"PRId64" bytes over %.4f s\n",
+++               bytes, seconds);
+++    return status;
+++}
+++
++ static int vtenc_create_encoder(AVCodecContext   *avctx,
++                                 CMVideoCodecType codec_type,
++                                 CFStringRef      profile_level,
++@@ -1356,7 +1402,11 @@ static int vtenc_create_encoder(AVCodecContext   *avctx,
++         av_log(avctx, AV_LOG_WARNING, "kVTCompressionPropertyKey_MaxFrameDelayCount property is not supported on this device. Ignoring.\n");
++     }
++ 
++-    if ((vtctx->codec_id == AV_CODEC_ID_H264 || vtctx->codec_id == AV_CODEC_ID_HEVC)
+++    /* KyberNow: a refused window only logs a warning: the session keeps
+++     * its average bitrate. */
+++    if (avctx->kn_vbv_frames) {
+++        kn_vtenc_set_rate_window(avctx, vtctx);
+++    } else if ((vtctx->codec_id == AV_CODEC_ID_H264 || vtctx->codec_id == AV_CODEC_ID_HEVC)
++             && max_rate > 0) {
++         bytes_per_second_value = max_rate >> 3;
++         bytes_per_second = CFNumberCreate(kCFAllocatorDefault,
++@@ -2568,6 +2618,9 @@ static int vtenc_send_frame(AVCodecContext *avctx,
++                        vtctx->applied_bit_rate, (int)rate);
++         }
++         vtctx->applied_bit_rate = avctx->bit_rate;
+++        /* KyberNow: the peak rate and the buffer moved with the bitrate
+++         * (kn_vbv_frames, avcodec_send_frame()). */
+++        kn_vtenc_set_rate_window(avctx, vtctx);
++     }
++ 
++     if (__builtin_available(macOS 10.14, *)) {
