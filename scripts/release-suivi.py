@@ -23,7 +23,7 @@ AVANT = ["Vérifications préalables", "Versions", "Arbres de construction"]
 CONSTRUCTIONS = [
     "Surcouche Kyber (Windows)", "Station Windows", "App Windows x64+ARM64", "App Android", "App webOS",
     "App Mac", "Notarisation app Mac", "App Apple TV + SDK", "App iPhone/iPad + SDK", "Station Mac",
-    "Flatpak aarch64 (VM)", "Flatpak x86_64 (VM)", ".deb Raspberry Pi (VM)", "KyberNow Link OS (VM)",
+    "Flatpak aarch64 (VM)", "Flatpak x86_64 (VM)", ".deb Raspberry Pi (VM)", "KyberNow Link OS (VM)", "Station Linux (VM)",
 ]
 APRES = [
     "Fichiers de la version", "Vérification des fichiers", "Flux de mises à jour de l'app", "Flux cumulatif du site",
