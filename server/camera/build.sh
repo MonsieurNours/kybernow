@@ -69,6 +69,7 @@ linux)
     # shellcheck disable=SC2046,SC2016  # $ORIGIN : pour l'éditeur de liens
     cc -O2 -o "$OUTPUT" "$HERE/camera.c" "$HERE/out_linux.c" -I"$HERE" -I"$ROOTFS/include" \
         $(PKG_CONFIG_LIBDIR="$PC" pkg-config --libs $FFMPEG) "${PW[@]}" -lpthread \
+        $(for d in "$ROOTFS"/lib "$ROOTFS"/lib64 "$ROOTFS"/lib/*-linux-gnu; do [ -d "$d" ] && printf -- '-Wl,-rpath-link,%s ' "$d"; done) \
         -Wl,-rpath,'$ORIGIN/../lib:$ORIGIN/../lib64:$ORIGIN/../lib/'"$(gcc -print-multiarch 2>/dev/null || echo x)"':$ORIGIN/../runtime/lib:$ORIGIN/../runtime/lib64:$ORIGIN/../runtime/lib/'"$(gcc -print-multiarch 2>/dev/null || echo x)"
     strip --strip-debug "$OUTPUT"
     ;;
