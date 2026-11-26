@@ -78,7 +78,9 @@ pub fn waiting_steps() -> Vec<Step> {
 /// décodeur : `None` (le cœur suppose alors que le format matériel tient). Sous la fréquence de la dalle, la mesure.
 pub fn decode_rate(measured: Option<f64>, panel_refresh: u32) -> Option<f64> {
     let fps = measured?;
-    if panel_refresh > 0 && fps >= f64::from(panel_refresh) { None } else { Some(fps) }
+    // 5 % de tolérance : une mesure qui oscille juste sous la fréquence de la
+    // dalle (118 i/s à 120 Hz) est aussi bornée par l'affichage.
+    if panel_refresh > 0 && fps >= f64::from(panel_refresh) * 0.95 { None } else { Some(fps) }
 }
 
 /// « Profil Auto ».
@@ -194,7 +196,7 @@ impl App {
         // à la fin de la session.
         if self.session.is_some() {
             self.auto_after = Some(id.into());
-            self.toast(if english() { format!("{}: {}", title(), "next session") } else { format!("{} : {}", title(), "prochaine session") });
+            self.toast(tr("Le test se fera à la fin de la session.", "The test will run when the session ends.").to_string());
             return Vec::new();
         }
         let mut actions = Vec::new();
@@ -532,7 +534,7 @@ mod tests {
         app.auto_after = None;
         assert!(app.choose_auto("a").is_empty());
         assert_eq!(app.auto_after.as_deref(), Some("a"));
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Profil Auto : prochaine session"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Le test se fera à la fin de la session."));
     }
 
     /// Une mesure de NDL bornée par l'affichage (au moins la fréquence de la dalle) n'est pas rendue au cœur.
@@ -541,7 +543,8 @@ mod tests {
         assert_eq!(decode_rate(Some(120.0), 120), None);
         assert_eq!(decode_rate(Some(131.5), 120), None);
         assert_eq!(decode_rate(Some(60.0), 60), None);
-        assert_eq!(decode_rate(Some(119.0), 120), Some(119.0));
+        assert_eq!(decode_rate(Some(118.0), 120), None, "5 % de tolérance");
+        assert_eq!(decode_rate(Some(113.0), 120), Some(113.0));
         assert_eq!(decode_rate(Some(60.0), 120), Some(60.0), "AV1 montré à 60 sur une dalle à 120 Hz");
         assert_eq!(decode_rate(None, 120), None, "format refusé");
     }
