@@ -71,6 +71,8 @@ private struct SettingsPane: View {
     @State private var section: ComputerSection
     @State private var route = AudioRoute.current
     @State private var confirmRemove = false
+    /// « Micro » allumé ici, l'autorisation du système refusée.
+    @State private var micDenied = false
     @State private var newPassword = ""
     /// Station réinstallée : l'empreinte qu'Admin présente maintenant.
     @State private var presented: String?
@@ -810,6 +812,23 @@ private struct SettingsPane: View {
         }
         rows.toggle(String(localized: "Prévenir d'un son en retard"), String(localized: "AirPods, enceintes Bluetooth, AirPlay : une alerte au-delà de 40 ms ajoutées."), prefs.latencyAlert) {
             prefs.latencyAlert.toggle()
+        }
+        // « Micro » : le même interrupteur que celui de la session, retenu pour cet ordinateur (docs/micro.md).
+        rows.toggle(MicText.label, micDenied ? MicText.permission : MicText.settingHelp, s.microphone,
+                    noteColor: micDenied ? Theme.warnText : Theme.muted) {
+            setMicrophone(!s.microphone)
+        }
+    }
+
+    /// En session avec cet ordinateur, la session s'en charge (autorisation,
+    /// avis) ; sinon le choix est gardé, l'autorisation demandée la première
+    /// fois qu'on l'allume.
+    private func setMicrophone(_ on: Bool) {
+        if let session = app.session, session.host.id == host.id { return session.setMicrophone(on) }
+        guard on else { return update { $0.microphone = false } }
+        MicrophoneAccess.request { granted in
+            micDenied = !granted
+            if granted { update { $0.microphone = true } }
         }
     }
 

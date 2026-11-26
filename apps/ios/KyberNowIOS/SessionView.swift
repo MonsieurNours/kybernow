@@ -509,7 +509,15 @@ private struct Tab: View {
         // Les demandes d'emprunt (ordinateur utilisé) : leur pastille rouvre le panneau du prêt.
         let lendRequests = session.isVisitor ? 0 : lend.requests.filter { !$0.slot }.count
         let relay = session.path.viaRelay
+        let mic = session.micSending
         HStack(spacing: 0) {
+            // Le micro envoyé à l'ordinateur : une petite icône tant qu'il part (docs/link-ui.md, « Micro »).
+            if mic {
+                Icon("microphone", size: 12, bold: true).foregroundStyle(Theme.accentLight)
+                    .padding(.horizontal, 6)
+                    .frame(minHeight: 26)
+                    .accessibilityLabel(Text(verbatim: "\(MicText.label), \(MicText.tileOn)"))
+            }
             if relay {
                 HStack(spacing: 5) {
                     Icon("globe-hemisphere-west", size: 12, bold: true).foregroundStyle(Theme.accentLight)
@@ -575,7 +583,7 @@ private struct Tab: View {
             }
             .accessibilityLabel(Text("Afficher la barre de session"))
         }
-        .padding(.horizontal, count > 0 || requests > 0 || lendRequests > 0 || relay ? 6 : 0)
+        .padding(.horizontal, count > 0 || requests > 0 || lendRequests > 0 || relay || mic ? 6 : 0)
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
         .environment(\.colorScheme, .dark)
@@ -616,6 +624,8 @@ struct SessionBar: View {
                     // « HDR », cochable, près du profil : seulement sur un écran HDR, jamais pour un invité.
                     if session.hdrState.shown { hdrToggle }
                     item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
+                    // « Micro » (docs/micro.md) : Envoyé, Envoi… ou Coupé ; estompé quand l'ordinateur ne le prend pas.
+                    if session.micShown { micItem }
                     // Le clavier et la souris : pas pour un invité à qui l'hôte ne les a pas donnés.
                     if keyboardAndMouse { touchAndMouse }
                     screenAndOffer
@@ -730,6 +740,25 @@ struct SessionBar: View {
         } label: {
             item("sliders-horizontal", session.host.settings.profileLabel)
         }
+    }
+
+    /// « Micro » : un toucher l'allume ou le coupe ; refusé par l'ordinateur,
+    /// il reste touchable et dit sa raison en avis.
+    private var micItem: some View {
+        let on = session.micOn
+        let refused = session.micState.refusal != nil
+        return Button { session.toggleMicrophone() } label: {
+            VStack(spacing: 2) {
+                Icon(on ? "microphone" : "microphone-slash", size: 18).foregroundStyle(on ? Theme.accentLight : Theme.text2)
+                Text(session.micSubtitle).font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+            }
+            .frame(minWidth: 48, minHeight: 44)
+            .padding(.horizontal, 4)
+            .opacity(refused ? 0.45 : 1)
+        }
+        .accessibilityLabel(Text(verbatim: "\(MicText.label), \(session.micSubtitle)"))
+        .accessibilityHint(Text(session.micState.refusal ?? ""))
+        .accessibilityAddTraits(.isToggle)
     }
 
     /// « HDR » cochable : le changer relance l'image ; inactif, il dit sa raison.

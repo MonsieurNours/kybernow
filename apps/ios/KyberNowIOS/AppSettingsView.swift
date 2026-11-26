@@ -41,6 +41,10 @@ private struct AppSettingsContent: View {
     @State private var addingAccount = false
     /// « Se déconnecter », à confirmer.
     @State private var signingOut: KyberAccount?
+    /// Réglages de l'app › Micro : le micro choisi (vide : celui du système), les micros de l'appareil, l'écho et le bruit.
+    @State private var micDevice = MicrophonePrefs.device ?? ""
+    @State private var micDevices: [MicDevice] = MicrophoneDevices.list()
+    @State private var micVoice = MicrophonePrefs.voiceProcessing
     @Environment(\.openURL) private var openURL
 
     private var isPad: Bool { DeviceDisplay.isPad }
@@ -56,6 +60,7 @@ private struct AppSettingsContent: View {
                     section(String(localized: "iCloud")) { icloudRows }
                     section(String(localized: "Langue")) { languageRow }
                     section(String(localized: "Réseau")) { networkRows }
+                    section(MicText.label) { microphoneRows }
                     section(isPad ? String(localized: "Cet iPad") : String(localized: "Cet iPhone")) { deviceRows }
                     // Réglage du HDR : seulement sur un écran HDR ; les valeurs sont celles de l'appareil.
                     if HDRDisplay.isHDR(nil) {
@@ -84,6 +89,7 @@ private struct AppSettingsContent: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main)) { _ in
             route = AudioRoute.current
+            micDevices = MicrophoneDevices.list()
         }
         .hdrCalibrationCover(isPresented: $calibrating)
         .sheet(isPresented: $addingAccount) {
@@ -313,6 +319,25 @@ private struct AppSettingsContent: View {
                         note: String(localized: "Retard mesuré, mis à jour à chaque changement de sortie."),
                         warn: route.isLate)
         SettingsFactRow(title: String(localized: "Réseau"), value: link.label, note: String(localized: "Le lien de cet appareil en ce moment."))
+    }
+
+    /// « Micro » (docs/link-ui.md, « Micro ») : celui du système ou un micro de
+    /// l'appareil (un micro choisi débranché : celui du système, sans le
+    /// perdre) ; « Réduire l'écho et le bruit ». Vaut tout de suite en session.
+    @ViewBuilder private var microphoneRows: some View {
+        // Un micro choisi absent de la liste (débranché) reste nommé par son choix.
+        let options = [(key: "", label: MicText.systemDefault)] + micDevices.map { (key: $0.id, label: $0.name) }
+        SettingsChoiceRow(title: MicText.label, note: MicText.settingHelp, options: options,
+                          current: micDevices.contains { $0.id == micDevice } ? micDevice : "") { v in
+            micDevice = v
+            MicrophonePrefs.device = v.isEmpty ? nil : v
+            app.session?.microphoneSettingsChanged()
+        }
+        SettingsToggleRow(title: MicText.echo, note: MicText.echoHelp, on: micVoice) {
+            micVoice.toggle()
+            MicrophonePrefs.voiceProcessing = micVoice
+            app.session?.microphoneSettingsChanged()
+        }
     }
 
     private var networkRows: some View {
