@@ -383,6 +383,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         controller = StatusController()
+        // La caméra de l'appareil (docs/webcam.md) : l'extension, si l'app l'a.
+        CameraExtension.shared.activate()
     }
 
     /// Seconde ouverture (KyberNow Station dans Applications) : Admin.

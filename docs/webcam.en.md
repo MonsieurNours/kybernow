@@ -51,17 +51,36 @@ Kyber can already open “data endpoints” (kyproto's `register_data_endpoint`)
 - Picture restarted (profile changed, recovery): a camera that is on sends `START` again on the new stream and restarts from a keyframe, without a gesture.
 - Texts of refusals and of the « Caméra » statistics line: `event_notice`, `device_notice`, `stats_line` (core catalogues, `camera` section).
 
+## The Station tool (`server/camera`)
+
+`kybernow-camera`, a single C program for the three systems, built against the Station's Kyber FFmpeg (`server/camera/build.sh`, like `kybernow-encoder-check`), placed next to kycontroller:
+
+- `--uplink` (started by kycontroller): reads the packets on its standard input; one thread decodes (libavcodec: H.264 or HEVC, low delay, two slice threads) and brings the picture to the `START` resolution (720p or 1080p) keeping its ratio, centred on dark grey (libswscale); the main thread hands the latest picture to the output 30 times a second, whether a new one arrived or not (filming software wants a steady rate). Before the first picture: dark grey; paused: the last picture; at the end: one second of grey, then it stops. A picture that doesn't decode (lost reference) asks the app for a keyframe (`{"keyframe": true}`, at most once per second).
+- `--probe`: `{"ready": true}` if the virtual camera would open, otherwise the reason; `--install` / `--uninstall` (Windows); `--test [720p|1080p]`: 20 s of test pattern, to try the virtual camera without an app.
+- Failure to open the virtual camera: `{"state": "failed", "reason": …}`, which the app shows as “{name} could not open its virtual camera.”.
+
+Another `START` (other camera, other resolution) restarts the tool (kycontroller stops the old one first).
+
 ## Windows Station
 
-Coming in this series: the `kybernow-camera.exe` tool (H.264/HEVC decoding by FFmpeg, NV12 picture in a named shared memory); Windows 11: a COM media source registered by the installer, camera created by `MFCreateVirtualCamera` (“system” lifetime, for all users) and read by Frame Server; Windows 10: a DirectShow source filter written by us, read in the process of the app that films.
+- **The tool** writes the NV12 picture into a named shared memory `Global\KyberNowCameraFrame` (`server/camera/windows/kn_shared.h`: one picture, a counter that is even when it is stable, the time of the last write): it runs as SYSTEM, started by kycontroller like kyavserver. Readable by everyone, low-integrity applications included; writable by SYSTEM and administrators. With no picture for 2 s, readers show grey.
+- **Windows 11** (build 22000 and later): `KyberNowCameraSource.dll`, a Media Foundation source (`IMFMediaSourceEx`, `IMFMediaStream2`, `IKsControl` without properties), NV12 1280 × 720 or 1920 × 1080 at 30 frames per second, one picture every 1/30 s whatever the pace of requests. `kybernow-camera --install` registers it (COM, HKLM, `ThreadingModel` Both) then creates the camera with `MFCreateVirtualCamera` (loaded from `mfsensorgroup.dll`), “system” lifetime, for all users: Windows keeps it from one boot to the next and the Frame Server service loads the source when an app films; every app sees it (Windows Camera included). `--uninstall` removes it (`Remove`). MFPlat is loaded on demand: on a Windows N without the Media Feature Pack, the tool says so instead of failing to start.
+- **Windows 10**: `KyberNowCameraFilter.dll`, a DirectShow source filter written by us (without the base classes of Microsoft's sample): a YUY2 capture pin (1280 × 720 or 1920 × 1080, 30 frames per second), `IAMStreamConfig` (both sizes), `IKsPropertySet` (capture category), timestamps on the graph clock. `--install` registers it in DirectShow's camera category (`IFilterMapper2`). Zoom, Teams, Discord, OBS, Chrome and Edge see it; apps that only read Media Foundation (Windows Camera) don't.
+- Both DLLs link the MinGW runtime statically: they are loaded outside Kyber's folder (Frame Server, the app that films).
+- **Installation**: `server/kyber-patches/build.sh` builds the three files into Kyber's overlay; the installer runs `kybernow-camera.exe --install` after installing the files (never blocking: one line in the log on failure), uninstalling runs `--uninstall` before removing the files.
 
 ## Mac Station
 
-Coming: a CoreMediaIO camera extension in the Station app, fed through its “sink” stream.
+- **The extension** (`server/macos/camera-extension`, Swift, CMIOExtension): the “KyberNow Camera” device, two streams: the one apps read (NV12, 1280 × 720 or 1920 × 1080, 30 frames per second) and an input (“sink”) where the tool puts its pictures. The latest picture goes out 30 times a second, brought to the format the app chose by `VTPixelTransferSession`; with no picture for 2 s, dark grey. Sandbox, app group `P6DB682S4K.fr.leslignesclaires.kybernow.station.camera`, Mach service of the same name (`CMIOExtensionMachServiceName`).
+- **The tool** (`out_macos.c`) finds the device by its name, opens its input stream (direction 1, `CMIOStreamCopyBufferQueue`, `CMIODeviceStartStream`) and puts each picture into it as a `CMSampleBuffer` (“420v” `CVPixelBuffer` on IOSurface); queue full: the picture is skipped.
+- **Activation**: the menu bar icon (`server/macos/menubar/Camera.swift`) asks macOS to activate the extension at every launch (`OSSystemExtensionRequest`, replaced by the launched version's). The first time, macOS waits for consent: a notification says where to give it (System Settings › General › Login Items & Extensions › Camera Extensions). The app must be in Applications.
+- **Apple rights**: installing a system extension needs `com.apple.developer.system-extension.install`, which only a profile grants. `build-station-app.sh` only puts the extension and the tool in the app (with `station-camera.entitlements` and `embedded.provisionprofile`) when it finds a Developer ID profile of `fr.leslignesclaires.kybernow.station` that allows it (`KYBERNOW_STATION_PROFILE`, otherwise Xcode's profile folders); otherwise the camera is not offered, nothing else changes. **To do once** on the Apple Developer portal (team P6DB682S4K): the `fr.leslignesclaires.kybernow.station` identifier with the “System Extension” capability, the `fr.leslignesclaires.kybernow.station.camera` identifier (no capability), then a Developer ID profile for the first one, installed on the building Mac. This right is open to Developer ID: no request to Apple to wait for, unlike the gamepads. The extension needs no profile.
 
 ## Linux Station
 
-Coming: v4l2loopback (`/dev/videoN`, “KyberNow Camera”), otherwise a PipeWire `Video/Source` node.
+- **v4l2loopback** first: the `/dev/videoN` device named “KyberNow Camera” (otherwise the first one of that driver), in YUYV, written with `write()`; Zoom, Discord, Chrome, Firefox and OBS read it. The package installs `modules-load.d/kybernow-camera.conf` (loads the module at boot, if installed), `modprobe.d/kybernow-camera.conf` (`card_label="KyberNow Camera" exclusive_caps=1`: seen as a camera only while the Station writes to it) and a udev rule (`uaccess`: the user's session writes to it without being in the video group). The module isn't in distribution kernels: package `v4l2loopback-dkms` (Ubuntu, Debian; suggested by the .deb) or `akmod-v4l2loopback` (Fedora, RPM Fusion).
+- **PipeWire** otherwise (tool built with libpipewire-0.3): a `Video/Source` node “KyberNow Camera” (YUY2), which only exists while the camera is sent; seen by software that reads PipeWire cameras (browsers through the Camera portal, OBS), not by Zoom or Discord.
+- `server/linux/scripts/package.sh` builds the tool into `runtime/bin`, next to kycontroller (rpath to the runtime's libraries).
 
 ## The apps
 
@@ -70,6 +89,10 @@ Coming: capture and hardware encoding in each app.
 ## Tests to do
 
 1. A Station with this patch facing an app that asks for the camera: “Uplink "camera" ready” then “Uplink "camera" connected” in kycontroller's log; without the tool next to it: “no sink on this computer”.
-2. A second device turning its camera on while the first one is sending: notice « {appareil} envoie déjà sa caméra à {nom}. ».
-3. Profile changed in a session, camera on: the camera restarts by itself (one keyframe, no gesture).
-4. An older Station: the « Caméra » entry doesn't appear, nothing else changes.
+2. `kybernow-camera --test` on each Station: the test pattern in Windows 11's Camera app, in Zoom on Windows 10, in Photo Booth on the Mac, in `ffplay /dev/videoN` and a browser on Linux (with and without v4l2loopback).
+3. A real session: the camera in Teams, Zoom, Discord, OBS; switching camera and resolution in a session; app sent to the background on iPhone (frozen picture) then back.
+4. A second device turning its camera on while the first one is sending: notice « {appareil} envoie déjà sa caméra à {nom}. ».
+5. Profile changed in a session, camera on: the camera restarts by itself (one keyframe, no gesture).
+6. An older Station: the « Caméra » entry doesn't appear, nothing else changes.
+7. Windows: install then uninstall (the camera leaves the camera list); Station update while an app films (DLL in use by Frame Server).
+8. Mac: first activation (notification, consent in Settings), then app update (extension replaced).

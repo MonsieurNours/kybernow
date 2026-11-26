@@ -250,7 +250,7 @@
     "paused": "Paused",
     "busy": "{device} is already sending its camera to {name}.",
     "busy_unnamed": "Another device is already sending its camera to {name}.",
-    "failed": "{name} could not open its camera. See Admin › Camera.",
+    "failed": "{name} could not open its virtual camera.",
     "denied": "Camera access is denied. Allow it in the device's Settings.",
     "in_use": "The camera is being used by another app.",
     "unplugged": "{camera} is no longer connected.",

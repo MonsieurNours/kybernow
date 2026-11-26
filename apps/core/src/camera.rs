@@ -716,7 +716,7 @@ mod tests {
         assert_eq!(event_notice(&busy, "Atelier", Lang::En).unwrap(), "Pixel 9 is already sending its camera to Atelier.");
         assert_eq!(
             event_notice(&CameraEvent::Failed { reason: "sink".into() }, "Atelier", Lang::Fr).unwrap(),
-            "Atelier n'a pas pu ouvrir sa caméra. Voir Admin › Caméra."
+            "Atelier n'a pas pu ouvrir sa caméra virtuelle."
         );
         assert_eq!(event_notice(&CameraEvent::Started, "Atelier", Lang::Fr), None);
         assert_eq!(

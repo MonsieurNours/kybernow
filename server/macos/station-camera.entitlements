@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Les droits de station.entitlements, plus l'installation de l'extension
+         caméra (docs/webcam.md, « Station Mac ») : posés seulement avec le
+         profil Developer ID de fr.leslignesclaires.kybernow.station qui
+         autorise « System Extension » (build-station-app.sh) ; sans lui, macOS
+         refuserait de lancer l'app. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.developer.system-extension.install</key>
+    <true/>
+    <key>com.apple.application-identifier</key>
+    <string>P6DB682S4K.fr.leslignesclaires.kybernow.station</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>P6DB682S4K</string>
+</dict>
+</plist>

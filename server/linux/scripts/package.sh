@@ -56,6 +56,9 @@ install -m 755 "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" 
 # FFmpeg du runtime de Kyber (en-têtes encore là : retirés plus bas).
 "$ROOT/server/encoder-check/build.sh" linux "$RT_SRC" "$LIB/bin/kybernow-encoder-check"
 cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
+# La caméra de l'appareil (docs/webcam.md) : l'outil que kycontroller lance
+# depuis son dossier (correctif 0085), v4l2loopback ou PipeWire.
+"$ROOT/server/camera/build.sh" linux "$RT_SRC" "$LIB/runtime/bin/kybernow-camera"
 # Fedora range les bibliothèques dans lib64, Debian et Ubuntu dans lib/<triplet>.
 [ -d "$RT_SRC/lib64" ] && cp -a "$RT_SRC/lib64" "$LIB/runtime/"
 # Ce qui ne sert qu'à compiler (en-têtes, .a, pkg-config) reste dehors.
@@ -68,6 +71,12 @@ install -m 644 "$ROOT/server/linux/packaging/kybernow-station-update.socket" "$R
     "$TREE/usr/lib/systemd/system/"
 install -m 644 "$ROOT/server/linux/packaging/60-kybernow-uinput.rules" "$TREE/usr/lib/udev/rules.d/"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station-modules.conf" "$TREE/usr/lib/modules-load.d/kybernow-station.conf"
+# Caméra : v4l2loopback (s'il est installé) chargé au démarrage avec le nom
+# « KyberNow Camera », et ouvert à la session de l'utilisateur.
+install -d "$TREE/usr/lib/modprobe.d"
+install -m 644 "$ROOT/server/camera/linux/modules-load-kybernow-camera.conf" "$TREE/usr/lib/modules-load.d/kybernow-camera.conf"
+install -m 644 "$ROOT/server/camera/linux/modprobe-kybernow-camera.conf" "$TREE/usr/lib/modprobe.d/kybernow-camera.conf"
+install -m 644 "$ROOT/server/camera/linux/70-kybernow-camera.rules" "$TREE/usr/lib/udev/rules.d/"
 # Pare-feu : firewalld (Fedora, dont la zone par défaut ferme Bonjour) et le
 # profil de ufw (Ubuntu), ouverts à l'installation comme sous Windows.
 install -d "$TREE/usr/lib/firewalld/services" "$TREE/etc/ufw/applications.d"
@@ -135,7 +144,7 @@ RPM_REQUIRES="pipewire, pipewire-utils, wireplumber, pipewire-pulseaudio, pulsea
 # les pose sous condition ; Debian n'a pas de condition, le .deb les suggère
 # (Plasma a déjà kscreen-doctor, Ubuntu déjà l'extension).
 DEB_RECOMMENDS="zenity | kdialog, libnotify-bin, iw, x11-utils, librsvg2-bin"
-DEB_SUGGESTS="libkf6screen-bin | libkf5screen-bin, gnome-shell-extension-appindicator"
+DEB_SUGGESTS="libkf6screen-bin | libkf5screen-bin, gnome-shell-extension-appindicator, v4l2loopback-dkms"
 RPM_RECOMMENDS="(libkscreen if plasma-workspace), (gnome-shell-extension-appindicator if gnome-shell), (zenity or kdialog), libnotify, iw, xprop, librsvg2-tools"
 
 mkdir -p "$DIST"
@@ -217,6 +226,9 @@ $(printf '%s' "$PRERM" | sed 1d)
 /usr/lib/systemd/system/kybernow-station-update@.service
 /usr/lib/udev/rules.d/60-kybernow-uinput.rules
 /usr/lib/modules-load.d/kybernow-station.conf
+/usr/lib/modules-load.d/kybernow-camera.conf
+/usr/lib/modprobe.d/kybernow-camera.conf
+/usr/lib/udev/rules.d/70-kybernow-camera.rules
 /usr/share/applications/fr.leslignesclaires.kybernow.station.display.desktop
 /usr/lib/firewalld/services/kybernow-station.xml
 %config(noreplace) /etc/ufw/applications.d/kybernow-station

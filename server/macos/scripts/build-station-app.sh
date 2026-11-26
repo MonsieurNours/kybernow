@@ -77,6 +77,43 @@ DRIVER="$("$ROOT/server/macos/audio-driver/build.sh" | tail -1)"
 # le droit HID Virtual Device (docs/station-macos.md, « Manettes »).
 GAMEPADS="$("$ROOT/server/macos/gamepads/build.sh" "$VERSION" | tail -1)"
 
+# Caméra de l'appareil (docs/webcam.md, « Station Mac ») : l'extension
+# CoreMediaIO et l'outil que lance kycontroller, seulement avec un profil
+# Developer ID de l'app ($KYBERNOW_STATION_PROFILE, sinon le premier valable
+# des dossiers de Xcode) qui autorise « System Extension ». Sans lui, ni
+# l'une ni l'autre : la caméra n'est pas proposée aux apps face à ce Mac.
+camera_profile_ok() {
+    local tmp pb=/usr/libexec/PlistBuddy ok=1
+    tmp="$(mktemp -t kybernow-profile)"
+    security cms -D -i "$1" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    [ "$($pb -c 'Print :Entitlements:com.apple.application-identifier' "$tmp" 2>/dev/null)" = "P6DB682S4K.$BUNDLE_ID" ] &&
+        [ "$($pb -c 'Print :Entitlements:com.apple.developer.system-extension.install' "$tmp" 2>/dev/null)" = "true" ] &&
+        [ "$($pb -c 'Print :ProvisionsAllDevices' "$tmp" 2>/dev/null)" = "true" ] &&
+        [ "$(date -j -f '%a %b %d %T %Z %Y' "$($pb -c 'Print :ExpirationDate' "$tmp")" +%s 2>/dev/null || echo 0)" -gt "$(date +%s)" ] &&
+        ok=0
+    rm -f "$tmp"
+    return $ok
+}
+CAMERA_PROFILE="${KYBERNOW_STATION_PROFILE:-}"
+if [ -z "$CAMERA_PROFILE" ]; then
+    for p in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.provisionprofile \
+             "$HOME/Library/MobileDevice/Provisioning Profiles"/*.provisionprofile; do
+        [ -f "$p" ] && camera_profile_ok "$p" && { CAMERA_PROFILE="$p"; break; }
+    done
+elif ! camera_profile_ok "$CAMERA_PROFILE"; then
+    echo "Profil $CAMERA_PROFILE refusé : il faut l'App ID P6DB682S4K.$BUNDLE_ID, « System Extension » et un profil Developer ID valable" >&2
+    exit 1
+fi
+CAMERA_EXT=""
+if [ -n "$CAMERA_PROFILE" ]; then
+    CAMERA_EXT="$("$ROOT/server/macos/camera-extension/build.sh" "$VERSION" | tail -1)"
+    "$ROOT/server/camera/build.sh" macos \
+        "$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-macos}" && pwd -P)/rootfs-arm64-macos" "$WORK/kybernow-camera" >/dev/null
+    echo "    caméra : profil $(basename "$CAMERA_PROFILE"), extension et kybernow-camera dans l'app"
+else
+    echo "    caméra : aucun profil de l'app avec « System Extension » ; la caméra de l'appareil ne sera pas proposée"
+fi
+
 step "Agent de console du prêt (server/tray, docs/pret.md)"
 (cd "$ROOT/server/tray" && cargo build --release --quiet)
 CONSOLE="$ROOT/server/tray/target/release/kybernow-tray"
@@ -154,6 +191,14 @@ cp -R "$DRIVER" "$APP/Contents/Resources/KyberNow.driver"
 # Déjà signée (avec son profil s'il existe) : copiée telle quelle.
 mkdir -p "$APP/Contents/Helpers"
 ditto "$GAMEPADS" "$APP/Contents/Helpers/KyberNow Manettes.app"
+APP_ENTITLEMENTS="$ENTITLEMENTS"
+if [ -n "$CAMERA_EXT" ]; then
+    mkdir -p "$APP/Contents/Library/SystemExtensions"
+    ditto "$CAMERA_EXT" "$APP/Contents/Library/SystemExtensions/$(basename "$CAMERA_EXT")"
+    cp "$WORK/kybernow-camera" "$APP/Contents/MacOS/"
+    cp "$CAMERA_PROFILE" "$APP/Contents/embedded.provisionprofile"
+    APP_ENTITLEMENTS="$ROOT/server/macos/station-camera.entitlements"
+fi
 cp "$ICNS" "$APP/Contents/Resources/AppIcon.icns"
 # Moteur du client web (invités du navigateur, /link) : la version officielle
 # de Kyber 0.29, puis notre moteur par-dessus, comme la surcouche Windows.
@@ -188,7 +233,8 @@ sign "$APP/Contents/Resources/KyberNow.driver"
 for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kybernow-encoder-check kyber-admin kybernow-display kybernow-ui kybernow-console; do
     sign --entitlements "$ENTITLEMENTS" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
 done
-sign --entitlements "$ENTITLEMENTS" "$APP"
+[ -n "$CAMERA_EXT" ] && sign -i "$BUNDLE_ID.kybernow-camera" "$APP/Contents/MacOS/kybernow-camera"
+sign --entitlements "$APP_ENTITLEMENTS" "$APP"
 codesign --verify --deep --strict "$APP"
 if [ "$NOTARIZE" = 1 ]; then
     step "Notarisation de l'app (Apple, quelques minutes)"
