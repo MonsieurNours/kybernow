@@ -70,7 +70,7 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 | VB-CABLE | étape de l'installateur et carte d'Admin écrites ; le pack est à placer dans `third_party/payload/vbcable/` |
 | Admin | `kn_mic`, « Laisser les invités parler », carte « Micro virtuel » ; 368 essais |
 | Cœur | `micro.rs` ; 6 essais |
-| Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) compilées ; Mac, iPhone, iPad : voir plus bas ; client web : la page est prête (`d9c3dc4d`) mais cachée, son moteur (wasm, sa propre copie de Kyber) n'a pas encore le flux montant |
+| Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) compilées ; Mac (`042715b6`) et iPhone, iPad (`ec8521d8`) : pont compilé, Swift vérifié par `swiftc -typecheck` (pas de build Xcode) ; le traitement voix d'Apple ne voit pas le son de la session (autre unité de sortie) : l'écho est à vérifier ; client web : la page est prête (`d9c3dc4d`) mais cachée, son moteur (wasm, sa propre copie de Kyber) n'a pas encore le flux montant |
 
 ### Reste à faire
 

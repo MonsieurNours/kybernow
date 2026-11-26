@@ -70,7 +70,7 @@ Written on 26/11/2026, branch `claude/micro-5db32e`; **nothing has been tried en
 | VB-CABLE | installer step and Admin card written; the pack goes into `third_party/payload/vbcable/` |
 | Admin | `kn_mic`, “Let guests speak”, “Virtual microphone” card; 368 tests |
 | Core | `micro.rs`; 6 tests |
-| Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) built; Mac, iPhone, iPad: see below; web client: the page is ready (`d9c3dc4d`) but hidden, its engine (wasm, its own copy of Kyber) doesn't have the upstream channel yet |
+| Apps | Android (`22acbeea`), Windows (`eff90dba`), Linux (`1cd9692b`) built; Mac (`042715b6`) and iPhone, iPad (`ec8521d8`): bridge built, Swift checked with `swiftc -typecheck` (no Xcode build); Apple's voice processing doesn't see the session's sound (another output unit): echo is to be checked; web client: the page is ready (`d9c3dc4d`) but hidden, its engine (wasm, its own copy of Kyber) doesn't have the upstream channel yet |
 
 ### Still to do
 
