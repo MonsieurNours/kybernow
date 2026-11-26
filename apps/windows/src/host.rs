@@ -209,6 +209,11 @@ pub trait HostEvents: Send + Sync {
     /// Un avis bref du cœur, dans la langue de l'app (« L'ordinateur n'a pas
     /// pu passer en HDR : image en SDR. », une fois par session).
     fn notice(&self, _text: &str) {}
+    /// Caméra de ce PC (docs/webcam.md) : l'ordinateur la propose pour cette
+    /// image, ou plus ; la puce « Caméra » de la barre apparaît ou disparaît.
+    fn camera_offer(&self, _offered: bool) {}
+    /// Ctrl+Alt+Maj+C : la caméra s'allume ou s'éteint.
+    fn toggle_camera(&self) {}
     /// PyroWave (docs/debit-automatique.md) : le réseau sature depuis 5 s
     /// d'affilée (avis `PyroWaveStrained` du cœur, une fois par session,
     /// hôte seulement) : bandeau « Le réseau sature » avec « Passer en HEVC ».
@@ -379,6 +384,12 @@ impl SessionHost {
             }
             None => false,
         }
+    }
+
+    /// La caméra de ce PC vers l'ordinateur de la session (docs/webcam.md) ;
+    /// `None` tant que la session n'est pas là.
+    pub fn camera_link(&self) -> Option<Arc<kybernow_core::camera::CameraLink>> {
+        self.app().and_then(|a| a.current_session()).map(|s| s.camera())
     }
 
     /// « HDR » coché ou non en session (barre, menu de l'icône, réglages) :
@@ -781,6 +792,13 @@ impl Platform for WinPlatform {
     }
     fn on_route(&self, route: &RouteInfo) {
         self.events.route(route);
+    }
+    // Caméra de ce PC (docs/webcam.md) : demandée à l'ordinateur s'il y a une webcam.
+    fn sends_camera(&self) -> bool {
+        crate::camera::available()
+    }
+    fn on_camera_offer(&self, offered: bool) {
+        self.events.camera_offer(offered);
     }
     // Prêt de l'ordinateur (docs/pret.md).
     fn on_lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {

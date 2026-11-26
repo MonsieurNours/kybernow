@@ -112,6 +112,10 @@ pub struct HostSettings {
     /// l'ordinateur en plein écran), `always` (aussi dans une fenêtre), `never`.
     pub immersive: String,
     pub clipboard: bool,
+    /// « Définition de la caméra » (docs/webcam.md) : 1080p, sinon 720p ; hors profil.
+    pub camera_1080: bool,
+    /// L'ordinateur a déjà proposé la caméra : « Définition de la caméra » apparaît dans ses réglages.
+    pub camera_seen: bool,
     pub reconnect: bool,
     /// Transport fiable même en profil Jeu (Wi-Fi chargé).
     pub reliable: bool,
@@ -162,6 +166,8 @@ impl Default for HostSettings {
             ctrl_command: None,
             immersive: "fullscreen".into(),
             clipboard: true,
+            camera_1080: false,
+            camera_seen: false,
             reconnect: true,
             reliable: false,
             battery_light: true,

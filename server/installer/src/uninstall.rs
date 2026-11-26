@@ -31,6 +31,12 @@ pub fn run_uninstall(keep_data: bool) -> Result<()> {
     for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe", "kybernow-tray.exe"] {
         let _ = run("taskkill", &["/F", "/IM", exe]);
     }
+    // Caméra de l'appareil (docs/webcam.md) : retirée de Windows avant ses fichiers.
+    let _ = run("taskkill", &["/F", "/IM", "kybernow-camera.exe"]);
+    let camera = dir.join(r"kyber\kybernow-camera.exe");
+    if camera.is_file() {
+        let _ = run(&camera.display().to_string(), &["--uninstall"]);
+    }
     // Icône : lancement à l'ouverture de session (celle de l'utilisateur qui désinstalle).
     let _ = run("reg", &["delete", RUN_KEY, "/v", "KyberNow", "/f"]);
     remove_firewall_rules();

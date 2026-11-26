@@ -854,5 +854,15 @@
     "echo_help": "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.",
     "guests": "Laisser les invités parler",
     "guests_help": "Leur micro arrive sur l'ordinateur, pour un jeu ou un appel."
+  },
+  "camera": {
+    "camera": "Caméra",
+    "starting": "Caméra…",
+    "turn_on": "Allumer la caméra",
+    "turn_off": "Éteindre la caméra",
+    "shortcut": " (Ctrl+Alt+Maj+C)",
+    "indicator": "● Caméra",
+    "resolution": "Définition de la caméra",
+    "resolution_help": "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur."
   }
 }

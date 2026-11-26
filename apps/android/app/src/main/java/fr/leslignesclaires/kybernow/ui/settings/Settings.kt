@@ -629,6 +629,13 @@ private fun ControlsRubric(state: HostSettingsState, actions: HostSettingsAction
         ) { v -> actions.update { it.copy(directTouch = v) } }
         // Le presse-papiers ne passe pas au téléviseur (SessionActivity.start).
         SwitchRow(stringResource(R.string.settings_clipboard), stringResource(R.string.settings_clipboard_help), set.clipboard) { v -> actions.update { it.copy(clipboard = v) } }
+        // La caméra de l'appareil (docs/webcam.md) : une fois que l'ordinateur l'a proposée.
+        if (set.cameraSeen) {
+            ChoiceRow(
+                stringResource(R.string.camera_resolution), stringResource(R.string.camera_resolution_help),
+                listOf(false to "720p", true to "1080p"), set.camera1080,
+            ) { v -> actions.update { it.copy(camera1080 = v) } }
+        }
         OnScreenPadRows(state, actions)
     }
 }

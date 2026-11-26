@@ -85,6 +85,9 @@ mod welcome;
 // jour »), vérification demandée à la Station, avis après une mise à jour de
 // l'app (docs/link-ui.md « Mise à jour des Stations »).
 mod stations;
+// La caméra de ce PC vers l'ordinateur : la puce de la barre, Ctrl+Alt+Maj+C,
+// les réponses de l'ordinateur (docs/webcam.md).
+mod camera;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -1543,6 +1546,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             by_code,
             wake: info.wake.clone(),
             station_notified: None,
+            camera_offered: false,
             station_offer: Default::default(),
             relay: info.relay.clone(),
             account: None,
@@ -2334,6 +2338,14 @@ impl HostEvents for UiEvents {
         self.mic_toggle();
     }
 
+    fn camera_offer(&self, offered: bool) {
+        camera::offer(&self.app, &self.id, offered);
+    }
+
+    fn toggle_camera(&self) {
+        camera::toggle(&self.app, &self.id);
+    }
+
     /// PyroWave : le réseau sature (docs/link-ui.md « PyroWave ») ; le même
     /// bandeau que celui du début de session, titré « Le réseau sature »,
     /// avec « Passer en HEVC » ; une notification de Windows si l'app n'est
@@ -2423,6 +2435,7 @@ impl HostEvents for UiEvents {
     }
 
     fn ended(&self, s: &Summary) {
+        camera::ended(&self.id);
         let state = self.app.state::<UiState>();
         // Cette session-là, pas une autre du même ordinateur.
         let (found, remaining) = {
@@ -4345,6 +4358,9 @@ pub fn run(args: Vec<String>) {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            camera::session_camera,
+            camera::session_camera_pick,
+            camera::session_camera_state,
             probe_address,
             parse_link,
             add_computer,

@@ -78,6 +78,22 @@ struct SessionChrome: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Le voyant de la caméra (docs/link-ui.md) : barre fermée, tant
+            // qu'elle part, une petite capsule en haut à gauche, sans rien d'autre.
+            if !session.barVisible, session.cameraState == .sending {
+                HStack {
+                    Text(CameraText.indicator)
+                        .font(Theme.sans(11, .semibold))
+                        .foregroundStyle(Theme.dangerText)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .allowsHitTesting(false)
+                    Spacer()
+                }
+                .padding(.top, 10)
+                .padding(.leading, 10)
+            }
             // Le trait de repère du bord haut n'est pas ici : il est tracé dans
             // l'image même (VideoRenderer), pour se voir sans couche SwiftUI.
             if !session.barVisible {
@@ -128,7 +144,8 @@ struct SessionChrome: View {
                 StatsPanel(stats: session.stats, history: session.statsHistory, audio: session.audioStats,
                            sessionLosses: session.sessionLosses, close: session.toggleStatsPanel, screens: session.screenCount,
                            route: session.path, hdr: session.hdrStreaming,
-                           pyrowave: session.receivedCodec == .pyrowave, lowered: session.lowered)
+                           pyrowave: session.receivedCodec == .pyrowave, lowered: session.lowered,
+                           camera: session.cameraStatsLine)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .transition(.opacity.combined(with: .offset(x: 24)))
@@ -754,6 +771,7 @@ private struct SessionBar: View {
             hdrToggle(compact: compact)
             keepSound(compact: compact)
             micChip(compact: compact)
+            cameraMenu(compact: compact)
             GlassMenu(items: MouseChoice.allCases.map { choice in
                 .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
             }) {
@@ -842,6 +860,7 @@ private struct SessionBar: View {
             hdrToggle(compact: compact)
             keepSound(compact: compact)
             micChip(compact: compact)
+            cameraMenu(compact: compact)
             GlassMenu(items: MouseChoice.allCases.map { choice in
                 .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
             }) {
@@ -938,6 +957,32 @@ private struct SessionBar: View {
             .help(refusal ?? (on ? MicText.tooltipOn("⌃⌥⌘V") : MicText.tooltipOff("⌃⌥⌘V")))
             .accessibilityLabel(on ? MicText.label : MicText.labelOff)
             .accessibilityAddTraits(on ? .isSelected : [])
+        }
+    }
+
+    /// « Caméra » (docs/link-ui.md, « Caméra de l'appareil ») : seulement si
+    /// l'ordinateur la propose ; estompée éteinte, rouge avec un point quand
+    /// elle part ; le menu l'allume ou l'éteint, puis liste les caméras.
+    @ViewBuilder private func cameraMenu(compact: Bool) -> some View {
+        if session.cameraOffered {
+            let state = session.cameraState
+            let current = session.currentCamera
+            let items = [GlassMenuItem(id: "toggle", title: state == .off ? CameraText.turnOn : CameraText.turnOff) { session.toggleCamera() }]
+                + session.cameras.map { cam in
+                    GlassMenuItem(id: cam.id, title: cam.name, checked: cam.id == current) { session.pickCamera(cam.id) }
+                }
+            GlassMenu(items: items) {
+                HStack(spacing: 0) {
+                    if state == .sending {
+                        Circle().fill(Theme.danger).frame(width: 7, height: 7).padding(.leading, 9).padding(.trailing, -3)
+                    }
+                    chip(icon: state == .off ? "video-camera-slash" : "video-camera",
+                         text: state == .starting ? CameraText.starting : CameraText.camera,
+                         tint: state == .sending || state == .paused ? Theme.danger : Theme.text2, caret: true, compact: compact)
+                }
+                .opacity(state == .off ? 0.55 : 1)
+            }
+            .help(state == .off ? CameraText.turnOn + " (⌃⌥⌘C)" : CameraText.turnOff + " (⌃⌥⌘C)")
         }
     }
 

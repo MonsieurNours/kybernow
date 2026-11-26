@@ -7,6 +7,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## Unreleased
 
 - **Your microphone on the computer.** Talk in a game, a call or a video meeting running on the computer with the microphone of your Mac, iPhone, iPad, Android phone, PC or browser: « Micro » in the session bar turns it on, and your choice is kept for each computer. The computer receives it in a virtual microphone (VB-CABLE on Windows, installed with the Station; “Micro KyberNow” on Mac and Linux). Echo and noise are reduced by your device; a friend you lend the computer to can talk too, and a share's guests if you let them.
+- **Your device's camera, on your computer.** During a session, “Camera” in the bar (or Ctrl+Alt+Shift+C, ⌃⌥⌘C on Mac) sends the camera of your iPhone, iPad, Android phone, Mac or PC to the computer, which sees it as an ordinary webcam, “KyberNow Camera”: Teams, Zoom, Discord, OBS or your browser offer it in their list. Pick the front or back camera, a USB webcam, or on Apple TV the iPhone sitting next to it. A red indicator shows while it is sending; it turns off at the end of every session. 720p by default, 1080p in the computer's settings. It needs an up-to-date Station: on Windows 11, a real Windows camera; on Windows 10, a camera that Zoom, Teams, Discord, OBS and browsers see; on Mac, a camera extension to allow once; on Linux, v4l2loopback for every app (otherwise PipeWire, for browsers and OBS).
 
 ## 0.11.4
 

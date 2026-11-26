@@ -37,6 +37,8 @@ struct StatsPanel: View {
     var pyrowave = false
     /// PyroWave : la définition ramenée par le cœur pour tenir dans le débit.
     var lowered: LoweredMode?
+    /// La caméra de ce Mac (docs/webcam.md) : la ligne « Caméra », nil éteinte.
+    var camera: String?
 
     /// Durée d'une image au débit du moment (repère des graphiques).
     private var budget: Double { 1000 / max(30, stats?.fps ?? 60) }
@@ -225,6 +227,9 @@ struct StatsPanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .gridCellColumns(2)
                 }
+            }
+            if let camera {
+                row(CameraText.camera, camera)
             }
             if s.latencyMs != nil || s.rejectedSamples > 0 {
                 row(String(localized: "Mesures"), String(localized: "\(Int((s.measuredRatio * 100).rounded())) % des images") + (s.rejectedSamples > 0 ? " · " + String(localized: "\(s.rejectedSamples) rejetées") : ""))

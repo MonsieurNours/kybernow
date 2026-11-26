@@ -443,6 +443,22 @@ public final class SessionEngine: @unchecked Sendable {
     /// L'état du micro au dernier changement (fil principal).
     public private(set) var microphoneState: MicState = .off
 
+    // MARK: Caméra de l'appareil (docs/webcam.md)
+
+    /// L'ordinateur propose la caméra pour cette image (entrée « Caméra »).
+    public var onCameraOffer: ((Bool) -> Void)?
+    /// L'état de la caméra : éteinte, en cours d'allumage, envoyée (voyant), en pause.
+    public var onCameraState: ((CameraState) -> Void)?
+    /// Un avis bref (refus de l'ordinateur, problème de l'appareil).
+    public var onCameraNotice: ((String) -> Void)?
+    public private(set) var cameraOffered = false
+    public private(set) var cameraState: CameraState = .off
+    /// La caméra choisie (nil : celle par défaut) et la définition.
+    public private(set) var cameraID: String?
+    private var cameraResolution1080 = false
+    private let camera = CameraCapture()
+    private var cameraTimer: DispatchSourceTimer?
+
     public let view: StreamView
     private let lock = NSLock()
     private var session: OpaquePointer?
@@ -668,6 +684,11 @@ public final class SessionEngine: @unchecked Sendable {
         // Par le relais, la session finit faute de joindre l'ordinateur : le code du
         // cœur (jamais le texte d'Admin), dit juste avant la fin ; `status` en fait
         // la raison de la fin, avec le nom de l'ordinateur.
+        platform.sends_camera = CameraCapture.available
+        platform.on_camera_offer = { ud, offered in
+            let me = SessionEngine.from(ud)
+            DispatchQueue.main.async { me.cameraOfferChanged(offered) }
+        }
         platform.on_relay_error = { ud, code, _ in
             SessionEngine.from(ud).relayError(code)
         }
@@ -807,7 +828,125 @@ public final class SessionEngine: @unchecked Sendable {
     /// Demande la fin de la session : `.ending` puis `.ended` suivent.
     public func stop() {
         unregisterFocus()
+        cameraOff()
         if let s = live { kn_session_stop(s) }
+    }
+
+    // MARK: - Caméra de l'appareil (docs/webcam.md)
+
+    /// « Allumer la caméra », ou une autre caméra choisie dans la liste (sans
+    /// éteindre). `resolution1080` : le réglage « Définition de la caméra ».
+    public func cameraOn(id: String?, resolution1080: Bool) {
+        guard cameraOffered else { return }
+        cameraID = id
+        cameraResolution1080 = resolution1080
+        setCameraState(.starting)
+        camera.send = { [weak self] bytes, pts, key in
+            guard let self, let s = self.live, let base = bytes.baseAddress else { return Int32(KN_CAMERA_OFF) }
+            return kn_camera_frame(s, base.assumingMemoryBound(to: UInt8.self), UInt(bytes.count), pts, key)
+        }
+        camera.targetBitrate = { [weak self] in
+            guard let s = self?.live else { return 0 }
+            return kn_camera_target_bitrate(s)
+        }
+        camera.onProblem = { [weak self] problem in
+            DispatchQueue.main.async { self?.cameraProblem(problem) }
+        }
+        camera.onInterrupted = { [weak self] interrupted in
+            guard let s = self?.live else { return }
+            if interrupted { kn_camera_pause(s) }
+            DispatchQueue.main.async { self?.setCameraState(interrupted ? .paused : .sending) }
+        }
+        Task { @MainActor in
+            switch await camera.open(id: id, resolution1080: resolution1080) {
+            case let .success((w, h)):
+                guard let s = live, kn_camera_start(s, false, UInt32(w), UInt32(h), resolution1080, ConsoleClient.thisDevice["name"] as? String ?? "") else {
+                    camera.close()
+                    setCameraState(.off)
+                    return
+                }
+                startCameraPolling()
+            case let .failure(problem):
+                cameraProblem(problem)
+            }
+        }
+    }
+
+    /// « Éteindre la caméra » (et fin de session).
+    public func cameraOff() {
+        camera.close()
+        cameraTimer?.cancel()
+        cameraTimer = nil
+        if let s = live { kn_camera_stop(s) }
+        setCameraState(.off)
+    }
+
+    /// Le réglage « Définition de la caméra » changé en session : la caméra
+    /// allumée repart à la nouvelle définition (une image clé).
+    public func cameraSetResolution(_ resolution1080: Bool) {
+        guard cameraState != .off, resolution1080 != cameraResolution1080 else { return }
+        cameraOn(id: cameraID, resolution1080: resolution1080)
+    }
+
+    /// La ligne « Caméra » des statistiques (nil : éteinte).
+    public var cameraStatsLine: String? {
+        guard let s = live else { return nil }
+        return Core.take(kn_camera_stats_line(s))
+    }
+
+    private func setCameraState(_ state: CameraState) {
+        guard state != cameraState else { return }
+        cameraState = state
+        onCameraState?(state)
+    }
+
+    private func cameraProblem(_ problem: CameraProblem) {
+        // Débranchée : la suivante de la liste prend la relève, sinon on éteint.
+        if case .unplugged = problem, cameraState != .off,
+           let next = CameraCapture.cameras().first(where: { $0.id != cameraID }) {
+            onCameraNotice?(problem.notice)
+            cameraOn(id: next.id, resolution1080: cameraResolution1080)
+            return
+        }
+        cameraOff()
+        onCameraNotice?(problem.notice)
+    }
+
+    private func cameraOfferChanged(_ offered: Bool) {
+        guard offered != cameraOffered else { return }
+        cameraOffered = offered
+        onCameraOffer?(offered)
+    }
+
+    /// Les réponses de l'ordinateur, quatre fois par seconde tant qu'elle est allumée.
+    private func startCameraPolling() {
+        cameraTimer?.cancel()
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now(), repeating: .milliseconds(250))
+        t.setEventHandler { [weak self] in self?.pollCamera() }
+        cameraTimer = t
+        t.resume()
+    }
+
+    private func pollCamera() {
+        guard let s = live else { return }
+        let name = params?.computerName ?? params?.focusName ?? ""
+        guard let json = Core.take(kn_camera_poll(s, name)),
+              let events = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else { return }
+        for e in events {
+            switch e["event"] as? String {
+            case "started": setCameraState(.sending)
+            case "busy", "failed":
+                camera.close()
+                cameraTimer?.cancel()
+                cameraTimer = nil
+                setCameraState(.off)
+                if let notice = e["notice"] as? String { onCameraNotice?(notice) }
+            case "keyframe": camera.forceKeyframe()
+            case "offer": cameraOfferChanged(e["offered"] as? Bool ?? false)
+            default: break
+            }
+        }
     }
 
     /// Session d'emprunt : « Rendre l'ordinateur », après sa confirmation. Le

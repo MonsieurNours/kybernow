@@ -854,5 +854,15 @@
     "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
     "guests": "Let guests speak",
     "guests_help": "Their microphone reaches the computer, for a game or a call."
+  },
+  "camera": {
+    "camera": "Camera",
+    "starting": "Camera…",
+    "turn_on": "Turn on camera",
+    "turn_off": "Turn off camera",
+    "shortcut": " (Ctrl+Alt+Shift+C)",
+    "indicator": "● Camera",
+    "resolution": "Camera resolution",
+    "resolution_help": "30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer."
   }
 }

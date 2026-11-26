@@ -515,6 +515,16 @@ impl Platform for LinuxPlatform {
         self.0.send(SessionEvent::ShareImage { label: image.label(), notice: notice.map(str::to_string) });
     }
 
+    /// La caméra de l'appareil (docs/webcam.md) : demandée à l'ordinateur s'il y a une webcam et un encodeur.
+    fn sends_camera(&self) -> bool {
+        super::camera::available()
+    }
+
+    /// L'ordinateur propose la caméra pour cette image, ou plus : le bouton « Caméra » de la barre.
+    fn on_camera_offer(&self, offered: bool) {
+        self.0.send(SessionEvent::CameraOffer(offered));
+    }
+
     /// Par où passe la session, au départ puis quand le chemin change (par le relais : repli TCP, allers-retours).
     /// La barre en fait sa puce « Par le relais », les statistiques leur ligne « Chemin ».
     fn on_route(&self, route: &RouteInfo) {

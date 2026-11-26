@@ -55,6 +55,8 @@
     sparkle: 'M11 3l1.9 5.6L18.5 10.5l-5.6 1.9L11 18l-1.9-5.6L3.5 10.5l5.6-1.9zM18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z',
     // Profil Auto : une baguette et ses étincelles (docs/link-ui.md).
     wand: 'M4 20L14.5 9.5M12.5 7.5l4 4M17 2.5v3M15.5 4h3M20.5 7.5v2M19.5 8.5h2M9 3v2M8 4h2',
+    camera: 'M3 7h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zM16 10.5l5-3v9l-5-3',
+    'camera-off': 'M3 7h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zM16 10.5l5-3v9l-5-3M3 3l18 18',
     'speaker-off':'M11 5L6 9H2v6h4l5 4zM16 9l6 6M22 9l-6 6',
     other: 'M5 7h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM8 12h.01M12 12h.01M16 12h.01',
     // Consoles PlayStation : compte, choix du compte, réglages « Auto », envoi et réception entre appareils.

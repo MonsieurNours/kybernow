@@ -773,6 +773,18 @@ pub enum BarMenu {
     Screen,
     /// Prêt de l'ordinateur : le panneau « Prêter l'ordinateur… » (durée, compte Steam, code, demandes).
     Lend,
+    /// La caméra de l'appareil : l'allumer ou l'éteindre, puis les webcams (docs/webcam.md).
+    Camera,
+}
+
+/// L'état de la caméra de l'appareil dans une session (docs/link-ui.md, « Caméra de l'appareil »).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CameraState {
+    Off,
+    /// « Caméra… » : la webcam s'ouvre, l'ordinateur n'a pas encore répondu.
+    Starting,
+    /// Le voyant : l'ordinateur la reçoit.
+    Sending,
 }
 
 // MARK: - KyberNow Share (docs/kybernow-share.md, textes : docs/link-ui.md, « Partage »)
@@ -2006,6 +2018,14 @@ pub struct SessionUi {
     /// « Garder le son » (bouton du haut-parleur de la barre) : la session reste audible
     /// même quand elle n'est pas active. Éteint par défaut, pour la session en cours.
     pub keep_sound: bool,
+    /// Caméra de l'appareil (docs/webcam.md) : l'ordinateur la propose pour cette image ; son état (éteinte,
+    /// allumage en cours, envoyée : le voyant, en pause) ; les webcams de l'appareil (chemin, nom) et celle choisie.
+    pub camera_offered: bool,
+    pub camera: CameraState,
+    pub cameras: Vec<(String, String)>,
+    pub camera_current: Option<String>,
+    /// La ligne « Caméra » des statistiques (« 1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s »).
+    pub camera_line: Option<String>,
     /// La fenêtre de la session est en plein écran (« Plein écran » de la barre).
     pub fullscreen: bool,
     /// KyberNow Share, session d'hôte : le partage ouvert (`None` : pas de partage), le panneau montré
@@ -2152,6 +2172,11 @@ impl SessionUi {
             screens: 1,
             expected_screens,
             keep_sound: false,
+            camera_offered: false,
+            camera: CameraState::Off,
+            cameras: Vec::new(),
+            camera_current: None,
+            camera_line: None,
             fullscreen: false,
             share: None,
             share_panel: false,
@@ -2272,6 +2297,21 @@ impl SessionUi {
     }
 
     /// « Statistiques » : la barre (un clic sur les mesures), le menu, Ctrl+Alt+Maj + S.
+    /// Ctrl+Alt+Maj+C, « Allumer la caméra » / « Éteindre la caméra » (seulement si l'ordinateur la propose).
+    pub fn toggle_camera(&mut self) -> Vec<Action> {
+        if !self.camera_offered {
+            return Vec::new();
+        }
+        if self.camera == CameraState::Off {
+            self.camera = CameraState::Starting;
+            vec![Action::CameraOn(self.id, self.camera_current.clone())]
+        } else {
+            self.camera = CameraState::Off;
+            self.camera_line = None;
+            vec![Action::CameraOff(self.id)]
+        }
+    }
+
     pub fn toggle_stats(&mut self) {
         self.show_stats = !self.show_stats;
         self.stats_help = None;
@@ -2354,6 +2394,8 @@ pub enum Setting {
     Pads,
     Mouse,
     Clipboard,
+    /// « Définition de la caméra » (docs/webcam.md) : 720p ou 1080p.
+    Camera,
     Reliable,
     Reconnect,
     /// L'adresse MAC de l'ordinateur (réveil par le réseau).
@@ -2749,6 +2791,10 @@ pub enum Target {
     BarKeys,
     BarShortcut(usize),
     BarMouse,
+    /// La caméra : le bouton de la barre (son menu), « Allumer / Éteindre la caméra », une webcam de la liste.
+    BarCamera,
+    BarCameraToggle,
+    BarCameraPick(usize),
     /// Les mesures de la barre (latence, courbe, image) : un clic ouvre ou ferme « Statistiques ».
     BarStats,
     BarFullscreen,
@@ -3005,6 +3051,12 @@ pub enum Action {
     MicConfig,
     /// « Garder le son » : la session reste audible quand elle n'est pas active.
     KeepSound(SessionId, bool),
+    /// La caméra de l'appareil (docs/webcam.md) : allumée sur cette webcam (`None` : celle choisie avant, sinon la
+    /// première), ou éteinte.
+    CameraOn(SessionId, Option<String>),
+    CameraOff(SessionId),
+    /// La webcam choisie dans la liste : gardée pour l'appareil (pas par ordinateur).
+    CameraPick(String),
     Light(SessionId, bool),
     /// Souris des jeux ou du bureau (barre, Ctrl+Alt+Maj+M).
     ToggleMouse(SessionId),
@@ -4991,6 +5043,23 @@ impl App {
                 vec![Action::SetProfile(id, p), Action::Save]
             }
             Target::BarMouse => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            Target::BarCamera => self.toggle_bar_menu(BarMenu::Camera),
+            Target::BarCameraToggle => {
+                let Some(s) = self.session_mut() else { return Vec::new() };
+                s.bar_menu = None;
+                s.toggle_camera()
+            }
+            Target::BarCameraPick(i) => {
+                let Some(s) = self.session_mut() else { return Vec::new() };
+                s.bar_menu = None;
+                let Some((path, _)) = s.cameras.get(i).cloned() else { return Vec::new() };
+                s.camera_current = Some(path.clone());
+                let mut v = vec![Action::CameraPick(path.clone())];
+                if s.camera != CameraState::Off {
+                    v.push(Action::CameraOn(s.id, Some(path)));
+                }
+                v
+            }
             Target::BarStats => {
                 if let Some(s) = self.session_mut() {
                     s.toggle_stats();
@@ -5479,6 +5548,37 @@ impl App {
     /// L'image que l'invité reçoit (`Platform::on_share_image`, au départ puis à chaque changement) : sa qualité,
     /// que la barre et le menu montrent quand Kyber en sait la taille (`label` nul sinon), et l'avis bref de la
     /// Station s'il y en a un (« Image allégée pour suivre. »).
+    /// Caméra de l'appareil (docs/webcam.md) : l'ordinateur la propose pour cette image, ou plus ; les webcams de
+    /// l'appareil et celle choisie. Le flux qui revient la relance de lui-même (le cœur).
+    pub fn camera_offer(&mut self, id: SessionId, offered: bool, cameras: Vec<(String, String)>, chosen: Option<String>) -> Vec<Action> {
+        // L'ordinateur l'a proposée : son réglage apparaît dans les réglages de l'ordinateur.
+        let mut actions = Vec::new();
+        if offered && let Some(host) = self.session_by(id).map(|s| s.host.clone()) && let Some(h) = self.store.hosts.iter_mut().find(|h| h.id == host) && !h.settings.camera_seen {
+            h.settings.camera_seen = true;
+            actions.push(Action::Save);
+        }
+        let Some(s) = self.session_by_mut(id) else { return actions };
+        s.camera_offered = offered;
+        if offered {
+            s.camera_current = chosen.filter(|c| cameras.iter().any(|(p, _)| p == c)).or_else(|| cameras.first().map(|(p, _)| p.clone()));
+            s.cameras = cameras;
+        } else if s.bar_menu == Some(BarMenu::Camera) {
+            s.bar_menu = None;
+        }
+        actions
+    }
+
+    /// L'état de la caméra (réponse de l'ordinateur), sa ligne des statistiques, et l'avis d'un refus ou d'un
+    /// problème de l'appareil (capsule de la session).
+    pub fn camera_state(&mut self, id: SessionId, state: CameraState, line: Option<String>, notice: Option<String>) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.camera = state;
+        s.camera_line = if state == CameraState::Off { None } else { line };
+        if let Some(text) = notice {
+            s.notice = Some((text, Instant::now()));
+        }
+    }
+
     pub fn share_image(&mut self, id: SessionId, label: Option<String>, notice: Option<String>) {
         let Some(s) = self.session_by_mut(id) else { return };
         let Some(g) = s.guest.as_mut() else { return };
@@ -6542,6 +6642,21 @@ impl App {
                     ),
                     toggle(Setting::Clipboard, tr("Presse-papiers partagé", "Shared clipboard"), tr("Le texte copié passe dans les deux sens.", "Copied text goes both ways.").into(), st.clipboard),
                 ];
+                // La caméra de l'appareil (docs/webcam.md) : une fois que l'ordinateur l'a proposée.
+                if st.camera_seen {
+                    rows.push(choice(
+                        Setting::Camera,
+                        tr("Définition de la caméra", "Camera resolution"),
+                        tr(
+                            "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur.",
+                            "30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer.",
+                        )
+                        .into(),
+                        vec!["720p".into(), "1080p".into()],
+                        st.camera_1080 as usize,
+                        vec![false; 2],
+                    ));
+                }
                 // Face à une Station Mac seulement, allumé tant qu'on ne l'a pas éteint (docs/link-ui.md).
                 if h.os.as_deref().is_some_and(station_is_mac) {
                     rows.push(toggle(
@@ -6959,6 +7074,7 @@ impl App {
             Setting::Mouse => st.mouse = pick(&["auto", "desktop", "game"], i),
             // Vaut tout de suite : les fenêtres de session suivent le réglage (`device::sync_keyboard_grab`).
             Setting::Immersive => st.immersive = pick(&IMMERSIVE, i),
+            Setting::Camera => st.camera_1080 = i == 1,
             Setting::Xbox360 => st.xbox360 = if i == usize::MAX { !st.xbox360 } else { i == 0 },
             Setting::Reliable => st.reliable = if i == usize::MAX { !st.reliable } else { i == 1 },
             Setting::VirtualDisplay => st.virtual_display = !st.virtual_display,
@@ -8354,6 +8470,38 @@ mod tests {
         s.phase = Phase::Streaming;
         app.open_session(s);
         id
+    }
+
+    /// La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : rien tant que l'ordinateur ne la
+    /// propose pas ; puis le menu l'allume (sur la webcam choisie), une autre webcam se prend sans éteindre,
+    /// l'ordinateur dit quand elle part (voyant), un refus l'éteint avec son avis, et la proposition retirée
+    /// ferme le menu.
+    #[test]
+    fn camera_follows_the_computer() {
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        assert!(app.session_by_mut(a).unwrap().toggle_camera().is_empty(), "pas proposée : rien");
+        let cams = vec![("/dev/video0".to_string(), "Intégrée".to_string()), ("/dev/video2".to_string(), "Logitech C920".to_string())];
+        assert_eq!(app.camera_offer(a, true, cams, Some("/dev/video2".into())), vec![Action::Save], "le réglage apparaît");
+        assert_eq!(app.session_by(a).unwrap().camera_current.as_deref(), Some("/dev/video2"));
+        assert!(app.activate(Target::BarCamera).is_empty());
+        assert_eq!(app.session_by(a).unwrap().bar_menu, Some(BarMenu::Camera));
+        assert_eq!(app.activate(Target::BarCameraToggle), vec![Action::CameraOn(a, Some("/dev/video2".into()))]);
+        assert_eq!(app.session_by(a).unwrap().camera, CameraState::Starting);
+        app.camera_state(a, CameraState::Sending, Some("1280 × 720 · 30 i/s · H.264 · 1,4 Mbit/s".into()), None);
+        app.activate(Target::BarCamera);
+        assert_eq!(
+            app.activate(Target::BarCameraPick(0)),
+            vec![Action::CameraPick("/dev/video0".into()), Action::CameraOn(a, Some("/dev/video0".into()))]
+        );
+        app.camera_state(a, CameraState::Off, Some("ignorée".into()), Some("Pixel envoie déjà sa caméra à A.".into()));
+        let s = app.session_by(a).unwrap();
+        assert!(s.camera == CameraState::Off && s.camera_line.is_none());
+        assert_eq!(s.notice.as_ref().map(|n| n.0.as_str()), Some("Pixel envoie déjà sa caméra à A."));
+        app.activate(Target::BarCamera);
+        assert!(app.camera_offer(a, false, Vec::new(), None).is_empty());
+        assert_eq!(app.session_by(a).unwrap().bar_menu, None);
+        assert_eq!(app.session_by_mut(a).unwrap().toggle_camera(), Vec::<Action>::new());
     }
 
     /// « Garder le son » (bouton du haut-parleur) s'allume et s'éteint pour la session de la barre et

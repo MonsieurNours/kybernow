@@ -49,6 +49,9 @@ pub struct Settings {
     /// `xbox360` ou `fidele`.
     pub gamepad: String,
     pub clipboard: bool,
+    /// « Définition de la caméra » (docs/webcam.md) : 1080p, sinon 720p ;
+    /// hors profil (comme le HDR).
+    pub camera_1080: bool,
     /// « Ctrl agit comme ⌘ », face à une Station Mac seulement ; `None` :
     /// jamais changé, allumé (`keymap::control_as_command` du cœur).
     pub ctrl_command: Option<bool>,
@@ -97,6 +100,7 @@ impl Default for Settings {
             mouse: "auto".into(),
             gamepad: "xbox360".into(),
             clipboard: true,
+            camera_1080: false,
             ctrl_command: None,
             immersive: "fullscreen".into(),
             audio: "auto".into(),
@@ -177,6 +181,10 @@ pub struct Computer {
     /// fois par version et par ordinateur).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_notified: Option<String>,
+    /// L'ordinateur a déjà proposé la caméra (docs/webcam.md) : « Définition
+    /// de la caméra » apparaît dans ses réglages.
+    #[serde(default)]
+    pub camera_offered: bool,
     /// Son relais (`info.relay` du dernier `info` : relais, identifiant chez lui,
     /// « Accès hors de chez vous » actif) : l'app ouvre l'ordinateur par le
     /// relais quand elle ne le trouve pas sur le réseau (docs/relais.md).

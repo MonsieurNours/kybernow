@@ -891,6 +891,14 @@ private struct SettingsPane: View {
         rows.toggle(String(localized: "Presse-papiers partagé"), String(localized: "Le texte copié ici se colle sur l'ordinateur, et inversement."), s.clipboard) {
             update { $0.clipboard.toggle() }
         }
+        // La caméra de cet appareil (docs/webcam.md) : si l'ordinateur l'a déjà proposée.
+        if host.cameraOffered == true {
+            rows.choice(CameraText.resolution, CameraText.resolutionHelp,
+                        [SettingsOption(key: "720p", label: "720p"), SettingsOption(key: "1080p", label: "1080p")],
+                        s.camera1080 ? "1080p" : "720p") { v in
+                update { $0.camera1080 = v == "1080p" }
+            }
+        }
     }
 
     /// Manette à l'écran (bouton de la barre de session) : disposition,

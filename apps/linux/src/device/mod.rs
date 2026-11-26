@@ -15,6 +15,8 @@
 
 mod accounts;
 mod autotest;
+/// La caméra de l'appareil vers l'ordinateur (docs/webcam.md).
+mod camera;
 mod chime;
 mod focus;
 mod hdr_wl;
@@ -194,6 +196,10 @@ pub enum SessionEvent {
     ShareEnd(String, String),
     /// Par où passe la session : au départ, puis quand le chemin change (puce « Par le relais », ligne « Chemin »).
     Route(crate::app::RouteUi),
+    /// La caméra de l'appareil : l'ordinateur la propose pour cette image, ou plus.
+    CameraOffer(bool),
+    /// La webcam s'est arrêtée en route (débranchée, prise par une autre app, pas d'encodeur) ; son nom.
+    CameraProblem(camera::Problem, String),
     /// Par le relais : la session finit parce que l'ordinateur n'est pas joignable hors de chez soi (accès coupé dans
     /// Admin, éteint ou en veille, relais muet), juste avant `Status::Ended`. Le texte se choisit par cette erreur.
     RelayError(kybernow_core::relay::RelayError),
@@ -661,6 +667,8 @@ struct Live {
     typing: bool,
     /// Échap tenu (long : rend la souris).
     escape_down: Option<Instant>,
+    /// La caméra de l'appareil, allumée (docs/webcam.md) : le fil de la webcam.
+    camera: Option<camera::Sender>,
     /// La barre du bureau doit se cacher à cet instant.
     bar_hide: Option<Instant>,
     /// Le pointeur est contre le bord haut : la barre du bureau s'ouvre à cet instant s'il y reste.
@@ -1677,6 +1685,37 @@ fn draw_frame(win: &mut Win, show_ui: bool, strip: Option<c_int>, live: Option<&
 fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, present: &mut bool) {
     let layout = app.layout;
     let Some(si) = app.sessions.iter().position(|s| s.id == l.id) else { return };
+    // La caméra de l'appareil : les réponses de l'ordinateur (voyant, refus, image clé) et la ligne des statistiques.
+    if l.camera.is_some() {
+        use kybernow_core::camera::{CameraEvent, event_notice, stats_line};
+        let link = l.handle.session.camera();
+        let lang = kybernow_core::i18n::current();
+        let name = app.sessions[si].name.clone();
+        for e in link.poll() {
+            match &e {
+                CameraEvent::Started => app.camera_state(l.id, crate::app::CameraState::Sending, None, None),
+                CameraEvent::Busy { .. } | CameraEvent::Failed { .. } => {
+                    l.camera = None;
+                    app.camera_state(l.id, crate::app::CameraState::Off, None, event_notice(&e, &name, lang));
+                }
+                CameraEvent::KeyframeWanted => {
+                    if let Some(c) = &l.camera {
+                        c.force_keyframe();
+                    }
+                }
+                _ => {}
+            }
+            *dirty = true;
+        }
+        let s = &mut app.sessions[si];
+        if s.camera == crate::app::CameraState::Sending {
+            let line = stats_line(&link.stats(), lang);
+            if line != s.camera_line {
+                s.camera_line = line;
+                *dirty = true;
+            }
+        }
+    }
     let is_active = app.active == Some(l.id);
     if is_active {
         let streaming = matches!(app.sessions[si].phase, Phase::Streaming);
@@ -2320,7 +2359,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris), O (ordinateur
             // suivant), S (statistiques), V (micro) ; ils visent la session de la fenêtre active.
-            if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_S | sdl::SC_V) {
+            if app_combo && matches!(sc, sdl::SC_C | sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_S | sdl::SC_V) {
                 if down && !repeat {
                     match sc {
                         sdl::SC_D => actions.extend(routed.map(Action::Disconnect)),
@@ -2331,6 +2370,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                         sdl::SC_V => {
                             if let Some(id) = routed {
                                 actions.extend(app.toggle_mic(id, true));
+                            }
+                            *dirty = true;
+                        }
+                        // La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil »).
+                        sdl::SC_C => {
+                            if let Some(s) = routed.and_then(|id| app.session_by_mut(id)) {
+                                actions.extend(s.toggle_camera());
                             }
                             *dirty = true;
                         }
@@ -3260,6 +3306,28 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
         SessionEvent::ShareImage { label, notice } => app.share_image(id, label, notice),
         SessionEvent::ShareEnd(kind, text) => log::info!("partage : {kind} ({text})"),
         // Le chemin de la session : la puce et la ligne « Chemin » le lisent ; la dernière session le garde.
+        SessionEvent::CameraOffer(offered) => actions.extend(app.camera_offer(id, offered, camera::cameras(), camera::chosen())),
+        SessionEvent::CameraProblem(problem, name) => {
+            use kybernow_core::camera::{DeviceNotice, device_notice};
+            let which = match problem {
+                camera::Problem::InUse => DeviceNotice::InUse,
+                camera::Problem::Unplugged => DeviceNotice::Unplugged,
+                camera::Problem::NoEncoder => DeviceNotice::NoEncoder,
+            };
+            let text = device_notice(which, &name, kybernow_core::i18n::current());
+            // Débranchée : la suivante de la liste prend la relève ; sinon la caméra s'éteint.
+            let next = camera::cameras().into_iter().find(|(_, n)| *n != name);
+            match (problem, next) {
+                (camera::Problem::Unplugged, Some((path, _))) if lives.get(id).is_some_and(|l| l.camera.is_some()) => {
+                    app.camera_state(id, crate::app::CameraState::Starting, None, Some(text));
+                    actions.push(Action::CameraOn(id, Some(path)));
+                }
+                _ => {
+                    app.camera_state(id, crate::app::CameraState::Off, None, Some(text));
+                    actions.push(Action::CameraOff(id));
+                }
+            }
+        }
         SessionEvent::Route(route) => {
             if let Some(l) = lives.get_mut(id) {
                 l.path = route.kind;
@@ -3585,6 +3653,32 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
                 focus::set_keep_sound(l, on);
             }
         }
+        // La caméra de l'appareil (docs/webcam.md) : la webcam choisie (ou la première), à la définition de
+        // l'ordinateur ; une autre webcam pendant qu'elle part : la précédente s'arrête d'abord.
+        Action::CameraOn(id, path) => {
+            let res1080 = app.session_by(id).and_then(|s| app.store.hosts.iter().find(|h| h.id == s.host)).is_some_and(|h| h.settings.camera_1080);
+            if let Some(l) = lives.get_mut(id) {
+                l.camera = None;
+                let link = l.handle.session.camera();
+                let resolution = if res1080 { kybernow_core::camera::CameraResolution::P1080 } else { kybernow_core::camera::CameraResolution::P720 };
+                let device = std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_owned()).unwrap_or_default();
+                let tx = tx.clone();
+                let name = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+                let n2 = name.clone();
+                let sender = camera::Sender::start(link, path, resolution, device, move |p| {
+                    let _ = tx.send(Event::Session(id, SessionEvent::CameraProblem(p, n2.lock().unwrap().clone())));
+                });
+                *name.lock().unwrap() = sender.name.clone();
+                l.camera = Some(sender);
+            }
+        }
+        Action::CameraOff(id) => {
+            if let Some(l) = lives.get_mut(id) {
+                l.camera = None;
+                l.handle.session.camera().stop();
+            }
+        }
+        Action::CameraPick(path) => camera::choose(&path),
         Action::PadMouse(id, on) => {
             if app.active == Some(id) {
                 pads.set_mouse(on);
@@ -4126,6 +4220,7 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         },
         typing: false,
         escape_down: None,
+        camera: None,
         bar_hide: None,
         bar_arm: None,
         bar_arm_win: None,

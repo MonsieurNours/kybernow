@@ -797,4 +797,16 @@
         <item quantity="many">%d demandes</item>
         <item quantity="other">%d demandes</item>
     </plurals>
+    <!-- Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») -->
+    <string name="camera">Caméra</string>
+    <string name="camera_starting">Caméra…</string>
+    <string name="camera_turn_on">Allumer la caméra</string>
+    <string name="camera_turn_off">Éteindre la caméra</string>
+    <string name="camera_indicator">● Caméra</string>
+    <string name="camera_front">Caméra avant</string>
+    <string name="camera_back">Caméra arrière</string>
+    <string name="camera_external">Caméra externe</string>
+    <string name="camera_resolution">Définition de la caméra</string>
+    <string name="camera_resolution_help">30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l\'ordinateur.</string>
+    <string name="camera_stats">Caméra : %1$s</string>
 </resources>

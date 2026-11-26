@@ -13283,6 +13283,134 @@
           }
         }
       }
+    },
+    "Caméra" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Camera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caméra"
+          }
+        }
+      }
+    },
+    "Caméra…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Camera…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caméra…"
+          }
+        }
+      }
+    },
+    "Allumer la caméra" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn on camera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allumer la caméra"
+          }
+        }
+      }
+    },
+    "Éteindre la caméra" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn off camera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Éteindre la caméra"
+          }
+        }
+      }
+    },
+    "● Caméra" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "● Camera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "● Caméra"
+          }
+        }
+      }
+    },
+    "Définition de la caméra" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Camera resolution"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Définition de la caméra"
+          }
+        }
+      }
+    },
+    "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur."
+          }
+        }
+      }
+    },
+    "Choisir un iPhone ou un iPad…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose an iPhone or iPad…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir un iPhone ou un iPad…"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

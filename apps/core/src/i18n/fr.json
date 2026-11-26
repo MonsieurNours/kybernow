@@ -275,7 +275,7 @@
     "paused": "En pause",
     "busy": "{device} envoie déjà sa caméra à {name}.",
     "busy_unnamed": "Un autre appareil envoie déjà sa caméra à {name}.",
-    "failed": "{name} n'a pas pu ouvrir sa caméra. Voir Admin › Caméra.",
+    "failed": "{name} n'a pas pu ouvrir sa caméra virtuelle.",
     "denied": "L'accès à la caméra est refusé. Autorisez-le dans les Réglages de l'appareil.",
     "in_use": "La caméra est utilisée par une autre app.",
     "unplugged": "{camera} n'est plus branchée.",

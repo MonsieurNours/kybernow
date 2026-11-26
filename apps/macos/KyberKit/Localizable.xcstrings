@@ -624,6 +624,38 @@
           }
         }
       }
+    },
+    "Caméra avant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Front camera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caméra avant"
+          }
+        }
+      }
+    },
+    "Caméra arrière" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back camera"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caméra arrière"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
