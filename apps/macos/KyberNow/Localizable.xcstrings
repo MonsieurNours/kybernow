@@ -11812,22 +11812,6 @@
         }
       }
     },
-    "Se connecter à un compte KyberNow" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sign in to a KyberNow account"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se connecter à un compte KyberNow"
-          }
-        }
-      }
-    },
     "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page." : {
       "localizations" : {
         "en" : {
@@ -12464,6 +12448,582 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mise à jour…"
+          }
+        }
+      }
+    },
+    "Connecter un compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect an account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecter un compte"
+          }
+        }
+      }
+    },
+    "Connecter un compte KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect a KyberNow account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecter un compte KyberNow"
+          }
+        }
+      }
+    },
+    "Bienvenue · %lld / 3" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome · %lld / 3"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bienvenue · %lld / 3"
+          }
+        }
+      }
+    },
+    "Passer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passer"
+          }
+        }
+      }
+    },
+    "Votre ordinateur, sur tous vos appareils" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computer, on all your devices"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre ordinateur, sur tous vos appareils"
+          }
+        }
+      }
+    },
+    "Jouez, travaillez et retrouvez votre bureau depuis un autre écran, comme si vous étiez devant." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play, work and get back to your desktop from another screen, as if you were sitting in front of it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jouez, travaillez et retrouvez votre bureau depuis un autre écran, comme si vous étiez devant."
+          }
+        }
+      }
+    },
+    "Avec un compte, tout vous suit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With an account, everything follows you"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec un compte, tout vous suit"
+          }
+        }
+      }
+    },
+    "Un compte KyberNow, et vos ordinateurs vous attendent partout." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A KyberNow account, and your computers wait for you everywhere."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un compte KyberNow, et vos ordinateurs vous attendent partout."
+          }
+        }
+      }
+    },
+    "Rejoignez votre ordinateur de n'importe où, sans rien régler sur votre box." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reach your computer from anywhere, with nothing to set up on your router."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejoignez votre ordinateur de n'importe où, sans rien régler sur votre box."
+          }
+        }
+      }
+    },
+    "Tous vos appareils" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All your devices"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous vos appareils"
+          }
+        }
+      }
+    },
+    "Vos ordinateurs apparaissent d'eux-mêmes partout où vous vous connectez." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computers show up by themselves wherever you sign in."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos ordinateurs apparaissent d'eux-mêmes partout où vous vous connectez."
+          }
+        }
+      }
+    },
+    "Partager et prêter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Share and lend"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partager et prêter"
+          }
+        }
+      }
+    },
+    "Invitez un ami à jouer, prêtez votre PC, ouvrez-le à la famille ou à votre équipe." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invite a friend to play, lend your PC, open it to your family or your team."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invitez un ami à jouer, prêtez votre PC, ouvrez-le à la famille ou à votre équipe."
+          }
+        }
+      }
+    },
+    "Vos réglages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your settings"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos réglages"
+          }
+        }
+      }
+    },
+    "Profil, format et débit vous suivent d'un appareil à l'autre." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profile, format and bitrate follow you from one device to another."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil, format et débit vous suivent d'un appareil à l'autre."
+          }
+        }
+      }
+    },
+    "Créer un compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create an account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Créer un compte"
+          }
+        }
+      }
+    },
+    "Continuer sans compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue without an account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continuer sans compte"
+          }
+        }
+      }
+    },
+    "La page de %@ s'ouvre : votre mot de passe ne passe jamais par l'app." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@'s page opens: your password never goes through the app."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La page de %@ s'ouvre : votre mot de passe ne passe jamais par l'app."
+          }
+        }
+      }
+    },
+    "Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte »." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create your account in the browser, then come back here: “Connect an account”."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Créez votre compte dans le navigateur, puis revenez ici : « Connecter un compte »."
+          }
+        }
+      }
+    },
+    "Pas encore de compte ? Créez-le sur cette page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No account yet? Create it on this page."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas encore de compte ? Créez-le sur cette page."
+          }
+        }
+      }
+    },
+    "Ajoutez votre ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add your computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajoutez votre ordinateur"
+          }
+        }
+      }
+    },
+    "Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install KyberNow Station on the computer you want to reach: on the same network, it shows up here by itself. A friend gave you a code? Enter it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installez KyberNow Station sur l'ordinateur à rejoindre : sur le même réseau, il apparaît ici tout seul. Un ami vous a donné un code ? Entrez-le."
+          }
+        }
+      }
+    },
+    "Ordinateurs à portée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computers in reach"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateurs à portée"
+          }
+        }
+      }
+    },
+    "Un code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un code"
+          }
+        }
+      }
+    },
+    "Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A friend opens their computer to you: enter the code they gave you."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un ami vous ouvre son ordinateur : entrez le code qu'il vous a donné."
+          }
+        }
+      }
+    },
+    "Pas encore installé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not installed yet"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas encore installé"
+          }
+        }
+      }
+    },
+    "Téléchargez KyberNow Station sur l'ordinateur à rejoindre." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Download KyberNow Station on the computer you want to reach."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargez KyberNow Station sur l'ordinateur à rejoindre."
+          }
+        }
+      }
+    },
+    "Revoir l'accueil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the welcome again"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revoir l'accueil"
+          }
+        }
+      }
+    },
+    "Compte KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compte KyberNow"
+          }
+        }
+      }
+    },
+    "Retrouvez vos ordinateurs partout" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find your computers everywhere"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retrouvez vos ordinateurs partout"
+          }
+        }
+      }
+    },
+    "Sur tous vos appareils, même hors de chez vous." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On all your devices, even away from home."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur tous vos appareils, même hors de chez vous."
+          }
+        }
+      }
+    },
+    "Ne plus afficher" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don't show again"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne plus afficher"
+          }
+        }
+      }
+    },
+    "Hors de chez vous ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Away from home?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors de chez vous ?"
+          }
+        }
+      }
+    },
+    "%@ n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box."
+          }
+        }
+      }
+    },
+    "Pas maintenant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not now"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas maintenant"
+          }
+        }
+      }
+    },
+    "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find it away from home and on your other devices too: connect a KyberNow account."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow."
           }
         }
       }

@@ -109,6 +109,9 @@ final class WelcomeStore: ObservableObject {
     @Published var page: Page = .intro
     /// L'ordinateur qui vient d'être appairé : son bandeau, sous ses boutons.
     @Published private(set) var pairedBanner: UUID?
+    /// Appairé, son bandeau pas encore montré : il attend que la place sous
+    /// les boutons soit libre (la mise à jour de la Station passe avant).
+    @Published private(set) var pairedPending: UUID?
     /// « Hors de chez vous ? » pour cet ordinateur.
     @Published var away: Host?
     /// Un avis bref (« Créez votre compte dans le navigateur… ») : l'app le montre.
@@ -175,6 +178,7 @@ final class WelcomeStore: ObservableObject {
     private func accountConnected() {
         if showing, page == .account { finish() }
         pairedBanner = nil
+        pairedPending = nil
         away = nil
     }
 
@@ -227,13 +231,30 @@ final class WelcomeStore: ObservableObject {
 
     // MARK: Les moments utiles
 
-    /// Un ordinateur vient d'être appairé sur cet appareil : son bandeau, une fois.
+    /// Un ordinateur vient d'être appairé sur cet appareil (sans compte) :
+    /// son bandeau attend d'être montré (`revealPaired`).
     func paired(_ host: Host) {
+        guard !hasAccount else { return }
+        pairedPending = host.id
+    }
+
+    /// Un seul bandeau à la fois sous la rangée « Se connecter » : la mise à
+    /// jour de la Station (`stationBanner`) passe avant. Le bandeau après un
+    /// appairage n'est compté comme vu (`take_paired_hint`) que quand il
+    /// s'affiche vraiment. Appelé par l'accueil de l'ordinateur en scène.
+    func revealPaired(_ host: Host, stationBanner: Bool) {
+        guard pairedPending == host.id, !stationBanner else { return }
+        pairedPending = nil
         var s = state
         let take = WelcomeCore.takePairedHint(&s, hasAccount: hasAccount, computer: host.id.uuidString)
         state = s
         save()
         if take { pairedBanner = host.id }
+    }
+
+    /// Le bandeau de cet ordinateur est à montrer (jamais avec celui de la Station).
+    func showsPairedBanner(_ host: Host, stationBanner: Bool) -> Bool {
+        !stationBanner && pairedBanner == host.id && !hasAccount
     }
 
     /// « Plus tard » ou « Connecter un compte » sur le bandeau.

@@ -27,6 +27,8 @@ final class AppModel: ObservableObject {
     let playstation: PlayStationStore
     /// Le panneau du test du profil Auto (AutoProfile.swift, AutoTestSheet.swift).
     let autoTest: AutoTestModel
+    /// Accueil au premier lancement et incitation au compte KyberNow (Welcome.swift).
+    let welcome: WelcomeStore
     @Published var route: Route = .home
     /// Ordinateur mis en avant sur l'accueil (le plus récent par défaut).
     @Published var selectedID: UUID?
@@ -81,6 +83,7 @@ final class AppModel: ObservableObject {
         playstation = PlayStationStore(demo: Self.demo)
         autoTest = AutoTestModel(store: store)
         defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
+        welcome = WelcomeStore(accounts: accounts, defaults: defaults, demo: Self.demo)
         // Les consoles passent hors de chez soi par une Station qui les voit (docs/relais.md).
         playstation.attach(hosts: store)
         // L'écran du test du profil Auto : celui de la fenêtre de l'accueil, comme « Comme cet écran ».
@@ -95,6 +98,8 @@ final class AppModel: ObservableObject {
         // compte… ») ; leurs avis, et l'adresse de leurs ordinateurs vus sur ce réseau.
         accounts.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
         accounts.onNotice = { [weak self] in self?.show($0) }
+        welcome.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &watchers)
+        welcome.onNotice = { [weak self] in self?.show($0) }
         discovery.$found
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.accounts.noteNetwork($0) }
@@ -500,6 +505,9 @@ final class AppModel: ObservableObject {
         // (attente d'un envoi dès le lancement, le code au journal) ou
         // `-demoHandoff <code>` (envoi au premier appareil en attente).
         if let h = args.string(forKey: "demoHandoff") { demoHandoff(h) }
+        // Accueil et compte KyberNow : `-demoWelcome 1|2|3`, `-demoAccountCard YES|final`,
+        // `-demoPairedHint YES`, `-demoAway YES` (Welcome.swift).
+        welcome.applyDemo(selected: store.ordered.first(where: { $0.id == selectedID }) ?? ordered.first)
         if let host = args.string(forKey: "demoPair"), let f = playstation.onNetwork.first(where: { $0.hostID == host }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 self.playstation.pairing = self.playstation.console(hostID: host).map { PairTarget(console: $0, live: f) } ?? PairTarget(found: f)

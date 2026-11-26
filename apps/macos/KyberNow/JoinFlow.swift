@@ -280,6 +280,7 @@ struct InviteAddPane: View {
                 app.route = .home
                 app.selectedID = host.id
                 app.show(InviteText.added(host.name))
+                app.paired(host)
             }
             focused = true
         }

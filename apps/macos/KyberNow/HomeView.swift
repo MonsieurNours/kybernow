@@ -41,6 +41,8 @@ struct HomeView: View {
             } message: { c in
                 Text(c.message)
             }
+            // Accueil au premier lancement, « Hors de chez vous ? » (WelcomeViews.swift).
+            .modifier(WelcomeLayer(welcome: app.welcome))
             .preferredColorScheme(.dark)
             .frame(minWidth: 1100, minHeight: 760)
     }
@@ -178,9 +180,12 @@ private struct HomeContent: View {
                 }
                 .buttonStyle(SignalButton(height: 32))
             }
+            // Sans compte : « Connecter un compte » (WelcomeViews.swift).
+            AccountHeaderButton(accounts: app.accounts)
             SettingsLink {
-                HStack(spacing: 8) { Icon("gear-six", size: 16); Text("Réglages de l'app") }
+                HStack(spacing: 8) { Icon("gear-six", size: 16); Text("Réglages de l'app").lineLimit(1) }
             }
+            .fixedSize()
             .buttonStyle(GhostButton(height: 32))
         }
         .padding(.leading, 92)
@@ -218,6 +223,10 @@ private struct Hero: View {
     }
 
     private var screenLine: String { HomeScreen.line(for: host, info: status?.info) }
+    /// Un bandeau sous les boutons (mise à jour de la Station, ou après un appairage).
+    private var hasBanner: Bool {
+        app.store.stationBanner(host) != nil || app.welcome.showsPairedBanner(host, stationBanner: false)
+    }
     /// Prêté par cet appareil (« Prêté à Léa ») : l'état et « Reprendre l'ordinateur ».
     private var lent: LendView? { LentHome.view(of: host.id, in: app.store) }
 
@@ -235,7 +244,8 @@ private struct Hero: View {
                 Text(host.name)
                     .font(Theme.display(nameSize, .bold))
                     .tracking(-nameSize * 0.045)
-                    .lineLimit(2)
+                    // Un bandeau sous les boutons : le nom sur une ligne, pour laisser la place à la rangée du bas.
+                    .lineLimit(hasBanner ? 1 : 2)
                     .minimumScaleFactor(0.5)
                     .foregroundStyle(Theme.text)
                     .frame(maxWidth: width * 0.56, alignment: .leading)
@@ -273,9 +283,19 @@ private struct Hero: View {
                     .padding(.top, 4)
                     .modifier(rise(5))
                     .transition(.opacity)
+            } else if app.welcome.showsPairedBanner(host, stationBanner: false) {
+                // Sinon, après un appairage sans compte : connecter un compte (WelcomeViews.swift).
+                PairedBanner(welcome: app.welcome)
+                    .padding(.top, 4)
+                    .transition(.opacity)
             }
         }
         .animation(Theme.easeOut, value: app.store.stationBanner(host))
+        .animation(Theme.easeOut, value: app.welcome.pairedBanner)
+        // Le bandeau après un appairage, quand la place est libre (Welcome.swift).
+        .task(id: "\(app.welcome.pairedPending?.uuidString ?? "")|\(app.store.stationBanner(host) != nil)") {
+            app.welcome.revealPaired(host, stationBanner: app.store.stationBanner(host) != nil)
+        }
         .frame(maxWidth: 820, alignment: .leading)
     }
 
@@ -314,7 +334,8 @@ private struct Hero: View {
                 .keyboardShortcut(.defaultAction)
             } else if online == false {
                 Button {
-                    Task { await app.store.retry(host) }
+                    // Toujours rien sur ce réseau : peut-être « Hors de chez vous ? » (WelcomeViews.swift).
+                    Task { await app.retry(host) }
                 } label: {
                     HStack(spacing: 10) { Icon("arrows-clockwise", size: 18); Text("Réessayer").lineLimit(1) }
                 }
@@ -348,8 +369,9 @@ private struct Hero: View {
                 .fixedSize()
             HDRChip(host: host, info: status?.info)
             Button { app.openSettings(host) } label: {
-                HStack(spacing: 8) { Icon("gear-six", size: 17); Text("Réglages") }
+                HStack(spacing: 8) { Icon("gear-six", size: 17); Text("Réglages").lineLimit(1) }
             }
+            .fixedSize()
             .buttonStyle(GhostButton(height: 48))
             .help(LinkText.settingsTitle(host.name))
             .accessibilityLabel(LinkText.settingsTitle(host.name))
@@ -619,6 +641,13 @@ private struct Shelf: View {
                         .modifier(Rise(arrived: arrived, delay: 1.1))
                     JoinCard { app.join() }
                         .modifier(Rise(arrived: arrived, delay: 1.2))
+                    // Sans compte, en dernier : la carte du compte (WelcomeViews.swift) ;
+                    // sans ordinateur, l'accueil vide reste tel quel.
+                    if featured != nil, app.welcome.cardVisible {
+                        AccountShelfCard(welcome: app.welcome)
+                            .modifier(Rise(arrived: arrived, delay: 1.3))
+                            .transition(.scale(scale: 0.96).combined(with: .opacity))
+                    }
                 }
                 .padding(.vertical, 18)
                 .padding(.horizontal, 2)
@@ -861,10 +890,12 @@ struct OriginBadge: View {
 }
 
 /// Ordinateur annoncé sur le réseau : il s'allume en apparaissant, puis reste en veille.
-private struct FoundCard: View {
+/// Aussi sur l'écran 3 de l'accueil (« Ordinateurs à portée »), avec son propre « Ajouter ».
+struct FoundCard: View {
     @EnvironmentObject var app: AppModel
     let found: Discovery.Found
     let candidate: Candidate
+    var onAdd: (() -> Void)? = nil
     @State private var ignite = 0
     @State private var breathe = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -880,7 +911,7 @@ private struct FoundCard: View {
                 Text(found.name).font(Theme.display(22, .semibold)).tracking(-0.4).foregroundStyle(Theme.text).lineLimit(1)
             }
             Spacer(minLength: 0)
-            Button("Ajouter") { app.add(link: candidate) }
+            Button("Ajouter") { if let onAdd { onAdd() } else { app.add(link: candidate) } }
             .buttonStyle(SignalButton(height: 32))
         }
         .padding(16)

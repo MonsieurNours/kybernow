@@ -651,6 +651,7 @@ private struct VerifyAndAccount: View {
                 host.consoleFingerprint = seen
                 app.store.add(host, password: password)
                 done()
+                app.paired(host)
             } catch ConsoleError.http(401, _) {
                 error = String(localized: "Identifiant ou mot de passe refusé.")
             } catch ConsoleError.http(404, _) {
@@ -659,6 +660,7 @@ private struct VerifyAndAccount: View {
                 host.consoleFingerprint = seen
                 app.store.add(host, password: password)
                 done()
+                app.paired(host)
             } catch {
                 self.error = error.localizedDescription
             }
