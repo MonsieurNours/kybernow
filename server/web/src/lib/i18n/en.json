@@ -1688,5 +1688,24 @@
         }
       }
     }
+  },
+  "micro": {
+    "label": "Microphone",
+    "label_off": "Microphone off",
+    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
+    "tooltip_off": "Microphone off ({shortcut})",
+    "sent": "Microphone sent to {name}.",
+    "permission_web": "KyberNow Link can't access the microphone. Allow it in your browser.",
+    "not_allowed": "The host isn't letting guests speak.",
+    "no_device": "The computer has no virtual microphone: see Admin › Picture and sound.",
+    "unsupported": "This computer can't receive the microphone.",
+    "old_station": "Update the Station to send your microphone.",
+    "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
+    "app_setting": "Microphone",
+    "system_default": "System default",
+    "echo": "Reduce echo and noise",
+    "echo_help": "The device's voice processing removes the computer's sound and the noise around you. Turn it off for a studio microphone.",
+    "no_microphone": "No microphone on this device.",
+    "shortcut": "Ctrl + Alt + Shift + V"
   }
 }

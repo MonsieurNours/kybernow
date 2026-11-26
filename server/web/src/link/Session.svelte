@@ -14,7 +14,7 @@
   import { Heartbeat } from './heartbeat'
   import { guestTarget, lendTarget, sendHeartbeat, type HeartbeatResult } from './heartbeat-call'
   import { ApiError, joinedGuests, lendOps, shareRequests, type GuestImage, type LendView, type ShareQuality, type ShareRole, type ShareView } from '../lib/api'
-  import { Engine, allStopped, isFixedEngine, isStartFailure, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
+  import { Engine, allStopped, engineSendsMicrophone, isFixedEngine, isStartFailure, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { applyFallbacks, NO_FALLBACK, nextFallback, take, type Fallbacks, type StartFallback } from './fallback'
   import { choose, preferredProtocol, setRelay, viaRelay, type Plan } from './plan'
   import { deviceId, isCustom, MIN_SESSION_SECONDS, profileName, saveLastSession, type MouseMode, type Prefs, type TouchMode } from './prefs'
@@ -41,6 +41,8 @@
   import { leftText } from '../lib/lend'
   import { offer, probeAtLoad } from './pyrowave/state.svelte'
   import { pyrowaveStats, type PyroWaveStats } from './pyrowave/live'
+  import { MicCapture, micOn, micro, probeMicrophone, setMicOn } from './micro.svelte'
+  import type { EngineMicState } from './engine'
 
   /** `guest` : la session d'un invité du partage (KyberNow Share, docs/kybernow-share.md) : pas de
    * préparation de l'écran ni de jeton d'Admin, une barre réduite, les droits de son rôle.
@@ -1671,6 +1673,92 @@
     engine?.setMute(muted)
   }
 
+  // Micro de l'appareil vers l'ordinateur (docs/link-ui.md, « Micro ») : proposé quand ce navigateur
+  // encode l'Opus et que le moteur sait l'envoyer ; allumé ou coupé retenu pour chaque ordinateur.
+  void probeMicrophone()
+  /** Ce que l'ordinateur dit du micro (lu au moteur pendant la session). */
+  let micEngine = $state<EngineMicState>({ state: 'idle' })
+  /** La capture tourne (autorisation donnée, encodeur prêt). */
+  let micCapturing = $state(false)
+  /** Allumé à la main : l'avis « Micro envoyé à {nom}. » vient quand l'ordinateur le prend. */
+  let micAsked = false
+  let micTouch = false
+  const micWanted = $derived(micOn(hostname))
+  const micRefusal = $derived(micEngine.state === 'refused' ? micEngine.reason : null)
+  // Un invité ne voit « Micro » que si l'hôte le laisse parler.
+  const micShown = $derived(micro.browser && engineSendsMicrophone() && !(g && micRefusal === 'not_allowed'))
+  const micReason = $derived(micRefusal ? t(`micro.${micRefusal}`) : '')
+  /** Allumé dans la barre : choisi, et pas refusé par l'ordinateur. */
+  const micLit = $derived(micWanted && !micRefusal)
+  const micTip = $derived(micReason || t(micLit ? 'micro.tooltip_on' : 'micro.tooltip_off', { shortcut: t('micro.shortcut') }))
+  const mic = new MicCapture((packet, pts) => engine?.sendMicrophone(packet, pts))
+  let micStarting = false
+
+  function toggleMic() {
+    if (micRefusal) {
+      // Au toucher, la raison en avis ; à la souris, l'infobulle la dit déjà.
+      if (micTouch) showNotice(micReason)
+      return
+    }
+    const on = !micWanted
+    micAsked = on
+    setMicOn(hostname, on)
+  }
+
+  // La capture suit le choix : pendant l'image, allumé et pris (ou pas encore refusé) par l'ordinateur.
+  $effect(() => {
+    const want = phase === 'live' && micShown && micWanted && !micRefusal
+    untrack(() => {
+      if (want && !micCapturing && !micStarting) void startMic()
+      else if (!want && (micCapturing || micStarting)) {
+        mic.stop()
+        micCapturing = false
+      }
+    })
+  })
+
+  async function startMic() {
+    micStarting = true
+    const r = await mic.start(prefs.micDevice, prefs.micProcessing)
+    micStarting = false
+    if (r === 'ok') {
+      micCapturing = true
+      return
+    }
+    // Refusé par le navigateur, ou pas de micro : « Micro » reste coupé.
+    micAsked = false
+    setMicOn(hostname, false)
+    if (r === 'denied') showNotice(t('micro.permission_web'), 8000)
+    else if (r === 'none') showNotice(t('micro.no_microphone'))
+  }
+
+  // Micro choisi ou traitement voix changés en cours d'envoi : la capture reprend avec eux.
+  $effect(() => {
+    void prefs.micDevice
+    void prefs.micProcessing
+    untrack(() => {
+      if (micCapturing) {
+        mic.stop(false)
+        micCapturing = false
+        void startMic()
+      }
+    })
+  })
+
+  // L'état du micro dit par l'ordinateur, et l'avis bref quand il le prend après un allumage.
+  $effect(() => {
+    if (phase !== 'live' || !micShown) return
+    const timer = setInterval(() => {
+      const s = engine?.microphoneState() ?? { state: 'idle' as const }
+      if (s.state !== micEngine.state || (s.state === 'refused' && micEngine.state === 'refused' && s.reason !== micEngine.reason)) micEngine = s
+      if (micAsked && s.state === 'open') {
+        micAsked = false
+        showNotice(t('micro.sent', { name: hostname }))
+      }
+    }, 500)
+    return () => clearInterval(timer)
+  })
+
   function canvas(): HTMLElement | null {
     return document.getElementById('kn-canvas')
   }
@@ -1784,6 +1872,16 @@
     const lendClock = b ? setInterval(() => (clockNow = Date.now() / 1000), 10_000) : null
     // Ctrl + Alt + Maj : la barre, et la souris rendue.
     const shortcut = (e: KeyboardEvent) => {
+      // Ctrl + Alt + Maj + V : « Micro » (docs/link-ui.md).
+      if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'KeyV' && micShown) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (!e.repeat) {
+          micTouch = false
+          toggleMic()
+        }
+        return
+      }
       if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
         releasePointer()
         if (barVisible) hideBar()
@@ -1931,6 +2029,7 @@
       if (stableTimer) clearTimeout(stableTimer)
       endSwitch()
       window.removeEventListener('keydown', shortcut, true)
+      mic.stop()
       window.removeEventListener('blur', onBlur)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('pointerlockchange', onLockChange)
@@ -2130,6 +2229,13 @@
           <span class="label">{muted ? t('session.sound.muted') : t('session.sound.on')}</span>
         </button>
       {/if}
+      {#if micShown}
+        <!-- « Micro » : allumé tant qu'il est envoyé ; inactif avec la raison quand l'ordinateur ne le prend pas. -->
+        <button type="button" class="chip" class:inactive={!!micRefusal} aria-pressed={micLit} aria-disabled={!!micRefusal} aria-label={micTip} title={micTip} onpointerdown={(e) => (micTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleMic}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />{#if !micLit}<path d="M4 4l16 16" />{/if}</svg>
+          <span class="label">{micLit ? t('micro.label') : t('micro.label_off')}</span>
+        </button>
+      {/if}
       {#if canKbm}
         <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false; shareOpen = false; lendOpen = false; giveBackOpen = false; qualityOpen = false }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
@@ -2284,6 +2390,11 @@
         {#if prefs.audio}
           <button type="button" class="tb" aria-pressed={muted} onclick={toggleMute} aria-label={muted ? t('session.sound.unmute') : t('session.sound.mute')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
+          </button>
+        {/if}
+        {#if micShown}
+          <button type="button" class="tb" class:inactive={!!micRefusal} aria-pressed={micLit} aria-disabled={!!micRefusal} aria-label={micTip} onpointerdown={(e) => (micTouch = e.pointerType === 'touch' || e.pointerType === 'pen')} onclick={toggleMic}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" />{#if !micLit}<path d="M4 4l16 16" />{/if}</svg>
           </button>
         {/if}
         {#if !g && !b}
