@@ -52,6 +52,8 @@ def etat(journal):
                 debut_etape[nom.strip()] = heure
         if ligne.startswith("Publiée : "):
             fin = ("ok", ligne[len("Publiée : "):].strip())
+        elif ligne.startswith("Répétition terminée"):
+            fin = ("ok", ligne.strip())
         elif "Interrompu." in ligne or ligne.startswith("Échec") or "ÉCHEC" in ligne and not m:
             erreurs.append(ligne.strip())
     if fin is None and any(q == "ÉCHEC" for q, _ in etapes.values()):
@@ -128,7 +130,10 @@ def dessiner(version, journal, en_cours):
         lignes.append(f" {puce(statut_phase(base + j))} {p}")
     lignes.append("")
     if fin and fin[0] == "ok":
-        lignes.append(f"{VERT}{GRAS}Publiée{FIN} : {fin[1]}")
+        if fin[1].startswith("Répétition"):
+            lignes.append(f"{VERT}{GRAS}{fin[1]}{FIN}")
+        else:
+            lignes.append(f"{VERT}{GRAS}Publiée{FIN} : {fin[1]}")
     elif fin and fin[0] == "echec":
         lignes.append(f"{ROUGE}{GRAS}Échec{FIN} : {fin[1]} (détails dans {journal})")
     elif not en_cours:
