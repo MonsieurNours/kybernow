@@ -77,6 +77,25 @@ fn screen_hdr() -> bool {
     hdr.unwrap_or(false)
 }
 
+/// Le nom du réseau du moment, pour le profil Auto (`Device::network` du cœur, gardé avec le test) : « Ethernet »
+/// par câble ; en Wi-Fi, le nom du réseau que donne le gestionnaire de connexions de webOS
+/// (`com.palm.connectionmanager/getStatus`, `wifi.ssid`), sinon « Wi-Fi ». Bloquant (2 s au plus) : sur un fil à
+/// part.
+pub fn network_name(kind: NetKind) -> Option<String> {
+    match kind {
+        NetKind::Ethernet => Some("Ethernet".into()),
+        NetKind::Wifi => {
+            let reply = super::luna::call("luna://com.palm.connectionmanager/getStatus", "{}", std::time::Duration::from_secs(2));
+            let ssid = reply.as_deref().and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok()).and_then(|v| v.pointer("/wifi/ssid").and_then(|s| s.as_str()).map(str::to_string)).filter(|s| !s.trim().is_empty());
+            if ssid.is_none() {
+                log::info!("réseau : nom du Wi-Fi illisible ({})", reply.as_deref().unwrap_or("sans réponse"));
+            }
+            Some(ssid.unwrap_or_else(|| "Wi-Fi".into()))
+        }
+        NetKind::Unknown => None,
+    }
+}
+
 /// Le lien réseau en service : Ethernet (et sa vitesse) ou Wi-Fi.
 pub fn net() -> NetInfo {
     let mut info = NetInfo::default();

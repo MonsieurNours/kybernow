@@ -7,6 +7,7 @@
 //! capsules et le pointeur de l'ordinateur.
 
 mod accounts;
+mod autotest;
 mod jobs;
 mod link;
 mod log_file;
@@ -115,6 +116,20 @@ pub enum Event {
     LendEnd(String),
     /// Consoles PlayStation (`playstation.rs`).
     Ps(playstation::PsEvent),
+    /// Profil Auto : l'avancement et la fin du test (`autotest.rs`).
+    Auto(autotest::AutoEvent),
+    /// Le nom du réseau du moment (« Ethernet », le nom du Wi-Fi), lu sur un fil à part.
+    NetName(Option<String>),
+}
+
+/// Le nom du réseau du moment, lu sur un fil à part (le Wi-Fi le demande à webOS) ; revient en `Event::NetName`.
+fn net_name(kind: crate::app::NetKind, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("kybernow-reseau".into())
+        .spawn(move || {
+            let _ = tx.send(Event::NetName(system::network_name(kind)));
+        })
+        .ok();
 }
 
 struct Video {
@@ -222,6 +237,7 @@ pub fn run(args: &[String]) {
     }
 
     let (tx, rx) = channel::<Event>();
+    net_name(app.net.kind, tx.clone());
     jobs::discover(tx.clone());
     // Comptes KyberNow : l'accueil d'après la liste gardée, puis les listes à jour du relais.
     accounts::sync(&mut app);
@@ -259,6 +275,9 @@ pub fn run(args: &[String]) {
             || app.screen == Screen::Join
             // Comptes KyberNow : l'attente du code (« Le code change dans {n} min. »).
             || app.screen == Screen::Account
+            // Profil Auto : la roue du test, et le bandeau de la session qui s'efface.
+            || (app.screen == Screen::AutoTest && app.auto.as_ref().is_some_and(|a| a.phase == crate::autotest::AutoPhase::Running))
+            || app.auto_banner_visible()
             || app.session.as_ref().is_some_and(|s| s.share_busy)
             // Le lien du relais en préparation : l'indicateur d'attente bat, et l'écran se redessine à la fin de l'attente.
             || app.session.as_ref().and_then(|s| s.share.as_ref()).is_some_and(crate::app::ShareView::relay_wait_redraw)
@@ -364,6 +383,14 @@ pub fn run(args: &[String]) {
             last_poll = Instant::now() - Duration::from_secs(60);
             dirty = true;
         }
+        // Profil Auto : le test demandé pendant la session (« Refaire le test » du bandeau) s'ouvre une fois revenu à
+        // l'accueil.
+        if live.is_none() && app.auto_after.is_some() {
+            for a in app.auto_after_session() {
+                perform(a, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
+                dirty = true;
+            }
+        }
 
         // Sondage d'Admin toutes les 8 s, hors session ; le réseau toutes les 5 s.
         if live.is_none() && last_poll.elapsed() > Duration::from_secs(8) && matches!(app.screen, Screen::Home | Screen::Settings) {
@@ -425,7 +452,11 @@ pub fn run(args: &[String]) {
             last_net = Instant::now();
             let n = system::net();
             if n.kind != app.net.kind || n.link_mbps != app.net.link_mbps {
-                app.net = n;
+                // Le nom du réseau suit (Wi-Fi : demandé à webOS, sur un fil à part).
+                if n.kind != app.net.kind {
+                    net_name(n.kind, tx.clone());
+                }
+                app.net = crate::app::NetInfo { name: app.net.name.take(), ..n };
                 dirty = true;
             }
         }
@@ -548,6 +579,14 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                     *dirty = true;
                     return;
                 }
+                // Le bandeau du profil Auto : la touche verte, c'est son « Refaire le test ».
+                if sc == sdl::SC_WEBOS_GREEN && app.auto_banner_visible() {
+                    if down && !repeat {
+                        actions.extend(app.activate(crate::app::Target::AutoBannerAgain));
+                    }
+                    *dirty = true;
+                    return;
+                }
                 let Some(p) = input else { return };
                 if s.remote_mouse && (sc == sdl::SC_RETURN || sc == sdl::SC_KP_ENTER) {
                     p.mouse_button(MouseButtonType::Left, down);
@@ -630,6 +669,12 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
         sdl::SDL_MOUSEBUTTONDOWN | sdl::SDL_MOUSEBUTTONUP => {
             let down = ev.kind() == sdl::SDL_MOUSEBUTTONDOWN;
             let (b, x, y) = ev.button();
+            // Le bandeau du profil Auto se choisit au pointeur de la Magic Remote (hors Magic Remote en souris).
+            if in_game && down && b == 1 && app.auto_banner_visible() && app.session.as_ref().is_some_and(|s| !s.remote_mouse) {
+                actions.extend(app.pointer_click(x as f32, y as f32));
+                *dirty = true;
+                return;
+            }
             if in_game {
                 if app.session.as_ref().is_some_and(|s| s.remote_mouse)
                     && let Some(p) = input
@@ -860,9 +905,11 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.screen = Screen::Session;
                 app.focus = if come_back { crate::app::Target::ComeBack } else { crate::app::Target::Back };
             }
-            // L'image arrive : les manettes indisponibles sur l'ordinateur se disent, si une manette est branchée.
+            // L'image arrive : les manettes indisponibles sur l'ordinateur se disent, si une manette est branchée ; en
+            // profil Auto, le bandeau « Autre réseau que celui du test » si le réseau n'est pas celui du test.
             if app.session.as_ref().is_some_and(|s| s.phase == Phase::Streaming) {
                 app.pads_unavailable_notice(pads.slots().len());
+                app.auto_banner_check();
             }
             // Un ordinateur d'un compte KyberNow : la session de l'appareil fermée (le compte est oublié), ou un
             // ordinateur qui n'est plus au compte (il quitte l'accueil).
@@ -1064,6 +1111,16 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             }
         }
         Event::Ps(_) => {}
+        Event::Auto(autotest::AutoEvent::Progress { attempt, steps }) => {
+            app.auto_progress(attempt, steps);
+        }
+        Event::Auto(autotest::AutoEvent::Done { attempt, result }) => {
+            app.auto_finished(attempt, result);
+        }
+        Event::NetName(name) => {
+            log::info!("réseau : {}", name.as_deref().unwrap_or("inconnu"));
+            app.net.name = name;
+        }
         Event::Update(r) => {
             app.update = match r {
                 Ok(Some(a)) => {
@@ -1096,6 +1153,8 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         }
         Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name(), tx.clone()),
         Action::AccountCancel => accounts::cancel(),
+        Action::AutoTest { host, attempt } => autotest::start(app, &host, attempt, tx.clone()),
+        Action::AutoCancel => autotest::cancel(),
         Action::AccountSignOut(a) => accounts::sign_out(a),
         Action::AccountsRefresh => accounts::refresh(app, tx),
         Action::AccountsSync => {

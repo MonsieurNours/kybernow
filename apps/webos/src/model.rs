@@ -26,23 +26,53 @@ pub enum Profile {
     Jeu,
     Bureau,
     Max,
+    /// Les réglages choisis par le test des conditions (docs/profil-auto.md), gardés pour l'ordinateur
+    /// (`HostSettings::auto`).
+    Auto,
 }
 
 impl Profile {
-    pub const ALL: [Profile; 3] = [Profile::Jeu, Profile::Bureau, Profile::Max];
+    pub const ALL: [Profile; 4] = [Profile::Jeu, Profile::Bureau, Profile::Max, Profile::Auto];
 
     pub fn id(self) -> &'static str {
         match self {
             Profile::Jeu => "jeu",
             Profile::Bureau => "bureau",
             Profile::Max => "max",
+            Profile::Auto => "auto",
         }
     }
 
     /// Transport fiable d'office : Bureau, comme `StreamSettings::for_profile`
-    /// du cœur (l'interface se compile sans lui, pour les captures).
+    /// du cœur (l'interface se compile sans lui, pour les captures). Auto : celui du test
+    /// (`HostSettings::profile_reliable`).
     pub fn reliable(self) -> bool {
         self == Profile::Bureau
+    }
+}
+
+/// Ce que l'interface lit du résultat du test gardé pour un ordinateur (`AutoResult` du cœur, en JSON : l'interface
+/// se compile sans lui) : la date, le réseau du test (`relay` par le relais), le transport, la définition, la
+/// fréquence et le format choisis.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct AutoBrief {
+    pub at: u64,
+    #[serde(default)]
+    pub network: Option<String>,
+    #[serde(default)]
+    pub reliable: bool,
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    /// `hevc`, `av1`, `h264` (`pyrowave` : jamais sur un téléviseur LG).
+    pub codec: String,
+}
+
+impl AutoBrief {
+    /// Le test a-t-il été fait sur ce réseau (`AutoResult::same_network` du cœur) : le nom donné par l'app (« Ethernet »,
+    /// le nom du Wi-Fi), `relay` par le relais ; un réseau inconnu des deux côtés compte comme le même.
+    pub fn same_network(&self, network: Option<&str>) -> bool {
+        self.network.as_deref() == network
     }
 }
 
@@ -88,6 +118,12 @@ pub struct HostSettings {
     /// (absent d'un fichier d'avant le HDR : allumé aussi). Il ne compte pas dans le profil. Sans effet sur un
     /// écran SDR.
     pub hdr: bool,
+    /// « Débit adaptatif » (docs/profil-auto.md) : le débit baisse quand le réseau sature, puis remonte ; allumé
+    /// d'office (absent d'un fichier d'avant : allumé). Il ne compte pas dans le profil.
+    pub adaptive: bool,
+    /// Le dernier résultat du test des conditions appliqué pour cet ordinateur (`AutoResult` du cœur, en JSON, gardé
+    /// tel quel) : le profil Auto en prend ses réglages.
+    pub auto: Option<serde_json::Value>,
 }
 
 impl Default for HostSettings {
@@ -109,6 +145,8 @@ impl Default for HostSettings {
             reliable: false,
             game_mode_hint: true,
             hdr: true,
+            adaptive: true,
+            auto: None,
         }
     }
 }
@@ -132,7 +170,34 @@ impl HostSettings {
         match self.transport.as_str() {
             "reliable" => true,
             "fast" => false,
-            _ => self.profile.reliable(),
+            _ => self.profile_reliable(),
+        }
+    }
+
+    /// Le transport du profil : Bureau fiable, Auto celui que le test a choisi.
+    pub fn profile_reliable(&self) -> bool {
+        match self.profile {
+            Profile::Auto => self.auto_brief().is_some_and(|b| b.reliable),
+            p => p.reliable(),
+        }
+    }
+
+    /// Le résultat du test gardé pour cet ordinateur, lu pour l'interface ; `None` : jamais appliqué.
+    pub fn auto_brief(&self) -> Option<AutoBrief> {
+        self.auto.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
+
+    /// « Appliquer » le résultat du test (ou choisir Auto avec un résultat gardé) : Auto devient le profil, avec le
+    /// format, le débit et le transport du test (rien d'écarté à la main), le débit adaptatif allumé, et la
+    /// définition et la fréquence choisies, ramenées aux réglages de l'app : « Comme cet écran » et la fréquence de la
+    /// dalle quand c'est l'écran, sinon la hauteur et la fréquence.
+    pub fn apply_auto(&mut self, result: serde_json::Value, panel: (u32, u32), refresh: u32) {
+        self.auto = Some(result);
+        self.apply(Profile::Auto);
+        self.adaptive = true;
+        if let Some(b) = self.auto_brief() {
+            self.resolution = if b.height >= panel.1 || ![2160, 1440, 1080, 720].contains(&b.height) { 0 } else { b.height };
+            self.fps = if b.refresh >= refresh || ![30, 60, 120].contains(&b.refresh) { 0 } else { b.refresh };
         }
     }
 

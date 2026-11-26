@@ -363,6 +363,9 @@ pub struct NetInfo {
     pub kind: NetKind,
     /// Vitesse du lien en Mbit/s (Ethernet : 100 sur les LG).
     pub link_mbps: Option<u32>,
+    /// Le réseau du moment, tel que le profil Auto le garde avec son test (`Device::network` du cœur) : « Ethernet »,
+    /// le nom du Wi-Fi, ou rien (inconnu).
+    pub name: Option<String>,
 }
 
 impl NetInfo {
@@ -1769,6 +1772,10 @@ pub struct SessionUi {
     pub ps: Option<crate::ps::PsSessionUi>,
     /// « Manettes indisponibles sur cet ordinateur. » a été dit dans cette session (une fois par session).
     pub pads_unavailable_said: bool,
+    /// Profil Auto : le bandeau « Autre réseau que celui du test » (montré depuis cet instant, 8 s ou la croix), et
+    /// s'il a déjà été décidé pour cette session (une fois, à la première image).
+    pub auto_banner: Option<Instant>,
+    pub auto_checked: bool,
 }
 
 impl SessionUi {
@@ -1809,6 +1816,8 @@ impl SessionUi {
             hdr: None,
             ps: None,
             pads_unavailable_said: false,
+            auto_banner: None,
+            auto_checked: false,
         }
     }
 
@@ -1920,6 +1929,8 @@ pub enum Setting {
     /// Réglages de l'app : « Réglage du HDR » (écran HDR seulement).
     HdrCalibration,
     Bitrate,
+    /// « Débit adaptatif » (carte « Débit », docs/link-ui.md).
+    Adaptive,
     GameHint,
     Audio,
     /// Manette vue par l'ordinateur : Xbox 360 ou fidèle.
@@ -2011,6 +2022,8 @@ pub enum Screen {
     PsSettings,
     /// Comptes KyberNow : le code (et « Un autre relais »), « Gérer le compte ».
     Account,
+    /// Profil Auto : le panneau du test (ses quatre étapes, le résumé, l'échec).
+    AutoTest,
 }
 
 /// Ce qu'on peut choisir.
@@ -2128,6 +2141,16 @@ pub enum Target {
     AccountRelayField,
     AccountRelayGo,
     AccountRelayCancel,
+    /// Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : dans le panneau du test, « Appliquer »,
+    /// « Annuler », « Refaire le test » et « Réessayer » ; « Refaire le test » des réglages de l'ordinateur ; le
+    /// bandeau « Autre réseau que celui du test » de la session, son bouton et sa croix.
+    AutoApply,
+    AutoCancel,
+    AutoAgain,
+    AutoRetry,
+    AutoRetest,
+    AutoBannerAgain,
+    AutoBannerClose,
 }
 
 /// Ce que l'app demande au pilote du téléviseur.
@@ -2209,6 +2232,10 @@ pub enum Action {
     /// Les ordinateurs des comptes redemandés au relais (`account::computers`) ; l'accueil refait (`account::merge`).
     AccountsRefresh,
     AccountsSync,
+    /// Profil Auto : le test des conditions pour cet ordinateur (`autotest::run` du cœur, sur un fil à part), suivi
+    /// sous ce numéro ; « Annuler » l'arrête (`AutoCancel`).
+    AutoTest { host: String, attempt: u32 },
+    AutoCancel,
     Quit,
 }
 
@@ -2277,6 +2304,11 @@ pub struct App {
     pub ps: crate::ps::PsUi,
     /// Comptes KyberNow : la connexion en cours, les pastilles d'origine de l'accueil.
     pub accounts: crate::accounts::AccountsUi,
+    /// Profil Auto : le panneau du test ouvert, le numéro du dernier test lancé, et l'ordinateur dont le test s'ouvrira
+    /// à la fin de la session (« Refaire le test » du bandeau, Auto choisi sans résultat dans le menu).
+    pub auto: Option<crate::autotest::AutoTestUi>,
+    pub auto_attempt: u32,
+    pub auto_after: Option<String>,
 }
 
 /// L'écran « Réglage du HDR » (docs/hdr.md) : l'étape, le palier choisi à chaque étape, et où revenir.
@@ -2341,6 +2373,9 @@ impl App {
             calibration: None,
             ps: crate::ps::PsUi::default(),
             accounts: crate::accounts::AccountsUi::default(),
+            auto: None,
+            auto_attempt: 0,
+            auto_after: None,
         }
     }
 
@@ -2482,6 +2517,7 @@ impl App {
             Screen::PlayStation => Target::Ps(crate::ps::PsTarget::AddAccount),
             Screen::PsSettings => Target::Ps(crate::ps::PsTarget::Section(self.ps.section)),
             Screen::Account => self.account_focus(),
+            Screen::AutoTest => self.auto_focus(),
         };
     }
 
@@ -2711,6 +2747,8 @@ impl App {
             }
             Screen::PlayStation | Screen::PsSettings => self.ps_back(),
             Screen::Account => self.account_back(),
+            // Le panneau du test : comme « Annuler » (le profil d'avant reste).
+            Screen::AutoTest => self.activate(Target::AutoCancel),
         }
     }
 
@@ -2864,6 +2902,11 @@ impl App {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
                 self.watch(&id)
             }
+            // Auto : ses réglages gardés tout de suite, ou le panneau du test sans résultat gardé.
+            Target::Chip(Profile::Auto) => {
+                let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
+                self.choose_auto(&id)
+            }
             Target::Chip(p) => {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
                 if let Some(h) = self.store.host_mut(&id) {
@@ -2871,6 +2914,7 @@ impl App {
                 }
                 vec![Action::Save]
             }
+            Target::AutoApply | Target::AutoCancel | Target::AutoAgain | Target::AutoRetry | Target::AutoRetest | Target::AutoBannerAgain | Target::AutoBannerClose => self.auto_activate(t),
             Target::HdrChip => self.toggle_hdr(),
             Target::CalLess => self.calibration_change(-1),
             Target::CalMore => self.calibration_change(1),
@@ -4126,6 +4170,13 @@ impl App {
                 s.menu = false;
                 Vec::new()
             }
+            // Auto sans résultat gardé : le test ne peut pas se faire en session (le décodeur du téléviseur est pris) ; son
+            // panneau s'ouvrira à la fin de la session.
+            MenuItem::Profile(Profile::Auto) if self.store.host(&s.host).is_none_or(|h| h.settings.auto_brief().is_none()) => {
+                s.menu = false;
+                self.auto_after = Some(s.host.clone());
+                Vec::new()
+            }
             MenuItem::Profile(p) => {
                 s.profile = p;
                 s.menu = false;
@@ -4299,6 +4350,8 @@ impl App {
                 st.audio = opts[cycle(i, opts.len(), dir)].into();
             }
             Setting::GameHint => st.game_mode_hint = !st.game_mode_hint,
+            // Le débit adaptatif ne fait pas passer en « Personnalisé ».
+            Setting::Adaptive => st.adaptive = !st.adaptive,
             Setting::Hdr => {
                 if !hdr_ok {
                     return Vec::new();
@@ -4322,7 +4375,7 @@ impl App {
             // Rapide ou Fiable ; le choix du profil n'est pas un écart.
             Setting::Transport => {
                 let reliable = !st.reliable_transport();
-                let t = if reliable == st.profile.reliable() { "" } else if reliable { "reliable" } else { "fast" };
+                let t = if reliable == st.profile_reliable() { "" } else if reliable { "reliable" } else { "fast" };
                 st.set_transport(t);
             }
             Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd => {}
@@ -4577,7 +4630,10 @@ impl App {
     /// jusqu'à 60 i/s : les LG le montrent à 60 au-delà).
     pub fn codec_for(&self, h: &Host) -> &'static str {
         let (_, _, fps) = self.session_mode(h);
-        match h.settings.codec.as_str() {
+        // Auto : le format choisi par le test (HEVC sur un téléviseur qui le décode).
+        let auto = (h.settings.profile == Profile::Auto && h.settings.codec == "auto").then(|| h.settings.auto_brief()).flatten();
+        let codec = auto.as_ref().map(|b| b.codec.as_str()).unwrap_or(h.settings.codec.as_str());
+        match codec {
             "h264" => "h264",
             "av1" if self.tv.av1 && h.av1 && fps <= 60 => "av1",
             _ => "hevc",

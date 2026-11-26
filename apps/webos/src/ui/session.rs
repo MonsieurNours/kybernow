@@ -48,6 +48,10 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 stats_pill(cv, s, 40.0);
                 path_row(cv, s, 116.0);
             }
+            // Profil Auto, réseau autre que celui du test : le bandeau discret du début (8 s ou la croix).
+            if app.auto_banner_visible() {
+                auto_banner(cv, f, s);
+            }
             if let Phase::Reconnecting { attempt, max } = s.phase {
                 let msg = format!("{} ({attempt}/{max})", tr("Reconnexion", "Reconnecting"));
                 capsule(cv, H - 140.0, &msg, true);
@@ -64,6 +68,47 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             }
         }
     }
+}
+
+/// Le bandeau « Autre réseau que celui du test » (docs/link-ui.md, « En session ») : en haut, discret, qui
+/// s'efface à la fin de ses 8 s. « Refaire le test » (touche verte, ou le pointeur de la Magic Remote) ouvre le panneau
+/// du test à la fin de la session : pendant elle, le décodeur du téléviseur montre l'image. La croix le ferme.
+fn auto_banner(cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
+    let t = s.auto_banner.map(|t| t.elapsed().as_secs_f32()).unwrap_or(0.0);
+    let a = if t > crate::autotest::BANNER_SECONDS - 0.4 { ((crate::autotest::BANNER_SECONDS - t) / 0.4).clamp(0.0, 1.0) } else { 1.0 };
+    let title = Text::new(Font::Semibold, 24.0, FROST.alpha(a));
+    let text = Text::new(Font::Regular, 21.0, FROST_2.alpha(a));
+    let again = crate::autotest::again_word();
+    let button = Text::new(Font::Semibold, 21.0, FROST.alpha(a));
+    let bw = cv.text_width(button, again) + 42.0 + 40.0;
+    let tw = cv.text_width(title, crate::autotest::banner_title()).max(cv.text_width(text, crate::autotest::banner_text()));
+    let (h, pad) = (104.0, 32.0);
+    let w = pad + 40.0 + 18.0 + tw + 36.0 + bw + 18.0 + 52.0 + pad;
+    let (x, y) = ((W - w) / 2.0, 40.0);
+    cv.rrect(x, y, w, h, 24.0, Rgba(14, 19, 28, (235.0 * a) as u8));
+    cv.rrect_stroke(x, y, w, h, 24.0, 1.5, SPECTRE.alpha(0.5 * a));
+    cv.icon(&Icon::Wifi, x + pad, y + 32.0, 40.0, 1.7, SPECTRE.alpha(a));
+    let tx = x + pad + 40.0 + 18.0;
+    cv.text(tx, y + 44.0, title, crate::autotest::banner_title());
+    cv.text(tx, y + 78.0, text, crate::autotest::banner_text());
+    // « Refaire le test », avec la touche verte de la télécommande devant.
+    let (bx, by, bh) = (tx + tw + 36.0, y + 24.0, 56.0);
+    let focused = f.hit(Target::AutoBannerAgain, Rect::new(bx, by, bw, bh));
+    if focused {
+        cv.rrect(bx, by, bw, bh, 28.0, CORE.alpha(a));
+    } else {
+        cv.rrect(bx, by, bw, bh, 28.0, Rgba(227, 237, 240, (20.0 * a) as u8));
+        cv.rrect_stroke(bx, by, bw, bh, 28.0, 1.0, BORDER.alpha(a));
+    }
+    cv.circle(bx + 30.0, by + bh / 2.0, 10.0, Rgba::hex(0x4CD68A).alpha(a));
+    cv.text(bx + 52.0, by + 36.0, if focused { button.color(INK.alpha(a)) } else { button }, again);
+    // La croix.
+    let (cx, cy) = (bx + bw + 18.0, by);
+    let focused = f.hit(Target::AutoBannerClose, Rect::new(cx, cy, 52.0, bh));
+    if focused {
+        cv.rrect(cx, cy, 52.0, bh, 26.0, CORE.alpha(a));
+    }
+    cv.icon(&Icon::Close, cx + 12.0, cy + 14.0, 28.0, 1.8, if focused { INK.alpha(a) } else { FROST_2.alpha(a) });
 }
 
 /// Capsule d'état, centrée.
@@ -328,8 +373,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
                 Profile::Jeu => tr("faible latence", "low latency"),
                 Profile::Bureau => tr("texte net", "sharp text"),
                 Profile::Max => tr("tout au plus haut", "everything highest"),
+                Profile::Auto => app.auto_tile_sub(&s.host),
             };
-            tiles.push((MenuItem::Profile(p), Icon::Monitor, format!("{} {}", tr("Profil", "Profile"), super::home::profile_label(p)), Some(sub.into()), false, false));
+            let icon = if p == Profile::Auto { Icon::Sparkles } else { Icon::Monitor };
+            tiles.push((MenuItem::Profile(p), icon, format!("{} {}", tr("Profil", "Profile"), super::home::profile_label(p)), Some(sub.into()), false, false));
         }
     }
     // « HDR », cochable, près du profil (écran HDR ; hôte et emprunt) : la changer relance l'image.

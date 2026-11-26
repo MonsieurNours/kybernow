@@ -208,6 +208,103 @@ fn shot(app: &mut App, cv: &mut Canvas, assets: &Assets, video: Option<&Pixmap>,
     }
 }
 
+/// Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : le panneau du test en cours, son résumé, son
+/// échec ; l'accueil et Réglages › Image en Auto (le débit adaptatif, « Choisi par le test du… ») ; le bandeau
+/// « Autre réseau que celui du test » et le menu de la session. Les textes des étapes et du résumé viennent du cœur
+/// sur le téléviseur : ceux-ci les recopient (catalogues `autotest.*`).
+fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, dir: &Path, en: bool) {
+    use crate::autotest::{Choice, Step, StepState};
+    let saved = app.store.host("a").unwrap().settings.clone();
+    let t = |fr: &str, e: &str| if en { e.to_string() } else { fr.to_string() };
+    let step = |title: String, state: StepState| Step { title, state };
+    let steps_done = vec![
+        step(t("Liaison", "Connection"), StepState::Done(t("Câble", "Cable"))),
+        step(t("Latence au repos", "Latency at rest"), StepState::Done(t("1,4 ms · gigue 0,3 ms", "1.4 ms · jitter 0.3 ms"))),
+        step(t("Débit vers cet appareil", "Bitrate to this device"), StepState::Done(t("93 Mbit/s · latence en charge +2 ms", "93 Mbit/s · latency under load +2 ms"))),
+        step(t("Décodage de cet appareil", "Decoding on this device"), StepState::Done(t("HEVC 4K : 120 i/s · AV1 4K : 60 i/s · H.264 4K : 60 i/s", "HEVC 4K: 120 fps · AV1 4K: 60 fps · H.264 4K: 60 fps"))),
+    ];
+    let choice = |title: String, value: String, reason: String| Choice { title, value, reason };
+    let choices = vec![
+        choice(t("Format vidéo", "Video format"), "HEVC".into(), t("le meilleur format que cet appareil décode", "the best format this device decodes")),
+        choice(t("Définition", "Resolution"), t("3840 × 2160 à 120 Hz", "3840 × 2160 at 120 Hz"), t("comme cet écran", "matches this display")),
+        choice(t("Texte net (4:4:4)", "Sharp text (4:4:4)"), t("Non", "Off"), t("cet appareil ne le décode pas", "this device can't decode it")),
+        choice(t("Débit", "Bitrate"), "57 Mbit/s".into(), t("93 Mbit/s mesurés, avec une marge", "93 Mbit/s measured, with a margin")),
+        choice(t("Transport de l'image", "Picture transport"), t("Rapide", "Fast"), t("réseau stable", "steady network")),
+        choice(t("Débit adaptatif", "Adaptive bitrate"), t("Oui", "On"), t("suit le réseau pendant la session", "follows the network during the session")),
+    ];
+    let result = serde_json::json!({
+        "at": crate::model::now_secs() - 3 * 86_400, "network": "Ethernet",
+        "measures": { "link": "cable", "latency": { "min": 1.1, "median": 1.4, "jitter": 0.3 }, "bandwidth": { "mbps": 93.0, "loaded_delta": 2.0 }, "decode": [] },
+        "codec": "hevc", "yuv444": false, "width": 3840, "height": 2160, "refresh": 120, "mbps": 24, "mode_mbps": 57, "reliable": false,
+        "reasons": { "codec": "best_format", "mode": "matches_display", "yuv444": "yuv444_not_decoded", "bitrate": "measured", "transport": "steady" },
+        "station": "Atelier"
+    });
+
+    // Le panneau : en cours (l'étape du débit), puis le résumé, puis l'échec.
+    app.go(Screen::Home);
+    let _ = app.activate(Target::Chip(Profile::Auto));
+    let attempt = app.auto.as_ref().unwrap().attempt;
+    let mut running = steps_done.clone();
+    running[2].state = StepState::Running;
+    running[3].state = StepState::Waiting;
+    app.auto_progress(attempt, running);
+    shot(app, cv, assets, None, dir, "50-profil-auto-test");
+    app.auto_progress(attempt, steps_done.clone());
+    app.auto_finished(attempt, Ok((result.clone(), choices)));
+    shot(app, cv, assets, None, dir, "50b-profil-auto-reglages-proposes");
+    let _ = app.activate(Target::AutoAgain);
+    let attempt = app.auto.as_ref().unwrap().attempt;
+    let mut failed = steps_done.clone();
+    failed[1].state = StepState::Waiting;
+    failed[2].state = StepState::Waiting;
+    failed[3].state = StepState::Waiting;
+    app.auto_progress(attempt, failed);
+    app.auto_finished(attempt, Err(t("Le test n'a pas pu joindre Atelier.", "The test couldn't reach Atelier.")));
+    shot(app, cv, assets, None, dir, "50c-profil-auto-echec");
+    let _ = app.activate(Target::AutoCancel);
+    // Une Station d'avant : le débit passé, avec sa raison.
+    let _ = app.activate(Target::Chip(Profile::Auto));
+    let attempt = app.auto.as_ref().unwrap().attempt;
+    let mut old = steps_done.clone();
+    old[2].state = StepState::Skipped(t("Mettez à jour Atelier pour mesurer le débit.", "Update Atelier to measure the bitrate."));
+    old[3].state = StepState::Running;
+    app.auto_progress(attempt, old);
+    shot(app, cv, assets, None, dir, "50d-profil-auto-station-ancienne");
+    let _ = app.activate(Target::AutoCancel);
+
+    // Appliqué : l'accueil, puis Réglages › Image (le débit, le débit adaptatif).
+    app.store.host_mut("a").unwrap().settings.apply_auto(result, app.tv.panel, app.tv.refresh);
+    app.go(Screen::Home);
+    app.focus = Target::Chip(Profile::Auto);
+    shot(app, cv, assets, None, dir, "1j-accueil-auto");
+    open(app, Section::Picture, Target::Setting(Setting::Adaptive));
+    shot(app, cv, assets, None, dir, "6c-reglages-image-auto");
+    app.focus = Target::AutoRetest;
+    shot(app, cv, assets, None, dir, "6d-reglages-refaire-le-test");
+
+    // En session : le bandeau « Autre réseau que celui du test », puis le menu (Auto parmi les profils).
+    app.net.name = Some("Livebox-5G".into());
+    let mut s = session(app);
+    s.profile = Profile::Auto;
+    s.menu = false;
+    s.auto_banner = Some(Instant::now());
+    s.auto_checked = true;
+    app.session = Some(s);
+    app.screen = Screen::Session;
+    app.focus = Target::AutoBannerAgain;
+    shot(app, cv, assets, Some(video), dir, "51-session-autre-reseau");
+    let mut s = session(app);
+    s.profile = Profile::Jeu;
+    app.session = Some(s);
+    app.focus = Target::Menu(MenuItem::Profile(Profile::Auto));
+    shot(app, cv, assets, Some(video), dir, "51b-session-menu-auto");
+
+    app.session = None;
+    app.net.name = None;
+    app.store.host_mut("a").unwrap().settings = saved;
+    app.go(Screen::Home);
+}
+
 /// Ouvre une rubrique des réglages de l'ordinateur choisi.
 fn open(app: &mut App, section: Section, focus: Target) {
     app.open_settings(false, Screen::Home);
@@ -673,6 +770,8 @@ pub fn run(dir: &Path, lang: &str) {
     app.pad_selected = 0;
     app.go(Screen::Gamepads);
     shot(&mut app, &mut cv, &assets, None, dir, "13-manettes");
+
+    auto_shots(&mut app, &mut cv, &assets, &video, dir, en);
 
     // Session.
     let mut s = session(&app);
@@ -1489,8 +1588,8 @@ mod tests {
         let mut redraw = |app: &mut App| app.hits = ui::draw(app, &mut cv, &assets);
         app.go(Screen::Home);
         redraw(&mut app);
-        // Se connecter, Jeu, Bureau, Max, HDR, Réglages.
-        for _ in 0..5 {
+        // Se connecter, Jeu, Bureau, Max, Auto, HDR, Réglages.
+        for _ in 0..6 {
             app.nav(Nav::Right);
             redraw(&mut app);
         }

@@ -92,6 +92,29 @@ pub fn chip_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: 
     w
 }
 
+/// Pastille de profil avec son icône (Auto : la baguette) ; rend sa largeur.
+#[allow(clippy::too_many_arguments)]
+pub fn chip_icon(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, icon: Icon, s: &str, active: bool) -> f32 {
+    let style = Text::new(if active { Font::Semibold } else { Font::Regular }, 22.0, if active { FROST } else { FROST_2 });
+    let w = cv.text_width(style, s) + 24.0 + 26.0 + 10.0 + 28.0;
+    let h = 56.0;
+    let focused = f.hit(t, Rect::new(x, y, w, h));
+    let fg = if focused { INK } else if active { FROST } else { FROST_2 };
+    if focused {
+        cv.neon(x, y, w, h, 28.0, 0.8);
+        cv.rrect(x, y, w, h, 28.0, CORE);
+    } else if active {
+        cv.rrect(x, y, w, h, 28.0, SPECTRE.alpha(0.18));
+        cv.rrect_stroke(x, y, w, h, 28.0, 1.5, SPECTRE);
+    } else {
+        cv.rrect(x, y, w, h, 28.0, Rgba(227, 237, 240, 15));
+        cv.rrect_stroke(x, y, w, h, 28.0, 1.0, BORDER);
+    }
+    cv.icon(&icon, x + 22.0, y + 15.0, 26.0, 1.6, fg);
+    cv.text(x + 22.0 + 26.0 + 10.0, y + 36.0, style.color(fg), s);
+    w
+}
+
 /// Pastille active qu'on ne choisit pas (« Personnalisé ») ; rend sa largeur.
 pub fn chip_static(cv: &mut Canvas, x: f32, y: f32, s: &str) -> f32 {
     let style = Text::new(Font::Semibold, 22.0, FROST);
