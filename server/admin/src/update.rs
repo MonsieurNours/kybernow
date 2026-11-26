@@ -358,6 +358,19 @@ impl Updater {
         self.status()
     }
 
+    /// Vérification demandée par une app KyberNow Link
+    /// (`POST /api/stream/station/check`) : la même que `check`, sauf si la
+    /// dernière date de moins de `fresh` (le résultat gardé suffit). Rend
+    /// `true` quand le flux a été interrogé.
+    pub fn check_unless_fresh(&self, fresh: Duration) -> bool {
+        let recent = self.state.lock().unwrap().checked.is_some_and(|t| t.elapsed() < fresh);
+        if recent {
+            return false;
+        }
+        let _ = self.check();
+        true
+    }
+
     /// Vérification de fond, toutes les 6 heures.
     pub fn supervise(self: std::sync::Arc<Self>) {
         std::thread::spawn(move || {
