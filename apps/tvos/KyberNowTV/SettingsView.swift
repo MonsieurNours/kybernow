@@ -90,7 +90,7 @@ struct SettingsView: View {
                 Text("Profil").font(Theme.sans(20)).foregroundStyle(Theme.muted)
                 HStack(spacing: 6) {
                     ForEach(Array((Profile.allCases.map(Optional.some) + [nil]).enumerated()), id: \.offset) { i, p in
-                        Button(Profile.label(p)) { if let p { edit { $0.apply(p) } } }
+                        Button(Profile.label(p)) { if let p { app.autoTest.choose(p, for: host, origin: .settings) } }
                             .buttonStyle(ChoiceButton(selected: host.settings.profile == p, height: 54))
                             .focused($focus, equals: .profile(i))
                             .disabled(p == nil && host.settings.profile != nil)
@@ -280,6 +280,23 @@ struct SettingsView: View {
         }
         rateRow(s)
         let pw = pyrowave(s)
+        // Profil Auto : d'où viennent ces réglages, et « Refaire le test ».
+        if s.profile == .auto, let r = s.auto {
+            HStack(spacing: 24) {
+                Text(AutoText.chosenBy(r)).font(Theme.sans(20)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(AutoText.again) { if let h = host { app.autoTest.open(h, origin: .settings) } }
+                    .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
+                    .focused($focus, equals: .row("autoAgain"))
+            }
+            .padding(.horizontal, 24).padding(.vertical, 6)
+        }
+        // Débit adaptatif : à part du profil (jamais « Personnalisé »).
+        toggle("adaptive", AutoText.adaptive,
+               s.codec == .pyrowave || pw.auto(profile: s.takesPyroWave) ? AutoText.adaptiveHelp + " " + AutoText.adaptivePyroWave : AutoText.adaptiveHelp,
+               s.adaptive) {
+            edit { st in st.adaptive.toggle() }
+        }
         if pw.shown {
             formatList(s, pw)
         } else {
@@ -293,7 +310,7 @@ struct SettingsView: View {
         let hdr = s.hdrState(info, screenHDR: app.screenHDR)
         let hdrOn = hdr.on(s.hdr)
         let can444 = ConnectionSettings.decodes444(s.codec) && !hdrOn
-        let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.profile != nil)
+        let pyroImage = (s.codec == .pyrowave && pw.usable) || pw.auto(profile: s.takesPyroWave)
         toggle("yuv", String(localized: "Texte net (4:4:4)"),
                hdrOn ? SettingsText.sharpTextHDR
                    : pyroImage ? PyroWaveText.sharpText
@@ -401,7 +418,11 @@ struct SettingsView: View {
         case nil: break
         }
         if s.codec == .pyrowave, s.profile == nil { return PyroWaveText.helpChosen }
-        if s.profile != nil { return pw.link == .cable ? PyroWaveText.helpAutoWired : PyroWaveText.helpAutoWireless }
+        if s.profile != nil {
+            guard pw.link == .cable else { return PyroWaveText.helpAutoWireless }
+            // Par câble, PyroWave n'est pris que par Max et Auto (Auto : si le test l'a choisi).
+            return s.takesPyroWave ? PyroWaveText.helpAutoWired : AutoText.formatJeuBureauWired
+        }
         return String(localized: "AV1 : cette Apple TV ne le décode pas en matériel")
     }
 

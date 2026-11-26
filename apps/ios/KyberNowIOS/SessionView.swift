@@ -152,6 +152,17 @@ struct SessionView: View {
                         }
                         .accessibilityLabel(Text("Fermer"))
                     }
+                } else if session.autoNetworkBanner {
+                    // Profil Auto, autre réseau que celui du test (docs/link-ui.md) : 8 s ou la croix.
+                    StateCapsule(icon: "info", tint: Theme.accentLight, title: AutoText.otherNetwork, detail: AutoText.otherNetworkText) {
+                        if !session.isVisitor {
+                            Button(AutoText.again) { session.runAutoTest() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
+                        }
+                        Button { session.closeAutoNetworkBanner() } label: {
+                            Icon("x", size: 16).foregroundStyle(Theme.muted).frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel(Text("Fermer"))
+                    }
                 } else if let note = session.fallbackNote {
                     StateCapsule(icon: "warning", tint: Theme.warn, title: note, detail: nil) { EmptyView() }
                 } else if let note = session.notice {

@@ -58,8 +58,17 @@ struct SessionChrome: View {
     /// Bandeau de PyroWave en Wi-Fi ou par le relais (docs/link-ui.md).
     @ViewBuilder private var pyrowaveBanner: some View {
         if streaming, session.pyrowaveBanner {
-            let hevc: (() -> Void)? = session.isVisitor ? nil : { session.switchToHEVC() }
-            PyroWaveBanner(title: session.pyrowaveBannerTitle, switchToHEVC: hevc, close: { session.closePyroWaveBanner() })
+            Group {
+                if session.autoNetworkBanner {
+                    // Profil Auto, autre réseau que celui du test : « Refaire le test ».
+                    PyroWaveBanner(title: AutoText.otherNetwork, message: AutoText.otherNetworkText, warn: false,
+                                   actionLabel: AutoText.again, action: { session.runAutoTest() }, close: { session.closePyroWaveBanner() })
+                } else {
+                    let hevc: (() -> Void)? = session.isVisitor ? nil : { session.switchToHEVC() }
+                    PyroWaveBanner(title: session.pyrowaveBannerTitle, message: PyroWaveText.bannerBody, warn: true,
+                                   actionLabel: PyroWaveText.switchToHEVC, action: hevc, close: { session.closePyroWaveBanner() })
+                }
+            }
                 .background(GeometryReader { g in
                     Color.clear.preference(key: PyroWaveBannerRectKey.self, value: g.frame(in: Self.space))
                 })
@@ -442,19 +451,26 @@ struct PyroWaveBannerRectKey: PreferenceKey {
 /// et celui du réseau qui sature (« Le réseau sature », même forme)
 /// (docs/link-ui.md, « PyroWave ») : 8 s ou la croix ; « Passer en HEVC »
 /// relance l'image en HEVC pour la session seulement.
+///
+/// Même bandeau, discret (icône « i »), pour le profil Auto sur un autre réseau
+/// que celui du test : « Refaire le test ».
 private struct PyroWaveBanner: View {
     let title: String
-    let switchToHEVC: (() -> Void)?
+    let message: String
+    /// Ambre (PyroWave) ; sinon discret (Auto).
+    let warn: Bool
+    let actionLabel: String
+    let action: (() -> Void)?
     let close: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Icon("warning", size: 14, bold: true).foregroundStyle(Theme.warn)
-            Text(title).font(Theme.sans(12.5, .semibold)).foregroundStyle(Theme.warnText)
-            Text(PyroWaveText.bannerBody).foregroundStyle(Theme.text2)
-            if let switchToHEVC {
-                Button(action: switchToHEVC) {
-                    Text(PyroWaveText.switchToHEVC)
+            Icon(warn ? "warning" : "info", size: 14, bold: true).foregroundStyle(warn ? Theme.warn : Theme.accent)
+            Text(title).font(Theme.sans(12.5, .semibold)).foregroundStyle(warn ? Theme.warnText : Theme.text)
+            Text(message).foregroundStyle(Theme.text2)
+            if let action {
+                Button(action: action) {
+                    Text(actionLabel)
                         .font(Theme.sans(12.5, .semibold))
                         .foregroundStyle(Theme.text)
                         .padding(.horizontal, 10)
@@ -813,11 +829,13 @@ private struct SessionBar: View {
             pyrowaveChip(compact: compact)
             divider
             GlassMenu(items: Profile.allCases.map { profile in
-                .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) { session.select(profile) }
+                .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) {
+                    AppModel.shared.apply(profile, to: session.host)
+                }
             }) {
                 chip(icon: profileIcon, text: session.host.settings.profileLabel, tint: Theme.accent, caret: true)
             }
-            .help("Profil : Jeu, Bureau ou Max")
+            .help("Profil : Jeu, Bureau, Max ou Auto")
             .overlay(ring(0))
             hdrToggle(compact: compact)
             keepSound(compact: compact)
@@ -924,6 +942,7 @@ private struct SessionBar: View {
         case .jeu?: return "game-controller"
         case .bureau?: return "article"
         case .max?: return "lightning"
+        case .auto?: return "sparkle"
         case nil: return "sliders-horizontal"
         }
     }

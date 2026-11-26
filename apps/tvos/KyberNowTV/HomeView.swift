@@ -846,10 +846,9 @@ struct HomeView: View {
 
     // MARK: Textes
 
+    /// Auto sans test gardé : le panneau du test (AutoProfile.swift).
     private func select(_ profile: Profile, for host: Host) {
-        var h = host
-        h.settings.apply(profile)
-        store.update(h)
+        app.autoTest.choose(profile, for: host)
     }
 
     private func screenLine(_ h: Host) -> String {

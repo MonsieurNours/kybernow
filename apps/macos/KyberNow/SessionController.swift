@@ -1225,8 +1225,8 @@ final class SessionController: NSObject, ObservableObject {
         }
         switch padFocus {
         case 0:
-            // Profil suivant (Jeu → Bureau → Max).
-            let all = Profile.allCases
+            // Profil suivant (Jeu → Bureau → Max → Auto, Auto seulement avec un test gardé).
+            let all = Profile.allCases.filter { $0 != .auto || host.settings.auto != nil }
             let next = host.settings.profile.flatMap { all.firstIndex(of: $0) }.map { all[($0 + 1) % all.count] } ?? .jeu
             select(next)
         case 1:
@@ -1270,7 +1270,8 @@ final class SessionController: NSObject, ObservableObject {
             mbps: codecOverride == nil ? s.bitrateMbps : min(s.bitrateMbps, PyroWaveSession.hevcMbps),
             reliable: s.transport == .reliable,
             hdr: s.hdr,
-            wired: NetworkLink.shared.wired
+            wired: NetworkLink.shared.wired,
+            adaptive: s.adaptive
         )
     }
 
@@ -1288,6 +1289,10 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var pyrowaveStrained = false
     private var pyrowaveBannerDone = false
     private var pyrowaveBannerClose: DispatchWorkItem?
+    /// Le bandeau affiché est celui du profil Auto sur un autre réseau que
+    /// celui du test (même forme, 8 s ou la croix ; docs/link-ui.md).
+    @Published private(set) var autoNetworkBanner = false
+    private var autoNetworkBannerDone = false
     /// La définition ramenée par le cœur pour tenir dans le débit
     /// (`VideoStats.lowered`, Statistiques) ; nil sans.
     @Published private(set) var lowered: LoweredMode?
@@ -1316,6 +1321,11 @@ final class SessionController: NSObject, ObservableObject {
         let codec = engine.receivedCodec
         if codec != receivedCodec { receivedCodec = codec }
         if stats.lowered != lowered { lowered = stats.lowered }
+        // Auto, sur un autre réseau (ou par le relais) que celui du test : une fois, au début.
+        if !autoNetworkBannerDone, !pyrowaveBanner {
+            autoNetworkBannerDone = true
+            if !isVisitor, AppModel.shared.store.autoOtherNetwork(host, viaRelay: path.viaRelay) { showAutoNetworkBanner() }
+        }
         guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
         showPyroWaveBanner()
     }
@@ -1326,8 +1336,27 @@ final class SessionController: NSObject, ObservableObject {
         pyrowaveStrained ? PyroWaveText.strained : PyroWaveText.chip(pyrowaveLink)
     }
 
+    private func showAutoNetworkBanner() {
+        KyberLog.app.notice("profil Auto : autre réseau que celui du test")
+        autoNetworkBanner = true
+        withAnimation(Theme.easeOut) { pyrowaveBanner = true }
+        pyrowaveBannerClose?.cancel()
+        let close = DispatchWorkItem { [weak self] in self?.closePyroWaveBanner() }
+        pyrowaveBannerClose = close
+        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds, execute: close)
+    }
+
+    /// « Refaire le test » (bandeau, réglages) ou Auto choisi sans test : le
+    /// panneau du test s'ouvre à la fin de la session (le test mesure le réseau libre).
+    func runAutoTest() {
+        if autoNetworkBanner { closePyroWaveBanner() }
+        AppModel.shared.autoTest.openAfterSession(host)
+        showHint(.notice(AutoText.afterSession), after: 0, for: PyroWaveSession.bannerSeconds)
+    }
+
     private func showPyroWaveBanner(strained: Bool = false) {
         pyrowaveBannerDone = true
+        autoNetworkBanner = false
         pyrowaveStrained = strained
         withAnimation(Theme.easeOut) { pyrowaveBanner = true }
         // Un bandeau qui en remplace un autre garde ses 8 s.

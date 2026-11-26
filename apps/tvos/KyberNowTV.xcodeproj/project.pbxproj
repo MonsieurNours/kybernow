@@ -35,6 +35,7 @@
 		474BD4FF08A7124D6A4CD434 /* KeymapTV.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D19025864917F11AC048351 /* KeymapTV.swift */; };
 		49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939135052A5C51A4CDFEDB0 /* Backdrops.swift */; };
 		4B99531C369F2FD1A6D6C197 /* ShareViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6868865EAC1D2E55F4CB9836 /* ShareViews.swift */; };
+		4EA0ACF2F28CBABCCD80D1E9 /* AutoTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C50EB76FA5EA012D1DA9FC7 /* AutoTestView.swift */; };
 		51B42E73AD0356BAF5E868E7 /* PlayStation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7661C2DA5C99369FA0A151D /* PlayStation.swift */; };
 		5237507E6E33E328E7F126A2 /* HDRDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6675C151312EAB3B4ED15048 /* HDRDemo.swift */; };
 		52771D6BEBD682855A334064 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */; };
@@ -82,6 +83,7 @@
 		A6DE0CF31474618CD510D114 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967E9CA93E220D6FB480C877 /* AV1.swift */; };
 		AAA56A471D38C873853CFD6E /* StatsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7531C686A3D883AC1D448499 /* StatsCard.swift */; };
 		AAC484EFDD2EEB99880D90D8 /* HDRPatternView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B4A9A85088DD118E664359 /* HDRPatternView.swift */; };
+		B155FDF44F97218547919B63 /* AutoProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CD1BD29DC0FE276610E4B1 /* AutoProfile.swift */; };
 		B96BE33574AF78B3735C1016 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 35E2162DA9EA9189EFA5F4A1 /* libiconv.tbd */; };
 		BA2E2F4A7D80F8CB7FA3E17A /* pyrowave_decoder.mm in Sources */ = {isa = PBXBuildFile; fileRef = 8620FA11AE8DFDA78C261DBA /* pyrowave_decoder.mm */; };
 		BC4ECC7D0BFB0206E7EDC270 /* AccountCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250EA933B889CC56DE287CE4 /* AccountCore.swift */; };
@@ -99,6 +101,7 @@
 		F309C4BDF54ADEBA5D6FCD6D /* PlayStationCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1086E3ACF07530081B51917F /* PlayStationCloud.swift */; };
 		F7523557BADDFFF74D023474 /* SessionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */; };
 		F7AE3287A1E7E95408692797 /* ShareCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98802BF2F33E3D7BC10FF259 /* ShareCore.swift */; };
+		F7D9EAC6E5D20253D0746D21 /* AutoTestCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E65510FEFF17583E72ED75 /* AutoTestCore.swift */; };
 		FDB08F08EAF177204FF53CEC /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */; };
 /* End PBXBuildFile section */
 
@@ -169,6 +172,7 @@
 		2B84B4A8A400002BE10F65BA /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2CB3A590C1D32478DB5C67FF /* KyberNowTV.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNowTV.entitlements; sourceTree = "<group>"; };
 		32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionMenu.swift; sourceTree = "<group>"; };
+		33CD1BD29DC0FE276610E4B1 /* AutoProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoProfile.swift; sourceTree = "<group>"; };
 		3545217235A0986F4EC8F7D3 /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
 		35E2162DA9EA9189EFA5F4A1 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		36C379C44CA1F146A47FEBB2 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
@@ -191,6 +195,7 @@
 		6868865EAC1D2E55F4CB9836 /* ShareViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViews.swift; sourceTree = "<group>"; };
 		68E5FAAE774C0DD788031289 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		699FF110DEA829A93426C8D7 /* Accounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Accounts.swift; sourceTree = "<group>"; };
+		6C50EB76FA5EA012D1DA9FC7 /* AutoTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestView.swift; sourceTree = "<group>"; };
 		6CEED8A4C56BC77F0552A37A /* LendCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LendCore.swift; sourceTree = "<group>"; };
 		717AA2D038A1CC613B959D31 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		72614D3FA9C09B285A83EC63 /* ConsolePads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsolePads.swift; sourceTree = "<group>"; };
@@ -239,6 +244,7 @@
 		E21C4D60AA32188AAD952FAB /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		E3F34F3B851901BD764C3617 /* PyroWaveDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveDecoder.swift; sourceTree = "<group>"; };
 		E7B4A9A85088DD118E664359 /* HDRPatternView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRPatternView.swift; sourceTree = "<group>"; };
+		E8E65510FEFF17583E72ED75 /* AutoTestCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestCore.swift; sourceTree = "<group>"; };
 		EFA6AF6DE3DCB93B6E63BFBB /* HDR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDR.swift; sourceTree = "<group>"; };
 		F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		F16667FD645BA9D805BA7E79 /* RemoteNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNavigationTests.swift; sourceTree = "<group>"; };
@@ -339,6 +345,7 @@
 			isa = PBXGroup;
 			children = (
 				699FF110DEA829A93426C8D7 /* Accounts.swift */,
+				33CD1BD29DC0FE276610E4B1 /* AutoProfile.swift */,
 				72AAACDD20D1A7BE25E7960F /* Discovery.swift */,
 				DCB0A07752E4AD009B4519E9 /* Lend.swift */,
 				C038544172704B17A5CAB374 /* LinkUI.swift */,
@@ -409,6 +416,7 @@
 			children = (
 				250EA933B889CC56DE287CE4 /* AccountCore.swift */,
 				97688B68F968EDC6090177A0 /* AudioPlayerCore.swift */,
+				E8E65510FEFF17583E72ED75 /* AutoTestCore.swift */,
 				967E9CA93E220D6FB480C877 /* AV1.swift */,
 				068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */,
 				B5F933505AA41A6122515B30 /* CoreBridge.swift */,
@@ -449,6 +457,7 @@
 				FF2B83E12E2DC745DEDD61EC /* AppModel.swift */,
 				272FAFC7C3A7322B56993025 /* AppSettingsView.swift */,
 				A2FAFDEE9E251B51A36ED17B /* Assets.xcassets */,
+				6C50EB76FA5EA012D1DA9FC7 /* AutoTestView.swift */,
 				F939135052A5C51A4CDFEDB0 /* Backdrops.swift */,
 				717AA2D038A1CC613B959D31 /* CloudSync.swift */,
 				D5CAB0A1CC458D1CAE235BF2 /* FramePath.swift */,
@@ -655,6 +664,8 @@
 				2E4327F1FDBDB0EF09529956 /* AddHostView.swift in Sources */,
 				A31E48236FDAF2929F833C78 /* AppModel.swift in Sources */,
 				E6D050DC393637D95EC5439E /* AppSettingsView.swift in Sources */,
+				B155FDF44F97218547919B63 /* AutoProfile.swift in Sources */,
+				4EA0ACF2F28CBABCCD80D1E9 /* AutoTestView.swift in Sources */,
 				49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */,
 				19EC14DFC8515AF215310E98 /* CloudSync.swift in Sources */,
 				E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */,
@@ -703,6 +714,7 @@
 				A6DE0CF31474618CD510D114 /* AV1.swift in Sources */,
 				BC4ECC7D0BFB0206E7EDC270 /* AccountCore.swift in Sources */,
 				02646086A5CA49D6860CA49F /* AudioPlayerCore.swift in Sources */,
+				F7D9EAC6E5D20253D0746D21 /* AutoTestCore.swift in Sources */,
 				FDB08F08EAF177204FF53CEC /* ConsoleClientCore.swift in Sources */,
 				00A1BD2C9C445702697ABF3A /* ConsolePads.swift in Sources */,
 				A56EAA94638A85D6DD0CBFCA /* CoreBridge.swift in Sources */,

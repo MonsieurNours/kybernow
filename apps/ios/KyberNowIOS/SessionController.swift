@@ -317,7 +317,8 @@ final class SessionController: ObservableObject {
             mbps: codecOverride == nil ? s.bitrateMbps : min(s.bitrateMbps, PyroWaveSession.hevcMbps),
             reliable: s.transport == .reliable,
             hdr: s.hdr,
-            wired: NetworkLink.shared.wired
+            wired: NetworkLink.shared.wired,
+            adaptive: s.adaptive
         )
     }
 
@@ -335,6 +336,11 @@ final class SessionController: ObservableObject {
     @Published private(set) var pyrowaveStrained = false
     private var pyrowaveBannerDone = false
     private var pyrowaveBannerClose: DispatchWorkItem?
+    /// Profil Auto sur un autre réseau que celui du test : le bandeau discret
+    /// du début (8 s ou la croix ; docs/link-ui.md).
+    @Published private(set) var autoNetworkBanner = false
+    private var autoNetworkBannerDone = false
+    private var autoNetworkBannerClose: DispatchWorkItem?
 
     /// Comment l'appareil joint l'ordinateur : câble, Wi-Fi (ou réseau mobile), relais.
     var pyrowaveLink: PyroWaveLink {
@@ -358,6 +364,11 @@ final class SessionController: ObservableObject {
         guard let engine else { return }
         let codec = engine.receivedCodec
         if codec != receivedCodec { receivedCodec = codec }
+        // Auto, sur un autre réseau (ou par le relais) que celui du test : une fois, au début.
+        if !autoNetworkBannerDone {
+            autoNetworkBannerDone = true
+            if !isVisitor, store.autoOtherNetwork(host, viaRelay: path.viaRelay) { showAutoNetworkBanner() }
+        }
         guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
         showPyroWaveBanner()
     }
@@ -385,6 +396,29 @@ final class SessionController: ObservableObject {
         guard !isVisitor, codecOverride == nil else { return }
         KyberLog.app.notice("PyroWave : le réseau sature, « Passer en HEVC » proposé")
         showPyroWaveBanner(strained: true)
+    }
+
+    private func showAutoNetworkBanner() {
+        KyberLog.app.notice("profil Auto : autre réseau que celui du test")
+        withAnimation(Theme.easeOut) { autoNetworkBanner = true }
+        autoNetworkBannerClose?.cancel()
+        let close = DispatchWorkItem { [weak self] in self?.closeAutoNetworkBanner() }
+        autoNetworkBannerClose = close
+        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds, execute: close)
+    }
+
+    /// La croix du bandeau « Autre réseau que celui du test ».
+    func closeAutoNetworkBanner() {
+        guard autoNetworkBanner else { return }
+        withAnimation(Theme.easeOut) { autoNetworkBanner = false }
+    }
+
+    /// « Refaire le test » (bandeau), ou Auto choisi sans test : le panneau
+    /// du test s'ouvre à la fin de la session (le test mesure le réseau libre).
+    func runAutoTest() {
+        closeAutoNetworkBanner()
+        AppModel.shared?.autoTest.openAfterSession(host)
+        show(notice: AutoText.afterSession, for: PyroWaveSession.bannerSeconds, icon: "sparkle")
     }
 
     /// La croix du bandeau.
@@ -1066,6 +1100,11 @@ final class SessionController: ObservableObject {
     func select(_ profile: Profile) {
         // Un invité ou un ami ne change rien chez l'hôte : ni profil, ni réglages.
         guard !isVisitor, profile != host.settings.profile else { return }
+        // Auto sans test gardé : le panneau du test, à la fin de la session.
+        if profile == .auto, host.settings.auto == nil {
+            runAutoTest()
+            return
+        }
         host.settings.apply(profile)
         store.update(host)
         // Un profil choisi en session reprend la main sur « Passer en HEVC ».

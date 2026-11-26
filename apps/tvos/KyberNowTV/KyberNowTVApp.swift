@@ -103,6 +103,8 @@ struct RootView: View {
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
             }
         }
+        // Le panneau du test du profil Auto (plein écran), de l'accueil ou des réglages.
+        .modifier(AutoTestPresenter(model: app.autoTest))
         .overlay(alignment: .top) {
             if let notice = app.notice {
                 HStack(spacing: 14) {

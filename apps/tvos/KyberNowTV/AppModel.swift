@@ -57,7 +57,12 @@ final class AppModel: ObservableObject {
     @Published var screen: Screen = .home
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
-    @Published private(set) var session: SessionController?
+    @Published private(set) var session: SessionController? {
+        // « Refaire le test » pendant la session : le panneau du test à sa fin.
+        didSet { if session == nil, let id = oldValue?.host.id { autoTest.sessionEnded(id) } }
+    }
+    /// Le panneau du test du profil Auto (AutoProfile.swift, AutoTestView.swift).
+    let autoTest: AutoTestModel
     /// La partie en cours sur une console.
     @Published private(set) var consoleSession: PlayStationSession?
     /// Un avis bref sur l'accueil (« Ce lien d'invitation est illisible. »), effacé après 6 s.
@@ -105,6 +110,9 @@ final class AppModel: ObservableObject {
         accounts = AccountStore(hosts: store)
         borrowed = BorrowedStore(demo: demo)
         playstation = PlayStationStore(demo: demo)
+        // L'écran du test du profil Auto : le téléviseur (« Comme cet écran »).
+        autoTest = AutoTestModel(store: store)
+        autoTest.screen = { _ in TVDisplay.native }
         playstation.attach(hosts: store)
         hdrObservers = HDRDisplay.observe { [weak self] in
             MainActor.assumeIsolated {

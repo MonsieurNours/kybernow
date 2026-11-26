@@ -86,6 +86,8 @@ targets:
       - path: ../macos/KyberNow/Model.swift
       - path: ../macos/KyberNow/Discovery.swift
       - path: ../macos/KyberNow/LinkUI.swift
+      # Profil Auto : textes et panneau du test (docs/profil-auto.md).
+      - path: ../macos/KyberNow/AutoProfile.swift
       - path: ../macos/KyberNow/Share.swift
       - path: ../macos/KyberNow/Lend.swift
       # Comptes KyberNow : comptes, ordinateurs du compte, textes (docs/comptes.md).

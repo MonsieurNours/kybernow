@@ -289,7 +289,8 @@ final class SessionController: ObservableObject {
             mbps: codecOverride == nil ? s.bitrateMbps : min(s.bitrateMbps, PyroWaveSession.hevcMbps),
             reliable: s.transport == .reliable,
             hdr: s.hdr,
-            wired: NetworkLink.shared.wired
+            wired: NetworkLink.shared.wired,
+            adaptive: s.adaptive
         )
     }
 
@@ -308,6 +309,11 @@ final class SessionController: ObservableObject {
     @Published private(set) var pyrowaveStrained = false
     private var pyrowaveBannerDone = false
     private var pyrowaveBannerClose: DispatchWorkItem?
+    /// Profil Auto sur un autre réseau (ou par le relais) que celui du test :
+    /// le bandeau discret du début (8 s), et la tuile « Refaire le test » du menu.
+    @Published private(set) var autoNetworkBanner = false
+    @Published private(set) var autoOtherNetwork = false
+    private var autoNetworkChecked = false
     /// Images montrées et perdues des 30 dernières secondes (« Images perdues »).
     private var lossWindow: [(shown: Double, lost: Int)] = []
 
@@ -351,8 +357,31 @@ final class SessionController: ObservableObject {
         if lossWindow.count > 30 { lossWindow.removeFirst(lossWindow.count - 30) }
         let codec = engine?.receivedCodec
         if codec != receivedCodec { receivedCodec = codec }
+        // Auto, sur un autre réseau que celui du test : une fois, au début.
+        if !autoNetworkChecked {
+            autoNetworkChecked = true
+            if !isVisitor, store.autoOtherNetwork(host, viaRelay: path.viaRelay) { showAutoNetworkBanner() }
+        }
         guard !pyrowaveBannerDone, codec == .pyrowave, host.settings.codec == .pyrowave, pyrowaveLink != .cable else { return }
         showPyroWaveBanner()
+    }
+
+    private func showAutoNetworkBanner() {
+        KyberLog.app.notice("profil Auto : autre réseau que celui du test")
+        autoOtherNetwork = true
+        withAnimation(.easeOut(duration: 0.35)) { autoNetworkBanner = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + PyroWaveSession.bannerSeconds) { [weak self] in
+            withAnimation(.easeIn(duration: 0.35)) { self?.autoNetworkBanner = false }
+        }
+    }
+
+    /// « Refaire le test » (tuile du menu) : le panneau du test s'ouvre à la
+    /// fin de la session (le test mesure le réseau libre).
+    func runAutoTest() {
+        withAnimation(.easeIn(duration: 0.35)) { autoNetworkBanner = false }
+        AppModel.current?.autoTest.openAfterSession(host)
+        closeMenu()
+        show(notice: AutoText.afterSession, for: PyroWaveSession.bannerSeconds, icon: "sparkle")
     }
 
     private func showPyroWaveBanner(strained: Bool = false) {

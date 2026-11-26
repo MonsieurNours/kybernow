@@ -1457,6 +1457,22 @@
         }
       }
     },
+    "Appliquer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apply"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appliquer"
+          }
+        }
+      }
+    },
     "Appui long" : {
       "localizations" : {
         "en" : {
@@ -1777,6 +1793,22 @@
         }
       }
     },
+    "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble."
+          }
+        }
+      }
+    },
     "Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble." : {
       "localizations" : {
         "en" : {
@@ -1873,6 +1905,22 @@
         }
       }
     },
+    "Autre réseau que celui du test" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Different network from the test"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autre réseau que celui du test"
+          }
+        }
+      }
+    },
     "Avec PyroWave, presque sans coût : seul le débit monte." : {
       "localizations" : {
         "en" : {
@@ -1949,6 +1997,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "B"
+          }
+        }
+      }
+    },
+    "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lowers the bitrate when the network is saturated, then raises it again. Off, the bitrate never moves."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais."
           }
         }
       }
@@ -2429,6 +2493,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chemin : %@"
+          }
+        }
+      }
+    },
+    "Choisi par le test du %@ (%@)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chosen by the test of %1$@ (%2$@)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisi par le test du %@ (%@)."
           }
         }
       }
@@ -3425,6 +3505,22 @@
         }
       }
     },
+    "Données mobiles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mobile data"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Données mobiles"
+          }
+        }
+      }
+    },
     "Douce" : {
       "localizations" : {
         "en" : {
@@ -3473,6 +3569,38 @@
         }
       }
     },
+    "Débit adaptatif" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adaptive bitrate"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Débit adaptatif"
+          }
+        }
+      }
+    },
+    "Débit vers cet appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitrate to this device"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Débit vers cet appareil"
+          }
+        }
+      }
+    },
     "Décodage" : {
       "localizations" : {
         "en" : {
@@ -3485,6 +3613,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Décodage"
+          }
+        }
+      }
+    },
+    "Décodage de cet appareil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decoding on this device"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Décodage de cet appareil"
           }
         }
       }
@@ -3709,6 +3853,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Emprunter"
+          }
+        }
+      }
+    },
+    "En PyroWave, il est en pause : la définition baisse à la place." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With PyroWave it pauses: the resolution goes down instead."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En PyroWave, il est en pause : la définition baisse à la place."
           }
         }
       }
@@ -4771,6 +4931,22 @@
         }
       }
     },
+    "KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow measures your network and this device, then suggests the best settings."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages."
+          }
+        }
+      }
+    },
     "L'adresse d'un ordinateur, ou d'une console PlayStation (par un VPN ou depuis un autre réseau)." : {
       "localizations" : {
         "en" : {
@@ -5475,6 +5651,22 @@
         }
       }
     },
+    "Latence au repos" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latency at rest"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latence au repos"
+          }
+        }
+      }
+    },
     "Le %@ du jeu est spatialisé dans les AirPods, sans suivi de la tête. Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli." : {
       "localizations" : {
         "en" : {
@@ -5615,6 +5807,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le compte de %@"
+          }
+        }
+      }
+    },
+    "Le débit adaptatif s'en charge." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adaptive bitrate will handle it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le débit adaptatif s'en charge."
           }
         }
       }
@@ -5811,6 +6019,38 @@
         }
       }
     },
+    "Le test n'a pas pu joindre %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The test couldn't reach %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le test n'a pas pu joindre %@."
+          }
+        }
+      }
+    },
+    "Le test se fera à la fin de la session." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The test will run when the session ends."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le test se fera à la fin de la session."
+          }
+        }
+      }
+    },
     "Le texte part tel quel, à l'endroit où se trouve le curseur sur l'ordinateur." : {
       "localizations" : {
         "en" : {
@@ -5875,6 +6115,22 @@
         }
       }
     },
+    "Les meilleurs réglages pour ce réseau et cet appareil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The best settings for this network and this device."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les meilleurs réglages pour ce réseau et cet appareil."
+          }
+        }
+      }
+    },
     "Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur." : {
       "localizations" : {
         "en" : {
@@ -5903,6 +6159,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les écrans de l'ordinateur, tels quels"
+          }
+        }
+      }
+    },
+    "Liaison" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connection"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liaison"
           }
         }
       }
@@ -7139,6 +7411,22 @@
         }
       }
     },
+    "Profil Auto" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto profile"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil Auto"
+          }
+        }
+      }
+    },
     "Préparation de l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -7663,6 +7951,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Redémarrer quand même"
+          }
+        }
+      }
+    },
+    "Refaire le test" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the test again"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refaire le test"
           }
         }
       }
@@ -8399,6 +8703,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réglages de l'app"
+          }
+        }
+      }
+    },
+    "Réglages proposés" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggested settings"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages proposés"
           }
         }
       }
@@ -10672,6 +10992,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "revenir à la console"
+          }
+        }
+      }
+    },
+    "réseau inconnu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "unknown network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "réseau inconnu"
           }
         }
       }

@@ -35,6 +35,7 @@ use kybernow_core::{Display, WindowHandle};
 
 pub mod account;
 pub mod audio;
+pub mod autotest;
 pub mod input;
 pub mod invite;
 pub mod lend;
@@ -138,7 +139,9 @@ pub extern "C" fn kn_now_micros() -> i64 {
 // MARK: - Console
 
 /// Client de la console d'un ordinateur (hors session).
-pub struct KnConsole(Console);
+/// La console est partagée (`Arc`) : le test du profil Auto la garde sur
+/// son fil, même si l'app libère la sienne entre-temps.
+pub struct KnConsole(Arc<Console>);
 
 /// `pinned` : empreinte attendue (`sha256:…`), ou vide : le premier
 /// certificat vu est accepté et lisible par `kn_console_fingerprint_seen`.
@@ -150,13 +153,13 @@ pub unsafe extern "C" fn kn_console_new(
     password: *const c_char,
     pinned: *const c_char,
 ) -> *mut KnConsole {
-    Box::into_raw(Box::new(KnConsole(Console::new(
+    Box::into_raw(Box::new(KnConsole(Arc::new(Console::new(
         &text(host),
         port,
         &text(user),
         &text(password),
         optional(pinned),
-    ))))
+    )))))
 }
 
 #[unsafe(no_mangle)]
@@ -670,13 +673,13 @@ pub struct KnSecond {
     pub target_reason: u32,
 }
 
-/// Débit visé : un profil, au débit du profil (« 60 Mbit/s · Auto »).
+/// Débit visé : débit adaptatif allumé, au débit de base (« 60 Mbit/s · adaptatif »).
 pub const KN_TARGET_AUTO: u32 = 0;
 /// Baissé par le débit automatique (« 42 / 60 Mbit/s · baissé, réseau saturé »).
 pub const KN_TARGET_LOWERED: u32 = 1;
-/// Réglé à la main (« 80 Mbit/s · réglé à la main »).
+/// Débit adaptatif coupé : le débit reste fixe (« 80 Mbit/s · fixe »).
 pub const KN_TARGET_MANUAL: u32 = 2;
-/// PyroWave, débit automatique en pause (« 320 Mbit/s · PyroWave, Auto en pause »).
+/// PyroWave, débit adaptatif en pause (« 320 Mbit/s · PyroWave, adaptatif en pause »).
 pub const KN_TARGET_PYROWAVE_PAUSED: u32 = 3;
 /// Plafonné par l'app, `kn_session_set_bitrate_cap` (« 20 Mbit/s · fenêtre cachée »).
 pub const KN_TARGET_APP_CAPPED: u32 = 4;

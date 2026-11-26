@@ -62,6 +62,8 @@
 		9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */; };
 		9B6BD0BF8B3D0D186AF710FF /* Share.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886C131A95488837E1F01A0F /* Share.swift */; };
 		9E22CA206C86BC010E6685B1 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8731611A950718FECBB1AEFD /* OFL.txt */; };
+		A1D05AFC643E3A89FD0236FA /* AutoProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A8982B272CDFEFEC82E06D /* AutoProfile.swift */; };
+		A588F9FB442990833EBF14E5 /* AutoTestSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E60BF2CF0BE1E2DD3978A3 /* AutoTestSheet.swift */; };
 		A5C9DE552BAAC56F107ECA33 /* PlayStationCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD538B60E8D4385065CFEE6 /* PlayStationCore.swift */; };
 		A9E789543B67C9BB2811D006 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */; };
 		AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */; };
@@ -82,6 +84,7 @@
 		D92C2D77DE76B139BBF1324A /* AccountCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13248073F9AED7D7E812E4C8 /* AccountCore.swift */; };
 		DA276E7D52B66821093E4641 /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C32CCA3D27566E365281AC /* KyberTypes.swift */; };
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
+		DE1F27E722CA3C6537882A48 /* AutoTestCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709E1B34D6D39E4AF68740C7 /* AutoTestCore.swift */; };
 		E0FB2A1B7501B881B3BF7FA2 /* PlayStation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B24F6100CB4E6124445AC55 /* PlayStation.swift */; };
 		E5E04EDDEE0F0409632DB0CC /* LendViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 158698A45499ED85877056C8 /* LendViews.swift */; };
 		E7E30A2139A8B73DF65145C7 /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DA3801F739C720FA111C70C /* AudioPlayerCore.swift */; };
@@ -156,6 +159,7 @@
 		6C5C11D7DB21D2ED25AAAC45 /* SharePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharePanel.swift; sourceTree = "<group>"; };
 		6CB6F1E3DF88493B2CF6D20F /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		6E168E41971761B61C566A18 /* PlayStationHandoffModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationHandoffModel.swift; sourceTree = "<group>"; };
+		709E1B34D6D39E4AF68740C7 /* AutoTestCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestCore.swift; sourceTree = "<group>"; };
 		7343E9471127AFC6EB0FF3CA /* KyberNow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNow.entitlements; sourceTree = "<group>"; };
 		74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridge.swift; sourceTree = "<group>"; };
 		79B61535CD0B4F817B123936 /* PlayStationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationSync.swift; sourceTree = "<group>"; };
@@ -170,6 +174,7 @@
 		8C0DDB25384557B8B551045E /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		940774B27B5F893F6D351931 /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
 		94C101B09449F09428C0AF60 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		96E60BF2CF0BE1E2DD3978A3 /* AutoTestSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestSheet.swift; sourceTree = "<group>"; };
 		99198F43007755A8AA639EA3 /* CloudPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPublisher.swift; sourceTree = "<group>"; };
 		9959EAF050CC646C3E4D4F5E /* PyroWaveDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyroWaveDecoder.swift; sourceTree = "<group>"; };
 		9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
@@ -183,6 +188,7 @@
 		B4ED4A7AED04F3E6BFC4AD7D /* HDRCalibration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRCalibration.swift; sourceTree = "<group>"; };
 		B4ED9823FE738E797E819ACE /* HDRPatternView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDRPatternView.swift; sourceTree = "<group>"; };
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
+		B7A8982B272CDFEFEC82E06D /* AutoProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoProfile.swift; sourceTree = "<group>"; };
 		BD9DA692CBE7C2DFC43EFA1D /* ShareCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareCore.swift; sourceTree = "<group>"; };
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		CEBC4D26AFB6E26FEC77B803 /* pyrowave_common.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = pyrowave_common.mm; sourceTree = "<group>"; };
@@ -248,6 +254,8 @@
 				0D634CDC1A4458A7960F3E02 /* AppLife.swift */,
 				9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */,
 				63D40A4F73C24372966564C8 /* Assets.xcassets */,
+				B7A8982B272CDFEFEC82E06D /* AutoProfile.swift */,
+				96E60BF2CF0BE1E2DD3978A3 /* AutoTestSheet.swift */,
 				99198F43007755A8AA639EA3 /* CloudPublisher.swift */,
 				1B18D524B92EC557D60FED25 /* Discovery.swift */,
 				B5B2EC8B704608F092769F7C /* DisplayInfo.swift */,
@@ -296,6 +304,7 @@
 			children = (
 				13248073F9AED7D7E812E4C8 /* AccountCore.swift */,
 				0DA3801F739C720FA111C70C /* AudioPlayerCore.swift */,
+				709E1B34D6D39E4AF68740C7 /* AutoTestCore.swift */,
 				6CB6F1E3DF88493B2CF6D20F /* AV1.swift */,
 				D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */,
 				74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */,
@@ -496,6 +505,8 @@
 				FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */,
 				CB40242339185A91D8C170BF /* AppLife.swift in Sources */,
 				5518069B204C619DC5508112 /* AppSettingsView.swift in Sources */,
+				A1D05AFC643E3A89FD0236FA /* AutoProfile.swift in Sources */,
+				A588F9FB442990833EBF14E5 /* AutoTestSheet.swift in Sources */,
 				EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */,
 				129D49D3A72F85061AFEF8C2 /* Discovery.swift in Sources */,
 				81CBCEAB79C853406E2A26B8 /* DisplayInfo.swift in Sources */,
@@ -540,6 +551,7 @@
 				10B79E68B216819332FE0096 /* AV1.swift in Sources */,
 				D92C2D77DE76B139BBF1324A /* AccountCore.swift in Sources */,
 				E7E30A2139A8B73DF65145C7 /* AudioPlayerCore.swift in Sources */,
+				DE1F27E722CA3C6537882A48 /* AutoTestCore.swift in Sources */,
 				356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */,
 				66D0265DCF4DC01F8E7FF6A3 /* CoreBridge.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,

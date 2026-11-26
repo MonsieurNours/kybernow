@@ -304,7 +304,7 @@ private struct Hero: View {
                 .help(app.sessions.isFull ? LinkText.computersLimit : "")
             }
             Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
-                      icons: [.jeu: "game-controller", .bureau: "article", .max: "lightning"], height: 40)
+                      icons: Dictionary(uniqueKeysWithValues: Profile.allCases.map { ($0, $0.icon) }), height: 40)
                 .fixedSize()
             HDRChip(host: host, info: status?.info)
             Button { app.openSettings(host) } label: {
