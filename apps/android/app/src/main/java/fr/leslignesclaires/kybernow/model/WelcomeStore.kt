@@ -20,6 +20,12 @@ class WelcomeStore(context: Context) {
     private val _pairedBanner = MutableStateFlow<String?>(null)
     /** L'ordinateur sous lequel s'affiche le bandeau « Retrouvez-le aussi hors de chez vous… », s'il y en a un. */
     val pairedBanner: StateFlow<String?> = _pairedBanner.asStateFlow()
+    private val _pairedPending = MutableStateFlow<String?>(null)
+    /**
+     * L'ordinateur qui vient d'être appairé, dont le bandeau attend sa place : un seul bandeau à la fois sous « Se
+     * connecter », la mise à jour de la Station d'abord (docs/link-ui.md).
+     */
+    val pairedPending: StateFlow<String?> = _pairedPending.asStateFlow()
 
     private fun run(op: Welcome.Op, hasAccount: Boolean, computer: String = "", now: Long = Welcome.nowSecs()): Boolean {
         val step = Welcome.apply(_state.value, op, hasAccount, computer, now)
@@ -48,8 +54,21 @@ class WelcomeStore(context: Context) {
         run(Welcome.Op.CLOSE_CARD, false, now = now)
     }
 
-    /** Un ordinateur vient d'être appairé (sans compte) : le bandeau sous ses boutons, une fois par ordinateur. */
+    /**
+     * Un ordinateur vient d'être appairé (sans compte) : son bandeau attend de pouvoir s'afficher (pas de bandeau de mise
+     * à jour de la Station à la même place) ; rien n'est compté avant ([showPaired]).
+     */
     fun paired(hasAccount: Boolean, computer: String) {
+        if (!hasAccount) _pairedPending.value = computer
+    }
+
+    /**
+     * Le bandeau de [computer] peut s'afficher maintenant : le cœur le compte (`take_paired_hint`, une fois par
+     * ordinateur) et il s'affiche, ou il a déjà été vu et l'attente s'arrête.
+     */
+    fun showPaired(hasAccount: Boolean, computer: String) {
+        if (_pairedPending.value != computer) return
+        _pairedPending.value = null
         if (run(Welcome.Op.TAKE_PAIRED_HINT, hasAccount, computer)) _pairedBanner.value = computer
     }
 

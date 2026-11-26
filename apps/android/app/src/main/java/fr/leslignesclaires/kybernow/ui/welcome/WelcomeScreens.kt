@@ -61,7 +61,6 @@ import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.ui.QrCode
 import fr.leslignesclaires.kybernow.ui.account.CodeStep
-import fr.leslignesclaires.kybernow.ui.account.Steps
 import fr.leslignesclaires.kybernow.ui.account.Waiting
 import fr.leslignesclaires.kybernow.ui.panel
 
@@ -276,55 +275,66 @@ private fun PageTwo(ui: WelcomeUi, wide: Boolean, actions: WelcomeActions, first
  * COMPTE » avec le QR code et le code de la connexion par code, « Pas encore de compte ? Créez-le sur cette page. » et
  * l'attente. Approuvé depuis le téléphone, le compte arrive et l'accueil se termine.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PageTwoTv(ui: WelcomeUi, actions: WelcomeActions, first: FocusRequester) {
     val s = LocalScale.current
-    Row(horizontalArrangement = Arrangement.spacedBy(s.dp(36f))) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
+    // Tout tient dans les 540 dp du téléviseur : les avantages en deux colonnes, la carte du code à droite.
+    Row(horizontalArrangement = Arrangement.spacedBy(s.dp(32f))) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
             Step(1)
-            WelcomeTitle(stringResource(R.string.welcome2_title), 40f)
-            Body(stringResource(R.string.welcome2_body), size = 17f, color = Kn.frost2)
-            advantages.forEach { a ->
-                Row(horizontalArrangement = Arrangement.spacedBy(s.dp(14f)), verticalAlignment = Alignment.Top) {
-                    KnIcon(a.icon, tint = Kn.spectre, size = 24f)
-                    Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
-                        Eyebrow(stringResource(a.title))
-                        Body(stringResource(a.body), size = 15f, color = Kn.frost2)
+            WelcomeTitle(stringResource(R.string.welcome2_title), 34f)
+            Body(stringResource(R.string.welcome2_body), size = 16f, color = Kn.frost2)
+            advantages.chunked(2).forEach { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(s.dp(18f))) {
+                    pair.forEach { a ->
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalAlignment = Alignment.Top) {
+                            KnIcon(a.icon, tint = Kn.spectre, size = 20f)
+                            Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
+                                Eyebrow(stringResource(a.title))
+                                Body(stringResource(a.body), size = 13f, color = Kn.frost2)
+                            }
+                        }
                     }
                 }
             }
             Spacer(Modifier.height(s.dp(2f)))
             PrimaryButton(stringResource(R.string.welcome_without), actions.next, Modifier.focusRequester(first))
         }
-        CodeCard(ui.code, ui.relayLabel, actions.newCode, Modifier.width(s.dp(360f)))
+        CodeCard(ui.code, ui.relayLabel, actions.newCode, Modifier.width(s.dp(330f)))
     }
 }
 
-/** La carte du code de l'écran 2 au téléviseur (textes de « Comptes KyberNow »). */
+/** La carte du code de l'écran 2 au téléviseur (textes de « Comptes KyberNow »), centrée comme dans la maquette. */
 @Composable
 private fun CodeCard(step: CodeStep?, relayLabel: String, newCode: () -> Unit, modifier: Modifier) {
     val s = LocalScale.current
-    Column(modifier.panel(22.dp).padding(s.dp(24f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
+    Column(modifier.panel(22.dp).padding(s.dp(18f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(9f))) {
         Eyebrow(stringResource(R.string.account_sign_in), color = Kn.frost2)
         val code = (step as? CodeStep.Showing)?.code
-        Box(Modifier.size(s.dp(180f)), contentAlignment = Alignment.Center) {
-            if (code != null) QrCode(code.urlComplete, 180f, stringResource(R.string.account_code_qr))
-            else KnIcon(KnIcons.qr, tint = Kn.muted, size = 60f)
+        Box(Modifier.size(s.dp(140f)), contentAlignment = Alignment.Center) {
+            if (code != null) QrCode(code.urlComplete, 140f, stringResource(R.string.account_code_qr))
+            else KnIcon(KnIcons.qr, tint = Kn.muted, size = 50f)
         }
         when (step) {
-            is CodeStep.Showing -> Text(step.code.code, style = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(32f), letterSpacing = s.sp(3f), color = Kn.frost, fontWeight = FontWeight(600)))
-            CodeStep.Denied -> Body(stringResource(R.string.account_code_denied), color = Kn.warn, size = 15f)
-            is CodeStep.Failed -> Body(step.message.ifBlank { stringResource(R.string.add_unreachable) }, color = Kn.warn, size = 15f)
+            is CodeStep.Showing -> Text(step.code.code, style = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(26f), letterSpacing = s.sp(2f), color = Kn.frost, fontWeight = FontWeight(600)))
+            CodeStep.Denied -> Body(stringResource(R.string.account_code_denied), color = Kn.warn, size = 14f)
+            is CodeStep.Failed -> Body(step.message.ifBlank { stringResource(R.string.add_unreachable) }, color = Kn.warn, size = 14f)
             else -> {}
         }
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-            Steps(code?.urlLabel ?: "$relayLabel/tv")
-            Body(stringResource(R.string.welcome_tv_no_account), size = 15f, color = Kn.frost2)
-            when (step) {
-                is CodeStep.Showing -> Waiting(step.minutes)
-                CodeStep.Denied, is CodeStep.Failed -> GlassButton(stringResource(R.string.account_code_new), newCode)
-                else -> Waiting(null)
-            }
+        val center = androidx.compose.ui.text.style.TextAlign.Center
+        listOf(
+            stringResource(R.string.account_code_step_scan),
+            stringResource(R.string.account_code_step_open, code?.urlLabel ?: "$relayLabel/tv"),
+            stringResource(R.string.account_code_step_connect),
+            stringResource(R.string.welcome_tv_no_account),
+        ).forEach { line ->
+            Text(line, color = Kn.frost2, textAlign = center, style = TextStyle(fontFamily = KnFonts.text, fontSize = s.sp(13f), lineHeight = s.sp(17f)))
+        }
+        when (step) {
+            is CodeStep.Showing -> Waiting(step.minutes)
+            CodeStep.Denied, is CodeStep.Failed -> GlassButton(stringResource(R.string.account_code_new), newCode)
+            else -> Waiting(null)
         }
     }
 }
