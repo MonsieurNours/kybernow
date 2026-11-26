@@ -1039,6 +1039,8 @@ class AppSettingsActions(
     val signIn: () -> Unit = {},
     /** « Ajouter un compte » : le relais d'abord. */
     val addAccount: () -> Unit = {},
+    /** « Un autre relais… » (aucun compte) : l'adresse du relais, puis la connexion. */
+    val otherRelay: () -> Unit = {},
     /** « Synchroniser les réglages des ordinateurs ». */
     val setSyncSettings: (Boolean) -> Unit = {},
     /** « Revoir l'accueil » : les trois écrans du premier lancement (docs/link-ui.md, « Accueil et compte KyberNow »). */
@@ -1049,7 +1051,7 @@ class AppSettingsActions(
 )
 
 @Composable
-fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -> Unit = {}, onAddAccount: () -> Unit = {}, onReplayWelcome: () -> Unit = {}) {
+fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -> Unit = {}, onAddAccount: () -> Unit = {}, onReplayWelcome: () -> Unit = {}, onOtherRelay: () -> Unit = {}) {
     val app = KyberNowApp.instance
     val context = LocalContext.current
     val stored by app.accounts.accounts.collectAsState()
@@ -1092,6 +1094,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             signOut = { a -> app.accounts.signOut(a.key) },
             signIn = onSignIn,
             addAccount = onAddAccount,
+            otherRelay = onOtherRelay,
             replayWelcome = onReplayWelcome,
             setMic = { k -> MicPrefs.setDevice(context, k); micDevice = k },
             setVoiceProcessing = { on -> MicPrefs.setVoiceProcessing(context, on); voice = on },
@@ -1124,7 +1127,7 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
         Section(stringResource(R.string.account_section))
         fr.leslignesclaires.kybernow.ui.account.AccountsRows(
             state.accounts, state.signingIn, actions.manageAccount, actions.signOut, actions.signIn, actions.addAccount,
-            state.syncSettings, state.syncTexts, actions.setSyncSettings,
+            state.syncSettings, state.syncTexts, actions.setSyncSettings, actions.otherRelay,
         )
 
         Section(stringResource(R.string.app_settings_device))

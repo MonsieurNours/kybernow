@@ -191,6 +191,7 @@ class MainActivity : AppCompatActivity() {
                         onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads },
                         onSignIn = { signIn(Accounts.DEFAULT_RELAY, Route.AppSettings) },
                         onAddAccount = { route = Route.AccountRelay(back = Route.AppSettings) },
+                        onOtherRelay = { route = Route.AccountRelay(other = true, back = Route.AppSettings) },
                         onReplayWelcome = { route = Route.Welcome(accounts = app.accounts.accounts.value.size) },
                     )
                     is Route.Welcome -> WelcomeRoute(r)

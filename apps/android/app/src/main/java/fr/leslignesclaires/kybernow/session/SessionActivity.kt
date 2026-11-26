@@ -1546,7 +1546,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             return
         }
         val v = surfaceView
-        pointerView.place((v.left + p.x / d.width * v.width).toFloat(), (v.top + p.y / d.height * v.height).toFloat(), true)
+        pointerView.place((v.left + p.x / d.width * v.width).toFloat(), (v.top + p.y / d.height * v.height).toFloat(), true, v.width.toFloat() / d.width)
     }
 
     // MARK: - Clavier, télécommande, manettes

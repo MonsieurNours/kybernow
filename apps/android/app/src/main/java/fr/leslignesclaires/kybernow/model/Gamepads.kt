@@ -203,7 +203,12 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
             // (shield-ask-remote, virtual-search…) annoncent parfois
             // SOURCE_GAMEPAD et le bouton A, sans stick.
             if (s and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return false
-            return d.getMotionRange(MotionEvent.AXIS_X) != null && d.getMotionRange(MotionEvent.AXIS_Y) != null
+            // Des souris (Logitech, récepteurs à plusieurs interfaces) annoncent aussi
+            // SOURCE_JOYSTICK : sans boutons de manette, une souris reste une souris.
+            if (s and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE && s and InputDevice.SOURCE_GAMEPAD != InputDevice.SOURCE_GAMEPAD) return false
+            // Les axes X et Y du stick, pas ceux de la souris du même appareil.
+            return d.getMotionRange(MotionEvent.AXIS_X, InputDevice.SOURCE_JOYSTICK) != null &&
+                d.getMotionRange(MotionEvent.AXIS_Y, InputDevice.SOURCE_JOYSTICK) != null
         }
 
         fun isGamepadEvent(event: KeyEvent): Boolean {

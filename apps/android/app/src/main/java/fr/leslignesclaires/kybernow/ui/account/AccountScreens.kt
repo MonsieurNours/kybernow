@@ -358,8 +358,8 @@ fun AccountRelayContent(typing: Boolean, error: String?, onDefault: () -> Unit, 
 /**
  * Les comptes dans les réglages de l'app : chacun avec son nom, son e-mail, son relais, « Gérer le compte » (la page du
  * compte dans le navigateur) et « Se déconnecter » (confirmé : « Se déconnecter de {compte} ? Ses ordinateurs quittent
- * cet appareil ; ceux que vous avez appairés restent. ») ; sans compte, « Aucun compte. » et « Connecter un compte
- * KyberNow » ; avec, « Ajouter un compte » ; puis l'aide (créer, changer le mot de passe, supprimer : sur la page du compte).
+ * cet appareil ; ceux que vous avez appairés restent. ») ; sans compte, « Aucun compte. », « Connecter un compte
+ * KyberNow » et « Un autre relais… » (un compte sur un autre relais que share.kybernow.app) ; avec, « Ajouter un compte » ; puis l'aide (créer, changer le mot de passe, supprimer : sur la page du compte).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -367,12 +367,14 @@ fun AccountsRows(
     accounts: List<AccountSummary>, signingIn: Boolean,
     onManage: (AccountSummary) -> Unit, onSignOut: (AccountSummary) -> Unit, onSignIn: () -> Unit, onAdd: () -> Unit,
     syncSettings: Boolean = true, syncTexts: Pair<String, String>? = null, onSyncSettings: (Boolean) -> Unit = {},
+    onOtherRelay: () -> Unit = onAdd,
 ) {
     val s = LocalScale.current
     if (accounts.isEmpty()) {
         Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
             Body(stringResource(R.string.account_none), size = 16f, color = Kn.frost2)
             PrimaryButton(stringResource(if (signingIn) R.string.account_signing_in else R.string.account_sign_in), { if (!signingIn) onSignIn() })
+            if (!signingIn) GlassButton(stringResource(R.string.account_other_relay), onOtherRelay)
         }
     }
     accounts.forEach { a -> AccountRow(a, { onManage(a) }, { onSignOut(a) }) }

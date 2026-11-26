@@ -503,7 +503,7 @@ Contract: [comptes.en.md](comptes.en.md) (batch 3); mock-up: “Link apps” row
 | Settings of an account computer, Station section | “KyberNow account” and the relay instead of the Admin account; no “Remove” (it leaves with the account) | « Compte KyberNow » ; pas de « Retirer » |
 | Sign out, confirmation | “Sign out of {account}? Its computers leave this device; the ones you paired stay.”; “Sign out”, “Cancel” | « Se déconnecter de {compte} ? Ses ordinateurs quittent cet appareil ; ceux que vous avez appairés restent. » |
 | Add | “Add an account”: the relay first (“share.kybernow.app” offered, “Another relay…”), then sign-in | « Ajouter un compte » |
-| No account | “No account.” and “Connect an account” | « Aucun compte. » et « Connecter un compte » |
+| No account | “No account.” and “Connect an account”; another relay always within reach: “Another relay…” next to it (Windows, Android), the relay choice after the button (Mac, Linux), or “Add an account” below (iPhone, iPad) | « Aucun compte. » et « Connecter un compte » ; « Un autre relais… » |
 | Station too old | “This Station doesn't give tokens to KyberNow accounts yet: update it.” | « Cette Station ne donne pas encore de jeton aux comptes KyberNow : mettez-la à jour. » |
 | Other relay refusals | “Sign-in didn't go through: try again.” (return refused); “This code is no longer valid: a new one is shown.”; “Too many attempts: try again in {n} min.”; “Unexpected answer from the relay ({error}).” | « La connexion n'a pas abouti : réessayez. » ; « Ce code ne sert plus : un nouveau s'affiche. » ; « Trop d'essais : réessayez dans {n} min. » ; « Réponse inattendue du relais ({erreur}). » |
 
