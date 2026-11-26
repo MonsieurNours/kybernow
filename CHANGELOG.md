@@ -8,6 +8,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 ## 0.11.3
 
 - **Profil Auto : l'app Mac, l'iPhone, l'iPad et l'Apple TV ne s'arrêtent plus au « Décodage de cet appareil ».** L'app se fermait à cette étape, après la liaison, la latence et le débit. Le test va maintenant jusqu'au bout.
+- **Plus de « Reconnexion » sans fin quand l'ordinateur refuse l'image.** Une image refusée dès le départ (le profil Auto pouvait demander du HEVC à près de 600 Mbit/s en 4K à 160 Hz) relançait le flux au même débit, sans fin. Le flux est maintenant allégé (débit ramené, puis 4:2:0) ; s'il est encore refusé, la session s'arrête avec un message au lieu de boucler.
 - **Profil Auto : PyroWave mesuré.** Les extraits PyroWave du test étaient illisibles : aucun appareil ne pouvait les décoder, et PyroWave n'était jamais proposé par le test. Ils sont refaits.
 
 ## 0.11.2

@@ -4147,7 +4147,9 @@ impl Worker {
             Event::DataPlaneConnectFailed => return Some(Failure::kyber(t("session.stream_failed", &[]))),
             Event::StreamingStarted => {
                 self.latency.reset();
-                self.retries = 0;
+                // `retries` n'est pas remis à zéro ici : une image refusée
+                // juste après chaque départ relançait le flux sans fin
+                // (« Reconnexion » en boucle) ; il repart après 30 s sans relance.
                 if let Some(n) = self.pending_notice.take() {
                     self.relaunched = false;
                     self.notice(n);
@@ -4228,8 +4230,9 @@ impl Worker {
     }
 
     /// Erreur de la chaîne d'image (`kind` : son étage) : écran redemandé
-    /// juste après une reconnexion, sinon image relancée (3 fois au plus,
-    /// le compte repart après 30 s sans relance).
+    /// juste après une reconnexion ; sans image encore sur ce flux, flux
+    /// allégé (`degrade`) ; sinon image relancée (3 fois au plus, le compte
+    /// repart après 30 s sans relance).
     fn pipeline_failed(&mut self, kind: &str) -> Option<Failure> {
         warn!("{}", i18n::tr(Lang::Fr, "session.pipeline", &[("kind", kind)]));
         if self.adapting {
@@ -4242,6 +4245,12 @@ impl Worker {
                 self.stop_streaming();
                 return self.restore_screen().err().map(Failure::from);
             }
+        }
+        // Jamais d'image sur ce flux : l'encodeur de l'ordinateur le refuse
+        // sans doute (HEVC à 593 Mbit/s en 4K 160 Hz, 0.11.2) ; relancé tel
+        // quel, il retombe aussitôt. On l'allège d'abord, comme sans image en 4 s.
+        if !self.has_image.load(Ordering::Relaxed) && self.degrade() {
+            return None;
         }
         if self.last_retry.is_some_and(|t| t.elapsed() > Duration::from_secs(30)) {
             self.retries = 0;

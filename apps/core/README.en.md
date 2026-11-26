@@ -341,6 +341,8 @@ Contract: [docs/hdr.en.md](../../docs/hdr.en.md); texts: [docs/link-ui.en.md](..
 
 Contract: [docs/profil-auto.en.md](../../docs/profil-auto.en.md); the full description is in the French README, same section. The test's decoding step passes the embedded samples (`autotest::samples_for(caps)`, `samples/*.kns`, made by `scripts/samples.sh`) to the app's decoder (`SampleDecoder`: frames per second, `None` if not decoded).
 
+Picture refused by the computer right from the start (an error `StreamerPipelineEvent` before any frame, `pipeline_failed`): the stream is lightened as with no frame in 4 s (`degrade`: bitrate brought down to `Recovery::fallback_bitrate`, then 4:2:0); then three restarts at most. Up to 0.11.2, `StreamingStarted` reset the restart count: a stream refused at every start (HEVC at 593 Mbit/s in 4K 160 Hz chosen by the Auto profile, refused by NVENC) looped on “Reconnecting” forever.
+
 PyroWave samples (`samples/pyrowave-*.kns`): one frame starting with PyroWave's sequence header. In 0.11.2, `scripts/samples-pack.py` read the `encode` tool's file from its start, where the `KNPW` configuration packet sits (16 bytes): the single stored packet began with the end of that packet, no decoder could read it (“incomplete frame”), and the Mac app crashed behind it (see [apps/macos/README.en.md](../macos/README.en.md#auto-profile-and-adaptive-bitrate)). The script now skips those 16 bytes; both samples were repaired as they were (the 16 extra bytes removed, the frame untouched); `extraits_embarques` checks the header (`extended` bit, 3840 × 2160, chroma).
 
 ## Target bitrate in the statistics (`src/adaptive.rs`, `src/session.rs`, `src/latency.rs`)
