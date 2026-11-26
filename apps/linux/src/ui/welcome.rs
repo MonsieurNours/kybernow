@@ -389,7 +389,8 @@ pub fn account_card(app: &App, cv: &mut Canvas, f: &mut Frame, r: Rect, u: f32, 
     let final_close = app.store.app.welcome.card_close_is_final();
     let close_label = if final_close { tr("Ne plus afficher", "Don't show again") } else { tr("Fermer", "Close") };
     let lst = Text::new(Font::Regular, 11.0 * u, LILAC.alpha(0.8));
-    let lw = if final_close { cv.text_width(lst, close_label) + 6.0 * u } else { 0.0 };
+    // Sur une place, la croix seule (la place manque pour son libellé) ; elle ferme pour de bon tout de même.
+    let lw = if final_close && wide { cv.text_width(lst, close_label) + 6.0 * u } else { 0.0 };
     let cr = Rect::new(r.x + r.w - 6.0 * u - xs - lw, r.y + 6.0 * u, xs + lw, xs);
     let (focused, hover) = f.state(Target::CardClose, cr);
     if focused {
@@ -398,20 +399,24 @@ pub fn account_card(app: &App, cv: &mut Canvas, f: &mut Frame, r: Rect, u: f32, 
     if hover {
         cv.rrect(cr.x, cr.y, cr.w, cr.h, 6.0 * u, Rgba(227, 237, 240, 20));
     }
-    if final_close {
+    if final_close && wide {
         cv.text(cr.x + 4.0 * u, cr.y + cr.h / 2.0 + 4.0 * u, lst, close_label);
     }
     cv.icon(&Icon::Close, cr.x + cr.w - xs + 5.0 * u, cr.y + 5.0 * u, 12.0 * u, 2.0, LILAC.alpha(0.8));
     // Le texte.
-    let max = r.w - 2.0 * pad - cr.w - 4.0 * u;
     cv.icon(&Icon::Globe, r.x + pad, r.y + pad - 1.0 * u, 13.0 * u, 2.0, LILAC);
     eyebrow(cv, r.x + pad + 19.0 * u, r.y + pad + 10.0 * u, 10.0 * u, LILAC, "Compte KyberNow");
     let title = tr("Retrouvez vos ordinateurs partout", "Find your computers everywhere");
-    let bh = 28.0 * u;
-    let by = r.y + r.h - pad - bh + 2.0 * u;
+    let bh = if wide { 28.0 } else { 24.0 } * u;
+    let by = r.y + r.h - pad - bh + if wide { 2.0 } else { 4.0 } * u;
     let title_y = r.y + pad + 33.0 * u;
-    cv.text_shrink(r.x + pad, title_y, Text::new(Font::Title, 15.5 * u, FROST), title, if wide { r.w - 2.0 * pad } else { max + cr.w });
-    if by - title_y > 30.0 * u {
+    if wide {
+        cv.text_shrink(r.x + pad, title_y, Text::new(Font::Title, 15.5 * u, FROST), title, r.w - 2.0 * pad);
+    } else {
+        // Une place : le titre sur deux lignes, plus petit.
+        cv.paragraph(r.x + pad, title_y - 4.0 * u, Text::new(Font::Title, 12.5 * u, FROST), title, r.w - 2.0 * pad, 15.0 * u);
+    }
+    if wide && by - title_y > 30.0 * u {
         cv.text_fit(r.x + pad, title_y + 20.0 * u, Text::new(Font::Regular, 12.5 * u, Rgba::hex(0xC9C5E2)), tr("Sur tous vos appareils, même hors de chez vous.", "On all your devices, even away from home."), r.w - 2.0 * pad);
     }
     let bw = small_primary(cv, f, Target::CardSignIn, r.x + pad, by, bh, 13.0 * u, None, connect_label());

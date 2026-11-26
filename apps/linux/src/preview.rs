@@ -1314,6 +1314,10 @@ fn welcome_shots(en: bool, layout: Layout, cv: &mut Canvas, dir: &Path, prefix: 
     shot(&mut app, cv, None, dir, &name("73-sans-compte"));
     app.store.app.welcome.close_card(1);
     shot(&mut app, cv, None, dir, &name("73b-sans-compte-carte-revenue"));
+    // Sans ordinateur sur le réseau : la carte prend deux places (« Créer un compte » au bureau).
+    let found = std::mem::take(&mut app.found);
+    shot(&mut app, cv, None, dir, &name("73c-sans-compte-carte-large"));
+    app.found = found;
     // Hors ligne, loin de chez soi.
     app.live.insert("a".into(), HostLive { online: Online::Offline, ..Default::default() });
     app.images.clear();
@@ -1756,7 +1760,10 @@ mod tests {
                 let id = app.paired(hst);
                 let hits = ui::draw(&app, &mut cv);
                 fits(&hits, w, h, &what("sans compte"));
-                for t in [Target::AccountTop, Target::CardSignIn, Target::CardClose] {
+                // La fenêtre la plus étroite (trois places : l'ordinateur, celui du réseau, l'ajout) n'a pas de place libre pour la carte.
+                let narrow = layout == Layout::Desktop && w < 1000.0;
+                assert_eq!(hits.iter().any(|(x, _)| *x == Target::CardSignIn), !narrow, "{}", what("carte"));
+                for t in [Target::AccountTop] {
                     assert!(hits.iter().any(|(x, _)| *x == t), "{} : {t:?}", what("sans compte"));
                 }
                 if layout != Layout::Desktop || h >= 800.0 {
@@ -1766,7 +1773,7 @@ mod tests {
                 let hits = ui::draw(&app, &mut cv);
                 fits(&hits, w, h, &what("mise à jour d'abord"));
                 assert!(hits.iter().any(|(x, _)| *x == Target::OfferUpdate) && !hits.iter().any(|(x, _)| *x == Target::PairedSignIn));
-                assert!(hits.iter().any(|(x, _)| *x == Target::AccountTop) && hits.iter().any(|(x, _)| *x == Target::CardSignIn));
+                assert!(hits.iter().any(|(x, _)| *x == Target::AccountTop) && (narrow || hits.iter().any(|(x, _)| *x == Target::CardSignIn)));
                 app.live.entry(id.clone()).or_default().offer.banner = crate::station_offer::OfferBanner::None;
                 // Hors de chez vous.
                 app.live.entry(id.clone()).or_default().online = Online::Offline;
