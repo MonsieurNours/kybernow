@@ -10,10 +10,8 @@
 // Mac (DefaultOutput), Apple TV, iPhone et iPad (RemoteIO).
 
 import AudioToolbox
-import Foundation
-#if os(iOS) || os(tvOS)
 import AVFoundation
-#endif
+import Foundation
 @_implementationOnly import CKyberNow
 
 /// Mesures du son, une fois par seconde.
@@ -130,7 +128,13 @@ final class AudioPlayer: @unchecked Sendable {
 
         #if os(iOS) || os(tvOS)
         let session = AVAudioSession.sharedInstance()
+        #if os(iOS)
+        // Micro allumé (docs/micro.md) : la session reste en `playAndRecord`
+        // jusqu'à la coupure, qui remet la catégorie d'avant.
+        if !MicrophoneCapture.holdsAudioSession { try? session.setCategory(.playback, mode: .default) }
+        #else
         try? session.setCategory(.playback, mode: .default)
+        #endif
         try? session.setPreferredIOBufferDuration(0.005)
         try? session.setSupportsMultichannelContent(channels > 2)
         try? session.setActive(true)
@@ -305,3 +309,297 @@ final class AudioPlayer: @unchecked Sendable {
         #endif
     }
 }
+
+// MARK: - Micro de l'appareil (docs/micro.md)
+
+/// L'état du micro dit par le cœur (`on_microphone`) : ce que montrent la
+/// puce et la tuile « Micro ».
+public enum MicState: Equatable, Sendable {
+    /// Coupé : rien n'est capté.
+    case off
+    /// Allumé, la réponse de l'ordinateur pas encore venue (« Envoi… ») : capté.
+    case waiting
+    /// Allumé et pris par l'ordinateur : capté et envoyé.
+    case on
+    /// L'ordinateur ne le prend pas : `reason` (`not_allowed`, `no_device`,
+    /// `unsupported`, `old_station`) et le texte de link-ui (`text`).
+    case refused(reason: String, text: String)
+
+    /// Lu dans le JSON du cœur (`MicState::to_json`) ; illisible : coupé.
+    public init(json: String?) {
+        guard let json, let data = json.data(using: .utf8),
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            self = .off
+            return
+        }
+        switch j["state"] as? String {
+        case "waiting": self = .waiting
+        case "on": self = .on
+        case "refused": self = .refused(reason: j["reason"] as? String ?? "unsupported", text: j["text"] as? String ?? "")
+        default: self = .off
+        }
+    }
+
+    /// L'app capte le micro.
+    public var capturing: Bool { self == .on || self == .waiting }
+
+    /// La raison quand l'ordinateur ne le prend pas.
+    public var refusal: String? {
+        if case let .refused(_, text) = self { return text }
+        return nil
+    }
+
+    /// Un invité que l'hôte ne laisse pas parler (sa puce n'est pas montrée).
+    public var notAllowed: Bool {
+        if case .refused("not_allowed", _) = self { return true }
+        return false
+    }
+}
+
+#if os(macOS) || os(iOS)
+/// Réglages de l'app pour le micro (Réglages de l'app › Micro), pour tous les ordinateurs.
+public enum MicrophonePrefs {
+    private static let deviceKey = "micDevice"
+    private static let voiceKey = "micVoiceProcessing"
+
+    /// Le micro choisi (son identifiant : UID Core Audio sur Mac, `uid` du
+    /// port sur iPhone et iPad) ; nil : « Celui du système ». Un micro
+    /// débranché reste choisi : celui du système en attendant.
+    public static var device: String? {
+        get { UserDefaults.standard.string(forKey: deviceKey) }
+        set { UserDefaults.standard.set(newValue, forKey: deviceKey) }
+    }
+
+    /// « Réduire l'écho et le bruit » : le traitement voix d'Apple, allumé par défaut.
+    public static var voiceProcessing: Bool {
+        get { UserDefaults.standard.object(forKey: voiceKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: voiceKey) }
+    }
+}
+
+/// Un micro de l'appareil, pour la liste des réglages.
+public struct MicDevice: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+}
+
+/// L'autorisation du système pour le micro, demandée la première fois qu'on
+/// l'allume, jamais avant.
+public enum MicrophoneAccess {
+    public enum Status: Sendable { case undetermined, granted, denied }
+
+    public static var status: Status {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return .granted
+        case .notDetermined: return .undetermined
+        default: return .denied
+        }
+    }
+
+    /// Demande l'autorisation si elle n'a jamais été demandée ; `done` sur le
+    /// fil principal, vrai si le micro est permis.
+    public static func request(_ done: @escaping @MainActor (Bool) -> Void) {
+        switch status {
+        case .granted: Task { @MainActor in done(true) }
+        case .denied: Task { @MainActor in done(false) }
+        case .undetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { granted in Task { @MainActor in done(granted) } }
+        }
+    }
+}
+
+/// La capture du micro pendant une session : AVAudioEngine (nœud d'entrée,
+/// traitement voix d'Apple selon « Réduire l'écho et le bruit »), un nœud
+/// puits (`AVAudioSinkNode`) au rythme de la carte son, sans le tampon de
+/// 100 ms d'un `installTap` ; les échantillons, mono, partent au cœur depuis
+/// le fil temps réel (`kn_session_push_microphone` ne bloque pas).
+/// iPhone et iPad : la session audio passe en `playAndRecord` (mode
+/// `voiceChat` avec le traitement voix) tant que le micro est capté, puis
+/// revient à sa catégorie d'avant.
+final class MicrophoneCapture {
+    typealias Push = (UnsafePointer<Float>, Int, UInt32) -> Void
+
+    /// iPhone, iPad : la capture tient la session audio (le son de la
+    /// session ne la remet pas en `playback`).
+    nonisolated(unsafe) static var holdsAudioSession = false
+
+    private let engine = AVAudioEngine()
+    private let push: Push
+    private var sink: AVAudioSinkNode?
+    private var observer: NSObjectProtocol?
+    private var running = false
+    #if os(iOS)
+    private var previous: (category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
+    #endif
+
+    init(push: @escaping Push) {
+        self.push = push
+    }
+
+    deinit { stop() }
+
+    /// Démarre la capture, avec le micro et le traitement voix des réglages de l'app.
+    func start() throws {
+        guard !running else { return }
+        let device = MicrophonePrefs.device
+        let voice = MicrophonePrefs.voiceProcessing
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        if previous == nil { previous = (session.category, session.mode, session.categoryOptions) }
+        let mode: AVAudioSession.Mode = voice ? .voiceChat : .default
+        // Le son de l'ordinateur reste en haut-parleur ou en A2DP (AirPods en stéréo).
+        let base: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothA2DP, .allowAirPlay]
+        try session.setCategory(.playAndRecord, mode: mode, options: base)
+        Self.holdsAudioSession = true
+        func find() -> AVAudioSessionPortDescription? { device.flatMap { id in session.availableInputs?.first { $0.uid == id } } }
+        var chosen = find()
+        if device != nil, chosen == nil {
+            // Un micro Bluetooth choisi (AirPods) n'apparaît qu'en mains libres ;
+            // absent même ainsi (débranché) : celui du système, sans mains libres.
+            try? session.setCategory(.playAndRecord, mode: mode, options: base.union(.allowBluetoothHFP))
+            chosen = find()
+            if chosen == nil { try? session.setCategory(.playAndRecord, mode: mode, options: base) }
+        }
+        try session.setActive(true)
+        // Le micro choisi, s'il est branché ; sinon celui du système.
+        try? session.setPreferredInput(chosen)
+        #endif
+        let input = engine.inputNode
+        if voice {
+            // Le traitement voix tient l'entrée et la sortie du moteur ensemble.
+            _ = engine.outputNode
+            do {
+                try input.setVoiceProcessingEnabled(true)
+                // Le son de l'ordinateur ne doit pas baisser pendant qu'on parle.
+                input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
+            } catch {
+                KyberLog.app.error("micro : traitement voix impossible (\(error.localizedDescription, privacy: .public))")
+            }
+        }
+        #if os(macOS)
+        if let device, let id = Self.deviceID(uid: device), let unit = input.audioUnit {
+            var value = id
+            let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &value, UInt32(MemoryLayout<AudioDeviceID>.size))
+            if status != noErr { KyberLog.app.error("micro : choix de \(device, privacy: .public) refusé (\(status))") }
+        }
+        #endif
+        let inFormat = input.outputFormat(forBus: 0)
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0,
+              let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inFormat.sampleRate, channels: 1, interleaved: false) else {
+            throw NSError(domain: "KyberNow.Micro", code: 1, userInfo: [NSLocalizedDescriptionKey: "pas d'entrée"])
+        }
+        let rate = UInt32(mono.sampleRate)
+        let push = self.push
+        let sink = AVAudioSinkNode { _, frames, list in
+            let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
+            if let first = buffers.first, let data = first.mData {
+                let count = min(Int(frames), Int(first.mDataByteSize) / MemoryLayout<Float>.size)
+                if count > 0 { push(data.assumingMemoryBound(to: Float.self), count, rate) }
+            }
+            return noErr
+        }
+        engine.attach(sink)
+        engine.connect(input, to: sink, format: mono)
+        self.sink = sink
+        engine.prepare()
+        try engine.start()
+        running = true
+        // Micro branché ou débranché, sortie changée : le moteur s'arrête ; il reprend.
+        observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            guard let self, self.running else { return }
+            KyberLog.app.notice("micro : configuration changée, reprise")
+            self.teardown()
+            try? self.start()
+        }
+        KyberLog.app.notice("micro capté : \(Int(mono.sampleRate)) Hz, traitement voix \(voice ? "oui" : "non", privacy: .public), \(device ?? "celui du système", privacy: .public)")
+    }
+
+    /// Arrête la capture ; iPhone et iPad : la session audio revient à sa catégorie d'avant.
+    func stop() {
+        guard running || sink != nil else { return }
+        teardown()
+        #if os(iOS)
+        Self.holdsAudioSession = false
+        if let previous {
+            try? AVAudioSession.sharedInstance().setCategory(previous.category, mode: previous.mode, options: previous.options)
+        }
+        previous = nil
+        #endif
+        KyberLog.app.notice("micro arrêté")
+    }
+
+    private func teardown() {
+        running = false
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        engine.stop()
+        if let sink {
+            engine.disconnectNodeInput(sink)
+            engine.detach(sink)
+        }
+        sink = nil
+        if engine.inputNode.isVoiceProcessingEnabled { try? engine.inputNode.setVoiceProcessingEnabled(false) }
+    }
+
+    // MARK: Les micros de l'appareil
+
+    /// Les micros de l'appareil, par leur nom (Mac : appareils Core Audio à
+    /// entrée, sans le « Micro KyberNow » d'une Station ; iPhone, iPad : les
+    /// entrées de la session audio).
+    static func devices() -> [MicDevice] {
+        #if os(macOS)
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids.compactMap { id -> MicDevice? in
+            guard inputChannels(id) > 0, let uid = string(id, kAudioDevicePropertyDeviceUID), let name = string(id, kAudioObjectPropertyName) else { return nil }
+            // Le micro virtuel de la Station Mac n'est pas un micro de cet appareil.
+            if name.localizedCaseInsensitiveContains("KyberNow") { return nil }
+            return MicDevice(id: uid, name: name)
+        }
+        #else
+        return (AVAudioSession.sharedInstance().availableInputs ?? []).map { MicDevice(id: $0.uid, name: $0.portName) }
+        #endif
+    }
+
+    #if os(macOS)
+    private static func inputChannels(_ id: AudioDeviceID) -> Int {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration, mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, raw) == noErr else { return 0 }
+        let list = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        return list.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    private static func string(_ id: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> String? {
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr, let value else { return nil }
+        return value.takeRetainedValue() as String
+    }
+
+    /// L'appareil Core Audio d'un UID, s'il est branché.
+    static func deviceID(uid: String) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var cf = uid as CFString
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafeMutablePointer(to: &cf) { ptr in
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, UInt32(MemoryLayout<CFString>.size), ptr, &size, &id)
+        }
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
+    }
+    #endif
+}
+
+/// Les micros de l'appareil, pour Réglages de l'app › Micro.
+public enum MicrophoneDevices {
+    public static func list() -> [MicDevice] { MicrophoneCapture.devices() }
+}
+#endif

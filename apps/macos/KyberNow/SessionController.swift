@@ -373,6 +373,58 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var hdrScreens: [Bool] = []
     /// Un écran au moins de la session est en HDR (« HDR » des statistiques).
     var hdrStreaming: Bool { hdrScreens.contains(true) }
+    // MARK: Micro (docs/micro.md)
+
+    /// L'état du micro dit par le cœur (puce « Micro », menu Session).
+    @Published private(set) var micState: MicState = .off
+    /// Allumé par l'utilisateur, en attente de l'ordinateur : l'avis « Micro
+    /// envoyé à {nom}. » vient quand il le prend.
+    private var micJustOn = false
+
+    /// La puce « Micro » est allumée : le choix de l'ordinateur, sauf refus.
+    var micOn: Bool { host.settings.microphone && micState.refusal == nil }
+    /// Un invité que l'hôte ne laisse pas parler n'a pas la puce (docs/link-ui.md, « Partage »).
+    var micShown: Bool { !(isGuest && micState.notAllowed) }
+
+    /// ⌃⌥⌘V et le menu Session.
+    func toggleMicrophone() { setMicrophone(!host.settings.microphone) }
+
+    /// « Micro » de la barre, du menu ou des réglages de l'ordinateur : le
+    /// choix est gardé pour l'ordinateur ; l'autorisation du système est
+    /// demandée la première fois qu'on l'allume, jamais avant.
+    func setMicrophone(_ on: Bool) {
+        guard on != host.settings.microphone else { return }
+        guard on else { return applyMicrophone(false) }
+        // L'ordinateur ne le prend pas : la raison (au clavier ; la puce est inactive).
+        if let reason = micState.refusal {
+            return showHint(.notice(reason), after: 0, for: 5)
+        }
+        MicrophoneAccess.request { [weak self] granted in
+            guard let self else { return }
+            guard granted else { return self.showHint(.notice(MicText.permission), after: 0, for: 6) }
+            self.applyMicrophone(true)
+        }
+    }
+
+    private func applyMicrophone(_ on: Bool) {
+        commit { $0.settings.microphone = on }
+        micJustOn = on
+        engine?.setMicrophone(on)
+    }
+
+    /// Le cœur dit l'état du micro (la capture suit déjà dans `SessionEngine`).
+    private func microphoneChanged(_ state: MicState) {
+        micState = state
+        if state.refusal != nil { micJustOn = false }
+        if micJustOn, state == .on {
+            micJustOn = false
+            showHint(.notice(MicText.sent(host.name)), after: 0, for: 3)
+        }
+    }
+
+    /// Réglages de l'app changés (micro choisi, écho et bruit) : la capture reprend avec eux.
+    func microphoneSettingsChanged() { engine?.microphoneSettingsChanged() }
+
     /// L'écran de ce Mac qui montre chaque écran de la session est HDR, par
     /// index d'écran de l'appareil (session à un écran : 0, l'écran de la fenêtre).
     @Published private var deviceHDR: [Int: Bool] = [:]
@@ -1609,6 +1661,7 @@ final class SessionController: NSObject, ObservableObject {
         engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
         engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
+        engine.onMicrophone = { [weak self] in self?.microphoneChanged($0) }
         engine.onHDR = { [weak self] screens in
             guard let self else { return }
             KyberLog.app.notice("HDR des écrans de la session : \(screens.map { $0 ? "oui" : "non" }.joined(separator: ", "), privacy: .public)")
@@ -1663,6 +1716,10 @@ final class SessionController: NSObject, ObservableObject {
         params.hdrOffer = store.status[host.id]?.info?.hdr
         // Inscrite au registre des sessions du cœur dès son départ (plusieurs ordinateurs).
         params.focusName = host.name
+        // Le micro retenu pour cet ordinateur, si le système le permet encore ;
+        // autorisation retirée depuis : coupé pour cette session, avec l'avis.
+        params.microphone = settings.microphone && MicrophoneAccess.status == .granted
+        if settings.microphone, MicrophoneAccess.status == .denied { showHint(.notice(MicText.permission), after: 2, for: 6) }
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)

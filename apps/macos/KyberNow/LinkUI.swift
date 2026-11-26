@@ -297,6 +297,9 @@ enum ShareText {
     }
     static var nobody: String { String(localized: "Personne pour l'instant.") }
     static var newCode: String { String(localized: "Nouveau code") }
+    /// « Micro des invités » (docs/link-ui.md, « Partage » ; docs/micro.md).
+    static var guestsSpeak: String { String(localized: "Laisser les invités parler") }
+    static var guestsSpeakHelp: String { String(localized: "Leur micro arrive sur l'ordinateur, pour un jeu ou un appel.") }
     static var stop: String { String(localized: "Arrêter le partage") }
     static var fourGuests: String { String(localized: "Quatre invités au plus.") }
     static var givePads: String { String(localized: "Donner les manettes") }
@@ -586,6 +589,38 @@ enum SettingsText {
 
 /// HDR (docs/hdr.md ; textes de docs/link-ui.md, section HDR) : les mêmes
 /// partout. Les raisons d'une puce inactive viennent de `HDRState.reason`.
+#if os(macOS) || os(iOS)
+/// Le micro de l'appareil envoyé à l'ordinateur (docs/link-ui.md, « Micro » ;
+/// docs/micro.md) : puce de la barre, tuile du menu, réglages, avis.
+enum MicText {
+    static var label: String { String(localized: "Micro") }
+    static var labelOff: String { String(localized: "Micro coupé") }
+    /// Infobulles de la puce, avec son raccourci (⌃⌥⌘V sur Mac).
+    static func tooltipOn(_ shortcut: String) -> String { String(localized: "Micro : envoyé à l'ordinateur (\(shortcut))") }
+    static func tooltipOff(_ shortcut: String) -> String { String(localized: "Micro coupé (\(shortcut))") }
+    /// Sous-titre de la tuile « Micro ».
+    static var tileOn: String { String(localized: "Envoyé") }
+    static var tileOff: String { String(localized: "Coupé") }
+    static var tileWaiting: String { String(localized: "Envoi…") }
+    /// Avis bref à l'allumage, quand l'ordinateur le prend.
+    static func sent(_ name: String) -> String { String(localized: "Micro envoyé à \(name).") }
+    /// L'autorisation du système refusée : « Micro » reste coupé.
+    static var permission: String {
+        #if os(macOS)
+        String(localized: "KyberNow Link n'a pas accès au micro. Autorisez-le dans Réglages Système.")
+        #else
+        String(localized: "KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages.")
+        #endif
+    }
+    /// Réglages de l'ordinateur › Son : l'interrupteur « Micro » et son aide.
+    static var settingHelp: String { String(localized: "Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.") }
+    /// Réglages de l'app : le micro choisi, l'écho et le bruit.
+    static var systemDefault: String { String(localized: "Celui du système") }
+    static var echo: String { String(localized: "Réduire l'écho et le bruit") }
+    static var echoHelp: String { String(localized: "Le traitement voix de l'appareil retire le son de l'ordinateur et le bruit autour de vous. Coupez-le pour un micro de studio.") }
+}
+#endif
+
 enum HDRText {
     /// La puce de l'accueil, l'interrupteur des réglages, la ligne de la barre, les statistiques.
     static var label: String { "HDR" }

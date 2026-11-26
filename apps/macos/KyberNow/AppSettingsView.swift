@@ -18,6 +18,10 @@ struct AppSettingsView: View {
     @State private var language: LanguageChoice? = LanguageChoice.current
     /// Relu quand un réglage du HDR est gardé ou remis en automatique.
     @State private var calibrationTick = 0
+    /// Réglages de l'app › Micro : le micro choisi (nil : celui du système), les micros de ce Mac, l'écho et le bruit.
+    @State private var micDevice: String? = MicrophonePrefs.device
+    @State private var micDevices: [MicDevice] = []
+    @State private var micVoice = MicrophonePrefs.voiceProcessing
     /// Langue en vigueur depuis le lancement (le choix ne s'applique qu'à la relance).
     private static let launchLanguage = LanguageChoice.current
 
@@ -28,6 +32,7 @@ struct AppSettingsView: View {
             startupCard
             updatesCard
             languageCard
+            microphoneCard
             macCard
         }
         .padding(20)
@@ -91,6 +96,52 @@ struct AppSettingsView: View {
                 .foregroundStyle(language != Self.launchLanguage ? Theme.warnText : Theme.faint)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// « Micro » (docs/link-ui.md, « Micro ») : celui du système ou un micro
+    /// de ce Mac ; « Réduire l'écho et le bruit ». Vaut tout de suite pour
+    /// les sessions en cours. Un micro choisi débranché : celui du système,
+    /// sans le perdre.
+    private var microphoneCard: some View {
+        let chosen = micDevice
+        let name = chosen.flatMap { id in micDevices.first { $0.id == id }?.name } ?? MicText.systemDefault
+        return SettingsCard(icon: "microphone", title: MicText.label) {
+            GlassMenu(items: [GlassMenuItem(id: "", title: MicText.systemDefault, checked: chosen == nil) { pickMicrophone(nil) }]
+                      + micDevices.map { d in GlassMenuItem(id: d.id, title: d.name, checked: d.id == chosen) { pickMicrophone(d.id) } },
+                      onOpen: { micDevices = MicrophoneDevices.list() }) {
+                HStack(spacing: 8) {
+                    Text(name).font(Theme.sans(13)).foregroundStyle(Theme.text).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Icon("caret-down", size: 10, bold: true).foregroundStyle(Theme.faint)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.line2))
+            }
+            .accessibilityLabel(Text(verbatim: "\(MicText.label), \(name)"))
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(MicText.echo).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text(MicText.echoHelp)
+                        .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Switch(isOn: Binding(get: { micVoice }, set: { on in
+                    micVoice = on
+                    MicrophonePrefs.voiceProcessing = on
+                    AppModel.shared.sessions.all.forEach { $0.microphoneSettingsChanged() }
+                }), label: MicText.echo)
+            }
+        }
+        .onAppear { micDevices = MicrophoneDevices.list() }
+    }
+
+    private func pickMicrophone(_ id: String?) {
+        micDevice = id
+        MicrophonePrefs.device = id
+        AppModel.shared.sessions.all.forEach { $0.microphoneSettingsChanged() }
     }
 
     /// Ce que KyberNow Link a mesuré de ce Mac : les profils s'y adaptent.

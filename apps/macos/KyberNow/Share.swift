@@ -523,6 +523,17 @@ final class ShareHostModel: ObservableObject {
         await run { try await $0.shareNewCode() }
     }
 
+    /// « Laisser les invités parler » (docs/micro.md) : coupé à chaque
+    /// nouveau partage (la Station s'en charge) ; vaut tout de suite pour les
+    /// invités déjà là.
+    func setGuestsSpeak(_ on: Bool) async {
+        guard !busy else { return }
+        #if DEBUG
+        if demo { return demoUpdate { $0.guestsSpeak = on } }
+        #endif
+        await run { try await $0.shareSpeak(on) }
+    }
+
     /// « Donner » ou « Reprendre les manettes », « Donner » ou « Reprendre le
     /// clavier et la souris » : un droit change, l'autre reste tel quel. Une
     /// seule action à la fois, jusqu'à la réponse d'Admin (`busy`, et les

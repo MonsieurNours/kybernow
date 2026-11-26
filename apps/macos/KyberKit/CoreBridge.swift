@@ -25,6 +25,10 @@ public enum Core {
             }
         }
         kn_set_language(LanguageChoice.effective)
+        // Mac, iPhone et iPad ont un micro (docs/micro.md) ; jamais l'Apple TV.
+        #if os(macOS) || os(iOS)
+        kn_set_device_has_microphone(true)
+        #endif
     }()
 
     /// Langue choisie dans les réglages (`fr`, `en`) : messages du cœur et

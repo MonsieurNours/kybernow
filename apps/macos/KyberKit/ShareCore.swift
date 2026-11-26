@@ -213,6 +213,9 @@ public struct ShareState: Sendable, Equatable {
     public var relay: Relay?
     /// Les invités acceptés et les demandes en attente, dans l'ordre d'arrivée.
     public var guests: [ShareGuest]
+    /// « Laisser les invités parler » (docs/micro.md) : nil d'une Station
+    /// d'avant le micro (pas d'interrupteur dans le panneau).
+    public var guestsSpeak: Bool?
 
     /// L'état du relais pour ce partage (`relay.state` de la vue du partage).
     public enum Relay: Sendable, Equatable {
@@ -249,8 +252,9 @@ public struct ShareState: Sendable, Equatable {
     }
 
     public init(code: String, link: String, web: String = "", display: String? = nil, webLocal: String = "",
-                relay: Relay? = nil, guests: [ShareGuest] = []) {
+                relay: Relay? = nil, guests: [ShareGuest] = [], guestsSpeak: Bool? = nil) {
         self.code = code
+        self.guestsSpeak = guestsSpeak
         self.link = link
         self.web = web
         self.display = display
@@ -286,7 +290,7 @@ public struct ShareState: Sendable, Equatable {
         let relay = (j["relay"] as? [String: Any]).map { Relay(wire: $0["state"] as? String) }
         self.init(code: code, link: j["link"] as? String ?? "", web: j["web"] as? String ?? "",
                   display: (j["display"] as? [String: Any])?["label"] as? String, webLocal: j["web_local"] as? String ?? "",
-                  relay: relay, guests: guests)
+                  relay: relay, guests: guests, guestsSpeak: j["guests_speak"] as? Bool)
     }
 }
 
@@ -904,6 +908,18 @@ extension ConsoleClient {
             var out: UnsafeMutablePointer<CChar>?
             var error: UnsafeMutablePointer<CChar>?
             try Self.check(kn_console_share_code(console, &out, &error), error)
+            return Core.take(out)
+        }
+        return try Self.shareState(from: text)
+    }
+
+    /// « Laisser les invités parler » (docs/micro.md) : vaut tout de suite
+    /// pour les invités déjà là ; rend le partage à jour (`guestsSpeak`).
+    public func shareSpeak(_ on: Bool) async throws -> ShareState {
+        let text = try await call { console -> String? in
+            var out: UnsafeMutablePointer<CChar>?
+            var error: UnsafeMutablePointer<CChar>?
+            try Self.check(kn_console_share_speak(console, on, &out, &error), error)
             return Core.take(out)
         }
         return try Self.shareState(from: text)

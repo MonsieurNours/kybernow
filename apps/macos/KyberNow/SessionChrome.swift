@@ -662,6 +662,7 @@ private struct SessionBar: View {
             pyrowaveChip(compact: compact)
             divider
             keepSound(compact: compact)
+            micChip(compact: compact)
             // « Qualité de l'image » : la qualité reçue, et les cinq choix.
             GlassMenu(items: ShareQuality.allCases.map { quality in
                 .init(id: "\(quality.rawValue)", title: quality.label, checked: quality == session.shareQuality) { session.setShareQuality(quality) }
@@ -752,6 +753,7 @@ private struct SessionBar: View {
             divider
             hdrToggle(compact: compact)
             keepSound(compact: compact)
+            micChip(compact: compact)
             GlassMenu(items: MouseChoice.allCases.map { choice in
                 .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
             }) {
@@ -839,6 +841,7 @@ private struct SessionBar: View {
             .overlay(ring(0))
             hdrToggle(compact: compact)
             keepSound(compact: compact)
+            micChip(compact: compact)
             GlassMenu(items: MouseChoice.allCases.map { choice in
                 .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
             }) {
@@ -911,6 +914,29 @@ private struct SessionBar: View {
             .buttonStyle(.plain)
             .help("Garder le son")
             .accessibilityLabel("Garder le son")
+            .accessibilityAddTraits(on ? .isSelected : [])
+        }
+    }
+
+    /// « Micro » (docs/link-ui.md, « Micro ») : allumé quand il est envoyé,
+    /// « Micro coupé » sinon ; un clic l'allume ou le coupe (⌃⌥⌘V) ; estompé
+    /// et inactif quand l'ordinateur ne le prend pas, la raison en infobulle.
+    /// Un invité que l'hôte ne laisse pas parler ne l'a pas.
+    @ViewBuilder private func micChip(compact: Bool) -> some View {
+        if session.micShown {
+            let on = session.micOn
+            let refusal = session.micState.refusal
+            Button { session.toggleMicrophone() } label: {
+                chip(icon: on ? "microphone" : "microphone-slash", text: on ? MicText.label : MicText.labelOff,
+                     tint: on ? Theme.accent : Theme.text2, compact: compact)
+                    .background(on ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(on ? 1 : 0)))
+            }
+            .buttonStyle(.plain)
+            .disabled(refusal != nil)
+            .opacity(refusal != nil ? 0.45 : 1)
+            .help(refusal ?? (on ? MicText.tooltipOn("⌃⌥⌘V") : MicText.tooltipOff("⌃⌥⌘V")))
+            .accessibilityLabel(on ? MicText.label : MicText.labelOff)
             .accessibilityAddTraits(on ? .isSelected : [])
         }
     }

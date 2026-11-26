@@ -5,6 +5,9 @@
 	<!-- Runtime renforcé : la caméra lit le QR code d'appairage de la console. -->
 	<key>com.apple.security.device.camera</key>
 	<true/>
+	<!-- Runtime renforcé : le micro de ce Mac envoyé à l'ordinateur (docs/micro.md). -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
 	<!-- iCloud : ordinateurs publiés pour l'Apple TV, l'iPhone et l'iPad (même
 	     magasin clé-valeur et même groupe du Trousseau que leurs apps).
 	     Exigent un profil de provisionnement. -->
