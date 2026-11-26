@@ -39,10 +39,46 @@ fn helper(kyber_dir: &Path) -> Option<PathBuf> {
     p.is_file().then_some(p)
 }
 
-/// Le programme d'installation de VB-CABLE livré avec la Station (Windows).
+/// Le programme d'installation de VB-CABLE livré avec la Station (Windows) :
+/// celui de l'installateur (`drivers\vbcable`), sinon celui que la mise à
+/// jour apporte avec Admin (`admin\vbcable`).
 fn vbcable_setup(kyber_dir: &Path) -> Option<PathBuf> {
-    let p = kyber_dir.parent()?.join("drivers").join("vbcable").join("VBCABLE_Setup_x64.exe");
-    p.is_file().then_some(p)
+    let install = kyber_dir.parent()?;
+    [install.join("drivers").join("vbcable"), install.join("admin").join("vbcable")]
+        .into_iter()
+        .map(|d| d.join("VBCABLE_Setup_x64.exe"))
+        .find(|p| p.is_file())
+}
+
+/// Au démarrage d'Admin (Windows), une fois par version : installe VB-CABLE
+/// s'il manque et qu'il est livré. C'est ainsi que la mise à jour depuis
+/// Admin l'apporte, quelle que soit la version qui fait la mise à jour : le
+/// pack voyage dans le dossier `admin` du paquet, que toutes remplacent. Une
+/// marque par version (`micro-vbcable-<version>`) évite de le réinstaller à
+/// chaque démarrage si quelqu'un l'a retiré exprès. Jamais bloquant.
+pub fn ensure_on_new_version(kyber_dir: &Path, data_dir: &Path) {
+    if !cfg!(windows) {
+        return;
+    }
+    let mark = data_dir.join(format!("micro-vbcable-{}", env!("CARGO_PKG_VERSION")));
+    if mark.exists() {
+        return;
+    }
+    let Some(setup) = vbcable_setup(kyber_dir) else { return };
+    let present = matches!(helper(kyber_dir).map(|h| {
+        let mut cmd = Command::new(h);
+        cmd.arg("--check");
+        run(cmd, CHECK_TIMEOUT)
+    }), Some(Some((Some(0), _))));
+    if present {
+        tracing::info!("micro : VB-CABLE déjà présent");
+    } else {
+        let mut cmd = Command::new(&setup);
+        cmd.args(["-i", "-h"]);
+        let outcome = run(cmd, INSTALL_TIMEOUT);
+        tracing::info!("micro : VB-CABLE installé après la mise à jour (VB-Audio Software, donationware : vb-cable.com) ({outcome:?})");
+    }
+    let _ = std::fs::write(&mark, b"");
 }
 
 fn no_window(cmd: &mut Command) {
@@ -132,6 +168,24 @@ pub async fn install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn le_pack_de_vbcable_se_trouve_aussi_dans_admin() {
+        let root = std::env::temp_dir().join(format!("kybernow-vbcable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let kyber = root.join("kyber");
+        std::fs::create_dir_all(&kyber).unwrap();
+        assert!(vbcable_setup(&kyber).is_none());
+        // Apporté par la mise à jour, dans le dossier d'Admin.
+        std::fs::create_dir_all(root.join("admin/vbcable")).unwrap();
+        std::fs::write(root.join("admin/vbcable/VBCABLE_Setup_x64.exe"), b"").unwrap();
+        assert_eq!(vbcable_setup(&kyber).unwrap(), root.join("admin/vbcable/VBCABLE_Setup_x64.exe"));
+        // Celui de l'installateur passe d'abord.
+        std::fs::create_dir_all(root.join("drivers/vbcable")).unwrap();
+        std::fs::write(root.join("drivers/vbcable/VBCABLE_Setup_x64.exe"), b"").unwrap();
+        assert_eq!(vbcable_setup(&kyber).unwrap(), root.join("drivers/vbcable/VBCABLE_Setup_x64.exe"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn sans_aide_la_carte_le_dit() {

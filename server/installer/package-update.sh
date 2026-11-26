@@ -39,14 +39,13 @@ cp "$ROOT/server/tray/target/x86_64-pc-windows-gnu/release/kybernow-tray.exe" "$
 cp "$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)" "$STAGE/tray/"
 cp "$HERE/update.ps1" "$STAGE/"
 # Micro virtuel VB-CABLE (VB-Audio Software, livré avec leur accord,
-# docs/micro.md) : installé par la mise à jour s'il manque.
-PARTS=(kyber admin tray)
+# docs/micro.md) : dans le dossier admin, que toutes les versions d'Admin
+# remplacent à la mise à jour ; la nouvelle console l'installe s'il manque.
 if [ -f "$ROOT/third_party/payload/vbcable/VBCABLE_Setup_x64.exe" ]; then
-    mkdir -p "$STAGE/drivers/vbcable"
-    cp -R "$ROOT/third_party/payload/vbcable/." "$STAGE/drivers/vbcable/"
-    PARTS+=(drivers)
+    mkdir -p "$STAGE/admin/vbcable"
+    cp -R "$ROOT/third_party/payload/vbcable/." "$STAGE/admin/vbcable/"
 else
-    echo "    (pas de VB-CABLE dans third_party/payload/vbcable : la mise à jour ne l'installera pas)"
+    echo "    (pas de VB-CABLE dans third_party/payload/vbcable : la mise à jour ne l'apportera pas)"
 fi
 # Version du paquet, lue par update.ps1 (kybernow.json, Applications installées).
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/server/admin/Cargo.toml" | head -1)"
@@ -66,7 +65,7 @@ printf '{"version": "%s", "min_installer_version": "%s", "requires_setup": %s}\r
 # PowerShell 5 lit les scripts en ANSI : update.ps1 doit rester en ASCII.
 if LC_ALL=C grep -q '[^ -~[:space:]]' "$HERE/update.ps1"; then echo "update.ps1 contient des caractères non ASCII" >&2; exit 1; fi
 rm -f "$DIST/kybernow-update.zip"
-(cd "$STAGE" && zip -qr "$DIST/kybernow-update.zip" "${PARTS[@]}" update.ps1 version.txt requirements.json)
+(cd "$STAGE" && zip -qr "$DIST/kybernow-update.zip" kyber admin tray update.ps1 version.txt requirements.json)
 cp "$HERE/update.ps1" "$DIST/update.ps1"
 (cd "$DIST" && shasum -a 256 kybernow-update.zip update.ps1 > SHA256SUMS)
 cp "$ROOT/server/dist/kyber-admin.exe" "$DIST/"

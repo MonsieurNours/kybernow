@@ -1052,6 +1052,13 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     recording::supervise(state.clone());
 
     let on_shutdown = state.clone();
+    // Micro virtuel (docs/micro.md) : VB-CABLE installé après une mise à jour
+    // qui l'apporte, s'il manque (Windows, une fois par version, sans bloquer).
+    {
+        let (kd, dd) = (state.kyber_dir.clone(), state.data_dir.clone());
+        tokio::task::spawn_blocking(move || micro::ensure_on_new_version(&kd, &dd));
+    }
+
     let app = Router::new()
         .merge(api::router(state.clone()))
         .fallback(web)
