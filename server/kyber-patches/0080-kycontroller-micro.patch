@@ -195,10 +195,10 @@ index d69a8ec..c75e427 100644
  mod webclient;
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
 new file mode 100644
-index 0000000..babbb77
+index 0000000..6452623
 --- /dev/null
 +++ b/kycontroller/src/uplink.rs
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,329 @@
 +//! KyberNow (patch 0080): the device's microphone, sent to this computer.
 +//!
 +//! The device registers a Kymux audio endpoint on the session's connection
@@ -279,8 +279,26 @@ index 0000000..babbb77
 +    command
 +}
 +
-+/// Asks the helper whether the virtual microphone is there.
++/// The last check and when it was made: a session start should not wait for
++/// the helper each time (up to 3 s). A ready microphone is trusted for a
++/// minute, a missing one for 10 s (VB-CABLE just installed from Admin).
++static LAST_CHECK: std::sync::Mutex<Option<(std::time::Instant, Result<(), &'static str>)>> =
++    std::sync::Mutex::new(None);
++
 +async fn check(path: &PathBuf) -> Result<(), &'static str> {
++    if let Some((at, result)) = *LAST_CHECK.lock().unwrap() {
++        let keep = if result.is_ok() { 60 } else { 10 };
++        if at.elapsed() < Duration::from_secs(keep) {
++            return result;
++        }
++    }
++    let result = check_now(path).await;
++    *LAST_CHECK.lock().unwrap() = Some((std::time::Instant::now(), result));
++    result
++}
++
++/// Asks the helper whether the virtual microphone is there.
++async fn check_now(path: &PathBuf) -> Result<(), &'static str> {
 +    let mut command = command(path);
 +    command.arg("--check").stdin(std::process::Stdio::null());
 +    let status = match tokio::time::timeout(Duration::from_secs(3), command.status()).await {
