@@ -188,7 +188,10 @@ security find-generic-password -s kybernow-android-keystore -w     # password, c
 scripts/release.sh X.Y.Z --check        # checks only (about ten seconds)
 scripts/release.sh X.Y.Z --repetition   # full rehearsal, nothing committed or published
 scripts/release.sh X.Y.Z                # release
+scripts/release-suivi.py X.Y.Z          # in another terminal: major steps ticked off and a percentage
 ```
+
+**Progress view.** `scripts/release-suivi.py X.Y.Z` redraws every two seconds the major steps (checks, versions, trees, the fourteen builds, files, feeds, manifest, publication), ticked off as they finish, with a bar and a percentage (builds 80 %, before 5 %, after 15 %); it reads the log `~/Library/Logs/kybernow-release-X.Y.Z.log` (run the release with `2>&1 | tee` to that file) and drives nothing.
 
 **Order.** The published binaries must be those of the tagged commit (the AGPL requires publishing the exact code of the binaries):
 1. pre-checks, fast and all shown at once (table below); a single failure and nothing is modified;

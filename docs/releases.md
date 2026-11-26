@@ -188,7 +188,10 @@ security find-generic-password -s kybernow-android-keystore -w     # mot de pass
 scripts/release.sh X.Y.Z --check        # vérifications seules (une dizaine de secondes)
 scripts/release.sh X.Y.Z --repetition   # répétition complète, rien n'est commité ni publié
 scripts/release.sh X.Y.Z                # publication
+scripts/release-suivi.py X.Y.Z          # dans un autre terminal : grandes étapes cochées et pourcentage
 ```
+
+**Suivi.** `scripts/release-suivi.py X.Y.Z` redessine toutes les deux secondes les grandes étapes (vérifications, versions, arbres, les quatorze constructions, fichiers, flux, manifeste, publication), cochées au fur et à mesure, avec une barre et un pourcentage (constructions 80 %, avant 5 %, après 15 %) ; il lit le journal `~/Library/Logs/kybernow-release-X.Y.Z.log` (lancer la publication avec `2>&1 | tee` vers ce fichier) et ne pilote rien.
 
 **Ordre.** Les binaires publiés doivent être ceux du commit étiqueté (l'AGPL oblige à publier le code exact des binaires) :
 1. vérifications préalables, rapides et toutes affichées d'un coup (tableau plus bas) ; une seule en échec et rien n'est modifié ;
