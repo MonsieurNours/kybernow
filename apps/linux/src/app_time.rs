@@ -47,6 +47,20 @@ pub fn weekday_label(at: u64) -> String {
     }
 }
 
+/// Un jour : « 26 novembre », “November 26” (le test du profil Auto).
+pub fn date_label(at: u64) -> String {
+    let Some(tm) = local(at as i64) else { return String::new() };
+    let m = tm.tm_mon.clamp(0, 11) as usize;
+    if crate::i18n::english() {
+        let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        format!("{} {}", months[m], tm.tm_mday)
+    } else {
+        let months = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+        let day = if tm.tm_mday == 1 { "1er".to_string() } else { tm.tm_mday.to_string() };
+        format!("{day} {}", months[m])
+    }
+}
+
 /// « aujourd'hui », « hier », sinon « 12/10 ».
 pub fn relative_day(at: u64) -> String {
     let (Some(t), Some(n)) = (local(at as i64), local(now())) else { return String::new() };

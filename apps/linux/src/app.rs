@@ -393,6 +393,8 @@ pub struct NetInfo {
     pub link_mbps: Option<u32>,
     /// Bande du Wi-Fi (« 5 GHz »).
     pub band: Option<String>,
+    /// Le nom du Wi-Fi en service (NetworkManager ; `None` sans nmcli) : le réseau du test du profil Auto.
+    pub ssid: Option<String>,
 }
 
 /// Ce que sait faire cet appareil (Réglages de l'app › « Cet appareil »).
@@ -2040,9 +2042,18 @@ pub struct SessionUi {
     /// Le réseau sature en PyroWave (avis `PyroWaveStrained` du cœur, une fois par session) : le même bandeau, titré
     /// « Le réseau sature », et la tuile « Passer en HEVC », par câble aussi.
     pub pw_strained: bool,
+    /// Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : le bandeau « Autre réseau que celui du
+    /// test », montré depuis (8 s, ou la croix) ; le réseau a été comparé à celui du test (une fois par session).
+    pub auto_banner: Option<Instant>,
+    pub auto_checked: bool,
 }
 
 impl SessionUi {
+    /// Le bandeau « Autre réseau que celui du test » se voit (le bandeau PyroWave passe devant).
+    pub fn auto_banner_visible(&self) -> bool {
+        !self.pw_banner_visible() && self.auto_banner.is_some_and(|t| t.elapsed() < Duration::from_secs(crate::autotest::BANNER_SECONDS))
+    }
+
     /// L'image est en PyroWave (le décodeur le dit) et risque de saccader : Wi-Fi ou relais. La puce ambre de la
     /// barre, le bandeau et la tuile « Passer en HEVC » en dépendent. Jamais pour un invité (il prend l'image de l'hôte).
     pub fn pyrowave_risk(&self) -> Option<crate::pyrowave::Risk> {
@@ -2149,6 +2160,8 @@ impl SessionUi {
             pw_banner_seen: false,
             pw_hevc: false,
             pw_strained: false,
+            auto_banner: None,
+            auto_checked: false,
         }
     }
 
@@ -2289,6 +2302,10 @@ pub struct AddState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Setting {
     Profile,
+    /// Profil Auto : « Refaire le test » (son aide : « Choisi par le test du {date} ({réseau}). »).
+    AutoRetest,
+    /// « Débit adaptatif » (carte « Débit »).
+    Adaptive,
     Resolution,
     /// Écrans pris par la session : Auto, Cet écran, Tous les écrans (bureau seulement).
     Displays,
@@ -2690,6 +2707,14 @@ pub enum Target {
     /// Le bandeau PyroWave du début de session : « Passer en HEVC » et sa croix.
     PwHevc,
     PwClose,
+    /// Le bandeau « Autre réseau que celui du test » (profil Auto) : « Refaire le test » et sa croix.
+    AutoBannerRetest,
+    AutoBannerClose,
+    /// Le panneau du test du profil Auto : « Appliquer », « Annuler », « Refaire le test », « Réessayer ».
+    AutoApply,
+    AutoCancel,
+    AutoAgain,
+    AutoRetry,
     BarPick(Profile),
     BarKeys,
     BarShortcut(usize),
@@ -2902,6 +2927,11 @@ pub enum Action {
     SetHdr(SessionId, bool),
     /// « Passer en HEVC » (bandeau PyroWave, tuile du menu) : l'image repart en HEVC, pour cette session seulement.
     PyroWaveToHevc(SessionId),
+    /// Profil Auto : le test des conditions vers cet ordinateur (`autotest::run` du cœur, sur un fil), suivi sous ce
+    /// numéro ; son avancement et son résultat reviennent par `App::autotest_progress` et `App::autotest_done`.
+    AutoTest { host: String, attempt: u32 },
+    /// « Annuler » pendant le test : il s'arrête (le profil d'avant reste).
+    AutoTestCancel,
     PadMouse(SessionId, bool),
     /// Le son coupé depuis le menu de session.
     Mute(SessionId, bool),
@@ -3029,6 +3059,13 @@ pub struct App {
     pub standby: bool,
     /// Une confirmation ouverte par-dessus les réglages.
     pub confirm: Option<Confirm>,
+    /// Profil Auto : le panneau du test ouvert (par-dessus l'accueil ou les réglages), le numéro du dernier test, le
+    /// focus à rendre à sa fermeture, et l'ordinateur dont le test s'ouvrira après la session (« Refaire le test »
+    /// du bandeau, Auto choisi en session sans test gardé).
+    pub autotest: Option<crate::autotest::Panel>,
+    pub autotest_attempt: u32,
+    pub autotest_back: Option<Target>,
+    pub autotest_pending: Option<String>,
     /// Le dernier redémarrage ou la dernière mise à jour de la Station demandés.
     pub station_op: Option<StationOp>,
     /// Le réveil envoyé à un ordinateur, et quand : l'accueil dit « Réveil de
@@ -3254,6 +3291,10 @@ impl App {
             os_loading: None,
             standby: false,
             confirm: None,
+            autotest: None,
+            autotest_attempt: 0,
+            autotest_back: None,
+            autotest_pending: None,
             station_op: None,
             waking: None,
             watch_pending: None,
@@ -3542,6 +3583,138 @@ impl App {
         if let Some(h) = self.store.host_mut(id) {
             h.settings.pick_profile(p);
         }
+        if p == Profile::Auto {
+            self.apply_auto_mode(id);
+        }
+    }
+
+    /// Un profil choisi hors session (accueil, réglages, L1/R1) : Auto sans test gardé pour cet ordinateur ouvre le
+    /// panneau du test (le profil d'avant reste jusqu'à « Appliquer ») ; avec un test gardé, ses réglages tout de suite.
+    pub fn choose_profile(&mut self, id: &str, p: Profile) -> Vec<Action> {
+        if p == Profile::Auto && self.store.host(id).is_some_and(|h| h.settings.auto_view().is_none()) {
+            return self.open_autotest(id);
+        }
+        self.set_profile(id, p);
+        vec![Action::Save]
+    }
+
+    // MARK: - Profil Auto
+
+    /// Le réseau du moment, tel que le test le garde (docs/profil-auto.md) : « Ethernet », le nom du Wi-Fi (« Wi-Fi »
+    /// sans NetworkManager) ; `None` : pas de réseau connu.
+    pub fn network_name(&self) -> Option<String> {
+        match self.net.kind {
+            NetKind::Ethernet => Some("Ethernet".into()),
+            NetKind::Wifi => Some(self.net.ssid.clone().unwrap_or_else(|| "Wi-Fi".into())),
+            NetKind::Unknown => None,
+        }
+    }
+
+    /// Ouvre le panneau du test pour cet ordinateur et lance le test (« Refaire le test » aussi). En session, le test
+    /// attend la fin de la session (il mesurerait le réseau et le décodeur occupés par l'image).
+    pub fn open_autotest(&mut self, id: &str) -> Vec<Action> {
+        let Some(name) = self.store.host(id).map(|h| h.name.clone()) else { return Vec::new() };
+        if self.sessions.iter().any(Self::counts) {
+            self.autotest_pending = Some(id.to_string());
+            return Vec::new();
+        }
+        self.autotest_attempt += 1;
+        let attempt = self.autotest_attempt;
+        if self.autotest.is_none() {
+            self.autotest_back = Some(self.focus);
+        }
+        self.autotest = Some(crate::autotest::Panel { host: id.to_string(), name, attempt, state: crate::autotest::State::Running(crate::autotest::waiting_steps()) });
+        self.focus = Target::AutoCancel;
+        vec![Action::AutoTest { host: id.to_string(), attempt }]
+    }
+
+    /// Une session compte pour l'attente du test : en cours (pas finie sur une erreur).
+    fn counts(s: &SessionUi) -> bool {
+        s.running()
+    }
+
+    /// Le test demandé pendant une session s'ouvre quand l'app revient à l'accueil ou aux réglages, sans session.
+    pub fn poll_autotest(&mut self) -> Vec<Action> {
+        let ready = !self.sessions.iter().any(Self::counts) && self.confirm.is_none() && self.autotest.is_none() && matches!(self.screen, Screen::Home | Screen::Settings);
+        if !ready {
+            return Vec::new();
+        }
+        let Some(id) = self.autotest_pending.take() else { return Vec::new() };
+        self.open_autotest(&id)
+    }
+
+    /// L'avancement du test (les étapes, déjà traduites par le cœur).
+    pub fn autotest_progress(&mut self, attempt: u32, steps: Vec<crate::autotest::Step>) {
+        if let Some(p) = self.autotest.as_mut().filter(|p| p.attempt == attempt && matches!(p.state, crate::autotest::State::Running(_))) {
+            p.state = crate::autotest::State::Running(steps);
+        }
+    }
+
+    /// La fin du test : « Réglages proposés » (focus sur « Appliquer »), ou l'échec (focus sur « Réessayer »).
+    pub fn autotest_done(&mut self, attempt: u32, result: Result<(Vec<crate::autotest::Choice>, serde_json::Value), String>) {
+        let Some(p) = self.autotest.as_mut().filter(|p| p.attempt == attempt) else { return };
+        match result {
+            Ok((choices, result)) => {
+                p.state = crate::autotest::State::Done { choices, result };
+                self.focus = Target::AutoApply;
+            }
+            Err(e) => {
+                p.state = crate::autotest::State::Failed(e);
+                self.focus = Target::AutoRetry;
+            }
+        }
+    }
+
+    /// Ferme le panneau du test ; le focus revient sur ce qui l'a ouvert.
+    fn close_autotest(&mut self) {
+        self.autotest = None;
+        if let Some(t) = self.autotest_back.take() {
+            self.focus = t;
+        }
+    }
+
+    /// « Appliquer » : le résultat gardé pour cet ordinateur, Auto devient son profil avec ces réglages (et la
+    /// définition et la fréquence choisies).
+    fn autotest_apply(&mut self) -> Vec<Action> {
+        let Some(p) = self.autotest.clone() else { return Vec::new() };
+        let crate::autotest::State::Done { result, .. } = p.state else { return Vec::new() };
+        if let Some(h) = self.store.host_mut(&p.host) {
+            h.settings.auto = Some(result);
+        }
+        self.set_profile(&p.host, Profile::Auto);
+        self.close_autotest();
+        vec![Action::Save]
+    }
+
+    /// La définition et la fréquence du test gardé, posées dans les réglages de l'ordinateur : « Comme cet écran »
+    /// quand c'est celle de l'écran, sinon la hauteur et la fréquence choisies (la plus proche des valeurs proposées).
+    fn apply_auto_mode(&mut self, id: &str) {
+        let (display, refresh) = (self.machine.display, self.machine.refresh);
+        let Some(h) = self.store.host_mut(id) else { return };
+        let Some(a) = h.settings.auto_view() else { return };
+        if a.height > 0 {
+            h.settings.resolution = if a.height >= display.1 { 0 } else { [2160u32, 1440, 1080, 800, 720].into_iter().find(|r| *r <= a.height).unwrap_or(720) };
+        }
+        if a.refresh > 0 {
+            h.settings.fps = if a.refresh >= refresh { 0 } else { [144u32, 120, 90, 60, 30].into_iter().find(|f| *f <= a.refresh).unwrap_or(30) };
+        }
+    }
+
+    /// Le début d'une session en profil Auto : son réseau (le relais, ou celui de cet appareil) comparé à celui du
+    /// test ; différent, le bandeau « Autre réseau que celui du test » (une fois par session, 8 s ou la croix).
+    pub fn auto_network_check(&mut self, id: SessionId) {
+        let network = self.network_name();
+        let Some(s) = self.sessions.iter().find(|s| s.id == id) else { return };
+        if s.auto_checked || s.visitor() || s.profile != Profile::Auto {
+            return;
+        }
+        let current = if s.via_relay() { Some("relay".to_string()) } else { network };
+        let other = self.store.host(&s.host).and_then(|h| h.settings.auto_view()).is_some_and(|a| !a.same_network(current.as_deref()));
+        let Some(s) = self.session_by_mut(id) else { return };
+        s.auto_checked = true;
+        if other {
+            s.auto_banner = Some(Instant::now());
+        }
     }
 
     /// L'adresse MAC de l'ordinateur est en cours de saisie.
@@ -3704,6 +3877,19 @@ impl App {
             }
             return Vec::new();
         }
+        // Le panneau du test du profil Auto : ses boutons, B l'annule (le test s'arrête).
+        if self.autotest.is_some() {
+            match n {
+                Nav::Ok => {
+                    let t = self.focus;
+                    return self.activate(t);
+                }
+                Nav::Back => return self.activate(Target::AutoCancel),
+                Nav::Up | Nav::Down | Nav::Left | Nav::Right => self.move_focus(n),
+                _ => {}
+            }
+            return Vec::new();
+        }
         if let Some(acts) = self.ps_nav(n) {
             return acts;
         }
@@ -3775,9 +3961,8 @@ impl App {
                     Screen::Home => {
                         let Some(h) = self.selected().map(|h| (h.id.clone(), h.settings.profile)) else { return Vec::new() };
                         let i = Profile::ALL.iter().position(|p| *p == h.1).unwrap_or(0);
-                        let p = Profile::ALL[cycle(i, 3, dir)];
-                        self.set_profile(&h.0, p);
-                        vec![Action::Save]
+                        let p = Profile::ALL[cycle(i, Profile::ALL.len(), dir)];
+                        self.choose_profile(&h.0, p)
                     }
                     Screen::Device => {
                         self.device_section = cycle(self.device_section, OS_SECTIONS.len(), dir);
@@ -4282,8 +4467,31 @@ impl App {
             }
             Target::Chip(p) => {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
-                self.set_profile(&id, p);
-                vec![Action::Save]
+                self.choose_profile(&id, p)
+            }
+            Target::AutoApply => self.autotest_apply(),
+            Target::AutoCancel => {
+                let running = self.autotest.as_ref().is_some_and(|p| matches!(p.state, crate::autotest::State::Running(_)));
+                self.close_autotest();
+                if running { vec![Action::AutoTestCancel] } else { Vec::new() }
+            }
+            Target::AutoAgain | Target::AutoRetry => {
+                let Some(id) = self.autotest.as_ref().map(|p| p.host.clone()) else { return Vec::new() };
+                self.open_autotest(&id)
+            }
+            Target::AutoBannerRetest => {
+                let Some(s) = self.session_mut() else { return Vec::new() };
+                s.auto_banner = None;
+                let host = s.host.clone();
+                // Ouvert après la session : le test mesurerait un réseau et un décodeur occupés par l'image.
+                self.autotest_pending = Some(host);
+                Vec::new()
+            }
+            Target::AutoBannerClose => {
+                if let Some(s) = self.session_mut() {
+                    s.auto_banner = None;
+                }
+                Vec::new()
             }
             Target::CustomChip => {
                 self.open_settings(false, Screen::Home);
@@ -4618,6 +4826,12 @@ impl App {
             Target::ScreenPick(display) => self.screen_pick(display),
             Target::BarComputer(i) => self.bar_computer(i),
             Target::BarPick(p) => {
+                if p == Profile::Auto && self.session_auto_pending() {
+                    if let Some(s) = self.session_mut() {
+                        s.bar_menu = None;
+                    }
+                    return Vec::new();
+                }
                 let Some(s) = self.session_mut() else { return Vec::new() };
                 s.profile = p;
                 s.bar_menu = None;
@@ -4649,6 +4863,17 @@ impl App {
     }
 
     /// Le profil choisi en session est gardé pour cet ordinateur.
+    /// Auto choisi en session (barre, menu) sans test gardé pour cet ordinateur : le profil ne change pas, le panneau
+    /// du test s'ouvrira après la session. Rend vrai dans ce cas.
+    fn session_auto_pending(&mut self) -> bool {
+        let Some(host) = self.session().map(|s| s.host.clone()) else { return false };
+        if self.store.host(&host).is_none_or(|h| h.settings.auto_view().is_some()) {
+            return false;
+        }
+        self.autotest_pending = Some(host);
+        true
+    }
+
     fn remember_profile(&mut self, p: Profile) {
         if let Some(id) = self.session().map(|s| s.host.clone()) {
             self.set_profile(&id, p);
@@ -5333,6 +5558,12 @@ impl App {
         match item {
             MenuItem::PsSettings => return self.activate(Target::BarPsSettings),
             MenuItem::PsRest => return self.activate(Target::BarPsRest),
+            MenuItem::Profile(Profile::Auto) if self.session_auto_pending() => {
+                if let Some(s) = self.session_mut() {
+                    s.menu = false;
+                }
+                return Vec::new();
+            }
             _ => {}
         }
         let Some(s) = Self::active_in(&mut self.sessions, self.active) else { return Vec::new() };
@@ -5959,14 +6190,16 @@ impl App {
             Section::Profile => {
                 let custom = st.custom();
                 let mut options: Vec<String> = Profile::ALL.iter().map(|p| crate::ui::profile_label(*p).to_string()).collect();
-                let mut disabled = vec![false; 3];
+                let mut disabled = vec![false; Profile::ALL.len()];
                 // « Personnalisé » se lit, ne se choisit pas : il vient des réglages.
                 if custom {
                     options.push(tr("Personnalisé", "Custom").into());
                     disabled.push(true);
                 }
-                let current = if custom { 3 } else { Profile::ALL.iter().position(|p| *p == st.profile).unwrap_or(0) };
-                vec![choice(Setting::Profile, tr("Profil", "Profile"), profile_phrase((!custom).then_some(st.profile)).into(), options, current, disabled)]
+                let current = if custom { Profile::ALL.len() } else { Profile::ALL.iter().position(|p| *p == st.profile).unwrap_or(0) };
+                let mut rows = vec![choice(Setting::Profile, tr("Profil", "Profile"), profile_phrase((!custom).then_some(st.profile)).into(), options, current, disabled)];
+                rows.extend(self.auto_retest_row(st));
+                rows
             }
             Section::Picture => {
                 let (_, dh) = m.display;
@@ -6052,6 +6285,9 @@ impl App {
                         }
                     },
                     choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, BITRATES.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; BITRATES.len()]),
+                    // Profil Auto : sous le débit, « Choisi par le test du {date} ({réseau}). » et « Refaire le test ».
+                    // Puis « Débit adaptatif » (docs/link-ui.md, « Profil Auto et débit adaptatif »).
+                    toggle(Setting::Adaptive, crate::autotest::adaptive(), crate::autotest::adaptive_help(pw), st.adaptive),
                     choice(
                         Setting::Display,
                         tr("Affichage des images", "Frame display"),
@@ -6065,6 +6301,10 @@ impl App {
                 if let Some(u) = hdr {
                     let at = rows.iter().position(|r| r.setting == Setting::Yuv444).map_or(rows.len(), |i| i + 1);
                     rows.insert(at, Row { setting: Setting::Hdr, label: "HDR".into(), hint: if u.available() { hdr_setting_help() } else { u.help() }.into(), kind: RowKind::Toggle(u.lit()), enabled: u.available(), tag: None });
+                }
+                if let Some(r) = self.auto_retest_row(st) {
+                    let at = rows.iter().position(|r| r.setting == Setting::Adaptive).unwrap_or(rows.len());
+                    rows.insert(at, r);
                 }
                 // Écrans, sous Définition (multi-écrans : le bureau seulement).
                 if self.multi_screens() {
@@ -6491,13 +6731,13 @@ impl App {
             }
             Setting::Info => return Vec::new(),
             Setting::Profile => {
-                // Valeur suivante (‹ ›, A) ; « Personnalisé » (la quatrième) ne se choisit pas.
+                // Valeur suivante (‹ ›, A) ; « Personnalisé » (la dernière) ne se choisit pas.
                 if i < Profile::ALL.len() {
-                    self.set_profile(&id, Profile::ALL[i]);
-                    return vec![Action::Save];
+                    return self.choose_profile(&id, Profile::ALL[i]);
                 }
                 return Vec::new();
             }
+            Setting::AutoRetest => return self.open_autotest(&id),
             _ => {}
         }
         let enabled = self.screens_plan.enabled;
@@ -6537,6 +6777,8 @@ impl App {
             Setting::Reconnect => st.reconnect = !st.reconnect,
             Setting::Yuv444 => st.yuv444 = !st.yuv444,
             Setting::Hdr => st.hdr = !st.hdr,
+            // Ne rend pas le profil « Personnalisé » (`custom()` ne le regarde pas) ; vaut pour la session suivante.
+            Setting::Adaptive => st.adaptive = !st.adaptive,
             _ => {}
         }
         vec![Action::Save]
@@ -6713,7 +6955,15 @@ impl App {
                     (help, risk)
                 }
             },
-            "auto" if reason.is_none() => (pw::auto_help(self.net.kind == NetKind::Ethernet && !self.station_via_relay(&h.id)).into(), None),
+            "auto" if reason.is_none() => {
+                // PyroWave par câble : Max, et Auto quand le test l'a choisi ; Jeu et Bureau restent en HEVC.
+                let takes = match h.settings.profile {
+                    Profile::Max => true,
+                    Profile::Auto => h.settings.auto_view().is_some_and(|a| a.codec == "pyrowave"),
+                    _ => false,
+                };
+                (pw::auto_help(self.net.kind == NetKind::Ethernet && !self.station_via_relay(&h.id), takes).into(), None)
+            }
             // Proposé par l'ordinateur, pas décodé ici : la raison de la valeur inactive après l'aide.
             _ if shown && reason.is_some() => (format!("{base} {}", reason.unwrap_or_default()), None),
             _ => (base, None),
@@ -6722,10 +6972,32 @@ impl App {
 
     /// Le format choisi : celui demandé s'il est décodé (AV1 : si l'ordinateur
     /// l'encode aussi), sinon HEVC, que la carte ou le processeur décode.
+    /// Profil Auto (pas « Personnalisé ») avec son test gardé : « Refaire le test », avec pour aide « Choisi par le
+    /// test du {date} ({réseau}). » (rubrique Profil, et sous « Débit »).
+    pub fn auto_retest_row(&self, st: &crate::model::HostSettings) -> Option<Row> {
+        if st.profile != Profile::Auto || st.custom() {
+            return None;
+        }
+        let a = st.auto_view()?;
+        let text = crate::autotest::again();
+        Some(Row {
+            setting: Setting::AutoRetest,
+            label: text.into(),
+            hint: crate::autotest::chosen_by(a.at, a.network.as_deref()),
+            kind: RowKind::Button { text: text.into(), style: ButtonStyle::Ghost },
+            enabled: true,
+            tag: None,
+        })
+    }
+
+    /// Profil Auto (format sur « Auto ») : le format choisi par le test, aux mêmes conditions ; PyroWave reste
+    /// PyroWave (le cœur le prend par câble seulement, sinon HEVC au débit du test : `profile::pyrowave_format`).
     pub fn codec_for(&self, h: &Host) -> &'static str {
         let m = &self.machine;
         let hevc_ok = m.decodes("hevc");
-        match h.settings.codec.as_str() {
+        let auto = (h.settings.profile == Profile::Auto && h.settings.codec == "auto").then(|| h.settings.auto_view()).flatten();
+        let codec = auto.as_ref().map_or(h.settings.codec.as_str(), |a| a.codec.as_str());
+        match codec {
             "h264" => "h264",
             "av1" if m.decodes("av1") && h.av1 => "av1",
             // PyroWave : décodé ici (sonde) et proposé par l'ordinateur (`info.pyrowave`) ; sinon HEVC.
@@ -6814,6 +7086,7 @@ pub fn profile_phrase(p: Option<Profile>) -> &'static str {
         Some(Profile::Jeu) => tr("La réactivité d'abord, pour jouer.", "Responsiveness first, for gaming."),
         Some(Profile::Bureau) => tr("Un texte net, pour travailler.", "Sharp text, for work."),
         Some(Profile::Max) => tr("La meilleure image que cet appareil affiche.", "The best picture this device can show."),
+        Some(Profile::Auto) => crate::autotest::phrase(),
         None => tr("Vos propres réglages.", "Your own settings."),
     }
 }
@@ -7100,12 +7373,17 @@ mod tests {
         let (o, d) = options(&codec_row(&app));
         assert_eq!((o[4].as_str(), d[4]), ("PyroWave", true));
         assert!(codec_row(&app).hint.ends_with("Cet appareil ne sait pas décoder PyroWave."));
-        // Décodé : « Auto » dit ce qu'il prendra, selon le câble.
+        // Décodé : « Auto » dit ce qu'il prendra, selon le câble et le profil (Jeu et Bureau restent en HEVC, Max le
+        // prend par câble).
         app.machine.pyrowave = true;
         app.net.kind = NetKind::Ethernet;
-        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(true));
+        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(true, false));
+        assert_eq!(codec_row(&app).hint, "Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.");
+        app.store.hosts[0].settings.profile = Profile::Max;
+        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(true, true));
+        app.store.hosts[0].settings.profile = Profile::Jeu;
         app.net.kind = NetKind::Wifi;
-        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(false));
+        assert_eq!(codec_row(&app).hint, crate::pyrowave::auto_help(false, false));
         // Choisi en Wi-Fi : l'aide, l'avertissement, la puce ambre ; le format de la session.
         app.store.hosts[0].settings.codec = "pyrowave".into();
         let r = codec_row(&app);
@@ -7322,6 +7600,147 @@ mod tests {
         app.activate(Target::Chip(Profile::Max));
         let st = &app.selected().unwrap().settings;
         assert!(!st.custom() && st.profile == Profile::Max && st.mbps == 0);
+    }
+
+    /// Un résultat du test comme le cœur le garde (`AutoResult`, les champs que l'interface lit).
+    fn auto_result(codec: &str, height: u32, refresh: u32, network: &str) -> serde_json::Value {
+        serde_json::json!({ "at": 1_795_000_000u64, "network": network, "codec": codec, "yuv444": true, "width": height * 16 / 9, "height": height, "refresh": refresh, "mbps": 300, "mode_mbps": 420, "reliable": false, "station": "A" })
+    }
+
+    /// Profil Auto (docs/profil-auto.md) : sans test gardé, le choisir ouvre le panneau du test (le profil d'avant
+    /// reste) ; « Annuler » l'arrête ; la fin propose ses réglages ; « Appliquer » garde le résultat, met Auto et la
+    /// définition et la fréquence du test ; avec un test gardé, Auto s'applique tout de suite.
+    #[test]
+    fn profil_auto_et_son_test() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        app.machine.display = (3840, 2160);
+        app.machine.refresh = 120;
+        // Sans test : le panneau, le test part, le profil ne change pas.
+        let acts = app.activate(Target::Chip(Profile::Auto));
+        assert_eq!(acts, vec![Action::AutoTest { host: "a".into(), attempt: 1 }]);
+        assert_eq!(app.selected().unwrap().settings.profile, Profile::Jeu);
+        assert_eq!(app.autotest.as_ref().map(|p| p.state.clone()), Some(crate::autotest::State::Running(crate::autotest::waiting_steps())));
+        assert_eq!(app.focus, Target::AutoCancel);
+        // « Annuler » : le test s'arrête, rien ne change.
+        assert_eq!(app.nav(Nav::Back), vec![Action::AutoTestCancel]);
+        assert!(app.autotest.is_none());
+        assert_eq!(app.selected().unwrap().settings.profile, Profile::Jeu);
+        // Refait : un nouveau numéro ; l'avancement et la fin d'un test annulé sont ignorés.
+        let acts = app.activate(Target::Chip(Profile::Auto));
+        assert_eq!(acts, vec![Action::AutoTest { host: "a".into(), attempt: 2 }]);
+        app.autotest_done(1, Err("vieux".into()));
+        assert!(matches!(app.autotest.as_ref().unwrap().state, crate::autotest::State::Running(_)));
+        let steps = vec![crate::autotest::Step { title: "Liaison".into(), state: crate::autotest::StepState::Done("Câble".into()) }];
+        app.autotest_progress(2, steps.clone());
+        assert_eq!(app.autotest.as_ref().unwrap().state, crate::autotest::State::Running(steps));
+        // Échec : « Réessayer » relance.
+        app.autotest_done(2, Err("Le test n'a pas pu joindre A.".into()));
+        assert_eq!(app.focus, Target::AutoRetry);
+        assert_eq!(app.activate(Target::AutoRetry), vec![Action::AutoTest { host: "a".into(), attempt: 3 }]);
+        // Fin : « Réglages proposés », puis « Appliquer » (1440p à 60 Hz sur un écran 4K à 120 Hz).
+        let choices = vec![crate::autotest::Choice { title: "Format vidéo".into(), value: "HEVC".into(), reason: "PyroWave demande un câble".into() }];
+        app.autotest_done(3, Ok((choices, auto_result("hevc", 1440, 60, "Maison"))));
+        assert_eq!(app.focus, Target::AutoApply);
+        assert_eq!(app.activate(Target::AutoApply), vec![Action::Save]);
+        assert!(app.autotest.is_none());
+        let st = &app.selected().unwrap().settings;
+        assert_eq!((st.profile, st.resolution, st.fps, st.yuv444, st.reliable), (Profile::Auto, 1440, 60, true, false));
+        assert!(!st.custom());
+        assert_eq!(app.codec_for(app.selected().unwrap()), "hevc");
+        // « Débit adaptatif » ne rend pas « Personnalisé » ; le débit choisi, si.
+        app.store.hosts[0].settings.adaptive = false;
+        assert!(!app.store.hosts[0].settings.custom());
+        // Un autre profil, puis Auto à nouveau : tout de suite, sans test (la définition revient à celle du test).
+        app.activate(Target::Chip(Profile::Bureau));
+        app.store.hosts[0].settings.resolution = 0;
+        assert_eq!(app.activate(Target::Chip(Profile::Auto)), vec![Action::Save]);
+        assert!(app.autotest.is_none());
+        let st = &app.selected().unwrap().settings;
+        assert_eq!((st.profile, st.resolution, st.fps), (Profile::Auto, 1440, 60));
+        // La rubrique Image : « Refaire le test » avec la date et le réseau du test, puis « Débit adaptatif ».
+        let rows = app.rows(Section::Picture);
+        let i = rows.iter().position(|r| r.setting == Setting::AutoRetest).expect("Refaire le test");
+        assert_eq!(rows[i + 1].setting, Setting::Adaptive);
+        assert_eq!(rows[i - 1].setting, Setting::Bitrate);
+        assert!(rows[i].hint.starts_with("Choisi par le test du ") && rows[i].hint.ends_with(" (Maison)."), "{}", rows[i].hint);
+        assert_eq!(rows[i + 1].kind, RowKind::Toggle(false));
+        assert_eq!(rows[i + 1].hint, "Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais.");
+        app.choose(Setting::Adaptive, usize::MAX);
+        assert!(app.store.hosts[0].settings.adaptive);
+        // « Refaire le test » : le panneau.
+        assert_eq!(app.choose(Setting::AutoRetest, usize::MAX), vec![Action::AutoTest { host: "a".into(), attempt: 4 }]);
+        // Un format choisi rend « Personnalisé » : plus de ligne du test.
+        app.autotest = None;
+        app.store.hosts[0].settings.mbps = 80;
+        assert!(app.rows(Section::Picture).iter().all(|r| r.setting != Setting::AutoRetest));
+    }
+
+    /// Le format d'Auto : PyroWave quand le test l'a choisi (le cœur le garde par câble seulement) ; l'aide de
+    /// « Format vidéo » le dit.
+    #[test]
+    fn profil_auto_et_pyrowave() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        let mut h = host();
+        h.pyrowave = true;
+        h.settings.auto = Some(auto_result("pyrowave", 2160, 120, "Ethernet"));
+        h.settings.pick_profile(Profile::Auto);
+        app.store.hosts.push(h);
+        app.machine.pyrowave = true;
+        app.net.kind = NetKind::Ethernet;
+        assert_eq!(app.codec_for(&app.store.hosts[0]), "pyrowave");
+        let codec = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Codec).unwrap();
+        assert_eq!(codec.hint, crate::pyrowave::auto_help(true, true));
+        // L'aide de « Débit adaptatif » en PyroWave.
+        let adaptive = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Adaptive).unwrap();
+        assert!(adaptive.hint.ends_with("En PyroWave, il est en pause : la définition baisse à la place."));
+        // Le décodeur ne le sait plus : HEVC.
+        app.machine.pyrowave = false;
+        assert_eq!(app.codec_for(&app.store.hosts[0]), "hevc");
+    }
+
+    /// En session : Auto sans test ne change pas le profil, le test s'ouvre après la session ; le bandeau « Autre réseau
+    /// que celui du test » au début d'une session sur un autre réseau, et « Refaire le test » l'ouvre après la session.
+    #[test]
+    fn profil_auto_en_session() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        app.net.kind = NetKind::Wifi;
+        app.net.ssid = Some("Maison".into());
+        let mut s = SessionUi::new(1, "a", "A", Profile::Jeu, false, false, 1);
+        s.phase = Phase::Streaming;
+        app.sessions.push(s);
+        app.active = Some(1);
+        app.screen = Screen::Session;
+        assert!(app.activate(Target::BarPick(Profile::Auto)).is_empty());
+        assert_eq!(app.session().unwrap().profile, Profile::Jeu);
+        assert_eq!(app.autotest_pending.as_deref(), Some("a"));
+        assert!(app.poll_autotest().is_empty(), "pas pendant la session");
+        // Le même réseau que le test : pas de bandeau.
+        app.store.hosts[0].settings.auto = Some(auto_result("hevc", 2160, 60, "Maison"));
+        app.store.hosts[0].settings.pick_profile(Profile::Auto);
+        app.session_by_mut(1).unwrap().profile = Profile::Auto;
+        app.auto_network_check(1);
+        assert!(!app.session().unwrap().auto_banner_visible());
+        // Un autre réseau : le bandeau, une fois.
+        let mut s = SessionUi::new(2, "a", "A", Profile::Auto, false, false, 1);
+        s.phase = Phase::Streaming;
+        app.sessions.push(s);
+        app.active = Some(2);
+        app.net.ssid = Some("Bureau".into());
+        app.auto_network_check(2);
+        assert!(app.session().unwrap().auto_banner_visible());
+        assert!(app.activate(Target::AutoBannerRetest).is_empty());
+        assert!(!app.session().unwrap().auto_banner_visible());
+        // La session finie, à l'accueil : le panneau s'ouvre.
+        app.sessions.clear();
+        app.active = None;
+        app.screen = Screen::Home;
+        assert_eq!(app.poll_autotest(), vec![Action::AutoTest { host: "a".into(), attempt: 1 }]);
+        assert!(app.autotest_pending.is_none());
     }
 
     #[test]

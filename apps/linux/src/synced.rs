@@ -233,12 +233,13 @@ fn decodable(m: &Machine, codec: &str) -> bool {
 /// Les valeurs reçues posées dans les réglages de l'ordinateur, comme `SyncedValues::apply_to` du cœur : un profil
 /// prend ses réglages sur cet appareil (ce qui s'en écartait revient au profil, comme le choisir ici) ;
 /// « Personnalisé » : le format s'il se décode ici, le 4:4:4 s'il existe dans ce format, le débit ; le HDR et le mode
-/// immersif tels quels. Rend vrai si quelque chose a changé.
+/// immersif tels quels. Rend vrai si quelque chose a changé. Auto reçu d'un autre appareil : les réglages du test de
+/// cet appareil (docs/profil-auto.md) ; sans test fait ici, le profil reste celui de cet appareil.
 pub fn apply(s: &mut HostSettings, k: &SyncKeys, m: &Machine) -> bool {
     let before = s.clone();
     match &k.profile {
         Some(Some(p)) => {
-            if let Some(p) = Profile::ALL.into_iter().find(|x| x.id() == p) {
+            if let Some(p) = Profile::ALL.into_iter().find(|x| x.id() == p).filter(|p| *p != Profile::Auto || s.auto_view().is_some()) {
                 s.pick_profile(p);
             }
         }

@@ -59,7 +59,8 @@ pub fn primary_state(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, 
 pub fn segments(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f32, items: &[(Target, String, bool, bool)]) -> f32 {
     let pad = h * 0.08;
     let style = Text::new(Font::Regular, size, MUTED);
-    let widths: Vec<f32> = items.iter().map(|(_, s, ..)| cv.text_width(style, s) + size * 2.3).collect();
+    let iw = size * 1.35;
+    let widths: Vec<f32> = items.iter().map(|(t, s, ..)| cv.text_width(style, s) + size * 2.3 + if profile_icon(*t).is_some() { iw } else { 0.0 }).collect();
     let total = widths.iter().sum::<f32>() + pad * 2.0 + (items.len().saturating_sub(1)) as f32 * 3.0;
     cv.rrect(x, y, total, h, h * 0.2, Rgba(9, 13, 18, 190));
     cv.rrect_stroke(x, y, total, h, h * 0.2, 1.0, LINE_2);
@@ -79,10 +80,29 @@ pub fn segments(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f3
         }
         let color = if *off { DIM } else if *on { FROST } else { MUTED };
         let font = if *on { Font::Semibold } else { Font::Regular };
-        cv.text(r.x + w / 2.0, r.y + r.h / 2.0 + size * 0.36, Text::new(font, size, color).align(Align::Center), s);
+        match profile_icon(*t) {
+            // Auto : les étincelles devant le nom.
+            Some(icon) => {
+                let tw = cv.text_width(Text::new(font, size, color), s);
+                let left = r.x + (w - tw - iw) / 2.0;
+                cv.icon(&icon, left, r.y + r.h / 2.0 - size * 0.55, size * 1.1, 1.5, if *off { DIM } else if *on { SPECTRE } else { MUTED });
+                cv.text(left + iw, r.y + r.h / 2.0 + size * 0.36, Text::new(font, size, color), s);
+            }
+            None => {
+                cv.text(r.x + w / 2.0, r.y + r.h / 2.0 + size * 0.36, Text::new(font, size, color).align(Align::Center), s);
+            }
+        }
         xx += w + 3.0;
     }
     total
+}
+
+/// L'icône d'un profil dans les listes de profils : les étincelles d'Auto (docs/link-ui.md, « Profil Auto et débit
+/// adaptatif ») ; les autres profils n'en ont pas.
+pub fn profile_icon(t: Target) -> Option<Icon> {
+    use crate::app::MenuItem;
+    use crate::model::Profile;
+    matches!(t, Target::Chip(Profile::Auto) | Target::BarPick(Profile::Auto) | Target::Menu(MenuItem::Profile(Profile::Auto))).then_some(Icon::Sparkles)
 }
 
 /// Une étiquette (« décodeur du Pi », « processeur », « 1080p ») : 22 pt de
@@ -178,7 +198,12 @@ pub fn nav_button(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, w: 
     if focused {
         ring(cv, r, 8.0);
     }
-    cv.text_fit(x + 14.0, y + 20.0 + 15.0 * 0.36, Text::new(Font::Regular, 15.0, if on { FROST } else { MUTED }), s, w - 28.0);
+    let mut tx = x + 14.0;
+    if let Some(icon) = profile_icon(t) {
+        cv.icon(&icon, tx, y + 11.0, 18.0, 1.5, if on { SPECTRE } else { MUTED });
+        tx += 26.0;
+    }
+    cv.text_fit(tx, y + 20.0 + 15.0 * 0.36, Text::new(Font::Regular, 15.0, if on { FROST } else { MUTED }), s, x + w - 14.0 - tx);
 }
 
 /// Bouton à contour ; rend sa largeur.

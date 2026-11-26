@@ -48,6 +48,7 @@ pub fn profile_label(p: Profile) -> &'static str {
         Profile::Jeu => tr("Jeu", "Game"),
         Profile::Bureau => tr("Bureau", "Desktop"),
         Profile::Max => "Max",
+        Profile::Auto => "Auto",
     }
 }
 

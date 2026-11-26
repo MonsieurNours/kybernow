@@ -54,6 +54,7 @@ unsafe extern "C" {
     fn kn_decoder_open(codec: c_int, hw: c_int, threads: c_int, err: *mut c_char, errlen: c_int) -> *mut c_void;
     fn kn_decoder_name(d: *mut c_void) -> *const c_char;
     fn kn_decoder_is_hw(d: *mut c_void) -> c_int;
+    fn kn_decoder_frames(d: *mut c_void) -> i64;
     fn kn_decoder_send(d: *mut c_void, data: *const u8, len: c_int, pts: i64) -> c_int;
     fn kn_decoder_receive(d: *mut c_void, out: *mut KnFrame) -> c_int;
     fn kn_decoder_close(d: *mut c_void);
@@ -682,6 +683,139 @@ fn empty_frame(format: Format) -> Frame {
 
 // SAFETY : le décodeur n'est utilisé que par son fil.
 unsafe impl Send for Decoder {}
+
+// MARK: - Test du profil Auto
+
+/// Le temps de décodage d'un extrait du test (docs/profil-auto.md) : 1 s au plus.
+const SAMPLE_TIME: Duration = Duration::from_secs(1);
+
+fn blank_frame() -> KnFrame {
+    KnFrame {
+        width: 0,
+        height: 0,
+        format: 0,
+        data: [std::ptr::null_mut(); 3],
+        linesize: [0; 3],
+        pts: 0,
+        bt709: 1,
+        full_range: 0,
+        pq: 0,
+        bt2020: 0,
+        mastering_min: 0.0,
+        mastering_max: 0.0,
+        max_cll: 0.0,
+        max_fall: 0.0,
+    }
+}
+
+/// Un extrait du test du profil Auto, décodé par le décodeur de la session, aussi vite qu'il les prend, en boucle
+/// depuis l'image clé, pendant 1 s au plus : les images décodées par seconde ; `None` si le décodeur le refuse.
+/// H.264, HEVC, AV1 : FFmpeg (`decoder.c`), la carte (VA-API) ou les décodeurs du Pi (V4L2) quand la session les
+/// prendrait, sinon le processeur, images recopiées de la carte comme en session (le 4:4:4 converti en RVB) ;
+/// PyroWave : Vulkan (`pyrowave.c`), plans relus comme en session. Rien n'est affiché.
+pub fn decode_sample(s: &kybernow_core::autotest::Sample, m: &crate::app::Machine) -> Option<f64> {
+    use kybernow_core::profile::Codec;
+    unsafe { kn_log_quiet() };
+    if s.packets.is_empty() {
+        return None;
+    }
+    let codec = match s.codec {
+        Codec::PyroWave => return pyrowave_sample(s),
+        Codec::H264 => 0,
+        Codec::Hevc => 1,
+        Codec::Av1 => 2,
+    };
+    // Le décodeur matériel que la session prendrait (`Shared::hw_for`) ; le 4:4:4 seulement si la carte le sait.
+    let hw = [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi][codec as usize] && (!s.yuv444 || m.hw_hevc444);
+    let backend = if m.pi.is_some() && !m.vaapi { 2 } else { 1 };
+    let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4) as c_int;
+    if hw && let Some(fps) = ffmpeg_sample(s, codec, backend, threads) {
+        return Some(fps);
+    }
+    // Le processeur : pas d'AV1 (FFmpeg est compilé sans décodeur AV1 logiciel).
+    if codec == 2 {
+        return None;
+    }
+    ffmpeg_sample(s, codec, 0, threads)
+}
+
+/// Les paquets de l'extrait passés à FFmpeg (`hw` : 0 processeur, 1 VA-API, 2 V4L2), en boucle, 1 s au plus.
+fn ffmpeg_sample(s: &kybernow_core::autotest::Sample, codec: c_int, hw: c_int, threads: c_int) -> Option<f64> {
+    let mut err = [0 as c_char; 256];
+    let d = unsafe { kn_decoder_open(codec, hw, threads, err.as_mut_ptr(), err.len() as c_int) };
+    if d.is_null() {
+        let e = unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy().into_owned();
+        log::info!("profil Auto : décodeur refusé ({e})");
+        return None;
+    }
+    struct Close(*mut c_void);
+    impl Drop for Close {
+        fn drop(&mut self) {
+            unsafe { kn_decoder_close(self.0) };
+        }
+    }
+    let _close = Close(d);
+    let mut f = blank_frame();
+    let (mut i, mut pts, mut errors) = (0usize, 0i64, 0u32);
+    let started = Instant::now();
+    while started.elapsed() < SAMPLE_TIME {
+        let p = &s.packets[i];
+        let r = unsafe { kn_decoder_send(d, p.data.as_ptr(), p.data.len() as c_int, pts) };
+        if r < 0 || unsafe { kn_decoder_receive(d, &mut f) } < 0 {
+            errors += 1;
+            // Un décodeur qui échoue en boucle (format refusé par la carte) : pas décodé ici.
+            if errors >= 8 && unsafe { kn_decoder_frames(d) } == 0 {
+                return None;
+            }
+        }
+        pts += 1;
+        i = (i + 1) % s.packets.len();
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    let frames = unsafe { kn_decoder_frames(d) };
+    (frames > 0).then(|| frames as f64 / elapsed)
+}
+
+/// L'image intra de l'extrait PyroWave décodée par Vulkan et relue (I420, BGRA en 4:4:4), en boucle, 1 s au plus.
+fn pyrowave_sample(s: &kybernow_core::autotest::Sample) -> Option<f64> {
+    let cfg = PwConfig::from_stream(&s.packets[0].data).unwrap_or(PwConfig { c444: s.yuv444, hdr: false, full_range: true, width: s.width, height: s.height });
+    let mut err = [0 as c_char; 256];
+    let d = unsafe { kn_pw_open(cfg.width as c_int, cfg.height as c_int, cfg.c444 as c_int, 0, err.as_mut_ptr(), err.len() as c_int) };
+    if d.is_null() {
+        let e = unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy().into_owned();
+        log::info!("profil Auto : PyroWave refusé ({e})");
+        return None;
+    }
+    struct Close(*mut c_void);
+    impl Drop for Close {
+        fn drop(&mut self) {
+            unsafe { kn_pw_close(self.0) };
+        }
+    }
+    let _close = Close(d);
+    let (w, h) = (cfg.width as usize, cfg.height as usize);
+    let (pitch, rows): ([usize; 3], [usize; 3]) = if cfg.c444 { ([w * 4, 0, 0], [h, 0, 0]) } else { ([w, w / 2, w / 2], [h, h / 2, h / 2]) };
+    let mut planes: [Vec<u8>; 3] = [vec![0; pitch[0] * rows[0]], vec![0; pitch[1] * rows[1]], vec![0; pitch[2] * rows[2]]];
+    let ptrs = [planes[0].as_mut_ptr(), planes[1].as_mut_ptr(), planes[2].as_mut_ptr()];
+    let strides = pitch.map(|p| p as c_int);
+    let (mut i, mut frames, mut errors) = (0usize, 0u64, 0u32);
+    let started = Instant::now();
+    while started.elapsed() < SAMPLE_TIME {
+        let p = &s.packets[i];
+        let r = unsafe { kn_pw_decode(d, p.data.as_ptr(), p.data.len(), ptrs.as_ptr(), strides.as_ptr(), 1, cfg.full_range as c_int) };
+        if r == 1 {
+            frames += 1;
+        } else {
+            errors += 1;
+            if errors >= 8 && frames == 0 {
+                return None;
+            }
+        }
+        i = (i + 1) % s.packets.len();
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    (frames > 0).then(|| frames as f64 / elapsed)
+}
 
 /// La texture de l'image et ce qu'il faut pour la montrer (fil principal).
 pub struct Screen {

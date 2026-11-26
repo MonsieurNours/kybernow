@@ -75,9 +75,13 @@ pub fn chosen_help() -> &'static str {
 }
 
 /// L'aide de « Format vidéo » en « Auto », quand l'ordinateur propose PyroWave et que cet appareil le décode.
-pub fn auto_help(wired: bool) -> &'static str {
-    if wired {
+/// `takes` : le profil prend PyroWave par câble (Max, et Auto quand le test l'a choisi) ; Jeu et Bureau restent en
+/// HEVC (docs/profil-auto.md).
+pub fn auto_help(wired: bool, takes: bool) -> &'static str {
+    if wired && takes {
         tr("Auto : PyroWave, car cet appareil est relié par câble. Sinon HEVC.", "Auto: PyroWave, because this device is connected by cable. Otherwise HEVC.")
+    } else if wired {
+        tr("Auto : HEVC. PyroWave est pris par Max et Auto, quand cet appareil est relié par câble.", "Auto: HEVC. PyroWave is used by Max and Auto, when this device is connected by cable.")
     } else {
         tr("Auto : HEVC. PyroWave est pris seulement quand cet appareil est relié par câble.", "Auto: HEVC. PyroWave is only used when this device is connected by cable.")
     }
