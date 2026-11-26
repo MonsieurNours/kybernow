@@ -446,8 +446,8 @@ mod tests {
     fn outside_a_station_the_launch_fails_cleanly() {
         let dir = temp();
         let restarter = Restarter::new(&dir);
-        // Hors Station (tests, Mac de développement) : refusé, avec le texte du système.
-        let expected = if cfg!(target_os = "macos") {
+        // Hors Station (tests, Mac ou Linux de développement) : refusé, avec le texte du système.
+        let expected = if cfg!(any(target_os = "macos", target_os = "linux")) {
             "redémarrer la Station n'est possible que sur une Station installée"
         } else {
             "redémarrer la Station n'est possible que sous Windows"

@@ -56,7 +56,7 @@ cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
 # Fedora range les bibliothèques dans lib64, Debian et Ubuntu dans lib/<triplet>.
 [ -d "$RT_SRC/lib64" ] && cp -a "$RT_SRC/lib64" "$LIB/runtime/"
 # Ce qui ne sert qu'à compiler (en-têtes, .a, pkg-config) reste dehors.
-find "$LIB/runtime/lib" "$LIB/runtime/lib64" \( -name '*.a' -o -name '*.la' -o -name pkgconfig -o -name cmake \) -prune -exec rm -rf {} +
+find "$LIB/runtime/lib" $([ -d "$LIB/runtime/lib64" ] && echo "$LIB/runtime/lib64") \( -name '*.a' -o -name '*.la' -o -name pkgconfig -o -name cmake \) -prune -exec rm -rf {} +
 rm -rf "$LIB/runtime/include"
 install -m 644 "$KYBER_DIR/kyber_config.toml" "$LIB/runtime/share/kyber_config.toml"
 install -m 644 "$ROOT/server/linux/packaging/kybernow-admin.service" "$ROOT/server/linux/packaging/kybernow-kyber.service" \
@@ -97,14 +97,21 @@ case "$1" in
 esac
 '
 # Programmes que la Station lance, et bibliothèques du système qu'elle lit ;
-# l'icône : GTK 3 et AppIndicator (ouvert à l'exécution, Ayatana ou l'ancien).
-DEB_DEPENDS="pipewire, pipewire-bin, wireplumber, pipewire-pulse | pulseaudio, pulseaudio-utils, gstreamer1.0-pipewire, gstreamer1.0-plugins-base, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, libva2, libva-drm2, libdrm2, libpulse0, libevdev2, libudev1, libxcb1, openssl, python3, systemd, libgtk-3-0t64 | libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1, util-linux, ethtool, gstreamer1.0-plugins-good, hwdata"
-RPM_REQUIRES="pipewire, pipewire-utils, wireplumber, pipewire-pulseaudio, pulseaudio-utils, pipewire-gstreamer, gstreamer1-plugins-base, libva, libdrm, pulseaudio-libs, libevdev, systemd-libs, libxcb, openssl, python3, systemd, gtk3, (libayatana-appindicator-gtk3 or libappindicator-gtk3), util-linux, ethtool, gstreamer1-plugins-good, hwdata"
+# l'icône : GTK 3, AppIndicator (ouvert à l'exécution, Ayatana ou l'ancien) et
+# WebKitGTK 4.1 (écran du prêt, wry).
+DEB_DEPENDS="pipewire, pipewire-bin, wireplumber, pipewire-pulse | pulseaudio, pulseaudio-utils, gstreamer1.0-pipewire, gstreamer1.0-plugins-base, libgstreamer1.0-0, libgstreamer-plugins-base1.0-0, libva2, libva-drm2, libdrm2, libpulse0, libevdev2, libudev1, libxcb1, openssl, python3, systemd, libgtk-3-0t64 | libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1, libwebkit2gtk-4.1-0, util-linux, ethtool, gstreamer1.0-plugins-good, hwdata"
+RPM_REQUIRES="pipewire, pipewire-utils, wireplumber, pipewire-pulseaudio, pulseaudio-utils, pipewire-gstreamer, gstreamer1-plugins-base, libva, libdrm, pulseaudio-libs, libevdev, systemd-libs, libxcb, openssl, python3, systemd, gtk3, (libayatana-appindicator-gtk3 or libappindicator-gtk3), webkit2gtk4.1, util-linux, ethtool, gstreamer1-plugins-good, hwdata"
 # Recommandés : écrans de KDE, l'extension AppIndicator de GNOME (Ubuntu l'a
 # d'office), boîtes de dialogue et notifications de l'icône, Wi-Fi (iw),
 # fenêtres X11 (xprop), icônes des apps en SVG (rsvg-convert).
-DEB_RECOMMENDS="libkf6screen-bin | libkf5screen-bin, gnome-shell-extension-appindicator, zenity | kdialog, libnotify-bin, iw, x11-utils, librsvg2-bin"
-RPM_RECOMMENDS="libkscreen, gnome-shell-extension-appindicator, zenity, libnotify, iw, xprop, librsvg2-tools"
+# Les aides d'un bureau ne s'installent que sur ce bureau : l'extension de
+# GNOME dépend de gnome-shell, et dnf comme apt installent les recommandés
+# (essai du 26/11 : tout GNOME et GDM arrivaient sur une Fedora KDE). Le .rpm
+# les pose sous condition ; Debian n'a pas de condition, le .deb les suggère
+# (Plasma a déjà kscreen-doctor, Ubuntu déjà l'extension).
+DEB_RECOMMENDS="zenity | kdialog, libnotify-bin, iw, x11-utils, librsvg2-bin"
+DEB_SUGGESTS="libkf6screen-bin | libkf5screen-bin, gnome-shell-extension-appindicator"
+RPM_RECOMMENDS="(libkscreen if plasma-workspace), (gnome-shell-extension-appindicator if gnome-shell), (zenity or kdialog), libnotify, iw, xprop, librsvg2-tools"
 
 mkdir -p "$DIST"
 
@@ -121,6 +128,7 @@ Maintainer: Les Lignes Claires <info@leslignesclaires.fr>
 Installed-Size: $SIZE_KB
 Depends: $DEB_DEPENDS
 Recommends: $DEB_RECOMMENDS
+Suggests: $DEB_SUGGESTS
 Section: net
 Priority: optional
 Homepage: https://kybernow.app

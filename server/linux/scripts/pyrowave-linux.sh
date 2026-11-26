@@ -23,10 +23,13 @@ pyrowave_linux_build() {
     command -v cmake >/dev/null || { echo "cmake introuvable" >&2; exit 1; }
     local gen=()
     command -v ninja >/dev/null && gen=(-G Ninja)
+    # Chemin de recherche : $ORIGIN/../lib seul (rpmbuild refuse le dossier de
+    # compilation et un chemin vide, que CMAKE_BUILD_RPATH laissait).
     # Seules la bibliothèque et la vérification du périphérique : les essais
     # (SDL, d3d12) ne servent pas à la Station.
     cmake -S "$dir" -B "$build" "${gen[@]}" -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_RPATH='$ORIGIN/../lib' >/dev/null
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH='$ORIGIN/../lib' >/dev/null
     cmake --build "$build" --target pyrowave-shared pyrowave-device-validation
     mkdir -p "$OUT/bin" "$OUT/lib/pkgconfig" "$OUT/include/pyrowave"
     # La bibliothèque et ses liens de version (libpyrowave-shared.so.1…).

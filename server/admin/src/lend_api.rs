@@ -169,8 +169,12 @@ pub fn info(s: &AppState) -> Value {
 /// console (`kybernow-tray --console`, le lanceur de l'ami) : sans lui, l'ami
 /// recevrait tout le bureau de l'hôte (docs/pret.md, « Station Linux ») ; les
 /// apps disent alors « Le prêt n'est pas possible sur cet ordinateur. ».
+/// Hors Station (tests, Linux de développement), simulé comme sur le Mac.
 pub fn available() -> bool {
-    !cfg!(target_os = "linux") || lend_sys::console_supported()
+    #[cfg(target_os = "linux")]
+    return !crate::linux::is_station() || lend_sys::console_supported();
+    #[cfg(not(target_os = "linux"))]
+    return true;
 }
 
 /// La vue du prêt (contrat), avec le nom de l'ordinateur et de l'hôte.

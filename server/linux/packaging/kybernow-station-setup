@@ -29,7 +29,9 @@ SCREENS="${XDG_DATA_HOME:-$HOME/.local/share}/kybernow/station/kyber-screens.tom
 record() {
     [ -f "$BASE/kybernow.json" ] && return 0
     local port=9443 listen
-    listen=$(sed -n 's/^listen *= *"\(.*\)"/\1/p' "$DATA/kyber-admin.toml" 2>/dev/null | head -1)
+    # Au premier démarrage, kyber-admin.toml n'existe pas encore : sed échoue,
+    # et sans « || true » pipefail arrêtait tout le script (Admin ne démarrait pas).
+    listen=$(sed -n 's/^listen *= *"\(.*\)"/\1/p' "$DATA/kyber-admin.toml" 2>/dev/null | head -1) || true
     [ -n "$listen" ] && port="${listen##*:}"
     case "$port" in '' | *[!0-9]*) port=9443 ;; esac
     mkdir -p "$BASE"

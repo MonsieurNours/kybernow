@@ -29,7 +29,7 @@ diff --git a/subprojects/packagefiles/ffmpeg/patches/0024-avcodec-pyrowave-vulka
 new file mode 100644
 --- /dev/null
 +++ b/subprojects/packagefiles/ffmpeg/patches/0024-avcodec-pyrowave-vulkan-encoder.patch
-@@ -0,0 +1,784 @@
+@@ -0,0 +1,787 @@
 +From: KyberNow
 +Subject: [PATCH] avcodec: PyroWave encoder for DMA-BUF frames (Vulkan)
 +
@@ -101,7 +101,7 @@ new file mode 100644
 +new file mode 100644
 +--- /dev/null
 ++++ b/libavcodec/libpyrowave_vulkan_enc.c
-+@@ -0,0 +1,712 @@
++@@ -0,0 +1,715 @@
 ++/*
 ++ * PyroWave encoder for DMA-BUF frames, Vulkan (KyberNow).
 ++ *
@@ -363,10 +363,13 @@ new file mode 100644
 ++    info.usage         = VK_IMAGE_USAGE_SAMPLED_BIT;
 ++    info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
 ++
-++    /* Vulkan takes the descriptor over: a copy, the capture keeps its own. */
-++    fd = fcntl(obj->fd, F_DUPFD_CLOEXEC, 0);
+++    /* Vulkan takes the descriptor over: a copy, the capture keeps its own.
+++     * F_DUPFD then FD_CLOEXEC: FFmpeg builds with _POSIX_C_SOURCE=200112,
+++     * which hides F_DUPFD_CLOEXEC. */
+++    fd = fcntl(obj->fd, F_DUPFD, 0);
 ++    if (fd < 0)
 ++        return AVERROR(errno);
+++    fcntl(fd, F_SETFD, FD_CLOEXEC);
 ++    pyrowave_image_create_info create = { 0 };
 ++    create.device            = s->device;
 ++    create.external_handle   = (pyrowave_os_handle)fd;

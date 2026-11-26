@@ -2639,7 +2639,12 @@ mod tests {
                 info["pyrowave"].clone()
             }
         };
-        // Ni Windows ni Mac : jamais proposé (et pas de réglage).
+        // Linux sans pyrowave-device-validation à côté des tests : « vulkan ».
+        if cfg!(target_os = "linux") {
+            assert_eq!(pyrowave(&c).await, json!({ "available": false, "reason": "vulkan" }));
+            return;
+        }
+        // Ni Windows, ni Mac, ni Linux : jamais proposé (et pas de réglage).
         if !cfg!(windows) && !cfg!(target_os = "macos") {
             assert_eq!(pyrowave(&c).await, json!({ "available": false, "reason": "windows" }));
             return;
