@@ -5,7 +5,7 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
-## Non publié
+## 0.11.5
 
 - **KyberNow Station pour Linux, en bêta.** Un ordinateur sous Linux devient une Station, comme un PC Windows ou un Mac : même Admin, mêmes apps pour s'y connecter. Pour jouer (Steam, Proton, Lutris, Heroic) ou travailler à distance, sous GNOME, KDE Plasma 6, Sway ou Hyprland, avec Ubuntu 24.04, Debian 13, Fedora 42 et plus récentes, sur x86_64 et arm64. Paquets `.deb` et `.rpm` sur la page de la version ; les mises à jour suivantes s'installent depuis Admin.
 - **Moins de retard quand l'image change d'un coup.** Au moment d'un changement de scène ou d'une fenêtre qui s'ouvre, l'ordinateur pouvait envoyer une image bien plus lourde que les autres : elle mettait plusieurs images de temps à arriver, et tout attendait derrière elle. Chaque image tient maintenant dans sa part du débit, avec les cartes NVIDIA, AMD et Intel comme sur Mac, et toujours sans à-coup quand le débit change.
