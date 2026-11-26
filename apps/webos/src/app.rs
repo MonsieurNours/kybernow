@@ -142,6 +142,9 @@ pub struct HostLive {
     /// L'ordinateur ne crée pas les manettes de l'appareil (`gamepads` de `GET /api/stream/info`, Station Mac tant
     /// qu'Apple n'a pas accordé son droit) : « Manettes indisponibles sur cet ordinateur » (docs/link-ui.md).
     pub pads_unavailable: bool,
+    /// Mise à jour des Stations : le bandeau, la puce et l'avis, calculés par la couche appareil avec le cœur
+    /// (`station_offer`) à chaque tour de boucle.
+    pub offer: crate::station_offer::StationOffer,
 }
 
 /// Le HDR que la Station annonce (`GET /api/stream/info` : `hdr: { available, reason }`), miroir de celui du cœur
@@ -319,6 +322,8 @@ pub struct StationUi {
     pub host: String,
     pub phase: StationPhase,
     pub message: Option<String>,
+    /// Le message est celui d'un retour réussi (« La Station a redémarré. », « KyberNow Station {v} est en place. »).
+    pub done: bool,
 }
 
 /// Fenêtre de confirmation, par-dessus les réglages.
@@ -2151,6 +2156,13 @@ pub enum Target {
     AutoRetest,
     AutoBannerAgain,
     AutoBannerClose,
+    /// Mise à jour des Stations : le bandeau de l'accueil (« Mettre à jour » ou « Réessayer », « Plus tard ») ; l'avis
+    /// après une mise à jour de l'app (le bouton principal, « Plus tard » ou « Fermer », « Mettre à jour » d'une ligne).
+    OfferUpdate,
+    OfferLater,
+    NoticeMain,
+    NoticeLater,
+    NoticeRow(usize),
 }
 
 /// Ce que l'app demande au pilote du téléviseur.
@@ -2274,6 +2286,10 @@ pub struct App {
     pub dialog: Option<Dialog>,
     /// Redémarrage ou mise à jour de la Station, pour un ordinateur à la fois.
     pub station: Option<StationUi>,
+    /// Mise à jour des Stations (docs/link-ui.md) : d'où vient `station` (réglages, bandeau de l'accueil, avis), et
+    /// l'avis après une mise à jour de l'app, en plein écran par-dessus l'accueil.
+    pub station_origin: crate::station_offer::Origin,
+    pub station_notice: Option<crate::station_offer::StationNotice>,
     /// Réveil envoyé à cet ordinateur : « Réveil de l'ordinateur… » jusqu'à
     /// ce qu'il soit en ligne (`WAKE_WAIT` au plus).
     pub waking: Option<(String, Instant)>,
@@ -2355,6 +2371,8 @@ impl App {
             settings_global: false,
             dialog: None,
             station: None,
+            station_origin: Default::default(),
+            station_notice: None,
             waking: None,
             watch_pending: None,
             pad_selected: 0,
@@ -2544,6 +2562,35 @@ impl App {
     /// Une touche de navigation.
     pub fn nav(&mut self, n: Nav) -> Vec<Action> {
         self.pointer = None;
+        // L'avis « … a aussi une mise à jour », en plein écran : ses boutons, Retour vaut « Plus tard ».
+        if self.station_notice.is_some() && self.screen == Screen::Home && self.dialog.is_none() {
+            match n {
+                Nav::Ok => {
+                    let t = self.focus;
+                    return self.activate(t);
+                }
+                Nav::Back => return self.activate(Target::NoticeLater),
+                Nav::Up | Nav::Down | Nav::Left | Nav::Right => self.move_focus(n),
+                _ => {}
+            }
+            return Vec::new();
+        }
+        // Le bandeau de la mise à jour de la Station se prend à la flèche bas depuis « Se connecter » et la rangée des
+        // profils ; la flèche haut y revient.
+        if self.screen == Screen::Home && self.dialog.is_none() {
+            let row = matches!(self.focus, Target::Connect | Target::Chip(_) | Target::HdrChip | Target::HostSettings | Target::Watch);
+            match (n, self.banner_target()) {
+                (Nav::Down, Some(t)) if row => {
+                    self.focus = t;
+                    return Vec::new();
+                }
+                (Nav::Up, Some(_)) if matches!(self.focus, Target::OfferUpdate | Target::OfferLater) => {
+                    self.focus = Target::Connect;
+                    return Vec::new();
+                }
+                _ => {}
+            }
+        }
         if let Some(acts) = self.account_nav(n) {
             return acts;
         }
@@ -3268,7 +3315,13 @@ impl App {
                     self.go(Screen::Home);
                     vec![Action::Save]
                 }
-                Some(Dialog::Force { host, op, .. }) => self.station_ask(&host, op, true),
+                Some(Dialog::Force { host, op, .. }) => {
+                    // Depuis le bandeau de l'accueil : le focus y revient.
+                    if self.station_origin == crate::station_offer::Origin::Banner && op == StationOp::Update {
+                        self.focus = Target::Connect;
+                    }
+                    self.station_ask(&host, op, true)
+                }
                 Some(Dialog::GiveBack { .. }) => {
                     self.focus = Target::Menu(MenuItem::Resume);
                     vec![Action::GiveBack]
@@ -3280,6 +3333,11 @@ impl App {
                 self.close_dialog();
                 Vec::new()
             }
+            Target::OfferUpdate => self.banner_update(),
+            Target::OfferLater => self.banner_later(),
+            Target::NoticeMain => self.notice_main(),
+            Target::NoticeLater => self.notice_later(),
+            Target::NoticeRow(i) => self.notice_row(i),
             Target::HintDismiss => {
                 let Some(id) = self.session.as_ref().map(|s| s.host.clone()) else { return Vec::new() };
                 if let Some(s) = self.session.as_mut() {
@@ -4314,8 +4372,14 @@ impl App {
                 self.focus = Target::DialogCancel;
                 return Vec::new();
             }
-            Setting::Restart => return self.station_ask(&id, StationOp::Restart, false),
-            Setting::Update => return self.station_ask(&id, StationOp::Update, false),
+            Setting::Restart => {
+                self.station_origin = crate::station_offer::Origin::Settings;
+                return self.station_ask(&id, StationOp::Restart, false);
+            }
+            Setting::Update => {
+                self.station_origin = crate::station_offer::Origin::Settings;
+                return self.station_ask(&id, StationOp::Update, false);
+            }
             _ => {}
         }
         let panel_h = self.tv.panel.1;
@@ -4385,6 +4449,11 @@ impl App {
 
     /// Ferme la confirmation ; le focus revient à la ligne qui l'a ouverte.
     fn close_dialog(&mut self) {
+        if self.banner_dialog() {
+            self.dialog = None;
+            self.focus = Target::Connect;
+            return;
+        }
         self.focus = match self.dialog.take() {
             // Rendre l'ordinateur, retirer un ordinateur emprunté : le focus revient à leur bouton.
             Some(Dialog::GiveBack { .. }) => Target::Menu(MenuItem::Resume),
@@ -4404,11 +4473,11 @@ impl App {
     }
 
     /// Demande un redémarrage ou une mise à jour de la Station.
-    fn station_ask(&mut self, host: &str, op: StationOp, force: bool) -> Vec<Action> {
+    pub(crate) fn station_ask(&mut self, host: &str, op: StationOp, force: bool) -> Vec<Action> {
         if self.station.as_ref().is_some_and(|s| s.host == host && s.phase != StationPhase::Idle) || self.station_via_relay(host) {
             return Vec::new();
         }
-        self.station = Some(StationUi { host: host.into(), phase: StationPhase::Asking(op), message: None });
+        self.station = Some(StationUi { host: host.into(), phase: StationPhase::Asking(op), message: None, done: false });
         // Les lignes d'action laissent la place à l'état : le focus revient à la rubrique.
         if self.screen == Screen::Settings {
             self.focus = Target::Section(self.section);
@@ -4419,6 +4488,10 @@ impl App {
     /// La réponse d'Admin : acceptée (avec la version visée pour une mise à
     /// jour), ou refusée.
     pub fn station_answer(&mut self, host: &str, op: StationOp, r: Result<Option<String>, StationRefusal>) {
+        // Lancée par l'avis : un refus reste sur sa ligne.
+        if self.station.as_ref().is_some_and(|s| s.host == host) && op == StationOp::Update && self.notice_refused(host, &r) {
+            return;
+        }
         let setup_version = match self.live.get(host).map(|l| &l.station) {
             Some(StationKnown::Info(st)) => st.update_version.clone(),
             _ => None,
@@ -4499,6 +4572,7 @@ impl App {
             }
         }
         let mut done: Option<String> = None;
+        let mut ok = false;
         if let Some(ui) = self.station.as_mut().filter(|s| s.host == id)
             && let StationPhase::Waiting { op, since, down, target } = &mut ui.phase
         {
@@ -4506,9 +4580,13 @@ impl App {
                 *down = true;
             } else if let StationKnown::Info(st) = &p.station {
                 match op {
-                    StationOp::Restart if *down && !st.restarting => done = Some(tr("La Station a redémarré.", "The Station has restarted.").into()),
+                    StationOp::Restart if *down && !st.restarting => {
+                        done = Some(tr("La Station a redémarré.", "The Station has restarted.").into());
+                        ok = true;
+                    }
                     StationOp::Update if !st.installing && (target.as_deref() == Some(st.version.as_str()) || (*down && target.is_none())) => {
                         done = Some(if english() { format!("KyberNow Station {} is installed.", st.version) } else { format!("KyberNow Station {} est en place.", st.version) });
+                        ok = true;
                     }
                     StationOp::Update if *down && !st.installing && !st.restarting => {
                         done = Some(tr("La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus.", "The update did not complete. Open Admin to find out more.").into());
@@ -4523,10 +4601,13 @@ impl App {
             if let Some(m) = &done {
                 ui.phase = StationPhase::Idle;
                 ui.message = Some(m.clone());
+                ui.done = ok;
             }
         }
+        // L'avis bref, hors des réglages (et hors de l'avis des mises à jour, dont la ligne le dit).
         if let Some(m) = done
             && self.screen != Screen::Settings
+            && self.station_notice.is_none()
         {
             self.toast(m);
         }
@@ -4972,6 +5053,90 @@ mod tests {
         app.adjust(Setting::Restart, 1);
         app.station_answer("a", StationOp::Restart, Err(StationRefusal::Unsupported));
         assert_eq!(app.station.as_ref().and_then(|s| s.message.as_deref()), Some(station_too_old()));
+    }
+
+    /// Une Station 0.11.2 qui annonce la 0.11.3, installable.
+    fn offered(version: &str) -> Polled {
+        Polled { online: true, station: StationKnown::Info(StationLive { version: version.into(), update_available: true, update_version: Some("0.11.3".into()), installable: true, ..Default::default() }), ..Default::default() }
+    }
+
+    /// Mise à jour des Stations, le bandeau de l'accueil : la flèche bas depuis « Se connecter », le flux des réglages
+    /// (confirmation, suivi, avis bref) ; « Plus tard » gardé pour cet ordinateur et cette version.
+    #[test]
+    fn station_banner_flow() {
+        use crate::station_offer::{HomeBanner, OfferBanner};
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default());
+        app.store.hosts.push(demo_host());
+        app.polled("a", offered("0.11.2"));
+        app.live.get_mut("a").unwrap().offer.banner = OfferBanner::Update("0.11.3".into());
+        assert_eq!(app.home_banner("a"), Some(HomeBanner::Update("0.11.3".into())));
+        app.focus = Target::Connect;
+        app.nav(Nav::Down);
+        assert_eq!(app.focus, Target::OfferUpdate);
+        app.nav(Nav::Up);
+        assert_eq!(app.focus, Target::Connect);
+        assert_eq!(app.activate(Target::OfferUpdate), vec![Action::Station { host: "a".into(), op: StationOp::Update, force: false }]);
+        assert_eq!(app.home_banner("a"), Some(HomeBanner::Busy));
+        app.station_answer("a", StationOp::Update, Err(StationRefusal::InSession(Some("Pixel 9".into()))));
+        assert!(matches!(&app.dialog, Some(Dialog::Force { .. })));
+        assert_eq!(app.activate(Target::DialogOk), vec![Action::Station { host: "a".into(), op: StationOp::Update, force: true }]);
+        assert_eq!(app.focus, Target::Connect);
+        app.station_answer("a", StationOp::Update, Ok(Some("0.11.3".into())));
+        app.polled("a", Polled::default());
+        app.polled("a", info("0.11.3"));
+        assert_eq!(app.toast.as_ref().map(|(m, _)| m.as_str()), Some("KyberNow Station 0.11.3 est en place."));
+        assert!(app.offer_tick().is_empty());
+        assert!(app.station.is_none());
+        assert_eq!(app.home_banner("a"), None);
+
+        // Un échec : son texte, « Réessayer » et « Plus tard ».
+        app.polled("a", offered("0.11.2"));
+        app.live.get_mut("a").unwrap().offer.banner = OfferBanner::Update("0.11.3".into());
+        app.activate(Target::OfferUpdate);
+        app.station_answer("a", StationOp::Update, Err(StationRefusal::TooSoon));
+        assert!(matches!(app.home_banner("a"), Some(HomeBanner::Failed(m)) if m.contains("Réessayez dans une minute")));
+        assert_eq!(app.activate(Target::OfferLater), vec![Action::Save]);
+        assert_eq!(app.store.station_offers["a"].snoozed_version.as_deref(), Some("0.11.3"));
+        assert_eq!(app.home_banner("a"), None);
+        assert!(app.station.is_none());
+    }
+
+    /// L'avis après une mise à jour de l'app : « Tout mettre à jour » l'une après l'autre ; un appareil en session
+    /// reste sur sa ligne ; Retour vaut « Plus tard » pour celles qui ne sont pas à jour.
+    #[test]
+    fn station_notice_flow() {
+        use crate::station_offer::RowState;
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default());
+        app.store.hosts.push(demo_host());
+        app.store.hosts.push(Host { id: "b".into(), name: "B".into(), ..demo_host() });
+        app.polled("a", offered("0.11.2"));
+        app.polled("b", offered("0.11.2"));
+        assert!(app.can_show_station_notice());
+        app.open_station_notice(vec![("a".into(), "A".into(), "0.11.3".into()), ("b".into(), "B".into(), "0.11.3".into())], "0.11.3");
+        assert_eq!(app.focus, Target::NoticeMain);
+        assert_eq!(app.nav(Nav::Ok), vec![Action::Station { host: "a".into(), op: StationOp::Update, force: false }]);
+        app.station_answer("a", StationOp::Update, Err(StationRefusal::InSession(Some("Pixel 9".into()))));
+        assert!(app.dialog.is_none());
+        assert_eq!(app.offer_tick(), vec![Action::Station { host: "b".into(), op: StationOp::Update, force: false }]);
+        app.station_answer("b", StationOp::Update, Ok(Some("0.11.3".into())));
+        app.polled("b", Polled::default());
+        app.polled("b", info("0.11.3"));
+        // La ligne le dit : pas d'avis bref par-dessus.
+        assert!(app.toast.is_none());
+        assert!(app.offer_tick().is_empty());
+        let n = app.station_notice.as_ref().unwrap();
+        assert_eq!(n.rows[0].state, RowState::Refused("Pixel 9".into()));
+        assert_eq!(n.rows[1].state, RowState::Done);
+        assert_eq!(app.activate(Target::NoticeRow(0)), vec![Action::Station { host: "a".into(), op: StationOp::Update, force: true }]);
+        app.station_answer("a", StationOp::Update, Err(StationRefusal::Other("Échec".into())));
+        app.offer_tick();
+        assert!(matches!(&app.station_notice.as_ref().unwrap().rows[0].state, RowState::Failed(m) if m == "Échec"));
+        assert_eq!(app.nav(Nav::Back), vec![Action::Save]);
+        assert!(app.station_notice.is_none());
+        assert_eq!(app.store.station_offers.get("a").and_then(|m| m.snoozed_version.as_deref()), Some("0.11.3"));
+        assert!(!app.store.station_offers.contains_key("b"));
     }
 
     #[test]

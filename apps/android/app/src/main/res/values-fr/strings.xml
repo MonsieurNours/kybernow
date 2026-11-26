@@ -275,6 +275,19 @@
     <string name="station_remove">Retirer cet ordinateur</string>
     <string name="station_remove_confirm" formatted="true">Retirer %1$s de cet appareil ? Vous pourrez l\'ajouter à nouveau.</string>
     <string name="station_remove_yes">Retirer</string>
+    <string name="station_offer_available" formatted="true">KyberNow Station %1$s est disponible pour cet ordinateur. Environ une minute.</string>
+    <string name="station_offer_update">Mettre à jour</string>
+    <string name="station_offer_later">Plus tard</string>
+    <string name="station_offer_setup" formatted="true">KyberNow Station %1$s est disponible. Elle s\'installe sur l\'ordinateur, avec l\'installateur.</string>
+    <string name="station_offer_away" formatted="true">KyberNow Station %1$s est disponible. Hors de chez vous, l\'app ne peut pas mettre à jour la Station : faites-le une fois rentré.</string>
+    <string name="station_offer_chip" formatted="true">%1$s · Mise à jour</string>
+    <string name="station_notice_title_one" formatted="true">%1$s a aussi une mise à jour</string>
+    <string name="station_notice_body_one" formatted="true">KyberNow Link est passée en %1$s. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée.</string>
+    <string name="station_notice_title_many">Vos Stations aussi ont une mise à jour</string>
+    <string name="station_notice_body_many" formatted="true">KyberNow Link est passée en %1$s. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée.</string>
+    <string name="station_notice_version" formatted="true">Version %1$s</string>
+    <string name="station_notice_update_all">Tout mettre à jour</string>
+    <string name="station_notice_updating">Mise à jour…</string>
     <string name="app_settings_title">Réglages de l\'app</string>
     <string name="app_settings_language">Langue</string>
     <string name="app_settings_language_help">Auto suit Android : français s\'il est en français, anglais sinon.</string>

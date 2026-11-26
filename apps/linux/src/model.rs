@@ -384,11 +384,14 @@ pub struct AppSettings {
     /// Comptes KyberNow : « Synchroniser les réglages des ordinateurs » (Réglages de l'app › Comptes), allumé par
     /// défaut, gardé sur cet appareil seulement (docs/comptes.md, « Réglages synchronisés »).
     pub sync_settings: bool,
+    /// La version de l'app au dernier lancement (vide : jamais lancée, ou avant la 0.11.3) : au premier lancement
+    /// d'une nouvelle version, l'avis « … a aussi une mise à jour » (docs/link-ui.md, « Mise à jour des Stations »).
+    pub last_launched: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new() }
     }
 }
 
@@ -706,9 +709,25 @@ pub struct Store {
     /// des envois, et le dernier changement déjà appliqué ici), et les changements qu'il n'a pas encore reçus.
     pub synced: Vec<crate::synced::SyncedEntry>,
     pub sync_pending: Vec<crate::synced::PendingSync>,
+    /// Mise à jour des Stations (docs/link-ui.md) : pour chaque ordinateur (`Host::id`), « Plus tard » et la dernière
+    /// vérification demandée. Gardé sur cet appareil seulement (jamais dans les réglages synchronisés).
+    pub station_offers: std::collections::HashMap<String, StationMemory>,
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
+}
+
+/// Ce que l'app garde d'un ordinateur pour la mise à jour de sa Station : le même JSON que `station_offer::Memory` du
+/// cœur, que la couche appareil relit pour le calcul (l'interface seule n'a pas le cœur).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct StationMemory {
+    /// « Plus tard » : la version remise à plus tard, et quand (secondes Unix).
+    pub snoozed_version: Option<String>,
+    pub snoozed_at: u64,
+    /// Dernière vérification demandée à la Station : la version de l'app d'alors, et quand.
+    pub checked_app_version: Option<String>,
+    pub checked_at: u64,
 }
 
 impl Store {
@@ -910,6 +929,7 @@ impl Store {
     }
 
     pub fn remove(&mut self, id: &str) {
+        self.station_offers.remove(id);
         self.account_hosts.retain(|a| a.id != id);
         self.hosts.retain(|h| h.id != id);
         self.borrowed.retain(|b| b.id != id);

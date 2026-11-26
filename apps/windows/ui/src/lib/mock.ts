@@ -6,7 +6,7 @@
 import { i18n, langFromTag, t } from './i18n/index.svelte'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
-import type { AutoChoice, AutoResult, AutoStep } from './api'
+import type { AutoChoice, AutoResult, AutoStep, StationOffer } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
@@ -89,7 +89,16 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // ajouté. » ; une seconde fois, le même ordinateur prend le nouvel accès), « faux » est refusé (« Mot de passe
 // refusé. »), « vieux » : « Ce code ne sert plus. », « plein » : l'invitation a ajouté tous ses appareils, « essais » :
 // trop d'essais, « coupe » : l'accès hors de chez vous est coupé.
+// Mise à jour des Stations (docs/link-ui.md) : Bureau-Salon a une Station à mettre à jour (le bandeau de l'accueil,
+// « · Mise à jour » dans la rangée ; `?installateur` : le bandeau de l'installateur) ; `?maj=loin` : Bureau-Salon est
+// hors de chez vous (le bandeau sans « Mettre à jour ») ; `?maj=session` : un appareil est en session sur Bureau-Salon
+// (la confirmation dans le bandeau ou l'avis, « Mettre à jour quand même ») ; `?maj=deux` : Studio-Photo aussi a une
+// mise à jour ; `?echecmaj` : la mise à jour n'aboutit pas (le texte, « Réessayer », « Plus tard »). L'avis après une
+// mise à jour de l'app : `?avis` (Bureau-Salon seul : « Bureau-Salon a aussi une mise à jour »), `?avis&maj=deux`
+// (la liste, « Tout mettre à jour »). Plusieurs à la fois : `?maj=deux,session`.
 const flags = new URLSearchParams(location.search)
+/** `?maj=loin,session,deux`. */
+const majFlags = (flags.get('maj') ?? '').split(',')
 /** Le relais : `joint`, `tcp`, `injoignable`, `preparation`, `lent`, `coupe`, `eteint`, `session` ; `null` sans `?relais`. */
 const relayFlag = flags.has('relais') ? flags.get('relais') || 'joint' : null
 // `?pyrowave` : la Station du premier ordinateur propose PyroWave et ce PC le décode ; `=cable` (par défaut) ou
@@ -246,7 +255,7 @@ let computers = [
       av1: true,
       admin_version: '0.5.1',
       virtual_display: { available: true },
-      station: station('0.5.1'),
+      station: majFlags.includes('deux') ? station('0.5.1', { available: true, version: '0.5.2', installable: true }) : station('0.5.1'),
       wake: wakeOf.c3,
     } as Info | null,
     preview: null,
@@ -351,9 +360,34 @@ const barComputers = (): BarComputer[] =>
     return { id: c.id, name: c.name, state, dot, pick }
   })
 
+/** « Plus tard » de la mise à jour de la Station, par ordinateur : la version et quand. */
+const snoozed = new Map<string, { version: string; at: number }>()
+/** Le bandeau et la puce de la mise à jour de la Station (`station_offer` du cœur, imité). */
+const offerOf = (c: (typeof computers)[number]): StationOffer => {
+  const s = c.info?.station
+  const account = (c as { account?: AccountComputer | null }).account
+  const away = !!(c as Relayed).away || (c.id === 'a1' && majFlags.includes('loin'))
+  const offered = !!s && (!account || account.rights.includes('admin')) && c.online === true && (s.update.available || s.update.installing) && !s.restarting
+  const chip = offered && s!.update.available && !!s!.update.version
+  if (!offered || sessions.length > 0) return { banner: { kind: 'none' }, chip }
+  const u = s!.update
+  if (u.installing) return { banner: { kind: 'installing' }, chip }
+  const version = u.version ?? ''
+  const later = snoozed.get(c.id)
+  if (!version || (later && later.version === version && Date.now() / 1000 < later.at + 7 * 86400)) return { banner: { kind: 'none' }, chip }
+  if (u.requires_setup) return { banner: { kind: 'setup', version }, chip }
+  if (!u.installable) return { banner: { kind: 'none' }, chip }
+  return { banner: { kind: away ? 'away' : 'update', version }, chip }
+}
+/** Les ordinateurs tels que l'app les envoie (copie JSON, avec leur `offer`). */
+const computerViews = () => structuredClone(computers).map((c) => ({ ...c, offer: offerOf(c) }))
+/** Un appareil est en session sur Bureau-Salon (`?maj=session`) : refusé tant qu'on ne force pas. */
+const stationInSession = (a: Record<string, unknown>) => majFlags.includes('session') && a.id === 'a1' && !a.force
+let noticeTaken = false
+
 /** L'accueil reçoit une copie (comme de l'app, qui envoie du JSON). */
 const emitComputers = () => {
-  emit('computers', structuredClone(computers))
+  emit('computers', computerViews())
   emit('bar-computers', barComputers())
 }
 
@@ -1123,7 +1157,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     console.info(`copy_text : ${a.text}`)
     return null
   },
-  snapshot: () => ({ computers: structuredClone(computers), discovered: flags.has('vide') ? [] : discovered, this_pc: thisPc, sessions: [...sessions], version: 'dev' }),
+  snapshot: () => ({ computers: computerViews(), discovered: flags.has('vide') ? [] : discovered, this_pc: thisPc, sessions: [...sessions], version: 'dev' }),
   poll_now: async () => {
     await sleep(700)
     emitComputers()
@@ -1409,6 +1443,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   station_update: async (a) => {
     await sleep(1500)
+    if (stationInSession(a)) throw { kind: 'in_session', message: t('mock.station_in_session'), device: 'Apple TV du salon', seconds: null }
     change(a.id, (c) => ((c.station_pending = 'update'), c.info?.station && (c.info.station.update.installing = true)))
     setTimeout(() => change(a.id, (c) => (c.online = false)), 3000)
     setTimeout(
@@ -1427,8 +1462,23 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
         }),
       8000,
     )
-    setTimeout(() => outcome({ id: a.id as string, outcome: flags.has('echecmaj') ? 'update_failed' : 'updated', version: '0.5.1' }), 8500)
-    return '0.5.1'
+    const target = computers.find((c) => c.id === a.id)?.info?.station?.update.version ?? '0.5.1'
+    setTimeout(() => outcome({ id: a.id as string, outcome: flags.has('echecmaj') ? 'update_failed' : 'updated', version: target }), 8500)
+    return target
+  },
+  // Mise à jour des Stations : « Plus tard » (7 jours, pour cette version) et l'avis après une mise à jour de l'app.
+  station_later: (a) => {
+    snoozed.set(a.id as string, { version: a.version as string, at: Date.now() / 1000 })
+    emitComputers()
+    return null
+  },
+  take_station_notice: () => {
+    if (!flags.has('avis') || noticeTaken) return null
+    noticeTaken = true
+    const stations = computers
+      .filter((c) => c.online === true && c.info?.station?.update.available && c.info.station.update.installable && !c.info.station.update.requires_setup)
+      .map((c) => ({ id: c.id, name: c.name, version: c.info!.station!.update.version ?? '' }))
+    return stations.length ? { app: '0.11.3', stations } : null
   },
   // Réveil : le paquet part vers les cartes gardées ; l'ordinateur hors ligne
   // (Atelier) revient en ligne 6 s plus tard, comme après son démarrage.

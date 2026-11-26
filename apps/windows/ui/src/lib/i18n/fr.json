@@ -278,6 +278,23 @@
     "slow_back": "La Station tarde à revenir. Ouvrez Admin pour en savoir plus.",
     "update_failed": "La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus."
   },
+  "station_offer": {
+    "banner_update": "KyberNow Station {version} est disponible pour cet ordinateur. Environ une minute.",
+    "banner_setup": "KyberNow Station {version} est disponible. Elle s'installe sur l'ordinateur, avec l'installateur.",
+    "banner_away": "KyberNow Station {version} est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré.",
+    "update": "Mettre à jour",
+    "later": "Plus tard",
+    "retry": "Réessayer",
+    "chip": "Mise à jour",
+    "notice_title_one": "{name} a aussi une mise à jour",
+    "notice_text_one": "KyberNow Link est passée en {app}. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée.",
+    "notice_title_many": "Vos Stations aussi ont une mise à jour",
+    "notice_text_many": "KyberNow Link est passée en {app}. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée.",
+    "version": "Version {version}",
+    "update_all": "Tout mettre à jour",
+    "row_updating": "Mise à jour…",
+    "row_done": "À jour"
+  },
   "appsheet": {
     "version": "Version {version} · Windows {arch}",
     "language": "Langue",

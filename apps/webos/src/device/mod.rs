@@ -16,6 +16,7 @@ mod eac3;
 mod esplayer;
 mod media;
 mod mires;
+mod offer;
 mod starfish;
 mod ndl;
 mod pads;
@@ -48,6 +49,9 @@ pub enum Event {
     /// Réponse d'Admin à un redémarrage ou une mise à jour de la Station
     /// (la version visée pour une mise à jour).
     Station { id: String, op: StationOp, result: Result<Option<String>, StationRefusal> },
+    /// Mise à jour des Stations : la vérification demandée à la Station est faite (`Console::station_check`) ; ce
+    /// qu'elle annonce (`None` : Station d'avant la 0.11.3, ou pas de réponse).
+    StationChecked { id: String, station: Option<crate::app::StationLive> },
     Preview { id: String, jpeg: Vec<u8> },
     Found(Vec<Found>),
     /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
@@ -243,6 +247,9 @@ pub fn run(args: &[String]) {
     accounts::sync(&mut app);
     accounts::refresh(&app, &tx);
     let mut last_accounts = Instant::now();
+    // Mise à jour des Stations : la version lancée gardée ; l'avis attendu au premier lancement d'une nouvelle version
+    // (l'app ne se met pas à jour elle-même sur le téléviseur : c'est son lancement qui compte).
+    let mut offers = offer::Offers::start(&mut app);
     let mut last_update = Instant::now();
     app.update = crate::app::UpdateState::Checking;
     jobs::check_update(app.store.app.beta, tx.clone());
@@ -282,7 +289,9 @@ pub fn run(args: &[String]) {
             // Le lien du relais en préparation : l'indicateur d'attente bat, et l'écran se redessine à la fin de l'attente.
             || app.session.as_ref().and_then(|s| s.share.as_ref()).is_some_and(crate::app::ShareView::relay_wait_redraw)
             || app.session.as_ref().and_then(|s| s.lend.as_ref()).is_some_and(crate::app::LendHostView::relay_wait_redraw)
-            || pads.mouse_active();
+            || pads.mouse_active()
+            // Mise à jour des Stations : l'attente du bandeau et de l'avis.
+            || (app.screen == Screen::Home && app.station.as_ref().is_some_and(|s| s.phase != crate::app::StationPhase::Idle));
         let timeout = if animating { 16 } else { 50 };
         let mut ev = sdl::SDL_Event::default();
         let mut actions: Vec<Action> = Vec::new();
@@ -331,6 +340,10 @@ pub fn run(args: &[String]) {
             actions.extend(app.poll_link());
             dirty |= app.pending_link.is_none();
         }
+        // Mise à jour des Stations : le calcul du cœur pour chaque ordinateur, les vérifications en arrière-plan, l'avis.
+        let (acts, changed) = offers.tick(&mut app, &tx);
+        actions.extend(acts);
+        dirty |= changed;
         for a in actions {
             match a {
                 Action::Ps(a) => {
@@ -810,6 +823,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             actions.extend(app.share_known(&id));
         }
         Event::Station { id, op, result } => app.station_answer(&id, op, result),
+        Event::StationChecked { id, station } => offer::checked(app, &id, station),
         Event::Preview { id, jpeg } => {
             if let Some(img) = ui::canvas::decode_jpeg(&jpeg) {
                 let _ = std::fs::write(Store::image_path(&id), &jpeg);

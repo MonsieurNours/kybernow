@@ -59,12 +59,18 @@ final class AppModel: ObservableObject {
     @Published var selected: UUID?
     @Published private(set) var session: SessionController? {
         // « Refaire le test » pendant la session : le panneau du test à sa fin.
-        didSet { if session == nil, let id = oldValue?.host.id { autoTest.sessionEnded(id) } }
+        didSet {
+            if session == nil, let id = oldValue?.host.id { autoTest.sessionEnded(id) }
+            store.sessionOpen = session != nil || consoleSession != nil
+        }
     }
     /// Le panneau du test du profil Auto (AutoProfile.swift, AutoTestView.swift).
     let autoTest: AutoTestModel
     /// La partie en cours sur une console.
-    @Published private(set) var consoleSession: PlayStationSession?
+    @Published private(set) var consoleSession: PlayStationSession? {
+        // Mise à jour des Stations : ni bandeau ni vérification en session ; l'avis attend la fin.
+        didSet { store.sessionOpen = session != nil || consoleSession != nil }
+    }
     /// Un avis bref sur l'accueil (« Ce lien d'invitation est illisible. »), effacé après 6 s.
     @Published private(set) var notice: String?
     /// Écran où revient le test des manettes (accueil ou réglages de l'app).
@@ -166,6 +172,9 @@ final class AppModel: ObservableObject {
                 .sink { [weak ps] _ in ps?.schedule() }
                 .store(in: &bag)
         }
+        // Mise à jour des Stations : la version lancée, et l'avis au premier
+        // lancement après une mise à jour de l'app (LinkUI.swift).
+        store.stationNoticeAtLaunch()
         #if DEBUG
         if demo {
             store.loadDemo()

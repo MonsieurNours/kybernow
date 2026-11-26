@@ -23,7 +23,8 @@ public struct HostInfo: Sendable, Equatable {
     public let adminVersion: String?
     /// La Station (0.5.0 et suivantes) ; nil avec une Station plus ancienne,
     /// qui ne sait ni redémarrer ni se mettre à jour depuis un appareil.
-    public let station: StationInfo?
+    /// Relue aussi après `stationCheck` (mise à jour des Stations proposée par l'app).
+    public var station: StationInfo?
     /// Les cartes réseau de l'ordinateur pour le réveiller (Ethernet
     /// d'abord) ; vide avec une Station d'avant la 0.5.0.
     public let wake: [WakeTarget]
@@ -108,6 +109,142 @@ public struct StationInfo: Sendable, Equatable {
         self.installing = installing
         self.restarting = restarting
     }
+}
+
+extension StationInfo {
+    /// `station` tel que le cœur le lit (`station_offer`).
+    var coreJSON: [String: Any] {
+        var update: [String: Any] = ["available": updateAvailable, "installable": installable,
+                                     "requires_setup": requiresSetup, "installing": installing]
+        if let updateVersion { update["version"] = updateVersion }
+        return ["version": version, "update": update, "restarting": restarting]
+    }
+}
+
+/// Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à
+/// jour des Stations ») : le calcul du cœur (`station_offer`), pareil dans
+/// toutes les apps. L'app garde, par ordinateur, une `Memory`, et pour elle
+/// la dernière version lancée.
+public enum StationOffer {
+    /// Gardé par l'app pour chaque ordinateur (les noms du cœur).
+    public struct Memory: Codable, Sendable, Equatable {
+        /// « Plus tard » : la version remise à plus tard, et quand (secondes Unix).
+        public var snoozedVersion: String?
+        public var snoozedAt: UInt64 = 0
+        /// Dernière vérification demandée : la version de l'app d'alors, et quand.
+        public var checkedAppVersion: String?
+        public var checkedAt: UInt64 = 0
+
+        public init() {}
+
+        enum CodingKeys: String, CodingKey {
+            case snoozedVersion = "snoozed_version", snoozedAt = "snoozed_at"
+            case checkedAppVersion = "checked_app_version", checkedAt = "checked_at"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            snoozedVersion = try? c.decodeIfPresent(String.self, forKey: .snoozedVersion)
+            snoozedAt = (try? c.decodeIfPresent(UInt64.self, forKey: .snoozedAt)) ?? 0
+            checkedAppVersion = try? c.decodeIfPresent(String.self, forKey: .checkedAppVersion)
+            checkedAt = (try? c.decodeIfPresent(UInt64.self, forKey: .checkedAt)) ?? 0
+        }
+
+        /// « Plus tard » sur le bandeau (ou dans l'avis) pour cette version.
+        public mutating func snooze(_ version: String, now: UInt64 = StationOffer.now) {
+            snoozedVersion = version
+            snoozedAt = now
+        }
+
+        /// Une vérification vient d'être demandée à la Station.
+        public mutating func checked(_ appVersion: String, now: UInt64 = StationOffer.now) {
+            checkedAppVersion = appVersion
+            checkedAt = now
+        }
+    }
+
+    /// Le bandeau de l'accueil, pour l'ordinateur choisi.
+    public enum Banner: Equatable, Sendable {
+        case none
+        /// « KyberNow Station {v} est disponible pour cet ordinateur. »
+        case update(String)
+        /// « Mise à jour de la Station… »
+        case installing
+        /// Elle s'installe avec l'installateur ; « Plus tard » seul.
+        case setup(String)
+        /// Hors de chez vous ; « Plus tard » seul.
+        case away(String)
+
+        public var version: String? {
+            switch self {
+            case let .update(v), let .setup(v), let .away(v): return v
+            case .none, .installing: return nil
+            }
+        }
+    }
+
+    /// Ce que le cœur rend pour un ordinateur.
+    public struct Result: Equatable, Sendable {
+        public var banner: Banner = .none
+        /// « · Mise à jour » après l'état, dans la rangée des autres ordinateurs.
+        public var chip = false
+        /// L'ordinateur entre dans l'avis après une mise à jour de l'app, pour cette version.
+        public var noticeVersion: String?
+        /// Demander à la Station de vérifier (`ConsoleClient.stationCheck`).
+        public var shouldCheck = false
+
+        public init() {}
+    }
+
+    /// Secondes Unix.
+    public static var now: UInt64 { UInt64(max(0, Date().timeIntervalSince1970)) }
+
+    /// Version de l'app (`CFBundleShortVersionString`).
+    public static var appVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
+
+    /// Le calcul du cœur pour un ordinateur : `station` d'Admin (nil : Station
+    /// trop ancienne, ou pas encore lue), `mayUpdate` (appairé, ou droit
+    /// `admin` d'un compte), `online`, `away` (seulement par le relais),
+    /// `inSession` (une session de l'app est ouverte).
+    public static func evaluate(station: StationInfo?, mayUpdate: Bool, online: Bool, away: Bool, inSession: Bool,
+                                memory: Memory, now: UInt64 = StationOffer.now, appVersion: String = StationOffer.appVersion) -> Result {
+        var input: [String: Any] = ["may_update": mayUpdate, "online": online, "away": away, "in_session": inSession,
+                                    "now": now, "app_version": appVersion]
+        if let station { input["station"] = station.coreJSON }
+        if let data = try? JSONEncoder().encode(memory), let m = try? JSONSerialization.jsonObject(with: data) { input["memory"] = m }
+        guard let data = try? JSONSerialization.data(withJSONObject: input), let text = String(data: data, encoding: .utf8),
+              let out = Core.take(kn_station_offer_evaluate(text)), let outData = out.data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: outData)) as? [String: Any] else { return Result() }
+        var r = Result()
+        let banner = json["banner"] as? [String: Any]
+        let version = (banner?["version"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        switch (banner?["kind"] as? String, version) {
+        case let ("update", v?): r.banner = .update(v)
+        case ("installing", _): r.banner = .installing
+        case let ("setup", v?): r.banner = .setup(v)
+        case let ("away", v?): r.banner = .away(v)
+        default: r.banner = .none
+        }
+        r.chip = json["chip"] as? Bool ?? false
+        r.noticeVersion = (json["notice_version"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        r.shouldCheck = json["should_check"] as? Bool ?? false
+        return r
+    }
+
+    /// Premier lancement après une mise à jour de l'app (jamais au tout premier
+    /// lancement, `lastLaunched` vide) : l'avis peut s'afficher.
+    public static func appUpdated(lastLaunched: String?, current: String = StationOffer.appVersion) -> Bool {
+        kn_station_offer_app_updated(lastLaunched ?? "", current)
+    }
+
+    /// L'avis attend au plus ce temps les vérifications des ordinateurs en ligne.
+    public static let noticeWait: TimeInterval = 10
+
+    /// Dernière version lancée à prendre quand l'app n'en a pas encore gardé
+    /// mais connaît déjà au moins un ordinateur : elle vient d'une version
+    /// d'avant cet avis, c'est une mise à jour et pas un premier lancement
+    /// (`station_offer::BEFORE_NOTICE` du cœur).
+    public static let beforeNotice = "0.11.2"
 }
 
 /// Une carte réseau de l'ordinateur, pour le réveiller par le réseau
@@ -420,6 +557,20 @@ public final class ConsoleClient: @unchecked Sendable {
             let code = kn_console_station_update(console, device, force, &out, &error)
             let detail = try Self.checkStation(code, out, error)
             return detail["version"] as? String ?? ""
+        }
+    }
+
+    /// Demande à la Station de vérifier ses mises à jour tout de suite
+    /// (docs/link-ui.md, « Mise à jour des Stations ») et rend ce qu'elle
+    /// annonce ensuite ; nil pour une Station antérieure à la 0.11.3, qui ne
+    /// connaît pas la route (on se fie alors à `HostInfo.station`).
+    public func stationCheck() async throws -> StationInfo? {
+        try await call { console in
+            var out: UnsafeMutablePointer<CChar>?
+            var error: UnsafeMutablePointer<CChar>?
+            try Self.check(kn_console_station_check(console, &out, &error), error)
+            let station = Self.json(Core.take(out))
+            return station.isEmpty ? nil : Self.stationInfo(station)
         }
     }
 

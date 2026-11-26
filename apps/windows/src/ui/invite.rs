@@ -110,6 +110,7 @@ fn keep(app: &AppHandle, invited: &Invited) -> Result<InviteAdded, InviteRefusal
         by_code: true,
         wake: Vec::new(),
         station_notified: None,
+        station_offer: Default::default(),
         relay: invited.relay.clone(),
         account: None,
         auto: None,

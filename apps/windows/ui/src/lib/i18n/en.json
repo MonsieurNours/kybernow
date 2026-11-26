@@ -278,6 +278,23 @@
     "slow_back": "The Station is taking a while to come back. Open Admin to find out more.",
     "update_failed": "The update did not complete. Open Admin to find out more."
   },
+  "station_offer": {
+    "banner_update": "KyberNow Station {version} is available for this computer. About a minute.",
+    "banner_setup": "KyberNow Station {version} is available. It installs on the computer, with the installer.",
+    "banner_away": "KyberNow Station {version} is available. Away from home, the app can't update the Station: do it once you're back.",
+    "update": "Update",
+    "later": "Later",
+    "retry": "Try again",
+    "chip": "Update",
+    "notice_title_one": "{name} has an update too",
+    "notice_text_one": "KyberNow Link is now {app}. Update the Station too: about a minute, a session in progress will be cut off.",
+    "notice_title_many": "Your Stations have an update too",
+    "notice_text_many": "KyberNow Link is now {app}. Update your computers too: about a minute each, a session in progress will be cut off.",
+    "version": "Version {version}",
+    "update_all": "Update all",
+    "row_updating": "Updating…",
+    "row_done": "Up to date"
+  },
   "appsheet": {
     "version": "Version {version} · Windows {arch}",
     "language": "Language",

@@ -120,6 +120,9 @@ pub struct HostLive {
     pub pads_unavailable: bool,
     /// Le HDR que la Station propose (`info.hdr`) ; `None` : pas encore sondée.
     pub hdr: Option<StationHdr>,
+    /// Mise à jour des Stations : le bandeau, la puce et l'avis, calculés par la couche appareil avec le cœur
+    /// (`station_offer`) à chaque tour de boucle.
+    pub offer: crate::station_offer::StationOffer,
 }
 
 // MARK: - HDR (docs/hdr.md ; textes : docs/link-ui.md, « HDR »)
@@ -2861,6 +2864,13 @@ pub enum Target {
     AccountRelayField,
     AccountRelayGo,
     AccountRelayCancel,
+    /// Mise à jour des Stations : le bandeau de l'accueil (« Mettre à jour » ou « Réessayer », « Plus tard ») ; l'avis
+    /// après une mise à jour de l'app (le bouton principal, « Plus tard » ou « Fermer », « Mettre à jour » d'une ligne).
+    OfferUpdate,
+    OfferLater,
+    NoticeMain,
+    NoticeLater,
+    NoticeRow(usize),
 }
 
 /// Ce que l'app demande au pilote. Une action de session porte l'identifiant de sa session :
@@ -3074,6 +3084,10 @@ pub struct App {
     pub autotest_pending: Option<String>,
     /// Le dernier redémarrage ou la dernière mise à jour de la Station demandés.
     pub station_op: Option<StationOp>,
+    /// Mise à jour des Stations (docs/link-ui.md) : d'où vient `station_op` (réglages, bandeau de l'accueil, avis), et
+    /// l'avis après une mise à jour de l'app, ouvert par-dessus l'accueil.
+    pub station_origin: crate::station_offer::Origin,
+    pub station_notice: Option<crate::station_offer::StationNotice>,
     /// Le réveil envoyé à un ordinateur, et quand : l'accueil dit « Réveil de
     /// l'ordinateur… » et l'app le sonde toutes les 2 s, 2 min au plus.
     pub waking: Option<(String, Instant)>,
@@ -3302,6 +3316,8 @@ impl App {
             autotest_back: None,
             autotest_pending: None,
             station_op: None,
+            station_origin: Default::default(),
+            station_notice: None,
             waking: None,
             watch_pending: None,
             screens_plan: ScreensPlan::default(),
@@ -3883,6 +3899,35 @@ impl App {
                 _ => {}
             }
             return Vec::new();
+        }
+        // L'avis « … a aussi une mise à jour » : ses boutons, B vaut « Plus tard ».
+        if self.station_notice.is_some() && self.screen == Screen::Home {
+            match n {
+                Nav::Ok => {
+                    let t = self.focus;
+                    return self.activate(t);
+                }
+                Nav::Back => return self.activate(Target::NoticeLater),
+                Nav::Up | Nav::Down | Nav::Left | Nav::Right => self.move_focus(n),
+                _ => {}
+            }
+            return Vec::new();
+        }
+        // Le bandeau de la mise à jour de la Station se prend à la flèche bas depuis « Se connecter » et la rangée des
+        // profils ; la flèche haut y revient.
+        if self.screen == Screen::Home {
+            let row = matches!(self.focus, Target::Connect | Target::Chip(_) | Target::CustomChip | Target::HdrChip | Target::HostSettings | Target::Watch);
+            match (n, self.banner_target()) {
+                (Nav::Down, Some(t)) if row => {
+                    self.focus = t;
+                    return Vec::new();
+                }
+                (Nav::Up, Some(_)) if matches!(self.focus, Target::OfferUpdate | Target::OfferLater) => {
+                    self.focus = Target::Connect;
+                    return Vec::new();
+                }
+                _ => {}
+            }
         }
         // Le panneau du test du profil Auto : ses boutons, B l'annule (le test s'arrête).
         if self.autotest.is_some() {
@@ -4517,6 +4562,11 @@ impl App {
                 Vec::new()
             }
             Target::ConfirmYes => self.confirmed(),
+            Target::OfferUpdate => self.banner_update(),
+            Target::OfferLater => self.banner_later(),
+            Target::NoticeMain => self.notice_main(),
+            Target::NoticeLater => self.notice_later(),
+            Target::NoticeRow(i) => self.notice_row(i),
             Target::Host(i) => {
                 let Some(h) = self.store.hosts.get(i) else { return Vec::new() };
                 let id = h.id.clone();
@@ -5388,6 +5438,10 @@ impl App {
             }
             Some(Confirm::Remove { .. }) => Setting::Remove,
             Some(Confirm::SignOut { account, .. }) => Setting::AccountSignOut(self.store.accounts.iter().position(|a| a.key() == account).unwrap_or(0) as u8),
+            Some(Confirm::Force { kind: StationKind::Update, .. }) if self.station_origin == crate::station_offer::Origin::Banner => {
+                self.focus = Target::Connect;
+                return;
+            }
             Some(Confirm::Force { kind: StationKind::Update, .. }) => Setting::StationUpdate,
             _ => Setting::StationRestart,
         };
@@ -5418,7 +5472,11 @@ impl App {
                 vec![Action::Save]
             }
             Some(Confirm::Force { host, kind, .. }) => {
-                self.focus = Target::Setting(if kind == StationKind::Update { Setting::StationUpdate } else { Setting::StationRestart });
+                self.focus = if self.station_origin == crate::station_offer::Origin::Banner && kind == StationKind::Update {
+                    Target::Connect
+                } else {
+                    Target::Setting(if kind == StationKind::Update { Setting::StationUpdate } else { Setting::StationRestart })
+                };
                 self.start_station(host, kind, true)
             }
             None => Vec::new(),
@@ -5445,7 +5503,7 @@ impl App {
         online && !busy && !self.station_via_relay(id) && self.station(id).is_some_and(|s| s.supported && !s.installing && !s.restarting)
     }
 
-    fn start_station(&mut self, host: String, kind: StationKind, force: bool) -> Vec<Action> {
+    pub(crate) fn start_station(&mut self, host: String, kind: StationKind, force: bool) -> Vec<Action> {
         self.station_op = Some(StationOp { host: host.clone(), kind, step: StationStep::Asking });
         vec![Action::Station { host, kind, force }]
     }
@@ -5454,6 +5512,10 @@ impl App {
     /// version visée), ou refusé.
     pub fn station_reply(&mut self, host: &str, kind: StationKind, r: Result<Option<String>, StationRefusal>) {
         if self.station_op.as_ref().is_none_or(|o| o.host != host || o.kind != kind) {
+            return;
+        }
+        // Lancée par l'avis : un refus reste sur sa ligne.
+        if self.notice_refused(host, &r) {
             return;
         }
         let step = match r {
@@ -6734,11 +6796,16 @@ impl App {
                 return vec![Action::OpenUrl(admin_url(&h.address, h.port))];
             }
             Setting::StationRestart => {
+                self.station_origin = crate::station_offer::Origin::Settings;
                 return if self.station_ready(&id) { self.start_station(id, StationKind::Restart, false) } else { Vec::new() };
             }
             Setting::StationUpdate => {
                 let installable = self.station(&id).and_then(|s| s.installable_version()).is_some();
-                return if installable && self.station_ready(&id) { self.start_station(id, StationKind::Update, false) } else { Vec::new() };
+                if installable && self.station_ready(&id) {
+                    self.station_origin = crate::station_offer::Origin::Settings;
+                    return self.start_station(id, StationKind::Update, false);
+                }
+                return Vec::new();
             }
             Setting::Info => return Vec::new(),
             Setting::Profile => {
@@ -7512,6 +7579,98 @@ mod tests {
         app.station_progress("a");
         assert!(matches!(app.station_op.as_ref().map(|o| &o.step), Some(StationStep::Done(_))));
         assert_eq!(app.station_waiting(), None);
+    }
+
+    /// Mise à jour des Stations, le bandeau de l'accueil : le flux des réglages (confirmation, suivi), l'avis bref à
+    /// la fin ; « Plus tard » gardé pour cet ordinateur et cette version.
+    #[test]
+    fn station_banner_flow() {
+        use crate::station_offer::{HomeBanner, OfferBanner};
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Tv);
+        app.screen = Screen::Home;
+        app.store.hosts.push(host());
+        let st = StationLive { version: "0.11.2".into(), supported: true, available: true, installable: true, update_version: Some("0.11.3".into()), ..Default::default() };
+        online(&mut app, "a", Some(st));
+        app.live.get_mut("a").unwrap().offer.banner = OfferBanner::Update("0.11.3".into());
+        assert_eq!(app.home_banner("a"), Some(HomeBanner::Update("0.11.3".into())));
+        // La flèche bas depuis « Se connecter » prend le bandeau.
+        app.focus = Target::Connect;
+        app.nav(Nav::Down);
+        assert_eq!(app.focus, Target::OfferUpdate);
+        app.nav(Nav::Up);
+        assert_eq!(app.focus, Target::Connect);
+        let acts = app.activate(Target::OfferUpdate);
+        assert_eq!(acts, vec![Action::Station { host: "a".into(), kind: StationKind::Update, force: false }]);
+        assert_eq!(app.home_banner("a"), Some(HomeBanner::Busy));
+        // Un appareil est en session : la confirmation des réglages, puis « quand même ».
+        app.station_reply("a", StationKind::Update, Err(StationRefusal::InSession(Some("iPad".into()))));
+        assert!(matches!(&app.confirm, Some(Confirm::Force { device, .. }) if device == "iPad"));
+        assert_eq!(app.activate(Target::ConfirmYes), vec![Action::Station { host: "a".into(), kind: StationKind::Update, force: true }]);
+        assert_eq!(app.focus, Target::Connect);
+        app.station_reply("a", StationKind::Update, Ok(Some("0.11.3".into())));
+        online(&mut app, "a", Some(StationLive { version: "0.11.3".into(), supported: true, ..Default::default() }));
+        app.station_progress("a");
+        assert!(app.offer_tick().is_empty());
+        assert!(app.station_op.is_none());
+        assert_eq!(app.toast.as_ref().map(|(m, _)| m.as_str()), Some("KyberNow Station 0.11.3 est en place."));
+        assert_eq!(app.home_banner("a"), None);
+
+        // Un échec : son texte, « Réessayer » et « Plus tard ».
+        online(&mut app, "a", Some(StationLive { version: "0.11.3".into(), supported: true, available: true, installable: true, update_version: Some("0.11.4".into()), ..Default::default() }));
+        app.live.get_mut("a").unwrap().offer.banner = OfferBanner::Update("0.11.4".into());
+        app.activate(Target::OfferUpdate);
+        app.station_reply("a", StationKind::Update, Err(StationRefusal::TooSoon));
+        assert!(matches!(app.home_banner("a"), Some(HomeBanner::Failed(m)) if m.contains("Réessayez dans une minute")));
+        assert_eq!(app.activate(Target::OfferLater), vec![Action::Save]);
+        let m = &app.store.station_offers["a"];
+        assert_eq!(m.snoozed_version.as_deref(), Some("0.11.4"));
+        assert!(m.snoozed_at > 0);
+        assert_eq!(app.home_banner("a"), None);
+        assert!(app.station_op.is_none());
+    }
+
+    /// L'avis après une mise à jour de l'app : « Tout mettre à jour » l'une après l'autre ; un appareil en session
+    /// reste sur sa ligne (« Mettre à jour quand même ») ; « Plus tard » vaut pour celles qui ne sont pas à jour.
+    #[test]
+    fn station_notice_flow() {
+        use crate::station_offer::RowState;
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.screen = Screen::Home;
+        app.store.hosts.push(host());
+        app.store.hosts.push(Host { id: "b".into(), name: "B".into(), ..host() });
+        let st = StationLive { version: "0.11.2".into(), supported: true, available: true, installable: true, update_version: Some("0.11.3".into()), ..Default::default() };
+        online(&mut app, "a", Some(st.clone()));
+        online(&mut app, "b", Some(st));
+        assert!(app.can_show_station_notice());
+        app.open_station_notice(vec![("a".into(), "A".into(), "0.11.3".into()), ("b".into(), "B".into(), "0.11.3".into())], "0.11.3");
+        assert_eq!(app.focus, Target::NoticeMain);
+        let n = app.station_notice.as_ref().unwrap();
+        assert_eq!(n.title(), "Vos Stations aussi ont une mise à jour");
+        assert_eq!(n.main_label(), Some("Tout mettre à jour"));
+        assert_eq!(app.activate(Target::NoticeMain), vec![Action::Station { host: "a".into(), kind: StationKind::Update, force: false }]);
+        // A : un appareil en session, sans la confirmation ; B part ensuite.
+        app.station_reply("a", StationKind::Update, Err(StationRefusal::InSession(Some("iPad".into()))));
+        assert!(app.confirm.is_none());
+        assert_eq!(app.offer_tick(), vec![Action::Station { host: "b".into(), kind: StationKind::Update, force: false }]);
+        app.station_reply("b", StationKind::Update, Ok(Some("0.11.3".into())));
+        online(&mut app, "b", Some(StationLive { version: "0.11.3".into(), supported: true, ..Default::default() }));
+        app.station_progress("b");
+        assert!(app.offer_tick().is_empty());
+        let n = app.station_notice.as_ref().unwrap();
+        assert_eq!(n.rows[0].state, RowState::Refused("iPad".into()));
+        assert_eq!(n.rows[1].state, RowState::Done);
+        assert_eq!(n.later_label(), "Plus tard");
+        // « Mettre à jour quand même » sur la ligne de A.
+        assert_eq!(app.activate(Target::NoticeRow(0)), vec![Action::Station { host: "a".into(), kind: StationKind::Update, force: true }]);
+        app.station_reply("a", StationKind::Update, Err(StationRefusal::Other("Échec".into())));
+        app.offer_tick();
+        // « Plus tard » : A remise à plus tard, pas B (à jour).
+        assert_eq!(app.nav(Nav::Back), vec![Action::Save]);
+        assert!(app.station_notice.is_none());
+        assert_eq!(app.store.station_offers.get("a").and_then(|m| m.snoozed_version.as_deref()), Some("0.11.3"));
+        assert!(!app.store.station_offers.contains_key("b"));
     }
 
     #[test]

@@ -275,6 +275,19 @@
     <string name="station_remove">Remove this computer</string>
     <string name="station_remove_confirm" formatted="true">Remove %1$s from this device? You can add it again later.</string>
     <string name="station_remove_yes">Remove</string>
+    <string name="station_offer_available" formatted="true">KyberNow Station %1$s is available for this computer. About a minute.</string>
+    <string name="station_offer_update">Update</string>
+    <string name="station_offer_later">Later</string>
+    <string name="station_offer_setup" formatted="true">KyberNow Station %1$s is available. It installs on the computer, with the installer.</string>
+    <string name="station_offer_away" formatted="true">KyberNow Station %1$s is available. Away from home, the app can\'t update the Station: do it once you\'re back.</string>
+    <string name="station_offer_chip" formatted="true">%1$s · Update</string>
+    <string name="station_notice_title_one" formatted="true">%1$s has an update too</string>
+    <string name="station_notice_body_one" formatted="true">KyberNow Link is now %1$s. Update the Station too: about a minute, a session in progress will be cut off.</string>
+    <string name="station_notice_title_many">Your Stations have an update too</string>
+    <string name="station_notice_body_many" formatted="true">KyberNow Link is now %1$s. Update your computers too: about a minute each, a session in progress will be cut off.</string>
+    <string name="station_notice_version" formatted="true">Version %1$s</string>
+    <string name="station_notice_update_all">Update all</string>
+    <string name="station_notice_updating">Updating…</string>
     <string name="app_settings_title">App settings</string>
     <string name="app_settings_language">Language</string>
     <string name="app_settings_language_help">Auto follows Android: French when it is in French, English otherwise.</string>

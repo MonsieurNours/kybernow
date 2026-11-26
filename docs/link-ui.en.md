@@ -38,7 +38,9 @@ The display shown is the one the session will ask for (same computation as the s
 
 Errors under the name, when there are any: « Mot de passe refusé : mettez-le à jour dans les réglages. » / “Password refused: update it in the settings.”; « La Station a été réinstallée : vérifiez son empreinte dans les réglages. » / “The Station was reinstalled: check its fingerprint in the settings.”
 
-The other computers (row or list): the name and the state (“Online”, “Offline”), nothing else. A computer announced on the network and not yet added: « Sur le réseau » / “On your network”. Adding: « Ajouter un ordinateur » / “Add a computer”.
+The other computers (row or list): the name and the state (“Online”, “Offline”), nothing else, except “· Update” when their Station has one (see “Station updates”). A computer announced on the network and not yet added: « Sur le réseau » / “On your network”. Adding: « Ajouter un ordinateur » / “Add a computer”.
+
+Under the “Connect” and profiles row, one banner at most: first the Station update when there is one (see “Station updates”), otherwise the KyberNow account prompts.
 
 At the top: « Réglages de l'app » / “App settings” (Link OS: « Réglages de l'appareil » / “Device settings”), and the app's own update when there is one: « Version {v} disponible » / “Version {v} available”.
 
@@ -606,6 +608,40 @@ Data kept by the app for each computer, at the end of every session of at least 
 Restart and update go through Admin (`POST /api/stream/station/restart` and `/update`, see [server/README.en.md](../server/README.en.md)); the app then follows the Station's state through `GET /api/stream/info` until it is back. Every added device can do it.
 
 Wake on LAN: Admin gives the computer's network cards in `GET /api/stream/info` (MAC address, IPv4 address, broadcast address); the app keeps them for each computer and the core sends the wake packet. On iPhone, iPad and Apple TV, sending to a broadcast address needs an Apple entitlement: the app also sends the packet straight to the last known address, which does not always wake it.
+
+## Station updates
+
+The apps offer the Station's update where people see it, without waiting for them to open the Settings: a banner on the home screen and, on the first launch after the app updates, a notice that gathers every Station to update. The “Station” section of the settings stays the same. Every Link app except the web client (`/link`, which pairs no computer).
+
+**Who sees it**: the same as “Update the Station” in the settings, i.e. a computer paired on this device, or a computer from a KyberNow account with the “Administer” right (`admin`). Never a share guest, a loan, or “Watch” alone. The decision is the core's (`station_offer`), the same everywhere.
+
+**When**: what the Station announces (`GET /api/stream/info`, `station.update`), read as today. The Station checks on its own every 6 hours; the app asks it to check right away (`POST /api/stream/station/check`) when the app's version changed since it last asked this computer, or when the Station is older than the app, at most once a day per computer, never during a session. A Station that doesn't know this route (before 0.11.3) isn't asked: its announcement is trusted.
+
+| Element | Français | English |
+|---|---|---|
+| Home banner, chosen computer | under the “Connect” and profiles row, full width; up-arrow icon; « KyberNow Station {v} est disponible pour cet ordinateur. Environ une minute. » ; « Mettre à jour » (primary), « Plus tard » | “KyberNow Station {v} is available for this computer. About a minute.”; “Update”, “Later” |
+| Banner, while updating | « Mise à jour de la Station… », spinner, no button; then the brief notice « KyberNow Station {v} est en place. » and the banner goes away | “Updating the Station…”; then “KyberNow Station {v} is installed.” |
+| Banner, a device is in a session | the settings' confirmation (« {appareil} est connecté », « La mise à jour coupera sa session. », « Mettre à jour quand même », « Annuler ») | “{device} is connected”, “The update will end its session.”, “Update anyway”, “Cancel” |
+| Banner, failure | the settings' text in the banner, « Réessayer » and « Plus tard » | the settings' text, “Try again”, “Later” |
+| Banner, version that needs the installer | « KyberNow Station {v} est disponible. Elle s'installe sur l'ordinateur, avec l'installateur. » ; only « Plus tard » | “KyberNow Station {v} is available. It installs on the computer, with the installer.”; only “Later” |
+| Banner, away from home | « KyberNow Station {v} est disponible. Hors de chez vous, l'app ne peut pas mettre à jour la Station : faites-le une fois rentré. » ; only « Plus tard » | “KyberNow Station {v} is available. Away from home, the app can't update the Station: do it once you're back.”; only “Later” |
+| Other computers (row or list) | the state followed by « · Mise à jour » | “Online · Update” |
+| “Later” | hides this computer's banner for this version; it comes back after 7 days, or right away if a newer version comes out; the “· Update” chip stays | |
+| Notice after an app update, one Station | a dialog (sheet on Mac, iPhone and iPad; full screen on TVs); « {nom} a aussi une mise à jour » ; « KyberNow Link est passée en {app}. Mettez aussi la Station à jour : environ une minute, une session en cours sera coupée. » ; « Mettre à jour la Station », « Plus tard » | “{name} has an update too”; “KyberNow Link is now {app}. Update the Station too: about a minute, a session in progress will be cut off.”; “Update the Station”, “Later” |
+| Notice, several Stations | « Vos Stations aussi ont une mise à jour » ; « KyberNow Link est passée en {app}. Mettez aussi vos ordinateurs à jour : environ une minute chacun, une session en cours sera coupée. » ; one row per computer: name, « Version {v} », « Mettre à jour » ; at the bottom « Tout mettre à jour », « Plus tard » | “Your Stations have an update too”; “KyberNow Link is now {app}. Update your computers too: about a minute each, a session in progress will be cut off.”; “Version {v}”, “Update”; “Update all”, “Later” |
+| Notice, a row during and after | « Mise à jour… » ; « À jour » ; a refusal: its short text under the name (with « Mettre à jour quand même ») ; once all are up to date, « Plus tard » becomes « Fermer » | “Updating…”; “Up to date”; “Close” |
+
+Rules:
+
+- One banner at a time under the “Connect” row: the Station update comes before the KyberNow account prompts (home screen mockups), which wait until it's done or put off.
+- The banner shows only for the chosen computer, online or away from home; never during a session (nor in the session bar). Offline: nothing.
+- The notice after an app update: once per app version, not on the very first launch (the app keeps the launched version; with no kept version but at least one known computer, it comes from 0.11.2 or earlier: that's an update, `station_offer::BEFORE_NOTICE`); the app first asks the computers online on the network to check (10 seconds at most), then shows the notice only if at least one Station it can install is left to update. Computers away from home or needing the installer aren't in it (their banner is enough). If a session opens by itself at launch, the notice waits for the return to the home screen. “Later” in the notice counts as “Later” for every Station in the list.
+- “Update all” updates the Stations one after another; a refusal (session in progress) leaves its row with “Update anyway” and moves on.
+- Updating then follows the Station as the settings do (`GET /api/stream/info` until it's back in the new version).
+- “Later” is kept on the device, per computer: the version and the date.
+- TVs and living room: the banner takes focus after “Connect” (down arrow); the notice puts focus on the primary button.
+
+Admin contract: `POST /api/stream/station/check` (same account as `GET /api/stream/info`) asks the update feed for the latest version right away, at most once every 10 minutes (otherwise the kept result), and answers `{"ok": true, "station": …}` (the same object as `info`'s `station`). Core: `Console::station_check`, and the `station_offer` module (banner, notice, when to ask for a check).
 
 ## Icon next to the clock (Mac, Windows)
 

@@ -27,6 +27,8 @@ struct HomeView: View {
         case console(UUID), consoleFound(String), account, consoleCustom
         /// Accueil sans ordinateur : « Se connecter à un compte KyberNow », puis les boutons de toujours.
         case signIn, emptyAdd, emptyJoin
+        /// Le bandeau de la mise à jour de la Station, sous la rangée « Se connecter ».
+        case stationUpdate, stationLater
     }
     @FocusState private var focus: Focus?
     @State private var pulse = false
@@ -123,11 +125,76 @@ struct HomeView: View {
             }
             Button(StationText.cancel, role: .cancel) { removing = nil }
         }
+        // « {appareil} est connecté » après « Mettre à jour » du bandeau : la confirmation des réglages.
+        .alert(homeConfirm?.title ?? "", isPresented: Binding(get: { homeConfirm != nil },
+                                                              set: { if !$0, let c = homeConfirm { store.stationConfirm = nil; store.cancelStationFromBanner(c.hostID) } }),
+               presenting: homeConfirm) { c in
+            Button(c.confirmLabel, role: .destructive) {
+                store.stationConfirm = nil
+                if let host = store.host(c.hostID) { store.updateStationFromBanner(host, force: true) }
+            }
+            Button(StationText.cancel, role: .cancel) {
+                store.stationConfirm = nil
+                store.cancelStationFromBanner(c.hostID)
+            }
+        } message: { c in
+            Text(c.message)
+        }
         .onAppear {
             if app.selected == nil { app.selected = store.ordered.first?.id }
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { pulse = true }
         }
+    }
+
+    /// La confirmation demandée par le bandeau de la mise à jour de la Station.
+    private var homeConfirm: StationConfirm? { store.stationConfirm.flatMap { $0.home ? $0 : nil } }
+
+    // MARK: Mise à jour des Stations
+
+    /// Le bandeau (maquette « MajStationBandeau ») : la flèche, le texte,
+    /// « Mettre à jour » (le principal) et « Plus tard » ; la suite d'une mise
+    /// à jour lancée ici.
+    private func stationBanner(_ host: Host, _ banner: StationBanner) -> some View {
+        let failed: Bool = if case .failed = banner { true } else { false }
+        return HStack(spacing: 20) {
+            Group {
+                switch banner {
+                case .updating: ProgressView()
+                case .done: Icon("check-circle", size: 30).foregroundStyle(Theme.ok)
+                case .failed: Icon("warning", size: 30).foregroundStyle(Theme.warn)
+                default: Icon("arrow-up", size: 30, bold: true).foregroundStyle(Theme.accent)
+                }
+            }
+            .frame(width: 36)
+            Text(banner.text)
+                .font(Theme.sans(21))
+                .foregroundStyle(failed ? Theme.warnText : Theme.text2)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if banner.canUpdate {
+                Button { store.updateStationFromBanner(host) } label: {
+                    Text(banner.updateLabel).padding(.horizontal, 8)
+                }
+                .buttonStyle(PrimaryButton(height: 60, fontSize: 22))
+                .focused($focus, equals: .stationUpdate)
+            }
+            if banner.canLater {
+                Button { store.stationLater(host, version: banner.version) } label: {
+                    Text(StationOfferText.later).font(Theme.sans(22, .medium))
+                        .padding(.horizontal, 24)
+                        .frame(height: 60)
+                }
+                .buttonStyle(GlassButton(radius: 16))
+                .focused($focus, equals: .stationLater)
+            }
+        }
+        .padding(.leading, 24).padding(.trailing, 14).padding(.vertical, 10)
+        .frame(maxWidth: 1240, alignment: .leading)
+        .glass(20)
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(failed ? Theme.warnLine : Theme.accent.opacity(0.35)))
+        .focusSection()
     }
 
     // MARK: Haut : marque, manettes, réglages de l'app
@@ -264,6 +331,13 @@ struct HomeView: View {
                     }
                     .font(Theme.sans(22))
                     .foregroundStyle(Theme.muted)
+                } else if let banner = store.stationBanner(host) {
+                    // Sous la rangée « Se connecter » et profils, un bandeau au plus : la
+                    // mise à jour de la Station, à la place de la phrase du profil
+                    // (la rangée des cartes reste libre en dessous). Flèche bas depuis
+                    // « Se connecter » : ses boutons.
+                    stationBanner(host, banner)
+                        .transition(.opacity)
                 } else {
                     Text(focus == .hdr ? HDRText.help : Profile.hint(host.settings.profile))
                         .font(Theme.sans(22))
@@ -745,7 +819,9 @@ struct HomeView: View {
                         } else {
                             Circle().strokeBorder(Theme.faint, lineWidth: 1.5).frame(width: 9, height: 9)
                         }
-                        Text(LinkText.status(state, away: store.status[h.id]?.away == true)).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
+                        // « En ligne · Mise à jour » quand sa Station en a une (docs/link-ui.md).
+                        let status = LinkText.status(state, away: store.status[h.id]?.away == true)
+                        Text(h.id != host?.id && store.stationChip(h) ? StationOfferText.chipped(status) : status).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 14)
@@ -922,5 +998,156 @@ struct Stripes: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Avis après une mise à jour de l'app
+
+/// L'avis (maquette « MajStationAvis ») en plein écran, depuis l'accueil
+/// seulement (jamais en session : il attend le retour à l'accueil) ; le
+/// bouton Menu vaut « Plus tard ».
+struct StationNoticePresenter: ViewModifier {
+    @ObservedObject var store: HostStore
+    let free: Bool
+
+    func body(content: Content) -> some View {
+        content.fullScreenCover(isPresented: Binding(get: { free && store.stationNotice != nil },
+                                                     set: { if !$0, store.stationNotice != nil { store.noticeDismiss() } })) {
+            StationNoticeView(store: store)
+        }
+    }
+}
+
+/// Une Station : son nom, le texte, « Mettre à jour la Station » et « Plus
+/// tard » ; plusieurs : une ligne par ordinateur, « Tout mettre à jour ». Le
+/// focus sur le bouton principal.
+struct StationNoticeView: View {
+    @ObservedObject var store: HostStore
+
+    enum Focus: Hashable { case primary, dismiss, line(UUID) }
+    @FocusState private var focus: Focus?
+
+    var body: some View {
+        ZStack {
+            Theme.background.ignoresSafeArea()
+            Signature(seed: "KyberNow").opacity(0.5).ignoresSafeArea()
+            if let notice = store.stationNotice {
+                VStack(alignment: .leading, spacing: 30) {
+                    Icon("arrow-up", size: 48, bold: true).foregroundStyle(Theme.accent)
+                    Text(notice.title)
+                        .font(Theme.display(64, 680))
+                        .tracking(-64 * 0.03)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                        .foregroundStyle(Theme.text)
+                    Text(notice.text)
+                        .font(Theme.sans(26))
+                        .foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if notice.single, let line = notice.lines.first {
+                        if let status = line.status { lineStatus(line, status) }
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(notice.lines.prefix(5)) { line in
+                                row(line, busy: notice.busy)
+                                if line.id != notice.lines.prefix(5).last?.id { Divider().overlay(Theme.line) }
+                            }
+                        }
+                        .glass(22)
+                        .focusSection()
+                    }
+                    HStack(spacing: 24) {
+                        if !notice.allDone {
+                            primary(notice)
+                        }
+                        Button { store.noticeDismiss() } label: {
+                            Text(notice.dismissLabel).font(Theme.sans(26, .medium))
+                                .padding(.horizontal, 32)
+                                .frame(height: 80)
+                        }
+                        .buttonStyle(GlassButton(radius: 18))
+                        .focused($focus, equals: .dismiss)
+                    }
+                    .padding(.top, 10)
+                    .focusSection()
+                }
+                .frame(width: 1240, alignment: .leading)
+            }
+        }
+        .defaultFocus($focus, store.stationNotice?.allDone == true ? .dismiss : .primary)
+    }
+
+    @ViewBuilder private func primary(_ notice: StationNotice) -> some View {
+        if notice.single, let line = notice.lines.first {
+            if case .inSession = line.state {
+                Button { Task { await store.noticeUpdate(line.hostID, force: true) } } label: {
+                    Text(StationConfirm(hostID: line.hostID, kind: .update, device: "").confirmLabel)
+                }
+                .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                .focused($focus, equals: .primary)
+            } else {
+                Button { Task { await store.noticeUpdate(line.hostID) } } label: { Text(StationText.update) }
+                    .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                    .focused($focus, equals: .primary)
+                    .disabled(notice.busy)
+            }
+        } else {
+            Button { store.noticeUpdateAll() } label: { Text(StationOfferText.updateAll) }
+                .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
+                .focused($focus, equals: .primary)
+                .disabled(notice.busy)
+        }
+    }
+
+    private func lineStatus(_ line: StationNotice.Line, _ status: String) -> some View {
+        HStack(spacing: 12) {
+            if line.state == .updating { ProgressView() }
+            if line.state == .done { Icon("check", size: 24, bold: true).foregroundStyle(Theme.ok) }
+            Text(status).font(Theme.sans(22)).foregroundStyle(lineColor(line)).lineLimit(2)
+        }
+    }
+
+    private func lineColor(_ line: StationNotice.Line) -> Color {
+        switch line.state {
+        case .failed, .inSession: return Theme.warnText
+        case .done: return Theme.ok
+        default: return Theme.muted
+        }
+    }
+
+    private func row(_ line: StationNotice.Line, busy: Bool) -> some View {
+        HStack(spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(line.name).font(Theme.sans(26, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                if let status = line.status {
+                    lineStatus(line, status)
+                } else {
+                    Text(StationOfferText.version(line.version)).font(Theme.sans(22)).foregroundStyle(Theme.muted)
+                }
+            }
+            Spacer(minLength: 20)
+            switch line.state {
+            case .pending, .failed:
+                lineButton(StationOfferText.update, line) { Task { await store.noticeUpdate(line.hostID) } }
+                    .disabled(busy)
+            case .inSession:
+                lineButton(StationConfirm(hostID: line.hostID, kind: .update, device: "").confirmLabel, line) {
+                    Task { await store.noticeUpdate(line.hostID, force: true) }
+                }
+            case .updating, .done:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, 28).padding(.vertical, 18)
+    }
+
+    private func lineButton(_ title: String, _ line: StationNotice.Line, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(Theme.sans(22, .medium))
+                .padding(.horizontal, 24)
+                .frame(height: 60)
+        }
+        .buttonStyle(GlassButton(radius: 16))
+        .focused($focus, equals: .line(line.hostID))
     }
 }
