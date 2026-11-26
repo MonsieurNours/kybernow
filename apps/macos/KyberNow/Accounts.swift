@@ -59,7 +59,10 @@ enum AccountText {
     static var findText: String {
         String(localized: "Avec un compte KyberNow, vos ordinateurs et ceux qu'on vous a ouverts arrivent ici, où que vous soyez.")
     }
-    static var signIn: String { String(localized: "Se connecter à un compte KyberNow") }
+    /// « Connecter un compte » : jamais « Se connecter » seul, qui veut dire un ordinateur.
+    static var signIn: String { String(localized: "Connecter un compte") }
+    /// Le titre de l'écran du code (téléviseurs).
+    static var codeTitle: String { String(localized: "Connecter un compte KyberNow") }
     /// Aide sous le bouton : la fenêtre du système (iPhone, iPad, Mac).
     static var signInHelpWindow: String {
         String(localized: "La page du relais s'ouvre : mot de passe, passkey ou double authentification s'y font, jamais dans l'app. Pas encore de compte : « Créer un compte » sur cette page.")
@@ -712,7 +715,7 @@ final class AccountStore: ObservableObject {
     }
 
     #if os(iOS) || os(macOS)
-    /// « Se connecter à un compte KyberNow » : la page du relais dans la
+    /// « Connecter un compte » : la page du relais dans la
     /// fenêtre du système (passkeys et session du navigateur gardées) ; son
     /// retour échangé contre le compte (« Connexion au compte… »). « Annuler »
     /// dans la page, fenêtre fermée : rien. `relay` vide : share.kybernow.app.

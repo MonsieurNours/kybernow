@@ -92,6 +92,8 @@ targets:
       - path: ../macos/KyberNow/Lend.swift
       # Comptes KyberNow : comptes, ordinateurs du compte, textes (docs/comptes.md).
       - path: ../macos/KyberNow/Accounts.swift
+      # Accueil au premier lancement et incitation au compte (docs/link-ui.md, « Accueil et compte KyberNow »).
+      - path: ../macos/KyberNow/Welcome.swift
       # Consoles PlayStation : comptes, consoles, associations, réglages,
       # textes (le modèle de l'app Mac).
       - path: ../macos/KyberNow/PlayStation.swift

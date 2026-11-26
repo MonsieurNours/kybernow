@@ -68,6 +68,8 @@ final class AppModel: ObservableObject {
     let playstation: PlayStationStore
     /// Le panneau du test du profil Auto (AutoProfile.swift, AutoTestView.swift).
     let autoTest: AutoTestModel
+    /// Accueil au premier lancement et incitation au compte KyberNow (Welcome.swift).
+    let welcome: WelcomeStore
     /// Comptes et associations PlayStation par iCloud, dans les deux sens.
     private var playstationCloud: PlayStationCloud?
     let discovery = Discovery()
@@ -85,6 +87,7 @@ final class AppModel: ObservableObject {
         #endif
         store = HostStore(demo: demo)
         accounts = AccountStore(hosts: store)
+        welcome = WelcomeStore(accounts: accounts, demo: demo)
         borrowed = BorrowedStore(demo: demo)
         playstation = PlayStationStore(demo: demo)
         // L'écran du test du profil Auto : celui de l'appareil (« Comme cet écran »).
@@ -113,6 +116,8 @@ final class AppModel: ObservableObject {
             .sink { [weak self] in self?.accounts.noteNetwork($0) }
             .store(in: &bag)
         accounts.onNotice = { [weak self] in self?.show($0) }
+        welcome.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
+        welcome.onNotice = { [weak self] in self?.show($0) }
         discovery.start()
         defer { Self.shared = self }
         path.start(queue: DispatchQueue(label: "fr.leslignesclaires.kybernow.path"))
@@ -190,6 +195,9 @@ final class AppModel: ObservableObject {
                                        notice: lent == "notice" ? LendNotice(reason: .takenBack, at: Date().addingTimeInterval(102)) : nil), for: host.id)
         }
         if UserDefaults.standard.bool(forKey: "skipLaunch") { launched = true }
+        // Accueil et compte KyberNow : `-demoWelcome 1|2|3`, `-demoAccountCard YES|final`,
+        // `-demoPairedHint YES`, `-demoAway YES` (Welcome.swift).
+        welcome.applyDemo(selected: selectedHost)
         // `-demoWaking YES` : le réveil de l'ordinateur choisi, déjà lancé.
         if UserDefaults.standard.bool(forKey: "demoWaking"), let host = selectedHost { store.wake(host) }
         switch UserDefaults.standard.string(forKey: "screen") {

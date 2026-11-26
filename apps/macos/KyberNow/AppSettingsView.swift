@@ -267,6 +267,16 @@ private struct AccountsCard: View {
             Text(AccountText.sectionHelp)
                 .font(Theme.sans(12)).foregroundStyle(Theme.faint)
                 .fixedSize(horizontal: false, vertical: true)
+            // L'accueil du premier lancement, rejoué sur la fenêtre de l'accueil (Welcome.swift).
+            Button(WelcomeText.replay) {
+                let app = AppModel.shared
+                NSApp.keyWindow?.close()
+                app.route = .home
+                app.showWindow()
+                app.welcome.replay()
+            }
+            .buttonStyle(GhostButton(height: 30))
+            .fixedSize()
         }
         .confirmationDialog(AccountText.signOutQuestion(signingOut?.displayName ?? ""),
                             isPresented: Binding(get: { signingOut != nil }, set: { if !$0 { signingOut = nil } }), titleVisibility: .visible) {

@@ -49,7 +49,7 @@ struct AccountCodeView: View {
 
             // À gauche : le titre, les étapes, le code, l'attente, le relais.
             VStack(alignment: .leading, spacing: 30) {
-                Text(AccountText.signIn)
+                Text(AccountText.codeTitle)
                     .font(Theme.display(64, 660)).tracking(-64 * 0.035)
                     .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -57,6 +57,8 @@ struct AccountCodeView: View {
                     step(1, AccountText.stepScan)
                     step(2, AccountText.stepOpen(code?.urlLabel ?? "\(model.relayLabel)/tv"))
                     step(3, AccountText.stepConnect)
+                    // Pas de navigateur sur l'Apple TV : la page du code crée aussi le compte.
+                    Text(WelcomeText.codeNoAccount).font(Theme.sans(23)).foregroundStyle(Theme.muted)
                 }
                 Text(verbatim: code?.code ?? "––––-––––")
                     .font(Theme.mono(104, .semibold))

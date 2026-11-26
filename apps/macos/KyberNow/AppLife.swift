@@ -358,7 +358,7 @@ extension AppModel {
             sessions.setKeepSound(!session.keepSound, for: session)
         case let .connect(id): if let host = store.host(id) { connectFromOutside(host) }
         case let .wake(id): if let host = store.host(id) { store.wake(host) }
-        case let .retry(id): if let host = store.host(id) { Task { await store.retry(host) } }
+        case let .retry(id): if let host = store.host(id) { Task { await retry(host) } }
         case let .profile(id, profile): if let host = store.host(id) { apply(profile, to: host) }
         case let .settings(id): if let host = store.host(id) { openSettingsFromOutside(host) }
         case let .admin(id): if let host = store.host(id) { openAdmin(host) }

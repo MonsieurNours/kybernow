@@ -371,6 +371,7 @@ private struct LoginForm: View {
                 host.consoleFingerprint = console.fingerprint ?? seen
                 app.store.add(host, password: password)
                 app.selected = host.id
+                app.welcome.paired(host)
                 app.screen = .home
             } catch ConsoleError.http(401, _) {
                 error = String(localized: "Identifiant ou mot de passe refusé.")
@@ -524,6 +525,7 @@ private struct CodePane: View {
                     host.pairedByCode = true
                     app.store.add(host, password: password)
                     app.selected = host.id
+                    app.welcome.paired(host)
                     app.screen = .home
                     return
                 case .refused:

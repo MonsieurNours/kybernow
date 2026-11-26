@@ -40,6 +40,8 @@ final class AppModel: ObservableObject {
         case accountCode(String)
         /// « Un autre relais… » : l'adresse du relais du compte.
         case accountRelay
+        /// L'accueil du premier lancement, en trois écrans (Welcome.swift, WelcomeViews.swift).
+        case welcome
     }
 
     /// Ce qu'ouvre l'écran de l'association.
@@ -83,6 +85,8 @@ final class AppModel: ObservableObject {
     let store: HostStore
     /// Les comptes KyberNow de cette Apple TV et leurs ordinateurs (Accounts.swift).
     let accounts: AccountStore
+    /// Accueil au premier lancement et incitation au compte KyberNow (Welcome.swift).
+    let welcome: WelcomeStore
     /// Écran où revient l'écran du code (accueil ou comptes).
     var accountReturn: Screen = .home
     /// Les consoles PlayStation et les comptes PlayStation Network (magasin
@@ -114,6 +118,7 @@ final class AppModel: ObservableObject {
         #endif
         store = HostStore(demo: demo)
         accounts = AccountStore(hosts: store)
+        welcome = WelcomeStore(accounts: accounts, demo: demo)
         borrowed = BorrowedStore(demo: demo)
         playstation = PlayStationStore(demo: demo)
         // L'écran du test du profil Auto : le téléviseur (« Comme cet écran »).
@@ -131,6 +136,16 @@ final class AppModel: ObservableObject {
         // Comptes KyberNow : leurs avis (« Connecté à {compte}. », compte
         // déconnecté), et l'adresse de leurs ordinateurs vus sur ce réseau.
         accounts.onNotice = { [weak self] in self?.show(notice: $0) }
+        // L'accueil à l'écran : un écran de l'app, comme les autres ; vu, l'accueil revient.
+        welcome.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &bag)
+        welcome.$showing
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] showing in
+                guard let self else { return }
+                if showing { self.screen = .welcome } else if self.screen == .welcome { self.screen = .home }
+            }
+            .store(in: &bag)
         discovery.$found
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.accounts.noteNetwork($0) }
@@ -214,6 +229,9 @@ final class AppModel: ObservableObject {
         if let section = UserDefaults.standard.string(forKey: "section").flatMap(ComputerSection.init(rawValue:)) {
             settingsSection = section
         }
+        // Accueil et compte KyberNow : `-demoWelcome 1|2|3`, `-demoAccountCard YES|final`,
+        // `-demoPairedHint YES`, `-demoAway YES` (Welcome.swift).
+        welcome.applyDemo(selected: selected.flatMap(store.host) ?? store.ordered.first)
         switch UserDefaults.standard.string(forKey: "screen") {
         case "add": screen = .addHost
         case "join": screen = .join(nil)

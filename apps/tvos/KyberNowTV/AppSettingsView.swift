@@ -44,6 +44,7 @@ struct AppSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 18)
                 accountsRow
+                replayRow
                 icloudRow
                 languageRow
                 padsRow
@@ -134,6 +135,21 @@ struct AppSettingsView: View {
         }
         .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
         .focused($focus, equals: .row("accounts"))
+    }
+
+    /// « Revoir l'accueil » : l'accueil du premier lancement, rejoué (Welcome.swift).
+    private var replayRow: some View {
+        Button { app.welcome.replay() } label: {
+            HStack(spacing: 24) {
+                Text(WelcomeText.replay).font(Theme.sans(24, .medium)).foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Icon("arrow-right", size: 22, bold: true).foregroundStyle(Theme.faint)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 10)
+            .frame(minHeight: 88)
+        }
+        .buttonStyle(GlassButton(radius: 18, scale: 1.03, fill: Color.white.opacity(0.04)))
+        .focused($focus, equals: .row("welcome"))
     }
 
     private var padsRow: some View {
