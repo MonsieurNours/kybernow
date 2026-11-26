@@ -5,7 +5,7 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
-## Non publié
+## 0.11.6
 
 - **Le micro arrive tout seul sur un PC Windows.** La Station Windows installe maintenant VB-CABLE, le micro virtuel de VB-Audio Software (offert en donationware : vb-cable.com), qui reçoit le micro de vos appareils : à l'installation comme à la mise à jour depuis Admin, s'il n'est pas déjà là. Avant, il fallait l'installer soi-même.
 
