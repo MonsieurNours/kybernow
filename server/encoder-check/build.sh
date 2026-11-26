@@ -43,6 +43,7 @@ linux)
     # shellcheck disable=SC2046,SC2016  # $ORIGIN : pour l'éditeur de liens
     cc -O2 -o "$OUTPUT" "$HERE/encoder_check.c" -I"$ROOTFS/include" \
         $(PKG_CONFIG_LIBDIR="$PC" pkg-config --libs libavcodec libavutil) \
+        $(for d in "$ROOTFS"/lib "$ROOTFS"/lib64 "$ROOTFS"/lib/*-linux-gnu; do [ -d "$d" ] && printf -- '-Wl,-rpath-link,%s ' "$d"; done) \
         -Wl,-rpath,'$ORIGIN/../runtime/lib:$ORIGIN/../runtime/lib64:$ORIGIN/../runtime/lib/'"$(gcc -print-multiarch 2>/dev/null || echo x)"
     strip --strip-debug "$OUTPUT"
     ;;
