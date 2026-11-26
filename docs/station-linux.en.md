@@ -12,7 +12,7 @@ A computer running Linux becomes a Station like a Windows PC or a Mac: same feat
 
 | Topic | Choice |
 |---|---|
-| Desktops | GNOME and KDE Plasma 6 on Wayland, on par. On X11 and wlroots desktops (Sway, Hyprland): the displays as they are, without virtual displays |
+| Desktops | GNOME and KDE Plasma 6 on Wayland, on par; Sway and Hyprland (wlroots) with their headless outputs (added on 26/11). On X11 and other desktops: the displays as they are, without virtual displays (X11 makes none without a dummy plug or an EDID forced by root) |
 | Distributions | Ubuntu 24.04, Debian 13, Fedora 42 and later. Immutable systems (Bazzite, SteamOS) later |
 | Packages | A `.deb` and a `.rpm` from the same assembly, with the udev rule and signed updates. No Flatpak (uinput, services and unsandboxed capture do not fit there) |
 | Architectures | x86_64 and arm64 |
@@ -44,7 +44,7 @@ GNOME lets no program read the screen directly: everything goes through Mutter, 
 
 ### Displays (KDE Plasma)
 
-The agent picks its desktop at startup: GNOME if Mutter is on the session bus, otherwise KDE if KWin gives it its capture protocol (`KYBERNOW_DESKTOP=gnome|kde` to force). On KDE (`kde.rs`):
+The agent picks its desktop at startup: GNOME if Mutter is on the session bus, otherwise KDE if KWin gives it its capture protocol (`KYBERNOW_DESKTOP=gnome|kde|sway|hyprland` to force; Sway and Hyprland come first, from `SWAYSOCK`, `HYPRLAND_INSTANCE_SIGNATURE` or `XDG_CURRENT_DESKTOP`). On KDE (`kde.rs`):
 
 - **Virtual displays**: KWin's Wayland protocol `zkde_screencast_unstable_v1` (version 2 and later, Plasma 5.25 and later), `stream_virtual_output`: KWin creates the display “KyberNow-1” (“KyberNow-2”…; Plasma 6 calls it “Virtual-KyberNow-1”) at the given size (in points, with the scale: 2 from 2,048 pixels wide) and its PipeWire stream comes with the `created` event. KWin sets the size at creation: a resolution change during the session remakes the display.
 - **The computer's displays**: `stream_output` on their `wl_output` (named by version 4 of `wl_output`), without the portal's dialog.
@@ -52,6 +52,17 @@ The agent picks its desktop at startup: GNOME if Mutter is on the session bus, o
 - **Layout**: `kscreen-doctor` (enable, place, scale, priority; displays left out of the layout are disabled); places in points. The list is read from its text output (`-o`, one line per display on Plasma 5.27, one line per property on Plasma 6; a Plasma 6 virtual display says neither “enabled” nor “disabled”): `kscreen-doctor -j` crashes on Plasma 5.27.
 - **Display turned off then on**: KWin removes it, then announces it under a new `wl_output` object; the agent follows those removals and retries the capture for a moment at the end of a session.
 - **Safety net**: virtual displays live with the agent's Wayland connection; if it stops, KWin removes them.
+
+### Displays (Sway and Hyprland)
+
+wlroots desktops (`wlroots.rs`). No PipeWire, no portal: Kyber captures the compositor's outputs itself (its wayland provider, `wlr-screencopy`), and the displays file names them (`source = "wayland:HEADLESS-1"`, Kyber Linux patch 0013) under the Station's IDs (101, 102…). Kyber's setting does not change (GStreamer): only each display's source says how to capture it.
+
+- **Virtual displays**: headless outputs of the compositor. Sway: `swaymsg create_output` (HEADLESS-n output), mode through `output … mode --custom`, removal through `output … unplug`. Hyprland: `hyprctl output create headless KyberNow-n`, `hyprctl output remove`, mode through `hyprctl keyword monitor`. A resolution change during the session changes the output's mode.
+- **Computer displays**: listed as they are (`wayland:DP-1`), captured by Kyber without a dialog.
+- **Layout**: Sway, `output … enable pos … scale …` then `output … disable` for the others, in one command; Hyprland, a `hyprctl --batch` of `keyword monitor`. Places in points; no "primary" display on wlroots: the first one gets the focus.
+- **Picture of a still display**: the capture asks for a picture every frame (`copy`, not `copy_with_damage`), otherwise a desktop that does not move sends nothing and the device restarts the stream in a loop; with x264 it uses shared memory (no detour through the graphics card).
+- **Safety net**: these outputs belong to the compositor and do not leave with the agent. Their names are kept (`wlroots-ecrans`, next to the displays file): at startup, the agent removes those of an interrupted session and turns the computer's displays back on (`output * enable`, `hyprctl reload`).
+- **Startup**: the Station's services follow `graphical-session.target`, which a Sway or Hyprland session only reaches with a launcher that manages it (uwsm, Fedora's sway-systemd); otherwise, `exec systemctl --user start kybernow-admin kybernow-kyber kybernow-tray` in the compositor's configuration.
 
 ### Keyboard, mouse, pointer
 
@@ -193,6 +204,7 @@ Kept in `server/linux/kyber-patches`, applied after the common patches by `serve
 | `0010-kymedia-ffmpeg-pyrowave-vulkan` | FFmpeg encoder `libpyrowave_vulkan`: the capture's DMA-BUF frames imported in Vulkan, PyroWave on the card (see “PyroWave”) |
 | `0011-kyavservice-pyrowave-linux` | kyavserver accepts PyroWave on Linux, with this encoder |
 | `0012-kycontroller-pyrowave-linux` | kycontroller offers PyroWave on a Linux Station |
+| `0013-kyavservice-ecrans-wayland` | Display `source = "wayland:NAME"` captured by libavgrab (wlr-screencopy) by its name, a picture every frame even when still, shared memory with x264 (Sway, Hyprland) |
 
 ## Building
 
@@ -277,6 +289,7 @@ Defects found and fixed on the way: a layout without a virtual display disabled 
 - **Build** on Ubuntu 24.04 and Fedora 45: Kyber with every patch (common, Linux 0001 to 0012, PyroWave Vulkan), Admin, the display agent and the tray icon; 352 Admin tests and 30 tray tests on Linux; `pyrowave-device-validation` answers on Fedora.
 - **Packages**: `.deb`, `.rpm` and the immutable systems archive built on both. `.rpm` installed by dnf on Fedora KDE, `.deb` by apt on Ubuntu GNOME: first initialization, Admin, Kyber and the tray icon start as user services; session through the API (1920 × 1080 virtual screen alone and primary, sound to "KyberNow" in 2 and 6 channels, stream read the way Kyber reads it, everything restored at the end).
 - **x86_64**: Kyber, Admin, the agent and the tray icon built in an Ubuntu 24.04 x86_64 through Rosetta (arm64 VM, `x86-chroot.sh`); `.deb`, `.rpm` and archive built, x86-64 programs that start (Admin 0.11.2, Kyber 0.29.0), no missing library. Not tried on a real x86_64 PC.
+- **Sway** (1.9, headless, next to GNOME in the Ubuntu VM): two-display session through the API (HEADLESS outputs created, placed, computer display off, everything restored at the end); session from the Mac app with a picture, still desktop included (after the `copy` fix). Hyprland not tried yet.
 - **Session from the Mac app** to the Station installed by the `.rpm` on Fedora KDE: it works, keyboard and mouse included (tried by the author); very choppy picture, expected in the VM (x264 on the processor, no graphics card nor DMA-BUF).
 - Defects found and fixed: Fedora's firewall hid the Station from the apps (Bonjour closed); the PyroWave Vulkan encoder did not compile (`F_DUPFD_CLOEXEC` hidden by FFmpeg's options); `pyrowave-device-validation` kept the build folder in its search path (refused by rpmbuild); `package.sh` stopped without `lib64` (Ubuntu); the tray icon links WebKitGTK (lending screen) without the packages asking for it; the recommended AppIndicator extension installed all of GNOME and GDM on a KDE Fedora; on the first start of a fresh install, `kybernow-station-setup` stopped before Admin (settings file not written yet); eight Admin tests assumed "not Windows = Mac"; outside a Station, lending was refused on Linux instead of simulated as on the Mac.
 

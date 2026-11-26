@@ -1,0 +1,213 @@
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index a6b21c7..3665d10 100644
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -190,9 +190,16 @@ fn video_config(
+     scale: Option<VideoScale>,
+ ) -> Result<VideoConfig> {
+     #[cfg(target_os = "linux")]
+-    let (source_mode, source_size, output_size, gstreamer_pipeline) = match config
++    let (source_mode, source_size, output_size, gstreamer_pipeline, wayland_output) = match config
+         .gstreamer_video_source(display_id)?
+     {
++        // KyberNow : écran d'un bureau wlroots (`source = "wayland:NOM"`),
++        // capturé par libavgrab, à sa taille, sous l'ID du fichier.
++        Some(source) if source.wayland_output().is_some() => {
++            let output = source.wayland_output().unwrap_or_default().to_string();
++            info!("Using Wayland output '{output}' for video source '{}'", source.name);
++            (crate::config::VideoSourceMode::Raw, None, None, None, Some(output))
++        }
+         Some(source) => {
+             info!("Using GStreamer video source '{}'", source.name);
+             // A pre-encoded source is forwarded as-is, so the codec the
+@@ -212,9 +219,9 @@ fn video_config(
+             let source_size = Some(source.source_size());
+             let output_size = Some(source.output_size());
+             let pipeline = Some(source.pipeline()?);
+-            (source_mode, source_size, output_size, pipeline)
++            (source_mode, source_size, output_size, pipeline, None)
+         }
+-        None => (crate::config::VideoSourceMode::Raw, None, None, None),
++        None => (crate::config::VideoSourceMode::Raw, None, None, None, None),
+     };
+ 
+     Ok(VideoConfig {
+@@ -240,9 +247,15 @@ fn video_config(
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+-        grab_backend: config.grab_backend(),
++        grab_backend: if wayland_output.is_some() {
++            crate::config::GrabBackend::Wlroots
++        } else {
++            config.grab_backend()
++        },
+         #[cfg(target_os = "linux")]
+         gstreamer_pipeline,
++        #[cfg(target_os = "linux")]
++        wayland_output,
+     })
+ }
+ 
+@@ -572,6 +585,34 @@ mode = "{mode}"
+         crate::config::from_table(&table).unwrap()
+     }
+ 
++    #[test]
++    fn wayland_source_uses_the_wayland_grabber_by_output_name() {
++        let table: toml::Table = r#"
++[kyavserver]
++backend = "libavconv"
++grab_backend = "gstreamer"
++
++[kyavserver.gstreamer]
++
++[[kyavserver.gstreamer.video_sources]]
++id = 101
++name = "KyberNow"
++source = "wayland:HEADLESS-1"
++width = 1920
++height = 1080
++framerate = "0/1"
++"#
++        .parse()
++        .unwrap();
++        let config = crate::config::from_table(&table).unwrap();
++
++        let probe = sdp_probe_config(&config, 101, false, None).unwrap();
++
++        assert_eq!(probe.grab_backend, crate::config::GrabBackend::Wlroots);
++        assert_eq!(probe.wayland_output.as_deref(), Some("HEADLESS-1"));
++        assert!(probe.gstreamer_pipeline.is_none());
++    }
++
+     #[test]
+     fn sdp_probe_follows_gstreamer_raw_source() {
+         let config = gstreamer_config("raw", "");
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+index 5ac7cd9..473c362 100644
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -76,6 +76,10 @@ pub(crate) struct VideoConfig {
+     pub(crate) grab_backend: config::GrabBackend,
+     #[cfg(target_os = "linux")]
+     pub(crate) gstreamer_pipeline: Option<String>,
++    /// KyberNow : sortie Wayland à capturer (`source = "wayland:NOM"`),
++    /// choisie par son nom plutôt que par l'ID.
++    #[cfg(target_os = "linux")]
++    pub(crate) wayland_output: Option<String>,
+ }
+ 
+ impl VideoConfig {
+@@ -226,13 +230,27 @@ fn create_grab_source(
+ 
+     let sources = grab_ctx.sources(payloads, src_types)?;
+ 
+-    // KyberNow: select by display ID (see displays::display_id), then by
++    // KyberNow: a Wayland output named in the sources file, by its name;
++    // else select by display ID (see displays::display_id), then by
+     // index (IDs of sources without a name), then the first available.
+-    let src = sources
+-        .iter()
+-        .enumerate()
+-        .find(|(idx, s)| super::displays::source_id(s, *idx) == video_config.display_id)
+-        .map(|(_, s)| s)
++    #[cfg(target_os = "linux")]
++    let by_output = video_config.wayland_output.as_deref().and_then(|name| {
++        let found = sources.iter().find(|s| s.name().as_deref() == Some(name));
++        if found.is_none() {
++            warn!("Wayland output {name} not found, using another one");
++        }
++        found
++    });
++    #[cfg(not(target_os = "linux"))]
++    let by_output = None;
++    let src = by_output
++        .or_else(|| {
++            sources
++                .iter()
++                .enumerate()
++                .find(|(idx, s)| super::displays::source_id(s, *idx) == video_config.display_id)
++                .map(|(_, s)| s)
++        })
+         .or_else(|| {
+             warn!(
+                 "Display {} not found on the capture adapter, using another one",
+@@ -280,6 +298,17 @@ fn create_grab_source(
+         &video_config.gpu_priority.capture_option().to_string(),
+     )?;
+ 
++    // KyberNow (Station Linux, Sway et Hyprland) : x264 encode sur le
++    // processeur ; la capture Wayland lui donne ses images en mémoire
++    // partagée, sans passer par la carte (et sans carte du tout : machine
++    // virtuelle, rendu logiciel).
++    #[cfg(target_os = "linux")]
++    if matches!(video_config.grab_backend, config::GrabBackend::Wlroots) && matches!(video_config.encoder, VideoEncoder::X264) {
++        if let Err(e) = capture.set_option("wayland_pool_types", "shm") {
++            warn!("Wayland capture in shared memory: {e}");
++        }
++    }
++
+     let video_hook = video_hook_closure(metrics.cloned());
+     // Encoded Linux sources feed the muxer directly, with no capture-side hook.
+     #[cfg(target_os = "linux")]
+@@ -508,11 +537,10 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+                 "hwdownload,format=bgra,{}format={pix_fmt}",
+                 kybernow::software_scale(config.scale)
+             );
++            // KyberNow : la capture Wayland pour x264 est en mémoire
++            // partagée (create_grab_source) : pas de hwdownload.
+             #[cfg(target_os = "linux")]
+-            let filter = if matches!(
+-                config.grab_backend,
+-                config::GrabBackend::Drm | config::GrabBackend::Wlroots
+-            ) {
++            let filter = if matches!(config.grab_backend, config::GrabBackend::Drm) {
+                 format!("hwdownload,format=bgr0|bgra,format={pix_fmt}")
+             } else {
+                 format!("format={pix_fmt}")
+@@ -958,6 +986,8 @@ mod tests {
+             grab_backend: config::GrabBackend::Gstreamer,
+             #[cfg(target_os = "linux")]
+             gstreamer_pipeline: None,
++            #[cfg(target_os = "linux")]
++            wayland_output: None,
+         }
+     }
+ 
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index ab31322..4bd2ed0 100644
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -182,6 +182,14 @@ impl GstreamerVideoSource {
+         )
+     }
+ 
++    /// KyberNow (Station Linux, Sway et Hyprland) : `source = "wayland:NOM"`
++    /// désigne la sortie NOM du compositeur (écran virtuel sans tête),
++    /// capturée par libavgrab (fournisseur wayland, wlr-screencopy), pas
++    /// par GStreamer.
++    pub(crate) fn wayland_output(&self) -> Option<&str> {
++        self.source.trim().strip_prefix("wayland:").map(str::trim).filter(|s| !s.is_empty())
++    }
++
+     pub(crate) fn pipeline(&self) -> Result<String> {
+         let pipeline = match self.mode {
+             VideoSourceMode::Raw => format!(
+diff --git a/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c b/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c
+index 02238bf..a5495f3 100644
+--- a/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c
++++ b/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c
+@@ -131,7 +131,11 @@ static void wayland_scrcpy_buffer_done(void *data,
+         return;
+     }
+ 
+-    zwlr_screencopy_frame_v1_copy_with_damage(frame, wlbuf);
++    /* KyberNow (Station Linux, Sway et Hyprland) : une image à chaque
++     * trame de l'écran, même immobile. Avec copy_with_damage, un bureau qui
++     * ne bouge pas n'envoie rien, et l'appareil, sans image, relance le flux
++     * en boucle (GNOME et KDE répètent la dernière image, resend-last). */
++    zwlr_screencopy_frame_v1_copy(frame, wlbuf);
+ }
+ 
+ static void wayland_scrcpy_flags(void *data,

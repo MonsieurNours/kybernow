@@ -17,9 +17,11 @@
 //   hdr        {"id"} → {"supported", "active"}
 //   ping
 //
-// Deux bureaux, choisis au démarrage (`KYBERNOW_DESKTOP=gnome|kde` pour
-// forcer) : GNOME, par Mutter (`gnome.rs`), et KDE Plasma, par KWin
-// (`kde.rs`). Le reste est commun :
+// Trois familles de bureaux, choisies au démarrage
+// (`KYBERNOW_DESKTOP=gnome|kde|sway|hyprland` pour forcer) : GNOME, par Mutter
+// (`gnome.rs`), KDE Plasma, par KWin (`kde.rs`), et les bureaux wlroots,
+// Sway et Hyprland, par leurs écrans sans tête (`wlroots.rs` ; Kyber les
+// capture lui-même, `source = "wayland:NOM"`). Le reste est commun :
 //
 // - Écrans virtuels créés par le compositeur, capturés par PipeWire ; les
 //   écrans de l'ordinateur capturés sans dialogue, seulement quand il n'y a
@@ -40,6 +42,7 @@
 
 mod gnome;
 mod kde;
+mod wlroots;
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -91,10 +94,12 @@ pub struct Place {
     pub primary: bool,
 }
 
-/// Comment rendre une capture : session de Mutter, ou flux de KWin.
+/// Comment rendre une capture : session de Mutter, flux de KWin, ou sortie
+/// d'un bureau wlroots (que Kyber capture lui-même, par son nom).
 pub enum CastKey {
     Mutter(OwnedObjectPath),
     Kde(u32),
+    Wlr { name: String, headless: bool },
 }
 
 /// Une capture du compositeur et son flux PipeWire.
@@ -113,6 +118,12 @@ pub trait Recorder {
     fn stop(&mut self, cast: &Cast);
     /// Lit les événements en attente du compositeur.
     fn pump(&mut self) {}
+    /// Change le mode d'un écran virtuel quand le compositeur le fait lui-même
+    /// (wlroots) ; faux : c'est à la capture de le négocier (GNOME) ou à un
+    /// nouvel écran (KDE).
+    fn resize(&mut self, _cast: &Cast, _width: u32, _height: u32, _refresh: u32) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 /// Lecture et disposition des écrans (fil principal et fil de la disposition).
@@ -205,26 +216,38 @@ struct Shared {
 enum Kind {
     Gnome,
     Kde,
+    Wlr(wlroots::Flavor),
 }
 
 fn new_desk(kind: Kind) -> Result<Arc<dyn Desk>> {
     Ok(match kind {
         Kind::Gnome => Arc::new(gnome::Gnome::new()?),
         Kind::Kde => Arc::new(kde::KdeDesk),
+        Kind::Wlr(flavor) => Arc::new(wlroots::WlrDesk(flavor)),
     })
 }
 
-/// Le bureau : `KYBERNOW_DESKTOP` s'il le dit, sinon GNOME si Mutter est là,
-/// sinon KDE si KWin donne son protocole de capture.
+/// Le bureau : `KYBERNOW_DESKTOP` s'il le dit, sinon Sway ou Hyprland si la
+/// session l'annonce, sinon GNOME si Mutter est là, sinon KDE si KWin donne
+/// son protocole de capture.
 fn detect() -> Result<(Kind, Box<dyn Recorder>)> {
     let wanted = std::env::var("KYBERNOW_DESKTOP").unwrap_or_default().to_lowercase();
+    let wlr = match wanted.as_str() {
+        "sway" => Some(wlroots::Flavor::Sway),
+        "hyprland" => Some(wlroots::Flavor::Hyprland),
+        "" => wlroots::present(),
+        _ => None,
+    };
+    if let Some(flavor) = wlr {
+        return Ok((Kind::Wlr(flavor), Box::new(wlroots::Wlr::new(flavor)?)));
+    }
     if wanted != "kde" && (wanted == "gnome" || gnome::present()) {
         return Ok((Kind::Gnome, Box::new(gnome::Gnome::new()?)));
     }
     match kde::Kde::new() {
         Ok(k) => Ok((Kind::Kde, Box::new(k))),
         Err(e) if wanted == "kde" => Err(e),
-        Err(e) => Err(format!("ni GNOME ni KDE : pas d'écran virtuel ici ({e})")),
+        Err(e) => Err(format!("ni GNOME, ni KDE, ni Sway, ni Hyprland : pas d'écran virtuel ici ({e})")),
     }
 }
 
@@ -238,8 +261,6 @@ fn nearest_scale(scales: &[f64], want: f64) -> f64 {
     scales.iter().copied().min_by(|a, b| (a - want).abs().total_cmp(&(b - want).abs())).unwrap_or(1.0)
 }
 
-/// Applique `layout` si tous ses écrans virtuels sont sur le bureau. Rend
-/// vrai une fois appliquée.
 /// Ce qu'il faut ajouter aux places pour que la plus à gauche et la plus haute
 /// soient en 0.
 fn shift_to_origin(places: impl Iterator<Item = (i32, i32)>) -> (i32, i32) {
@@ -251,6 +272,8 @@ fn shift_to_origin(places: impl Iterator<Item = (i32, i32)>) -> (i32, i32) {
     if min_x == i32::MAX { (0, 0) } else { (-min_x, -min_y) }
 }
 
+/// Applique `layout` si tous ses écrans virtuels sont sur le bureau. Rend
+/// vrai une fois appliquée.
 fn apply_layout(desk: &dyn Desk, shared: &Mutex<Shared>, layout: &Layout) -> Result<bool> {
     // Aucun écran virtuel en place : rien à disposer (sous KDE, une
     // disposition vide désactiverait tous les écrans).
@@ -441,13 +464,11 @@ impl Agent {
                 return Err(e);
             }
         };
-        log(&format!(
-            "écran virtuel {} ({}) : {width} × {height} à {refresh} Hz, flux PipeWire {} (série {})",
-            slot + 1,
-            self.desk.name(),
-            cast.node,
-            cast.serial
-        ));
+        let capture = match &cast.key {
+            CastKey::Wlr { name, .. } => format!("sortie {name}, capturée par Kyber"),
+            _ => format!("flux PipeWire {} (série {})", cast.node, cast.serial),
+        };
+        log(&format!("écran virtuel {} ({}) : {width} × {height} à {refresh} Hz, {capture}", slot + 1, self.desk.name()));
         self.shared.lock().unwrap().connectors[slot] = connector;
         self.virtuals[slot] = Some(Virtual { cast, width, height, refresh, hidpi, place: (0, 0) });
         self.write_sources();
@@ -570,6 +591,8 @@ impl Agent {
             return Ok(json!({ "width": width, "height": height, "refresh": refresh }));
         }
         let v = self.virtuals.get_mut(slot).and_then(Option::as_mut).ok_or("écran virtuel inconnu")?;
+        // Sway, Hyprland : le compositeur change le mode lui-même.
+        self.recorder.resize(&v.cast, width, height, refresh)?;
         // GNOME : la taille d'un écran virtuel est celle que la capture
         // négocie : la nouvelle taille va au fichier des sources, que Kyber
         // relit (son flux suivant la demande, et GNOME suit).
@@ -682,9 +705,15 @@ impl Agent {
     fn write_sources(&self) {
         let framerate = std::env::var("KYBERNOW_SCREEN_FRAMERATE").unwrap_or_else(|_| "0/1".into());
         let mut out = String::from("# Écrans de KyberNow Station (kybernow-display) : ne pas modifier.\n");
-        let mut entry = |id: u32, name: &str, serial: &str, w: u32, h: u32, place: (i32, i32)| {
+        let mut entry = |id: u32, name: &str, cast: &Cast, w: u32, h: u32, place: (i32, i32)| {
+            // Sway, Hyprland : la sortie, capturée par Kyber (correctif 0013) ;
+            // sinon le flux PipeWire du compositeur.
+            let source = match &cast.key {
+                CastKey::Wlr { name, .. } => format!("wayland:{name}"),
+                _ => format!("pipewiresrc target-object={} do-timestamp=true keepalive-time=1000 resend-last=true", cast.serial),
+            };
             out.push_str(&format!(
-                "\n[[video_sources]]\nid = {id}\nname = \"{name}\"\nsource = \"pipewiresrc target-object={serial} do-timestamp=true keepalive-time=1000 resend-last=true\"\nwidth = {w}\nheight = {h}\nframerate = \"{framerate}\"\nformat = \"BGRx\"\nx = {}\ny = {}\n",
+                "\n[[video_sources]]\nid = {id}\nname = \"{name}\"\nsource = \"{source}\"\nwidth = {w}\nheight = {h}\nframerate = \"{framerate}\"\nformat = \"BGRx\"\nx = {}\ny = {}\n",
                 place.0, place.1
             ));
         };
@@ -692,12 +721,12 @@ impl Agent {
             for (slot, v) in self.virtuals.iter().enumerate() {
                 if let Some(v) = v {
                     let name = if slot == 0 { "KyberNow".to_string() } else { format!("KyberNow {}", slot + 1) };
-                    entry(VIRTUAL_ID_BASE + slot as u32, &name, &v.cast.serial, v.width, v.height, v.place);
+                    entry(VIRTUAL_ID_BASE + slot as u32, &name, &v.cast, v.width, v.height, v.place);
                 }
             }
         } else {
             for p in &self.physicals {
-                entry(p.id, &p.name, &p.cast.serial, p.width, p.height, p.place);
+                entry(p.id, &p.name, &p.cast, p.width, p.height, p.place);
             }
         }
         let tmp = self.file.with_extension("toml.tmp");
