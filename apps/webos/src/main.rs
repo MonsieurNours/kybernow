@@ -5,6 +5,7 @@
 
 mod accounts;
 mod app;
+mod autotest;
 mod hdr;
 #[cfg(feature = "device")]
 mod device;

@@ -606,7 +606,15 @@ pub fn set_hdr(handle: &Handle, ask: HdrAsk) {
 /// plafonné par le réseau, le HDR.
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), cap_mbps: u32, hdr: HdrAsk) -> StreamSettings {
     let caps = hdr_capabilities(Capabilities { hevc: true, hevc444: false, av1: codec == "av1", hdr: false, pyrowave: false }, hdr);
-    let mut s = StreamSettings::for_profile(core_profile(profile), caps);
+    // Auto : les réglages du test gardé pour cet ordinateur (`AutoResult::settings`) ; sans résultat lisible, ceux de
+    // Max (le profil du cœur pour Auto).
+    let auto = (profile == Profile::Auto).then(|| host.settings.auto.clone()).flatten().and_then(|v| serde_json::from_value::<kybernow_core::autotest::AutoResult>(v).ok());
+    let wired = super::system::net().kind == crate::app::NetKind::Ethernet;
+    let mut s = match &auto {
+        Some(r) => r.settings(hdr.want, wired),
+        None => StreamSettings::for_profile(core_profile(profile), caps),
+    };
+    s.wired = wired;
     s.codec = match codec {
         "h264" => Codec::H264,
         "av1" => Codec::Av1,
@@ -629,6 +637,8 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         let scale = ratio.powf(0.75).clamp(0.4, 3.0);
         s.mbps = ((wanted as f64 / scale).floor() as u32).max(5);
     }
+    // « Débit adaptatif » de cet ordinateur (allumé d'office), pour un profil comme pour un débit choisi.
+    s.adaptive = host.settings.adaptive;
     hdr_settings(&mut s, hdr);
     s
 }

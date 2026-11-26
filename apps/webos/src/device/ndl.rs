@@ -693,3 +693,78 @@ pub fn quit() {
         st.initialized = false;
     }
 }
+
+/// Profil Auto (docs/profil-auto.md, « Le décodage ») : un extrait vidéo (des paquets comme ceux de Kyber, Annex B ou
+/// unités temporelles AV1, les paramètres devant l'image clé) passé au décodeur du téléviseur par le même chemin que
+/// la session (`ensure`, puis `play` image par image), aussi vite que NDL les prend, en boucle depuis l'image clé,
+/// pendant `budget` au plus. Rend les images traitées par seconde (données à NDL moins celles encore dans sa file
+/// d'affichage), `None` si NDL refuse le format ou la première image.
+///
+/// NDL n'a pas de décodage sans affichage ni de rappel par image décodée : l'image va au plan vidéo (sous
+/// l'interface, opaque hors session) et la mesure est celle de NDL tout entier. Si NDL ne prend pas plus d'images que
+/// la dalle n'en montre, la mesure s'arrête à la fréquence de la dalle (voir le README, « Profil Auto »). Hors session
+/// seulement : le décodeur est rendu (déchargé) à la fin.
+pub fn bench(kind: i32, width: u32, height: u32, packets: &[(bool, &[u8])], budget: Duration) -> Option<f64> {
+    if MIRES.load(Ordering::Acquire) {
+        return None;
+    }
+    let start = packets.iter().position(|(key, _)| *key)?;
+    // Le plan de son qui cale les images, comme pour une session en stéréo.
+    set_audio_plane(AudioPlane::OpusClock);
+    if let Err(e) = ensure(kind, width, height, None) {
+        log::warn!("profil auto : {} {width} × {height} refusé ({e})", name(kind));
+        unload();
+        return None;
+    }
+    let ready_by = Instant::now() + FEED_ANYWAY_AFTER + Duration::from_millis(500);
+    let mut i = start;
+    let mut accepted = 0u32;
+    let mut errors = 0u32;
+    let mut queued: i32 = 0;
+    let mut max_queued: i32 = 0;
+    let mut began: Option<Instant> = None;
+    loop {
+        if began.is_some_and(|t| t.elapsed() >= budget) {
+            break;
+        }
+        match play(packets[i].1) {
+            Ok(q) => {
+                if began.is_none() {
+                    began = Some(Instant::now());
+                }
+                accepted += 1;
+                queued = q.unwrap_or(0).max(0);
+                max_queued = max_queued.max(queued);
+                errors = 0;
+                i += 1;
+                if i >= packets.len() {
+                    i = start;
+                }
+            }
+            // Le chargement pas encore confirmé : l'image clé attend.
+            Err(e) if e == NOT_READY && began.is_none() && Instant::now() < ready_by => std::thread::sleep(Duration::from_millis(5)),
+            Err(e) => {
+                errors += 1;
+                if began.is_none() || errors > 50 {
+                    log::warn!("profil auto : {} {width} × {height}, image refusée ({e})", name(kind));
+                    if began.is_none() {
+                        unload();
+                        return None;
+                    }
+                    break;
+                }
+                // Une image refusée en cours : on repart de l'image clé, comme la session après une perte.
+                i = start;
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+    let elapsed = began.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+    unload();
+    if elapsed <= 0.0 || accepted == 0 {
+        return None;
+    }
+    let fps = f64::from(accepted.saturating_sub(queued.max(0) as u32)) / elapsed;
+    log::info!("profil auto : {} {width} × {height} : {accepted} images données en {elapsed:.2} s, file {queued} à la fin ({max_queued} au plus) : {fps:.0} i/s", name(kind));
+    Some(fps)
+}

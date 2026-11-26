@@ -132,7 +132,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             let custom = h.settings.is_custom();
             let chips_x = x;
             for p in Profile::ALL {
-                x += widgets::chip(cv, f, Target::Chip(p), x, by + 14.0, profile_label(p), !custom && h.settings.profile == p) + 10.0;
+                x += profile_chip(cv, f, p, x, by + 14.0, !custom && h.settings.profile == p) + 10.0;
             }
             if custom {
                 x += widgets::chip_static(cv, x, by + 14.0, tr("Personnalisé", "Custom")) + 10.0;
@@ -231,6 +231,15 @@ pub fn profile_phrase(p: Profile) -> &'static str {
         Profile::Jeu => tr("La réactivité d'abord, pour jouer.", "Responsiveness first, for gaming."),
         Profile::Bureau => tr("Un texte net, pour travailler.", "Sharp text, for work."),
         Profile::Max => tr("La meilleure image que cet appareil affiche.", "The best picture this device can show."),
+        Profile::Auto => crate::autotest::phrase(),
+    }
+}
+
+/// La pastille d'un profil ; Auto avec son icône, la baguette (docs/link-ui.md). Rend sa largeur.
+pub fn profile_chip(cv: &mut Canvas, f: &mut Frame, p: Profile, x: f32, y: f32, active: bool) -> f32 {
+    match p {
+        Profile::Auto => widgets::chip_icon(cv, f, Target::Chip(p), x, y, Icon::Sparkles, profile_label(p), active),
+        _ => widgets::chip(cv, f, Target::Chip(p), x, y, profile_label(p), active),
     }
 }
 
@@ -254,6 +263,7 @@ pub fn profile_label(p: Profile) -> &'static str {
         Profile::Jeu => tr("Jeu", "Game"),
         Profile::Bureau => tr("Bureau", "Desktop"),
         Profile::Max => "Max",
+        Profile::Auto => "Auto",
     }
 }
 

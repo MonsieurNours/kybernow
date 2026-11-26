@@ -5,6 +5,7 @@
 //! et inscrit les éléments choisissables dans un `Frame`.
 
 mod account;
+mod autotest;
 mod calibration;
 pub mod canvas;
 mod consoles;
@@ -74,6 +75,7 @@ pub fn session_overlay_visible(app: &App) -> bool {
         || s.ps.as_ref().is_some_and(|p| p.keyboard.is_some() || p.cant_display)
         || !matches!(s.phase, Streaming)
         || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.0)
+        || app.auto_banner_visible()
 }
 
 /// Dessine l'écran courant ; rend les éléments choisissables.
@@ -96,6 +98,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
         Screen::PlayStation => consoles::add_screen(app, cv, &mut f),
         Screen::PsSettings => consoles::settings(app, cv, &mut f),
         Screen::Account => account::draw(app, cv, &mut f),
+        Screen::AutoTest => autotest::draw(app, cv, &mut f),
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
     // seuls ses boutons se choisissent.

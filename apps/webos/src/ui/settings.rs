@@ -33,13 +33,20 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             cv.text_fit(92.0, 172.0, Text::new(Font::Title, 56.0, FROST).tracking(-1.5), &h.name, 410.0);
             widgets::label(cv, 96.0, 240.0, tr("Profil", "Profile"));
             let custom = h.settings.is_custom();
+            // Jeu, Bureau et Max sur une rangée ; Auto dessous (la colonne est étroite), avec « Refaire le test » quand
+            // il est le profil de cet ordinateur.
             let mut x = 96.0;
-            for p in Profile::ALL {
-                x += widgets::chip(cv, f, Target::Chip(p), x, 262.0, super::home::profile_label(p), !custom && h.settings.profile == p) + 10.0;
+            for p in [Profile::Jeu, Profile::Bureau, Profile::Max] {
+                x += super::home::profile_chip(cv, f, p, x, 262.0, !custom && h.settings.profile == p) + 10.0;
+            }
+            let auto = !custom && h.settings.profile == Profile::Auto;
+            let aw = super::home::profile_chip(cv, f, Profile::Auto, 96.0, 330.0, auto);
+            if auto && h.settings.auto_brief().is_some() {
+                widgets::icon_chip(cv, f, Target::AutoRetest, 96.0 + aw + 10.0, 330.0, Icon::Refresh, crate::autotest::again_word());
             }
             let phrase = if custom { tr("Personnalisé : vos propres réglages.", "Custom: your own settings.") } else { super::home::profile_phrase(h.settings.profile) };
-            cv.paragraph(98.0, 356.0, Text::new(Font::Regular, 19.0, FROST_3), phrase, 384.0, 26.0);
-            420.0
+            cv.paragraph(98.0, 424.0, Text::new(Font::Regular, 19.0, FROST_3), phrase, 384.0, 26.0);
+            486.0
         }
         None => {
             widgets::label(cv, 96.0, 104.0, "KyberNow Link");
@@ -117,7 +124,12 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
             } else {
                 format!("{} Mbit/s", st.mbps)
             };
-            y += widgets::row(cv, f, s(Setting::Bitrate), x, y, w, tr("Débit", "Bitrate"), tr("Proportionné au profil, plafonné par le réseau du téléviseur", "Scaled to the profile, capped by the TV's network"), Value::Text(mbps)) + GAP;
+            // Profil Auto : sous le débit, le test qui l'a choisi (« Refaire le test » est sous la pastille Auto).
+            let chosen = (st.profile == Profile::Auto && !st.is_custom()).then(|| st.auto_brief()).flatten().map(|b| crate::autotest::chosen_by(b.at, b.network.as_deref()));
+            let bitrate_help = chosen.as_deref().unwrap_or(tr("Proportionné au profil, plafonné par le réseau du téléviseur", "Scaled to the profile, capped by the TV's network"));
+            y += widgets::row(cv, f, s(Setting::Bitrate), x, y, w, tr("Débit", "Bitrate"), bitrate_help, Value::Text(mbps)) + GAP;
+            // « Débit adaptatif », dans la carte du débit (pas de PyroWave sur un téléviseur LG : son aide seule).
+            y += widgets::row(cv, f, s(Setting::Adaptive), x, y, w, crate::autotest::adaptive_title(), crate::autotest::adaptive_help(), Value::Toggle(st.adaptive)) + GAP;
             y += widgets::row(cv, f, s(Setting::GameHint), x, y, w, tr("Rappeler le mode jeu de la télé", "Remind about the TV's game mode"), tr("L'app ne peut pas passer la télé en Optimiseur de jeu : le menu le rappelle", "The app cannot switch the TV to Game Optimizer: the menu reminds you"), Value::Toggle(st.game_mode_hint)) + GAP;
             widgets::row(cv, f, None, x, y, w, tr("Fréquence variable (VRR)", "Variable refresh rate (VRR)"), tr("LG la réserve aux entrées HDMI ; l'ordinateur envoie ses images au rythme de l'écran", "LG keeps it for HDMI inputs; the computer sends frames at the screen's pace"), Value::Unavailable(tr("indisponible", "unavailable")));
         }
