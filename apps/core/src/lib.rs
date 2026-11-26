@@ -30,6 +30,7 @@ pub mod share;
 pub mod session;
 pub mod update;
 pub mod wake;
+pub mod welcome;
 
 pub use kyclient::Display;
 pub use kynput_rs;

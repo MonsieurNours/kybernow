@@ -345,6 +345,10 @@ Contrat : [docs/profil-auto.md](../../docs/profil-auto.md). `StreamSettings::ada
 
 Le test : `autotest::run(console, &Device, decoder, progress, cancel, lang)`, bloquant (une dizaine de secondes, sur un fil à part) : `info`, puis `Console::ping` (`GET /api/stream/ping`, 20 fois), `Console::burst` (`GET /api/stream/probe?ms=4000`, lu par quarts de seconde, allers-retours en même temps), puis les extraits (`autotest::samples_for(caps)`, `samples/*.kns`, faits par `scripts/samples.sh`) passés au décodeur de l'app (`SampleDecoder` : images par seconde, `None` si pas décodé). `progress` reçoit un `Progress` (JSON : `steps` avec `step`, `title`, `state` `waiting`/`running`/`done`/`skipped`, `text`) ; le résultat (`AutoResult`, JSON stable, à garder par l'app pour cet ordinateur) donne le résumé par `choices(lang)` (`key`, `title`, `value`, `reason`). `autotest::decide` (pur) fait les choix ; les textes sont dans `i18n/*.json` (`autotest.*`, panneau compris).
 
+## Accueil et compte KyberNow (`src/welcome.rs`)
+
+Contrat : [docs/link-ui.md](../../docs/link-ui.md), « Accueil et compte KyberNow ». `WelcomeState` (JSON gardé par l'app) : `should_show(has_account)` (accueil au premier lancement, et une fois par version d'accueil sans compte), `welcome_done()`, `card_visible(has_account, now)` / `close_card(now)` / `card_close_is_final()` (carte du compte : revient après 30 jours, puis « Ne plus afficher »), `take_paired_hint` (bandeau après un appairage, une fois par ordinateur), `take_away_hint` (« Hors de chez vous ? », une fois par jour et par ordinateur). `sign_up_url(relay, lang)` : la page d'inscription du relais, à ouvrir dans le navigateur (l'app ne crée pas de compte) ; `STATION_DOWNLOAD_URL`.
+
 ## Débit visé dans les Statistiques (`src/adaptive.rs`, `src/session.rs`, `src/latency.rs`)
 
 Textes : [docs/link-ui.md](../../docs/link-ui.md), « Statistiques » ; règles du débit : [docs/debit-automatique.md](../../docs/debit-automatique.md).
