@@ -379,7 +379,7 @@ pub fn guest_names(s: &AppState) -> Option<String> {
 /// Le jeton de Kyber d'un invité : son rôle et son écran, 120 s.
 fn guest_token(s: &AppState, guest: &Guest, display: u32) -> Option<String> {
     let secret = s.kyber.jwt_secret()?;
-    // `kn_mic` (correctif 0081, docs/micro.md) : le micro de l'invité arrive sur l'ordinateur
+    // `kn_mic` (correctif 0085-kycontroller-micro-droits, docs/micro.md) : le micro de l'invité arrive sur l'ordinateur
     // quand l'hôte laisse les invités parler.
     let claims = json!({ "kn_role": guest.role.as_str(), "kn_display": display, "kn_rev": guest.rev, "kn_quality": guest.preset.as_str(), "kn_mic": s.share.guests_speak() });
     Some(crate::kyber_proxy::jwt_with(&secret, &guest.kyber_user(), share::TOKEN_LIFETIME, claims))

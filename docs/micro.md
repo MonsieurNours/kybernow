@@ -26,7 +26,7 @@ Le transport est le **flux montant commun** de la caméra et du micro (correctif
 - **Départ de l'image** : le cœur demande `uplink: ["camera", "microphone"]` (le micro dès que l'app en a un, même coupé, et aussi pour un invité) ; la Station rend un point de données pour le micro quand `kybernow-micro` est à côté de kycontroller. Pas de flux : « Mettez à jour la Station pour envoyer le micro. » pour l'hôte, « L'hôte ne laisse pas les invités parler. » pour un invité ou l'ami qui emprunte.
 - **Allumer** : `START` + `{"codec": "opus", "rate": 48000, "channels": 1, "frame": 480, "bitrate": 32000, "device": "…"}` ; kycontroller lance `kybernow-micro --uplink` et répond `{"state": "started"}`. Puis un `MEDIA` par trame : drapeaux (0), heure de capture en µs, paquet Opus. **Couper** : `PAUSE` (l'aide joue du silence tout de suite, reste prête). Image relancée : `START` repart sur le nouveau flux.
 - **Réponses** (`STATUS`, JSON) : `started` → « Micro » allumé ; `failed` avec `reason` `no_device` (écrit par l'aide quand le micro virtuel manque) → « L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son. » ; autre refus → « Cet ordinateur ne reçoit pas le micro. »
-- **Droit et nombre** : 0085 refuse les invités et n'accepte qu'un appareil à la fois par type. Pour le micro, les choix de l'auteur demandent l'ami qui emprunte et les invités que l'hôte laisse parler (`kn_mic` dans leur jeton, déjà posé par Admin ; `POST /kybernow/role` avec `mic` en session), et plusieurs micros à la fois (le système les mélange). Proposé à la session principale le 26/11 : un correctif à nous posé après 0085 (`0081-kycontroller-micro-droits`), pas encore écrit.
+- **Droit et nombre** : 0085 refuse les invités et n'accepte qu'un appareil à la fois par type. Pour le micro, les choix de l'auteur demandent l'ami qui emprunte et les invités que l'hôte laisse parler (`kn_mic` dans leur jeton, déjà posé par Admin ; `POST /kybernow/role` avec `mic` en session), et plusieurs micros à la fois (le système les mélange). D'où notre correctif `0085-kycontroller-micro-droits`, posé juste après `0085-kycontroller-flux-montant` (accord de la session principale, 26/11).
 
 ## L'aide de la Station : `kybernow-micro`
 
@@ -64,7 +64,7 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 | Partie | État |
 |---|---|
 | Transport | flux montant commun 0085 (session webcam), fusionné dans la branche ; « microphone » demandé à chaque départ |
-| Droit et plusieurs micros (ami, invités autorisés, pas de `busy`) | écrit et testé sur 0085 (`micro-droits-sur-0085.diff`, dossier des notes partagées), à poser dans 0085 par la session principale |
+| Droit et plusieurs micros (ami, invités autorisés, pas de `busy`) | `0085-kycontroller-micro-droits.patch`, posé après le canal commun ; 114 essais de kycontroller |
 | Aide `kybernow-micro` | compilée Mac, Windows, Linux ; 7 essais (paquets, pertes, tampon) ; `--check` vérifié sur ce Mac (3 : pilote d'avant) |
 | Pilote Mac « Micro KyberNow » | compilé ; pas installé (administrateur) |
 | VB-CABLE | étape de l'installateur et carte d'Admin écrites ; le pack est à placer dans `third_party/payload/vbcable/` |
@@ -74,7 +74,7 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 
 ### Reste à faire
 
-- Poser les droits du micro dans 0085.
+- Refaire `0085-kycontroller-micro-droits` par-dessus la correction de l'emprunteur que la webcam fait dans 0085.
 - Client web : le flux montant dans le moteur (copie web de kyclient et kyber-web), puis `engineSendsMicrophone()`.
 - Essais : micro reçu dans « CABLE Output » (Windows, l'aide tourne en SYSTEM : WASAPI et le micro par défaut en session 0 sont à vérifier), « Micro KyberNow » (Mac, après pose du pilote), PipeWire (VM) ; écho avec et sans le traitement voix ; perte en Wi-Fi sur le flux fiable ; invités et prêt.
 - `scripts/release.sh` : l'empreinte de la surcouche Windows (`kyber-overlay.stamp`) ne compte pas `server/micro` ; la version de `server/micro/Cargo.toml` n'est pas alignée.
