@@ -431,6 +431,12 @@ function autoSteps(at: number): AutoStep[] {
       old,
     ],
     ['decode', fr() ? 'Décodage de cet appareil' : 'Decoding on this device', fr() ? 'HEVC 4K : 240 i/s · AV1 4K : 120 i/s' : 'HEVC 4K: 240 fps · AV1 4K: 120 fps', false],
+    [
+      'encoder',
+      fr() ? "Encodeur de l'ordinateur" : "The computer's encoder",
+      old ? (fr() ? 'Mettez à jour BUREAU-SALON pour essayer son encodeur.' : 'Update BUREAU-SALON to try its encoder.') : fr() ? "jusqu'à 250 Mbit/s en HEVC" : 'up to 250 Mbit/s in HEVC',
+      old,
+    ],
   ]
   return all.map(([step, title, text, skipped], i) =>
     i < at ? { step, title, state: skipped ? 'skipped' : 'done', text } : i === at ? { step, title, state: 'running' } : { step, title, state: 'waiting' },
@@ -1370,12 +1376,13 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     emitComputers()
     return 'applied'
   },
-  // Le test imité : les quatre étapes en 4 s, « Annuler » l'arrête.
+  // Le test imité : les cinq étapes en 5 s, « Annuler » l'arrête.
   autotest_run: async (a) => {
     autoCancelled = false
-    for (let i = 0; i <= 4; i++) {
+    const count = autoSteps(0).length
+    for (let i = 0; i <= count; i++) {
       emit('autotest-progress', { id: a.id, progress: { steps: autoSteps(i) } })
-      if (i === 4) break
+      if (i === count) break
       await sleep(i === 3 ? 1500 : 800)
       if (autoCancelled) return { result: null, choices: [], error: null, cancelled: true }
       if (autoFlag === 'echec' && i === 0) {
@@ -1853,6 +1860,51 @@ const accountCommands: Record<string, (a: Record<string, unknown>) => unknown> =
   },
 }
 Object.assign(commands, accountCommands)
+
+// Accueil au premier lancement et incitation au compte (docs/link-ui.md « Accueil et compte KyberNow ») : `?accueil`
+// (l'accueil en trois écrans au lancement) ; sans compte, la carte du compte
+// en fin de rangée (fermée, elle revient au rechargement au lieu de 30 jours ; `?carte=revenue` : revenue, sa croix dit « Ne plus
+// afficher » ; `?carte=non` : fermée pour de bon) ; « Hors de chez vous ? » : « Réessayer » sur Atelier, qui reste hors ligne (`?sansreveil`), une fois par
+// jour ; le bandeau après un appairage : l'ordinateur ajouté par une invitation (« Rejoindre » : 246810), une fois.
+// « Créer un compte » et « www.kybernow.app » : la page s'ouvrirait dans le navigateur (console).
+const welcomeFlag = flags.get('carte')
+const welcomeMock = { seen: !flags.has('accueil'), closed: welcomeFlag === 'non' ? 2 : welcomeFlag === 'revenue' ? 1 : 0, paired: new Set<string>(), away: new Set<string>() }
+const welcomeView = () => {
+  const has = accountList.length > 0
+  return { show: !has && !welcomeMock.seen, has_account: has, card: !has && welcomeMock.closed < 2, card_final: welcomeMock.closed >= 1, relay: 'share.kybernow.app' }
+}
+const welcomeCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
+  welcome_state: () => welcomeView(),
+  welcome_done: () => {
+    welcomeMock.seen = true
+    return welcomeView()
+  },
+  welcome_close_card: () => {
+    // Fermée une première fois : revenue d'un coup dans l'imitation (au lieu de 30 jours), pour voir « Ne plus afficher ».
+    welcomeMock.closed = welcomeMock.closed === 0 ? 1 : 2
+    const v = welcomeView()
+    return welcomeMock.closed === 1 ? { ...v, card: false } : v
+  },
+  welcome_paired_hint: (a) => {
+    if (accountList.length > 0 || welcomeMock.paired.has(String(a.id))) return false
+    welcomeMock.paired.add(String(a.id))
+    return true
+  },
+  welcome_away_hint: (a) => {
+    if (accountList.length > 0 || welcomeMock.away.has(String(a.id))) return false
+    welcomeMock.away.add(String(a.id))
+    return true
+  },
+  welcome_sign_up: () => {
+    console.info(`welcome_sign_up : https://share.kybernow.app/compte/inscription?lang=${i18n.lang} s'ouvre dans le navigateur`)
+    return null
+  },
+  welcome_station_download: () => {
+    console.info("welcome_station_download : https://www.kybernow.app/#telecharger s'ouvre dans le navigateur")
+    return null
+  },
+}
+Object.assign(commands, welcomeCommands)
 
 export function mockTauri() {
   // `?copie=non` : le presse-papiers de la page refuse aussi, « Copier le lien » échoue.

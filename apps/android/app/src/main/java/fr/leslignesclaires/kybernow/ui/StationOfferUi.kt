@@ -118,6 +118,22 @@ fun StationBannerView(offer: StationOffer?, task: StationTask?, mine: Boolean, a
     }
 }
 
+/**
+ * [StationBannerView] montre-t-il quelque chose ? Les mêmes cas, dans le même ordre. Le bandeau après un appairage (compte
+ * KyberNow) attend qu'il n'y en ait plus : un seul bandeau à la fois sous « Se connecter », la mise à jour d'abord.
+ */
+fun stationBannerVisible(offer: StationOffer?, task: StationTask?, mine: Boolean): Boolean {
+    val banner = offer?.banner ?: StationBanner.None
+    return when {
+        task is StationTask.Done -> false
+        task is StationTask.Working && task.action == StationAction.UPDATE || banner == StationBanner.Installing && task !is StationTask.Working -> true
+        mine && task is StationTask.Confirm && task.action == StationAction.UPDATE -> true
+        mine && task is StationTask.Failed -> true
+        banner is StationBanner.Update || banner is StationBanner.Setup || banner is StationBanner.Away -> true
+        else -> false
+    }
+}
+
 /** Le cadre du bandeau : l'icône (flèche vers le haut, ou la roue pendant la mise à jour), puis le texte et les boutons. */
 @Composable
 private fun BannerPanel(modifier: Modifier, spinner: Boolean = false, warn: Boolean = false, content: @Composable () -> Unit) {

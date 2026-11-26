@@ -6,7 +6,7 @@
 //!   attente de votre téléphone… Le code change dans {n} min. » ; le pilote attend l'approbation
 //!   (`account::tv_wait`) et redemande un code échu de lui-même ; refusé, « Nouveau code ». Le relais est dit
 //!   (« Relais : {relais} ») ; « Un autre relais… » ouvre le champ « Relais », au pavé de la télécommande.
-//! - **Accueil** : sans ordinateur, « Retrouvez vos ordinateurs » et « Se connecter à un compte KyberNow » ; avec des
+//! - **Accueil** : sans ordinateur, « Retrouvez vos ordinateurs » et « Connecter un compte » ; avec des
 //!   comptes, leurs ordinateurs sont des ordinateurs de l'accueil comme les autres (`Store::account_hosts`), avec une
 //!   pastille d'origine (`AccountsUi::origins`, calculée par le pilote avec `account::merge` et `origin`).
 //! - **Réglages de l'app › Comptes** : chaque compte (nom, e-mail, relais), « Gérer le compte » (la page du compte en
@@ -119,7 +119,7 @@ pub fn open_step(address: &str) -> String {
     if english() { format!("or open {address} and enter the code,") } else { format!("ou ouvrez {address} et entrez le code,") }
 }
 
-/// L'aide sous « Se connecter à un compte KyberNow » (un téléviseur : le code).
+/// L'aide sous « Connecter un compte » (un téléviseur : le code).
 pub fn sign_in_help() -> &'static str {
     tr("Un code s'affiche : vous l'approuvez depuis votre téléphone.", "A code appears: you approve it from your phone.")
 }
@@ -148,7 +148,7 @@ impl App {
         self.has_accounts().then(|| self.accounts.origins.get(host).map(String::as_str)).flatten().filter(|s| !s.is_empty())
     }
 
-    /// « Se connecter à un compte KyberNow » (accueil vide, réglages) : l'écran du code, sur le relais public.
+    /// « Connecter un compte » (accueil, réglages) : l'écran du code, sur le relais public.
     pub fn account_sign_in(&mut self, from: Screen) -> Vec<Action> {
         self.accounts.flow = AccountFlow { attempt: self.accounts.flow.attempt + 1, back_to: Some(from), ..AccountFlow::default() };
         self.account_start(String::new(), false)
@@ -173,8 +173,10 @@ impl App {
 
     /// La réponse à la demande d'un code (et chaque nouveau code, quand le précédent est échu) ; un refus du relais.
     pub fn account_code(&mut self, attempt: u32, r: Result<TvCodeUi, String>) {
+        // L'écran du code, ou la carte du code de l'accueil (écran 2, `crate::welcome`).
+        let shown = self.screen == Screen::Account || self.welcome_code_shown();
         let f = &mut self.accounts.flow;
-        if f.attempt != attempt || self.screen != Screen::Account || f.step != AccountStep::Code {
+        if f.attempt != attempt || !shown || f.step != AccountStep::Code {
             return;
         }
         f.busy = false;
@@ -202,12 +204,14 @@ impl App {
     /// La connexion a abouti ou non. Réussie, le compte est gardé (même après « Retour » : sa session d'appareil
     /// existe déjà), « Connecté à {compte}. », ses ordinateurs arrivent.
     pub fn account_signed_in(&mut self, attempt: u32, r: Result<KnAccount, SignInFail>) -> Vec<Action> {
-        let current = self.screen == Screen::Account && self.accounts.flow.attempt == attempt && self.accounts.flow.step == AccountStep::Code;
+        let shown = self.screen == Screen::Account || self.welcome_code_shown();
+        let current = shown && self.accounts.flow.attempt == attempt && self.accounts.flow.step == AccountStep::Code;
         match r {
             Ok(a) => {
                 self.toast(signed_in_notice(&a.label()));
                 self.store.put_account(a);
-                if current {
+                // Sur l'accueil : vu, l'écran 3 est passé.
+                if current && !self.welcome_signed_in() {
                     self.account_leave();
                 }
                 vec![Action::Save, Action::AccountsRefresh]

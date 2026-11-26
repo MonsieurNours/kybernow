@@ -222,6 +222,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
         step(t("Latence au repos", "Latency at rest"), StepState::Done(t("1,4 ms · gigue 0,3 ms", "1.4 ms · jitter 0.3 ms"))),
         step(t("Débit vers cet appareil", "Bitrate to this device"), StepState::Done(t("93 Mbit/s · latence en charge +2 ms", "93 Mbit/s · latency under load +2 ms"))),
         step(t("Décodage de cet appareil", "Decoding on this device"), StepState::Done(t("HEVC 4K : 120 i/s · AV1 4K : 60 i/s · H.264 4K : 60 i/s", "HEVC 4K: 120 fps · AV1 4K: 60 fps · H.264 4K: 60 fps"))),
+        step(t("Encodeur de l'ordinateur", "The computer's encoder"), StepState::Done(t("jusqu'à 440 Mbit/s en HEVC", "up to 440 Mbit/s in HEVC"))),
     ];
     let choice = |title: String, value: String, reason: String| Choice { title, value, reason };
     let choices = vec![
@@ -247,6 +248,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     let mut running = steps_done.clone();
     running[2].state = StepState::Running;
     running[3].state = StepState::Waiting;
+    running[4].state = StepState::Waiting;
     app.auto_progress(attempt, running);
     shot(app, cv, assets, None, dir, "50-profil-auto-test");
     app.auto_progress(attempt, steps_done.clone());
@@ -258,6 +260,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     failed[1].state = StepState::Waiting;
     failed[2].state = StepState::Waiting;
     failed[3].state = StepState::Waiting;
+    failed[4].state = StepState::Waiting;
     app.auto_progress(attempt, failed);
     app.auto_finished(attempt, Err(t("Le test n'a pas pu joindre Atelier.", "The test couldn't reach Atelier.")));
     shot(app, cv, assets, None, dir, "50c-profil-auto-echec");
@@ -268,6 +271,7 @@ fn auto_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, video: &Pixmap, d
     let mut old = steps_done.clone();
     old[2].state = StepState::Skipped(t("Mettez à jour Atelier pour mesurer le débit.", "Update Atelier to measure the bitrate."));
     old[3].state = StepState::Running;
+    old[4].state = StepState::Waiting;
     app.auto_progress(attempt, old);
     shot(app, cv, assets, None, dir, "50d-profil-auto-station-ancienne");
     let _ = app.activate(Target::AutoCancel);
@@ -774,6 +778,8 @@ pub fn run(dir: &Path, lang: &str) {
     auto_shots(&mut app, &mut cv, &assets, &video, dir, en);
     // La mise à jour des Stations (docs/link-ui.md) : le bandeau de l'accueil et ses états, la puce, l'avis.
     offer_shots(&mut app, &mut cv, &assets, dir, en);
+    // Accueil et compte KyberNow (docs/link-ui.md) : les trois écrans, la carte, « Hors de chez vous ? », le bandeau.
+    welcome_shots(en, &mut cv, &assets, dir);
 
     // Session.
     let mut s = session(&app);
@@ -1604,6 +1610,10 @@ mod tests {
         app.go(Screen::Home);
         redraw(&mut app);
         app.nav(Nav::Up);
+        // Sans compte : « Connecter un compte », à côté des réglages de l'app.
+        assert_eq!(app.focus, Target::AccountSignIn);
+        redraw(&mut app);
+        app.nav(Nav::Right);
         assert_eq!(app.focus, Target::AppSettings);
         app.nav(Nav::Ok);
         assert_eq!((app.screen, app.settings_global), (Screen::Settings, true));
@@ -2941,4 +2951,178 @@ fn offer_shots(app: &mut App, cv: &mut Canvas, assets: &Assets, dir: &Path, en: 
     }
     app.live.insert(first, before);
     app.store.selected = selected;
+}
+
+// MARK: - Accueil et compte KyberNow
+
+/// L'accueil au premier lancement (docs/link-ui.md, « Accueil et compte KyberNow ») : les trois écrans (l'écran 2 avec
+/// son code, puis refusé), la carte du compte de la rangée (puis revenue : « Ne plus afficher »), « Hors de chez
+/// vous ? », le bandeau après un appairage.
+fn welcome_shots(en: bool, cv: &mut Canvas, assets: &Assets, dir: &Path) {
+    let mut app = demo(en);
+    app.update = UpdateState::Unknown;
+    app.welcome_at_launch();
+    shot(&mut app, cv, assets, None, dir, "70-bienvenue-1");
+    app.activate(Target::WelcomeNext);
+    let attempt = app.accounts.flow.attempt;
+    shot(&mut app, cv, assets, None, dir, "70b-bienvenue-2-demande");
+    app.account_code(attempt, Ok(kn_code()));
+    shot(&mut app, cv, assets, None, dir, "70c-bienvenue-2");
+    app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+    shot(&mut app, cv, assets, None, dir, "70d-bienvenue-2-refuse");
+    app.activate(Target::WelcomeNext);
+    shot(&mut app, cv, assets, None, dir, "70e-bienvenue-3");
+    app.activate(Target::WelcomeSkip);
+
+    // La carte du compte, en fin de rangée (la rangée glisse jusqu'à elle).
+    app.store.selected = Some("a".into());
+    app.go(Screen::Home);
+    app.focus = Target::WelcomeCardConnect;
+    shot(&mut app, cv, assets, None, dir, "71-compte-carte");
+    app.store.welcome.card_closed = 1;
+    app.focus = Target::WelcomeCardClose;
+    shot(&mut app, cv, assets, None, dir, "71b-compte-carte-revenue");
+    app.store.welcome.card_closed = 0;
+    app.focus = Target::AccountSignIn;
+    shot(&mut app, cv, assets, None, dir, "71c-compte-bouton");
+
+    // « Hors de chez vous ? » sur « Portable », hors ligne.
+    app.store.selected = Some("b".into());
+    app.go(Screen::Home);
+    app.activate(Target::Connect);
+    shot(&mut app, cv, assets, None, dir, "72-hors-de-chez-vous");
+    app.dialog = None;
+
+    // Le bandeau après un appairage.
+    app.store.selected = Some("a".into());
+    app.welcome.paired = Some("a".into());
+    app.go(Screen::Home);
+    app.focus = Target::WelcomePairedConnect;
+    shot(&mut app, cv, assets, None, dir, "73-apres-appairage");
+    app.welcome.paired = None;
+}
+
+#[cfg(test)]
+mod welcome_tests {
+    use super::*;
+    use crate::app::{Nav, Online};
+    use crate::station_offer::OfferBanner;
+
+    /// Les éléments choisissables tiennent dans l'écran et ne se chevauchent pas.
+    fn fits(hits: &[(Target, crate::app::Rect)], what: &str) {
+        for (t, r) in hits {
+            assert!(r.x >= 0.0 && r.y >= 0.0 && r.x + r.w <= 1920.5 && r.y + r.h <= 1080.5, "{what} : {t:?} sort de l'écran ({r:?})");
+        }
+        for (i, (a, ra)) in hits.iter().enumerate() {
+            for (b, rb) in hits.iter().skip(i + 1) {
+                let overlap = ra.x < rb.x + rb.w - 0.5 && rb.x < ra.x + ra.w - 0.5 && ra.y < rb.y + rb.h - 0.5 && rb.y < ra.y + ra.h - 0.5;
+                assert!(!overlap || a == b, "{what} : {a:?} et {b:?} se chevauchent");
+            }
+        }
+    }
+
+    fn rect(hits: &[(Target, crate::app::Rect)], t: Target) -> crate::app::Rect {
+        hits.iter().find(|(x, _)| *x == t).unwrap_or_else(|| panic!("{t:?}")).1
+    }
+
+    /// Les trois écrans, la carte du compte, le bandeau après un appairage, la mise à jour de la Station avec la carte
+    /// et le bouton du compte : tout tient, rien ne se chevauche, en français et en anglais ; chaque bouton tient sur
+    /// une ligne (un bouton n'a qu'une ligne de texte : sa hauteur ne bouge pas).
+    #[test]
+    fn welcome_screens_fit() {
+        let assets = Assets::load();
+        for en in [false, true] {
+            crate::i18n::force_english(en);
+            let mut cv = Canvas::new();
+            let mut app = demo(en);
+            app.found.push(Found { name: "Bureau-Salon".into(), address: "192.168.1.43".into(), port: 31250, fingerprint: None });
+            app.found.push(Found { name: "Grenier".into(), address: "192.168.1.44".into(), port: 31250, fingerprint: None });
+            app.welcome_at_launch();
+            for step in 1..=3u8 {
+                assert_eq!(app.welcome.step, step);
+                let hits = ui::draw(&app, &mut cv, &assets);
+                fits(&hits, &format!("accueil {step}"));
+                assert!(rect(&hits, Target::WelcomeSkip).h < 60.0);
+                if step == 2 {
+                    let attempt = app.accounts.flow.attempt;
+                    app.account_code(attempt, Ok(kn_code()));
+                    fits(&ui::draw(&app, &mut cv, &assets), "accueil 2, le code");
+                    app.account_signed_in(attempt, Err(crate::accounts::SignInFail::Denied));
+                    let hits = ui::draw(&app, &mut cv, &assets);
+                    fits(&hits, "accueil 2, refusé");
+                    assert!(hits.iter().any(|(t, _)| *t == Target::AccountNewCode));
+                }
+                if step == 3 {
+                    assert!(hits.iter().any(|(t, _)| *t == Target::Found(1)) && !hits.iter().any(|(t, _)| *t == Target::Found(2)), "deux ordinateurs du réseau au plus");
+                    app.hits = hits;
+                    app.nav(Nav::Right);
+                    app.nav(Nav::Right);
+                    assert_eq!(app.focus, Target::JoinCard);
+                    break;
+                }
+                app.hits = hits;
+                app.activate(Target::WelcomeNext);
+            }
+
+            // L'accueil sans compte : le bouton du haut, la carte (la rangée glisse jusqu'à elle), avec et sans le
+            // bandeau de la mise à jour de la Station, et le bandeau après un appairage.
+            let mut app = demo(en);
+            app.update = UpdateState::Available { version: "0.11.3".into(), channel: "stable".into(), page: String::new() };
+            app.store.welcome.welcome_done();
+            app.go(Screen::Home);
+            for (what, offer, paired) in [("accueil", false, false), ("mise à jour", true, false), ("appairage", false, true), ("les deux", true, true)] {
+                app.live.get_mut("a").unwrap().offer.banner = if offer { OfferBanner::Update("0.11.3".into()) } else { OfferBanner::None };
+                app.welcome.paired = paired.then(|| "a".to_string());
+                for focus in [Target::Connect, Target::WelcomeCardConnect] {
+                    app.focus = focus;
+                    let hits = ui::draw(&app, &mut cv, &assets);
+                    // La rangée glisse : les cartes hors de l'écran restent inscrites, sans être dessinées.
+                    let visible: Vec<_> = hits.iter().filter(|(_, r)| r.x >= 0.0 && r.x + r.w <= 1920.5).cloned().collect();
+                    fits(&visible, what);
+                    let button = rect(&hits, Target::AccountSignIn);
+                    assert!(button.h < 60.0 && button.x > 1000.0, "{what} : le bouton du compte, en haut à droite");
+                    assert!(button.x + button.w <= rect(&hits, Target::AppSettings).x, "{what}");
+                    let card = rect(&hits, Target::WelcomeCardConnect);
+                    assert!(card.h < 50.0 && card.y > rect(&hits, Target::Connect).y, "{what}");
+                    if focus == Target::WelcomeCardConnect {
+                        let close = rect(&hits, Target::WelcomeCardClose);
+                        assert!(card.x >= 0.0 && close.x + close.w <= 1824.5, "{what} : la carte entière à l'écran");
+                    }
+                    // Un seul bandeau : la mise à jour d'abord.
+                    assert_eq!(hits.iter().any(|(t, _)| *t == Target::WelcomePairedConnect), paired && !offer, "{what}");
+                    assert_eq!(hits.iter().any(|(t, _)| *t == Target::OfferUpdate), offer, "{what}");
+                }
+            }
+
+            // « Hors de chez vous ? ».
+            app.live.get_mut("a").unwrap().offer.banner = OfferBanner::None;
+            app.welcome.paired = None;
+            app.store.selected = Some("b".into());
+            app.go(Screen::Home);
+            assert_eq!(app.live.get("b").map(|l| l.online), Some(Online::Offline));
+            app.activate(Target::Connect);
+            assert!(matches!(app.dialog, Some(crate::app::Dialog::Away { .. })));
+            let hits = ui::draw(&app, &mut cv, &assets);
+            fits(&hits, "hors de chez vous");
+            assert_eq!(hits.len(), 2);
+        }
+        crate::i18n::force_english(false);
+    }
+
+    /// Les captures de l'accueil se produisent, dans les deux langues.
+    #[test]
+    fn welcome_shots_are_produced() {
+        let dir = std::env::temp_dir().join(format!("kn-webos-accueil-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let assets = Assets::load();
+        for en in [false, true] {
+            let mut cv = Canvas::new();
+            welcome_shots(en, &mut cv, &assets, &dir);
+        }
+        for n in ["70-bienvenue-1", "70c-bienvenue-2", "70e-bienvenue-3", "71-compte-carte", "72-hors-de-chez-vous", "73-apres-appairage"] {
+            assert!(dir.join(format!("{n}.png")).exists(), "{n}");
+        }
+        crate::i18n::force_english(false);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

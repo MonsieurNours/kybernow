@@ -77,7 +77,7 @@ class AccountUiTest {
         rule.onNodeWithText("OU SANS COMPTE").assertExists()
         rule.onNodeWithText("Ajouter un ordinateur ou une console").performScrollTo().assertExists()
         rule.onNodeWithText("Rejoindre avec un code").assertExists()
-        rule.onNodeWithText("Se connecter à un compte KyberNow").performScrollTo().performClick()
+        rule.onNodeWithText("Connecter un compte").performScrollTo().performClick()
         assertEquals(1, signIn)
     }
 
@@ -122,7 +122,7 @@ class AccountUiTest {
         var other = 0
         var back = 0
         show(FormFactor.TV) { AccountCodeContent(CodeStep.Showing(code, 9), "share.kybernow.app", onOtherRelay = { other++ }, onBack = { back++ }, onNewCode = {}) }
-        rule.onNodeWithText("Se connecter à un compte KyberNow").assertExists()
+        rule.onNodeWithText("Connecter un compte KyberNow").assertExists()
         rule.onNodeWithText("Scannez le QR code avec votre téléphone,").assertExists()
         rule.onNodeWithText("ou ouvrez share.kybernow.app/tv et entrez le code,").assertExists()
         rule.onNodeWithText("puis touchez «${n}Connecter${n}».").assertExists()
@@ -194,7 +194,7 @@ class AccountUiTest {
         var signIn = 0
         show(FormFactor.PHONE) { Column { AccountsRows(emptyList(), false, {}, {}, { signIn++ }, {}) } }
         rule.onNodeWithText("Aucun compte.").assertExists()
-        rule.onNodeWithText("Se connecter à un compte KyberNow").performClick()
+        rule.onNodeWithText("Connecter un compte").performClick()
         assertEquals(1, signIn)
         rule.onNodeWithText("Ajouter un compte").assertDoesNotExist()
         rule.onNodeWithText("Créer un compte, changer son mot de passe ou le supprimer${n}: sur la page du compte.").assertExists()

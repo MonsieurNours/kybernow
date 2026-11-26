@@ -52,6 +52,9 @@ install -d "$LIB/bin" "$LIB/runtime/share" "$TREE/usr/lib/systemd/user" "$TREE/u
     "$TREE/usr/share/doc/kybernow-station" "$TREE/usr/share/applications"
 install -m 755 "$TARGET/release/kyber-admin" "$TARGET/release/kybernow-display" "$TARGET/release/kybernow-tray" \
     "$ROOT/server/linux/packaging/kybernow-station-setup" "$LIB/bin/"
+# L'outil par lequel Admin essaie l'encodeur (docs/profil-auto.md), contre le
+# FFmpeg du runtime de Kyber (en-têtes encore là : retirés plus bas).
+"$ROOT/server/encoder-check/build.sh" linux "$RT_SRC" "$LIB/bin/kybernow-encoder-check"
 cp -a "$RT_SRC/bin" "$RT_SRC/lib" "$LIB/runtime/"
 # Fedora range les bibliothèques dans lib64, Debian et Ubuntu dans lib/<triplet>.
 [ -d "$RT_SRC/lib64" ] && cp -a "$RT_SRC/lib64" "$LIB/runtime/"

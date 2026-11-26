@@ -580,8 +580,12 @@ pub fn dialog(app: &App, cv: &mut Canvas, f: &mut Frame) {
             String::new(),
             tr("Rendre l'ordinateur", "Give back the computer"),
         ),
+        // Accueil et compte KyberNow : « Hors de chez vous ? » (pas de navigateur : pas de « Créer un compte » ici,
+        // l'écran du code le dit).
+        Dialog::Away { name, .. } => (crate::welcome::away_title().into(), crate::welcome::away_text(name), crate::welcome::connect_account()),
     };
-    let (w, h) = (1000.0, 340.0);
+    let away = matches!(d, Dialog::Away { .. });
+    let (w, h) = (1000.0, if away { 430.0 } else { 340.0 });
     let (x, y) = ((W - w) / 2.0, (H - h) / 2.0);
     cv.rrect(x, y, w, h, 28.0, PANEL_SOLID);
     cv.rrect_stroke(x, y, w, h, 28.0, 1.0, BORDER);
@@ -589,7 +593,8 @@ pub fn dialog(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.paragraph(x + 60.0, y + 156.0, Text::new(Font::Regular, 24.0, FROST_2), &message, w - 120.0, 34.0);
     let by = y + h - 120.0;
     let bw = widgets::primary(cv, f, Target::DialogOk, x + 60.0, by, ok);
-    widgets::secondary(cv, f, Target::DialogCancel, x + 60.0 + bw + 28.0, by + 10.0, tr("Annuler", "Cancel"), 26.0);
+    let cancel = if away { tr("Pas maintenant", "Not now") } else { tr("Annuler", "Cancel") };
+    widgets::secondary(cv, f, Target::DialogCancel, x + 60.0 + bw + 28.0, by + 10.0, cancel, 26.0);
 }
 
 /// Réglages de l'app : ce téléviseur (langue, matériel, réseau, version), les
@@ -600,11 +605,13 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let mut y = 88.0;
     match app.current_section() {
         // Comptes KyberNow : chaque compte (« Gérer le compte » : nom, e-mail et relais ; « Se déconnecter »),
-        // « Ajouter un compte », l'aide ; sans compte, « Aucun compte. » et « Se connecter à un compte KyberNow ».
+        // « Ajouter un compte », l'aide ; sans compte, « Aucun compte. » et « Connecter un compte » ; puis « Revoir
+        // l'accueil ».
         Section::Accounts => {
             if app.store.accounts.is_empty() {
                 y += widgets::row(cv, f, None, x, y, w, tr("Aucun compte.", "No account."), "", Value::Text(String::new())) + GAP;
-                widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Se connecter à un compte KyberNow", "Sign in to a KyberNow account"), crate::accounts::sign_in_help(), Value::Text("›".into()));
+                y += widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, crate::welcome::connect_account(), crate::accounts::sign_in_help(), Value::Text("›".into())) + GAP;
+                widgets::row(cv, f, s(Setting::WelcomeAgain), x, y, w, crate::welcome::welcome_again(), "", Value::Text("›".into()));
                 return;
             }
             for (i, a) in app.store.accounts.iter().enumerate().take(3) {
@@ -612,7 +619,8 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 y += widgets::row(cv, f, s(Setting::AccountManage(i as u8)), x, y, w, &a.label(), &who, Value::Text(format!("{} ›", tr("Gérer le compte", "Manage account")))) + GAP;
                 y += widgets::row(cv, f, s(Setting::AccountSignOut(i as u8)), x, y, w, tr("Se déconnecter", "Sign out"), "", Value::Danger("›")) + GAP;
             }
-            widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Ajouter un compte", "Add an account"), crate::accounts::accounts_help(), Value::Text("›".into()));
+            y += widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Ajouter un compte", "Add an account"), crate::accounts::accounts_help(), Value::Text("›".into())) + GAP;
+            widgets::row(cv, f, s(Setting::WelcomeAgain), x, y, w, crate::welcome::welcome_again(), "", Value::Text("›".into()));
         }
         Section::Gamepads => {
             y += widgets::row(cv, f, s(Setting::Pads), x, y, w, tr("Tester les manettes", "Test controllers"), tr("Touches, sticks, gâchettes et vibrations de chaque manette", "Buttons, sticks, triggers and rumble of each controller"), Value::Text("›".into())) + GAP;

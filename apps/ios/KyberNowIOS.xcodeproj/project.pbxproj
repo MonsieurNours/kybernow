@@ -59,6 +59,7 @@
 		753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */; };
 		7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */; };
 		79B7269B197B3236415A545F /* PlayStationHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA3E039F87EAC01BD5C8C349 /* PlayStationHome.swift */; };
+		79E2046132B6B2E0A05052EB /* AutoTestBench.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */; };
 		7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */; };
 		7EF6831F76CB7B77729367E6 /* WelcomeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72450C3885643AFBBB76E5FB /* WelcomeViews.swift */; };
 		812AD19263390D73ABB5265E /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D44B7B7CC32E4F400A995C /* Backdrops.swift */; };
@@ -171,6 +172,7 @@
 		5C29930A44A76B2FE97E93EF /* KyberNowIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNowIOS.entitlements; sourceTree = "<group>"; };
 		5E2993F29818468CCDB59BBB /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
 		5FB00E053D5A34379CC5BAD0 /* KyberNowIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KyberNowIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestBench.swift; sourceTree = "<group>"; };
 		62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
 		66675E7942D7F082D80B96EB /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchView.swift; sourceTree = "<group>"; };
@@ -427,6 +429,7 @@
 			children = (
 				DA2A882F8116B9EEFC430402 /* AccountCore.swift */,
 				9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */,
+				61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */,
 				84866482E10A62F84B93EDD4 /* AutoTestCore.swift */,
 				ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */,
 				9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */,
@@ -630,6 +633,7 @@
 				6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */,
 				948D97D7ADAA3A9AAB0A310F /* AccountCore.swift in Sources */,
 				B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */,
+				79E2046132B6B2E0A05052EB /* AutoTestBench.swift in Sources */,
 				2B4250B1508169AFF498AA14 /* AutoTestCore.swift in Sources */,
 				86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */,
 				0186090A9EACDF478809466D /* ConsolePads.swift in Sources */,

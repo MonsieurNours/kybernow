@@ -53,7 +53,10 @@ public final class SessionEngine: @unchecked Sendable {
         /// docs/profil-auto.md) : le débit baisse quand le réseau sature, puis
         /// remonte ; coupé, il ne bouge jamais.
         public var adaptive: Bool
-        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false, wired: Bool = false, adaptive: Bool = true) {
+        /// Plafond de l'encodeur de l'ordinateur, Mbit/s par écran (`encoder_max`,
+        /// docs/profil-auto.md, « L'encodeur de l'ordinateur ») ; nil : aucun connu.
+        public var encoderMax: Int?
+        public init(profile: String?, codec: VideoCodec, yuv444: Bool, mbps: Int, reliable: Bool, hdr: Bool = false, wired: Bool = false, adaptive: Bool = true, encoderMax: Int? = nil) {
             self.profile = profile
             self.codec = codec
             self.yuv444 = yuv444
@@ -62,11 +65,13 @@ public final class SessionEngine: @unchecked Sendable {
             self.hdr = hdr
             self.wired = wired
             self.adaptive = adaptive
+            self.encoderMax = encoderMax
         }
 
         var json: [String: Any] {
             var j: [String: Any] = ["codec": codec.rawValue, "yuv444": yuv444, "mbps": mbps, "reliable": reliable, "hdr": hdr, "wired": wired, "adaptive": adaptive]
             if let profile { j["profile"] = profile }
+            if let encoderMax, encoderMax > 0 { j["encoder_max"] = encoderMax }
             return j
         }
     }
@@ -371,6 +376,10 @@ public final class SessionEngine: @unchecked Sendable {
     /// PyroWave : le réseau sature depuis 5 s (bandeau « Le réseau sature »,
     /// « Passer en HEVC ») ; une fois par session, pour l'hôte seulement.
     public var onPyroWaveStrained: (() -> Void)?
+    /// L'encodeur de l'ordinateur a refusé l'image au départ : le débit a dû
+    /// redescendre jusqu'à ce plafond (Mbit/s par écran), à garder pour cet
+    /// ordinateur (`Settings.encoderMax`) ; rien à l'écran.
+    public var onEncoderCeiling: ((Int) -> Void)?
     /// Les écrans annoncés par Kyber (choix dans la barre, sans écran virtuel).
     public var onDisplays: (([KyberDisplay]) -> Void)?
     /// L'écran affiché (aussi quand sa taille change).
@@ -1284,6 +1293,11 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_PYROWAVE_STRAINED:
             // À part aussi (`onPyroWaveStrained`), comme `onLowered`.
             DispatchQueue.main.async { [self] in onPyroWaveStrained?() }
+            return
+        case KN_NOTICE_ENCODER_CEILING:
+            let mbps = Int(n.bitrate_mbps)
+            KyberLog.app.notice("plafond de l'encodeur de l'ordinateur : \(mbps) Mbit/s par écran")
+            DispatchQueue.main.async { [self] in onEncoderCeiling?(mbps) }
             return
         default: return
         }

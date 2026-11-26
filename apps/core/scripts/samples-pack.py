@@ -6,8 +6,9 @@ taille (u32) et données. Petit-boutiste.
 
 HEVC et H.264 : une unité d'accès (AUD en tête) par paquet, en Annex B, comme
 la Station les envoie ; AV1 : une unité temporelle (OBU de délimitation en
-tête) ; PyroWave : les images du fichier de l'outil `encode` (taille u32 puis
-image).
+tête) ; PyroWave : les images du fichier de l'outil `encode` (après son paquet
+de configuration de 16 octets, `KNPW`, que l'app refait d'après l'en-tête :
+taille u32 puis image).
 """
 import struct
 import sys
@@ -77,8 +78,11 @@ def temporal_units(data):
 
 
 def pyrowave_frames(data):
+    # Le fichier commence par le paquet de configuration (16 octets, KNPW) :
+    # le lire comme une taille rangeait un paquet illisible (0.11.2).
+    assert data[:4] == b"KNPW", "fichier PyroWave sans paquet de configuration"
     out = []
-    i = 0
+    i = 16
     while i + 4 <= len(data):
         (n,) = struct.unpack_from("<I", data, i)
         out.append((True, data[i + 4:i + 4 + n]))

@@ -293,6 +293,20 @@ export type AccountView = { key: string; name: string; email: string; relay: str
  */
 export type AccountSignIn = { kind: 'signed_in'; account: string } | { kind: 'failed'; message: string } | { kind: 'cancelled' }
 
+/**
+ * Accueil au premier lancement et incitation au compte (`welcome_state`, docs/link-ui.md « Accueil et compte
+ * KyberNow ») : l'accueil en trois écrans à montrer, un compte connecté, la carte du compte et sa croix
+ * (« Ne plus afficher » quand elle est revenue), le relais de « Connecter un compte » tel qu'on le montre.
+ */
+export type WelcomeView = { show: boolean; has_account: boolean; card: boolean; card_final: boolean; relay: string }
+
+/**
+ * Le bandeau de la mise à jour de la Station est sous la rangée « Se connecter » de cet ordinateur (jamais en session) :
+ * il passe avant le bandeau après un appairage (un seul bandeau à la fois, docs/link-ui.md).
+ */
+export const stationBannerFor = (c: { offer?: StationOffer | null } | null | undefined, sessions: string[] = []) =>
+  sessions.length === 0 && !!c?.offer && c.offer.banner.kind !== 'none'
+
 /** Le relais public, proposé d'abord (« Ajouter un compte »). */
 export const DEFAULT_RELAY = 'share.kybernow.app'
 
@@ -375,7 +389,7 @@ export type Action =
 
 /** Une étape du test (`autotest::Progress` du cœur) : titre, état, mesure (cochée) ou raison (passée), dans la langue de l'app. */
 export type AutoStep = {
-  step: 'link' | 'latency' | 'bandwidth' | 'decode'
+  step: 'link' | 'latency' | 'bandwidth' | 'decode' | 'encoder'
   title: string
   state: 'waiting' | 'running' | 'done' | 'skipped'
   text?: string

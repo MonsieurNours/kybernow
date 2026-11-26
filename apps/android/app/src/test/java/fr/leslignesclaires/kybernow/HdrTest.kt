@@ -169,6 +169,14 @@ class HdrTest {
         state.onNotice(SessionListener.NOTICE_HDR_REFUSED, 0, 0, false, 0, 0, false, "L'ordinateur n'a pas pu passer en HDR : image en SDR.")
         ShadowLooper.idleMainLooper()
         assertEquals(Capsule.HdrRefused("L'ordinateur n'a pas pu passer en HDR : image en SDR."), state.capsule.value)
+        // L'encodeur de l'ordinateur a refusé l'image : le plafond va à l'activité (gardé avec l'ordinateur), rien à l'écran.
+        val ceilings = mutableListOf<Int>()
+        state.onEncoderCeiling = { ceilings += it }
+        state.onNotice(SessionListener.NOTICE_ENCODER_CEILING, 0, 0, false, 0, 250, false, null)
+        state.onNotice(SessionListener.NOTICE_ENCODER_CEILING, 0, 0, false, 0, 0, false, null)
+        ShadowLooper.idleMainLooper()
+        assertEquals(listOf(250), ceilings)
+        assertEquals(Capsule.HdrRefused("L'ordinateur n'a pas pu passer en HDR : image en SDR."), state.capsule.value)
         state.close()
     }
 }

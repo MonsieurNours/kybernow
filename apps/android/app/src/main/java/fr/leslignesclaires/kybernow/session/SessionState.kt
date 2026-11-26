@@ -54,7 +54,7 @@ data class Second(
 /**
  * Le débit demandé à l'ordinateur pendant la seconde (docs/debit-automatique.md) : [bitrate] et [profile] en bit/s,
  * [reason] le code du cœur (`TargetReason::code` : 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de
- * l'app, 5 repli). Le texte de la ligne est celui du cœur ([fr.leslignesclaires.kybernow.core.Native.targetBitrateText]).
+ * l'app, 5 repli, 6 plafond de l'encodeur). Le texte de la ligne est celui du cœur ([fr.leslignesclaires.kybernow.core.Native.targetBitrateText]).
  */
 data class TargetBitrate(val bitrate: Long, val profile: Long, val reason: Int) {
     val mbps get() = bitrate / 1_000_000.0
@@ -200,6 +200,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val pointerShape = MutableStateFlow<Pair<Bitmap, Pair<Int, Int>>?>(null)
     /** La combinaison s'est formée : ouvrir le menu. */
     var onCombo: (() -> Unit)? = null
+    /** L'encodeur de l'ordinateur a refusé l'image : le plafond (Mbit/s par écran) à garder, sur le fil principal. */
+    var onEncoderCeiling: ((Int) -> Unit)? = null
     /** Les entrées ont rejoint l'ordinateur : rebrancher les manettes. */
     var onInputConnected: (() -> Unit)? = null
     /** Vibrations du jeu pour la manette à l'écran (gros moteur, petit, durée) : depuis un fil du cœur. */
@@ -361,6 +363,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             }
             // PyroWave : « Le réseau sature », avec « Passer en HEVC » (docs/debit-automatique.md).
             SessionListener.NOTICE_PYROWAVE_STRAINED -> strained.value = true
+            // Le plafond de l'encodeur de cet ordinateur, gardé pour les sessions suivantes ; rien à l'écran.
+            SessionListener.NOTICE_ENCODER_CEILING -> if (mbps > 0) main.post { onEncoderCeiling?.invoke(mbps) }
         }
     }
 

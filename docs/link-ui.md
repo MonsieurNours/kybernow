@@ -549,7 +549,8 @@ Trois écrans, montrés au premier lancement, et **une fois** après la mise à 
 - **Bouton du compte** : en haut de l'accueil, à côté de « Réglages de l'app », « Connecter un compte » avec l'icône d'une personne (téléphone : icône seule, libellé pour l'accessibilité). Avec un compte : il disparaît (le compte est dans les Réglages de l'app).
 - **Carte du compte** dans la rangée « VOS AUTRES ORDINATEURS » (en dernier, avec la lueur de « SUR LE RÉSEAU ») : « COMPTE KYBERNOW », « Retrouvez vos ordinateurs partout » / “Find your computers everywhere”, « Sur tous vos appareils, même hors de chez vous. » / “On all your devices, even away from home.”, « Connecter un compte », « Créer un compte », croix « Fermer » / “Close”. Fermée, elle revient 30 jours plus tard ; revenue, sa croix dit « Ne plus afficher » / “Don't show again” et la ferme pour de bon (`welcome::card_visible`). Sans ordinateur, l'accueil vide de « Comptes KyberNow » reste tel quel.
 - **Moment utile, hors de chez vous** : « Se connecter » sur un ordinateur appairé qui n'est pas sur ce réseau (pas de route par le relais) : fenêtre « Hors de chez vous ? » / “Away from home?”, « {nom} n'est pas sur ce réseau. Pour le rejoindre d'où vous êtes, connectez un compte KyberNow : votre ordinateur vous suit partout, sans rien régler sur votre box. » / “{name} isn't on this network. To reach it from where you are, connect a KyberNow account: your computer follows you everywhere, with nothing to set up on your router.” ; « Pas maintenant » / “Not now”, « Créer un compte », « Connecter un compte ». Une fois par ordinateur et par jour au plus.
-- **Après un appairage** (sans compte) : sous les boutons de l'ordinateur ajouté, un bandeau « Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow. » / “Find it away from home and on your other devices too: connect a KyberNow account.” ; « Connecter un compte », « Plus tard » / “Later”. Une fois par ordinateur.
+- **Après un appairage** (sans compte) : sous les boutons de l'ordinateur ajouté, un bandeau « Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow. » / “Find it away from home and on your other devices too: connect a KyberNow account.” ; « Connecter un compte », « Plus tard » / “Later”. Une fois par ordinateur. C'est le bandeau sous la rangée « Se connecter » : tant que le bandeau de mise à jour de la Station y est (section « Mise à jour des Stations »), il attend, sans être compté comme montré (`take_paired_hint` seulement quand il s'affiche vraiment).
+- **Avec la mise à jour des Stations** : le bouton « Connecter un compte » et la carte du compte ne sont pas des bandeaux et restent affichés ; seul le bandeau après un appairage cède la place.
 
 ## Profil Auto et débit adaptatif
 
@@ -563,7 +564,7 @@ Contrat technique : [profil-auto.md](profil-auto.md). Toutes les apps sauf le cl
 
 Titre « Profil Auto » / “Auto profile”. Sous-titre « KyberNow mesure votre réseau et cet appareil, puis propose les meilleurs réglages. » / “KyberNow measures your network and this device, then suggests the best settings.”
 
-Pendant le test, quatre étapes, chacune avec son état (en attente, en cours avec une roue, cochée avec sa mesure, passée avec sa raison) :
+Pendant le test, cinq étapes, chacune avec son état (en attente, en cours avec une roue, cochée avec sa mesure, passée avec sa raison) :
 
 | Étape | Français | English | Mesure une fois cochée |
 |---|---|---|---|
@@ -571,6 +572,7 @@ Pendant le test, quatre étapes, chacune avec son état (en attente, en cours av
 | latency | Latence au repos | Latency at rest | « 2,1 ms · gigue 0,4 ms » (“2.1 ms · jitter 0.4 ms”) |
 | bandwidth | Débit vers cet appareil | Bitrate to this device | « 940 Mbit/s · latence en charge +3 ms » (“940 Mbit/s · latency under load +3 ms”) ; passée : « Mettez à jour {nom} pour mesurer le débit. » / “Update {name} to measure the bitrate.” |
 | decode | Décodage de cet appareil | Decoding on this device | « HEVC 4K : 240 i/s · PyroWave 4K : 180 i/s » (le meilleur de chaque famille, “fps”) |
+| encoder | Encodeur de l'ordinateur | The computer's encoder | « jusqu'à 440 Mbit/s en HEVC » / “up to 440 Mbit/s in HEVC” (un débit refusé) ; « 290 Mbit/s acceptés en HEVC » / “290 Mbit/s accepted in HEVC” (premier essai) ; passée : « PyroWave choisi. » / “PyroWave chosen.”, « Mettez à jour {nom} pour essayer son encodeur. » / “Update {name} to try its encoder.”, « {nom} n'a pas pu essayer son encodeur. » / “{name} couldn't try its encoder.” |
 
 Bouton « Annuler » / “Cancel” (arrête le test, garde le profil d'avant).
 
@@ -582,7 +584,7 @@ Bouton « Annuler » / “Cancel” (arrête le test, garde le profil d'avant).
 | | « HEVC » — « PyroWave demande un câble » / « le réseau ne porte pas PyroWave » / « {nom} ne propose pas PyroWave » / « cet appareil ne décode pas PyroWave assez vite » | “HEVC” — “PyroWave needs a cable” / “the network can't carry PyroWave” / “{name} doesn't offer PyroWave” / “this device doesn't decode PyroWave fast enough” |
 | Définition | « 3840 × 2160 à 120 Hz » — « comme cet écran » / « décodage limité à {n} i/s en 4K » | “3840 × 2160 at 120 Hz” — “matches this display” / “decoding limited to {n} fps in 4K” |
 | Texte net (4:4:4) | « Oui » — « le réseau et le décodage le permettent » ; « Non » — « débit trop juste » / « cet appareil ne le décode pas » | “On” — “the network and decoding allow it”; “Off” — “bitrate too tight” / “this device can't decode it” |
-| Débit | « 420 Mbit/s » — « {mesuré} Mbit/s mesurés, avec une marge » ; sans mesure : « selon la liaison (Station à mettre à jour) » | “420 Mbit/s” — “{measured} Mbit/s measured, with a margin”; “based on the connection (Station to update)” |
+| Débit | « 420 Mbit/s » — « {mesuré} Mbit/s mesurés, avec une marge » ; sans mesure : « selon la liaison (Station à mettre à jour) » ; borné par l'encodeur : « {nom} encode jusqu'à {n} Mbit/s » | “420 Mbit/s” — “{measured} Mbit/s measured, with a margin”; “based on the connection (Station to update)”; bounded by the encoder: “{name} encodes up to {n} Mbit/s” |
 | Transport de l'image | « Rapide » — « réseau stable » ; « Fiable » — « réseau irrégulier : ce qui se perd est renvoyé » | “Fast” — “steady network”; “Reliable” — “unsteady network: what gets lost is resent” |
 | Débit adaptatif | « Oui » — « suit le réseau pendant la session » | “On” — “follows the network during the session” |
 
@@ -596,7 +598,8 @@ Boutons « Appliquer » / “Apply” (Auto devient le profil de cet ordinateur 
 ### En session
 
 - **Autre réseau que celui du test** (Auto, réseau ou relais différent du test) : bandeau discret au début, 8 s ou la croix, titre « Autre réseau que celui du test » / “Different network from the test”, « Le débit adaptatif s'en charge. » / “Adaptive bitrate will handle it.”, bouton « Refaire le test » / “Run the test again” (ouvre le panneau après la session, ou tout de suite sur les apps qui le peuvent en session). Toutes les apps : le panneau s'ouvre à la fin de la session (le test mesure le réseau libre) ; « Refaire le test », ou Auto choisi sans test pendant la session, le dit en avis (capsule) : « Le test se fera à la fin de la session. » / “The test will run when the session ends.” ; sur l'Apple TV, « Refaire le test » est une tuile du menu (Retour), titrée « Autre réseau que celui du test », comme « Passer en HEVC ».
-- **Statistiques**, débit visé : « 60 Mbit/s · fixe » / “60 Mbit/s · fixed” quand le débit adaptatif est coupé (à la place de « réglé à la main »).
+- **Statistiques**, débit visé : « 60 Mbit/s · fixe » / “60 Mbit/s · fixed” quand le débit adaptatif est coupé (à la place de « réglé à la main ») ; « 440 Mbit/s · plafond de l'encodeur » / “440 Mbit/s · encoder ceiling” quand le plafond de l'ordinateur le fixe.
+- **Encodeur de l'ordinateur** (toutes les apps, sans texte à l'écran) : une image refusée au départ fait redescendre le débit de 50 Mbit/s et relance, le statut reste « Reconnexion… » ; le débit qui passe est gardé pour cet ordinateur (plafond de l'encodeur, [profil-auto.md](profil-auto.md), « L'encodeur de l'ordinateur ») et vaut pour tous ses profils. « Refaire le test » le remesure.
 
 ## PyroWave
 

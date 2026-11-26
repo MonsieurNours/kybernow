@@ -37,6 +37,13 @@ pub enum Icon {
     Eye,
     /// Le profil Auto : la baguette (étincelles, « sparkles »).
     Sparkles,
+    /// Accueil et compte KyberNow : une personne (le compte), le globe (hors de chez vous), les appareils, deux
+    /// personnes (partager et prêter), les curseurs (vos réglages).
+    Person,
+    Globe,
+    Devices,
+    People,
+    Sliders,
 }
 
 impl Icon {
@@ -74,6 +81,11 @@ impl Icon {
             Icon::Lend => (&["M11.5 12 H21", "M18 12 V15.5", "M14.8 12 V14.5"], &[(7.5, 12.0, 4.0)], &[]),
             Icon::Eye => (&["M2 12 Q12 3 22 12 Q12 21 2 12 Z"], &[(12.0, 12.0, 3.2)], &[]),
             Icon::Sparkles => (&["M11 4 Q11.8 11.2 19 12 Q11.8 12.8 11 20 Q10.2 12.8 3 12 Q10.2 11.2 11 4 Z", "M18.5 2.5 V7.5", "M16 5 H21", "M19 17 V21", "M17 19 H21"], &[], &[]),
+            Icon::Person => (&["M4 21 Q5 14.5 12 14.5 Q19 14.5 20 21"], &[(12.0, 8.0, 4.0)], &[]),
+            Icon::Globe => (&["M3 12 H21", "M12 3 Q16.5 12 12 21", "M12 3 Q7.5 12 12 21"], &[(12.0, 12.0, 9.0)], &[]),
+            Icon::Devices => (&["M3 5 H15 V14 H3 Z", "M6 18 H12", "M9 14 V18", "M17 8 H21.5 V20 H17 Z"], &[], &[]),
+            Icon::People => (&["M2.5 20 Q4 14.5 9 14.5 Q14 14.5 15.5 20", "M17 14.5 Q20.5 15 21.5 19"], &[(9.0, 8.0, 3.5), (17.5, 9.0, 2.5)], &[]),
+            Icon::Sliders => (&["M4 7 H14", "M18 7 H20", "M4 17 H10", "M14 17 H20"], &[(16.0, 7.0, 2.0), (12.0, 17.0, 2.0)], &[]),
         }
     }
 

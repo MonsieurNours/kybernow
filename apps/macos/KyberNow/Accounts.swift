@@ -790,7 +790,7 @@ extension ConnectionSettings {
     /// `kn_session_start`), pour les réglages synchronisés.
     var syncedBase: SessionEngine.Settings {
         SessionEngine.Settings(profile: profile?.rawValue, codec: codec, yuv444: yuv444, mbps: bitrateMbps,
-                               reliable: transport == .reliable, hdr: hdr, adaptive: adaptive)
+                               reliable: transport == .reliable, hdr: hdr, adaptive: adaptive, encoderMax: encoderMax)
     }
 
     /// Le mode immersif à synchroniser : sur Mac seulement (l'Apple TV,

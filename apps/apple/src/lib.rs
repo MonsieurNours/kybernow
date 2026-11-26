@@ -818,6 +818,11 @@ pub const KN_NOTICE_RESOLUTION_LOWERED: u32 = 9;
 /// d'affilée ; bandeau « Le réseau sature » avec « Passer en HEVC », comme
 /// celui du début de session. Une fois par session, pour l'hôte seulement.
 pub const KN_NOTICE_PYROWAVE_STRAINED: u32 = 10;
+/// L'encodeur de l'ordinateur a refusé l'image au départ : le débit a dû
+/// redescendre jusqu'à `bitrate_mbps` (Mbit/s par écran). L'app le garde
+/// comme plafond de cet ordinateur (`encoder_max` des réglages de session,
+/// docs/profil-auto.md, « L'encodeur de l'ordinateur ») ; rien à l'écran.
+pub const KN_NOTICE_ENCODER_CEILING: u32 = 11;
 
 #[repr(C)]
 pub struct KnNotice {
@@ -1245,6 +1250,10 @@ impl Platform for ApplePlatform {
                 }
             }
             Notice::PyroWaveStrained => n.kind = KN_NOTICE_PYROWAVE_STRAINED,
+            Notice::EncoderCeiling { mbps } => {
+                n.kind = KN_NOTICE_ENCODER_CEILING;
+                n.bitrate_mbps = *mbps;
+            }
         }
         unsafe { f(self.cb.userdata, &n) };
     }

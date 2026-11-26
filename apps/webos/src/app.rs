@@ -337,6 +337,9 @@ pub enum Dialog {
     GiveBack { host: String },
     /// Comptes KyberNow : « Se déconnecter de {compte} ? » (la clé du compte, son nom).
     SignOut { account: String, name: String },
+    /// Accueil et compte KyberNow : « Hors de chez vous ? », sur « Se connecter » d'un ordinateur appairé absent du
+    /// réseau, sans compte (`crate::welcome`).
+    Away { host: String, name: String },
 }
 
 /// Attente au plus du retour de la Station : redémarrage, mise à jour.
@@ -1960,12 +1963,14 @@ pub enum Setting {
     AccountManage(u8),
     AccountSignOut(u8),
     AccountAdd,
+    /// Réglages de l'app › Comptes : « Revoir l'accueil ».
+    WelcomeAgain,
 }
 
 impl Setting {
     /// Une ligne qui agit (OK) au lieu de changer de valeur (gauche, droite).
     pub fn is_action(self) -> bool {
-        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd)
+        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd | Setting::WelcomeAgain)
     }
 }
 
@@ -2029,6 +2034,8 @@ pub enum Screen {
     Account,
     /// Profil Auto : le panneau du test (ses quatre étapes, le résumé, l'échec).
     AutoTest,
+    /// Accueil au premier lancement : trois écrans (`crate::welcome`).
+    Welcome,
 }
 
 /// Ce qu'on peut choisir.
@@ -2156,6 +2163,15 @@ pub enum Target {
     AutoRetest,
     AutoBannerAgain,
     AutoBannerClose,
+    /// Accueil et compte KyberNow (`crate::welcome`) : « Passer » (« Plus tard » à l'écran 3), « Continuer » (« Continuer
+    /// sans compte » à l'écran 2) ; la carte du compte de la rangée (« Connecter un compte », sa croix) ; le bandeau
+    /// après un appairage (« Connecter un compte », « Plus tard »).
+    WelcomeSkip,
+    WelcomeNext,
+    WelcomeCardConnect,
+    WelcomeCardClose,
+    WelcomePairedConnect,
+    WelcomePairedLater,
     /// Mise à jour des Stations : le bandeau de l'accueil (« Mettre à jour » ou « Réessayer », « Plus tard ») ; l'avis
     /// après une mise à jour de l'app (le bouton principal, « Plus tard » ou « Fermer », « Mettre à jour » d'une ligne).
     OfferUpdate,
@@ -2325,6 +2341,8 @@ pub struct App {
     pub auto: Option<crate::autotest::AutoTestUi>,
     pub auto_attempt: u32,
     pub auto_after: Option<String>,
+    /// Accueil et compte KyberNow : l'écran de l'accueil ouvert, le bandeau après un appairage.
+    pub welcome: crate::welcome::WelcomeUi,
 }
 
 /// L'écran « Réglage du HDR » (docs/hdr.md) : l'étape, le palier choisi à chaque étape, et où revenir.
@@ -2394,6 +2412,7 @@ impl App {
             auto: None,
             auto_attempt: 0,
             auto_after: None,
+            welcome: crate::welcome::WelcomeUi::default(),
         }
     }
 
@@ -2536,6 +2555,7 @@ impl App {
             Screen::PsSettings => Target::Ps(crate::ps::PsTarget::Section(self.ps.section)),
             Screen::Account => self.account_focus(),
             Screen::AutoTest => self.auto_focus(),
+            Screen::Welcome => self.welcome_focus(),
         };
     }
 
@@ -2796,6 +2816,7 @@ impl App {
             Screen::Account => self.account_back(),
             // Le panneau du test : comme « Annuler » (le profil d'avant reste).
             Screen::AutoTest => self.activate(Target::AutoCancel),
+            Screen::Welcome => self.welcome_back(),
         }
     }
 
@@ -2917,6 +2938,9 @@ impl App {
             Target::KeySpace => return Vec::new(),
             _ => {}
         }
+        if let Some(acts) = self.welcome_activate(t) {
+            return acts;
+        }
         if let Some(acts) = self.account_activate(t) {
             return acts;
         }
@@ -2931,7 +2955,11 @@ impl App {
                     return self.activate(Target::TakeBack);
                 }
                 if self.live.get(&id).is_some_and(|l| l.online == Online::Offline) {
-                    if h.can_wake() {
+                    // Sans compte, un ordinateur appairé absent du réseau : « Hors de chez vous ? » d'abord.
+                    if let Some(acts) = self.away_hint(&id) {
+                        return acts;
+                    }
+                    if self.store.host(&id).is_some_and(Host::can_wake) {
                         self.waking = Some((id.clone(), Instant::now()));
                         return vec![Action::Wake(id)];
                     }
@@ -3327,6 +3355,7 @@ impl App {
                     vec![Action::GiveBack]
                 }
                 Some(Dialog::SignOut { account, .. }) => self.account_sign_out(&account),
+                Some(Dialog::Away { .. }) => self.account_sign_in(Screen::Home),
                 None => Vec::new(),
             },
             Target::DialogCancel => {
@@ -3353,6 +3382,8 @@ impl App {
             Target::KeySpace | Target::Ps(_) => Vec::new(),
             // Comptes KyberNow : `account_activate`, plus haut.
             Target::AccountSignIn | Target::AccountOtherRelay | Target::AccountNewCode | Target::AccountBack | Target::AccountRelayField | Target::AccountRelayGo | Target::AccountRelayCancel => Vec::new(),
+            // Accueil et compte KyberNow : `welcome_activate`, plus haut.
+            Target::WelcomeSkip | Target::WelcomeNext | Target::WelcomeCardConnect | Target::WelcomeCardClose | Target::WelcomePairedConnect | Target::WelcomePairedLater => Vec::new(),
         }
     }
 
@@ -4352,6 +4383,9 @@ impl App {
             self.go(Screen::Gamepads);
             return Vec::new();
         }
+        if s == Setting::WelcomeAgain {
+            return self.open_welcome();
+        }
         if s == Setting::UpdateChannel {
             self.store.app.beta = !self.store.app.beta;
             return vec![Action::Save, Action::CheckUpdate];
@@ -4442,7 +4476,7 @@ impl App {
                 let t = if reliable == st.profile_reliable() { "" } else if reliable { "reliable" } else { "fast" };
                 st.set_transport(t);
             }
-            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd => {}
+            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd | Setting::WelcomeAgain => {}
         }
         vec![Action::Save]
     }
@@ -4461,6 +4495,7 @@ impl App {
             Some(Dialog::Force { op: StationOp::Restart, .. }) => Target::Setting(Setting::Restart),
             Some(Dialog::Force { op: StationOp::Update, .. }) => Target::Setting(Setting::Update),
             Some(Dialog::SignOut { account, .. }) => Target::Setting(Setting::AccountSignOut(self.store.accounts.iter().position(|a| a.key() == account).unwrap_or(0) as u8)),
+            Some(Dialog::Away { .. }) => Target::Connect,
             _ => Target::Setting(Setting::Remove),
         };
     }
@@ -5143,6 +5178,8 @@ mod tests {
     fn wake_targets_kept_and_used() {
         let mut app = App::new(Store::default());
         app.store.hosts.push(demo_host());
+        // « Hors de chez vous ? » déjà dit aujourd'hui (sans compte, crate::welcome) : le réveil de toujours.
+        app.store.welcome.away_hint.push(("a".into(), crate::model::now_secs()));
         let target = WakeTarget { mac: "3c:7c:3f:12:ab:cd".into(), ..Default::default() };
         // Hors ligne sans cible : « Réessayer » sonde de nouveau.
         app.polled("a", Polled::default());

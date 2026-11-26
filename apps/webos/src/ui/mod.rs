@@ -21,6 +21,7 @@ mod session;
 mod settings;
 mod share;
 pub mod theme;
+mod welcome;
 mod widgets;
 
 // Regarder : les écrans de qui regarde (panneau « Écran »), pour les essais.
@@ -100,6 +101,7 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
         Screen::PsSettings => consoles::settings(app, cv, &mut f),
         Screen::Account => account::draw(app, cv, &mut f),
         Screen::AutoTest => autotest::draw(app, cv, &mut f),
+        Screen::Welcome => welcome::draw(app, cv, assets, &mut f),
     }
     // Une confirmation par-dessus l'accueil (retirer un ordinateur emprunté) ou la session (rendre l'ordinateur) :
     // seuls ses boutons se choisissent.

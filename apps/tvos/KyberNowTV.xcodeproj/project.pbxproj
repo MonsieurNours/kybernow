@@ -12,6 +12,7 @@
 		00A1BD2C9C445702697ABF3A /* ConsolePads.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72614D3FA9C09B285A83EC63 /* ConsolePads.swift */; };
 		02486C1D72AE2D6AF1FCDCB0 /* LendCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CEED8A4C56BC77F0552A37A /* LendCore.swift */; };
 		02646086A5CA49D6860CA49F /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97688B68F968EDC6090177A0 /* AudioPlayerCore.swift */; };
+		04A35027F26693487E8DA01B /* AutoTestBench.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1D3AB7D624C345D7CB5ED10 /* AutoTestBench.swift */; };
 		05C565A318B71698A830D14D /* ContentProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BA7B9099D4A9045D214DCA7 /* ContentProvider.swift */; };
 		070160D72E8133354BD67397 /* Share.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19CC41E754DD4C2F46DE418 /* Share.swift */; };
 		0A5FD018AF3848551CC2F981 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */; };
@@ -254,6 +255,7 @@
 		EFA6AF6DE3DCB93B6E63BFBB /* HDR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDR.swift; sourceTree = "<group>"; };
 		F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		F16667FD645BA9D805BA7E79 /* RemoteNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNavigationTests.swift; sourceTree = "<group>"; };
+		F1D3AB7D624C345D7CB5ED10 /* AutoTestBench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestBench.swift; sourceTree = "<group>"; };
 		F20CEEF659C36D7A2E5D5307 /* KyberNowTVUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KyberNowTVUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F23EAE34056B9455BA19654D /* AccountViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountViews.swift; sourceTree = "<group>"; };
 		F4B7600DAF59B06AB908C8A7 /* TVServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = TVServices.framework; path = System/Library/Frameworks/TVServices.framework; sourceTree = SDKROOT; };
@@ -423,6 +425,7 @@
 			children = (
 				250EA933B889CC56DE287CE4 /* AccountCore.swift */,
 				97688B68F968EDC6090177A0 /* AudioPlayerCore.swift */,
+				F1D3AB7D624C345D7CB5ED10 /* AutoTestBench.swift */,
 				E8E65510FEFF17583E72ED75 /* AutoTestCore.swift */,
 				967E9CA93E220D6FB480C877 /* AV1.swift */,
 				068D8A600E0E74D6C09073FD /* ConsoleClientCore.swift */,
@@ -725,6 +728,7 @@
 				A6DE0CF31474618CD510D114 /* AV1.swift in Sources */,
 				BC4ECC7D0BFB0206E7EDC270 /* AccountCore.swift in Sources */,
 				02646086A5CA49D6860CA49F /* AudioPlayerCore.swift in Sources */,
+				04A35027F26693487E8DA01B /* AutoTestBench.swift in Sources */,
 				F7D9EAC6E5D20253D0746D21 /* AutoTestCore.swift in Sources */,
 				FDB08F08EAF177204FF53CEC /* ConsoleClientCore.swift in Sources */,
 				00A1BD2C9C445702697ABF3A /* ConsolePads.swift in Sources */,

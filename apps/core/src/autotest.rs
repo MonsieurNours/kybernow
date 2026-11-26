@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::console::{Console, ConsoleError, Mode};
+use crate::console::{Console, ConsoleError, EncoderAnswer, EncoderQuery, Mode};
 use crate::i18n::{Lang, tr};
 use crate::profile::{Capabilities, Codec, PYROWAVE_KYBER, Profile, StreamSettings};
 
@@ -29,10 +29,11 @@ pub enum Step {
     Latency,
     Bandwidth,
     Decode,
+    Encoder,
 }
 
 impl Step {
-    pub const ALL: [Step; 4] = [Step::Link, Step::Latency, Step::Bandwidth, Step::Decode];
+    pub const ALL: [Step; 5] = [Step::Link, Step::Latency, Step::Bandwidth, Step::Decode, Step::Encoder];
 
     pub fn key(self) -> &'static str {
         match self {
@@ -40,11 +41,12 @@ impl Step {
             Self::Latency => "latency",
             Self::Bandwidth => "bandwidth",
             Self::Decode => "decode",
+            Self::Encoder => "encoder",
         }
     }
 
     /// « Liaison », « Latence au repos », « Débit vers cet appareil »,
-    /// « Décodage de cet appareil ».
+    /// « Décodage de cet appareil », « Encodeur de l'ordinateur ».
     pub fn title(self, lang: Lang) -> String {
         tr(lang, &format!("autotest.step.{}", self.key()), &[])
     }
@@ -147,6 +149,24 @@ pub struct Bandwidth {
     pub loaded_delta: Option<f64>,
 }
 
+/// L'encodeur de l'ordinateur essayé par le test (docs/profil-auto.md,
+/// « L'encodeur de l'ordinateur ») : le débit le plus haut accepté, par
+/// écran, à ce format et à ce mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncoderMeasure {
+    #[serde(with = "codec_key")]
+    pub codec: Codec,
+    pub yuv444: bool,
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    /// Mbit/s acceptés.
+    pub mbps: u32,
+    /// Un débit plus haut a été refusé : `mbps` est la limite de l'encodeur
+    /// (sinon, le premier essai a passé : la limite est au-dessus).
+    pub limited: bool,
+}
+
 /// Images par seconde décodées par l'app pour un extrait (en 4K).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DecodeResult {
@@ -178,6 +198,9 @@ pub struct Measures {
     /// `None` : Station d'avant (pas de rafale).
     pub bandwidth: Option<Bandwidth>,
     pub decode: Vec<DecodeResult>,
+    /// `None` : pas essayé (PyroWave, Station d'avant, sonde impossible).
+    #[serde(default)]
+    pub encoder: Option<EncoderMeasure>,
 }
 
 /// Ce que l'app dit de l'appareil et de l'ordinateur pour le test.
@@ -202,6 +225,8 @@ pub struct Station {
     pub pyrowave: bool,
     /// « Débit maximal » de PyroWave, en Mbit/s.
     pub pyrowave_max: Option<u32>,
+    /// La Station sait essayer son encodeur (`GET /api/stream/encoder`).
+    pub encoder_check: bool,
 }
 
 /// Pourquoi un réglage a été choisi.
@@ -226,6 +251,8 @@ pub enum Reason {
     Yuv444Hdr,
     Measured,
     AssumedFromLink,
+    /// Le débit borné par l'encodeur de l'ordinateur (« {nom} encode jusqu'à {n} Mbit/s »).
+    EncoderLimited,
     Steady,
     Unsteady,
     Adaptive,
@@ -294,6 +321,33 @@ impl AutoResult {
             hdr,
             wired,
             adaptive: true,
+            encoder_max: self.encoder_max(),
+        }
+    }
+
+    /// Le plafond de l'encodeur trouvé par le test (Mbit/s par écran) : un
+    /// débit plus haut a été refusé.
+    pub fn encoder_max(&self) -> Option<u32> {
+        self.measures.encoder.filter(|e| e.limited).map(|e| e.mbps)
+    }
+
+    /// Le débit accepté du premier coup (Mbit/s par écran) : la limite de
+    /// l'encodeur est au-dessus.
+    pub fn encoder_ok(&self) -> Option<u32> {
+        self.measures.encoder.filter(|e| !e.limited).map(|e| e.mbps)
+    }
+
+    /// Le plafond de l'encodeur à garder pour cet ordinateur une fois ce
+    /// résultat appliqué, d'après celui qu'il avait (`previous`) : la limite
+    /// trouvée ; sinon un plafond gardé plus bas que le débit accepté du
+    /// premier coup est retiré ; sinon celui d'avant.
+    pub fn next_encoder_max(&self, previous: Option<u32>) -> Option<u32> {
+        if let Some(n) = self.encoder_max() {
+            return Some(n);
+        }
+        match (previous, self.encoder_ok()) {
+            (Some(p), Some(ok)) if p < ok => None,
+            (p, _) => p,
         }
     }
 
@@ -311,7 +365,8 @@ impl AutoResult {
         let reason = |r: Reason| -> String {
             let fps = self.reasons.decode_fps.map(|f| format!("{}", f.round() as u32)).unwrap_or_default();
             let measured = self.measures.bandwidth.map(|b| format!("{}", b.mbps.round() as u32)).unwrap_or_default();
-            tr(lang, &format!("autotest.reason.{}", key(r)), &[("name", name), ("fps", &fps), ("measured", &measured)])
+            let encoder = self.measures.encoder.map(|e| e.mbps.to_string()).unwrap_or_default();
+            tr(lang, &format!("autotest.reason.{}", key(r)), &[("name", name), ("fps", &fps), ("measured", &measured), ("n", &encoder)])
         };
         let yes_no = |b: bool| t(if b { "autotest.on" } else { "autotest.off" });
         vec![
@@ -466,8 +521,19 @@ pub fn decide(m: &Measures, d: &Device, st: &Station, now: u64) -> AutoResult {
     let h264 = if fallback == Codec::H264 { 1.5 } else { 1.0 };
     let max_at_mode = MAX_MBPS * h264 * scale(mode);
     let b = budget(mode);
-    let mode_mbps_hevc = b.clamp(MIN_MBPS, max_at_mode.max(MIN_MBPS));
-    let bitrate_reason = if measured.is_some() { Reason::Measured } else { Reason::AssumedFromLink };
+    let uncapped = b.clamp(MIN_MBPS, max_at_mode.max(MIN_MBPS));
+    // Au plus ce que l'encodeur de l'ordinateur a accepté à ce format et à ce mode.
+    let encoder = m.encoder.filter(|e| {
+        !pyrowave && e.codec == fallback && (e.width, e.height, e.refresh) == (mode.width, mode.height, mode.refresh)
+    });
+    let mode_mbps_hevc = encoder.map_or(uncapped, |e| uncapped.min(f64::from(e.mbps)));
+    let bitrate_reason = if encoder.is_some_and(|e| e.limited && f64::from(e.mbps) < uncapped) {
+        Reason::EncoderLimited
+    } else if measured.is_some() {
+        Reason::Measured
+    } else {
+        Reason::AssumedFromLink
+    };
 
     // 4:4:4 : décodé, sans HDR, et le budget couvre le surcoût.
     let (yuv444, yuv444_reason) = if d.hdr {
@@ -696,6 +762,7 @@ pub fn run(
         name: info.hostname.clone(),
         pyrowave: info.pyrowave_offered(),
         pyrowave_max: info.pyrowave.as_ref().and_then(|p| p.max_mbps),
+        encoder_check: info.encoder_check,
     };
 
     // 1. Liaison.
@@ -822,11 +889,88 @@ pub fn run(
         Step::Decode,
         if summary.is_empty() { StepState::Skipped(tr(lang, "autotest.decode_none", &[])) } else { StepState::Done(summary.join(" · ")) },
     );
+    p.set(Step::Encoder, StepState::Running);
     progress(&p);
+    check(cancel)?;
 
-    let measures = Measures { link, latency, bandwidth, decode };
+    // 5. L'encodeur de l'ordinateur : les choix d'abord, puis leur débit essayé.
     let network = if link == Link::Relay { Some("relay".to_string()) } else { device.network.clone() };
-    Ok(decide(&measures, &Device { network, ..device.clone() }, &station, crate::account::now_secs()))
+    let device = Device { network, ..device.clone() };
+    let mut measures = Measures { link, latency, bandwidth, decode, encoder: None };
+    let first = decide(&measures, &device, &station, crate::account::now_secs());
+    let name = station.name.as_str();
+    let state = if first.codec == Codec::PyroWave {
+        StepState::Skipped(tr(lang, "autotest.encoder_pyrowave", &[]))
+    } else if !station.encoder_check {
+        StepState::Skipped(tr(lang, "autotest.encoder_old", &[("name", name)]))
+    } else {
+        let query = EncoderQuery {
+            codec: first.codec,
+            width: first.width,
+            height: first.height,
+            fps: first.refresh,
+            mbps: first.mode_mbps,
+            yuv444: first.yuv444,
+            hdr: device.hdr,
+        };
+        match search_encoder(&console, query, cancel)? {
+            Some(e) => {
+                measures.encoder = Some(e);
+                let key = if e.limited { "autotest.encoder_limited" } else { "autotest.encoder_ok" };
+                StepState::Done(tr(lang, key, &[("n", &e.mbps.to_string()), ("codec", e.codec.label())]))
+            }
+            None => StepState::Skipped(tr(lang, "autotest.encoder_unknown", &[("name", name)])),
+        }
+    };
+    p.set(Step::Encoder, state);
+    progress(&p);
+    Ok(decide(&measures, &device, &station, crate::account::now_secs()))
+}
+
+/// Pas de la descente et débit le plus bas essayé (Mbit/s par écran).
+const ENCODER_STEP: u32 = 50;
+
+/// Le débit le plus haut que l'encodeur accepte, en partant de `q.mbps` et
+/// en descendant de 50 Mbit/s à chaque refus (50 au plus bas). `None` : la
+/// Station n'a pas pu essayer (ou répond 404). Refusé jusqu'à 50 compris :
+/// 50, limité (la session redescendra encore si besoin).
+fn search_encoder(console: &Console, mut q: EncoderQuery, cancel: &AtomicBool) -> Result<Option<EncoderMeasure>, AutoError> {
+    let mut limited = false;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(AutoError::Cancelled);
+        }
+        let answer = match console.encoder_check(&q) {
+            Ok(a) => a,
+            Err(e) => {
+                log::info!("profil Auto : sonde de l'encodeur impossible ({e})");
+                return Ok(None);
+            }
+        };
+        let measure = |mbps, limited| EncoderMeasure { codec: q.codec, yuv444: q.yuv444, width: q.width, height: q.height, refresh: q.fps, mbps, limited };
+        match answer {
+            Some(EncoderAnswer::Accepted) => return Ok(Some(measure(q.mbps, limited))),
+            Some(EncoderAnswer::Refused(why)) => {
+                log::info!("profil Auto : {} à {} Mbit/s refusé par l'encodeur ({why})", q.codec.label(), q.mbps);
+                limited = true;
+                match next_step(q.mbps) {
+                    Some(n) => q.mbps = n,
+                    None => return Ok(Some(measure(q.mbps.min(ENCODER_STEP), true))),
+                }
+            }
+            Some(EncoderAnswer::Unknown(why)) => {
+                log::info!("profil Auto : l'ordinateur n'a pas pu essayer son encodeur ({why})");
+                return Ok(None);
+            }
+            None => return Ok(None),
+        }
+    }
+}
+
+/// Le débit suivant de la descente : 50 Mbit/s de moins, 50 au plus bas ;
+/// `None` une fois 50 essayé.
+fn next_step(mbps: u32) -> Option<u32> {
+    (mbps > ENCODER_STEP).then(|| mbps.saturating_sub(ENCODER_STEP).max(ENCODER_STEP))
 }
 
 #[cfg(test)]

@@ -26,7 +26,8 @@
     "pairTooMany": "trop de demandes d'appairage : réessayez dans une minute",
     "requestGone": "cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code",
     "unknownRoute": "route inconnue de cette version d'Admin",
-    "probeBusy": "Une mesure est déjà en cours."
+    "probeBusy": "Une mesure est déjà en cours.",
+    "encoderQuery": "Demande d'essai de l'encodeur illisible."
   },
   "auth": {
     "adminHeader": "en-tête x-kyber-admin manquant",

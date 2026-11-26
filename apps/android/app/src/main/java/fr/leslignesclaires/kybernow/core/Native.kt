@@ -41,6 +41,11 @@ object Native {
     @JvmStatic external fun autotestChoices(resultJson: String): String?
     /** Les réglages de session d'Auto pour ce résultat (`AutoResult::settings`, profil `auto`) ; nul s'il est illisible. */
     @JvmStatic external fun autotestSettings(resultJson: String, hdr: Boolean, wired: Boolean): String?
+    /**
+     * « Appliquer » un nouveau résultat : le plafond de l'encodeur à garder pour l'ordinateur (Mbit/s par écran, 0 : aucun ;
+     * `AutoResult::next_encoder_max`), d'après celui gardé ([previous], 0 : aucun) ; un résultat illisible le laisse.
+     */
+    @JvmStatic external fun autotestEncoderMax(resultJson: String, previous: Int): Int
     /** Le test a-t-il été fait sur ce réseau ([network] : celui du moment, `relay` par le relais) ? */
     @JvmStatic external fun autotestSameNetwork(resultJson: String, network: String?): Boolean
 
@@ -213,12 +218,24 @@ object Native {
      */
     @JvmStatic external fun inviteRedeem(codeJson: String, password: String, deviceJson: String): String
 
+    // Accueil et compte KyberNow (docs/link-ui.md, « Accueil et compte KyberNow » ; apps/android/jni/src/welcome.rs).
+    /**
+     * Une règle de l'accueil (`welcome::WelcomeState` du cœur) appliquée à l'état gardé par l'app : `op` `should_show`,
+     * `done`, `card_visible`, `card_close_is_final`, `close_card`, `take_paired_hint`, `take_away_hint` ; `now` en
+     * secondes. Rend `{"state": {…}, "value": bool}`, le nouvel état à garder.
+     */
+    @JvmStatic external fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long): String
+    /** « Créer un compte » : la page d'inscription du relais (vide : le relais public), dans la langue de l'app. */
+    @JvmStatic external fun welcomeSignUpUrl(relay: String): String
+    /** La page de téléchargement de KyberNow Station (écran 3 de l'accueil). */
+    @JvmStatic external fun welcomeStationUrl(): String
+
     // Comptes KyberNow (docs/comptes.md, lot 3 ; textes : docs/link-ui.md, « Comptes KyberNow »). Réponses
     // `{"code": 0, "value": …}` ou `{"code": 70…80, "error", "kind"}` (voir [AccountCode]) ; 1 : JSON illisible.
     // Les appels marqués bloquants : jamais sur le fil principal (8 s au plus chacun).
     /** La forme normale d'un relais tapé (« Un autre relais… ») ; vide : `share.kybernow.app` ; refus 78. */
     @JvmStatic external fun accountNormalizeRelay(relay: String): String
-    /** « Se connecter à un compte KyberNow » : `value` `{relay, url, state, callback_scheme}`, à garder jusqu'au retour. */
+    /** « Connecter un compte » : `value` `{relay, url, state, callback_scheme}`, à garder jusqu'au retour. */
     @JvmStatic external fun accountSignIn(relay: String, deviceName: String): String
     /** Le retour `kybernow://compte?…` : `value`, le compte à garder entier (jeton compris). 75 : annulé. Bloquant. */
     @JvmStatic external fun accountFinishSignIn(signInJson: String, callback: String): String
@@ -423,6 +440,12 @@ interface SessionListener {
          * sature » avec « Passer en HEVC ». Une fois par session, hôte seulement.
          */
         const val NOTICE_PYROWAVE_STRAINED = 10
+        /**
+         * Avis `onNotice` : l'encodeur de l'ordinateur a refusé l'image, la session a dû redescendre à `mbps` (Mbit/s par
+         * écran) : le plafond à garder pour cet ordinateur ([fr.leslignesclaires.kybernow.model.HostSettings.encoderMax]) et
+         * à redonner aux sessions suivantes (`encoder_max`). Rien à l'écran.
+         */
+        const val NOTICE_ENCODER_CEILING = 11
     }
 
     /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */
@@ -436,14 +459,14 @@ interface SessionListener {
      * clé, paquets perdus, octets, chaîne présente (1/0), puis capture,
      * encodage, envoi, réseau, décodage, affichage (ms), puis l'image en HDR (1/0) ; 18 à 21 la définition
      * ramenée de PyroWave ; 22 à 24 le débit visé (demandé et du profil en bit/s, raison `TargetReason::code` :
-     * 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de l'app, 5 repli ; −1 sans).
+     * 0 Auto, 1 baissé, 2 à la main, 3 PyroWave en pause, 4 plafond de l'app, 5 repli, 6 plafond de l'encodeur ; −1 sans).
      */
     fun onSecond(values: DoubleArray)
     /**
      * 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre »,
      * 7 la Station redémarre ([NOTICE_STATION_RESTARTING]), 8 l'ordinateur n'a pas pu passer en HDR
      * ([NOTICE_HDR_REFUSED]), 9 définition ramenée ([NOTICE_RESOLUTION_LOWERED]), 10 le réseau sature en PyroWave
-     * ([NOTICE_PYROWAVE_STRAINED]).
+     * ([NOTICE_PYROWAVE_STRAINED]), 11 plafond de l'encodeur ([NOTICE_ENCODER_CEILING]).
      */
     fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?)
     fun onGameFullscreen(game: Boolean)

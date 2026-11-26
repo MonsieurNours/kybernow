@@ -114,6 +114,7 @@ fn keep(app: &AppHandle, invited: &Invited) -> Result<InviteAdded, InviteRefusal
         relay: invited.relay.clone(),
         account: None,
         auto: None,
+        encoder_max: None,
     };
     if !store::set_password(&c.id, &c.user, &invited.password) {
         return Err(InviteRefusal::other(t("errors.password_store", &[])));
