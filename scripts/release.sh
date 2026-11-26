@@ -369,9 +369,15 @@ if CHECK="$(KYBERNOW_KYBER_HEAD=1 apps/linux/scripts/sources.sh "$FLATPAK_SRC/sr
         [ -e "$FLATPAK_SRC/src/$f" ] || MISSING+=("$f")
     done
     PATCH_FAIL=()
-    for p in "$FLATPAK_SRC"/src/apps/macos/kyber-patches/*.patch "$FLATPAK_SRC"/src/server/kyber-patches/*-kyclient-*.patch "$FLATPAK_SRC"/src/apps/webos/kyber-patches/*.patch; do
+    # Dans l'ordre de build.sh : ceux de la Station pour kyctl, kymux et kynput,
+    # puis ceux des apps et le côté client de la Station.
+    FLATPAK_STATION=()
+    for p in "$FLATPAK_SRC"/src/server/kyber-patches/*.patch; do
+        case "$(basename "$p")" in *-kycontroller-* | *-kywebplayer-* | *-kynet-* | *-kynput-*) FLATPAK_STATION+=("$p") ;; esac
+    done
+    for p in ${FLATPAK_STATION[@]+"${FLATPAK_STATION[@]}"} "$FLATPAK_SRC"/src/apps/macos/kyber-patches/*.patch "$FLATPAK_SRC"/src/server/kyber-patches/*-kyclient-*.patch "$FLATPAK_SRC"/src/apps/webos/kyber-patches/*.patch; do
         case "$(basename "$p")" in
-            *-kyclient-*) depot=kyctl ;; *-kynput-*) depot=kynput ;; *-kynet-*) depot=kymux ;; *) PATCH_FAIL+=("$(basename "$p") (dépôt ?)"); continue ;;
+            *-kyclient-* | *-kycontroller-* | *-kywebplayer-*) depot=kyctl ;; *-kynput-*) depot=kynput ;; *-kynet-*) depot=kymux ;; *) PATCH_FAIL+=("$(basename "$p") (dépôt ?)"); continue ;;
         esac
         (cd "$FLATPAK_SRC/src/third_party/kyber-desktop/kysdk/$depot" && patch -p1 -s -f -F0 < "$p" > /dev/null 2>&1) || PATCH_FAIL+=("$(basename "$p")")
     done

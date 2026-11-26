@@ -230,6 +230,11 @@ arbre_kyber_pret() {
             echo "    $v : sources de $e remises à l'origine"
             rm -f "$kd/.kybernow-arbre"
             arbre_sources_origine "$kd" "$dir"
+            # Les bibliothèques de Kyber de l'app Mac sont à refaire avec : leur
+            # empreinte (Vendor/kyclient.stamp) ne dit que les correctifs, et
+            # build-kyclient.sh est aussi ce qui les pose. Sans cela, après un
+            # échec, le cœur se compilait sur des sources sans correctifs.
+            rm -f "$dir/apps/macos/Vendor/kyclient.stamp"
         fi
     done
 }

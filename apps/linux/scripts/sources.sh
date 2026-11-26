@@ -33,10 +33,17 @@ mkdir -p "$DEST/apps/macos" "$DEST/apps/webos"
 "${R[@]}" "$ROOT/apps/macos/kyber-patches" "$DEST/apps/macos/"
 "${R[@]}" "$ROOT/apps/webos/kyber-patches" "$DEST/apps/webos/"
 # Côté client des correctifs de la Station (*-kyclient-*, comme 0022 : HDR),
-# appliqués par build.sh après ceux de apps/macos.
+# appliqués par build.sh après ceux de apps/macos, et ceux de la Station pour
+# kyctl, kymux et kynput (*-kycontroller-*, *-kywebplayer-*, *-kynet-*,
+# *-kynput-*), posés avant eux : le canal de retour du client (0051-kyclient)
+# s'appuie sur celui de kymux (0050-kynet).
 mkdir -p "$DEST/server/kyber-patches"
-rm -f "$DEST"/server/kyber-patches/*-kyclient-*.patch
-cp "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$DEST/server/kyber-patches/"
+rm -f "$DEST"/server/kyber-patches/*.patch
+for p in "$ROOT"/server/kyber-patches/*.patch; do
+    case "$(basename "$p")" in
+        *-kyclient-* | *-kycontroller-* | *-kywebplayer-* | *-kynet-* | *-kynput-*) cp "$p" "$DEST/server/kyber-patches/" ;;
+    esac
+done
 cp "$ROOT/apps/Cargo.lock" "$DEST/apps/"
 # Espace de travail réduit au cœur et à l'app Linux.
 sed -E 's/^members = .*/members = ["core", "linux"]/' "$ROOT/apps/Cargo.toml" > "$DEST/apps/Cargo.toml"
