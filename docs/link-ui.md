@@ -971,7 +971,7 @@ Pas de profil, d'écrans, de presse-papiers, de partage ni de « Ordinateurs ».
 
 La caméra de l'appareil part vers l'ordinateur, qui la voit comme une webcam ordinaire, « KyberNow Camera » (même nom dans toutes les langues, comme un nom d'appareil) : Teams, Zoom, Discord, OBS, les navigateurs la proposent dans leur liste. Détail technique dans [webcam.md](webcam.md).
 
-**Où** : apps Mac, iPhone et iPad, Android (téléphones et tablettes ; pas Android TV), Windows, Linux (bureau et Steam Deck), Apple TV (un iPhone ou un iPad à côté, par Caméra de continuité, tvOS 17 et après). Pas sur les téléviseurs LG, le Raspberry Pi ni le client web. **Qui** : l'hôte en session et l'ami à qui l'ordinateur est prêté ; jamais les invités d'un partage. **Quand** : l'entrée « Caméra » n'existe que si l'ordinateur propose la caméra (`camera` dans `uplink` de `GET /api/stream/info`) et que l'appareil en a une (une seule caméra au moins, ou sur l'Apple TV, toujours : elle propose d'en choisir une). Sinon elle est absente, sans message.
+**Où** : apps Mac, iPhone et iPad, Android (téléphones et tablettes ; pas Android TV), Windows, Linux (bureau et Steam Deck), Apple TV (un iPhone ou un iPad à côté, par Caméra de continuité, tvOS 17 et après). Pas sur les téléviseurs LG, le Raspberry Pi ni le client web. **Qui** : l'hôte en session et l'ami à qui l'ordinateur est prêté ; jamais les invités d'un partage. **Quand** : l'entrée « Caméra » n'existe que si l'ordinateur propose la caméra pour l'image en cours (`uplink` de la réponse de Kyber au départ de l'image, voir [webcam.md](webcam.md)) et que l'appareil en a une (une seule caméra au moins, ou sur l'Apple TV, toujours : elle propose d'en choisir une). Sinon elle est absente, sans message.
 
 **À la demande** : la caméra est éteinte au début de chaque session, même si elle était allumée à la précédente. On l'allume depuis la barre (puce « Caméra »), le menu de l'icône, le menu en tuiles (iPhone, iPad, Android, Apple TV : tuile « Caméra » / “Camera”), ou le raccourci C (⌃⌥⌘C sur Mac, Ctrl+Alt+Maj+C sur Windows et Linux). Elle s'éteint d'elle-même quand la session se termine, quand une autre session passe devant (plusieurs ordinateurs : la caméra reste à la session où elle a été allumée, qui la garde en arrière-plan) et quand le droit est repris (prêt rendu).
 
@@ -996,7 +996,7 @@ La caméra de l'appareil part vers l'ordinateur, qui la voit comme une webcam or
 
 | Cas | Français | English |
 |---|---|---|
-| Un autre appareil envoie déjà la sienne | « {appareil} envoie déjà sa caméra à {nom}. » | “{device} is already sending its camera to {name}.” |
+| Un autre appareil envoie déjà la sienne | « {appareil} envoie déjà sa caméra à {nom}. » ; sans son nom : « Un autre appareil envoie déjà sa caméra à {nom}. » | “{device} is already sending its camera to {name}.”; without its name: “Another device is already sending its camera to {name}.” |
 | Caméra prise par une autre app de l'appareil | « La caméra est utilisée par une autre app. » | “The camera is being used by another app.” |
 | L'ordinateur n'a pas pu l'ouvrir (caméra virtuelle absente ou en panne) | « {nom} n'a pas pu ouvrir sa caméra. Voir Admin › Caméra. » | “{name} could not open its camera. See Admin › Camera.” |
 | Encodeur de l'appareil indisponible | « Cet appareil ne peut pas envoyer sa caméra. » | “This device can't send its camera.” |

@@ -1,0 +1,517 @@
+diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index 6ae6f2b..2bd36ed 100644
+--- a/kycontroller/src/kymux_controller/mod.rs
++++ b/kycontroller/src/kymux_controller/mod.rs
+@@ -765,6 +765,8 @@ pub(crate) struct StartSessionResponse {
+     pub(crate) input: Option<StartSessionInputResponse>,
+     pub(crate) clock_sync: Option<StartSessionClockSyncResponse>,
+     pub(crate) metrics: Option<StartSessionMetricsResponse>,
++    /// KyberNow (0085): the upstream endpoints, and their tasks.
++    pub(crate) uplink: crate::uplink::Started,
+ }
+ 
+ fn run_clock_sync_task(endpoint: kyproto::ClockSyncServerEndpoint) -> Task {
+@@ -798,6 +800,8 @@ async fn start_session(
+     request: requests::StartRequest,
+     // KyberNow (0022): `hdr` of each `request.video` entry.
+     hdr: Vec<bool>,
++    // KyberNow (0085): the upstream kinds the app can send.
++    uplink: Vec<String>,
+ ) -> Result<StartSessionResponse> {
+     let transport = if let KymuxConfig::KyProto(_) = &request.kymux_config {
+         // Get the pending connection receiver (was created in start_mux)
+@@ -915,6 +919,15 @@ async fn start_session(
+         None
+     };
+ 
++    // KyberNow (0085): a data endpoint for each upstream kind (camera,
++    // microphone) this computer has a sink for; never for a share guest.
++    let uplink = if let KyTransport::KyProto(connection) = &transport {
++        let guest = crate::kybernow::is_guest(ctrl, &session_id);
++        crate::uplink::start(connection, session_id, guest, &uplink).await
++    } else {
++        crate::uplink::Started::default()
++    };
++
+     let video_connection_tx = video
+         .as_mut()
+         .and_then(|vec| vec.first_mut())
+@@ -955,6 +968,7 @@ async fn start_session(
+         input,
+         clock_sync,
+         metrics,
++        uplink,
+     })
+ }
+ 
+diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index 0dedc45..4ff1b0f 100644
+--- a/kycontroller/src/kymux_controller/requests.rs
++++ b/kycontroller/src/kymux_controller/requests.rs
+@@ -67,6 +67,8 @@ pub(crate) async fn start_session(
+ ) -> HttpResponse {
+     // KyberNow (0022): `hdr` of each display, read beside the request.
+     let hdr = crate::hdr::requested(&request);
++    // KyberNow (0085): `uplink`, the upstream kinds, beside the request too.
++    let uplink = crate::uplink::requested(&request);
+     let request: StartRequest = match serde_json::from_value(request.into_inner()) {
+         Ok(request) => request,
+         Err(err) => {
+@@ -115,13 +117,16 @@ pub(crate) async fn start_session(
+     };
+ 
+     // Start session
+-    let ret = super::start_session(&ctrl, session_id, request, hdr).await;
++    let ret = super::start_session(&ctrl, session_id, request, hdr, uplink).await;
+     match ret {
+         Ok(response) => {
+             let numeric_session_id = generate_session_id();
+             info!("Session started. SessionId: {numeric_session_id}");
+ 
+             let mut services = StreamingServices::default();
++            // KyberNow (0085): the upstream endpoints live with the session.
++            let uplink = response.uplink.endpoints;
++            services.tasks.extend(response.uplink.tasks);
+ 
+             let video = response.video.map(|video| {
+                 video
+@@ -220,7 +225,8 @@ pub(crate) async fn start_session(
+                 ));
+             }
+ 
+-            HttpResponse::Ok().json(StartSessionResponse {
++            // KyberNow (0085): `uplink` beside kyctl-common's response.
++            let mut body = serde_json::to_value(StartSessionResponse {
+                 session_id: Some(numeric_session_id),
+                 video,
+                 audio,
+@@ -228,6 +234,9 @@ pub(crate) async fn start_session(
+                 clock_sync,
+                 metrics,
+             })
++            .unwrap_or_default();
++            crate::uplink::add_to_response(&mut body, &uplink);
++            HttpResponse::Ok().json(body)
+         }
+         // KyberNow: no image the share guest's device reads.
+         Err(crate::error::Error::ShareNoImage) => {
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index d69a8ec..c75e427 100644
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -61,6 +61,7 @@ mod session;
+ mod statemachine;
+ mod tls;
+ mod tray;
++mod uplink;
+ mod utils;
+ mod watchdog;
+ mod webclient;
+diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
+new file mode 100644
+index 0000000..89d12a2
+--- /dev/null
++++ b/kycontroller/src/uplink.rs
+@@ -0,0 +1,402 @@
++// KyberNow (0085): upstream streams, from the app to the computer (the
++// device's camera, its microphone).
++//
++// The start request (`/start_session`) may carry `uplink`, the kinds the app
++// can send (`["camera", "microphone"]`), read from the request's JSON beside
++// kyctl-common's `StartRequest`, like `hdr` (an older app sends none). For
++// each kind whose sink sits next to kycontroller (`kybernow-camera`,
++// `kybernow-micro`), and never for a share guest, a kyproto data endpoint is
++// registered; the response gives them in `uplink`
++// (`[{"kind": "camera", "endpoint": 12}]`). A data endpoint is a reliable
++// QUIC stream of its own each way: what goes up never waits behind the
++// inputs, nor behind the other kind.
++//
++// The app connects to its endpoint the first time it turns the kind on, and
++// keeps it for the session. Each packet starts with its type:
++// - `START` (app): JSON settings follow (`{"codec": "h264", "width": 1280,
++//   "height": 720, "fps": 30, "device": "iPhone de Marie"}`). One app at a
++//   time per kind on the computer: another one gets `busy`. Otherwise the
++//   sink starts, and gets the packets that follow on its standard input.
++// - `MEDIA` (app): flags (u8), pts in µs (u64, big endian), then the data.
++// - `PAUSE` (app): the app is in the background; the sink keeps its last
++//   picture.
++// - `STOP` (app): the sink's input closes, it ends.
++// - `STATUS` (computer): a JSON line, from kycontroller (`{"state":
++//   "started"}`, `{"state": "busy", "device": "…"}`, `{"state": "failed",
++//   "reason": "…"}`, `{"state": "stopped"}`) or from the sink (its standard
++//   output, line by line: `{"keyframe": true}`, `{"state": "failed", …}`).
++//
++// On the sink's standard input, each packet (START, MEDIA, PAUSE) is
++// preceded by its length (u32, big endian). The sink ends on its own when
++// its input closes: STOP, the app gone, the session ended.
++
++use std::collections::HashMap;
++use std::path::PathBuf;
++use std::process::Stdio;
++use std::sync::Mutex;
++
++use bytes::Bytes;
++use kymux::{kyproto, types};
++use log::{info, warn};
++use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
++use tokio::process::{Child, ChildStdin, Command};
++use tokio::sync::mpsc;
++use uuid::Uuid;
++
++use crate::utils::Task;
++
++pub(crate) const START: u8 = 0x01;
++pub(crate) const MEDIA: u8 = 0x02;
++pub(crate) const STOP: u8 = 0x03;
++pub(crate) const PAUSE: u8 = 0x04;
++pub(crate) const STATUS: u8 = 0x10;
++
++/// The kinds kycontroller knows, and their sink.
++const SINKS: &[(&str, &str)] = &[("camera", "kybernow-camera"), ("microphone", "kybernow-micro")];
++
++/// Who sends each kind now (one at a time on the computer): the session and
++/// the device it named.
++static SENDERS: Mutex<Option<HashMap<&'static str, (Uuid, String)>>> = Mutex::new(None);
++
++/// The kinds asked for in a start request; none when absent.
++pub(crate) fn requested(request: &serde_json::Value) -> Vec<String> {
++    request
++        .get("uplink")
++        .and_then(serde_json::Value::as_array)
++        .map(|kinds| {
++            kinds
++                .iter()
++                .filter_map(|k| k.as_str().map(str::to_owned))
++                .collect()
++        })
++        .unwrap_or_default()
++}
++
++/// The sink of a kind: next to kycontroller, or in `KYBERNOW_SINKS_DIR`.
++fn sink_path(sink: &str) -> Option<PathBuf> {
++    let dir = match std::env::var_os("KYBERNOW_SINKS_DIR") {
++        Some(dir) => PathBuf::from(dir),
++        None => std::env::current_exe().ok()?.parent()?.to_path_buf(),
++    };
++    let name = if cfg!(windows) {
++        format!("{sink}.exe")
++    } else {
++        sink.to_owned()
++    };
++    let path = dir.join(name);
++    path.is_file().then_some(path)
++}
++
++fn kind_of(kind: &str) -> Option<(&'static str, PathBuf)> {
++    let (kind, sink) = SINKS.iter().find(|(k, _)| *k == kind)?;
++    Some((kind, sink_path(sink)?))
++}
++
++/// The endpoints prepared for a session, and what keeps them.
++#[derive(Default)]
++pub(crate) struct Started {
++    pub(crate) endpoints: Vec<(String, u16)>,
++    pub(crate) tasks: Vec<Task>,
++}
++
++/// Registers a data endpoint for each kind asked for that has a sink.
++pub(crate) async fn start(
++    connection: &kyproto::Connection,
++    session: Uuid,
++    guest: bool,
++    kinds: &[String],
++) -> Started {
++    let mut started = Started::default();
++    if guest {
++        if !kinds.is_empty() {
++            info!("Uplink refused to a share guest");
++        }
++        return started;
++    }
++    for kind in kinds {
++        let Some((kind, sink)) = kind_of(kind) else {
++            info!("Uplink \"{kind}\": no sink on this computer");
++            continue;
++        };
++        match connection.register_data_endpoint().await {
++            Ok((id, endpoint)) => {
++                info!("Uplink \"{kind}\" ready. Endpoint: {id:X}");
++                started.endpoints.push((kind.to_owned(), id));
++                started
++                    .tasks
++                    .push(Task::spawn(serve(endpoint, kind, sink, session)));
++            }
++            Err(err) => warn!("Uplink \"{kind}\": endpoint not registered: {err}"),
++        }
++    }
++    started
++}
++
++/// `uplink` added to the response of `/start_session`.
++pub(crate) fn add_to_response(body: &mut serde_json::Value, endpoints: &[(String, u16)]) {
++    if endpoints.is_empty() {
++        return;
++    }
++    if let Some(body) = body.as_object_mut() {
++        body.insert(
++            "uplink".to_owned(),
++            endpoints
++                .iter()
++                .map(|(kind, id)| serde_json::json!({ "kind": kind, "endpoint": id }))
++                .collect(),
++        );
++    }
++}
++
++fn status(json: serde_json::Value) -> types::DataPacket {
++    let mut payload = vec![STATUS];
++    payload.extend_from_slice(json.to_string().as_bytes());
++    types::DataPacket {
++        payload: Bytes::from(payload),
++    }
++}
++
++/// The right to send a kind, given back when dropped.
++struct Sending {
++    kind: &'static str,
++    session: Uuid,
++}
++
++impl Sending {
++    /// `Err` with the device that sends it already.
++    fn take(kind: &'static str, session: Uuid, device: &str) -> Result<Self, String> {
++        let mut senders = SENDERS.lock().unwrap();
++        let senders = senders.get_or_insert_with(HashMap::new);
++        match senders.get(kind) {
++            Some((other, device)) if *other != session => Err(device.clone()),
++            _ => {
++                senders.insert(kind, (session, device.to_owned()));
++                Ok(Self { kind, session })
++            }
++        }
++    }
++}
++
++impl Drop for Sending {
++    fn drop(&mut self) {
++        let mut senders = SENDERS.lock().unwrap();
++        if let Some(senders) = senders.as_mut()
++            && senders
++                .get(self.kind)
++                .is_some_and(|(session, _)| *session == self.session)
++        {
++            senders.remove(self.kind);
++        }
++    }
++}
++
++/// A running sink: its input, the right it holds, the task that reads its
++/// output.
++struct Sink {
++    child: Child,
++    stdin: ChildStdin,
++    _sending: Sending,
++    _output: Task,
++}
++
++impl Sink {
++    async fn write(&mut self, payload: &[u8]) -> std::io::Result<()> {
++        let len = u32::try_from(payload.len()).unwrap_or(u32::MAX);
++        self.stdin.write_all(&len.to_be_bytes()).await?;
++        self.stdin.write_all(payload).await?;
++        self.stdin.flush().await
++    }
++
++    async fn stop(mut self) {
++        drop(self.stdin);
++        match tokio::time::timeout(std::time::Duration::from_secs(3), self.child.wait()).await {
++            Ok(_) => {}
++            Err(_) => {
++                warn!("Uplink sink did not end within 3 s: killed");
++                let _ = self.child.kill().await;
++            }
++        }
++    }
++}
++
++async fn spawn_sink(
++    path: &PathBuf,
++    sending: Sending,
++    to_app: mpsc::Sender<types::DataPacket>,
++) -> std::io::Result<Sink> {
++    let mut child = Command::new(path)
++        .arg("--uplink")
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::inherit())
++        .kill_on_drop(true)
++        .spawn()?;
++    let stdin = child.stdin.take().expect("piped stdin");
++    let stdout = child.stdout.take().expect("piped stdout");
++    let output = Task::spawn(async move {
++        let mut lines = BufReader::new(stdout).lines();
++        while let Ok(Some(line)) = lines.next_line().await {
++            match serde_json::from_str::<serde_json::Value>(&line) {
++                Ok(json) => {
++                    if to_app.send(status(json)).await.is_err() {
++                        break;
++                    }
++                }
++                Err(_) => info!("Uplink sink: {line}"),
++            }
++        }
++    });
++    Ok(Sink {
++        child,
++        stdin,
++        _sending: sending,
++        _output: output,
++    })
++}
++
++async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf, session: Uuid) {
++    let (mut send, mut recv) = match endpoint.ready().await {
++        Ok(protocol) => protocol,
++        Err(err) => {
++            info!("Uplink \"{kind}\" closed before use: {err}");
++            return;
++        }
++    };
++    info!("Uplink \"{kind}\" connected");
++
++    // What goes back to the app, from here and from the sink.
++    let (to_app, mut back) = mpsc::channel::<types::DataPacket>(16);
++    let _back = Task::spawn(async move {
++        while let Some(packet) = back.recv().await {
++            if send.send(packet).await.is_err() {
++                break;
++            }
++        }
++    });
++
++    let mut sink: Option<Sink> = None;
++    loop {
++        let packet = match recv.recv().await {
++            Ok(Some(packet)) => packet,
++            Ok(None) => break,
++            Err(err) => {
++                info!("Uplink \"{kind}\" ended: {err}");
++                break;
++            }
++        };
++        let Some(&kind_byte) = packet.payload.first() else {
++            continue;
++        };
++        match kind_byte {
++            START => {
++                if let Some(old) = sink.take() {
++                    old.stop().await;
++                }
++                let settings: serde_json::Value =
++                    serde_json::from_slice(&packet.payload[1..]).unwrap_or_default();
++                let device = settings
++                    .get("device")
++                    .and_then(serde_json::Value::as_str)
++                    .unwrap_or_default()
++                    .to_owned();
++                let sending = match Sending::take(kind, session, &device) {
++                    Ok(sending) => sending,
++                    Err(other) => {
++                        info!("Uplink \"{kind}\" refused: already sent by \"{other}\"");
++                        let _ = to_app
++                            .send(status(serde_json::json!({"state": "busy", "device": other})))
++                            .await;
++                        continue;
++                    }
++                };
++                match spawn_sink(&path, sending, to_app.clone()).await {
++                    Ok(mut started) => {
++                        if let Err(err) = started.write(&packet.payload).await {
++                            warn!("Uplink \"{kind}\": sink input closed at once: {err}");
++                            started.stop().await;
++                            let _ = to_app
++                                .send(status(serde_json::json!({"state": "failed", "reason": "sink"})))
++                                .await;
++                            continue;
++                        }
++                        info!("Uplink \"{kind}\" started ({settings})");
++                        sink = Some(started);
++                        let _ = to_app
++                            .send(status(serde_json::json!({"state": "started"})))
++                            .await;
++                    }
++                    Err(err) => {
++                        warn!("Uplink \"{kind}\": sink not started: {err}");
++                        let _ = to_app
++                            .send(status(serde_json::json!({"state": "failed", "reason": "sink"})))
++                            .await;
++                    }
++                }
++            }
++            MEDIA | PAUSE => {
++                let Some(running) = sink.as_mut() else {
++                    continue;
++                };
++                if let Err(err) = running.write(&packet.payload).await {
++                    warn!("Uplink \"{kind}\": sink ended: {err}");
++                    if let Some(old) = sink.take() {
++                        old.stop().await;
++                    }
++                    let _ = to_app
++                        .send(status(serde_json::json!({"state": "failed", "reason": "sink"})))
++                        .await;
++                }
++            }
++            STOP => {
++                if let Some(old) = sink.take() {
++                    old.stop().await;
++                    info!("Uplink \"{kind}\" stopped");
++                }
++                let _ = to_app
++                    .send(status(serde_json::json!({"state": "stopped"})))
++                    .await;
++            }
++            other => info!("Uplink \"{kind}\": unknown packet {other:#x}"),
++        }
++    }
++    if let Some(old) = sink.take() {
++        old.stop().await;
++    }
++    info!("Uplink \"{kind}\" closed");
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn reads_the_kinds_asked_for() {
++        let request = serde_json::json!({"uplink": ["camera", 3, "microphone"]});
++        assert_eq!(requested(&request), vec!["camera", "microphone"]);
++        assert!(requested(&serde_json::json!({})).is_empty());
++    }
++
++    #[test]
++    fn adds_the_endpoints_to_the_response() {
++        let mut body = serde_json::json!({"session_id": 1});
++        add_to_response(&mut body, &[]);
++        assert!(body.get("uplink").is_none());
++        add_to_response(&mut body, &[("camera".to_owned(), 12)]);
++        assert_eq!(body["uplink"][0]["kind"], "camera");
++        assert_eq!(body["uplink"][0]["endpoint"], 12);
++    }
++
++    #[test]
++    fn one_sender_at_a_time() {
++        let a = Uuid::new_v4();
++        let b = Uuid::new_v4();
++        let first = Sending::take("camera", a, "iPhone").unwrap();
++        assert_eq!(Sending::take("camera", b, "Pixel").err().unwrap(), "iPhone");
++        // The same session may start again (another camera).
++        let again = Sending::take("camera", a, "iPhone").unwrap();
++        drop(again);
++        drop(first);
++        let second = Sending::take("camera", b, "Pixel").unwrap();
++        drop(second);
++    }
++}

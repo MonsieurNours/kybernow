@@ -971,7 +971,7 @@ No profile, displays, clipboard, sharing or “Computers”.
 
 The device's camera goes to the computer, which sees it as an ordinary webcam, “KyberNow Camera” (same name in every language, like a device name): Teams, Zoom, Discord, OBS and browsers offer it in their list. Technical detail in [webcam.en.md](webcam.en.md).
 
-**Where**: the Mac, iPhone and iPad, Android (phones and tablets; not Android TV), Windows, Linux (desktop and Steam Deck) apps, and Apple TV (an iPhone or iPad nearby, through Continuity Camera, tvOS 17 and later). Not on LG TVs, the Raspberry Pi or the web client. **Who**: the host in a session and the friend the computer is lent to; never the guests of a share. **When**: the « Caméra » entry only exists when the computer offers the camera (`camera` in `uplink` of `GET /api/stream/info`) and the device has one (at least one camera, or on Apple TV, always: it offers to pick one). Otherwise it is absent, without a message.
+**Where**: the Mac, iPhone and iPad, Android (phones and tablets; not Android TV), Windows, Linux (desktop and Steam Deck) apps, and Apple TV (an iPhone or iPad nearby, through Continuity Camera, tvOS 17 and later). Not on LG TVs, the Raspberry Pi or the web client. **Who**: the host in a session and the friend the computer is lent to; never the guests of a share. **When**: the « Caméra » entry only exists when the computer offers the camera for the current picture (`uplink` in Kyber's answer when the picture starts, see [webcam.en.md](webcam.en.md)) and the device has one (at least one camera, or on Apple TV, always: it offers to pick one). Otherwise it is absent, without a message.
 
 **On demand**: the camera is off at the start of every session, even if it was on in the previous one. It is turned on from the bar (« Caméra » chip), the icon's menu, the tile menu (iPhone, iPad, Android, Apple TV: « Caméra » / “Camera” tile), or the C shortcut (⌃⌥⌘C on the Mac, Ctrl+Alt+Shift+C on Windows and Linux). It turns itself off when the session ends, when another session comes to the front (several computers: the camera stays with the session it was turned on in, which keeps it in the background) and when the right is taken back (computer given back).
 
@@ -996,7 +996,7 @@ The device's camera goes to the computer, which sees it as an ordinary webcam, �
 
 | Case | Français | English |
 |---|---|---|
-| Another device is already sending its own | « {appareil} envoie déjà sa caméra à {nom}. » | “{device} is already sending its camera to {name}.” |
+| Another device is already sending its own | « {appareil} envoie déjà sa caméra à {nom}. »; without its name: « Un autre appareil envoie déjà sa caméra à {nom}. » | “{device} is already sending its camera to {name}.”; without its name: “Another device is already sending its camera to {name}.” |
 | Camera taken by another app on the device | « La caméra est utilisée par une autre app. » | “The camera is being used by another app.” |
 | The computer could not open it (virtual camera missing or broken) | « {nom} n'a pas pu ouvrir sa caméra. Voir Admin › Caméra. » | “{name} could not open its camera. See Admin › Camera.” |
 | Device encoder unavailable | « Cet appareil ne peut pas envoyer sa caméra. » | “This device can't send its camera.” |
