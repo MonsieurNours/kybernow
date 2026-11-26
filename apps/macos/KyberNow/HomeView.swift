@@ -299,8 +299,25 @@ private struct Hero: View {
         .frame(maxWidth: 820, alignment: .leading)
     }
 
-    @ViewBuilder private var actions: some View {
-        HStack(spacing: 14) {
+    /// « Se connecter » puis les profils, le HDR et les réglages : sur une
+    /// ligne quand la place le permet, sinon les profils passent dessous
+    /// (avec Auto, la rangée dépasse les 820 points du bloc : les boutons ne
+    /// doivent jamais passer sur deux lignes, docs/link-ui.md, Principes).
+    private var actions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                primaryAction
+                secondaryActions
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                primaryAction
+                HStack(spacing: 14) { secondaryActions }
+            }
+        }
+    }
+
+    @ViewBuilder private var primaryAction: some View {
+        Group {
             if let lent {
                 LentActions(host: host, view: lent)
             } else if let session = app.sessions.session(for: host.id) {
@@ -364,6 +381,10 @@ private struct Hero: View {
                 .disabled(app.sessions.isFull)
                 .help(app.sessions.isFull ? LinkText.computersLimit : "")
             }
+        }
+    }
+
+    @ViewBuilder private var secondaryActions: some View {
             Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
                       icons: Dictionary(uniqueKeysWithValues: Profile.allCases.map { ($0, $0.icon) }), height: 40)
                 .fixedSize()
@@ -375,7 +396,6 @@ private struct Hero: View {
             .buttonStyle(GhostButton(height: 48))
             .help(LinkText.settingsTitle(host.name))
             .accessibilityLabel(LinkText.settingsTitle(host.name))
-        }
     }
 }
 
@@ -411,7 +431,7 @@ struct HDRChipButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Icon("sparkle", size: 16, bold: true)
-                Text(verbatim: HDRText.label)
+                Text(verbatim: HDRText.label).lineLimit(1)
             }
             .font(Theme.sans(14, .semibold))
             .foregroundStyle(on ? Theme.accent : Theme.text2)
@@ -422,6 +442,8 @@ struct HDRChipButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Jamais « HD / R » sur deux lignes.
+        .fixedSize()
         .disabled(!available)
         .opacity(available ? 1 : 0.45)
         .help(help)
