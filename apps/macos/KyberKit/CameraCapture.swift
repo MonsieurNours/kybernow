@@ -6,7 +6,7 @@
 // au cœur (`kn_camera_frame`), qui l'envoie à l'ordinateur ou la lâche.
 
 import AVFoundation
-import CKyberNow
+@_implementationOnly import CKyberNow
 import CoreMedia
 import VideoToolbox
 

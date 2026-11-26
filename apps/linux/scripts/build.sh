@@ -89,9 +89,18 @@ if [ -f "$ROOT/scripts/kyber-client-patches.sh" ] && git -C "$KYSDK/kyctl" rev-p
     . "$ROOT/scripts/kyber-client-patches.sh"
     kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
 else
-    for patch in "${PATCHES[@]}"; do
+    # Ceux de la Station pour kyctl, kymux et kynput d'abord, comme
+    # kyber_station_patches : le canal de retour du client (0051-kyclient)
+    # s'appuie sur celui de kymux (0050-kynet).
+    STATION=()
+    for patch in "$ROOT"/server/kyber-patches/*.patch; do
         case "$(basename "$patch")" in
-            *-kyclient-*) repo="$KYSDK/kyctl" ;;
+            *-kycontroller-* | *-kywebplayer-* | *-kynet-* | *-kynput-*) STATION+=("$patch") ;;
+        esac
+    done
+    for patch in ${STATION[@]+"${STATION[@]}"} "${PATCHES[@]}"; do
+        case "$(basename "$patch")" in
+            *-kyclient-* | *-kycontroller-* | *-kywebplayer-*) repo="$KYSDK/kyctl" ;;
             *-kynput-*) repo="$KYSDK/kynput" ;;
             *-kynet-*) repo="$KYSDK/kymux" ;;
             *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;

@@ -117,7 +117,7 @@ VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo
     apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj
     apps/ios/project.yml apps/ios/KyberNowIOS.xcodeproj
     apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json
-    apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock
+    apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock server/micro/Cargo.toml server/micro/Cargo.lock
     apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml)
 STATION_LINUX=()
 if [ "${KYBERNOW_STATION_LINUX:-1}" = 1 ]; then
@@ -460,7 +460,7 @@ else
     BUILD=$(date +%Y%m%d%H%M)
     (
         cd "$VT"
-        for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml apps/windows/setup/Cargo.toml; do
+        for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml apps/windows/setup/Cargo.toml server/micro/Cargo.toml; do
             sed -i '' -E "1,10s/^version = \".*\"/version = \"$VERSION\"/" "$f"
             (cd "$(dirname "$f")" && cargo update --workspace --offline --quiet)
         done
@@ -565,7 +565,7 @@ empreinte_de() {
     cat "$f"
 }
 
-entrees_surcouche() { chemins server/kyber-patches server/encoder-check server/camera apps/macos/kyber-patches apps/webos/kyber-patches scripts/kyber-toolchain.sh; kyber_tetes station-windows kyber-desktop; kyber_tetes station-windows kyber-web; tp_id payload/kyber-0.29.0; }
+entrees_surcouche() { chemins server/kyber-patches server/encoder-check server/camera server/micro apps/macos/kyber-patches apps/webos/kyber-patches scripts/kyber-toolchain.sh; kyber_tetes station-windows kyber-desktop; kyber_tetes station-windows kyber-web; tp_id payload/kyber-0.29.0; }
 entrees_station() { chemins $(server_sauf macos linux) scripts/kyber-toolchain.sh brand; echo "maj ${UPDATE_FLAGS[*]+"${UPDATE_FLAGS[*]}"}"; empreinte_de surcouche; tp_id payload/kyber-0.29.0; tp_id kyber-installer; }
 entrees_windows() { chemins "${COEUR[@]}" apps/windows apps/macos/PyroWave; empreinte_de surcouche; kyber_tetes windows-app kyber-desktop; tp_id rootfs-winarm64; tp_id "toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"; }
 entrees_android() { chemins "${COEUR[@]}" apps/android; kyber_tetes android kyber-desktop; tp_id opus-1.6.1; }
