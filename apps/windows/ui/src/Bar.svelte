@@ -76,7 +76,7 @@
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
-  import type { BarHdr, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
+  import type { BarHdr, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
@@ -671,7 +671,9 @@
     await closeMenu()
     afterMenu()
     // Même profil : remis tel quel (utile après des réglages personnalisés).
-    await invoke('session_profile', { id, profile: p })
+    const chosen = await invoke<Chosen>('session_profile', { id, profile: p })
+    // Auto sans test gardé : le panneau du test attend la fin de la session, l'avis le dit.
+    if (chosen === 'later') showNotice(t('autotest.later'))
   }
 
   /** Le menu Souris : appliqué tout de suite et gardé pour l'ordinateur, comme le menu de l'icône. */
@@ -819,11 +821,13 @@
     if (view === 'capsule') invoke('bar_hide', { id, focus: false })
   }
 
-  /** « Refaire le test » du bandeau du profil Auto : le panneau du test s'ouvre sur l'accueil à la fin de la session. */
+  /**
+   * « Refaire le test » du bandeau du profil Auto : le panneau du test s'ouvre sur l'accueil à la fin de la session ; la
+   * capsule du bandeau devient l'avis « Le test se fera à la fin de la session. ».
+   */
   function testAgain() {
-    const session = id
-    closeBanner()
-    invoke('autotest_later', { id: session }).catch(() => {})
+    invoke('autotest_later', { id }).catch(() => {})
+    showNotice(t('autotest.later'))
   }
 
   /** « Passer en HEVC » : l'image repart en HEVC pour cette session (le choix de l'ordinateur reste). */

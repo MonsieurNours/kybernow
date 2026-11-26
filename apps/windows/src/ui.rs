@@ -3489,20 +3489,21 @@ fn apply_hdr(app: &AppHandle, id: &str, on: bool) -> bool {
 /// Autre profil depuis la barre : enregistré pour cet ordinateur (comme
 /// depuis l'accueil) et appliqué tout de suite à sa session.
 #[tauri::command(async)]
-fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), String> {
+fn session_profile(app: AppHandle, id: String, profile: String) -> Result<autotest::Chosen, String> {
     let state = app.state::<UiState>();
     if state.with_session(&id, |_| ()).is_none() {
         return Err(t("errors.no_session", &[]));
     }
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
     // Auto (docs/profil-auto.md) : avec un test gardé, ses réglages tout de
-    // suite ; sans test, le panneau du test s'ouvre à la fin de la session.
+    // suite ; sans test, le panneau du test s'ouvre à la fin de la session
+    // (`later` : la barre le dit dans sa capsule).
     if profile == "auto" {
-        return autotest::choose(&app, &id).map(|_| ());
+        return autotest::choose(&app, &id);
     }
     let c = save_profile(&app, &id, &profile)?;
     emit_computers(&app);
-    apply_to_session(&app, &id, &c)
+    apply_to_session(&app, &id, &c).map(|_| autotest::Chosen::Applied)
 }
 
 /// Le profil de l'ordinateur `id`, tel qu'il est enregistré (`c`), appliqué
@@ -3608,7 +3609,11 @@ fn save_profile(app: &AppHandle, id: &str, profile: &str) -> Result<Computer, St
 fn set_profile(app: AppHandle, id: String, profile: String) -> Result<autotest::Chosen, String> {
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
     if profile == "auto" {
-        return autotest::choose(&app, &id);
+        let chosen = autotest::choose(&app, &id)?;
+        if chosen == autotest::Chosen::Later {
+            autotest::later_told(&app, &id);
+        }
+        return Ok(chosen);
     }
     let state = app.state::<UiState>();
     if state.in_session(&id) {
@@ -4109,6 +4114,7 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
             // Auto sans test gardé : l'accueil revient sur le panneau du test.
             Cmd::Profile(id, "auto") => match autotest::choose(&app, &id) {
                 Ok(autotest::Chosen::Test) => show_action(&app, Action::Autotest { id }),
+                Ok(autotest::Chosen::Later) => autotest::later_told(&app, &id),
                 r => fail(r.map(|_| ())),
             },
             Cmd::Profile(id, p) => fail(set_profile(app.clone(), id, p.into()).map(|_| ())),

@@ -137,6 +137,8 @@ sealed class Capsule {
     data class HdrRefused(val text: String) : Capsule()
     /** PyroWave : la définition ramenée, le texte du cœur (docs/link-ui.md, « PyroWave »). */
     data class ResolutionLowered(val text: String) : Capsule()
+    /** Profil Auto : « Le test se fera à la fin de la session. » (« Refaire le test », ou Auto choisi sans test, en session). */
+    data object AutoTestLater : Capsule()
 }
 
 /**

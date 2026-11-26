@@ -596,7 +596,8 @@
 
   /** « Refaire le test » : le panneau, ou à la fin de la session si cet ordinateur est en session. */
   function runAutotest(id: string) {
-    if (sessions.includes(id)) invoke('autotest_later', { id }).catch(() => {})
+    // En session : l'avis « Le test se fera à la fin de la session. » (barre de la session, sinon notification).
+    if (sessions.includes(id)) invoke('autotest_later', { id, told: true }).catch(() => {})
     else autotestId = id
   }
 

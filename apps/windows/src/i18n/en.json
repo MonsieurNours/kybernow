@@ -184,7 +184,8 @@
     "n_consoles_other": "{n} consoles"
   },
   "session": {
-    "gamepads_unavailable": "Controllers unavailable on this computer."
+    "gamepads_unavailable": "Controllers unavailable on this computer.",
+    "autotest_later": "The test will run when the session ends."
   },
   "pyrowave": {
     "banner_text": "The picture may stutter."

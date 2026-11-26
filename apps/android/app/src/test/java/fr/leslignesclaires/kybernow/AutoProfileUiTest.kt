@@ -6,17 +6,28 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.core.app.ApplicationProvider
 import fr.leslignesclaires.kybernow.core.FormFactor
+import fr.leslignesclaires.kybernow.core.ShareGuest
+import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.model.AutoChoice
 import fr.leslignesclaires.kybernow.model.AutoStep
 import fr.leslignesclaires.kybernow.model.DecoderInfo
 import fr.leslignesclaires.kybernow.model.Decoders
+import fr.leslignesclaires.kybernow.model.Gamepads
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.HostSettings
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.PyroWaveChoice
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.ScreenMode
+import fr.leslignesclaires.kybernow.session.Capsule
+import fr.leslignesclaires.kybernow.session.Phase
+import fr.leslignesclaires.kybernow.session.SessionActions
+import fr.leslignesclaires.kybernow.session.SessionOverlay
+import fr.leslignesclaires.kybernow.session.SessionState
+import fr.leslignesclaires.kybernow.session.SessionUi
+import fr.leslignesclaires.kybernow.session.Shortcut
 import fr.leslignesclaires.kybernow.ui.AutoTestActions
 import fr.leslignesclaires.kybernow.ui.AutoTestPanel
 import fr.leslignesclaires.kybernow.ui.AutoTestState
@@ -161,5 +172,46 @@ class AutoProfileUiTest {
             fr("Baisse le débit quand le réseau sature, puis le remonte. Coupé, le débit ne bouge jamais. En PyroWave, il est en pause : la définition baisse à la place."),
         ).performScrollTo().assertExists()
         rule.onNodeWithText("Choisi par le test du", substring = true).assertDoesNotExist()
+    }
+
+    private class Actions : SessionActions {
+        override fun resume() {}
+        override fun quit() {}
+        override fun setProfile(p: Profile) {}
+        override fun setMouseMode(m: Int) {}
+        override fun setDirectTouch(on: Boolean) {}
+        override fun setRemoteMouse(on: Boolean) {}
+        override fun setPadMouse(on: Boolean) {}
+        override fun shortcut(s: Shortcut) {}
+        override fun key(scancode: Int) {}
+        override fun text(s: String) {}
+        override fun restoreMode() {}
+        override fun pickDisplay(id: Int) {}
+        override fun openKeyboard(open: Boolean) {}
+        override fun setOnScreenPad(on: Boolean) {}
+        override fun setPadLayout(simple: Boolean) {}
+        override fun share() {}
+        override fun shareNewCode() {}
+        override fun shareSetPads(guest: ShareGuest, on: Boolean) {}
+        override fun shareSetKeyboardMouse(guest: ShareGuest, on: Boolean) {}
+        override fun shareAccept(guest: ShareGuest) {}
+        override fun shareRefuse(guest: ShareGuest) {}
+        override fun shareRemove(guest: ShareGuest) {}
+        override fun shareStop() {}
+        override fun shareCopyLink() {}
+        override fun setShareQuality(quality: ShareQuality) {}
+    }
+
+    /** « Refaire le test », ou Auto choisi sans test, en session : le panneau attend la fin de la session, et la capsule le dit. */
+    @Test
+    fun session_test_a_la_fin_de_la_session() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val state = SessionState(context, Gamepads(context))
+        state.phase.value = Phase.STREAMING
+        state.firstImageAt.set(1)
+        state.capsule.value = Capsule.AutoTestLater
+        val ui = SessionUi("Atelier", false, state, Actions()).apply { passageDone = true }
+        show(FormFactor.PHONE) { SessionOverlay(ui) }
+        rule.onNodeWithText("Le test se fera à la fin de la session.").assertExists()
     }
 }

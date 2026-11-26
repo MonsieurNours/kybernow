@@ -735,6 +735,12 @@ pub fn shortcuts(mac: bool) -> &'static [(&'static str, &'static str, &'static [
     if mac { &MAC_SHORTCUTS } else { &SHORTCUTS }
 }
 
+/// Profil Auto : le test demandé pendant une session (« Refaire le test », Auto sans test) attend sa fin, l'avis le dit
+/// (docs/link-ui.md, « Profil Auto et débit adaptatif »).
+pub fn autotest_later_notice() -> &'static str {
+    tr("Le test se fera à la fin de la session.", "The test will run when the session ends.")
+}
+
 /// L'avis bref des manettes indisponibles (docs/link-ui.md), montré avec l'icône de manette.
 pub fn pads_unavailable_notice() -> &'static str {
     tr("Manettes indisponibles sur cet ordinateur.", "Controllers unavailable on this computer.")
@@ -3616,6 +3622,7 @@ impl App {
         let Some(name) = self.store.host(id).map(|h| h.name.clone()) else { return Vec::new() };
         if self.sessions.iter().any(Self::counts) {
             self.autotest_pending = Some(id.to_string());
+            self.toast(autotest_later_notice());
             return Vec::new();
         }
         self.autotest_attempt += 1;
@@ -4482,8 +4489,9 @@ impl App {
             Target::AutoBannerRetest => {
                 let Some(s) = self.session_mut() else { return Vec::new() };
                 s.auto_banner = None;
+                // Ouvert après la session : le test mesurerait un réseau et un décodeur occupés par l'image. L'avis le dit.
+                s.notice = Some((autotest_later_notice().into(), Instant::now()));
                 let host = s.host.clone();
-                // Ouvert après la session : le test mesurerait un réseau et un décodeur occupés par l'image.
                 self.autotest_pending = Some(host);
                 Vec::new()
             }
@@ -4864,13 +4872,16 @@ impl App {
 
     /// Le profil choisi en session est gardé pour cet ordinateur.
     /// Auto choisi en session (barre, menu) sans test gardé pour cet ordinateur : le profil ne change pas, le panneau
-    /// du test s'ouvrira après la session. Rend vrai dans ce cas.
+    /// du test s'ouvrira après la session, l'avis « Le test se fera à la fin de la session. » le dit. Rend vrai dans ce cas.
     fn session_auto_pending(&mut self) -> bool {
         let Some(host) = self.session().map(|s| s.host.clone()) else { return false };
         if self.store.host(&host).is_none_or(|h| h.settings.auto_view().is_some()) {
             return false;
         }
         self.autotest_pending = Some(host);
+        if let Some(s) = self.session_mut() {
+            s.notice = Some((autotest_later_notice().into(), Instant::now()));
+        }
         true
     }
 
@@ -7718,6 +7729,9 @@ mod tests {
         assert!(app.activate(Target::BarPick(Profile::Auto)).is_empty());
         assert_eq!(app.session().unwrap().profile, Profile::Jeu);
         assert_eq!(app.autotest_pending.as_deref(), Some("a"));
+        let notice = |app: &App| app.session().and_then(|s| s.notice.as_ref()).map(|n| n.0.clone());
+        assert_eq!(notice(&app).as_deref(), Some("Le test se fera à la fin de la session."));
+        app.session_mut().unwrap().notice = None;
         assert!(app.poll_autotest().is_empty(), "pas pendant la session");
         // Le même réseau que le test : pas de bandeau.
         app.store.hosts[0].settings.auto = Some(auto_result("hevc", 2160, 60, "Maison"));
@@ -7735,6 +7749,10 @@ mod tests {
         assert!(app.session().unwrap().auto_banner_visible());
         assert!(app.activate(Target::AutoBannerRetest).is_empty());
         assert!(!app.session().unwrap().auto_banner_visible());
+        assert_eq!(notice(&app).as_deref(), Some("Le test se fera à la fin de la session."));
+        // « Refaire le test » des réglages pendant la session : l'avis en toast.
+        assert!(app.open_autotest("a").is_empty());
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Le test se fera à la fin de la session."));
         // La session finie, à l'accueil : le panneau s'ouvre.
         app.sessions.clear();
         app.active = None;

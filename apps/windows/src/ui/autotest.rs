@@ -19,7 +19,8 @@
 //!   écran, sinon « Sur mesure ») ; pendant sa session, appliqué tout de suite.
 //! - **Choisir Auto** ([`choose`]) : avec un test gardé, ses réglages tout de
 //!   suite ; sans test, le panneau du test (à la fin de la session si
-//!   l'ordinateur est en session : [`later`], repris par `show_home_if_idle`).
+//!   l'ordinateur est en session : [`later`], repris par `show_home_if_idle`,
+//!   et dit dans un avis : « Le test se fera à la fin de la session. »).
 //! - **En session** ([`Check`]) : Auto, et un réseau (ou le relais) différent
 //!   de celui du test : le bandeau « Autre réseau que celui du test ».
 
@@ -68,6 +69,15 @@ pub fn choose(app: &AppHandle, id: &str) -> Result<Chosen, String> {
 pub fn later(id: &str) {
     log::info!("profil Auto : test à la fin de la session");
     *LATER.lock().unwrap() = Some(id.to_string());
+}
+
+/// [`later`], dit dans un avis (capsule de la barre, sinon notification de
+/// Windows) : « Le test se fera à la fin de la session. ». Pour l'accueil et le
+/// menu de l'icône ; la barre le dit elle-même (`Bar.svelte`).
+pub fn later_told(app: &AppHandle, id: &str) {
+    later(id);
+    let name = app.state::<UiState>().with_session(id, |r| r.name.clone()).unwrap_or_default();
+    super::share::notice(app, id, &name, &t("session.autotest_later", &[]));
 }
 
 /// La session est finie, l'accueil revient : le panneau du test attendu.
@@ -269,8 +279,14 @@ pub fn autotest_apply(app: AppHandle, id: String, result: AutoResult) -> Result<
     apply(&app, &id, Some(result)).map(|c| c.settings)
 }
 
-/// « Refaire le test » du bandeau de la session : le panneau à la fin de la session.
+/// « Refaire le test » pendant la session : le panneau à la fin de la session.
+/// `told` : l'avis « Le test se fera à la fin de la session. » est à montrer
+/// (depuis l'accueil) ; la barre, elle, le montre dans sa capsule.
 #[tauri::command(async)]
-pub fn autotest_later(id: String) {
-    later(&id);
+pub fn autotest_later(app: AppHandle, id: String, told: Option<bool>) {
+    if told == Some(true) {
+        later_told(&app, &id);
+    } else {
+        later(&id);
+    }
 }
