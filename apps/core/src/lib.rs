@@ -11,6 +11,7 @@ pub mod account;
 pub mod adaptive;
 pub mod autotest;
 pub mod audio;
+pub mod camera;
 pub mod console;
 pub mod focus;
 pub mod gamepads;
