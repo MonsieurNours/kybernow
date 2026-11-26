@@ -376,6 +376,7 @@ fn shared_view() -> ShareView {
             ShareGuest { id: "g3".into(), name: "Hugo".into(), role: ShareRole::Kbm, app: "mac".into(), since: Some(now - 12 * 60), quality: None, ..Default::default() },
             ShareGuest { id: "g4".into(), name: "Camille".into(), role: ShareRole::PlayerKbm, app: "windows".into(), since: Some(now - 3700), quality: Some("720p · 30 Hz".into()), ..Default::default() },
         ],
+        guests_speak: Some(false),
     }
 }
 
@@ -715,7 +716,7 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
 
 /// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
 fn borrowed() -> Borrowed {
-    Borrowed { hdr_off: false, id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
+    Borrowed { hdr_off: false, mic: false, id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
 }
 
 /// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.

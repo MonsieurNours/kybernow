@@ -71,6 +71,7 @@ pub const SDL_JOYSTICK_POWER_WIRED: c_int = 5;
 pub const SDL_FINGERDOWN: u32 = 0x700;
 pub const SDL_CLIPBOARDUPDATE: u32 = 0x900;
 pub const SDL_AUDIODEVICEADDED: u32 = 0x1100;
+pub const SDL_AUDIODEVICEREMOVED: u32 = 0x1101;
 pub const SDL_RENDER_TARGETS_RESET: u32 = 0x2000;
 pub const SDL_RENDER_DEVICE_RESET: u32 = 0x2001;
 pub const SDL_USEREVENT: u32 = 0x8000;
@@ -97,6 +98,7 @@ pub const SC_F: i32 = 9;
 pub const SC_M: i32 = 16;
 pub const SC_O: i32 = 18;
 pub const SC_S: i32 = 22;
+pub const SC_V: i32 = 25;
 pub const SC_RETURN: i32 = 40;
 pub const SC_ESCAPE: i32 = 41;
 pub const SC_BACKSPACE: i32 = 42;
@@ -279,6 +281,7 @@ unsafe extern "C" {
     pub fn SDL_Quit();
     pub fn SDL_GetError() -> *const c_char;
     pub fn SDL_SetHint(name: *const c_char, value: *const c_char) -> c_int;
+    pub fn SDL_ResetHint(name: *const c_char) -> c_int;
     pub fn SDL_GetCurrentVideoDriver() -> *const c_char;
     pub fn SDL_GetCurrentAudioDriver() -> *const c_char;
     pub fn SDL_CreateWindow(title: *const c_char, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) -> *mut SDL_Window;
@@ -384,6 +387,7 @@ unsafe extern "C" {
     pub fn SDL_GetDefaultAudioInfo(name: *mut *mut c_char, spec: *mut SDL_AudioSpec, iscapture: c_int) -> c_int;
 }
 
+pub const SDL_AUDIO_ALLOW_FREQUENCY_CHANGE: c_int = 0x1;
 pub const SDL_AUDIO_ALLOW_CHANNELS_CHANGE: c_int = 0x4;
 
 /// Le titre d'une fenêtre (le nom de l'ordinateur pendant sa session).
@@ -416,6 +420,12 @@ pub fn error() -> String {
 pub fn hint(name: &str, value: &str) {
     let (n, v) = (CString::new(name).unwrap(), CString::new(value).unwrap());
     unsafe { SDL_SetHint(n.as_ptr(), v.as_ptr()) };
+}
+
+/// Rend à un indice sa valeur par défaut (celle de l'environnement, sinon aucune ; SDL 2.24 et après).
+pub fn reset_hint(name: &str) {
+    let n = CString::new(name).unwrap();
+    unsafe { SDL_ResetHint(n.as_ptr()) };
 }
 
 fn cstr(p: *const c_char) -> String {

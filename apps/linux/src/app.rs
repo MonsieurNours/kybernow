@@ -683,6 +683,9 @@ pub enum MenuItem {
     /// « HDR », cochable, près du profil (écran HDR ; hôte et emprunt).
     Hdr,
     Sound,
+    /// « Micro » (seulement avec un micro sur l'appareil) : l'allume ou le coupe ; sous-titre « Envoyé », « Coupé »,
+    /// « Envoi… » ; estompé, il dit la raison en capsule.
+    Mic,
     PadMouse,
     Keyboard,
     Keys,
@@ -1039,6 +1042,9 @@ pub struct ShareView {
     /// Les invités acceptés, puis les demandes en attente (`ShareGuest::pending`) : les boutons visent un indice
     /// de cette liste.
     pub guests: Vec<ShareGuest>,
+    /// « Laisser les invités parler » (docs/micro.md) : leur micro arrive sur l'ordinateur ; `None` : Station d'avant
+    /// le micro, pas d'interrupteur.
+    pub guests_speak: Option<bool>,
 }
 
 /// Ce que l'app attend au plus le lien du relais d'un partage en préparation, à partir du moment où elle le voit
@@ -1287,6 +1293,8 @@ pub enum ShareOp {
     Refuse(String),
     /// « Arrêter le partage » : tout le monde sort.
     Close,
+    /// « Laisser les invités parler » allumé ou coupé : tout de suite pour les invités déjà là.
+    Speak(bool),
 }
 
 // MARK: - Prêt de l'ordinateur (docs/pret.md ; textes : docs/link-ui.md, « Prêt de l'ordinateur »)
@@ -2055,6 +2063,9 @@ pub struct SessionUi {
     /// test », montré depuis (8 s, ou la croix) ; le réseau a été comparé à celui du test (une fois par session).
     pub auto_banner: Option<Instant>,
     pub auto_checked: bool,
+    /// « Micro » (docs/micro.md) : `None` sans micro sur l'appareil (ni puce, ni tuile) et pour une partie sur une
+    /// console ; sinon le choix retenu pour cet ordinateur et l'état dit par le cœur.
+    pub mic: Option<crate::micro::MicUi>,
 }
 
 impl SessionUi {
@@ -2171,6 +2182,7 @@ impl SessionUi {
             pw_strained: false,
             auto_banner: None,
             auto_checked: false,
+            mic: None,
         }
     }
 
@@ -2315,6 +2327,11 @@ pub enum Setting {
     AutoRetest,
     /// « Débit adaptatif » (carte « Débit »).
     Adaptive,
+    /// « Micro » de la rubrique Son (le même interrupteur que celui de la session, retenu pour cet ordinateur).
+    Mic,
+    /// Réglages de l'app : « Micro » (celui du système ou un micro de l'appareil) et « Réduire l'écho et le bruit ».
+    MicDevice,
+    MicEcho,
     Resolution,
     /// Écrans pris par la session : Auto, Cet écran, Tous les écrans (bureau seulement).
     Displays,
@@ -2741,6 +2758,8 @@ pub enum Target {
     BarComputers,
     BarComputer(usize),
     BarSound,
+    /// « Micro » de la barre (seulement avec un micro sur l'appareil).
+    BarMic,
     /// KyberNow Share, invité : les champs de « Rejoindre un partage » et le bouton « Rejoindre ».
     JoinCode,
     JoinName,
@@ -2769,6 +2788,8 @@ pub enum Target {
     ShareAccept(usize),
     ShareRefuse(usize),
     ShareNewCode,
+    /// « Laisser les invités parler » (Station qui le connaît).
+    ShareSpeak,
     ShareStop,
     ShareClose,
     /// Prêt de l'ordinateur, ami : la carte d'un ordinateur emprunté (indice dans `Store::borrowed`), « Emprunter »
@@ -2977,6 +2998,11 @@ pub enum Action {
     PadMouse(SessionId, bool),
     /// Le son coupé depuis le menu de session.
     Mute(SessionId, bool),
+    /// « Micro » allumé ou coupé pour cette session (`Session::set_microphone`) ; la capture suit l'état du cœur.
+    SetMic(SessionId, bool),
+    /// Le micro choisi ou « Réduire l'écho et le bruit » ont changé (Réglages de l'app) : les captures en cours se
+    /// rouvrent avec eux.
+    MicConfig,
     /// « Garder le son » : la session reste audible quand elle n'est pas active.
     KeepSound(SessionId, bool),
     Light(SessionId, bool),
@@ -3055,6 +3081,8 @@ pub struct App {
     pub screen_hdr: Option<crate::hdr::Luminance>,
     pub net: NetInfo,
     pub pads: Vec<PadInfo>,
+    /// Les micros de l'appareil (noms de SDL) ; vide : pas de micro, rien ne parle du micro (Pi sans micro USB).
+    pub mics: Vec<String>,
     pub add: AddState,
     pub section: usize,
     /// Écran des réglages : de l'app (vrai) ou de l'ordinateur choisi.
@@ -3304,6 +3332,7 @@ impl App {
             screen_hdr: None,
             net: NetInfo::default(),
             pads: Vec::new(),
+            mics: Vec::new(),
             add: AddState {
                 step: AddStep::Code,
                 code: String::new(),
@@ -4691,6 +4720,10 @@ impl App {
                 Some(id) => self.share_op(id, ShareOp::NewCode),
                 None => Vec::new(),
             },
+            Target::ShareSpeak => match self.session().and_then(|s| s.share.as_ref().and_then(|v| v.guests_speak).map(|on| (s.id, on))) {
+                Some((id, on)) => self.share_op(id, ShareOp::Speak(!on)),
+                None => Vec::new(),
+            },
             Target::ShareStop => match self.active_id() {
                 Some(id) => self.share_op(id, ShareOp::Close),
                 None => Vec::new(),
@@ -4970,6 +5003,8 @@ impl App {
                 s.keep_sound = !s.keep_sound;
                 vec![Action::KeepSound(s.id, s.keep_sound)]
             }
+            // Estompé (l'ordinateur ne le prend pas) : inactif à la souris, la raison est son infobulle.
+            Target::BarMic => self.active_id().map(|id| self.toggle_mic(id, false)).unwrap_or_default(),
             Target::BarQuit => self.active_id().map(|id| vec![Action::Disconnect(id)]).unwrap_or_default(),
             Target::UpdateNotice => match &self.update {
                 UpdateState::Available { page, .. } => vec![Action::OpenUrl(page.clone())],
@@ -5721,6 +5756,8 @@ impl App {
                 s.muted = !s.muted;
                 vec![Action::Mute(id, s.muted)]
             }
+            // À la manette, estompé, il reste choisissable : la raison en capsule.
+            MenuItem::Mic => self.toggle_mic(id, true),
             MenuItem::PadMouse => {
                 s.pad_mouse = !s.pad_mouse;
                 s.menu = false;
@@ -6276,7 +6313,7 @@ impl App {
                 UpdateState::Available { version, .. } => format!("{} {version} {}", tr("Version", "Version"), tr("disponible", "available")),
                 UpdateState::Failed(e) => e.clone(),
             };
-            return vec![
+            let mut rows = vec![
                 choice(
                     Setting::Interface,
                     tr("Interface", "Interface"),
@@ -6301,6 +6338,12 @@ impl App {
                 ),
                 Row { setting: Setting::CheckUpdate, label: format!("KyberNow Link {}", self.version), hint: update, kind: RowKind::Action(tr("Chercher", "Check").into()), enabled: true, tag: None },
             ];
+            // « Micro » et « Réduire l'écho et le bruit », après « Garder la dernière image » (l'app n'a pas de « Son »).
+            let at = rows.iter().position(|r| r.setting == Setting::KeepImage).map_or(rows.len(), |i| i + 1);
+            for (k, r) in self.mic_app_rows().into_iter().enumerate() {
+                rows.insert(at + k, r);
+            }
+            return rows;
         }
         if section == Section::Accounts {
             return self.account_rows();
@@ -6451,14 +6494,20 @@ impl App {
             Section::Sound => {
                 let audio = ["auto", "stereo", "5.1", "7.1", "computer"];
                 let off: Vec<bool> = audio.iter().map(|a| (*a == "5.1" && m.audio_channels < 6) || (*a == "7.1" && m.audio_channels < 8)).collect();
-                vec![choice(
+                let mut rows = vec![choice(
                     Setting::Audio,
                     tr("Son", "Sound"),
                     format!("{} ({}, {} {}).", tr("Auto suit la sortie de cet appareil", "Auto follows this device's output"), m.audio_name, m.audio_channels, tr("voies", "channels")),
                     vec!["Auto".into(), tr("Stéréo", "Stereo").into(), "5.1".into(), "7.1".into(), tr("Sur l'ordinateur", "On the computer").into()],
                     audio.iter().position(|v| *v == st.audio).unwrap_or(0),
                     off,
-                )]
+                )];
+                // « Micro » : le même interrupteur que celui de la session, retenu pour cet ordinateur ; absent sans
+                // micro sur l'appareil.
+                if self.has_mic() {
+                    rows.push(toggle(Setting::Mic, crate::micro::label_on(), crate::micro::setting_help().into(), st.mic));
+                }
+                rows
             }
             Section::Controls => {
                 let mut rows = vec![
@@ -6694,10 +6743,15 @@ impl App {
                     info(tr("Écran", "Screen"), m.display_name.clone(), format!("{} × {} · {} Hz", m.display.0, m.display.1, m.refresh)),
                 ]
             }
-            Section::OsSound => vec![
-                info(tr("Sortie", "Output"), tr("La première prise HDMI de la puce", "The chip's first HDMI socket").into(), format!("HDMI · {} {}", m.audio_channels, tr("voies", "channels"))),
-                info(tr("Par ordinateur", "Per computer"), tr("Stéréo, 5.1 ou 7.1 : Réglages de l'ordinateur › Son", "Stereo, 5.1 or 7.1: Computer settings › Sound").into(), String::new()),
-            ],
+            Section::OsSound => {
+                let mut v = vec![
+                    info(tr("Sortie", "Output"), tr("La première prise HDMI de la puce", "The chip's first HDMI socket").into(), format!("HDMI · {} {}", m.audio_channels, tr("voies", "channels"))),
+                    info(tr("Par ordinateur", "Per computer"), tr("Stéréo, 5.1 ou 7.1 : Réglages de l'ordinateur › Son", "Stereo, 5.1 or 7.1: Computer settings › Sound").into(), String::new()),
+                ];
+                // Un micro USB branché : son choix et « Réduire l'écho et le bruit ».
+                v.extend(self.mic_app_rows());
+                v
+            }
             Section::OsUpdate => Vec::new(),
             Section::OsLanguage => {
                 let lang = ["auto", "fr", "en"].iter().position(|v| *v == a.language).unwrap_or(0);
@@ -6770,6 +6824,11 @@ impl App {
             Setting::KeepImage => {
                 self.store.app.keep_last_image = !self.store.app.keep_last_image;
                 return vec![Action::Save];
+            }
+            Setting::MicDevice => return self.choose_mic_device(i),
+            Setting::MicEcho => {
+                self.store.app.mic_echo = !self.store.app.mic_echo;
+                return vec![Action::Save, Action::MicConfig];
             }
             // KyberNow Link OS.
             Setting::OsUsage => {
@@ -6912,6 +6971,12 @@ impl App {
                 return vec![Action::Save, Action::ControlAsCommand(id, on)];
             }
             Setting::Clipboard => st.clipboard = !st.clipboard,
+            // Vaut tout de suite pour les sessions de cet ordinateur (rien ne relance l'image).
+            Setting::Mic => {
+                st.mic = !st.mic;
+                let on = st.mic;
+                return self.mic_setting_changed(&id, on);
+            }
             Setting::Reconnect => st.reconnect = !st.reconnect,
             Setting::Yuv444 => st.yuv444 = !st.yuv444,
             Setting::Hdr => st.hdr = !st.hdr,
@@ -6944,6 +7009,144 @@ impl App {
             fps = fps.min(60);
         }
         (width, height, fps)
+    }
+
+    // MARK: - Micro
+
+    /// L'appareil a un micro : la puce, la tuile et les réglages du micro se montrent.
+    pub fn has_mic(&self) -> bool {
+        !self.mics.is_empty()
+    }
+
+    /// « Micro » d'une session qui démarre : le choix retenu pour cet ordinateur (hôte, ordinateur emprunté ; un
+    /// invité part coupé) ; `None` sans micro sur l'appareil.
+    pub fn mic_ui(&self, host: &str, guest: bool) -> Option<crate::micro::MicUi> {
+        if !self.has_mic() {
+            return None;
+        }
+        let on = !guest && (self.store.host(host).map(|h| h.settings.mic).or_else(|| self.store.borrowed(host).map(|b| b.mic)).unwrap_or(false));
+        Some(crate::micro::MicUi::new(on))
+    }
+
+    /// Retient le choix « Micro » pour l'ordinateur de cette session (hôte, ordinateur emprunté ; rien pour un
+    /// invité, qui repart coupé).
+    fn remember_mic(&mut self, key: &str, on: bool) {
+        if let Some(h) = self.store.host_mut(key) {
+            h.settings.mic = on;
+        } else if let Some(b) = self.store.borrowed.iter_mut().find(|b| b.id == key) {
+            b.mic = on;
+        }
+    }
+
+    /// « Micro » de la barre, de la tuile ou de Ctrl+Alt+Maj+V : l'allume ou le coupe, et le retient pour cet
+    /// ordinateur ; rien ne relance l'image. L'ordinateur ne le prend pas : rien ne change ; `notify` (manette,
+    /// raccourci) dit la raison en capsule, la souris l'a déjà en infobulle.
+    pub fn toggle_mic(&mut self, id: SessionId, notify: bool) -> Vec<Action> {
+        let Some(s) = self.session_by_mut(id) else { return Vec::new() };
+        let Some(m) = s.mic.as_mut() else { return Vec::new() };
+        if let Some(r) = m.refused() {
+            if notify {
+                s.notice = Some((r.text().into(), Instant::now()));
+            }
+            return Vec::new();
+        }
+        let on = !m.on;
+        m.on = on;
+        // L'avis « Micro envoyé à {nom}. » quand l'état passera à « On » (tout de suite s'il y est déjà).
+        m.announce = on;
+        let key = s.host.clone();
+        let guest = s.guest.is_some();
+        if on && m.state == crate::micro::MicState::On {
+            self.mic_changed(id, crate::micro::MicState::On);
+        }
+        if guest {
+            return vec![Action::SetMic(id, on)];
+        }
+        self.remember_mic(&key, on);
+        vec![Action::SetMic(id, on), Action::Save]
+    }
+
+    /// L'état dit par le cœur (`Platform::on_microphone`) : la puce et la tuile le suivent ; à « On » après un
+    /// allumage, l'avis bref « Micro envoyé à {nom}. ».
+    pub fn mic_changed(&mut self, id: SessionId, state: crate::micro::MicState) {
+        let Some(s) = self.session_by_mut(id) else { return };
+        let name = s.name.clone();
+        let Some(m) = s.mic.as_mut() else { return };
+        m.state = state;
+        match state {
+            crate::micro::MicState::On if m.announce && m.on => {
+                m.announce = false;
+                s.notice = Some((crate::micro::sent_notice(&name), Instant::now()));
+            }
+            crate::micro::MicState::Refused(_) => m.announce = false,
+            _ => {}
+        }
+    }
+
+    /// L'appareil n'a pas donné son micro (la capture ne s'ouvre pas) : « Micro » reste coupé, avec l'avis.
+    pub fn mic_failed(&mut self, id: SessionId) -> Vec<Action> {
+        let Some(s) = self.session_by_mut(id) else { return Vec::new() };
+        let Some(m) = s.mic.as_mut() else { return Vec::new() };
+        if !m.on {
+            return Vec::new();
+        }
+        m.on = false;
+        m.announce = false;
+        s.notice = Some((crate::micro::no_access().into(), Instant::now()));
+        let (key, guest) = (s.host.clone(), s.guest.is_some());
+        if !guest {
+            self.remember_mic(&key, false);
+        }
+        vec![Action::SetMic(id, false), Action::Save]
+    }
+
+    /// Les lignes du micro des Réglages de l'app : « Micro » (« Celui du système », puis les micros de l'appareil),
+    /// « Réduire l'écho et le bruit ». Rien sans micro.
+    fn mic_app_rows(&self) -> Vec<Row> {
+        if !self.has_mic() {
+            return Vec::new();
+        }
+        let a = &self.store.app;
+        let mut options = vec![crate::micro::system_default().to_string()];
+        options.extend(self.mics.iter().cloned());
+        let n = options.len();
+        vec![
+            Row {
+                setting: Setting::MicDevice,
+                label: crate::micro::app_setting().into(),
+                hint: String::new(),
+                kind: RowKind::Choice { options, current: crate::micro::device_index(&a.mic_device, &self.mics), disabled: vec![false; n], tags: Vec::new() },
+                enabled: true,
+                tag: None,
+            },
+            Row { setting: Setting::MicEcho, label: crate::micro::echo().into(), hint: crate::micro::echo_help().into(), kind: RowKind::Toggle(a.mic_echo), enabled: true, tag: None },
+        ]
+    }
+
+    /// Réglages de l'app : le micro choisi (indice : 0 celui du système, puis la liste ; `usize::MAX` : le suivant).
+    fn choose_mic_device(&mut self, i: usize) -> Vec<Action> {
+        let cur = crate::micro::device_index(&self.store.app.mic_device, &self.mics);
+        let n = self.mics.len() + 1;
+        let i = if i == usize::MAX { (cur + 1) % n } else { i.min(n - 1) };
+        self.store.app.mic_device = if i == 0 { String::new() } else { self.mics[i - 1].clone() };
+        vec![Action::Save, Action::MicConfig]
+    }
+
+    /// Le réglage « Micro » de la rubrique Son changé : les sessions de cet ordinateur le prennent tout de suite.
+    fn mic_setting_changed(&mut self, host: &str, on: bool) -> Vec<Action> {
+        let mut actions = vec![Action::Save];
+        let ids: Vec<SessionId> = self.sessions.iter().filter(|s| s.host == host && s.running() && s.guest.is_none()).map(|s| s.id).collect();
+        for id in ids {
+            if let Some(m) = self.session_by_mut(id).and_then(|s| s.mic.as_mut())
+                && m.refused().is_none()
+                && m.on != on
+            {
+                m.on = on;
+                m.announce = on;
+                actions.push(Action::SetMic(id, on));
+            }
+        }
+        actions
     }
 
     // MARK: - HDR
@@ -7804,7 +8007,7 @@ mod tests {
         let mut app = desk();
         let a = open(&mut app, "a");
         let guest = |id: &str, pending: bool| ShareGuest { id: id.into(), name: id.to_uppercase(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
-        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://share.kybernow.app/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests, guests_speak: None };
         // Trois invités et une demande : il reste une place.
         app.share_reply(a, Ok(Some(view(vec![guest("g1", false), guest("g2", false), guest("g3", false), guest("r1", true)]))));
         assert!(!app.session().unwrap().share.as_ref().unwrap().full());
@@ -8721,7 +8924,7 @@ mod tests {
         assert!(s.share_busy && s.bar_menu == Some(BarMenu::Share));
         // Une demande à la fois.
         assert!(app.activate(Target::ShareNewCode).is_empty());
-        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), relay: None, relay_since: None, guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1), quality: None, ..Default::default() }] };
+        let view = ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/link/?join=482917".into(), relay: None, relay_since: None, guests: vec![ShareGuest { id: "g1".into(), name: "Léa".into(), role: ShareRole::Spectator, app: "ios".into(), since: Some(1), quality: None, ..Default::default() }], guests_speak: None };
         app.share_reply(a, Ok(Some(view.clone())));
         assert!(!app.session().unwrap().share_busy && app.session().unwrap().share.is_some());
         // Ses invités : deux droits indépendants, chacun donné ou repris sans toucher à l'autre, puis « Retirer ».
@@ -9124,7 +9327,7 @@ mod tests {
         let mut app = desk();
         let a = open(&mut app, "a");
         let guest = |id: &str, name: &str, pending: bool| ShareGuest { id: id.into(), name: name.into(), app: "ios".into(), pending, via_relay: pending, ..Default::default() };
-        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests };
+        let view = |guests: Vec<ShareGuest>| ShareView { code: "482917".into(), link: "kybernow://join?x".into(), web: "https://h:1/j/482917".into(), relay: Some(ShareRelay::Joined), relay_since: None, guests, guests_speak: None };
         app.share_reply(a, Ok(Some(view(Vec::new()))));
         // Une demande arrive avec le signe de vie : l'avis bref, pas de panneau ouvert.
         app.share_guests(a, Some(view(vec![guest("g1", "Léa", false), guest("g2", "Tom", true)])));

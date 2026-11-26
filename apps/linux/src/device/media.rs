@@ -69,7 +69,11 @@ impl AudioSink {
         // 256 images (5,3 ms) par rappel : PipeWire tient la cadence.
         let want = sdl::SDL_AudioSpec { freq: RATE, format: sdl::AUDIO_F32SYS, channels: self.channels, silence: 0, samples: 256, padding: 0, size: 0, callback: Some(fill), userdata: user };
         let mut have = sdl::SDL_AudioSpec::empty();
-        let id = unsafe { sdl::SDL_OpenAudioDevice(std::ptr::null(), 0, &want, &mut have, 0) };
+        // Pas pendant l'ouverture d'un micro : son rôle « communication » ne doit pas passer à la sortie.
+        let id = {
+            let _guard = super::mic::OPEN.lock().unwrap();
+            unsafe { sdl::SDL_OpenAudioDevice(std::ptr::null(), 0, &want, &mut have, 0) }
+        };
         if id == 0 {
             log::error!("son : sortie SDL impossible ({})", sdl::error());
             return;
