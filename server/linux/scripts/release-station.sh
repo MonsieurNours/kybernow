@@ -11,7 +11,8 @@
 # Chaque architecture se construit sur un Linux de cette architecture, joint
 # par ssh, avec ce dépôt au même commit (build-kyber.sh puis package.sh) :
 #   arm64  : la VM « KyberNow Linux » (KYBERNOW_STATION_ARM64_SSH, défaut
-#            kybernow-vm ; dépôt en dossier partagé, KYBERNOW_LINUX_REPO) ;
+#            kybernow-vm ; dépôt en dossier partagé, KYBERNOW_LINUX_REPO, sinon
+#            cet arbre vu de la VM : vm_repo de apps/linux/scripts/vm.sh) ;
 #   x86_64 : un PC ou une VM x86_64 (KYBERNOW_STATION_X86_SSH, dépôt dans
 #            KYBERNOW_STATION_X86_REPO, défaut ~/kyber-apps) ; sans elle, la
 #            même VM arm64, dans son Ubuntu x86_64 par Rosetta
@@ -27,7 +28,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 ARM_HOST="${KYBERNOW_STATION_ARM64_SSH:-kybernow-vm}"
-ARM_REPO="${KYBERNOW_LINUX_REPO:-/media/psf/kyber-apps}"
+# Ce dépôt vu de la VM (arbre de construction de release.sh compris), comme
+# release-flatpaks.sh : apps/linux/scripts/vm.sh, vm_repo.
+. "$ROOT/apps/linux/scripts/vm.sh"
+ARM_REPO="$(vm_repo "$ROOT")"
 X86_HOST="${KYBERNOW_STATION_X86_SSH:-}"
 X86_REPO="${KYBERNOW_STATION_X86_REPO:-~/kyber-apps}"
 # Sans machine x86_64 : le chroot x86_64 de la VM arm64 (Rosetta).
