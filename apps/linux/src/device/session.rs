@@ -661,10 +661,8 @@ pub fn share_view(st: &ShareState) -> Option<ShareView> {
             .iter()
             .map(|g| ShareGuest { id: g.id.clone(), name: g.name.clone(), role: role_of(g.role), app: g.app.clone(), since: g.since, quality: guest_quality(g), pending: g.pending, via_relay: g.via == share::ShareVia::Relay })
             .collect(),
-        // « Laisser les invités parler » : à lire dans `st.guests_speak` dès que le cœur le porte dans `ShareState`
-        // (il n'est pour l'instant que dans `ShareOpened`) ; d'ici là, pas d'interrupteur, comme face à une Station
-        // d'avant le micro.
-        guests_speak: None,
+        // « Laisser les invités parler » ; `None` face à une Station d'avant le micro (pas d'interrupteur).
+        guests_speak: st.guests_speak,
     })
 }
 
