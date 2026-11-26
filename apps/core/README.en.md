@@ -359,6 +359,14 @@ Texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Statistics”; bitrate
 - **Bridges.** C: `KnSecond.has_target`, `target_bitrate`, `target_profile`, `target_reason` (`KN_TARGET_AUTO` 0, `LOWERED` 1, `MANUAL` 2, `PYROWAVE_PAUSED` 3, `APP_CAPPED` 4, `FALLBACK` 5 = `TargetReason::code`), `char *kn_target_bitrate_text(uint32_t bitrate, uint32_t profile, uint32_t reason)`, `char *kn_target_bitrate_label(void)`. JNI: values 22, 23, 24 of `onSecond` (bitrate, profile bitrate, reason; -1 without), `Native.targetBitrateText(bitrate: Long, profile: Long, reason: Int): String?`, `Native.targetBitrateLabel(): String` (to declare in `Native.kt`). Windows, Linux, webOS: the Rust struct.
 - **Tests**: `cargo test -p kybernow-core debit_vise` (reasons, precedence, FR and EN texts) and `… debit_automatique` (the session: Auto, lowered, fallback, app cap, by hand, PyroWave paused), `… image_de_l_invite` (no target bitrate on the host's picture).
 
+## Feedback channel (`src/latency.rs`, `src/adaptive.rs`, `src/session.rs`)
+
+Contract: [docs/canal-de-retour.en.md](../../docs/canal-de-retour.en.md). With a Station that opens it (patches 0050 to 0052), kyclient gives `Metric::Feedback` every second; `LatencyTracker` turns it into `Second::feedback` (`latency::Feedback`: datagrams settled and lost before repair, frames given up, repair sent, wait in place).
+
+- **Automatic bitrate**: `AdaptiveBitrate::judge` counts losses on these datagrams, otherwise as before (QUIC's losses over the packets inferred from the bytes).
+- **Repair within the budget**: `Session::follow_repair` keeps the Station's repair share; `TargetInputs::repair_pm` lowers the bitrate asked for to `bitrate × 1.3 / (1 + r)` beyond 30 % (reason `Lowered`), asked again on a 5 % change.
+- **Tests**: `cargo test -p kybernow-core canal_de_retour reparation_dans_le_budget pertes_exactes`; on Kyber's side, `cargo test -p kyproto feedback` (repair, arrivals, messages, and end to end over an in-memory connection losing one datagram in 20). Written and checked by these tests only: never tried against a real Station.
+
 ## Synced settings (`src/account/settings.rs`)
 
 Contract: [docs/comptes.en.md](../../docs/comptes.en.md), “Synced settings and moving a computer”. The profile, video format, bitrate, sharp text (4:4:4), HDR and immersive mode of each computer of an account follow the person from one device to another; the relay keeps them per account and per computer (4 KB at most), the last change wins. What stays on the device: screen and resolution, sound, controllers, shortcuts, app preferences.

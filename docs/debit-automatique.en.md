@@ -98,7 +98,8 @@ Every second, the core gives the apps the bitrate it asks of the computer and wh
 - **AMD cards** (AMF encoder): the bitrate changes live since 0.11.1 (FFmpeg patch 0023 of 0026); **Intel** (Quick Sync): each change resets the encoder (a keyframe), which FFmpeg does on its own.
 - **One-frame buffer** (patches 0030): measured on the Mac Station only. NVENC, AMF, Quick Sync and VA-API are built, not yet tried on a real card; to check: no skipped frame nor blocks at a scene change, a readable keyframe at a low bitrate, an average bitrate close to the target.
 - No lower resolution or frame rate: only the bitrate moves.
-- Error correction keeps its fixed 30 % share.
+- Error correction no longer moves on its own: with a Station that has the feedback channel, it follows the measured losses and stays within the 30 % share the profile leaves it; beyond, the bitrate asked for drops accordingly (`TargetInputs::repair_pm`, reason "lowered"), PyroWave included. With an older Station it keeps its fixed 30 % share ([canal-de-retour.en.md](canal-de-retour.en.md)).
+- With the feedback channel, losses are the ones the app counts on the Station's datagrams (`Second::feedback`), no longer an estimate from QUIC's counters.
 - The browser's web client keeps its fixed bitrate, and doesn't show the “The network is saturated” banner with PyroWave.
 - Values set by reasoning and the core's tests, not yet on a really saturated network (loaded Wi-Fi, 4G, relay).
 

@@ -1,0 +1,343 @@
+diff --git a/kyclient-common/src/metrics.rs b/kyclient-common/src/metrics.rs
+index 5591b91..5c15748 100644
+--- a/kyclient-common/src/metrics.rs
++++ b/kyclient-common/src/metrics.rs
+@@ -26,6 +26,34 @@ pub enum Metric {
+     NetworkLocal(NetworkStats),
+     NetworkPing(NetworkPing),
+     NetworkRemote(NetworkStats),
++    /// KyberNow (0051): the feedback channel's summary, about once a
++    /// second (docs/canal-de-retour.md).
++    Feedback(FeedbackStats),
++}
++
++/// KyberNow (0051): the feedback channel as the viewer sees it, cumulative
++/// since the stream started. `None` fields: no beat from the Station yet.
++#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
++pub struct FeedbackStats {
++    /// Numbered datagrams received, judged lost (before any repair), and
++    /// arrived after being judged lost.
++    pub received: u64,
++    pub lost: u64,
++    pub late: u64,
++    /// Out-of-order delay, 99th percentile over 2 s, µs.
++    pub reorder_us: u32,
++    /// Missing-frame wait in place, µs.
++    pub wait_us: u32,
++    /// Picture packets handed to the decoder, and given up.
++    pub frames: u64,
++    pub lost_frames: u64,
++    /// The Station's last beat: repair aimed at and sent (‰), raw loss
++    /// p95 (‰), its QUIC round trip.
++    pub repair_pm: Option<u16>,
++    pub repair_ratio_pm: Option<u16>,
++    pub loss_p95_pm: Option<u16>,
++    pub station_rtt_us: Option<u32>,
++    pub audio_redundancy: bool,
+ }
+ 
+ #[derive(Debug, Clone)]
+diff --git a/kyclient-rs/src/lib.rs b/kyclient-rs/src/lib.rs
+index e264c6b..d014dba 100644
+--- a/kyclient-rs/src/lib.rs
++++ b/kyclient-rs/src/lib.rs
+@@ -1337,6 +1337,18 @@ fn to_c_metric(metric: &Metric) -> sys::kyclient_Metric {
+                 },
+             },
+         },
++        // KyberNow (0051): no C type for the feedback channel's summary;
++        // its closest form, the Station's view of the path.
++        Metric::Feedback(metric) => sys::kyclient_Metric {
++            type_: sys::kyclient_MetricType_KYCLIENT_METRIC_TYPE_NETWORK_REMOTE,
++            data: sys::kyclient_MetricData {
++                network_local: sys::kyclient_NetworkStats {
++                    rtt_micros: map_value(metric.station_rtt_us.map(u64::from)),
++                    packets_lost: map_value(Some(metric.lost)),
++                    dropped_packets: map_value(Some(metric.lost_frames)),
++                },
++            },
++        },
+     }
+ }
+ 
+diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
+index f2743a3..71dce19 100644
+--- a/kyclient/src/capi.rs
++++ b/kyclient/src/capi.rs
+@@ -1759,6 +1759,19 @@ impl From<metrics::Metric> for Metric {
+                     network_remote: network_stats.into(),
+                 },
+             },
++            // KyberNow (0051): the C API has no feedback type; the callback
++            // below never passes one. Kept total for the conversion.
++            metrics::Metric::Feedback(feedback) => Self {
++                type_: MetricType::NetworkRemote,
++                data: MetricData {
++                    network_remote: metrics::NetworkStats {
++                        rtt_micros: feedback.station_rtt_us.map(u64::from),
++                        packets_lost: Some(feedback.lost),
++                        dropped_packets: Some(feedback.lost_frames),
++                    }
++                    .into(),
++                },
++            },
+         }
+     }
+ }
+@@ -1775,6 +1788,10 @@ pub unsafe extern "C" fn kyclient_client_set_metrics_callback(
+         let metrics_cb = Arc::new(metrics_cb);
+         let userdata = Arc::new(AtomicPtr::new(userdata));
+         let cb = move |metric: metrics::Metric| unsafe {
++            // KyberNow (0051): no C type for the feedback channel's summary.
++            if matches!(metric, metrics::Metric::Feedback(_)) {
++                return;
++            }
+             let userdata = *userdata.as_ptr();
+             let kyclient_metric: Metric = metric.into();
+             metrics_cb(std::ptr::from_ref(&kyclient_metric), userdata);
+diff --git a/kyclient/src/kymux_backend/host_service.rs b/kyclient/src/kymux_backend/host_service.rs
+index 7187cf3..62a4fc7 100644
+--- a/kyclient/src/kymux_backend/host_service.rs
++++ b/kyclient/src/kymux_backend/host_service.rs
+@@ -21,8 +21,8 @@
+ use log::{info, warn};
+ 
+ use kyctl_common::kymux::{
+-    StartKymux, StartKymuxResponse, StartRequest, StartRequestInput, StartRequestVideo,
+-    StartSessionResponse,
++    KymuxConfig, StartKymux, StartKymuxResponse, StartRequest, StartRequestFeedback,
++    StartRequestInput, StartRequestVideo, StartSessionResponse,
+ };
+ 
+ use crate::CursorFormat;
+@@ -104,6 +104,14 @@ pub(crate) async fn start_stream(
+         audio: backend_config.streaming_config.audio.is_some(),
+         inputs,
+         metrics,
++        // KyberNow (0051): the feedback channel, over KyProto only. The
++        // Station decides whether the sound carries the previous packet.
++        feedback: matches!(backend_config.kymux_config, KymuxConfig::KyProto(_)).then(|| {
++            StartRequestFeedback {
++                v: kymux::kyproto::FEEDBACK_VERSION,
++                audio_redundancy: true,
++            }
++        }),
+     };
+ 
+     let response = backend_config
+diff --git a/kyclient/src/kymux_backend/metrics.rs b/kyclient/src/kymux_backend/metrics.rs
+index 8bb638a..6324a06 100644
+--- a/kyclient/src/kymux_backend/metrics.rs
++++ b/kyclient/src/kymux_backend/metrics.rs
+@@ -27,7 +27,8 @@ use tokio::sync::mpsc::error::TrySendError;
+ use kymux::{kyproto, types};
+ 
+ use crate::metrics::{
+-    Metric, MetricsProducer, NetworkPing, NetworkStats, VideoMetric, VideoMetricData,
++    FeedbackStats, Metric, MetricsProducer, NetworkPing, NetworkStats, VideoMetric,
++    VideoMetricData,
+ };
+ use crate::runtime::{self, Duration};
+ use crate::{Error, Result};
+@@ -47,6 +48,39 @@ fn send_metric(metrics: &MetricsProducer, metric: Metric) -> bool {
+     true
+ }
+ 
++/// KyberNow (0051): the feedback channel's summary, once per `interval`.
++pub(crate) fn start_feedback_poller(
++    reader: kyproto::FeedbackClientReader,
++    metrics: MetricsProducer,
++    interval: Duration,
++) -> runtime::Task {
++    runtime::Task::spawn(async move {
++        let mut interval = runtime::interval(interval);
++        loop {
++            interval.tick().await;
++            let s = reader.snapshot();
++            let beat = s.beat.as_ref();
++            let metric = Metric::Feedback(FeedbackStats {
++                received: s.received,
++                lost: s.lost,
++                late: s.late,
++                reorder_us: s.reorder_us,
++                wait_us: s.wait_us,
++                frames: s.frames,
++                lost_frames: s.lost_frames,
++                repair_pm: beat.map(|b| b.repair_pm),
++                repair_ratio_pm: beat.map(|b| b.repair_ratio_pm),
++                loss_p95_pm: beat.map(|b| b.loss_p95_pm),
++                station_rtt_us: beat.map(|b| b.rtt_us),
++                audio_redundancy: beat.is_some_and(|b| b.audio_redundancy),
++            });
++            if !send_metric(&metrics, metric) {
++                break;
++            }
++        }
++    })
++}
++
+ pub(crate) fn start_connection_stats_poller(
+     connection: &kyproto::Connection,
+     metrics: MetricsProducer,
+diff --git a/kyclient/src/kymux_backend/net_kyproto.rs b/kyclient/src/kymux_backend/net_kyproto.rs
+index 84565ef..bbbd504 100644
+--- a/kyclient/src/kymux_backend/net_kyproto.rs
++++ b/kyclient/src/kymux_backend/net_kyproto.rs
+@@ -39,6 +39,8 @@ pub(crate) struct KyProtoTransport {
+     pub connection: KyArc<kyproto::Connection>,
+     pub closed_task: Option<runtime::Task>,
+     pub metrics_tasks: Vec<runtime::Task>,
++    /// KyberNow (0051): the feedback channel, when the Station opened one.
++    pub feedback: Option<kyproto::FeedbackClient>,
+ }
+ 
+ impl KyProtoTransport {
+@@ -54,12 +56,33 @@ impl KyProtoTransport {
+         // Start stream
+         let host_config = host_service::start_stream(backend_config, has_metrics).await?;
+ 
+-        let metrics_tasks = if let Some(metrics) = metrics {
++        let mut metrics_tasks = if let Some(metrics) = metrics {
+             start_metrics(&connection, &host_config, metrics.clone()).await?
+         } else {
+             Vec::new()
+         };
+ 
++        // KyberNow (0051): reports to the Station, and their summary to the
++        // app once a second. An older Station answers no channel.
++        let feedback = match &host_config.feedback {
++            Some(fb) => {
++                info!(
++                    "Feedback channel: endpoint {:X}, sound redundancy {}",
++                    fb.endpoint, fb.audio_redundancy
++                );
++                let client = connection.connect_feedback_endpoint(fb.endpoint)?;
++                if let Some(metrics) = metrics {
++                    metrics_tasks.push(metrics::start_feedback_poller(
++                        client.reader(),
++                        metrics.clone(),
++                        Duration::from_secs(1),
++                    ));
++                }
++                Some(client)
++            }
++            None => None,
++        };
++
+         let msg_sender = backend_config.msg_sender.clone();
+ 
+         // Monitor connection closed
+@@ -71,6 +94,7 @@ impl KyProtoTransport {
+             connection,
+             closed_task: Some(closed_task),
+             metrics_tasks,
++            feedback,
+         };
+ 
+         Ok((transport, endpoints))
+@@ -80,6 +104,7 @@ impl KyProtoTransport {
+         // Abort the metrics pollers before closing the connection so they stop
+         // with the data plane instead of erroring against a dead connection.
+         self.metrics_tasks.clear();
++        self.feedback = None;
+         self.closed_task = None;
+ 
+         self.connection.close();
+@@ -314,15 +339,27 @@ fn create_audio_endpoint(
+         return Ok(None);
+     };
+ 
++    let full_config = host_config;
+     let Some(host_config) = &host_config.audio else {
+         error!("Missing audio config");
+         return Err(Error::InvalidState);
+     };
+ 
+     let audio_protocol = backend_config.kymux_config.kyproto_config().audio_protocol;
+-    info!("Using audio protocol: {audio_protocol:?}");
++    // KyberNow (0051): the Station sends the sound in plain datagrams, each
++    // carrying the previous packet too.
++    let redundancy = full_config
++        .feedback
++        .as_ref()
++        .is_some_and(|fb| fb.audio_redundancy);
++    let audio_protocol: kyproto::AudioProtocol = if redundancy {
++        kyproto::AudioProtocol::Unreliable
++    } else {
++        audio_protocol.into()
++    };
++    info!("Using audio protocol: {audio_protocol:?} (redundancy {redundancy})");
+     let endpoint_id = host_config.endpoint.expect("No audio endpoint id");
+-    let endpoint = connection.connect_audio_endpoint(endpoint_id, audio_protocol.into())?;
++    let endpoint = connection.connect_audio_endpoint(endpoint_id, audio_protocol)?;
+     Ok(Some(endpoint))
+ }
+ 
+diff --git a/kyclient/src/metrics.rs b/kyclient/src/metrics.rs
+index 299805a..145944d 100644
+--- a/kyclient/src/metrics.rs
++++ b/kyclient/src/metrics.rs
+@@ -180,6 +180,16 @@ impl RawMetricsConsumer for MetricsJSONProducer {
+                 let data = serde_json::to_vec(&json).expect("Malformed JSON");
+                 self.buffer.push(data);
+             }
++            // KyberNow (0051)
++            Metric::Feedback(feedback) => {
++                let mut json = serde_json::to_value(feedback).expect("Malformed JSON");
++                if let Some(obj) = json.as_object_mut() {
++                    obj.insert("log_type".to_string(), json!("raw_metric"));
++                    obj.insert("type".to_string(), json!("feedback"));
++                }
++                let data = serde_json::to_vec(&json).expect("Malformed JSON");
++                self.buffer.push(data);
++            }
+         }
+     }
+ }
+diff --git a/kyctl-common/src/kymux.rs b/kyctl-common/src/kymux.rs
+index 972fb4d..5e44df4 100644
+--- a/kyctl-common/src/kymux.rs
++++ b/kyctl-common/src/kymux.rs
+@@ -78,6 +78,32 @@ pub struct StartRequest {
+     pub audio: bool,
+     pub inputs: Option<StartRequestInput>,
+     pub metrics: bool,
++    /// KyberNow (0051): the viewer asks for the feedback channel
++    /// (docs/canal-de-retour.md). An older Station ignores it.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub feedback: Option<StartRequestFeedback>,
++}
++
++/// KyberNow (0051): what the viewer asks of the feedback channel.
++#[derive(Clone, Debug, Default, Deserialize, Serialize)]
++pub struct StartRequestFeedback {
++    #[serde(default)]
++    pub v: u32,
++    /// Sound in plain datagrams, each carrying the previous packet too.
++    #[serde(default)]
++    pub audio_redundancy: bool,
++}
++
++/// KyberNow (0051): the feedback channel the Station opened.
++#[derive(Clone, Debug, Deserialize, Serialize)]
++pub struct StartSessionFeedbackResponse {
++    #[serde(default)]
++    pub v: u32,
++    pub endpoint: u16,
++    /// The sound goes in `Unreliable` with the previous packet in each
++    /// datagram: the viewer connects its sound that way.
++    #[serde(default)]
++    pub audio_redundancy: bool,
+ }
+ 
+ #[derive(Debug, Deserialize, Serialize)]
+@@ -160,6 +186,9 @@ pub struct StartSessionResponse {
+     pub input: Option<StartSessionInputResponse>,
+     pub clock_sync: Option<StartSessionClockSyncResponse>,
+     pub metrics: Option<StartSessionMetricsResponse>,
++    /// KyberNow (0051): missing from an older Station.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub feedback: Option<StartSessionFeedbackResponse>,
+ }
+ 
+ impl From<VideoProtocol> for kyproto::VideoProtocol {

@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use kyclient_common::metrics::{Metric, NetworkStats, VideoMetricData};
+use kyclient_common::metrics::{FeedbackStats, Metric, NetworkStats, VideoMetricData};
 
 /// Deux secondes d'images à 240 Hz au plus.
 const MAX_FRAMES: usize = 480;
@@ -139,6 +139,25 @@ pub struct Second {
     /// avant l'image, ou pour un invité sur l'image de l'hôte (l'hôte en
     /// règle le débit).
     pub target: Option<crate::adaptive::TargetBitrate>,
+    /// Canal de retour de la Station (docs/canal-de-retour.md) : ce que la
+    /// seconde en dit. `None` avec une Station qui n'en a pas.
+    pub feedback: Option<Feedback>,
+}
+
+/// Une seconde du canal de retour (docs/canal-de-retour.md).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Feedback {
+    /// Datagrammes de la Station dont le sort s'est décidé, et parmi eux les
+    /// perdus, avant toute réparation.
+    pub datagrams: u64,
+    pub lost: u64,
+    /// Paquets d'image abandonnés (réparation insuffisante).
+    pub lost_frames: u64,
+    /// Réparation envoyée sur la dernière seconde, rapportée à l'image
+    /// (0,3 = 30 %) ; `None` avant le premier battement de la Station.
+    pub repair_ratio: Option<f64>,
+    /// Attente d'une image manquante en place (ms).
+    pub wait_ms: f64,
 }
 
 /// Étapes d'une image sur l'ordinateur (µs, son horloge).
@@ -179,6 +198,8 @@ struct Inner {
     rtt_ms: Option<f64>,
     /// Derniers cumuls de paquets perdus (local, distant).
     lost_totals: [i64; 2],
+    /// Dernier bilan cumulé du canal de retour.
+    feedback_last: Option<FeedbackStats>,
     /// Médianes de chaque seconde, toute la session (accueil, console).
     session: Vec<f64>,
     /// Mesures reçues de l'ordinateur par étape (journal, une fois par flux).
@@ -303,6 +324,23 @@ impl Inner {
         }
     }
 
+    /// Bilan cumulé du canal de retour (une fois par seconde) : on garde
+    /// l'écart. S'il recule, le flux a redémarré.
+    fn feedback(&mut self, f: &FeedbackStats) {
+        let last = self.feedback_last.take().filter(|l| l.received <= f.received && l.lost <= f.lost && l.lost_frames <= f.lost_frames);
+        let (received, lost, lost_frames) = match &last {
+            Some(l) => (f.received - l.received, f.lost - l.lost, f.lost_frames - l.lost_frames),
+            None => (f.received, f.lost, f.lost_frames),
+        };
+        let s = self.second.feedback.get_or_insert_with(Feedback::default);
+        s.datagrams += received + lost;
+        s.lost += lost;
+        s.lost_frames += lost_frames;
+        s.repair_ratio = f.repair_ratio_pm.map(|pm| f64::from(pm) / 1000.0);
+        s.wait_ms = f64::from(f.wait_us) / 1000.0;
+        self.feedback_last = Some(f.clone());
+    }
+
     fn network(&mut self, stats: &NetworkStats, slot: usize) {
         if let Some(rtt) = stats.rtt_micros {
             if slot == 0 || self.rtt_ms.is_none() {
@@ -382,6 +420,7 @@ impl LatencyTracker {
             }
             Metric::NetworkLocal(s) => i.network(s, 0),
             Metric::NetworkRemote(s) => i.network(s, 1),
+            Metric::Feedback(f) => i.feedback(f),
         }
     }
 
@@ -554,6 +593,33 @@ mod tests {
         let (med, p95) = t.session();
         assert_eq!(med, Some(10.0));
         assert_eq!(p95, Some(10.0));
+    }
+
+    #[test]
+    fn canal_de_retour_par_seconde() {
+        use kyclient_common::metrics::FeedbackStats;
+        let t = LatencyTracker::new();
+        let f = |received, lost, lost_frames| FeedbackStats {
+            received,
+            lost,
+            lost_frames,
+            wait_us: 8_000,
+            repair_ratio_pm: Some(45),
+            ..Default::default()
+        };
+        t.on_metric(&Metric::Feedback(f(1_000, 10, 1)));
+        let s = t.drain().feedback.unwrap();
+        assert_eq!((s.datagrams, s.lost, s.lost_frames), (1_010, 10, 1));
+        assert_eq!(s.repair_ratio, Some(0.045));
+        assert_eq!(s.wait_ms, 8.0);
+        t.on_metric(&Metric::Feedback(f(3_000, 15, 1)));
+        let s = t.drain().feedback.unwrap();
+        assert_eq!((s.datagrams, s.lost, s.lost_frames), (2_005, 5, 0));
+        // Rien reçu cette seconde : pas de bilan.
+        assert_eq!(t.drain().feedback, None);
+        // Nouveau flux : les cumuls repartent de zéro.
+        t.on_metric(&Metric::Feedback(f(50, 0, 0)));
+        assert_eq!(t.drain().feedback.unwrap().datagrams, 50);
     }
 
     #[test]

@@ -1,0 +1,2154 @@
+diff --git a/kynet/src/lib.rs b/kynet/src/lib.rs
+index 9bd11d9..c0efcc3 100644
+--- a/kynet/src/lib.rs
++++ b/kynet/src/lib.rs
+@@ -18,7 +18,8 @@
+ // You should have received a copy of the GNU Affero General Public License
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+-use crate::driver::{ConnectionDriver, RecvStreamDriver, SendStreamDriver};
++// KyberNow (0050): public, for kyproto's tests over an in-memory connection.
++pub use crate::driver::{ConnectionDriver, RecvStreamDriver, SendStreamDriver};
+ pub use crate::error::*;
+ pub use kymux_util::*;
+ 
+diff --git a/kyproto/src/feedback/arrivals.rs b/kyproto/src/feedback/arrivals.rs
+new file mode 100644
+index 0000000..5917443
+--- /dev/null
++++ b/kyproto/src/feedback/arrivals.rs
+@@ -0,0 +1,200 @@
++// KyberNow: what the viewer sees of the Station's numbered datagrams
++// (docs/canal-de-retour.md, "Datagram numbering").
++
++use std::collections::{BTreeMap, VecDeque};
++
++use crate::runtime::{Duration, Instant};
++
++/// A gap still open this long after a later datagram came is a loss.
++pub(crate) const LOSE_AFTER: Duration = Duration::from_millis(50);
++/// Window of the out-of-order delays.
++pub(crate) const REORDER_WINDOW: Duration = Duration::from_secs(2);
++/// Gaps followed one by one; past it (a stall), the rest counts lost at once.
++const MAX_GAP: u64 = 16_384;
++/// Datagrams judged lost that a late arrival can still be matched to.
++const RECENT_LOST: usize = 4_096;
++
++/// The missing-frame wait before any numbered datagram, and with an older
++/// Station: Kyber's own.
++pub(crate) const DEFAULT_WAIT: Duration = Duration::from_millis(50);
++pub(crate) const MIN_WAIT: Duration = Duration::from_millis(8);
++const WAIT_MARGIN: Duration = Duration::from_millis(4);
++/// Datagrams to see before the wait follows the measures.
++pub(crate) const WAIT_AFTER_DATAGRAMS: u64 = 500;
++
++/// The missing-frame wait for a disorder of `reorder_us` (99th percentile).
++pub(crate) fn wait_for(reorder_us: u32, seen: u64) -> Duration {
++    if seen < WAIT_AFTER_DATAGRAMS {
++        return DEFAULT_WAIT;
++    }
++    (Duration::from_micros(u64::from(reorder_us)) * 2 + WAIT_MARGIN).clamp(MIN_WAIT, DEFAULT_WAIT)
++}
++
++#[derive(Debug, Default)]
++pub(crate) struct ArrivalLog {
++    hi: Option<u64>,
++    /// Missing numbers, and when a later one made them missing.
++    missing: BTreeMap<u64, Instant>,
++    recent_lost: VecDeque<u64>,
++    pub(crate) received: u64,
++    pub(crate) lost: u64,
++    pub(crate) late: u64,
++    received_i: u32,
++    lost_i: u32,
++    reorder: VecDeque<(Instant, u32)>,
++}
++
++impl ArrivalLog {
++    pub(crate) fn hi_raw(&self) -> u32 {
++        self.hi.unwrap_or(0) as u32
++    }
++
++    pub(crate) fn seen(&self) -> u64 {
++        self.received + self.lost
++    }
++
++    /// A numbered datagram arrived.
++    pub(crate) fn arrived(&mut self, raw: u32, now: Instant) {
++        let Some(hi) = self.hi else {
++            self.hi = Some(u64::from(raw));
++            self.received += 1;
++            self.received_i += 1;
++            return;
++        };
++        let diff = i64::from(raw.wrapping_sub(hi as u32) as i32);
++        let seq = hi as i64 + diff;
++        if seq < 0 {
++            return;
++        }
++        let seq = seq as u64;
++        if seq > hi {
++            let gap = seq - hi - 1;
++            if gap > MAX_GAP {
++                // A stall: what it skipped is lost, not followed one by one.
++                self.lost += gap;
++                self.lost_i = self.lost_i.saturating_add(gap as u32);
++            } else {
++                for s in hi + 1..seq {
++                    self.missing.insert(s, now);
++                }
++            }
++            self.hi = Some(seq);
++            self.received += 1;
++            self.received_i += 1;
++        } else if let Some(noticed) = self.missing.remove(&seq) {
++            let delay = now.saturating_duration_since(noticed);
++            self.reorder.push_back((now, delay.as_micros().min(u32::MAX as u128) as u32));
++            self.received += 1;
++            self.received_i += 1;
++        } else if let Some(i) = self.recent_lost.iter().position(|s| *s == seq) {
++            self.recent_lost.remove(i);
++            self.late += 1;
++        }
++        // Else a copy of one already here: nothing.
++    }
++
++    /// Gaps open for LOSE_AFTER become losses.
++    pub(crate) fn settle(&mut self, now: Instant) {
++        while let Some((&seq, &noticed)) = self.missing.iter().next() {
++            if now.saturating_duration_since(noticed) < LOSE_AFTER {
++                break;
++            }
++            self.missing.remove(&seq);
++            self.lost += 1;
++            self.lost_i += 1;
++            self.recent_lost.push_back(seq);
++            if self.recent_lost.len() > RECENT_LOST {
++                self.recent_lost.pop_front();
++            }
++        }
++        while self
++            .reorder
++            .front()
++            .is_some_and(|(t, _)| now.saturating_duration_since(*t) > REORDER_WINDOW)
++        {
++            self.reorder.pop_front();
++        }
++    }
++
++    /// Datagrams settled and lost since the last call.
++    pub(crate) fn take_interval(&mut self) -> (u32, u32) {
++        let lost = self.lost_i;
++        let settled = self.received_i.saturating_add(lost);
++        self.received_i = 0;
++        self.lost_i = 0;
++        (settled, lost)
++    }
++
++    /// 99th percentile of the out-of-order delays over REORDER_WINDOW, µs.
++    pub(crate) fn reorder_us(&self) -> u32 {
++        super::repair::percentile(self.reorder.iter().map(|(_, d)| f64::from(*d)).collect(), 0.99)
++            as u32
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn in_order_datagrams_lose_nothing_and_wait_little() {
++        let t0 = Instant::now();
++        let mut log = ArrivalLog::default();
++        for i in 0..1000u32 {
++            log.arrived(i, t0 + Duration::from_micros(u64::from(i) * 100));
++        }
++        log.settle(t0 + Duration::from_secs(1));
++        assert_eq!((log.received, log.lost, log.late), (1000, 0, 0));
++        assert_eq!(log.take_interval(), (1000, 0));
++        assert_eq!(log.reorder_us(), 0);
++        assert_eq!(wait_for(log.reorder_us(), log.seen()), MIN_WAIT);
++    }
++
++    #[test]
++    fn a_gap_is_lost_after_50_ms_and_late_after() {
++        let t0 = Instant::now();
++        let mut log = ArrivalLog::default();
++        log.arrived(0, t0);
++        log.arrived(3, t0);
++        log.settle(t0 + Duration::from_millis(10));
++        assert_eq!(log.lost, 0);
++        log.arrived(1, t0 + Duration::from_millis(5));
++        log.settle(t0 + Duration::from_millis(60));
++        assert_eq!((log.received, log.lost), (3, 1));
++        assert_eq!(log.take_interval(), (4, 1));
++        log.arrived(2, t0 + Duration::from_millis(70));
++        assert_eq!(log.late, 1);
++        assert_eq!(log.reorder_us(), 5_000);
++    }
++
++    #[test]
++    fn the_wait_follows_the_disorder_within_its_bounds() {
++        assert_eq!(wait_for(0, 10), DEFAULT_WAIT, "too early");
++        assert_eq!(wait_for(0, 10_000), MIN_WAIT);
++        assert_eq!(wait_for(5_000, 10_000), Duration::from_millis(14));
++        assert_eq!(wait_for(40_000, 10_000), DEFAULT_WAIT);
++    }
++
++    #[test]
++    fn numbers_wrap_around() {
++        let t0 = Instant::now();
++        let mut log = ArrivalLog::default();
++        log.arrived(u32::MAX - 1, t0);
++        log.arrived(u32::MAX, t0);
++        log.arrived(1, t0);
++        log.arrived(0, t0 + Duration::from_millis(1));
++        log.settle(t0 + Duration::from_secs(1));
++        assert_eq!((log.received, log.lost), (4, 0));
++        assert_eq!(log.hi_raw(), 1);
++    }
++
++    #[test]
++    fn a_stall_counts_its_gap_at_once() {
++        let t0 = Instant::now();
++        let mut log = ArrivalLog::default();
++        log.arrived(0, t0);
++        log.arrived(100_000, t0);
++        assert_eq!(log.lost, 99_999);
++        assert!(log.missing.is_empty());
++    }
++}
+diff --git a/kyproto/src/feedback/loopback.rs b/kyproto/src/feedback/loopback.rs
+new file mode 100644
+index 0000000..093a90e
+--- /dev/null
++++ b/kyproto/src/feedback/loopback.rs
+@@ -0,0 +1,295 @@
++// KyberNow: the feedback channel end to end, over an in-memory connection
++// that drops some of the Station's datagrams.
++
++use std::pin::Pin;
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::task::{Context, Poll};
++
++use async_trait::async_trait;
++use bytes::Bytes;
++use kymux_types::av::*;
++use kynet::error::{ClosedStreamError, ConnectionError, SendDatagramError};
++use kynet::{ConnectionDriver, ConnectionStats, RecvStream, RecvStreamDriver, SendStream, SendStreamDriver};
++use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
++use tokio::sync::{Mutex, mpsc};
++
++use crate::runtime::Duration;
++use crate::{AudioProtocol, Connection, VideoProtocol};
++
++#[derive(Debug)]
++struct Writer(DuplexStream);
++
++impl AsyncWrite for Writer {
++    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
++        Pin::new(&mut self.0).poll_write(cx, buf)
++    }
++    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
++        Pin::new(&mut self.0).poll_flush(cx)
++    }
++    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
++        Pin::new(&mut self.0).poll_shutdown(cx)
++    }
++}
++
++#[async_trait]
++impl SendStreamDriver for Writer {
++    async fn finish(&mut self) -> Result<(), ClosedStreamError> {
++        Ok(())
++    }
++    fn reset(&mut self) {}
++    async fn closed(&mut self) -> Result<(), ConnectionError> {
++        std::future::pending().await
++    }
++}
++
++#[derive(Debug)]
++struct Reader(DuplexStream);
++
++impl AsyncRead for Reader {
++    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
++        Pin::new(&mut self.0).poll_read(cx, buf)
++    }
++}
++
++#[async_trait]
++impl RecvStreamDriver for Reader {
++    fn stop(&mut self) {}
++    async fn closed(&mut self) -> Result<(), ConnectionError> {
++        std::future::pending().await
++    }
++}
++
++fn stream() -> (SendStream, RecvStream) {
++    let (a, b) = tokio::io::duplex(1 << 20);
++    (SendStream::new(Writer(a)), RecvStream::new(Reader(b)))
++}
++
++/// One side of the in-memory connection. Datagrams this side sends are
++/// dropped when `drop(n)` says so (n: their rank, from 0).
++#[derive(Debug)]
++struct Side {
++    uni_tx: mpsc::UnboundedSender<RecvStream>,
++    uni_rx: Mutex<mpsc::UnboundedReceiver<RecvStream>>,
++    bi_tx: mpsc::UnboundedSender<(SendStream, RecvStream)>,
++    bi_rx: Mutex<mpsc::UnboundedReceiver<(SendStream, RecvStream)>>,
++    dg_tx: mpsc::UnboundedSender<Bytes>,
++    dg_rx: Mutex<mpsc::UnboundedReceiver<Bytes>>,
++    sent: AtomicU64,
++    drop_every: u64,
++}
++
++#[async_trait]
++impl ConnectionDriver for Side {
++    async fn open_uni(&self) -> Result<SendStream, ConnectionError> {
++        let (send, recv) = stream();
++        self.uni_tx.send(recv).map_err(|_| ConnectionError("closed".into()))?;
++        Ok(send)
++    }
++    async fn open_bi(&self) -> Result<(SendStream, RecvStream), ConnectionError> {
++        let (send_mine, recv_theirs) = stream();
++        let (send_theirs, recv_mine) = stream();
++        self.bi_tx
++            .send((send_theirs, recv_theirs))
++            .map_err(|_| ConnectionError("closed".into()))?;
++        Ok((send_mine, recv_mine))
++    }
++    async fn accept_uni(&self) -> Result<RecvStream, ConnectionError> {
++        self.uni_rx.lock().await.recv().await.ok_or_else(|| ConnectionError("closed".into()))
++    }
++    async fn accept_bi(&self) -> Result<(SendStream, RecvStream), ConnectionError> {
++        self.bi_rx.lock().await.recv().await.ok_or_else(|| ConnectionError("closed".into()))
++    }
++    async fn read_datagram(&self) -> Result<Bytes, ConnectionError> {
++        self.dg_rx.lock().await.recv().await.ok_or_else(|| ConnectionError("closed".into()))
++    }
++    async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
++        let n = self.sent.fetch_add(1, Ordering::Relaxed);
++        if self.drop_every > 0 && n % self.drop_every == self.drop_every - 1 {
++            return Ok(());
++        }
++        let _ = self.dg_tx.send(data);
++        Ok(())
++    }
++    async fn closed(&self) -> Result<(), ConnectionError> {
++        std::future::pending().await
++    }
++    fn close(&self, _error_code: u32, _reason: &str) {}
++    fn max_datagram_size(&self) -> Option<usize> {
++        Some(1200)
++    }
++    async fn stats(&self) -> ConnectionStats {
++        ConnectionStats { rtt: Some(Duration::from_millis(1)), packets_lost: Some(0) }
++    }
++}
++
++/// (Station, viewer): the Station drops one datagram in `drop_every`.
++fn pair(drop_every: u64) -> (kynet::Connection, kynet::Connection) {
++    let (uni_a, uni_b) = (mpsc::unbounded_channel(), mpsc::unbounded_channel());
++    let (bi_a, bi_b) = (mpsc::unbounded_channel(), mpsc::unbounded_channel());
++    let (dg_a, dg_b) = (mpsc::unbounded_channel(), mpsc::unbounded_channel());
++    let station = Side {
++        uni_tx: uni_a.0,
++        uni_rx: Mutex::new(uni_b.1),
++        bi_tx: bi_a.0,
++        bi_rx: Mutex::new(bi_b.1),
++        dg_tx: dg_a.0,
++        dg_rx: Mutex::new(dg_b.1),
++        sent: AtomicU64::new(0),
++        drop_every,
++    };
++    let viewer = Side {
++        uni_tx: uni_b.0,
++        uni_rx: Mutex::new(uni_a.1),
++        bi_tx: bi_b.0,
++        bi_rx: Mutex::new(bi_a.1),
++        dg_tx: dg_b.0,
++        dg_rx: Mutex::new(dg_a.1),
++        sent: AtomicU64::new(0),
++        drop_every: 0,
++    };
++    (kynet::Connection::new(station), kynet::Connection::new(viewer))
++}
++
++fn codec(frame_size: u16) -> AVPacket {
++    AVPacket::Codec(CodecPacket { header: CodecPacketHeader { codec: 1, rotation: 0, frame_size } })
++}
++
++fn config() -> AVPacket {
++    AVPacket::Media(MediaPacket {
++        header: MediaPacketHeader { is_config: true, is_key: false, pts: 0, size: 16 },
++        payload: Bytes::from(vec![0; 16]),
++    })
++}
++
++fn media(pts: u64, key: bool, size: usize) -> AVPacket {
++    AVPacket::Media(MediaPacket {
++        header: MediaPacketHeader { is_config: false, is_key: key, pts, size: size as u32 },
++        payload: Bytes::from(vec![(pts % 251) as u8; size]),
++    })
++}
++
++struct Received {
++    media: u64,
++    holes: u64,
++}
++
++/// Audio (10 ms packets of 300 bytes, sped up) and video (frames of 5
++/// symbols) for about 1.5 s, one Station datagram in `drop_every` lost.
++async fn run(drop_every: u64, feedback: bool, audio_redundancy: bool) -> (Received, Received, Option<crate::FeedbackHostSnapshot>, Option<crate::FeedbackClientSnapshot>) {
++    let (a, b) = pair(drop_every);
++    let (station, viewer) = tokio::join!(Connection::accept(a), Connection::connect(b));
++    let (station, viewer) = (station.unwrap(), viewer.unwrap());
++
++    let host = if feedback {
++        Some(station.register_feedback_endpoint(audio_redundancy).await.unwrap())
++    } else {
++        None
++    };
++    let audio_protocol = if feedback && audio_redundancy { AudioProtocol::Unreliable } else { AudioProtocol::UnreliableFec };
++    let (audio_id, audio_ep) = station.register_audio_endpoint(audio_protocol).await.unwrap();
++    let (video_id, video_ep) = station.register_video_endpoint(VideoProtocol::UnreliableFec).await.unwrap();
++    let client = host.as_ref().map(|(id, _)| viewer.connect_feedback_endpoint(*id).unwrap());
++    let audio_in = viewer.connect_audio_endpoint(audio_id, audio_protocol).unwrap();
++    let video_in = viewer.connect_video_endpoint(video_id, VideoProtocol::UnreliableFec).unwrap();
++    let (audio_out, audio_in) = tokio::join!(audio_ep.ready(), audio_in.ready());
++    let (video_out, video_in) = tokio::join!(video_ep.ready(), video_in.ready());
++    let (mut audio_out, audio_in) = (audio_out.unwrap(), audio_in.unwrap());
++    let (mut video_out, video_in) = (video_out.unwrap(), video_in.unwrap());
++
++    let count = |mut r: kymux_types::ProtocolRecv<AVPacket>| {
++        tokio::spawn(async move {
++            let mut got = Received { media: 0, holes: 0 };
++            while let Ok(Ok(Some(p))) = tokio::time::timeout(Duration::from_millis(300), r.recv()).await {
++                match p {
++                    AVPacket::Media(_) => got.media += 1,
++                    AVPacket::Hole(_) => got.holes += 1,
++                    AVPacket::Codec(_) => {}
++                }
++            }
++            got
++        })
++    };
++    let audio_count = count(audio_in);
++    let video_count = count(video_in);
++
++    // Codec and config packets go over streams: let them arrive before the
++    // datagrams that need them, as on a real network.
++    audio_out.send(codec(480)).await.unwrap();
++    audio_out.send(config()).await.unwrap();
++    video_out.send(codec(0)).await.unwrap();
++    video_out.send(config()).await.unwrap();
++    tokio::time::sleep(Duration::from_millis(50)).await;
++    for i in 0..600u64 {
++        audio_out.send(media(i * 10_000, false, 300)).await.unwrap();
++        if i % 4 == 0 {
++            video_out.send(media(i * 10_000, i == 0, 5_000)).await.unwrap();
++        }
++        tokio::time::sleep(Duration::from_millis(2)).await;
++    }
++    tokio::time::sleep(Duration::from_millis(300)).await;
++    let host_snapshot = host.as_ref().map(|(_, h)| h.snapshot());
++    let client_snapshot = client.as_ref().map(|c| c.snapshot());
++    (audio_count.await.unwrap(), video_count.await.unwrap(), host_snapshot, client_snapshot)
++}
++
++#[tokio::test]
++async fn the_channel_measures_the_losses_and_the_sound_survives_them() {
++    let (audio, video, host, client) = run(20, true, true).await;
++    assert_eq!((audio.media, audio.holes), (601, 0), "each lost datagram comes back with the next");
++    assert_eq!((video.media, video.holes), (151, 0), "150 frames and the config packet");
++    let host = host.unwrap();
++    let report = host.last_report.unwrap();
++    assert!(report.received > 1_000, "{report:?}");
++    let loss = report.lost as f64 / (report.received + report.lost) as f64;
++    assert!((0.04..0.06).contains(&loss), "{loss}");
++    // Per 100 ms interval, one in 20 lost: around 5 %, more in some.
++    assert!((0.04..0.10).contains(&host.loss_p95), "{}", host.loss_p95);
++    assert!(host.protected_loss.is_some(), "the repair follows the reports");
++    assert!(host.repair_ratio > 0.0);
++    let client = client.unwrap();
++    assert_eq!(client.wait_us, 8_000, "in-order datagrams: the shortest wait");
++    assert_eq!(client.lost_frames, 0);
++    let beat = client.beat.unwrap();
++    assert!(beat.audio_redundancy);
++    assert!(beat.loss_p95_pm >= 40, "{beat:?}");
++}
++
++#[tokio::test]
++async fn without_the_channel_the_former_transport_runs() {
++    let (audio, video, _, _) = run(20, false, false).await;
++    // RaptorQ's 30 % repairs these losses as before.
++    assert_eq!((audio.media, audio.holes), (601, 0));
++    assert_eq!((video.media, video.holes), (151, 0));
++}
++
++#[tokio::test]
++async fn plain_datagrams_without_redundancy_lose_sound() {
++    // The channel on, the sound's redundancy off and the sound in plain
++    // datagrams: the losses show, so the test above proves the copies.
++    let (a, b) = pair(20);
++    let (station, viewer) = tokio::join!(Connection::accept(a), Connection::connect(b));
++    let (station, viewer) = (station.unwrap(), viewer.unwrap());
++    let (_, _host) = station.register_feedback_endpoint(false).await.unwrap();
++    let (audio_id, audio_ep) = station.register_audio_endpoint(AudioProtocol::Unreliable).await.unwrap();
++    let audio_in = viewer.connect_audio_endpoint(audio_id, AudioProtocol::Unreliable).unwrap();
++    let (out, inp) = tokio::join!(audio_ep.ready(), audio_in.ready());
++    let (mut out, mut inp) = (out.unwrap(), inp.unwrap());
++    out.send(codec(480)).await.unwrap();
++    out.send(config()).await.unwrap();
++    tokio::time::sleep(Duration::from_millis(50)).await;
++    let counter = tokio::spawn(async move {
++        let mut media_n = 0;
++        while let Ok(Ok(Some(p))) = tokio::time::timeout(Duration::from_millis(300), inp.recv()).await {
++            if matches!(p, AVPacket::Media(_)) {
++                media_n += 1;
++            }
++        }
++        media_n
++    });
++    for i in 0..200u64 {
++        out.send(media(i * 10_000, false, 300)).await.unwrap();
++        tokio::time::sleep(Duration::from_millis(2)).await;
++    }
++    let media_n = counter.await.unwrap();
++    assert!(media_n < 201 && media_n >= 186, "{media_n}");
++}
+diff --git a/kyproto/src/feedback/mod.rs b/kyproto/src/feedback/mod.rs
+new file mode 100644
+index 0000000..3c707b8
+--- /dev/null
++++ b/kyproto/src/feedback/mod.rs
+@@ -0,0 +1,802 @@
++// KyberNow: feedback channel from the viewer to the Station, and what uses
++// it: the RaptorQ repair share, the missing-frame wait and the sound's
++// redundancy. Contract: docs/canal-de-retour.md (KyberNow repository).
++//
++// Nothing here runs unless the viewer asked for it in its start request
++// and the Station answered: an older peer on either side keeps Kyber's
++// former transport.
++
++pub(crate) mod arrivals;
++pub(crate) mod repair;
++#[cfg(all(test, not(target_family = "wasm")))]
++mod loopback;
++
++use std::collections::{HashMap, VecDeque};
++use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
++
++use bytes::{BufMut, Bytes, BytesMut};
++use kymux_util::*;
++#[allow(unused)]
++use log::{debug, error, info, warn};
++use serde::{Deserialize, Serialize};
++use tokio::sync::{Notify, broadcast};
++
++use crate::ProtocolError;
++use crate::router::KyChannel;
++use crate::runtime::{self, Duration, Instant};
++use crate::task::Task;
++
++use arrivals::ArrivalLog;
++use repair::{LossWindow, RepairPolicy};
++
++/// Version of the channel, `v` of the request and the answer.
++pub const FEEDBACK_VERSION: u32 = 1;
++
++/// Top bit of the endpoint id: the datagram ends with its number.
++pub(crate) const NUMBERED: u16 = 0x8000;
++pub(crate) const SEQ_SIZE: usize = 4;
++
++/// Reports and beats.
++const PERIOD: Duration = Duration::from_millis(100);
++/// Frame losses repeated in each report.
++const LOSSES_REPEATED: usize = 8;
++/// Packets the Station remembers per picture endpoint (pts, keyframe).
++const SENT_KEPT: usize = 512;
++/// Reports needed before the repair follows them, and silence after which
++/// it goes back to the former rule.
++const TRUST_AFTER: Duration = Duration::from_secs(1);
++const SILENCE: Duration = Duration::from_secs(1);
++/// Summary in the Station's log.
++const LOG_EVERY: Duration = Duration::from_secs(10);
++
++// ---------------------------------------------------------------------------
++// Messages (MessagePack with field names).
++
++/// A picture packet the viewer gave up.
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(default)]
++pub struct FrameLoss {
++    pub id: u32,
++    pub ep: u16,
++    pub first: u32,
++    pub count: u32,
++}
++
++/// One picture endpoint as the viewer sees it.
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(default)]
++pub struct StreamReport {
++    pub ep: u16,
++    /// Last packet number handed to the decoder.
++    pub delivered: u32,
++    pub frames: u64,
++    pub lost: u64,
++}
++
++#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
++#[serde(default)]
++pub struct Report {
++    pub n: u32,
++    pub hi: u32,
++    pub received: u64,
++    pub lost: u64,
++    pub late: u64,
++    pub expected_i: u32,
++    pub lost_i: u32,
++    pub reorder_us: u32,
++    pub wait_us: u32,
++    pub streams: Vec<StreamReport>,
++    pub losses: Vec<FrameLoss>,
++}
++
++#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
++#[serde(default)]
++pub struct Beat {
++    pub n: u32,
++    pub report: u32,
++    pub repair_pm: u16,
++    pub repair_ratio_pm: u16,
++    pub loss_p95_pm: u16,
++    pub audio_redundancy: bool,
++    pub rtt_us: u32,
++    pub quic_lost: u64,
++}
++
++#[derive(Debug, Clone, Serialize, Deserialize)]
++enum Msg {
++    Report(Report),
++    Lost(FrameLoss),
++    Beat(Beat),
++}
++
++fn encode(channel: &KyChannel, msg: &Msg) -> Option<Bytes> {
++    let body = rmp_serde::to_vec_named(msg).ok()?;
++    let mut buf = BytesMut::with_capacity(2 + body.len());
++    channel.write_datagram_header(&mut buf);
++    buf.put(&body[..]);
++    let max = channel.max_datagram_size()?;
++    (buf.len() <= max).then(|| buf.freeze())
++}
++
++fn decode(datagram: &[u8]) -> Option<Msg> {
++    rmp_serde::from_slice(datagram.get(2..)?).ok()
++}
++
++// ---------------------------------------------------------------------------
++// Per-connection state, shared by the router and the endpoints.
++
++#[derive(Debug, Clone, Copy)]
++struct SentFrame {
++    seq: u32,
++    pts: u64,
++    key: bool,
++}
++
++#[derive(Debug, Default)]
++struct EndpointBook {
++    delivered: u32,
++    frames: u64,
++    lost: u64,
++}
++
++#[derive(Debug, Default)]
++struct Book {
++    endpoints: HashMap<u16, EndpointBook>,
++    losses: VecDeque<FrameLoss>,
++    pending: Vec<FrameLoss>,
++    next_id: u32,
++}
++
++pub(crate) struct Transport {
++    // Station side.
++    numbering: AtomicBool,
++    next_seq: AtomicU32,
++    repair: KyMutex<RepairPolicy>,
++    audio_redundancy: AtomicBool,
++    source_bytes: AtomicU64,
++    repair_bytes: AtomicU64,
++    sent: KyMutex<HashMap<u16, VecDeque<SentFrame>>>,
++    // Viewer side.
++    arrivals: KyMutex<ArrivalLog>,
++    wait_us: AtomicU32,
++    book: KyMutex<Book>,
++    loss_notify: Notify,
++}
++
++impl Default for Transport {
++    fn default() -> Self {
++        Self {
++            numbering: AtomicBool::new(false),
++            next_seq: AtomicU32::new(0),
++            repair: KyMutex::new(RepairPolicy::legacy()),
++            audio_redundancy: AtomicBool::new(false),
++            source_bytes: AtomicU64::new(0),
++            repair_bytes: AtomicU64::new(0),
++            sent: KyMutex::new(HashMap::new()),
++            arrivals: KyMutex::new(ArrivalLog::default()),
++            wait_us: AtomicU32::new(0),
++            book: KyMutex::new(Book::default()),
++            loss_notify: Notify::new(),
++        }
++    }
++}
++
++impl Transport {
++    // --- Numbering (router).
++
++    pub(crate) fn numbering(&self) -> bool {
++        self.numbering.load(Ordering::Relaxed)
++    }
++
++    pub(crate) fn next_seq(&self) -> u32 {
++        self.next_seq.fetch_add(1, Ordering::Relaxed)
++    }
++
++    pub(crate) fn arrived(&self, raw: u32) {
++        self.arrivals.lock().arrived(raw, Instant::now());
++    }
++
++    // --- Picture repair (sender).
++
++    pub(crate) fn repair_symbols(&self, source_symbols: usize) -> u32 {
++        self.repair.lock().repair_symbols(source_symbols)
++    }
++
++    pub(crate) fn count_repair(&self, source_bytes: usize, repair_bytes: usize) {
++        self.source_bytes.fetch_add(source_bytes as u64, Ordering::Relaxed);
++        self.repair_bytes.fetch_add(repair_bytes as u64, Ordering::Relaxed);
++    }
++
++    pub(crate) fn sent_frame(&self, ep: u16, seq: u32, pts: u64, key: bool) {
++        if !self.numbering() {
++            return;
++        }
++        let mut sent = self.sent.lock();
++        let ring = sent.entry(ep).or_default();
++        ring.push_back(SentFrame { seq, pts, key });
++        while ring.len() > SENT_KEPT {
++            ring.pop_front();
++        }
++    }
++
++    // --- Sound (sender).
++
++    pub(crate) fn audio_redundancy(&self) -> bool {
++        self.audio_redundancy.load(Ordering::Relaxed)
++    }
++
++    // --- Picture receiver.
++
++    pub(crate) fn video_wait(&self) -> Duration {
++        match self.wait_us.load(Ordering::Relaxed) {
++            0 => arrivals::DEFAULT_WAIT,
++            us => Duration::from_micros(u64::from(us)),
++        }
++    }
++
++    pub(crate) fn delivered(&self, ep: u16, seq: u64) {
++        let mut book = self.book.lock();
++        let e = book.endpoints.entry(ep).or_default();
++        e.delivered = seq as u32;
++        e.frames += 1;
++    }
++
++    pub(crate) fn gave_up(&self, ep: u16, first: u64, count: u64) {
++        {
++            let mut book = self.book.lock();
++            book.endpoints.entry(ep).or_default().lost += count;
++            let id = book.next_id;
++            book.next_id = book.next_id.wrapping_add(1);
++            let loss = FrameLoss { id, ep, first: first as u32, count: count.min(u32::MAX as u64) as u32 };
++            book.losses.push_back(loss);
++            while book.losses.len() > LOSSES_REPEATED {
++                book.losses.pop_front();
++            }
++            book.pending.push(loss);
++            if book.pending.len() > 64 {
++                book.pending.remove(0);
++            }
++        }
++        self.loss_notify.notify_one();
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Station side.
++
++/// The Station's view of one viewer.
++#[derive(Debug, Clone, Default, PartialEq)]
++pub struct FeedbackHostSnapshot {
++    /// Raw loss, 95th percentile over 5 s (0 to 1).
++    pub loss_p95: f64,
++    /// Loss probability the repair protects against, `None` while the
++    /// former 30 % holds.
++    pub protected_loss: Option<f64>,
++    /// Repair sent over the last second, over the source bytes (0.3 = 30 %).
++    pub repair_ratio: f64,
++    pub last_report: Option<Report>,
++}
++
++/// A picture packet the viewer lost, as the Station sent it.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct LostFrame {
++    pub seq: u32,
++    pub pts: u64,
++    pub key: bool,
++}
++
++#[derive(Debug, Clone)]
++pub enum FeedbackEvent {
++    /// Packets `first..first + count` of picture endpoint `endpoint` will
++    /// never reach the decoder. `frames`: those the Station still knows.
++    Lost {
++        endpoint: u16,
++        first: u32,
++        count: u32,
++        frames: Vec<LostFrame>,
++    },
++    Report(Report),
++}
++
++/// The Station's end of a viewer's feedback channel. Dropping it stops the
++/// channel (the repair goes back to the former rule).
++pub struct FeedbackHost {
++    endpoint: u16,
++    events: broadcast::Sender<FeedbackEvent>,
++    snapshot: KyArc<KyMutex<FeedbackHostSnapshot>>,
++    transport: KyArc<Transport>,
++    _task: Task,
++}
++
++impl FeedbackHost {
++    pub fn endpoint(&self) -> u16 {
++        self.endpoint
++    }
++
++    pub fn subscribe(&self) -> broadcast::Receiver<FeedbackEvent> {
++        self.events.subscribe()
++    }
++
++    pub fn snapshot(&self) -> FeedbackHostSnapshot {
++        self.snapshot.lock().clone()
++    }
++
++    pub fn audio_redundancy(&self) -> bool {
++        self.transport.audio_redundancy()
++    }
++}
++
++impl Drop for FeedbackHost {
++    fn drop(&mut self) {
++        *self.transport.repair.lock() = RepairPolicy::legacy();
++    }
++}
++
++pub(crate) fn start_host(
++    channel: KyChannel,
++    ready: crate::control::ReadyNotifier,
++    transport: KyArc<Transport>,
++    conn: kynet::Connection,
++    audio_redundancy: bool,
++) -> FeedbackHost {
++    transport.audio_redundancy.store(audio_redundancy, Ordering::Relaxed);
++    transport.numbering.store(true, Ordering::Relaxed);
++    let endpoint = channel.endpoint_id();
++    let (events, _) = broadcast::channel(64);
++    let snapshot = KyArc::new(KyMutex::new(FeedbackHostSnapshot::default()));
++    let task = {
++        let events = events.clone();
++        let snapshot = snapshot.clone();
++        let transport = transport.clone();
++        Task::spawn_task(
++            async move {
++                if let Err(err) = ready.ready().await {
++                    warn!("Feedback endpoint not ready: {err}");
++                    return;
++                }
++                if let Err(err) = run_host(channel, transport, conn, events, snapshot).await {
++                    info!("Feedback channel ended: {err}");
++                }
++            },
++            "feedback host",
++        )
++    };
++    FeedbackHost { endpoint, events, snapshot, transport, _task: task }
++}
++
++struct HostState {
++    window: LossWindow,
++    first_report: Option<Instant>,
++    last_report: Option<Instant>,
++    last_n: Option<u32>,
++    last_loss_id: Option<u32>,
++    /// Cumulative source and repair bytes, once per period, over 1 s.
++    counters: VecDeque<(Instant, u64, u64)>,
++    lost_frames: u64,
++}
++
++impl HostState {
++    /// Whether a loss with this id is new (ids grow, wrapping).
++    fn new_loss(&mut self, id: u32) -> bool {
++        let new = self
++            .last_loss_id
++            .is_none_or(|last| (id.wrapping_sub(last) as i32) > 0);
++        if new {
++            self.last_loss_id = Some(id);
++        }
++        new
++    }
++}
++
++fn lost_event(transport: &Transport, loss: &FrameLoss) -> FeedbackEvent {
++    let frames = transport
++        .sent
++        .lock()
++        .get(&loss.ep)
++        .map(|ring| {
++            ring.iter()
++                .filter(|f| f.seq.wrapping_sub(loss.first) < loss.count)
++                .map(|f| LostFrame { seq: f.seq, pts: f.pts, key: f.key })
++                .collect()
++        })
++        .unwrap_or_default();
++    FeedbackEvent::Lost { endpoint: loss.ep, first: loss.first, count: loss.count, frames }
++}
++
++async fn run_host(
++    mut channel: KyChannel,
++    transport: KyArc<Transport>,
++    conn: kynet::Connection,
++    events: broadcast::Sender<FeedbackEvent>,
++    snapshot: KyArc<KyMutex<FeedbackHostSnapshot>>,
++) -> Result<(), ProtocolError> {
++    let mut st = HostState {
++        window: LossWindow::default(),
++        first_report: None,
++        last_report: None,
++        last_n: None,
++        last_loss_id: None,
++        counters: VecDeque::new(),
++        lost_frames: 0,
++    };
++    let mut beat = Beat {
++        audio_redundancy: transport.audio_redundancy(),
++        ..Default::default()
++    };
++    let mut next_tick = Instant::now() + PERIOD;
++    let mut next_log = Instant::now() + LOG_EVERY;
++    loop {
++        tokio::select! {
++            datagram = channel.recv_datagram() => {
++                let datagram = datagram.map_err(ProtocolError::new)?;
++                let now = Instant::now();
++                match decode(&datagram) {
++                    Some(Msg::Report(report)) => {
++                        if st.last_n.is_some_and(|n| (report.n.wrapping_sub(n) as i32) <= 0) {
++                            continue; // older than one already read
++                        }
++                        st.last_n = Some(report.n);
++                        st.first_report.get_or_insert(now);
++                        st.last_report = Some(now);
++                        st.window.push(now, report.expected_i, report.lost_i);
++                        for loss in &report.losses {
++                            if st.new_loss(loss.id) {
++                                st.lost_frames += u64::from(loss.count);
++                                let _ = events.send(lost_event(&transport, loss));
++                            }
++                        }
++                        beat.report = report.n;
++                        snapshot.lock().last_report = Some(report.clone());
++                        let _ = events.send(FeedbackEvent::Report(report));
++                    }
++                    Some(Msg::Lost(loss)) => {
++                        if st.new_loss(loss.id) {
++                            st.lost_frames += u64::from(loss.count);
++                            let _ = events.send(lost_event(&transport, &loss));
++                        }
++                    }
++                    _ => {} // unknown, or not for this side
++                }
++            }
++            _ = runtime::sleep_until(next_tick) => {
++                let now = Instant::now();
++                next_tick = now + PERIOD;
++                // Repair rule.
++                let trusted = st.first_report.is_some_and(|t| now.saturating_duration_since(t) >= TRUST_AFTER)
++                    && st.last_report.is_some_and(|t| now.saturating_duration_since(t) < SILENCE);
++                let p95 = st.window.p95();
++                let wanted = trusted.then(|| repair::protected_loss(p95));
++                {
++                    let mut policy = transport.repair.lock();
++                    let change = match (policy.loss(), wanted) {
++                        (None, None) => false,
++                        (Some(a), Some(b)) => (a - b).abs() > a.min(b) * 0.05,
++                        _ => true,
++                    };
++                    if change {
++                        *policy = match wanted {
++                            Some(p) => RepairPolicy::adaptive(p),
++                            None => RepairPolicy::legacy(),
++                        };
++                    }
++                    beat.repair_pm = policy.share_pm();
++                }
++                // Repair actually sent over the last second.
++                let src = transport.source_bytes.load(Ordering::Relaxed);
++                let rep = transport.repair_bytes.load(Ordering::Relaxed);
++                st.counters.push_back((now, src, rep));
++                while st.counters.len() > 2
++                    && st.counters.get(1).is_some_and(|(t, _, _)| now.saturating_duration_since(*t) >= Duration::from_secs(1))
++                {
++                    st.counters.pop_front();
++                }
++                let ratio = match st.counters.front() {
++                    Some(&(_, s0, r0)) if src > s0 => (rep - r0) as f64 / (src - s0) as f64,
++                    _ => 0.0,
++                };
++                let stats = KyChannel::connection_stats_(&conn).await;
++                beat.n = beat.n.wrapping_add(1);
++                beat.repair_ratio_pm = (ratio * 1000.0).round().min(f64::from(u16::MAX)) as u16;
++                beat.loss_p95_pm = (p95 * 1000.0).round() as u16;
++                beat.rtt_us = stats.rtt.map_or(0, |d| d.as_micros().min(u32::MAX as u128) as u32);
++                beat.quic_lost = stats.packets_lost.unwrap_or(0);
++                {
++                    let mut s = snapshot.lock();
++                    s.loss_p95 = p95;
++                    s.protected_loss = wanted;
++                    s.repair_ratio = ratio;
++                }
++                if let Some(datagram) = encode(&channel, &Msg::Beat(beat.clone())) {
++                    // A full send queue drops the beat: the next one follows.
++                    let _ = channel.send_datagram(datagram).await;
++                }
++                if now >= next_log {
++                    next_log = now + LOG_EVERY;
++                    let last = snapshot.lock().last_report.clone().unwrap_or_default();
++                    info!(
++                        "Feedback: raw loss p95 {:.1} %, repair {} ‰ aimed, {} ‰ sent, wait {} ms, disorder p99 {} µs, datagrams lost {}/{} (late {}), frames lost {}",
++                        p95 * 100.0,
++                        beat.repair_pm,
++                        beat.repair_ratio_pm,
++                        last.wait_us / 1000,
++                        last.reorder_us,
++                        last.lost,
++                        last.received + last.lost,
++                        last.late,
++                        st.lost_frames,
++                    );
++                }
++            }
++        }
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Viewer side.
++
++/// The viewer's view of the channel, cumulative since it started.
++#[derive(Debug, Clone, Default, PartialEq)]
++pub struct FeedbackClientSnapshot {
++    pub received: u64,
++    pub lost: u64,
++    pub late: u64,
++    pub reorder_us: u32,
++    pub wait_us: u32,
++    /// Picture packets handed to the decoder and given up, all endpoints.
++    pub frames: u64,
++    pub lost_frames: u64,
++    /// The Station's last beat, if any.
++    pub beat: Option<Beat>,
++}
++
++/// The viewer's end of the feedback channel. Dropping it stops the reports
++/// (the wait goes back to 50 ms).
++pub struct FeedbackClient {
++    snapshot: KyArc<KyMutex<FeedbackClientSnapshot>>,
++    transport: KyArc<Transport>,
++    _task: Task,
++}
++
++impl FeedbackClient {
++    pub fn snapshot(&self) -> FeedbackClientSnapshot {
++        self.snapshot.lock().clone()
++    }
++
++    /// A handle that reads the snapshot without keeping the channel alive.
++    pub fn reader(&self) -> FeedbackClientReader {
++        FeedbackClientReader { snapshot: self.snapshot.clone() }
++    }
++}
++
++#[derive(Clone)]
++pub struct FeedbackClientReader {
++    snapshot: KyArc<KyMutex<FeedbackClientSnapshot>>,
++}
++
++impl FeedbackClientReader {
++    pub fn snapshot(&self) -> FeedbackClientSnapshot {
++        self.snapshot.lock().clone()
++    }
++}
++
++impl Drop for FeedbackClient {
++    fn drop(&mut self) {
++        self.transport.wait_us.store(0, Ordering::Relaxed);
++    }
++}
++
++pub(crate) fn start_client(
++    channel: KyChannel,
++    ready: crate::control::ReadyNotifier,
++    transport: KyArc<Transport>,
++) -> FeedbackClient {
++    let snapshot = KyArc::new(KyMutex::new(FeedbackClientSnapshot::default()));
++    let task = {
++        let snapshot = snapshot.clone();
++        let transport = transport.clone();
++        Task::spawn_task(
++            async move {
++                if let Err(err) = ready.ready().await {
++                    warn!("Feedback endpoint not ready: {err}");
++                    return;
++                }
++                if let Err(err) = run_client(channel, transport, snapshot).await {
++                    info!("Feedback channel ended: {err}");
++                }
++            },
++            "feedback client",
++        )
++    };
++    FeedbackClient { snapshot, transport, _task: task }
++}
++
++fn build_report(transport: &Transport, n: u32, now: Instant) -> Report {
++    let (hi, received, lost, late, (expected_i, lost_i), reorder_us, seen) = {
++        let mut log = transport.arrivals.lock();
++        log.settle(now);
++        (log.hi_raw(), log.received, log.lost, log.late, log.take_interval(), log.reorder_us(), log.seen())
++    };
++    let wait = arrivals::wait_for(reorder_us, seen);
++    let wait_us = wait.as_micros() as u32;
++    transport.wait_us.store(wait_us, Ordering::Relaxed);
++    let book = transport.book.lock();
++    let mut streams: Vec<StreamReport> = book
++        .endpoints
++        .iter()
++        .map(|(&ep, e)| StreamReport { ep, delivered: e.delivered, frames: e.frames, lost: e.lost })
++        .collect();
++    streams.sort_by_key(|s| s.ep);
++    Report {
++        n,
++        hi,
++        received,
++        lost,
++        late,
++        expected_i,
++        lost_i,
++        reorder_us,
++        wait_us,
++        streams,
++        losses: book.losses.iter().copied().collect(),
++    }
++}
++
++async fn run_client(
++    mut channel: KyChannel,
++    transport: KyArc<Transport>,
++    snapshot: KyArc<KyMutex<FeedbackClientSnapshot>>,
++) -> Result<(), ProtocolError> {
++    let mut n = 0u32;
++    let mut next_tick = Instant::now() + PERIOD;
++    loop {
++        tokio::select! {
++            datagram = channel.recv_datagram() => {
++                let datagram = datagram.map_err(ProtocolError::new)?;
++                if let Some(Msg::Beat(beat)) = decode(&datagram) {
++                    snapshot.lock().beat = Some(beat);
++                }
++            }
++            _ = transport.loss_notify.notified() => {
++                let pending = std::mem::take(&mut transport.book.lock().pending);
++                for loss in pending {
++                    if let Some(datagram) = encode(&channel, &Msg::Lost(loss)) {
++                        let _ = channel.send_datagram(datagram).await;
++                    }
++                }
++            }
++            _ = runtime::sleep_until(next_tick) => {
++                let now = Instant::now();
++                next_tick = now + PERIOD;
++                n = n.wrapping_add(1);
++                let report = build_report(&transport, n, now);
++                {
++                    let mut s = snapshot.lock();
++                    s.received = report.received;
++                    s.lost = report.lost;
++                    s.late = report.late;
++                    s.reorder_us = report.reorder_us;
++                    s.wait_us = report.wait_us;
++                    s.frames = report.streams.iter().map(|e| e.frames).sum();
++                    s.lost_frames = report.streams.iter().map(|e| e.lost).sum();
++                }
++                match encode(&channel, &Msg::Report(report)) {
++                    Some(datagram) => {
++                        let _ = channel.send_datagram(datagram).await;
++                    }
++                    None => warn!("Feedback report too large for a datagram"),
++                }
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn messages_keep_their_fields_and_ignore_new_ones() {
++        let report = Report {
++            n: 7,
++            received: 1000,
++            lost: 3,
++            streams: vec![StreamReport { ep: 4, delivered: 99, frames: 100, lost: 1 }],
++            losses: vec![FrameLoss { id: 1, ep: 4, first: 50, count: 1 }],
++            ..Default::default()
++        };
++        let bytes = rmp_serde::to_vec_named(&Msg::Report(report.clone())).unwrap();
++        match rmp_serde::from_slice::<Msg>(&bytes).unwrap() {
++            Msg::Report(r) => assert_eq!(r, report),
++            other => panic!("{other:?}"),
++        }
++
++        // A later version's beat: one more field, one fewer.
++        #[derive(Serialize)]
++        struct LaterBeat {
++            n: u32,
++            repair_pm: u16,
++            something_new: String,
++        }
++        #[derive(Serialize)]
++        enum LaterMsg {
++            Beat(LaterBeat),
++        }
++        let bytes = rmp_serde::to_vec_named(&LaterMsg::Beat(LaterBeat {
++            n: 3,
++            repair_pm: 40,
++            something_new: "x".into(),
++        }))
++        .unwrap();
++        match rmp_serde::from_slice::<Msg>(&bytes).unwrap() {
++            Msg::Beat(b) => {
++                assert_eq!((b.n, b.repair_pm, b.rtt_us), (3, 40, 0));
++            }
++            other => panic!("{other:?}"),
++        }
++
++        // A message kind this version does not know: not decoded, ignored.
++        #[derive(Serialize)]
++        enum Unknown {
++            Recovery { frame: u32 },
++        }
++        let bytes = rmp_serde::to_vec_named(&Unknown::Recovery { frame: 1 }).unwrap();
++        let mut datagram = vec![0, 0];
++        datagram.extend(bytes);
++        assert!(decode(&datagram).is_none());
++    }
++
++    #[test]
++    fn a_full_report_fits_a_small_datagram() {
++        let report = Report {
++            n: u32::MAX,
++            hi: u32::MAX,
++            received: u64::MAX,
++            lost: u64::MAX,
++            late: u64::MAX,
++            expected_i: u32::MAX,
++            lost_i: u32::MAX,
++            reorder_us: u32::MAX,
++            wait_us: u32::MAX,
++            streams: vec![
++                StreamReport { ep: u16::MAX, delivered: u32::MAX, frames: u64::MAX, lost: u64::MAX };
++                4
++            ],
++            losses: vec![FrameLoss { id: u32::MAX, ep: u16::MAX, first: u32::MAX, count: u32::MAX }; 8],
++        };
++        let bytes = rmp_serde::to_vec_named(&Msg::Report(report)).unwrap();
++        assert!(bytes.len() < 1000, "{}", bytes.len());
++    }
++
++    #[test]
++    fn the_viewer_book_repeats_its_last_losses() {
++        let t = Transport::default();
++        for i in 0..10 {
++            t.gave_up(4, i * 10, 1);
++        }
++        t.delivered(4, 95);
++        let r = build_report(&t, 1, Instant::now());
++        assert_eq!(r.losses.len(), LOSSES_REPEATED);
++        assert_eq!(r.losses.first().unwrap().id, 2);
++        assert_eq!(r.streams, vec![StreamReport { ep: 4, delivered: 95, frames: 1, lost: 10 }]);
++        assert_eq!(r.wait_us, 50_000, "no datagram seen yet");
++    }
++
++    #[test]
++    fn the_station_names_the_lost_frames_it_still_knows() {
++        let t = Transport::default();
++        t.numbering.store(true, Ordering::Relaxed);
++        for seq in 0..600u32 {
++            t.sent_frame(2, seq, u64::from(seq) * 16_666, seq % 100 == 0);
++        }
++        match lost_event(&t, &FrameLoss { id: 0, ep: 2, first: 599, count: 1 }) {
++            FeedbackEvent::Lost { frames, .. } => {
++                assert_eq!(frames, vec![LostFrame { seq: 599, pts: 599 * 16_666, key: false }])
++            }
++            other => panic!("{other:?}"),
++        }
++        match lost_event(&t, &FrameLoss { id: 1, ep: 2, first: 10, count: 2 }) {
++            FeedbackEvent::Lost { frames, .. } => assert!(frames.is_empty(), "forgotten"),
++            other => panic!("{other:?}"),
++        }
++    }
++}
+diff --git a/kyproto/src/feedback/repair.rs b/kyproto/src/feedback/repair.rs
+new file mode 100644
+index 0000000..2d7d91c
+--- /dev/null
++++ b/kyproto/src/feedback/repair.rs
+@@ -0,0 +1,278 @@
++// KyberNow: RaptorQ repair share from the raw loss the viewer reports
++// (docs/canal-de-retour.md, "Picture repair").
++
++use std::collections::VecDeque;
++
++use crate::runtime::{Duration, Instant};
++
++/// Residual loss aimed at, per frame: probability that more datagrams of a
++/// frame are lost than its repair symbols can make up for.
++pub(crate) const TARGET_MISS: f64 = 1e-3;
++/// Loss probability protected against on a path that reports none.
++pub(crate) const FLOOR_LOSS: f64 = 0.005;
++/// Weight of the reported 95th percentile.
++pub(crate) const GAIN: f64 = 1.25;
++/// Highest loss probability protected against (past it, the automatic
++/// bitrate has to act, the repair alone cannot).
++pub(crate) const MAX_LOSS: f64 = 0.35;
++/// Frames up to this many source symbols take an exact repair count.
++const EXACT_UP_TO: usize = 128;
++/// One-sided normal quantile for TARGET_MISS (1e-3).
++const Z: f64 = 3.09;
++
++/// Window of the reported losses.
++pub(crate) const LOSS_WINDOW: Duration = Duration::from_secs(5);
++/// An interval settling fewer datagrams says too little to be counted.
++pub(crate) const MIN_SETTLED: u32 = 20;
++
++/// The former rule: 30 % of the source symbols, at least 2.
++pub(crate) fn legacy_repair(source_symbols: usize) -> u32 {
++    ((source_symbols as f32 * 0.3).ceil() as u32).max(2)
++}
++
++/// P(X > r) for X ~ Binomial(n, p).
++fn tail_above(n: usize, r: usize, p: f64) -> f64 {
++    if r >= n {
++        return 0.0;
++    }
++    let q = 1.0 - p;
++    let mut pmf = q.powi(n as i32);
++    let mut cdf = pmf;
++    for i in 0..r {
++        pmf *= (n - i) as f64 / (i + 1) as f64 * p / q;
++        cdf += pmf;
++    }
++    (1.0 - cdf).max(0.0)
++}
++
++/// Largest repair count a frame of `k` source symbols may take.
++fn cap(k: usize) -> u32 {
++    (k.div_ceil(2) as u32).max(3)
++}
++
++/// Smallest repair count keeping a frame of `k` source symbols whole with
++/// probability 1 - TARGET_MISS at loss probability `p`.
++pub(crate) fn repair_for(k: usize, p: f64) -> u32 {
++    let k = k.max(1);
++    let cap = cap(k);
++    if k > EXACT_UP_TO {
++        let mean = k as f64 * p;
++        // The binomial's right tail is heavier than the normal's: 2 more
++        // symbols cover the skew (checked against the exact count at 128).
++        let r = ((mean + Z * (mean * (1.0 - p)).sqrt()) / (1.0 - p)).ceil() as u32 + 2;
++        return r.clamp(1, cap);
++    }
++    let mut r = 1;
++    while r < cap && tail_above(k + r as usize, r as usize, p) > TARGET_MISS {
++        r += 1;
++    }
++    r
++}
++
++/// Loss probability protected against, from the reports' 95th percentile.
++pub(crate) fn protected_loss(p95: f64) -> f64 {
++    (FLOOR_LOSS + GAIN * p95).min(MAX_LOSS)
++}
++
++/// The repair rule in force on a connection.
++#[derive(Debug, Clone)]
++pub(crate) struct RepairPolicy {
++    /// `None`: the former 30 % and at least 2 (no feedback, or not yet).
++    loss: Option<f64>,
++    /// Repair count for 1..=EXACT_UP_TO source symbols (index 0 unused).
++    table: Vec<u32>,
++}
++
++impl Default for RepairPolicy {
++    fn default() -> Self {
++        Self::legacy()
++    }
++}
++
++impl RepairPolicy {
++    pub(crate) fn legacy() -> Self {
++        Self { loss: None, table: Vec::new() }
++    }
++
++    pub(crate) fn adaptive(loss: f64) -> Self {
++        let mut table = vec![0; EXACT_UP_TO + 1];
++        for (k, r) in table.iter_mut().enumerate().skip(1) {
++            *r = repair_for(k, loss);
++        }
++        Self { loss: Some(loss), table }
++    }
++
++    pub(crate) fn loss(&self) -> Option<f64> {
++        self.loss
++    }
++
++    pub(crate) fn repair_symbols(&self, source_symbols: usize) -> u32 {
++        match self.loss {
++            None => legacy_repair(source_symbols),
++            Some(p) => match self.table.get(source_symbols.max(1)) {
++                Some(&r) => r,
++                None => repair_for(source_symbols, p),
++            },
++        }
++    }
++
++    /// Share aimed at, in ‰ of the source symbols, for a frame of 50 symbols
++    /// (a 60 KB frame, about 30 Mbit/s at 60 fps): what the beat announces.
++    pub(crate) fn share_pm(&self) -> u16 {
++        let k = 50;
++        (self.repair_symbols(k) as u64 * 1000 / k as u64).min(u16::MAX as u64) as u16
++    }
++}
++
++/// The share of datagrams lost per reported interval, over LOSS_WINDOW.
++#[derive(Debug, Default)]
++pub(crate) struct LossWindow {
++    samples: VecDeque<(Instant, f64)>,
++}
++
++impl LossWindow {
++    pub(crate) fn push(&mut self, at: Instant, settled: u32, lost: u32) {
++        if settled < MIN_SETTLED {
++            return;
++        }
++        self.samples
++            .push_back((at, f64::from(lost.min(settled)) / f64::from(settled)));
++        while self
++            .samples
++            .front()
++            .is_some_and(|(t, _)| at.saturating_duration_since(*t) > LOSS_WINDOW)
++        {
++            self.samples.pop_front();
++        }
++    }
++
++    #[cfg(test)]
++    pub(crate) fn len(&self) -> usize {
++        self.samples.len()
++    }
++
++    /// 95th percentile (nearest rank), 0 without samples.
++    pub(crate) fn p95(&self) -> f64 {
++        percentile(self.samples.iter().map(|(_, f)| *f).collect(), 0.95)
++    }
++}
++
++/// Nearest-rank percentile of `values` (0 when empty).
++pub(crate) fn percentile(mut values: Vec<f64>, q: f64) -> f64 {
++    if values.is_empty() {
++        return 0.0;
++    }
++    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
++    let rank = ((q * values.len() as f64).ceil() as usize).clamp(1, values.len());
++    values[rank - 1]
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn the_former_rule_stays_without_feedback() {
++        let p = RepairPolicy::legacy();
++        // Kyber's f32 rounding included (0.3 × 50 = 15.000001 → 16).
++        let expected: Vec<u32> = [1usize, 10, 50, 300]
++            .iter()
++            .map(|&k| ((k as f32 * 0.3).ceil() as u32).max(2))
++            .collect();
++        assert_eq!(
++            [1, 10, 50, 300].map(|k| p.repair_symbols(k)).to_vec(),
++            expected
++        );
++        assert_eq!(p.repair_symbols(50), 16);
++    }
++
++    #[test]
++    fn a_clean_path_takes_little_repair() {
++        let p = RepairPolicy::adaptive(protected_loss(0.0));
++        assert_eq!(p.repair_symbols(1), 1);
++        assert_eq!(p.repair_symbols(10), 2);
++        assert_eq!(p.repair_symbols(50), 3);
++        assert!(p.repair_symbols(300) <= 8, "{}", p.repair_symbols(300));
++        assert!(p.repair_symbols(4000) <= 4000 / 50, "{}", p.repair_symbols(4000));
++    }
++
++    #[test]
++    fn every_frame_size_meets_the_target_or_its_cap() {
++        for p95 in [0.0, 0.01, 0.02, 0.05, 0.1] {
++            let p = protected_loss(p95);
++            for k in 1..=EXACT_UP_TO {
++                let r = repair_for(k, p);
++                assert!(r >= 1 && r <= cap(k));
++                if r < cap(k) {
++                    assert!(tail_above(k + r as usize, r as usize, p) <= TARGET_MISS);
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn the_normal_approximation_meets_the_exact_count_at_the_seam() {
++        for p95 in [0.0, 0.02, 0.05] {
++            let p = protected_loss(p95);
++            let exact = repair_for(EXACT_UP_TO, p);
++            let approx = repair_for(EXACT_UP_TO + 1, p);
++            assert!(approx + 1 >= exact, "p {p}: exact {exact}, approx {approx}");
++            // And it still meets the target.
++            let k = EXACT_UP_TO + 1;
++            assert!(tail_above(k + approx as usize, approx as usize, p) <= 2.0 * TARGET_MISS);
++        }
++    }
++
++    #[test]
++    fn more_loss_more_repair_up_to_half() {
++        let low = RepairPolicy::adaptive(protected_loss(0.01));
++        let high = RepairPolicy::adaptive(protected_loss(0.1));
++        assert!(high.repair_symbols(100) > low.repair_symbols(100));
++        let worst = RepairPolicy::adaptive(protected_loss(1.0));
++        assert_eq!(worst.repair_symbols(100), 50);
++        assert_eq!(worst.repair_symbols(1000), 500);
++    }
++
++    #[test]
++    fn the_window_keeps_five_seconds_of_whole_intervals() {
++        let t0 = Instant::now();
++        let mut w = LossWindow::default();
++        w.push(t0, 10, 5); // too few datagrams: ignored
++        assert_eq!(w.len(), 0);
++        for i in 0..100u64 {
++            let lost = if i % 10 == 0 { 10 } else { 0 };
++            w.push(t0 + Duration::from_millis(i * 100), 100, lost);
++        }
++        assert_eq!(w.len(), 51);
++        assert!((w.p95() - 0.1).abs() < 1e-9);
++    }
++
++    /// A simulated frame stream through Bernoulli losses: the residual loss
++    /// stays near the target at the reported rate.
++    #[test]
++    fn simulated_random_losses_keep_frames_whole() {
++        let mut seed = 0x2545_f491_4f6c_dd1du64;
++        let mut rand = move || {
++            seed ^= seed << 13;
++            seed ^= seed >> 7;
++            seed ^= seed << 17;
++            (seed >> 11) as f64 / (1u64 << 53) as f64
++        };
++        for (loss, sizes) in [(0.02, [3usize, 20, 60]), (0.05, [3, 20, 60])] {
++            let policy = RepairPolicy::adaptive(protected_loss(loss));
++            for k in sizes {
++                let r = policy.repair_symbols(k) as usize;
++                let frames = 20_000;
++                let mut missed = 0;
++                for _ in 0..frames {
++                    let got = (0..k + r).filter(|_| rand() >= loss).count();
++                    if got < k {
++                        missed += 1;
++                    }
++                }
++                let rate = missed as f64 / frames as f64;
++                assert!(rate <= 0.003, "loss {loss}, K {k}, R {r}: {rate}");
++            }
++        }
++    }
++}
+diff --git a/kyproto/src/lib.rs b/kyproto/src/lib.rs
+index f547efb..e2fdc18 100644
+--- a/kyproto/src/lib.rs
++++ b/kyproto/src/lib.rs
+@@ -36,6 +36,11 @@ pub use protocol::clock_sync::{
+     ClockSyncServerProtocol,
+ };
+ pub use protocol::{AudioProtocol, VideoProtocol};
++pub use feedback::{
++    Beat as FeedbackBeat, FEEDBACK_VERSION, FeedbackClient, FeedbackClientReader,
++    FeedbackClientSnapshot, FeedbackEvent, FeedbackHost, FeedbackHostSnapshot, FrameLoss,
++    LostFrame, Report as FeedbackReport, StreamReport as FeedbackStreamReport,
++};
+ 
+ pub use kynet::ConnectionStats;
+ pub use kynet::error::ConnectionError;
+@@ -44,6 +49,8 @@ pub use kynet::init_crypto;
+ mod auth;
+ pub mod clock;
+ mod control;
++// KyberNow: feedback channel (docs/canal-de-retour.md).
++mod feedback;
+ mod protocol;
+ mod router;
+ pub mod runtime;
+@@ -631,6 +638,49 @@ impl Connection {
+         Ok(driver.into())
+     }
+ 
++    /// KyberNow: the Station's end of the feedback channel, for a viewer
++    /// that asked for it. From now on every datagram of this connection is
++    /// numbered: call it before the media endpoints. With
++    /// `audio_redundancy`, the sound sent in `Unreliable` carries the
++    /// previous packet too.
++    pub async fn register_feedback_endpoint(
++        &self,
++        audio_redundancy: bool,
++    ) -> Result<(u16, FeedbackHost), ProtocolError> {
++        let id = self.get_endpoint_id();
++        let ready_notifier = self
++            .control
++            .register_ready_notifier(id)
++            .map_err(ProtocolError::new)?;
++        self.control
++            .register_endpoint(id)
++            .await
++            .map_err(ProtocolError::new)?;
++        let ky_channel = self.router.register(id).map_err(ProtocolError::new)?;
++        let host = feedback::start_host(
++            ky_channel,
++            ready_notifier,
++            self.router.transport().clone(),
++            self.conn.clone(),
++            audio_redundancy,
++        );
++        Ok((id, host))
++    }
++
++    /// KyberNow: the viewer's end of the feedback channel the Station opened.
++    pub fn connect_feedback_endpoint(&self, id: u16) -> Result<FeedbackClient, ProtocolError> {
++        let ready_notifier = self
++            .control
++            .register_ready_notifier(id)
++            .map_err(ProtocolError::new)?;
++        let ky_channel = self.router.register(id).map_err(ProtocolError::new)?;
++        Ok(feedback::start_client(
++            ky_channel,
++            ready_notifier,
++            self.router.transport().clone(),
++        ))
++    }
++
+     pub fn close(&self) {
+         self.conn.close(0, "Closed by Kyproto user");
+     }
+diff --git a/kyproto/src/protocol/driver/av/audio_unreliable.rs b/kyproto/src/protocol/driver/av/audio_unreliable.rs
+index d300bf2..1b7747b 100644
+--- a/kyproto/src/protocol/driver/av/audio_unreliable.rs
++++ b/kyproto/src/protocol/driver/av/audio_unreliable.rs
+@@ -48,10 +48,21 @@ const KYPACKET_HEADER_SIZE: usize = AVPacketHeader::SERIALIZED_SIZE;
+ //  - datagram number: 31 bits
+ const DATAGRAM_HEADER_SIZE: usize = 10;
+ 
++// KyberNow: sound redundancy (feedback channel, docs/canal-de-retour.md).
++// Bit 30 of the datagram number set: a u16 length of this datagram's
++// segment follows the header, then the segment, then the whole previous
++// kypacket (kypacket_seq - 1, one segment). Older senders never set it
++// (datagram numbers stay small), so every receiver can read both.
++const REDUNDANCY_BIT: u32 = 1 << 30;
++const REDUNDANCY_LEN_SIZE: usize = 2;
++
+ pub(crate) struct AudioUnreliableProtocolSendDriver {
+     ky_channel: KyChannel,
+     stream: SendStream,
+     kypacket_seq: u32,
++    /// KyberNow: the last media kypacket sent (seq, header + payload), for
++    /// the next datagram to carry it again.
++    previous: Option<(u32, Bytes)>,
+ }
+ 
+ impl AudioUnreliableProtocolSendDriver {
+@@ -64,10 +75,90 @@ impl AudioUnreliableProtocolSendDriver {
+             ky_channel,
+             stream,
+             kypacket_seq: 0,
++            previous: None,
+         })
+     }
+ 
+     async fn send_datagrams(&mut self, packet: MediaPacket) -> Result<(), ProtocolError> {
++        // KyberNow: with the sound's redundancy, the datagram also carries
++        // the previous kypacket when both fit; else the previous one leaves
++        // again in plain datagrams of its own, after this one.
++        if !self.ky_channel.transport().audio_redundancy() {
++            return self.send_plain(packet).await;
++        }
++        let max_datagram_size = self
++            .ky_channel
++            .max_datagram_size()
++            .ok_or_else(|| ProtocolError("Datagram not supported".to_string()))?;
++        let kypacket_seq = self.kypacket_seq;
++        let header = packet.header.serialize();
++        let mut data = BytesMut::with_capacity(header.len() + packet.payload.len());
++        data.put(&header[..]);
++        data.put(&packet.payload[..]);
++        let data = data.freeze();
++        let previous = self
++            .previous
++            .take()
++            .filter(|(seq, _)| *seq == kypacket_seq.wrapping_sub(1));
++        self.previous = Some((kypacket_seq, data.clone()));
++        match previous {
++            Some((_, prev))
++                if DATAGRAM_HEADER_SIZE + REDUNDANCY_LEN_SIZE + data.len() + prev.len()
++                    <= max_datagram_size
++                    && data.len() < 1 << 16 =>
++            {
++                let mut buf = BytesMut::with_capacity(
++                    DATAGRAM_HEADER_SIZE + REDUNDANCY_LEN_SIZE + data.len() + prev.len(),
++                );
++                self.ky_channel.write_datagram_header(&mut buf);
++                buf.put_u32(kypacket_seq);
++                buf.put_u32((1 << 31) | REDUNDANCY_BIT);
++                buf.put_u16(data.len() as u16);
++                buf.put(&data[..]);
++                buf.put(&prev[..]);
++                self.ky_channel
++                    .send_datagram(buf.freeze())
++                    .await
++                    .map_err(ProtocolError::new)
++            }
++            Some((prev_seq, prev)) => {
++                self.send_segments(kypacket_seq, &data, max_datagram_size).await?;
++                self.send_segments(prev_seq, &prev, max_datagram_size).await
++            }
++            None => self.send_segments(kypacket_seq, &data, max_datagram_size).await,
++        }
++    }
++
++    async fn send_segments(
++        &self,
++        kypacket_seq: u32,
++        data: &[u8],
++        max_datagram_size: usize,
++    ) -> Result<(), ProtocolError> {
++        let mut offset = 0;
++        let mut datagram_number = 0u32;
++        while offset < data.len() {
++            let payload_size = std::cmp::min(
++                max_datagram_size - DATAGRAM_HEADER_SIZE,
++                data.len() - offset,
++            );
++            let end = offset + payload_size == data.len();
++            let mut buf = BytesMut::with_capacity(DATAGRAM_HEADER_SIZE + payload_size);
++            self.ky_channel.write_datagram_header(&mut buf);
++            buf.put_u32(kypacket_seq);
++            buf.put_u32(datagram_number | if end { 1 << 31 } else { 0 });
++            buf.put(&data[offset..offset + payload_size]);
++            self.ky_channel
++                .send_datagram(buf.freeze())
++                .await
++                .map_err(ProtocolError::new)?;
++            offset += payload_size;
++            datagram_number += 1;
++        }
++        Ok(())
++    }
++
++    async fn send_plain(&mut self, packet: MediaPacket) -> Result<(), ProtocolError> {
+         let max_datagram_size = self
+             .ky_channel
+             .max_datagram_size()
+@@ -285,9 +376,32 @@ impl AudioUnreliableProtocolRecvDriver {
+             let raw_kypacket_seq = datagram.get_u32();
+ 
+             let datagram_number_and_end = datagram.get_u32();
+-            let datagram_number = datagram_number_and_end & ((1 << 31) - 1);
++            let datagram_number = datagram_number_and_end & (REDUNDANCY_BIT - 1);
+             let end = (datagram_number_and_end & (1 << 31)) != 0;
+ 
++            // KyberNow: a datagram carrying the previous kypacket too.
++            if datagram_number_and_end & REDUNDANCY_BIT != 0 {
++                if datagram.len() < REDUNDANCY_LEN_SIZE {
++                    continue;
++                }
++                let len = datagram.get_u16() as usize;
++                if len > datagram.len() {
++                    continue;
++                }
++                let segment = datagram.split_to(len);
++                if !datagram.is_empty() {
++                    tx.send(RecvMsg::Datagram(DatagramMsg {
++                        data: datagram,
++                        raw_kypacket_seq: raw_kypacket_seq.wrapping_sub(1),
++                        datagram_number: 0,
++                        end: true,
++                    }))
++                    .await
++                    .map_err(ProtocolError::new)?;
++                }
++                datagram = segment;
++            }
++
+             tx.send(RecvMsg::Datagram(DatagramMsg {
+                 data: datagram,
+                 raw_kypacket_seq,
+diff --git a/kyproto/src/protocol/driver/av/video_unreliable_fec.rs b/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
+index 5d3d8da..a904340 100644
+--- a/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
++++ b/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
+@@ -340,8 +340,17 @@ impl VideoUnreliableFecProtocolSendDriver {
+ 
+         let source_symbols = kypacket_size.div_ceil(symbol_size);
+ 
+-        // Add 30% repair packets (at least 2 packets)
+-        let repair_symbols = ((source_symbols as f32 * 0.3).ceil() as u32).max(2);
++        // KyberNow: repair from the loss the viewer reports (feedback
++        // channel); without it, 30% repair packets (at least 2 packets).
++        let transport = self.ky_channel.transport().clone();
++        let repair_symbols = transport.repair_symbols(source_symbols);
++        transport.count_repair(kypacket_size, repair_symbols as usize * symbol_size);
++        transport.sent_frame(
++            self.ky_channel.endpoint_id(),
++            self.kypacket_seq,
++            packet.header.pts,
++            packet.header.is_key,
++        );
+ 
+         let oti = oti.serialize();
+ 
+@@ -461,6 +470,9 @@ impl VideoUnreliableFecProtocolRecvDriver {
+         protocol_stats: &KyArc<KyMutex<ProtocolStats>>,
+     ) -> Result<Self, ProtocolError> {
+         let stream = ky_channel.accept_uni().await.map_err(ProtocolError::new)?;
++        // KyberNow: wait and frame book of the feedback channel.
++        let transport = ky_channel.transport().clone();
++        let endpoint_id = ky_channel.endpoint_id();
+ 
+         let (tx, rx) = mpsc::channel(16);
+         let (tx_client, rx_client) = mpsc::channel(16);
+@@ -488,7 +500,8 @@ impl VideoUnreliableFecProtocolRecvDriver {
+         let protocol_stats = protocol_stats.clone();
+         let process_task = Task::spawn_task(
+             async move {
+-                let ret = Self::process(rx, tx_client, protocol_stats).await;
++                let ret =
++                    Self::process(rx, tx_client, protocol_stats, transport, endpoint_id).await;
+                 if let Err(err) = ret {
+                     error!("process() error: {err}");
+                 }
+@@ -569,6 +582,8 @@ impl VideoUnreliableFecProtocolRecvDriver {
+         mut rx: mpsc::Receiver<RecvMsg>,
+         tx_client: mpsc::Sender<AVPacket>,
+         protocol_stats: KyArc<KyMutex<ProtocolStats>>,
++        transport: KyArc<crate::feedback::Transport>,
++        endpoint_id: u16,
+     ) -> Result<(), ProtocolError> {
+         let mut group_sequencer = Sequencer::<u32>::new();
+         let mut kypacket_sequencer = Sequencer::<u32>::new();
+@@ -621,6 +636,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
+                 } => {}
+             }
+ 
++            pending_groups.wait = transport.video_wait();
+             match pending_groups.take_next_packet(next_kypacket_seq) {
+                 Action::None => deadline = None,
+                 Action::Deadline(instant) => {
+@@ -634,6 +650,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
+                     debug!("===== SEND kypacket {kypacket_seq} to client");
+                     if kypacket_seq > next_kypacket_seq {
+                         let missing_packets = kypacket_seq - next_kypacket_seq;
++                        transport.gave_up(endpoint_id, next_kypacket_seq, missing_packets);
+                         {
+                             let mut protocol_stats = protocol_stats.lock();
+                             let dropped_packets =
+@@ -651,6 +668,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
+                         }
+                     }
+                     next_kypacket_seq = kypacket_seq + 1;
++                    transport.delivered(endpoint_id, kypacket_seq);
+                     tx_client.send(packet).await.map_err(ProtocolError::new)?;
+                     deadline = None;
+                 }
+@@ -751,12 +769,16 @@ impl ConfigPacket {
+ #[derive(Debug)]
+ struct PendingGroups {
+     pending_groups: Vec<PendingGroup>,
++    /// KyberNow: wait for a missing packet (50 ms, or from the feedback
++    /// channel's measured disorder).
++    wait: Duration,
+ }
+ 
+ impl PendingGroups {
+     fn new() -> Self {
+         Self {
+             pending_groups: Vec::new(),
++            wait: VideoUnreliableFecProtocolRecvDriver::MAX_BUFFERING,
+         }
+     }
+ 
+@@ -835,7 +857,7 @@ impl PendingGroups {
+                         };
+                         if let Some(min_instant) = min_instant {
+                             let deadline =
+-                                min_instant + VideoUnreliableFecProtocolRecvDriver::MAX_BUFFERING;
++                                min_instant + self.wait;
+                             if deadline <= Instant::now() {
+                                 ready = true;
+                             } else {
+diff --git a/kyproto/src/router.rs b/kyproto/src/router.rs
+index b81f0f0..253f7ea 100644
+--- a/kyproto/src/router.rs
++++ b/kyproto/src/router.rs
+@@ -18,6 +18,7 @@
+ // You should have received a copy of the GNU Affero General Public License
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
++use crate::feedback::{NUMBERED, SEQ_SIZE, Transport};
+ use crate::task::Task;
+ 
+ use std::collections::HashMap;
+@@ -54,12 +55,15 @@ pub(crate) struct RouterClient {
+ pub(crate) struct Router {
+     conn: Connection,
+     clients: KyArc<KyMutex<ClientMap>>,
++    /// KyberNow: datagram numbering and feedback state of this connection.
++    transport: KyArc<Transport>,
+     tasks: Vec<Task>,
+ }
+ 
+ impl Router {
+     pub fn start(conn: Connection) -> Self {
+         let clients = KyArc::new(KyMutex::new(HashMap::new()));
++        let transport = KyArc::new(Transport::default());
+ 
+         let conn2 = conn.clone();
+         let clients2 = clients.clone();
+@@ -85,9 +89,10 @@ impl Router {
+ 
+         let conn2 = conn.clone();
+         let clients2 = clients.clone();
++        let transport2 = transport.clone();
+         let recv_datagrams_task = Task::spawn_task(
+             async move {
+-                if let Err(err) = Self::recv_channels_datagrams(conn2, clients2).await {
++                if let Err(err) = Self::recv_channels_datagrams(conn2, clients2, transport2).await {
+                     error!("{err:?}");
+                 }
+             },
+@@ -98,10 +103,15 @@ impl Router {
+         Self {
+             conn,
+             clients,
++            transport,
+             tasks,
+         }
+     }
+ 
++    pub(crate) fn transport(&self) -> &KyArc<Transport> {
++        &self.transport
++    }
++
+     pub fn register(&self, endpoint_id: u16) -> Result<KyChannel, EndpointAlreadyRegistered> {
+         let (tx_unistreams, rx_unistreams) = mpsc::channel(8);
+         let (tx_bistreams, rx_bistreams) = mpsc::channel(8);
+@@ -120,6 +130,7 @@ impl Router {
+         Ok(KyChannel::new(
+             endpoint_id,
+             self.conn.clone(),
++            self.transport.clone(),
+             self.clients.clone(),
+             rx_unistreams,
+             rx_bistreams,
+@@ -215,14 +226,25 @@ impl Router {
+     async fn recv_channels_datagrams(
+         conn: Connection,
+         clients: KyArc<KyMutex<ClientMap>>,
++        transport: KyArc<Transport>,
+     ) -> Result<(), RouterError> {
+         loop {
+-            let datagram = conn
++            let mut datagram = conn
+                 .read_datagram()
+                 .await
+                 .map_err(|err| RouterError(format!("read_datagram() failed: {err:?}")))?;
+             if datagram.len() >= 2 {
+-                let endpoint_id = u16::from_be_bytes((&datagram[..2]).try_into().unwrap());
++                let mut endpoint_id = u16::from_be_bytes((&datagram[..2]).try_into().unwrap());
++                // KyberNow: a numbered datagram (feedback channel) ends with
++                // its connection number, removed here without a copy. The
++                // endpoint never reads the id's top bit.
++                if endpoint_id & NUMBERED != 0 && datagram.len() >= 2 + SEQ_SIZE {
++                    let at = datagram.len() - SEQ_SIZE;
++                    let seq = u32::from_be_bytes((&datagram[at..]).try_into().unwrap());
++                    transport.arrived(seq);
++                    datagram = datagram.slice(..at);
++                    endpoint_id &= !NUMBERED;
++                }
+                 let tx = if let Some(client) = clients.lock().get_mut(&endpoint_id) {
+                     Some(client.tx_datagrams.clone())
+                 } else {
+@@ -257,6 +279,7 @@ impl Drop for Router {
+ pub(crate) struct KyChannel {
+     endpoint_id: u16,
+     conn: Connection,
++    transport: KyArc<Transport>,
+     rx_unistreams: mpsc::Receiver<RecvStream>,
+     // Unused for now; kept for symmetry with accept_bi.
+     rx_bistreams: mpsc::Receiver<(SendStream, RecvStream)>,
+@@ -267,6 +290,7 @@ pub(crate) struct KyChannel {
+ pub(crate) struct KyChannelSend {
+     endpoint_id: u16,
+     conn: Connection,
++    transport: KyArc<Transport>,
+     /// See [`KyChannelDropper`].
+     #[expect(dead_code)]
+     dropper: KyArc<KyChannelDropper>,
+@@ -324,12 +348,30 @@ impl KyChannelSend {
+         Ok((send, recv))
+     }
+ 
+-    async fn send_datagram_(conn: &Connection, data: Bytes) -> Result<(), SendDatagramError> {
++    async fn send_datagram_(
++        conn: &Connection,
++        transport: &Transport,
++        data: Bytes,
++    ) -> Result<(), SendDatagramError> {
++        // KyberNow: once the viewer asked for the feedback channel, every
++        // datagram of the connection ends with its number.
++        if transport.numbering() && data.len() >= 2 {
++            let mut buf = BytesMut::with_capacity(data.len() + SEQ_SIZE);
++            buf.put_slice(&data);
++            buf[0] |= (NUMBERED >> 8) as u8;
++            buf.put_u32(transport.next_seq());
++            return conn.send_datagram(buf.freeze()).await;
++        }
+         conn.send_datagram(data).await
+     }
+ 
+-    fn max_datagram_size_(conn: &Connection) -> Option<usize> {
+-        conn.max_datagram_size()
++    fn max_datagram_size_(conn: &Connection, transport: &Transport) -> Option<usize> {
++        let max = conn.max_datagram_size()?;
++        if transport.numbering() {
++            max.checked_sub(SEQ_SIZE)
++        } else {
++            Some(max)
++        }
+     }
+ 
+     fn write_datagram_header_(endpoint_id: u16, buf: &mut BytesMut) {
+@@ -348,12 +390,12 @@ impl KyChannelSend {
+ 
+     #[expect(dead_code)]
+     pub async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
+-        Self::send_datagram_(&self.conn, data).await
++        Self::send_datagram_(&self.conn, &self.transport, data).await
+     }
+ 
+     #[expect(dead_code)]
+     pub fn max_datagram_size(&self) -> Option<usize> {
+-        Self::max_datagram_size_(&self.conn)
++        Self::max_datagram_size_(&self.conn, &self.transport)
+     }
+ 
+     #[expect(dead_code)]
+@@ -405,6 +447,7 @@ impl KyChannel {
+     pub(crate) fn new(
+         endpoint_id: u16,
+         conn: Connection,
++        transport: KyArc<Transport>,
+         clients: KyArc<KyMutex<ClientMap>>,
+         rx_unistreams: mpsc::Receiver<RecvStream>,
+         rx_bistreams: mpsc::Receiver<(SendStream, RecvStream)>,
+@@ -413,6 +456,7 @@ impl KyChannel {
+         Self {
+             endpoint_id,
+             conn,
++            transport,
+             rx_unistreams,
+             rx_bistreams,
+             rx_datagrams,
+@@ -447,7 +491,12 @@ impl KyChannel {
+     }
+ 
+     pub async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
+-        KyChannelSend::send_datagram_(&self.conn, data).await
++        KyChannelSend::send_datagram_(&self.conn, &self.transport, data).await
++    }
++
++    /// KyberNow: the connection's numbering and feedback state.
++    pub(crate) fn transport(&self) -> &KyArc<Transport> {
++        &self.transport
+     }
+ 
+     pub async fn recv_datagram(&mut self) -> Result<Bytes, RouterError> {
+@@ -455,7 +504,7 @@ impl KyChannel {
+     }
+ 
+     pub fn max_datagram_size(&self) -> Option<usize> {
+-        KyChannelSend::max_datagram_size_(&self.conn)
++        KyChannelSend::max_datagram_size_(&self.conn, &self.transport)
+     }
+ 
+     pub fn write_datagram_header(&self, buf: &mut BytesMut) {
+@@ -475,6 +524,7 @@ impl KyChannel {
+         let KyChannel {
+             endpoint_id,
+             conn,
++            transport,
+             rx_unistreams,
+             rx_bistreams,
+             rx_datagrams,
+@@ -486,6 +536,7 @@ impl KyChannel {
+         let send = KyChannelSend {
+             endpoint_id,
+             conn: conn.clone(),
++            transport,
+             dropper: dropper.clone(),
+         };
+ 

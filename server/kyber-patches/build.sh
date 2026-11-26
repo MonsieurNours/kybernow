@@ -143,6 +143,11 @@
 #         kyavservice (rate_control.rs, deux moteurs) : NVENC et AMF en débit
 #         constant, AMF en faible latence, image clé toutes les 600 images ;
 #         banc d'essai encoder-frame-bench.exe (pas livré, tools/)
+#   0050  canal de retour (docs/canal-de-retour.md) : 0050-kynet (kyproto) :
+#   0052  datagrammes numérotés, voie « feedback », réparation RaptorQ selon
+#         les pertes, attente selon le désordre, son avec le paquet
+#         précédent ; 0051-kyclient : négociation et Metric::Feedback ;
+#         0052-kycontroller : canal ouvert pour l'app qui le demande
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
