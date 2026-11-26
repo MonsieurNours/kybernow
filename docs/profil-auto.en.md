@@ -31,7 +31,7 @@ The core decides (`autotest::decide`), in this order, and gives the reason for e
 2. **Format**: PyroWave if the computer offers it, the device decodes it fast enough, it is connected by cable (not through the relay) and the budget covers its bitrate at the display's resolution; otherwise HEVC (AV1 if the device doesn't decode HEVC, H.264 last).
 3. **Resolution and refresh rate**: the device display's, as long as decoding keeps up with the refresh rate with a 20 % margin; otherwise the rate goes down (120 → 60 Hz), then the resolution (4K → 1440p → 1080p).
 4. **Sharp text (4:4:4)**: if the device decodes it fast enough and the budget covers a third more bitrate (with PyroWave: half).
-5. **Bitrate**: the budget, at most Max's (at most the computer's PyroWave ceiling) and at least 10 Mbit/s; kept calibrated on 4K at 60 Hz like the profiles'.
+5. **Bitrate**: the budget, at most Max's and at most 290 Mbit/s per screen in HEVC, AV1 and H.264 (what a hardware encoder accepts, `ENCODER_MAX_MBPS`; in PyroWave, at most its ceiling on the computer) and at least 10 Mbit/s; kept calibrated on 4K at 60 Hz like the profiles'.
 6. **Transport**: Reliable if jitter exceeds 10 ms or latency under load rises by more than 50 ms (a network that holds packets back); otherwise Fast.
 7. **Adaptive bitrate**: on.
 

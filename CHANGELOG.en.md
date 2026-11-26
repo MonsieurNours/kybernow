@@ -7,6 +7,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## 0.11.3
 
 - **Auto profile: the Mac, iPhone, iPad and Apple TV apps no longer stop at “Decoding on this device”.** The app closed at that step, after the connection, latency and bitrate. The test now runs to the end.
+- **HEVC, AV1 and H.264 at most 290 Mbit/s per screen.** The Auto profile (and Max at a high refresh rate) could ask for nearly 600 Mbit/s, more than the computer's graphics card accepts: the picture didn't start. PyroWave is not affected.
 - **No more endless “Reconnecting” when the computer refuses the picture.** A picture refused right from the start (the Auto profile could ask for HEVC at nearly 600 Mbit/s in 4K at 160 Hz) restarted the stream at the same bitrate, forever. The stream is now lightened (lower bitrate, then 4:2:0); if it is still refused, the session stops with a message instead of looping.
 - **Auto profile: PyroWave measured.** The test's PyroWave samples were unreadable: no device could decode them, and the test never suggested PyroWave. They are rebuilt.
 

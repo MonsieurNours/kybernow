@@ -23,6 +23,13 @@ pub const PYROWAVE_KYBER: bool = cfg!(feature = "pyrowave");
 /// docs/link-ui.md) ; 4:4:4 : moitié plus. Provisoire, à régler sur des
 /// flux de la Station ; le plafond de l'ordinateur passe avant.
 pub const PYROWAVE_MBPS: u32 = 800;
+/// Débit au plus d'un encodeur matériel (HEVC, AV1, H.264), par écran, en
+/// Mbit/s. NVENC d'une RTX 3080 Ti refusait HEVC 4:2:0 à 593 Mbit/s (4K
+/// 160 Hz, profil Auto de la 0.11.2 : « erreur de la chaîne d'image » à
+/// chaque départ) et tenait 300 ; les limites des autres cartes ne sont pas
+/// connues : une image refusée malgré ce plafond est allégée par le repli
+/// de la session. PyroWave a les siens ([`crate::pyrowave::ceiling`]).
+pub const ENCODER_MAX_MBPS: u32 = 290;
 pub const PYROWAVE_MBPS_444: u32 = 1200;
 
 impl Codec {

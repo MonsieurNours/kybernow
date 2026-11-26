@@ -54,14 +54,29 @@ fn gigabit_ne_porte_pas_pyrowave_en_4k120() {
     }
     assert_eq!(r.codec, Codec::Hevc);
     assert_eq!((r.width, r.refresh), (3840, 120));
-    // HEVC au débit du budget (sous celui de Max à ce mode), calé sur la 4K à 60 Hz.
-    assert!(f64::from(r.mode_mbps) < MAX_MBPS * scale(UHD120));
-    assert_eq!(r.mode_mbps, 434);
-    assert_eq!(r.mbps, (434.0 / scale(UHD120)).round() as u32);
-    // 10 Gbit/s : plafonné au débit de Max (sans PyroWave proposé).
+    // HEVC : le budget (434 Mbit/s) passe le plafond d'un encodeur matériel,
+    // calé sur la 4K à 60 Hz.
+    assert_eq!(r.mode_mbps, crate::profile::ENCODER_MAX_MBPS);
+    assert_eq!(r.mbps, (f64::from(crate::profile::ENCODER_MAX_MBPS) / scale(UHD120)).round() as u32);
+    // 10 Gbit/s : le même plafond (sans PyroWave proposé).
     let r = decide(&measures(Link::Cable, Some(9400.0), fast_decode()), &device(UHD120, true), &station(false), 1);
-    assert_eq!(r.mode_mbps, (MAX_MBPS * scale(UHD120)).round() as u32);
-    assert_eq!(r.mbps, 300, "celui de Max");
+    assert_eq!(r.mode_mbps, crate::profile::ENCODER_MAX_MBPS);
+}
+
+#[test]
+fn hevc_plafonne_a_ce_qu_un_encodeur_accepte() {
+    // Le cas du 26/11/2026 : câble, 1294 Mbit/s mesurés, écran 4K à 160 Hz,
+    // PyroWave plafonné à 600 par la Station (ne porte pas la 4K160) : HEVC
+    // demandait 593 Mbit/s, refusé par NVENC à chaque départ.
+    let st = Station { name: "PC".into(), pyrowave: true, pyrowave_max: Some(600) };
+    let uhd160 = Mode { width: 3840, height: 2160, refresh: 160 };
+    let r = decide(&measures(Link::Cable, Some(1294.0), fast_decode()), &device(uhd160, true), &st, 1);
+    assert_eq!(r.codec, Codec::Hevc);
+    assert_eq!(r.mode_mbps, crate::profile::ENCODER_MAX_MBPS);
+    assert!(f64::from(r.mbps) * scale(uhd160) <= f64::from(crate::profile::ENCODER_MAX_MBPS) + 1.0);
+    // Sous le plafond, le budget mesuré reste pris tel quel.
+    let r = decide(&measures(Link::Wifi, Some(200.0), fast_decode()), &device(uhd160, false), &st, 1);
+    assert!(r.mode_mbps < crate::profile::ENCODER_MAX_MBPS);
 }
 
 #[test]

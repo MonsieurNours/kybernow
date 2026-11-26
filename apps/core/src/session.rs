@@ -3582,6 +3582,12 @@ impl Worker {
     /// besoin), débit automatique, repli, plafond de l'app, dans cet ordre.
     fn target_bitrate(&self) -> TargetBitrate {
         let base = self.pyrowave_bitrate(self.profile_bitrate());
+        // HEVC, AV1, H.264 : au plus ce qu'un encodeur matériel accepte, par écran.
+        let base = if self.effective().codec == Codec::PyroWave {
+            base
+        } else {
+            base.min(encoder_cap(self.streams.len()))
+        };
         let auto = self.auto_bitrate();
         let fallback_cap = if self.fallback >= 1 { self.params.recovery.fallback_bitrate } else { None };
         TargetBitrate::compute(TargetInputs {
@@ -5097,8 +5103,23 @@ impl Worker {
     }
 }
 
+/// Plafond des formats matériels pour `streams` écrans, en bit/s
+/// ([`crate::profile::ENCODER_MAX_MBPS`] par écran : la Station partage le
+/// débit entre eux).
+fn encoder_cap(streams: usize) -> u32 {
+    crate::profile::ENCODER_MAX_MBPS.saturating_mul(streams.max(1) as u32).saturating_mul(1_000_000)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn plafond_des_encodeurs_par_ecran() {
+        assert_eq!(super::encoder_cap(1), 290_000_000);
+        assert_eq!(super::encoder_cap(0), 290_000_000, "aucun flux compté : un écran");
+        assert_eq!(super::encoder_cap(3), 870_000_000);
+        assert_eq!(super::encoder_cap(100), u32::MAX, "sans débordement");
+    }
+
     use super::*;
     use std::sync::atomic::AtomicUsize;
 

@@ -464,7 +464,8 @@ pub fn decide(m: &Measures, d: &Device, st: &Station, now: u64) -> AutoResult {
 
     // Débit de HEVC (AV1, H.264) à ce mode : le budget, au plus celui de Max.
     let h264 = if fallback == Codec::H264 { 1.5 } else { 1.0 };
-    let max_at_mode = MAX_MBPS * h264 * scale(mode);
+    // Au plus ce qu'un encodeur matériel accepte (`ENCODER_MAX_MBPS`).
+    let max_at_mode = (MAX_MBPS * h264 * scale(mode)).min(f64::from(crate::profile::ENCODER_MAX_MBPS));
     let b = budget(mode);
     let mode_mbps_hevc = b.clamp(MIN_MBPS, max_at_mode.max(MIN_MBPS));
     let bitrate_reason = if measured.is_some() { Reason::Measured } else { Reason::AssumedFromLink };
