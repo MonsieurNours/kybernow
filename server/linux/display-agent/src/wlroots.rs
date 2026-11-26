@@ -8,7 +8,9 @@
 //!   --custom`, `output … unplug` ; disposition par `output … enable pos …
 //!   scale …` et `output … disable`. Lecture : `swaymsg -t get_outputs`.
 //! - Hyprland : `hyprctl output create headless NOM`, `hyprctl output remove
-//!   NOM` ; mode, place, échelle et extinction par `hyprctl keyword monitor`.
+//!   NOM` ; mode, place, échelle et extinction par `hl.monitor` en Lua
+//!   (`hyprctl eval`, Hyprland à configuration Lua, 0.55 et après : `keyword`
+//!   y répond « unknown request »), sinon par `hyprctl keyword monitor`.
 //!   Lecture : `hyprctl -j monitors all`.
 //!
 //! Places en points (unités du bureau) pour les deux. Pas d'écran
@@ -21,7 +23,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
 
@@ -79,7 +81,8 @@ fn sway(cmd: &str) -> Result<()> {
 fn hypr(args: &[&str]) -> Result<()> {
     let text = run("hyprctl", args)?;
     let text = text.trim();
-    if text.is_empty() || text.lines().all(|l| l.trim() == "ok") {
+    // `--batch` répond « ok » par commande, séparés de lignes vides.
+    if text.lines().map(str::trim).filter(|l| !l.is_empty()).all(|l| l == "ok") {
         Ok(())
     } else {
         Err(format!("hyprctl {} : {text}", args.join(" ")))
@@ -179,9 +182,39 @@ fn hypr_monitors() -> Result<Vec<Mon>> {
         .collect())
 }
 
-/// La commande de Hyprland qui donne ce mode, cette place et cette échelle.
-fn hypr_rule(name: &str, width: u32, height: u32, refresh: u32, x: i32, y: i32, scale: f64) -> String {
-    format!("{name},{width}x{height}@{refresh},{x}x{y},{scale}")
+/// Hyprland configuré en Lua (`hyprctl eval` répond) : `hl.monitor` ; sinon
+/// l'ancienne commande `keyword monitor`.
+fn hypr_lua() -> bool {
+    static LUA: OnceLock<bool> = OnceLock::new();
+    *LUA.get_or_init(|| {
+        run("hyprctl", &["eval", "return true"]).is_ok_and(|t| !t.contains("unknown request") && !t.contains("error"))
+    })
+}
+
+/// La commande de Hyprland (pour `hyprctl --batch`) qui donne ce mode, cette
+/// place et cette échelle à l'écran.
+fn hypr_rule(lua: bool, name: &str, width: u32, height: u32, refresh: u32, x: i32, y: i32, scale: f64) -> String {
+    if lua {
+        // `hl.monitor` repart de la règle déjà posée pour cet écran : sans
+        // `disabled=false`, un écran éteint pendant la session le restait.
+        format!("eval hl.monitor({{output=\"{name}\", mode=\"{width}x{height}@{refresh}\", position=\"{x}x{y}\", scale={scale}, disabled=false}})")
+    } else {
+        format!("keyword monitor {name},{width}x{height}@{refresh},{x}x{y},{scale}")
+    }
+}
+
+/// La commande de Hyprland qui éteint l'écran.
+fn hypr_off(lua: bool, name: &str) -> String {
+    if lua { format!("eval hl.monitor({{output=\"{name}\", disabled=true}})") } else { format!("keyword monitor {name},disable") }
+}
+
+/// Le focus sur l'écran (sans importance s'il échoue).
+fn hypr_focus(lua: bool, name: &str) {
+    let _ = if lua {
+        hypr(&["eval", &format!("hl.focus({{monitor=\"{name}\"}})")])
+    } else {
+        hypr(&["dispatch", "focusmonitor", name])
+    };
 }
 
 /// Lecture et disposition des écrans.
@@ -227,24 +260,26 @@ impl Desk for WlrDesk {
                 sway(&cmds.join("; "))
             }
             Flavor::Hyprland => {
+                let lua = hypr_lua();
                 let mut cmds: Vec<String> = places
                     .iter()
                     .map(|p| {
+                        // Un écran éteint n'a plus de mode : celui que la Station lui a vu.
                         let m = mons.iter().find(|m| m.connector == p.connector);
-                        let (w, h, r) = m.map_or((0, 0, 60), |m| (m.width, m.height, m.refresh));
-                        let mode = if w == 0 { "preferred".to_string() } else { format!("{w}x{h}@{r}") };
-                        format!("keyword monitor {},{mode},{}x{},{}", p.connector, p.x, p.y, p.scale)
+                        let (w, h, r) = m.filter(|m| m.width > 0).map_or((1920, 1080, 60), |m| (m.width, m.height, m.refresh));
+                        hypr_rule(lua, &p.connector, w, h, r, p.x, p.y, p.scale)
                     })
                     .collect();
                 cmds.extend(
                     mons.iter()
                         .filter(|m| m.enabled && !places.iter().any(|p| p.connector == m.connector))
-                        .map(|m| format!("keyword monitor {},disable", m.connector)),
+                        .map(|m| hypr_off(lua, &m.connector)),
                 );
+                hypr(&["--batch", &cmds.join(" ; ")])?;
                 if let Some(first) = places.iter().find(|p| p.primary).or(places.first()) {
-                    cmds.push(format!("dispatch focusmonitor {}", first.connector));
+                    hypr_focus(lua, &first.connector);
                 }
-                hypr(&["--batch", &cmds.join(" ; ")])
+                Ok(())
             }
         }
     }
@@ -295,7 +330,7 @@ impl Wlr {
                 let mons = hypr_monitors()?;
                 let m = mons.iter().find(|m| m.connector == name);
                 let (x, y, scale) = m.map_or((0, 0, 1.0), |m| (m.x, m.y, m.scale));
-                hypr(&["keyword", "monitor", &hypr_rule(name, width, height, refresh, x, y, scale)])
+                hypr(&["--batch", &hypr_rule(hypr_lua(), name, width, height, refresh, x, y, scale)])
             }
         }
     }
@@ -372,7 +407,12 @@ mod tests {
 
     #[test]
     fn regle_de_hyprland() {
-        assert_eq!(hypr_rule("KyberNow-1", 2560, 1440, 120, -1280, 0, 2.0), "KyberNow-1,2560x1440@120,-1280x0,2");
+        assert_eq!(hypr_rule(false, "KyberNow-1", 2560, 1440, 120, -1280, 0, 2.0), "keyword monitor KyberNow-1,2560x1440@120,-1280x0,2");
+        assert_eq!(
+            hypr_rule(true, "KyberNow-1", 2560, 1440, 120, 0, 0, 2.0),
+            "eval hl.monitor({output=\"KyberNow-1\", mode=\"2560x1440@120\", position=\"0x0\", scale=2, disabled=false})"
+        );
+        assert_eq!(hypr_off(true, "DP-1"), "eval hl.monitor({output=\"DP-1\", disabled=true})");
     }
 
     #[test]
