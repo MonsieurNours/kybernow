@@ -2,7 +2,8 @@
 // le symbole de KyberNow Link en image modèle (le système le teinte), allumé
 // en session ; un clic ouvre le menu. En session, pour la session active
 // (plusieurs ordinateurs : celle de la fenêtre au premier plan) : l'en-tête,
-// les mesures en direct, Plein écran, Souris, Statistiques, Se déconnecter ;
+// les mesures en direct, Plein écran, Souris, Statistiques, Enregistrer la
+// session (Station qui enregistre), Se déconnecter ;
 // puis chaque ordinateur, dans l'ordre de l'accueil, avec son sous-menu (ceux
 // en session cochés : Afficher, Garder le son, Se déconnecter) ; puis la
 // fenêtre, l'ajout, les réglages de l'app, les mises à jour, Quitter.
@@ -20,7 +21,7 @@ import SwiftUI
 /// Ce que fait une ligne du menu (AppModel.perform, AppLife.swift). Les
 /// commandes d'une session portent l'identifiant de son ordinateur.
 enum MenuAction: Equatable {
-    case disconnect(UUID), fullScreen(UUID), statistics(UUID), show(UUID), keepSound(UUID)
+    case disconnect(UUID), fullScreen(UUID), statistics(UUID), recording(UUID), show(UUID), keepSound(UUID)
     case mouse(UUID, MouseChoice), hdr(UUID)
     case connect(UUID), wake(UUID), retry(UUID), profile(UUID, Profile), settings(UUID), admin(UUID), restart(UUID), update(UUID)
     case open, add, join, appSettings, checkForUpdates, quit
@@ -184,6 +185,14 @@ enum MenuContent {
                                  action: .hdr(id), help: hdr.reason))
         }
         out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics(id)))
+        // Enregistrement (hôte, Station qui enregistre) : « Enregistrer la session »,
+        // « Arrêter l'enregistrement (02:14) », relu chaque seconde menu ouvert.
+        // Coupé dans Admin : inactif, la raison au survol.
+        if !session.isVisitor, let recording = session.recordingShown {
+            let enabled = recording.allowed || recording.active
+            out.append(MenuEntry(title: recording.menuItem(), enabled: enabled, action: .recording(id),
+                                 help: enabled ? nil : recording.texts.disabled))
+        }
         out.append(MenuEntry(title: session.isWatching ? Share.watchWord(.stop) : session.isGuest ? ShareText.leave : String(localized: "Se déconnecter"), action: .disconnect(id)))
         out.append(.line)
         return out

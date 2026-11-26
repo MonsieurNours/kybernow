@@ -92,6 +92,16 @@ En Debug : `-demo YES` montre trois ordinateurs de démonstration (`loadDemo` de
 
 Pas sur l'App Store : l'app s'installe depuis un Mac avec Xcode, signée avec son propre compte Apple ([SIDELOAD.md](SIDELOAD.md), `scripts/sideload.sh`). Chaque version publiée joint `KyberSDK-tvOS.zip` (le contenu de `Vendor/` : SDK de Kyber et cœur), que le script télécharge et que la CI reprend pour compiler l'app pour le simulateur (compilation sautée, avec un avertissement, si le cœur ou les correctifs de Kyber ont changé depuis la dernière version).
 
+## Enregistrement de la session
+
+Contrat : [docs/enregistrement.md](../../docs/enregistrement.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Enregistrement de la session ». La Station écrit le fichier, l'app le demande et le montre ; état et textes du cœur (`SessionEngine.onRecording`, `RecordingState` de `apps/macos/KyberKit/RecordingCore.swift`).
+
+- **Hôte** : tuile « Enregistrer » / « Sur l'ordinateur » après « Prêter l'ordinateur… » ; pendant, « Arrêter l'enregistrement » / « 02:14 » en rouge, le temps chaque seconde, le rond bat une fois par seconde (fixe avec « Réduire les animations ») ; la demande part par `ConsoleClient.recording`, hors du fil de l'interface.
+- **Coupé dans Admin** : tuile estompée, sélectionnable, qui donne la raison en avis bref. Un refus : son avis bref. Menu ouvert, les avis brefs s'affichent au-dessus des tuiles (ils ne se voyaient qu'une fois le menu fermé).
+- **Invité** : tuile inactive « Enregistrement » pendant que l'hôte enregistre. Ami qui emprunte, ou Station qui n'enregistre pas : rien.
+- **Pas de pastille sur l'image** : l'app n'en a aucune de permanente, et une couche au-dessus de l'image Metal coûterait un balayage de latence ; la tuile du menu suffit.
+- **À essayer sur l'appareil** : rien n'a été compilé (pas de Vendor dans le worktree de ce chantier, `swiftc -parse` seulement) ni essayé face à une Station qui enregistre.
+
 ## Essais
 
 - Accueil et compte KyberNow (26/11/2026) : construit pour le simulateur tvOS 27.0 et vu en démonstration (Apple TV 1080p, `-demo YES -demoWelcome 1|2|3`, `-demoPairedHint YES`, `-demoAccountCard YES`) : les trois écrans (`WelcomeViews.swift` ; l'écran 2 avec le QR code et le code de la connexion par code, « Pas encore de compte ? Créez-le sur cette page. »), « Connecter un compte » en haut de l'accueil, le bandeau après un appairage à la place de la phrase du profil. La carte du compte n'a de place que si la rangée a moins de six cartes (elle n'était pas visible en démonstration) ; « Fermer » par un appui long. **Pas encore** : la télécommande sur ces écrans, une vraie connexion par code depuis l'écran 2, « Hors de chez vous ? » face à un vrai ordinateur absent, une vraie Apple TV.

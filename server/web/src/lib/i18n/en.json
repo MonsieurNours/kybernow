@@ -359,6 +359,8 @@
       "overviewShort": "Overview",
       "imageSound": "Picture and sound",
       "imageSoundShort": "Picture & sound",
+      "recordings": "Recordings",
+      "recordingsShort": "Videos",
       "devices": "Link devices",
       "devicesShort": "Devices",
       "lend": "Lending",
@@ -1670,6 +1672,69 @@
           "warning": "Your friend plays in your session, in console mode: they only see the apps you choose. A game can still read your files: lend to friends you trust."
         }
       }
+    }
+  },
+  "recording": {
+    "record": "Record",
+    "pill": "Recording · {time}",
+    "record_tooltip": "Record the session on the computer ({shortcut})",
+    "stop_tooltip": "Stop recording ({shortcut})",
+    "stop": "Stop recording",
+    "on_computer": "On the computer",
+    "record_menu": "Record the session",
+    "stop_menu": "Stop recording ({time})",
+    "started": "Recording started on the computer.",
+    "saved": "Recording saved: find it in Admin › Recordings.",
+    "guest_pill": "Recording",
+    "guest_notice": "{name} is recording the session.",
+    "guest_stopped": "Recording stopped.",
+    "disabled": "Recording is turned off on this computer (Admin › Recordings).",
+    "codec": "PyroWave and AV1 can't be recorded: switch to HEVC or H.264.",
+    "disk_full": "Less than 2 GB free on the computer: can't record.",
+    "folder": "The recordings folder can't be reached (Admin › Recordings).",
+    "lent": "{name} is using the computer.",
+    "failed": "Recording could not start.",
+    "stopped_disk": "Recording stopped: the computer's disk is full.",
+    "stopped_codec": "Recording stopped: PyroWave and AV1 can't be recorded."
+  },
+  "recordings": {
+    "eyebrow": "What happens in sessions",
+    "title": "Recordings",
+    "intro": "The device in a session can record the picture and sound into a file on this computer. You find them here.",
+    "settings": "Settings",
+    "allow": "Allow session recording",
+    "allowHelp": "The device in a session can record the picture and sound into a file on this computer. Everyone in the session sees it.",
+    "folder": "Folder",
+    "change": "Change",
+    "save": "Save",
+    "cancel": "Cancel",
+    "defaultFolder": "Default folder",
+    "free": "{n} GB free",
+    "keep": "Keep",
+    "keepHelp": "Older recordings are deleted.",
+    "days7": "7 days",
+    "days30": "30 days",
+    "days90": "90 days",
+    "forever": "Forever",
+    "session": "Current session",
+    "recordDevice": "Record {device}'s session",
+    "stop": "Stop recording",
+    "files": "Files",
+    "none": "No recordings.",
+    "inProgress": "In progress",
+    "play": "Play",
+    "close": "Close",
+    "download": "Download",
+    "delete": "Delete",
+    "confirmDelete": "Delete this recording? It can't be recovered.",
+    "size": {
+      "gb": "{n} GB",
+      "mb": "{n} MB"
+    },
+    "duration": {
+      "seconds": "{n} s",
+      "minutes": "{n} min",
+      "hours": "{h} h {m}"
     }
   }
 }

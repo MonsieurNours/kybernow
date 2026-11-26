@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **Enregistrez vos sessions.** « Enregistrer », dans la barre de session (et dans le menu de la session ou ses tuiles sur iPhone, iPad, Android, Apple TV et les téléviseurs), garde ce que vous voyez et entendez dans une vidéo sur l'ordinateur : l'image telle qu'elle vous est envoyée, sans travail en plus pour la carte graphique, et le son de l'ordinateur. Tout le monde dans la session le voit : une pastille rouge et le temps écoulé, pour vous comme pour vos invités. Les vidéos vont dans le dossier Vidéos de l'ordinateur (dossier KyberNow), et Admin a une page « Enregistrements » pour les regarder, les télécharger ou les supprimer, choisir le dossier et combien de temps les garder (30 jours au départ). PyroWave et AV1 ne s'enregistrent pas encore.
+
 ## 0.11.4
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.

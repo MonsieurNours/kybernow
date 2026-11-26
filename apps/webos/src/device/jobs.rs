@@ -850,6 +850,22 @@ pub fn lend_host(host: Host, op: LendOp, tx: Sender<Event>) {
         .ok();
 }
 
+/// Enregistrement de la session, hôte : lancer ou arrêter (`Console::recording`, 15 s au plus), puis
+/// `Event::RecordingReply` (l'état, ou l'avis bref du refus).
+pub fn recording(host: Host, device_id: String, record: bool, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("recording".into())
+        .spawn(move || {
+            let c = super::accounts::console_of(&host);
+            let result = c.recording(&device_id, record).map(|s| Some(super::session::recording_ui(&s, None))).map_err(|e| {
+                log::warn!("enregistrement : {}", e.text(kybernow_core::i18n::Lang::Fr));
+                e.text(kybernow_core::i18n::current())
+            });
+            let _ = tx.send(Event::RecordingReply(result));
+        })
+        .ok();
+}
+
 /// Sur l'accueil (« Reprendre l'ordinateur ») : la demande, puis `Event::LendHome`.
 pub fn lend_home(host: Host, op: LendOp, tx: Sender<Event>) {
     std::thread::Builder::new()

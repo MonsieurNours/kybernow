@@ -39,6 +39,9 @@
     // Prêt de l'ordinateur : l'écran, et la flèche qui le confie.
     lend: 'M3.5 3.5h11A1.5 1.5 0 0 1 16 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 2 12V5a1.5 1.5 0 0 1 1.5-1.5zM6 17.5h6M9 13.5v4M13.5 20h7.5M18 17l3 3-3 3',
     clock: 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM12 7.5V12l3 2',
+    // Enregistrement : le rond plein dans son cercle (navigation), la caméra (un fichier).
+    record: 'M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z',
+    video: 'M4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5v-9A1.5 1.5 0 0 1 4.5 6zM15 10.5l6-3.5v10l-6-3.5',
   }
 </script>
 

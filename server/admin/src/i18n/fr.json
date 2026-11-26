@@ -226,7 +226,11 @@
     "stationUpdateNamed": "{name} a lancé la mise à jour vers {version} (compte KyberNow)",
     "accountAdminRemote": "{name} ouvre Admin à distance, par KyberNow Share",
     "remoteAdminOn": "Admin à distance allumé",
-    "remoteAdminOff": "Admin à distance coupé"
+    "remoteAdminOff": "Admin à distance coupé",
+    "recordingStarted": "{name} enregistre la session",
+    "recordingSaved": "Enregistrement terminé ({duration})",
+    "recordingDiskFull": "Enregistrement arrêté : disque plein",
+    "recordingCodec": "Enregistrement arrêté : PyroWave et AV1 ne s'enregistrent pas"
   },
   "share": {
     "display": "Écran {n}",
@@ -315,5 +319,19 @@
       "launchedAfterUnlock": "{app} ouvert pour {name}, une fois la session déverrouillée",
       "launchLocked": "{app} n'a pas été ouvert pour {name} : la session est restée verrouillée pendant 2 minutes"
     }
+  },
+  "recording": {
+    "disabled": "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).",
+    "noSession": "Aucune session à enregistrer.",
+    "notInSession": "Seul l'appareil en session peut enregistrer.",
+    "folder": "Le dossier des enregistrements est inaccessible (Admin › Enregistrements).",
+    "diskFull": "Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer.",
+    "codec": "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.",
+    "failed": "L'enregistrement n'a pas pu commencer.",
+    "unavailable": "Kyber n'enregistre pas encore sur cet ordinateur : mettez à jour KyberNow Station.",
+    "keepChoice": "Durée inconnue : 7, 30 ou 90 jours, ou toujours.",
+    "folderAbsolute": "Donnez le chemin complet du dossier.",
+    "notFound": "Cet enregistrement n'existe plus.",
+    "inProgress": "Cet enregistrement s'écrit encore : arrêtez-le d'abord."
   }
 }

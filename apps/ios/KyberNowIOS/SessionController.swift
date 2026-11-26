@@ -189,6 +189,20 @@ final class SessionController: ObservableObject {
     /// Le panneau « Prêter l'ordinateur… » est ouvert.
     @Published var lendSheet = false
 
+    // MARK: Enregistrement de la session
+
+    /// L'enregistrement (docs/link-ui.md, « Enregistrement de la session ») :
+    /// le dernier état dit par le cœur, hôte comme invité ; nil tant qu'il n'a
+    /// rien dit (Station qui n'enregistre pas : ni bouton ni pastille) et pour
+    /// un ami qui emprunte. Le temps se lit chaque seconde (`clock()`).
+    @Published private(set) var recording: RecordingState?
+    /// Une demande de lancement ou d'arrêt est partie (pas de double toucher).
+    private var recordingBusy = false
+    /// L'enregistrement se montre : la Station enregistre et l'a dit.
+    var recordingShown: Bool { recording?.available == true && !isBorrower }
+    /// L'hôte enregistre en ce moment (pastille rouge en haut de l'image).
+    var recordingActive: Bool { recordingShown && recording?.active == true }
+
     /// Le titre de la session : le nom de l'ordinateur, « Invité sur {nom} »,
     /// ou « Ordinateur de {hôte} ».
     var title: String {
@@ -615,6 +629,8 @@ final class SessionController: ObservableObject {
         lend.onRequest = { [weak self] in self?.lendRequestArrived($0) }
         engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
         engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
+        // Enregistrement : l'état (hôte et invité) et l'avis bref du cœur.
+        engine.onRecording = { [weak self] state, notice in self?.recordingChanged(state, notice: notice) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
         engine.onHDR = { [weak self] screens in self?.sessionHDR = screens.contains(true) }
         self.engine = engine
@@ -1057,6 +1073,47 @@ final class SessionController: ObservableObject {
         guard let borrowSource else { return }
         finish()
         onComeBack?(borrowSource)
+    }
+
+    // MARK: - Enregistrement de la session
+
+    /// L'état a changé (jamais pour le temps qui passe) : gardé, et l'avis
+    /// bref du cœur (« Enregistrement lancé sur l'ordinateur. », « {nom}
+    /// enregistre la session. ») en capsule, comme ceux du partage.
+    private func recordingChanged(_ state: RecordingState, notice text: String?) {
+        guard !isBorrower else { return }
+        switch phase {
+        case .ending, .ended, .failed: return
+        default: break
+        }
+        recording = state
+        if let text, !text.isEmpty { show(notice: text, for: 5) }
+    }
+
+    /// « Enregistrer » / « Arrêter l'enregistrement » (hôte) : la demande part
+    /// à Admin, hors du fil de l'interface ; un refus se dit en avis bref
+    /// (`RecordingFailure.message`). Coupé dans Admin : la raison, en avis.
+    func toggleRecording() {
+        guard !isVisitor, let state = recording, state.available, !recordingBusy else { return }
+        if !state.allowed, !state.active {
+            show(notice: state.texts.disabled, for: 5)
+            return
+        }
+        guard let console = store.console(for: host, route: path.viaRelay ? .relay : .auto) else { return }
+        recordingBusy = true
+        let record = !state.active
+        Task { [weak self] in
+            do {
+                let next = try await console.recording(deviceId: ConsoleClient.thisDeviceID, record: record)
+                // L'état rendu tout de suite ; l'avis vient avec le signe de vie suivant.
+                if let next, next.available { self?.recording = next }
+            } catch let failure as RecordingFailure {
+                if !failure.message.isEmpty { self?.show(notice: failure.message, for: 6) }
+            } catch {
+                self?.show(notice: error.localizedDescription, for: 6)
+            }
+            self?.recordingBusy = false
+        }
     }
 
     /// Une demande vient d'arriver pendant la session : l'avis bref « {prénom} demande

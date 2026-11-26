@@ -226,7 +226,11 @@
     "stationUpdateNamed": "{name} started the update to {version} (KyberNow account)",
     "accountAdminRemote": "{name} opens Admin remotely, through KyberNow Share",
     "remoteAdminOn": "Remote Admin turned on",
-    "remoteAdminOff": "Remote Admin turned off"
+    "remoteAdminOff": "Remote Admin turned off",
+    "recordingStarted": "{name} is recording the session",
+    "recordingSaved": "Recording saved ({duration})",
+    "recordingDiskFull": "Recording stopped: disk full",
+    "recordingCodec": "Recording stopped: PyroWave and AV1 can't be recorded"
   },
   "share": {
     "display": "Display {n}",
@@ -315,5 +319,19 @@
       "launchedAfterUnlock": "{app} opened for {name}, once the session was unlocked",
       "launchLocked": "{app} wasn't opened for {name}: the session stayed locked for 2 minutes"
     }
+  },
+  "recording": {
+    "disabled": "Recording is turned off on this computer (Admin › Recordings).",
+    "noSession": "No session to record.",
+    "notInSession": "Only the device in a session can record.",
+    "folder": "The recordings folder can't be reached (Admin › Recordings).",
+    "diskFull": "Less than 2 GB free on the computer: can't record.",
+    "codec": "PyroWave and AV1 can't be recorded: switch to HEVC or H.264.",
+    "failed": "Recording could not start.",
+    "unavailable": "Kyber doesn't record on this computer yet: update KyberNow Station.",
+    "keepChoice": "Unknown duration: 7, 30 or 90 days, or forever.",
+    "folderAbsolute": "Give the folder's full path.",
+    "notFound": "This recording no longer exists.",
+    "inProgress": "This recording is still being written: stop it first."
   }
 }

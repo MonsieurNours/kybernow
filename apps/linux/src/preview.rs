@@ -744,6 +744,92 @@ fn lend_view(code: bool, request: bool) -> LendHostView {
 /// un code de prêt dans « Rejoindre », la session d'emprunt (connexion, barre ou menu, préavis, « Rendre
 /// l'ordinateur », fins) ; chez l'hôte, le panneau « Prêter l'ordinateur… » (sans code, avec un code, une demande,
 /// Station trop ancienne), et l'accueil de l'ordinateur prêté.
+/// L'enregistrement d'essai, avec les textes de link-ui dans la langue de la capture.
+pub fn recording_sample(allowed: bool, active: bool, guest: bool, elapsed: u64) -> crate::app::RecordingUi {
+    use crate::i18n::tr;
+    crate::app::RecordingUi {
+        allowed,
+        active,
+        guest,
+        elapsed,
+        since: Instant::now(),
+        texts: crate::app::RecordingTexts {
+            record: tr("Enregistrer", "Record").into(),
+            pill: tr("Enregistrement · {time}", "Recording · {time}").into(),
+            record_tooltip: tr("Enregistrer la session sur l'ordinateur (Ctrl+Alt+Maj+R)", "Record the session on the computer (Ctrl+Alt+Shift+R)").into(),
+            stop_tooltip: tr("Arrêter l'enregistrement (Ctrl+Alt+Maj+R)", "Stop recording (Ctrl+Alt+Shift+R)").into(),
+            stop: tr("Arrêter l'enregistrement", "Stop recording").into(),
+            on_computer: tr("Sur l'ordinateur", "On the computer").into(),
+            guest_pill: tr("Enregistrement", "Recording").into(),
+            guest_tooltip: tr("Atelier enregistre la session.", "Atelier is recording the session.").into(),
+            disabled: tr("L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements).", "Recording is turned off on this computer (Admin › Recordings).").into(),
+        },
+    }
+}
+
+/// L'enregistrement de la session (docs/link-ui.md, « Enregistrement de la session ») : au bureau, « Enregistrer »
+/// dans la barre (son infobulle), la pastille rouge pendant, coupé dans Admin, la barre d'un invité ; à la manette,
+/// la tuile, pendant, et celle d'un invité.
+fn recording_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
+    let name = |n: &str| format!("{prefix}-{n}");
+    let console = app.layout.console();
+    app.pointer = None;
+    let host = |app: &App, rec: crate::app::RecordingUi| {
+        let mut s = session(app);
+        s.menu = console;
+        s.bar = !console;
+        s.relative = false;
+        s.recording = Some(rec);
+        s
+    };
+    let point_at = |app: &mut App, cv: &mut Canvas, t: Target| {
+        app.pointer = None;
+        let hits = ui::draw(app, cv);
+        if let Some((_, r)) = hits.iter().find(|(h, _)| *h == t) {
+            app.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
+        }
+    };
+    let s = host(app, recording_sample(true, false, false, 0));
+    app.set_session(Some(s));
+    app.screen = Screen::Session;
+    if console {
+        app.focus = Target::Menu(MenuItem::Record);
+    } else {
+        point_at(app, cv, Target::BarRecord);
+    }
+    shot(app, cv, Some(video), dir, &name("27-enregistrer"));
+    let s = host(app, recording_sample(true, true, false, 134));
+    app.set_session(Some(s));
+    if !console {
+        point_at(app, cv, Target::BarRecord);
+    }
+    shot(app, cv, Some(video), dir, &name("27b-enregistrement"));
+    let s = host(app, recording_sample(false, false, false, 0));
+    app.set_session(Some(s));
+    if !console {
+        point_at(app, cv, Target::BarRecord);
+    }
+    shot(app, cv, Some(video), dir, &name("27c-enregistrement-coupe"));
+    // L'invité : la pastille sans action (son infobulle), la tuile inactive.
+    app.pointer = None;
+    let mut s = guest_session(ShareRole::Spectator);
+    s.menu = console;
+    s.bar = !console;
+    s.recording = Some(recording_sample(true, true, true, 40));
+    app.set_session(Some(s));
+    app.focus = Target::Menu(MenuItem::Resume);
+    if !console {
+        let hits = ui::draw(app, cv);
+        // La pastille de l'invité n'est pas une cible : juste avant le séparateur de « Quitter le partage ».
+        if let Some((_, r)) = hits.iter().find(|(h, _)| *h == Target::BarQuit) {
+            app.pointer = Some((r.x - 60.0, r.y + r.h / 2.0));
+        }
+    }
+    shot(app, cv, Some(video), dir, &name("27d-enregistrement-invite"));
+    app.pointer = None;
+    app.set_session(None);
+}
+
 fn lend_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefix: &str) {
     let name = |n: &str| format!("{prefix}-{n}");
     let console = app.layout.console();
@@ -1229,6 +1315,8 @@ pub fn run(dir: &Path, lang: &str) {
         relay_shots(&mut app, &mut cv, &video, dir, prefix);
         // Le prêt de l'ordinateur (docs/pret.md) : l'ami (carte, attente, compte d'ami, session d'emprunt), l'hôte.
         lend_shots(&mut app, &mut cv, &video, dir, prefix);
+        // L'enregistrement de la session (docs/enregistrement.md) : la barre, la pastille, les tuiles, l'invité.
+        recording_shots(&mut app, &mut cv, &video, dir, prefix);
         // Les consoles PlayStation (docs/playstation.md) : accueil, ajout, réglages, partie.
         ps_shots(&mut app, &mut cv, &video, dir, prefix);
         // Le HDR (docs/hdr.md) : sur un écran HDR (bureau Wayland avec la gestion des couleurs).

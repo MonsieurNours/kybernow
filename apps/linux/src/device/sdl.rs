@@ -96,6 +96,7 @@ pub const SC_D: i32 = 7;
 pub const SC_F: i32 = 9;
 pub const SC_M: i32 = 16;
 pub const SC_O: i32 = 18;
+pub const SC_R: i32 = 21;
 pub const SC_S: i32 = 22;
 pub const SC_RETURN: i32 = 40;
 pub const SC_ESCAPE: i32 = 41;

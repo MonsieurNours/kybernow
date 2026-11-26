@@ -613,6 +613,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         pyrowave_strained_pending: AtomicBool::new(false),
         auto_check: None,
         auto_told: AtomicBool::new(false),
+        recording: Mutex::new(None),
     });
     let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start_as(

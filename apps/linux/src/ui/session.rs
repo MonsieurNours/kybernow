@@ -455,8 +455,25 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
         let on = s.bar_menu == Some(BarMenu::Lend) || s.lend.as_ref().is_some_and(|v| v.code.is_some() || !v.requests.is_empty());
         let name = app.lend_avail(s).and_then(|a| a.text()).unwrap_or(tr("Prêter l'ordinateur…", "Lend the computer…"));
         v.push(BarIcon { target: Target::BarLend, icon: Icon::Lend, on, name: name.into(), dim: blocked });
+        // « Enregistrer » (Station qui enregistre, rien en cours) : estompé quand c'est coupé dans Admin (la raison
+        // est son infobulle) ; pendant l'enregistrement, la pastille rouge prend sa place (`rec_pill`).
+        if let Some(r) = s.recording.as_ref().filter(|r| !r.active) {
+            v.push(BarIcon { target: Target::BarRecord, icon: Icon::Record, on: false, name: r.tooltip().to_string(), dim: r.blocked() });
+        }
     }
     v
+}
+
+/// La pastille rouge de l'enregistrement en cours : « Enregistrement · 02:14 » chez l'hôte (un clic l'arrête),
+/// « Enregistrement » chez un invité (sans action) ; `narrow` : la barre ne tient pas, « 02:14 » seul.
+fn rec_pill(s: &SessionUi, narrow: bool) -> Option<String> {
+    let r = s.recording.as_ref().filter(|r| r.active && s.borrow.is_none() && s.console.is_none())?;
+    Some(if narrow && !r.guest { r.clock() } else { r.label() })
+}
+
+/// La largeur de la pastille : le rond, le texte, les marges.
+fn rec_pill_width(cv: &mut Canvas, label: &str) -> f32 {
+    cv.text_width(Text::new(Font::Regular, 12.5, FROST), label) + 22.0 + 14.0
 }
 
 /// Ce que la barre du bureau montre, mesuré : ses textes, leurs largeurs et sa
@@ -496,6 +513,8 @@ struct BarLayout {
     hdr: Option<(crate::app::HdrUi, f32)>,
     /// PyroWave en Wi-Fi ou par le relais : la puce ambre (« PyroWave en Wi-Fi ») et sa largeur.
     pw: Option<(String, f32)>,
+    /// L'enregistrement en cours : la pastille rouge (`rec_pill`) et sa largeur.
+    rec: Option<(String, f32)>,
     total: f32,
 }
 
@@ -570,11 +589,28 @@ impl BarLayout {
             let w = cv.text_width(Text::new(Font::Regular, 12.5, FROST), &t) + 22.0;
             (t, w)
         });
-        let others = pw.as_ref().map_or(0.0, |(_, pw)| pw + 8.0) + 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + screen.as_ref().map_or(0.0, |(_, sw)| sw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
+        let rec = rec_pill(s, false).map(|t| {
+            let w = rec_pill_width(cv, &t);
+            (t, w)
+        });
+        let rec_w = |rec: &Option<(String, f32)>| rec.as_ref().map_or(0.0, |(_, rw)| rw + 4.0);
+        let others = rec_w(&rec) + pw.as_ref().map_or(0.0, |(_, pw)| pw + 8.0) + 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + hdr.as_ref().map_or(0.0, |(_, hw)| hw + 8.0) + left.as_ref().map_or(0.0, |(_, lw)| lw + 8.0) + route.as_ref().map_or(0.0, |(_, rw)| rw + 8.0) + quality.as_ref().map_or(0.0, |(_, qw)| qw + 8.0) + screen.as_ref().map_or(0.0, |(_, sw)| sw + 8.0) + 34.0 * icons.len() as f32 + pill.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + requests.as_ref().map_or(0.0, |(_, pw)| pw + 4.0) + 24.0 + 1.0 + 12.0 + if disc_w > 0.0 { disc_w + 4.0 } else { 0.0 } + quit_w + 10.0;
+        // Barre étroite : la pastille de l'enregistrement se réduit au temps (« 02:14 »).
+        let (rec, others) = if w - 8.0 - others < 60.0 && rec.is_some() {
+            let before = rec_w(&rec);
+            let rec = rec_pill(s, true).map(|t| {
+                let w = rec_pill_width(cv, &t);
+                (t, w)
+            });
+            let others = others - before + rec_w(&rec);
+            (rec, others)
+        } else {
+            (rec, others)
+        };
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
         info_w = info_w.min((w - 8.0 - others).max(60.0));
         let total = others + info_w;
-        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, total }
+        Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, total }
     }
 }
 
@@ -634,7 +670,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
     let width = cv.w;
-    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, total } = BarLayout::measure(cv, app, s, width);
+    let BarLayout { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, total } = BarLayout::measure(cv, app, s, width);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -795,6 +831,26 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else if dim { GHOST } else { MUTED });
         x += 34.0;
     }
+    // L'enregistrement en cours : la pastille rouge, à la place de « Enregistrer » ; le rond bat une fois par seconde
+    // (fixe avec moins d'animations). Chez l'hôte, un clic l'arrête ; chez un invité, elle ne fait rien.
+    if let Some((label, rw)) = &rec {
+        let rr = Rect::new(x + 2.0, cy - 12.0, *rw, 24.0);
+        let host = s.recording.as_ref().is_some_and(|r| !r.guest);
+        let (focused, hover) = if host { f.state(Target::BarRecord, rr) } else { (false, f.pointer.is_some_and(|(px, py)| rr.contains(px, py))) };
+        cv.rrect(rr.x, rr.y, rr.w, rr.h, 12.0, BAD.alpha(if hover && host { 0.34 } else { 0.22 }));
+        if focused {
+            widgets::ring(cv, rr, 12.0);
+        }
+        let beat = if app.reduce_motion { 1.0 } else { rec_beat(s) };
+        cv.circle(rr.x + 13.0, cy, 4.0, BAD.alpha(0.45 + 0.55 * beat));
+        cv.text(rr.x + 22.0, cy + 4.5, Text::new(Font::Regular, 12.5, FROST), label);
+        if hover {
+            if let Some(r) = &s.recording {
+                tip = Some((rr, r.tooltip().to_string()));
+            }
+        }
+        x += rw + 4.0;
+    }
     // La pastille « 2 invités » : le partage est ouvert ; elle rouvre le panneau.
     if let Some((label, pw)) = pill {
         let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
@@ -869,6 +925,13 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             }
         }
     }
+}
+
+/// Le battement du rond de l'enregistrement, de 0 à 1, une pulsation par seconde du temps de l'enregistrement.
+fn rec_beat(s: &SessionUi) -> f32 {
+    let Some(r) = &s.recording else { return 1.0 };
+    let t = (r.since.elapsed().as_secs_f32() + r.elapsed as f32).fract();
+    0.5 + 0.5 * (t * std::f32::consts::TAU).cos()
 }
 
 /// Le nom d'un bouton de la barre, en petite capsule sous lui.
@@ -1529,6 +1592,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
         }
+        // L'hôte enregistre : la tuile « Enregistrement », inactive (« {nom} enregistre la session. »).
+        if let Some(r) = s.recording.as_ref().filter(|r| r.active) {
+            let (title, sub) = r.tile();
+            tiles.push((MenuItem::Record, title, sub, false, true));
+        }
         tiles.push((MenuItem::Disconnect, s.leave_label().into(), s.name.clone(), false, true));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
@@ -1539,6 +1607,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         // est impossible (le panneau qu'elle ouvre dit pourquoi).
         let (sub, on) = lend::tile(s);
         tiles.push((MenuItem::Lend, tr("Prêter l'ordinateur…", "Lend the computer…").into(), sub, on, false));
+        // « Enregistrer » / « Sur l'ordinateur » ; pendant : « Arrêter l'enregistrement » / « 02:14 », en rouge.
+        if let Some(r) = &s.recording {
+            let (title, sub) = r.tile();
+            tiles.push((MenuItem::Record, title, sub, false, r.active));
+        }
         if s.via_relay() {
             tiles.push((MenuItem::Route, s.path().label().into(), route_sub(s), false, false));
         }
@@ -1556,7 +1629,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let (col, row) = (i % 5, i / 5);
         let r = Rect::new(x0 + col as f32 * (tw + gap), ty + row as f32 * (th + gap), tw, th);
         let hdr_blocked = s.hdr.is_some_and(|u| !u.available());
-        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked);
+        let rec_blocked = s.recording.as_ref().is_some_and(|r| r.guest || r.blocked());
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked) || (*item == MenuItem::Record && rec_blocked);
         tile(cv, f, Target::Menu(*item), r, u, title, sub, i == 0, *on, *danger, dim);
     }
     // État, au-dessus de la légende.

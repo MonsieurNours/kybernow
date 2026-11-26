@@ -86,6 +86,15 @@ Contract: [docs/profil-auto.en.md](../../docs/profil-auto.en.md); texts and scre
 
 <img src="screenshots/50b-profil-auto-reglages-proposes.png" width="45%" alt="Auto profile: suggested settings"> <img src="screenshots/6c-reglages-image-auto.png" width="45%" alt="Settings › Picture on Auto, adaptive bitrate"> <img src="screenshots/51-session-autre-reseau.png" width="45%" alt="Different network from the test">
 
+## Session recording
+
+Contract: [docs/enregistrement.md](../../docs/enregistrement.md); texts: [docs/link-ui.md](../../docs/link-ui.md), "Enregistrement de la session". The Station writes the file; the TV asks for it and shows it, with the core's texts (`RecordingState::ui_json`, copied into `app::RecordingUi`).
+
+- `Platform::on_recording` (`src/device/session.rs`): the core's state and brief notice, shown in the capsule like those of sharing and lending. A Station that does not record: no tile. A borrowing session shows nothing.
+- **Session menu** (host): the "Record" / "On the computer" tile, after "Lend the computer…"; while recording, "Stop recording" / "02:14" in red, redrawn every second while the menu is open. Choosing it closes the menu and calls `Console::recording` on a thread (`jobs::recording`), one request at a time; a refusal comes back as a notice (`RecordingError::text`). Turned off in Admin: dimmed, it gives the reason as a notice.
+- **Guest**: while recording, the inactive "Recording" tile ("{name} is recording the session.").
+- **Checked** (26/11/2026, on the Mac): `cargo test -p kybernow-webos --no-default-features recording` (`preview::tests::recording_from_the_menu`), screenshots `27-enregistrer` to `27d-enregistrement-invite`; the TV part checked by a `cargo check` on the Mac (crate copied with an empty build.rs: only error, `WindowHandle::Xlib`, Linux-only, unrelated). **Not built for the TV** (`scripts/build.sh --check` not run) nor tried with a Station that records.
+
 ## Decoding (NDL DirectMedia)
 
 `src/device/ndl.rs`. What matters, checked on the G2:

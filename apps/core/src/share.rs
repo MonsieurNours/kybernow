@@ -997,6 +997,9 @@ pub struct ShareBeat {
     /// Fin du partage pour cet invité.
     #[serde(default, deserialize_with = "lenient_end")]
     pub end: Option<ShareEnd>,
+    /// L'enregistrement de l'hôte (docs/enregistrement.md), vu de l'invité.
+    #[serde(default, deserialize_with = "crate::recording::lenient")]
+    pub recording: Option<crate::recording::RecordingState>,
 }
 
 impl std::fmt::Debug for ShareBeat {

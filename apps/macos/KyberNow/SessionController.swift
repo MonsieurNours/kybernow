@@ -244,6 +244,15 @@ final class SessionController: NSObject, ObservableObject {
     /// Le prêt de cet ordinateur, depuis la session de l'hôte (« Prêter l'ordinateur… »).
     let lend: LendHostModel
 
+    // MARK: Enregistrement de la session
+
+    /// L'enregistrement, d'après le dernier signe de vie (docs/enregistrement.md) :
+    /// nil tant que la Station n'en a rien dit (Station qui n'enregistre pas :
+    /// ni bouton, ni pastille). Hôte comme invité ; l'ami qui emprunte n'a rien.
+    @Published private(set) var recording: RecordingState?
+    /// Une demande « lancer » ou « arrêter » attend la réponse d'Admin.
+    @Published private(set) var recordingBusy = false
+
     /// Le titre de la session : le nom de l'ordinateur, « Invité sur {nom} »,
     /// ou « Ordinateur de {hôte} ».
     var title: String {
@@ -1608,6 +1617,8 @@ final class SessionController: NSObject, ObservableObject {
         lend.onRequest = { [weak self] in self?.lendRequestArrived($0) }
         engine.onLendNotice = { [weak self] notice, text in self?.lendNoticed(notice, text: text) }
         engine.onLendEnd = { [weak self] end, text in self?.lendEnded(end, text: text) }
+        // Enregistrement : l'état de la barre et du menu de l'icône, et l'avis bref du cœur.
+        engine.onRecording = { [weak self] state, notice in self?.recordingChanged(state, notice: notice) }
         engine.onRoute = { [weak self] in self?.routeChanged($0) }
         engine.onHDR = { [weak self] screens in
             guard let self else { return }
@@ -2243,6 +2254,65 @@ final class SessionController: NSObject, ObservableObject {
             showHint(.notice(LendText.slotStarts(request.name)), after: 0, for: 8)
         } else if !barVisible {
             showHint(.lendRequest(LendText.wantsToBorrow(request.name)), after: 0, for: 8)
+        }
+    }
+
+    // MARK: Enregistrement de la session
+
+    /// L'enregistrement montré : Station qui enregistre, jamais pour l'ami qui emprunte.
+    var recordingShown: RecordingState? {
+        guard !isBorrower, let recording, recording.available else { return nil }
+        return recording
+    }
+
+    /// L'hôte peut lancer ou arrêter (barre, ⌃⌥⌘R, menu de l'icône) ; un
+    /// invité voit la pastille, sans action.
+    var canToggleRecording: Bool { !isVisitor && isLive && phase != .ending && recordingShown != nil }
+
+    /// L'état change (jamais pour le temps qui passe) ; l'avis du cœur
+    /// (« Enregistrement lancé sur l'ordinateur. »…) en capsule, comme le partage.
+    private func recordingChanged(_ state: RecordingState, notice: String?) {
+        guard !isBorrower, isLive, phase != .ending else { return }
+        if state.active != recording?.active || state.allowed != recording?.allowed || state.available != recording?.available {
+            KyberLog.app.notice("enregistrement : \(state.active ? "en cours" : "arrêté", privacy: .public)\(state.allowed ? "" : " (coupé dans Admin)", privacy: .public)")
+        }
+        let changed = state != recording
+        recording = state
+        // Le menu Session (« Enregistrer la session », ⌃⌥⌘R) se relit.
+        if changed { AppModel.shared.sessions.objectWillChange.send() }
+        if let notice, !notice.isEmpty { showHint(.notice(notice), after: 0, for: 5) }
+    }
+
+    /// « Enregistrer » ou la pastille (un clic l'arrête), ⌃⌥⌘R, le menu de
+    /// l'icône : lance ou arrête l'enregistrement de cette session. Coupé
+    /// dans Admin : la raison en avis (le bouton est inactif à la souris, le
+    /// raccourci et le menu passent ici). Un refus : l'avis du cœur.
+    func toggleRecording() {
+        guard canToggleRecording, !recordingBusy, let state = recordingShown else { return }
+        if !state.allowed && !state.active {
+            showHint(.notice(state.texts.disabled), after: 0, for: 5)
+            return
+        }
+        guard let console = store.console(for: host) else { return }
+        let record = !state.active
+        recordingBusy = true
+        Task { [weak self] in
+            do {
+                let now = try await console.recording(deviceId: ConsoleClient.thisDeviceID, record: record)
+                guard let self else { return }
+                self.recordingBusy = false
+                // L'état tout de suite ; l'avis vient du signe de vie suivant (le cœur).
+                if let now, now.available, self.isLive, now != self.recording {
+                    self.recording = now
+                    AppModel.shared.sessions.objectWillChange.send()
+                }
+            } catch {
+                guard let self else { return }
+                self.recordingBusy = false
+                let text = (error as? RecordingFailure)?.message ?? error.localizedDescription
+                KyberLog.app.notice("enregistrement refusé : \(text, privacy: .public)")
+                if !text.isEmpty, self.isLive { self.showHint(.notice(text), after: 0, for: 6) }
+            }
         }
     }
 

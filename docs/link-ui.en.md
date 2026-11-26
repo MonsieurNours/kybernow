@@ -83,6 +83,7 @@ During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut)
 | Other computers (absent without another computer) | « Ordinateurs » ▾ (see “Several computers”) | “Computers” | computer tower |
 | Sharing | « Partager », its pills inside the button: « 2 invités », « 1 demande » (see “Sharing”) | “Share”, “2 guests”, “1 request” | share (three linked dots) |
 | Lending | « Prêter l'ordinateur… », its « 1 demande » pill inside the button (see “Lending the computer”) | “Lend the computer…” | key |
+| Recording (a Station that records) | « Enregistrer »; while recording: red « Enregistrement · 02:14 » pill (see “Session recording”) | “Record”; “Recording · 02:14” | filled circle |
 | Relay (only via the relay) | « Par le relais » | “Via the relay” | globe |
 | *divider* | | | |
 | Measurements (a button: it opens “Statistics”) | « 12,4 ms » lit and the curve of the last seconds, then the format: « 2560 × 1440 · 120 Hz · HEVC » (resolution and refresh rate of the session's display, the format; several displays: « 3 écrans · » first; Mac: « 4:4:4 » or « 4:2:0 » after the format); before the first latency, « 60 i/s » | “12.4 ms”; “2560 × 1440 · 120 Hz · HEVC”; “60 fps” | |
@@ -98,11 +99,11 @@ During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut)
 | Full screen (absent with several displays) | icon only; tooltip « Plein écran ({raccourci}) » | “Full screen ({shortcut})” | four corners |
 | End | « Se déconnecter », in red; tooltip « Se déconnecter ({raccourci}) » | “Disconnect ({shortcut})” | power |
 
-Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and Linux: D disconnect, F full screen, M mouse, O next computer, S statistics.
+Shortcuts: ⌃⌥⌘ + letter on the Mac, Ctrl+Alt+Shift + letter on Windows and Linux: D disconnect, F full screen, M mouse, O next computer, R record, S statistics.
 
 **Narrow bar** (an extra session, in a window two thirds of the screen): when the bar does not fit in the window's width, its chips lose their text (icon only; accessible label and tooltip kept), except the profile and “HDR”; pills shrink to the number (“2”); the measurements' format disappears. Never a clipped button.
 
-**Guest of a share** (reduced bar, see “Sharing”): the symbol and « Invité sur {nom} » / “Guest on {name}”; their role as a chip (« Spectateur », eye icon; « Joueur », controller icon; keyboard and mouse only: keyboard icon); « Par le relais »; the measurements | sound; « Qualité de l'image » (display icon, the received quality ▾); with the keyboard and mouse: the mouse and « Touches » (Windows, Linux) | full screen; « Quitter le partage » (power, in red).
+**Guest of a share** (reduced bar, see “Sharing”): the symbol and « Invité sur {nom} » / “Guest on {name}”; their role as a chip (« Spectateur », eye icon; « Joueur », controller icon; keyboard and mouse only: keyboard icon); « Par le relais »; « Enregistrement » while the host records; the measurements | sound; « Qualité de l'image » (display icon, the received quality ▾); with the keyboard and mouse: the mouse and « Touches » (Windows, Linux) | full screen; « Quitter le partage » (power, in red).
 
 **Friend borrowing** (reduced bar, see “Lending the computer”): the symbol, « Prêté par {hôte} » and the time left (« Encore 1 h 20 », amber during the notice) | « Par le relais »; the measurements | « HDR »; sound; the mouse; « Touches » (Windows, Linux) | full screen; « Se déconnecter » (power, low-key: one can come back); « Rendre l'ordinateur » (key, in red, confirmation « Rendre l'ordinateur à {hôte} ? »).
 
@@ -385,6 +386,42 @@ Contract: [pret.en.md](pret.en.md). Every Link app, the web client, Admin and th
 | Lending code and relay | as for sharing: « Préparation du lien hors de chez vous… », « Copier le lien » and the QR code held 10 s at most, then « Pas encore joignable hors de chez vous. » (`code.relay`) | as for sharing |
 
 **Admin's feed**: « Ordinateur prêté à {prénom} » / “Computer lent to {name}” ; « {prénom} a rendu l'ordinateur » / “{name} gave back the computer” ; « Vous avez repris l'ordinateur » / “You took back the computer” ; « {prénom} veut emprunter l'ordinateur » / “{name} wants to borrow the computer” ; « {prénom} : demande refusée » / “{name}: request declined”.
+
+## Session recording
+
+Contract: [enregistrement.en.md](enregistrement.en.md). Every Link app and the web client, same texts everywhere; the texts come from the core (`recording`), the web client has the same ones in its catalogue. The Station writes the file (the computer's picture and sound, never re-encoded); the app only asks for it and shows it. A Station that does not record (before this work) says nothing (`recording` missing from the heartbeat): no button, no pill.
+
+**Who**: the host's device in session, alone, and Admin. A share guest sees it without being able to stop it; the friend borrowing sees nothing (no recording during a lend: a lend that starts stops it).
+
+| Element | Français | English |
+|---|---|---|
+| Session bar (host), after « Prêter l'ordinateur… » | « Enregistrer » button (filled circle icon); tooltip « Enregistrer la session sur l'ordinateur ({raccourci}) » | “Record”; “Record the session on the computer ({shortcut})” |
+| While recording, same place, in the always-visible part of the bar | red pill (`--kn-bad`) « Enregistrement · 02:14 », the circle gently beating (one pulse a second, still when the system asks for less motion); a click stops it; tooltip « Arrêter l'enregistrement ({raccourci}) »; narrow bar: « 02:14 » alone | “Recording · 02:14”; “Stop recording ({shortcut})” |
+| Shortcut | ⌃⌥⌘R on the Mac, Ctrl+Alt+Shift+R on Windows and Linux: starts or stops | |
+| Tile menus (Apple TV, TVs, living room, Deck, Android TV) | « Enregistrer » tile, subtitle « Sur l'ordinateur »; while recording: « Arrêter l'enregistrement », subtitle « 02:14 », in red | “Record”, “On the computer”; “Stop recording”, “02:14” |
+| Icon menu (Mac, Windows), in session, after « Statistiques » | « Enregistrer la session »; while recording: « Arrêter l'enregistrement (02:14) » | “Record the session”; “Stop recording (02:14)” |
+| iPhone, iPad, Android (session menu) | like the bar: « Enregistrer »; while recording, the red pill at the top of the picture, always visible, and « Arrêter l'enregistrement » in the menu | |
+| Brief notice, started (host) | « Enregistrement lancé sur l'ordinateur. » | “Recording started on the computer.” |
+| Brief notice, stopped (host) | « Enregistrement terminé : retrouvez-le dans Admin › Enregistrements. » | “Recording saved: find it in Admin › Recordings.” |
+| Share guest, pill | red « Enregistrement », the same circle, no action; tooltip « {nom} enregistre la session. »; inactive tile in tile menus | “Recording”; “{name} is recording the session.” |
+| Guest, brief notice (when it starts, or when joining a recorded session) | « {nom} enregistre la session. »; when it stops: « L'enregistrement est arrêté. » | “{name} is recording the session.”; “Recording stopped.” |
+| Recording turned off in Admin | dimmed button; with a mouse, inactive with the reason as tooltip; by touch and remote, selectable, it gives the reason as a notice: « L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements). » | “Recording is turned off on this computer (Admin › Recordings).” |
+| Refused when starting (brief notice) | PyroWave or AV1: « PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264. »; disk: « Moins de 2 Go libres sur l'ordinateur : impossible d'enregistrer. »; folder: « Le dossier des enregistrements est inaccessible (Admin › Enregistrements). »; during a lend: « {prénom} utilise l'ordinateur. »; other: « L'enregistrement n'a pas pu commencer. » | “PyroWave and AV1 can't be recorded: switch to HEVC or H.264.”; “Less than 2 GB free on the computer: can't record.”; “The recordings folder can't be reached (Admin › Recordings).”; “{name} is using the computer.”; “Recording could not start.” |
+| Stopped by itself (brief notice, host) | disk full: « L'enregistrement s'est arrêté : le disque de l'ordinateur est plein. »; profile switched to PyroWave or AV1: « L'enregistrement s'est arrêté : PyroWave et AV1 ne s'enregistrent pas. »; a lend starts: nothing (the session closes) | “Recording stopped: the computer's disk is full.”; “Recording stopped: PyroWave and AV1 can't be recorded.” |
+
+The time (« 02:14 », then « 1:02:14 » past an hour) runs from the Station's `started_at`, not the device's: every device shows the same. The pill updates every second, bar closed included. Closing the session stops the recording (the Station closes it when the host leaves). Several displays: only the main display is recorded; nothing changes in the texts. Windows: bar closed, the pill can't be seen (the bar is a window of its own there); the icon menu gives the time. Web client: its bar hides entirely, a small red pill with no action stays in the top-left corner. Android TV: the red pill also stays at the top of the picture, beside the tile.
+
+**Admin** (« Enregistrements » / “Recordings” page):
+
+| Element | Français | English |
+|---|---|---|
+| Switch | « Permettre l'enregistrement des sessions », on by default; help « L'appareil en session peut enregistrer l'image et le son dans un fichier sur cet ordinateur. Tout le monde dans la session le voit. » | “Allow session recording”; “The device in a session can record the picture and sound into a file on this computer. Everyone in the session sees it.” |
+| Folder | « Dossier » and the path; « Modifier » opens a field (« Enregistrer », « Annuler », « Dossier par défaut »); below « {n} Go libres » | “Folder”; “Change”; “Save”, “Cancel”, “Default folder”; “{n} GB free” |
+| Duration | « Garder »: « 7 jours », « 30 jours » (default), « 90 jours », « Toujours »; help « Les enregistrements plus anciens sont effacés. » | “Keep”: “7 days”, “30 days”, “90 days”, “Forever”; “Older recordings are deleted.” |
+| During a session | « Enregistrer la session de {appareil} »; while recording: the pill and « Arrêter l'enregistrement » | “Record {device}'s session”; “Stop recording” |
+| List | « Fichiers » title; none: « Aucun enregistrement. »; each file: date and time (« 26 nov. 2026 · 14:32 »), duration and size (« 12 min · 1,4 Go »); « En cours » for the one being written; « Lire » (player in the page), « Télécharger », « Supprimer », confirmed by « Supprimer cet enregistrement ? Il ne pourra pas être récupéré. » | “Files”; “No recordings.”; “In progress”; “Play”, “Download”, “Delete”; “Delete this recording? It can't be recovered.” |
+| Admin formats | duration « 40 s », « 12 min », « 1 h 05 »; size « 820 Mo », « 1,4 Go »; player: « Fermer »; phone tab: « Vidéos » (« Enregistrements » doesn't fit) | “40 s”, “12 min”, “1 h 05”; “820 MB”, “1.4 GB”; “Close”; phone tab “Videos” |
+| Admin feed | « {appareil} enregistre la session », « Enregistrement terminé ({durée}) », « Enregistrement arrêté : disque plein » | “{device} is recording the session”, “Recording saved ({duration})”, “Recording stopped: disk full” |
 
 ## Invitations
 
@@ -751,6 +788,7 @@ From top to bottom. During a session, first (with several computers, for the act
 | Full screen (checked in full screen; absent with several displays) | « Plein écran » | “Full screen” |
 | Mouse | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (the settings' order), the computer's mode checked; picking a mode applies it at once and keeps it for that computer | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
 | Live measurements | « Statistiques » (the session bar's statistics panel; Mac: at the bottom right of the picture; Windows: the session bar shows with it and stays until the pointer passes over it; a second click hides them) | “Statistics” |
+| Recording (a Station that records) | « Enregistrer la session »; while recording: « Arrêter l'enregistrement (02:14) » | “Record the session”; “Stop recording (02:14)” |
 | End | « Se déconnecter » | “Disconnect” |
 
 Then your computers, in the home screen's order: « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), each preceded by a small coloured dot: green online, red offline, amber while waking and while the Station restarts or updates, grey while searching (state colours from [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, in their light or dark version to match the menu); the state's text stays, colour alone is not enough for everyone. Those in a session are checked; their submenu starts with « Afficher » / “Show”, « Garder le son » / “Keep sound” (from two open sessions on, checked when on) and « Se déconnecter » / “Disconnect”. Each one opens a submenu:

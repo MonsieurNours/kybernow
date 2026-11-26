@@ -1,0 +1,2129 @@
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index 06ff9c2..d42dfc4 100644
+--- a/kycontroller/src/kybernow.rs
++++ b/kycontroller/src/kybernow.rs
+@@ -1156,7 +1156,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
+ }
+ 
+ /// KyberNow Admin only: from this computer (403), with its own token (401).
+-fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
++pub(crate) fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
+     if !from_loopback(req) {
+         warn!("/kybernow refused to {:?}: not local", req.peer_addr());
+         return Some(HttpResponse::Forbidden().finish());
+@@ -1177,7 +1177,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
+ }
+ 
+ /// The body is only read once the caller is known to be KyberNow Admin.
+-fn admin_request<T: DeserializeOwned>(req: &HttpRequest, body: &[u8]) -> Result<T, HttpResponse> {
++pub(crate) fn admin_request<T: DeserializeOwned>(req: &HttpRequest, body: &[u8]) -> Result<T, HttpResponse> {
+     if let Some(refusal) = admin_refusal(req) {
+         return Err(refusal);
+     }
+diff --git a/kycontroller/src/kydup.rs b/kycontroller/src/kydup.rs
+index c010120..0bf09e3 100644
+--- a/kycontroller/src/kydup.rs
++++ b/kycontroller/src/kydup.rs
+@@ -324,6 +324,13 @@ impl KydupAudio {
+         Task::spawn(run_guest_audio_from(rx, send))
+     }
+ 
++    /// KyberNow: the sound of a session recording (patch 0070), read as a
++    /// guest's: it never holds the sound back.
++    pub fn add_recording_output(&self, send: ProtocolSend<AVPacket>) -> Task {
++        let rx = GatedReceiver::new(self.tx.subscribe(), Arc::clone(&self.notify));
++        Task::spawn(run_guest_audio_from(rx, send))
++    }
++
+     #[cfg(test)]
+     pub fn output_count(&self) -> usize {
+         self.tx.receiver_count()
+@@ -788,6 +795,16 @@ fn add_guest_video_output(
+     Task::spawn(run_guest_video(send, source))
+ }
+ 
++/// KyberNow: the image of a session recording (patch 0070), read as a
++/// guest's (it never holds the image back and follows `source`), into a
++/// send that never waits.
++pub fn spawn_recording_video_output(
++    send: ProtocolSend<AVPacket>,
++    source: watch::Receiver<Option<VideoSource>>,
++) -> Task {
++    Task::spawn(run_guest_video(send, source))
++}
++
+ /// KyberNow: packets waiting for a guest, each with the time it was read.
+ #[derive(Default)]
+ struct GuestQueue {
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index d69a8ec..547e6ee 100644
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -54,7 +54,10 @@ mod kyber_agent;
+ mod kybernow;
+ pub(crate) mod kydup;
+ mod kymux_controller;
++// KyberNow: session recording (patch 0070).
++mod mp4;
+ mod pyrowave;
++mod recording;
+ mod rtp;
+ mod security;
+ mod session;
+@@ -957,7 +960,9 @@ async fn real_main(config: config::Config) -> Result<()> {
+                         .service(kybernow::get_sessions)
+                         .service(kybernow::post_role)
+                         .service(kybernow::post_quality)
+-                        .service(kybernow::post_close),
++                        .service(kybernow::post_close)
++                        .service(recording::get_recording)
++                        .service(recording::post_recording),
+                 )
+                 .service(capabilities)
+                 .service(websocket_service)
+@@ -996,6 +1001,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+     }
+ 
+     ctrl_for_tray.shutdown_tray();
++    // KyberNow: a recording's file is closed (duration and index written).
++    recording::shutdown().await;
+ 
+     #[cfg(feature = "kyhub")]
+     if let Some(agent_task) = agent_task {
+diff --git a/kycontroller/src/mp4.rs b/kycontroller/src/mp4.rs
+new file mode 100644
+index 0000000..e688e72
+--- /dev/null
++++ b/kycontroller/src/mp4.rs
+@@ -0,0 +1,1193 @@
++// KyberNow: a fragmented MP4 writer for session recordings (patch 0070).
++//
++// The packets are the encoder's own: H.264 or HEVC in Annex B (start codes),
++// no B-frames, and Opus. They are written as they come, never decoded nor
++// encoded again: an init segment (`ftyp`, `moov`), then one fragment
++// (`moof`, `mdat`) about every second, flushed as it is written, so a file
++// cut short (power loss, crash) plays up to its last fragment. Closing it
++// writes the total duration (`mehd`) and an index of the fragments
++// (`mfra`), for players that seek through it.
++//
++// Parameter sets go into the sample entry (`avcC`, `hvcC`) and are taken out
++// of the samples, as `avc1` and `hvc1` want (QuickTime plays nothing else).
++
++use std::io::{self, Seek, SeekFrom, Write};
++
++/// Video timescale (ticks a second).
++pub(crate) const VIDEO_TIMESCALE: u32 = 90_000;
++/// Opus always runs at 48 kHz in MP4.
++pub(crate) const AUDIO_TIMESCALE: u32 = 48_000;
++
++const VIDEO_TRACK: u32 = 1;
++const AUDIO_TRACK: u32 = 2;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum VideoFormat {
++    H264,
++    Hevc,
++}
++
++/// What a video track is made of: its parameter sets (NAL units without
++/// start codes) and what was read from them.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct VideoConfig {
++    pub format: VideoFormat,
++    pub width: u32,
++    pub height: u32,
++    /// H.264: SPS, PPS. HEVC: VPS, SPS, PPS. In stream order.
++    pub param_sets: Vec<Vec<u8>>,
++    sample_entry: Vec<u8>,
++}
++
++/// `OpusHead`, as the encoder sends it in its config packet.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct AudioConfig {
++    pub channels: u8,
++    pub pre_skip: u16,
++    pub input_rate: u32,
++    pub gain: i16,
++    pub family: u8,
++    pub streams: u8,
++    pub coupled: u8,
++    pub mapping: Vec<u8>,
++}
++
++// ===========================================================================
++// Annex B and parameter sets
++// ===========================================================================
++
++/// The NAL units of an Annex B buffer, without their start codes.
++pub(crate) fn annexb_nals(data: &[u8]) -> Vec<&[u8]> {
++    let mut nals = Vec::new();
++    let mut i = 0;
++    let mut start: Option<usize> = None;
++    while i + 2 < data.len() {
++        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
++            if let Some(s) = start {
++                // A 4-byte start code leaves its leading zero behind.
++                let mut end = i;
++                while end > s && data[end - 1] == 0 {
++                    end -= 1;
++                }
++                if end > s {
++                    nals.push(&data[s..end]);
++                }
++            }
++            i += 3;
++            start = Some(i);
++        } else {
++            i += 1;
++        }
++    }
++    match start {
++        Some(s) if s < data.len() => nals.push(&data[s..]),
++        None if !data.is_empty() => nals.push(data),
++        _ => {}
++    }
++    nals
++}
++
++fn nal_type(format: VideoFormat, nal: &[u8]) -> u8 {
++    match format {
++        VideoFormat::H264 => nal.first().map_or(0, |b| b & 0x1f),
++        VideoFormat::Hevc => nal.first().map_or(0, |b| (b >> 1) & 0x3f),
++    }
++}
++
++/// Parameter sets and access unit delimiters: they stay out of the samples.
++fn is_out_of_band(format: VideoFormat, nal: &[u8]) -> bool {
++    let t = nal_type(format, nal);
++    match format {
++        VideoFormat::H264 => matches!(t, 7 | 8 | 9),
++        VideoFormat::Hevc => matches!(t, 32..=35),
++    }
++}
++
++/// An Annex B access unit as an MP4 sample: 4-byte lengths, without its
++/// parameter sets. `None` when nothing is left.
++pub(crate) fn sample_from_annexb(format: VideoFormat, data: &[u8]) -> Option<Vec<u8>> {
++    let mut out = Vec::with_capacity(data.len() + 16);
++    for nal in annexb_nals(data) {
++        if is_out_of_band(format, nal) {
++            continue;
++        }
++        out.extend_from_slice(&(nal.len() as u32).to_be_bytes());
++        out.extend_from_slice(nal);
++    }
++    (!out.is_empty()).then_some(out)
++}
++
++/// The parameter sets an access unit carries in band, in stream order.
++pub(crate) fn param_sets_in(format: VideoFormat, data: &[u8]) -> Vec<Vec<u8>> {
++    annexb_nals(data)
++        .into_iter()
++        .filter(|nal| {
++            let t = nal_type(format, nal);
++            match format {
++                VideoFormat::H264 => matches!(t, 7 | 8),
++                VideoFormat::Hevc => matches!(t, 32..=34),
++            }
++        })
++        .map(<[u8]>::to_vec)
++        .collect()
++}
++
++/// Bit reader over an RBSP (emulation prevention bytes taken out).
++struct Bits {
++    data: Vec<u8>,
++    pos: usize,
++}
++
++impl Bits {
++    fn new(nal_payload: &[u8]) -> Self {
++        let mut data = Vec::with_capacity(nal_payload.len());
++        let mut zeros = 0;
++        for &b in nal_payload {
++            if zeros >= 2 && b == 3 {
++                zeros = 0;
++                continue;
++            }
++            zeros = if b == 0 { zeros + 1 } else { 0 };
++            data.push(b);
++        }
++        Self { data, pos: 0 }
++    }
++
++    fn bit(&mut self) -> Option<u32> {
++        let byte = *self.data.get(self.pos / 8)?;
++        let bit = (byte >> (7 - (self.pos % 8))) & 1;
++        self.pos += 1;
++        Some(bit as u32)
++    }
++
++    fn bits(&mut self, n: u32) -> Option<u32> {
++        let mut v = 0u32;
++        for _ in 0..n {
++            v = (v << 1) | self.bit()?;
++        }
++        Some(v)
++    }
++
++    fn skip(&mut self, n: usize) -> Option<()> {
++        self.pos += n;
++        (self.pos <= self.data.len() * 8).then_some(())
++    }
++
++    fn ue(&mut self) -> Option<u32> {
++        let mut zeros = 0;
++        while self.bit()? == 0 {
++            zeros += 1;
++            if zeros > 31 {
++                return None;
++            }
++        }
++        Some((1u32 << zeros) - 1 + self.bits(zeros)?)
++    }
++
++    fn se(&mut self) -> Option<i32> {
++        let v = self.ue()?;
++        Some(if v % 2 == 1 { v.div_ceil(2) as i32 } else { -((v / 2) as i32) })
++    }
++}
++
++struct H264Sps {
++    profile: u8,
++    compat: u8,
++    level: u8,
++    chroma: u32,
++    depth_luma: u32,
++    depth_chroma: u32,
++    width: u32,
++    height: u32,
++}
++
++fn parse_h264_sps(sps: &[u8]) -> Option<H264Sps> {
++    let mut b = Bits::new(sps.get(1..)?);
++    let profile = b.bits(8)? as u8;
++    let compat = b.bits(8)? as u8;
++    let level = b.bits(8)? as u8;
++    b.ue()?; // seq_parameter_set_id
++    let (mut chroma, mut depth_luma, mut depth_chroma) = (1, 8, 8);
++    if matches!(profile, 100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135) {
++        chroma = b.ue()?;
++        if chroma == 3 {
++            b.bit()?; // separate_colour_plane_flag
++        }
++        depth_luma = b.ue()? + 8;
++        depth_chroma = b.ue()? + 8;
++        b.bit()?; // qpprime_y_zero_transform_bypass_flag
++        if b.bit()? == 1 {
++            let lists = if chroma == 3 { 12 } else { 8 };
++            for i in 0..lists {
++                if b.bit()? == 1 {
++                    let size = if i < 6 { 16 } else { 64 };
++                    let (mut last, mut next) = (8i32, 8i32);
++                    for _ in 0..size {
++                        if next != 0 {
++                            next = (last + b.se()? + 256) % 256;
++                        }
++                        last = if next == 0 { last } else { next };
++                    }
++                }
++            }
++        }
++    }
++    b.ue()?; // log2_max_frame_num_minus4
++    match b.ue()? {
++        0 => {
++            b.ue()?;
++        }
++        1 => {
++            b.bit()?;
++            b.se()?;
++            b.se()?;
++            for _ in 0..b.ue()? {
++                b.se()?;
++            }
++        }
++        _ => {}
++    }
++    b.ue()?; // max_num_ref_frames
++    b.bit()?; // gaps_in_frame_num_value_allowed_flag
++    let width_mbs = b.ue()? + 1;
++    let height_units = b.ue()? + 1;
++    let frame_mbs_only = b.bit()?;
++    if frame_mbs_only == 0 {
++        b.bit()?;
++    }
++    b.bit()?; // direct_8x8_inference_flag
++    let (mut left, mut right, mut top, mut bottom) = (0, 0, 0, 0);
++    if b.bit()? == 1 {
++        left = b.ue()?;
++        right = b.ue()?;
++        top = b.ue()?;
++        bottom = b.ue()?;
++    }
++    let crop_x = if chroma == 1 || chroma == 2 { 2 } else { 1 };
++    let crop_y = (if chroma == 1 { 2 } else { 1 }) * (2 - frame_mbs_only);
++    let width = (width_mbs * 16).checked_sub(crop_x * (left + right))?;
++    let height = ((2 - frame_mbs_only) * height_units * 16).checked_sub(crop_y * (top + bottom))?;
++    Some(H264Sps {
++        profile,
++        compat,
++        level,
++        chroma,
++        depth_luma,
++        depth_chroma,
++        width,
++        height,
++    })
++}
++
++struct HevcSps {
++    /// general_profile_space … general_level_idc, as `hvcC` copies them.
++    ptl: [u8; 12],
++    sub_layers: u32,
++    temporal_id_nested: u32,
++    chroma: u32,
++    depth_luma: u32,
++    depth_chroma: u32,
++    width: u32,
++    height: u32,
++}
++
++fn parse_hevc_sps(sps: &[u8]) -> Option<HevcSps> {
++    let mut b = Bits::new(sps.get(2..)?);
++    b.bits(4)?; // sps_video_parameter_set_id
++    let max_sub_layers_minus1 = b.bits(3)?;
++    let temporal_id_nested = b.bit()?;
++    let mut ptl = [0u8; 12];
++    for byte in ptl.iter_mut() {
++        *byte = b.bits(8)? as u8;
++    }
++    let mut profile_present = [false; 8];
++    let mut level_present = [false; 8];
++    for i in 0..max_sub_layers_minus1 as usize {
++        profile_present[i] = b.bit()? == 1;
++        level_present[i] = b.bit()? == 1;
++    }
++    if max_sub_layers_minus1 > 0 {
++        for _ in max_sub_layers_minus1..8 {
++            b.bits(2)?;
++        }
++    }
++    for i in 0..max_sub_layers_minus1 as usize {
++        if profile_present[i] {
++            b.skip(88)?;
++        }
++        if level_present[i] {
++            b.skip(8)?;
++        }
++    }
++    b.ue()?; // sps_seq_parameter_set_id
++    let chroma = b.ue()?;
++    if chroma == 3 {
++        b.bit()?;
++    }
++    let pic_width = b.ue()?;
++    let pic_height = b.ue()?;
++    let (mut left, mut right, mut top, mut bottom) = (0, 0, 0, 0);
++    if b.bit()? == 1 {
++        left = b.ue()?;
++        right = b.ue()?;
++        top = b.ue()?;
++        bottom = b.ue()?;
++    }
++    let depth_luma = b.ue()? + 8;
++    let depth_chroma = b.ue()? + 8;
++    let sub_w = if chroma == 1 || chroma == 2 { 2 } else { 1 };
++    let sub_h = if chroma == 1 { 2 } else { 1 };
++    Some(HevcSps {
++        ptl,
++        sub_layers: max_sub_layers_minus1 + 1,
++        temporal_id_nested,
++        chroma,
++        depth_luma,
++        depth_chroma,
++        width: pic_width.checked_sub(sub_w * (left + right))?,
++        height: pic_height.checked_sub(sub_h * (top + bottom))?,
++    })
++}
++
++impl VideoConfig {
++    /// From the parameter sets of a config packet (Annex B). `None` when one
++    /// is missing or cannot be read.
++    pub(crate) fn from_annexb(format: VideoFormat, data: &[u8]) -> Option<Self> {
++        Self::from_param_sets(format, param_sets_in(format, data))
++    }
++
++    pub(crate) fn from_param_sets(format: VideoFormat, param_sets: Vec<Vec<u8>>) -> Option<Self> {
++        let of = |t: u8| -> Vec<&Vec<u8>> {
++            param_sets
++                .iter()
++                .filter(|n| nal_type(format, n) == t)
++                .collect()
++        };
++        let (width, height, config_box) = match format {
++            VideoFormat::H264 => {
++                let (sps, pps) = (of(7), of(8));
++                let first = sps.first()?;
++                if pps.is_empty() {
++                    return None;
++                }
++                let info = parse_h264_sps(first)?;
++                let mut c = vec![1, info.profile, info.compat, info.level, 0xff];
++                c.push(0xe0 | sps.len() as u8);
++                for s in &sps {
++                    c.extend_from_slice(&(s.len() as u16).to_be_bytes());
++                    c.extend_from_slice(s);
++                }
++                c.push(pps.len() as u8);
++                for p in &pps {
++                    c.extend_from_slice(&(p.len() as u16).to_be_bytes());
++                    c.extend_from_slice(p);
++                }
++                if matches!(info.profile, 100 | 110 | 122 | 144 | 244) {
++                    c.push(0xfc | info.chroma as u8 & 3);
++                    c.push(0xf8 | (info.depth_luma - 8) as u8 & 7);
++                    c.push(0xf8 | (info.depth_chroma - 8) as u8 & 7);
++                    c.push(0);
++                }
++                (info.width, info.height, mp4_box(b"avcC", &c))
++            }
++            VideoFormat::Hevc => {
++                let (vps, sps, pps) = (of(32), of(33), of(34));
++                if vps.is_empty() || pps.is_empty() {
++                    return None;
++                }
++                let info = parse_hevc_sps(sps.first()?)?;
++                let mut c = vec![1];
++                c.extend_from_slice(&info.ptl[..1]);
++                c.extend_from_slice(&info.ptl[1..5]); // compatibility flags
++                c.extend_from_slice(&info.ptl[5..11]); // constraint flags
++                c.push(info.ptl[11]); // level
++                c.extend_from_slice(&0xf000u16.to_be_bytes());
++                c.push(0xfc);
++                c.push(0xfc | info.chroma as u8 & 3);
++                c.push(0xf8 | (info.depth_luma - 8) as u8 & 7);
++                c.push(0xf8 | (info.depth_chroma - 8) as u8 & 7);
++                c.extend_from_slice(&0u16.to_be_bytes());
++                c.push(((info.sub_layers as u8 & 7) << 3) | ((info.temporal_id_nested as u8) << 2) | 3);
++                c.push(3);
++                for (t, list) in [(32u8, &vps), (33, &sps), (34, &pps)] {
++                    c.push(0x80 | t);
++                    c.extend_from_slice(&(list.len() as u16).to_be_bytes());
++                    for n in list.iter() {
++                        c.extend_from_slice(&(n.len() as u16).to_be_bytes());
++                        c.extend_from_slice(n);
++                    }
++                }
++                (info.width, info.height, mp4_box(b"hvcC", &c))
++            }
++        };
++        if width == 0 || height == 0 || width > 16384 || height > 16384 {
++            return None;
++        }
++        let mut entry = Vec::new();
++        entry.extend_from_slice(&[0; 6]);
++        entry.extend_from_slice(&1u16.to_be_bytes()); // data_reference_index
++        entry.extend_from_slice(&[0; 16]);
++        entry.extend_from_slice(&(width as u16).to_be_bytes());
++        entry.extend_from_slice(&(height as u16).to_be_bytes());
++        entry.extend_from_slice(&0x0048_0000u32.to_be_bytes());
++        entry.extend_from_slice(&0x0048_0000u32.to_be_bytes());
++        entry.extend_from_slice(&[0; 4]);
++        entry.extend_from_slice(&1u16.to_be_bytes()); // frame_count
++        let mut name = [0u8; 32];
++        let label = b"KyberNow";
++        name[0] = label.len() as u8;
++        name[1..=label.len()].copy_from_slice(label);
++        entry.extend_from_slice(&name);
++        entry.extend_from_slice(&0x0018u16.to_be_bytes());
++        entry.extend_from_slice(&0xffffu16.to_be_bytes());
++        entry.extend_from_slice(&config_box);
++        let kind = match format {
++            VideoFormat::H264 => b"avc1",
++            VideoFormat::Hevc => b"hvc1",
++        };
++        Some(Self {
++            format,
++            width,
++            height,
++            param_sets,
++            sample_entry: mp4_box(kind, &entry),
++        })
++    }
++}
++
++impl AudioConfig {
++    pub(crate) fn from_opus_head(data: &[u8]) -> Option<Self> {
++        if data.len() < 19 || &data[..8] != b"OpusHead" {
++            return None;
++        }
++        let channels = data[9];
++        let family = data[18];
++        if channels == 0 {
++            return None;
++        }
++        let (streams, coupled, mapping) = if family == 0 {
++            (1, u8::from(channels > 1), Vec::new())
++        } else {
++            let mapping = data.get(21..21 + channels as usize)?.to_vec();
++            (data[19], data[20], mapping)
++        };
++        Some(Self {
++            channels,
++            pre_skip: u16::from_le_bytes([data[10], data[11]]),
++            input_rate: u32::from_le_bytes([data[12], data[13], data[14], data[15]]),
++            gain: i16::from_le_bytes([data[16], data[17]]),
++            family,
++            streams,
++            coupled,
++            mapping,
++        })
++    }
++
++    fn sample_entry(&self) -> Vec<u8> {
++        let mut dops = vec![0, self.channels];
++        dops.extend_from_slice(&self.pre_skip.to_be_bytes());
++        dops.extend_from_slice(&self.input_rate.to_be_bytes());
++        dops.extend_from_slice(&self.gain.to_be_bytes());
++        dops.push(self.family);
++        if self.family != 0 {
++            dops.push(self.streams);
++            dops.push(self.coupled);
++            dops.extend_from_slice(&self.mapping);
++        }
++        let mut entry = Vec::new();
++        entry.extend_from_slice(&[0; 6]);
++        entry.extend_from_slice(&1u16.to_be_bytes());
++        entry.extend_from_slice(&[0; 8]);
++        entry.extend_from_slice(&(self.channels as u16).to_be_bytes());
++        entry.extend_from_slice(&16u16.to_be_bytes());
++        entry.extend_from_slice(&[0; 4]);
++        entry.extend_from_slice(&(AUDIO_TIMESCALE << 16).to_be_bytes());
++        entry.extend_from_slice(&mp4_box(b"dOps", &dops));
++        mp4_box(b"Opus", &entry)
++    }
++}
++
++/// How long an Opus packet plays, in 48 kHz samples (its first stream's TOC;
++/// RFC 6716 § 3.1). 0 when it cannot be read.
++pub(crate) fn opus_duration(packet: &[u8]) -> u32 {
++    let Some(&toc) = packet.first() else {
++        return 0;
++    };
++    let config = toc >> 3;
++    // In 1/400 s, so 2.5 ms is 1.
++    let frame = match config {
++        0..=11 => [4, 8, 16, 24][(config % 4) as usize],
++        12..=15 => [4, 8][(config % 2) as usize],
++        _ => [1, 2, 4, 8][(config % 4) as usize],
++    };
++    let frames = match toc & 3 {
++        0 => 1,
++        1 | 2 => 2,
++        _ => packet.get(1).map_or(0, |b| (b & 0x3f) as u32),
++    };
++    frame * frames * 120
++}
++
++// ===========================================================================
++// Boxes
++// ===========================================================================
++
++fn mp4_box(kind: &[u8; 4], payload: &[u8]) -> Vec<u8> {
++    let mut b = Vec::with_capacity(payload.len() + 8);
++    b.extend_from_slice(&((payload.len() + 8) as u32).to_be_bytes());
++    b.extend_from_slice(kind);
++    b.extend_from_slice(payload);
++    b
++}
++
++fn full_box(kind: &[u8; 4], version: u8, flags: u32, payload: &[u8]) -> Vec<u8> {
++    let mut p = Vec::with_capacity(payload.len() + 4);
++    p.push(version);
++    p.extend_from_slice(&flags.to_be_bytes()[1..]);
++    p.extend_from_slice(payload);
++    mp4_box(kind, &p)
++}
++
++fn concat(parts: &[&[u8]]) -> Vec<u8> {
++    parts.concat()
++}
++
++const MATRIX: [u32; 9] = [0x0001_0000, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000];
++
++fn matrix() -> Vec<u8> {
++    MATRIX.iter().flat_map(|v| v.to_be_bytes()).collect()
++}
++
++fn mvhd() -> Vec<u8> {
++    let mut p = Vec::new();
++    p.extend_from_slice(&[0; 8]); // creation, modification
++    p.extend_from_slice(&1000u32.to_be_bytes());
++    p.extend_from_slice(&0u32.to_be_bytes());
++    p.extend_from_slice(&0x0001_0000u32.to_be_bytes());
++    p.extend_from_slice(&0x0100u16.to_be_bytes());
++    p.extend_from_slice(&[0; 10]);
++    p.extend_from_slice(&matrix());
++    p.extend_from_slice(&[0; 24]);
++    p.extend_from_slice(&(AUDIO_TRACK + 1).to_be_bytes());
++    full_box(b"mvhd", 0, 0, &p)
++}
++
++fn trak(track: u32, timescale: u32, handler: &[u8; 4], entry: &[u8], size: Option<(u32, u32)>) -> Vec<u8> {
++    let mut t = Vec::new();
++    t.extend_from_slice(&[0; 8]);
++    t.extend_from_slice(&track.to_be_bytes());
++    t.extend_from_slice(&[0; 4]);
++    t.extend_from_slice(&0u32.to_be_bytes()); // duration
++    t.extend_from_slice(&[0; 8]);
++    t.extend_from_slice(&0u16.to_be_bytes()); // layer
++    t.extend_from_slice(&0u16.to_be_bytes()); // alternate group
++    t.extend_from_slice(&(if size.is_none() { 0x0100u16 } else { 0 }).to_be_bytes());
++    t.extend_from_slice(&[0; 2]);
++    t.extend_from_slice(&matrix());
++    let (w, h) = size.unwrap_or((0, 0));
++    t.extend_from_slice(&(w << 16).to_be_bytes());
++    t.extend_from_slice(&(h << 16).to_be_bytes());
++    let tkhd = full_box(b"tkhd", 0, 3, &t);
++
++    let mut m = Vec::new();
++    m.extend_from_slice(&[0; 8]);
++    m.extend_from_slice(&timescale.to_be_bytes());
++    m.extend_from_slice(&0u32.to_be_bytes());
++    m.extend_from_slice(&0x55c4u16.to_be_bytes()); // "und"
++    m.extend_from_slice(&[0; 2]);
++    let mdhd = full_box(b"mdhd", 0, 0, &m);
++
++    let mut h = vec![0; 4];
++    h.extend_from_slice(handler);
++    h.extend_from_slice(&[0; 12]);
++    h.extend_from_slice(if size.is_some() { b"KyberNow video\0" } else { b"KyberNow sound\0" });
++    let hdlr = full_box(b"hdlr", 0, 0, &h);
++
++    let media_header = if size.is_some() {
++        full_box(b"vmhd", 0, 1, &[0; 8])
++    } else {
++        full_box(b"smhd", 0, 0, &[0; 4])
++    };
++    let dref = full_box(b"dref", 0, 0, &concat(&[&1u32.to_be_bytes(), &full_box(b"url ", 0, 1, &[])]));
++    let dinf = mp4_box(b"dinf", &dref);
++    let stsd = full_box(b"stsd", 0, 0, &concat(&[&1u32.to_be_bytes(), entry]));
++    let empty = 0u32.to_be_bytes();
++    let stbl = mp4_box(
++        b"stbl",
++        &concat(&[
++            &stsd,
++            &full_box(b"stts", 0, 0, &empty),
++            &full_box(b"stsc", 0, 0, &empty),
++            &full_box(b"stsz", 0, 0, &[0; 8]),
++            &full_box(b"stco", 0, 0, &empty),
++        ]),
++    );
++    let minf = mp4_box(b"minf", &concat(&[&media_header, &dinf, &stbl]));
++    let mdia = mp4_box(b"mdia", &concat(&[&mdhd, &hdlr, &minf]));
++    mp4_box(b"trak", &concat(&[&tkhd, &mdia]))
++}
++
++fn trex(track: u32) -> Vec<u8> {
++    let mut p = Vec::new();
++    p.extend_from_slice(&track.to_be_bytes());
++    p.extend_from_slice(&1u32.to_be_bytes());
++    p.extend_from_slice(&[0; 12]);
++    full_box(b"trex", 0, 0, &p)
++}
++
++// ===========================================================================
++// Writer
++// ===========================================================================
++
++/// A sample waiting for the next one (its duration is the gap to it).
++struct Pending {
++    data: Vec<u8>,
++    /// In the track's timescale, from the file's start.
++    time: u64,
++    sync: bool,
++}
++
++struct Sample {
++    data: Vec<u8>,
++    duration: u32,
++    sync: bool,
++}
++
++struct Track {
++    /// Decode time of the first sample not yet in a fragment.
++    next_time: u64,
++    pending: Option<Pending>,
++    ready: Vec<Sample>,
++    last_duration: u32,
++}
++
++impl Track {
++    fn new(default_duration: u32) -> Self {
++        Self {
++            next_time: 0,
++            pending: None,
++            ready: Vec::new(),
++            last_duration: default_duration,
++        }
++    }
++
++    fn ready_time(&self) -> u64 {
++        self.ready.iter().map(|s| s.duration as u64).sum()
++    }
++}
++
++/// A fragment's place, for the index written at the end.
++struct FragmentRef {
++    video_time: u64,
++    moof_offset: u64,
++}
++
++/// A fragmented MP4 being written. Video times are microseconds of the
++/// encoder's clock; the first video sample is the file's zero.
++pub(crate) struct Mp4Writer<W: Write + Seek> {
++    out: W,
++    written: u64,
++    video: VideoConfig,
++    vtrack: Track,
++    atrack: Option<Track>,
++    sequence: u32,
++    origin_us: Option<u64>,
++    mehd_offset: u64,
++    fragments: Vec<FragmentRef>,
++    /// Video ticks after which the pending samples make a fragment.
++    fragment_ticks: u64,
++}
++
++impl<W: Write + Seek> Mp4Writer<W> {
++    pub(crate) fn new(mut out: W, video: VideoConfig, audio: Option<&AudioConfig>) -> io::Result<Self> {
++        let brand: &[u8; 4] = match video.format {
++            VideoFormat::H264 => b"avc1",
++            VideoFormat::Hevc => b"hvc1",
++        };
++        let ftyp = mp4_box(b"ftyp", &concat(&[b"isom", &0x200u32.to_be_bytes(), b"isom", b"iso6", b"mp41", brand]));
++        let mut traks = trak(VIDEO_TRACK, VIDEO_TIMESCALE, b"vide", &video.sample_entry, Some((video.width, video.height)));
++        if let Some(a) = audio {
++            traks.extend_from_slice(&trak(AUDIO_TRACK, AUDIO_TIMESCALE, b"soun", &a.sample_entry(), None));
++        }
++        let mehd = full_box(b"mehd", 1, 0, &[0; 8]);
++        let mut mvex = mehd.clone();
++        mvex.extend_from_slice(&trex(VIDEO_TRACK));
++        if audio.is_some() {
++            mvex.extend_from_slice(&trex(AUDIO_TRACK));
++        }
++        let mvex = mp4_box(b"mvex", &mvex);
++        let moov_payload = concat(&[&mvhd(), &traks, &mvex]);
++        let moov = mp4_box(b"moov", &moov_payload);
++        // mehd's 64-bit duration: its own header is 12 bytes from its start.
++        let mehd_offset = ftyp.len() as u64 + 8 + (mvhd().len() + traks.len()) as u64 + 8 + 12;
++        out.write_all(&ftyp)?;
++        out.write_all(&moov)?;
++        out.flush()?;
++        Ok(Self {
++            written: (ftyp.len() + moov.len()) as u64,
++            out,
++            video,
++            vtrack: Track::new(VIDEO_TIMESCALE / 60),
++            atrack: audio.map(|_| Track::new(960)),
++            sequence: 0,
++            origin_us: None,
++            mehd_offset,
++            fragments: Vec::new(),
++            fragment_ticks: VIDEO_TIMESCALE as u64,
++        })
++    }
++
++    pub(crate) fn has_audio(&self) -> bool {
++        self.atrack.is_some()
++    }
++
++    /// Bytes written so far.
++    pub(crate) fn len(&self) -> u64 {
++        self.written
++    }
++
++    fn ticks(us: u64, timescale: u32) -> u64 {
++        (us as u128 * timescale as u128 / 1_000_000) as u64
++    }
++
++    /// An access unit (Annex B), `pts` in microseconds. The first one must be
++    /// a keyframe; anything before it is dropped.
++    pub(crate) fn write_video(&mut self, pts_us: u64, key: bool, annexb: &[u8]) -> io::Result<()> {
++        let origin = match self.origin_us {
++            Some(o) => o,
++            None if key => {
++                self.origin_us = Some(pts_us);
++                pts_us
++            }
++            None => return Ok(()),
++        };
++        let Some(data) = sample_from_annexb(self.video.format, annexb) else {
++            return Ok(());
++        };
++        let time = Self::ticks(pts_us.saturating_sub(origin), VIDEO_TIMESCALE);
++        if let Some(prev) = self.vtrack.pending.take() {
++            // Never backwards, never zero: a repeated pts gets a tick.
++            let duration = time.saturating_sub(prev.time).clamp(1, u32::MAX as u64) as u32;
++            self.vtrack.last_duration = duration;
++            self.vtrack.ready.push(Sample {
++                data: prev.data,
++                duration,
++                sync: prev.sync,
++            });
++        }
++        let time = time.max(self.vtrack.next_time + self.vtrack.ready_time());
++        self.vtrack.pending = Some(Pending { data, time, sync: key });
++        if self.vtrack.ready_time() >= self.fragment_ticks {
++            self.flush_fragment()?;
++        }
++        Ok(())
++    }
++
++    /// An Opus packet, `pts` in microseconds of the same clock as the video.
++    /// Sound before the first image is dropped; a gap in the sound (lost
++    /// packets) stretches the sample before it, so what follows stays in
++    /// time with the image.
++    pub(crate) fn write_audio(&mut self, pts_us: u64, packet: &[u8]) -> io::Result<()> {
++        let (Some(origin), Some(track)) = (self.origin_us, self.atrack.as_mut()) else {
++            return Ok(());
++        };
++        if pts_us < origin || packet.is_empty() {
++            return Ok(());
++        }
++        let time = Self::ticks(pts_us - origin, AUDIO_TIMESCALE);
++        let duration = match opus_duration(packet) {
++            0 => track.last_duration,
++            d => d,
++        };
++        if let Some(prev) = track.pending.take() {
++            let expected = prev.time + track.last_duration as u64;
++            // 40 ms of silence or more: kept as a longer sample.
++            let stretched = if time > expected + 1920 { time - prev.time } else { track.last_duration as u64 };
++            track.ready.push(Sample {
++                data: prev.data,
++                duration: stretched.min(u32::MAX as u64) as u32,
++                sync: true,
++            });
++        } else if track.ready.is_empty() && track.next_time == 0 {
++            track.next_time = time;
++        }
++        let start = track.next_time + track.ready_time();
++        track.last_duration = duration;
++        track.pending = Some(Pending {
++            data: packet.to_vec(),
++            time: start.max(time.min(start + AUDIO_TIMESCALE as u64)),
++            sync: true,
++        });
++        Ok(())
++    }
++
++    fn traf(track_id: u32, base: u64, samples: &[Sample], data_offset: u32, with_flags: bool) -> Vec<u8> {
++        let tfhd = full_box(b"tfhd", 0, 0x02_0000, &track_id.to_be_bytes());
++        let tfdt = full_box(b"tfdt", 1, 0, &base.to_be_bytes());
++        let mut flags = 0x000001 | 0x000100 | 0x000200;
++        if with_flags {
++            flags |= 0x000400;
++        }
++        let mut r = Vec::new();
++        r.extend_from_slice(&(samples.len() as u32).to_be_bytes());
++        r.extend_from_slice(&data_offset.to_be_bytes());
++        for s in samples {
++            r.extend_from_slice(&s.duration.to_be_bytes());
++            r.extend_from_slice(&(s.data.len() as u32).to_be_bytes());
++            if with_flags {
++                let f: u32 = if s.sync { 0x0200_0000 } else { 0x0101_0000 };
++                r.extend_from_slice(&f.to_be_bytes());
++            }
++        }
++        let trun = full_box(b"trun", 0, flags, &r);
++        mp4_box(b"traf", &concat(&[&tfhd, &tfdt, &trun]))
++    }
++
++    /// Writes the samples whose duration is known as one fragment.
++    fn flush_fragment(&mut self) -> io::Result<()> {
++        let video = std::mem::take(&mut self.vtrack.ready);
++        let audio = self.atrack.as_mut().map(|t| std::mem::take(&mut t.ready)).unwrap_or_default();
++        if video.is_empty() && audio.is_empty() {
++            return Ok(());
++        }
++        self.sequence += 1;
++        let vbytes: usize = video.iter().map(|s| s.data.len()).sum();
++        let abytes: usize = audio.iter().map(|s| s.data.len()).sum();
++        let vbase = self.vtrack.next_time;
++        let abase = self.atrack.as_ref().map_or(0, |t| t.next_time);
++        // Built twice: the data offsets depend on the moof's own size.
++        let build = |voff: u32, aoff: u32| {
++            let mut trafs = Vec::new();
++            if !video.is_empty() {
++                trafs.extend_from_slice(&Self::traf(VIDEO_TRACK, vbase, &video, voff, true));
++            }
++            if !audio.is_empty() {
++                trafs.extend_from_slice(&Self::traf(AUDIO_TRACK, abase, &audio, aoff, false));
++            }
++            let mfhd = full_box(b"mfhd", 0, 0, &self.sequence.to_be_bytes());
++            mp4_box(b"moof", &concat(&[&mfhd, &trafs]))
++        };
++        let size = build(0, 0).len() as u32;
++        let moof = build(size + 8, size + 8 + vbytes as u32);
++        let mut mdat = Vec::with_capacity(8 + vbytes + abytes);
++        mdat.extend_from_slice(&((8 + vbytes + abytes) as u32).to_be_bytes());
++        mdat.extend_from_slice(b"mdat");
++        for s in video.iter().chain(audio.iter()) {
++            mdat.extend_from_slice(&s.data);
++        }
++        if video.first().is_some_and(|s| s.sync) {
++            self.fragments.push(FragmentRef {
++                video_time: vbase,
++                moof_offset: self.written,
++            });
++        }
++        self.out.write_all(&moof)?;
++        self.out.write_all(&mdat)?;
++        self.out.flush()?;
++        self.written += (moof.len() + mdat.len()) as u64;
++        self.vtrack.next_time += video.iter().map(|s| s.duration as u64).sum::<u64>();
++        if let Some(t) = self.atrack.as_mut() {
++            t.next_time += audio.iter().map(|s| s.duration as u64).sum::<u64>();
++        }
++        Ok(())
++    }
++
++    /// The video time written so far, in microseconds.
++    pub(crate) fn duration_us(&self) -> u64 {
++        let ticks = self.vtrack.next_time + self.vtrack.ready_time();
++        ticks * 1_000_000 / VIDEO_TIMESCALE as u64
++    }
++
++    /// Writes what is left, the duration and the index, and hands the output
++    /// back.
++    pub(crate) fn finish(mut self) -> io::Result<W> {
++        if let Some(p) = self.vtrack.pending.take() {
++            let duration = self.vtrack.last_duration;
++            self.vtrack.ready.push(Sample { data: p.data, duration, sync: p.sync });
++        }
++        if let Some(t) = self.atrack.as_mut()
++            && let Some(p) = t.pending.take()
++        {
++            let duration = t.last_duration;
++            t.ready.push(Sample { data: p.data, duration, sync: true });
++        }
++        self.flush_fragment()?;
++
++        // mfra: where each fragment starting on a keyframe is.
++        let mut entries = Vec::new();
++        entries.extend_from_slice(&VIDEO_TRACK.to_be_bytes());
++        entries.extend_from_slice(&0u32.to_be_bytes()); // 1-byte traf/trun/sample numbers
++        entries.extend_from_slice(&(self.fragments.len() as u32).to_be_bytes());
++        for f in &self.fragments {
++            entries.extend_from_slice(&f.video_time.to_be_bytes());
++            entries.extend_from_slice(&f.moof_offset.to_be_bytes());
++            entries.extend_from_slice(&[1, 1, 1]);
++        }
++        let tfra = full_box(b"tfra", 1, 0, &entries);
++        let mfro_size = 16u32;
++        let mfra_size = 8 + tfra.len() as u32 + mfro_size;
++        let mfro = full_box(b"mfro", 0, 0, &mfra_size.to_be_bytes());
++        let mfra = mp4_box(b"mfra", &concat(&[&tfra, &mfro]));
++        self.out.write_all(&mfra)?;
++
++        // The total duration, in the movie's timescale (ms).
++        let total_ms = self.duration_us() / 1000;
++        self.out.seek(SeekFrom::Start(self.mehd_offset))?;
++        self.out.write_all(&total_ms.to_be_bytes())?;
++        self.out.seek(SeekFrom::End(0))?;
++        self.out.flush()?;
++        Ok(self.out)
++    }
++}
++
++// ===========================================================================
++// Tests
++// ===========================================================================
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::io::Cursor;
++
++    fn hex(s: &str) -> Vec<u8> {
++        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
++    }
++
++    // Parameter sets from real encoders (x264; VideoToolbox HEVC Main and
++    // Main 10), 1920 × 1080 and 2560 × 1440.
++    fn h264_sps() -> Vec<u8> {
++        hex("6764002aacb200f0044fcb8088000003000800000303c078c19240")
++    }
++    fn h264_pps() -> Vec<u8> {
++        hex("68ebc3cb22c0")
++    }
++    fn hevc_vps() -> Vec<u8> {
++        hex("40010c01ffff016000000300b000000300000300781b0240")
++    }
++    fn hevc_sps() -> Vec<u8> {
++        hex("420101016000000300b00000030000030078a003c0801107cb881bb916452ffcb9fc4feb016a04040401")
++    }
++    fn hevc_pps() -> Vec<u8> {
++        hex("4401c072f05324")
++    }
++    fn hevc10_vps() -> Vec<u8> {
++        hex("40010c01ffff022000000300b000000300000300960bc090")
++    }
++    fn hevc10_sps() -> Vec<u8> {
++        hex("420101022000000300b00000030000030096a001402005a136202fb916452ffcb9fc4feb016a04040401")
++    }
++
++    fn annexb(nals: &[&[u8]]) -> Vec<u8> {
++        let mut out = Vec::new();
++        for n in nals {
++            out.extend_from_slice(&[0, 0, 0, 1]);
++            out.extend_from_slice(n);
++        }
++        out
++    }
++
++    fn opus_head(channels: u8) -> Vec<u8> {
++        let mut h = b"OpusHead".to_vec();
++        h.extend_from_slice(&[1, channels]);
++        h.extend_from_slice(&312u16.to_le_bytes());
++        h.extend_from_slice(&48_000u32.to_le_bytes());
++        h.extend_from_slice(&0i16.to_le_bytes());
++        h.push(0);
++        h
++    }
++
++    /// The boxes at the top of a file: kind and size.
++    fn top_boxes(data: &[u8]) -> Vec<(String, usize)> {
++        let mut out = Vec::new();
++        let mut i = 0;
++        while i + 8 <= data.len() {
++            let size = u32::from_be_bytes(data[i..i + 4].try_into().unwrap()) as usize;
++            out.push((String::from_utf8_lossy(&data[i + 4..i + 8]).into_owned(), size));
++            assert!(size >= 8, "box size");
++            i += size;
++        }
++        assert_eq!(i, data.len(), "boxes cover the whole file");
++        out
++    }
++
++    #[test]
++    fn splits_annexb_with_3_and_4_byte_start_codes() {
++        let data = [0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3, 0, 0, 0, 1, 0x65, 4, 5];
++        let nals = annexb_nals(&data);
++        assert_eq!(nals, vec![&[0x67, 1, 2][..], &[0x68, 3][..], &[0x65, 4, 5][..]]);
++    }
++
++    #[test]
++    fn samples_lose_their_parameter_sets() {
++        let au = annexb(&[&h264_sps(), &h264_pps(), &[0x65, 9, 9]]);
++        let s = sample_from_annexb(VideoFormat::H264, &au).unwrap();
++        assert_eq!(s, vec![0, 0, 0, 3, 0x65, 9, 9]);
++        assert_eq!(sample_from_annexb(VideoFormat::H264, &annexb(&[&h264_sps()])), None);
++    }
++
++    #[test]
++    fn reads_h264_size_and_profile() {
++        let c = VideoConfig::from_annexb(VideoFormat::H264, &annexb(&[&h264_sps(), &h264_pps()])).unwrap();
++        assert_eq!((c.width, c.height), (1920, 1080));
++        assert!(c.sample_entry.windows(4).any(|w| w == b"avcC"));
++    }
++
++    #[test]
++    fn reads_hevc_size() {
++        let c = VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc_vps(), &hevc_sps(), &hevc_pps()])).unwrap();
++        assert_eq!((c.width, c.height), (1920, 1080));
++        assert!(c.sample_entry.windows(4).any(|w| w == b"hvcC"));
++        assert!(VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc_sps(), &hevc_pps()])).is_none(), "VPS needed");
++        let info = parse_hevc_sps(&hevc10_sps()).unwrap();
++        assert_eq!((info.width, info.height, info.depth_luma, info.chroma), (2560, 1440, 10, 1));
++        assert!(VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc10_vps(), &hevc10_sps(), &hevc_pps()])).is_some());
++    }
++
++    #[test]
++    fn opus_durations() {
++        // CELT 20 ms, one frame.
++        assert_eq!(opus_duration(&[0b1111_1000]), 960);
++        // CELT 10 ms, one frame.
++        assert_eq!(opus_duration(&[0b1111_0000]), 480);
++        // SILK 20 ms, two frames.
++        assert_eq!(opus_duration(&[0b0000_1001]), 1920);
++        // Code 3, three 2.5 ms frames.
++        assert_eq!(opus_duration(&[0b1000_0011, 3]), 360);
++        assert_eq!(opus_duration(&[]), 0);
++    }
++
++    #[test]
++    fn reads_opus_head() {
++        let a = AudioConfig::from_opus_head(&opus_head(2)).unwrap();
++        assert_eq!((a.channels, a.pre_skip, a.family), (2, 312, 0));
++        let mut six = b"OpusHead".to_vec();
++        six.extend_from_slice(&[1, 6, 0, 0, 0x80, 0xbb, 0, 0, 0, 0, 1, 4, 2, 0, 4, 1, 2, 3, 5]);
++        let a = AudioConfig::from_opus_head(&six).unwrap();
++        assert_eq!((a.channels, a.streams, a.coupled, a.mapping.len()), (6, 4, 2, 6));
++        assert!(AudioConfig::from_opus_head(b"OpusTags").is_none());
++    }
++
++    #[test]
++    fn writes_a_file_that_ends_well() {
++        let video = VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc_vps(), &hevc_sps(), &hevc_pps()])).unwrap();
++        let audio = AudioConfig::from_opus_head(&opus_head(2)).unwrap();
++        let mut w = Mp4Writer::new(Cursor::new(Vec::new()), video, Some(&audio)).unwrap();
++        let start = 5_000_000u64;
++        // Sound before the first image: dropped.
++        w.write_audio(start - 20_000, &[0xf8, 1]).unwrap();
++        // A delta frame before the first keyframe: dropped.
++        w.write_video(start - 10_000, false, &annexb(&[&[0x02, 0x01, 7]])).unwrap();
++        for i in 0..150u64 {
++            let key = i % 60 == 0;
++            let nal: &[u8] = if key { &[0x26, 0x01, 1, 2, 3] } else { &[0x02, 0x01, 4] };
++            w.write_video(start + i * 16_667, key, &annexb(&[nal])).unwrap();
++            w.write_audio(start + i * 16_667, &[0xf8, 2, 3]).unwrap();
++        }
++        let duration = w.duration_us();
++        assert!(duration > 2_000_000, "{duration}");
++        let data = w.finish().unwrap().into_inner();
++        let boxes = top_boxes(&data);
++        let kinds: Vec<_> = boxes.iter().map(|(k, _)| k.as_str()).collect();
++        assert_eq!(&kinds[..2], &["ftyp", "moov"]);
++        assert_eq!(kinds.last(), Some(&"mfra"));
++        assert!(kinds.iter().filter(|k| **k == "moof").count() >= 2);
++        // mfro's size matches mfra's.
++        let (_, mfra) = boxes.last().unwrap();
++        let tail = u32::from_be_bytes(data[data.len() - 4..].try_into().unwrap()) as usize;
++        assert_eq!(tail, *mfra);
++        // The duration (ms) is written in mehd.
++        let at = data.windows(4).position(|w| w == b"mehd").unwrap() + 8;
++        let ms = u64::from_be_bytes(data[at..at + 8].try_into().unwrap());
++        assert!((2400..=2600).contains(&ms), "{ms}");
++    }
++
++    #[test]
++    fn video_only_file() {
++        let video = VideoConfig::from_annexb(VideoFormat::H264, &annexb(&[&h264_sps(), &h264_pps()])).unwrap();
++        let mut w = Mp4Writer::new(Cursor::new(Vec::new()), video, None).unwrap();
++        w.write_video(0, true, &annexb(&[&[0x65, 1]])).unwrap();
++        w.write_video(16_667, false, &annexb(&[&[0x41, 1]])).unwrap();
++        // Sound without a sound track: ignored.
++        w.write_audio(0, &[0xf8]).unwrap();
++        let data = w.finish().unwrap().into_inner();
++        let kinds: Vec<_> = top_boxes(&data).into_iter().map(|(k, _)| k).collect();
++        assert_eq!(kinds, ["ftyp", "moov", "moof", "mdat", "mfra"]);
++    }
++
++    /// Splits an Annex B stream into access units (a new one at each first
++    /// slice of a picture; parameter sets and SEI go with the next one).
++    fn access_units(format: VideoFormat, data: &[u8]) -> Vec<(bool, Vec<u8>)> {
++        let mut units: Vec<(bool, Vec<u8>)> = Vec::new();
++        let mut prefix: Vec<u8> = Vec::new();
++        for nal in annexb_nals(data) {
++            let t = nal_type(format, nal);
++            let (vcl, key, first) = match format {
++                VideoFormat::H264 => (matches!(t, 1 | 5), t == 5, nal.get(1).is_some_and(|b| b & 0x80 != 0)),
++                VideoFormat::Hevc => (t < 32, (16..=21).contains(&t), nal.get(2).is_some_and(|b| b & 0x80 != 0)),
++            };
++            let mut chunk = vec![0, 0, 0, 1];
++            chunk.extend_from_slice(nal);
++            if !vcl {
++                prefix.extend_from_slice(&chunk);
++            } else if first || units.is_empty() {
++                let mut au = std::mem::take(&mut prefix);
++                au.extend_from_slice(&chunk);
++                units.push((key, au));
++            } else {
++                units.last_mut().unwrap().1.extend_from_slice(&chunk);
++            }
++        }
++        units
++    }
++
++    /// Packets of an Ogg stream.
++    fn ogg_packets(data: &[u8]) -> Vec<Vec<u8>> {
++        let mut out = Vec::new();
++        let mut current = Vec::new();
++        let mut i = 0;
++        while i + 27 <= data.len() && &data[i..i + 4] == b"OggS" {
++            let segments = data[i + 26] as usize;
++            let table = &data[i + 27..i + 27 + segments];
++            let mut at = i + 27 + segments;
++            for &len in table {
++                current.extend_from_slice(&data[at..at + len as usize]);
++                at += len as usize;
++                if len < 255 {
++                    out.push(std::mem::take(&mut current));
++                }
++            }
++            i = at;
++        }
++        out
++    }
++
++    /// Writes real encoder streams into `$KN_MP4_VECTORS/*.mp4`, for ffprobe.
++    /// `KN_MP4_VECTORS=… cargo test -p kycontroller real_streams -- --ignored`
++    #[test]
++    #[ignore]
++    fn real_streams() {
++        let dir = std::path::PathBuf::from(std::env::var("KN_MP4_VECTORS").unwrap());
++        let opus = ogg_packets(&std::fs::read(dir.join("opus.ogg")).unwrap());
++        for (name, format) in [("h264.h264", VideoFormat::H264), ("hevc.h265", VideoFormat::Hevc), ("hevc10.h265", VideoFormat::Hevc)] {
++            let data = std::fs::read(dir.join(name)).unwrap();
++            let units = access_units(format, &data);
++            let config = VideoConfig::from_param_sets(format, param_sets_in(format, &units[0].1)).unwrap();
++            let audio = AudioConfig::from_opus_head(&opus[0]).unwrap();
++            let file = std::fs::File::create(dir.join(format!("{name}.mp4"))).unwrap();
++            let mut w = Mp4Writer::new(file, config, Some(&audio)).unwrap();
++            let start = 7_000_000u64;
++            let mut audio_at = start;
++            let mut packets = opus[2..].iter();
++            for (i, (key, au)) in units.iter().enumerate() {
++                let pts = start + i as u64 * 1_000_000 / 60;
++                w.write_video(pts, *key, au).unwrap();
++                while audio_at <= pts {
++                    let Some(p) = packets.next() else { break };
++                    w.write_audio(audio_at, p).unwrap();
++                    audio_at += opus_duration(p) as u64 * 1_000_000 / 48_000;
++                }
++            }
++            w.finish().unwrap();
++        }
++    }
++}
+diff --git a/kycontroller/src/recording.rs b/kycontroller/src/recording.rs
+new file mode 100644
+index 0000000..0ef0948
+--- /dev/null
++++ b/kycontroller/src/recording.rs
+@@ -0,0 +1,832 @@
++// KyberNow: recording the host's session into an MP4 (patch 0070).
++//
++// KyberNow Admin asks (`POST /kybernow/recording`, its own token, from this
++// computer only): the controller then reads the host's image of the
++// session's main display and the shared sound, exactly as a share guest
++// does (patch 0020): never holding them back, falling back to the next
++// keyframe when it falls behind. A thread of its own writes them into a
++// fragmented MP4 (`mp4.rs`), never encoded again. Nothing is asked of the
++// encoder but a keyframe when the recording starts or falls behind, and one
++// every `KEYFRAME_EVERY`, so the file can be sought.
++//
++// The recording follows the host's image when it changes (a profile chosen
++// in session): a new format or new parameter sets go on in a new file
++// (`… (2).mp4`). It ends when Admin stops it, when the host's session
++// ends, when writing fails (disk full), or with the encoder's format
++// (AV1 and PyroWave are not recorded).
++
++use std::fs::File;
++use std::io::BufWriter;
++use std::path::{Path, PathBuf};
++use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
++use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
++use std::sync::{Arc, Mutex};
++use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
++
++use actix_web::{HttpRequest, HttpResponse, get, post, web};
++use async_trait::async_trait;
++use kymux::types::{AVPacket, ProtocolError, ProtocolSend, ProtocolSendDriver};
++use log::{info, warn};
++use serde::{Deserialize, Serialize};
++use tokio::sync::watch;
++
++use crate::avservices_manager::{AudioStreamKey, VideoStreamKey};
++use crate::controller::Controller;
++use crate::guest_image::ImageCodec;
++use crate::kydup;
++use crate::mp4::{AudioConfig, Mp4Writer, VideoConfig, VideoFormat};
++use crate::utils::Task;
++
++/// A keyframe this often, so a player can seek in the file.
++const KEYFRAME_EVERY: Duration = Duration::from_secs(10);
++/// How long the host's image may be missing before the recording ends.
++const HOST_GONE_AFTER: Duration = Duration::from_secs(3);
++/// Packets waiting for the writer; past that, the writer is behind and the
++/// image goes back to its next keyframe.
++const QUEUE: usize = 2048;
++/// How long the first image waits for the sound's header before the file
++/// is made (without sound if it does not come).
++const AUDIO_WAIT: Duration = Duration::from_millis(1500);
++
++// ===========================================================================
++// State
++// ===========================================================================
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
++#[serde(rename_all = "snake_case")]
++pub(crate) enum EndReason {
++    /// Admin stopped it.
++    Stopped,
++    /// The host's session ended.
++    Ended,
++    /// Writing failed: disk full, folder gone.
++    Write,
++    /// The image's format is not recorded (AV1, PyroWave).
++    Codec,
++}
++
++#[derive(Debug, Clone, Serialize)]
++pub(crate) struct LastEnd {
++    reason: EndReason,
++    at_ms: u64,
++}
++
++#[derive(Debug, Clone, Default, Serialize)]
++pub(crate) struct RecordingState {
++    active: bool,
++    /// Unix time, ms: the elapsed time the apps show.
++    started_at_ms: Option<u64>,
++    display: Option<u32>,
++    /// The files of this recording, the one being written last.
++    files: Vec<String>,
++    bytes: u64,
++    last_end: Option<LastEnd>,
++}
++
++/// What the writer thread shares with the rest.
++#[derive(Default)]
++struct Shared {
++    files: Mutex<Vec<PathBuf>>,
++    bytes: AtomicU64,
++    /// Set by the writer when it stopped by itself (error or format).
++    failed: Mutex<Option<EndReason>>,
++    /// The writer fell behind: the image goes back to its next keyframe.
++    behind: AtomicBool,
++    /// … which the supervisor asks for at once (intra refresh makes none).
++    want_key: AtomicBool,
++}
++
++struct Active {
++    started_at_ms: u64,
++    display: u32,
++    key: VideoStreamKey,
++    source: watch::Sender<Option<kydup::VideoSource>>,
++    video_task: Task,
++    audio_task: Option<(Task, Arc<AtomicBool>)>,
++    supervisor: Option<Task>,
++    tx: SyncSender<Msg>,
++    writer: Option<std::thread::JoinHandle<()>>,
++    shared: Arc<Shared>,
++}
++
++#[derive(Default)]
++struct Recorder {
++    active: Option<Active>,
++    last_end: Option<LastEnd>,
++}
++
++static RECORDER: Mutex<Option<Recorder>> = Mutex::new(None);
++
++fn with_recorder<T>(f: impl FnOnce(&mut Recorder) -> T) -> T {
++    let mut guard = RECORDER.lock().unwrap();
++    f(guard.get_or_insert_with(Recorder::default))
++}
++
++fn now_ms() -> u64 {
++    SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .map_or(0, |d| d.as_millis() as u64)
++}
++
++fn state() -> RecordingState {
++    with_recorder(|r| match &r.active {
++        Some(a) => RecordingState {
++            active: true,
++            started_at_ms: Some(a.started_at_ms),
++            display: Some(a.display),
++            files: a
++                .shared
++                .files
++                .lock()
++                .unwrap()
++                .iter()
++                .filter_map(|p| Some(p.file_name()?.to_string_lossy().into_owned()))
++                .collect(),
++            bytes: a.shared.bytes.load(Ordering::Relaxed),
++            last_end: r.last_end.clone(),
++        },
++        None => RecordingState {
++            last_end: r.last_end.clone(),
++            ..Default::default()
++        },
++    })
++}
++
++// ===========================================================================
++// Packets to the writer
++// ===========================================================================
++
++enum Msg {
++    Video(AVPacket, Instant),
++    Audio(AVPacket, Instant),
++    Stop,
++}
++
++/// An output of the host's image or sound, into the writer's queue: it
++/// never waits (a full queue loses the packet, and the image goes back to
++/// its next keyframe).
++struct RecordingSend {
++    tx: SyncSender<Msg>,
++    audio: bool,
++    shared: Arc<Shared>,
++    /// Set when this output ends (its stream ended).
++    ended: Option<Arc<AtomicBool>>,
++}
++
++#[async_trait]
++impl ProtocolSendDriver for RecordingSend {
++    type Packet = AVPacket;
++
++    async fn send(&mut self, packet: AVPacket) -> Result<(), ProtocolError> {
++        let msg = if self.audio {
++            Msg::Audio(packet, Instant::now())
++        } else {
++            Msg::Video(packet, Instant::now())
++        };
++        match self.tx.try_send(msg) {
++            Ok(()) => Ok(()),
++            Err(TrySendError::Full(_)) => {
++                if !self.audio {
++                    self.shared.behind.store(true, Ordering::Relaxed);
++                    self.shared.want_key.store(true, Ordering::Relaxed);
++                }
++                Ok(())
++            }
++            Err(TrySendError::Disconnected(_)) => Err(ProtocolError::new("recording writer gone")),
++        }
++    }
++}
++
++impl Drop for RecordingSend {
++    fn drop(&mut self) {
++        if let Some(ended) = &self.ended {
++            ended.store(true, Ordering::Relaxed);
++        }
++    }
++}
++
++// ===========================================================================
++// Writer thread
++// ===========================================================================
++
++fn video_format(codec: u32) -> Option<VideoFormat> {
++    match &codec.to_be_bytes() {
++        b"h264" => Some(VideoFormat::H264),
++        b"h265" => Some(VideoFormat::Hevc),
++        _ => None,
++    }
++}
++
++/// `KyberNow 2026-11-26 14-32-05.mp4`, then `… (2).mp4` for the next parts;
++/// never over an existing file.
++fn file_path(dir: &Path, base: &str, part: u32) -> PathBuf {
++    let mut n = part;
++    loop {
++        let name = if n <= 1 { format!("{base}.mp4") } else { format!("{base} ({n}).mp4") };
++        let path = dir.join(name);
++        if !path.exists() {
++            return path;
++        }
++        n += 1;
++    }
++}
++
++struct Writer {
++    dir: PathBuf,
++    base: String,
++    shared: Arc<Shared>,
++    format: Option<VideoFormat>,
++    video: Option<VideoConfig>,
++    audio: Option<AudioConfig>,
++    file: Option<Mp4Writer<BufWriter<File>>>,
++    part: u32,
++    /// A keyframe waiting for the sound's header, with what came after it.
++    waiting: Vec<(u64, bool, bytes::Bytes)>,
++    waiting_since: Option<Instant>,
++    /// Waiting for a keyframe (start, a new part, after falling behind).
++    need_key: bool,
++    /// Last image: its pts and when it came, to check the sound's clock.
++    last_video: Option<(u64, Instant)>,
++    /// Added to the sound's pts when its clock is not the image's.
++    audio_offset: Option<i128>,
++}
++
++impl Writer {
++    fn fail(&self, reason: EndReason) {
++        self.shared.failed.lock().unwrap().get_or_insert(reason);
++    }
++
++    fn close(&mut self) {
++        if let Some(file) = self.file.take() {
++            match file.finish() {
++                Ok(_) => {}
++                Err(e) => {
++                    warn!("Recording: could not close the file: {e}");
++                    self.fail(EndReason::Write);
++                }
++            }
++        }
++    }
++
++    fn open(&mut self) -> bool {
++        let Some(video) = self.video.clone() else {
++            return false;
++        };
++        self.part += 1;
++        let path = file_path(&self.dir, &self.base, self.part);
++        let file = File::create(&path).and_then(|f| Mp4Writer::new(BufWriter::with_capacity(1 << 20, f), video, self.audio.as_ref()));
++        match file {
++            Ok(w) => {
++                info!("Recording into {}", path.display());
++                self.shared.files.lock().unwrap().push(path);
++                self.file = Some(w);
++                true
++            }
++            Err(e) => {
++                warn!("Recording: could not create {}: {e}", path.display());
++                self.fail(EndReason::Write);
++                false
++            }
++        }
++    }
++
++    fn write_frame(&mut self, pts: u64, key: bool, data: &[u8]) {
++        if let Some(file) = self.file.as_mut() {
++            let before = file.len();
++            if let Err(e) = file.write_video(pts, key, data) {
++                warn!("Recording: write failed: {e}");
++                self.fail(EndReason::Write);
++                return;
++            }
++            let after = file.len();
++            self.shared.bytes.fetch_add(after - before, Ordering::Relaxed);
++        }
++    }
++
++    fn video(&mut self, packet: AVPacket, at: Instant) {
++        match packet {
++            AVPacket::Codec(c) => {
++                let Some(format) = video_format(c.header.codec) else {
++                    let name = String::from_utf8_lossy(&c.header.codec.to_be_bytes()).into_owned();
++                    warn!("Recording: image in {name}, not recorded");
++                    self.fail(EndReason::Codec);
++                    return;
++                };
++                if self.format != Some(format) {
++                    self.close();
++                    self.format = Some(format);
++                    self.video = None;
++                    self.need_key = true;
++                }
++            }
++            AVPacket::Media(m) if m.header.is_config => {
++                let Some(format) = self.format else { return };
++                self.take_config(format, &m.payload);
++            }
++            AVPacket::Media(m) => {
++                let Some(format) = self.format else { return };
++                if self.shared.behind.swap(false, Ordering::Relaxed) {
++                    // Packets were lost: what follows cannot be decoded
++                    // until the next keyframe.
++                    self.need_key = true;
++                }
++                // In-band parameter sets on a keyframe count as a config.
++                if m.header.is_key {
++                    let in_band = crate::mp4::param_sets_in(format, &m.payload);
++                    if !in_band.is_empty() {
++                        self.take_config_sets(format, in_band);
++                    }
++                }
++                if self.need_key && !m.header.is_key {
++                    return;
++                }
++                self.need_key = false;
++                self.last_video = Some((m.header.pts, at));
++                if self.file.is_none() {
++                    if self.video.is_none() {
++                        return;
++                    }
++                    // The first image waits a little for the sound's header.
++                    let since = *self.waiting_since.get_or_insert(at);
++                    self.waiting.push((m.header.pts, m.header.is_key, m.payload));
++                    if self.audio.is_none() && at.duration_since(since) < AUDIO_WAIT {
++                        return;
++                    }
++                    self.start_file();
++                    return;
++                }
++                self.write_frame(m.header.pts, m.header.is_key, &m.payload);
++            }
++            AVPacket::Hole(_) => {}
++        }
++    }
++
++    fn take_config(&mut self, format: VideoFormat, payload: &[u8]) {
++        self.take_config_sets(format, crate::mp4::param_sets_in(format, payload));
++    }
++
++    fn take_config_sets(&mut self, format: VideoFormat, sets: Vec<Vec<u8>>) {
++        if self.video.as_ref().is_some_and(|v| v.param_sets == sets) {
++            return;
++        }
++        let Some(config) = VideoConfig::from_param_sets(format, sets) else {
++            warn!("Recording: parameter sets not understood");
++            return;
++        };
++        if self.file.is_some() {
++            // Another size or format: the recording goes on in a new file.
++            info!("Recording: new parameter sets ({} × {}), next file", config.width, config.height);
++            self.close();
++            self.need_key = true;
++        }
++        self.video = Some(config);
++    }
++
++    fn start_file(&mut self) {
++        let waiting = std::mem::take(&mut self.waiting);
++        self.waiting_since = None;
++        if !self.open() {
++            return;
++        }
++        for (pts, key, data) in waiting {
++            self.write_frame(pts, key, &data);
++        }
++    }
++
++    fn audio(&mut self, packet: AVPacket, at: Instant) {
++        match packet {
++            AVPacket::Media(m) if m.header.is_config => {
++                if let Some(config) = AudioConfig::from_opus_head(&m.payload) {
++                    if self.file.is_none() {
++                        self.audio = Some(config);
++                    } else if self.audio.as_ref() != Some(&config) {
++                        // Another channel count: the sound stops in this
++                        // file, the next one has it.
++                        warn!("Recording: the sound changed, ignored until the next file");
++                        self.audio = Some(config);
++                    }
++                }
++            }
++            AVPacket::Media(m) => {
++                let Some(file) = self.file.as_mut() else { return };
++                if !file.has_audio() {
++                    return;
++                }
++                let offset = *self.audio_offset.get_or_insert_with(|| {
++                    // Image and sound normally share the capture clock; if
++                    // not, the sound is placed by when it came.
++                    let Some((vpts, vat)) = self.last_video else { return 0 };
++                    let expected = vpts as i128 + at.saturating_duration_since(vat).as_micros() as i128;
++                    let gap = expected - m.header.pts as i128;
++                    if gap.abs() > 2_000_000 {
++                        warn!("Recording: the sound's clock is not the image's ({} ms apart): placed by arrival", gap / 1000);
++                        gap
++                    } else {
++                        0
++                    }
++                });
++                let pts = (m.header.pts as i128 + offset).max(0) as u64;
++                let before = file.len();
++                if let Err(e) = file.write_audio(pts, &m.payload) {
++                    warn!("Recording: write failed: {e}");
++                    self.fail(EndReason::Write);
++                    return;
++                }
++                let after = file.len();
++                self.shared.bytes.fetch_add(after - before, Ordering::Relaxed);
++            }
++            _ => {}
++        }
++    }
++
++    fn run(mut self, rx: Receiver<Msg>) {
++        loop {
++            let msg = match rx.recv_timeout(Duration::from_millis(500)) {
++                Ok(m) => m,
++                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
++                    // No image for a while (a still screen sends none):
++                    // a file waiting for sound starts anyway.
++                    if self.file.is_none()
++                        && self.waiting_since.is_some_and(|s| s.elapsed() >= AUDIO_WAIT)
++                    {
++                        self.start_file();
++                    }
++                    continue;
++                }
++                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
++            };
++            match msg {
++                Msg::Video(p, at) => self.video(p, at),
++                Msg::Audio(p, at) => self.audio(p, at),
++                Msg::Stop => break,
++            }
++            if self.shared.failed.lock().unwrap().is_some() {
++                break;
++            }
++        }
++        if self.file.is_none() && !self.waiting.is_empty() {
++            self.start_file();
++        }
++        self.close();
++    }
++}
++
++// ===========================================================================
++// Start, follow, stop
++// ===========================================================================
++
++/// The host's main display: the first image of a session without share
++/// that streams.
++async fn host_display(ctrl: &Controller) -> Option<u32> {
++    let services: Vec<_> = ctrl
++        .sessions
++        .lock()
++        .unwrap()
++        .values()
++        .filter(|s| s.share.is_none() && s.session.as_ref().is_some_and(|s| s.data_plane.is_some()))
++        .map(|s| s.services.clone())
++        .collect();
++    for services in services {
++        let services = services.lock().await;
++        if let Some(sub) = services.video_subscriptions.first() {
++            return Some(sub.key().display_id());
++        }
++    }
++    None
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
++#[serde(rename_all = "snake_case")]
++enum Refusal {
++    /// Nobody is in a session on this computer (or only guests).
++    NoSession,
++    /// The session's image is in AV1 or PyroWave.
++    Codec,
++    /// The folder could not be made.
++    Folder,
++}
++
++#[derive(Serialize)]
++struct RefusalBody {
++    code: Refusal,
++}
++
++fn refuse(code: Refusal) -> HttpResponse {
++    HttpResponse::Conflict().json(RefusalBody { code })
++}
++
++fn video_source(
++    manager: &crate::avservices_manager::AVServicesManager,
++    key: &VideoStreamKey,
++) -> Option<kydup::VideoSource> {
++    let dup = manager.video_streams.get(key)?.dup.clone()?;
++    let idr = manager.idr_sender(key.clone());
++    let idr2 = manager.idr_sender(key.clone());
++    Some(kydup::VideoSource::new(dup, idr, idr2))
++}
++
++fn attach_audio(
++    manager: &crate::avservices_manager::AVServicesManager,
++    tx: &SyncSender<Msg>,
++    shared: &Arc<Shared>,
++) -> Option<(Task, Arc<AtomicBool>)> {
++    let dup = manager.audio_streams.get(&AudioStreamKey::Shared)?.dup.clone()?;
++    let ended = Arc::new(AtomicBool::new(false));
++    let send = ProtocolSend::new(RecordingSend {
++        tx: tx.clone(),
++        audio: true,
++        shared: Arc::clone(shared),
++        ended: Some(Arc::clone(&ended)),
++    });
++    Some((dup.add_recording_output(send), ended))
++}
++
++async fn start(ctrl: &web::Data<Controller>, dir: PathBuf, base: String) -> Result<RecordingState, Refusal> {
++    if with_recorder(|r| r.active.is_some()) {
++        return Ok(state());
++    }
++    let display = host_display(ctrl).await.ok_or(Refusal::NoSession)?;
++    std::fs::create_dir_all(&dir).map_err(|e| {
++        warn!("Recording: folder {}: {e}", dir.display());
++        Refusal::Folder
++    })?;
++
++    let manager = ctrl.av_services_manager.lock().await;
++    let key = manager.current_host_key(display).ok_or(Refusal::NoSession)?;
++    let stream = manager.video_streams.get(&key).ok_or(Refusal::NoSession)?;
++    if !matches!(ImageCodec::from(&stream.config.codec), ImageCodec::H264 | ImageCodec::Hevc) {
++        return Err(Refusal::Codec);
++    }
++    let source = video_source(&manager, &key).ok_or(Refusal::NoSession)?;
++
++    let shared = Arc::new(Shared::default());
++    let (tx, rx) = sync_channel(QUEUE);
++    let writer = Writer {
++        dir,
++        base,
++        shared: Arc::clone(&shared),
++        format: None,
++        video: None,
++        audio: None,
++        file: None,
++        part: 0,
++        waiting: Vec::new(),
++        waiting_since: None,
++        need_key: true,
++        last_video: None,
++        audio_offset: None,
++    };
++    let writer = std::thread::Builder::new()
++        .name("kn-recording".into())
++        .spawn(move || writer.run(rx))
++        .map_err(|_| Refusal::Folder)?;
++
++    let (source_tx, source_rx) = watch::channel(Some(source));
++    let video_send = ProtocolSend::new(RecordingSend {
++        tx: tx.clone(),
++        audio: false,
++        shared: Arc::clone(&shared),
++        ended: None,
++    });
++    let video_task = kydup::spawn_recording_video_output(video_send, source_rx);
++    let audio_task = attach_audio(&manager, &tx, &shared);
++    drop(manager);
++
++    let started_at_ms = now_ms();
++    info!("Recording started on display {display} ({key:?})");
++    with_recorder(|r| {
++        r.active = Some(Active {
++            started_at_ms,
++            display,
++            key,
++            source: source_tx,
++            video_task,
++            audio_task,
++            supervisor: None,
++            tx,
++            writer: Some(writer),
++            shared,
++        });
++    });
++    let ctrl = ctrl.clone();
++    let supervisor = Task::spawn(async move { supervise(ctrl).await });
++    with_recorder(|r| {
++        if let Some(a) = r.active.as_mut() {
++            a.supervisor = Some(supervisor);
++        }
++    });
++    Ok(state())
++}
++
++/// Stops the recording, if one runs: the files are closed once this returns.
++async fn stop(reason: EndReason) {
++    let Some(mut active) = with_recorder(|r| r.active.take()) else {
++        return;
++    };
++    let reason = active.shared.failed.lock().unwrap().unwrap_or(reason);
++    // The outputs first: nothing more reaches the queue.
++    drop(active.video_task);
++    drop(active.audio_task.take());
++    drop(active.source);
++    let _ = active.tx.try_send(Msg::Stop);
++    drop(active.tx);
++    if let Some(writer) = active.writer.take() {
++        let _ = tokio::task::spawn_blocking(move || writer.join()).await;
++    }
++    info!("Recording ended ({reason:?})");
++    with_recorder(|r| {
++        r.last_end = Some(LastEnd {
++            reason,
++            at_ms: now_ms(),
++        })
++    });
++    // Dropped last: this may be the supervisor itself.
++    drop(active.supervisor.take());
++}
++
++/// Once a second: follows the host's image, asks for the keyframes, picks
++/// the sound up again, and ends the recording with the host's session.
++async fn supervise(ctrl: web::Data<Controller>) {
++    let mut gone_since: Option<Instant> = None;
++    let mut last_key = Instant::now();
++    let mut tick = tokio::time::interval(Duration::from_secs(1));
++    tick.tick().await;
++    loop {
++        tick.tick().await;
++        if with_recorder(|r| r.active.as_ref().is_some_and(|a| a.shared.failed.lock().unwrap().is_some())) {
++            tokio::spawn(stop(EndReason::Write));
++            return;
++        }
++        let Some((display, key)) = with_recorder(|r| r.active.as_ref().map(|a| (a.display, a.key.clone()))) else {
++            return;
++        };
++        let host = host_display(&ctrl).await;
++        let manager = ctrl.av_services_manager.lock().await;
++        let current = host.and_then(|_| manager.current_host_key(display));
++        let Some(current) = current else {
++            drop(manager);
++            if gone_since.get_or_insert_with(Instant::now).elapsed() >= HOST_GONE_AFTER {
++                tokio::spawn(stop(EndReason::Ended));
++                return;
++            }
++            continue;
++        };
++        gone_since = None;
++        if current != key {
++            // A new host image (another format): the recording moves to it.
++            if let Some(stream) = manager.video_streams.get(&current)
++                && !matches!(ImageCodec::from(&stream.config.codec), ImageCodec::H264 | ImageCodec::Hevc)
++            {
++                drop(manager);
++                tokio::spawn(stop(EndReason::Codec));
++                return;
++            }
++            if let Some(source) = video_source(&manager, &current) {
++                info!("Recording follows the host's new image ({current:?})");
++                with_recorder(|r| {
++                    if let Some(a) = r.active.as_mut() {
++                        let _ = a.source.send(Some(source));
++                        a.key = current.clone();
++                    }
++                });
++                last_key = Instant::now();
++            }
++        } else if last_key.elapsed() >= KEYFRAME_EVERY
++            || with_recorder(|r| r.active.as_ref().is_some_and(|a| a.shared.want_key.swap(false, Ordering::Relaxed)))
++        {
++            (manager.idr_sender(current.clone()))();
++            last_key = Instant::now();
++        }
++        // The sound came back (or came) after the recording started.
++        let need_audio = with_recorder(|r| {
++            r.active
++                .as_ref()
++                .is_some_and(|a| a.audio_task.as_ref().is_none_or(|(_, ended)| ended.load(Ordering::Relaxed)))
++        });
++        if need_audio {
++            let handles = with_recorder(|r| r.active.as_ref().map(|a| (a.tx.clone(), Arc::clone(&a.shared))));
++            if let Some((tx, shared)) = handles
++                && let Some(audio) = attach_audio(&manager, &tx, &shared)
++            {
++                with_recorder(|r| {
++                    if let Some(a) = r.active.as_mut() {
++                        a.audio_task = Some(audio);
++                    }
++                });
++            }
++        }
++    }
++}
++
++/// Stops a recording when the controller quits: the file is closed.
++pub(crate) async fn shutdown() {
++    stop(EndReason::Ended).await;
++}
++
++// ===========================================================================
++// Routes
++// ===========================================================================
++
++#[derive(Deserialize)]
++struct RecordingRequest {
++    record: bool,
++    /// The folder (made if missing). Required to start.
++    dir: Option<String>,
++    /// The file's name without `.mp4`; `KyberNow <date> <time>` by default
++    /// (local time is Admin's: it names it).
++    name: Option<String>,
++}
++
++/// Keeps a name safe as a file name on every system.
++fn safe_name(name: &str) -> Option<String> {
++    let cleaned: String = name
++        .chars()
++        .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { '-' } else { c })
++        .collect();
++    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
++    (!cleaned.is_empty() && cleaned.len() <= 120).then_some(cleaned)
++}
++
++/// `GET /kybernow/recording`: the recording's state.
++#[get("/recording")]
++pub(crate) async fn get_recording(req: HttpRequest) -> HttpResponse {
++    if let Some(refusal) = crate::kybernow::admin_refusal(&req) {
++        return refusal;
++    }
++    HttpResponse::Ok().json(state())
++}
++
++/// `POST /kybernow/recording`: `{"record": true, "dir": …, "name": …}`
++/// starts, `{"record": false}` stops. Answers the state, or 409 with
++/// `{"code"}` (`no_session`, `codec`, `folder`).
++#[post("/recording")]
++pub(crate) async fn post_recording(
++    ctrl: web::Data<Controller>,
++    req: HttpRequest,
++    body: web::Bytes,
++) -> HttpResponse {
++    let request: RecordingRequest = match crate::kybernow::admin_request(&req, &body) {
++        Ok(request) => request,
++        Err(refusal) => return refusal,
++    };
++    if !request.record {
++        stop(EndReason::Stopped).await;
++        return HttpResponse::Ok().json(state());
++    }
++    let Some(dir) = request.dir.filter(|d| !d.trim().is_empty()) else {
++        return HttpResponse::BadRequest().finish();
++    };
++    let base = match request.name.as_deref().map(safe_name) {
++        Some(Some(name)) => name,
++        Some(None) => return HttpResponse::BadRequest().finish(),
++        None => {
++            let now = time::OffsetDateTime::now_utc();
++            format!(
++                "KyberNow {:04}-{:02}-{:02} {:02}-{:02}-{:02}",
++                now.year(),
++                now.month() as u8,
++                now.day(),
++                now.hour(),
++                now.minute(),
++                now.second()
++            )
++        }
++    };
++    match start(&ctrl, PathBuf::from(dir), base).await {
++        Ok(state) => HttpResponse::Ok().json(state),
++        Err(code) => refuse(code),
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn safe_names() {
++        assert_eq!(safe_name("KyberNow 2026-11-26 14-32-05").as_deref(), Some("KyberNow 2026-11-26 14-32-05"));
++        assert_eq!(safe_name("a/b:c").as_deref(), Some("a-b-c"));
++        assert_eq!(safe_name(" .. "), None);
++        assert_eq!(safe_name(""), None);
++    }
++
++    #[test]
++    fn parts_never_overwrite() {
++        let dir = std::env::temp_dir().join(format!("kn-rec-{}", std::process::id()));
++        std::fs::create_dir_all(&dir).unwrap();
++        let first = file_path(&dir, "x", 1);
++        assert_eq!(first.file_name().unwrap(), "x.mp4");
++        std::fs::write(&first, b"").unwrap();
++        assert_eq!(file_path(&dir, "x", 1).file_name().unwrap(), "x (2).mp4");
++        assert_eq!(file_path(&dir, "x", 3).file_name().unwrap(), "x (3).mp4");
++        std::fs::remove_dir_all(&dir).unwrap();
++    }
++
++    #[test]
++    fn formats() {
++        assert_eq!(video_format(u32::from_be_bytes(*b"h264")), Some(VideoFormat::H264));
++        assert_eq!(video_format(u32::from_be_bytes(*b"h265")), Some(VideoFormat::Hevc));
++        assert_eq!(video_format(u32::from_be_bytes(*b"av1 ")), None);
++        assert_eq!(video_format(u32::from_be_bytes(*b"pwv1")), None);
++    }
++}

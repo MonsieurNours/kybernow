@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **Record your sessions.** “Record”, in the session bar (and in the session menu or its tiles on iPhone, iPad, Android, Apple TV and TVs), keeps what you see and hear in a video on the computer: the picture as it is sent to you, with no extra work for the graphics card, and the computer's sound. Everyone in the session sees it: a red pill and the elapsed time, for you as for your guests. Videos go to the computer's Videos folder (KyberNow folder), and Admin has a “Recordings” page to watch, download or delete them, choose the folder and how long to keep them (30 days at first). PyroWave and AV1 can't be recorded yet.
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.

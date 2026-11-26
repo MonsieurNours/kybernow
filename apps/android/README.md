@@ -79,6 +79,17 @@ KyberNow Link sur Android : une seule app pour le téléphone, la tablette, le t
 
 Pas de mise en page propre aux pliables. Le téléviseur s'ajoute ses ordinateurs lui-même (réseau, code, adresse) : il ne reçoit pas ceux du téléphone.
 
+## Enregistrement de la session
+
+Contrat : [docs/enregistrement.md](../../docs/enregistrement.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Enregistrement de la session ». La Station écrit le fichier ; l'app le demande et le montre, avec les textes du cœur (`recording`). Pont JNI : `jni/src/recording.rs` (`Native.consoleRecording`, refus 90 à 95 avec l'avis bref) et `SessionListener.onRecording` (`jni/src/session.rs`) ; Kotlin : `core/Recording.kt`, `session/RecordingUi.kt`.
+
+- **Téléphone et tablette** (hôte) : « Enregistrer » dans la barre, après « Prêter l'ordinateur… » ; pendant, « Arrêter l'enregistrement » et la pastille rouge « Enregistrement · 02:14 » en haut de l'image, barre fermée comprise (rond qui bat une fois par seconde, fixe quand Android demande moins d'animations ; temps compté chaque seconde depuis `elapsed` de la Station). Coupé dans Admin : estompé, il donne la raison en avis.
+- **Android TV** : tuile « Enregistrer » / « Sur l'ordinateur », pendant « Arrêter l'enregistrement » / « 02:14 » en rouge ; la même pastille en haut de l'image.
+- **Invité** : la pastille « Enregistrement » seule, et une tuile inactive au téléviseur. L'ami qui emprunte ne voit rien.
+- Avis brefs (lancé, terminé, arrêté de lui-même, refus) dans les capsules, comme ceux du partage. Station qui n'enregistre pas : rien.
+
+Essayé : `cargo check` du pont pour `aarch64-linux-android` et les essais `RecordingTest` (Robolectric et Compose). Reste à essayer sur un appareil face à une Station qui enregistre (lancement, arrêt, refus, invité, Android TV).
+
 ## Consoles PlayStation
 
 Contrat : [docs/playstation.md](../../docs/playstation.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Consoles PlayStation ». Le protocole est celui du cœur (`apps/core/src/playstation`), piloté par le pont JNI `jni/src/playstation.rs` (objet Kotlin `core/PsNative`), l'équivalent du pont des apps Apple (`apps/apple/src/playstation.rs`). Projet sans lien avec Sony : « PS5 » et « PS4 » écrits en toutes lettres, aucun logo.

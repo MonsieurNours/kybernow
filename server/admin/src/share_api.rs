@@ -1127,6 +1127,8 @@ pub async fn beat(State(s): State<AppState>, headers: HeaderMap, via: Option<axu
                 "end": null,
                 "display": { "id": display.id, "width": display.width, "height": display.height, "refresh": display.refresh },
                 "image": image_json(&guest),
+                // L'enregistrement de l'hôte (docs/enregistrement.md) : vu de tous.
+                "recording": crate::recording::for_session(&s),
             })
             }
             None => return guest_error(StatusCode::SERVICE_UNAVAILABLE, "unavailable"),

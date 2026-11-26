@@ -1,6 +1,7 @@
 // Client de l'API kyber-admin.
 
 import { langHeaders, t } from './i18n/index.svelte'
+import type { RecordingState } from './recording'
 
 export interface Choice {
   value: string
@@ -741,6 +742,30 @@ export interface Pairing {
   fingerprint: string | null
 }
 
+/** Un fichier du dossier des enregistrements (`GET /api/recording`). */
+export interface RecordingFile {
+  name: string
+  size: number
+  /** Secondes Unix. */
+  modified: number | null
+  /** Lue dans le fichier ; `null` pour celui qui s'écrit, ou illisible. */
+  duration_ms: number | null
+  in_progress: boolean
+}
+
+/** La page « Enregistrements » d'Admin (docs/enregistrement.md). */
+export interface RecordingView {
+  settings: { allowed: boolean; folder: string; custom_folder: boolean; default_folder: string; keep_days: number }
+  state: RecordingState
+  /** L'appareil qui l'a lancé (`null` : Admin). */
+  by: string | null
+  /** L'appareil en session, ou `null`. */
+  session: string | null
+  /** Octets libres dans le dossier. */
+  free: number | null
+  files: RecordingFile[]
+}
+
 export class ApiError extends Error {
   /**
    * `code` : raison stable d'un refus, quand Admin en donne une (`session`, `too_soon`…) ;
@@ -915,6 +940,15 @@ export const api = {
     request<LendFriend>('PUT', `/api/lend/friends/${encodeURIComponent(id)}`, changes),
   deleteLendFriend: (id: string) => request<unknown>('DELETE', `/api/lend/friends/${encodeURIComponent(id)}`),
   lendInvite: (id: string) => request<{ link: string; web: string }>('GET', `/api/lend/friends/${encodeURIComponent(id)}/invite`),
+
+  // Enregistrements (docs/enregistrement.md).
+  recording: () => request<RecordingView>('GET', '/api/recording'),
+  /** `folder` : chaîne vide pour le dossier par défaut ; `keep_days` : 7, 30, 90, ou 0 (toujours). */
+  setRecording: (changes: { allowed?: boolean; folder?: string; keep_days?: number }) => request<RecordingView>('PUT', '/api/recording/settings', changes),
+  /** Admin lance ou arrête l'enregistrement de la session en cours ; rend l'état. */
+  record: (record: boolean) => request<RecordingState>('POST', '/api/recording', { record }),
+  recordingFileUrl: (name: string, download = false) => `/api/recording/files/${encodeURIComponent(name)}${download ? '?download=1' : ''}`,
+  deleteRecording: (name: string) => request<RecordingView>('DELETE', `/api/recording/files/${encodeURIComponent(name)}`),
 }
 
 /**

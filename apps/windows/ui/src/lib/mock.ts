@@ -96,6 +96,10 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // mise à jour ; `?echecmaj` : la mise à jour n'aboutit pas (le texte, « Réessayer », « Plus tard »). L'avis après une
 // mise à jour de l'app : `?avis` (Bureau-Salon seul : « Bureau-Salon a aussi une mise à jour »), `?avis&maj=deux`
 // (la liste, « Tout mettre à jour »). Plusieurs à la fois : `?maj=deux,session`.
+// Enregistrement de la session (docs/link-ui.md) : `/bar.html?enregistrement` (« Enregistrer » ; le clic lance,
+// la pastille arrête), `?enregistrement=encours` (déjà 2 min 10 s), `=heure` (59 min 55 s : « 1:00:00 » arrive),
+// `=coupe` (coupé dans Admin : estompé, la raison), `=codec` (refusé : « PyroWave et AV1… ») ; l'invité :
+// `/bar.html?invite=spectateur&enregistrement=encours` (la pastille seule).
 const flags = new URLSearchParams(location.search)
 /** `?maj=loin,session,deux`. */
 const majFlags = (flags.get('maj') ?? '').split(',')
@@ -793,7 +797,26 @@ let invitation = flags.has('invitation')
 const invitationFlag = flags.get('invitation')
 const loanReady = (): BorrowOutcome & { kind: 'ready' } => ({ kind: 'ready', id: `lend-${++lendSeq}`, title: t('mock.lend_computer_of'), host: 'Matthieu', fingerprint: fp('pc-salon') })
 
+/** Les textes du cœur (`recording` de apps/core/src/i18n), comme `RecordingState::ui_json` les donne. */
+const recordingTexts = () =>
+  i18n.lang === 'en'
+    ? { record: 'Record', pill: 'Recording · {time}', record_tooltip: 'Record the session on the computer ({shortcut})', stop_tooltip: 'Stop recording ({shortcut})', stop: 'Stop recording', on_computer: 'On the computer', record_menu: 'Record the session', stop_menu: 'Stop recording ({time})', guest_pill: 'Recording', guest_tooltip: 'Atelier is recording the session.', disabled: 'Recording is turned off on this computer (Admin › Recordings).' }
+    : { record: 'Enregistrer', pill: 'Enregistrement · {time}', record_tooltip: "Enregistrer la session sur l'ordinateur ({shortcut})", stop_tooltip: "Arrêter l'enregistrement ({shortcut})", stop: "Arrêter l'enregistrement", on_computer: "Sur l'ordinateur", record_menu: 'Enregistrer la session', stop_menu: "Arrêter l'enregistrement ({time})", guest_pill: 'Enregistrement', guest_tooltip: 'Atelier enregistre la session.', disabled: "L'enregistrement est coupé sur cet ordinateur (Admin › Enregistrements)." }
+const recordingFlag = flags.has('enregistrement') ? flags.get('enregistrement') || 'oui' : null
+/** L'enregistrement imité : commencé à `recordingSince` (ms), ou rien. */
+let recordingSince: number | null = recordingFlag === 'encours' ? Date.now() - 130_000 : recordingFlag === 'heure' ? Date.now() - 3_595_000 : null
+const recordingView = () =>
+  recordingFlag === null
+    ? null
+    : { available: true, allowed: recordingFlag !== 'coupe', active: recordingSince !== null, elapsed: recordingSince === null ? 0 : Math.floor((Date.now() - recordingSince) / 1000), texts: recordingTexts() }
+
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
+  session_record: async (a) => {
+    await new Promise((r) => setTimeout(r, 400))
+    if (a.record && recordingFlag === 'codec') throw i18n.lang === 'en' ? "PyroWave and AV1 can't be recorded: switch to HEVC or H.264." : "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264."
+    recordingSince = a.record ? Date.now() : null
+    return recordingView()
+  },
   lend_friends: () => structuredClone(friends),
   // Le lien d'invitation : avec le prénom de l'hôte (`name=`), ou un lien d'avant sans lui (`?invitation=ancien`).
   lend_invite: async () => {
@@ -1935,7 +1958,7 @@ export function mockTauri() {
           const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
           const room = Number(flags.get('largeur') ?? 1240) || 1240
           // `?mac` : une Station Mac (menu Touches du Mac).
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
           const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined)) || (host && autoFlag === 'reseau')
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.

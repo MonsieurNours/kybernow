@@ -44,6 +44,9 @@ pub struct Settings {
     /// clé du relais épinglée, « Accepter les comptes KyberNow ».
     #[serde(default)]
     pub account: crate::accounts::AccountSettings,
+    /// Enregistrement des sessions (docs/enregistrement.md) : permis, dossier, durée.
+    #[serde(default)]
+    pub recording: crate::recording::RecordingSettings,
     /// Réglages inconnus de cette version (écrits par une console plus
     /// récente, avant un retour arrière) : gardés à la réécriture.
     #[serde(flatten)]

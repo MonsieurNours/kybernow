@@ -1195,6 +1195,33 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         main.postDelayed({ if (ui.lendCopy == shown) ui.lendCopy = null }, if (ok) 2500 else 8000)
     }
 
+    // MARK: - Enregistrement de la session, côté hôte
+
+    /** Un appel à Admin pour l'enregistrement est en cours (un second toucher n'en lance pas un autre). */
+    private var recordingBusy = false
+
+    /**
+     * « Enregistrer » ou « Arrêter l'enregistrement » (docs/link-ui.md, « Enregistrement de la session ») : Admin lance ou
+     * arrête, hors du fil principal ; l'état rendu remplace l'ancien, l'avis « Enregistrement lancé… » vient ensuite du
+     * signe de vie. Coupé dans Admin : la raison en avis ; un refus : son avis bref, tel que le cœur l'écrit.
+     */
+    override fun record() {
+        if (!hostSession || recordingBusy) return
+        val r = state.recording.value?.takeIf { it.available } ?: return
+        if (!r.allowed && !r.active) {
+            state.show(Capsule.RecordingNotice(r.texts.disabled), 6000)
+            return
+        }
+        recordingBusy = true
+        lifecycleScope.launch {
+            when (val reply = console().use { it.recording(app.device.id, !r.active) }) {
+                is Reply.Ok -> reply.value?.let { state.recording.value = it }
+                is Reply.Failed -> state.show(Capsule.RecordingNotice(reply.message.ifBlank { getString(R.string.add_unreachable) }), 6000)
+            }
+            recordingBusy = false
+        }
+    }
+
     // MARK: - Prêt de l'ordinateur, côté ami
 
     /**

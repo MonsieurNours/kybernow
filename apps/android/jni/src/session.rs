@@ -279,6 +279,20 @@ impl Platform for AndroidPlatform {
         });
     }
 
+    /// Enregistrement de la session, hôte comme invité :
+    /// `SessionListener.onRecording(json, notice)` (`json` : l'état et les
+    /// textes du cœur, `RecordingState::ui_json` ; `notice` : l'avis bref,
+    /// nul s'il n'y a rien à dire). Quand l'état change, jamais pour le temps
+    /// qui passe.
+    fn on_recording(&self, state: &kybernow_core::recording::RecordingState, notice: Option<&str>, computer: Option<&str>) {
+        let json = state.ui_json(kybernow_core::i18n::current(), computer).to_string();
+        self.0.listener.with(|env, obj| {
+            let j = env.new_string(&json)?;
+            let n = jstring_or_null(env, notice)?;
+            env.call_method(obj, "onRecording", "(Ljava/lang/String;Ljava/lang/String;)V", &[JValue::Object(&j), JValue::Object(&n)]).map(|_| ())
+        });
+    }
+
     fn on_share_end(&self, end: &ShareEnd, text: &str) {
         self.0.listener.with(|env, obj| {
             let s = env.new_string(text)?;

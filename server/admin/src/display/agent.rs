@@ -194,6 +194,14 @@ pub fn user_local_app_data() -> Result<PathBuf> {
     Ok(dir?.join("AppData").join("Local"))
 }
 
+/// Le dossier personnel de l'utilisateur connecté (`C:\Users\Ana`).
+pub fn user_profile_dir() -> Result<PathBuf> {
+    let token = user_token()?;
+    let dir = profile_dir(token);
+    unsafe { CloseHandle(token) };
+    dir
+}
+
 /// Lance `exe` dans la session de l'utilisateur connecté, avec son compte
 /// (pas celui du service) : l'icône de la zone de notification.
 pub fn launch_as_user(exe: &Path) -> Result<()> {

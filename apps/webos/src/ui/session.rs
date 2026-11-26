@@ -415,6 +415,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         if s.via_relay() {
             tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
         }
+        // L'hôte enregistre : la tuile « Enregistrement », inactive (« {nom} enregistre la session. »).
+        if let Some(r) = s.recording.as_ref().filter(|r| r.active) {
+            let (title, sub) = r.tile();
+            tiles.push((MenuItem::Record, Icon::Record, title, Some(sub), true, false));
+        }
         tiles.push((MenuItem::Disconnect, Icon::Logout, s.leave_label().into(), Some(s.name.clone()), true, false));
     } else {
         // « Partager » : son sous-titre dit « 2 invités », le code ou « Code et QR code » (`share_tile`). Impossible,
@@ -424,6 +429,11 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         // « Prêter l'ordinateur… » : le code en cours, une demande, sinon « Code et QR code ».
         let (sub, on) = super::lend::tile(s);
         tiles.push((MenuItem::Lend, Icon::Lend, tr("Prêter l'ordinateur…", "Lend the computer…").into(), Some(sub), false, on));
+        // « Enregistrer » / « Sur l'ordinateur » ; pendant : « Arrêter l'enregistrement » / « 02:14 », en rouge.
+        if let Some(r) = &s.recording {
+            let (title, sub) = r.tile();
+            tiles.push((MenuItem::Record, Icon::Record, title, Some(sub), r.active, false));
+        }
         if s.via_relay() {
             tiles.push((MenuItem::Route, Icon::Wifi, s.path().label().into(), Some(route_sub(s)), false, false));
         }
@@ -441,7 +451,8 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let (c, r) = (i % cols, i / cols);
         let rect = Rect::new(x0 + c as f32 * (tw + gap), y0 + r as f32 * (th + gap), tw, th);
         let hdr_blocked = s.hdr.is_some_and(|u| !u.available());
-        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked);
+        let rec_blocked = s.recording.as_ref().is_some_and(|r| r.guest || r.blocked());
+        let dim = (*item == MenuItem::Share && share_blocked) || (*item == MenuItem::Lend && lend_blocked) || (*item == MenuItem::Hdr && hdr_blocked) || (*item == MenuItem::Record && rec_blocked);
         widgets::tile(cv, f, Target::Menu(*item), rect, *icon, title, sub.as_deref(), *danger, *on, dim);
     }
 

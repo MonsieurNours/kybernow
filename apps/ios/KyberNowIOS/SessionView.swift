@@ -509,7 +509,15 @@ private struct Tab: View {
         // Les demandes d'emprunt (ordinateur utilisé) : leur pastille rouvre le panneau du prêt.
         let lendRequests = session.isVisitor ? 0 : lend.requests.filter { !$0.slot }.count
         let relay = session.path.viaRelay
+        let recording = session.recordingActive
         HStack(spacing: 0) {
+            // L'enregistrement en cours : la pastille rouge, toujours visible
+            // (« Enregistrement · 02:14 » ; un invité : « Enregistrement »).
+            if recording, let state = session.recording {
+                RecordingTabPill(state: state, guest: session.isGuest)
+                    .padding(.horizontal, 4)
+                    .frame(minHeight: 26)
+            }
             if relay {
                 HStack(spacing: 5) {
                     Icon("globe-hemisphere-west", size: 12, bold: true).foregroundStyle(Theme.accentLight)
@@ -575,7 +583,7 @@ private struct Tab: View {
             }
             .accessibilityLabel(Text("Afficher la barre de session"))
         }
-        .padding(.horizontal, count > 0 || requests > 0 || lendRequests > 0 || relay ? 6 : 0)
+        .padding(.horizontal, count > 0 || requests > 0 || lendRequests > 0 || relay || recording ? 6 : 0)
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
         .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
         .environment(\.colorScheme, .dark)
@@ -631,8 +639,16 @@ struct SessionBar: View {
                 separator
                 // « Par le relais » : la session passe par lui, hors de chez soi.
                 if session.path.viaRelay { item("globe-hemisphere-west", LinkText.viaRelay) }
+                // Un invité : « Enregistrement » pendant que l'hôte enregistre, sans action.
+                if session.isGuest, session.recordingActive, let state = session.recording {
+                    RecordingTabPill(state: state, guest: true).frame(minHeight: 44).padding(.horizontal, 4)
+                }
                 if !session.isVisitor {
                     LendBarItem(session: session, lend: session.lend)
+                    // « Enregistrer », après « Prêter l'ordinateur… » ; seulement face à une Station qui enregistre.
+                    if session.recordingShown, let state = session.recording {
+                        RecordingBarItem(session: session, state: state)
+                    }
                     ShareBarItem(session: session, share: session.share)
                 }
                 hideAndExit
@@ -912,6 +928,104 @@ private struct BarItemLabel: View {
         }
         .frame(minWidth: 48, minHeight: 44)
         .padding(.horizontal, 4)
+    }
+}
+
+// MARK: - Enregistrement de la session
+
+/// Le rond rouge de l'enregistrement : il bat doucement, une pulsation par
+/// seconde ; fixe quand le système demande moins d'animations.
+struct RecordingDot: View {
+    var size: CGFloat = 8
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+
+    var body: some View {
+        Circle()
+            .fill(Theme.danger)
+            .frame(width: size, height: size)
+            .opacity(dim && !reduceMotion ? 0.35 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) { dim = true }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// La pastille rouge : le rond et son texte (« Enregistrement · 02:14 », « 02:14 », « Enregistrement »).
+struct RecordingPill: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            RecordingDot()
+            Text(verbatim: text)
+                .font(Theme.sans(11.5, .semibold))
+                .monospacedDigit()
+                .foregroundStyle(Theme.dangerText)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(Capsule().fill(Theme.danger.opacity(0.18)))
+        .overlay(Capsule().strokeBorder(Theme.danger.opacity(0.6)))
+    }
+}
+
+/// La pastille en haut de l'image, sans action : le temps chaque seconde
+/// (hôte), ou « Enregistrement » seul (invité, « {nom} enregistre la session. »).
+private struct RecordingTabPill: View {
+    let state: RecordingState
+    let guest: Bool
+
+    var body: some View {
+        if guest {
+            RecordingPill(text: state.texts.guestPill)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: state.texts.guestPill))
+                .accessibilityHint(Text(verbatim: state.texts.guestTooltip))
+        } else {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                RecordingPill(text: state.label(at: context.date))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: state.label(at: context.date)))
+            }
+        }
+    }
+}
+
+/// « Enregistrer » (hôte), dans la partie de la barre qui ne défile pas ;
+/// pendant : la pastille rouge et le temps, « Arrêter l'enregistrement »
+/// dessous, un toucher l'arrête. Coupé dans Admin : estompé, le toucher
+/// donne la raison en avis bref.
+private struct RecordingBarItem: View {
+    @ObservedObject var session: SessionController
+    let state: RecordingState
+
+    var body: some View {
+        Button { session.toggleRecording() } label: {
+            if state.active {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(spacing: 2) {
+                        RecordingPill(text: state.clock(at: context.date))
+                        Text(verbatim: state.texts.stop).font(Theme.sans(9.5)).foregroundStyle(Theme.dangerText).lineLimit(1)
+                    }
+                    .frame(minWidth: 48, minHeight: 44)
+                    .padding(.horizontal, 4)
+                }
+            } else {
+                VStack(spacing: 2) {
+                    Circle().fill(Theme.accentLight).frame(width: 13, height: 13).frame(width: 18, height: 18)
+                    Text(verbatim: state.texts.record).font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+                }
+                .frame(minWidth: 48, minHeight: 44)
+                .padding(.horizontal, 4)
+            }
+        }
+        .opacity(state.allowed || state.active ? 1 : 0.45)
+        .accessibilityLabel(Text(verbatim: state.active ? "\(state.texts.stop), \(state.clock())" : state.texts.record))
+        .accessibilityHint(Text(verbatim: !state.allowed && !state.active ? state.texts.disabled : ""))
     }
 }
 

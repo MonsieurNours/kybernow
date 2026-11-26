@@ -40,6 +40,7 @@ pub mod input;
 pub mod invite;
 pub mod lend;
 pub mod playstation;
+pub mod recording;
 pub mod relay;
 pub mod share;
 pub mod welcome;
@@ -940,6 +941,14 @@ pub struct KnPlatform {
     /// en HDR se rend en PQ / BT.2020 (`CAMetalLayer` en `rgba16Float`,
     /// `itur_2100_PQ`), les autres en SDR.
     pub on_hdr: Option<unsafe extern "C" fn(userdata: *mut c_void, hdr: *const bool, count: usize)>,
+    /// L'enregistrement de la session (docs/enregistrement.md), hôte comme
+    /// invité, quand il change (jamais pour le temps qui passe) :
+    /// `recording_json` comme `kn_console_recording` (`available`,
+    /// `allowed`, `active`, `elapsed`, `texts` avec `{time}` à remplir par
+    /// `kn_recording_clock` chaque seconde et `{shortcut}`) ; `notice` :
+    /// l'avis bref de link-ui à montrer, nul s'il n'y a rien à dire. Une
+    /// Station qui n'enregistre pas n'appelle jamais.
+    pub on_recording: Option<unsafe extern "C" fn(userdata: *mut c_void, recording_json: *const c_char, notice: *const c_char)>,
 }
 
 struct ApplePlatform {
@@ -1022,6 +1031,13 @@ impl Platform for ApplePlatform {
         let Some(f) = self.cb.on_lend_end else { return };
         let c = CString::new(text.replace('\0', " ")).unwrap_or_default();
         unsafe { f(self.cb.userdata, end.code(), c.as_ptr()) };
+    }
+
+    fn on_recording(&self, state: &kybernow_core::recording::RecordingState, notice: Option<&str>, computer: Option<&str>) {
+        let Some(f) = self.cb.on_recording else { return };
+        let json = CString::new(state.ui_json(kybernow_core::i18n::current(), computer).to_string().replace('\0', " ")).unwrap_or_default();
+        let notice_c = notice.map(|n| CString::new(n.replace('\0', " ")).unwrap_or_default());
+        unsafe { f(self.cb.userdata, json.as_ptr(), notice_c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())) };
     }
 
     fn on_lend(&self, lend: Option<&kybernow_core::lend::LendView>) {

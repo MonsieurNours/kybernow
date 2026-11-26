@@ -339,6 +339,10 @@ interface SessionActions {
     fun lendAnswer(request: LendRequest, accept: Boolean) {}
     /** « Copier le lien » du code de prêt. */
     fun lendCopyLink() {}
+
+    // Enregistrement de la session, côté hôte (docs/link-ui.md, « Enregistrement de la session »).
+    /** « Enregistrer » ou « Arrêter l'enregistrement » ; coupé dans Admin : la raison en avis. */
+    fun record() {}
 }
 
 /** « Revenir » : l'emprunt refait ([WORKING], « Préparation de l'ordinateur »), l'attente de l'hôte, ou un refus ([message]). */
@@ -516,6 +520,8 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
     val c by ui.state.capsule.collectAsState()
     val restore by ui.state.restoreOffer.collectAsState()
     Column(modifier.padding(top = s.dp(if (ui.barOpen && ui.padBar) 116f else if (ui.barOpen) 84f else 14f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+        // L'enregistrement en cours : la pastille rouge, toujours là, au-dessus des avis.
+        RecordingPill(ui)
         // La définition ramenée est déjà dans le bandeau PyroWave du début quand il est là.
         c?.takeUnless { it is Capsule.ResolutionLowered && ui.pyroBanner }?.let { capsule ->
             // La demande d'un invité se choisit : elle ouvre le panneau du partage (docs/link-ui.md, « Partage ») ; celle d'un
@@ -575,6 +581,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.HdrRefused -> c.text.ifBlank { stringResource(R.string.hdr_refused) }
     is Capsule.ResolutionLowered -> c.text
     Capsule.AutoTestLater -> stringResource(R.string.autotest_later)
+    is Capsule.RecordingNotice -> c.text
 }
 
 // MARK: - Téléphone et tablette
@@ -624,6 +631,8 @@ private fun PhoneBar(ui: SessionUi) {
                 else if (!ui.guest && ui.console == null) {
                     ShareItems(ui, compact)
                     LendItems(ui)
+                    // « Enregistrer » (Station qui enregistre), après « Prêter l'ordinateur… ».
+                    RecordingItems(ui)
                 }
                 // Un invité quitte le partage : l'ordinateur, lui, ne change pas. L'ami qui emprunte se déconnecte sans rendre
                 // l'ordinateur (il peut revenir pendant 15 min).
@@ -1008,6 +1017,8 @@ private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, au
             Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
             Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
         }
+        // L'ordinateur enregistre la session : la tuile inactive.
+        RecordingTile(ui)
         Tile(KnIcons.exit, leaveLabel(ui), null, danger = true) { ui.actions.quit() }
     }
 }
@@ -1048,6 +1059,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         }
         Tile(KnIcons.share, stringResource(R.string.share_button), shareDetail, selected = share != null, dimmed = !ui.shareUsable) { ui.actions.share() }
         LendTile(ui)
+        RecordingTile(ui)
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }

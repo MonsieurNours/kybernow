@@ -209,6 +209,14 @@ object Native {
     /** « Reprendre l'ordinateur » (préavis de 2 min) ou, `now`, « Reprendre tout de suite ». */
     @JvmStatic external fun consoleLendTakeBack(handle: Long, now: Boolean): String?
 
+    // Enregistrement de la session (docs/enregistrement.md), côté hôte : bloquant (15 s au plus), hors du fil principal.
+    /**
+     * Lance ([record]) ou arrête l'enregistrement de la session de l'appareil [deviceId] ; `value` : l'état, comme
+     * [SessionListener.onRecording]. Refus (`error` : l'avis bref à montrer) : 90 coupé dans Admin, 91 PyroWave ou AV1,
+     * 92 moins de 2 Go libres, 93 dossier inaccessible, 94 ordinateur prêté, 95 autre refus ; 1 l'appel n'a pas abouti.
+     */
+    @JvmStatic external fun consoleRecording(handle: Long, deviceId: String, record: Boolean): String?
+
     // Invitations (docs/invitations.md) : ajouter un ordinateur de loin, sans accord sur place. Bloquant (15 s au plus).
     /**
      * « Ajouter l'ordinateur » : `codeJson` la `value` du code 33 de « Rejoindre », `password` celui de l'invitation,
@@ -517,6 +525,12 @@ interface SessionListener {
     fun onLendEnd(end: Int, text: String) {}
     /** Hôte : la vue du prêt quand elle change (`null` : rien à dire). */
     fun onLend(json: String?) {}
+    /**
+     * L'enregistrement de la session, hôte comme invité, quand il change (jamais pour le temps qui passe) : `json`
+     * `{available, allowed, active, elapsed, texts}` ([RecordingState]) ; `notice` : l'avis bref à montrer tel quel, ou
+     * `null`. Une Station qui n'enregistre pas ne l'appelle jamais.
+     */
+    fun onRecording(json: String, notice: String?) {}
 }
 
 /**

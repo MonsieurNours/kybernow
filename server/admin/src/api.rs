@@ -139,6 +139,12 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/stream/foreground", get(stream_foreground))
         .route("/api/stream/preview", get(stream_preview))
         .route("/api/stream/end", post(stream_end))
+        // Enregistrement de la session (docs/enregistrement.md) : l'appareil en session.
+        .route("/api/stream/recording", post(crate::recording::stream_recording))
+        // Enregistrements, depuis Admin : réglages, lancer, fichiers.
+        .route("/api/recording", get(crate::recording::admin_get).post(crate::recording::admin_record))
+        .route("/api/recording/settings", put(crate::recording::admin_settings))
+        .route("/api/recording/files/{name}", get(crate::recording::admin_file).delete(crate::recording::admin_delete))
         // Réglages « Station » des apps : redémarrer, mettre à jour.
         .route("/api/stream/station/restart", post(stream_station_restart))
         .route("/api/stream/station/update", post(stream_station_update))
@@ -1715,6 +1721,8 @@ async fn stream_heartbeat(
     if let Some(lend) = lend_api::for_host(&s) {
         answer["lend"] = lend;
     }
+    // L'enregistrement (docs/enregistrement.md) : toujours là, pour le bouton.
+    answer["recording"] = crate::recording::for_session(&s);
     // Un compte KyberNow : un jeton de Kyber neuf à chaque signe de vie (Kyber
     // le relit quand il se reconnecte, après l'échéance de celui de `prepare`).
     account_kyber_token(&s, &headers, &user, &mut answer);
