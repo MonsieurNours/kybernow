@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Unreleased
+
+- **Your microphone on the computer.** Talk in a game, a call or a video meeting running on the computer with the microphone of your Mac, iPhone, iPad, Android phone, PC or browser: « Micro » in the session bar turns it on, and your choice is kept for each computer. The computer receives it in a virtual microphone (VB-CABLE on Windows, installed with the Station; “Micro KyberNow” on Mac and Linux). Echo and noise are reduced by your device; a friend you lend the computer to can talk too, and a share's guests if you let them.
+
 ## 0.11.4
 
 - **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.

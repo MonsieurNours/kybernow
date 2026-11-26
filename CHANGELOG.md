@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## Non publié
+
+- **Votre micro sur l'ordinateur.** Parlez dans un jeu, un appel ou une visio lancés sur l'ordinateur avec le micro de votre Mac, iPhone, iPad, téléphone Android, PC ou navigateur : « Micro » dans la barre de session l'allume, et votre choix est retenu pour chaque ordinateur. L'ordinateur le reçoit dans un micro virtuel (VB-CABLE sur Windows, installé avec la Station ; « Micro KyberNow » sur Mac et Linux). L'écho et le bruit sont réduits par votre appareil ; un ami à qui vous prêtez l'ordinateur peut parler aussi, et les invités d'un partage si vous les laissez faire.
+
 ## 0.11.4
 
 - **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.
