@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.11.4
+
+- **PyroWave garde votre définition.** Avec un débit plus bas que prévu, l'app baissait la définition dès 750 Mbit/s en 4K60. Nous avons comparé les deux sur de vraies images 4K : garder la 4K avec un peu moins de débit donne une image plus fidèle, jusqu'à 250 Mbit/s. La définition ne baisse plus qu'au-dessous.
+- **Le débit de PyroWave suit votre écran.** Choisi à la main sur Mac, PyroWave gardait le débit calculé au moment du choix (1 669 Mbit/s pour un écran en 160 Hz, même repassé en 60 Hz). Il s'ajuste maintenant à la définition et à la fréquence, tant que vous ne l'avez pas réglé vous-même.
+- **L'accueil du Mac retrouve sa place.** Depuis l'arrivée du profil Auto, la rangée « Se connecter », profils, HDR et réglages ne tenait plus sur une ligne : les boutons se serraient (« HD / R »). Quand la place manque, les profils passent maintenant sous « Se connecter », et chaque bouton garde son libellé sur une ligne.
+
 ## 0.11.3
 
 - **Un accueil pour bien démarrer, et votre compte mis en avant.** Au premier lancement, trois écrans présentent KyberNow, les avantages d'un compte (votre ordinateur hors de chez vous, sur tous vos appareils, à partager ou à prêter, vos réglages qui vous suivent) et comment ajouter votre ordinateur. Sans compte, « Connecter un compte » est désormais en haut de l'accueil, avec une carte à la fin de vos ordinateurs. « Créer un compte » ouvre la page d'inscription dans votre navigateur. Sur un téléviseur, tout se fait avec le code et votre téléphone.

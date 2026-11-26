@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.11.4
+
+- **PyroWave keeps your resolution.** With a lower bitrate than expected, the app lowered the resolution from 750 Mbit/s at 4K60. We compared both on real 4K images: keeping 4K with a bit less bitrate gives a more faithful picture, down to 250 Mbit/s. The resolution now only goes down below that.
+- **PyroWave's bitrate follows your screen.** Chosen by hand on Mac, PyroWave kept the bitrate computed when it was chosen (1,669 Mbit/s for a 160 Hz screen, even back at 60 Hz). It now adjusts to the resolution and refresh rate, as long as you haven't set it yourself.
+- **The Mac home screen gets its room back.** Since the Auto profile arrived, the “Connect”, profiles, HDR and settings row no longer fitted on one line: buttons got squeezed (“HD / R”). When space runs short, the profiles now move below “Connect”, and every button keeps its label on one line.
+
 ## 0.11.3
 
 - **A welcome to get started, and your account up front.** On first launch, three screens introduce KyberNow, the benefits of an account (your computer away from home, on all your devices, to share or lend, your settings following you) and how to add your computer. Without an account, “Connect an account” now sits at the top of the home screen, with a card after your computers. “Create an account” opens the sign-up page in your browser. On a TV, everything happens with the code and your phone.
