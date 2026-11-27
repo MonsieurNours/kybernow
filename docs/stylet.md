@@ -9,7 +9,7 @@ Choix de l'auteur (25/11/2026), à la demande d'un utilisateur sous Linux (Fedor
 - toutes les apps et les deux Stations ;
 - pression, inclinaison, rotation, bout gomme, bouton du stylet et survol ;
 - face à une Station d'avant, le stylet reste une souris en position absolue, sans avis ;
-- pas de réglage pour le couper.
+- pas de réglage pour le couper ; depuis le 27/11/2026 (0.11.8), « Stylet : Pression / Souris » dans la barre, les réglages de l'ordinateur et Ctrl+Alt+Maj+P (⌃⌥⌘P), retenu par ordinateur, pression par défaut : en « Souris », l'app envoie le stylet comme une souris en position absolue (`InputPipeline::pen_on` faux), sans Windows Ink (règle et textes : [link-ui.md](link-ui.md), « Stylet »).
 
 ## Protocole (kynput)
 
