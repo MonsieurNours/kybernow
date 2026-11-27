@@ -47,6 +47,10 @@ impl Gf {
 
 static GF: Gf = Gf::new();
 
+/// Unités (données et correction) au plus qu'une matrice de Cauchy sur
+/// GF(2⁸) peut couvrir.
+pub const FEC_UNITS_MAX: usize = 256;
+
 /// Matrice de Cauchy (`cauchy_original_coding_matrix`), `m` lignes de `k`.
 fn cauchy(k: usize, m: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(k * m);
@@ -96,6 +100,11 @@ fn invert(mut a: Vec<u8>, n: usize) -> Option<Vec<u8>> {
 /// `erased` : indices des unités perdues. Seules les unités de données
 /// perdues sont réécrites. `false` si c'est impossible (trop de pertes).
 pub fn decode(units: &mut [Vec<u8>], unit_size: usize, k: usize, m: usize, erased: &[usize]) -> bool {
+    // Une matrice de Cauchy sur GF(2⁸) n'existe que pour `k + m ≤ 256`
+    // (COEUR-05) : au-delà, l'image est perdue, comme chez chiaki-ng.
+    if k + m > FEC_UNITS_MAX {
+        return false;
+    }
     if units.len() != k + m || erased.len() > m || units.iter().any(|u| u.len() < unit_size) {
         return false;
     }
@@ -138,6 +147,7 @@ pub fn decode(units: &mut [Vec<u8>], unit_size: usize, k: usize, m: usize, erase
 /// Unités de correction de `data` (`chiaki_fec_encode`), pour les essais.
 pub fn encode(data: &[Vec<u8>], unit_size: usize, m: usize) -> Vec<Vec<u8>> {
     let k = data.len();
+    assert!(k + m <= FEC_UNITS_MAX, "{k} + {m} unités : au-delà de GF(2⁸)");
     let matrix = cauchy(k, m);
     (0..m)
         .map(|i| {
@@ -187,6 +197,24 @@ mod tests {
             n += 1;
         }
         assert_eq!(n, 6);
+    }
+
+    /// COEUR-05 : au-delà de 256 unités, la réparation est refusée (pas de
+    /// panique, pas d'image fausse).
+    #[test]
+    fn au_dela_de_256_unites() {
+        let (k, m) = (300, 4);
+        let mut units = vec![vec![0u8; 8]; k + m];
+        assert!(!decode(&mut units, 8, k, m, &[5]));
+        let (k, m) = (252, 4);
+        let data: Vec<Vec<u8>> = (0..k).map(|i| vec![i as u8; 8]).collect();
+        let mut all = data.clone();
+        all.extend(encode(&data, 8, m));
+        all[200] = vec![0; 8];
+        all[251] = vec![0; 8];
+        assert!(decode(&mut all, 8, k, m, &[200, 251]));
+        assert_eq!(all[200], vec![200u8; 8]);
+        assert_eq!(all[251], vec![251u8; 8]);
     }
 
     #[test]
