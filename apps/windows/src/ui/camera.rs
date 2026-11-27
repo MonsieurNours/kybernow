@@ -3,6 +3,7 @@
 //! les réponses de l'ordinateur (voyant, refus), la ligne des statistiques.
 //! La capture et l'encodage sont dans `crate::camera`, le reste dans le cœur.
 
+use crate::sync::Locked;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,7 +31,7 @@ struct CamSession {
 static SESSIONS: Mutex<Option<HashMap<String, CamSession>>> = Mutex::new(None);
 
 fn with<T>(id: &str, f: impl FnOnce(&mut CamSession) -> T) -> T {
-    let mut all = SESSIONS.lock().unwrap();
+    let mut all = SESSIONS.locked();
     f(all.get_or_insert_with(HashMap::new).entry(id.to_owned()).or_default())
 }
 
@@ -67,7 +68,7 @@ const CAMERAS_FOR: Duration = Duration::from_secs(10);
 
 fn cameras(fresh: bool) -> Vec<CameraChoice> {
     {
-        let cached = CAMERAS.lock().unwrap();
+        let cached = CAMERAS.locked();
         if let Some((at, list)) = cached.as_ref()
             && !fresh
             && at.elapsed() < CAMERAS_FOR
@@ -77,7 +78,7 @@ fn cameras(fresh: bool) -> Vec<CameraChoice> {
     }
     // Relue hors du verrou.
     let list = camera::cameras();
-    *CAMERAS.lock().unwrap() = Some((Instant::now(), list.clone()));
+    *CAMERAS.locked() = Some((Instant::now(), list.clone()));
     list
 }
 
@@ -120,7 +121,7 @@ pub fn offer(app: &AppHandle, id: &str, offered: bool) {
 
 /// La session finit : la caméra s'éteint.
 pub fn ended(id: &str) {
-    let removed = SESSIONS.lock().unwrap().get_or_insert_with(HashMap::new).remove(id);
+    let removed = SESSIONS.locked().get_or_insert_with(HashMap::new).remove(id);
     // Hors du verrou : l'arrêt de la webcam peut attendre (`CameraSender`).
     if let Some(c) = removed {
         if let Some(stop) = c.stop {

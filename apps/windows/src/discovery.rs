@@ -2,6 +2,7 @@
 //! `_kybernow._tcp` de la console (TXT `name`, `fp`, `kyber`). Celles marquées
 //! `kyber=0` (console sans serveur Kyber derrière) ne sont pas proposées.
 
+use crate::sync::Locked;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -26,7 +27,7 @@ pub struct Discovery {
 
 impl Discovery {
     pub fn list(&self) -> Vec<Found> {
-        self.found.lock().unwrap().values().cloned().collect()
+        self.found.locked().values().cloned().collect()
     }
 }
 
@@ -53,7 +54,7 @@ pub fn start(changed: impl Fn(Vec<Found>) + Send + 'static) -> Arc<Discovery> {
         .spawn(move || {
             let _daemon = mdns;
             while let Ok(event) = rx.recv() {
-                let mut map = state.found.lock().unwrap();
+                let mut map = state.found.locked();
                 let before = map.clone();
                 match event {
                     ServiceEvent::ServiceResolved(info) => {

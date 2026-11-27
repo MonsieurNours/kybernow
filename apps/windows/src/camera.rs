@@ -7,6 +7,7 @@
 //! demande. Chaque image (Annex B, SPS et PPS devant chaque image clé) part
 //! au cœur (`CameraLink::frame`), qui l'envoie ou la lâche.
 
+use crate::sync::Locked;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -157,7 +158,7 @@ impl CameraSender {
                 let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
                 let name = Mutex::new(String::new());
                 if let Err(p) = run(&link, id, resolution, &device, &s, &k, &name) {
-                    problem(p, name.lock().unwrap().clone());
+                    problem(p, name.locked().clone());
                 }
                 unsafe { CoUninitialize() };
             })
@@ -221,7 +222,7 @@ fn reader(id: Option<&str>, wanted: CameraResolution, name: &Mutex<String>) -> R
         let mut n = 0;
         let mut p = PWSTR::null();
         if device.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut p, &mut n).is_ok() {
-            *name.lock().unwrap() = pwstr(p);
+            *name.locked() = pwstr(p);
         }
         let fail = |what: &str, e: windows::core::Error| {
             warn!("caméra : {what} ({e})");

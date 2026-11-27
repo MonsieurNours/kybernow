@@ -21,6 +21,7 @@
 //! et sa connexion se montre dans une fenêtre à sa place (`connexion-N`,
 //! `connexion.html`), sans passer par l'accueil.
 
+use crate::sync::Locked;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -139,7 +140,7 @@ fn image_url(id: &str, image: &Image) -> String {
 /// Le JPEG d'une adresse `image_url` : la dernière image, sinon l'aperçu.
 fn serve_image(app: &AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
     let id = path.trim_start_matches('/');
-    let jpeg = app.state::<UiState>().live.lock().unwrap().get(id).and_then(|l| l.last.clone().or_else(|| l.preview.clone())).map(|i| i.jpeg);
+    let jpeg = app.state::<UiState>().live.locked().get(id).and_then(|l| l.last.clone().or_else(|| l.preview.clone())).map(|i| i.jpeg);
     let builder = tauri::http::Response::builder();
     match jpeg {
         Some(j) => builder
@@ -500,7 +501,7 @@ pub struct Prefs {
 /// Sans choix dans `app.json`, celui que gardaient les réglages des
 /// ordinateurs (`garder` si l'un l'avait).
 fn battery_choice(state: &UiState) -> &'static str {
-    let chosen = state.prefs.lock().unwrap().battery.clone();
+    let chosen = state.prefs.locked().battery.clone();
     let keep = match chosen.as_deref() {
         Some(b) => b == "garder",
         None => state.with_store(|s| s.computers.iter().any(|c| c.settings.battery == "garder")),
@@ -531,7 +532,7 @@ pub fn load_prefs() -> Prefs {
 /// deux commandes presque simultanées ne peuvent plus écrire dans le désordre
 /// (le fichier est minuscule).
 pub(crate) fn update_prefs<T>(state: &UiState, f: impl FnOnce(&mut Prefs) -> T) -> T {
-    let mut p = state.prefs.lock().unwrap();
+    let mut p = state.prefs.locked();
     let out = f(&mut p);
     write_prefs(&p);
     out
@@ -552,7 +553,7 @@ const INSTALLER: &[&str] = &["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.e
 
 impl UiState {
     fn with_store<T>(&self, f: impl FnOnce(&mut Store) -> T) -> T {
-        let mut s = self.store.lock().unwrap();
+        let mut s = self.store.locked();
         f(s.get_or_insert_with(Store::load))
     }
 
@@ -560,13 +561,13 @@ impl UiState {
         let (computers, from_accounts) = self.with_store(|s| (s.computers.clone(), s.account_computers.clone()));
         // Les pastilles d'origine (comptes KyberNow), hors du verrou des ordinateurs.
         let mut origins = account::origins(&computers, &from_accounts);
-        let waking: Vec<String> = self.waking.lock().unwrap().keys().cloned().collect();
-        let pending: HashMap<String, Kind> = self.following.lock().unwrap().iter().map(|(id, (p, _))| (id.clone(), p.kind)).collect();
+        let waking: Vec<String> = self.waking.locked().keys().cloned().collect();
+        let pending: HashMap<String, Kind> = self.following.locked().iter().map(|(id, (p, _))| (id.clone(), p.kind)).collect();
         // Les ordinateurs dont une session passe par le relais (lu avant `live` : les deux verrous ne se tiennent jamais ensemble).
         let relayed = self.sessions_via_relay();
         // Une session ouverte : ni bandeau ni avis de la mise à jour de la Station.
         let in_session = !self.session_ids().is_empty();
-        let mut live = self.live.lock().unwrap();
+        let mut live = self.live.locked();
         computers
             .into_iter()
             .map(|c| {
@@ -601,42 +602,42 @@ impl UiState {
             .lock()
             .unwrap()
             .iter()
-            .filter(|r| r.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay))
+            .filter(|r| r.route.locked().as_ref().is_some_and(RouteInfo::via_relay))
             .map(|r| r.id.clone())
             .collect()
     }
 
     /// Les ordinateurs en session, dans l'ordre d'ouverture.
     fn session_ids(&self) -> Vec<String> {
-        self.sessions.lock().unwrap().iter().map(|r| r.id.clone()).collect()
+        self.sessions.locked().iter().map(|r| r.id.clone()).collect()
     }
 
     fn in_session(&self, id: &str) -> bool {
-        self.sessions.lock().unwrap().iter().any(|r| r.id == id)
+        self.sessions.locked().iter().any(|r| r.id == id)
     }
 
     /// `f` sur la session de cet ordinateur, s'il est en session.
     fn with_session<T>(&self, id: &str, f: impl FnOnce(&Running) -> T) -> Option<T> {
-        self.sessions.lock().unwrap().iter().find(|r| r.id == id).map(f)
+        self.sessions.locked().iter().find(|r| r.id == id).map(f)
     }
 
     /// `f` sur cette session-là (`SessionHost::id`), si elle tourne encore.
     fn with_instance<T>(&self, session: u64, f: impl FnOnce(&Running) -> T) -> Option<T> {
-        self.sessions.lock().unwrap().iter().find(|r| r.host.id() == session).map(f)
+        self.sessions.locked().iter().find(|r| r.host.id() == session).map(f)
     }
 
     /// La session active (celle de la dernière fenêtre de session au premier
     /// plan), sinon la première.
     fn active_id(&self) -> Option<String> {
-        let sessions = self.sessions.lock().unwrap();
+        let sessions = self.sessions.locked();
         sessions.iter().find(|r| r.host.is_active()).or_else(|| sessions.first()).map(|r| r.id.clone())
     }
 
     /// Quatre ordinateurs sont en session ou s'y connectent (ou le registre
     /// du cœur en tient quatre).
     fn full(&self) -> bool {
-        let sessions = self.sessions.lock().unwrap();
-        sessions.len() + self.launching.lock().unwrap().len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS
+        let sessions = self.sessions.locked();
+        sessions.len() + self.launching.locked().len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS
     }
 }
 
@@ -659,7 +660,7 @@ fn end_session(app: &AppHandle, id: &str, why: &str) -> bool {
     let state = app.state::<UiState>();
     let sent = {
         // Tenu pendant le contrôle : `connect` regarde les annulations sous ce verrou.
-        let sessions = state.sessions.lock().unwrap();
+        let sessions = state.sessions.locked();
         match sessions.iter().find(|r| r.id == id) {
             Some(r) => {
                 log::info!("[{}] {why} : ordre de fin à sa session (n°{})", r.name, r.host.id());
@@ -667,9 +668,9 @@ fn end_session(app: &AppHandle, id: &str, why: &str) -> bool {
                 Some(r.host.id())
             }
             None => {
-                if state.launching.lock().unwrap().iter().any(|x| x == id) {
+                if state.launching.locked().iter().any(|x| x == id) {
                     log::info!("{why} pour {id} : la connexion se lance, elle s'arrêtera dès son inscription");
-                    state.cancelled_launch.lock().unwrap().push(id.to_string());
+                    state.cancelled_launch.locked().push(id.to_string());
                     return true;
                 }
                 None
@@ -735,7 +736,7 @@ fn watch_end(app: &AppHandle, session: u64) {
 /// Une connexion annulée pendant son lancement (`end_session`) : vrai une
 /// fois, à son inscription (sous le verrou des sessions).
 fn take_cancelled_launch(state: &UiState, id: &str) -> bool {
-    let mut cancelled = state.cancelled_launch.lock().unwrap();
+    let mut cancelled = state.cancelled_launch.locked();
     match cancelled.iter().position(|x| x == id) {
         Some(i) => {
             cancelled.remove(i);
@@ -876,7 +877,7 @@ fn handle_args(app: &AppHandle, args: Vec<String>) {
 fn show_action(app: &AppHandle, action: Action) {
     if let Action::Connect { id } = &action {
         let state = app.state::<UiState>();
-        let busy = !state.sessions.lock().unwrap().is_empty() || !state.launching.lock().unwrap().is_empty();
+        let busy = !state.sessions.locked().is_empty() || !state.launching.locked().is_empty();
         if busy {
             let (a, id) = (app.clone(), id.clone());
             std::thread::spawn(move || {
@@ -888,7 +889,7 @@ fn show_action(app: &AppHandle, action: Action) {
         }
     }
     if !matches!(action, Action::Open) {
-        *app.state::<UiState>().action.lock().unwrap() = Some(action);
+        *app.state::<UiState>().action.locked() = Some(action);
     }
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -904,7 +905,7 @@ fn show_action(app: &AppHandle, action: Action) {
 
 #[tauri::command(async)]
 fn take_action(state: tauri::State<'_, UiState>) -> Option<Action> {
-    state.action.lock().unwrap().take()
+    state.action.locked().take()
 }
 
 #[derive(Serialize)]
@@ -928,14 +929,14 @@ struct AppInfo {
 
 #[tauri::command(async)]
 fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
-    let prefs = state.prefs.lock().unwrap().clone();
+    let prefs = state.prefs.locked().clone();
     let (sync_title, sync_help) = kybernow_core::account::sync_settings_texts(i18n::lang());
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         channel: prefs.channel,
         language: language_choice(&prefs),
         lang: i18n::lang().code(),
-        update: state.update.lock().unwrap().clone(),
+        update: state.update.locked().clone(),
         arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
         battery: battery_choice(&state),
         open_at_login: login::enabled(),
@@ -965,10 +966,10 @@ fn set_battery(app: AppHandle, battery: String) -> &'static str {
 /// Cherche une version plus récente sur le canal choisi.
 fn check_now(app: &AppHandle) -> Result<Option<Available>, String> {
     let state = app.state::<UiState>();
-    let channel = state.prefs.lock().unwrap().channel;
+    let channel = state.prefs.locked().channel;
     let found = update::check(env!("CARGO_PKG_VERSION"), channel, INSTALLER)?;
-    let fresh = found.is_some() && state.update.lock().unwrap().as_ref().map(|u| &u.version) != found.as_ref().map(|u| &u.version);
-    *state.update.lock().unwrap() = found.clone();
+    let fresh = found.is_some() && state.update.locked().as_ref().map(|u| &u.version) != found.as_ref().map(|u| &u.version);
+    *state.update.locked() = found.clone();
     let _ = app.emit_to("main", "update", &found);
     if fresh && !shell::app_in_front() {
         if let Some(u) = &found {
@@ -1004,7 +1005,7 @@ fn set_language(app: AppHandle, language: String) -> &'static str {
     let lang = i18n::apply(&prefs.language);
     log::info!("langue : {} ({})", prefs.language, lang.code());
     let update = {
-        let mut u = state.update.lock().unwrap();
+        let mut u = state.update.locked();
         if let Some(u) = u.as_mut() {
             u.localize(lang);
         }
@@ -1025,7 +1026,7 @@ fn install_update(app: AppHandle) -> Result<(), String> {
     if !can_quit(&state) {
         return Err(t("errors.session_open_install_later", &[]));
     }
-    let u = state.update.lock().unwrap().clone().ok_or_else(|| t("errors.no_update", &[]))?;
+    let u = state.update.locked().clone().ok_or_else(|| t("errors.no_update", &[]))?;
     let dir = std::env::temp_dir().join("KyberNow");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("KyberNow-{}-{}", u.version, u.file));
@@ -1097,12 +1098,12 @@ fn away_by_relay(app: &AppHandle, c: &Computer) -> bool {
     let Some(route) = relais::route_of(c.relay.as_ref(), c.fingerprint.as_deref()) else { return false };
     let state = app.state::<UiState>();
     let now = Instant::now();
-    let ask = state.presence.lock().unwrap().ask(&route.station, now);
+    let ask = state.presence.locked().ask(&route.station, now);
     let present = match ask {
         relais::Ask::Known(present) => present,
         relais::Ask::Due => {
             let present = relais::present(&route);
-            state.presence.lock().unwrap().record(&route.station, now, present);
+            state.presence.locked().record(&route.station, now, present);
             present
         }
     };
@@ -1147,7 +1148,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
         });
         // L'ancien identifiant chez le relais ne dit plus rien.
         if let (true, Some(old)) = (relay_changed, c.relay.as_ref()) {
-            state.presence.lock().unwrap().forget(&old.id);
+            state.presence.locked().forget(&old.id);
         }
     }
     // Les cartes réseau pour le réveil, gardées avec l'ordinateur pour le
@@ -1172,7 +1173,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     let lend_view = info.as_ref().and_then(|i| lend::home_view(&console, i));
     let mut preview = None;
     let wants_preview = {
-        let live = state.live.lock().unwrap();
+        let live = state.live.locked();
         // Pas d'aperçu quand la dernière image de la session est là (comme sur Mac).
         live.get(&c.id).is_none_or(|l| l.last.is_none() && l.preview_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60)))
     };
@@ -1183,7 +1184,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
             }
         }
     }
-    let mut live = state.live.lock().unwrap();
+    let mut live = state.live.locked();
     let l = live.entry(c.id.clone()).or_default();
     // La Station suivie après un redémarrage ou une mise à jour : son état
     // (version, installation, redémarrage) compte aussi.
@@ -1217,7 +1218,7 @@ fn station_news(app: &AppHandle, c: &Computer, info: &Info) {
     let ready = u.available && !u.installing && (u.installable || u.requires_setup);
     let Some(v) = u.version.as_deref().filter(|_| ready) else { return };
     let state = app.state::<UiState>();
-    if c.station_notified.as_deref() == Some(v) || state.following.lock().unwrap().contains_key(&c.id) || shell::app_in_front() {
+    if c.station_notified.as_deref() == Some(v) || state.following.locked().contains_key(&c.id) || shell::app_in_front() {
         return;
     }
     let title = t("notify.station_update_title", &[("name", &c.name)]);
@@ -1258,7 +1259,7 @@ fn poll(app: AppHandle) {
         }
         let shown = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(true);
         let wait = Duration::from_secs(if shown { 8 } else { 30 });
-        let asked = state.poll_asked.lock().unwrap();
+        let asked = state.poll_asked.locked();
         let (mut asked, _) = state.poll_signal.wait_timeout_while(asked, wait, |a| !*a).unwrap();
         *asked = false;
     }
@@ -1267,7 +1268,7 @@ fn poll(app: AppHandle) {
 /// Un relevé de tous les ordinateurs tout de suite (menu de l'icône ouvert).
 pub fn poll_soon(app: &AppHandle) {
     let state = app.state::<UiState>();
-    *state.poll_asked.lock().unwrap() = true;
+    *state.poll_asked.locked() = true;
     state.poll_signal.notify_all();
 }
 
@@ -1279,8 +1280,8 @@ fn follow_loop(app: AppHandle) {
         std::thread::sleep(follow::POLL);
         let state = app.state::<UiState>();
         let in_session = state.session_ids();
-        let waking: Vec<(String, Instant)> = state.waking.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
-        let following: Vec<String> = state.following.lock().unwrap().keys().cloned().collect();
+        let waking: Vec<(String, Instant)> = state.waking.locked().iter().map(|(k, v)| (k.clone(), *v)).collect();
+        let following: Vec<String> = state.following.locked().keys().cloned().collect();
         if waking.is_empty() && following.is_empty() {
             continue;
         }
@@ -1293,20 +1294,20 @@ fn follow_loop(app: AppHandle) {
                 continue;
             }
             let Some(c) = state.with_store(|s| s.get(id).cloned()) else {
-                state.waking.lock().unwrap().remove(id);
-                state.following.lock().unwrap().remove(id);
+                state.waking.locked().remove(id);
+                state.following.locked().remove(id);
                 continue;
             };
             changed |= refresh(&app, &c);
         }
         for (id, since) in waking {
             let Some(c) = state.with_store(|s| s.get(&id).cloned()) else { continue };
-            let online = state.live.lock().unwrap().get(&id).and_then(|l| l.online);
+            let online = state.live.locked().get(&id).and_then(|l| l.online);
             let step = follow::wake(online, since.elapsed());
             if step == follow::Wake::Waiting {
                 continue;
             }
-            state.waking.lock().unwrap().remove(&id);
+            state.waking.locked().remove(&id);
             changed = true;
             log::info!("réveil de {} : {step:?}", c.name);
             if shell::app_in_front() {
@@ -1323,14 +1324,14 @@ fn follow_loop(app: AppHandle) {
         }
         for id in following {
             let Some(c) = state.with_store(|s| s.get(&id).cloned()) else { continue };
-            let (online, info) = state.live.lock().unwrap().get(&id).map(|l| (l.online, l.info.clone())).unwrap_or_default();
+            let (online, info) = state.live.locked().get(&id).map(|l| (l.online, l.info.clone())).unwrap_or_default();
             let seen = info.as_ref().and_then(|i| i.station.as_ref()).map(|s| follow::Seen {
                 version: &s.version,
                 restarting: s.restarting,
                 installing: s.update.installing,
             });
             let outcome = {
-                let mut f = state.following.lock().unwrap();
+                let mut f = state.following.locked();
                 let Some((p, since)) = f.get_mut(&id) else { continue };
                 let since = *since;
                 let outcome = follow::station(p, online, seen, since.elapsed());
@@ -1413,10 +1414,10 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     let state = app.state::<UiState>();
     let mut c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     c.settings = settings;
-    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
+    let pc = state.this_pc.locked().clone().unwrap_or_default();
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
     let (stream, _, _) = session_plan(&c, &pc, lighten, None);
-    let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
+    let info = state.live.locked().get(&id).and_then(|l| l.info.clone());
     let screens = Layout::now(displays_spec(&c.settings, info.as_ref(), lighten, &pc)).screens();
     let choice = screens.choice(screens::screens_profile(&stream, screens.capabilities), c.settings.virtual_display);
     let plan = screens::session_plan_for(&screens, &stream, c.settings.virtual_display);
@@ -1444,7 +1445,7 @@ static HOME_SCREEN: Mutex<Option<String>> = Mutex::new(None);
 fn home_moved(app: &AppHandle) {
     let key = system::home_monitor_key();
     {
-        let mut last = HOME_SCREEN.lock().unwrap();
+        let mut last = HOME_SCREEN.locked();
         if *last == key {
             return;
         }
@@ -1461,7 +1462,7 @@ fn refresh_this_screen(app: &AppHandle) {
     let mode = system::screen_mode();
     let state = app.state::<UiState>();
     let pc = {
-        let mut cached = state.this_pc.lock().unwrap();
+        let mut cached = state.this_pc.locked();
         // Pas encore relevé : la sonde du lancement lira l'écran à sa fin.
         let Some(pc) = cached.as_mut() else { return };
         if (pc.width, pc.height, pc.refresh) == (mode.width, mode.height, mode.refresh) {
@@ -1487,7 +1488,7 @@ fn snapshot(app: AppHandle, state: tauri::State<'_, UiState>) -> Snapshot {
     Snapshot {
         computers: state.views(),
         discovered: state.discovery.get().map(|d| d.list()).unwrap_or_default(),
-        this_pc: state.this_pc.lock().unwrap().clone(),
+        this_pc: state.this_pc.locked().clone(),
         sessions,
         version: env!("CARGO_PKG_VERSION").into(),
     }
@@ -1605,7 +1606,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             encoder_max: None,
         })
     });
-    state.live.lock().unwrap().insert(id.clone(), Live { online: Some(true), info: Some(info), ..Default::default() });
+    state.live.locked().insert(id.clone(), Live { online: Some(true), info: Some(info), ..Default::default() });
     emit_computers(app);
     Ok(id)
 }
@@ -1623,7 +1624,7 @@ fn pair_start(state: tauri::State<'_, UiState>, candidate: Candidate) -> Result<
     let code = format!("{:06}", u32::from_le_bytes(b) % 1_000_000);
     let console = Console::new(&candidate.host, candidate.port, "", "", candidate.fingerprint.clone());
     let id = console.pair_request(&code, &system::device_info()).map_err(|e| e.to_string())?;
-    *state.pairing.lock().unwrap() = Some(Pairing { candidate, id });
+    *state.pairing.locked() = Some(Pairing { candidate, id });
     Ok(code)
 }
 
@@ -1631,7 +1632,7 @@ fn pair_start(state: tauri::State<'_, UiState>, candidate: Candidate) -> Result<
 #[tauri::command(async)]
 fn pair_poll(app: AppHandle) -> Result<String, String> {
     let state = app.state::<UiState>();
-    let (candidate, id) = match state.pairing.lock().unwrap().as_ref() {
+    let (candidate, id) = match state.pairing.locked().as_ref() {
         Some(p) => (p.candidate.clone(), p.id.clone()),
         None => return Ok("expired".into()),
     };
@@ -1644,7 +1645,7 @@ fn pair_poll(app: AppHandle) -> Result<String, String> {
             // La demande n'est oubliée qu'une fois l'ordinateur ajouté : la
             // console ne redonne pas ce compte.
             let id = add(&app, &candidate, &username, &password, true)?;
-            *state.pairing.lock().unwrap() = None;
+            *state.pairing.locked() = None;
             Ok(id)
         }
     }
@@ -1652,7 +1653,7 @@ fn pair_poll(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command(async)]
 fn pair_cancel(state: tauri::State<'_, UiState>) {
-    *state.pairing.lock().unwrap() = None;
+    *state.pairing.locked() = None;
 }
 
 /// Admin de l'ordinateur `id` (compte et empreinte retenus).
@@ -1671,8 +1672,8 @@ fn console_of(app: &AppHandle, id: &str) -> Result<Console, String> {
 /// jour de la Station.
 fn computer_via_relay(app: &AppHandle, id: &str) -> bool {
     let state = app.state::<UiState>();
-    let session_via_relay = state.with_session(id, |r| r.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay)).unwrap_or(false);
-    let away = state.live.lock().unwrap().get(id).is_some_and(|l| l.away);
+    let session_via_relay = state.with_session(id, |r| r.route.locked().as_ref().is_some_and(RouteInfo::via_relay)).unwrap_or(false);
+    let away = state.live.locked().get(id).is_some_and(|l| l.away);
     session_via_relay || away
 }
 
@@ -1688,7 +1689,7 @@ fn station_refusal(message: String) -> serde_json::Value {
 /// installation en cours), sans attendre le relevé suivant.
 fn mark_station(app: &AppHandle, id: &str, change: impl FnOnce(&mut kybernow_core::console::StationInfo)) {
     let state = app.state::<UiState>();
-    if let Some(station) = state.live.lock().unwrap().get_mut(id).and_then(|l| l.info.as_mut()).and_then(|i| i.station.as_mut()) {
+    if let Some(station) = state.live.locked().get_mut(id).and_then(|l| l.info.as_mut()).and_then(|i| i.station.as_mut()) {
         change(station);
     }
     emit_computers(app);
@@ -1738,10 +1739,10 @@ fn station_call(app: &AppHandle, id: &str, kind: Kind, force: bool, from_menu: b
         }
     };
     let state = app.state::<UiState>();
-    let known = state.live.lock().unwrap().get(id).and_then(|l| l.info.as_ref()?.station.as_ref()?.update.version.clone());
+    let known = state.live.locked().get(id).and_then(|l| l.info.as_ref()?.station.as_ref()?.update.version.clone());
     let expected = version.clone().filter(|v| !v.is_empty()).or(known).filter(|_| kind == Kind::Update);
     let pending = follow::Pending { kind, version: expected, down: false, from_menu };
-    state.following.lock().unwrap().insert(id.to_string(), (pending, Instant::now()));
+    state.following.locked().insert(id.to_string(), (pending, Instant::now()));
     mark_station(app, id, |s| match kind {
         Kind::Restart => s.restarting = true,
         Kind::Update => s.update.installing = true,
@@ -1792,7 +1793,7 @@ fn station_from_menu(app: &AppHandle, id: &str, kind: Kind) {
             Refusal::Station(StationError::Unsupported) => t("station.too_old", &[]),
             Refusal::Station(StationError::RequiresSetup { .. }) => {
                 let state = app.state::<UiState>();
-                let v = state.live.lock().unwrap().get(id).and_then(|l| l.info.as_ref()?.station.as_ref()?.update.version.clone());
+                let v = state.live.locked().get(id).and_then(|l| l.info.as_ref()?.station.as_ref()?.update.version.clone());
                 t("station.requires_setup", &[("version", &v.unwrap_or_default())])
             }
             Refusal::Station(e) => e.to_string(),
@@ -1820,7 +1821,7 @@ fn wake(app: AppHandle, id: String) -> Result<usize, String> {
     let sent = kybernow_core::wake::send(&c.wake).map_err(|e| e.to_string())?;
     log::info!("réveil de {} : {sent} paquets envoyés", c.name);
     // L'app l'attend (2 min au plus), que la fenêtre soit ouverte ou non.
-    app.state::<UiState>().waking.lock().unwrap().insert(id, Instant::now());
+    app.state::<UiState>().waking.locked().insert(id, Instant::now());
     emit_computers(&app);
     Ok(sent)
 }
@@ -1831,7 +1832,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « Garder la dernière image » coupé : effacée tout de suite.
     if !settings.keep_last_image {
         snapshot::forget(&id);
-        if let Some(l) = state.live.lock().unwrap().get_mut(&id) {
+        if let Some(l) = state.live.locked().get_mut(&id) {
             l.last = None;
         }
     }
@@ -1865,7 +1866,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « Débit adaptatif » : tout de suite aussi (le reste de l'image ne bouge pas).
     if adaptive != before.adaptive {
         let changed = state.with_session(&id, |r| {
-            let mut sent = r.sent.lock().unwrap();
+            let mut sent = r.sent.locked();
             sent.settings.adaptive = adaptive;
             r.host.set_settings(sent.settings.clone())
         });
@@ -1880,7 +1881,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
 /// Le système de l'ordinateur (« macOS 26.1 », « Windows 11 Pro ») : celui que
 /// la Station donne maintenant, sinon celui gardé à l'ajout.
 fn computer_os(state: &UiState, id: &str) -> String {
-    let live = state.live.lock().unwrap().get(id).and_then(|l| l.info.as_ref().map(|i| i.os.clone()));
+    let live = state.live.locked().get(id).and_then(|l| l.info.as_ref().map(|i| i.os.clone()));
     live.filter(|os| !os.is_empty())
         .or_else(|| state.with_store(|s| s.get(id).map(|c| c.os.clone())))
         .unwrap_or_default()
@@ -1905,7 +1906,7 @@ fn rename_computer(app: AppHandle, id: String, name: String) -> Result<(), Strin
 fn remove_computer(app: AppHandle, id: String) {
     let state = app.state::<UiState>();
     state.with_store(|s| s.remove(&id));
-    state.live.lock().unwrap().remove(&id);
+    state.live.locked().remove(&id);
     snapshot::forget(&id);
     playstation::forget_station(&app, &id);
     emit_computers(&app);
@@ -2179,7 +2180,7 @@ impl HostEvents for UiEvents {
         };
         {
             // Ce que montre la fenêtre de connexion d'une session suivante.
-            let mut view = self.connexion.view.lock().unwrap();
+            let mut view = self.connexion.view.locked();
             view.phase = phase;
             view.restarting = matches!(s, Status::StationRestarting);
         }
@@ -2192,7 +2193,7 @@ impl HostEvents for UiEvents {
         // La connexion reprend en session (écrans de ce PC ou profil changés) :
         // ses étapes reviennent sur l'écran principal, le fond de la connexion
         // sur les autres écrans, jusqu'à la première image de chacun.
-        if matches!(s, Status::Preparing) && self.spot.lock().unwrap().shown {
+        if matches!(s, Status::Preparing) && self.spot.locked().shown {
             self.begin_replan();
         }
     }
@@ -2201,12 +2202,12 @@ impl HostEvents for UiEvents {
         // L'image telle que l'ordinateur l'envoie (sans écran virtuel, la
         // taille de son écran, pas celle demandée).
         if s.width > 0 && s.height > 0 {
-            let mut sent = self.sent.lock().unwrap();
+            let mut sent = self.sent.locked();
             sent.mode.width = s.width;
             sent.mode.height = s.height;
         }
         let _ = self.app.emit_to("bar", "stats", StatsEvent { id: &self.id, stats: s });
-        *self.stats.lock().unwrap() = Some(s.clone());
+        *self.stats.locked() = Some(s.clone());
         self.tell_pads_off();
         self.tell_pyrowave(s);
         self.tell_other_network();
@@ -2222,7 +2223,7 @@ impl HostEvents for UiEvents {
         if !foreground {
             log::info!("session hors du premier plan : {}", if self.first { "accueil caché quand même" } else { "elle attend dans la barre des tâches" });
         }
-        self.spot.lock().unwrap().shown = true;
+        self.spot.locked().shown = true;
         // Le passage s'ouvre à la première image montrée, pas à la connexion.
         let _ = self.app.emit("session-shown", &self.id);
         if !self.first {
@@ -2252,7 +2253,7 @@ impl HostEvents for UiEvents {
                     if *session_primary {
                         primary = Some(target(s));
                         // Mesures de l'écran principal.
-                        let mut sent = self.sent.lock().unwrap();
+                        let mut sent = self.sent.locked();
                         sent.mode = kybernow_core::console::Mode { width: *width, height: *height, refresh: *refresh };
                     } else {
                         others.push(target(s));
@@ -2263,12 +2264,12 @@ impl HostEvents for UiEvents {
             }
         }
         {
-            let mut sent = self.sent.lock().unwrap();
+            let mut sent = self.sent.locked();
             sent.screens = count.max(1);
             sent.pixel_rate = pixel_rate;
         }
         let waiting: Vec<fonds::Target> = {
-            let mut spot = self.spot.lock().unwrap();
+            let mut spot = self.spot.locked();
             spot.primary = primary;
             spot.others = others.clone();
             // Un écran qui n'est plus pris oublie qu'il a montré son image.
@@ -2298,7 +2299,7 @@ impl HostEvents for UiEvents {
     /// l'accueil rend la place à la session.
     fn screen_visible(&self, key: &str) {
         let (replanning, primary) = {
-            let mut spot = self.spot.lock().unwrap();
+            let mut spot = self.spot.locked();
             if !spot.visible.iter().any(|k| k == key) {
                 spot.visible.push(key.to_string());
             }
@@ -2330,7 +2331,7 @@ impl HostEvents for UiEvents {
     /// la première session, l'accueil et son passage).
     fn connexion_front(&self) {
         // La première session se connecte sur l'accueil (son passage).
-        let label = if self.first { Some("main".to_string()) } else { self.connexion.label.lock().unwrap().clone() };
+        let label = if self.first { Some("main".to_string()) } else { self.connexion.label.locked().clone() };
         let Some(label) = label else { return };
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
@@ -2350,7 +2351,7 @@ impl HostEvents for UiEvents {
     /// seulement quand plusieurs arrivent d'un coup (la pastille « 2 demandes » dit le reste).
     fn guests(&self, share: Option<&ShareState>) {
         let after = share.filter(|s| s.open).cloned();
-        let before = std::mem::replace(&mut *self.share.lock().unwrap(), after.clone());
+        let before = std::mem::replace(&mut *self.share.locked(), after.clone());
         share::emit_state(&self.app, &self.id, &self.share);
         if self.guest.is_none()
             && self.borrow.is_none()
@@ -2365,7 +2366,7 @@ impl HostEvents for UiEvents {
     /// (étiquette de la barre, menu de l'icône, avis bref).
     fn share_role(&self, role: ShareRole, previous: Option<ShareRole>) {
         let Some(g) = &self.guest else { return };
-        *g.role.lock().unwrap() = role;
+        *g.role.locked() = role;
         log::info!("[{}] rôle d'invité : {role:?}", g.title);
         let _ = self.app.emit_to("bar", "share-role", share::RoleEvent { id: self.id.clone(), role: role.as_str() });
         tray::refresh();
@@ -2411,7 +2412,7 @@ impl HostEvents for UiEvents {
         let (app, id, name) = (self.app.clone(), self.id.clone(), self.connexion.name.clone());
         let _ = self.app.run_on_main_thread(move || {
             let state = app.state::<UiState>();
-            let bar_here = state.bar_session.lock().unwrap().as_deref() == Some(id.as_str())
+            let bar_here = state.bar_session.locked().as_deref() == Some(id.as_str())
                 && app.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
             if bar_here {
                 log::info!("[{name}] PyroWave : le réseau sature, bandeau gardé jusqu'à la fermeture de la barre");
@@ -2443,8 +2444,8 @@ impl HostEvents for UiEvents {
     fn share_image(&self, image: &ShareImage, _previous: Option<&ShareImage>, notice: Option<&str>) {
         let Some(g) = &self.guest else { return };
         let view = crate::sharing::ImageView::from(image);
-        *g.quality.lock().unwrap() = image.quality;
-        *g.image.lock().unwrap() = view.label.clone();
+        *g.quality.locked() = image.quality;
+        *g.image.locked() = view.label.clone();
         let _ = self.app.emit_to("bar", "share-image", share::ImageEvent { id: self.id.clone(), quality: view.quality, label: view.label });
         if let Some(text) = notice {
             share::notice(&self.app, &self.id, &g.title, text);
@@ -2462,7 +2463,7 @@ impl HostEvents for UiEvents {
     /// la fin de la session le garde pour la ligne « Chemin » des statistiques, et les
     /// appels à Admin d'une session par le relais passent eux aussi par lui.
     fn route(&self, route: &RouteInfo) {
-        let before = self.route.lock().unwrap().replace(route.clone());
+        let before = self.route.locked().replace(route.clone());
         if before.as_ref() == Some(route) {
             return;
         }
@@ -2503,7 +2504,7 @@ impl HostEvents for UiEvents {
         let state = self.app.state::<UiState>();
         // Cette session-là, pas une autre du même ordinateur.
         let (found, remaining) = {
-            let mut sessions = state.sessions.lock().unwrap();
+            let mut sessions = state.sessions.locked();
             let before = sessions.len();
             sessions.retain(|r| r.host.id() != self.connexion.session);
             (sessions.len() < before, sessions.len())
@@ -2517,7 +2518,7 @@ impl HostEvents for UiEvents {
         let keep = state.with_store(|st| st.get(&self.id).map(|c| c.settings.keep_last_image)).unwrap_or(false);
         if let (true, Some(jpeg)) = (keep, &s.last_image) {
             snapshot::save(&self.id, jpeg);
-            state.live.lock().unwrap().entry(self.id.clone()).or_default().last = Some(Image::new(jpeg.clone()));
+            state.live.locked().entry(self.id.clone()).or_default().last = Some(Image::new(jpeg.clone()));
         }
         // Une session d'au moins 3 s qui a mesuré sa latence : la rubrique
         // Statistiques de cet ordinateur la montre.
@@ -2527,7 +2528,7 @@ impl HostEvents for UiEvents {
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
             let last = {
-                let sent = self.sent.lock().unwrap();
+                let sent = self.sent.locked();
                 let m = sent.mode;
                 LastSession {
                     median_ms: s.median_ms,
@@ -2540,7 +2541,7 @@ impl HostEvents for UiEvents {
                     screens: Some(sent.screens.max(1)),
                     codec: Some(sent.settings.codec.label().into()),
                     mbps: Some(sent.mbps()),
-                    route: self.route.lock().unwrap().clone(),
+                    route: self.route.locked().clone(),
                     hdr: s.hdr,
                     label: String::new(),
                 }
@@ -2554,7 +2555,7 @@ impl HostEvents for UiEvents {
         }
         // La barre servait cette session : elle part.
         let served = {
-            let mut bar = state.bar_session.lock().unwrap();
+            let mut bar = state.bar_session.locked();
             let served = bar.as_deref() == Some(self.id.as_str());
             if served {
                 *bar = None;
@@ -2565,7 +2566,7 @@ impl HostEvents for UiEvents {
             let _ = bar.hide();
         }
         let (before, replan) = {
-            let mut spot = self.spot.lock().unwrap();
+            let mut spot = self.spot.locked();
             let before = spot.before.take();
             let replan = spot.replanning.take();
             *spot = Spot::default();
@@ -2602,10 +2603,10 @@ impl HostEvents for UiEvents {
             // pendant qu'elle est ouverte (avant la première image, ou quand
             // la connexion a repris en session), qu'elle montre jusqu'à « Fermer ».
             // Pas après « Annuler » (une fin demandée n'est pas un échec).
-            let open = self.connexion.label.lock().unwrap().is_some();
+            let open = self.connexion.label.locked().is_some();
             kept_in_window = open && s.error.is_some() && !s.requested && !quitting;
             if kept_in_window {
-                self.connexion.view.lock().unwrap().error = s.error.clone();
+                self.connexion.view.locked().error = s.error.clone();
                 keep_failure_in_front(&self.app, &self.connexion);
             } else {
                 close_connexion(&self.app, &self.connexion, Duration::ZERO);
@@ -2645,7 +2646,7 @@ impl HostEvents for UiEvents {
         // Session d'emprunt : la carte de fin de l'accueil (le texte du prêt, ou le
         // retour possible pendant 15 min) ; l'ordinateur rendu : l'avis « Vous avez
         // rendu l'ordinateur. », sans notification (une fin voulue).
-        let lend_end = self.borrow.as_ref().map(|b| crate::lending::end_view(&b.host, b.end.lock().unwrap().clone()));
+        let lend_end = self.borrow.as_ref().map(|b| crate::lending::end_view(&b.host, b.end.locked().clone()));
         if let Some(b) = &self.borrow {
             if notify && let Some(e) = lend_end.as_ref().filter(|e| !e.left) {
                 let text = e.text.clone().or_else(|| s.error.clone()).unwrap_or_else(|| t("lend.come_back", &[]));
@@ -2716,11 +2717,11 @@ impl UiEvents {
     /// l'image en HEVC pour cette session.
     fn tell_pyrowave(&self, s: &Stats) {
         use std::sync::atomic::Ordering;
-        if self.pyrowave_told.load(Ordering::Relaxed) || !s.decoder.starts_with("PyroWave") || !self.spot.lock().unwrap().shown {
+        if self.pyrowave_told.load(Ordering::Relaxed) || !s.decoder.starts_with("PyroWave") || !self.spot.locked().shown {
             return;
         }
-        let relayed = self.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay);
-        let wired = self.sent.lock().unwrap().settings.wired;
+        let relayed = self.route.locked().as_ref().is_some_and(RouteInfo::via_relay);
+        let wired = self.sent.locked().settings.wired;
         let Some(kind) = pyrowave_link(relayed, wired) else { return };
         if self.pyrowave_told.swap(true, Ordering::Relaxed) {
             return;
@@ -2735,10 +2736,10 @@ impl UiEvents {
     fn tell_other_network(&self) {
         use std::sync::atomic::Ordering;
         let Some(check) = &self.auto_check else { return };
-        if self.auto_told.load(Ordering::Relaxed) || !self.spot.lock().unwrap().shown {
+        if self.auto_told.load(Ordering::Relaxed) || !self.spot.locked().shown {
             return;
         }
-        let relayed = self.route.lock().unwrap().as_ref().is_some_and(RouteInfo::via_relay);
+        let relayed = self.route.locked().as_ref().is_some_and(RouteInfo::via_relay);
         if !check.differs(relayed) || self.auto_told.swap(true, Ordering::Relaxed) {
             return;
         }
@@ -2755,7 +2756,7 @@ impl UiEvents {
 
     fn tell_pads_off(&self) {
         use std::sync::atomic::Ordering;
-        if !self.pads_off || self.pads_told.load(Ordering::Relaxed) || !self.spot.lock().unwrap().shown {
+        if !self.pads_off || self.pads_told.load(Ordering::Relaxed) || !self.spot.locked().shown {
             return;
         }
         if kybernow_core::gamepads::pads().is_empty() || self.pads_told.swap(true, Ordering::Relaxed) {
@@ -2768,7 +2769,7 @@ impl UiEvents {
     /// La barre servait cette session : elle se referme.
     fn hide_bar_if_mine(&self) {
         let state = self.app.state::<UiState>();
-        let mut bar = state.bar_session.lock().unwrap();
+        let mut bar = state.bar_session.locked();
         if bar.as_deref() != Some(self.id.as_str()) {
             return;
         }
@@ -2791,7 +2792,7 @@ impl UiEvents {
     fn begin_replan(&self) {
         if !self.first {
             let fresh = {
-                let mut spot = self.spot.lock().unwrap();
+                let mut spot = self.spot.locked();
                 let fresh = spot.replanning.is_none();
                 spot.replanning = Some(Replan { visible: false, position: None, size: None });
                 fresh
@@ -2811,7 +2812,7 @@ impl UiEvents {
             return;
         }
         let (primary, others) = {
-            let mut spot = self.spot.lock().unwrap();
+            let mut spot = self.spot.locked();
             if spot.replanning.is_some() {
                 return;
             }
@@ -2820,7 +2821,7 @@ impl UiEvents {
             (spot.primary.clone(), spot.others.clone())
         };
         let screens = {
-            let sent = self.sent.lock().unwrap();
+            let sent = self.sent.locked();
             expected_screens(self.spec, self.this_screen.clone(), &sent.settings, sent.virtual_display)
         };
         log::info!("la connexion reprend en session : {screens} écran(s)");
@@ -2832,7 +2833,7 @@ impl UiEvents {
         let _ = self.app.run_on_main_thread(move || {
             let Some(main) = app.get_webview_window("main") else { return };
             let before = Replan { visible: main.is_visible().unwrap_or(false), position: main.outer_position().ok(), size: main.outer_size().ok() };
-            if let Some(r) = spot.lock().unwrap().replanning.as_mut() {
+            if let Some(r) = spot.locked().replanning.as_mut() {
                 *r = before;
             }
             if let Some(p) = primary {
@@ -2850,7 +2851,7 @@ impl UiEvents {
     /// L'écran principal a repris son image : les étapes se referment et
     /// l'accueil rend la place à la session.
     fn end_replan(&self) {
-        let Some(r) = self.spot.lock().unwrap().replanning.take() else { return };
+        let Some(r) = self.spot.locked().replanning.take() else { return };
         let _ = self.app.emit("session-shown", &self.id);
         if !self.first {
             close_connexion(&self.app, &self.connexion, Duration::from_millis(900));
@@ -2983,13 +2984,13 @@ struct ConnectInfo {
 /// de la session qui va s'y montrer, titrée du nom de l'ordinateur comme
 /// elle. Rouverte quand la connexion reprend en session.
 fn open_connexion(app: &AppHandle, conn: &Arc<Connexion>, at: (i32, i32), client: (u32, u32), name: &str) {
-    if conn.label.lock().unwrap().is_some() {
+    if conn.label.locked().is_some() {
         return;
     }
     let label = format!("connexion-{}", CONNEXION_SEQ.fetch_add(1, Ordering::Relaxed) + 1);
-    *conn.label.lock().unwrap() = Some(label.clone());
-    let id = conn.view.lock().unwrap().id.clone();
-    app.state::<UiState>().connexions.lock().unwrap().insert(label.clone(), conn.clone());
+    *conn.label.locked() = Some(label.clone());
+    let id = conn.view.locked().id.clone();
+    app.state::<UiState>().connexions.locked().insert(label.clone(), conn.clone());
     let title = format!("{name} · {}", shell::DISPLAY_NAME);
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -3037,9 +3038,9 @@ fn open_connexion(app: &AppHandle, conn: &Arc<Connexion>, at: (i32, i32), client
 /// depuis ce geste : le second clic tombe sur elle, pas sur la fenêtre d'une
 /// autre session restée dessous, qui l'enverrait à son ordinateur.
 fn close_connexion(app: &AppHandle, conn: &Arc<Connexion>, delay: Duration) {
-    let Some(label) = conn.label.lock().unwrap().take() else { return };
-    app.state::<UiState>().connexions.lock().unwrap().remove(&label);
-    let delay = match *conn.closed_at.lock().unwrap() {
+    let Some(label) = conn.label.locked().take() else { return };
+    app.state::<UiState>().connexions.locked().remove(&label);
+    let delay = match *conn.closed_at.locked() {
         Some(at) => delay.max(double_click_time().saturating_sub(at.elapsed())),
         None => delay,
     };
@@ -3061,7 +3062,7 @@ fn close_connexion(app: &AppHandle, conn: &Arc<Connexion>, delay: Duration) {
 /// Ce que montre la fenêtre de connexion qui le demande (à son ouverture).
 #[tauri::command]
 fn connexion_state(window: tauri::WebviewWindow, state: tauri::State<'_, UiState>) -> Option<ConnexionView> {
-    state.connexions.lock().unwrap().get(window.label()).map(|c| c.view.lock().unwrap().clone())
+    state.connexions.locked().get(window.label()).map(|c| c.view.locked().clone())
 }
 
 /// « Fermer » sous un échec, ou la fenêtre de connexion fermée : « Annuler » si
@@ -3076,19 +3077,19 @@ fn connexion_close(app: AppHandle, window: tauri::WebviewWindow) {
 /// sinon (le message d'un échec), la fenêtre part, rien d'autre ne s'arrête.
 fn connexion_closed(app: &AppHandle, label: &str) {
     let state = app.state::<UiState>();
-    let conn = state.connexions.lock().unwrap().get(label).cloned();
+    let conn = state.connexions.locked().get(label).cloned();
     let Some(conn) = conn else {
         // Déjà en partance (second clic) : elle part, rien d'autre.
         log::info!("fenêtre de connexion {label} fermée : déjà en partance, aucun ordre");
         return;
     };
-    *conn.closed_at.lock().unwrap() = Some(Instant::now());
-    let failed = conn.view.lock().unwrap().error.is_some();
+    *conn.closed_at.locked() = Some(Instant::now());
+    let failed = conn.view.locked().error.is_some();
     let why = format!("fenêtre de connexion de {} fermée (« Annuler »)", conn.name);
     // Sa session pas encore inscrite (la fenêtre s'ouvre juste avant) : elle
     // s'arrêtera dès son inscription.
-    let id = conn.view.lock().unwrap().id.clone();
-    let launching = state.launching.lock().unwrap().contains(&id);
+    let id = conn.view.locked().id.clone();
+    let launching = state.launching.locked().contains(&id);
     let cancelled = !failed && (end_instance(app, conn.session, &why) || (launching && end_session(app, &id, &why)));
     if !cancelled {
         log::info!(
@@ -3115,7 +3116,7 @@ fn double_click_time() -> Duration {
 /// sessions, même plein écran, même si l'une d'elles repasse au premier
 /// plan) jusqu'à « Fermer » ; elle prend le clavier si l'app est devant.
 fn keep_failure_in_front(app: &AppHandle, conn: &Arc<Connexion>) {
-    let Some(label) = conn.label.lock().unwrap().clone() else { return };
+    let Some(label) = conn.label.locked().clone() else { return };
     let name = conn.name.clone();
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -3135,7 +3136,7 @@ fn keep_failure_in_front(app: &AppHandle, conn: &Arc<Connexion>) {
 /// seule) devient la session active du registre du cœur, si elle tourne.
 fn connexion_focused(app: &AppHandle, label: &str) {
     let state = app.state::<UiState>();
-    let session = state.connexions.lock().unwrap().get(label).map(|c| c.session);
+    let session = state.connexions.locked().get(label).map(|c| c.session);
     if let Some(session) = session {
         state.with_instance(session, |r| r.host.activate());
     }
@@ -3144,7 +3145,7 @@ fn connexion_focused(app: &AppHandle, label: &str) {
 /// Plus rien ne tourne : ni session, ni connexion qui se lance, ni fenêtre de
 /// connexion ouverte (l'échec d'une session suivante).
 fn idle(state: &UiState) -> bool {
-    state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && state.connexions.lock().unwrap().is_empty() && !state.ps.playing()
+    state.sessions.locked().is_empty() && state.launching.locked().is_empty() && state.connexions.locked().is_empty() && !state.ps.playing()
 }
 
 /// La dernière session finie (ou la fenêtre d'un échec refermée) ramène
@@ -3173,7 +3174,7 @@ fn show_home_if_idle(app: &AppHandle) {
 /// partie PlayStation (« Quitter », « Installer la mise à jour »). Une fenêtre
 /// de connexion restée sur un échec part avec l'app.
 fn can_quit(state: &UiState) -> bool {
-    state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && !state.ps.playing()
+    state.sessions.locked().is_empty() && state.launching.locked().is_empty() && !state.ps.playing()
 }
 
 fn exit_when_idle(app: &AppHandle) {
@@ -3244,7 +3245,7 @@ impl Drop for Launching<'_> {
     fn drop(&mut self) {
         let state = self.app.state::<UiState>();
         {
-            let mut launching = state.launching.lock().unwrap();
+            let mut launching = state.launching.locked();
             if let Some(i) = launching.iter().position(|x| *x == self.id) {
                 launching.remove(i);
             }
@@ -3288,8 +3289,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // autres écrans, accueil passé sur l'écran principal, fenêtre de
     // connexion) : une connexion refusée ne laisse rien derrière elle.
     let first = {
-        let sessions = state.sessions.lock().unwrap();
-        let mut launching = state.launching.lock().unwrap();
+        let sessions = state.sessions.locked();
+        let mut launching = state.launching.locked();
         if sessions.iter().any(|r| r.id == id) {
             drop(launching);
             drop(sessions);
@@ -3314,7 +3315,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
-    let host_name = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone()).map(|i| i.hostname).unwrap_or_default();
+    let host_name = state.live.locked().get(&id).and_then(|l| l.info.clone()).map(|i| i.hostname).unwrap_or_default();
     // Un ordinateur d'un compte KyberNow : le jeton d'accès du relais (demandé
     // d'abord : ses refus se disent tout de suite), sur le réseau quand la
     // découverte le voit, par le relais du compte sinon ; ni compte ni mot de
@@ -3338,12 +3339,12 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         return Err(t("errors.this_pc", &[]));
     }
     let pc = {
-        let cached = state.this_pc.lock().unwrap().clone();
+        let cached = state.this_pc.locked().clone();
         match cached {
             Some(pc) => pc,
             None => {
                 let pc = pc::this_pc();
-                *state.this_pc.lock().unwrap() = Some(pc.clone());
+                *state.this_pc.locked() = Some(pc.clone());
                 pc
             }
         }
@@ -3354,7 +3355,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // session à un ou plusieurs écrans (le même calcul que la ligne de
     // l'accueil). « Cet écran » est relevé ici, avant que l'accueil passe sur
     // l'écran principal : la session le garde (comme la définition, ci-dessous).
-    let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
+    let info = state.live.locked().get(&id).and_then(|l| l.info.clone());
     let spec = displays_spec(s, info.as_ref(), lighten, &pc);
     // Plusieurs ordinateurs : une session ouverte pendant qu'une autre tourne
     // prend « Cet écran » en fenêtre, quel que soit le réglage « Écrans » —
@@ -3433,7 +3434,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         };
         let others: Vec<fonds::Target> = p.iter().filter(|x| !x.primary).map(|x| target(x.device)).collect();
         {
-            let mut sp = spot.lock().unwrap();
+            let mut sp = spot.locked();
             sp.primary = p.iter().find(|x| x.primary).map(|x| target(x.device));
             sp.others = others.clone();
             sp.before = home_to_primary(&app, &layout.monitors);
@@ -3450,8 +3451,8 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // Session suivante : sa connexion se montre tout de suite dans une
     // fenêtre, là où la sienne va s'ouvrir.
     let connexion = Arc::new(Connexion { session, name: c.name.clone(), ..Default::default() });
-    connexion.view.lock().unwrap().id = id.clone();
-    connexion.view.lock().unwrap().phase = "preparing";
+    connexion.view.locked().id = id.clone();
+    connexion.view.locked().phase = "preparing";
     let share_state = Arc::new(Mutex::new(None));
     let lend_state = Arc::new(Mutex::new(None));
     let route = Arc::new(Mutex::new(None));
@@ -3488,7 +3489,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
-    let mut running = state.sessions.lock().unwrap();
+    let mut running = state.sessions.locked();
     let host = match SessionHost::start_as(
         session,
         c.name.clone(),
@@ -3606,9 +3607,9 @@ struct BarHdrEvent {
 /// La puce « HDR » de la barre pour la session `id`.
 fn bar_hdr(state: &UiState, id: &str) -> Option<BarHdr> {
     let (settings, screen_hdr, guest, borrow) =
-        state.with_session(id, |r| (r.sent.lock().unwrap().settings.clone(), r.host.screen_hdr(), r.guest.is_some(), r.borrow.is_some()))?;
-    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
-    let info = state.live.lock().unwrap().get(id).and_then(|l| l.info.clone());
+        state.with_session(id, |r| (r.sent.locked().settings.clone(), r.host.screen_hdr(), r.guest.is_some(), r.borrow.is_some()))?;
+    let pc = state.this_pc.locked().clone().unwrap_or_default();
+    let info = state.live.locked().get(id).and_then(|l| l.info.clone());
     bar_hdr_with(&pc, info.as_ref(), &settings, screen_hdr, guest, borrow)
 }
 
@@ -3655,7 +3656,7 @@ fn session_hdr(app: AppHandle, id: String, on: bool) -> Result<(), String> {
 fn apply_hdr(app: &AppHandle, id: &str, on: bool) -> bool {
     let state = app.state::<UiState>();
     let Some(applied) = state.with_session(id, |r| {
-        r.sent.lock().unwrap().settings.hdr = on;
+        r.sent.locked().settings.hdr = on;
         r.host.set_hdr(on)
     }) else {
         return false;
@@ -3694,16 +3695,16 @@ fn apply_to_session(app: &AppHandle, id: &str, c: &Computer) -> Result<(), Strin
         return Ok(());
     };
     let profile = c.settings.profile.clone();
-    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
+    let pc = state.this_pc.locked().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
     // Les réglages du profil seulement : la taille de l'écran ne change pas.
     let (mut settings, _, label) = session_plan(c, &pc, lighten, None);
     // Le câble ne change pas avec le profil.
-    settings.wired = sent.lock().unwrap().settings.wired;
-    sent.lock().unwrap().settings = settings.clone();
+    settings.wired = sent.locked().settings.wired;
+    sent.locked().settings = settings.clone();
     // Un profil choisi remet ses réglages (`save_profile`) : plus de « Personnalisé ».
     let shown = BarLabel { label, profile, custom: false };
-    *bar.lock().unwrap() = shown.clone();
+    *bar.locked() = shown.clone();
     let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.to_string(), label: shown });
     let applied = state.with_session(id, |r| r.host.set_settings(settings)).unwrap_or(false);
     if applied { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
@@ -3727,16 +3728,16 @@ fn session_hevc(app: AppHandle, id: String) -> Result<(), String> {
     let Some((bar, sent)) = state.with_session(&id, |r| (r.bar.clone(), r.sent.clone())) else {
         return Err(t("errors.no_session", &[]));
     };
-    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
+    let pc = state.this_pc.locked().clone().unwrap_or_default();
     let settings = {
-        let mut sent = sent.lock().unwrap();
+        let mut sent = sent.locked();
         sent.settings.codec = kybernow_core::profile::Codec::Hevc;
         // 4:4:4 en HEVC seulement si la carte le décode.
         sent.settings.yuv444 = sent.settings.yuv444 && pc.hevc444;
         sent.settings.clone()
     };
     let shown = {
-        let mut b = bar.lock().unwrap();
+        let mut b = bar.locked();
         b.label = format!("{} · {}{}", settings.label(), settings.codec.label(), if settings.yuv444 { " 4:4:4" } else { "" });
         b.custom = true;
         b.clone()
@@ -3831,7 +3832,7 @@ static BAR_PLACE: Mutex<Option<BarPlace>> = Mutex::new(None);
 /// La fenêtre de la barre à sa place : centrée sur la session, sans sortir de
 /// son écran.
 fn place_bar(bar: &tauri::WebviewWindow) {
-    let Some(p) = *BAR_PLACE.lock().unwrap() else { return };
+    let Some(p) = *BAR_PLACE.locked() else { return };
     let w = (p.width * p.scale).round() as i32;
     let x = (p.center - w / 2).max(p.left).min(p.right - w);
     let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w as u32, (p.height * p.scale).round() as u32)));
@@ -3856,7 +3857,7 @@ pub(crate) fn place_bar_for(bar: &tauri::WebviewWindow, hwnd: isize) {
     ));
     let scale = scale as f64;
     let room = (client.min(r.right - r.left) as f64 / scale).floor();
-    *BAR_PLACE.lock().unwrap() = Some(BarPlace {
+    *BAR_PLACE.locked() = Some(BarPlace {
         center,
         top: top.max(r.top),
         left: r.left,
@@ -3892,25 +3893,25 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
     let Some((title, label, multi, keep_sound, session, guest, share, route, borrow, lend_view)) = state.with_session(id, |r| {
         (
             r.name.clone(),
-            r.bar.lock().unwrap().clone(),
+            r.bar.locked().clone(),
             r.host.stream_count() > 1,
             r.host.keep_sound(),
             r.host.id(),
             r.guest.clone(),
-            r.share.lock().unwrap().clone(),
-            r.route.lock().unwrap().clone(),
+            r.share.locked().clone(),
+            r.route.locked().clone(),
             r.borrow.clone(),
-            r.lend.lock().unwrap().clone(),
+            r.lend.locked().clone(),
         )
     }) else {
         return;
     };
     // KyberNow Share : l'invité (rôle, hôte) ou, pour une session d'hôte, « Partager ».
     let guest = guest.map(|g| GuestBar {
-        role: g.role.lock().unwrap().as_str(),
+        role: g.role.locked().as_str(),
         host: g.host.clone(),
-        quality: g.quality.lock().unwrap().as_str(),
-        image: g.image.lock().unwrap().clone(),
+        quality: g.quality.locked().as_str(),
+        image: g.image.locked().clone(),
         watch: g.watch.clone(),
     });
     // Prêt de l'ordinateur : l'ami qui emprunte (barre réduite) ou, pour l'hôte, « Prêter l'ordinateur… ».
@@ -3926,7 +3927,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
             .unwrap_or_else(|| ("auto".to_string(), false)),
     };
     let mac = host_session && kybernow_core::input::keymap::station_is_mac(&computer_os(&state, id));
-    let before = state.bar_session.lock().unwrap().replace(id.to_string());
+    let before = state.bar_session.locked().replace(id.to_string());
     // La barre servait une partie sur console : la console reçoit de nouveau la manette.
     if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
         playstation::bar_hidden(app, &prev, false);
@@ -3950,7 +3951,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
     // la largeur de la barre (`bar_width`) ; toujours à sa taille sans menu en se montrant.
     let scale = scale as f64;
     let room = (client.min(r.right - r.left) as f64 / scale).floor();
-    *BAR_PLACE.lock().unwrap() = Some(BarPlace {
+    *BAR_PLACE.locked() = Some(BarPlace {
         center,
         top: top.max(r.top),
         left: r.left,
@@ -3967,7 +3968,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         let _ = bar.show();
     }
     window::set_bar_session(Some(session));
-    let sessions = state.sessions.lock().unwrap().len();
+    let sessions = state.sessions.locked().len();
     let route = route.map(|r| relais::RouteView::new(&r, i18n::lang()));
     let shown = BarShown {
         id: id.to_string(),
@@ -3994,7 +3995,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         route,
         hdr: bar_hdr(&state, id),
         mic: state.with_session(id, |r| r.events.bar_mic()).flatten(),
-        wired: state.with_session(id, |r| r.sent.lock().unwrap().settings.wired),
+        wired: state.with_session(id, |r| r.sent.locked().settings.wired),
         notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained", "auto_network"].into_iter().find(|k| *k == p)),
         console: None,
     };
@@ -4019,7 +4020,7 @@ fn toggle_stats_on(app: &AppHandle, id: &str, hwnd: isize) {
     let (a, id) = (app.clone(), id.to_string());
     let _ = app.run_on_main_thread(move || {
         let shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
-        let same = a.state::<UiState>().bar_session.lock().unwrap().as_deref() == Some(id.as_str());
+        let same = a.state::<UiState>().bar_session.locked().as_deref() == Some(id.as_str());
         if shown && same {
             bar_hide(a.clone(), Some(id), None);
             return;
@@ -4046,7 +4047,7 @@ fn bar_menu(app: AppHandle, open: bool, height: Option<f64>) {
         };
         let top = 900.0f64.min(room.max(300.0));
         let h = if open { height.filter(|h| h.is_finite()).unwrap_or(300.0).clamp(300.0, top) } else { 76.0 };
-        let placed = BAR_PLACE.lock().unwrap().as_mut().map(|p| p.height = h).is_some();
+        let placed = BAR_PLACE.locked().as_mut().map(|p| p.height = h).is_some();
         if placed {
             place_bar(&bar);
         } else {
@@ -4065,7 +4066,7 @@ fn bar_width(app: AppHandle, width: f64) {
     if !width.is_finite() || width < 1.0 {
         return;
     }
-    let changed = BAR_PLACE.lock().unwrap().as_mut().is_some_and(|p| {
+    let changed = BAR_PLACE.locked().as_mut().is_some_and(|p| {
         let screen = (p.right - p.left) as f64 / p.scale;
         let w = (width + 24.0).max(BAR_WINDOW_MIN).min(screen);
         let changed = (w - p.width).abs() >= 1.0;
@@ -4089,7 +4090,7 @@ fn bar_hide(app: AppHandle, id: Option<String>, focus: Option<bool>) {
     // Un menu ouvert laissait la fenêtre agrandie pour la fois suivante.
     bar_menu(app.clone(), false, None);
     let state = app.state::<UiState>();
-    let served = state.bar_session.lock().unwrap().take();
+    let served = state.bar_session.locked().take();
     show_pending_strained(&app);
     // Une partie sur console : la console reçoit de nouveau la manette.
     if let Some(ps) = served.as_deref().or(id.as_deref()).filter(|i| crate::consoles::host_of(i).is_some()) {
@@ -4112,11 +4113,11 @@ fn bar_hide(app: AppHandle, id: Option<String>, focus: Option<bool>) {
 fn show_pending_strained(app: &AppHandle) {
     use std::sync::atomic::Ordering;
     let state = app.state::<UiState>();
-    let found = state.sessions.lock().unwrap().iter().find_map(|r| {
+    let found = state.sessions.locked().iter().find_map(|r| {
         if !r.events.pyrowave_strained_pending.swap(false, Ordering::Relaxed) {
             return None;
         }
-        let pyrowave = r.stats.lock().unwrap().as_ref().is_some_and(|s| s.decoder.starts_with("PyroWave"));
+        let pyrowave = r.stats.locked().as_ref().is_some_and(|s| s.decoder.starts_with("PyroWave"));
         if !pyrowave {
             log::info!("[{}] PyroWave : l'image n'est plus en PyroWave, bandeau « Le réseau sature » oublié", r.name);
             return None;
@@ -4145,12 +4146,12 @@ fn is_custom(c: &Computer, pc: Option<&ThisPc>) -> bool {
 /// menu ouvert, chaque seconde.
 pub fn tray_state(app: &AppHandle) -> menu::State {
     let state = app.state::<UiState>();
-    let pc = state.this_pc.lock().unwrap().clone();
+    let pc = state.this_pc.locked().clone();
     let computers = state.with_store(|s| s.computers.clone());
-    let waking: Vec<String> = state.waking.lock().unwrap().keys().cloned().collect();
-    let following: HashMap<String, Kind> = state.following.lock().unwrap().iter().map(|(k, (p, _))| (k.clone(), p.kind)).collect();
+    let waking: Vec<String> = state.waking.locked().keys().cloned().collect();
+    let following: HashMap<String, Kind> = state.following.locked().iter().map(|(k, (p, _))| (k.clone(), p.kind)).collect();
     // HDR : ce que chaque Station annonce, lu avant la liste des sessions (pas deux verrous à la fois).
-    let infos: HashMap<String, Info> = state.live.lock().unwrap().iter().filter_map(|(k, l)| l.info.clone().map(|i| (k.clone(), i))).collect();
+    let infos: HashMap<String, Info> = state.live.locked().iter().filter_map(|(k, l)| l.info.clone().map(|i| (k.clone(), i))).collect();
     let pc_now = pc.clone().unwrap_or_default();
     let sessions: Vec<menu::Session> = state
         .sessions
@@ -4158,10 +4159,10 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
         .unwrap()
         .iter()
         .map(|r| {
-            let stats = r.stats.lock().unwrap().clone();
-            let sent = r.sent.lock().unwrap();
+            let stats = r.stats.locked().clone();
+            let sent = r.sent.locked();
             // Un invité : l'ordinateur qui partage et son rôle, sans réglages de l'app.
-            let guest = r.guest.as_ref().map(|g| (g.computer.clone(), *g.role.lock().unwrap()));
+            let guest = r.guest.as_ref().map(|g| (g.computer.clone(), *g.role.locked()));
             menu::Session {
                 id: r.id.clone(),
                 name: match (&guest, &r.borrow) {
@@ -4192,7 +4193,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
     let active = state.active_id();
     let full = state.full();
     let relayed = state.sessions_via_relay();
-    let live = state.live.lock().unwrap();
+    let live = state.live.locked();
     let computers = computers
         .iter()
         .map(|c| {
@@ -4226,7 +4227,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
             }
         })
         .collect();
-    menu::State { sessions, active, full, computers, app_update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()) }
+    menu::State { sessions, active, full, computers, app_update: state.update.locked().as_ref().map(|u| u.version.clone()) }
 }
 
 /// Ce qui est choisi dans le menu de l'icône, sur son propre fil (les appels
@@ -4285,7 +4286,7 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
                 set_keep_sound(&app, &id, !on);
             }
             Cmd::Hdr(id) => {
-                let on = state.with_session(&id, |r| r.sent.lock().unwrap().settings.hdr).unwrap_or(false);
+                let on = state.with_session(&id, |r| r.sent.locked().settings.hdr).unwrap_or(false);
                 let _ = session_hdr(app.clone(), id, !on);
             }
             Cmd::Connect(id) => show_action(&app, Action::Connect { id }),
@@ -4329,7 +4330,7 @@ pub fn quit(app: &AppHandle) {
     share::cancel_wait(&state, None);
     lend::cancel_wait(&state, None);
     {
-        let sessions = state.sessions.lock().unwrap();
+        let sessions = state.sessions.locked();
         if !sessions.is_empty() {
             log::info!("quitter : fin des {} session(s) d'abord", sessions.len());
         }
@@ -4397,7 +4398,7 @@ fn first_close(app: &AppHandle) {
 /// Windows, voir `login.rs`) est gardé.
 fn open_at_login_default(state: &UiState) {
     let first = {
-        let mut p = state.prefs.lock().unwrap();
+        let mut p = state.prefs.locked();
         let first = p.open_at_login.is_none();
         if first {
             p.open_at_login = Some(true);
@@ -4422,13 +4423,13 @@ pub fn run(args: Vec<String>) {
         _ => None,
     };
     let state = UiState::default();
-    *state.action.lock().unwrap() = parse_action(&args);
+    *state.action.locked() = parse_action(&args);
     let mut prefs = load_prefs();
     // Premier lancement d'une nouvelle version : l'avis des Stations à mettre à jour.
     let app_updated = stations::launched(&mut prefs);
     // Micro : celui choisi et le traitement voix, pour toutes les sessions.
     crate::micro::set_prefs(prefs.microphone.clone(), prefs.voice_processing.unwrap_or(true));
-    *state.prefs.lock().unwrap() = prefs;
+    *state.prefs.locked() = prefs;
     let app = tauri::Builder::default()
         .manage(state)
         .register_uri_scheme_protocol(IMAGE_SCHEME, |ctx, request| serve_image(ctx.app_handle(), request.uri().path()))
@@ -4621,7 +4622,7 @@ pub fn run(args: Vec<String>) {
             let h = handle.clone();
             std::thread::spawn(move || {
                 let pc = pc::this_pc();
-                *h.state::<UiState>().this_pc.lock().unwrap() = Some(pc.clone());
+                *h.state::<UiState>().this_pc.locked() = Some(pc.clone());
                 let _ = h.emit_to("main", "this-pc", pc);
             });
             let h = handle.clone();

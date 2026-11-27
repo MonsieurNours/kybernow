@@ -1,6 +1,7 @@
 //! Ce que l'app demande à Windows : journal, échelle d'affichage, écran,
 //! identité de l'appareil, consoles connues, messages d'erreur.
 
+use crate::sync::Locked;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -53,7 +54,7 @@ impl log::Log for Logger {
             .unwrap_or(0.0);
         let line = format!("{secs:.3} {} {}: {}\n", r.level(), r.target(), r.args());
         eprint!("{line}");
-        if let Some(f) = self.file.lock().unwrap().as_mut() {
+        if let Some(f) = self.file.locked().as_mut() {
             let _ = f.write_all(line.as_bytes());
         }
     }

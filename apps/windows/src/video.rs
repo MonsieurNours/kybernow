@@ -10,6 +10,7 @@
 //! de son flux, et partage l'appareil Direct3D de la session (`gpu.rs`) avec
 //! ceux des autres écrans ; rien n'attend ailleurs.
 
+use crate::sync::Locked;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
@@ -79,7 +80,7 @@ const LOCAL_MAX: usize = 1000;
 
 impl Link {
     fn push_local(&self, decode_ms: f64, display_ms: f64) {
-        let mut l = self.local.lock().unwrap();
+        let mut l = self.local.locked();
         if l[0].len() < LOCAL_MAX {
             l[0].push(decode_ms.max(0.0));
             l[1].push(display_ms.max(0.0));
@@ -89,7 +90,7 @@ impl Link {
     /// Médianes de décodage et d'affichage depuis l'appel précédent (une fois
     /// par seconde) ; `None` sans image montrée.
     pub fn local_second(&self) -> (Option<f64>, Option<f64>) {
-        let mut l = self.local.lock().unwrap();
+        let mut l = self.local.locked();
         let median = |v: &mut Vec<f64>| {
             if v.is_empty() {
                 return None;
@@ -166,11 +167,11 @@ impl Shared {
 
     /// À appeler au démarrage (ou à la relance) du flux.
     pub fn arm_watch(&self) {
-        *self.watch.lock().unwrap() = Some((Instant::now(), self.frames.load(Ordering::Relaxed)));
+        *self.watch.locked() = Some((Instant::now(), self.frames.load(Ordering::Relaxed)));
     }
 
     pub fn disarm_watch(&self) {
-        *self.watch.lock().unwrap() = None;
+        *self.watch.locked() = None;
     }
 
     /// Le flux tourne depuis 4 s sans une image : on le relance (une fois par
@@ -178,7 +179,7 @@ impl Shared {
     /// muet est retiré par le cœur lui-même.
     fn check_watch(&self) {
         let fire = {
-            let mut w = self.watch.lock().unwrap();
+            let mut w = self.watch.locked();
             match *w {
                 Some((at, frames)) if at.elapsed() >= Duration::from_secs(4) => {
                     *w = None;
@@ -297,7 +298,7 @@ impl VideoHandler {
     /// Arrête le fil de l'image et attend sa fin (borné).
     pub fn stop_and_wait(&self, timeout: Duration) {
         self.stop();
-        let Some(t) = self.thread.lock().unwrap().take() else { return };
+        let Some(t) = self.thread.locked().take() else { return };
         let started = Instant::now();
         while !t.is_finished() && started.elapsed() < timeout {
             std::thread::sleep(Duration::from_millis(20));
@@ -336,7 +337,7 @@ struct LateState {
 
 impl PacketHandler for LateFeed {
     fn packet(&self, p: Packet<'_>) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.locked();
         if let Some(target) = st.target.clone() {
             drop(st);
             target.packet(p);
@@ -356,7 +357,7 @@ impl PacketHandler for LateFeed {
 impl LateFeed {
     /// La fenêtre de l'écran est là : ses paquets vont désormais à son fil de l'image.
     pub fn attach(&self, target: Arc<VideoHandler>) {
-        let mut st = self.state.lock().unwrap();
+        let mut st = self.state.locked();
         if let Some(codec) = st.codec.take() {
             target.packet(Packet::Codec { codec });
         }
@@ -391,7 +392,7 @@ pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<SessionGpu>, opts: VideoO
         .name("kybernow-video".into())
         .spawn(move || run(renderer, hwnd, gpu, opts, shared, h, rx))
         .map_err(|e| e.to_string())?;
-    *handler.thread.lock().unwrap() = Some(thread);
+    *handler.thread.locked() = Some(thread);
     Ok(handler)
 }
 
@@ -460,7 +461,7 @@ fn run(
                 }
                 let what = |lang: Lang| format!("PyroWave · {}", crate::i18n::tr(lang, "decoder.hardware", &[]));
                 log::info!("décodeur : {}", what(Lang::Fr));
-                *shared.decoder.lock().unwrap() = what(crate::i18n::lang());
+                *shared.decoder.locked() = what(crate::i18n::lang());
                 Some(d)
             }
             Err(e) => {
@@ -476,7 +477,7 @@ fn run(
                 let what = |lang: Lang| format!("{} · {}", codec_name(fourcc), crate::i18n::tr(lang, key, &[]));
                 log::info!("décodeur : {}", what(Lang::Fr));
                 // Montré dans la barre et le titre de la session : langue de l'app.
-                *shared.decoder.lock().unwrap() = what(crate::i18n::lang());
+                *shared.decoder.locked() = what(crate::i18n::lang());
                 Some(d)
             }
             Err(e) => {
@@ -686,7 +687,7 @@ fn run(
                     match dec.decode(&data) {
                         Ok(Outcome::Ready(img)) => {
                             let decoded = now_micros();
-                            renderer.set_screen(*shared.screen_hdr.lock().unwrap());
+                            renderer.set_screen(*shared.screen_hdr.locked());
                             renderer.set_snapshots(shared.is_primary());
                             match renderer.draw_pyrowave(dec, img.config, shared.edge_hint.load(Ordering::Relaxed)) {
                                 Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
@@ -772,7 +773,7 @@ fn run(
                             if newer_waiting {
                                 continue;
                             }
-                            renderer.set_screen(*shared.screen_hdr.lock().unwrap());
+                            renderer.set_screen(*shared.screen_hdr.locked());
                             renderer.set_snapshots(shared.is_primary());
                             match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed), shared.stream_hdr.load(Ordering::Relaxed)) {
                                 Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
@@ -816,7 +817,7 @@ fn run(
     }
     if let Some((px, w, h)) = renderer.take_snapshot() {
         match crate::snapshot::jpeg(&px, w, h) {
-            Ok(j) => *shared.last_image.lock().unwrap() = Some(j),
+            Ok(j) => *shared.last_image.locked() = Some(j),
             Err(e) => log::warn!("dernière image : {e}"),
         }
     }

@@ -7,6 +7,7 @@
 //! Un invité du partage ou l'ami qui emprunte : coupé au départ, choix gardé
 //! le temps de la session (ce n'est pas un ordinateur de l'app).
 
+use crate::sync::Locked;
 use kybernow_core::micro::{MicRefusal, MicState};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -71,7 +72,7 @@ impl UiEvents {
         if !kybernow_core::micro::device_has_microphone() {
             return None;
         }
-        let m = self.mic.lock().unwrap();
+        let m = self.mic.locked();
         // Invité : « Micro » seulement quand l'hôte laisse les invités parler.
         if self.guest.is_some() && m.state == MicState::Refused(MicRefusal::NotAllowed) {
             return None;
@@ -99,7 +100,7 @@ impl UiEvents {
     /// `HostEvents::microphone` : la barre suit ; un allumage pris est annoncé.
     pub(crate) fn mic_changed(&self, state: MicState) {
         let tell = {
-            let mut m = self.mic.lock().unwrap();
+            let mut m = self.mic.locked();
             m.state = state;
             let tell = m.asked && state == MicState::On;
             if tell || matches!(state, MicState::Refused(_)) {
@@ -117,7 +118,7 @@ impl UiEvents {
     /// `HostEvents::microphone_denied` : coupé, retenu coupé, avis.
     pub(crate) fn mic_denied(&self) {
         {
-            let mut m = self.mic.lock().unwrap();
+            let mut m = self.mic.locked();
             m.on = false;
             m.asked = false;
         }
@@ -130,7 +131,7 @@ impl UiEvents {
     /// l'ordinateur : la raison en avis, rien ne change.
     pub(crate) fn mic_toggle(&self) {
         let (on, refused) = {
-            let m = self.mic.lock().unwrap();
+            let m = self.mic.locked();
             (m.on, match m.state {
                 MicState::Refused(r) => Some(r),
                 _ => None,
@@ -183,7 +184,7 @@ pub(crate) fn apply(app: &AppHandle, id: &str, on: bool) -> Result<(), String> {
     let state = app.state::<UiState>();
     let applied = state.with_session(id, |r| {
         {
-            let mut m = r.events.mic.lock().unwrap();
+            let mut m = r.events.mic.locked();
             m.on = on;
             m.asked = on;
         }
@@ -219,7 +220,7 @@ pub(crate) struct MicSettings {
 #[tauri::command(async)]
 pub(crate) fn mic_settings(app: AppHandle) -> MicSettings {
     let state = app.state::<UiState>();
-    let p = state.prefs.lock().unwrap().clone();
+    let p = state.prefs.locked().clone();
     MicSettings { devices: crate::micro::devices(), device: p.microphone.clone(), voice: p.voice_processing.unwrap_or(true) }
 }
 

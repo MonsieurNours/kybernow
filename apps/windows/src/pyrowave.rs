@@ -17,6 +17,7 @@
 
 #![allow(non_camel_case_types, dead_code)]
 
+use crate::sync::Locked;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
@@ -589,7 +590,7 @@ impl Decoder {
             return Ok(Outcome::Skipped("pas de configuration"));
         };
         let api = self.device.api;
-        let _submit = self.device.submit.lock().unwrap();
+        let _submit = self.device.submit.locked();
         unsafe {
             // Chaque paquet est une image entière : rien à garder de la précédente.
             (api.decoder_clear)(self.decoder);

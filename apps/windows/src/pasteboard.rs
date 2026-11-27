@@ -28,6 +28,7 @@ pub use imp::WinPasteboard;
 
 #[cfg(windows)]
 mod imp {
+    use crate::sync::Locked;
     use std::sync::mpsc;
     use std::sync::{Mutex, OnceLock};
     use std::time::Duration;
@@ -122,7 +123,7 @@ mod imp {
 
     unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if msg == WM_APP_JOB {
-            let jobs: Vec<Job> = OWNER.get().and_then(|o| o.as_ref()).map(|o| std::mem::take(&mut *o.jobs.lock().unwrap())).unwrap_or_default();
+            let jobs: Vec<Job> = OWNER.get().and_then(|o| o.as_ref()).map(|o| std::mem::take(&mut *o.jobs.locked())).unwrap_or_default();
             for job in jobs {
                 job(hwnd);
             }
@@ -136,7 +137,7 @@ mod imp {
     fn on_owner<T: Send + 'static>(f: impl FnOnce(HWND) -> T + Send + 'static) -> Option<T> {
         let owner = owner()?;
         let (tx, rx) = mpsc::sync_channel(1);
-        owner.jobs.lock().unwrap().push(Box::new(move |hwnd| {
+        owner.jobs.locked().push(Box::new(move |hwnd| {
             let _ = tx.send(f(hwnd));
         }));
         unsafe {

@@ -10,6 +10,7 @@
 //! l'interface : même police pour la ligne). Elles ne prennent jamais le
 //! clavier ni le premier plan.
 
+use crate::sync::Locked;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -66,13 +67,13 @@ impl Fonds {
 
     /// La page d'un fond la demande à son ouverture.
     pub fn state_of(&self, label: &str) -> FondState {
-        self.open.lock().unwrap().iter().find(|f| f.label == label).map_or(FondState { not_created: false }, |f| f.state.clone())
+        self.open.locked().iter().find(|f| f.label == label).map_or(FondState { not_created: false }, |f| f.state.clone())
     }
 
     /// Le fond de cet écran s'efface (son image est là).
     pub fn hide(self: &Arc<Self>, key: &str) {
         let label = {
-            let mut open = self.open.lock().unwrap();
+            let mut open = self.open.locked();
             let Some(i) = open.iter().position(|f| f.key == key) else { return };
             open.remove(i).label
         };
@@ -82,7 +83,7 @@ impl Fonds {
     /// Ne garde que les fonds de ces écrans (les autres ne sont plus pris par la session).
     pub fn keep_only(self: &Arc<Self>, keys: &[String]) {
         let gone: Vec<String> = {
-            let mut open = self.open.lock().unwrap();
+            let mut open = self.open.locked();
             let mut gone = Vec::new();
             open.retain(|f| {
                 let keep = keys.contains(&f.key);
@@ -99,7 +100,7 @@ impl Fonds {
     }
 
     pub fn close_all(self: &Arc<Self>) {
-        let all: Vec<String> = self.open.lock().unwrap().drain(..).map(|f| f.label).collect();
+        let all: Vec<String> = self.open.locked().drain(..).map(|f| f.label).collect();
         for label in all {
             self.destroy(label);
         }
@@ -108,7 +109,7 @@ impl Fonds {
     fn ensure(self: &Arc<Self>, target: &Target, not_created: bool) {
         let state = FondState { not_created };
         let (label, create) = {
-            let mut open = self.open.lock().unwrap();
+            let mut open = self.open.locked();
             if let Some(f) = open.iter_mut().find(|f| f.key == target.key) {
                 if f.state == state {
                     return;
@@ -116,7 +117,7 @@ impl Fonds {
                 f.state = state.clone();
                 (f.label.clone(), false)
             } else {
-                let mut seq = self.seq.lock().unwrap();
+                let mut seq = self.seq.locked();
                 *seq += 1;
                 let label = format!("fond-{}", *seq);
                 open.push(Fond { key: target.key.clone(), label: label.clone(), state: state.clone() });

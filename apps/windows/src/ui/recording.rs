@@ -13,6 +13,7 @@
 //!   ligne dans le menu de l'icône. L'ami qui emprunte ne voit rien ; un
 //!   invité voit la pastille, sans action.
 
+use crate::sync::Locked;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -49,7 +50,7 @@ struct RecordingEvent {
 /// Garde l'état de la session et le dit à la barre et au menu de l'icône.
 fn publish(app: &AppHandle, events: &UiEvents, seen: Seen) {
     let view = seen.view();
-    *events.recording.lock().unwrap() = Some(seen);
+    *events.recording.locked() = Some(seen);
     let _ = app.emit_to("bar", "recording-state", RecordingEvent { id: events.id.clone(), recording: view });
     tray::refresh();
 }
@@ -80,7 +81,7 @@ impl UiEvents {
 /// Pour `bar-shown` : l'enregistrement de la session `id`, à l'instant (le
 /// temps écoulé compris) ; rien pour une Station qui n'enregistre pas.
 pub(super) fn bar_view(app: &AppHandle, id: &str) -> Option<serde_json::Value> {
-    let seen = app.state::<UiState>().with_session(id, |r| r.events.recording.lock().unwrap().clone()).flatten()?;
+    let seen = app.state::<UiState>().with_session(id, |r| r.events.recording.locked().clone()).flatten()?;
     seen.view()
 }
 
@@ -88,7 +89,7 @@ pub(super) fn bar_view(app: &AppHandle, id: &str) -> Option<serde_json::Value> {
 /// l'enregistrement (02:14) ») et si elle se choisit (coupé dans Admin :
 /// inactive, sauf pour arrêter un enregistrement en cours).
 pub(super) fn menu_item(events: &UiEvents) -> Option<(String, bool)> {
-    let seen = events.recording.lock().unwrap();
+    let seen = events.recording.locked();
     let s = &seen.as_ref()?.state;
     s.available.then(|| (s.menu_item(lang()), s.allowed || s.active))
 }
@@ -137,7 +138,7 @@ pub fn session_record(app: AppHandle, id: String, record: bool) -> Result<Option
 pub(super) fn toggle(app: &AppHandle, id: &str) {
     let state = app.state::<UiState>();
     let Some((seen, name, host)) =
-        state.with_session(id, |r| (r.events.recording.lock().unwrap().clone(), r.name.clone(), r.guest.is_none() && r.borrow.is_none()))
+        state.with_session(id, |r| (r.events.recording.locked().clone(), r.name.clone(), r.guest.is_none() && r.borrow.is_none()))
     else {
         return;
     };

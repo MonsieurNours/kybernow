@@ -6,6 +6,7 @@
 //! Le mutex `Local\KyberNow.App` dit aussi à l'installateur que l'app tourne
 //! (il attend sa fermeture avant de remplacer les fichiers).
 
+use crate::sync::Locked;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::sync::Mutex;
@@ -93,17 +94,17 @@ pub fn forward(args: &[String]) -> bool {
 }
 
 fn deliver(args: Vec<String>) {
-    match SINK.lock().unwrap().as_ref() {
+    match SINK.locked().as_ref() {
         Some(sink) => sink(args),
-        None => QUEUE.lock().unwrap().push(args),
+        None => QUEUE.locked().push(args),
     }
 }
 
 /// L'app est prête : elle reçoit ce qui attendait, puis les suivantes.
 pub fn set_sink(sink: impl Fn(Vec<String>) + Send + 'static) {
     // D'abord le destinataire (plus rien ne s'empile), puis ce qui attendait.
-    *SINK.lock().unwrap() = Some(Box::new(sink));
-    let waiting: Vec<Vec<String>> = QUEUE.lock().unwrap().drain(..).collect();
+    *SINK.locked() = Some(Box::new(sink));
+    let waiting: Vec<Vec<String>> = QUEUE.locked().drain(..).collect();
     for args in waiting {
         deliver(args);
     }

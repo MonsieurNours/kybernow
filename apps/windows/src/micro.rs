@@ -17,6 +17,7 @@
 //! Accès refusé par la confidentialité de Windows (`E_ACCESSDENIED`) : le fil
 //! s'arrête et le dit (l'app coupe le micro et montre l'avis).
 
+use crate::sync::Locked;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -54,7 +55,7 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Les choix des Réglages de l'app (au lancement, puis à chaque changement) :
 /// une capture en cours les prend tout de suite.
 pub fn set_prefs(device: Option<String>, voice: bool) {
-    *PREFS.lock().unwrap() = Prefs { device, voice };
+    *PREFS.locked() = Prefs { device, voice };
     GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
@@ -187,7 +188,7 @@ unsafe fn chosen_back(enumerator: &IMMDeviceEnumerator, id: &str) -> bool {
 unsafe fn capture(sink: &Sink, stop: &AtomicBool) -> windows::core::Result<()> {
     unsafe {
         let generation = GENERATION.load(Ordering::SeqCst);
-        let prefs = PREFS.lock().unwrap().clone();
+        let prefs = PREFS.locked().clone();
         let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         let (device, fallback) = open_device(&enumerator, prefs.device.as_deref())?;
         let client: IAudioClient2 = device.Activate(CLSCTX_ALL, None)?;

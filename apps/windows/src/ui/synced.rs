@@ -23,6 +23,7 @@
 //! Gardé dans `%APPDATA%\KyberNow\synced.json` (`synced::SyncFile`, rien de
 //! secret). Les règles se testent sur le Mac (`src/synced.rs`).
 
+use crate::sync::Locked;
 use std::sync::mpsc;
 
 use kybernow_core::account::{AccountError, Paired, SyncedValues};
@@ -71,7 +72,7 @@ fn path() -> std::path::PathBuf {
 /// `f` sur `synced.json` ; le fichier n'est réécrit (atomique) que si `f` l'a
 /// changé.
 fn with_file<T>(f: impl FnOnce(&mut SyncFile) -> T) -> T {
-    let mut guard = FILE.lock().unwrap();
+    let mut guard = FILE.locked();
     let file = guard.get_or_insert_with(|| crate::files::load_json(&path()).unwrap_or_default());
     let before = serde_json::to_vec(&*file).ok();
     let out = f(file);
@@ -83,7 +84,7 @@ fn with_file<T>(f: impl FnOnce(&mut SyncFile) -> T) -> T {
 
 /// L'interrupteur des réglages de l'app (allumé tant qu'il n'a pas été changé).
 pub fn enabled(app: &AppHandle) -> bool {
-    app.state::<UiState>().prefs.lock().unwrap().sync_settings.unwrap_or(true)
+    app.state::<UiState>().prefs.locked().sync_settings.unwrap_or(true)
 }
 
 /// Un compte oublié : ses réglages gardés aussi.
@@ -121,7 +122,7 @@ fn effective(c: &Computer, l: &Local, pc: &ThisPc) -> kybernow_core::profile::St
 }
 
 fn this_pc(app: &AppHandle) -> ThisPc {
-    app.state::<UiState>().this_pc.lock().unwrap().clone().unwrap_or_default()
+    app.state::<UiState>().this_pc.locked().clone().unwrap_or_default()
 }
 
 /// Le compte et la Station d'un ordinateur de l'accueil : celui par lequel il
@@ -144,7 +145,7 @@ pub fn fetch_all(app: &AppHandle) {
     if !enabled(app) {
         return;
     }
-    let _busy = BUSY.lock().unwrap();
+    let _busy = BUSY.locked();
     for a in account::list() {
         fetch_one(app, &a);
     }
@@ -224,7 +225,7 @@ pub fn before_session(app: &AppHandle, id: &str) {
     let app = app.clone();
     std::thread::spawn(move || {
         {
-            let _busy = BUSY.lock().unwrap();
+            let _busy = BUSY.locked();
             fetch_one(&app, &a);
         }
         let _ = tx.send(());
@@ -254,7 +255,7 @@ pub fn changed(app: &AppHandle, id: &str, before: &Settings) {
     }
     let Some(a) = account::list().into_iter().find(|a| a.key() == key) else { return };
     send_queue(Box::new(move || {
-        let _busy = BUSY.lock().unwrap();
+        let _busy = BUSY.locked();
         let (values, last) = with_file(|f| {
             let s = f.accounts.entry(key.clone()).or_default();
             (s.to_send(&station, &change, || rules::everything(&new, &new_eff)), s.last(&station).cloned())

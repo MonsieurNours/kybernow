@@ -21,6 +21,7 @@
 //!   `HostEvents::lend`), et sur l'accueil de cet ordinateur « Prêté à {prénom} »
 //!   avec « Reprendre l'ordinateur » (`lend_take_back`).
 
+use crate::sync::Locked;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -102,7 +103,7 @@ pub struct Borrow {
 
 impl Borrow {
     pub fn bar(&self) -> BorrowBar {
-        BorrowBar { host: self.host.clone(), until: self.until, notice: self.notice.lock().unwrap().clone() }
+        BorrowBar { host: self.host.clone(), until: self.until, notice: self.notice.locked().clone() }
     }
 }
 
@@ -115,7 +116,7 @@ fn friends_path() -> PathBuf {
 
 impl LendState {
     fn with_friends<T>(&self, f: impl FnOnce(&mut Vec<Friend>) -> T) -> T {
-        let mut list = self.friends.lock().unwrap();
+        let mut list = self.friends.locked();
         f(list.get_or_insert_with(|| lending::load_friends(&friends_path())))
     }
 
@@ -132,7 +133,7 @@ impl LendState {
 
     /// Le mot de passe de ce compte : donné depuis le lancement, sinon retenu.
     fn password(&self, f: &Friend) -> Option<String> {
-        if let Some(p) = self.passwords.lock().unwrap().get(&f.id) {
+        if let Some(p) = self.passwords.locked().get(&f.id) {
             return Some(p.clone());
         }
         if f.remember { store::password(&f.credential()).filter(|p| !p.is_empty()) } else { None }
@@ -146,10 +147,10 @@ impl LendState {
             if !store::set_password(&f.credential(), &f.login, password) {
                 return Err(t("errors.password_store", &[]));
             }
-            self.passwords.lock().unwrap().remove(&f.id);
+            self.passwords.locked().remove(&f.id);
         } else {
             store::delete_password(&f.credential());
-            self.passwords.lock().unwrap().insert(f.id.clone(), password.to_string());
+            self.passwords.locked().insert(f.id.clone(), password.to_string());
         }
         Ok(())
     }
@@ -164,7 +165,7 @@ fn lang() -> kybernow_core::i18n::Lang {
 /// Les cartes « Ordinateur de {hôte} » de l'accueil.
 fn views(state: &UiState) -> Vec<FriendView> {
     let list = state.lend.with_friends(|l| l.clone());
-    let seen = state.lend.seen.lock().unwrap();
+    let seen = state.lend.seen.locked();
     list.iter().map(|f| FriendView::new(f, seen.get(&f.id).unwrap_or(&Seen::Unknown))).collect()
 }
 
@@ -200,7 +201,7 @@ fn refresh_friend(state: &UiState, f: &Friend) -> bool {
             }
         },
     };
-    let mut all = state.lend.seen.lock().unwrap();
+    let mut all = state.lend.seen.locked();
     all.insert(f.id.clone(), seen.clone()) != Some(seen)
 }
 
@@ -292,7 +293,7 @@ pub fn lend_add(app: AppHandle, link: Option<String>, candidate: Option<Candidat
     state.lend.keep_password(&f, &password, remember)?;
     state.lend.with_friends(|l| lending::upsert(l, f.clone()));
     state.lend.save();
-    state.lend.seen.lock().unwrap().insert(id.clone(), Seen::Status(status));
+    state.lend.seen.locked().insert(id.clone(), Seen::Status(status));
     log::info!("prêt : ordinateur de {} ajouté{}", f.owner_name(), if f.route().is_some() { " (avec le relais)" } else { "" });
     emit_friends(&app);
     Ok(id)
@@ -311,8 +312,8 @@ pub fn lend_remove(app: AppHandle, id: String) {
         state.lend.save();
     }
     store::delete_password(&lending::credential_of(&id));
-    state.lend.passwords.lock().unwrap().remove(&id);
-    state.lend.seen.lock().unwrap().remove(&id);
+    state.lend.passwords.locked().remove(&id);
+    state.lend.seen.locked().remove(&id);
     emit_friends(&app);
 }
 
@@ -324,13 +325,13 @@ pub fn lend_remove(app: AppHandle, id: String) {
 pub fn keep_ticket(state: &UiState, code: LendCode, name: String) -> u64 {
     let id = SEQ.fetch_add(1, Ordering::Relaxed);
     log::info!("partage : le code est un code de prêt{}", if code.route.is_some() { " (par le relais)" } else { "" });
-    *state.lend.ticket.lock().unwrap() = Some(Ticket { id, code, name });
+    *state.lend.ticket.locked() = Some(Ticket { id, code, name });
     id
 }
 
 /// Le prénom envoyé avec la demande : celui de « Rejoindre », sinon le nom de ce PC.
 fn borrower_name(state: &UiState) -> String {
-    let remembered = state.prefs.lock().unwrap().share_name.clone();
+    let remembered = state.prefs.locked().share_name.clone();
     crate::sharing::proposed_name(remembered.as_deref(), &system::device_info().name)
 }
 
@@ -374,7 +375,7 @@ pub fn lend_borrow(app: AppHandle, friend: Option<String>, ticket: Option<u64>, 
         }
         (None, Some(n)) => {
             let tk = {
-                let mut tk = state.lend.ticket.lock().unwrap();
+                let mut tk = state.lend.ticket.locked();
                 match tk.take() {
                     Some(x) if x.id == n => x,
                     other => {
@@ -407,7 +408,7 @@ fn outcome(state: &UiState, answer: Borrowing, again: Again) -> BorrowOutcome {
             let id = SEQ.fetch_add(1, Ordering::Relaxed);
             let host = pending.host.clone();
             log::info!("prêt : demande en attente de l'accord de l'hôte (n°{id})");
-            let old = state.lend.wait.lock().unwrap().replace(Wait { id, pending, again, cancelled: Arc::new(AtomicBool::new(false)) });
+            let old = state.lend.wait.locked().replace(Wait { id, pending, again, cancelled: Arc::new(AtomicBool::new(false)) });
             if let Some(old) = old {
                 old.cancelled.store(true, Ordering::Relaxed);
                 std::thread::spawn(move || lend::cancel(&old.pending));
@@ -431,8 +432,8 @@ fn open_loan(state: &UiState, loan: Loan, again: Again) -> LoanReady {
         if loan.borrowed.route.is_some() { ", par le relais" } else { "" }
     );
     let ready = LoanReady { id: id.clone(), title, host, fingerprint: loan.target.fingerprint.clone() };
-    *state.lend.last.lock().unwrap() = Some(again);
-    *state.lend.pending.lock().unwrap() = Some(Pending { id, session, loan });
+    *state.lend.last.locked() = Some(again);
+    *state.lend.pending.locked() = Some(Pending { id, session, loan });
     ready
 }
 
@@ -442,7 +443,7 @@ fn open_loan(state: &UiState, loan: Loan, again: Again) -> LoanReady {
 #[tauri::command(async)]
 pub fn lend_wait(app: AppHandle, wait: u64) -> Result<LendWaitOutcome, String> {
     let state = app.state::<UiState>();
-    let (pending, again, cancelled) = match state.lend.wait.lock().unwrap().as_ref() {
+    let (pending, again, cancelled) = match state.lend.wait.locked().as_ref() {
         Some(w) if w.id == wait => (w.pending.clone(), w.again.clone(), w.cancelled.clone()),
         _ => return Ok(LendWaitOutcome::Cancelled),
     };
@@ -457,7 +458,7 @@ pub fn lend_wait(app: AppHandle, wait: u64) -> Result<LendWaitOutcome, String> {
         return Ok(LendWaitOutcome::Cancelled);
     }
     let finished = |state: &UiState| {
-        let mut w = state.lend.wait.lock().unwrap();
+        let mut w = state.lend.wait.locked();
         if w.as_ref().is_some_and(|w| w.id == wait) {
             w.take();
         }
@@ -485,7 +486,7 @@ pub fn lend_cancel(app: AppHandle, wait: u64) {
 /// Retire la demande en attente (celle-ci, ou n'importe laquelle : l'app se ferme).
 pub fn cancel_wait(state: &UiState, only: Option<u64>) {
     let taken = {
-        let mut w = state.lend.wait.lock().unwrap();
+        let mut w = state.lend.wait.locked();
         if w.as_ref().is_some_and(|w| only.is_none_or(|id| w.id == id)) { w.take() } else { None }
     };
     if let Some(w) = taken {
@@ -503,7 +504,7 @@ pub fn lend_come_back(app: AppHandle) -> Result<BorrowOutcome, String> {
     if state.full() {
         return Err(t("errors.four_at_most", &[]));
     }
-    let again = state.lend.last.lock().unwrap().clone().ok_or_else(|| t("errors.no_session", &[]))?;
+    let again = state.lend.last.locked().clone().ok_or_else(|| t("errors.no_session", &[]))?;
     log::info!("prêt : retour demandé");
     let answer = lend::borrow(&again.target, again.route.as_ref(), &again.request).map_err(|e| e.text(lang(), ""))?;
     Ok(outcome(&state, answer, again))
@@ -517,7 +518,7 @@ pub fn lend_come_back(app: AppHandle) -> Result<BorrowOutcome, String> {
 pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let state = app.state::<UiState>();
     let pending = {
-        let mut p = state.lend.pending.lock().unwrap();
+        let mut p = state.lend.pending.locked();
         match p.take() {
             Some(x) if x.id == id => x,
             other => {
@@ -531,8 +532,8 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         return Ok(ConnectInfo { screens: 0, windowed: true });
     }
     let first = {
-        let sessions = state.sessions.lock().unwrap();
-        let mut launching = state.launching.lock().unwrap();
+        let sessions = state.sessions.locked();
+        let mut launching = state.launching.locked();
         if sessions.len() + launching.len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS {
             return Err(t("errors.four_at_most", &[]));
         }
@@ -583,7 +584,7 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let this_screen = layout.this_screen.clone();
     let connexion = Arc::new(Connexion { session, name: title.clone(), ..Default::default() });
     {
-        let mut view = connexion.view.lock().unwrap();
+        let mut view = connexion.view.locked();
         view.id = id.clone();
         view.phase = "preparing";
         view.title = Some(title.clone());
@@ -620,7 +621,7 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         recording: Mutex::new(None),
         mic: Default::default(),
     });
-    let mut running = state.sessions.lock().unwrap();
+    let mut running = state.sessions.locked();
     let host = match SessionHost::start_as(
         session,
         title.clone(),
@@ -680,7 +681,7 @@ pub fn lend_give_back(app: AppHandle, id: String) -> Result<(), String> {
 /// Ce que « Prêter l'ordinateur… » peut faire avec cet ordinateur (`info.lend`).
 fn availability(app: &AppHandle, id: &str) -> &'static str {
     let state = app.state::<UiState>();
-    let live = state.live.lock().unwrap();
+    let live = state.live.locked();
     let info = live.get(id).and_then(|l| l.info.as_ref());
     lending::availability(info.is_some(), info.and_then(|i| i.lend))
 }
@@ -712,10 +713,10 @@ struct LendEvent {
 pub fn publish(app: &AppHandle, id: &str, view: Option<LendView>) -> LendPanel {
     let state = app.state::<UiState>();
     if let Some(cell) = state.with_session(id, |r| r.lend.clone()) {
-        *cell.lock().unwrap() = view.clone();
+        *cell.locked() = view.clone();
     }
     let home_changed = {
-        let mut live = state.live.lock().unwrap();
+        let mut live = state.live.locked();
         match live.get_mut(id) {
             Some(l) if l.lend != view => {
                 l.lend = view.clone();
@@ -754,7 +755,7 @@ pub fn lend_state(app: AppHandle, id: String) -> Result<LendPanel, String> {
     let console = host_console(&app, &id)?;
     let info = lift(console.info())?;
     let usable = info.lend.is_some_and(|l| l.available && l.enabled);
-    app.state::<UiState>().live.lock().unwrap().entry(id.clone()).or_default().info = Some(info);
+    app.state::<UiState>().live.locked().entry(id.clone()).or_default().info = Some(info);
     if !usable {
         return Ok(publish(&app, &id, None));
     }
@@ -829,7 +830,7 @@ impl UiEvents {
             return;
         }
         let after = view.cloned();
-        let before = std::mem::replace(&mut *self.lend.lock().unwrap(), after.clone());
+        let before = std::mem::replace(&mut *self.lend.locked(), after.clone());
         let known = self.lend_seen.swap(true, Ordering::Relaxed);
         publish(&self.app, &self.id, after.clone());
         let arrived = lending::new_requests(before.as_ref(), after.as_ref(), known);
@@ -853,7 +854,7 @@ impl UiEvents {
     pub(super) fn on_lend_notice(&self, notice: &kybernow_core::lend::LendNotice, text: &str) {
         let Some(b) = &self.borrow else { return };
         log::info!("[{}] préavis du prêt : {:?}", b.title, notice.reason);
-        *b.notice.lock().unwrap() = Some(NoticeView::new(notice, text.to_string()));
+        *b.notice.locked() = Some(NoticeView::new(notice, text.to_string()));
         let _ = self.app.emit_to("bar", "lend-borrow", BorrowEvent { id: self.id.clone(), borrow: b.bar() });
         super::share::notice(&self.app, &self.id, &b.title, text);
     }
@@ -862,6 +863,6 @@ impl UiEvents {
     pub(super) fn on_lend_end(&self, end: LendEnd, text: &str) {
         let Some(b) = &self.borrow else { return };
         log::info!("[{}] fin du prêt ({end:?})", b.title);
-        *b.end.lock().unwrap() = Some((end, text.to_string()));
+        *b.end.locked() = Some((end, text.to_string()));
     }
 }

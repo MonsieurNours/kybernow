@@ -26,6 +26,7 @@
 //!   le partage et ses invités arrivent aussi avec le signe de vie de la session
 //!   (`HostEvents::guests`).
 
+use crate::sync::Locked;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -112,12 +113,12 @@ struct ShareEvent {
 
 /// Capacités de ce PC, sondées une fois (comme `connect`).
 pub(super) fn this_pc_of(state: &UiState) -> ThisPc {
-    let cached = state.this_pc.lock().unwrap().clone();
+    let cached = state.this_pc.locked().clone();
     match cached {
         Some(pc) => pc,
         None => {
             let pc = pc::this_pc();
-            *state.this_pc.lock().unwrap() = Some(pc.clone());
+            *state.this_pc.locked() = Some(pc.clone());
             pc
         }
     }
@@ -158,7 +159,7 @@ pub struct Defaults {
 pub fn share_defaults(app: AppHandle) -> Defaults {
     let state = app.state::<UiState>();
     let (remembered, quality) = {
-        let p = state.prefs.lock().unwrap();
+        let p = state.prefs.locked();
         (p.share_name.clone(), p.share_quality.unwrap_or_default())
     };
     Defaults { name: sharing::proposed_name(remembered.as_deref(), &system::device_info().name), quality: quality.as_str() }
@@ -287,7 +288,7 @@ pub fn share_join(app: AppHandle, code: String, name: String, quality: String, l
             // attente (une autre ouverture de « Rejoindre ») est retirée.
             let wait = WAITS.fetch_add(1, Ordering::Relaxed);
             log::info!("partage : demande en attente de l'accord de l'hôte (n°{wait}, par le relais)");
-            let old = state.join_wait.lock().unwrap().replace(Wait { id: wait, pending, quality, cancelled: Arc::new(AtomicBool::new(false)) });
+            let old = state.join_wait.locked().replace(Wait { id: wait, pending, quality, cancelled: Arc::new(AtomicBool::new(false)) });
             if let Some(old) = old {
                 old.cancelled.store(true, Ordering::Relaxed);
                 std::thread::spawn(move || share::cancel(&old.pending));
@@ -332,7 +333,7 @@ fn open_found(state: &UiState, found: Found, quality: ShareQuality, watching: Op
         watch,
     });
     let joined = Joined { id: id.clone(), title, host, role: j.role.as_str(), fingerprint: found.target.fingerprint.clone() };
-    let old = state.pending_guest.lock().unwrap().replace(Pending { id, session, found, guest });
+    let old = state.pending_guest.locked().replace(Pending { id, session, found, guest });
     if let Some(old) = old {
         std::thread::spawn(move || share::leave(&old.found));
     }
@@ -382,7 +383,7 @@ pub fn share_watch(app: AppHandle, id: String) -> Result<Joined, String> {
         return Err(t("errors.no_session", &[]));
     };
     let (access, lan) = super::account::watch_params(&app, &c, &ac)?;
-    let quality = state.prefs.lock().unwrap().share_quality.unwrap_or_default();
+    let quality = state.prefs.locked().share_quality.unwrap_or_default();
     let pc = this_pc_of(&state);
     let caps = capabilities(&pc);
     let request = WatchRequest { app: "windows".into(), display: None, quality, auto: sharing::join_auto(quality, system::screen_mode(), caps) };
@@ -436,7 +437,7 @@ pub fn share_watch_display(app: AppHandle, id: String) -> Option<u32> {
 #[tauri::command(async)]
 pub fn share_wait(app: AppHandle, wait: u64) -> Result<WaitOutcome, String> {
     let state = app.state::<UiState>();
-    let (pending, quality, cancelled) = match state.join_wait.lock().unwrap().as_ref() {
+    let (pending, quality, cancelled) = match state.join_wait.locked().as_ref() {
         Some(w) if w.id == wait => (w.pending.clone(), w.quality, w.cancelled.clone()),
         // « Annuler » est déjà passé.
         _ => return Ok(WaitOutcome::Cancelled),
@@ -451,7 +452,7 @@ pub fn share_wait(app: AppHandle, wait: u64) -> Result<WaitOutcome, String> {
         return Ok(WaitOutcome::Cancelled);
     }
     let finished = |state: &UiState| {
-        let mut w = state.join_wait.lock().unwrap();
+        let mut w = state.join_wait.locked();
         if w.as_ref().is_some_and(|w| w.id == wait) {
             w.take();
         }
@@ -480,7 +481,7 @@ pub fn share_cancel(app: AppHandle, wait: u64) {
 /// l'app se ferme) ; bloque le temps de prévenir le relais (6 s au plus).
 pub fn cancel_wait(state: &UiState, only: Option<u64>) {
     let taken = {
-        let mut w = state.join_wait.lock().unwrap();
+        let mut w = state.join_wait.locked();
         if w.as_ref().is_some_and(|w| only.is_none_or(|id| w.id == id)) { w.take() } else { None }
     };
     if let Some(w) = taken {
@@ -499,7 +500,7 @@ pub fn cancel_wait(state: &UiState, only: Option<u64>) {
 pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let state = app.state::<UiState>();
     let pending = {
-        let mut p = state.pending_guest.lock().unwrap();
+        let mut p = state.pending_guest.locked();
         match p.take() {
             Some(x) if x.id == id => x,
             other => {
@@ -519,8 +520,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     }
     // Une place parmi les quatre (comme `connect`).
     let first = {
-        let sessions = state.sessions.lock().unwrap();
-        let mut launching = state.launching.lock().unwrap();
+        let sessions = state.sessions.locked();
+        let mut launching = state.launching.locked();
         if sessions.len() + launching.len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS {
             drop(launching);
             drop(sessions);
@@ -575,7 +576,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
     // Sa connexion : une fenêtre à sa place pendant une autre session, titrée comme elle.
     let connexion = Arc::new(Connexion { session, name: guest.title.clone(), ..Default::default() });
     {
-        let mut view = connexion.view.lock().unwrap();
+        let mut view = connexion.view.locked();
         view.id = id.clone();
         view.phase = "preparing";
         view.title = Some(guest.title.clone());
@@ -613,7 +614,7 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
         recording: Mutex::new(None),
         mic: Default::default(),
     });
-    let mut running = state.sessions.lock().unwrap();
+    let mut running = state.sessions.locked();
     let host = match SessionHost::start_as(
         session,
         guest.title.clone(),
@@ -672,7 +673,7 @@ pub fn share_quality(app: AppHandle, id: String, quality: String) -> Result<(), 
         return Err(t("errors.session_not_ready", &[]));
     }
     log::info!("[{}] qualité de l'image demandée : {}", guest.title, quality.as_str());
-    *guest.quality.lock().unwrap() = quality;
+    *guest.quality.locked() = quality;
     update_prefs(&state, |p| p.share_quality = Some(quality));
     Ok(())
 }
@@ -683,7 +684,7 @@ pub fn share_quality(app: AppHandle, id: String, quality: String) -> Result<(), 
 /// lui (`info.share`) ; `None` tant qu'il n'a rien dit.
 fn availability(app: &AppHandle, id: &str) -> Option<ShareAvailability> {
     let state = app.state::<UiState>();
-    let live = state.live.lock().unwrap();
+    let live = state.live.locked();
     live.get(id).and_then(|l| l.info.as_ref()).map(ShareAvailability::of)
 }
 
@@ -696,7 +697,7 @@ pub fn view(app: &AppHandle, id: &str, state: Option<&ShareState>) -> ShareView 
 pub fn emit_state(app: &AppHandle, id: &str, share: &Mutex<Option<ShareState>>) {
     // Copié d'abord : le verrou du partage n'est pas tenu pendant que `view` lit
     // `live` (les deux ne se tiennent jamais ensemble).
-    let current = share.lock().unwrap().clone();
+    let current = share.locked().clone();
     let share = view(app, id, current.as_ref());
     let _ = app.emit_to("bar", "share-state", ShareEvent { id: id.to_string(), share });
 }
@@ -705,7 +706,7 @@ pub fn emit_state(app: &AppHandle, id: &str, share: &Mutex<Option<ShareState>>) 
 fn publish(app: &AppHandle, id: &str, state: Option<ShareState>) -> ShareView {
     let shown = state.filter(|s| s.open);
     if let Some(cell) = app.state::<UiState>().with_session(id, |r| r.share.clone()) {
-        *cell.lock().unwrap() = shown.clone();
+        *cell.locked() = shown.clone();
     }
     let share = view(app, id, shown.as_ref());
     let _ = app.emit_to("bar", "share-state", ShareEvent { id: id.to_string(), share: share.clone() });
@@ -738,7 +739,7 @@ fn state_after(console: &Console, opened: Option<&ShareOpened>, guests: Vec<Shar
 
 fn current_guests(app: &AppHandle, id: &str) -> Vec<ShareGuest> {
     app.state::<UiState>()
-        .with_session(id, |r| r.share.lock().unwrap().as_ref().map(|s| s.guests.clone()))
+        .with_session(id, |r| r.share.locked().as_ref().map(|s| s.guests.clone()))
         .flatten()
         .unwrap_or_default()
 }
@@ -751,7 +752,7 @@ pub fn share_open(app: AppHandle, id: String) -> Result<ShareView, String> {
     let console = host_console(&app, &id)?;
     // Ce que l'ordinateur annonce maintenant (la session n'a pas relevé `info` depuis son départ).
     let info = lift(console.info())?;
-    app.state::<UiState>().live.lock().unwrap().entry(id.clone()).or_default().info = Some(info.clone());
+    app.state::<UiState>().live.locked().entry(id.clone()).or_default().info = Some(info.clone());
     if let Some(text) = ShareAvailability::of(&info).text(i18n::lang()) {
         publish(&app, &id, None);
         return Err(text);
@@ -906,7 +907,7 @@ fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option
     let _ = app.run_on_main_thread(move || {
         let state = a.state::<UiState>();
         let bar_shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
-        let bar_here = bar_shown && state.bar_session.lock().unwrap().as_deref() == Some(id.as_str());
+        let bar_here = bar_shown && state.bar_session.locked().as_deref() == Some(id.as_str());
         let bar_elsewhere = bar_shown && !bar_here;
         if shell::app_in_front() && !bar_elsewhere {
             if let Some(panel) = panel.filter(|_| bar_here) {

@@ -18,6 +18,7 @@
 //! Wireless Controller », « DualSense Edge Wireless Controller ») et à ses
 //! quatre voies.
 
+use crate::sync::Locked;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -72,7 +73,7 @@ impl Drop for Event {
 
 /// Une partie commence : la sortie s'ouvre dès qu'une DualSense est branchée en USB.
 pub fn retain() {
-    let mut o = OUTPUT.lock().unwrap();
+    let mut o = OUTPUT.locked();
     o.users += 1;
     if o.users > 1 {
         return;
@@ -116,7 +117,7 @@ pub fn retain() {
 
 /// La partie se termine : la dernière ferme la sortie.
 pub fn release() {
-    let mut o = OUTPUT.lock().unwrap();
+    let mut o = OUTPUT.locked();
     o.users = o.users.saturating_sub(1);
     if o.users == 0 {
         if let Some(stop) = o.stop.take() {

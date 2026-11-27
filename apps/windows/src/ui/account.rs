@@ -34,6 +34,7 @@
 //! Tauri (`#[tauri::command(async)]`) ou sur un fil à part, jamais sur celui de
 //! la fenêtre. Ce qui se teste sans Windows est dans `accounts.rs`.
 
+use crate::sync::Locked;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 
@@ -65,7 +66,7 @@ const SYNC_EVERY: Duration = Duration::from_secs(30);
 
 /// Les comptes connectés sur ce PC (le gestionnaire d'identification, lu une fois).
 pub fn list() -> Vec<Account> {
-    ACCOUNTS.lock().unwrap().get_or_insert_with(store::accounts).clone()
+    ACCOUNTS.locked().get_or_insert_with(store::accounts).clone()
 }
 
 fn account_of(key: &str) -> Option<Account> {
@@ -84,7 +85,7 @@ fn emit_accounts(app: &AppHandle) {
 /// Le jeton d'accès de ce compte pour cette Station, gardé d'un appel à l'autre.
 fn access(account: &Account, station: &str) -> Arc<StationAccess> {
     let key = format!("{}#{station}", account.key());
-    let mut cache = ACCESS.lock().unwrap();
+    let mut cache = ACCESS.locked();
     let cache = cache.get_or_insert_with(HashMap::new);
     // Un compte reconnecté a un autre jeton d'appareil : un `StationAccess` neuf.
     if let Some(a) = cache.get(&key).filter(|a| a.account().token == account.token) {
@@ -101,10 +102,10 @@ fn access(account: &Account, station: &str) -> Arc<StationAccess> {
 fn forget(app: &AppHandle, key: &str, told: bool) {
     store::delete_account(key);
     super::synced::forget_account(key);
-    if let Some(list) = ACCOUNTS.lock().unwrap().as_mut() {
+    if let Some(list) = ACCOUNTS.locked().as_mut() {
         list.retain(|a| a.key() != key);
     }
-    if let Some(cache) = ACCESS.lock().unwrap().as_mut() {
+    if let Some(cache) = ACCESS.locked().as_mut() {
         cache.retain(|k, _| !k.starts_with(&format!("{key}#")));
     }
     log::info!("comptes : {key} oublié{}", if told { " (session de l'appareil fermée)" } else { "" });
@@ -129,7 +130,7 @@ pub fn account_sign_in(relay: Option<String>) -> Result<(), String> {
     let s = account::sign_in(&relay, &system::device_info().name).map_err(|e| e.text(lang))?;
     shell::open_url(&s.url)?;
     log::info!("comptes : connexion ouverte dans le navigateur ({})", account::relay_label(&s.relay));
-    *SIGNING.lock().unwrap() = Some(s);
+    *SIGNING.locked() = Some(s);
     Ok(())
 }
 
@@ -137,7 +138,7 @@ pub fn account_sign_in(relay: Option<String>) -> Result<(), String> {
 /// un retour arrivé ensuite est écarté.
 #[tauri::command(async)]
 pub fn account_sign_in_cancel() {
-    *SIGNING.lock().unwrap() = None;
+    *SIGNING.locked() = None;
 }
 
 /// Le relais revient à `kybernow://compte?code=…&etat=…` (ou `?erreur=annule`) :
@@ -145,7 +146,7 @@ pub fn account_sign_in_cancel() {
 /// Connecté : le compte est gardé, ses ordinateurs relevés, et l'accueil dit
 /// « Connecté à {compte}. » ; « Annuler » sur la page : rien.
 pub fn callback(app: &AppHandle, url: &str) {
-    let Some(sign_in) = SIGNING.lock().unwrap().take() else {
+    let Some(sign_in) = SIGNING.locked().take() else {
         log::warn!("comptes : retour de la page de connexion sans connexion en cours, écarté");
         return;
     };
@@ -168,7 +169,7 @@ pub fn callback(app: &AppHandle, url: &str) {
                 log::info!("comptes : connexion refusée ({})", e.kind());
                 // Le retour d'une demande plus ancienne (autre `etat`) : celle en cours attend toujours le sien.
                 if *e == AccountError::BadCode {
-                    SIGNING.lock().unwrap().get_or_insert(sign_in);
+                    SIGNING.locked().get_or_insert(sign_in);
                 }
                 SignInOutcome::of(&r, lang)
             }
@@ -185,7 +186,7 @@ pub fn callback(app: &AppHandle, url: &str) {
 /// session d'appareil est fermée chez le relais, sans attendre).
 fn keep(app: &AppHandle, a: Account) {
     let old = {
-        let mut guard = ACCOUNTS.lock().unwrap();
+        let mut guard = ACCOUNTS.locked();
         let list = guard.get_or_insert_with(store::accounts);
         let old = list.iter().position(|o| o.key() == a.key()).map(|i| list.remove(i));
         list.push(a.clone());
@@ -237,7 +238,7 @@ pub fn sync(app: &AppHandle) {
     if SYNCING.swap(true, Ordering::AcqRel) {
         return;
     }
-    *LAST_SYNC.lock().unwrap() = Some(Instant::now());
+    *LAST_SYNC.locked() = Some(Instant::now());
     let accounts = list();
     let known = app.state::<UiState>().with_store(|s| s.account_computers.clone());
     let fetched = accounts.iter().map(|a| (a.key(), account::computers(a))).collect();
@@ -255,7 +256,7 @@ pub fn sync(app: &AppHandle) {
 /// Un relevé sur un fil : au lancement (`force`), et au retour de la fenêtre
 /// (30 s au plus souvent).
 pub fn sync_soon(app: &AppHandle, force: bool) {
-    let recent = LAST_SYNC.lock().unwrap().is_some_and(|t| t.elapsed() < SYNC_EVERY);
+    let recent = LAST_SYNC.locked().is_some_and(|t| t.elapsed() < SYNC_EVERY);
     if (!force && recent) || (!force && list().is_empty()) {
         return;
     }
@@ -349,7 +350,7 @@ fn apply(app: &AppHandle, fresh: Vec<AccountComputer>) {
         removed
     });
     for id in &removed {
-        state.live.lock().unwrap().remove(id);
+        state.live.locked().remove(id);
         snapshot::forget(id);
     }
     if !removed.is_empty() {
