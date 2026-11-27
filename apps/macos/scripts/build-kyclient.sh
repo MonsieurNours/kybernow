@@ -36,11 +36,6 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-# Chemin réel de third_party/ (un lien dans un worktree) : meson et cargo
-# gardent ainsi leurs dossiers de build, liés au chemin absolu des sources.
-THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_party/ introuvable (docs/build-notes.md)" >&2; exit 1; }
-KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
-ROOTFS="$THIRD_PARTY/kyber-desktop/rootfs-arm64-macos"
 OUT="$HERE/Vendor"
 . "$ROOT/scripts/kyber-toolchain.sh"
 
@@ -71,6 +66,13 @@ if [ "$STAMP_ONLY" = 1 ]; then
     stamp
     exit 0
 fi
+
+# L'empreinte seule se calcule sans third_party/ (essais de l'outillage, CI).
+# Chemin réel de third_party/ (un lien dans un worktree) : meson et cargo
+# gardent ainsi leurs dossiers de build, liés au chemin absolu des sources.
+THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_party/ introuvable (docs/build-notes.md)" >&2; exit 1; }
+KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
+ROOTFS="$THIRD_PARTY/kyber-desktop/rootfs-arm64-macos"
 
 [ -d "$OUT/Frameworks" ] || { echo "Lancez d'abord scripts/vendor-kyber.sh" >&2; exit 1; }
 

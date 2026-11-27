@@ -216,12 +216,13 @@ cat > "$T/p-faux.patch" << 'FIN'
 -absent
 +y
 FIN
-MSG="correctif exact : posé" vrai kyber_patch_put "$T/p-exact.patch" "$R"
+poser() { kyber_patch_put "$@" > /dev/null; }
+MSG="correctif exact : posé" vrai poser "$T/p-exact.patch" "$R"
 MSG="… fichier ajouté et sous-projet compris" vrai test -f "$R/n.txt" -a "$(cat "$R/subprojects/txproto/t.c")" = tx
 MSG="déjà posé : reconnu" vrai kyber_patch_posed "$T/p-exact.patch" "$R"
-MSG="correctif inapplicable : refusé" faux kyber_patch_put "$T/p-faux.patch" "$R" 2> "$T/msg"
+MSG="correctif inapplicable : refusé" faux poser "$T/p-faux.patch" "$R" 2> "$T/msg"
 MSG="… sans rien laisser (b.txt intact, ni .rej ni .orig)" vrai test "$(cat "$R/b.txt")" = x -a -z "$(find "$R" -name '*.rej' -o -name '*.orig')"
-MSG="décalage du contexte : refusé par défaut (STCOM-05)" faux kyber_patch_put "$T/p-fuzz.patch" "$R" 2> "$T/msg"
+MSG="décalage du contexte : refusé par défaut (STCOM-05)" faux poser "$T/p-fuzz.patch" "$R" 2> "$T/msg"
 MSG="… avec un message qui le dit" vrai grep -q "décalage du contexte" "$T/msg"
 MSG="… a.txt laissé tel quel" vrai grep -qx 6 "$R/a.txt"
 MSG="KYBERNOW_PATCH_STRICT=0 : posé, avec un avertissement" vrai env KYBERNOW_PATCH_STRICT=0 \
