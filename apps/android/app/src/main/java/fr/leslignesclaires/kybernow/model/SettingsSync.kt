@@ -223,7 +223,7 @@ class SettingsSync(
     private fun apply(key: String, station: String, values: JSONObject) {
         if (values.length() == 0) return
         val d = decoders()
-        for (h in hosts.hosts.value.filter { it.account?.key == key && it.account?.station == station }) {
+        for (h in hosts.hosts.value.filter { it.account?.let { a -> a.key == key && a.station == station } == true }) {
             val stream = SyncedKeys.stream(h, d)
             val result = SyncedKeys.applyStream(values, stream, Hdr.capabilities(h, d))
             val next = SyncedKeys.applied(h.settings, values, result)
