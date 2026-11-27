@@ -30,7 +30,8 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
-MAIN="$(cd "$(git -C "$ROOT" rev-parse --git-common-dir)/.." && pwd)"
+# Chemin absolu : relatif, git le donne depuis $ROOT, pas depuis le dossier courant (STMAC-18).
+MAIN="$(cd "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
 IDENTITY="${KYBER_SIGN_IDENTITY:-Developer ID Application: Mathieu Requenna (P6DB682S4K)}"
 ENTITLEMENTS="$ROOT/server/macos/station.entitlements"
 BUNDLE_ID="fr.leslignesclaires.kybernow.station"
@@ -105,6 +106,9 @@ elif ! camera_profile_ok "$CAMERA_PROFILE"; then
     exit 1
 fi
 CAMERA_EXT=""
+# Jamais le kybernow-camera d'une construction d'avant : si clang échoue,
+# l'outil manque et la construction s'arrête (TRANS-07).
+rm -f "$WORK/kybernow-camera"
 if [ -n "$CAMERA_PROFILE" ]; then
     CAMERA_EXT="$("$ROOT/server/macos/camera-extension/build.sh" "$VERSION" | tail -1)"
     "$ROOT/server/camera/build.sh" macos \
@@ -231,11 +235,17 @@ localized "$APP" "KyberNow Station" "KyberNow Station" \
 " "\"NSMicrophoneUsageDescription\" = \"KyberNow Station reads the session's sound on the KyberNow output to send it to your devices. No real microphone is listened to.\";
 "
 # Signature de l'intérieur vers l'extérieur : bibliothèques, sortie son,
-# exécutables (même droits : le son), puis le paquet.
+# exécutables, puis le paquet. Le droit audio-input (lire une entrée son) pour
+# ceux qui en lisent une seulement (STMAC-04) : kyavserver (le son de la
+# session, sur le retour de la sortie KyberNow) et kybernow-micro ; l'app
+# elle-même le garde pour demander l'autorisation du micro.
 find "$APP/Contents/Frameworks" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' lib; do sign "$lib"; done
 sign "$APP/Contents/Resources/KyberNow.driver"
-for exe in kycontroller kyavserver kynputserver kybernow-pyrowave-check kybernow-encoder-check kybernow-micro kyber-admin kybernow-display kybernow-ui kybernow-console; do
+for exe in kyavserver kybernow-micro; do
     sign --entitlements "$ENTITLEMENTS" -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
+done
+for exe in kycontroller kynputserver kybernow-pyrowave-check kybernow-encoder-check kyber-admin kybernow-display kybernow-ui kybernow-console; do
+    sign -i "$BUNDLE_ID.$exe" "$APP/Contents/MacOS/$exe"
 done
 [ -n "$CAMERA_EXT" ] && sign -i "$BUNDLE_ID.kybernow-camera" "$APP/Contents/MacOS/kybernow-camera"
 sign --entitlements "$APP_ENTITLEMENTS" "$APP"
