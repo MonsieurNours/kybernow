@@ -49,6 +49,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
 import fr.leslignesclaires.kybernow.BuildConfig
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.ConsoleClient
@@ -1021,6 +1023,8 @@ data class AppSettingsState(
     val mics: List<Pair<String, String>>? = null,
     val micDevice: String? = null,
     val voiceProcessing: Boolean = true,
+    /** « Envoyer le journal » : le fichier se prépare (logcat lu), le bouton attend. */
+    val journalPreparing: Boolean = false,
 )
 
 class AppSettingsActions(
@@ -1048,6 +1052,8 @@ class AppSettingsActions(
     /** Le micro choisi (nul : celui du système). */
     val setMic: (String?) -> Unit = {},
     val setVoiceProcessing: (Boolean) -> Unit = {},
+    /** « Envoyer le journal » (À propos) : le fichier texte du journal, à la feuille de partage d'Android. */
+    val sendJournal: () -> Unit = {},
 )
 
 @Composable
@@ -1078,10 +1084,14 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     }
     var micDevice by remember { mutableStateOf(MicPrefs.device(context)) }
     var voice by remember { mutableStateOf(MicPrefs.voiceProcessing(context)) }
+    var journalPreparing by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val journalTitle = stringResource(R.string.journal_send)
     AppSettingsContent(
         AppSettingsState(
             language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn,
             syncSettings = syncSettings, syncTexts = syncTexts, mics = mics, micDevice = micDevice, voiceProcessing = voice,
+            journalPreparing = journalPreparing,
         ),
         AppSettingsActions(
             setLanguage = { v -> AppCompatDelegate.setApplicationLocales(if (v == "auto") LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(v)) },
@@ -1098,6 +1108,17 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             replayWelcome = onReplayWelcome,
             setMic = { k -> MicPrefs.setDevice(context, k); micDevice = k },
             setVoiceProcessing = { on -> MicPrefs.setVoiceProcessing(context, on); voice = on },
+            sendJournal = {
+                if (!journalPreparing) {
+                    journalPreparing = true
+                    scope.launch {
+                        val file = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { fr.leslignesclaires.kybernow.model.Journal.build(context) } }.getOrNull()
+                        journalPreparing = false
+                        // Au téléviseur, il n'y a pas toujours d'app pour le recevoir : rien ne s'ouvre, l'app ne tombe pas.
+                        if (file != null) runCatching { context.startActivity(fr.leslignesclaires.kybernow.model.Journal.shareIntent(context, file, journalTitle)) }
+                    }
+                }
+            },
             setSyncSettings = { on ->
                 app.accounts.settings.setEnabled(on)
                 // Rallumé : les réglages du compte arrivent tout de suite.
@@ -1176,6 +1197,10 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
 
         Section(stringResource(R.string.app_settings_about))
         InfoRow("KyberNow Link", state.version, stringResource(R.string.app_settings_about_body))
+        ActionRow(
+            stringResource(if (state.journalPreparing) R.string.journal_preparing else R.string.journal_send),
+            stringResource(R.string.journal_send_help), enabled = !state.journalPreparing, onClick = actions.sendJournal,
+        )
         GlassButton(stringResource(R.string.welcome_replay), actions.replayWelcome)
         InfoRow(stringResource(R.string.app_settings_licenses), "AGPL-3.0", stringResource(R.string.app_settings_licenses_body))
     }

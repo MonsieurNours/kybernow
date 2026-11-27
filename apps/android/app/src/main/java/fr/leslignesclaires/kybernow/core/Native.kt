@@ -13,8 +13,11 @@ object Native {
         System.loadLibrary("kybernow")
     }
 
-    /** Journal vers logcat (`KyberNow`) et langue des messages du cœur. */
-    @JvmStatic external fun init(language: String)
+    /**
+     * Journal vers logcat (`KyberNow`) et, en copie, dans [journalDir] (`natif.log`, paniques Rust comprises : voir
+     * `model/Journal.kt`), et langue des messages du cœur.
+     */
+    @JvmStatic external fun init(language: String, journalDir: String)
 
     /**
      * PyroWave (docs/pyrowave-client-android.md) : la sonde du lancement, hors du fil principal (device Vulkan,

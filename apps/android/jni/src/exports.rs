@@ -59,12 +59,19 @@ pub(crate) fn jbool(b: bool) -> jboolean {
 
 // MARK: - Général
 
-/// Journal vers logcat (étiquette `KyberNow`) et langue des messages du cœur.
+/// Journal vers logcat (étiquette `KyberNow`) et, en copie, dans `journal`
+/// (dossier de l'app : `natif.log`, crochet de panique, voir `journal.rs`),
+/// et langue des messages du cœur.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut env: Env, _: JClass, language: JString) {
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut env: Env, _: JClass, language: JString, journal: JString) {
     static LOG: OnceLock<()> = OnceLock::new();
+    let dir = string(&mut env, &journal);
     LOG.get_or_init(|| {
-        android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("KyberNow"));
+        crate::journal::init_logger();
+        if !dir.is_empty() {
+            crate::journal::install(std::path::Path::new(&dir));
+        }
+        log::info!("KyberNow Link {} : journal ouvert", env!("CARGO_PKG_VERSION"));
     });
     let tag = string(&mut env, &language);
     i18n::set_current(Lang::from_tag(&tag));

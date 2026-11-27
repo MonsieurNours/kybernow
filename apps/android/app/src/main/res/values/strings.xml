@@ -515,6 +515,9 @@
     <string name="welcome3_station_title">Not installed yet</string>
     <string name="welcome3_station_body">Download KyberNow Station on the computer you want to reach.</string>
     <string name="welcome_replay">Show the welcome again</string>
+    <string name="journal_send">Send the log</string>
+    <string name="journal_send_help">If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to.</string>
+    <string name="journal_preparing">Preparing the log…</string>
     <string name="account_card_eyebrow">KyberNow account</string>
     <string name="account_card_title">Find your computers everywhere</string>
     <string name="account_card_body">On all your devices, even away from home.</string>

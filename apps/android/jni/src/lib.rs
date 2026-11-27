@@ -24,6 +24,8 @@ mod hdr;
 mod invite;
 #[cfg(target_os = "android")]
 mod jvm;
+/// Journal de l'app : logcat, fichier tournant, crochet de panique (AND-01).
+mod journal;
 #[cfg(target_os = "android")]
 mod lend;
 #[cfg(target_os = "android")]

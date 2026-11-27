@@ -584,6 +584,11 @@ S = [
 ("welcome3_station_title", "Pas encore installé", "Not installed yet"),
 ("welcome3_station_body", "Téléchargez KyberNow Station sur l'ordinateur à rejoindre.", "Download KyberNow Station on the computer you want to reach."),
 ("welcome_replay", "Revoir l'accueil", "Show the welcome again"),
+# « Envoyer le journal » (Réglages › À propos) : un fichier texte de ce qui s'est passé, partagé par la feuille de partage.
+("journal_send", "Envoyer le journal", "Send the log"),
+("journal_send_help", "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer.", "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to."),
+("journal_preparing", "Préparation du journal…", "Preparing the log…"),
+
 # Sans compte, ensuite : la carte du compte, « Hors de chez vous ? », le bandeau après un appairage.
 ("account_card_eyebrow", "Compte KyberNow", "KyberNow account"),
 ("account_card_title", "Retrouvez vos ordinateurs partout", "Find your computers everywhere"),
