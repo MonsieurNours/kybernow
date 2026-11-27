@@ -262,6 +262,10 @@ async fn session(State(s): State<AppState>, headers: HeaderMap, via: Option<axum
         "version": crate::update::current(),
         // Système de la Station : les textes propres à Windows ont leur version Mac.
         "platform": crate::i18n::PLATFORM,
+        // Session d'Admin ouverte : le compte de Kyber sous lequel le client
+        // web se connecte, pour l'afficher sans signer de jeton
+        // (`/api/web/ticket` reste pour les clients d'avant).
+        "stream_user": authenticated.then(|| web_user(&s)),
     }))
 }
 
@@ -2875,6 +2879,19 @@ mod tests {
         assert_eq!(ok.status(), StatusCode::ACCEPTED);
         assert_eq!(texts(&c.s, i18n::Lang::Fr)[0], "Un appareil du compte mac a redémarré la Station");
         assert_eq!(texts(&c.s, i18n::Lang::En)[0], "A device on account mac restarted the Station");
+    }
+
+    /// Le client web lit son compte de Kyber dans `/api/session`, sans
+    /// jeton ; personne sans session d'Admin ne l'apprend.
+    #[tokio::test]
+    async fn the_session_names_the_web_stream_account_only_when_signed_in() {
+        let c = console();
+        let Json(v) = session(State(c.s.clone()), HeaderMap::new(), None).await;
+        assert!(v["stream_user"].is_null());
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, format!("{}={}", auth::COOKIE, c.s.auth.open_session()).parse().unwrap());
+        let Json(v) = session(State(c.s.clone()), headers, None).await;
+        assert_eq!(v["stream_user"].as_str(), Some(web_user(&c.s).as_str()));
     }
 
     #[tokio::test]
