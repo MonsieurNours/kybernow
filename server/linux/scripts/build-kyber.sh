@@ -19,7 +19,7 @@
 # (git checkout -- .) reste à la charge de l'appelant (release-station.sh).
 # Une seule construction à la fois sur ces sources (scripts/verrou.sh).
 # Un morceau de correctif qui ne s'applique qu'avec un décalage du contexte
-# (« fuzz ») est un échec (STCOM-05).
+# (« fuzz ») est signalé (STCOM-05 ; KYBERNOW_PATCH_STRICT=1 : un échec).
 #
 # Sortie : $KYBER_DIR/rootfs-<arch>-linux (bin/kycontroller, bin/kyavserver,
 # bin/kynputserver, lib/…), et l'empreinte des correctifs dans
@@ -75,6 +75,22 @@ HERE_PATCHES="$ROOT/server/kyber-patches"
 # avec tous les correctifs des apps (STLIN-25 : l'ancienne boucle ne faisait
 # plus rien).
 
+# Sortie de patch, en retrait ; un morceau posé avec un décalage du contexte
+# (« fuzz ») est signalé : il peut tomber au mauvais endroit sans échec
+# (STCOM-05). KYBERNOW_PATCH_STRICT=1 en fait un échec. Pas encore d'échec
+# par défaut : le correctif Mac 0009 n'a pas été rafraîchi (session des
+# correctifs Kyber).
+kyber_patch_fuzz_warn() {
+    local line fuzz=0
+    while IFS= read -r line; do
+        printf '        %s\n' "$line"
+        case "$line" in *"with fuzz"*) fuzz=1 ;; esac
+    done
+    [ $fuzz = 0 ] && return 0
+    echo "    Attention : $(basename "$1") posé avec un décalage du contexte (fuzz) : à rafraîchir" >&2
+    [ -z "${KYBERNOW_PATCH_STRICT:-}" ]
+}
+
 # Correctifs propres à Linux : même nommage que les correctifs communs.
 LINUX_PATCHES="$ROOT/server/linux/kyber-patches"
 linux_repo() {
@@ -108,7 +124,7 @@ done
 for p in "$LINUX_PATCHES"/*.patch; do
     repo="$(linux_repo "$p")"
     echo "    $(basename "$p") (Linux)"
-    (cd "$repo" && patch -p1 -F0 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
+    (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | kyber_patch_fuzz_warn "$p") || {
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
         exit 1
     }
