@@ -353,9 +353,18 @@ impl Updater {
     /// manifeste si elle est plus récente (bloquant).
     pub fn check(&self) -> Value {
         let channel = self.channel();
+        // Manifeste déjà vérifié pour cette version et ce canal : gardé (pas
+        // retéléchargé à chaque vérification ; l'installation le revérifie).
+        let known = self.state.lock().unwrap().latest.clone().filter(|r| r.manifest.is_some());
         let result = fetch_latest(channel).map(|mut r| {
             if newer(&r.version, current()) {
-                verify_release(&mut r, channel);
+                match known.as_ref().filter(|k| k.version == r.version && k.package == r.package && k.manifest_url == r.manifest_url) {
+                    Some(k) => {
+                        r.manifest = k.manifest.clone();
+                        r.refusal = k.refusal.clone();
+                    }
+                    None => verify_release(&mut r, channel),
+                }
             }
             r
         });
@@ -704,14 +713,31 @@ fn pick(releases: &[Value], channel: Channel) -> Option<&Value> {
         })
 }
 
+/// Dernière liste des versions de GitHub et son ETag : une requête
+/// conditionnelle (`If-None-Match`) qui répond 304 ne compte pas dans la
+/// limite de 60 requêtes par heure, partagée par les Stations d'un même accès.
+static RELEASES: Mutex<Option<(String, Vec<Value>)>> = Mutex::new(None);
+
 fn fetch_latest(channel: Channel) -> Result<Release> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=30");
-    let mut resp = agent()
-        .get(&url)
-        .header("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|e| i18n::because(Msg::new("update.githubDown"), &e.into()))?;
-    let list: Vec<Value> = serde_json::from_slice(&resp.body_mut().with_config().limit(16 * 1024 * 1024).read_to_vec()?)?;
+    let etag = RELEASES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|(e, _)| e.clone());
+    let mut request = agent().get(&url).header("Accept", "application/vnd.github+json");
+    if let Some(etag) = &etag {
+        request = request.header("If-None-Match", etag);
+    }
+    let mut resp = request.call().map_err(|e| i18n::because(Msg::new("update.githubDown"), &e.into()))?;
+    let list: Vec<Value> = if resp.status() == 304
+        && let Some((_, list)) = RELEASES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+    {
+        list.clone()
+    } else {
+        let new_etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).map(str::to_string);
+        let list: Vec<Value> = serde_json::from_slice(&resp.body_mut().with_config().limit(16 * 1024 * 1024).read_to_vec()?)?;
+        if let Some(e) = new_etag {
+            *RELEASES.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some((e, list.clone()));
+        }
+        list
+    };
     let v = pick(&list, channel).ok_or_else(|| Msg::new("update.noRelease").with("channel", channel.as_str()))?;
     release_from(v)
 }
