@@ -108,17 +108,6 @@ pub unsafe extern "C" fn kn_audio_set_volume(a: *const KnAudio, volume: f32) {
     }
 }
 
-/// Son coupé ou rendu, avec un fondu de 20 ms ; il continue d'être décodé et
-/// revient sans décalage (plusieurs ordinateurs à la fois). D'ordinaire, la
-/// session s'en charge : `kn_session_attach_audio` puis le registre
-/// (`kn_focus_*`) ou `kn_session_set_muted`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_audio_set_muted(a: *const KnAudio, muted: bool) {
-    if let Some(a) = unsafe { a.as_ref() } {
-        a.0.set_muted(muted);
-    }
-}
-
 /// Latence de la sortie (tampon de la carte son et ce qu'elle annonce), en ms.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_audio_set_output_latency_ms(a: *const KnAudio, latency: f64) {

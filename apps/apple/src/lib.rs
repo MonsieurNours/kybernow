@@ -21,7 +21,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
 use kybernow_core::focus::{self, FocusId};
-use kybernow_core::gamepads;
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
@@ -1475,12 +1474,6 @@ pub unsafe extern "C" fn kn_session_keyframe_recovered(s: *const KnSession) {
     with(s, |s| s.keyframe_recovered());
 }
 
-/// Aucune image depuis le démarrage du flux (plateforme qui tient sa propre veille).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_no_image(s: *const KnSession) {
-    with(s, |s| s.no_image());
-}
-
 /// Autres réglages pendant la session (profil depuis la barre), même JSON que
 /// `settings` au départ : débit changé sur-le-champ, ou flux relancé si le
 /// format, le 4:4:4 ou le transport changent.
@@ -1757,16 +1750,6 @@ pub unsafe extern "C" fn kn_screens_extra_session_window(screens_json: *const c_
     true
 }
 
-/// Index de l'écran principal dans `list` (même JSON que `screens`) : celui
-/// où s'affiche l'écran de connexion. -1 si illisible ou vide.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_screens_primary_index(screens_json: *const c_char) -> i32 {
-    match serde_json::from_str::<Screens>(&text(screens_json)) {
-        Ok(s) if !s.list.is_empty() => screens::primary_index(&s.list) as i32,
-        _ => -1,
-    }
-}
-
 /// Image `pts` reçue, décodée puis montrée (µs, `kn_now_micros`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_frame_displayed(s: *const KnSession, pts: u64, received: i64, decoded: i64, at: i64) {
@@ -1792,38 +1775,6 @@ pub unsafe extern "C" fn kn_session_hole(s: *const KnSession) {
 }
 
 // MARK: - Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md)
-
-/// La session devient active (vrai) ou passe derrière une autre : pas
-/// active, rien ne part de l'appareil vers son ordinateur (clavier, souris,
-/// texte, touches et axes des manettes), ce qu'elle tenait est relâché, ses
-/// manettes sont au repos, la souris relative est coupée, le presse-papiers
-/// est en pause et les vibrations sont ignorées ; de nouveau active, le
-/// contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur. Tenu
-/// d'une image à l'autre. Active par défaut ; le registre (`kn_focus_*`)
-/// s'en charge pour les sessions inscrites.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_active(s: *const KnSession, active: bool) {
-    with(s, |s| s.set_active(active));
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_is_active(s: *const KnSession) -> bool {
-    with(s, |s| s.is_active()).unwrap_or(true)
-}
-
-/// Son de la session coupé (vrai) ou rendu, fondu de 20 ms, sur chaque
-/// `KnAudio` donné par `kn_session_attach_audio`. Tenu d'une image à
-/// l'autre. Pas coupé par défaut ; le registre s'en charge pour les
-/// sessions inscrites (sauf « Garder le son »).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_set_muted(s: *const KnSession, muted: bool) {
-    with(s, |s| s.set_muted(muted));
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_is_muted(s: *const KnSession) -> bool {
-    with(s, |s| s.is_muted()).unwrap_or(false)
-}
 
 /// Le moteur de son de la session (le son va à Swift, qui le donne à son
 /// `KnAudio` : le cœur ne le voit pas passer). À appeler pour chaque
@@ -1853,13 +1804,6 @@ pub extern "C" fn kn_set_device_has_microphone(has: bool) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_set_microphone(s: *const KnSession, on: bool) {
     with(s, |s| s.set_microphone(on));
-}
-
-/// L'état du micro maintenant, en JSON (comme `on_microphone`) ; à libérer
-/// par `kn_string_free`. Nul sans session.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_session_microphone(s: *const KnSession) -> *mut c_char {
-    with(s, |s| give(s.microphone().to_json())).unwrap_or(std::ptr::null_mut())
 }
 
 /// Échantillons du micro, flottants mono (`count`), à `rate_hz` (n'importe
@@ -1944,18 +1888,6 @@ pub extern "C" fn kn_focus_count() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_focus_max() -> u32 {
     focus::MAX_SESSIONS as u32
-}
-
-/// Mac : le lecteur de manettes du cœur, sur son fil SDL, gardé pour toute
-/// la vie de l'app, manettes ouvertes dès l'appel (diode de joueur, mode
-/// HIDAPI). Inutile d'ordinaire : le lecteur démarre avec la première chaîne
-/// d'entrées et se ferme 5 s après la dernière ; seulement pour lire les
-/// manettes hors session. Faux sur l'Apple TV, l'iPhone et l'iPad (pas de
-/// SDL : leurs manettes passent par GameController dans l'app), si libkynput
-/// a encore son lecteur SDL, ou si SDL n'a pas pu s'ouvrir.
-#[unsafe(no_mangle)]
-pub extern "C" fn kn_gamepads_start_sdl() -> bool {
-    gamepads::start_sdl()
 }
 
 /// Latence de la session : médiane des secondes et 95e centile (ms). Faux

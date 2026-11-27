@@ -25,18 +25,6 @@ pub const KN_CAMERA_IN_USE: i32 = 1;
 pub const KN_CAMERA_UNPLUGGED: i32 = 2;
 pub const KN_CAMERA_NO_ENCODER: i32 = 3;
 
-/// L'ordinateur propose la caméra pour l'image en cours.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_camera_offered(s: *const KnSession) -> bool {
-    with(s, |s| s.camera().offered()).unwrap_or(false)
-}
-
-/// La caméra est allumée (allumage en cours compris).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_camera_is_on(s: *const KnSession) -> bool {
-    with(s, |s| s.camera().is_on()).unwrap_or(false)
-}
-
 /// Allume la caméra, ou change de caméra ou de définition sans l'éteindre.
 /// `hevc` : HEVC (sinon H.264) ; `width`×`height` : la taille encodée ;
 /// `resolution_1080` : le réglage « Définition de la caméra » ; `device` :

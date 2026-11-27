@@ -365,17 +365,6 @@ pub unsafe extern "C" fn kn_share_watch(
     watch_answer(share::watch_account(access, lan, route, &request, caps), out, error)
 }
 
-/// « Regarder » par une console d'un ordinateur du compte déjà ouverte
-/// (`kn_console_new_account`, sur le réseau ou par le relais) ; même
-/// `request_json`, `capabilities_json`, `out` et refus que `kn_share_watch`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_console_share_watch(c: *const KnConsole, request_json: *const c_char, capabilities_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    let Ok(request) = serde_json::from_str::<WatchRequest>(&text(request_json)) else { return KN_ERROR };
-    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    watch_answer(share::watch(&c.0, &request, caps), out, error)
-}
-
 /// « Regarder {nom} » : le titre des étapes de la connexion de qui regarde.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_watch_title(computer: *const c_char) -> *mut c_char {
