@@ -511,11 +511,12 @@ pub fn pyrowave_mbps(width: u32, height: u32, refresh: u32, yuv444: bool) -> u32
 }
 
 /// Bornes du débit réglé à la main (« Personnalisé »), TRANS-41.
-pub use kybernow_rules::limits::{BitrateDevice, LG_TV_MBPS_MAX, MANUAL_MBPS_MAX, MANUAL_MBPS_MAX_PYROWAVE, MANUAL_MBPS_MIN, MANUAL_MBPS_STEP};
+pub use kybernow_rules::limits::{Device, LG_TV_MBPS_MAX, MANUAL_MBPS_MAX, MANUAL_MBPS_MAX_PYROWAVE, MANUAL_MBPS_MIN, MANUAL_MBPS_STEP};
 
 /// Les bornes du débit réglé à la main sur cet appareil dans ce format
-/// (Mbit/s) : 5 à 500, 5 à 1 500 en PyroWave, 5 à 95 sur un téléviseur LG.
-pub fn manual_mbps(device: BitrateDevice, codec: Codec) -> (u32, u32) {
+/// (Mbit/s) : 5 à 500 (aucune carte n'encode au-delà), 5 à 2 500 en
+/// PyroWave, 5 à 95 sur un téléviseur LG.
+pub fn manual_mbps(device: Device, codec: Codec) -> (u32, u32) {
     kybernow_rules::limits::manual_mbps(device, codec == Codec::PyroWave)
 }
 

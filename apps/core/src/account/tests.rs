@@ -594,7 +594,7 @@ fn reglages_synchronises_appliques() {
     let high = SyncedValues { profile: Some(None), codec: Some("hevc".into()), mbps: Some(4294), ..Default::default() };
     assert_eq!(high.apply_to(&base, caps).mbps, 500);
     let pyro = SyncedValues { profile: Some(None), codec: Some("pyrowave".into()), mbps: Some(4294), ..Default::default() };
-    assert_eq!(pyro.apply_to(&base, Capabilities { pyrowave: true, ..caps }).mbps, 1500);
+    assert_eq!(pyro.apply_to(&base, Capabilities { pyrowave: true, ..caps }).mbps, 2500);
     let low = SyncedValues { profile: Some(None), mbps: Some(1), ..Default::default() };
     assert_eq!(low.apply_to(&base, caps).mbps, 5);
 }

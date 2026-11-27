@@ -12,8 +12,8 @@ Branche `claude/v2-coeur-8452cb`. Plan : [`../vague-2.md`](../vague-2.md). Guide
 | MAC-20 | `console::same_fingerprint`, `same_fingerprint_opt` (préfixe, deux-points, espaces, casse ignorés ; vide jamais) ; la même règle dans `account::merge`, l'empreinte épinglée d'Admin (`PinVerifier`) et l'empreinte d'une route du relais. |
 | TRANS-35 | `console::parse_address(texte, port_par_défaut)` : IPv6 entre crochets avec ou sans port, IPv6 nue = hôte entier (jamais `fe80:` port 1), IPv6 vérifiée, IPv4 entre crochets refusée ; les liens (partage, invitation) la prennent. |
 | TRANS-36 | `console::admin_url` (crochets une seule fois, aussi pour `Console::admin_url`), `ADMIN_PORT` (9443), `ADDRESS_EXAMPLE` (`192.168.1.20:9443`, le même partout). |
-| TRANS-40 | `Session::set_background(bool)` : plafond `BACKGROUND_BITRATE` (20 Mbit/s partout, la valeur du Mac, de Windows et des Statistiques de link-ui) et image figée ; `session::background_bitrate()`. |
-| TRANS-41 | Bornes du débit à la main : `rules::limits::manual_mbps`, `clamp_manual_mbps`, `profile::manual_mbps(device, codec)` : 5 à 500 Mbit/s, 1 500 en PyroWave, 95 sur un téléviseur LG, pas de 5 ; les réglages synchronisés reçus y sont ramenés (`SyncedValues::apply_to`). |
+| TRANS-40 | `Session::set_background(bool, Device)` : plafond `background_bitrate(device)` (décision de l'auteur du 27/11 : 20 Mbit/s sur Mac et PC, 8 sur iPhone, iPad et Apple TV, 2 sur Android ; LG avec Android) et image figée ; `rules::limits::Device`. |
+| TRANS-41 | Bornes du débit à la main : `rules::limits::manual_mbps`, `clamp_manual_mbps`, `profile::manual_mbps(device, codec)` : 5 à 500 Mbit/s en HEVC, AV1 et H.264 (aucune carte n'encode au-delà), 2 500 en PyroWave (décision de l'auteur du 27/11), 95 sur un téléviseur LG, pas de 5 ; les réglages synchronisés reçus y sont ramenés (`SyncedValues::apply_to`). |
 | (fusion) | L'essai du port 443 venu de main (`adresse_de_l_inscription`) montrait qu'une empreinte illisible gardait `:443` dans le libellé : `rules::relay::label` lit l'adresse sans l'empreinte, et `account::relay_label` passe par lui (une seule règle). |
 | TRANS-42 | Valeurs communes dans `rules::limits` et `plan::values_json(caps)` (profils sur l'appareil, PyroWave, bornes, débit en arrière-plan, invités, sessions, délais, port et exemple d'Admin, relais public) ; `share::MAX_GUESTS`, `RELAY_LINK_WAIT`, `focus::MAX_SESSIONS`, `station_offer::NOTICE_WAIT_SECS`, `BEFORE_NOTICE`, `profile::PYROWAVE_MBPS*` en viennent ; `profile::pyrowave_mbps` ; relais (`rules::relay`, mêmes formes que le tunnel, essai croisé) ; `welcome.rs` n'écrit plus `share.kybernow.app` en dur. |
 | WINAPP-52 | `plan.rs` (venu de l'app Windows, avec ses essais) : `plan`, `plan_json` (réglages, mode, débit de la session, nom), `values_json`. |
@@ -44,8 +44,8 @@ Branche `claude/v2-coeur-8452cb`. Plan : [`../vague-2.md`](../vague-2.md). Guide
 - **Ports PlayStation partagés avec le relais et Admin** (TRANS-42) : leur place est `server/relay/tunnel` (zone du relais) ; le cœur les reprendra ensuite.
 - **`welcome.rs` dans la caisse** : il reste dans le cœur tant que Linux et LG l'incluent par `#[path]` ; ses deux inclusions de `rules/src` sont « à retirer en 2b ».
 - **Le sous-titre « Envoi… » du micro** (Linux) n'est pas dans link-ui : `MicUi::tile` dit « Envoyé » dès que le micro est allumé et pas refusé. À trancher dans `docs/link-ui.md` si l'attente doit se dire.
-- **Débit en arrière-plan** : une seule valeur, 20 Mbit/s (Mac, Windows, exemple de link-ui). iOS (8) et Android (2) monteront à 20 en 2b ; à changer dans `rules::limits` si l'auteur préfère moins sur les téléphones.
-- **Bornes du débit à la main** : 500 Mbit/s (1 500 en PyroWave) comme les menus Windows et Linux ; le Mac allait jusqu'à 4 294. Le client web garde ses bornes de navigateur (10 à 150, 1 000 en PyroWave), à écrire dans link-ui comme l'exception LG.
+- **Débit en arrière-plan d'un téléviseur LG** : la décision de l'auteur nomme Mac et PC (20), iPhone, iPad, Apple TV (8) et Android (2) ; LG (aucun plafond aujourd'hui) prend 2 Mbit/s, comme Android. À changer dans `rules::limits::background_bitrate` si l'auteur préfère autre chose.
+- **Bornes du débit à la main** : 500 Mbit/s en HEVC, AV1 et H.264, 2 500 en PyroWave (décision de l'auteur) ; le Mac allait jusqu'à 4 294. Le client web garde ses bornes de navigateur (10 à 150, 1 000 en PyroWave), exception à écrire dans link-ui par la session des docs.
 - **Retraits** : `lend::DIRECT_PROBE`, `share::LOCAL_FIRST`, `session::DIRECT_PROBE`, `regist::PORT`, `takion::PORT`, `playstation::session::PORT` : cherchés dans toutes les apps (Rust des ponts, Swift, Kotlin, TypeScript) avant d'être retirés ; aucun usage. `RecordingState::menu_item`, rétabli dans main, est gardé.
 - **Guide en français seulement**, comme les autres fichiers de `docs/audit-2026-11-27`.
 
@@ -62,12 +62,12 @@ FR :
 - Linux, Steam Deck et téléviseurs LG : l'app se construit de nouveau (une règle de l'accueil l'empêchait).
 - Rejoindre un partage hors de chez vous : après trop d'essais, l'app dit de nouveau combien de temps attendre.
 - Un ordinateur réinstallé (certificat changé) ou un compte déconnecté se signale tout de suite, aussi pour le prêt et « Regarder », au lieu d'essayer le relais.
-- Réglages synchronisés : un débit réglé à la main très haut sur un appareil est ramené à ce que les autres acceptent (500 Mbit/s, 1 500 en PyroWave).
-- Avec la mise à jour de chaque app (phase 2b) : la même empreinte de l'ordinateur partout (quatre groupes de quatre), les adresses IPv6 acceptées partout, le même débit quand la fenêtre est cachée, un retour en HEVC quand PyroWave ne s'ouvre pas sur l'appareil, et le même rendu HDR sur tous les écrans SDR.
+- Réglages synchronisés : un débit réglé à la main très haut sur un appareil est ramené à ce que les autres acceptent (500 Mbit/s, 2 500 en PyroWave).
+- Avec la mise à jour de chaque app (phase 2b) : la même empreinte de l'ordinateur partout (quatre groupes de quatre), les adresses IPv6 acceptées partout, le débit de chaque appareil quand la fenêtre est cachée (20 Mbit/s sur ordinateur, 8 sur iPhone, iPad et Apple TV, 2 sur Android et LG), un retour en HEVC quand PyroWave ne s'ouvre pas sur l'appareil, et le même rendu HDR sur tous les écrans SDR.
 
 EN:
 - Linux, Steam Deck and LG TVs: the app builds again (a welcome-screen rule prevented it).
 - Joining a share away from home: after too many tries, the app tells you again how long to wait.
 - A reinstalled computer (changed certificate) or a signed-out account is reported right away, also for lending and “Watch”, instead of trying the relay.
-- Synced settings: a very high bitrate set by hand on one device is brought back to what the others accept (500 Mbit/s, 1,500 with PyroWave).
-- With each app's update (phase 2b): the same computer fingerprint everywhere (four groups of four), IPv6 addresses accepted everywhere, the same bitrate when the window is hidden, a switch back to HEVC when PyroWave won't open on the device, and the same HDR rendering on every SDR screen.
+- Synced settings: a very high bitrate set by hand on one device is brought back to what the others accept (500 Mbit/s, 2,500 with PyroWave).
+- With each app's update (phase 2b): the same computer fingerprint everywhere (four groups of four), IPv6 addresses accepted everywhere, each device's bitrate when the window is hidden (20 Mbit/s on computers, 8 on iPhone, iPad and Apple TV, 2 on Android and LG), a switch back to HEVC when PyroWave won't open on the device, and the same HDR rendering on every SDR screen.

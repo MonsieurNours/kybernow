@@ -147,7 +147,8 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
 /// Les valeurs communes que les interfaces montrent ou appliquent (TRANS-40
 /// à 42), pour les ponts : les profils sur cet appareil (`profiles` :
 /// `jeu`, `bureau`, `max`, [`StreamSettings::to_json`]), PyroWave, les
-/// bornes du débit à la main, le débit en arrière-plan (bit/s), les maxima,
+/// bornes du débit à la main, le débit en arrière-plan de chaque appareil
+/// (bit/s : `computer`, `apple_mobile`, `apple_tv`, `android`, `lg_tv`), les maxima,
 /// les délais, le port et l'exemple d'adresse d'Admin, le relais public.
 pub fn values_json(caps: Capabilities) -> serde_json::Value {
     use kybernow_rules::{address, limits, relay};
@@ -157,7 +158,13 @@ pub fn values_json(caps: Capabilities) -> serde_json::Value {
         "pyrowave_mbps": limits::PYROWAVE_MBPS,
         "pyrowave_mbps_444": limits::PYROWAVE_MBPS_444,
         "manual_mbps": { "min": limits::MANUAL_MBPS_MIN, "step": limits::MANUAL_MBPS_STEP, "max": limits::MANUAL_MBPS_MAX, "max_pyrowave": limits::MANUAL_MBPS_MAX_PYROWAVE, "lg_tv_max": limits::LG_TV_MBPS_MAX },
-        "background_bitrate": limits::BACKGROUND_BITRATE,
+        "background_bitrate": {
+            "computer": limits::background_bitrate(limits::Device::Computer),
+            "apple_mobile": limits::background_bitrate(limits::Device::AppleMobile),
+            "apple_tv": limits::background_bitrate(limits::Device::AppleTv),
+            "android": limits::background_bitrate(limits::Device::Android),
+            "lg_tv": limits::background_bitrate(limits::Device::LgTv),
+        },
         "max_guests": limits::MAX_GUESTS,
         "max_sessions": limits::MAX_SESSIONS,
         "relay_link_wait_secs": limits::RELAY_LINK_WAIT_SECS,
@@ -291,15 +298,18 @@ mod tests {
         assert_eq!((v["profiles"]["jeu"]["mbps"].as_u64(), v["profiles"]["bureau"]["mbps"].as_u64(), v["profiles"]["max"]["mbps"].as_u64()), (Some(60), Some(90), Some(300)));
         let h264 = values_json(Capabilities::default());
         assert_eq!((h264["profiles"]["jeu"]["mbps"].as_u64(), h264["profiles"]["bureau"]["mbps"].as_u64()), (Some(90), Some(180)), "+1/2 en H.264, +1/3 sans 4:4:4");
-        assert_eq!(v["manual_mbps"]["max_pyrowave"], 1500);
-        assert_eq!(v["background_bitrate"], 20_000_000);
+        assert_eq!((v["manual_mbps"]["max"].as_u64(), v["manual_mbps"]["max_pyrowave"].as_u64()), (Some(500), Some(2500)));
+        assert_eq!(
+            (v["background_bitrate"]["computer"].as_u64(), v["background_bitrate"]["apple_mobile"].as_u64(), v["background_bitrate"]["android"].as_u64()),
+            (Some(20_000_000), Some(8_000_000), Some(2_000_000))
+        );
         assert_eq!((v["max_guests"].as_u64(), v["max_sessions"].as_u64(), v["relay_link_wait_secs"].as_u64()), (Some(4), Some(4), Some(10)));
         assert_eq!((v["admin_port"].as_u64(), v["default_relay"].as_str()), (Some(9443), Some("share.kybernow.app")));
         assert_eq!(v["station_notice_before"], crate::station_offer::BEFORE_NOTICE);
         assert_eq!(crate::profile::pyrowave_mbps(3840, 2160, 60, false), 800);
         assert_eq!(crate::profile::pyrowave_mbps(1920, 1080, 60, true), 480, "0,4 fois au moins");
-        assert_eq!(crate::profile::manual_mbps(crate::profile::BitrateDevice::Any, Codec::PyroWave), (5, 1500));
-        assert_eq!(crate::profile::manual_mbps(crate::profile::BitrateDevice::LgTv, Codec::Hevc), (5, 95));
+        assert_eq!(crate::profile::manual_mbps(crate::profile::Device::Computer, Codec::PyroWave), (5, 2500));
+        assert_eq!(crate::profile::manual_mbps(crate::profile::Device::LgTv, Codec::Hevc), (5, 95));
     }
 
     /// Pour les ponts : le même plan en JSON, avec le débit de la session

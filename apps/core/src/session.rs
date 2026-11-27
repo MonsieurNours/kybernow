@@ -192,18 +192,14 @@ pub enum Route {
 }
 
 
-/// Débit quand l'image n'est plus regardée, en bit/s (TRANS-40) :
-/// [`Session::set_background`].
-pub use kybernow_rules::limits::BACKGROUND_BITRATE;
-
-/// [`BACKGROUND_BITRATE`], pour les ponts.
-pub fn background_bitrate() -> u32 {
-    BACKGROUND_BITRATE
-}
+/// Débit quand l'image n'est plus regardée, en bit/s, selon l'appareil
+/// (TRANS-40 : 20 Mbit/s sur Mac et PC, 8 sur iPhone, iPad et Apple TV, 2
+/// sur Android et LG) : [`Session::set_background`].
+pub use kybernow_rules::limits::{Device, background_bitrate};
 
 /// Le plafond de [`Session::set_background`].
-fn background_cap(background: bool) -> Option<u32> {
-    background.then_some(BACKGROUND_BITRATE)
+fn background_cap(background: bool, device: Device) -> Option<u32> {
+    background.then(|| background_bitrate(device))
 }
 
 impl SessionParams {
@@ -1702,14 +1698,14 @@ impl Session {
 
     /// L'image n'est plus regardée (fenêtre cachée ou réduite, app en
     /// arrière-plan), puis l'est de nouveau (TRANS-40) : le débit est
-    /// plafonné à [`BACKGROUND_BITRATE`], le même sur tous les appareils, et
+    /// plafonné à [`background_bitrate`] de cet appareil (`device`), et
     /// l'image figée n'est pas une panne ([`Self::set_hidden`]) ; au retour,
     /// les deux sont rendus. Les touches tenues restent à relâcher par l'app
     /// (sa chaîne d'entrées). Une image encore montrée ailleurs (écran
     /// externe d'un iPhone) n'est pas en arrière-plan.
-    pub fn set_background(&self, background: bool) {
+    pub fn set_background(&self, background: bool, device: Device) {
         self.set_hidden(background);
-        self.set_bitrate_cap(background_cap(background));
+        self.set_bitrate_cap(background_cap(background, device));
     }
 
     /// Taille des images décodées par l'app : un changement en cours de flux
@@ -6015,15 +6011,16 @@ mod tests {
         assert!(!w.on_pyrowave_failed());
     }
 
-    /// TRANS-40 : un seul débit en arrière-plan, et l'image figée n'est pas
-    /// une panne ; au retour, plus de plafond.
+    /// TRANS-40 : le débit en arrière-plan de chaque appareil, et l'image
+    /// figée n'est pas une panne ; au retour, plus de plafond.
     #[test]
     fn arriere_plan_un_seul_debit() {
-        assert_eq!(background_bitrate(), 20_000_000);
-        assert_eq!(background_cap(true), Some(BACKGROUND_BITRATE));
-        assert_eq!(background_cap(false), None);
+        assert_eq!(background_cap(true, Device::Computer), Some(20_000_000));
+        assert_eq!(background_cap(true, Device::AppleMobile), Some(8_000_000));
+        assert_eq!(background_cap(true, Device::Android), Some(2_000_000));
+        assert_eq!(background_cap(false, Device::Computer), None);
         // Le texte des Statistiques (docs/link-ui.md).
-        let target = TargetBitrate { bitrate: BACKGROUND_BITRATE, profile: 60_000_000, reason: crate::adaptive::TargetReason::AppCapped };
+        let target = TargetBitrate { bitrate: background_bitrate(Device::Computer), profile: 60_000_000, reason: crate::adaptive::TargetReason::AppCapped };
         assert_eq!(target.text(Lang::Fr), "20 Mbit/s · fenêtre cachée");
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let (w, rec) = worker(crate::profile::Profile::Jeu, two_screens(0));
@@ -6032,9 +6029,9 @@ mod tests {
         params.console_host = "127.0.0.1".into();
         params.console_port = silent.local_addr().unwrap().port();
         let session = Session::start(params, rec);
-        session.set_background(true);
+        session.set_background(true, Device::AppleMobile);
         assert!(session.hidden.load(Ordering::Relaxed));
-        session.set_background(false);
+        session.set_background(false, Device::AppleMobile);
         assert!(!session.hidden.load(Ordering::Relaxed));
         session.stop();
     }
