@@ -103,7 +103,8 @@ kyber_toolchain_check rustc cargo-c
 # réception), les mêmes que pour les apps Apple.
 # Le correctif kyclient de PyroWave (0025) par défaut (KYBER_PYROWAVE=1), sauf
 # avec --sans-pyrowave : il va avec la fonctionnalité `kyber-pyrowave` de
-# l'app, le cœur sans elle ne compile pas contre lui (`fallback_codec`).
+# l'app, le cœur sans elle ne compile pas contre lui (`fallback_codec`), et
+# l'app y demande l'en-tête KNPW version 2 (`set_pyrowave_header`).
 . "$ROOT/scripts/kyber-client-patches.sh"
 kyber_apply_app_patches "$KYSDK" || exit 1
 
