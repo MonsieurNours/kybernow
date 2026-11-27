@@ -19,7 +19,7 @@ use ndk::native_window::NativeWindow;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
-use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton};
+use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton, PenChoice, PenMode};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::station_offer;
 use kybernow_core::wake;
@@ -696,6 +696,57 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPush
                 h.session.push_microphone(&b, rate as u32);
             }
         });
+    })
+}
+
+// MARK: - Stylet (docs/link-ui.md, « Stylet » ; docs/stylet.md)
+
+/// « Stylet : Pression / Souris » de l'ordinateur (`pressure`, `mouse` ; une
+/// autre clé : « Pression ») : juste après `sessionStart`, puis à chaque
+/// changement (tuile, raccourci Ctrl+Alt+Maj+P, réglage). Gardé par la
+/// session et appliqué à chaque chaîne d'entrées.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetPenMode(mut env: Env, _: JClass, h: jlong, mode: JString) {
+    kybernow_core::ffi_guard!({
+        let key = string(&mut env, &mode);
+        let mode = PenMode::parse(&key).unwrap_or_default();
+        if let Some(h) = handle(h) {
+            h.session.set_pen_mode(mode);
+        }
+    })
+}
+
+/// La tuile « Stylet » de cette session (`PenChoice::ui_json`) : `{shown,
+/// mode, title, label, choices, help}` ; `device_has_pen` : l'appareil a un
+/// stylet (`InputDevice.SOURCE_STYLUS`). Nul sans session.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPenChoice(mut env: Env, _: JClass, h: jlong, device_has_pen: jboolean) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let Some(h) = handle(h) else { return std::ptr::null_mut() };
+        let json = h.session.pen_choice(device_has_pen != 0).ui_json(i18n::current()).to_string();
+        give(&mut env, &json)
+    })
+}
+
+/// La ligne « Stylet » des réglages de l'ordinateur (montrée même sans
+/// stylet) : le JSON de `PenChoice::ui_json` hors session (`shown` faux),
+/// pour son titre, ses deux choix et son aide.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_penTexts(mut env: Env, _: JClass) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let json = PenChoice::default().ui_json(i18n::current()).to_string();
+        give(&mut env, &json)
+    })
+}
+
+/// L'avis bref du raccourci : « Stylet : souris » / « Stylet : pression »
+/// (`PenMode::notice` ; une clé inconnue : « Pression »).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_penNotice(mut env: Env, _: JClass, mode: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let key = string(&mut env, &mode);
+        let text = PenMode::parse(&key).unwrap_or_default().notice(i18n::current());
+        give(&mut env, &text)
     })
 }
 

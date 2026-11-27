@@ -455,7 +455,8 @@ data class PenSample(
  * Il écrit là où il touche, quel que soit le mode du doigt (pavé tactile ou toucher direct) : pression, inclinaison
  * (`AXIS_TILT`, `AXIS_ORIENTATION`), bout gomme, bouton du stylet (`BUTTON_STYLUS_PRIMARY`) et survol
  * (`ACTION_HOVER_*`). Les positions groupées d'un `ACTION_MOVE` (historique) partent toutes. Face à une Station
- * d'avant (ou en souris des jeux), le cœur rend `false` : souris à cet endroit et clic gauche, comme avant.
+ * d'avant, en « Stylet : Souris » (docs/link-ui.md) ou en souris des jeux, le cœur rend `false` : souris à cet endroit,
+ * clic gauche (clic droit avec le bouton du stylet tenu).
  */
 class StylusInput(
     private val out: PenOut,
@@ -466,8 +467,10 @@ class StylusInput(
     private var owned = false
     /** Le stylet qui touche : son identifiant de pointeur dans le geste en cours. */
     private var pointerId = -1
-    /** Le stylet est parti en souris (Station d'avant) : son clic gauche est tenu. */
+    /** Le stylet est parti en souris (Station d'avant, « Stylet : Souris ») : son clic est tenu. */
     private var mouseDown = false
+    /** Le bouton tenu : 0 gauche (pointe posée), 1 droit (pointe posée avec le bouton du stylet). */
+    private var mouseButton = 0
     /** Le stylet survole l'image (dernier survol envoyé à l'ordinateur). */
     private var hovering = false
     /** Dernier état envoyé, et où : le départ remis à plus tard part de là. */
@@ -603,7 +606,9 @@ class StylusInput(
         mouse.moveTo(hx, hy)
         if (contact != mouseDown) {
             mouseDown = contact
-            mouse.button(0, contact)
+            // Pointe posée : clic gauche ; avec le bouton du stylet tenu : clic droit. Relâché : celui qui était tenu.
+            if (contact) mouseButton = if (sample.barrel) 1 else 0
+            mouse.button(mouseButton, contact)
         }
     }
 

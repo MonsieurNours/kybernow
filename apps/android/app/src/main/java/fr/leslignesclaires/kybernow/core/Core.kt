@@ -35,6 +35,8 @@ object Core {
         fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long): String
         fun welcomeSignUpUrl(relay: String): String
         fun welcomeStationUrl(): String
+        fun penTexts(): String?
+        fun penNotice(mode: String): String
     }
 
     /** La bibliothèque native. */
@@ -64,6 +66,8 @@ object Core {
         override fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long) = Native.welcome(stateJson, op, hasAccount, computer, now)
         override fun welcomeSignUpUrl(relay: String) = Native.welcomeSignUpUrl(relay)
         override fun welcomeStationUrl() = Native.welcomeStationUrl()
+        override fun penTexts() = Native.penTexts()
+        override fun penNotice(mode: String) = Native.penNotice(mode)
     }
 
     @Volatile
@@ -232,6 +236,16 @@ object Core {
             ?.let { runCatching { JSONObject(it) }.getOrNull() }?.takeIf { !it.has("error") }
 
     private fun accountValue(text: String): JSONObject? = (Accounts.read(text) { it as? JSONObject } as? AccountReply.Ok)?.value
+
+    /**
+     * La ligne « Stylet » des réglages de l'ordinateur (docs/link-ui.md, « Stylet ») : « Stylet », « Pression » /
+     * « Souris » et l'aide, sans session (`PenChoice::ui_json`, `shown` faux) ; sans réponse du cœur, vide.
+     */
+    fun penTexts(): fr.leslignesclaires.kybernow.model.PenChoice =
+        fr.leslignesclaires.kybernow.model.PenChoice.parse(ask("stylet", null) { penTexts() })
+
+    /** L'avis bref du raccourci Ctrl+Alt+Maj+P : « Stylet : souris » / « Stylet : pression » ; vide sans réponse. */
+    fun penNotice(mode: String): String = ask("stylet", "") { penNotice(mode) }
 
     /** Le temps d'un enregistrement : « 02:14 », « 59:59 », « 1:02:14 ». */
     fun recordingClock(seconds: Long): String = ask("temps de l'enregistrement", "") { recordingClock(seconds.coerceAtLeast(0)) }

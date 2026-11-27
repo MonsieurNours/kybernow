@@ -113,6 +113,12 @@ data class HostSettings(
      * dernier choix (barre de session, Réglages › Son). Hors du profil, propre à cet appareil : jamais synchronisé.
      */
     val microphone: Boolean = false,
+    /**
+     * « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : `pressure` (par défaut, le vrai stylet) ou `mouse`
+     * ([PenMode]) ; barre de session, raccourci Ctrl+Alt+Maj+P, Réglages › Commandes. Hors du profil (jamais
+     * « Personnalisé ») ; synchronisé avec le compte (clé `pen`).
+     */
+    val pen: String = PenMode.PRESSURE,
 ) {
     val padSimple get() = padLayout == "simple"
 
@@ -148,6 +154,7 @@ data class HostSettings(
         .put("padOpacity", padOpacity).put("padHaptics", padHaptics).put("hdr", hdr)
         .put("adaptive", adaptive).put("autoResult", autoResult ?: JSONObject.NULL)
         .put("encoderMax", encoderMax ?: JSONObject.NULL).put("microphone", microphone)
+        .put("pen", pen)
 
     companion object {
         /** Les opacités proposées pour la manette à l'écran. */
@@ -190,6 +197,8 @@ data class HostSettings(
                 autoResult = if (o.has("autoResult") && !o.isNull("autoResult")) o.optString("autoResult").takeIf { it.isNotEmpty() } else null,
                 encoderMax = if (o.isNull("encoderMax")) null else o.optInt("encoderMax", 0).takeIf { it > 0 },
                 microphone = o.optBoolean("microphone", d.microphone),
+                // Absent des fichiers d'avant le choix du stylet, ou inconnu : « Pression ».
+                pen = PenMode.parse(o.optString("pen")) ?: d.pen,
             ).let { if (it.transport == "reliable" && it.profileReliable) it.copy(transport = "auto") else it }
         }
     }

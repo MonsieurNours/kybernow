@@ -17,9 +17,9 @@ import org.json.JSONObject
 
 /*
  * Réglages synchronisés (docs/comptes.md, « Réglages synchronisés et déplacer un ordinateur » ; ce que fait chaque app :
- * apps/core/README.md, « Réglages synchronisés »). Le profil, le format vidéo, le débit, le texte net (4:4:4) et le HDR
- * de chaque ordinateur d'un compte suivent la personne d'un appareil à l'autre ; Android n'a pas de mode immersif : il
- * ne l'envoie pas et n'y touche pas.
+ * apps/core/README.md, « Réglages synchronisés »). Le profil, le format vidéo, le débit, le texte net (4:4:4), le HDR
+ * et « Stylet : Pression / Souris » (`pen`) de chaque ordinateur d'un compte suivent la personne d'un appareil à
+ * l'autre ; Android n'a pas de mode immersif : il ne l'envoie pas et n'y touche pas.
  *
  * Les réglages d'Android ([HostSettings]) : un profil toujours choisi, dont « Format vidéo » et « Débit » s'écartent
  * (« Personnalisé » pour le relais : `"profile": null`, avec `codec`, `yuv444` et `mbps`) ; le 4:4:4 suit le profil
@@ -38,13 +38,18 @@ object SyncedKeys {
     fun stream(host: Host, decoders: Decoders): JSONObject =
         SessionMode.plan(host, decoders, Triple(3840, 2160, 60), host.settings.profile).settings.put("hdr", host.settings.hdr)
 
-    /** Toutes les clés (`SyncedValues::from_stream` du cœur) : la première fois qu'un ordinateur n'a rien au relais. */
-    fun full(stream: JSONObject): JSONObject = Core.settingsFromStream(stream) ?: JSONObject()
+    /**
+     * Toutes les clés (`SyncedValues::from_stream` du cœur, puis `with_pen` : le choix du stylet [pen], quand il est
+     * donné) : la première fois qu'un ordinateur n'a rien au relais.
+     */
+    fun full(stream: JSONObject, pen: String? = null): JSONObject =
+        (Core.settingsFromStream(stream) ?: JSONObject()).also { o -> PenMode.parse(pen)?.let { o.put("pen", it) } }
 
     /**
      * Les seules clés changées entre [before] et [after] (`stream` : les réglages de session d'[after]) ; nul si rien ne
      * change pour le relais. Un profil → `{profile}` ; passer en « Personnalisé » → `{profile: null, codec, yuv444,
-     * mbps}` ; le format ou le débit d'un réglage déjà personnalisé → la clé changée et `profile: null` ; le HDR → `{hdr}`.
+     * mbps}` ; le format ou le débit d'un réglage déjà personnalisé → la clé changée et `profile: null` ; le HDR → `{hdr}` ;
+     * le stylet → `{pen}`.
      */
     fun changed(before: HostSettings, after: HostSettings, stream: JSONObject): JSONObject? {
         val v = JSONObject()
@@ -57,6 +62,7 @@ object SyncedKeys {
             }
         }
         if (before.hdr != after.hdr) v.put("hdr", after.hdr)
+        if (before.pen != after.pen) v.put("pen", after.pen)
         return v.takeIf { it.length() > 0 }
     }
 
@@ -71,7 +77,8 @@ object SyncedKeys {
      * Les réglages d'Android après les clés reçues ([values], déjà vérifiées par le cœur) et leur application par le cœur ([result],
      * [applyStream]) : un profil le reprend entier (format et débit d'Android remis à « Auto », le transport gardé) ;
      * « Personnalisé » prend le format et le débit retenus par le cœur ; un format ou un débit sans profil ne touche
-     * qu'un réglage déjà personnalisé ; le HDR tel quel.
+     * qu'un réglage déjà personnalisé ; le HDR tel quel ; le stylet s'il est lisible (`pressure`, `mouse` ; une clé d'une
+     * version plus récente ne change rien).
      */
     fun applied(current: HostSettings, values: JSONObject, result: JSONObject): HostSettings {
         var s = current
@@ -85,6 +92,7 @@ object SyncedKeys {
             if (values.has("mbps") && mbps != null) s = s.copy(mbps = mbps)
         }
         if (values.has("hdr")) s = s.copy(hdr = values.optBoolean("hdr"))
+        if (values.has("pen")) PenMode.parse(values.optString("pen"))?.let { s = s.copy(pen = it) }
         return s
     }
 }
@@ -246,7 +254,7 @@ class SettingsSync(
         val keys = SyncedKeys.changed(before.settings, after.settings, stream) ?: return
         scope.launch {
             lock.withLock {
-                val values = op(acc.key, "to_send", acc.station, keys.toString(), SyncedKeys.full(stream).toString()) as? JSONObject ?: return@withLock
+                val values = op(acc.key, "to_send", acc.station, keys.toString(), SyncedKeys.full(stream, after.settings.pen).toString()) as? JSONObject ?: return@withLock
                 send(a, acc.station, values)
             }
         }

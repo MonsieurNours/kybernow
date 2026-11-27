@@ -63,6 +63,8 @@ import fr.leslignesclaires.kybernow.model.HdrScreen
 import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.LastSession
+import fr.leslignesclaires.kybernow.model.PenChoice
+import fr.leslignesclaires.kybernow.model.PenMode
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.PyroWave
 import fr.leslignesclaires.kybernow.model.PyroWaveLink
@@ -566,6 +568,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         refreshHdr()
         watchHdr()
         watchDisplay()
+        // « Stylet : Pression / Souris » de cet ordinateur (« Pression » pour un invité ou un emprunt) : dit au cœur juste
+        // après le départ, qui le garde pour chaque chaîne d'entrées de la session.
+        Native.sessionSetPenMode(handle, host.settings.pen)
         // Micro retenu allumé pour cet ordinateur : dit au cœur juste après le départ ; l'autorisation perdue entre-temps
         // (« Seulement cette fois ») est redemandée, sans avis à l'arrivée.
         if (ui.micChoice) {
@@ -591,6 +596,28 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.micChoice = on
         saveSettings { it.copy(microphone = on) }
         if (handle != 0L) Native.sessionSetMicrophone(handle, on)
+    }
+
+    // MARK: - Stylet (docs/link-ui.md, « Stylet »)
+
+    /** La tuile « Stylet » : bascule, sans avis (le sous-titre le dit). */
+    override fun togglePen() = setPen(PenMode.toggled(host.settings.pen), notice = false)
+
+    /**
+     * « Stylet : Pression / Souris » choisi (tuile, raccourci Ctrl+Alt+Maj+P) : gardé pour cet ordinateur (pour la
+     * session chez un invité ou un emprunt), dit au cœur ; le raccourci a son avis bref, écrit par le cœur.
+     */
+    private fun setPen(mode: String, notice: Boolean) {
+        saveSettings { it.copy(pen = mode) }
+        if (handle != 0L) Native.sessionSetPenMode(handle, mode)
+        refreshPen()
+        if (notice) Core.penNotice(mode).takeIf { it.isNotEmpty() }?.let { state.show(Capsule.PenNotice(it)) }
+    }
+
+    /** La tuile « Stylet » telle que le cœur la donne maintenant (un stylet a pu servir, l'ordinateur l'annoncer). */
+    private fun refreshPen() {
+        val h = handle
+        if (h != 0L) ui.pen = PenChoice.parse(Native.sessionPenChoice(h, PenMode.deviceHasPen()))
     }
 
     /** Ce que dit le cœur : capter ou non. */
@@ -644,6 +671,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     }
                 }
                 if (hostSession) launch {
+                    // « Stylet » changé ailleurs pendant la session (réglages synchronisés reçus) : tout de suite.
+                    app.hosts.hosts.map { l -> l.firstOrNull { it.id == host.id }?.settings?.pen }.distinctUntilChanged().collect { pen ->
+                        if (pen != null && pen != host.settings.pen) {
+                            host = host.copy(settings = host.settings.copy(pen = pen))
+                            if (handle != 0L) Native.sessionSetPenMode(handle, pen)
+                            refreshPen()
+                        }
+                    }
+                }
+                if (hostSession) launch {
                     // « Ctrl agit comme ⌘ » changé dans les réglages pendant la session : tout de suite.
                     app.hosts.hosts.map { l -> l.firstOrNull { it.id == host.id }?.settings?.ctrlCommandCode }.distinctUntilChanged().collect { code ->
                         if (code != null && handle != 0L) Native.inputSetControlAsCommand(handle, Native.controlAsCommand(code, host.os ?: ""))
@@ -667,6 +704,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     // Hôte : ce que « Partager » et « Prêter l'ordinateur… » peuvent faire avec cet ordinateur, relu à chaque
                     // ouverture de la barre ou du menu.
                     snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open && hostSession) refreshShareAvailability() }
+                }
+                launch {
+                    // La tuile « Stylet » : relue à chaque ouverture de la barre ou du menu (un stylet a pu servir depuis).
+                    snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open) refreshPen() }
                 }
                 launch {
                     // La barre se ferme, quelle que soit la façon (B, la croix, le clavier de l'écran) :
@@ -1718,6 +1759,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     KeyEvent.KEYCODE_M -> { Native.inputReleaseAll(handle); toggleMenu(); return true }
                     KeyEvent.KEYCODE_Q -> { quit(); return true }
                     KeyEvent.KEYCODE_V -> { setMicrophone(!ui.micChoice); return true }
+                    // P : « Stylet : Pression / Souris », avec l'avis bref « Stylet : souris » / « Stylet : pression ».
+                    KeyEvent.KEYCODE_P -> { setPen(PenMode.toggled(host.settings.pen), notice = true); return true }
                     // Les autres raccourcis de docs/link-ui.md : C caméra, D se déconnecter, R enregistrer, S statistiques.
                     KeyEvent.KEYCODE_C -> { toggleCamera(); return true }
                     KeyEvent.KEYCODE_D -> { quit(); return true }

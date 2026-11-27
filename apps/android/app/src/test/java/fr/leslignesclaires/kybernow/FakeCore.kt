@@ -167,10 +167,20 @@ open class FakeCore : Core.Source {
         JSONObject().put("state", JSONObject(stateJson.ifBlank { "{}" })).put("value", !hasAccount).toString()
     override fun welcomeSignUpUrl(relay: String) = "https://share.kybernow.app/compte/inscription?lang=fr"
     override fun welcomeStationUrl() = "https://www.kybernow.app/#telecharger"
+    /** La ligne « Stylet » hors session (`PenChoice::ui_json`), en français. */
+    override fun penTexts(): String? = penJson(shown = false, mode = "pressure")
+    override fun penNotice(mode: String) = if (mode == "mouse") "Stylet\u202f: souris" else "Stylet\u202f: pression"
 
     private fun ok(value: JSONObject) = JSONObject().put("code", 0).put("value", value).toString()
 
     companion object {
+        /** `PenChoice::ui_json` du cœur, en français, écrit d'avance. */
+        fun penJson(shown: Boolean, mode: String): String = JSONObject()
+            .put("shown", shown).put("mode", mode).put("title", "Stylet").put("label", if (mode == "mouse") "Souris" else "Pression")
+            .put("choices", JSONArray().put(JSONObject().put("key", "pressure").put("label", "Pression")).put(JSONObject().put("key", "mouse").put("label", "Souris")))
+            .put("help", "Pression\u202f: le stylet arrive comme un vrai stylet, pour dessiner. Souris\u202f: il sert de souris, sans la pression ni Windows Ink.")
+            .toString()
+
         fun install(fake: Core.Source = FakeCore()) {
             Core.source = fake
         }

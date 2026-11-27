@@ -168,6 +168,7 @@
     <string name="mic">Microphone</string>
     <string name="mic_shortcut">Ctrl + Alt + Shift + V</string>
     <string name="record_shortcut">Ctrl + Alt + Shift + R</string>
+    <string name="pen_shortcut">Ctrl + Alt + Shift + P</string>
     <string name="mic_no_access">KyberNow Link can\'t access the microphone. Allow it in Settings.</string>
     <string name="settings_mic_help">Sends this device\'s microphone to the computer during the session, to talk in a game, a call or a video meeting.</string>
     <string name="app_settings_mic_system">System default</string>

@@ -385,6 +385,24 @@ object Native {
     /** Les [n] premiers échantillons de [samples] (flottants mono, [rate] Hz), depuis le fil de capture ; ne bloque pas. */
     @JvmStatic external fun sessionPushMicrophone(handle: Long, samples: FloatArray, n: Int, rate: Int)
 
+    // Stylet (docs/link-ui.md, « Stylet » ; docs/stylet.md).
+    /**
+     * « Stylet : Pression / Souris » de l'ordinateur (`pressure`, `mouse` ; une autre clé : « Pression ») : juste après
+     * [sessionStart], puis à chaque changement (tuile, raccourci Ctrl+Alt+Maj+P, réglage). En « Souris », [inputPen]
+     * rend `false` : le stylet part en souris.
+     */
+    @JvmStatic external fun sessionSetPenMode(handle: Long, mode: String)
+    /**
+     * La tuile « Stylet » de la session (`PenChoice::ui_json`) : `{shown, mode, title, label, choices: [{key, label}],
+     * help}` ; `shown` quand un stylet a servi ou que l'appareil en a un ([deviceHasPen]) et que l'ordinateur le reçoit.
+     * Nul sans session.
+     */
+    @JvmStatic external fun sessionPenChoice(handle: Long, deviceHasPen: Boolean): String?
+    /** La ligne « Stylet » des réglages de l'ordinateur : le même JSON, sans session (`shown` faux, « Pression »). */
+    @JvmStatic external fun penTexts(): String?
+    /** L'avis bref du raccourci : « Stylet : souris » / « Stylet : pression » (`PenMode::notice`). */
+    @JvmStatic external fun penNotice(mode: String): String
+
     // HDR (docs/hdr.md).
     /** Le choix « HDR » changé en session (barre, menu) : l'image est relancée, [SessionListener.onHdr] suit. */
     @JvmStatic external fun sessionSetHdr(handle: Long, hdr: Boolean)
@@ -413,7 +431,7 @@ object Native {
     /**
      * Stylet (docs/link-ui.md, « Stylet »), état complet, en pixels de l'écran de l'ordinateur. `tilt` et `orientation` :
      * `AXIS_TILT` et `AXIS_ORIENTATION` en radians, lus si `hasTilt`. `false` : le stylet part en souris (Station
-     * d'avant, souris des jeux), l'app envoie la position et le clic gauche.
+     * d'avant, « Stylet : Souris », souris des jeux), l'app envoie la position et le clic (droit avec le bouton du stylet).
      */
     @JvmStatic external fun inputPen(
         handle: Long, x: Double, y: Double, inRange: Boolean, contact: Boolean, pressure: Float,

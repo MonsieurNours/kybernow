@@ -216,6 +216,8 @@ S = [
 ("mic", "Micro", "Microphone"),
 ("mic_shortcut", "Ctrl + Alt + Maj + V", "Ctrl + Alt + Shift + V"),
 ("record_shortcut", "Ctrl + Alt + Maj + R", "Ctrl + Alt + Shift + R"),
+# Stylet (docs/link-ui.md, « Stylet ») : le raccourci seul, les textes viennent du cœur.
+("pen_shortcut", "Ctrl + Alt + Maj + P", "Ctrl + Alt + Shift + P"),
 ("mic_no_access", "KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages.", "KyberNow Link can't access the microphone. Allow it in Settings."),
 ("settings_mic_help", "Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.", "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting."),
 ("app_settings_mic_system", "Celui du système", "System default"),

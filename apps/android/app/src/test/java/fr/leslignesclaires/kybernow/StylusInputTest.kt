@@ -84,6 +84,16 @@ class StylusInputTest {
         assertEquals(listOf("to 100", "b0 down", "to 140", "to 140", "b0 up"), mouse)
     }
 
+    /** « Stylet : Souris » (ou Station d'avant) : la pointe posée avec le bouton du stylet tenu fait un clic droit. */
+    @Test
+    fun asAMouse_theBarrelButtonIsTheRightClick() {
+        accepted = false
+        stylus.onTouch(ev(MotionEvent.ACTION_DOWN, 0, buttons = MotionEvent.BUTTON_STYLUS_PRIMARY))
+        stylus.onTouch(ev(MotionEvent.ACTION_UP, 10))
+        idle(200)
+        assertEquals(listOf("to 100", "b1 down", "to 100", "b1 up"), mouse)
+    }
+
     @Test
     fun hoverExitRightBeforeTouching_thePenDoesNotLeave() {
         stylus.onHover(ev(MotionEvent.ACTION_HOVER_ENTER, 0, pressure = 0f))
