@@ -1411,7 +1411,7 @@ const JOIN_TIMEOUT: Duration = Duration::from_secs(6);
 /// erreur telle quelle (Admin injoignable, certificat changé). Bloquant
 /// (6 s au plus).
 pub fn join(targets: &[ShareTarget], req: &JoinRequest) -> Result<Found, ShareError> {
-    join_with(targets, req, |t, r| {
+    join_with(targets, req, late_leave, |t, r| {
         let console = Console::guest(&t.host, t.port, t.fingerprint.clone());
         let joined = console.share_join(r);
         let fingerprint = t.fingerprint.clone().or_else(|| console.fingerprint_seen());
@@ -1439,6 +1439,15 @@ pub fn join_checked(targets: &[ShareTarget], req: &JoinRequest, caps: Capabiliti
 
 /// L'invité repart avant d'avoir ouvert sa session (format illisible,
 /// l'utilisateur annule) ; la session, elle, part seule.
+/// Une réponse « accepté » arrivée quand plus personne ne l'attend (une
+/// autre Station ou le relais a été retenu, ou l'échéance est passée) :
+/// l'invité repart, sinon la Station garde un invité fantôme qui occupe une
+/// place pendant son délai de grâce (COEUR-15).
+fn late_leave(found: Found) {
+    log::info!("partage : accord arrivé trop tard de {}, l'invité repart", found.target.host);
+    leave(&found);
+}
+
 pub fn leave(found: &Found) {
     let t = &found.target;
     let console = Console::guest(&t.host, t.port, t.fingerprint.clone()).with_relay(found.joined.route.clone());
@@ -1587,7 +1596,7 @@ pub fn join_anywhere(targets: &[ShareTarget], relays: &[RelayAddr], req: &JoinRe
             Box::new(move || crate::relay::lookup(&relay, &code).map(|f| f.map(|f| (relay.clone(), f)))) as Box<dyn FnOnce() -> _ + Send>
         })
         .collect();
-    let joining = join_anywhere_with(move || join(&t, &r), lookups, |route| relay_join(route, req), LOCAL_FIRST)?;
+    let joining = join_anywhere_with(move || join(&t, &r), lookups, |route| relay_join(route, req), LOCAL_FIRST, late_leave)?;
     checked(joining, caps)
 }
 
@@ -1597,7 +1606,7 @@ pub fn join_anywhere(targets: &[ShareTarget], relays: &[RelayAddr], req: &JoinRe
 pub fn join_link(link: &JoinLink, req: &JoinRequest, caps: Option<Capabilities>) -> Result<Joining, ShareError> {
     let (target, r) = (link.target(), req.clone());
     let route = link.relay_route();
-    let joining = join_link_with(move || join(&[target], &r), route, |route| relay_join(route, req), LOCAL_FIRST)?;
+    let joining = join_link_with(move || join(&[target], &r), route, |route| relay_join(route, req), LOCAL_FIRST, late_leave)?;
     checked(joining, caps)
 }
 
@@ -1707,13 +1716,16 @@ fn join_anywhere_with(
     lookups: Vec<Lookup>,
     relay_join: impl FnOnce(RelayRoute) -> Result<Joining, ShareError>,
     local_first: Duration,
+    late: impl FnOnce(Found) + Send + 'static,
 ) -> Result<Joining, ShareError> {
     let (tx, rx) = mpsc::channel();
     let started = std::time::Instant::now();
     {
         let tx = tx.clone();
         let _ = std::thread::Builder::new().name("kybernow-partage".into()).spawn(move || {
-            let _ = tx.send(Heard::Local(local()));
+            if let Err(mpsc::SendError(Heard::Local(Ok(found)))) = tx.send(Heard::Local(local())) {
+                late(found);
+            }
         });
     }
     let mut pending_lookups = lookups.len();
@@ -1767,6 +1779,9 @@ fn join_anywhere_with(
             return Err(ShareError::Other(ConsoleError::Relay(RelayError::StationOffline)));
         }
         let route = RelayRoute { server: relay.to_string(), station: found.station, admin_fp: found.admin_fp };
+        // Une réponse du réseau qui viendrait encore n'a plus de lecteur : le
+        // fil la voit et fait repartir l'invité.
+        drop(rx);
         return relay_join(route);
     }
     // Rien hors de chez soi : la réponse du réseau, sinon pourquoi le relais n'a pas aidé.
@@ -1785,10 +1800,13 @@ fn join_link_with(
     route: Option<RelayRoute>,
     relay_join: impl FnOnce(RelayRoute) -> Result<Joining, ShareError>,
     local_first: Duration,
+    late: impl FnOnce(Found) + Send + 'static,
 ) -> Result<Joining, ShareError> {
     let (tx, rx) = mpsc::channel();
     let _ = std::thread::Builder::new().name("kybernow-partage".into()).spawn(move || {
-        let _ = tx.send(local());
+        if let Err(mpsc::SendError(Ok(found))) = tx.send(local()) {
+            late(found);
+        }
     });
     let Some(route) = route else {
         return rx.recv_timeout(JOIN_TIMEOUT + Duration::from_secs(2)).unwrap_or(Err(ShareError::NoShare)).map(Joining::Joined);
@@ -1798,7 +1816,10 @@ fn join_link_with(
         // La Station du lien dit non sur le réseau (complet, trop d'essais),
         // ou c'est un code de prêt : c'est sa réponse.
         Ok(Err(e @ (ShareError::Full | ShareError::TooManyTries { .. } | ShareError::Lend(_) | ShareError::Invite(_)))) => Err(e),
-        _ => relay_join(route),
+        _ => {
+            drop(rx);
+            relay_join(route)
+        }
     }
 }
 
@@ -1815,9 +1836,10 @@ pub(crate) fn quality_body(guest: &str, quality: ShareQuality, auto: Option<&Sha
 }
 
 /// [`join`] avec l'appel substitué (tests).
-fn join_with<F>(targets: &[ShareTarget], req: &JoinRequest, call: F) -> Result<Found, ShareError>
+fn join_with<F, L>(targets: &[ShareTarget], req: &JoinRequest, late: L, call: F) -> Result<Found, ShareError>
 where
     F: Fn(&ShareTarget, &JoinRequest) -> Result<Found, ShareError> + Send + Sync + 'static + Clone,
+    L: Fn(Found) + Send + Sync + 'static + Clone,
 {
     let mut seen: Vec<&ShareTarget> = Vec::new();
     for t in targets {
@@ -1831,9 +1853,12 @@ where
     let single = seen.len() == 1;
     let (tx, rx) = mpsc::channel();
     for t in &seen {
-        let (t, r, call, tx) = ((*t).clone(), req.clone(), call.clone(), tx.clone());
+        let (t, r, call, tx, late) = ((*t).clone(), req.clone(), call.clone(), tx.clone(), late.clone());
         let _ = std::thread::Builder::new().name("kybernow-partage".into()).spawn(move || {
-            let _ = tx.send(call(&t, &r));
+            // Accepté par une deuxième Station, ou après l'échéance.
+            if let Err(mpsc::SendError(Ok(found))) = tx.send(call(&t, &r)) {
+                late(found);
+            }
         });
     }
     drop(tx);
@@ -2239,7 +2264,7 @@ mod tests {
     fn rejoindre_sur_le_reseau_et_hors_de_chez_soi() {
         let never = |_: RelayRoute| -> Result<Joining, ShareError> { panic!("pas par le relais") };
         // Sur le réseau, en moins de 1,5 s : pris, même si le relais connaît le code.
-        let j = join_anywhere_with(|| Ok(found("pc")), vec![lookup_of(Ok(Some(station_code(true))), Duration::ZERO)], never, FAST).unwrap();
+        let j = join_anywhere_with(|| Ok(found("pc")), vec![lookup_of(Ok(Some(station_code(true))), Duration::ZERO)], never, FAST, |_| {}).unwrap();
         assert!(matches!(j, Joining::Joined(f) if f.target.host == "pc"));
         // Personne sur le réseau : la Station du relais, de bout en bout, en attente de l'hôte.
         let seen = std::sync::Mutex::new(None);
@@ -2251,6 +2276,7 @@ mod tests {
                 Ok(pending(route))
             },
             FAST,
+            |_| {},
         )
         .unwrap();
         assert!(matches!(j, Joining::Pending(_)));
@@ -2265,22 +2291,28 @@ mod tests {
             std::thread::sleep(Duration::from_millis(600));
             Ok(found("pc"))
         };
-        let j = join_anywhere_with(slow_local, vec![lookup_of(Ok(Some(station_code(true))), Duration::ZERO)], |r| Ok(pending(r)), FAST).unwrap();
+        let (left, gone) = mpsc::channel();
+        let j = join_anywhere_with(slow_local, vec![lookup_of(Ok(Some(station_code(true))), Duration::ZERO)], |r| Ok(pending(r)), FAST, move |f| {
+            let _ = left.send(f.target.host);
+        })
+        .unwrap();
         assert!(matches!(j, Joining::Pending(_)) && started.elapsed() < Duration::from_millis(500));
+        // COEUR-15 : l'accord du réseau arrivé ensuite fait repartir l'invité.
+        assert_eq!(gone.recv_timeout(Duration::from_secs(2)).as_deref(), Ok("pc"), "pas d'invité fantôme");
         // La Station du code n'est pas chez le relais en ce moment.
-        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Ok(Some(station_code(false))), Duration::ZERO)], never, FAST).unwrap_err();
+        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Ok(Some(station_code(false))), Duration::ZERO)], never, FAST, |_| {}).unwrap_err();
         assert!(matches!(e, ShareError::Other(ConsoleError::Relay(RelayError::StationOffline))), "{e:?}");
         // Le relais ne connaît pas le code non plus : « Aucun partage… ».
-        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Ok(None), Duration::ZERO)], never, FAST).unwrap_err();
+        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Ok(None), Duration::ZERO)], never, FAST, |_| {}).unwrap_err();
         assert!(matches!(e, ShareError::NoShare));
         // Relais muet, rien sur le réseau : c'est le relais qu'on dit.
-        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Err(RelayError::Unreachable("x".into())), Duration::ZERO)], never, FAST).unwrap_err();
+        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Err(RelayError::Unreachable("x".into())), Duration::ZERO)], never, FAST, |_| {}).unwrap_err();
         assert!(matches!(e, ShareError::Other(ConsoleError::Relay(RelayError::Unreachable(_)))));
         // Le partage du réseau est complet : sa réponse, pas celle du relais.
-        let e = join_anywhere_with(|| Err(ShareError::Full), vec![lookup_of(Err(RelayError::Unreachable("x".into())), Duration::ZERO)], never, FAST).unwrap_err();
+        let e = join_anywhere_with(|| Err(ShareError::Full), vec![lookup_of(Err(RelayError::Unreachable("x".into())), Duration::ZERO)], never, FAST, |_| {}).unwrap_err();
         assert!(matches!(e, ShareError::Full));
         // Trop de recherches au relais.
-        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Err(RelayError::TooMany { seconds: Some(60) }), Duration::ZERO)], never, FAST).unwrap_err();
+        let e = join_anywhere_with(|| Err(ShareError::NoShare), vec![lookup_of(Err(RelayError::TooMany { seconds: Some(60) }), Duration::ZERO)], never, FAST, |_| {}).unwrap_err();
         assert!(matches!(e, ShareError::TooManyTries { seconds: Some(60) }));
         // Relais par défaut quand l'app n'en connaît aucun ; pas de doublon.
         assert_eq!(unique_relays(&[]), vec![RelayAddr::public()]);
@@ -2294,20 +2326,20 @@ mod tests {
     fn rejoindre_par_un_lien() {
         let route = RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() };
         // Sur le réseau d'abord.
-        let j = join_link_with(|| Ok(found("pc")), Some(route.clone()), |_| panic!("pas par le relais"), FAST).unwrap();
+        let j = join_link_with(|| Ok(found("pc")), Some(route.clone()), |_| panic!("pas par le relais"), FAST, |_| {}).unwrap();
         assert!(matches!(j, Joining::Joined(_)));
         // L'ordinateur n'est pas sur ce réseau : le relais, vers `sid`, épinglé sur `fp`.
         let offline = || -> Result<Found, ShareError> { Err(ShareError::Other(ConsoleError::Network("hors ligne".into()))) };
         let j = join_link_with(offline, Some(route.clone()), |r| {
             assert_eq!(r, route);
             Ok(pending(r))
-        }, FAST)
+        }, FAST, |_| {})
         .unwrap();
         assert!(matches!(j, Joining::Pending(_)));
         // Le partage du lien, complet sur le réseau : sa réponse.
-        assert!(matches!(join_link_with(|| Err(ShareError::Full), Some(route.clone()), |_| panic!(), FAST), Err(ShareError::Full)));
+        assert!(matches!(join_link_with(|| Err(ShareError::Full), Some(route.clone()), |_| panic!(), FAST, |_| {}), Err(ShareError::Full)));
         // Lien sans relais : la réponse du réseau seulement.
-        assert!(matches!(join_link_with(offline, None, |_| panic!(), FAST), Err(ShareError::Other(_))));
+        assert!(matches!(join_link_with(offline, None, |_| panic!(), FAST, |_| {}), Err(ShareError::Other(_))));
     }
 
     #[test]
@@ -2333,7 +2365,7 @@ mod tests {
         let t = |host: &str| ShareTarget { host: host.into(), port: 9443, fingerprint: Some("sha256:ad".into()) };
         let req = JoinRequest { code: "123456".into(), ..JoinRequest::default() };
         // Deux Stations : l'une n'a pas ce code, l'autre dit « prêt ».
-        let e = join_with(&[t("a"), t("b")], &req, |target, r| {
+        let e = join_with(&[t("a"), t("b")], &req, |_| {}, |target, r| {
             if target.host == "b" { Err(lend_code(ShareError::Lend(Box::default()), &r.code, target.clone(), None)) } else { Err(ShareError::NoShare) }
         })
         .unwrap_err();
@@ -2342,7 +2374,7 @@ mod tests {
         assert_eq!(ShareError::Lend(code).text(Lang::Fr), "Ce code sert à emprunter l'ordinateur.");
         // Un lien : la Station du réseau répond « prêt », pas de relais.
         let lend = || Err(ShareError::Lend(Box::new(crate::lend::LendCode { code: "123456".into(), ..Default::default() })));
-        let r = join_link_with(lend, Some(RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }), |_| panic!("jamais le relais"), Duration::from_secs(2));
+        let r = join_link_with(lend, Some(RelayRoute { server: "share.kybernow.app".into(), station: "abcdefghijklmnopqrstuvwxyz".into(), admin_fp: "sha256:ad".into() }), |_| panic!("jamais le relais"), Duration::from_secs(2), |_| {});
         assert!(matches!(r, Err(ShareError::Lend(_))));
         // La réponse d'Admin : 404 no_share avec `lend`.
         assert!(matches!(crate::console::share_refusal_for_tests(404, &serde_json::json!({ "error": "no_share", "lend": true })), ShareError::Lend(_)));
@@ -2472,6 +2504,25 @@ mod tests {
         assert_eq!(calls.lock().unwrap().first().map(String::as_str), Some("POST /api/share/guest/g1/accept"));
     }
 
+    /// COEUR-15 : deux Stations acceptent ; la seconde, sans lecteur, voit
+    /// l'invité repartir.
+    #[test]
+    fn second_accord_fait_repartir_l_invite() {
+        let call = |t: &ShareTarget, _: &JoinRequest| {
+            if t.host == "b" {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(Found { target: t.clone(), joined: ShareJoined::default() })
+        };
+        let (left, gone) = mpsc::channel();
+        let late = move |f: Found| {
+            let _ = left.send(f.target.host);
+        };
+        let found = join_with(&[target("a"), target("b")], &request(), late, call).unwrap();
+        assert_eq!(found.target.host, "a");
+        assert_eq!(gone.recv_timeout(Duration::from_secs(2)).as_deref(), Ok("b"));
+    }
+
     #[test]
     fn la_station_du_code_repond() {
         let call = |t: &ShareTarget, _: &JoinRequest| match t.host.as_str() {
@@ -2479,27 +2530,27 @@ mod tests {
             "c" => Err(ShareError::Other(ConsoleError::Network("hors ligne".into()))),
             _ => Err(ShareError::NoShare),
         };
-        let found = join_with(&[target("a"), target("b"), target("c"), target("a")], &request(), call).unwrap();
+        let found = join_with(&[target("a"), target("b"), target("c"), target("a")], &request(), |_| {}, call).unwrap();
         assert_eq!(found.target.host, "b");
         assert_eq!(found.joined.auto, None, "rien envoyé pour « Auto »");
         // Le `auto` envoyé à `join` reste avec la réponse, pour la session.
         let auto = ShareAuto { width: 2556, height: 1179, fps: 60, codecs: vec!["h264".into(), "hevc".into()], yuv444: false };
         let with_auto = JoinRequest { auto: Some(auto.clone()), ..request() };
-        let found = join_with(&[target("b")], &with_auto, call).unwrap();
+        let found = join_with(&[target("b")], &with_auto, |_| {}, call).unwrap();
         assert_eq!(found.joined.auto.as_ref(), Some(&auto));
         let again: ShareJoined = serde_json::from_value(serde_json::to_value(&found.joined).unwrap()).unwrap();
         assert_eq!(again.auto, Some(auto), "et voyage dans le JSON des ponts");
         assert!(serde_json::to_value(ShareJoined::default()).unwrap().get("auto").is_none());
         assert_eq!(found.target.fingerprint.as_deref(), Some("sha256:bb"), "l'empreinte d'Admin vue pendant l'appel");
         // Personne n'a ce code, ou personne à qui demander.
-        assert!(matches!(join_with(&[target("a"), target("c")], &request(), call), Err(ShareError::NoShare)));
-        assert!(matches!(join_with(&[], &request(), call), Err(ShareError::NoShare)));
+        assert!(matches!(join_with(&[target("a"), target("c")], &request(), |_| {}, call), Err(ShareError::NoShare)));
+        assert!(matches!(join_with(&[], &request(), |_| {}, call), Err(ShareError::NoShare)));
         // La Station du code est complète, ou une Station limite les essais.
         let full = |t: &ShareTarget, _: &JoinRequest| if t.host == "b" { Err(ShareError::Full) } else { Err(ShareError::TooManyTries { seconds: Some(30) }) };
-        assert!(matches!(join_with(&[target("a"), target("b")], &request(), full), Err(ShareError::Full)));
-        assert!(matches!(join_with(&[target("a")], &request(), full), Err(ShareError::TooManyTries { seconds: Some(30) })));
+        assert!(matches!(join_with(&[target("a"), target("b")], &request(), |_| {}, full), Err(ShareError::Full)));
+        assert!(matches!(join_with(&[target("a")], &request(), |_| {}, full), Err(ShareError::TooManyTries { seconds: Some(30) })));
         // Une seule Station (le lien) : son erreur telle quelle.
         let offline = |_: &ShareTarget, _: &JoinRequest| Err(ShareError::Other(ConsoleError::Network("hors ligne".into())));
-        assert!(matches!(join_with(&[target("a")], &request(), offline), Err(ShareError::Other(_))));
+        assert!(matches!(join_with(&[target("a")], &request(), |_| {}, offline), Err(ShareError::Other(_))));
     }
 }
