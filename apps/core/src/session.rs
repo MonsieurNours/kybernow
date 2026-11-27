@@ -2388,6 +2388,11 @@ impl Worker {
     /// à la précédente repart de zéro (mêmes paramètres, plateforme, canal,
     /// mesures ; plafond de débit de la fenêtre gardé).
     fn renew(&mut self) {
+        // Le micro et la caméra sont ceux que tient `Session` (et l'app) :
+        // gardés d'une tentative à l'autre (COEUR-04), leur flux montant
+        // retiré (la nouvelle image en donnera un neuf).
+        self.camera_offer(None);
+        self.microphone.set_uplink(None, false);
         let rx = std::mem::replace(&mut self.rx, mpsc::channel().1);
         let mut next = Worker::new(
             self.params.clone(),
@@ -2410,6 +2415,8 @@ impl Worker {
         next.link_mbps = self.link_mbps.clone();
         next.watch_display = self.watch_display.clone();
         next.lowered = self.lowered;
+        next.microphone = self.microphone.clone();
+        next.camera = self.camera.clone();
         *self = next;
     }
 
@@ -5854,6 +5861,21 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    /// COEUR-04 : après le redémarrage de la Station, la nouvelle tentative
+    /// garde le micro et la caméra que tient `Session` (et l'app), avec le
+    /// choix de l'utilisateur.
+    #[test]
+    fn micro_et_camera_gardes_apres_le_redemarrage() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        let (mic, cam) = (w.microphone.clone(), w.camera.clone());
+        mic.set_enabled(true);
+        w.renew();
+        assert!(Arc::ptr_eq(&mic, &w.microphone));
+        assert!(Arc::ptr_eq(&cam, &w.camera));
+        assert!(w.microphone.enabled());
+        assert!(w.station_restarted);
     }
 
     /// Session d'hôte en Bureau sur deux écrans, le principal HDR, l'autre

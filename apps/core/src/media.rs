@@ -365,10 +365,16 @@ impl OpusHead {
             return None;
         }
         let channels = data[9];
-        if channels == 0 {
+        // Au plus 7.1 ; libopus lit `channels` octets de correspondance : un
+        // en-tête de famille 0 à plus de 2 voies lui ferait lire au-delà de
+        // `mapping` (COEUR-03).
+        if channels == 0 || channels > 8 {
             return None;
         }
         let family = data[18];
+        if family == 0 && channels > 2 {
+            return None;
+        }
         if family == 0 {
             return Some(Self {
                 channels,
@@ -381,10 +387,14 @@ impl OpusHead {
         if data.len() < end {
             return None;
         }
+        let (streams, coupled) = (data[19], data[20]);
+        if streams == 0 || coupled > streams || usize::from(streams) + usize::from(coupled) > 255 {
+            return None;
+        }
         Some(Self {
             channels,
-            streams: data[19],
-            coupled: data[20],
+            streams,
+            coupled,
             mapping: data[21..end].to_vec(),
         })
     }
@@ -548,5 +558,24 @@ mod tests {
         let p = OpusHead::parse(&h6).unwrap();
         assert_eq!((p.channels, p.streams, p.coupled), (6, 4, 2));
         assert_eq!(p.mapping, vec![0, 4, 1, 2, 3, 5]);
+    }
+
+    /// COEUR-03 : en-têtes incohérents refusés.
+    #[test]
+    fn en_tete_opus_incoherent() {
+        let head = |channels: u8, family: u8, rest: &[u8]| {
+            let mut h = b"OpusHead".to_vec();
+            h.extend_from_slice(&[1, channels, 0x38, 1, 0x80, 0xbb, 0, 0, 0, 0, family]);
+            h.extend_from_slice(rest);
+            h
+        };
+        // Famille 0 à 6 voies : la correspondance n'aurait que 2 octets.
+        assert_eq!(OpusHead::parse(&head(6, 0, &[])), None);
+        // Plus de 8 voies.
+        assert_eq!(OpusHead::parse(&head(255, 255, &[200, 55])), None);
+        // Flux couplés plus nombreux que les flux, ou aucun flux.
+        assert_eq!(OpusHead::parse(&head(2, 1, &[1, 2, 0, 1])), None);
+        assert_eq!(OpusHead::parse(&head(2, 1, &[0, 0, 0, 1])), None);
+        assert!(OpusHead::parse(&head(1, 0, &[])).is_some());
     }
 }

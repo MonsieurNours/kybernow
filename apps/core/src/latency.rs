@@ -69,14 +69,23 @@ mod clock {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "visionos")))]
         const CLOCK_MONOTONIC: i32 = 1;
         unsafe { clock_gettime(CLOCK_MONOTONIC, &mut ts) };
-        ts.tv_sec * 1_000_000 + ts.tv_nsec / 1000
+        timespec_micros(i64::from(ts.tv_sec), i64::from(ts.tv_nsec))
     }
 
+    /// Microsecondes d'un `timespec`, sans débordement.
+    #[cfg(not(windows))]
+    pub(super) fn timespec_micros(sec: i64, nsec: i64) -> i64 {
+        sec.saturating_mul(1_000_000).saturating_add(nsec / 1000)
+    }
+
+    /// `struct timespec` du symbole `clock_gettime` : `time_t` et `long` sont
+    /// des `long` C, donc 32 bits sur webOS (armv7) et Android armeabi-v7a.
+    /// Les déclarer en `i64` lisait `sec | (nsec << 32)` (COEUR-02).
     #[cfg(not(windows))]
     #[repr(C)]
     struct libc_timespec {
-        tv_sec: i64,
-        tv_nsec: i64,
+        tv_sec: std::ffi::c_long,
+        tv_nsec: std::ffi::c_long,
     }
 }
 
@@ -576,6 +585,21 @@ mod tests {
 
     fn video(pts: u64, ts: i64, data: VideoMetricData) -> Metric {
         Metric::Video(VideoMetric { source_id: 1, pts, ts, data })
+    }
+
+    /// COEUR-02 : horloge croissante, en microsecondes plausibles.
+    #[test]
+    fn horloge_croissante() {
+        let a = now_micros();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let b = now_micros();
+        assert!(a > 0 && b > a, "{a} {b}");
+        assert!((15_000..2_000_000).contains(&(b - a)), "{}", b - a);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(clock::timespec_micros(12, 345_678_901), 12_345_678);
+            assert_eq!(clock::timespec_micros(i64::MAX, 0), i64::MAX);
+        }
     }
 
     #[test]
