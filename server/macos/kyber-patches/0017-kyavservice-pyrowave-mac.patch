@@ -1,31 +1,9 @@
+diff --git a/kyavservice/src/pyrowave.rs b/kyavservice/src/pyrowave.rs
+index 3c86ed3..27ead49 100644
 --- a/kyavservice/src/pyrowave.rs
 +++ b/kyavservice/src/pyrowave.rs
-@@ -12,7 +12,13 @@
- use crate::config::GpuPriority;
- 
- /// FFmpeg encoder of the PyroWave patch (packagefiles/ffmpeg).
--pub(crate) const ENCODER: &str = "libpyrowave";
-+/// KyberNow (server/macos/kyber-patches/0017): on a Mac Station, the Metal
-+/// one (0016), on the VideoToolbox frames of ScreenCaptureKit, same options.
-+pub(crate) const ENCODER: &str = if cfg!(target_os = "macos") {
-+    "libpyrowave_metal"
-+} else {
-+    "libpyrowave"
-+};
- 
- /// The codec the Station encodes, and why PyroWave was turned down.
- pub(crate) fn resolve(codec: VideoCodec, enabled: bool, windows: bool) -> (VideoCodec, Option<String>) {
-@@ -20,7 +26,7 @@
-         return (codec, None);
-     }
-     let reason = if !windows {
--        "PyroWave refused: Windows Station only"
-+        "PyroWave refused: Windows or Mac Station only"
-     } else if !enabled {
-         "PyroWave refused: [kyavserver] pyrowave = false"
-     } else {
-@@ -29,6 +35,15 @@
-     (VideoCodec::H264, Some(format!("{reason}: H264 instead")))
+@@ -59,6 +59,15 @@ pub(crate) fn resolve(
+     (fallback, Some(message))
  }
  
 +/// KyberNow (server/macos/kyber-patches/0017, 0019): on a Mac Station,
@@ -37,13 +15,14 @@
 +    cfg!(target_os = "macos") && codec == VideoCodec::PyroWave && !yuv444 && !scaled && !pq
 +}
 +
- /// Options of the `libpyrowave` encoder: bitrate (the frame budget is
+ /// Options of the PyroWave encoder: bitrate (the frame budget is
  /// bitrate / 8 / fps), 4:4:4 (SDR only), a guest's own image scaled down on
- /// the graphics card by PyroWave itself, its capped rate, and the Vulkan
-@@ -82,6 +97,22 @@
+ /// the graphics card by PyroWave itself, its capped rate, the GPU queue
+@@ -142,6 +151,16 @@ mod tests {
+         assert_eq!(codec, VideoCodec::H264);
      }
  
-     #[test]
++    #[test]
 +    fn nv12_from_the_mac_capture_for_420_sdr_only() {
 +        let mac = cfg!(target_os = "macos");
 +        assert_eq!(nv12_capture(VideoCodec::PyroWave, false, false, false), mac);
@@ -53,46 +32,17 @@
 +        assert!(!nv12_capture(VideoCodec::HEVC, false, false, false));
 +    }
 +
-+    #[test]
-+    fn the_encoder_of_this_station() {
-+        // KyberNow (0017): the Metal encoder on a Mac Station.
-+        assert_eq!(ENCODER == "libpyrowave_metal", cfg!(target_os = "macos"));
-+    }
-+
-+    #[test]
+     #[test]
      fn encoder_options() {
          let options = options(
-             200_000_000,
---- a/kyavservice/src/txproto/run.rs
-+++ b/kyavservice/src/txproto/run.rs
-@@ -229,8 +229,10 @@
-         } => {
-             // KyberNow (0025): PyroWave only where this Station offers it.
-             let windows = cfg!(target_os = "windows");
-+            // KyberNow (server/macos/kyber-patches/0017): a Mac Station too.
-+            let station = windows || cfg!(target_os = "macos");
-             let (codec, refused) =
--                crate::pyrowave::resolve(codec, config.pyrowave(), windows);
-+                crate::pyrowave::resolve(codec, config.pyrowave(), station);
-             if let Some(reason) = refused {
-                 warn!("{reason}");
-             }
-@@ -238,7 +240,7 @@
-             // KyberNow (0020): a share guest's own image this encoder can't
-             // make is refused here, so that kycontroller's start fails.
-             // PyroWave scales it down itself.
--            let scaling = (windows && codec == VideoCodec::PyroWave)
-+            let scaling = (station && codec == VideoCodec::PyroWave)
-                 || kybernow::can_scale(config.encoder(), windows);
-             // KyberNow (0007): ScreenCaptureKit caps the rate too (Mac Station).
-             let rate_limit = windows || cfg!(target_os = "macos");
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index 805d402..0863e5a 100644
 --- a/kyavservice/src/txproto/video.rs
 +++ b/kyavservice/src/txproto/video.rs
-@@ -788,6 +788,16 @@
-         // or the SDR image of an HDR display.
+@@ -823,6 +823,16 @@ pub(crate) fn configure(
          if video_config.hdr != HdrMode::Off {
              options.push(("hdr", video_config.hdr.capture_option()).into());
-+        }
+         }
 +        // KyberNow (server/macos/kyber-patches/0017, 0019): NV12 for PyroWave
 +        // in 4:2:0 SDR, taken as is by the Metal encoder.
 +        if crate::pyrowave::nv12_capture(
@@ -102,19 +52,7 @@
 +            video_config.hdr.is_pq(),
 +        ) {
 +            options.push(("pyrowave_nv12", 1).into());
-         }
++        }
          if options.is_empty() { None } else { Some(Dictionary::from_entries(&options)?) }
      };
-@@ -826,7 +836,11 @@
-     // KyberNow (0025): PyroWave has its own encoder (the codec matches of
-     // the other encoders never see it).
-     let create_encoder = match video_config.encoder {
--        _ if cfg!(target_os = "windows") && video_config.codec == VideoCodec::PyroWave => {
-+        // KyberNow (server/macos/kyber-patches/0017): on a Mac Station too,
-+        // with the Metal encoder (pyrowave::ENCODER).
-+        _ if (cfg!(target_os = "windows") || cfg!(target_os = "macos"))
-+            && video_config.codec == VideoCodec::PyroWave =>
-+        {
-             create_pyrowave
-         }
-         VideoEncoder::AMF => create_amf,
+ 
