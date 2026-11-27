@@ -44,6 +44,8 @@ extension Keymap {
         kVK_Control: 0xE0, kVK_Shift: 0xE1, kVK_Option: 0xE2, kVK_Command: 0xE3,
         kVK_RightControl: 0xE4, kVK_RightShift: 0xE5, kVK_RightOption: 0xE6, kVK_RightCommand: 0xE7,
         kVK_VolumeUp: 0x80, kVK_VolumeDown: 0x81, kVK_Mute: 0x7F,
+        // Touche Menu d'un clavier de PC (kVK_ContextualMenu) : Application (MAC-24).
+        0x6E: 0x65,
     ]
 
     /// Usage HID brut d'une touche du Mac (avant « ⌘ envoyée comme Ctrl » et

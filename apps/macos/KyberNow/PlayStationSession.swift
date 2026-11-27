@@ -483,8 +483,13 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     private func observe() {
         let center = NotificationCenter.default
         for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateChrome() }
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    // Spotlight, ⌘Espace : la fenêtre peut garder le clavier,
+                    // rien ne doit rester tenu sur la console (MAC-17).
+                    if note.name == NSApplication.didResignActiveNotification { self?.input.releaseAll() }
+                    self?.updateChrome()
+                }
             })
         }
         for name in [Notification.Name.GCControllerDidConnect, .GCControllerDidDisconnect] {
