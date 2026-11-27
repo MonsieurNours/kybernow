@@ -14,8 +14,8 @@
   import Sheet from './lib/Sheet.svelte'
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
-  import type { Computer, StationOutcome, StationRefusal } from './lib/api'
-  import { invoke, listen } from './lib/api'
+  import type { Computer, StationOutcome } from './lib/api'
+  import { invoke, listen, stationRefusal, stationRefusalText } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let { computer, accountName = null, onremoved }: { computer: Computer; accountName?: string | null; onremoved: () => void } = $props()
@@ -66,21 +66,11 @@
     return () => off.then((f) => f())
   })
 
+  /** Le texte d'un refus (`api.ts`, comme le bandeau et l'avis) ; « en session » : la confirmation. */
   function refusal(e: unknown, kind: Kind): string | null {
-    const r = (typeof e === 'object' && e && 'kind' in e ? e : { kind: 'other', message: String(e), device: null, seconds: null }) as StationRefusal
-    switch (r.kind) {
-      case 'in_session':
-        confirm = { kind, device: r.device }
-        return null
-      case 'too_soon':
-        return t('station.too_soon')
-      case 'unsupported':
-        return t('station.too_old')
-      case 'requires_setup':
-        return t('station.requires_setup', { version: update?.version ?? '' })
-      default:
-        return r.message
-    }
+    const r = stationRefusal(e)
+    if (r.kind === 'in_session') confirm = { kind, device: r.device }
+    return stationRefusalText(r, update?.version ?? '')
   }
 
   async function run(kind: Kind, force = false) {
@@ -106,8 +96,12 @@
   }
 
   async function remove() {
-    await invoke('remove_computer', { id: computer.id })
-    onremoved()
+    try {
+      await invoke('remove_computer', { id: computer.id })
+      onremoved()
+    } catch (e) {
+      outcome = { text: String(e), tone: 'warn' }
+    }
   }
 </script>
 

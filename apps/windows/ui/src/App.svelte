@@ -521,8 +521,12 @@
 
   /** « Retirer » l'ordinateur d'un ami de cet appareil. */
   async function removeFriend(id: string) {
-    await invoke('lend_remove', { id })
-    if (selectedId === id) selectedId = computers[0]?.id ?? null
+    try {
+      await invoke('lend_remove', { id })
+      if (selectedId === id) selectedId = computers[0]?.id ?? null
+    } catch (e) {
+      error = String(e)
+    }
   }
 
   /** « Reprendre l'ordinateur » (préavis de 2 min) ou « Reprendre tout de suite », depuis l'accueil de l'hôte. */

@@ -15,9 +15,9 @@
 
   onMount(() => {
     const off = [listen<FondState>('fond-state', (s) => (state = s)), listen<string>('lang', setLang)]
-    invoke<FondState>('fond_state').then((s) => (state = s))
+    invoke<FondState>('fond_state').then((s) => (state = s), (e) => console.error('fond_state :', e))
     // Langue de l'app si la fenêtre a été ouverte depuis un changement de langue.
-    invoke<AppInfo>('app_info').then((i) => setLang(i.lang))
+    invoke<AppInfo>('app_info').then((i) => setLang(i.lang), (e) => console.error('app_info :', e))
     return () => off.forEach((p) => p.then((f) => f()))
   })
 </script>

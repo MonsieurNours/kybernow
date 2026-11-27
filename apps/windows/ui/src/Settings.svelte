@@ -94,7 +94,8 @@
   function save(patch: Partial<Settings>) {
     s = { ...s, ...patch }
     const settings = $state.snapshot(s)
-    saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch(() => {})
+    // Refusé (ordinateur retiré entre-temps…) : noté, la suite part quand même.
+    saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch((e) => console.error('save_settings :', e))
   }
 
   const custom = $derived(isCustom(s, thisPc, auto))

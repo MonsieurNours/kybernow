@@ -104,12 +104,15 @@
 
   /** Auto (langue de Windows), Français, English : appliquée tout de suite. */
   async function language(l: AppInfo['language']) {
+    const before = info?.language
     if (info) info.language = l
     try {
       setLang(await invoke<string>('set_language', { language: l }))
       // Les textes du cœur (« Synchroniser les réglages des ordinateurs ») suivent la langue.
       info = await invoke<AppInfo>('app_info')
     } catch (e) {
+      // Refusée : l'ancien choix revient.
+      if (info && before) info.language = before
       error = String(e)
     }
   }
@@ -123,6 +126,7 @@
       const now = await invoke<boolean>('set_sync_settings', { on })
       if (info) info.sync_settings = now
     } catch (e) {
+      if (info) info.sync_settings = !on
       accountError = String(e)
     }
   }
