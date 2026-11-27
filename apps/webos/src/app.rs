@@ -2041,12 +2041,14 @@ pub enum Setting {
     AccountAdd,
     /// Réglages de l'app › Comptes : « Revoir l'accueil ».
     WelcomeAgain,
+    /// Réglages de l'app › À propos : « Envoyer le journal » (`crate::log_send`).
+    SendLog,
 }
 
 impl Setting {
     /// Une ligne qui agit (OK) au lieu de changer de valeur (gauche, droite).
     pub fn is_action(self) -> bool {
-        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd | Setting::WelcomeAgain)
+        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd | Setting::WelcomeAgain | Setting::SendLog)
     }
 }
 
@@ -2068,6 +2070,8 @@ pub enum Section {
     Gamepads,
     /// Réglages de l'app : les comptes KyberNow.
     Accounts,
+    /// Réglages de l'app : la version, les versions proposées, le journal (en dernier, docs/link-ui.md).
+    About,
 }
 
 impl Section {
@@ -2082,6 +2086,7 @@ impl Section {
             Section::Tv => tr("Ce téléviseur", "This TV"),
             Section::Gamepads => tr("Manettes", "Controllers"),
             Section::Accounts => tr("Comptes", "Accounts"),
+            Section::About => tr("À propos", "About"),
         }
     }
 }
@@ -2089,7 +2094,7 @@ impl Section {
 /// Réglages de l'ordinateur choisi (docs/link-ui.md : six rubriques, dans cet ordre).
 pub const HOST_SECTIONS: [Section; 6] = [Section::Picture, Section::Sound, Section::Controls, Section::Network, Section::Statistics, Section::Station];
 /// Réglages de l'app sur ce téléviseur, même sans ordinateur.
-pub const APP_SECTIONS: [Section; 3] = [Section::Tv, Section::Accounts, Section::Gamepads];
+pub const APP_SECTIONS: [Section; 4] = [Section::Tv, Section::Accounts, Section::Gamepads, Section::About];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -2112,6 +2117,8 @@ pub enum Screen {
     AutoTest,
     /// Accueil au premier lancement : trois écrans (`crate::welcome`).
     Welcome,
+    /// « Envoyer le journal » : préparation, envoi, QR code (`crate::log_send`).
+    LogSend,
 }
 
 /// Ce qu'on peut choisir.
@@ -2229,6 +2236,9 @@ pub enum Target {
     AccountRelayField,
     AccountRelayGo,
     AccountRelayCancel,
+    /// « Envoyer le journal » : « Terminé », et « Nouveau QR code » ou « Réessayer ».
+    LogDone,
+    LogAgain,
     /// Profil Auto (docs/link-ui.md, « Profil Auto et débit adaptatif ») : dans le panneau du test, « Appliquer »,
     /// « Annuler », « Refaire le test » et « Réessayer » ; « Refaire le test » des réglages de l'ordinateur ; le
     /// bandeau « Autre réseau que celui du test » de la session, son bouton et sa croix.
@@ -2338,6 +2348,11 @@ pub enum Action {
     /// Les ordinateurs des comptes redemandés au relais (`account::computers`) ; l'accueil refait (`account::merge`).
     AccountsRefresh,
     AccountsSync,
+    /// « Envoyer le journal » (`crate::log_send`) : le journal lu, chiffré et déposé sur `relay` (vide : le relais
+    /// public), sous ce numéro ; puis l'état du dépôt relu, et le dépôt pas encore ouvert retiré (« Terminé »).
+    LogSend { attempt: u32, relay: String, header: String },
+    LogCheck { attempt: u32, relay: String, id: String, owner: String },
+    LogDiscard { relay: String, id: String, owner: String },
     /// Profil Auto : le test des conditions pour cet ordinateur (`autotest::run` du cœur, sur un fil à part), suivi
     /// sous ce numéro ; « Annuler » l'arrête (`AutoCancel`).
     AutoTest { host: String, attempt: u32 },
@@ -2416,6 +2431,9 @@ pub struct App {
     pub ps: crate::ps::PsUi,
     /// Comptes KyberNow : la connexion en cours, les pastilles d'origine de l'accueil.
     pub accounts: crate::accounts::AccountsUi,
+    /// « Envoyer le journal » : l'écran ouvert, et le numéro du dernier envoi.
+    pub log: Option<crate::log_send::LogSendUi>,
+    pub log_attempt: u32,
     /// Profil Auto : le panneau du test ouvert, le numéro du dernier test lancé, et l'ordinateur dont le test s'ouvrira
     /// à la fin de la session (« Refaire le test » du bandeau, Auto choisi sans résultat dans le menu).
     pub auto: Option<crate::autotest::AutoTestUi>,
@@ -2490,6 +2508,8 @@ impl App {
             calibration: None,
             ps: crate::ps::PsUi::default(),
             accounts: crate::accounts::AccountsUi::default(),
+            log: None,
+            log_attempt: 0,
             auto: None,
             auto_attempt: 0,
             auto_after: None,
@@ -2643,6 +2663,7 @@ impl App {
             Screen::Account => self.account_focus(),
             Screen::AutoTest => self.auto_focus(),
             Screen::Welcome => self.welcome_focus(),
+            Screen::LogSend => self.log_focus(),
         }
     }
 
@@ -2941,6 +2962,7 @@ impl App {
             // Le panneau du test : comme « Annuler » (le profil d'avant reste).
             Screen::AutoTest => self.activate(Target::AutoCancel),
             Screen::Welcome => self.welcome_back(),
+            Screen::LogSend => self.log_done(),
         }
     }
 
@@ -3066,6 +3088,9 @@ impl App {
             return acts;
         }
         if let Some(acts) = self.account_activate(t) {
+            return acts;
+        }
+        if let Some(acts) = self.log_activate(t) {
             return acts;
         }
         match t {
@@ -3506,6 +3531,8 @@ impl App {
             Target::KeySpace | Target::Ps(_) => Vec::new(),
             // Comptes KyberNow : `account_activate`, plus haut.
             Target::AccountSignIn | Target::AccountOtherRelay | Target::AccountNewCode | Target::AccountBack | Target::AccountRelayField | Target::AccountRelayGo | Target::AccountRelayCancel => Vec::new(),
+            // « Envoyer le journal » : `log_activate`, plus haut.
+            Target::LogDone | Target::LogAgain => Vec::new(),
             // Accueil et compte KyberNow : `welcome_activate`, plus haut.
             Target::WelcomeSkip | Target::WelcomeNext | Target::WelcomeCardConnect | Target::WelcomeCardClose | Target::WelcomePairedConnect | Target::WelcomePairedLater => Vec::new(),
         }
@@ -4562,6 +4589,9 @@ impl App {
             self.go(Screen::Gamepads);
             return Vec::new();
         }
+        if s == Setting::SendLog {
+            return self.log_send();
+        }
         if s == Setting::WelcomeAgain {
             return self.open_welcome();
         }
@@ -4655,7 +4685,7 @@ impl App {
                 let t = if reliable == st.profile_reliable() { "" } else if reliable { "reliable" } else { "fast" };
                 st.set_transport(t);
             }
-            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd | Setting::WelcomeAgain => {}
+            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel | Setting::HdrCalibrate | Setting::HdrCalibration | Setting::AccountManage(_) | Setting::AccountSignOut(_) | Setting::AccountAdd | Setting::WelcomeAgain | Setting::SendLog => {}
         }
         vec![Action::Save]
     }

@@ -860,6 +860,35 @@ pub fn run(dir: &Path, lang: &str) {
     playstation_shots(&mut app, &mut cv, &assets, &video, dir);
     // Les comptes KyberNow (docs/comptes.md) : accueil vide, code, accueil avec un compte, réglages.
     account_shots(en, &mut cv, &assets, dir);
+    // « Envoyer le journal » (docs/link-ui.md, « Réglages de l'app › À propos ») : la ligne, puis les étapes.
+    log_shots(en, &mut cv, &assets, dir);
+}
+
+// MARK: - Envoyer le journal
+
+fn log_shots(en: bool, cv: &mut Canvas, assets: &Assets, dir: &Path) {
+    use crate::log_send::{LogDeposit, LogFail, LogRemote};
+    let mut app = empty(en);
+    app.open_settings(true, Screen::Home);
+    app.section = crate::app::APP_SECTIONS.iter().position(|s| *s == Section::About).unwrap_or(0);
+    app.focus = Target::Setting(Setting::SendLog);
+    shot(&mut app, cv, assets, None, dir, "80-a-propos-journal");
+    app.log_send();
+    shot(&mut app, cv, assets, None, dir, "81-journal-preparation");
+    let deposit = LogDeposit {
+        relay: String::new(),
+        id: "Q2xhdWRlLUtOSjEtZGVwb3Q".into(),
+        owner: "jeton".into(),
+        url: "https://share.kybernow.app/journal/Q2xhdWRlLUtOSjEtZGVwb3Q#k=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8".into(),
+        until: Instant::now() + Duration::from_secs(3600),
+    };
+    app.log_sent(app.log_attempt, Ok(deposit));
+    shot(&mut app, cv, assets, None, dir, "82-journal-qr-code");
+    app.log_state(app.log_attempt, LogRemote::Opened);
+    shot(&mut app, cv, assets, None, dir, "83-journal-ouvert");
+    app.log_send();
+    app.log_sent(app.log_attempt, Err(LogFail::Unreachable));
+    shot(&mut app, cv, assets, None, dir, "84-journal-relais-injoignable");
 }
 
 // MARK: - Comptes KyberNow

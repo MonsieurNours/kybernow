@@ -10,6 +10,7 @@ mod accounts;
 mod autotest;
 mod dl;
 mod jobs;
+mod log_send;
 mod link;
 mod log_file;
 mod luna;
@@ -58,6 +59,10 @@ pub enum Event {
     Found(Vec<Found>),
     /// Comptes KyberNow : un code, une connexion, les ordinateurs d'un compte (`accounts.rs`).
     Account(accounts::AccountEvent),
+    /// « Envoyer le journal » (`log_send.rs`) : il part au relais ; déposé ou refusé ; l'état du dépôt.
+    LogUploading { attempt: u32 },
+    LogSent { attempt: u32, result: Result<crate::log_send::LogDeposit, crate::log_send::LogFail> },
+    LogState { attempt: u32, remote: crate::log_send::LogRemote },
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
     PairAsked { name: String },
     PairAccepted(crate::model::Host),
@@ -539,6 +544,14 @@ pub fn run(args: &[String]) {
         if animating {
             dirty = true;
         }
+        // « Envoyer le journal » : le dépôt relu toutes les 2 s, son expiration vue sans le relais.
+        let log_before = app.log.as_ref().map(|l| l.step.clone());
+        for a in app.log_tick(Instant::now()) {
+            perform(a, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
+        }
+        if app.log.as_ref().map(|l| l.step.clone()) != log_before {
+            dirty = true;
+        }
         // L'enregistrement en cours, menu ouvert : la tuile se redessine à chaque seconde de son temps.
         let tick = app.recording_tick();
         if tick.is_some() && tick != rec_tick {
@@ -927,6 +940,9 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.images.insert(id, img);
             }
         }
+        Event::LogUploading { attempt } => app.log_uploading(attempt),
+        Event::LogSent { attempt, result } => actions.extend(app.log_sent(attempt, result)),
+        Event::LogState { attempt, remote } => app.log_state(attempt, remote),
         Event::Account(e) => {
             if accounts::handle(e, app, actions) {
                 accounts::sync(app);
@@ -1264,6 +1280,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         }
         Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name(), tx.clone()),
         Action::AccountCancel => accounts::cancel(),
+        Action::LogSend { attempt, relay, header } => log_send::send(attempt, relay, header, tx.clone()),
+        Action::LogCheck { attempt, relay, id, owner } => log_send::check(attempt, relay, id, owner, tx.clone()),
+        Action::LogDiscard { relay, id, owner } => log_send::discard(relay, id, owner),
         Action::AutoTest { host, attempt } => autotest::start(app, &host, attempt, tx.clone()),
         Action::AutoCancel => autotest::cancel(),
         Action::AccountSignOut(a) => accounts::sign_out(a),

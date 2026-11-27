@@ -218,7 +218,7 @@ fn host_section(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host) {
         }
         Section::Statistics => statistics(cv, h, x, y, w),
         Section::Station => station(app, cv, f, h, x, y, w),
-        Section::Tv | Section::Gamepads | Section::Accounts => {}
+        Section::Tv | Section::Gamepads | Section::Accounts | Section::About => {}
     }
 }
 
@@ -618,6 +618,16 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
             y += widgets::row(cv, f, s(Setting::AccountAdd), x, y, w, tr("Ajouter un compte", "Add an account"), crate::accounts::accounts_help(), Value::Text("›".into())) + GAP;
             widgets::row(cv, f, s(Setting::WelcomeAgain), x, y, w, crate::welcome::welcome_again(), "", Value::Text("›".into()));
         }
+        // À propos (en dernier) : la version et ses mises à jour, les versions proposées, « Envoyer le journal ».
+        Section::About => {
+            y += widgets::row(cv, f, None, x, y, w, "Version", &update_help(app), Value::Text(format!("KyberNow Link {}", app.version))) + GAP;
+            if let Some(v) = update_line(app) {
+                y += widgets::row(cv, f, None, x, y, w, tr("Mise à jour", "Update"), "", Value::Text(v)) + GAP;
+            }
+            let chan: Vec<String> = vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()];
+            y += widgets::row(cv, f, s(Setting::UpdateChannel), x, y, w, tr("Versions proposées", "Versions offered"), tr("Les bêtas arrivent plus tôt, parfois avec des défauts.", "Betas arrive earlier, sometimes with rough edges."), Value::Choices(&chan, usize::from(app.store.app.beta))) + GAP;
+            widgets::row(cv, f, s(Setting::SendLog), x, y, w, crate::log_send::title(), crate::log_send::help(), Value::Text("›".into()));
+        }
         Section::Gamepads => {
             y += widgets::row(cv, f, s(Setting::Pads), x, y, w, tr("Tester les manettes", "Test controllers"), tr("Touches, sticks, gâchettes et vibrations de chaque manette", "Buttons, sticks, triggers and rumble of each controller"), Value::Text("›".into())) + GAP;
             if app.pads.is_empty() {
@@ -664,23 +674,18 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 ),
                 NetKind::Unknown => (tr("inconnu", "unknown").into(), String::new()),
             };
-            y += widgets::row(cv, f, None, x, y, w, tr("Réseau", "Network"), &help, Value::Text(link)) + GAP;
-            y += widgets::row(cv, f, None, x, y, w, &format!("KyberNow Link {}", app.version), &update_help(app), Value::Text(update_value(app))) + GAP;
-            let chan: Vec<String> = vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()];
-            widgets::row(cv, f, s(Setting::UpdateChannel), x, y, w, tr("Versions proposées", "Versions offered"), tr("Les bêtas arrivent plus tôt, parfois avec des défauts.", "Betas arrive earlier, sometimes with rough edges."), Value::Choices(&chan, usize::from(app.store.app.beta)));
+            widgets::row(cv, f, None, x, y, w, tr("Réseau", "Network"), &help, Value::Text(link));
         }
     }
 }
 
-/// L'état de la recherche de mise à jour.
-fn update_value(app: &App) -> String {
+/// L'état de la recherche de mise à jour, sous la version ; rien tant qu'il n'y a rien à dire.
+fn update_line(app: &App) -> Option<String> {
     match &app.update {
-        UpdateState::Available { version, .. } => {
-            if english() { format!("Version {version} available") } else { format!("Version {version} disponible") }
-        }
-        UpdateState::Checking => tr("Recherche…", "Searching…").into(),
-        UpdateState::UpToDate => tr("À jour", "Up to date").into(),
-        UpdateState::Failed(_) | UpdateState::Unknown => String::new(),
+        UpdateState::Available { version, .. } => Some(if english() { format!("Version {version} available") } else { format!("Version {version} disponible") }),
+        UpdateState::Checking => Some(tr("Recherche…", "Searching…").into()),
+        UpdateState::UpToDate => Some(tr("À jour", "Up to date").into()),
+        UpdateState::Failed(_) | UpdateState::Unknown => None,
     }
 }
 
