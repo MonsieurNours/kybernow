@@ -12,8 +12,10 @@ path = "src/main.rs"
 
 [dependencies]
 kybernow-core = { path = "../core", optional = true }
-kynput-sys = { version = "0.1.0", optional = true }
 keycode = { version = "1.0", optional = true }
+# Le manifeste signé d'une mise à jour de KyberNow Link OS, déposé à côté de
+# l'image pour que root le vérifie (même version que le cœur).
+ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,7 +32,7 @@ qrcodegen = "1.8"
 # L'app : cœur, FFmpeg, SDL. Sans elle (--no-default-features), seule
 # l'interface se compile : captures des écrans (`--preview`), sur Mac aussi.
 default = ["device"]
-device = ["dep:kybernow-core", "dep:kynput-sys", "dep:keycode"]
+device = ["dep:kybernow-core", "dep:keycode", "dep:ureq"]
 # PyroWave demandé à Kyber : la fonctionnalité `pyrowave` du cœur, avec le
 # correctif kyclient 0025 (scripts/build.sh --kyber-pyrowave).
 pyrowave = ["device", "kybernow-core/pyrowave"]

@@ -7,7 +7,7 @@
 #   --ab-only : sans relancer pi-gen, refait la disposition A/B depuis la
 #               dernière image de base construite (mise au point de make-ab-image.sh).
 #
-# 1. pi-gen (branche arm64, dans $WORK/pi-gen) construit Raspberry Pi OS Lite
+# 1. pi-gen (étiquette PIGEN_TAG, dans $WORK/pi-gen) construit Raspberry Pi OS Lite
 #    (stage0 à stage2) puis notre stage, `stage-kybernow` : le paquet .deb de
 #    KyberNow Link (apps/linux/scripts/deb.sh), les services (Link en plein
 #    écran sur KMS/DRM, premier démarrage, mise à jour), Plymouth avec le symbole
@@ -41,7 +41,10 @@ done
 [ "$(uname -m)" = aarch64 ] || { echo "à lancer sur un Linux arm64 (VM ou Pi) : $(uname -m)" >&2; exit 1; }
 [ -f "$DEB" ] || { echo "paquet absent : $DEB (apps/linux/scripts/deb.sh)" >&2; exit 1; }
 sudo -n true 2>/dev/null || { echo "sudo sans mot de passe requis (pi-gen monte des systèmes de fichiers)" >&2; exit 1; }
-for t in debootstrap quilt parted zerofree bsdtar pigz xz arch-test; do command -v "$t" >/dev/null || { echo "$t absent (apt install $(sed -n 's/^.*:\(.*\)$/\1/p' <<< "$t" 2>/dev/null || echo "$t"))" >&2; exit 1; }; done
+# commande:paquet (le paquet d'Ubuntu qui la donne).
+for t in debootstrap:debootstrap quilt:quilt parted:parted zerofree:zerofree bsdtar:libarchive-tools pigz:pigz xz:xz-utils arch-test:arch-test; do
+    command -v "${t%%:*}" >/dev/null || { echo "${t%%:*} absent (apt install ${t#*:})" >&2; exit 1; }
+done
 VERSION="$(dpkg-deb -f "$DEB" Version)"
 mkdir -p "$WORK"
 
@@ -52,9 +55,18 @@ if [ "$AB_ONLY" = 1 ]; then
     [ -n "$BASE" ] || { echo "aucune image de base dans $WORK/deploy" >&2; exit 1; }
     echo "==> disposition A/B seule, depuis $BASE"
 else
+# pi-gen figé sur une publication de Raspberry Pi OS (trixie, arm64) : la même
+# base d'une construction à l'autre ; changer PIGEN_TAG pour suivre une version
+# plus récente (audit TRANS-21). Un clone d'avant, sur la branche, est remis à
+# cette étiquette.
+PIGEN_TAG="${KYBERNOW_PIGEN_TAG:-2026-10-06-raspios-trixie-arm64}"
 if [ ! -d "$PIGEN/.git" ]; then
-    echo "==> pi-gen (arm64)"
-    git clone -q --branch arm64 --depth 1 https://github.com/RPi-Distro/pi-gen.git "$PIGEN"
+    echo "==> pi-gen ($PIGEN_TAG)"
+    git clone -q --branch "$PIGEN_TAG" --depth 1 https://github.com/RPi-Distro/pi-gen.git "$PIGEN"
+elif [ "$(git -C "$PIGEN" describe --tags --exact-match 2>/dev/null || true)" != "$PIGEN_TAG" ]; then
+    echo "==> pi-gen remis à $PIGEN_TAG"
+    git -C "$PIGEN" fetch -q --depth 1 origin "refs/tags/$PIGEN_TAG:refs/tags/$PIGEN_TAG"
+    git -C "$PIGEN" checkout -q -f "$PIGEN_TAG"
 fi
 # Notre stage, copié à côté des autres (pi-gen veut les stages dans son dossier).
 rm -rf "$PIGEN/stage-kybernow"
@@ -63,13 +75,35 @@ cp "$DEB" "$PIGEN/stage-kybernow/01-link/files/kybernow-link.deb"
 # La version de l'OS (celle du paquet), lue par 00-run.sh : pi-gen ne passe pas
 # les variables de config inconnues aux stages.
 echo "$VERSION" > "$PIGEN/stage-kybernow/01-link/files/version"
+# La clé publique de publication (celle des apps et de la Station) : la mise à
+# jour de l'OS vérifie le manifeste signé avec elle, côté root.
+cp "$APPS/../server/admin/src/update/kybernow-release.pub" "$PIGEN/stage-kybernow/01-link/files/release.pub"
 chmod +x "$PIGEN/stage-kybernow"/*/*.sh "$PIGEN/stage-kybernow/prerun.sh"
+# Raspberry Pi OS Lite (stages 0 à 2 : debootstrap, paquets) ne change pas
+# d'une version de KyberNow à l'autre : son rootfs est gardé dans PIGEN_WORK et
+# repris tant que l'étiquette de pi-gen et la langue sont les mêmes (SKIP et
+# CONTINUE de pi-gen) ; seul notre stage est refait, depuis une copie fraîche
+# du rootfs du stage 2. KYBERNOW_OS_FRESH=1 repart de zéro (LINAPP-38).
+PIGEN_WORK="$WORK/pi-gen-work"
+BASE_KEY="$PIGEN_TAG ${KYBERNOW_OS_LOCALE:-fr_FR.UTF-8}"
+rm -f "$PIGEN/stage0/SKIP" "$PIGEN/stage1/SKIP" "$PIGEN/stage2/SKIP"
+PIGEN_CONTINUE=0
+if [ "${KYBERNOW_OS_FRESH:-0}" != 1 ] && [ "$(cat "$PIGEN_WORK/.kybernow-base" 2>/dev/null || true)" = "$BASE_KEY" ] && [ -d "$PIGEN_WORK/stage2/rootfs" ]; then
+    echo "==> Raspberry Pi OS Lite repris ($BASE_KEY) ; notre stage seul"
+    touch "$PIGEN/stage0/SKIP" "$PIGEN/stage1/SKIP" "$PIGEN/stage2/SKIP"
+    PIGEN_CONTINUE=1
+    sudo -n rm -rf "$PIGEN_WORK/stage-kybernow" "$PIGEN_WORK/export-image"
+else
+    sudo -n rm -rf "$PIGEN_WORK"
+fi
 # Les stages de bureau ne servent pas, et seul le nôtre exporte une image.
 touch "$PIGEN/stage3/SKIP" "$PIGEN/stage4/SKIP" "$PIGEN/stage5/SKIP" "$PIGEN/stage2/SKIP_IMAGES" "$PIGEN/stage4/SKIP_IMAGES" "$PIGEN/stage5/SKIP_IMAGES"
 cat > "$PIGEN/config" <<EOF
 IMG_NAME=KyberNow-Link-OS
 RELEASE=trixie
 DEPLOY_DIR=$WORK/deploy
+WORK_DIR=$PIGEN_WORK
+CONTINUE=$PIGEN_CONTINUE
 DEPLOY_COMPRESSION=none
 TARGET_HOSTNAME=kybernow-link
 FIRST_USER_NAME=kybernow
@@ -95,6 +129,8 @@ echo "==> pi-gen : Raspberry Pi OS Lite + KyberNow Link $VERSION (long : deboots
 BASE="$(ls -t "$WORK"/deploy/*KyberNow-Link-OS*.img 2>/dev/null | head -1)"
 [ -n "$BASE" ] || { echo "aucune image dans $WORK/deploy" >&2; exit 1; }
 echo "    image de base : $BASE ($(du -h "$BASE" | cut -f1))"
+# Stages 0 à 2 réussis avec cette étiquette et cette langue : repris la prochaine fois.
+echo "$BASE_KEY" | sudo -n tee "$PIGEN_WORK/.kybernow-base" >/dev/null
 fi
 
 # 2. A/B.

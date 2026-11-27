@@ -12,14 +12,16 @@
 #      le Pi 4 et le Pi 5 en Vulkan par Mesa v3dv : docs/pyrowave-client-pi.md) ;
 #   5. l'app (cargo build -p kybernow-linux).
 #
-# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--kyber-pyrowave] [--prefix DIR] [--install DIR]
+# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--media-only] [--rpi] [--kyber-pyrowave | --sans-pyrowave] [--prefix DIR] [--install DIR]
 #   --kyber-pyrowave  le correctif kyclient de PyroWave (server/kyber-patches/0025,
 #             `VideoCodec::PyroWave`, `fallback_codec`) et la fonctionnalité
 #             `pyrowave` du cœur, qui vont ensemble (apps/core/README.md,
-#             « PyroWave ») : sans eux, l'app décode PyroWave mais ne le demande
-#             jamais. Comme les autres apps, seulement sur demande tant qu'ils ne
-#             sont pas allumés partout (le SDK de Kyber est partagé).
+#             « PyroWave ») : l'app demande PyroWave à Kyber. **Par défaut**
+#             (KYBER_PYROWAVE=1) ; il reste accepté pour les scripts d'avant.
+#   --sans-pyrowave   sans eux : l'app décode PyroWave mais ne le demande jamais.
 #   --deps-only  s'arrête après libkynput, FFmpeg et PyroWave (module du Flatpak mis en cache)
+#   --media-only FFmpeg et PyroWave seuls, sans le SDK de Kyber (premier module du Flatpak :
+#                ils ne sont plus refaits quand Kyber ou build.sh changent ailleurs, LINAPP-38)
 #   --rpi     Raspberry Pi : le FFmpeg de Raspberry Pi (jc-kynesim/rpi-ffmpeg,
 #             branche dev/7.1.1/rpi_import_1) à la place du 7.1.1 officiel, avec
 #             le hwaccel HEVC V4L2 « request » (rpivid, Pi 4 et 5), les images
@@ -45,6 +47,7 @@ COMMAND=build
 PROFILE=release
 INSTALL=""
 DEPS_ONLY=0
+MEDIA_ONLY=0
 RPI=0
 KYBER_PYROWAVE="${KYBER_PYROWAVE:-1}"
 while [ $# -gt 0 ]; do
@@ -52,6 +55,7 @@ while [ $# -gt 0 ]; do
         --check) COMMAND=check ;;
         --debug) PROFILE=debug ;;
         --deps-only) DEPS_ONLY=1 ;;
+        --media-only) MEDIA_ONLY=1 ;;
         --rpi) RPI=1 ;;
         --kyber-pyrowave) KYBER_PYROWAVE=1 ;;
         --sans-pyrowave) KYBER_PYROWAVE=0 ;;
@@ -62,16 +66,23 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ -n "$PREFIX" ] || PREFIX="$ROOT/third_party/linux-$ARCH$([ "$RPI" = 1 ] && echo -rpi || true)"
-[ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
+[ "$MEDIA_ONLY" = 1 ] || [ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
 mkdir -p "$PREFIX"
 PREFIX="$(cd "$PREFIX" && pwd)"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 export PATH="$HOME/.cargo/bin:$PATH"
+# Dans flatpak-builder avec --ccache (flatpak.sh), /run/ccache survit d'une construction à l'autre : les crates
+# téléchargées y restent au lieu d'être reprises à chaque fois (LINAPP-38).
+if [ -n "${FLATPAK_ID:-}" ] && [ -d /run/ccache ] && [ -w /run/ccache ]; then
+    export CARGO_HOME=/run/ccache/kybernow-cargo
+    mkdir -p "$CARGO_HOME"
+fi
 
 cargo_quiet() {
     "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
 }
 
+if [ "$MEDIA_ONLY" = 0 ]; then
 # 1. Correctifs. Sources de git (arbre de construction, copie de travail) :
 # remis à l'origine puis tous reposés dans l'ordre, Station d'abord
 # (scripts/kyber-client-patches.sh), comme les autres apps ; un correctif
@@ -141,6 +152,7 @@ if ! kynput_current; then
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
     [ -z "$KYNPUT_STAMP" ] || kyber_kynput_mark "$PREFIX" "$KYNPUT_STAMP"
 fi
+fi # MEDIA_ONLY
 
 # 3. FFmpeg réduit au décodage (VA-API ; V4L2 M2M partout sur Linux ; avec --rpi,
 #    le FFmpeg de Raspberry Pi et son hwaccel HEVC V4L2 request), plus ce que
@@ -151,31 +163,43 @@ FFMPEG_VERSION=7.1.1
 FFMPEG_FEATURES=camera-1
 [ -f "$PREFIX/lib/libavcodec.a" ] && [ "$(cat "$PREFIX/lib/.kybernow-ffmpeg" 2>/dev/null)" != "$FFMPEG_FEATURES" ] && rm -f "$PREFIX/lib/libavcodec.a"
 RPI_FFMPEG_BRANCH="dev/7.1.1/rpi_import_1"
+# La branche du FFmpeg de Raspberry Pi bouge : figée sur un commit (audit TRANS-21).
+RPI_FFMPEG_COMMIT=6dbf87aefd7f491210abe1e043a1c228fa1439a0
+# Des sources téléchargées : l'archive dans un fichier, extraite dans un dossier
+# à part, renommé seulement une fois complète, puis un marqueur. Une coupure ne
+# laisse jamais un `configure` sur des sources incomplètes (audit TRANS-21).
+# Un dossier donné par FFMPEG_SRC est celui du développeur : jamais effacé,
+# jamais rempli (audit LINAPP-28).
+fetch_sources() { # dossier marqueur url compression
+    local dir="$1" mark="$2" url="$3" z="$4" part="$1.part" arc="$1.archive"
+    [ -f "$dir/$mark" ] && return 0
+    rm -rf "$part" "$dir" && mkdir -p "$part"
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$arc" "$url"
+    tar "x${z}f" "$arc" -C "$part" --strip-components=1
+    rm -f "$arc"
+    touch "$part/$mark"
+    mv "$part" "$dir"
+}
 if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
+    if [ -n "${FFMPEG_SRC:-}" ]; then
+        src="$FFMPEG_SRC"
+        [ -f "$src/configure" ] || { echo "FFMPEG_SRC=$src n'a pas de configure (dossier laissé tel quel)" >&2; exit 1; }
+    elif [ "$RPI" = 1 ]; then
+        src="$PREFIX/build/rpi-ffmpeg"
+        mkdir -p "$PREFIX/build"
+        [ -f "$src/.kybernow-$RPI_FFMPEG_COMMIT" ] || echo "==> sources du FFmpeg de Raspberry Pi ($RPI_FFMPEG_BRANCH, $RPI_FFMPEG_COMMIT)"
+        fetch_sources "$src" ".kybernow-$RPI_FFMPEG_COMMIT" "https://github.com/jc-kynesim/rpi-ffmpeg/archive/$RPI_FFMPEG_COMMIT.tar.gz" z
+    else
+        src="$PREFIX/build/ffmpeg-$FFMPEG_VERSION"
+        mkdir -p "$PREFIX/build"
+        [ -f "$src/.kybernow-complet" ] || echo "==> sources de FFmpeg $FFMPEG_VERSION"
+        # Avec réessais : le site de FFmpeg coupe parfois la connexion en plein téléchargement.
+        fetch_sources "$src" .kybernow-complet "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" J
+    fi
     if [ "$RPI" = 1 ]; then
-        src="${FFMPEG_SRC:-$PREFIX/build/rpi-ffmpeg}"
-        if [ ! -f "$src/configure" ]; then
-            echo "==> sources du FFmpeg de Raspberry Pi ($RPI_FFMPEG_BRANCH)"
-            mkdir -p "$PREFIX/build" && rm -rf "$src" && mkdir -p "$src"
-            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$PREFIX/build/rpi-ffmpeg.tar.gz" \
-                "https://github.com/jc-kynesim/rpi-ffmpeg/archive/refs/heads/$RPI_FFMPEG_BRANCH.tar.gz"
-            tar xzf "$PREFIX/build/rpi-ffmpeg.tar.gz" -C "$src" --strip-components=1
-            rm -f "$PREFIX/build/rpi-ffmpeg.tar.gz"
-        fi
         extra=(--enable-v4l2-request --enable-libudev --enable-sand --enable-hwaccel=hevc_v4l2request --extra-version=kybernow-rpi)
         what="décodeurs H.264, HEVC, AV1, VA-API, V4L2 M2M et HEVC V4L2 request du Pi"
     else
-        src="${FFMPEG_SRC:-$PREFIX/build/ffmpeg-$FFMPEG_VERSION}"
-        if [ ! -f "$src/configure" ]; then
-            echo "==> sources de FFmpeg $FFMPEG_VERSION"
-            mkdir -p "$PREFIX/build"
-            # Dans un fichier, avec réessais : le site de FFmpeg coupe parfois la
-            # connexion en plein téléchargement.
-            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$PREFIX/build/ffmpeg-$FFMPEG_VERSION.tar.xz" \
-                "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
-            tar xJf "$PREFIX/build/ffmpeg-$FFMPEG_VERSION.tar.xz" -C "$PREFIX/build"
-            rm -f "$PREFIX/build/ffmpeg-$FFMPEG_VERSION.tar.xz"
-        fi
         extra=()
         what="décodeurs H.264, HEVC, AV1, VA-API, V4L2 M2M"
     fi
@@ -215,14 +239,21 @@ fi
 PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
 PYROWAVE_PATCHES=v3dv-dequant-1
 if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES" ]; then
-    src="${PYROWAVE_SRC:-$PREFIX/build/pyrowave}"
-    if [ ! -f "$src/.kybernow-$PYROWAVE_COMMIT" ]; then
+    if [ -n "${PYROWAVE_SRC:-}" ]; then
+        # Le clone du développeur : jamais effacé (audit LINAPP-28).
+        src="$PYROWAVE_SRC"
+        [ -f "$src/pyrowave.h" ] && [ -d "$src/Granite" ] || { echo "PYROWAVE_SRC=$src n'a pas pyrowave.h et Granite (dossier laissé tel quel)" >&2; exit 1; }
+    else
+        src="$PREFIX/build/pyrowave"
+    fi
+    if [ -z "${PYROWAVE_SRC:-}" ] && [ ! -f "$src/.kybernow-$PYROWAVE_COMMIT" ]; then
         echo "==> sources de PyroWave ($PYROWAVE_COMMIT) et de Granite"
-        rm -rf "$src" && mkdir -p "$src"
-        (cd "$src" && git init -q && git remote add origin https://github.com/Themaister/pyrowave \
+        rm -rf "$src.part" "$src" && mkdir -p "$src.part"
+        (cd "$src.part" && git init -q && git remote add origin https://github.com/Themaister/pyrowave \
             && git fetch -q --depth 1 origin "$PYROWAVE_COMMIT" && git checkout -q FETCH_HEAD \
-            && ./checkout_granite.sh >/dev/null 2>&1)
-        touch "$src/.kybernow-$PYROWAVE_COMMIT"
+            && ./checkout_granite.sh >/dev/null 2>&1) || { echo "sources de PyroWave non obtenues" >&2; exit 1; }
+        touch "$src.part/.kybernow-$PYROWAVE_COMMIT"
+        mv "$src.part" "$src"
     fi
     python3 "$HERE/pyrowave/v3dv-dequant.py" "$src" || exit 1
     echo "==> PyroWave dans $PREFIX"
@@ -242,6 +273,7 @@ if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/.pyrowa
     [ -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || { echo "libpyrowave-shared.so.1 absente" >&2; exit 1; }
     rm -f "$PREFIX"/lib/.pyrowave-* && touch "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES"
 fi
+[ "$MEDIA_ONLY" = 1 ] && { echo "==> FFmpeg et PyroWave prêts dans $PREFIX"; exit 0; }
 
 # VLC : jamais appelé (fonctions vides, build.rs).
 if [ ! -f "$PREFIX/lib/pkgconfig/libvlc.pc" ]; then

@@ -1,62 +1,133 @@
 #!/bin/bash
-# Mise à jour A/B de KyberNow Link OS (root ; l'app l'appelle par sudo) :
+# Mise à jour A/B de KyberNow Link OS (root ; l'app l'appelle par sudo, avec
+# ces seuls arguments : sudoers-kybernow) :
 #
-#   kybernow-os-update status            l'emplacement en cours, l'autre, l'essai en cours (JSON)
-#   kybernow-os-update apply IMG.xz      écrit l'image publiée (KyberNow-Link-OS.img.xz,
-#                                        déjà vérifiée par l'app : manifeste signé) dans
-#                                        l'autre emplacement, le met à l'essai, redémarre
-#   kybernow-os-update commit            l'essai a démarré jusqu'à l'accueil : il devient le défaut
-#   kybernow-os-update rollback          revenir à l'autre emplacement (s'il a un système)
+#   kybernow-os-update status       l'emplacement en cours, l'autre, l'essai en cours, l'essai raté (JSON)
+#   kybernow-os-update apply        écrit l'image téléchargée par l'app dans l'autre
+#                                   emplacement, la met à l'essai, redémarre
+#   kybernow-os-update commit       l'app est arrivée à l'accueil : un essai réussi devient
+#                                   le défaut ; un essai raté (on est revenu à l'ancien
+#                                   emplacement) est noté, pour que l'app le dise
+#   kybernow-os-update rollback     revenir à l'autre emplacement (s'il a un système qui a démarré)
+#   kybernow-os-update prepare      au lancement de l'app (root) : les dossiers de la partition de données
+#   kybernow-os-update trial-guard  5 min après un démarrage à l'essai (minuteur) : un essai pas
+#                                   encore inscrit redémarre sur l'emplacement par défaut
 #
 # Disposition (/etc/kybernow-os/layout) : p1 bootA (+ autoboot.txt), p2 rootA,
 # p3 bootB, p5 rootB, p6 données. L'image publiée a la même : ses partitions 1
-# et 2 (son emplacement A) sont écrites dans l'emplacement libre, par flux
-# (xz -dc | dd), sans décompresser l'image sur la carte. Puis cmdline.txt et
-# fstab du nouvel emplacement sont réécrits avec ses PARTUUID, autoboot.txt
-# dit « défaut = en cours, essai = nouveau », et `reboot "0 tryboot"` l'essaie :
-# si l'app n'y arrive pas jusqu'à l'accueil (commit), le prochain démarrage
-# revient tout seul au défaut (le drapeau tryboot ne dure qu'un démarrage).
+# et 2 (son emplacement A) sont écrites dans l'emplacement libre.
+#
+# Ce que root croit, et ce qu'il ne croit pas. L'app (compte kybernow) dépose
+# dans /var/lib/kybernow/update l'image, le manifeste signé de la version et sa
+# signature ; root ne se fie à rien de ce dossier :
+#   - le manifeste et sa signature sont copiés dans le dossier d'état de root
+#     (/var/lib/kybernow/.os-state, root 0700, dans /var/lib/kybernow qui est à
+#     root), puis vérifiés avec la clé publique de publication du système
+#     (/etc/kybernow-os/release.pub) : signature, commentaire de confiance,
+#     version plus récente que celle en cours ;
+#   - l'image est lue une seule fois (kybernow-os-image write) : ce qui est écrit
+#     dans l'emplacement libre est exactement ce qui est haché, et l'empreinte
+#     doit être celle du manifeste. Sinon l'emplacement reste « incomplet » et
+#     n'est jamais essayé.
+#
+# Réglages gardés : ce qui vit hors de la partition de données (réseaux Wi-Fi,
+# manettes Bluetooth associées, SSH allumé, nom de l'appareil, fuseau, mode
+# HDMI) est recopié de l'emplacement en cours dans le nouveau avant l'essai.
 #
 # Coupure de courant : le firmware lit autoboot.txt sur p1, toujours. Avant
-# toute écriture, autoboot.txt pointe donc les deux démarrages (défaut et
-# essai) sur l'emplacement en cours, et l'emplacement libre est marqué
-# incomplet (status ne le propose plus, rollback le refuse) jusqu'à la fin.
-# Quand l'emplacement libre est A (on tourne sur B), p1 n'est pas réécrite par
-# dd, qui effacerait autoboot.txt le temps de l'écriture : la partition de
-# démarrage de l'image est décompressée à part (fichier creux sur la partition
-# de données), montée, et ses fichiers remplacent ceux de p1, autoboot.txt
-# gardé. Une coupure à n'importe quel moment redémarre sur l'emplacement en
-# cours. autoboot.txt s'écrit à côté puis se renomme (jamais à moitié écrit).
-# Le tryboot demande le firmware des Pi 4, 400, CM4, 5, 500 et CM5 ; un Pi 3
-# n'a pas d'A/B (apply refuse).
+# toute écriture, autoboot.txt pointe les deux démarrages (défaut et essai) sur
+# l'emplacement en cours, et l'emplacement libre est marqué incomplet (status
+# ne le propose plus, rollback le refuse) jusqu'à la fin. Quand l'emplacement
+# libre est A (on tourne sur B), p1 n'est pas réécrite en bloc, ce qui
+# effacerait autoboot.txt : la partition de démarrage de l'image va dans un
+# fichier creux du dossier d'état, puis ses fichiers remplacent ceux de p1,
+# autoboot.txt gardé. autoboot.txt s'écrit à côté puis se renomme ; sur FAT un
+# renommage n'est pas atomique, mais une coupure à ce moment-là laisse l'ancien
+# ou le nouveau, qui désignent tous deux un emplacement qui démarre.
+#
+# Essai : `reboot "0 tryboot"` démarre une fois sur le nouvel emplacement. Si
+# l'app y arrive à l'accueil, commit l'inscrit. S'il plante, fige (chien de
+# garde matériel, RuntimeWatchdogSec) ou n'arrive pas à l'accueil en 5 minutes
+# (trial-guard), le redémarrage suivant revient au défaut, et commit, sur
+# l'ancien emplacement, note l'essai raté. Le tryboot demande le firmware des
+# Pi 4, 400, CM4, 5, 500 et CM5 ; un Pi 3 n'a pas d'A/B (apply refuse).
 set -euo pipefail
-LAYOUT=/etc/kybernow-os/layout
-[ -f "$LAYOUT" ] || { echo "pas un KyberNow Link OS ($LAYOUT absent)" >&2; exit 2; }
-. "$LAYOUT"
-STATE=/var/lib/kybernow/update
-mkdir -p "$STATE"
 
-ROOT_SRC="$(findmnt -no SOURCE /)"
-DISK="/dev/$(lsblk -no PKNAME "$ROOT_SRC")"
+# Préfixe des chemins pour les essais du script (scripts/test-os-update.sh),
+# jamais sous sudo : sudo vide l'environnement, et SUDO_USER dit qu'on y est.
+R=""
+if [ -z "${SUDO_USER:-}" ] && [ -n "${KYBERNOW_OS_TEST_ROOT:-}" ]; then R="$KYBERNOW_OS_TEST_ROOT"; fi
+
+LAYOUT="$R/etc/kybernow-os/layout"
+RELEASE="$R/etc/kybernow-os/release"
+PUBKEY="$R/etc/kybernow-os/release.pub"
+DATA_DIR="$R/var/lib/kybernow"
+UPD="$DATA_DIR/update"
+STATE="$DATA_DIR/.os-state"
+DT="$R/proc/device-tree"
+BOOT_ID="$R/proc/sys/kernel/random/boot_id"
+BOOTFW="$R/boot/firmware"
+IMAGE_NAME=KyberNow-Link-OS.img.xz
+MANIFEST_NAME=kybernow-release.json
+OSIMG="${KYBERNOW_OS_IMAGE_TOOL:-/usr/local/sbin/kybernow-os-image}"
+[ -z "$R" ] || OSIMG="${KYBERNOW_OS_IMAGE_TOOL:-$(dirname "$0")/kybernow-os-image}"
+
+die() { echo "$2" >&2; exit "$1"; }
+[ -f "$LAYOUT" ] || die 2 "pas un KyberNow Link OS ($LAYOUT absent)"
+# shellcheck source=/dev/null
+. "$LAYOUT"
+
+# Un dossier à root, refusé s'il a été remplacé par un lien.
+# (Les essais du script tournent sans root : pas de propriétaire imposé.)
+OWN_ROOT=(-o 0 -g 0); OWN_APP=(-o kybernow -g kybernow)
+[ -z "$R" ] || { OWN_ROOT=(); OWN_APP=(); }
+root_dir() { # dossier mode
+    [ ! -L "$1" ] || rm -f "$1"
+    install -d -m "$2" ${OWN_ROOT[@]+"${OWN_ROOT[@]}"} "$1"
+}
+# Les dossiers de la partition de données : /var/lib/kybernow à root (le
+# compte de l'app ne peut ni renommer ni remplacer ce qui s'y trouve), le
+# dossier d'état de root, et les dossiers du compte de l'app.
+prepare_dirs() {
+    root_dir "$DATA_DIR" 755
+    root_dir "$STATE" 700
+    local d
+    for d in config update; do
+        [ ! -L "$DATA_DIR/$d" ] || rm -f "$DATA_DIR/$d"
+        install -d -m 755 ${OWN_APP[@]+"${OWN_APP[@]}"} "$DATA_DIR/$d"
+    done
+    # L'état d'une version d'avant (dans le dossier de l'app) : abandonné.
+    rm -f "$UPD/pending" "$UPD/incomplete" "$UPD/boot.img"
+}
+
+ROOT_SRC="${KYBERNOW_OS_TEST_ROOT_SRC:-$(findmnt -no SOURCE /)}"
+[ -z "$R" ] || ROOT_SRC="${KYBERNOW_OS_TEST_ROOT_SRC:?}"
+DISK="${KYBERNOW_OS_TEST_DISK:-/dev/$(lsblk -no PKNAME "$ROOT_SRC")}"
 part() { case "$DISK" in *[0-9]) echo "${DISK}p$1" ;; *) echo "${DISK}$1" ;; esac; }
-tryboot_flag() { local f=/proc/device-tree/chosen/bootloader/tryboot; [ -f "$f" ] && printf "%d" "0x$(od "$f" -v -An -t x1 | tr -d ' ')" || echo 0; }
-booted_partition() { local f=/proc/device-tree/chosen/bootloader/partition; [ -f "$f" ] && printf "%d" "0x$(od "$f" -v -An -t x1 | tr -d ' ')" || echo 0; }
+dt_num() { local f="$DT/chosen/bootloader/$1"; if [ -f "$f" ]; then printf "%d" "0x$(od -v -An -t x1 "$f" | tr -d ' \n')"; else echo 0; fi; }
+tryboot_flag() { dt_num tryboot; }
 if [ "$ROOT_SRC" = "$(part "$ROOT_A")" ]; then CUR=A; else CUR=B; fi
-if [ "$CUR" = A ]; then CUR_BOOT=$BOOT_A; CUR_ROOT=$ROOT_A; NEW=B; NEW_BOOT=$BOOT_B; NEW_ROOT=$ROOT_B; else CUR_BOOT=$BOOT_B; CUR_ROOT=$ROOT_B; NEW=A; NEW_BOOT=$BOOT_A; NEW_ROOT=$ROOT_A; fi
-GEN="$( (tr -d '\0' < /proc/device-tree/compatible 2>/dev/null | grep -o 'bcm27[0-9]*' | head -1) || true)"
+if [ "$CUR" = A ]; then CUR_BOOT=$BOOT_A; NEW=B; NEW_BOOT=$BOOT_B; NEW_ROOT=$ROOT_B; else CUR_BOOT=$BOOT_B; NEW=A; NEW_BOOT=$BOOT_A; NEW_ROOT=$ROOT_A; fi
+GEN="$( (tr -d '\0' < "$DT/compatible" 2>/dev/null | grep -o 'bcm27[0-9]*' | head -1) || true)"
 AB_OK=1; case "$GEN" in bcm2711|bcm2712) ;; *) AB_OK=0 ;; esac
+
+# Un seul appel qui écrit à la fois (deux « Installer » de suite, un commit pendant un apply).
+lock() {
+    exec 9> "$R/run/kybernow-os-update.lock"
+    flock -n 9 || die 9 "une mise à jour est déjà en cours"
+}
 
 # autoboot.txt vit sur la partition 1 (bootA) : montée au besoin. Pas de
 # $(…) ici : le montage temporaire doit être connu du shell qui le démonte.
 AUTOBOOT_MNT=""
 AUTOBOOT=""
 autoboot_mount() {
-    if [ "$CUR_BOOT" = "$BOOT_A" ]; then AUTOBOOT=/boot/firmware/autoboot.txt; return; fi
+    if [ "$CUR_BOOT" = "$BOOT_A" ]; then AUTOBOOT="$BOOTFW/autoboot.txt"; return; fi
     AUTOBOOT_MNT="$(mktemp -d)"
     mount "$(part "$BOOT_A")" "$AUTOBOOT_MNT"
     AUTOBOOT="$AUTOBOOT_MNT/autoboot.txt"
 }
-autoboot_done() { [ -n "$AUTOBOOT_MNT" ] && { sync; umount "$AUTOBOOT_MNT"; rmdir "$AUTOBOOT_MNT"; AUTOBOOT_MNT=""; }; return 0; }
+autoboot_done() { if [ -n "$AUTOBOOT_MNT" ]; then sync; umount "$AUTOBOOT_MNT"; rmdir "$AUTOBOOT_MNT"; AUTOBOOT_MNT=""; fi; }
 write_autoboot() { # défaut, essai
     autoboot_mount
     printf '[all]\ntryboot_a_b=1\nboot_partition=%s\n[tryboot]\nboot_partition=%s\n' "$1" "$2" > "$AUTOBOOT.new"
@@ -65,109 +136,184 @@ write_autoboot() { # défaut, essai
     sync
     autoboot_done
 }
+release_version() { sed -n 's/^VERSION="\(.*\)"/\1/p' "$1" 2>/dev/null || true; }
 slot_version() { # numéro de la partition racine → version du système qui s'y trouve (lue dans son rootfs), ou vide
-    local root="$1" m v=""
+    local m v=""
     m="$(mktemp -d)"
-    if mount -o ro "$(part "$root")" "$m" 2>/dev/null; then
-        v="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$m/etc/kybernow-os/release" 2>/dev/null || true)"
+    if mount -o ro "$(part "$1")" "$m" 2>/dev/null; then
+        v="$(release_version "$m/etc/kybernow-os/release")"
         umount "$m"
     fi
     rmdir "$m"
     echo "$v"
 }
+state() { cat "$STATE/$1" 2>/dev/null || true; }
+
+# Ce que l'appareil a réglé hors de la partition de données, recopié dans le
+# nouvel emplacement (racine montée en $1, démarrage monté en $2).
+carry_settings() {
+    local new="$1" boot="$2" d video
+    for d in etc/NetworkManager/system-connections var/lib/bluetooth; do
+        if [ -d "$R/$d" ]; then
+            rm -rf "${new:?}/$d"
+            mkdir -p "$(dirname "$new/$d")"
+            cp -a "$R/$d" "$new/$d"
+        fi
+    done
+    [ -f "$R/etc/hostname" ] && cp -f "$R/etc/hostname" "$new/etc/hostname"
+    [ -f "$R/etc/hosts" ] && cp -f "$R/etc/hosts" "$new/etc/hosts"
+    [ -f "$R/etc/timezone" ] && cp -f "$R/etc/timezone" "$new/etc/timezone"
+    [ -L "$R/etc/localtime" ] && cp -Pf "$R/etc/localtime" "$new/etc/localtime"
+    if [ -z "$R" ]; then
+        if systemctl is-enabled --quiet ssh.service 2>/dev/null; then
+            systemctl --root="$new" enable ssh.service >/dev/null 2>&1 || true
+        else
+            systemctl --root="$new" disable ssh.service >/dev/null 2>&1 || true
+        fi
+    fi
+    # Le mode HDMI (kybernow-os-ctl hdmi) : le video= de la ligne de commande en cours.
+    video="$(grep -o 'video=HDMI-A-1:[^ ]*' "$BOOTFW/cmdline.txt" 2>/dev/null | head -1 || true)"
+    sed -i -E 's/ ?video=HDMI-A-1:[^ ]+//' "$boot/cmdline.txt"
+    if [ -n "$video" ]; then sed -i -E "1s/\$/ $video/" "$boot/cmdline.txt"; fi
+}
 
 cmd="${1:-status}"
 case "$cmd" in
+prepare)
+    prepare_dirs
+    ;;
 status)
-    cur_v="$(sed -n 's/^VERSION="\(.*\)"/\1/p' /etc/kybernow-os/release)"
+    cur_v="$(release_version "$RELEASE")"
     other_v="$(slot_version "$NEW_ROOT")"
-    # Une écriture interrompue : l'autre emplacement n'a pas de système utilisable.
-    [ "$(cat "$STATE/incomplete" 2>/dev/null || true)" = "$NEW" ] && other_v=""
-    printf '{"current":"%s","version":"%s","other":"%s","other_version":"%s","tryboot":%s,"booted_partition":%s,"ab":%s,"pending":"%s"}\n' \
-        "$CUR" "$cur_v" "$NEW" "$other_v" "$(tryboot_flag)" "$(booted_partition)" "$AB_OK" "$(cat "$STATE/pending" 2>/dev/null || true)"
+    # Une écriture interrompue, ou un essai qui n'a pas démarré : rien d'utilisable dans l'autre emplacement.
+    [ "$(state incomplete)" = "$NEW" ] && other_v=""
+    failed="$(state failed)"
+    if [ "${failed%% *}" = "$NEW" ]; then other_v=""; failed="${failed#* }"; else failed=""; fi
+    printf '{"current":"%s","version":"%s","other":"%s","other_version":"%s","tryboot":%s,"booted_partition":%s,"ab":%s,"pending":"%s","failed":"%s"}\n' \
+        "$CUR" "$cur_v" "$NEW" "$other_v" "$(tryboot_flag)" "$(dt_num partition)" "$AB_OK" "$(state pending)" "$failed"
     ;;
 apply)
-    IMG="${2:?image .xz}"
-    [ "$AB_OK" = 1 ] || { echo "ce Raspberry Pi ($GEN) n'a pas le tryboot A/B : réinstaller la carte" >&2; exit 3; }
-    [ -f "$IMG" ] || { echo "image absente : $IMG" >&2; exit 2; }
-    head="$(mktemp)"
-    xz -dc "$IMG" | head -c 1048576 > "$head"
-    # Les partitions 1 et 2 de l'image (secteurs de 512 octets).
-    read -r s1 n1 < <(sfdisk -d "$head" | awk -F'[ ,=]+' '/^[^ ]+1 :/{print $4, $6}')
-    read -r s2 n2 < <(sfdisk -d "$head" | awk -F'[ ,=]+' '/^[^ ]+2 :/{print $4, $6}')
-    rm -f "$head"
-    [ -n "$s1" ] && [ -n "$s2" ] || { echo "table de partitions de l'image illisible" >&2; exit 4; }
+    lock
+    # KYBERNOW_OS_FORCE_AB=1 (root seulement, jamais par sudo) : l'écriture essayée sans tryboot (émulation).
+    if [ "$AB_OK" != 1 ] && { [ "${KYBERNOW_OS_FORCE_AB:-}" != 1 ] || [ -n "${SUDO_USER:-}" ]; }; then
+        die 3 "ce Raspberry Pi ($GEN) n'a pas le tryboot A/B : réinstaller la carte"
+    fi
+    prepare_dirs
+    IMG="$UPD/$IMAGE_NAME"
+    [ -f "$IMG" ] || die 2 "image absente : $IMG"
+    [ -f "$UPD/$MANIFEST_NAME" ] && [ -f "$UPD/$MANIFEST_NAME.minisig" ] || die 2 "manifeste signé absent : $UPD/$MANIFEST_NAME"
+    # Le manifeste et sa signature : copiés chez root, puis vérifiés là.
+    install -m 600 "$UPD/$MANIFEST_NAME" "$STATE/manifest.json"
+    install -m 600 "$UPD/$MANIFEST_NAME.minisig" "$STATE/manifest.json.minisig"
+    comment="$(minisign -V -Q -p "$PUBKEY" -m "$STATE/manifest.json" -x "$STATE/manifest.json.minisig" 2>/dev/null)" || die 4 "signature du manifeste refusée"
+    read -r ver channel sha size < <("$OSIMG" manifest "$STATE/manifest.json" "$IMAGE_NAME") || die 4 "manifeste illisible"
+    [ "$comment" = "kybernow $ver $channel" ] || die 4 "commentaire de confiance inattendu : $comment"
+    cur_v="$(release_version "$RELEASE")"
+    "$OSIMG" newer "$ver" "${cur_v:-0}" || die 4 "la version $ver n'est pas plus récente que $cur_v"
+    [ "$(wc -c < "$IMG")" -eq "$size" ] || die 4 "image de taille inattendue"
     for p in "$NEW_BOOT" "$NEW_ROOT"; do
-        findmnt -no TARGET "$(part "$p")" >/dev/null 2>&1 && { echo "la partition $p est montée" >&2; exit 5; }
+        if findmnt -no TARGET "$(part "$p")" >/dev/null 2>&1; then die 5 "la partition $p est montée"; fi
     done
-    bs=$(( $(blockdev --getsize64 "$(part "$NEW_BOOT")") / 512 )); rs=$(( $(blockdev --getsize64 "$(part "$NEW_ROOT")") / 512 ))
-    [ "$n1" -le "$bs" ] && [ "$n2" -le "$rs" ] || { echo "l'image ne tient pas dans l'emplacement $NEW ($n1/$bs, $n2/$rs secteurs)" >&2; exit 6; }
+    boot_max=$(blockdev --getsize64 "$(part "$NEW_BOOT")"); root_max=$(blockdev --getsize64 "$(part "$NEW_ROOT")")
     # Avant d'écrire : les deux démarrages sur l'emplacement en cours, l'autre marqué incomplet.
-    rm -f "$STATE/pending"
+    rm -f "$STATE/pending" "$STATE/failed"
     echo "$NEW" > "$STATE/incomplete"
     write_autoboot "$CUR_BOOT" "$CUR_BOOT"
-    echo "==> emplacement $NEW : démarrage ($n1 secteurs)"
     if [ "$NEW_BOOT" = "$BOOT_A" ]; then
-        # p1 porte autoboot.txt : ses fichiers sont remplacés, pas la partition.
-        bimg="$STATE/boot.img"
-        rm -f "$bimg"
-        xz -dc "$IMG" | dd of="$bimg" bs=512 skip="$s1" count="$n1" iflag=fullblock conv=sparse status=none
-        src="$(mktemp -d)"; dst="$(mktemp -d)"
-        # Un échec en route ne laisse pas p1 montée (le prochain essai la refuserait).
-        trap 'umount -q "$src" "$dst" 2>/dev/null; rm -f "$bimg"' EXIT
-        mount -o loop,ro "$bimg" "$src"
-        mount "$(part "$NEW_BOOT")" "$dst"
-        find "$dst" -mindepth 1 -maxdepth 1 ! -name autoboot.txt -exec rm -rf {} +
-        sync
-        find "$src" -mindepth 1 -maxdepth 1 ! -name autoboot.txt -exec cp -r {} "$dst/" \;
-        sync
-        umount "$src" "$dst"; rmdir "$src" "$dst"
-        trap - EXIT
-        rm -f "$bimg"
+        # p1 porte autoboot.txt : ses fichiers seront remplacés, pas la partition.
+        boot_out="$STATE/boot.img"
+        rm -f "$boot_out"; : > "$boot_out"
     else
-        xz -dc "$IMG" | dd of="$(part "$NEW_BOOT")" bs=512 skip="$s1" count="$n1" iflag=fullblock conv=fsync status=none
+        boot_out="$(part "$NEW_BOOT")"
     fi
-    echo "==> emplacement $NEW : système ($n2 secteurs)"
-    xz -dc "$IMG" | dd of="$(part "$NEW_ROOT")" bs=512 skip="$s2" count="$n2" iflag=fullblock conv=fsync status=none
-    # Le nouvel emplacement : sa racine, sa partition de démarrage, les données.
+    echo "==> emplacement $NEW : écriture de la $ver (un seul passage, vérifiée en route)"
+    read -r got_sha got_size < <("$OSIMG" write "$IMG" "$boot_out" "$(part "$NEW_ROOT")" "$boot_max" "$root_max") || { rm -f "$STATE/boot.img"; die 4 "écriture de l'image en échec"; }
+    if [ "$got_sha" != "$sha" ] || [ "$got_size" != "$size" ]; then
+        rm -f "$STATE/boot.img"
+        die 4 "l'image écrite n'a pas l'empreinte du manifeste : emplacement $NEW laissé de côté"
+    fi
     m="$(mktemp -d)"
-    mount "$(part "$NEW_BOOT")" "$m"
+    if [ "$NEW_BOOT" = "$BOOT_A" ]; then
+        src="$(mktemp -d)"
+        # Un échec en route ne laisse pas p1 montée (le prochain essai la refuserait).
+        trap 'umount -q "$src" "$m" 2>/dev/null; rm -f "$STATE/boot.img"' EXIT
+        mount -o loop,ro "$boot_out" "$src"
+        mount "$(part "$NEW_BOOT")" "$m"
+        find "$m" -mindepth 1 -maxdepth 1 ! -name autoboot.txt -exec rm -rf {} +
+        sync
+        find "$src" -mindepth 1 -maxdepth 1 ! -name autoboot.txt -exec cp -r {} "$m/" \;
+        sync
+        umount "$src"; rmdir "$src"
+        rm -f "$boot_out"
+    else
+        trap 'umount -q "$m" 2>/dev/null' EXIT
+        mount "$(part "$NEW_BOOT")" "$m"
+        # L'autoboot.txt de l'image ne sert pas : seul celui de p1 compte.
+        rm -f "$m/autoboot.txt"
+    fi
+    # Le nouvel emplacement : sa racine, sa partition de démarrage, les données, les réglages.
     sed -i -E "s#root=[^ ]+#root=PARTUUID=$DISK_ID-0$NEW_ROOT#" "$m/cmdline.txt"
-    # L'autoboot.txt de l'image (B écrit par dd) ne sert pas : seul celui de p1 compte.
-    [ "$NEW_BOOT" = "$BOOT_A" ] || rm -f "$m/autoboot.txt"
-    umount "$m"
-    mount "$(part "$NEW_ROOT")" "$m"
-    sed -i -E "s#^PARTUUID=$DISK_ID-0[0-9]+( +/boot/firmware )#PARTUUID=$DISK_ID-0$NEW_BOOT\1#; s#^PARTUUID=$DISK_ID-0[0-9]+( +/ )#PARTUUID=$DISK_ID-0$NEW_ROOT\1#" "$m/etc/fstab"
-    new_v="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$m/etc/kybernow-os/release" 2>/dev/null || echo "?")"
-    umount "$m"; rmdir "$m"
+    r="$(mktemp -d)"
+    mount "$(part "$NEW_ROOT")" "$r"
+    sed -i -E "s#^PARTUUID=$DISK_ID-0[0-9]+( +/boot/firmware )#PARTUUID=$DISK_ID-0$NEW_BOOT\1#; s#^PARTUUID=$DISK_ID-0[0-9]+( +/ )#PARTUUID=$DISK_ID-0$NEW_ROOT\1#" "$r/etc/fstab"
+    carry_settings "$r" "$m"
+    new_v="$(release_version "$r/etc/kybernow-os/release")"
     sync
+    umount "$r" "$m"; rmdir "$r" "$m"
+    trap - EXIT
+    [ "$new_v" = "$ver" ] || die 4 "le système écrit dit $new_v, le manifeste $ver"
     rm -f "$STATE/incomplete"
+    # Le démarrage pendant lequel l'image a été écrite : commit n'y conclut à rien.
+    cat "$BOOT_ID" > "$STATE/written"
     echo "$new_v" > "$STATE/pending"
     write_autoboot "$CUR_BOOT" "$NEW_BOOT"
     sync
+    # L'image n'a plus d'usage : la place revient à la partition de données.
+    rm -f "$IMG"
     echo "==> essai de l'emplacement $NEW (version $new_v) au redémarrage"
-    [ "${3:-}" = "--no-reboot" ] || reboot "0 tryboot"
+    if [ "${2:-}" != "--no-reboot" ] || [ -n "${SUDO_USER:-}" ]; then reboot "0 tryboot"; fi
     ;;
 commit)
-    # L'essai a réussi (on tourne sur l'emplacement de l'essai) : il devient le défaut.
-    if [ "$(tryboot_flag)" = 1 ] || [ "$(booted_partition)" = "$CUR_BOOT" ] && [ -f "$STATE/pending" ]; then
-        write_autoboot "$CUR_BOOT" "$NEW_BOOT"
-        rm -f "$STATE/pending"
-        echo "emplacement $CUR inscrit par défaut"
-    else
+    lock
+    pending="$(state pending)"
+    if [ -z "$pending" ]; then
         echo "rien à inscrire (pas d'essai en cours)"
+    elif [ "$(state written)" = "$(cat "$BOOT_ID")" ]; then
+        echo "essai de la $pending prêt : il commence au redémarrage"
+    elif [ "$(tryboot_flag)" = 1 ]; then
+        # On tourne sur l'essai, jusqu'à l'accueil : il devient le défaut.
+        write_autoboot "$CUR_BOOT" "$NEW_BOOT"
+        rm -f "$STATE/pending" "$STATE/written" "$STATE/failed"
+        echo "emplacement $CUR inscrit par défaut ($pending)"
+    else
+        # Démarrage normal avec un essai en attente : l'essai n'a pas abouti et
+        # le firmware est revenu au défaut. L'emplacement essayé est noté raté.
+        write_autoboot "$CUR_BOOT" "$CUR_BOOT"
+        echo "$NEW $pending" > "$STATE/failed"
+        rm -f "$STATE/pending" "$STATE/written"
+        echo "essai de la $pending raté : retour à l'emplacement $CUR"
+    fi
+    ;;
+trial-guard)
+    # Un essai qui n'arrive pas à l'accueil en 5 minutes : retour au défaut.
+    if [ "$(tryboot_flag)" = 1 ] && [ -n "$(state pending)" ]; then
+        echo "essai de la $(state pending) pas inscrit après 5 minutes : redémarrage sur l'emplacement par défaut" >&2
+        systemctl reboot
     fi
     ;;
 rollback)
-    [ -n "$(slot_version "$NEW_ROOT")" ] || { echo "l'emplacement $NEW n'a pas de système" >&2; exit 7; }
-    [ "$(cat "$STATE/incomplete" 2>/dev/null || true)" != "$NEW" ] || { echo "l'emplacement $NEW n'a pas fini d'être écrit" >&2; exit 7; }
+    lock
+    [ -n "$(slot_version "$NEW_ROOT")" ] || die 7 "l'emplacement $NEW n'a pas de système"
+    [ "$(state incomplete)" != "$NEW" ] || die 7 "l'emplacement $NEW n'a pas fini d'être écrit"
+    failed="$(state failed)"
+    [ "${failed%% *}" != "$NEW" ] || die 7 "l'emplacement $NEW n'a pas démarré"
     write_autoboot "$NEW_BOOT" "$CUR_BOOT"
     rm -f "$STATE/pending"
     echo "==> retour à l'emplacement $NEW au redémarrage"
-    [ "${2:-}" = "--no-reboot" ] || reboot
+    if [ "${2:-}" != "--no-reboot" ] || [ -n "${SUDO_USER:-}" ]; then systemctl reboot; fi
     ;;
 *)
-    echo "usage : kybernow-os-update status | apply IMG.xz [--no-reboot] | commit | rollback" >&2
+    echo "usage : kybernow-os-update status | apply [--no-reboot] | commit | rollback [--no-reboot] | prepare | trial-guard" >&2
     exit 2
     ;;
 esac

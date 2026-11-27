@@ -8,7 +8,9 @@ rm -f /tmp/kybernow-link.deb
 # FIRST_USER_NAME=kybernow), accès à l'écran, aux entrées, au son, aux manettes.
 usermod -a -G video,render,input,audio,plugdev,netdev,bluetooth kybernow 2>/dev/null || usermod -a -G video,render,input,audio,plugdev,netdev kybernow
 passwd -l kybernow >/dev/null
-install -d -m 755 -o kybernow -g kybernow /var/lib/kybernow
+# Le point de montage des données : à root (kybernow-os-update prepare y fait
+# les dossiers du compte de l'app au lancement).
+install -d -m 755 -o root -g root /var/lib/kybernow
 
 # L'image fixe du démarrage : la première image de l'allumage de l'app, aux pixels près.
 kybernow --splash /usr/share/plymouth/themes/kybernow/mark.png 1920 1080
@@ -18,7 +20,7 @@ update-initramfs -u -k all || true
 # Services : Link en plein écran sur KMS/DRM, le premier démarrage (partition
 # de données agrandie) ; pas de console texte sur tty1, et Plymouth ne quitte
 # pas à l'arrivée d'un getty (c'est le service de l'app qui le lui demande).
-systemctl enable kybernow-os-firstboot.service kybernow-os-ssh.service kybernow-link.service
+systemctl enable kybernow-os-firstboot.service kybernow-os-ssh.service kybernow-link.service kybernow-os-trial.timer
 systemctl disable getty@tty1.service
 systemctl mask plymouth-quit.service plymouth-quit-wait.service
 # L'assistant de Raspberry Pi OS qui demande un nom d'utilisateur au premier

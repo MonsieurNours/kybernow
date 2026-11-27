@@ -128,6 +128,7 @@ pub fn unavailable(name: &str, offered: bool, decodes: bool, who: Decoder) -> Op
 }
 
 /// « Définition ramenée à 1920 × 1080 pour tenir dans 300 Mbit/s. » (bandeau et statistiques).
+#[cfg(any(test, not(feature = "device")))]
 pub fn lowered(width: u32, height: u32, mbps: u32) -> String {
     if crate::i18n::english() {
         format!("Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.")
@@ -146,11 +147,6 @@ pub fn lost_value(lost: u32, shown: u32) -> String {
     let total = lost + shown;
     let pct = if total == 0 { 0.0 } else { f64::from(lost) * 100.0 / f64::from(total) };
     format!("{} %", decimal(pct, 1))
-}
-
-/// Statistiques : le libellé de la ligne « Définition ramenée ».
-pub fn lowered_label() -> &'static str {
-    tr("Définition ramenée", "Resolution lowered")
 }
 
 #[cfg(test)]

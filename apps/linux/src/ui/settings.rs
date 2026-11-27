@@ -186,6 +186,8 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame) {
     for (i, r) in rows.iter().enumerate() {
         y += field(cv, f, r, mx, y, mw, i + 1 == n);
     }
+    // La fin de la rubrique borne le défilement (molette, focus au clavier : `App::wheel`, `scroll_to_focus`).
+    app.settings_view.set(crate::app::SettingsView { top, bottom: h, left: mx - 8.0, max: (y + app.scroll + 32.0 - h).max(0.0) });
 
     // La colonne, par-dessus.
     cv.rect(0.0, top, nav_w, h - top, INK_1);

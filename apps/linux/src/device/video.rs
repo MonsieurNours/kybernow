@@ -30,6 +30,7 @@ use kybernow_core::media::{Packet, PacketHandler, ResumeGate, FOURCC_AV1, FOURCC
 
 use super::sdl;
 use super::session::Shared;
+use crate::video_rules::{self, Admit, Backlog, Yuv};
 
 #[repr(C)]
 struct KnFrame {
@@ -56,6 +57,7 @@ unsafe extern "C" {
     fn kn_decoder_is_hw(d: *mut c_void) -> c_int;
     fn kn_decoder_frames(d: *mut c_void) -> i64;
     fn kn_decoder_send(d: *mut c_void, data: *const u8, len: c_int, pts: i64) -> c_int;
+    fn kn_decoder_send_parts(d: *mut c_void, head: *const u8, head_len: c_int, data: *const u8, len: c_int, pts: i64) -> c_int;
     fn kn_decoder_receive(d: *mut c_void, out: *mut KnFrame) -> c_int;
     fn kn_decoder_close(d: *mut c_void);
     fn kn_pw_open(width: c_int, height: c_int, c444: c_int, hdr: c_int, err: *mut c_char, errlen: c_int) -> *mut c_void;
@@ -108,6 +110,7 @@ impl PwConfig {
         }
     }
 
+    #[cfg(test)]
     pub fn bytes(&self) -> [u8; 16] {
         let mut b = [0u8; 16];
         b[0..4].copy_from_slice(b"KNPW");
@@ -147,6 +150,20 @@ pub enum Format {
     I010,
 }
 
+impl Frame {
+    /// BT.709 en plage pleine (PyroWave SDR) : SDL 2 ne sait pas le montrer, l'image passe en plage réduite
+    /// ici, sur le fil du décodeur (`video_rules`). Une image BGRA (4:4:4 converti) ou 10 bits n'est pas touchée.
+    fn narrow_if_needed(&mut self) {
+        if !video_rules::needs_narrowing(self.bt709, self.full_range) || !matches!(self.format, Format::Nv12 | Format::I420) {
+            return;
+        }
+        video_rules::narrow_luma(&mut self.planes[0]);
+        video_rules::narrow_chroma(&mut self.planes[1]);
+        video_rules::narrow_chroma(&mut self.planes[2]);
+        self.full_range = false;
+    }
+}
+
 impl Format {
     pub fn ten_bit(self) -> bool {
         matches!(self, Format::P010 | Format::I010)
@@ -181,6 +198,9 @@ pub struct Latest {
     spare: Mutex<Vec<Frame>>,
     /// Images remplacées avant d'être montrées (écartées).
     pub dropped: AtomicU32,
+    /// L'image réduite de l'accueil (dernière image de la session), refaite toutes les 2 s sur le fil du
+    /// décodeur, pas sur celui de l'interface (LINAPP-33) ; quand elle a été faite.
+    snapshot: Mutex<(Option<Instant>, Option<tiny_skia::Pixmap>)>,
 }
 
 impl Latest {
@@ -195,7 +215,17 @@ impl Latest {
         }
     }
 
+    /// L'image réduite la plus récente, si elle a changé depuis la dernière prise.
+    pub fn take_snapshot(&self) -> Option<tiny_skia::Pixmap> {
+        self.snapshot.lock().unwrap().1.take()
+    }
+
     fn put(&self, f: Frame) {
+        let due = self.snapshot.lock().unwrap().0.is_none_or(|t| t.elapsed() > Duration::from_secs(2));
+        if due {
+            let img = snapshot(&f, 640);
+            *self.snapshot.lock().unwrap() = (Some(Instant::now()), img);
+        }
         if let Some(old) = self.slot.lock().unwrap().replace(f) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
             self.give_back(old);
@@ -213,8 +243,13 @@ enum Msg {
     /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
     Frame { key: bool, pts: u64, data: Vec<u8>, received: i64, resume: Option<u64> },
     Hole,
+    /// Des paquets jetés à la réception (file pleine, [`Backlog`]) : comme un trou, sans reprise possible.
+    Dropped,
     Stop,
 }
+
+/// `kn_decoder_send` : le décodeur n'a pas pris le paquet (tampons pleins), à renvoyer.
+const SEND_AGAIN: c_int = 1;
 
 /// Un flux d'image (un par démarrage de l'image, et par écran de l'appareil
 /// en multi-écrans : un décodeur et une file d'images chacun).
@@ -222,6 +257,8 @@ pub struct VideoSink {
     tx: Mutex<Sender<Msg>>,
     thread: Mutex<Option<JoinHandle<()>>>,
     shared: Arc<Shared>,
+    /// Les paquets en attente du fil du décodeur, bornés.
+    backlog: Arc<Backlog>,
 }
 
 impl VideoSink {
@@ -229,8 +266,10 @@ impl VideoSink {
         let (tx, rx) = channel();
         let s = shared.clone();
         let latest = shared.fresh_latest(screen);
-        let thread = std::thread::Builder::new().name("kybernow-image".into()).spawn(move || Decoder::new(s, latest).run(rx)).ok();
-        Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), shared })
+        let backlog = Arc::new(Backlog::default());
+        let b = backlog.clone();
+        let thread = std::thread::Builder::new().name("kybernow-image".into()).spawn(move || Decoder::new(s, latest, b).run(rx)).ok();
+        Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), shared, backlog })
     }
 
     fn send(&self, m: Msg) {
@@ -247,7 +286,18 @@ impl PacketHandler for VideoSink {
                 if let Some(s) = self.shared.session() {
                     s.latency().received_bytes(data.len());
                 }
-                self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume });
+                match self.backlog.admit(is_key) {
+                    Admit::Send => self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume }),
+                    Admit::Drop => {}
+                    Admit::DropFirst => {
+                        log::warn!("image : le décodage ne suit plus ({} paquets en attente) ; paquets jetés jusqu'à l'image clé", self.backlog.pending());
+                        self.send(Msg::Dropped);
+                        match self.shared.session() {
+                            Some(s) => s.request_keyframe(),
+                            None => self.shared.keyframe(true),
+                        }
+                    }
+                }
             }
             Packet::Hole { .. } => {
                 if let Some(s) = self.shared.session() {
@@ -272,6 +322,10 @@ struct Decoder {
     shared: Arc<Shared>,
     /// L'image la plus récente de cet écran, pour le fil principal.
     latest: Arc<Latest>,
+    /// Les paquets en attente (décomptés ici, à chaque image prise).
+    backlog: Arc<Backlog>,
+    /// Le nom du décodeur relu après la première image (statistiques).
+    named: bool,
     /// 0 H.264, 1 HEVC, 2 AV1.
     codec: c_int,
     config: Vec<u8>,
@@ -299,11 +353,13 @@ struct Decoder {
 }
 
 impl Decoder {
-    fn new(shared: Arc<Shared>, latest: Arc<Latest>) -> Self {
+    fn new(shared: Arc<Shared>, latest: Arc<Latest>, backlog: Arc<Backlog>) -> Self {
         unsafe { kn_log_quiet() };
         Self {
             shared,
             latest,
+            backlog,
+            named: false,
             codec: 1,
             config: Vec::new(),
             in_config: false,
@@ -327,6 +383,9 @@ impl Decoder {
 
     fn run(mut self, rx: Receiver<Msg>) {
         while let Ok(m) = rx.recv() {
+            if matches!(m, Msg::Frame { .. }) {
+                self.backlog.taken();
+            }
             match m {
                 Msg::Codec(FOURCC_PYROWAVE) => {
                     self.close();
@@ -346,9 +405,13 @@ impl Decoder {
                     }
                 }
                 // Une image perdue est sautée : rien à demander, la suivante se décode seule.
-                Msg::Hole if self.pyrowave => {}
+                Msg::Hole | Msg::Dropped if self.pyrowave => {}
                 Msg::Codec(c) => {
                     self.pyrowave = false;
+                    // Un nouveau format repart de zéro : le repli sur le processeur et l'échec d'ouverture
+                    // d'avant valaient pour l'ancien (un repli en H.264 ne tient pas le HEVC au processeur).
+                    self.software = false;
+                    self.failed = false;
                     self.meta = (0.0, 0.0, 0.0, 0.0);
                     self.codec = match c {
                         FOURCC_HEVC => 1,
@@ -371,6 +434,10 @@ impl Decoder {
                     self.frame(key, pts, &data, received, resume);
                 }
                 Msg::Hole => self.lost(),
+                Msg::Dropped => {
+                    self.gate.reset();
+                    self.lost();
+                }
                 Msg::Stop => break,
             }
         }
@@ -462,6 +529,7 @@ impl Decoder {
         out.bt709 = !cfg.hdr;
         out.full_range = cfg.full_range;
         out.pq = cfg.hdr;
+        out.narrow_if_needed();
         (out.mastering_min, out.mastering_max, out.max_cll, out.max_fall) = (0.0, 0.0, 0.0, 0.0);
         self.latest.put(out);
         wake_main();
@@ -485,6 +553,9 @@ impl Decoder {
             return Err(e);
         }
         self.dec = d;
+        // Ouvert : un échec suivant se signale à nouveau ; le nom sera relu après la première image.
+        self.failed = false;
+        self.named = false;
         let name = unsafe { CStr::from_ptr(kn_decoder_name(d)) }.to_string_lossy().into_owned();
         log::info!("image : décodeur {name}");
         self.shared.set_codec(&name);
@@ -542,19 +613,39 @@ impl Decoder {
             return;
         }
         let first = self.waiting_key;
-        let buf;
-        let bytes: &[u8] = if key && !self.config.is_empty() {
-            buf = [self.config.as_slice(), data].concat();
-            &buf
-        } else {
-            data
-        };
-        let r = unsafe { kn_decoder_send(self.dec, bytes.as_ptr(), bytes.len() as c_int, pts as i64) };
+        // Les paramètres devant une image clé : copiés avec elle dans le paquet de FFmpeg, sans concaténation.
+        // (Quelques dizaines d'octets : copiés à part, l'image ne l'est plus.)
+        let head: Vec<u8> = if key { self.config.clone() } else { Vec::new() };
+        let send = |dec| unsafe { kn_decoder_send_parts(dec, head.as_ptr(), head.len() as c_int, data.as_ptr(), data.len() as c_int, pts as i64) };
+        let mut r = send(self.dec);
+        if r == SEND_AGAIN {
+            // Tampons d'entrée pleins : les images prêtes sortent d'abord (la plus récente est montrée), puis
+            // le même paquet repart.
+            self.receive(false, pts, received);
+            if self.dec.is_null() {
+                return;
+            }
+            r = send(self.dec);
+        }
+        if r == SEND_AGAIN {
+            // Toujours refusé : le paquet est perdu. Il ne compte pas comme décodé (`ResumeGate`), et la suite
+            // attend une image clé.
+            log::warn!("image : paquet {pts} refusé par le décodeur (tampons pleins)");
+            self.gate.reset();
+            self.lost();
+            self.request_keyframe();
+            return;
+        }
         if r < 0 {
             self.decode_error(r);
             return;
         }
         self.gate.fed(pts);
+        self.receive(first, pts, received);
+    }
+
+    /// Les images prêtes du décodeur : la plus récente part à l'écran.
+    fn receive(&mut self, first: bool, pts: u64, received: i64) {
         let mut f = KnFrame {
             width: 0,
             height: 0,
@@ -575,6 +666,12 @@ impl Decoder {
         if got < 0 {
             self.decode_error(got);
             return;
+        }
+        if first && got > 0 && !self.named {
+            // Le nom vu après la première image (le repli de FFmpeg sur le processeur ne se sait qu'alors).
+            self.named = true;
+            let name = unsafe { CStr::from_ptr(kn_decoder_name(self.dec)) }.to_string_lossy().into_owned();
+            self.shared.set_codec(&name);
         }
         if first {
             self.waiting_key = false;
@@ -671,6 +768,7 @@ impl Decoder {
         out.full_range = f.full_range != 0;
         out.pq = f.pq != 0;
         (out.mastering_min, out.mastering_max, out.max_cll, out.max_fall) = self.meta;
+        out.narrow_if_needed();
         out
     }
 }
@@ -831,17 +929,32 @@ fn pyrowave_sample(s: &kybernow_core::autotest::Sample) -> Option<f64> {
     (frames > 0).then(|| frames as f64 / elapsed)
 }
 
+/// La conversion YUV de SDL (réglage global) pour la texture qu'on va créer, remplir ou dessiner.
+fn set_yuv(yuv: Option<Yuv>) {
+    let Some(y) = yuv else { return };
+    let mode = match y {
+        Yuv::Bt601 => sdl::SDL_YUV_CONVERSION_BT601,
+        Yuv::Bt709 => sdl::SDL_YUV_CONVERSION_BT709,
+        Yuv::Jpeg => sdl::SDL_YUV_CONVERSION_JPEG,
+    };
+    unsafe { sdl::SDL_SetYUVConversionMode(mode) };
+}
+
 /// La texture de l'image et ce qu'il faut pour la montrer (fil principal).
 pub struct Screen {
     texture: *mut sdl::SDL_Texture,
     size: (u32, u32),
     format: Option<Format>,
+    /// La conversion YUV de cette texture : SDL la lit à la création (rendu GL) ou à chaque conversion
+    /// (rendu logiciel) dans un réglage global ; chaque fenêtre (plusieurs écrans, plusieurs ordinateurs)
+    /// le repose donc pour elle avant de créer, d'envoyer et de dessiner.
+    yuv: Option<Yuv>,
     pub last: Option<(u32, u32)>,
 }
 
 impl Default for Screen {
     fn default() -> Self {
-        Self { texture: std::ptr::null_mut(), size: (0, 0), format: None, last: None }
+        Self { texture: std::ptr::null_mut(), size: (0, 0), format: None, yuv: None, last: None }
     }
 }
 
@@ -853,7 +966,9 @@ impl Screen {
             return self.upload(r, &eight_bit(f));
         }
         unsafe {
-            if self.texture.is_null() || self.size != (f.width, f.height) || self.format != Some(f.format) {
+            let yuv = (f.format != Format::Bgra).then(|| video_rules::yuv_for(f.bt709, f.full_range));
+            set_yuv(yuv);
+            if self.texture.is_null() || self.size != (f.width, f.height) || self.format != Some(f.format) || self.yuv != yuv {
                 if !self.texture.is_null() {
                     sdl::SDL_DestroyTexture(self.texture);
                 }
@@ -871,8 +986,8 @@ impl Screen {
                 }
                 self.size = (f.width, f.height);
                 self.format = Some(f.format);
-                sdl::SDL_SetYUVConversionMode(if f.full_range { sdl::SDL_YUV_CONVERSION_JPEG } else if f.bt709 { sdl::SDL_YUV_CONVERSION_BT709 } else { sdl::SDL_YUV_CONVERSION_BT601 });
-                log::info!("image : texture {} × {} ({:?})", f.width, f.height, f.format);
+                self.yuv = yuv;
+                log::info!("image : texture {} × {} ({:?}, {:?})", f.width, f.height, f.format, yuv);
             }
             let ok = match f.format {
                 Format::Nv12 => sdl::SDL_UpdateNVTexture(self.texture, std::ptr::null(), f.planes[0].as_ptr(), f.pitch[0] as c_int, f.planes[1].as_ptr(), f.pitch[1] as c_int),
@@ -900,6 +1015,7 @@ impl Screen {
             return None;
         }
         let dst = fit(self.size, out);
+        set_yuv(self.yuv);
         unsafe { sdl::SDL_RenderCopy(r, self.texture, std::ptr::null(), &dst) };
         Some(dst)
     }
@@ -964,26 +1080,34 @@ fn eight_bit(f: &Frame) -> Frame {
         max_cll: 0.0,
         max_fall: 0.0,
     };
-    for y in 0..h {
-        for x in 0..w {
-            out.planes[0].push((code10(f, 0, y * f.pitch[0] + x * 2) >> 2) as u8);
+    // Par ligne, sans contrôle de bornes par pixel (LINAPP-33) ; une ligne absente (image tronquée) reste noire.
+    let p010 = f.format == Format::P010;
+    let row = |src: &[u8], pitch: usize, y: usize, n: usize, dst: &mut Vec<u8>| {
+        let start = y * pitch;
+        match src.get(start..start + n * 2) {
+            Some(r) => dst.extend(r.chunks_exact(2).map(|b| {
+                let w = u16::from_le_bytes([b[0], b[1]]);
+                ((if p010 { w >> 6 } else { w & 0x3ff }) >> 2) as u8
+            })),
+            None => dst.resize(dst.len() + n, 0),
         }
+    };
+    for y in 0..h {
+        row(&f.planes[0], f.pitch[0], y, w, &mut out.planes[0]);
     }
-    if f.format == Format::P010 {
+    if p010 {
         out.pitch[1] = cw * 2;
+        out.planes[1].reserve(cw * 2 * ch);
         for y in 0..ch {
-            for x in 0..cw * 2 {
-                out.planes[1].push((code10(f, 1, y * f.pitch[1] + x * 2) >> 2) as u8);
-            }
+            row(&f.planes[1], f.pitch[1], y, cw * 2, &mut out.planes[1]);
         }
     } else {
         out.pitch[1] = cw;
         out.pitch[2] = cw;
         for p in 1..3 {
+            out.planes[p].reserve(cw * ch);
             for y in 0..ch {
-                for x in 0..cw {
-                    out.planes[p].push((code10(f, p, y * f.pitch[p] + x * 2) >> 2) as u8);
-                }
+                row(&f.planes[p], f.pitch[p], y, cw, &mut out.planes[p]);
             }
         }
     }

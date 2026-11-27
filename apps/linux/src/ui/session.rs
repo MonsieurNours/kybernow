@@ -458,7 +458,7 @@ fn bar_icons(app: &App, s: &SessionUi, computers: bool, sound: bool) -> Vec<BarI
         let on = s.camera == CameraState::Sending || s.bar_menu == Some(BarMenu::Camera);
         let name = if s.camera == CameraState::Off { tr("Allumer la caméra", "Turn on camera") } else { tr("Éteindre la caméra", "Turn off camera") };
         let glyph = if s.camera == CameraState::Off { Icon::CameraOff } else { Icon::Camera };
-        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} (Ctrl+Alt+Maj+C)").replace("Maj", if crate::i18n::english() { "Shift" } else { "Maj" }), dim: s.camera == CameraState::Off });
+        v.push(BarIcon { target: Target::BarCamera, icon: glyph, on, name: format!("{name} (Ctrl+Alt+{}+C)", tr("Maj", "Shift")), dim: s.camera == CameraState::Off });
     }
     if !s.multi() {
         v.push(icon(Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
@@ -629,20 +629,48 @@ impl BarLayout {
             (rec, others)
         };
         // Une fenêtre étroite (960 points) avec « Ordinateurs », « Garder le son » et la pastille : les mesures se resserrent.
-        info_w = info_w.min((w - 8.0 - others).max(60.0));
+        // Plus étroite encore (fenêtre d'un autre ordinateur, 480 points) : elles disparaissent.
+        info_w = info_w.min((w - 8.0 - others).max(0.0));
         let total = others + info_w;
         Self { lat, info, profile, quit, left, mono14, mono12, lat_w, info_w, prof_w, quit_w, disc_w, icons, pill, requests, quality, screen, route, hdr, pw, rec, total }
     }
 }
 
-/// Le rectangle de la barre ouverte : sa largeur réelle, centrée en haut.
+/// Le rectangle de la barre ouverte : sa largeur réelle, centrée en haut. Plus large que la fenêtre (fenêtres
+/// étroites de plusieurs ordinateurs), elle s'aligne sur le bord droit : « Se déconnecter » reste à l'écran,
+/// le début (latence) sort à gauche.
 fn bar_frame(w: f32, total: f32) -> Rect {
-    Rect::new((w - total) / 2.0, -1.0, total, BAR_H + 1.0)
+    let x = if total <= w - 16.0 { (w - total) / 2.0 } else { w - 8.0 - total };
+    Rect::new(x, -1.0, total, BAR_H + 1.0)
+}
+
+/// Un menu déroulant dans la fenêtre : sa largeur (bornée à la fenêtre), sa gauche (jamais hors du bord) et
+/// le nombre de lignes qui tiennent sous `y`.
+fn dropdown_place(cv_w: f32, cv_h: f32, x: f32, y: f32, w: f32, head: f32, rows: usize) -> (f32, f32, usize) {
+    let w = w.min(cv_w - 16.0).max(0.0);
+    let x = x.min(cv_w - w - 8.0).max(8.0);
+    let fit = ((cv_h - y - 8.0 - 12.0 - head) / 36.0).floor().max(1.0) as usize;
+    (x, w, rows.min(fit))
 }
 
 /// `w` : la largeur de la fenêtre, en points (chaque écran a la sienne).
 fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
-    let total = if s.console.is_some() { super::ps::bar_width(cv, s) } else { BarLayout::measure(cv, app, s, w).total };
+    // Appelé à chaque mouvement de la souris (bord haut, survol de la barre) : la largeur mesurée est gardée
+    // 100 ms par session et largeur de fenêtre (une vingtaine de mesures de texte de moins par mouvement,
+    // LINAPP-35) ; le dessin, lui, mesure toujours.
+    thread_local! {
+        static BAR_TOTAL: std::cell::Cell<Option<(crate::app::SessionId, u32, std::time::Instant, f32)>> = const { std::cell::Cell::new(None) };
+    }
+    let key = (s.id, w.to_bits());
+    let cached = BAR_TOTAL.with(|c| c.get()).filter(|(id, wb, at, _)| (*id, *wb) == key && at.elapsed() < std::time::Duration::from_millis(100)).map(|c| c.3);
+    let total = match cached {
+        Some(t) => t,
+        None => {
+            let t = if s.console.is_some() { super::ps::bar_width(cv, s) } else { BarLayout::measure(cv, app, s, w).total };
+            BAR_TOTAL.with(|c| c.set(Some((key.0, key.1, std::time::Instant::now(), t))));
+            t
+        }
+    };
     bar_frame(w, total)
 }
 
@@ -876,7 +904,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // La pastille « 2 invités » : le partage est ouvert ; elle rouvre le panneau.
     if let Some((label, pw)) = pill {
         let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
-        let (focused, hover) = f.state(Target::BarShare, pr);
+        let (focused, hover) = f.state(Target::BarSharePill, pr);
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.34 } else { 0.22 }));
         if focused {
             widgets::ring(cv, pr, 12.0);
@@ -887,7 +915,7 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // « 1 demande » : un invité attend l'accord de l'hôte ; plus appuyée que les invités, elle rouvre aussi le panneau.
     if let Some((label, pw)) = requests {
         let pr = Rect::new(x + 2.0, cy - 12.0, pw, 24.0);
-        let (focused, hover) = f.state(Target::BarShare, pr);
+        let (focused, hover) = f.state(Target::BarShareRequests, pr);
         cv.rrect(pr.x, pr.y, pr.w, pr.h, 12.0, FLAT.alpha(if hover || s.bar_menu == Some(BarMenu::Share) { 0.7 } else { 0.55 }));
         if focused {
             widgets::ring(cv, pr, 12.0);
@@ -1073,6 +1101,9 @@ fn dropdown(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, items: &[(Ta
 fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title: Option<&str>, items: &[(Target, String, String, bool)]) {
     let ih = 36.0;
     let head = if title.is_some() { 30.0 } else { 0.0 };
+    // Borné à la fenêtre : à droite, en largeur, et en hauteur (les lignes qui ne tiennent pas ne sont pas montrées).
+    let (x, w, shown) = dropdown_place(cv.w, cv.h, x, y, w, head, items.len());
+    let items = &items[..shown];
     let h = items.len() as f32 * ih + 12.0 + head;
     cv.rrect(x, y, w, h, 10.0, Rgba(9, 13, 18, 245));
     cv.rrect_stroke(x, y, w, h, 10.0, 1.0, LINE_2);
@@ -1090,13 +1121,13 @@ fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title
             cv.icon(&Icon::Check, r.x + 8.0, r.y + 10.0, 16.0, 2.0, SPECTRE);
         }
         // Auto : les étincelles après le nom.
-        let mut lw = cv.text(r.x + 32.0, r.y + 23.0, Text::new(Font::Regular, 13.5, FROST), label);
+        let mut lw = cv.text_fit(r.x + 32.0, r.y + 23.0, Text::new(Font::Regular, 13.5, FROST), label, (r.w - 44.0).max(0.0));
         if let Some(icon) = widgets::profile_icon(*t) {
             cv.icon(&icon, r.x + 32.0 + lw + 6.0, r.y + 10.0, 15.0, 1.4, SPECTRE);
             lw += 22.0;
         }
         if !hint.is_empty() {
-            cv.text_fit(r.x + 32.0 + lw + 10.0, r.y + 23.0, Text::new(Font::Regular, 12.0, FAINT), hint, r.w - lw - 50.0);
+            cv.text_fit(r.x + 32.0 + lw + 10.0, r.y + 23.0, Text::new(Font::Regular, 12.0, FAINT), hint, (r.w - lw - 50.0).max(0.0));
         }
         yy += ih;
     }
@@ -1791,5 +1822,31 @@ fn keys(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let mut lx = x0;
         lx += legend(cv, lx, gy, 26.0 * u, &["A"], tr("Envoyer", "Send")) + 28.0 * u;
         legend(cv, lx, gy, 26.0 * u, &["B"], tr("Retour", "Back"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LINAPP-19 : une fenêtre de 480 points (un autre ordinateur), une barre de 750 : « Se déconnecter », à
+    /// droite, reste dans la fenêtre ; une barre qui tient reste centrée.
+    #[test]
+    fn bar_stays_in_a_narrow_window() {
+        let r = bar_frame(480.0, 750.0);
+        assert!(r.x + r.w <= 480.0 - 8.0 + 0.01);
+        let r = bar_frame(1280.0, 700.0);
+        assert_eq!(r.x, 290.0);
+    }
+
+    /// Un menu déroulant ne sort ni à droite ni en bas : Caméra (300 points) à 900 dans 960, Profil (420) dans 480.
+    #[test]
+    fn dropdowns_stay_in_the_window() {
+        let (x, w, rows) = dropdown_place(960.0, 600.0, 900.0, 52.0, 300.0, 30.0, 4);
+        assert!(x + w <= 952.0 && x >= 8.0 && rows == 4);
+        let (x, w, _) = dropdown_place(480.0, 270.0, 30.0, 52.0, 420.0, 0.0, 3);
+        assert!(x >= 8.0 && x + w <= 472.0);
+        let (_, _, rows) = dropdown_place(480.0, 270.0, 30.0, 52.0, 300.0, 30.0, 10);
+        assert!(52.0 + 30.0 + 12.0 + rows as f32 * 36.0 <= 270.0 - 8.0 && rows >= 1, "les lignes de trop ne sont pas montrées ({rows})");
     }
 }

@@ -82,6 +82,12 @@ impl Pads {
             if sdl::SDL_IsGameController(index) == 0 {
                 return None;
             }
+            // Déjà ouverte (ajout reçu deux fois), ou plus de place (5e manette) : rien d'ouvert, rien à refermer.
+            let instance = sdl::SDL_JoystickGetDeviceInstanceID(index);
+            if self.pads.iter().any(|p| p.instance == instance) {
+                return None;
+            }
+            let slot = (0..4).find(|s| !self.pads.iter().any(|p| p.slot == *s))?;
             let ctrl = sdl::SDL_GameControllerOpen(index);
             if ctrl.is_null() {
                 return None;
@@ -89,10 +95,10 @@ impl Pads {
             let joy = sdl::SDL_GameControllerGetJoystick(ctrl);
             let instance = sdl::SDL_JoystickInstanceID(joy);
             if self.pads.iter().any(|p| p.instance == instance) {
+                sdl::SDL_GameControllerClose(ctrl);
                 return None;
             }
             let name = sdl::pad_name(ctrl);
-            let slot = (0..4).find(|s| !self.pads.iter().any(|p| p.slot == *s))?;
             let pad = Pad {
                 ctrl,
                 instance,

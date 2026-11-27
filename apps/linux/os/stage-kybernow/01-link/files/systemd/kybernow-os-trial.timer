@@ -1,0 +1,9 @@
+[Unit]
+Description=KyberNow Link OS : délai d'un essai A/B (5 minutes pour arriver à l'accueil)
+
+[Timer]
+OnBootSec=5min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

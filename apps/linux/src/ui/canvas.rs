@@ -68,8 +68,15 @@ struct Glyph {
 /// dixièmes de pixel).
 pub struct Fonts {
     fonts: HashMap<Font, fontdue::Font>,
+    /// Glyphes rendus, en deux générations : les récents, et ceux d'avant. Une génération pleine passe en
+    /// « d'avant » ; un glyphe d'avant réutilisé revient dans les récents. Le cache n'est plus vidé d'un coup
+    /// (tous les textes à refaire à l'image suivante, LINAPP-35).
     cache: HashMap<(Font, char, u32), Glyph>,
+    old: HashMap<(Font, char, u32), Glyph>,
 }
+
+/// Glyphes gardés par génération.
+const GLYPH_GENERATION: usize = 3000;
 
 impl Fonts {
     pub fn load() -> Self {
@@ -78,18 +85,20 @@ impl Fonts {
             let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("police de la charte illisible");
             fonts.insert(f, font);
         }
-        Self { fonts, cache: HashMap::new() }
+        Self { fonts, cache: HashMap::new(), old: HashMap::new() }
     }
 
     fn glyph(&mut self, font: Font, c: char, size: f32) -> &Glyph {
         let key = (font, c, (size * 10.0).round() as u32);
         if !self.cache.contains_key(&key) {
-            let f = &self.fonts[&font];
-            let (metrics, coverage) = f.rasterize(c, size);
-            if self.cache.len() > 6000 {
-                self.cache.clear();
+            let g = self.old.remove(&key).unwrap_or_else(|| {
+                let (metrics, coverage) = self.fonts[&font].rasterize(c, size);
+                Glyph { metrics, coverage }
+            });
+            if self.cache.len() >= GLYPH_GENERATION {
+                self.old = std::mem::take(&mut self.cache);
             }
-            self.cache.insert(key, Glyph { metrics, coverage });
+            self.cache.insert(key, g);
         }
         &self.cache[&key]
     }
@@ -247,21 +256,6 @@ impl Canvas {
         }
     }
 
-    /// Un dégradé vertical (ombres sous le texte de l'accueil).
-    pub fn vgradient(&mut self, x: f32, y: f32, w: f32, h: f32, top: Rgba, bottom: Rgba) {
-        let stops = vec![
-            tiny_skia::GradientStop::new(0.0, tiny_skia::Color::from_rgba8(top.0, top.1, top.2, top.3)),
-            tiny_skia::GradientStop::new(1.0, tiny_skia::Color::from_rgba8(bottom.0, bottom.1, bottom.2, bottom.3)),
-        ];
-        let Some(shader) = tiny_skia::LinearGradient::new(tiny_skia::Point::from_xy(0.0, y), tiny_skia::Point::from_xy(0.0, y + h), stops, tiny_skia::SpreadMode::Pad, Transform::identity()) else {
-            return;
-        };
-        let paint = Paint { shader, anti_alias: false, ..Default::default() };
-        if let Some(r) = Rect::from_xywh(x, y, w.max(0.0), h.max(0.0)) {
-            let t = self.t();
-            self.pix.fill_rect(r, &paint, t, None);
-        }
-    }
 
     /// Un dégradé à plusieurs arrêts (position 0 à 1), vertical ou horizontal.
     pub fn gradient(&mut self, x: f32, y: f32, w: f32, h: f32, horizontal: bool, stops: &[(f32, Rgba)]) {
@@ -428,13 +422,12 @@ impl Canvas {
             if let Some(p) = prev {
                 pen += self.fonts.fonts[&font].horizontal_kern(p, c, size).unwrap_or(0.0);
             }
-            let (metrics, coverage) = {
-                let g = self.fonts.glyph(font, c, size);
-                (g.metrics, g.coverage.clone())
-            };
+            // Le glyphe est emprunté au cache, pas recopié (`fonts` et `pix` sont deux champs à part).
+            let g = self.fonts.glyph(font, c, size);
+            let metrics = g.metrics;
             let gx = (pen + metrics.xmin as f32).round() as i32;
             let gy = (base - metrics.height as f32 - metrics.ymin as f32).round() as i32;
-            blit_coverage(&mut self.pix, gx, gy, metrics.width, metrics.height, &coverage, style.color);
+            blit_coverage(&mut self.pix, gx, gy, metrics.width, metrics.height, &g.coverage, style.color);
             pen += metrics.advance_width + style.tracking * k;
             prev = Some(c);
         }
@@ -446,15 +439,32 @@ impl Canvas {
         if self.text_width(style, s) <= max {
             return self.text(x, y, style, s);
         }
-        let mut cut: String = s.to_string();
-        while !cut.is_empty() {
-            cut.pop();
-            let t = format!("{}…", cut.trim_end());
-            if self.text_width(style, &t) <= max {
-                return self.text(x, y, style, &t);
+        // Le plus long début qui tient avec « … », par dichotomie sur le nombre de caractères (la largeur croît
+        // avec lui) : quelques mesures au lieu d'une par caractère retiré (LINAPP-35).
+        let chars: Vec<char> = s.chars().collect();
+        let fits = |cv: &mut Self, n: usize| {
+            let t = format!("{}…", chars[..n].iter().collect::<String>().trim_end());
+            (cv.text_width(style, &t) <= max).then_some(t)
+        };
+        let (mut lo, mut hi) = (0usize, chars.len());
+        let mut best: Option<String> = None;
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            match fits(self, mid) {
+                Some(t) => {
+                    best = Some(t);
+                    lo = mid;
+                }
+                None => hi = mid - 1,
             }
         }
-        0.0
+        if best.is_none() {
+            best = fits(self, 0);
+        }
+        match best {
+            Some(t) => self.text(x, y, style, &t),
+            None => 0.0,
+        }
     }
 
     /// Un texte rétréci jusqu'à tenir dans `max` (le nom de l'ordinateur).
@@ -546,24 +556,6 @@ impl Canvas {
         }
         let paint = PixmapPaint { opacity, quality: FilterQuality::Nearest, ..Default::default() };
         self.pix.draw_pixmap(x.round() as i32, y.round() as i32, tile.as_ref(), &paint, Transform::identity(), None);
-    }
-
-    #[allow(dead_code)]
-    /// Une image (logo) en `x, y`, à la hauteur `height` (en points).
-    pub fn image_height(&mut self, img: &Pixmap, x: f32, y: f32, height: f32, opacity: f32) {
-        let scale = height * self.k / img.height().max(1) as f32;
-        let t = Transform::from_row(scale, 0.0, 0.0, scale, x * self.k, y * self.k);
-        let paint = PixmapPaint { opacity, quality: FilterQuality::Bicubic, ..Default::default() };
-        self.pix.draw_pixmap(0, 0, img.as_ref(), &paint, t, None);
-    }
-
-    #[allow(dead_code)]
-    /// Une image à sa taille (logo), en `x, y`, mise à l'échelle `scale`.
-    pub fn image(&mut self, img: &Pixmap, x: f32, y: f32, scale: f32) {
-        let scale = scale * self.k;
-        let t = Transform::from_row(scale, 0.0, 0.0, scale, x * self.k, y * self.k);
-        let paint = PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() };
-        self.pix.draw_pixmap(0, 0, img.as_ref(), &paint, t, None);
     }
 }
 

@@ -632,7 +632,7 @@ pub fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let line3 = if english() { format!("Pictures lost: {} · repaired: {}", ps.lost, ps.recovered) } else { format!("Images perdues : {} · réparées : {}", ps.lost, ps.recovered) };
     let mut lines = vec![line1, line2, line3];
     if ps.relayed {
-        lines.push(format!("{} {}", tr("Chemin :", "Path:"), tr("Par le relais", "Through the relay")));
+        lines.push(format!("{} {}", tr("Chemin :", "Path:"), tr("Par le relais", "Via the relay")));
     }
     let mono = Text::new(Font::Mono, 12.5 * u, FROST);
     let w = lines.iter().map(|l| cv.text_width(mono, l)).fold(0.0f32, f32::max) + 40.0 * u;
@@ -665,7 +665,7 @@ pub fn bar(_app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     icons.push((Target::BarPsSettings, Icon::Gear, false, crate::i18n::settings_for(&s.name)));
     icons.push((Target::BarPsRest, Icon::Power, false, tr("Mettre la console en veille", "Put the console in rest mode").into()));
-    let route = ps.relayed.then(|| tr("Par le relais", "Through the relay"));
+    let route = ps.relayed.then(|| tr("Par le relais", "Via the relay"));
     let route_w = route.map(|r| cv.text_width(Text::new(Font::Regular, 12.5, FROST), r) + 22.0).unwrap_or(0.0);
     let name_w = cv.text_width(name_style, &s.name).min(260.0);
     let total = 16.0 + 16.0 + 12.0 + name_w + 12.0 + if route.is_some() { route_w + 12.0 } else { 0.0 } + 1.0 + 12.0 + 34.0 * icons.len() as f32 + 12.0 + 1.0 + 12.0 + quit_w + 10.0;
@@ -727,7 +727,7 @@ pub fn bar_width(cv: &mut Canvas, s: &SessionUi) -> f32 {
     let Some(ps) = &s.console else { return 0.0 };
     let name_w = cv.text_width(Text::new(Font::Semibold, 14.0, FROST), &s.name).min(260.0);
     let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), tr("Se déconnecter", "Disconnect")) + 24.0;
-    let route_w = if ps.relayed { cv.text_width(Text::new(Font::Regular, 12.5, FROST), tr("Par le relais", "Through the relay")) + 34.0 } else { 0.0 };
+    let route_w = if ps.relayed { cv.text_width(Text::new(Font::Regular, 12.5, FROST), tr("Par le relais", "Via the relay")) + 34.0 } else { 0.0 };
     let icons = if ps.pads { 5.0 } else { 6.0 };
     16.0 + 16.0 + 12.0 + name_w + 12.0 + route_w + 1.0 + 12.0 + 34.0 * icons + 12.0 + 1.0 + 12.0 + quit_w + 10.0
 }
@@ -773,7 +773,7 @@ pub fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         (MenuItem::PsRest, tr("Veille", "Rest mode").into(), tr("Mettre la console en veille", "Put the console in rest mode").into(), false, false),
     ];
     if ps.relayed {
-        tiles.push((MenuItem::Route, tr("Par le relais", "Through the relay").into(), tr("Hors de chez vous", "Away from home").into(), false, false));
+        tiles.push((MenuItem::Route, tr("Par le relais", "Via the relay").into(), tr("Hors de chez vous", "Away from home").into(), false, false));
     }
     tiles.push((MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la partie", "Ends the game").into(), false, true));
     let ty = head + 36.0 * u;

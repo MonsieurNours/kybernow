@@ -7,14 +7,24 @@
 # Usage : apps/linux/scripts/sources.sh [--deps] DEST
 #   --deps : seulement de quoi compiler libkynput et FFmpeg (module du
 #            Flatpak qui ne change pas avec l'app, mis en cache).
+#   --media : build.sh et les correctifs de PyroWave seuls (FFmpeg et
+#            PyroWave, premier module du Flatpak : ni Kyber ni l'app).
 # KYBERNOW_KYBER_HEAD=1 : le SDK de Kyber pris dans ses dépôts git (HEAD), sans
 #            les correctifs déjà posés dans third_party/ (voir plus bas).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 DEPS=0
+MEDIA=0
 [ "${1:-}" = --deps ] && { DEPS=1; shift; }
+[ "${1:-}" = --media ] && { MEDIA=1; shift; }
 DEST="${1:?usage : sources.sh [--deps] DEST}"
+if [ "$MEDIA" = 1 ]; then
+    mkdir -p "$DEST/apps/linux/scripts" "$DEST/apps/linux/pyrowave"
+    cp "$HERE/scripts/build.sh" "$DEST/apps/linux/scripts/"
+    rm -f "$DEST/apps/linux/pyrowave/"* && cp "$HERE/pyrowave/"* "$DEST/apps/linux/pyrowave/"
+    exit 0
+fi
 mkdir -p "$DEST/apps" "$DEST/third_party/kyber-desktop" "$DEST/brand/v2"
 # Sans dist/ : apps/linux/dist garde les paquets et l'image de KyberNow Link OS
 # (plusieurs Go), que flatpak-builder recopiait et relisait à chaque construction.
@@ -71,5 +81,7 @@ cp "$ROOT/third_party/kyber-desktop/"COPYING* "$DEST/third_party/kyber-desktop/"
 # (mkdir + cp plutôt qu'install -D, absent de macOS : release.sh vérifie cette copie sur le Mac.)
 mkdir -p "$DEST/server/admin/src/update"
 cp "$ROOT/server/admin/src/update/kybernow-release.pub" "$DEST/server/admin/src/update/kybernow-release.pub"
-cp "$ROOT/LICENSE"* "$DEST/" 2>/dev/null || true
+# La licence du dépôt (AGPL-3.0), à la racine : le Flatpak la porte toujours, son absence est une erreur.
+[ -f "$ROOT/LICENSE" ] || { echo "LICENSE absent de $ROOT : le Flatpak doit porter la licence" >&2; exit 1; }
+cp "$ROOT/LICENSE" "$DEST/LICENSE"
 echo "sources dans $DEST ($(du -sh "$DEST" | cut -f1))"

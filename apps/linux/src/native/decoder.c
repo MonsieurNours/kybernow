@@ -117,6 +117,71 @@ static void *conv_rows(void *arg) {
     return NULL;
 }
 
+// Un groupe de 3 fils, créé une fois pour tout le processus (plus de création et d'attente de fils à chaque
+// image 4:4:4, LINAPP-34). Un travail à la fois (plusieurs décodeurs : chacun son tour) ; le fil appelant
+// fait la première part. Sans fil (création refusée), tout se fait sur le fil appelant.
+#define KN_POOL 3
+static struct {
+    pthread_once_t once;
+    pthread_mutex_t job_lock;   // un travail à la fois
+    pthread_mutex_t m;
+    pthread_cond_t go, done;
+    kn_conv *parts;             // parts[1..n-1] pour les fils
+    int n, generation, pending, workers;
+} s_pool = { .once = PTHREAD_ONCE_INIT, .job_lock = PTHREAD_MUTEX_INITIALIZER, .m = PTHREAD_MUTEX_INITIALIZER,
+             .go = PTHREAD_COND_INITIALIZER, .done = PTHREAD_COND_INITIALIZER };
+
+static void *pool_worker(void *arg) {
+    int me = (int)(intptr_t)arg; // 1..KN_POOL
+    int seen = 0;
+    pthread_mutex_lock(&s_pool.m);
+    for (;;) {
+        while (s_pool.generation == seen) pthread_cond_wait(&s_pool.go, &s_pool.m);
+        seen = s_pool.generation;
+        if (me < s_pool.n) {
+            kn_conv *part = &s_pool.parts[me];
+            pthread_mutex_unlock(&s_pool.m);
+            conv_rows(part);
+            pthread_mutex_lock(&s_pool.m);
+            if (--s_pool.pending == 0) pthread_cond_signal(&s_pool.done);
+        }
+    }
+    return NULL;
+}
+
+static void pool_start(void) {
+    for (int i = 1; i <= KN_POOL; i++) {
+        pthread_t t;
+        if (pthread_create(&t, NULL, pool_worker, (void *)(intptr_t)i) != 0) break;
+        pthread_detach(t);
+        s_pool.workers++;
+    }
+}
+
+static int pool_size(void) {
+    pthread_once(&s_pool.once, pool_start);
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    int n = ncpu > 4 ? 4 : ncpu < 1 ? 1 : (int)ncpu;
+    return n > s_pool.workers + 1 ? s_pool.workers + 1 : n;
+}
+
+static void pool_run(kn_conv *parts, int n) {
+    if (n <= 1) { conv_rows(&parts[0]); return; }
+    pthread_mutex_lock(&s_pool.job_lock);
+    pthread_mutex_lock(&s_pool.m);
+    s_pool.parts = parts;
+    s_pool.n = n;
+    s_pool.pending = n - 1;
+    s_pool.generation++;
+    pthread_cond_broadcast(&s_pool.go);
+    pthread_mutex_unlock(&s_pool.m);
+    conv_rows(&parts[0]);
+    pthread_mutex_lock(&s_pool.m);
+    while (s_pool.pending > 0) pthread_cond_wait(&s_pool.done, &s_pool.m);
+    pthread_mutex_unlock(&s_pool.m);
+    pthread_mutex_unlock(&s_pool.job_lock);
+}
+
 // Convertit en BGRA, sur quelques fils : BT.709 ou BT.601, plage limitée ou complète.
 static void convert444(const kn_conv *src, int width, int height, int bt709, int full, uint8_t *out, int out_stride) {
     kn_conv base = *src;
@@ -133,21 +198,15 @@ static void convert444(const kn_conv *src, int width, int height, int bt709, int
     base.out = out;
     base.out_stride = out_stride;
     base.width = width;
-    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
-    int n = ncpu > 4 ? 4 : ncpu < 1 ? 1 : (int)ncpu;
+    int n = pool_size();
     if ((size_t)width * height < 640 * 480) n = 1;
     kn_conv parts[4];
-    pthread_t th[4];
-    int started[4] = {0};
     for (int i = 0; i < n; i++) {
         parts[i] = base;
         parts[i].y0 = height * i / n;
         parts[i].y1 = height * (i + 1) / n;
-        if (i > 0) started[i] = pthread_create(&th[i], NULL, conv_rows, &parts[i]) == 0;
-        if (i > 0 && !started[i]) conv_rows(&parts[i]);
     }
-    conv_rows(&parts[0]);
-    for (int i = 1; i < n; i++) if (started[i]) pthread_join(th[i], NULL);
+    pool_run(parts, n);
 }
 
 // Convertit l'image 4:4:4 `f` dans d->rgb. 0 : fait, < 0 : format inconnu.
@@ -304,10 +363,13 @@ kn_decoder *kn_decoder_open(int codec, int hw, int threads, char *err, int errle
 }
 
 const char *kn_decoder_name(kn_decoder *d) {
-    if (d->hw && !d->hw_active && d->ctx->pix_fmt != AV_PIX_FMT_NONE && d->ctx->pix_fmt != d->hw_fmt) {
-        // Le décodeur matériel refusé par FFmpeg pour ce flux : le processeur décode.
-        if (strncmp(d->name, "VA-API", 6) == 0) memmove(d->name, d->name + 3, strlen(d->name + 3) + 1);
-        memcpy(d->name, "CPU", 3);
+    // Le décodeur matériel refusé par FFmpeg pour ce flux (format de pixel connu après la première image) :
+    // le processeur décode. Le nom est refait en entier (« Pi HEVC » ne devient pas « CPUHEVC »).
+    if (d->hw && !d->hw_active && d->ctx->pix_fmt != AV_PIX_FMT_NONE && d->ctx->pix_fmt != d->hw_fmt && strncmp(d->name, "CPU ", 4) != 0) {
+        const char *codec = strchr(d->name, ' ');
+        char rest[sizeof d->name];
+        snprintf(rest, sizeof rest, "%s", codec ? codec + 1 : "");
+        snprintf(d->name, sizeof d->name, "CPU %s", rest);
     }
     return d->name;
 }
@@ -317,15 +379,26 @@ int kn_decoder_is_hw(kn_decoder *d) { return d->hw_active; }
 // Images sorties du décodeur depuis son ouverture.
 int64_t kn_decoder_frames(kn_decoder *d) { return d->frames; }
 
-int kn_decoder_send(kn_decoder *d, const uint8_t *data, int len, int64_t pts) {
+#define KN_SEND_AGAIN 1
+
+// Un paquet fait de deux parties (les paramètres devant une image clé, puis l'image) : copiées une seule
+// fois, dans le paquet de FFmpeg (plus de concaténation côté Rust, LINAPP-32).
+int kn_decoder_send_parts(kn_decoder *d, const uint8_t *head, int head_len, const uint8_t *data, int len, int64_t pts) {
     av_packet_unref(d->pkt);
-    int r = av_new_packet(d->pkt, len);
+    int r = av_new_packet(d->pkt, head_len + len);
     if (r < 0) return r;
-    memcpy(d->pkt->data, data, len);
+    if (head_len > 0) memcpy(d->pkt->data, head, head_len);
+    memcpy(d->pkt->data + head_len, data, len);
     d->pkt->pts = pts;
     r = avcodec_send_packet(d->ctx, d->pkt);
-    if (r == AVERROR(EAGAIN)) return 0;
+    // Tampons d'entrée pleins (h264_v4l2m2m du Pi) : le paquet n'est pas pris. L'appelant sort les images
+    // prêtes (kn_decoder_receive) puis renvoie le même paquet ; il ne le compte jamais comme décodé.
+    if (r == AVERROR(EAGAIN)) return KN_SEND_AGAIN;
     return r;
+}
+
+int kn_decoder_send(kn_decoder *d, const uint8_t *data, int len, int64_t pts) {
+    return kn_decoder_send_parts(d, NULL, 0, data, len, pts);
 }
 
 // 1 : une image (la plus récente des images prêtes), 0 : rien, < 0 : erreur.
@@ -335,37 +408,39 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
         int r = avcodec_receive_frame(d->ctx, d->frame);
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) break;
         if (r < 0) return r;
-        AVFrame *src = d->frame;
-        if (d->frame->format == AV_PIX_FMT_VAAPI || d->frame->format == AV_PIX_FMT_DRM_PRIME) {
-            av_frame_unref(d->sw);
-            // NV12 en 4:2:0 (VA-API : le format des surfaces, P010 en 10 bits, VUYX, 444P…
-            // en 4:4:4). Sur le Pi, les images SAND du décodeur deviennent du NV12 linéaire
-            // ici, ou du 4:2:0 planaire 10 bits pour un flux 10 bits.
-            enum AVPixelFormat swf = d->ctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10LE ? AV_PIX_FMT_YUV420P10LE : AV_PIX_FMT_NV12;
-            if (d->frame->format == AV_PIX_FMT_VAAPI && d->frame->hw_frames_ctx) swf = ((AVHWFramesContext *)d->frame->hw_frames_ctx->data)->sw_format;
-            d->sw->format = swf;
-            r = av_hwframe_transfer_data(d->sw, d->frame, 0);
-            if (r < 0 && d->frame->format == AV_PIX_FMT_DRM_PRIME && swf == AV_PIX_FMT_NV12) {
-                // Le FFmpeg du Pi préfère parfois le 4:2:0 planaire.
-                av_frame_unref(d->sw);
-                d->sw->format = AV_PIX_FMT_YUV420P;
-                r = av_hwframe_transfer_data(d->sw, d->frame, 0);
-            }
-            if (r < 0) { av_frame_unref(d->frame); return r; }
-            d->sw->pts = d->frame->pts;
-            // La couleur et les métadonnées HDR10 suivent l'image recopiée.
-            av_frame_copy_props(d->sw, d->frame);
-            av_frame_unref(d->frame);
-            src = d->sw;
-        }
-        // Garder la dernière : celle qu'on montrera.
+        // Garder la dernière : celle qu'on montrera. Une image matérielle reste sur la carte : seule la
+        // dernière est recopiée en mémoire, après la boucle (les images remplacées ne coûtent plus de
+        // transfert, LINAPP-32).
         if (!d->out) d->out = av_frame_alloc();
         av_frame_unref(d->out);
-        av_frame_move_ref(d->out, src);
+        av_frame_move_ref(d->out, d->frame);
         got = 1;
         d->frames++;
     }
     if (!got) return 0;
+    if (d->out->format == AV_PIX_FMT_VAAPI || d->out->format == AV_PIX_FMT_DRM_PRIME) {
+        AVFrame *hwf = d->out;
+        av_frame_unref(d->sw);
+        // NV12 en 4:2:0 (VA-API : le format des surfaces, P010 en 10 bits, VUYX, 444P…
+        // en 4:4:4). Sur le Pi, les images SAND du décodeur deviennent du NV12 linéaire
+        // ici, ou du 4:2:0 planaire 10 bits pour un flux 10 bits.
+        enum AVPixelFormat swf = d->ctx->sw_pix_fmt == AV_PIX_FMT_YUV420P10LE ? AV_PIX_FMT_YUV420P10LE : AV_PIX_FMT_NV12;
+        if (hwf->format == AV_PIX_FMT_VAAPI && hwf->hw_frames_ctx) swf = ((AVHWFramesContext *)hwf->hw_frames_ctx->data)->sw_format;
+        d->sw->format = swf;
+        int r = av_hwframe_transfer_data(d->sw, hwf, 0);
+        if (r < 0 && hwf->format == AV_PIX_FMT_DRM_PRIME && swf == AV_PIX_FMT_NV12) {
+            // Le FFmpeg du Pi préfère parfois le 4:2:0 planaire.
+            av_frame_unref(d->sw);
+            d->sw->format = AV_PIX_FMT_YUV420P;
+            r = av_hwframe_transfer_data(d->sw, hwf, 0);
+        }
+        if (r < 0) { av_frame_unref(hwf); return r; }
+        d->sw->pts = hwf->pts;
+        // La couleur et les métadonnées HDR10 suivent l'image recopiée.
+        av_frame_copy_props(d->sw, hwf);
+        av_frame_unref(hwf);
+        av_frame_move_ref(d->out, d->sw);
+    }
     AVFrame *f = d->out;
     memset(out, 0, sizeof *out);
     out->width = f->width;
@@ -412,8 +487,6 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
     return 1;
 }
 
-void kn_decoder_flush(kn_decoder *d) { avcodec_flush_buffers(d->ctx); }
-
 void kn_decoder_close(kn_decoder *d) {
     if (!d) return;
     av_packet_free(&d->pkt);
@@ -450,8 +523,8 @@ static int has_vld(VADisplay dpy, VAProfile p) {
 }
 
 // Ce que décode VA-API (premier nœud de rendu qui s'initialise) : bit 0 H.264,
-// bit 1 HEVC, bit 2 AV1 (8 et 10 bits : profil 0), bit 3 HEVC 4:4:4, bit 4
-// HEVC Main 10. `vendor` : le pilote (« Mesa Gallium
+// bit 1 HEVC, bit 2 AV1 (8 et 10 bits : profil 0), bit 3 HEVC 4:4:4 (le HEVC Main 10
+// n'a pas de bit : personne ne le lisait, LINAPP-47). `vendor` : le pilote (« Mesa Gallium
 // driver … for AMD Custom GPU 0405 »). -1 : pas de VA-API (pas de nœud de
 // rendu, pas de pilote).
 int kn_vaapi_probe(char *vendor, int len) {
@@ -478,7 +551,6 @@ int kn_vaapi_probe(char *vendor, int len) {
                     if (p == VAProfileHEVCMain) mask |= 2;
                     if (p == VAProfileAV1Profile0) mask |= 4;
                     if (p == VAProfileHEVCMain444) mask |= 8;
-                    if (p == VAProfileHEVCMain10) mask |= 16;
                 }
             }
         }

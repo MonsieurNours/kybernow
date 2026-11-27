@@ -2388,6 +2388,21 @@ impl SessionUi {
         self.guest.as_ref().is_none_or(|g| g.role.kbm())
     }
 
+    /// L'interface a la main : un menu, un panneau ou un menu déroulant de la barre est ouvert par-dessus
+    /// l'image. Clavier, manette et souris vont alors à l'interface (navigation, Échap), jamais à
+    /// l'ordinateur ; la souris des jeux est rendue et le mode immersif rend le clavier au système
+    /// (docs/link-ui.md). La seule règle de l'app : `device/mod.rs` ne teste rien d'autre.
+    pub fn ui_owns_input(&self) -> bool {
+        self.panel_open() || self.bar_menu.is_some()
+    }
+
+    /// Le menu de session, le clavier de « Touches » ou un panneau (Partager, Prêter, Écran) : l'image est
+    /// couverte. Un menu déroulant de la barre n'en est pas un : la souris garde le chemin de l'image, qui tient
+    /// la barre ouverte et referme le menu au clic à côté (rien ne part alors à l'ordinateur).
+    pub fn panel_open(&self) -> bool {
+        self.menu || self.keys || self.share_panel || self.lend_panel || self.watch_panel
+    }
+
     /// Un panneau du partage est montré par-dessus l'image.
     pub fn share_overlay(&self) -> bool {
         self.share_panel || self.bar_menu == Some(BarMenu::Share)
@@ -2816,6 +2831,8 @@ pub struct OsInfo {
     pub ab: bool,
     /// Un essai est en cours (version qui attend d'être inscrite).
     pub pending: String,
+    /// Une mise à jour essayée qui n'a pas démarré (version), l'appareil est revenu à la sienne.
+    pub failed: String,
     pub tryboot: bool,
     pub ssh: bool,
     pub built: String,
@@ -2930,6 +2947,10 @@ pub enum Target {
     /// KyberNow Share, hôte : « Partager » dans la barre ; le panneau (copier le lien, les deux droits d'un
     /// invité : manettes, clavier et souris, retirer ; nouveau code, arrêter, fermer).
     BarShare,
+    /// Les pastilles « n invités » et « n demandes » à côté de « Partager » : chacune son arrêt au clavier (un
+    /// seul anneau à la fois), la même action que « Partager ».
+    BarSharePill,
+    BarShareRequests,
     ShareCopy,
     SharePads(usize),
     ShareKbm(usize),
@@ -3217,6 +3238,22 @@ pub enum UpdateState {
     Failed(String),
 }
 
+/// La rubrique des réglages du bureau, telle que dessinée : elle défile entre `top` (sous la barre de titre) et
+/// `bottom`, à droite de `left` (la colonne des rubriques ne défile pas) ; `max` : le défilement au plus.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SettingsView {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub max: f32,
+}
+
+impl Default for SettingsView {
+    fn default() -> Self {
+        Self { top: 0.0, bottom: f32::MAX, left: f32::MAX, max: f32::MAX }
+    }
+}
+
 pub struct App {
     pub store: Store,
     pub layout: Layout,
@@ -3250,6 +3287,8 @@ pub struct App {
     pub settings_global: bool,
     /// Défilement des réglages (bureau), en points.
     pub scroll: f32,
+    /// Ce que le dernier dessin des réglages (bureau) a mesuré : la zone visible et le défilement possible.
+    pub settings_view: std::cell::Cell<SettingsView>,
     pub pad_selected: usize,
     /// Les sessions en cours, dans l'ordre d'ouverture (une seule sur le Steam Deck, au salon
     /// et sur KyberNow Link OS : `multi_sessions`), et celle de la fenêtre au premier plan.
@@ -3415,6 +3454,7 @@ impl App {
     }
 
     /// Les captures d'écran et les essais : cette session seule, et active (ou aucune).
+    #[cfg(any(test, not(feature = "device")))]
     pub fn set_session(&mut self, ui: Option<SessionUi>) {
         self.sessions.clear();
         self.history.clear();
@@ -3507,6 +3547,7 @@ impl App {
             section: 0,
             settings_global: false,
             scroll: 0.0,
+            settings_view: std::cell::Cell::new(SettingsView::default()),
             pad_selected: 0,
             sessions: Vec::new(),
             active: None,
@@ -3569,7 +3610,9 @@ impl App {
             self.pending_link = None;
             return vec![Action::AccountCallback(url)];
         }
-        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account | Screen::Welcome);
+        // Le test Auto, « Hors de chez vous ? » et l'avis de mise à jour des Stations prennent la navigation : le lien
+        // attend qu'ils soient fermés (sinon il s'ouvre sous eux et la saisie part dans le vide, LINAPP-22).
+        let ready = self.sessions.is_empty() && !self.setup.active && self.confirm.is_none() && self.autotest.is_none() && self.welcome.away.is_none() && self.station_notice.is_none() && matches!(self.screen, Screen::Home | Screen::Add | Screen::Join | Screen::Settings | Screen::Gamepads | Screen::Account | Screen::Welcome);
         if !ready {
             return Vec::new();
         }
@@ -3693,6 +3736,7 @@ impl App {
     }
 
     /// Ouvre une rubrique des réglages de l'ordinateur choisi.
+    #[cfg(any(test, not(feature = "device")))]
     pub fn open_host_section(&mut self, section: Section, from: Screen) {
         self.open_settings(false, from);
         if let Some(i) = HOST_SECTIONS.iter().position(|s| *s == section) {
@@ -3815,8 +3859,18 @@ impl App {
         if s == Setting::OsAutoUpdate {
             return true;
         }
-        let secs: &[Section] = if self.screen == Screen::Device { &OS_SECTIONS } else { self.sections() };
-        secs.iter().flat_map(|sec| self.rows(*sec)).any(|r| r.setting == s && matches!(r.kind, RowKind::Choice { .. } | RowKind::Toggle(_)))
+        self.sections_open_first().into_iter().flat_map(|sec| self.rows(sec)).any(|r| r.setting == s && matches!(r.kind, RowKind::Choice { .. } | RowKind::Toggle(_)))
+    }
+
+    /// Les rubriques où chercher un réglage, celle qui est ouverte d'abord : un ‹ › n'y reconstruit d'habitude que
+    /// ses lignes (la recherche s'arrête au premier trouvé), plus celles de toutes les rubriques (LINAPP-36).
+    fn sections_open_first(&self) -> Vec<Section> {
+        let (secs, open): (&[Section], Section) = if self.screen == Screen::Device {
+            (&OS_SECTIONS, OS_SECTIONS[self.device_section.min(OS_SECTIONS.len() - 1)])
+        } else {
+            (self.sections(), self.current_section())
+        };
+        std::iter::once(open).chain(secs.iter().copied().filter(|s| *s != open)).collect()
     }
 
     /// Choisit un profil pour un ordinateur : ce qui s'en écartait (format,
@@ -4087,7 +4141,7 @@ impl App {
         if self.layout == Layout::Desktop {
             self.keyboard_focus = false;
         }
-        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y))
+        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y) && !self.under_settings_title(r))
             && self.focus != *t
         {
             self.focus = *t;
@@ -4098,7 +4152,7 @@ impl App {
 
     /// Clic : choisit ce qui est dessous.
     pub fn pointer_click(&mut self, x: f32, y: f32) -> Vec<Action> {
-        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y)).copied() {
+        if let Some((t, _)) = self.hits.iter().rev().find(|(_, r)| r.contains(x, y) && !self.under_settings_title(r)).copied() {
             self.focus = t;
             return self.activate(t);
         }
@@ -4109,15 +4163,45 @@ impl App {
         Vec::new()
     }
 
-    /// Molette (réglages du bureau).
+    /// Molette (réglages du bureau) : entre le haut de la rubrique et sa fin.
     pub fn wheel(&mut self, dy: f32) {
         if self.screen == Screen::Settings {
-            self.scroll = (self.scroll - dy * 48.0).max(0.0);
+            self.scroll = (self.scroll - dy * 48.0).min(self.settings_view.get().max).max(0.0);
         }
+    }
+
+    /// Une ligne de la rubrique passée sous la barre de titre (réglages du bureau) : ni survolée ni cliquée, le
+    /// clic va à la barre de titre (déplacer la fenêtre), pas à un réglage qu'on ne voit pas.
+    fn under_settings_title(&self, r: &Rect) -> bool {
+        let v = self.settings_view.get();
+        self.screen == Screen::Settings && self.layout == Layout::Desktop && r.x >= v.left && r.y < v.top
+    }
+
+    /// Au clavier, la rubrique défile jusqu'à l'élément qui a le focus (réglages du bureau).
+    fn scroll_to_focus(&mut self) {
+        if self.screen != Screen::Settings || self.layout != Layout::Desktop {
+            return;
+        }
+        let v = self.settings_view.get();
+        let Some(r) = self.hits.iter().find(|(t, _)| *t == self.focus).map(|(_, r)| *r).filter(|r| r.x >= v.left) else { return };
+        let margin = 16.0;
+        let mut s = self.scroll;
+        if r.y < v.top + margin {
+            s -= v.top + margin - r.y;
+        } else if r.y + r.h > v.bottom - margin {
+            s += r.y + r.h - (v.bottom - margin);
+        }
+        self.scroll = s.min(v.max).max(0.0);
     }
 
     /// Une touche de navigation.
     pub fn nav(&mut self, n: Nav) -> Vec<Action> {
+        let actions = self.nav_inner(n);
+        self.scroll_to_focus();
+        actions
+    }
+
+    fn nav_inner(&mut self, n: Nav) -> Vec<Action> {
         self.keyboard_focus = true;
         if self.screen == Screen::Launch {
             if matches!(n, Nav::Ok | Nav::Back) {
@@ -4553,6 +4637,11 @@ impl App {
                     }
                     return Vec::new();
                 }
+                // Un menu déroulant de la barre (Profil, Ordinateurs, Caméra, Touches…) se referme seul, la barre reste.
+                if s.bar_menu.is_some() {
+                    s.bar_menu = None;
+                    return Vec::new();
+                }
                 s.menu = !s.menu;
                 if s.menu {
                     self.focus = Target::Menu(MenuItem::Resume);
@@ -4858,7 +4947,7 @@ impl App {
                 }
                 Vec::new()
             }
-            Target::BarShare => self.share_button(false),
+            Target::BarShare | Target::BarSharePill | Target::BarShareRequests => self.share_button(false),
             // « Copier le lien » copie l'adresse du client web (`web`) ; le QR code porte le lien des apps.
             // Le lien du relais se prépare : rien à copier encore (le bouton est inactif).
             Target::ShareCopy => match self.session().and_then(|s| s.share.as_ref().filter(|v| !v.relay_preparing()).map(|v| (s.id, v.web.clone()))) {
@@ -7059,8 +7148,7 @@ impl App {
 
     /// Change un réglage (gauche / droite, ou OK pour la valeur suivante).
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
-        let secs: &[Section] = if self.screen == Screen::Device { &OS_SECTIONS } else { self.sections() };
-        let row = secs.iter().flat_map(|sec| self.rows(*sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
+        let row = self.sections_open_first().into_iter().flat_map(|sec| self.rows(sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
         if let Some(row) = row
             && let RowKind::Choice { options, current, disabled, .. } = &row.kind
         {
@@ -7152,6 +7240,10 @@ impl App {
                 return vec![Action::Os(OsAction::Standby(true))];
             }
             Setting::OsUpdateApply => {
+                // Une seule écriture à la fois (un double appui ne lance pas deux « apply »).
+                if self.os_update.applying {
+                    return Vec::new();
+                }
                 if self.os_update.ready.is_some() {
                     self.os_update.applying = true;
                     return vec![Action::Os(OsAction::UpdateApply)];
@@ -7168,7 +7260,13 @@ impl App {
                 self.toast(tr("La mise à jour attend ici : rien ne s'installe sans vous", "The update waits here: nothing installs without you"));
                 return Vec::new();
             }
-            Setting::OsRollback => return vec![Action::Os(OsAction::Rollback)],
+            Setting::OsRollback => {
+                if self.os_update.applying {
+                    return Vec::new();
+                }
+                self.os_update.applying = true;
+                return vec![Action::Os(OsAction::Rollback)];
+            }
             Setting::OsWifi => {
                 self.open_setup_step(SetupStep::Network);
                 self.setup.wifi_scanning = true;
@@ -7770,9 +7868,27 @@ fn cycle(i: usize, n: usize, dir: i32) -> usize {
 
 /// `192.168.1.20:24811` → adresse et port.
 pub fn parse_address(s: &str) -> Option<(String, u16)> {
-    let (a, p) = s.rsplit_once(':')?;
+    let s = s.trim();
+    // IPv6 : entre crochets, le port après (« [fe80::1]:24811 »). Sans crochets, une adresse IPv6 n'a pas de port
+    // lisible : « fe80::1 » n'est pas l'hôte « fe80: » sur le port 1 (audit TRANS-35).
+    let (a, p) = match s.strip_prefix('[') {
+        Some(rest) => {
+            let (a, tail) = rest.split_once(']')?;
+            if !a.contains(':') {
+                return None;
+            }
+            (a, tail.strip_prefix(':')?)
+        }
+        None => {
+            let (a, p) = s.rsplit_once(':')?;
+            if a.contains(':') || a.contains(['[', ']']) {
+                return None;
+            }
+            (a, p)
+        }
+    };
     let port: u16 = p.parse().ok()?;
-    let a = a.trim().trim_start_matches('[').trim_end_matches(']');
+    let a = a.trim();
     if a.is_empty() || port == 0 {
         return None;
     }
@@ -7788,6 +7904,15 @@ mod tests {
         assert_eq!(parse_address("192.168.1.20:24811"), Some(("192.168.1.20".into(), 24811)));
         assert_eq!(parse_address("192.168.1.20"), None);
         assert_eq!(parse_address(":24811"), None);
+        // IPv6 (TRANS-35) : entre crochets avec le port ; nue, refusée plutôt que lue « fe80: » port 1.
+        assert_eq!(parse_address("[fe80::1]:24811"), Some(("fe80::1".into(), 24811)));
+        assert_eq!(parse_address(" [2001:db8::5]:443 "), Some(("2001:db8::5".into(), 443)));
+        assert_eq!(parse_address("fe80::1"), None);
+        assert_eq!(parse_address("fe80::1:24811"), None);
+        assert_eq!(parse_address("[fe80::1]"), None);
+        assert_eq!(parse_address("[]:24811"), None);
+        assert_eq!(parse_address("[192.168.1.20]:24811"), None);
+        assert_eq!(parse_address("pc.local:24811"), Some(("pc.local".into(), 24811)));
     }
 
     #[test]
@@ -8643,6 +8768,38 @@ mod tests {
         id
     }
 
+    /// « L'interface a la main » (LINAPP-04 à 06) : chaque panneau ouvert depuis le menu (Prêter, Écran,
+    /// Partager), le clavier de « Touches » et chaque menu déroulant de la barre gardent l'entrée ; Échap
+    /// (`session_back`) referme un menu déroulant sans ouvrir le menu de session.
+    #[test]
+    fn ui_owns_input_while_a_panel_is_open() {
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        assert!(!app.session_by(a).unwrap().ui_owns_input(), "à l'image : l'ordinateur a la main");
+        app.session_back();
+        assert!(app.session_by(a).unwrap().menu && app.session_by(a).unwrap().ui_owns_input(), "menu de session");
+        for set in [
+            (|s: &mut SessionUi| s.lend_panel = true) as fn(&mut SessionUi),
+            |s| s.watch_panel = true,
+            |s| s.share_panel = true,
+            |s| s.keys = true,
+            |s| s.bar_menu = Some(BarMenu::Camera),
+        ] {
+            let s = app.session_by_mut(a).unwrap();
+            s.menu = false;
+            set(s);
+            assert!(s.ui_owns_input(), "panneau ouvert depuis le menu, menu refermé");
+            *s = { let mut n = SessionUi::new(a, "a", "A", Profile::Bureau, false, false, 1); n.phase = Phase::Streaming; n };
+        }
+        let s = app.session_by_mut(a).unwrap();
+        s.bar = true;
+        s.bar_menu = Some(BarMenu::Camera);
+        app.session_back();
+        let s = app.session_by(a).unwrap();
+        assert!(s.bar_menu.is_none() && !s.menu && s.bar, "Échap referme le menu déroulant, pas plus");
+        assert!(!s.ui_owns_input());
+    }
+
     /// La caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») : rien tant que l'ordinateur ne la
     /// propose pas ; puis le menu l'allume (sur la webcam choisie), une autre webcam se prend sans éteindre,
     /// l'ordinateur dit quand elle part (voyant), un refus l'éteint avec son avis, et la proposition retirée
@@ -9036,6 +9193,44 @@ mod tests {
         app.activate(Target::JoinCard);
         assert_eq!(app.join.quality, ShareQuality::P2160_60, "retenu pour la fois suivante");
         assert_eq!(ShareQuality::parse("2160p60"), ShareQuality::P2160_60);
+    }
+
+    /// LINAPP-21 : les réglages du bureau défilent jusqu'à leur fin, pas plus ; au clavier, le focus ne sort pas
+    /// de l'écran ; une ligne passée sous la barre de titre ne se clique pas.
+    #[test]
+    fn settings_scroll_is_bounded_and_follows_focus() {
+        crate::i18n::force_english(false);
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.open_settings(true, Screen::Home);
+        let mut cv = crate::ui::canvas::Canvas::new();
+        cv.resize(960, 400, 1.0);
+        app.hits = crate::ui::draw(&app, &mut cv);
+        let max = app.settings_view.get().max;
+        assert!(max > 0.0 && max < 10_000.0, "une rubrique plus haute que la fenêtre ({max})");
+        for _ in 0..200 {
+            app.wheel(-1.0);
+        }
+        assert_eq!(app.scroll, max, "la molette s'arrête à la fin");
+        app.hits = crate::ui::draw(&app, &mut cv);
+        let v = app.settings_view.get();
+        // Une ligne sous la barre de titre : ni survol ni clic.
+        if let Some((_, r)) = app.hits.iter().find(|(t, r)| matches!(t, Target::Setting(_)) && r.x >= v.left && r.y + r.h < v.top) {
+            let (x, y) = (r.x + 4.0, r.y + 2.0);
+            assert!(app.pointer_click(x, y).is_empty());
+        }
+        // Au clavier, de haut en bas : le focus reste dans la zone visible.
+        app.scroll = 0.0;
+        app.hits = crate::ui::draw(&app, &mut cv);
+        app.focus = app.hits.iter().find(|(t, r)| matches!(t, Target::Setting(_)) && r.x >= v.left).map(|(t, _)| *t).unwrap();
+        for _ in 0..30 {
+            app.nav(Nav::Down);
+            app.hits = crate::ui::draw(&app, &mut cv);
+            let v = app.settings_view.get();
+            if let Some((_, r)) = app.hits.iter().find(|(t, _)| *t == app.focus).filter(|(_, r)| r.x >= v.left) {
+                assert!(r.y >= v.top - 0.5 && r.y + r.h <= v.bottom + 0.5, "{:?} visible ({} à {}, vue {} à {})", app.focus, r.y, r.y + r.h, v.top, v.bottom);
+            }
+        }
+        assert!(app.scroll > 0.0, "la rubrique a défilé jusqu'au focus");
     }
 
     /// Au pavé, les flèches vont du prénom aux cinq choix de « Qualité de l'image », puis à « Rejoindre » : rien n'est
@@ -10001,12 +10196,19 @@ mod tests {
         let mut s = SessionUi::borrower(id, "lend:m", BorrowSessionUi::new("Matthieu", "PC-SALON", None, BorrowSource::Code { attempt: 1 }));
         s.phase = Phase::Streaming;
         app.open_session(s);
-        assert!(app.open_link(LinkUi::Invite(inv)).is_empty());
+        assert!(app.open_link(LinkUi::Invite(inv.clone())).is_empty());
         assert!(app.pending_link.is_some() && app.screen == Screen::Session);
         app.close_session(id);
         app.go(Screen::Home);
         assert_eq!(app.poll_link(), vec![Action::TextInput]);
         assert!(app.pending_link.is_none() && app.friend.invite.is_some());
+        // « Hors de chez vous ? » ouvert : le lien attend sa fermeture (LINAPP-22).
+        app.go(Screen::Home);
+        app.welcome.away = Some(crate::welcome::AwayHint { host: "a".into(), name: "A".into(), then: Target::Connect });
+        assert!(app.open_link(LinkUi::Invite(inv.clone())).is_empty());
+        assert!(app.poll_link().is_empty() && app.pending_link.is_some());
+        app.welcome.away = None;
+        assert_eq!(app.poll_link(), vec![Action::TextInput]);
         // Illisible.
         app.go(Screen::Home);
         app.open_link(LinkUi::BadInvite);

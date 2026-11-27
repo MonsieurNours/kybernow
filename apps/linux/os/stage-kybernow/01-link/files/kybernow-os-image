@@ -1,0 +1,188 @@
+#!/usr/bin/python3 -I
+# Outils de kybernow-os-update (root), à part du shell : ce qui demande des
+# octets exacts ou du JSON.
+#
+#   kybernow-os-image manifest MANIFEST FICHIER
+#       → « version canal sha256 taille » du FICHIER dans le manifeste signé
+#         (la signature, elle, est vérifiée par minisign avant)
+#   kybernow-os-image newer A B
+#       → sort en 0 si la version A est plus récente que B
+#   kybernow-os-image write IMG.xz BOOT ROOT BOOT_MAX ROOT_MAX
+#       → lit l'image compressée une seule fois : l'empreinte SHA-256 et la
+#         taille du fichier tel qu'il est lu, et, dans le même passage, les
+#         partitions 1 et 2 de l'image décompressée écrites dans BOOT et ROOT
+#         (périphériques ou fichiers), sans dépasser BOOT_MAX et ROOT_MAX
+#         octets ; rend « sha256 taille » sur la sortie.
+#
+# Lire l'image une seule fois ferme la porte à un fichier changé entre la
+# vérification et l'écriture : ce qui est écrit est exactement ce qui est
+# haché. L'appelant compare l'empreinte au manifeste et ne propose
+# l'emplacement qu'après.
+import hashlib
+import json
+import lzma
+import os
+import re
+import stat
+import sys
+
+CHUNK = 4 << 20
+SECTOR = 512
+VERSION = re.compile(r"^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$")
+
+
+def fail(msg, code=4):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def manifest(path, name):
+    with open(path, "rb") as f:
+        m = json.loads(f.read(256 << 10))
+    version = str(m.get("version", ""))
+    channel = str(m.get("channel", ""))
+    if not VERSION.match(version) or channel not in ("stable", "beta"):
+        fail("manifeste invalide")
+    entry = (m.get("files") or {}).get(name)
+    if not isinstance(entry, dict):
+        fail(f"{name} absent du manifeste")
+    sha = str(entry.get("sha256", "")).lower()
+    size = entry.get("size")
+    if not re.match(r"^[0-9a-f]{64}$", sha) or not isinstance(size, int) or size <= 0:
+        fail("entrée du manifeste invalide")
+    print(version, channel, sha, size)
+
+
+def parse(v):
+    out = []
+    for p in v.lstrip("v").replace("-", ".").split("."):
+        if not p.isdigit():
+            break
+        out.append(int(p))
+    return out
+
+
+def newer(a, b):
+    sys.exit(0 if parse(a) > parse(b) else 1)
+
+
+def mbr(head):
+    if len(head) < SECTOR or head[510:512] != b"\x55\xaa":
+        fail("table de partitions de l'image illisible")
+    parts = []
+    for i in range(2):
+        e = head[446 + 16 * i: 446 + 16 * (i + 1)]
+        start = int.from_bytes(e[8:12], "little")
+        count = int.from_bytes(e[12:16], "little")
+        if start == 0 or count == 0:
+            fail("table de partitions de l'image illisible")
+        parts.append((start * SECTOR, count * SECTOR))
+    (s1, n1), (s2, n2) = parts
+    if s1 < SECTOR or s2 < s1 + n1:
+        fail("partitions de l'image dans un ordre inattendu")
+    return parts
+
+
+class Out:
+    """Une partition de destination : périphérique ou fichier (creux, alors)."""
+
+    def __init__(self, path, start, size, limit):
+        if size > limit:
+            fail(f"l'image ne tient pas dans {path} ({size // SECTOR}/{limit // SECTOR} secteurs)", 6)
+        self.start, self.end = start, start + size
+        self.fd = os.open(path, os.O_WRONLY)
+        self.regular = stat.S_ISREG(os.fstat(self.fd).st_mode)
+        if self.regular:
+            os.ftruncate(self.fd, size)
+        self.done = 0
+
+    def feed(self, pos, data):
+        a, b = max(pos, self.start), min(pos + len(data), self.end)
+        if a >= b:
+            return
+        piece = memoryview(data)[a - pos: b - pos]
+        off = a - self.start
+        if self.regular and not any(piece):
+            self.done += len(piece)
+            return
+        os.lseek(self.fd, off, os.SEEK_SET)
+        while piece:
+            n = os.write(self.fd, piece)
+            piece = piece[n:]
+            off += n
+        self.done = max(self.done, b - self.start)
+
+    def close(self):
+        os.fsync(self.fd)
+        os.close(self.fd)
+        if self.done != self.end - self.start:
+            fail("image tronquée : partition incomplète")
+
+
+def write(img, boot, root, boot_max, root_max):
+    h = hashlib.sha256()
+    size = 0
+    dec = lzma.LZMADecompressor(format=lzma.FORMAT_XZ)
+    pos = 0
+    head = b""
+    outs = None
+    def take(plain):
+        nonlocal pos, head, outs
+        if outs is None:
+            head += plain
+            if len(head) < SECTOR:
+                return
+            (s1, n1), (s2, n2) = mbr(head)
+            outs = [Out(boot, s1, n1, boot_max), Out(root, s2, n2, root_max)]
+            plain, head = head, b""
+        for o in outs:
+            o.feed(pos, plain)
+        pos += len(plain)
+
+    with open(img, "rb", buffering=0) as f:
+        while not dec.eof:
+            chunk = f.read(CHUNK)
+            if not chunk:
+                break
+            h.update(chunk)
+            size += len(chunk)
+            data = chunk
+            while not dec.eof:
+                plain = dec.decompress(data, CHUNK)
+                data = b""
+                if plain:
+                    take(plain)
+                if dec.needs_input:
+                    break
+        # Le reste du fichier compte dans l'empreinte (rien ne doit suivre le flux xz).
+        while True:
+            chunk = f.read(CHUNK)
+            if not chunk:
+                break
+            h.update(chunk)
+            size += len(chunk)
+    if not dec.eof:
+        fail("image .xz tronquée")
+    if outs is None:
+        fail("image vide")
+    for o in outs:
+        o.close()
+    print(h.hexdigest(), size)
+
+
+def main(argv):
+    if len(argv) == 3 and argv[0] == "manifest":
+        manifest(argv[1], argv[2])
+    elif len(argv) == 3 and argv[0] == "newer":
+        newer(argv[1], argv[2])
+    elif len(argv) == 6 and argv[0] == "write":
+        write(argv[1], argv[2], argv[3], int(argv[4]), int(argv[5]))
+    else:
+        fail("usage : kybernow-os-image manifest MANIFEST FICHIER | newer A B | write IMG BOOT ROOT BOOT_MAX ROOT_MAX", 2)
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except (OSError, ValueError, lzma.LZMAError) as e:
+        fail(str(e))

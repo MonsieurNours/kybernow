@@ -5,6 +5,9 @@ Description=KyberNow Link (plein écran sur KMS/DRM)
 After=systemd-user-sessions.service network.target bluetooth.service sound.target kybernow-os-firstboot.service
 Wants=bluetooth.service kybernow-os-firstboot.service
 Conflicts=getty@tty1.service
+# Une app qui plante en boucle est relancée sans fin (pas de limite de
+# systemd) ; pendant un essai A/B, kybernow-os-trial.timer y met un terme.
+StartLimitIntervalSec=0
 
 [Service]
 User=kybernow
@@ -21,6 +24,8 @@ Environment=KYBERNOW_OS=1
 # lâche l'écran (il en est le maître DRM tant qu'il tourne : sans ça, SDL dit
 # « kmsdrm not available »). En root (+) : le client plymouth et pkill ne
 # peuvent rien sur plymouthd depuis le compte kybernow.
+# Les dossiers de la partition de données (root, puis ceux du compte de l'app).
+ExecStartPre=+-/usr/local/sbin/kybernow-os-update prepare
 ExecStartPre=+-/bin/sh -c '/usr/bin/plymouth quit --retain-splash || /usr/bin/pkill -x plymouthd || true'
 ExecStart=/usr/bin/kybernow
 Restart=always

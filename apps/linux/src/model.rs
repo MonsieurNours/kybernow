@@ -524,14 +524,14 @@ impl Default for PsSettings {
     }
 }
 
-#[allow(dead_code)]
 impl PsSettings {
     /// « Personnalisé » : définition, images par seconde, débit ou format s'écartent d'Auto (`PlaySettings::is_custom`).
     pub fn custom(&self) -> bool {
         self.resolution != "auto" || self.fps != 60 || self.bitrate_kbps.is_some() || self.codec != "auto"
     }
 
-    /// La hauteur de la définition (Auto : 1080).
+    /// La hauteur de la définition (Auto : 1080). (Essais : le cœur en décide en session, `PlaySettings`.)
+    #[cfg(test)]
     pub fn height(&self) -> u32 {
         match self.resolution.as_str() {
             "p720" => 720,
@@ -542,6 +542,7 @@ impl PsSettings {
     }
 
     /// Le débit effectif, kbit/s (Auto : préréglages de chiaki-ng, `Resolution::auto_bitrate`).
+    #[cfg(test)]
     pub fn bitrate(&self) -> u32 {
         self.bitrate_kbps.map(|b| b.clamp(2_000, 100_000)).unwrap_or(match self.height() {
             720 => 10_000,
@@ -743,6 +744,9 @@ pub struct Store {
     pub app: AppSettings,
     #[serde(skip)]
     path: Option<PathBuf>,
+    /// Le fichier trouvé illisible au lancement, mis de côté (`kybernow.json.illisible-<date>`) : l'app le dit.
+    #[serde(skip)]
+    pub set_aside: Option<PathBuf>,
 }
 
 /// Ce que l'app garde d'un ordinateur pour la mise à jour de sa Station : le même JSON que `station_offer::Memory` du
@@ -779,13 +783,49 @@ impl Store {
     }
 
     pub fn load() -> Self {
-        let path = Self::dir().join("kybernow.json");
-        let mut s: Store = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        Self::load_from(Self::dir().join("kybernow.json"), now_secs())
+    }
+
+    /// Lit `path`. Un fichier illisible (JSON abîmé, coupure pendant une écriture d'une version d'avant, disque
+    /// plein) n'est jamais réécrit vide : il est mis de côté sous `kybernow.json.illisible-<date>` et l'app le dit
+    /// (`set_aside`) ; s'il ne peut pas être déplacé, rien n'est écrit pendant cette session (audit, comme WEBOS-01).
+    pub fn load_from(path: PathBuf, now: u64) -> Self {
+        let mut aside = None;
+        let mut writable = true;
+        let mut s: Store = match std::fs::read(&path) {
+            Ok(b) => match serde_json::from_slice(&b) {
+                Ok(s) => s,
+                Err(e) => {
+                    let to = path.with_file_name(format!("{}.illisible-{}", path.file_name().and_then(|n| n.to_str()).unwrap_or("kybernow.json"), utc_stamp(now)));
+                    match std::fs::rename(&path, &to) {
+                        Ok(()) => {
+                            log::error!("{} illisible ({e}) : mis de côté sous {}", path.display(), to.display());
+                            aside = Some(to);
+                        }
+                        Err(r) => {
+                            log::error!("{} illisible ({e}) et impossible à mettre de côté ({r}) : rien ne sera écrit", path.display());
+                            writable = false;
+                        }
+                    }
+                    Store::default()
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Store::default(),
+            Err(e) => {
+                // Présent mais pas lisible (droits) : le réécrire effacerait ce qu'il contient.
+                log::error!("{} : {e} ; rien ne sera écrit", path.display());
+                writable = false;
+                Store::default()
+            }
+        };
         if s.device_id.is_empty() {
             s.device_id = new_id();
         }
-        s.path = Some(path);
-        s.save();
+        s.set_aside = aside;
+        if writable {
+            s.path = Some(path);
+            s.save();
+        }
         s
     }
 
@@ -1118,4 +1158,65 @@ pub fn pair_code() -> String {
 
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// « 20261127-091500 » (UTC), pour nommer un fichier mis de côté.
+fn utc_stamp(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    // Jours depuis 1970 → date civile (algorithme de Howard Hinnant).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}{m:02}{d:02}-{:02}{:02}{:02}", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
+#[cfg(test)]
+mod store_file_tests {
+    use super::*;
+
+    fn dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("kybernow-store-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn date_utc() {
+        assert_eq!(utc_stamp(0), "19700101-000000");
+        assert_eq!(utc_stamp(1_795_770_000), "20261127-090000");
+        assert_eq!(utc_stamp(951_782_400), "20000229-000000");
+    }
+
+    /// Un kybernow.json illisible n'est jamais réécrit vide : il est mis de côté, et l'app le sait.
+    #[test]
+    fn unreadable_file_is_set_aside() {
+        let d = dir("illisible");
+        let p = d.join("kybernow.json");
+        std::fs::write(&p, b"{\"hosts\": [ {\"id\": \"a\", tronqu").unwrap();
+        let s = Store::load_from(p.clone(), 0);
+        let aside = s.set_aside.clone().expect("mis de côté");
+        assert_eq!(aside, d.join("kybernow.json.illisible-19700101-000000"));
+        assert_eq!(std::fs::read(&aside).unwrap(), b"{\"hosts\": [ {\"id\": \"a\", tronqu");
+        // Un nouveau fichier, vide mais lisible, à sa place.
+        let again = Store::load_from(p.clone(), 1);
+        assert!(again.set_aside.is_none() && again.device_id == s.device_id);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn missing_file_starts_fresh() {
+        let d = dir("absent");
+        let p = d.join("kybernow.json");
+        let s = Store::load_from(p.clone(), 0);
+        assert!(s.set_aside.is_none() && !s.device_id.is_empty() && p.exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

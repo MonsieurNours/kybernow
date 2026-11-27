@@ -332,9 +332,25 @@ typedef struct {
 static kn_x_device s_xdev[KN_X_DEVICES];
 static int s_nxdev;
 
+// Xlib en plusieurs fils : la connexion du stylet sert au fil X (XPending, XNextEvent) et au fil principal
+// (XISelectEvents, XFlush, à chaque fenêtre ouverte). XInitThreads doit précéder tout appel de Xlib dans le
+// processus : kn_x_init_threads est appelée au lancement, avant SDL_Init, puis ici par sûreté (libX11 1.8 et
+// plus le fait seul ; un appel de plus ne fait rien).
+int kn_x_init_threads(void) {
+    static int done = -1;
+    if (done >= 0) return done;
+    done = 0;
+    void *x11 = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+    if (!x11) return 0;
+    int (*init)(void) = (int (*)(void))dlsym(x11, "XInitThreads");
+    done = init && init() != 0;
+    return done;
+}
+
 static int x_load(void) {
     static int loaded = -1;
     if (loaded >= 0) return loaded;
+    kn_x_init_threads();
     void *x11 = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
     void *xi = dlopen("libXi.so.6", RTLD_NOW | RTLD_LOCAL);
     loaded = 0;
@@ -473,8 +489,11 @@ static void *x_thread(void *arg) {
             } else {
                 XIDeviceEvent *de = cookie->data;
                 kn_x_device *dev = NULL;
-                for (int i = 0; i < s_nxdev; i++)
-                    if (s_xdev[i].id == de->sourceid) dev = &s_xdev[i];
+                // XIAllDevices livre chaque événement deux fois : par l'appareil maître (pointeur virtuel) et par
+                // l'esclave (la tablette). Seul celui de l'esclave compte (deviceid == sourceid).
+                if (de->deviceid == de->sourceid)
+                    for (int i = 0; i < s_nxdev; i++)
+                        if (s_xdev[i].id == de->sourceid) dev = &s_xdev[i];
                 uint32_t win = dev ? window_of_x(p, de->event) : 0;
                 if (dev && win) {
                     if (cur_dev >= 0 && cur_dev != de->sourceid && cur.in_range) {

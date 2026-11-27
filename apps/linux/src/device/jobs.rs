@@ -501,7 +501,9 @@ pub fn remember(a: kybernow_core::update::Available) {
 
 /// KyberNow Link OS : télécharge l'image publiée dans le dossier des mises à
 /// jour (partition de données), vérifiée par le cœur (taille, SHA-256 du
-/// manifeste signé), puis la signale prête.
+/// manifeste signé), avec le manifeste et sa signature : root les vérifie à
+/// nouveau avant d'écrire (`kybernow-os-update apply` ne croit pas l'app).
+/// Puis la signale prête.
 pub fn download_os(tx: Sender<Event>) {
     let Some(a) = AVAILABLE.lock().unwrap().clone() else {
         let _ = tx.send(Event::OsDownloaded(Err(crate::i18n::tr("Aucune version à télécharger", "No version to download").into())));
@@ -523,10 +525,30 @@ pub fn download_os(tx: Sender<Event>) {
                     let _ = tx2.send(Event::OsDownload(done, total));
                 }
             });
-            let _ = tx.send(Event::OsDownloaded(r.map(|_| dest)));
+            let r = r.and_then(|_| os_manifest(&a.url, &dir)).map(|_| dest);
+            let _ = tx.send(Event::OsDownloaded(r));
         })
         .ok();
 }
+
+/// Le manifeste signé de la version et sa signature, publiés à côté de l'image
+/// (même dossier de la release), déposés dans `dir` pour root.
+fn os_manifest(image_url: &str, dir: &std::path::Path) -> Result<(), String> {
+    use std::io::Read;
+    let base = image_url.rsplit_once('/').map(|(b, _)| b).ok_or_else(|| format!("adresse inattendue : {image_url}"))?;
+    for (name, limit) in [(OS_MANIFEST, 256u64 << 10), (OS_SIGNATURE, 16 << 10)] {
+        let url = format!("{base}/{name}");
+        let resp = ureq::get(&url).call().map_err(|e| format!("{name} : {e}"))?;
+        let mut buf = Vec::new();
+        resp.into_reader().take(limit).read_to_end(&mut buf).map_err(|e| format!("{name} : {e}"))?;
+        std::fs::write(dir.join(name), &buf).map_err(|e| format!("{} : {e}", dir.join(name).display()))?;
+    }
+    Ok(())
+}
+
+/// Les noms du manifeste signé d'une version (ceux du cœur et de la Station).
+const OS_MANIFEST: &str = "kybernow-release.json";
+const OS_SIGNATURE: &str = "kybernow-release.json.minisig";
 
 /// La dernière version du canal qui publie le paquet de cette installation,
 /// plus récente que celle-ci et vérifiée par le manifeste signé (le cœur,
