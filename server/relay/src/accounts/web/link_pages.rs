@@ -17,7 +17,7 @@ use super::super::pages::{self, Notice, console};
 use super::super::people::rights_text;
 use super::super::stations::StationRow;
 use super::super::store::Account;
-use super::console::{Kept, form_rights, managed_station, not_found, parse_until, people_page, signed_in};
+use super::console::{Kept, bounded, form_rights, managed_station, not_found, parse_until, people_page, signed_in};
 use super::device_pages::{set_next_for, sign_in_first};
 use super::{Cx, Reply, token_hash};
 
@@ -41,6 +41,10 @@ pub(super) fn create(cx: Cx<'_>) -> Reply {
     }
     let Some(until) = parse_until(&until_text, cx.now) else {
         return people_page(cx, &account, &station, Some(Notice::BadDate), kept(days));
+    };
+    // Qui a reçu Administrer ne donne que ses droits, jusqu'à leur échéance (REL-02).
+    let Some(until) = bounded(&cx, &account, &station, &rights, until) else {
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), kept(days));
     };
     if acc.db().pending_links(&station.id, cx.now).unwrap_or(MAX_PENDING) >= MAX_PENDING {
         return people_page(cx, &account, &station, Some(Notice::TooManyLinks), Kept::default());
@@ -167,7 +171,9 @@ pub(super) fn open(mut cx: Cx<'_>, token: &str, post: bool) -> Reply {
         let page = console::link_accept(&cx.view(), &here, &by, &station.name, &link.rights, link.access_expires_at, needs_2fa);
         return cx.page(200, page);
     }
-    let used = acc.db().use_access_link(link.id, account.id, cx.now);
+    // Le créateur a reçu Administrer : le lien ne donne que ce qu'il a encore, jusqu'à son échéance (REL-02).
+    let Some(end) = bounded(&cx, &creator, &station, &link.rights, link.access_expires_at) else { return refused(cx, &here, Refusal::Revoked) };
+    let used = acc.db().use_access_link(link.id, account.id, end, cx.now);
     match used {
         Ok(true) => {}
         Ok(false) => {

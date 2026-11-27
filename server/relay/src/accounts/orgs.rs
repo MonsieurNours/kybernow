@@ -434,12 +434,28 @@ impl Store {
         Ok(())
     }
 
-    /// Retire un membre (de ses groupes aussi) ; faux s'il n'y était pas.
-    pub fn remove_member(&self, org: i64, account: i64) -> Result<bool> {
+    /// Retire un membre (de ses groupes aussi, et ses droits individuels sur les ordinateurs de
+    /// l'équipe : REL-04) ; faux s'il n'y était pas.
+    ///
+    /// Un simple membre qui avait reçu Administrer sur un ordinateur de l'équipe : ce qu'il y a
+    /// donné part aussi (REL-02). Ce qu'un Propriétaire ou un Administrateur a donné, au nom de
+    /// l'équipe, reste.
+    pub fn remove_member(&self, org: i64, account: i64, now: i64) -> Result<bool> {
+        let delegate = self.org_role(org, account)?.is_some_and(|r| !r.manages());
+        let stations: Vec<String> = {
+            let mut stmt = self.conn.prepare("SELECT station FROM grants WHERE account = ?2 AND station IN (SELECT id FROM stations WHERE org = ?1)")?;
+            stmt.query_map(params![org, account], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM group_members WHERE account = ?2 AND grp IN (SELECT id FROM org_groups WHERE org = ?1)", params![org, account])?;
+        tx.execute("DELETE FROM grants WHERE account = ?2 AND station IN (SELECT id FROM stations WHERE org = ?1)", params![org, account])?;
         let n = tx.execute("DELETE FROM org_members WHERE org = ?1 AND account = ?2", params![org, account])?;
         tx.commit()?;
+        if delegate {
+            for st in stations {
+                self.drop_delegated(&st, account, now)?;
+            }
+        }
         Ok(n == 1)
     }
 
@@ -817,7 +833,7 @@ mod tests {
         assert_eq!(s.granted_rights(b, "st1", 70).unwrap(), Rights::new([Right::Session, Right::Lend]));
         assert_eq!(s.members(org.id).unwrap()[1].groups, vec!["Graphistes".to_string()]);
         // Retiré de l'organisation : plus rien.
-        assert!(s.remove_member(org.id, b).unwrap());
+        assert!(s.remove_member(org.id, b, 0).unwrap());
         assert!(s.granted_rights(b, "st1", 70).unwrap().is_empty());
         assert!(s.groups(org.id).unwrap()[0].members.is_empty());
     }

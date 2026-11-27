@@ -121,6 +121,8 @@ const MIGRATIONS: &[&str] = &[
     // 9 : les réglages synchronisés, par compte et par ordinateur (docs/comptes.md, « Réglages synchronisés et
     // déplacer un ordinateur »), voir `super::settings`.
     super::settings::MIGRATION,
+    // 10 : une échéance par droit donné (audit du 27/11, REL-03), voir `super::people`.
+    super::people::RIGHT_ENDS_MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).

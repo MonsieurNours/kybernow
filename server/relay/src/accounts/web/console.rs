@@ -420,6 +420,15 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
     cx.page(200, page)
 }
 
+/// L'échéance de ce que ce compte donne (REL-02) : `None` s'il donne des droits qu'il n'a pas ;
+/// sinon `until`, ramenée pour un délégué (droit Administrer reçu) à l'échéance de ses propres droits.
+pub(super) fn bounded(cx: &Cx<'_>, account: &Account, station: &StationRow, rights: &Rights, until: Option<i64>) -> Option<Option<i64>> {
+    match cx.acc.delegable(account, station) {
+        None => Some(until),
+        Some(own) => super::super::people::bound_delegation(&own, rights, until),
+    }
+}
+
 /// La Station d'un formulaire de gestion : il faut gérer ses accès.
 pub(super) fn managed_station(cx: &Cx<'_>, account: &Account) -> Option<StationRow> {
     station_of(cx, account, true).filter(|s| cx.acc.can_manage(account, s))
@@ -451,7 +460,11 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     let Some(until) = parse_until(&until_text, cx.now) else {
         return people_page(cx, &account, &station, Some(Notice::BadDate), Kept { form, ..Kept::default() });
     };
-    // Quiconque gère les accès peut donner tous les droits (il les a lui-même) ; pas à soi, ni au propriétaire.
+    // Qui a reçu Administrer ne donne que ses droits, jusqu'à leur échéance (REL-02).
+    let Some(until) = bounded(&cx, &account, &station, &rights, until) else {
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
+    };
+    // Pas à soi, ni au propriétaire.
     if email == account.email {
         return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
@@ -471,6 +484,13 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     if let Err(e) = done {
         tracing::warn!("ajout d'une personne : {e:#}");
         return cx.failed();
+    }
+    // Ses droits changent et Administrer n'y est plus : ce qu'elle a donné part avec (REL-02).
+    if let Some(t) = &target
+        && had_access
+        && !rights.has(kybernow_tunnel::access::Right::Admin)
+    {
+        let _ = acc.db().drop_delegated(&station.id, t.id, cx.now);
     }
     cx.audit(Some(account.id), if had_access { "droits_changes" } else { "personne_ajoutee" });
     let to = target.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| email.clone());
@@ -542,6 +562,11 @@ pub(super) fn open_to(cx: Cx<'_>) -> Reply {
     if rights.is_empty() {
         return people_page(cx, &account, &station, Some(Notice::NoRights), Kept::default());
     }
+    // Un droit d'équipe ou de groupe n'a pas d'échéance : seulement par qui peut donner sans borne,
+    // ou par un délégué dont les droits donnés n'en ont pas non plus (REL-02).
+    if bounded(&cx, &account, &station, &rights, None) != Some(None) {
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept::default());
+    }
     let target = cx.req.form("a").to_string();
     let (org_id, grp) = match target.split_once(':') {
         Some((o, g)) => match g.parse::<i64>() {
@@ -587,6 +612,10 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
     let Some(grant) = grant else { return people_page(cx, &account, &station, None, Kept::default()) };
     if !acc.db().delete_grant(&station.id, id).unwrap_or(false) {
         return people_page(cx, &account, &station, None, Kept::default());
+    }
+    // Ce que cette personne a donné sur l'ordinateur part avec son droit (REL-02).
+    if let Subject::Person { account: gone, .. } = &grant.subject {
+        let _ = acc.db().drop_delegated(&station.id, *gone, cx.now);
     }
     cx.audit(Some(account.id), "acces_retire");
     let to = match &grant.subject {

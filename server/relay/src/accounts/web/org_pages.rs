@@ -334,7 +334,7 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
     }
     let name = acc.db().account(target).ok().flatten().map(|a| a.name).unwrap_or_default();
-    if !acc.db().remove_member(org.id, target).unwrap_or(false) {
+    if !acc.db().remove_member(org.id, target, cx.now).unwrap_or(false) {
         return show(cx, &account, &org, role, Tab::Members, None);
     }
     log(&cx, &org, &account, "membre_retire", json!({ "member": name }));
@@ -349,7 +349,7 @@ pub(super) fn leave(cx: Cx<'_>) -> Reply {
     if role == Role::Owner && acc.db().owners(org.id).unwrap_or(0) <= 1 {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner));
     }
-    if !acc.db().remove_member(org.id, account.id).unwrap_or(false) {
+    if !acc.db().remove_member(org.id, account.id, cx.now).unwrap_or(false) {
         return cx.failed();
     }
     log(&cx, &org, &account, "membre_parti", json!({}));
