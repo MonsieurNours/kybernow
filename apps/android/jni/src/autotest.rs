@@ -180,10 +180,6 @@ mod android {
         Box::into_raw(Box::new(Job { cancel, gone })) as jlong
     }
 
-    fn job<'a>(h: jlong) -> Option<&'a Job> {
-        (h != 0).then(|| unsafe { &*(h as *const Job) })
-    }
-
     /// Rend la poignée : le test s'arrête et ne dit plus rien.
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestFree(_: Env, _: JClass, h: jlong) {
