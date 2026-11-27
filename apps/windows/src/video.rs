@@ -31,12 +31,54 @@ use crate::hdr::ScreenHdr;
 use crate::pyrowave::{self, Config as PyroConfig, Outcome};
 use crate::render::{DrawError, Renderer};
 
+/// Tampons des images, repris d'une image à l'autre : le fil du réseau ne
+/// fait plus une allocation par image (jusqu'à 240 par seconde).
+#[derive(Default)]
+pub struct BufferPool(Mutex<Vec<Vec<u8>>>);
+
+/// Au plus ce nombre de tampons gardés (les autres sont rendus au système).
+const POOL_KEEP: usize = 8;
+
+impl BufferPool {
+    /// Un tampon qui contient `data`.
+    pub fn take(self: &Arc<Self>, data: &[u8]) -> Pooled {
+        let mut v = self.0.locked().pop().unwrap_or_default();
+        v.clear();
+        v.extend_from_slice(data);
+        Pooled { data: v, pool: Arc::downgrade(self) }
+    }
+}
+
+/// Un tampon d'image ; rendu à son `BufferPool` quand il est lâché.
+pub struct Pooled {
+    data: Vec<u8>,
+    pool: Weak<BufferPool>,
+}
+
+impl std::ops::Deref for Pooled {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl Drop for Pooled {
+    fn drop(&mut self) {
+        if let Some(pool) = self.pool.upgrade() {
+            let mut kept = pool.0.locked();
+            if kept.len() < POOL_KEEP {
+                kept.push(std::mem::take(&mut self.data));
+            }
+        }
+    }
+}
+
 pub enum VideoMsg {
     Codec(u32),
     Config(Vec<u8>),
     /// `received` : l'image complète vient d'arriver (µs, [`now_micros`]).
     /// `resume` : image de reprise après une perte (docs/reprise-apres-perte.md).
-    Frame { data: Vec<u8>, pts: u64, key: bool, received: i64, resume: Option<u64> },
+    Frame { data: Pooled, pts: u64, key: bool, received: i64, resume: Option<u64> },
     /// Une image perdue en route (console PlayStation qui ne l'a pas
     /// réparée, ou numéro d'image sauté sur l'image de la Station) : le
     /// décodeur attend une image clé ou une image de reprise au lieu de
@@ -239,6 +281,7 @@ pub struct VideoHandler {
     pending: AtomicUsize,
     /// Arrêt demandé (le message d'arrêt peut être refusé par une file pleine).
     stopped: AtomicBool,
+    pool: Arc<BufferPool>,
 }
 
 impl PacketHandler for VideoHandler {
@@ -247,7 +290,7 @@ impl PacketHandler for VideoHandler {
             Packet::Codec { codec } => VideoMsg::Codec(codec),
             Packet::Media { is_config: true, data, .. } => VideoMsg::Config(data.to_vec()),
             Packet::Media { is_key, pts, data, resume, .. } => VideoMsg::Frame {
-                data: data.to_vec(),
+                data: self.pool.take(data),
                 pts,
                 key: is_key,
                 received: now_micros(),
@@ -386,6 +429,7 @@ pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<SessionGpu>, opts: VideoO
         overflow: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
         stopped: AtomicBool::new(false),
+        pool: Arc::default(),
     });
     let h = handler.clone();
     let thread = std::thread::Builder::new()

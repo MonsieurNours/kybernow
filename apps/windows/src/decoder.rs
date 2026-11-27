@@ -82,6 +82,9 @@ unsafe extern "C" fn get_format_hw(_ctx: *mut AVCodecContext, fmts: *const AVPix
 pub struct Decoder {
     ctx: *mut AVCodecContext,
     pkt: *mut AVPacket,
+    /// Le tampon des paquets, repris d'une image à l'autre (agrandi au
+    /// besoin) ; recopié par FFmpeg seulement s'il en tient encore une référence.
+    buf: *mut AVBufferRef,
     frame: *mut AVFrame,
     pub fourcc: u32,
     pub hardware: bool,
@@ -170,6 +173,7 @@ impl Decoder {
             Ok(Self {
                 ctx,
                 pkt: av_packet_alloc(),
+                buf: ptr::null_mut(),
                 frame: av_frame_alloc(),
                 fourcc,
                 hardware,
@@ -180,11 +184,36 @@ impl Decoder {
 
     pub fn send(&mut self, data: &[u8], pts: u64, key: bool) -> Result<(), i32> {
         unsafe {
-            let r = av_new_packet(self.pkt, data.len() as i32);
-            if r < 0 {
-                return Err(r);
+            // FFmpeg veut 64 octets nuls après les données (AV_INPUT_BUFFER_PADDING_SIZE).
+            const PADDING: usize = 64;
+            let need = data.len() + PADDING;
+            if self.buf.is_null() {
+                self.buf = av_buffer_alloc(need);
+                if self.buf.is_null() {
+                    return Err(-12);
+                }
+            } else {
+                // Encore tenu par le décodeur : une copie neuve, l'ancien reste à lui.
+                let r = av_buffer_make_writable(&mut self.buf);
+                if r < 0 {
+                    return Err(r);
+                }
+                if (*self.buf).size < need {
+                    let r = av_buffer_realloc(&mut self.buf, need);
+                    if r < 0 {
+                        return Err(r);
+                    }
+                }
             }
-            ptr::copy_nonoverlapping(data.as_ptr(), (*self.pkt).data, data.len());
+            let dst = (*self.buf).data;
+            ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+            ptr::write_bytes(dst.add(data.len()), 0, PADDING);
+            (*self.pkt).buf = av_buffer_ref(self.buf);
+            if (*self.pkt).buf.is_null() {
+                return Err(-12);
+            }
+            (*self.pkt).data = dst;
+            (*self.pkt).size = data.len() as i32;
             (*self.pkt).pts = pts as i64;
             if key {
                 (*self.pkt).flags |= AV_PKT_FLAG_KEY as i32;
@@ -221,6 +250,7 @@ impl Drop for Decoder {
         unsafe {
             av_frame_free(&mut self.frame);
             av_packet_free(&mut self.pkt);
+            av_buffer_unref(&mut self.buf);
             avcodec_free_context(&mut self.ctx);
         }
     }

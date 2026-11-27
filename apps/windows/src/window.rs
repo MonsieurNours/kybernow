@@ -2052,23 +2052,28 @@ fn pen_send(app: &App, win: &Arc<ScreenWin>, msg: u32, id: u32) -> bool {
     // Windows regroupe les mouvements entre deux messages : tous partent, du
     // plus ancien au plus récent (le trait suit le stylet, pas la cadence des
     // messages).
-    let mut states = vec![info];
+    // Tableau fixe sur la pile : rien n'est alloué par message du stylet.
+    let mut history = [POINTER_PEN_INFO::default(); 64];
+    history[0] = info;
+    let mut len = 1usize;
     let count = info.pointerInfo.historyCount;
     if msg == WM_POINTERUPDATE && count > 1 {
         let mut n = count.min(64);
-        let mut history = vec![POINTER_PEN_INFO::default(); n as usize];
         if unsafe { GetPointerPenInfoHistory(id, &mut n, Some(history.as_mut_ptr())) }.is_ok() && n > 0 {
-            history.truncate(n as usize);
-            history.reverse();
-            states = history;
+            len = n as usize;
+            history[..len].reverse();
+        } else {
+            history[0] = info;
+            len = 1;
         }
     }
+    let states = &history[..len];
     let leaving = msg == WM_POINTERLEAVE || msg == WM_POINTERCAPTURECHANGED;
     if !win.pen_quiet.swap(true, Ordering::Relaxed) {
         quiet_pen_gestures(win.hwnd());
     }
     let mut sent = true;
-    for state in &states {
+    for state in states {
         let pen = pen_input(state, leaving);
         let (target, client, hx, hy) = host_point(app, win, state.pointerInfo.ptPixelLocation);
         sent = input.pen_on(Some(target.index()), hx, hy, &pen);
