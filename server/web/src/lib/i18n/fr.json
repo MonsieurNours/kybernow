@@ -1303,6 +1303,7 @@
       "login": "Identifiant",
       "password": "Mot de passe",
       "remember": "Retenir le mot de passe",
+      "rememberHelp": "Gardé en clair dans ce navigateur, sur cet appareil seulement. Oublié après 90 jours sans emprunt. Décochez sur un appareil partagé.",
       "waiting": "En attente de {host}…"
     },
     "bar": {

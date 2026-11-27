@@ -1303,6 +1303,7 @@
       "login": "Username",
       "password": "Password",
       "remember": "Remember password",
+      "rememberHelp": "Kept unencrypted in this browser, on this device only. Forgotten after 90 days without borrowing. Untick on a shared device.",
       "waiting": "Waiting for {host}…"
     },
     "bar": {

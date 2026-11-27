@@ -34,18 +34,37 @@ const ACTIVE_KEY = 'kybernow.lend.active'
 /** Le prêt continue 15 minutes sans nouvelles de l'ami (docs/pret.md, « Pendant le prêt »). */
 export const COME_BACK_MS = 15 * 60 * 1000
 
-/** Ce que ce navigateur retient d'un compte d'ami : l'hôte et l'ordinateur ; le mot de passe si l'ami l'a voulu. */
+/** Un compte d'ami retenu et pas utilisé depuis ce temps est oublié, mot de passe compris (WEB-15). */
+export const FORGET_AFTER_MS = 90 * 24 * 3600 * 1000
+
+/** Ce que ce navigateur retient d'un compte d'ami : l'hôte et l'ordinateur ; le mot de passe si l'ami l'a voulu ;
+ * la dernière fois qu'il a servi (`used`, ms). */
 export interface SavedAccount {
   host?: string
   computer?: string
   password?: string
+  used?: number
 }
 
-function readAccounts(): Record<string, SavedAccount> {
+/** Les comptes retenus, sans ceux qui n'ont pas servi depuis `FORGET_AFTER_MS` (retirés du stockage). Un compte
+ * retenu par une version d'avant, sans date, compte à partir d'aujourd'hui. */
+export function readAccounts(now = Date.now()): Record<string, SavedAccount> {
   try {
     const raw = localStorage.getItem(ACCOUNTS_KEY)
     const v = raw ? JSON.parse(raw) : {}
-    return v && typeof v === 'object' ? v : {}
+    if (!v || typeof v !== 'object') return {}
+    let changed = false
+    for (const [login, a] of Object.entries(v as Record<string, SavedAccount>)) {
+      if (typeof a?.used !== 'number') {
+        v[login] = { ...a, used: now }
+        changed = true
+      } else if (now - a.used > FORGET_AFTER_MS) {
+        delete v[login]
+        changed = true
+      }
+    }
+    if (changed) localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(v))
+    return v
   } catch {
     return {}
   }
@@ -59,7 +78,7 @@ export function loadAccount(login: string): SavedAccount {
 export function saveAccount(login: string, account: { host?: string; computer?: string; password?: string | null }) {
   try {
     const all = readAccounts()
-    const next: SavedAccount = { ...all[login] }
+    const next: SavedAccount = { ...all[login], used: Date.now() }
     if (account.host) next.host = account.host
     if (account.computer) next.computer = account.computer
     if (account.password === null) delete next.password
@@ -71,9 +90,20 @@ export function saveAccount(login: string, account: { host?: string; computer?: 
   }
 }
 
-/** La clé d'un prêt pour « Revenir » : le compte ou le code (jamais le mot de passe). */
+/** La clé d'un prêt pour « Revenir » : le compte, ou une empreinte du code (WEB-15 : le code lui-même n'est pas
+ * écrit dans le stockage du navigateur) ; jamais le mot de passe. */
 export function lendKey(req: { code: string } | { login: string }): string {
-  return 'code' in req ? `code:${req.code}` : `login:${req.login}`
+  return 'code' in req ? `code#${fingerprint(req.code)}` : `login:${req.login}`
+}
+
+/** Empreinte courte (FNV-1a 32 bits, en hexadécimal) : de quoi reconnaître le même code, pas de quoi le relire. */
+function fingerprint(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(16).padStart(8, '0')
 }
 
 /** Le prêt de ce navigateur vit : retenu, avec l'heure du dernier signe de vie. */
@@ -97,7 +127,12 @@ export function clearActive() {
 export function isActive(req: { code: string } | { login: string }): boolean {
   try {
     const v = JSON.parse(localStorage.getItem(ACTIVE_KEY) ?? 'null')
-    return v?.key === lendKey(req) && Date.now() - Number(v.at) < COME_BACK_MS
+    if (v && !(Date.now() - Number(v.at) < COME_BACK_MS)) {
+      // Passé les 15 min, le prêt ne se reprend plus : rien n'en reste.
+      localStorage.removeItem(ACTIVE_KEY)
+      return false
+    }
+    return v?.key === lendKey(req)
   } catch {
     return false
   }
