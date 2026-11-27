@@ -332,10 +332,17 @@ fn jeton_d_acces_garde_quatre_minutes() {
     // Refusé par Admin (`token_expired`) : le suivant est neuf.
     a.invalidate();
     assert_eq!(a.token().unwrap(), "jeton-2");
-    // Passé le délai de renouvellement : un autre.
+    // Passé le délai de renouvellement : le même sert encore, un autre est
+    // demandé à côté, sans faire attendre l'appel (COEUR-34).
     let b = access(Duration::ZERO, &fake);
     assert_eq!(b.token().unwrap(), "jeton-3");
-    assert_eq!(b.token().unwrap(), "jeton-4");
+    assert_eq!(b.token().unwrap(), "jeton-3", "servi pendant le renouvellement");
+    let started = std::time::Instant::now();
+    while b.cache.lock().unwrap().as_ref().map(|c| c.token.clone()).as_deref() == Some("jeton-3") {
+        assert!(started.elapsed() < Duration::from_secs(5), "pas de renouvellement");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(b.cache.lock().unwrap().as_ref().map(|c| c.token.clone()).as_deref(), Some("jeton-4"));
 }
 
 #[test]

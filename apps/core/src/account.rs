@@ -302,8 +302,7 @@ pub struct UreqHttp;
 
 impl RelayHttp for UreqHttp {
     fn call(&self, relay: &RelayAddr, method: &str, path: &str, bearer: Option<&str>, body: Option<&Value>) -> Result<Reply, String> {
-        let tls = kybernow_tunnel::tls::client_config(relay, None, b"http/1.1", None).map_err(|e| e.to_string())?;
-        let agent = ureq::AgentBuilder::new().tls_config(Arc::new(tls)).timeout_connect(Duration::from_secs(5)).timeout(CALL_TIMEOUT).build();
+        let agent = crate::relay::relay_agent(relay, Duration::from_secs(5), CALL_TIMEOUT)?;
         let url = format!("https://{}{path}", relay.web_authority());
         let mut req = agent.request(method, &url).set("Accept-Language", i18n::current().code()).set("Accept", "application/json");
         if let Some(b) = bearer {
@@ -892,6 +891,12 @@ pub struct StationAccess {
     http: Arc<dyn RelayHttp>,
     renew: Duration,
     cache: Mutex<Option<Cached>>,
+    /// Une demande de jeton à la fois (jamais sous le verrou `cache` : les
+    /// autres appels continuent avec le jeton en cours, COEUR-34).
+    fetching: Mutex<()>,
+    /// Un renouvellement en avance tourne sur un fil à part.
+    refreshing: std::sync::atomic::AtomicBool,
+    me: std::sync::Weak<StationAccess>,
 }
 
 impl fmt::Debug for StationAccess {
@@ -906,7 +911,16 @@ impl StationAccess {
     }
 
     pub fn with_http(params: AccessParams, http: Arc<dyn RelayHttp>, renew: Duration) -> Arc<Self> {
-        Arc::new(Self { account: params.account, station: params.station, http, renew, cache: Mutex::new(None) })
+        Arc::new_cyclic(|me| Self {
+            account: params.account,
+            station: params.station,
+            http,
+            renew,
+            cache: Mutex::new(None),
+            fetching: Mutex::new(()),
+            refreshing: std::sync::atomic::AtomicBool::new(false),
+            me: me.clone(),
+        })
     }
 
     pub fn account(&self) -> &Account {
@@ -917,21 +931,60 @@ impl StationAccess {
         &self.station
     }
 
-    /// Le jeton en cours, ou un nouveau passé son délai de renouvellement (ou
-    /// à 30 secondes de son échéance : l'appareil a pu dormir). Bloquant au
-    /// renouvellement.
+    /// Le jeton en cours. Passé son délai de renouvellement, il sert encore
+    /// (il vaut au moins 30 secondes de plus) pendant qu'un neuf est demandé
+    /// sur un fil à part : aucun appel n'attend le relais (COEUR-34). Sans
+    /// jeton valable (premier appel, appareil qui a dormi), bloquant, une
+    /// demande à la fois.
     pub fn token(&self) -> Result<String, AccountError> {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(c) = cache.as_ref()
-            && c.at.elapsed() < c.renew
-            && now_secs() + EXPIRY_MARGIN < c.expires
-        {
-            return Ok(c.token.clone());
+        if let Some(t) = self.cached_token() {
+            return Ok(t);
+        }
+        let _one = self.fetching.lock().unwrap_or_else(|e| e.into_inner());
+        // Un autre appel vient peut-être d'en obtenir un.
+        if let Some(t) = self.cached_token() {
+            return Ok(t);
         }
         let fresh = self.fetch()?;
         let token = fresh.token.clone();
-        *cache = Some(fresh);
+        *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh);
         Ok(token)
+    }
+
+    /// Le jeton gardé s'il vaut encore ; renouvelé en avance s'il le faut.
+    fn cached_token(&self) -> Option<String> {
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let c = cache.as_ref().filter(|c| now_secs() + EXPIRY_MARGIN < c.expires)?;
+        let token = c.token.clone();
+        let stale = c.at.elapsed() >= c.renew;
+        drop(cache);
+        if stale {
+            self.refresh_in_background();
+        }
+        Some(token)
+    }
+
+    fn refresh_in_background(&self) {
+        if self.refreshing.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let Some(me) = self.me.upgrade() else {
+            self.refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+            return;
+        };
+        let spawned = std::thread::Builder::new().name("kybernow-jeton".into()).spawn(move || {
+            {
+                let _one = me.fetching.lock().unwrap_or_else(|e| e.into_inner());
+                match me.fetch() {
+                    Ok(fresh) => *me.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(fresh),
+                    Err(e) => log::warn!("comptes : jeton d'accès pas renouvelé en avance ({})", e.kind()),
+                }
+            }
+            me.refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+        if spawned.is_err() {
+            self.refreshing.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     /// Un jeton neuf, pas gardé : Admin consomme celui qui redémarre ou met à
