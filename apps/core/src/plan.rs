@@ -87,11 +87,11 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
     }
     let mut settings = profile_settings(c.profile.unwrap_or(Profile::Jeu), c.auto.as_ref(), caps);
     let mut custom = c.profile.is_none();
-    if let Some(codec) = c.codec {
-        if codec != settings.codec {
-            settings.codec = codec;
-            custom = true;
-        }
+    if let Some(codec) = c.codec
+        && codec != settings.codec
+    {
+        settings.codec = codec;
+        custom = true;
     }
     if let Some(y) = c.yuv444 {
         let y = y && matches!(settings.codec, Codec::Hevc | Codec::PyroWave);
@@ -100,11 +100,11 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
             custom = true;
         }
     }
-    if let Some(r) = c.reliable {
-        if r != settings.reliable {
-            settings.reliable = r;
-            custom = true;
-        }
+    if let Some(r) = c.reliable
+        && r != settings.reliable
+    {
+        settings.reliable = r;
+        custom = true;
     }
     // Le 4:4:4 n'existe qu'en HEVC, et seulement si la carte le décode ; et
     // en PyroWave (presque sans coût, docs/link-ui.md « PyroWave »).

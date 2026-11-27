@@ -144,9 +144,9 @@ impl Config {
     }
 
     /// Un paquet de configuration, pas une image : il commence par `KNPW`
-    /// (une image commence par son en-tête de séquence, bit de poids fort à
-    /// 1) et a au moins [`Self::SIZE`] octets. Il peut arriver dans le flux
-    /// des images.
+    /// (une image commence par son en-tête de séquence, au bit de poids fort
+    /// levé) et a au moins [`Self::SIZE`] octets. Il peut arriver dans le
+    /// flux des images.
     pub fn is_config(d: &[u8]) -> bool {
         d.len() >= Self::SIZE && d.starts_with(b"KNPW")
     }
