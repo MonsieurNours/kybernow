@@ -237,6 +237,19 @@ pub unsafe extern "C" fn kn_console_info(c: *const KnConsole, out: *mut *mut c_c
     console_result(c.0.info(), out, error)
 }
 
+/// Manettes que voit le lecteur du cœur en ce moment (SDL sur Mac, celles
+/// données par l'app ailleurs). Une partie sur console ignore le clavier et
+/// la souris dès qu'il y en a une : l'app suit ce nombre, pas GameController (MAC-24).
+/// −1 : le lecteur SDL du cœur ne tourne pas encore (Mac, hors partie).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_gamepads_count() -> i32 {
+    use kybernow_core::gamepads;
+    if gamepads::sdl_compiled() && !gamepads::sdl_running() {
+        return -1;
+    }
+    gamepads::global().pads().len() as i32
+}
+
 /// L'ordinateur crée les manettes de l'appareil, d'après `info_json`
 /// (`kn_console_info`) : faux quand la Station le refuse (`gamepads.available`,
 /// Station Mac sans le droit d'Apple) ; vrai sans le champ ou JSON illisible.

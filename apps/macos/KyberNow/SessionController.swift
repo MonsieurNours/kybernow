@@ -2212,14 +2212,20 @@ final class SessionController: NSObject, ObservableObject {
     }
 
     private func showHint(_ which: Hint, after delay: TimeInterval = 1.6, for duration: TimeInterval = 3.4) {
+        // Chaque rappel a son numéro : le même rappel reposé reste sa durée
+        // entière, la minuterie du précédent ne l'efface plus (MAC-24).
+        hintGeneration += 1
+        let generation = hintGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            withAnimation(.easeOut(duration: 0.35)) { self?.hint = which }
+            guard let self, self.hintGeneration == generation else { return }
+            withAnimation(.easeOut(duration: 0.35)) { self.hint = which }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration) { [weak self] in
-            guard self?.hint == which else { return }
-            withAnimation(.easeIn(duration: 0.35)) { self?.hint = nil }
+            guard let self, self.hintGeneration == generation, self.hint == which else { return }
+            withAnimation(.easeIn(duration: 0.35)) { self.hint = nil }
         }
     }
+    private var hintGeneration = 0
 
     /// « Manettes indisponibles sur cet ordinateur. » (docs/link-ui.md) : une
     /// fois par session, à l'arrivée de l'image si une manette est branchée,

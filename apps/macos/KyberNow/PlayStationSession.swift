@@ -87,7 +87,12 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var muted = false
     @Published private(set) var isFullScreen = false
     /// Une manette branchée : pas de « Prendre la souris » ni d'invitation à cliquer.
-    @Published private(set) var padConnected = !GCController.controllers().isEmpty
+    @Published private(set) var padConnected = PlayStationSession.padsSeen
+    /// Une manette tient la partie : celles du lecteur du cœur, qui décide du
+    /// clavier (MAC-24) ; avant qu'il tourne, celles de GameController.
+    static var padsSeen: Bool {
+        Core.gamepadCount.map { $0 > 0 } ?? !GCController.controllers().isEmpty
+    }
     /// Images par seconde demandées à la console (réglages).
     let requestedFps: Int
     /// Rectangle de la barre et bouton de fermeture du panneau, dans la vue
@@ -496,8 +501,15 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.padConnected = !GCController.controllers().isEmpty
+                    // Ce que voit le cœur (SDL), qui décide du clavier ; SDL la
+                    // voit un peu après GameController : relu aussi 1 s plus tard.
+                    self.padConnected = Self.padsSeen
                     self.padFocus = min(self.padFocus, self.barItems.count - 1)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                        guard let self else { return }
+                        self.padConnected = Self.padsSeen
+                        self.padFocus = min(self.padFocus, self.barItems.count - 1)
+                    }
                 }
             })
         }
@@ -512,6 +524,8 @@ final class PlayStationSession: NSObject, ObservableObject, NSWindowDelegate {
             connectStep = 0
         case let .streaming(w, h, hdr):
             KyberLog.app.notice("PlayStation : image \(w)x\(h) \(hdr ? "HDR" : "SDR", privacy: .public)")
+            // Le lecteur du cœur tourne maintenant : ses manettes font foi.
+            padConnected = Self.padsSeen
             if revealed {
                 // Partie reprise après une coupure : l'image revient seule.
                 phase = .streaming

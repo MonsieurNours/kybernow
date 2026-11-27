@@ -254,7 +254,10 @@ final class PyroWaveDecoder {
             note(\.failures, "image illisible (\(String(cString: pyrowave_result_to_string(pushed))))")
             return
         }
-        guard pyrowave_decoder_decode_is_ready(decoder, false) || pyrowave_decoder_decode_is_ready(decoder, true) else {
+        // Image entière seulement (MAC-24) : une image incomplète est sautée,
+        // comme le disent docs/pyrowave.md et l'essai (la suivante, toujours
+        // image clé, répare tout de suite) ; l'accepter montrait des trous.
+        guard pyrowave_decoder_decode_is_ready(decoder, false) else {
             note(\.incomplete, "image incomplète, sautée")
             return
         }
