@@ -260,6 +260,15 @@ impl Store {
 
     /// Les droits donnés sur une Station : personnes, invitations, organisations, groupes.
     pub fn grants_of(&self, station: &str) -> Result<Vec<Grant>> {
+        Ok(self.grants_of_many(&[station.to_string()])?.remove(station).unwrap_or_default())
+    }
+
+    /// Les mêmes pour plusieurs Stations, en une requête (REL-33 : plus une requête par ordinateur).
+    pub fn grants_of_many(&self, stations: &[String]) -> Result<std::collections::HashMap<String, Vec<Grant>>> {
+        let mut out: std::collections::HashMap<String, Vec<Grant>> = std::collections::HashMap::new();
+        if stations.is_empty() {
+            return Ok(out);
+        }
         let mut stmt = self.conn.prepare(
             "SELECT g.id, g.station, g.account, a.name, a.email, g.email, g.org, o.name, g.grp, gr.name, og.name, g.rights, g.expires_at, g.created_at,
                     COALESCE(g.sent_at, g.created_at)
@@ -268,10 +277,11 @@ impl Store {
              LEFT JOIN organizations o ON o.id = g.org
              LEFT JOIN org_groups gr ON gr.id = g.grp
              LEFT JOIN organizations og ON og.id = gr.org
-             WHERE g.station = ?1
+             WHERE g.station IN (SELECT value FROM json_each(?1))
              ORDER BY g.account IS NULL, g.created_at, g.id",
         )?;
-        let rows = stmt.query_map([station], |r| {
+        let ids = serde_json::to_string(stations)?;
+        let rows = stmt.query_map([ids], |r| {
             let subject = match (r.get::<_, Option<i64>>(2)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(8)?) {
                 (Some(account), _, _, _) => Subject::Person {
                     account,
@@ -297,7 +307,11 @@ impl Store {
                 sent_at: r.get(14)?,
             })
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        for g in rows {
+            let g = g?;
+            out.entry(g.station.clone()).or_default().push(g);
+        }
+        Ok(out)
     }
 
     /// Un droit donné sur cette Station.

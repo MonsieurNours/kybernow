@@ -28,7 +28,10 @@ pub(super) fn managed_stations(cx: &Cx<'_>, account: &Account) -> Vec<StationRow
 
 /// Ce que le menu de l'espace montre : ses familles et équipes, les nombres, « Pour bien démarrer ».
 pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
-    let managed = managed_stations(cx, account);
+    // Les ordinateurs visibles une seule fois (REL-33) : leur nombre, et ceux qu'il gère.
+    let visible = cx.acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
+    let computers = visible.len();
+    let managed: Vec<StationRow> = visible.into_iter().filter(|s| cx.acc.can_manage(account, s)).collect();
     let db = cx.acc.db();
     let orgs = db.orgs_of(account.id).unwrap_or_default();
     drop(db);
@@ -37,7 +40,7 @@ pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
     Shell {
         name: account.name.clone(),
         email: account.email.clone(),
-        computers: db.visible_stations(account.id, cx.now).map(|v| v.len()).unwrap_or(0),
+        computers,
         people,
         start: Start { protected: db.two_factor(account.id).unwrap_or(false), attached: !managed.is_empty(), opened: people > 0, grouped: !orgs.is_empty() },
         orgs: orgs.into_iter().map(|(o, _)| NavOrg { id: o.public_id, name: o.name, kind: o.kind }).collect(),
@@ -120,9 +123,10 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
         shell: shell(&cx, &account),
         ..ComputersView::default()
     };
+    let counts = acc.db().grants_of_many(&stations.iter().map(|s| s.id.clone()).collect::<Vec<_>>()).unwrap_or_default();
     for s in &stations {
         let Some(standing) = acc.standing(&account, s) else { continue };
-        let people = acc.db().grants_of(&s.id).map(|g| g.len()).unwrap_or(0);
+        let people = counts.get(&s.id).map(Vec::len).unwrap_or(0);
         let detail = if standing.manage {
             match (people, cx.lang) {
                 (0, _) => cx.tr("Vous seul", "Only you"),
@@ -168,8 +172,10 @@ pub(super) fn people_rows(cx: &Cx<'_>, stations: &[StationRow]) -> Vec<Granted> 
     let db = cx.acc.db();
     let mut keys: Vec<String> = Vec::new();
     let mut rows: Vec<Granted> = Vec::new();
+    // Une requête pour tous les ordinateurs (REL-33).
+    let mut all = db.grants_of_many(&stations.iter().map(|s| s.id.clone()).collect::<Vec<_>>()).unwrap_or_default();
     for s in stations {
-        for g in db.grants_of(&s.id).unwrap_or_default() {
+        for g in all.remove(&s.id).unwrap_or_default() {
             let (key, name, detail) = match &g.subject {
                 Subject::Invite { email } => match db.account_by_email(email).ok().flatten().filter(|a| a.verified()) {
                     Some(a) => (format!("compte:{}", a.id), if a.name.is_empty() { a.email.clone() } else { a.name.clone() }, a.email.clone()),

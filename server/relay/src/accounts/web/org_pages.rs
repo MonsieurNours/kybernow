@@ -58,13 +58,14 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
     let manage = acc.org_manager(account, Some(org.id));
     let view = {
         let db = acc.db();
-        let computers = db
-            .stations_of_org(org.id)
-            .unwrap_or_default()
+        let stations = db.stations_of_org(org.id).unwrap_or_default();
+        // Les droits de tous les ordinateurs en une requête (REL-33).
+        let mut grants = db.grants_of_many(&stations.iter().map(|s| s.id.clone()).collect::<Vec<_>>()).unwrap_or_default();
+        let computers = stations
             .into_iter()
             .map(|s| {
-                let access: Vec<String> = db
-                    .grants_of(&s.id)
+                let access: Vec<String> = grants
+                    .remove(&s.id)
                     .unwrap_or_default()
                     .into_iter()
                     .map(|g| {
@@ -97,6 +98,13 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
         )];
         group_targets.extend(groups.iter().map(|g| (format!("grp:{}", g.id), crate::pages::t(cx.lang, &format!("Groupe {}", g.name), &format!("Group {}", g.name)))));
         group_targets.extend(members.iter().map(|m| (format!("compte:{}", m.account), if m.name.is_empty() { m.email.clone() } else { m.name.clone() })));
+        // « Inviter un membre » : les personnes connues qui n'en font pas encore partie.
+        let known = if manage {
+            let inside: Vec<&String> = members.iter().map(|m| &m.email).collect();
+            db.known_people(account.id).unwrap_or_default().into_iter().filter(|(_, e)| !inside.contains(&e)).collect()
+        } else {
+            Vec::new()
+        };
         OrgView {
             id: org.public_id.clone(),
             name: org.name.clone(),
@@ -114,13 +122,7 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
             group_targets,
             now: cx.now,
             log: if role.manages() || tab == Tab::Log { db.org_log_of(org.id, limit).unwrap_or_default() } else { Vec::new() },
-            // « Inviter un membre » : les personnes connues qui n'en font pas encore partie.
-            known: if manage {
-                let inside: Vec<String> = db.members(org.id).unwrap_or_default().into_iter().map(|m| m.email).collect();
-                db.known_people(account.id).unwrap_or_default().into_iter().filter(|(_, e)| !inside.contains(e)).collect()
-            } else {
-                Vec::new()
-            },
+            known,
             shell: Default::default(),
         }
     };

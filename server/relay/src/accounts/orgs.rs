@@ -395,27 +395,34 @@ impl Store {
 
     /// Les membres, Propriétaires d'abord.
     pub fn members(&self, org: i64) -> Result<Vec<Member>> {
+        // Deux requêtes en tout, au lieu de deux par membre (REL-33).
         let mut stmt = self.conn.prepare(
-            "SELECT a.id, a.name, a.email, m.role, m.joined_at FROM org_members m JOIN accounts a ON a.id = m.account
+            "SELECT a.id, a.name, a.email, m.role, m.joined_at,
+                    (SELECT COUNT(*) FROM totp t WHERE t.account = a.id AND t.activated_at IS NOT NULL) + (SELECT COUNT(*) FROM passkeys p WHERE p.account = a.id)
+             FROM org_members m JOIN accounts a ON a.id = m.account
              WHERE m.org = ?1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, a.name COLLATE NOCASE, a.id",
         )?;
-        let rows: Vec<(i64, String, String, String, i64)> =
-            stmt.query_map([org], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<rusqlite::Result<_>>()?;
-        let mut out = Vec::with_capacity(rows.len());
-        for (account, name, email, role, joined_at) in rows {
-            let mut g = self.conn.prepare(
-                "SELECT g.name FROM org_groups g JOIN group_members gm ON gm.grp = g.id WHERE g.org = ?1 AND gm.account = ?2 ORDER BY g.name COLLATE NOCASE",
-            )?;
-            let groups = g.query_map(params![org, account], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-            out.push(Member {
-                account,
-                name,
-                email,
-                role: Role::parse(&role).unwrap_or(Role::Member),
-                joined_at,
-                two_factor: self.two_factor(account)?,
-                groups,
-            });
+        let mut out: Vec<Member> = stmt
+            .query_map([org], |r| {
+                Ok(Member {
+                    account: r.get(0)?,
+                    name: r.get(1)?,
+                    email: r.get(2)?,
+                    role: Role::parse(&r.get::<_, String>(3)?).unwrap_or(Role::Member),
+                    joined_at: r.get(4)?,
+                    two_factor: r.get::<_, i64>(5)? > 0,
+                    groups: Vec::new(),
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut g = self.conn.prepare(
+            "SELECT gm.account, g.name FROM org_groups g JOIN group_members gm ON gm.grp = g.id WHERE g.org = ?1 ORDER BY g.name COLLATE NOCASE, g.id",
+        )?;
+        let pairs: Vec<(i64, String)> = g.query_map([org], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        for (account, name) in pairs {
+            if let Some(m) = out.iter_mut().find(|m| m.account == account) {
+                m.groups.push(name);
+            }
         }
         Ok(out)
     }
@@ -548,13 +555,17 @@ impl Store {
             let mut stmt = self.conn.prepare("SELECT id, name FROM org_groups WHERE org = ?1 ORDER BY name COLLATE NOCASE, id")?;
             stmt.query_map([org], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
         };
-        let mut out = Vec::with_capacity(list.len());
-        for (id, name) in list {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT a.id, a.name FROM group_members gm JOIN accounts a ON a.id = gm.account WHERE gm.grp = ?1 ORDER BY a.name COLLATE NOCASE, a.id")?;
-            let members = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-            out.push(Group { id, name, members });
+        // Les membres de tous les groupes en une requête (REL-33).
+        let mut out: Vec<Group> = list.into_iter().map(|(id, name)| Group { id, name, members: Vec::new() }).collect();
+        let mut stmt = self.conn.prepare(
+            "SELECT gm.grp, a.id, a.name FROM group_members gm JOIN accounts a ON a.id = gm.account JOIN org_groups g ON g.id = gm.grp
+             WHERE g.org = ?1 ORDER BY a.name COLLATE NOCASE, a.id",
+        )?;
+        let rows: Vec<(i64, i64, String)> = stmt.query_map([org], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        for (grp, id, name) in rows {
+            if let Some(g) = out.iter_mut().find(|g| g.id == grp) {
+                g.members.push((id, name));
+            }
         }
         Ok(out)
     }
