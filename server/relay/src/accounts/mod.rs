@@ -218,6 +218,8 @@ pub struct Limiter {
     mail_to: Buckets<String>,
     invites_hour: Buckets<i64>,
     invites_day: Buckets<i64>,
+    /// L'avis « Admin ouvert à distance » : une fois par heure par (ordinateur, destinataire, compte) (REL-40).
+    admin_notice: Buckets<String>,
 }
 
 /// Les essais de mot de passe d'un compte en 15 minutes, tous réseaux confondus (REL-08).
@@ -246,6 +248,7 @@ impl Default for Limiter {
             mail_to: Buckets::new(3, WINDOW),
             invites_hour: Buckets::new(INVITES_PER_HOUR, Duration::from_secs(3600)),
             invites_day: Buckets::new(INVITES_PER_DAY, Duration::from_secs(86_400)),
+            admin_notice: Buckets::new(1, Duration::from_secs(3600)),
         }
     }
 }
@@ -306,6 +309,11 @@ impl Limiter {
         })
     }
 
+    /// Un avis « Admin ouvert » de plus pour cette clé ?
+    pub fn admin_notice(&mut self, key: &str) -> bool {
+        self.admin_notice.take(&key.to_string(), Instant::now()).is_ok()
+    }
+
     /// Un e-mail de plus vers cette adresse ?
     pub fn mail(&mut self, to: &str) -> bool {
         self.mail_to.take(&to.to_string(), Instant::now()).is_ok()
@@ -323,6 +331,7 @@ impl Limiter {
         self.mail_to.sweep(now);
         self.invites_hour.sweep(now);
         self.invites_day.sweep(now);
+        self.admin_notice.sweep(now);
     }
 }
 

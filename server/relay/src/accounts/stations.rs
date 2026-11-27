@@ -387,7 +387,6 @@ impl Accounts {
     /// Admin vient d'être ouvert à distance (« Admin depuis KyberNow Share ») : une ligne au journal
     /// de la famille ou de l'équipe, un e-mail aux propriétaires (au plus un par heure et par personne).
     pub fn admin_opened(&self, station: &str, account: &str, name: &str) {
-        static LAST: std::sync::OnceLock<Mutex<HashMap<(String, String), i64>>> = std::sync::OnceLock::new();
         let now = self.now();
         let Some(row) = self.db().station(station).ok().flatten() else { return };
         tracing::info!(station = %row.id, "Admin ouvert à distance");
@@ -407,14 +406,10 @@ impl Accounts {
         };
         let Some(mailer) = &self.mailer else { return };
         for owner in recipients {
-            {
-                let mut last = LAST.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-                last.retain(|_, at| now - *at < 3600);
-                let key = (format!("{station}:{}", owner.id), account.to_string());
-                if last.contains_key(&key) {
-                    continue;
-                }
-                last.insert(key, now);
+            // Une fois par heure, par la limite commune des comptes (REL-40).
+            let key = format!("{station}:{}:{account}", owner.id);
+            if !self.limits.lock().unwrap_or_else(|e| e.into_inner()).admin_notice(&key) {
+                continue;
             }
             let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
             let date = super::pages::date(lang, now);
