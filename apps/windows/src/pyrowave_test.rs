@@ -276,7 +276,7 @@ fn run_case(d3d: &ID3D11Device, device: &std::sync::Arc<Device>, c: &Case, frame
 
     let mut dec = Decoder::new(device.clone(), d3d)?;
     // La configuration passe par le paquet du contrat, comme d'une Station.
-    let config = Config { full_range: false, ..c };
+    let config = Config::new(c.chroma444, c.hdr, false, c.width, c.height);
     dec.configure(Config::parse(&config.bytes()).ok_or("paquet de configuration")?)?;
     let format = if c.hdr { DXGI_FORMAT_R16_UNORM } else { DXGI_FORMAT_R8_UNORM };
     let (cw, ch) = config.chroma_size();

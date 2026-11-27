@@ -4098,7 +4098,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
     };
     let os = computer_os(&state, id);
     let mac = host_session && kybernow_core::input::keymap::station_is_mac(&os);
-    let lend_warning = kybernow_core::lend::warning(&os, i18n::current());
+    let lend_warning = kybernow_core::lend::warning(&os, i18n::lang());
     let before = state.bar_session.locked().replace(id.to_string());
     // La barre servait une partie sur console : la console reçoit de nouveau la manette.
     if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
