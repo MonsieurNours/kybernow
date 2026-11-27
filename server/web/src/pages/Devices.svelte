@@ -15,6 +15,7 @@
   import InviteDialog from '../lib/InviteDialog.svelte'
   import LaunchPicker from '../lib/LaunchPicker.svelte'
   import Qr from '../lib/Qr.svelte'
+  import RemoteKeys from '../lib/RemoteKeys.svelte'
   import SharePanel from '../lib/SharePanel.svelte'
   import Switch from '../lib/Switch.svelte'
   import { untrack } from 'svelte'
@@ -579,6 +580,10 @@
           onchange={(v) => saveRelay({ remote_admin: v })}
         />
       </div>
+      <!-- Clés d'Admin à distance (STWIN-17) : seulement avec un Admin qui les connaît (0.11.8). -->
+      {#if relay.remote_keys && (relay.remote_admin || relay.remote_keys.length)}
+        <RemoteKeys {relay} onchange={(r) => (relay = r)} reload={loadRelay} />
+      {/if}
     </section>
   {/if}
 </div>

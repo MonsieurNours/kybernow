@@ -50,6 +50,11 @@ export function dateAt(seconds: number): string {
   return t('format.dateAt', { date: day(new Date(seconds * 1000)), time: clock(seconds) })
 }
 
+/** « 27 novembre » : le jour d'un moment (secondes Unix). */
+export function dayOf(seconds: number): string {
+  return day(new Date(seconds * 1000))
+}
+
 export function capital(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
