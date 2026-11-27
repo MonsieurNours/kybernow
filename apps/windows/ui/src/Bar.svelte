@@ -88,7 +88,7 @@
   import Switch from './lib/Switch.svelte'
   import LendPanelView from './bar/LendPanel.svelte'
   import SharePanel from './bar/SharePanel.svelte'
-  import PsBarView from './bar/PsBar.svelte'
+  import PsBarView, { type PsItem } from './bar/PsBar.svelte'
   import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
@@ -264,7 +264,6 @@
   const psSeen = new Map<string, PsStats>()
   /** Barre pilotée par la manette : l'élément sous l'anneau. */
   let padFocus = $state(0)
-  type PsItem = 'stats' | 'sound' | 'mouse' | 'settings' | 'fullscreen' | 'rest' | 'disconnect'
   /** Les éléments de la barre d'une console, dans l'ordre (la souris est absente avec une manette branchée). */
   const psItems = $derived<PsItem[]>(psBar ? ['stats', 'sound', ...(psBar.pad ? [] : ['mouse' as const]), 'settings', 'fullscreen', 'rest', 'disconnect'] : [])
   const ringed = (item: PsItem) => !!psBar?.pad_mode && psItems[padFocus] === item
