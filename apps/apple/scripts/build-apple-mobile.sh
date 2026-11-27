@@ -73,6 +73,14 @@ if [ "$PLATFORM" = tvos ]; then
         exit 1
     }
     kyber_toolchain_check nightly
+    # Le nightly utilisé doit être celui de KYBER_NIGHTLY (date de son
+    # commit) : un `rustup update` en mettait un autre sans que rien ne le
+    # dise, et la bibliothèque tvOS sortait d'un autre compilateur (TRANS-04).
+    used=$(rustup run nightly rustc --version 2>/dev/null | sed -n 's/.* \([0-9-]*\))$/\1/p')
+    if [ "$used" != "$KYBER_NIGHTLY" ]; then
+        echo "Rust nightly du $used, attendu celui du $KYBER_NIGHTLY (scripts/kyber-toolchain.sh) : réinstallez-le ou mettez KYBER_NIGHTLY à jour." >&2
+        exit 1
+    fi
 fi
 
 for target in "${TARGETS[@]}"; do
