@@ -216,7 +216,7 @@ fn windows_main() -> wry::Result<()> {
             // Alt+F4, barre des tâches : ignoré pendant l'installation, qui
             // laisserait sinon l'ordinateur à moitié installé.
             WinEvent::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
-                if !*installing.lock().unwrap() {
+                if !*installing.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
                     *control_flow = ControlFlow::Exit;
                 }
             }
@@ -289,14 +289,23 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
                     });
                 }
                 Command::Install(request) => {
-                    let mut busy = installing.lock().unwrap();
+                    let mut busy = installing.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     if *busy {
                         continue;
                     }
                     *busy = true;
                     let (emit, info, installing, payload) = (emit.clone(), info.clone(), installing.clone(), payload.clone());
                     std::thread::spawn(move || {
-                        let mut info = info.lock().unwrap().clone();
+                        // Remis à faux en sortant, même après une panique de
+                        // l'installation : la fenêtre se ferme de nouveau.
+                        struct Done(Arc<Mutex<bool>>);
+                        impl Drop for Done {
+                            fn drop(&mut self) {
+                                *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+                            }
+                        }
+                        let _done = Done(installing.clone());
+                        let mut info = info.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
                         info.stream_port = request.stream_port;
                         info.console_port = request.console_port;
                         let payload = payload.unwrap_or_default();
@@ -308,7 +317,6 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
                                 need_reboot,
                             });
                         }
-                        *installing.lock().unwrap() = false;
                     });
                 }
                 Command::OpenUrl { url } => open_in_browser(&url),
@@ -325,7 +333,7 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
                     let _ = proxy.send_event(UserEvent::Drag);
                 }
                 Command::Close => {
-                    if !*installing.lock().unwrap() {
+                    if !*installing.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
                         let _ = proxy.send_event(UserEvent::Close);
                     }
                 }

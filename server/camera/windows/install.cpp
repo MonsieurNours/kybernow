@@ -90,7 +90,8 @@ bool key_exists(const wchar_t *path)
 
 HRESULT virtual_camera(KnVirtualCamera **camera)
 {
-    HMODULE lib = LoadLibraryW(L"mfsensorgroup.dll");
+    // Chargée une fois pour tout le processus : la caméra créée vit sur son code.
+    static HMODULE lib = LoadLibraryW(L"mfsensorgroup.dll");
     if (!lib)
         return HRESULT_FROM_WIN32(GetLastError());
     auto create = (CreateVirtualCameraFn)GetProcAddress(lib, "MFCreateVirtualCamera");
@@ -179,10 +180,16 @@ int install_windows10(bool install)
 
 } // namespace
 
-// Windows 11 (build 22000 et après) : la mémoire partagée n'est lue que par Frame Server.
+// La caméra de Windows 11 est-elle celle en place ? Alors la mémoire
+// partagée n'est lue que par Frame Server. Un ordinateur passé de Windows 10
+// à 11 sans réinstaller garde le filtre de Windows 10, lu par les apps.
 extern "C" int kn_windows11(void)
 {
-    return windows11() ? 1 : 0;
+    if (!windows11())
+        return 0;
+    wchar_t key[160];
+    swprintf(key, 160, L"SOFTWARE\\Classes\\CLSID\\%ls\\InprocServer32", KN_SOURCE_CLSID_STR);
+    return key_exists(key) && key_exists(MARKER_KEY) ? 1 : 0;
 }
 
 extern "C" int kn_windows_install(int install)
@@ -196,6 +203,11 @@ extern "C" int kn_windows_installed(const char **reason)
     if (windows11()) {
         swprintf(key, 160, L"SOFTWARE\\Classes\\CLSID\\%ls\\InprocServer32", KN_SOURCE_CLSID_STR);
         if (key_exists(key) && key_exists(MARKER_KEY))
+            return 0;
+        swprintf(key, 160, L"SOFTWARE\\Classes\\CLSID\\%ls\\InprocServer32", KN_FILTER_CLSID_STR);
+        // Passé de Windows 10 à 11 : le filtre de Windows 10 marche encore,
+        // la caméra de Windows 11 se pose à la prochaine installation.
+        if (key_exists(key))
             return 0;
         *reason = "virtual camera not installed (kybernow-camera --install)";
         return 1;

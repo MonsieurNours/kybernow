@@ -1417,6 +1417,11 @@ pub struct LaunchBody {
 /// Une tuile du lanceur : Admin ouvre l'app permise dans la session.
 pub async fn console_launch(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, Json(body): Json<LaunchBody>) -> LendResult<Json<Value>> {
     console_only(&s, peer, &headers)?;
+    // Le lanceur ne sert que pendant un prêt : hors prêt, le jeton local ne
+    // lance ni les apps permises ni Big Picture.
+    if s.lend.loan().is_none() {
+        return Err(LendError::new(StatusCode::CONFLICT, "no_lend", Msg::new("lend.noLend")));
+    }
     let settings = settings(&s);
     let launch = if let Some(appid) = lend_last::steam_appid(&body.id) {
         // « Reprendre {jeu} » : un jeu Steam installé, Steam permis.
