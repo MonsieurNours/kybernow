@@ -356,11 +356,9 @@ impl Pilot {
                                 machine.retry(Step::Ready);
                             }
                         }
-                        (Step::Beat, _) => {
-                            if !self.post("beat", json!({})) {
-                                machine.retry(Step::Beat);
-                            }
-                        }
+                        // Sur un fil à lui : un Admin lent (icônes, `played`) ne
+                        // retarde jamais le signe de vie au point d'arrêter le prêt.
+                        (Step::Beat, _) => post_later("beat", json!({})),
                         (Step::TearDown, v) => {
                             // Le lanceur dit la fin à l'ami (son image continue un instant).
                             if self.display.is_some() && v.is_some_and(|v| v.end.is_some()) {
@@ -408,6 +406,12 @@ impl Pilot {
             }
             Err(_) => Reply::Silent,
         }
+    }
+
+    /// Comme `post`, avec un délai court (la partie notée peut attendre le relevé suivant).
+    fn post_quick(&self, route: &str, body: Value) -> bool {
+        let Some(port) = console::port() else { return false };
+        self.client.local("POST", port, &format!("{ROUTE}/{route}"), Some(&body), Duration::from_secs(3)).is_ok_and(|r| r.status < 300)
     }
 
     fn post(&self, route: &str, body: Value) -> bool {
@@ -559,17 +563,21 @@ impl Pilot {
 
     fn cached(&mut self, path: Option<&str>) -> Option<String> {
         let path = path?;
-        if !self.icons.contains_key(path) {
-            let fetched = self.icon(path);
-            self.icons.insert(path.to_string(), fetched);
+        if let Some(known) = self.icons.get(path) {
+            return known.clone();
         }
-        self.icons[path].clone()
+        // Une icône ratée (Admin occupé) n'est pas retenue : redemandée la fois suivante.
+        let fetched = self.icon(path);
+        if fetched.is_some() {
+            self.icons.insert(path.to_string(), fetched.clone());
+        }
+        fetched
     }
 
     /// Une icône (PNG) ou l'image d'un jeu (JPEG), en `data:`.
     fn icon(&self, path: &str) -> Option<String> {
         let port = console::port()?;
-        let reply = self.client.local("GET", port, path, None, Duration::from_secs(5)).ok().filter(|r| r.status == 200)?;
+        let reply = self.client.local("GET", port, path, None, Duration::from_secs(2)).ok().filter(|r| r.status == 200)?;
         let mime = if path.ends_with(".jpg") { "image/jpeg" } else { "image/png" };
         Some(format!("data:{mime};base64,{}", base64(&reply.body)))
     }
@@ -591,7 +599,7 @@ impl Pilot {
         }
         // Pas noté (Admin injoignable) : réessayé au relevé suivant.
         if let Some(appid) = running
-            && !self.post("played", json!({ "steam": appid }))
+            && !self.post_quick("played", json!({ "steam": appid }))
         {
             return;
         }

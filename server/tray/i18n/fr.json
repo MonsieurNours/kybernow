@@ -96,6 +96,7 @@
       "startupElevated": "Le démarrage des services n'a pas pu être changé ({error}).",
       "elevation": "Impossible d'obtenir les droits d'administrateur.",
       "resetFailed": "Le mot de passe n'a pas pu être réinitialisé ({error}).",
+      "seeMessage": "voir le message précédent",
       "codeNotHandedOver": "Mot de passe effacé, mais le code d'initialisation n'a pas pu être transmis à l'icône : il est dans C:\\ProgramData\\KyberNow\\setup-code.txt, lisible par un administrateur.",
       "resetCommandFailed": "kyber-admin reset-password a échoué ({status}).",
       "noSetupCode": "Admin n'a pas écrit de code d'initialisation (C:\\ProgramData\\KyberNow\\setup-code.txt).",

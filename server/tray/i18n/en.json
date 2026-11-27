@@ -96,6 +96,7 @@
       "startupElevated": "The services' startup could not be changed ({error}).",
       "elevation": "Cannot get administrator rights.",
       "resetFailed": "The password could not be reset ({error}).",
+      "seeMessage": "see the previous message",
       "codeNotHandedOver": "Password cleared, but the setup code could not be passed to the tray icon: it is in C:\\ProgramData\\KyberNow\\setup-code.txt, readable by an administrator.",
       "resetCommandFailed": "kyber-admin reset-password failed ({status}).",
       "noSetupCode": "Admin did not write a setup code (C:\\ProgramData\\KyberNow\\setup-code.txt).",

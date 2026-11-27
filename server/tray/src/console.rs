@@ -316,7 +316,7 @@ impl Client {
     /// Accepte ou refuse une demande d'accès par code (route réservée à l'ordinateur lui-même).
     pub fn pair_answer(&self, port: u16, id: &str, accept: bool) -> anyhow::Result<()> {
         let action = if accept { "accept" } else { "refuse" };
-        let reply = self.post(port, &format!("/api/local/pair/{id}/{action}"), Duration::from_secs(15)).map_err(|e| anyhow::anyhow!(t("tray.errors.pairFailed", &[("error", &format!("{e:#}"))])))?;
+        let reply = self.post(port, &format!("/api/local/pair/{}/{action}", path_part(id)), Duration::from_secs(15)).map_err(|e| anyhow::anyhow!(t("tray.errors.pairFailed", &[("error", &format!("{e:#}"))])))?;
         match reply.status {
             s if s < 400 => Ok(()),
             410 => anyhow::bail!(t("tray.errors.pairExpired", &[])),

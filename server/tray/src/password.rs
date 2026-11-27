@@ -28,9 +28,15 @@ pub const ELEVATED_ARG: &str = "--reset-console-password";
 /// Efface le mot de passe et renvoie le nouveau code d'initialisation
 /// (`Ok(None)` : invite UAC refusée ; code illisible : message explicite).
 pub fn reset() -> Result<Option<String>> {
-    match startup::elevate(ELEVATED_ARG)? {
+    // Le profil de ce compte : la partie élevée tourne peut-être sous celui
+    // d'un autre administrateur (élévation « par-dessus l'épaule »), dont le
+    // %LOCALAPPDATA% n'est pas le nôtre.
+    let handoff = console::handoff_path().context("dossier du profil introuvable (LOCALAPPDATA)")?;
+    match startup::elevate(&format!("{ELEVATED_ARG} \"{}\"", handoff.display()))? {
         None => return Ok(None),
         Some(0) => {}
+        // La partie élevée a déjà dit pourquoi (pas de « Fonction incorrecte »).
+        Some(FAILED) => bail!(t("tray.errors.resetFailed", &[("error", &t("tray.errors.seeMessage", &[]))])),
         Some(code) => bail!(t("tray.errors.resetFailed", &[("error", &std::io::Error::from_raw_os_error(code as i32))])),
     }
     // La partie élevée a attendu le code avant de rendre la main.
@@ -40,18 +46,27 @@ pub fn reset() -> Result<Option<String>> {
     bail!(t("tray.errors.codeNotHandedOver", &[]))
 }
 
+/// Code de sortie de la partie élevée qui a échoué (et l'a dit).
+const FAILED: u32 = 0x4B4E;
+
 /// Partie élevée : arrête la console, efface le mot de passe, la relance.
-pub fn elevated_main() -> i32 {
-    match run() {
+/// `handoff` : où laisser le code, dans le profil du compte qui l'a demandé
+/// (seul un fichier `setup-code.txt` d'un dossier `KyberNow` est accepté).
+pub fn elevated_main(handoff: Option<&str>) -> i32 {
+    let handoff = handoff
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.file_name().is_some_and(|n| n == "setup-code.txt") && p.parent().and_then(|d| d.file_name()).is_some_and(|n| n == "KyberNow"))
+        .or_else(console::handoff_path);
+    match run(handoff) {
         Ok(()) => 0,
         Err(e) => {
             crate::app::alert(&format!("{e:#}"));
-            1
+            FAILED as i32
         }
     }
 }
 
-fn run() -> Result<()> {
+fn run(handoff: Option<std::path::PathBuf>) -> Result<()> {
     let exe = std::env::current_exe()?;
     let admin = exe
         .parent()
@@ -71,16 +86,15 @@ fn run() -> Result<()> {
         bail!(t("tray.errors.resetCommandFailed", &[("status", &status)]));
     }
     services::wait(ADMIN, State::Running, Duration::from_secs(30))?;
-    hand_over_code()
+    hand_over_code(handoff.context("dossier du profil introuvable (LOCALAPPDATA)")?)
 }
 
 /// La console écrit le code à son démarrage, dans ProgramData : la partie
 /// élevée en laisse une copie dans le profil du compte, pour l'icône ordinaire.
-fn hand_over_code() -> Result<()> {
+fn hand_over_code(path: std::path::PathBuf) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         if let Some(code) = console::read_code(&console::data_setup_code_path()) {
-            let path = console::handoff_path().context("dossier du profil introuvable (LOCALAPPDATA)")?;
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
