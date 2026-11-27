@@ -389,7 +389,11 @@ impl Agent {
             }
             Ok(Ok(Msg::Error(ErrorMsg { code, message, .. }))) => Err(TunnelError::Refused(code, message)),
             Ok(_) => Err(TunnelError::Closed),
-            Err(_) => Err(TunnelError::Timeout),
+            Err(_) => {
+                // Sans réponse : la demande ne reste pas en attente (REL-31).
+                live.pending.lock().unwrap().remove(&req);
+                Err(TunnelError::Timeout)
+            }
         }
     }
 

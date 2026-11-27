@@ -539,7 +539,7 @@ fn default_name(cx: &Cx<'_>) -> String {
 
 /// Un nom tapé : sans caractères de contrôle, 60 caractères au plus.
 pub fn clean_name(input: &str) -> String {
-    input.trim().chars().filter(|c| !c.is_control()).take(NAME_MAX).collect::<String>().trim().to_string()
+    crate::accounts::stations::clean_text(input, NAME_MAX)
 }
 
 /// `POST /compte/passkeys/renommer`.

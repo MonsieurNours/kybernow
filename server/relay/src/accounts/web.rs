@@ -782,7 +782,7 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
         let page = pages::sign_up(&cx.view(), state, "", "", None);
         return cx.page(status, page);
     }
-    let name: String = cx.req.form("name").trim().chars().take(80).collect();
+    let name = super::stations::clean_text(cx.req.form("name"), 80);
     let typed = cx.req.form("email").trim().to_string();
     let password = cx.req.form("password").to_string();
     let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_up(cx.req.ip);

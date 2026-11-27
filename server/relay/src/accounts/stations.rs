@@ -360,8 +360,15 @@ impl Store {
 
 /// Un nom d'ordinateur lisible : 64 caractères au plus, sans caractère de contrôle.
 pub fn clean_name(name: &str) -> String {
-    let spaced: String = name.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(64).collect::<String>().trim_end().to_string()
+    clean_text(name, 64)
+}
+
+/// Un texte d'une ligne, `max` caractères au plus : sans caractère de contrôle ni de mise en
+/// forme bidirectionnelle (qui retourneraient l'affichage d'un nom), espaces resserrés (REL-32).
+pub fn clean_text(text: &str, max: usize) -> String {
+    let bidi = |c: char| matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    let spaced: String = text.chars().filter(|c| !bidi(*c)).map(|c| if c.is_control() { ' ' } else { c }).collect();
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect::<String>().trim_end().to_string()
 }
 
 impl Accounts {
@@ -551,6 +558,14 @@ pub enum Owner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn noms_sans_controle_ni_bidi() {
+        // REL-32 : ni caractère de contrôle ni retournement bidi ; espaces resserrés.
+        assert_eq!(clean_text("  Ana\u{202E}lirva \n  Martin\u{2066} ", 80), "Analirva Martin");
+        assert_eq!(clean_text("Léa\u{200F}", 80), "Léa");
+        assert_eq!(clean_text(&"x".repeat(100), 80).len(), 80);
+    }
 
     #[test]
     fn cle_de_signature_creee_puis_relue_et_rotation() {

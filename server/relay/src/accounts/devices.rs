@@ -255,8 +255,7 @@ impl Store {
 
 /// Un nom d'appareil donné par l'app : 64 caractères au plus, sans caractère de contrôle.
 pub fn clean_device_name(name: &str) -> String {
-    let spaced: String = name.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(64).collect::<String>().trim_end().to_string()
+    super::stations::clean_text(name, 64)
 }
 
 /// Un nouveau code de téléviseur : `XXXX-XXXX`.
