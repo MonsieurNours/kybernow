@@ -16,24 +16,16 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Multiple displays**: on a Windows PC and a Linux machine with several displays (validated on Mac on 26/10/2026); a session on several displays right after the Station is installed or restarted.
 - **Several computers at once**: two sessions running at the same time on Windows and on Linux (checked on Mac on 27/10/2026); on Windows, a session end that once cut another session in the VM (every end path is now logged).
 - **KyberNow Share and relay**: a guest's own pictures on AMD (AMF) and Intel (QSV) cards; the rest of the checks of patches 0019 and 0020 is in [docs/kyber-changes.en.md](docs/kyber-changes.en.md). Two sessions at once on Windows and Linux are on the “Several computers at once” line.
-- **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
-
-## HDR
-
-Scoped on 02/11/2026, contract: [docs/hdr.en.md](docs/hdr.en.md).
-
-- **First version**: Station (Kyber patches 0022: FP16 capture in both engines and WGC, PQ/BT.2020 conversion to P010, HEVC Main 10 and 10-bit AV1, separate SDR picture for guests; Admin: virtual display HDR, colour profile and desktop white for the device's screen, setting, announcement), HDR calibration by eye in the apps, core, Apple apps and LG TVs; tests on the Mac's XDR display, the Apple TV, the LG G2.
-- **Next version**: Android, Windows, Linux (Raspberry Pi after).
-
-## KyberNow Station for Mac
-
-Scoped on 2026-11-03, contract: [docs/station-macos.en.md](docs/station-macos.en.md). Apple silicon, macOS 15 and later; everything the Windows Station does, except gamepads.
-
-- **Milestones**: Kyber on this Mac, Admin on Mac, virtual display (`CGVirtualDisplay`), KyberNow audio device, input, icon and `.pkg`, advanced features (Share, Lend the PC, HDR, app at start), Link apps (`gamepads`, Ctrl/⌘).
-- **Requests to Apple**: virtual HID (gamepads) and `persistent-content-capture` (no monthly screen recording reminder).
+- **HDR**: the Windows, Android and Linux apps on a real HDR screen (written, never tried on an HDR screen).
+- **PlayStation consoles**: a PS4; a game away from home through the real relay and a real Station (only tried on the Mac's local loop, towards the PS5 Pro); the apps other than the Mac's.
+- **KyberNow Station for Linux** (beta): on a real x86_64 machine, with an NVIDIA (NVENC) or Intel/AMD (VA-API) card: an end-to-end session from an app (picture, sound, latency), updating from Admin (apt and dnf, rollback), the tray icon, lending, controllers, the pen, the clipboard under Wayland; Bazzite, Fedora Atomic and SteamOS.
+- **Pen**: a real graphics tablet (Mac, Windows, Linux), an Apple Pencil and an Android stylus, against a Station.
+- **Measurements from the 20/10/2026 audit** (procedure: [docs/archives/mesures.en.md](docs/archives/mesures.en.md)): Mac app display latency (the “one frame in flight” guard, full screen presented directly or composited); Windows permissions (`ProgramData` permissions, the tray icon's integrity level); saturated Wi-Fi (deep or short send queue by default); SudoVDA virtual display modes (the “follow / restore” policy).
 
 ## KyberNow Station and Admin
 
+- **Mac Station, requests to Apple** ([docs/station-macos.en.md](docs/station-macos.en.md)): the virtual HID entitlement (`com.apple.developer.hid.virtual.device`), which will bring controllers (CoreHID, ready); `persistent-content-capture`, so the monthly screen recording reminder goes away.
+- **Linux Station, HDR**: once GNOME or KDE can create a BT.2100 virtual display ([docs/station-linux.en.md](docs/station-linux.en.md), “HDR”).
 - **H.264 silent on an Intel card**: PC-ATELIER (Intel UHD) does send HEVC but no picture in H.264 (“its encoder does not respond”), already in 0.5; to understand on the Station side (Kyber's encoder, QSV).
 - **Virtual display without workarounds**: a driver that truly handles several displays (SudoVDA fixed and rebuilt, or Kidd), to remove the pointer enlargement and the Windows Graphics Capture of secondary displays (see `server/README.en.md`).
 - **Kidd virtual display** once Kyber ships it, behind the interface already in place.
@@ -47,12 +39,13 @@ Scoped on 2026-11-03, contract: [docs/station-macos.en.md](docs/station-macos.en
 
 - **Android**: foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
-- **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.
+- **iPhone and iPad**: TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.
 - **Apple TV**: TestFlight, then the App Store.
 - **App Store (iPhone, iPad, Apple TV)**: what remains before submission, see [docs/app-store.en.md](docs/app-store.en.md): demo Station reachable through the relay for App Review, video, listing and screenshots, privacy labels, encryption questionnaire (ANSSI declaration), Kyber licence to confirm.
 - **LG TVs**: a Homebrew Channel repository, so updates install from the TV; DualSense rumble and adaptive triggers through webOS's Bluetooth service.
 - **Linux**: zero-copy DMA-BUF import of VA-API frames (4K at 120 Hz); NVDEC decoding for NVIDIA cards; a Flatpak repository or Flathub, so updates install by themselves.
-- **Raspberry Pi**: publish the apt repository (GPG key, hosting, called from `release.sh`); zero-copy path (SAND frames on a DRM plane).
+- **Raspberry Pi**: publish the apt repository (GPG key, hosting, called from `release.sh`); zero-copy path (SAND frames on a DRM plane); HDR (a 10-bit plane in KMS/DRM, which SDL2 doesn't give).
+- **Web client**: the pen (Pointer Events to kynput) and the microphone (upstream in the wasm engine; the page is ready).
 - **KyberNow Link OS**: install the update during standby; a composed soundtrack for the ignition, instead of `chime.rs`'s synthesis.
 
 ## KyberNow Share
@@ -68,14 +61,6 @@ Everything that lets someone else onto your computer. Name chosen on 26/10/2026;
 - **Lending the computer** (released in 0.9.0, contract: [docs/pret.en.md](docs/pret.en.md)), next: waking a sleeping computer for a friend away from your home; controllers and touchscreen plugged into the PC blocked during a loan; windows of apps run as administrator.
 - **Lead**: lending the computer while you use it, through a virtual machine that shares the graphics card (Hyper-V); needs Windows Pro and a second licence, runs into anti-cheat, encoder to be checked.
 
-## PlayStation consoles
-
-Framed on 2026-11-03, contract: [docs/playstation.en.md](docs/playstation.en.md).
-
-- **First version, Mac app**: PS5 and PS4 in the Rust core (discovery, wake, pairing by code, session, picture, sound, full DualSense), after chiaki-ng; trials on a PS5 Pro, the PS4 remains to be tried.
-- **Through the relay**: a Station on the same network forwards the packets; written (relay, Admin, core, Mac app) and tried over the loopback to the PS5 Pro on 2026-11-03; still to try with the real relay and a real Station.
-- **Next**: the other Link apps.
-
 ## Sony controllers in “Faithful” mode
 
 The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and rumble go through; the touchpad is only a button.
@@ -90,4 +75,3 @@ The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and
 - **CI**: build the Mac app (with a `KyberSDK-macOS.zip`) and the Windows binaries.
 - **Kyber**: send the `strip` fix upstream (cargo-c, Xcode 27's linker).
 - **Website**: remove the “beta” markers at 1.0; revisit the Apple TV, iPhone and iPad cards once those apps go through TestFlight or the App Store.
-- **Brand**: confirm the KyberNow name (and Station / Admin / Link / Share) with the Kyber team; the `fr.leslignesclaires.kybernow` identifier does not change.

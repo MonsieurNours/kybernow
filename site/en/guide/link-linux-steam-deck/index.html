@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en" data-u="commun" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KyberNow Link on Linux and Steam Deck · KyberNow</title>
+<meta name="description" content="Install KyberNow Link as a Flatpak on a Linux PC, a Steam Deck or a Steam Machine, and play your computer with a controller.">
+<link rel="canonical" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/">
+<meta name="theme-color" content="#05070A">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="KyberNow Link on Linux and Steam Deck · KyberNow">
+<meta property="og:description" content="Install KyberNow Link as a Flatpak on a Linux PC, a Steam Deck or a Steam Machine, and play your computer with a controller.">
+<meta property="og:url" content="https://www.kybernow.app/en/guide/link-linux-steam-deck/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-linux-steam-deck/">
+<link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/">
+<link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/">
+<script src="/assets/lang.js"></script>
+<script src="/assets/kn/theme.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kn/base.css">
+<link rel="stylesheet" href="/assets/kn/guide.css">
+<script type="application/ld+json">[{"@context": "https://schema.org", "@type": "TechArticle", "headline": "Use your computer from Linux or a Steam Deck", "description": "Install KyberNow Link as a Flatpak on a Linux PC, a Steam Deck or a Steam Machine, and play your computer with a controller.", "inLanguage": "en", "url": "https://www.kybernow.app/en/guide/link-linux-steam-deck/", "publisher": {"@type": "Organization", "name": "Les Lignes Claires", "url": "https://www.leslignesclaires.fr"}, "isPartOf": {"@type": "WebSite", "name": "KyberNow", "url": "https://www.kybernow.app/"}}, {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Guide", "item": "https://www.kybernow.app/en/guide/"}, {"@type": "ListItem", "position": 2, "name": "Use your computer from Linux or a Steam Deck", "item": "https://www.kybernow.app/en/guide/link-linux-steam-deck/"}]}]</script>
+</head>
+<body>
+<a class="skip" href="#contenu">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/en/" aria-label="KyberNow, beta, home">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="150" height="21">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="150" height="21" aria-hidden="true">
+      <span class="beta" aria-hidden="true">Beta</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="/en/play/">Play</a>
+      <a class="p" href="/en/pro/">Work</a>
+      <a href="/en/share/">Share</a>
+      <a href="/en/technology/">Technology</a>
+      <a href="/en/guide/" aria-current="page">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    </nav>
+    <div class="tools">
+      <button class="thm" type="button" aria-label="Switch to light theme"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <a class="signin" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><span>Sign in</span></a>
+      <a class="lang" href="/guide/link-linux-steam-deck/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+      <a class="btn sig" href="/en/download/">Download</a>
+      <button class="burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+<div class="sheet" id="menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav aria-label="Main menu">
+    <a class="mi j" href="/en/play/" style="--i: 0">Play</a>
+    <a class="mi p" href="/en/pro/" style="--i: 1">Work</a>
+    <a class="mi" href="/en/share/" style="--i: 2">Share</a>
+    <a class="mi" href="/en/technology/" style="--i: 3">Technology</a>
+    <a class="mi" href="/en/guide/" style="--i: 4">Guide</a>
+    <a class="mi" href="https://discord.gg/sVy2mu5WdT" rel="noopener" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in</a>
+    <a href="/guide/link-linux-steam-deck/" hreflang="fr" lang="fr" data-set-lang="fr">Français</a>
+    <a class="btn sig" href="/en/download/">Download KyberNow</a>
+  </div>
+</div>
+<div class="progress" aria-hidden="true"><i></i></div>
+<main id="contenu">
+<article>
+  <header class="ahead"><div class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/en/guide/">Guide</a><span aria-hidden="true">›</span><a href="/en/guide/#rubriques">Connect a device</a></nav>
+    <h1 class="disp">Use your computer from Linux or a Steam Deck</h1>
+    <p class="chapo">The same app works on a Linux PC, on the Steam Deck and in the living room, on a Steam Machine or a PC running SteamOS. It comes as a Flatpak package, which installs for you alone, with no administrator rights.</p>
+    <div class="meta"><span>Connect a device</span><span>10 min</span></div>
+  </div></header>
+  <div class="wrap body">
+    <nav class="toc" aria-label="Article contents"><button class="tocbtn" type="button" aria-expanded="false" aria-controls="toc-list"><span class="tocmeta"><b>IN THIS ARTICLE</b><span class="tocpos">01 / 09</span></span><span class="tocnow">What the app does</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="toclist" id="toc-list"><b>IN THIS ARTICLE</b><a class="on" href="#what-the-app-does"><i>01</i>What the app does</a><a href="#on-a-linux-pc"><i>02</i>On a Linux PC</a><a href="#on-the-steam-deck"><i>03</i>On the Steam Deck</a><a href="#in-the-living-room"><i>04</i>In the living room</a><a href="#add-your-computer"><i>05</i>Add your computer</a><a href="#with-a-controller"><i>06</i>With a controller</a><a href="#recommended-settings"><i>07</i>Recommended settings</a><a href="#update-the-app"><i>08</i>Update the app</a><a href="#if-something-goes-wrong"><i>09</i>If something goes wrong</a></div><span class="tocscrim" aria-hidden="true"></span></nav>
+    <div class="prose">
+<h2 id="what-the-app-does">What the app does</h2>
+<ul><li>On a PC, you use it with the mouse and keyboard, with a session bar at the top of the screen.</li><li>On the Deck, it switches to a handheld interface, driven by controller, with a legend for the buttons.</li><li>On a TV, it moves to the living-room interface, readable from three metres away, with its “Ready to play” column: controllers, sound, display and decoders.</li><li>It decodes the picture on the graphics card whenever it can (VA-API), supports variable refresh rate on displays that have it, stereo, 5.1 or 7.1 sound, and four controllers with their rumble.</li></ul>
+<h2 id="on-a-linux-pc">On a Linux PC</h2>
+<ol><li>Download the package for your machine: <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak">KyberNow-Link-Linux-x86_64.flatpak</a> for most PCs, <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-aarch64.flatpak">KyberNow-Link-Linux-aarch64.flatpak</a> for an ARM machine.</li><li>Double-click the file: GNOME Software or KDE Discover installs it. You can also open a terminal in the file's folder and type:</li></ol>
+<p>``<code>sh flatpak install --user KyberNow-Link-Linux-x86_64.flatpak </code>``</p>
+<p>The app needs the shared base of Flatpak apps, the org.freedesktop.Platform 25.08 runtime. If it is missing, Flatpak offers to download it from Flathub: accept.</p>
+<ol><li>Open KyberNow Link from the applications menu.</li></ol>
+<p>Flatpak is already installed on most distributions (otherwise, see flatpak.org/setup). If it does not know the Flathub repository yet, add it and install the runtime by hand:</p>
+<pre class="code"><code>flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.freedesktop.Platform//25.08</code></pre>
+<h2 id="on-the-steam-deck">On the Steam Deck</h2>
+<p>You install the app from Desktop Mode, then launch it from Game Mode, like a game.</p>
+<ol><li>Switch to Desktop Mode: Steam button › Power › Switch to Desktop.</li><li>With Firefox or another browser, download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak">KyberNow-Link-Linux-x86_64.flatpak</a>.</li><li>In the downloads folder, double-click the file: Discover installs it. You can also open Konsole and type:</li></ol>
+<p>``<code>sh flatpak install --user ~/Téléchargements/KyberNow-Link-Linux-x86_64.flatpak </code>``</p>
+<p>(<code>~/Downloads/</code> if the Deck is in English.)</p>
+<ol><li>Add the app to Steam: open Steam in Desktop Mode, Games › Add a Non-Steam Game, tick KyberNow Link, then Add Selected Programs.</li><li>Go back to Game Mode, with the “Return to Gaming Mode” icon on the desktop. KyberNow Link is in the library, in the Non-Steam tab.</li><li>On KyberNow Link's page, controller icon › Layout, choose the “Gamepad with Mouse Trackpad” template. The sticks and buttons go to the computer's controller, the right trackpad moves the mouse, and its clicks click.</li></ol>
+<h2 id="in-the-living-room">In the living room</h2>
+<p>On a Steam Machine, a PC running SteamOS or Bazzite plugged into the TV, or the Deck in its dock, the installation is the same. The app moves to the living-room interface by itself as soon as the display is larger than 1280 × 800 in Game Mode. App settings › Interface lets you force Desktop, Handheld or Living room.</p>
+<h2 id="add-your-computer">Add your computer</h2>
+<ol><li>Launch KyberNow Link. On the same network, your computer shows up by itself: choose it.</li><li>The app shows a six-digit code. Accept it in Admin, in the Link devices space (on a PC, also in the panel of the icon by the clock). Nothing to type.</li><li>Choose a profile, then “Connect”.</li></ol>
+<p>Over a VPN, choose “Add a computer or a console”, then “By address”: the computer's IP address or name, and Admin's port. Then compare the first four groups of the fingerprint with those Admin shows. On the Deck, type with the on-screen keypad or Steam's keyboard.</p>
+<h2 id="with-a-controller">With a controller</h2>
+<p>On the Deck and in the living room:</p>
+<ul><li>A confirms, B goes back, Y opens the computer's settings, X adds a computer.</li><li>L1 and R1 change the profile, Start opens the app's settings.</li><li>In a session, L1 + R1 + Start + Select held together, or a tap at the top of the screen, opens the session menu. “Keyboard” there opens Steam's keyboard.</li></ul>
+<p>On a PC, with the keyboard: Ctrl+Alt+Shift+D disconnects, Ctrl+Alt+Shift+F goes full screen, Ctrl+Alt+Shift+M switches between the desktop mouse and the gaming mouse, and holding Esc for a second releases the mouse. See <a href="/en/guide/keyboard-and-shortcuts/">Keyboard, mouse and shortcuts</a>.</p>
+<h2 id="recommended-settings">Recommended settings</h2>
+<ul><li><strong>On the Deck</strong>: the defaults, that is the Game profile, the “Match this display” resolution (1280 × 800 on the Deck, at its refresh rate) and “Frame display” on Auto. “Lighter on battery”, when on, limits the unplugged Deck to 60 frames per second and 20 Mbit/s.</li><li><strong>On a variable refresh rate display</strong> (FreeSync, VRR): leave “Frame display” on Auto. Each frame shows as soon as it is decoded, and the display follows the stream's pace. The Steam Deck's own screen does not support it.</li><li><strong>For really sharp text on the desktop</strong>: turn on Computer settings › Picture › Sharp text (4:4:4). It only works in HEVC and needs more bitrate; the processor decodes if the graphics card cannot.</li><li><strong>The network</strong>: 5 GHz or 6 GHz Wi-Fi close to the router, or an Ethernet cable on the dock.</li></ul>
+<h2 id="update-the-app">Update the app</h2>
+<p>A Flatpak installed from a file does not update by itself. The app tells you about a new version (“Version X available”): download the new file and install it the same way. Your computers and settings stay.</p>
+<h2 id="if-something-goes-wrong">If something goes wrong</h2>
+<ul><li><strong>Flatpak cannot find the runtime.</strong> Add the Flathub repository and install org.freedesktop.Platform 25.08, with the two commands above.</li><li><strong>The Deck's trackpad does not move the mouse.</strong> Check the “Gamepad with Mouse Trackpad” layout on KyberNow Link's page.</li><li><strong>The app stays in the handheld interface on the TV.</strong> Force Living room in App settings › Interface.</li><li><strong>To report a problem.</strong> Attach the app's log, in <code>~/.var/app/fr.leslignesclaires.kybernow/config/kybernow/kybernow.log</code>.</li></ul>
+      <div class="helpful"><span class="hq">Did this article help?</span><button type="button" data-vote="oui">Yes</button><button type="button" data-vote="non">Not really</button><span class="hthx" aria-live="polite"></span></div>
+      <div class="rel"><a href="/en/guide/connect-a-device/"><span>Connect a device</span>Connect a device to your computer</a><a href="/en/guide/keyboard-and-shortcuts/"><span>During a session</span>Keyboard, mouse and shortcuts</a><a href="/en/guide/profiles-and-quality/"><span>During a session</span>Profiles, video format, bitrate and HDR</a><a href="/en/guide/install-station-linux/"><span>Install the Station</span>Install KyberNow Station on Linux</a></div>
+    </div>
+  </div>
+</article>
+</main>
+<footer class="ft">
+  <div class="wrap">
+    <div class="who">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
+      <span>A free and open project by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>.</span>
+    </div>
+    <nav aria-label="Footer"><a href="/en/play/">Play</a><a href="/en/pro/">Work</a><a href="/en/share/">Share</a><a href="/en/technology/">Technology</a><a href="/en/guide/">Guide</a><a href="/en/guide/faq/">FAQ</a><a href="/en/download/">Download</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/en/legal/">Legal notice</a></nav>
+  </div>
+</footer>
+<script src="/assets/kn/base.js" defer></script>
+<script src="/assets/kn/guide.js" defer></script>
+</body>
+</html>

@@ -11,7 +11,7 @@ L'app Apple TV n'est pas sur l'App Store : elle s'installe depuis un Mac, signé
 - Un **compte Apple** :
   - **gratuit** (votre identifiant Apple habituel) : ça marche, mais l'app cesse de s'ouvrir au bout de **7 jours** ; il suffit de relancer le script pour la renouveler. Sans iCloud (ajout « Depuis votre Mac »), sans Top Shelf et sans profils par utilisateur de l'Apple TV ;
   - **payant** (Apple Developer Program, 99 €/an) : l'app reste installée un an, avec iCloud, le Top Shelf et les profils par utilisateur. L'ajout « Depuis votre Mac » ne voit que les ordinateurs publiés par une app Mac signée avec la même équipe et le même identifiant d'app : pas ceux de l'app Mac publiée sur le site, dont le stockage iCloud appartient à l'équipe de KyberNow.
-- Un ordinateur avec **KyberNow Station** installée (la version 0.2.2 ou plus récente pour l'appairage par code).
+- Un ordinateur avec **KyberNow Station** installée (version 0.11.8 ou plus récente).
 
 ## 1. Préparer le Mac
 

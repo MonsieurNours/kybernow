@@ -11,7 +11,7 @@ The iPhone and iPad app is neither on the App Store nor on TestFlight: it is ins
 - An **Apple account**:
   - **free** (your usual Apple ID): it works, but the app stops opening after **7 days**; just run the script again to renew it. No iCloud and no shared Keychain (the "From your Mac" adding stays empty); at most three apps installed this way;
   - **paid** (Apple Developer Program, 99/year): the app stays installed for a year, with iCloud and the shared Keychain. “From your Mac” adding only sees the computers published by a Mac app signed with the same team and the same app identifier: not those of the Mac app published on the website, whose iCloud storage belongs to the KyberNow team.
-- A computer with **KyberNow Station** installed (version 0.3.1 or later).
+- A computer with **KyberNow Station** installed (version 0.11.8 or later).
 
 ## 1. Prepare the Mac
 

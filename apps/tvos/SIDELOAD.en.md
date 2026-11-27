@@ -11,7 +11,7 @@ The Apple TV app is not on the App Store: it is installed from a Mac, signed wit
 - An **Apple account**:
   - **free** (your usual Apple ID): it works, but the app stops opening after **7 days**; just run the script again to renew it. No iCloud ("From your Mac" adding), no Top Shelf and no per-user profiles on the Apple TV;
   - **paid** (Apple Developer Program, 99/year): the app stays installed for a year, with iCloud, the Top Shelf and per-user profiles. “From your Mac” adding only sees the computers published by a Mac app signed with the same team and the same app identifier: not those of the Mac app published on the website, whose iCloud storage belongs to the KyberNow team.
-- A computer with **KyberNow Station** installed (version 0.2.2 or later for code pairing).
+- A computer with **KyberNow Station** installed (version 0.11.8 or later).
 
 ## 1. Prepare the Mac
 

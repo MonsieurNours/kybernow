@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="fr" class="no-js">
+<html lang="fr" data-u="commun" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mentions légales · KyberNow</title>
 <meta name="description" content="Mentions légales et confidentialité du site www.kybernow.app.">
 <link rel="canonical" href="https://www.kybernow.app/mentions-legales/">
@@ -30,62 +30,58 @@
 <link rel="alternate" hreflang="fr" href="https://www.kybernow.app/mentions-legales/">
 <link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/legal/">
 <script src="/assets/lang.js"></script>
-<link rel="stylesheet" href="/assets/kybernow.css">
-<link rel="stylesheet" href="/assets/site.css">
-<link rel="stylesheet" href="/assets/doc.css">
-<script type="importmap">
-{ "imports": {
-  "three": "/vendor/three/three.module.min.js",
-  "three/addons/": "/vendor/three/addons/"
-} }
-</script>
+<script src="/assets/kn/theme.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kn/base.css">
+<link rel="stylesheet" href="/assets/kn/legacy.css">
 </head>
 <body>
-
-<canvas id="scene" aria-hidden="true"></canvas>
-<div class="veil" aria-hidden="true"></div>
-
-<header class="nav" id="nav">
-  <a class="nav-logo" href="/" aria-label="KyberNow, version bêta, accueil"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Bêta</span></a>
-  <nav class="nav-links" aria-label="Sections">
-    <a href="/#appareils">Usages</a>
-    <a href="/#apps">Les apps</a>
-    <a href="/share/">Share</a>
-    <a href="/technologie/">Technologie</a>
-    <a href="/technologie/#comparer">Comparer</a>
-    <a href="/guide/">Guide</a>
-  </nav>
-  <div class="nav-actions">
-    <a class="nav-signin" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Se connecter</a>
-    <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
-    <a class="nav-lang" href="/en/legal/" hreflang="en" lang="en" data-set-lang="en">EN</a>
-    <a class="btn btn-ghost btn-sm nav-dl" href="/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Télécharger</a>
-    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu"><span></span><span></span></button>
+<a class="skip" href="#contenu">Aller au contenu</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/" aria-label="KyberNow, version bêta, accueil">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="150" height="21">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="150" height="21" aria-hidden="true">
+      <span class="beta" aria-hidden="true">Bêta</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="/jeu/">Jouer</a>
+      <a class="p" href="/pro/">Travailler</a>
+      <a href="/share/">Share</a>
+      <a href="/technologie/">Technologie</a>
+      <a href="/guide/">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    </nav>
+    <div class="tools">
+      <button class="thm" type="button" aria-label="Passer en thème clair"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <a class="signin" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><span>Se connecter</span></a>
+      <a class="lang" href="/en/legal/" hreflang="en" lang="en" data-set-lang="en">EN</a>
+      <a class="btn sig" href="/telecharger/">Télécharger</a>
+      <button class="burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Ouvrir le menu"><span></span><span></span><span></span></button>
+    </div>
   </div>
 </header>
-<div class="menu" id="menu" hidden>
-  <nav aria-label="Menu">
-    <a href="/#presentation">La vidéo</a>
-    <a href="/#appareils">Usages</a>
-    <a href="/#apps">Les apps</a>
-    <a href="/share/">Share</a>
-    <a href="/technologie/">Technologie</a>
-    <a href="/technologie/#comparer">Comparer</a>
-    <a href="/guide/">Guide et FAQ</a>
-    <a href="/#telecharger">Télécharger</a>
+<div class="sheet" id="menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav aria-label="Menu principal">
+    <a class="mi j" href="/jeu/" style="--i: 0">Jouer</a>
+    <a class="mi p" href="/pro/" style="--i: 1">Travailler</a>
+    <a class="mi" href="/share/" style="--i: 2">Share</a>
+    <a class="mi" href="/technologie/" style="--i: 3">Technologie</a>
+    <a class="mi" href="/guide/" style="--i: 4">Guide</a>
+    <a class="mi" href="https://discord.gg/sVy2mu5WdT" rel="noopener" style="--i: 5">Discord</a>
   </nav>
-  <div class="menu-foot">
-    <a class="btn btn-ghost" href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Se connecter</a>
-    <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
-    <a class="btn btn-ghost" href="/en/legal/" hreflang="en" lang="en" data-set-lang="en"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>English</a>
+  <div class="sheet-foot">
+    <a href="https://share.kybernow.app/compte/connexion?lang=fr" rel="noopener">Se connecter</a>
+    <a href="/en/legal/" hreflang="en" lang="en" data-set-lang="en">English</a>
+    <a class="btn sig" href="/telecharger/">Télécharger KyberNow</a>
   </div>
 </div>
 
-<main>
-<section class="page-hero" data-scene="page">
+<main id="contenu">
+<section class="page-hero">
   <div class="wrap">
-    <p class="label" data-reveal>Informations légales</p>
-    <h1 class="title page-title" data-split>Mentions légales</h1>
+    <p class="k rv">Informations légales</p>
+    <h1 class="disp">Mentions légales</h1>
   </div>
 </section>
 
@@ -103,7 +99,7 @@
     <section id="editeur" class="doc-section">
       <h2>Éditeur du site</h2>
       <dl>
-        <dt>Éditeur</dt><dd>Matthieu Requenna, entrepreneur individuel, exerçant sous le nom Les Lignes Claires</dd>
+        <dt>Éditeur</dt><dd>Matthieu Requenna, entrepreneur individuel, exerçant sous le nom <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a></dd>
         <dt>SIREN</dt><dd>510&nbsp;178&nbsp;577 (SIRET 510&nbsp;178&nbsp;577&nbsp;00019)</dd>
         <dt>Adresse</dt><dd>Bâtiment&nbsp;1, appartement&nbsp;3, 230 avenue du Maréchal Leclerc, 34070 Montpellier, France</dd>
         <dt>Contact</dt><dd><a href="mailto:contact@leslignesclaires.fr">contact@leslignesclaires.fr</a></dd>
@@ -146,7 +142,6 @@
       <dl>
         <dt>Polices</dt><dd>Archivo et Martian Mono, licence SIL Open Font</dd>
         <dt>Icônes</dt><dd>Phosphor Icons, licence MIT</dd>
-        <dt>3D</dt><dd>Three.js, licence MIT</dd>
         <dt>Vidéo</dt><dd>Lecteur hls.js, licence Apache-2.0</dd>
         <dt>Photos</dt><dd>Illustrations générées par IA (Z-Image), avec de vraies captures des apps KyberNow sur les écrans</dd>
       </dl>
@@ -155,23 +150,19 @@
 </div>
 </main>
 
-<footer class="footer">
-  <div class="wrap footer-grid">
-    <div>
-      <img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18">
-      <p class="footer-mention">KyberNow utilise <a href="https://kyber.tech" rel="noopener">Kyber</a>, logiciel libre publié sous licence AGPL-3.0. KyberNow est un projet communautaire et non commercial, développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>&#8239;; il n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié.</p>
+<footer class="ft">
+  <div class="wrap">
+    <div class="who">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
+      <span>Un projet libre de <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>.</span>
     </div>
-    <ul class="footer-links">
-      <li><a href="/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide et FAQ</a></li>
-      <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
-      <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
-      <li><a href="/mentions-legales/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Mentions légales</a></li>
-      <li><a href="/en/legal/" hreflang="en" lang="en" data-set-lang="en"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>English</a></li>
-    </ul>
+    <nav aria-label="Pied de page">
+      <a href="/jeu/">Jouer</a><a href="/pro/">Travailler</a><a href="/share/">Share</a><a href="/technologie/">Technologie</a><a href="/guide/">Guide</a><a href="/guide/faq/">FAQ</a><a href="/telecharger/">Télécharger</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/mentions-legales/">Mentions légales</a>
+    </nav>
   </div>
 </footer>
-
-<script type="module" src="/assets/main.js"></script>
-<script type="module" src="/assets/scene.js"></script>
+<script src="/assets/kn/base.js" defer></script>
+<script src="/assets/kn/legacy.js" defer></script>
 </body>
 </html>

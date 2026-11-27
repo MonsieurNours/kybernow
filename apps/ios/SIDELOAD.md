@@ -11,7 +11,7 @@ L'app iPhone et iPad n'est ni sur l'App Store ni sur TestFlight : elle s'install
 - Un **compte Apple** :
   - **gratuit** (votre identifiant Apple habituel) : ça marche, mais l'app cesse de s'ouvrir au bout de **7 jours** ; il suffit de relancer le script pour la renouveler. Sans iCloud ni Trousseau partagé (l'ajout « Depuis votre Mac » reste vide) ; trois apps installées ainsi au plus ;
   - **payant** (Apple Developer Program, 99 €/an) : l'app reste installée un an, avec iCloud et le Trousseau partagé. L'ajout « Depuis votre Mac » ne voit que les ordinateurs publiés par une app Mac signée avec la même équipe et le même identifiant d'app : pas ceux de l'app Mac publiée sur le site, dont le stockage iCloud appartient à l'équipe de KyberNow.
-- Un ordinateur avec **KyberNow Station** installée (version 0.3.1 ou plus récente).
+- Un ordinateur avec **KyberNow Station** installée (version 0.11.8 ou plus récente).
 
 ## 1. Préparer le Mac
 

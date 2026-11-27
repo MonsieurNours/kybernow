@@ -2,11 +2,11 @@
 
 [English](README.en.md) · Français
 
-Votre ordinateur Windows sur tous vos appareils : un serveur de streaming clé en main et des apps natives, construits sur [Kyber](https://kyber.tech). Développé par [Les Lignes Claires](https://www.leslignesclaires.fr).
+Votre ordinateur sur tous vos appareils : un serveur de streaming clé en main et des apps natives, construits sur [Kyber](https://kyber.tech). Développé par [Les Lignes Claires](https://www.leslignesclaires.fr).
 
 KyberNow réunit trois produits :
 
-- **KyberNow Station** : le serveur, installé sur l'ordinateur Windows qui diffuse son image (installateur `KyberNow-Station-Setup.exe`, services, icône de la zone de notification, mises à jour) ;
+- **KyberNow Station** : le serveur, installé sur l'ordinateur qui diffuse son image : un PC Windows (installateur `KyberNow-Station-Setup.exe`), un Mac à puce Apple (`KyberNow-Station-Mac.dmg`) ou un ordinateur sous Linux, en bêta (`.deb`, `.rpm` ou archive) ; avec ses services, son icône près de l'horloge et ses mises à jour ;
 - **KyberNow Admin** : l'administration de la Station, dans le navigateur ;
 - **KyberNow Link** : les apps qui affichent l'image sur les appareils, le client web servi par Admin, et KyberNow Link OS, l'image système qui fait d'un Raspberry Pi un appareil Link.
 
@@ -24,13 +24,16 @@ KyberNow réunit trois produits :
 | `apps/tvos/`, `apps/ios/` | KyberNow Link pour Apple TV et pour iPhone/iPad, voir leurs README ([Apple TV](apps/tvos/README.md), [iPhone et iPad](apps/ios/README.md)) |
 | `apps/core/`, `apps/windows/` | Cœur client en Rust des apps KyberNow Link (session, dialogue avec Admin, profils, latence, mises à jour, entrées et son partagés, voir [son README](apps/core/README.md)) et KyberNow Link pour Windows (Direct3D 11, FFmpeg, WASAPI), avec son installateur `KyberNow-Link-Setup.exe` (`apps/windows/setup`, x64 et ARM64), voir [son README](apps/windows/README.md) |
 | `server/` | KyberNow Station : tout ce qui tourne sur l'ordinateur qui diffuse son image, voir [son README](server/README.md) |
-| `server/admin/`, `server/web/` | KyberNow Admin (service Windows, Rust) et son interface (Svelte), qui sert aussi le client web `/link` |
-| `server/tray/` | Icône de la Station dans la zone de notification |
+| `server/admin/`, `server/web/` | KyberNow Admin (Rust : service Windows, agent launchd sur Mac, service systemd de l'utilisateur sous Linux) et son interface (Svelte), qui sert aussi le client web `/link` |
+| `server/tray/` | Icône de la Station près de l'horloge, sous Windows et sous Linux |
+| `server/macos/` | Ce qui est propre à la Station Mac : icône de la barre des menus, agent des écrans, pilote son, extension caméra, manettes, correctifs de Kyber, voir [docs/station-macos.md](docs/station-macos.md) |
+| `server/linux/` | Ce qui est propre à la Station Linux : agent des écrans, paquets, installation dans le dossier personnel, correctifs de Kyber, voir [son installation](server/linux/INSTALLATION.md) et [docs/station-linux.md](docs/station-linux.md) |
+| `server/camera/`, `server/micro/` | Aides de la caméra et du micro des appareils, sur les trois Stations, voir [docs/webcam.md](docs/webcam.md) et [docs/micro.md](docs/micro.md) |
 | `server/relay/` | Le relais de KyberNow (KyberNow Share, accès hors de chez soi) : serveur, image Docker et tunnel commun ; pour installer le sien, voir [son README](server/relay/README.md) |
 | `server/installer/` | Installateur `KyberNow-Station-Setup.exe` (Rust + WebView2 + Svelte), voir [son README](server/installer/README.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
-| `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) ; `brand/` garde le logo précédent, inutilisé |
+| `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) |
 | `docs/` | [Changements de Kyber](docs/kyber-changes.md), [notes de compilation](docs/build-notes.md), [publication des versions](docs/releases.md), [cœur Rust des apps Apple](docs/coeur-apple.md), [langues et règles d'écriture](docs/i18n.md), [écrans et textes communs des apps Link](docs/link-ui.md), [multi-écrans](docs/multi-ecrans.md), [KyberNow Share](docs/kybernow-share.md), [le relais](docs/relais.md), [ton des textes](docs/ton-du-site.md) |
 | `docs/archives/` | Relevés datés, qui ne décrivent pas l'état actuel : prototype de référence et ses résultats (19 octobre 2026), audit et mesures demandées (20 octobre 2026), propositions HDR, latence Apple TV et app au démarrage (22 octobre 2026) |
 | `tools/latency/` | Mesure de latence d'une session (étapes de la chaîne) |

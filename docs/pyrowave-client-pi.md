@@ -89,7 +89,7 @@ Aujourd'hui, sur le Pi, l'image HEVC du décodeur V4L2 est recopiée par le proc
 
 ### Vérifié dans la VM (25/11/2026)
 
-VM « KyberNow Linux » (Ubuntu 24.04 ARM64, lavapipe : pas de v3dv), préfixe privé du Pi (`build.sh --rpi --kyber-pyrowave --prefix …`) :
+VM « KyberNow Linux » (Ubuntu 24.04 ARM64, lavapipe : pas de v3dv), préfixe privé du Pi (`build.sh --rpi --prefix …`) :
 
 - l'app pour le Pi compile ; 153 tests de `kybernow-linux` passés ; le .deb assemblé (`/usr/lib/libpyrowave-shared.so.1` corrigée, `Recommends: … libvulkan1, mesa-vulkan-drivers`) ;
 - `kybernow --pyrowave-probe` : « no », « rendu logiciel seulement (llvmpipe …) », code 1 ; avec `KYBERNOW_PYROWAVE_CPU=1` : « ok », code 0 ;
@@ -103,7 +103,7 @@ Un Raspberry Pi 5 (ou 500, CM5) relié par **Ethernet**, et un Pi 4 si vous en a
 **A. Préparer, sur le Mac et dans la VM**
 
 1. Les flux d'essai 1080p, sur le Mac : `apps/linux/tests/pyrowave/samples-mac.sh ~/pw-samples-1080 1920x1080 60`.
-2. Dans la VM : le paquet avec PyroWave demandé à Kyber, `apps/linux/scripts/deb.sh --kyber-pyrowave` (→ `apps/linux/dist/KyberNow-Link-RaspberryPi-arm64.deb`).
+2. Dans la VM : le paquet avec PyroWave demandé à Kyber (le défaut), `apps/linux/scripts/deb.sh` (→ `apps/linux/dist/KyberNow-Link-RaspberryPi-arm64.deb`).
 3. Dans la VM : le kit de mesure, `apps/linux/tests/pyrowave/pi-kit.sh DOSSIER_DES_FLUX ~/pw-kit` (copier d'abord les flux du Mac dans la VM ; `--444` ajoute le 4:4:4, 370 Mo de plus).
 4. Pour Link OS : `apps/linux/os/build-image.sh` avec ce .deb (vider d'abord le cache de pi-gen s'il contient une image précédente).
 

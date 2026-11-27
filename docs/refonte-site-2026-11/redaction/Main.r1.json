@@ -1,0 +1,47 @@
+[
+ {
+  "old": "Entre les deux, l'image file, chiffrée. Vos gestes font le chemin inverse&#8239;: manette, clavier, souris, stylet.",
+  "new": "L'image arrive chiffrée sur votre appareil. La manette, le clavier, la souris et le stylet font le chemin inverse.",
+  "pourquoi": "phrases complètes, plus de chute à deux-points"
+ },
+ {
+  "old": "Vous jouez, ou vous travaillez&#8239;?",
+  "new": "Pour jouer ou pour travailler",
+  "pourquoi": "pas de question en titre"
+ },
+ {
+  "old": "Vos manettes, le son sur vos enceintes, la 4K et le HDR. Vous jouez à plusieurs, même à distance, et vous prêtez votre ordinateur à un ami.",
+  "new": "Vous jouez en 4K et en HDR, avec vos manettes et vos enceintes. Vos amis vous rejoignent de chez eux ou empruntent votre ordinateur.",
+  "pourquoi": "un verbe au lieu d'une liste"
+ },
+ {
+  "old": "Un texte net, des couleurs justes, votre stylet et tous vos écrans. Vous ouvrez vos machines à votre équipe et vous gardez la main sur les accès.",
+  "new": "Le texte reste net et les couleurs justes, avec votre stylet et tous vos écrans. Vous ouvrez vos machines à l'équipe et vous décidez qui y entre.",
+  "pourquoi": "fragment en cascade, chute plus concrète"
+ },
+ {
+  "old": "Médiane du trajet complet, mesurée le 19&nbsp;octobre 2026 sur un réseau local, d'un PC avec une RTX&nbsp;3080&nbsp;Ti vers un MacBook Pro M4&nbsp;Max. Chaque étape est une médiane.",
+  "new": "Mesures du 19&nbsp;octobre 2026 sur un réseau local, d'un PC avec une RTX&nbsp;3080&nbsp;Ti vers un MacBook Pro M4&nbsp;Max. Le trajet complet et chaque étape sont des médianes.",
+  "pourquoi": "même faits, phrase plus directe"
+ },
+ {
+  "old": "Trois temps, et c'est prêt",
+  "new": "Installez KyberNow en trois étapes",
+  "pourquoi": "titre-slogan remplacé par ce qu'on fait"
+ },
+ {
+  "old": "Chaque appareil garde son propre accès, que vous pouvez retirer.",
+  "new": "Vous retirez l'accès d'un appareil sans toucher aux autres.",
+  "pourquoi": "le visiteur devient sujet, gain concret"
+ },
+ {
+  "old": "Sur l'appareil devant vous, ou dans le navigateur, sans rien installer.",
+  "new": "Sur l'appareil devant vous. Dans un navigateur, il n'y a rien à installer.",
+  "pourquoi": "lève l'ambiguïté de « sans rien installer »"
+ },
+ {
+  "old": "Ni abonnement ni publicité. Le code est sur GitHub, chaque mise à jour est vérifiée avant d'être installée, et le Discord vous répond en français et en anglais.",
+  "new": "Chaque mise à jour est vérifiée avant d'être installée, et le Discord vous répond en français et en anglais.",
+  "pourquoi": "évite de répéter la liste à côté"
+ }
+]

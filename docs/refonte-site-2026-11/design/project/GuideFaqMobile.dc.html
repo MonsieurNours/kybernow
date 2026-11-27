@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>KyberNow, questions fréquentes, mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=Martian+Mono:wdth,wght@75..112.5,300..700&amp;display=swap">
+<style>
+body{margin:0;background:#05070A}
+a{color:#E3EDF0}a:hover{color:#FFFFFF}
+.pg{--veil:5,7,10;--veil2:9,13,18;--src:#E3EDF0;--onsig:#05070A;--sigd:#9A8CFF;--spectre:#9A8CFF;--glacier:#5CC8E8;--ink0:#05070A;--ink1:#090D12;--ink2:#0E141A;--ink3:#141B23;--line:#1E2832;--line2:#2B3742;--frost:#E3EDF0;--frost2:#B4C2C9;--mist:#8A99A3;
+  --spectre:#9A8CFF;--glacier:#5CC8E8;
+  background:var(--ink0);color:var(--frost);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:17px;line-height:1.6;overflow-x:clip}
+.pg *{box-sizing:border-box}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(20px,4vw,56px)}
+.mono{font-family:"Martian Mono",ui-monospace,Menlo,monospace}
+.k{font-family:"Martian Mono",ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--mist)}
+h1,h2,h3{margin:0;text-wrap:balance}
+p{margin:0}
+.disp{font-stretch:125%;font-weight:760;letter-spacing:-.015em;line-height:1.04}
+.btn{display:inline-flex;align-items:center;gap:10px;min-height:46px;padding:0 20px;border-radius:6px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line2);background:var(--ink2);color:var(--frost);cursor:pointer;font-family:inherit}
+.btn.sig{background:var(--frost);color:var(--ink0);border-color:transparent;clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);border-radius:6px 6px 0 6px}
+.top{position:sticky;top:0;z-index:20;background:rgba(var(--veil),.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:28px;min-height:68px;flex-wrap:wrap}
+.logo{position:relative;display:block;width:150px;height:21px}
+.logo img{position:absolute;inset:0;width:150px;height:21px}
+.logo .g{animation:xfade 8s ease-in-out infinite}
+@keyframes xfade{0%,38%{opacity:0}50%,88%{opacity:1}100%{opacity:0}}
+.nav{display:flex;gap:26px;margin-right:auto;font-size:15px;flex-wrap:wrap}
+.nav a{text-decoration:none;color:var(--frost2)}
+.nav a:hover{color:var(--frost)}
+.nav a.on{color:var(--frost);box-shadow:inset 0 -2px 0 var(--frost);padding-bottom:4px}
+.nav .j{color:var(--spectre)}.nav .p{color:var(--glacier)}
+.nav .disc{display:inline-flex;align-items:center;gap:7px}
+.tools{display:flex;align-items:center;gap:18px;font-size:14px;color:var(--frost2)}
+/* Barre de lecture */
+.progress{position:sticky;top:68px;z-index:19;height:2px;background:transparent}
+.progress i{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--read, 0));background:linear-gradient(90deg,var(--spectre),var(--glacier))}
+/* En-tête d'article */
+.ahead{padding-block:56px 40px;border-bottom:1px solid var(--line)}
+.crumbs{display:flex;flex-wrap:wrap;gap:8px;font-size:14px;color:var(--mist);margin-bottom:22px}
+.crumbs a{color:var(--frost2);text-decoration:none}
+.crumbs a:hover{color:var(--frost)}
+.ahead h1{font-size:clamp(40px,4.8vw,66px);max-width:20ch}
+.chapo{margin-top:18px;font-size:20px;color:var(--frost2);max-width:62ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.meta span{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--line2);font-size:13px;color:var(--frost2)}
+/* Corps */
+.body{display:grid;grid-template-columns:240px minmax(0,1fr);gap:56px;padding-block:48px 96px;align-items:start}
+.toc{position:sticky;top:96px;display:grid;gap:2px;font-size:14px}
+.toc b{font-family:"Martian Mono",monospace;font-size:11px;letter-spacing:.14em;color:var(--mist);font-weight:500;margin-bottom:8px}
+.toc a{display:block;padding:7px 12px;border-left:2px solid var(--line);color:var(--frost2);text-decoration:none;line-height:1.35}
+.toc a:hover{color:var(--frost);border-left-color:var(--frost2)}
+.toc a.on{color:var(--frost);border-left-color:var(--spectre)}
+.prose{max-width:720px;display:grid;gap:18px}
+.prose h2{font-size:30px;font-stretch:112%;font-weight:720;line-height:1.15;margin-top:30px;scroll-margin-top:100px}
+.prose h3{font-size:20px;margin-top:10px}
+.prose p,.prose li{color:var(--frost2)}
+.prose strong{color:var(--frost)}
+.prose a{color:var(--frost);text-decoration-color:var(--line2);text-underline-offset:3px}
+.prose code{font-family:"Martian Mono",monospace;font-size:.82em;padding:2px 6px;border-radius:5px;background:var(--ink3);border:1px solid var(--line);color:var(--frost)}
+.prose ul{margin:0;padding-left:20px;display:grid;gap:6px}
+.prose ol{margin:0;padding:0;list-style:none;display:grid;gap:12px;counter-reset:st}
+.prose ol > li{counter-increment:st;position:relative;padding:16px 18px 16px 62px;border-radius:14px;background:var(--ink1);border:1px solid var(--line)}
+.prose ol > li::before{content:counter(st);position:absolute;left:16px;top:14px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-family:"Martian Mono",monospace;font-size:12px;color:var(--frost);border:1px solid var(--line2);background:var(--ink3)}
+.prose blockquote{margin:0;padding:16px 18px;border-radius:14px;background:linear-gradient(90deg,rgba(154,140,255,.10),rgba(92,200,232,.06));border:1px solid var(--line2);color:var(--frost2)}
+.prose blockquote p{color:var(--frost2)}
+.rel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:40px}
+.rel a{display:grid;gap:6px;padding:18px;border-radius:16px;border:1px solid var(--line);background:var(--ink1);text-decoration:none;color:var(--frost);min-width:0}
+.rel a:hover{border-color:var(--line2)}
+.rel a span{font-family:"Martian Mono",monospace;font-size:11px;color:var(--mist)}
+.helpful{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:40px;padding:18px 20px;border-radius:14px;border:1px solid var(--line);color:var(--frost2);font-size:15px}
+.helpful button{min-height:40px;padding:0 14px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--frost);font:inherit;font-size:14px;cursor:pointer}
+.helpful button.on{background:var(--frost);color:var(--ink0)}
+.ft{padding-block:40px;border-top:1px solid var(--line);color:var(--mist);font-size:14px}
+.ft .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* FAQ */
+.fgroups{display:flex;flex-wrap:wrap;gap:8px;margin:28px 0 8px}
+.fgroups button{min-height:40px;padding:0 16px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--frost2);font:inherit;font-size:14px;cursor:pointer}
+.fgroups button.on{background:var(--frost);color:var(--ink0);border-color:transparent}
+.flist{display:grid;gap:10px;max-width:900px;padding-block:24px 96px}
+.fgt{font-family:"Martian Mono",monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mist);margin-top:22px}
+.qa{border-radius:14px;border:1px solid var(--line);background:var(--ink1);overflow:hidden}
+.qa button{display:flex;justify-content:space-between;align-items:center;gap:16px;width:100%;min-height:60px;padding:14px 20px;border:0;background:transparent;color:var(--frost);font:inherit;font-size:17px;font-weight:600;text-align:left;cursor:pointer}
+.qa button svg{flex:none;transition:transform .35s cubic-bezier(.2,.9,.1,1);color:var(--mist)}
+.qa.open button svg{transform:rotate(45deg)}
+.qa .ans{display:none;padding:0 20px 18px;color:var(--frost2);font-size:16px;max-width:70ch}
+.qa.open .ans{display:block;animation:ansIn .4s ease-out both}
+@keyframes ansIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+
+/* Menu mobile */
+.burger{display:none;width:44px;height:44px;border-radius:10px;border:1px solid var(--line2);background:transparent;cursor:pointer;padding:0;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.burger span{display:block;width:18px;height:1.6px;border-radius:2px;background:var(--frost);transition:transform .35s cubic-bezier(.2,.9,.1,1),opacity .2s}
+.burger[aria-expanded="true"] span:nth-child(1){transform:translateY(6.6px) rotate(45deg)}
+.burger[aria-expanded="true"] span:nth-child(2){opacity:0}
+.burger[aria-expanded="true"] span:nth-child(3){transform:translateY(-6.6px) rotate(-45deg)}
+.sheet{position:fixed;left:0;right:0;top:64px;bottom:0;z-index:19;display:none;flex-direction:column;justify-content:space-between;gap:28px;padding:28px 24px calc(28px + env(safe-area-inset-bottom, 0px));background:rgba(var(--veil),.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);overflow-y:auto}
+.sheet-in{display:grid;gap:4px}
+.mi{display:block;padding:12px 0;font-size:34px;font-stretch:118%;font-weight:720;letter-spacing:-.01em;line-height:1.1;text-decoration:none;color:var(--frost);border-bottom:1px solid var(--line);opacity:0;transform:translateY(14px)}
+.mi.j{color:var(--spectre)}.mi.p{color:var(--glacier)}
+.sheet.open .mi{animation:miIn .5s cubic-bezier(.2,.9,.1,1) both;animation-delay:calc(var(--i) * 45ms + 60ms)}
+@keyframes miIn{to{opacity:1;transform:none}}
+.sheet-foot{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}
+.sheet-foot .btn{grid-column:1 / -1}
+.mi-small{font-size:16px;color:var(--frost2);text-decoration:none;min-height:44px;display:inline-flex;align-items:center}
+
+/* Thème clair */
+.thm{width:38px;height:38px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--frost2);display:grid;place-items:center;cursor:pointer;padding:0}
+.thm:hover{color:var(--frost)}
+.thm .sun{display:none}
+.pg.light .thm .sun{display:block}.pg.light .thm .moon{display:none}
+.pg:not(.light) .lt{display:none!important}
+.pg.light .dk{display:none!important}
+.pg.light{--ink0:#F2F5F6;--ink1:#E8EDEF;--ink2:#FFFFFF;--ink3:#F6F8F9;--line:#D8E0E4;--line2:#C3CED4;--frost:#0B1117;--frost2:#2F3B45;--mist:#55636E;--spectre:#5340E6;--glacier:#08779E;--src:#0B1117;--veil:242,245,246;--veil2:232,237,239;--onsig:#FFFFFF;color-scheme:light}
+.pg.light :is(.nothing){--ink0:#05070A;--ink1:#090D12;--ink2:#0E141A;--ink3:#141B23;--line:#1E2832;--line2:#2B3742;--frost:#E3EDF0;--frost2:#B4C2C9;--mist:#8A99A3;--veil:5,7,10;--veil2:9,13,18;--sig:var(--sigd);--soft:rgba(154,140,255,.14);--sline:rgba(154,140,255,.45);--src:#E3EDF0;color:var(--frost)}
+.pg.light .hphoto img{filter:brightness(1.08) saturate(.95)}
+@media (max-width:900px){
+  .burger{display:inline-flex}
+  .sheet.open{display:flex}
+  .top .tools > span{display:none}
+  .top .tools{gap:10px;margin-left:auto}
+  .top .wrap{flex-wrap:nowrap;gap:12px;min-height:64px}
+  .top .logo,.top .wrap > a:first-child{flex:none}
+  .top .tools .btn.sig{min-height:40px;padding:0 14px;font-size:14px}
+}
+@media (prefers-reduced-motion:reduce){.sheet.open .mi{animation:none;opacity:1;transform:none}}
+/* Barre de thèmes collée (téléphone) et FAQ vide */
+.fbar{display:none}
+.fgroups:empty{display:none}
+.flist:not(:has(.qa)){padding:0}
+.fempty{display:grid;gap:18px;justify-items:start;max-width:900px;margin-bottom:96px;padding:32px;border-radius:20px;border:1px dashed var(--line2);color:var(--frost2)}
+.fempty .fic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--ink3);border:1px solid var(--line2);color:var(--frost)}
+.fempty .act{display:flex;flex-wrap:wrap;gap:12px}
+@media (max-width:900px){
+  .ahead .fgroups{display:none}
+  .fbar{position:sticky;top:64px;z-index:18;display:block;background:rgba(var(--veil),.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+  .fbar:has(.fbar-in:empty){display:none}
+  .fbar-in{display:flex;gap:8px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:20px;padding:10px 20px;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,transparent,#000 16px,#000 calc(100% - 28px),transparent)}
+  .fbar-in::-webkit-scrollbar{display:none}
+  .fbar button{flex:none;scroll-snap-align:start;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--frost2);font:inherit;font-size:15px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .fbar button span{font-family:"Martian Mono",ui-monospace,monospace;font-size:10.5px;color:var(--mist)}
+  .fbar button.on{background:var(--frost);color:var(--ink0);border-color:transparent}
+  .fbar button.on span{color:var(--ink3)}
+  .flist{gap:10px;padding-block:8px 64px}
+  .fgt{margin-top:26px;scroll-margin-top:130px}
+  .qa{border-radius:16px}
+  .qa.open{border-color:var(--line2)}
+  .qa button{font-size:16px;line-height:1.35;padding:16px;min-height:64px}
+  .qa button svg{box-sizing:content-box;padding:6px;border-radius:8px;border:1px solid var(--line2)}
+  .qa.open button svg{transform:none;color:var(--frost);border-color:var(--frost2)}
+  .qa button svg path{transform-box:view-box;transform-origin:12px 12px;transition:transform .35s cubic-bezier(.2,.9,.1,1)}
+  .qa.open button svg path{transform:rotate(45deg)}
+  .qa .ans{padding:0 16px 18px;font-size:16px;line-height:1.62}
+  .fempty{margin-block:28px 64px;padding:24px 22px}
+  .fempty .act{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;width:100%}
+  .fempty .btn{justify-content:center;min-height:50px}
+}
+@media (max-width:900px){
+  .nav{display:none}
+  .progress{top:64px}
+  .body{grid-template-columns:1fr;gap:24px;padding-block:28px 64px}
+  .toc{position:relative;top:0;display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;margin-inline:-20px;padding:0 20px 6px;scrollbar-width:none}
+  .toc::-webkit-scrollbar{display:none}
+  .toc b{display:none}
+  .toc a{flex:none;scroll-snap-align:start;border:1px solid var(--line2);border-radius:99px;padding:9px 14px;white-space:nowrap}
+  .toc a.on{border-color:var(--spectre)}
+  .ahead{padding-block:20px 30px;background:radial-gradient(90% 70% at 0% 0%,color-mix(in srgb,var(--spectre) 13%,transparent),transparent 70%),radial-gradient(70% 60% at 100% 0%,color-mix(in srgb,var(--glacier) 8%,transparent),transparent 70%)}
+  .crumbs{gap:6px;margin-bottom:10px;align-items:center}
+  .crumbs a{display:inline-flex;align-items:center;min-height:44px}
+  .ahead h1{font-size:40px;font-stretch:112%;line-height:1.04;letter-spacing:-.02em}
+  .chapo{font-size:18px;line-height:1.55;margin-top:14px}
+  .chapo:empty{display:none}
+  .prose h2{font-size:25px}
+  .prose ol > li{padding:14px 14px 14px 54px}
+  .prose ol > li::before{left:12px}
+  .rel{grid-template-columns:1fr}
+}
+@media (max-width:374px){.ahead h1{font-size:36px}}
+@media (prefers-reduced-motion:reduce){.logo .g,.qa.open .ans{animation:none}.qa button svg,.qa button svg path{transition:none}}
+/* En-tête compact */
+@media (max-width:400px){
+  .top .logo,.top .logo img{width:116px;height:16.2px}
+  .top .wrap{gap:8px}
+  .top .tools{gap:8px}
+  .top .tools .btn.sig{padding:0 12px;font-size:13.5px}
+}
+@media (max-width:389px){
+  .top .tools .btn.sig{padding:0 10px}
+  .map{column-gap:26px}
+  .node{font-size:13.5px;padding:9px 9px;gap:7px}
+  .node::after{width:13px}
+}
+</style>
+</helmet>
+<div class="{{ rootCls }}">
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="MainMobile.dc.html" aria-label="KyberNow, accueil">
+      <img class="dk" src="/_blob/17a5ec7a51421394b7eb52319ad30a07" alt="KyberNow"><img class="lt" src="/_blob/611b6d20f3b5596ebeeb51e67178b61e" alt="" aria-hidden="true">
+      <img class="g dk" src="/_blob/1eaee3615692f218cd7e2a9e89c4ed16" alt="" aria-hidden="true"><img class="g lt" src="/_blob/1a7bfae102793249377414c9af3ab1ca" alt="" aria-hidden="true" aria-hidden="true">
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="JeuMobile.dc.html">Jouer</a>
+      <a class="p" href="ProMobile.dc.html">Travailler</a>
+      <a href="MainMobile.dc.html#famille">Share</a>
+      <a href="MainMobile.dc.html#trajet">Technologie</a>
+      <a class="on" href="GuideMobile.dc.html">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Discord</a>
+    </nav>
+    <div class="tools"><button class="thm" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button><span>Se connecter</span><span class="mono" style="font-size:12px">FR</span><a class="btn sig" href="TelechargerMobile.dc.html">Télécharger</a><button class="burger" onClick="{{ toggleMenu }}" aria-expanded="{{ menuExpanded }}" aria-controls="menu-mobile" aria-label="{{ menuLabel }}"><span></span><span></span><span></span></button></div>
+  </div>
+</header>
+<div class="{{ sheetCls }}" id="menu-mobile" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav class="sheet-in" aria-label="Menu principal">
+      <a class="mi j" href="JeuMobile.dc.html" onClick="{{ closeMenu }}" style="--i: 0">Jouer</a>
+      <a class="mi p" href="ProMobile.dc.html" onClick="{{ closeMenu }}" style="--i: 1">Travailler</a>
+      <a class="mi" href="MainMobile.dc.html#famille" onClick="{{ closeMenu }}" style="--i: 2">Share</a>
+      <a class="mi" href="MainMobile.dc.html#trajet" onClick="{{ closeMenu }}" style="--i: 3">Technologie</a>
+      <a class="mi" href="GuideMobile.dc.html" onClick="{{ closeMenu }}" style="--i: 4">Guide</a>
+      <a class="mi" href="https://discord.gg/sVy2mu5WdT" onClick="{{ closeMenu }}" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a class="mi-small" href="#" onClick="{{ closeMenu }}">Se connecter</a>
+    <span class="mi-small">FR · <span style="opacity: .6">EN</span></span>
+    <a class="btn sig" href="TelechargerMobile.dc.html" onClick="{{ closeMenu }}" style="width: 100%; justify-content: center">Télécharger KyberNow</a>
+  </div>
+</div>
+
+<!-- ARTICLE -->
+<header class="ahead"><div class="wrap">
+  <nav class="crumbs" aria-label="Fil d'Ariane"><a href="GuideMobile.dc.html">Guide</a><span aria-hidden="true">›</span><span>Questions fréquentes</span></nav>
+  <h1 class="disp">{{ title }}</h1>
+  <p class="chapo">{{ chapo }}</p>
+  <div class="fgroups" role="group" aria-label="Thèmes"><sc-for list="{{ groups }}" as="g" hint-placeholder-count="5"><button class="{{ g.cls }}" aria-pressed="{{ g.sel }}" onClick="{{ g.pick }}">{{ g.name }}</button></sc-for></div>
+</div></header>
+<div class="fbar" role="group" aria-label="Thèmes"><div class="fbar-in"><sc-for list="{{ groups }}" as="g" hint-placeholder-count="5"><button class="{{ g.cls }}" aria-pressed="{{ g.sel }}" onClick="{{ g.pick }}">{{ g.name }}<span>{{ g.n }}</span></button></sc-for></div></div>
+<div class="wrap">
+  <div class="flist" ref="{{ listRef }}">
+    <sc-for list="{{ items }}" as="f" hint-placeholder-count="8">
+      <sc-if value="{{ f.head }}" hint-placeholder-val="{{ false }}"><p class="fgt">{{ f.group }}</p></sc-if>
+      <div class="{{ f.cls }}"><button aria-expanded="{{ f.exp }}" onClick="{{ f.toggle }}">{{ f.q }}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button><p class="ans">{{ f.a }}</p></div>
+    </sc-for>
+  </div>
+  <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}"><div class="fempty"><span class="fic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 3.8M12 17.2v.1"/></svg></span><p>Les réponses arrivent bientôt. En attendant, posez votre question sur Discord.</p><div class="act"><a class="btn sig" href="https://discord.gg/sVy2mu5WdT">Rejoindre le Discord</a><a class="btn" href="GuideMobile.dc.html">Tous les tutos</a></div></div></sc-if>
+</div>
+<!-- FIN ARTICLE -->
+
+<footer class="ft"><div class="wrap"><span>KyberNow · Les Lignes Claires</span><span>Jouer · Travailler · Share · Technologie · Comparer · Guide · Mentions légales</span></div></footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":390,"height":4708}}'>
+class Component extends DCLogic {
+  ref(k) {
+    this._refs = this._refs || {};
+    this.els = this.els || {};
+    if (!this._refs[k]) this._refs[k] = (el) => { this.els[k] = el; };
+    return this._refs[k];
+  }
+  pick(n) {
+    // Sur téléphone, un thème choisi plus bas ramène au début de la liste (sous la barre de thèmes collée)
+    const el = this.els && this.els.list;
+    if (el && window.innerWidth <= 900) {
+      const top = el.getBoundingClientRect().top;
+      if (top < 130) window.scrollTo({ top: Math.max(0, top + window.scrollY - 130), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
+    this.setState({ g: n, open: 0 });
+  }
+  renderVals() {
+    const s = this.state || {};
+    const theme = s.theme || this.props.theme || 'dark';
+    const menu = !!s.menu;
+    /* CONTENU */
+    const META = {"title": "Questions fréquentes", "chapo": ""};
+    const Q = [{"group": "Découvrir KyberNow", "q": "Qu'est-ce que KyberNow ?", "a": "KyberNow affiche votre ordinateur sur vos autres écrans et vous permet de le piloter, pour jouer comme pour travailler. Vous installez KyberNow Station sur l'ordinateur, puis l'app KyberNow Link sur vos appareils. KyberNow Admin, dans le navigateur, règle la Station, et KyberNow Share fait entrer quelqu'un d'autre. Voir Ce qu'il vous faut pour commencer."}, {"group": "Découvrir KyberNow", "q": "KyberNow est-il vraiment gratuit ?", "a": "Oui. KyberNow est un logiciel libre, sous licence AGPL-3.0, développé par Les Lignes Claires sans but commercial. Il n'y a ni abonnement ni publicité, et le relais public est ouvert à tous. Le compte KyberNow, les familles et les équipes sont gratuits aussi. Le code est sur GitHub."}, {"group": "Découvrir KyberNow", "q": "Pourquoi KyberNow est-il en bêta ?", "a": "KyberNow n'a pas encore atteint la version 1.0. Nous l'utilisons tous les jours, mais des réglages ou des écrans peuvent encore changer d'une version à l'autre. Gardez la Station et vos apps à jour (voir Mettre à jour KyberNow), et signalez les problèmes sur GitHub ou sur Discord."}, {"group": "Découvrir KyberNow", "q": "KyberNow peut-il remplacer Sunshine et Moonlight ?", "a": "Pour beaucoup d'usages, oui. Comme eux, KyberNow affiche votre ordinateur sur vos autres appareils, dans une app ou dans un navigateur. Il repose sur le moteur Kyber plutôt que sur le protocole GameStream : l'image est toujours chiffrée, l'écran virtuel à la taille de l'appareil est inclus, et la plupart des appareils s'ajoutent en acceptant un code dans Admin, sans rien recopier. La page Technologie compare les deux en détail."}, {"group": "Découvrir KyberNow", "q": "Est-ce du cloud gaming ?", "a": "Non. Le cloud gaming vous loue un ordinateur dans un centre de données, avec un abonnement. KyberNow se sert du vôtre : vous retrouvez vos jeux et vos logiciels tels que vous les avez installés, sans file d'attente. Chez vous, l'image va directement de votre ordinateur à votre appareil, sans passer par un serveur."}, {"group": "Découvrir KyberNow", "q": "Quel est le lien entre KyberNow et Kyber ?", "a": "KyberNow utilise Kyber, le moteur libre qui transporte l'image, le son et les commandes, conçu par des développeurs de VLC. Il y ajoute la Station (installateur, écrans et sortie son virtuels), Admin, les apps KyberNow Link et KyberNow Share. KyberNow n'est ni édité ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés."}, {"group": "Compte et sécurité", "q": "Faut-il un compte KyberNow ?", "a": "Non. Chez vous, l'app trouve l'ordinateur toute seule et vous l'ajoutez avec un code à six chiffres ; le partage et le prêt marchent aussi sans compte. Le compte, facultatif, fait apparaître vos ordinateurs sur tous vos appareils, les rend joignables hors de chez vous sans réglage, et permet de les ouvrir à votre famille ou à votre équipe. Voir Votre compte KyberNow."}, {"group": "Compte et sécurité", "q": "KyberNow est-il sûr ?", "a": "L'image, le son et vos frappes sont chiffrés entre l'ordinateur et l'app, et l'app vérifie qu'elle parle bien à votre ordinateur grâce à l'empreinte de son certificat. Un nouvel appareil n'entre que si vous acceptez son code dans Admin, ou avec un compte à qui vous avez donné des droits. Rien n'est à ouvrir sur votre box, et chaque accès reste visible dans Admin."}, {"group": "Compte et sécurité", "q": "Le relais de KyberNow peut-il voir mon écran ?", "a": "Pas dans les apps KyberNow Link : l'image, le son et vos frappes le traversent chiffrés de bout en bout. Dans un navigateur, avec une Station et un relais à jour, la connexion est aussi chiffrée jusqu'à votre ordinateur. Le relais voit les adresses IP, les débits et les codes de partage. Voir Retrouver votre ordinateur hors de chez vous."}, {"group": "Compte et sécurité", "q": "Quelles données KyberNow collecte-t-il ?", "a": "Aucune statistique d'usage. Chez vous, rien ne part vers un serveur à nous : l'image va directement de l'ordinateur à vos appareils. Hors de chez vous ou pour un partage, la connexion passe par le relais, qui garde les adresses IP dans ses journaux quelques jours, jamais les codes. Avec un compte, le relais garde aussi votre compte, les droits donnés, le journal des accès et vos réglages synchronisés ; « Exporter mes données » vous en donne une copie."}, {"group": "Compte et sécurité", "q": "Mon entreprise peut-elle utiliser son annuaire ?", "a": "Oui. Une équipe peut se connecter avec l'annuaire de l'entreprise, par SSO ou OAuth : chacun entre avec son compte de travail. Un Propriétaire ou un Administrateur la règle dans la console de l'équipe. Voir Familles et équipes."}, {"group": "Compte et sécurité", "q": "J'ai perdu un appareil, que faire ?", "a": "Dans Admin, espace Appareils Link, ouvrez l'appareil, puis « Retirer l'accès ». S'il était connecté à votre compte, choisissez aussi « Déconnecter » en face de lui, dans « Compte et sécurité ». Changer le mot de passe du compte déconnecte tous vos appareils d'un coup."}, {"group": "Compte et sécurité", "q": "J'ai oublié le mot de passe d'Admin, que faire ?", "a": "Sur l'ordinateur, ouvrez le menu de l'icône KyberNow Station, près de l'horloge, et choisissez « Réinitialiser le mot de passe d'Admin… ». L'icône affiche un code : Admin s'ouvre et vous le demande, avec votre nouveau mot de passe. Vos appareils déjà ajoutés le restent."}, {"group": "Compte et sécurité", "q": "J'ai oublié le mot de passe de mon compte KyberNow, que faire ?", "a": "Sur la page de connexion, choisissez « Mot de passe oublié ? » : un lien valable une heure part à votre adresse. Le nouveau mot de passe déconnecte vos autres appareils ; reconnectez-les avec « Connecter un compte »."}, {"group": "Chez vous et ailleurs", "q": "Puis-je utiliser KyberNow loin de chez moi ?", "a": "Oui. Avec un compte KyberNow, vos ordinateurs vous suivent partout. Sans compte, ajoutez l'appareil chez vous, puis allumez « Accès hors de chez vous » dans Admin. Un VPN comme Tailscale ou WireGuard marche aussi. L'ordinateur doit rester allumé. Voir Retrouver votre ordinateur hors de chez vous."}, {"group": "Chez vous et ailleurs", "q": "Faut-il ouvrir des ports sur ma box ?", "a": "Non, et mieux vaut ne pas le faire. C'est la Station qui ouvre la connexion vers le relais, et un VPN n'en a pas besoin non plus. Votre ordinateur reste ainsi invisible pour le reste d'internet."}, {"group": "Chez vous et ailleurs", "q": "Combien de données consomme une session ?", "a": "Cela dépend du débit choisi. À 20 Mbit/s, une heure de session consomme environ 9 Go. Hors de chez vous, prenez le profil Jeu ou Bureau, ou laissez « Débit adaptatif » allumé : l'app baisse le débit quand le réseau sature. Voir Profils, format vidéo, débit et HDR."}, {"group": "Chez vous et ailleurs", "q": "Quelle latence attendre ?", "a": "Sur un réseau local, nous avons mesuré 9,4 ms entre la capture de l'image sur le PC et son affichage sur l'appareil. C'est une médiane : la moitié des images arrivent plus vite. Chez vous, la latence dépend surtout de la carte graphique, du réseau et de l'appareil, et l'app l'affiche en direct. Par le relais, comptez de 5 à 20 ms de plus en France."}, {"group": "Chez vous et ailleurs", "q": "Puis-je installer mon propre relais ?", "a": "Oui, sur une machine Linux avec Docker et un nom de domaine. Vos partages, vos accès hors de chez vous et, si vous le voulez, vos comptes passent alors par une machine que vous tenez. Voir Installer votre propre relais."}, {"group": "Ordinateurs et appareils", "q": "Sur quels ordinateurs installer la Station ?", "a": "Sur un PC sous Windows 10 ou 11, sur un Mac à puce Apple sous macOS 15 ou plus récent, ou sur un ordinateur sous Linux : Ubuntu, Debian, Fedora, et aussi Bazzite, Fedora Silverblue ou SteamOS. Voir Installer sur Windows, sur Mac et sur Linux."}, {"group": "Ordinateurs et appareils", "q": "Sur quels appareils retrouver mon ordinateur ?", "a": "Un Mac à puce Apple, un PC Windows, un PC Linux, le Steam Deck, une Apple TV 4K de 2021 ou plus récente, un iPhone ou un iPad, un appareil Android (téléphone, tablette, téléviseur), un téléviseur LG, un Raspberry Pi, et tout navigateur récent. Voir Ce qu'il vous faut pour commencer."}, {"group": "Ordinateurs et appareils", "q": "Faut-il une carte graphique particulière ?", "a": "Non. Sur un PC Windows, la Station compresse l'image avec n'importe quelle carte NVIDIA, AMD ou Intel, même externe (eGPU) ; sans carte graphique, le processeur s'en charge. Seul le format AV1 demande une carte NVIDIA RTX 40 ou 50. Sur un Mac, la puce Apple suffit."}, {"group": "Ordinateurs et appareils", "q": "Quelles définitions et fréquences d'image sont possibles ?", "a": "Celles de votre écran : à chaque session, l'ordinateur crée un écran virtuel à la définition et à la fréquence de votre appareil, jusqu'à 7680 × 4320 et 500 Hz. Certains appareils ont leur propre plafond : 4K à 60 Hz sur l'Apple TV, la NVIDIA Shield et le Raspberry Pi, 4K à 120 Hz sur les téléviseurs LG. Voir Profils, format vidéo, débit et HDR."}, {"group": "Ordinateurs et appareils", "q": "KyberNow gère-t-il le HDR ?", "a": "Oui, quand l'écran de votre appareil est HDR : une puce « HDR » apparaît sur la carte de l'ordinateur, allumée d'office, et les jeux arrivent avec leurs couleurs et leurs lumières. Sur un PC, il faut Windows 11 24H2 et une carte graphique qui encode en 10 bits. Voir Profils, format vidéo, débit et HDR."}, {"group": "Ordinateurs et appareils", "q": "Qu'est-ce que PyroWave ?", "a": "Un format d'image qui se compresse et se décompresse en une fraction de milliseconde, pour gagner encore du délai sur le réseau de la maison. Il demande beaucoup de débit, environ 300 Mbit/s en 1080p : en « Auto », l'app ne le prend que si votre appareil est relié par câble et que l'ordinateur le propose. Voir Profils, format vidéo, débit et HDR."}, {"group": "Ordinateurs et appareils", "q": "L'app Mac fonctionne-t-elle sur un Mac Intel ?", "a": "Non, elle demande un Mac à puce Apple. Sur un Mac Intel, ouvrez votre ordinateur dans un navigateur, de préférence Chrome ou Edge. Voir Utiliser votre ordinateur dans un navigateur."}, {"group": "Ordinateurs et appareils", "q": "KyberNow est-il sur l'App Store ?", "a": "Oui, pour l'iPhone, l'iPad et l'Apple TV : cherchez « KyberNow ». Il faut iOS 18 ou iPadOS 18 ou plus récent, et une Apple TV 4K de 2021 ou plus récente. Voir Utiliser votre ordinateur depuis un iPhone ou un iPad et Jouer sur la télé avec l'Apple TV."}, {"group": "Ordinateurs et appareils", "q": "KyberNow fonctionne-t-il sur Android ?", "a": "Oui. La même app sert au téléphone, à la tablette et au téléviseur, à partir d'Android 11. Elle s'installe à partir de son fichier APK, publié avec chaque version, puis se met à jour elle-même. Voir Utiliser votre ordinateur depuis Android."}, {"group": "Ordinateurs et appareils", "q": "KyberNow fonctionne-t-il sur un téléviseur LG ?", "a": "Oui, sur les téléviseurs LG sous webOS 5 ou plus récent (modèles 2020 et après), jusqu'à la 4K à 120 Hz, avec manettes, Magic Remote et son 5.1 vers un ampli. L'app s'installe en mode développeur depuis un ordinateur, avec un compte LG gratuit ; pensez à prolonger ce mode de temps en temps. Voir Jouer sur un téléviseur LG."}, {"group": "Ordinateurs et appareils", "q": "KyberNow fonctionne-t-il sur Linux et le Steam Deck ?", "a": "Oui. La même app fonctionne sur un PC Linux (x86_64 ou ARM), sur le Steam Deck et sur SteamOS au salon, avec une interface adaptée à chacun : souris et clavier sur un PC, manette sur le Deck et à la télé. Elle s'installe en paquet Flatpak, sans droits d'administrateur. Voir Utiliser votre ordinateur depuis Linux ou un Steam Deck."}, {"group": "Ordinateurs et appareils", "q": "KyberNow fonctionne-t-il sur un Raspberry Pi ?", "a": "Oui, avec un Pi 3, 4 ou 5. KyberNow Link OS se copie sur une carte microSD : le Pi démarre directement sur KyberNow Link, comme une console branchée à la télé. Vous pouvez aussi installer l'app seule sur Raspberry Pi OS 64 bits. Voir Brancher un Raspberry Pi à la télé."}, {"group": "Ordinateurs et appareils", "q": "Puis-je jouer à ma PlayStation avec KyberNow ?", "a": "Oui. Une PS5 ou une PS4 de la maison apparaît sur l'accueil de KyberNow Link, à côté de vos ordinateurs. Vous l'associez une fois avec le code qu'elle affiche, puis « Jouer ». Voir Jouer à votre PS5 ou PS4."}, {"group": "Partager et prêter", "q": "Puis-je partager mon ordinateur avec un ami ?", "a": "Oui, avec KyberNow Share. Vous ouvrez un partage, et jusqu'à quatre invités entrent avec un code à six chiffres, un lien ou un QR code, dans l'app ou dans un navigateur, chez vous comme à distance. Un invité arrive en spectateur ; vous lui donnez, ou non, les manettes, le clavier et la souris. Voir Partager votre écran avec KyberNow Share."}, {"group": "Partager et prêter", "q": "Puis-je prêter mon ordinateur ?", "a": "Oui. Avec un code pour une séance, un compte d'ami créé dans Admin, ou le droit « Emprunter pour jouer » d'un compte KyberNow, votre ami joue depuis chez lui pendant que vous ne vous servez pas de l'ordinateur, avec les apps que vous permettez. Voir Prêter votre ordinateur."}, {"group": "Partager et prêter", "q": "Quelqu'un peut-il seulement regarder mon écran ?", "a": "Oui, avec le droit « Regarder » d'un compte KyberNow. La personne voit le vrai écran de l'ordinateur, sans clavier, souris ni manette, et Admin vous dit qu'elle regarde. Voir Votre compte KyberNow."}, {"group": "Partager et prêter", "q": "Deux appareils peuvent-ils se connecter en même temps ?", "a": "Pas à la même session : le second prend la main, le premier est déconnecté, et l'écran virtuel est recréé à la taille du nouvel appareil. Pour faire entrer quelqu'un d'autre sans couper votre session, ouvrez un partage. Voir Partager votre écran avec KyberNow Share."}, {"group": "Partager et prêter", "q": "Puis-je ouvrir plusieurs ordinateurs à la fois ?", "a": "Oui, depuis les apps Mac, Windows et Linux : une fenêtre par ordinateur, quatre au plus. Seule la fenêtre au premier plan reçoit le clavier, la souris et les manettes. Voir Plusieurs écrans et plusieurs ordinateurs."}, {"group": "Dépannage", "q": "Mes écrans s'éteignent pendant la session, c'est normal ?", "a": "Oui. Pendant la session, l'ordinateur n'affiche que l'écran virtuel, à la taille de votre appareil, et éteint ses propres écrans. Ils se rallument à la fin. Si l'app se coupe sans prévenir, la Station attend 20 secondes, puis retire l'écran virtuel et rallume vos écrans ; au besoin, Admin a un bouton « Rallumer mes écrans », dans Image et son."}, {"group": "Dépannage", "q": "Pourquoi le son sort-il encore des haut-parleurs du PC ?", "a": "Sur un PC Windows, la Station envoie le son vers vos appareils par les haut-parleurs virtuels de Steam. Installez Steam, puis relancez l'installateur de KyberNow Station et choisissez « Garder mes réglages » : l'option « Son sur vos appareils » devient disponible, et vos appareils restent ajoutés. Sur un Mac et sous Linux, la Station installe sa propre sortie son."}, {"group": "Dépannage", "q": "Ma manette ne répond pas, que faire ?", "a": "Vérifiez d'abord qu'elle est reliée à votre appareil, en Bluetooth ou par câble ; plusieurs apps ont un écran pour tester les manettes. Sur un PC Windows, les manettes passent par le pilote ViGEmBus, installé avec la Station ; après la première installation, il faut parfois redémarrer. L'ordinateur accepte quatre manettes au plus, et tant que le menu de session est ouvert, la manette pilote l'app et le jeu ne reçoit rien."}, {"group": "Dépannage", "q": "L'image reste noire ou se fige, que faire ?", "a": "Mettez d'abord la Station et l'app à jour. Essayez ensuite une définition plus basse, ou un autre format (H.264 ou HEVC) dans les réglages de l'ordinateur, dans l'app. Branchez l'ordinateur en Ethernet si possible, et vérifiez qu'aucun autre logiciel de jeu à distance ne tourne dessus. Les journaux d'Admin (Système › Journaux) aident à trouver la cause."}, {"group": "Dépannage", "q": "Pourquoi mon ordinateur n'apparaît-il pas dans l'app ?", "a": "Vérifiez que l'appareil est sur le même réseau que l'ordinateur, et que la Station tourne (son icône est près de l'horloge, ou dans la barre des menus sur Mac). Vous pouvez aussi l'ajouter « Par adresse », avec l'adresse de l'ordinateur et le port d'Admin. Voir Connecter un appareil à votre ordinateur."}, {"group": "Dépannage", "q": "Où poser une autre question ?", "a": "Sur le forum d'aide du Discord, en français ou en anglais. Pour signaler un problème, les tickets GitHub sont ouverts à tous."}];
+    /* FIN DU CONTENU */
+    const groups = Q.length ? ['Toutes'].concat([...new Set(Q.map((x) => x.group))]) : [];
+    const g = s.g || 'Toutes';
+    const list = Q.filter((x) => g === 'Toutes' || x.group === g);
+    const open = s.open ?? 0;
+    let last = '';
+    return {
+      rootCls: 'pg' + (theme === 'light' ? ' light' : ''),
+      toggleTheme: () => this.setState({ theme: theme === 'light' ? 'dark' : 'light' }),
+      themeLabel: theme === 'light' ? 'Passer en thème sombre' : 'Passer en thème clair',
+      toggleMenu: () => this.setState({ menu: !menu }),
+      closeMenu: () => this.setState({ menu: false }),
+      menuExpanded: menu ? 'true' : 'false',
+      menuLabel: menu ? 'Fermer le menu' : 'Ouvrir le menu',
+      sheetCls: menu ? 'sheet open' : 'sheet',
+      ...META,
+      listRef: this.ref('list'),
+      empty: !Q.length,
+      groups: groups.map((n) => ({ name: n, n: String(n === 'Toutes' ? Q.length : Q.filter((x) => x.group === n).length), cls: n === g ? 'on' : '', sel: n === g ? 'true' : 'false', pick: () => this.pick(n) })),
+      items: list.map((x, i) => { const head = x.group !== last; last = x.group; return { ...x, head, cls: i === open ? 'qa open' : 'qa', exp: i === open ? 'true' : 'false', toggle: () => this.setState({ open: i === open ? -1 : i }) }; })
+    };
+  }
+}
+</script>
+</body>
+</html>

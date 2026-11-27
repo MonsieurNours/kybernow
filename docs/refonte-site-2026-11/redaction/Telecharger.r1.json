@@ -1,0 +1,32 @@
+[
+ {
+  "old": "une app sur chaque écran d'où vous voulez l'ouvrir.",
+  "new": "une autre sur chaque écran où vous voulez l'utiliser.",
+  "pourquoi": "tournure « d'où l'ouvrir » maladroite"
+ },
+ {
+  "old": "KyberNow Station se charge de tout&#8239;: le moteur, l'écran virtuel, les manettes et le pare-feu.",
+  "new": "KyberNow Station installe le moteur, l'écran virtuel et le pilote des manettes, puis règle le pare-feu.",
+  "pourquoi": "plus de « se charge de tout : »"
+ },
+ {
+  "old": "'Toute carte graphique, NVIDIA, AMD ou Intel, ou le processeur'",
+  "new": "'Une carte graphique NVIDIA, AMD ou Intel, ou à défaut le processeur'",
+  "pourquoi": "énumération plus lisible"
+ },
+ {
+  "old": "KyberNow Link existe pour chacun de vos appareils, et même sans rien installer, dans le navigateur.",
+  "new": "KyberNow Link s'installe sur chacun de vos appareils. Dans un navigateur, il n'y a rien à installer.",
+  "pourquoi": "deux idées, deux phrases"
+ },
+ {
+  "old": "<h2 class=\"disp\">Associez-les</h2>",
+  "new": "<h2 class=\"disp\">Associez l'appareil à l'ordinateur</h2>",
+  "pourquoi": "titre lisible hors contexte"
+ },
+ {
+  "old": "Une question, un souci&#8239;: le Discord répond en français et en anglais.",
+  "new": "Pour une question ou un souci, le Discord vous répond en français et en anglais.",
+  "pourquoi": "pas de deux-points à effet"
+ }
+]

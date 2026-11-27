@@ -9,7 +9,7 @@ The author's choices (25/11/2026), asked for by a Linux user (Fedora, Cinnamon) 
 - every app and both Stations;
 - pressure, tilt, rotation, eraser end, pen button and hover;
 - with an older Station, the pen stays a mouse at an absolute position, with no notice;
-- no setting to turn it off.
+- no setting to turn it off; since 27/11/2026 (0.11.8), “Pen: Pressure / Mouse” in the bar, the computer settings and Ctrl+Alt+Shift+P (⌃⌥⌘P), remembered per computer, pressure by default: on “Mouse”, the app sends the pen as an absolute-position mouse (`InputPipeline::pen_on` false), without Windows Ink (rule and texts: [link-ui.en.md](link-ui.en.md), “Pen”).
 
 ## Protocol (kynput)
 

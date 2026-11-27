@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>KyberNow, télécharger, clair</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&amp;family=Martian+Mono:wdth,wght@75..112.5,300..700&amp;display=swap">
+<style>
+body{margin:0;background:#05070A}
+a{color:#E3EDF0}a:hover{color:#FFFFFF}
+.pg{--veil:5,7,10;--veil2:9,13,18;--src:#E3EDF0;--onsig:#05070A;--sigd:#9A8CFF;--spectre:#9A8CFF;--glacier:#5CC8E8;--ink0:#05070A;--ink1:#090D12;--ink2:#0E141A;--ink3:#141B23;--line:#1E2832;--line2:#2B3742;--frost:#E3EDF0;--frost2:#B4C2C9;--mist:#8A99A3;
+  --spectre:#9A8CFF;--glacier:#5CC8E8;
+  background:var(--ink0);color:var(--frost);font-family:"Archivo","Helvetica Neue",Arial,sans-serif;font-size:17px;line-height:1.55;overflow-x:clip}
+.pg *{box-sizing:border-box}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(20px,4vw,56px)}
+.mono{font-family:"Martian Mono",ui-monospace,Menlo,monospace}
+.k{font-family:"Martian Mono",ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--mist)}
+h1,h2,h3{margin:0;text-wrap:balance}
+p{margin:0}
+.disp{font-stretch:125%;font-weight:760;letter-spacing:-.015em;line-height:1.02}
+.lead{color:var(--frost2);font-size:19px;max-width:58ch}
+.btn{display:inline-flex;align-items:center;gap:10px;min-height:46px;padding:0 20px;border-radius:6px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--line2);background:var(--ink2);color:var(--frost);cursor:pointer;font-family:inherit}
+.btn.sig{background:var(--frost);color:var(--ink0);border-color:transparent;clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);border-radius:6px 6px 0 6px}
+.btn svg{flex:none}
+/* En-tête */
+.top{position:sticky;top:0;z-index:20;background:rgba(var(--veil),.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:28px;min-height:68px;flex-wrap:wrap}
+.logo{position:relative;display:block;width:150px;height:21px}
+.logo img{position:absolute;inset:0;width:150px;height:21px}
+.logo .g{animation:xfade 8s ease-in-out infinite}
+@keyframes xfade{0%,38%{opacity:0}50%,88%{opacity:1}100%{opacity:0}}
+.nav{display:flex;gap:26px;margin-right:auto;font-size:15px;flex-wrap:wrap}
+.nav a{text-decoration:none;color:var(--frost2)}
+.nav a:hover{color:var(--frost)}
+.nav .j{color:var(--spectre)}.nav .p{color:var(--glacier)}
+.nav .disc{display:inline-flex;align-items:center;gap:7px}
+.tools{display:flex;align-items:center;gap:18px;font-size:14px;color:var(--frost2)}
+/* Héros : un ordinateur, tous les écrans */
+.hero{padding-block:84px 72px;display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:40px;align-items:center}
+.hero h1{font-size:clamp(46px,5.4vw,80px)}
+.steps3{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.steps3 a{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;border:1px solid var(--line2);background:var(--ink1);text-decoration:none;font-size:15px;color:var(--frost2)}
+.steps3 a b{font-family:"Martian Mono",monospace;font-weight:500;color:var(--frost)}
+.steps3 a:hover{border-color:var(--frost2);color:var(--frost)}
+.map{position:relative;aspect-ratio:1.15;max-width:100%}
+.map > svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.beam{stroke-dasharray:4 10;animation:flow 1.4s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-28}}
+.node{position:absolute;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;background:var(--ink1);border:1px solid var(--line2);font-size:14px;color:var(--frost2);transform:translate(-50%,-50%);white-space:nowrap;animation:pop .8s cubic-bezier(.2,.9,.1,1) both}
+.node svg{color:var(--frost)}
+@keyframes pop{from{opacity:0;transform:translate(-50%,-50%) scale(.85)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.station{position:absolute;left:18%;top:50%;transform:translate(-50%,-50%);display:grid;justify-items:center;gap:12px;font-size:14px;color:var(--frost2)}
+.station .mk{width:110px;height:110px;border-radius:26px;display:grid;place-items:center;background:var(--ink1);border:1px solid var(--line2);box-shadow:0 0 60px -10px rgba(154,140,255,.5)}
+.station .mk svg{width:62px;height:62px;overflow:visible}
+.sigc{animation:cyc 8s ease-in-out infinite}
+@keyframes cyc{0%,40%{fill:var(--spectre)}50%,90%{fill:var(--glacier)}100%{fill:var(--spectre)}}
+.sigs{animation:cycs 8s ease-in-out infinite}
+@keyframes cycs{0%,40%{stroke:var(--spectre)}50%,90%{stroke:var(--glacier)}100%{stroke:var(--spectre)}}
+/* Étapes */
+.sec{padding-block:110px;border-top:1px solid var(--line)}
+.stephead{display:grid;grid-template-columns:auto minmax(0,1fr);gap:24px;align-items:start;margin-bottom:44px}
+.num{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;font-family:"Martian Mono",monospace;font-size:24px;border:1px solid var(--line2);background:var(--ink1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.03)}
+.stephead h2{font-size:clamp(32px,3.8vw,52px)}
+.stephead p{color:var(--frost2);margin-top:10px;max-width:60ch}
+.os{display:inline-flex;padding:4px;border-radius:12px;border:1px solid var(--line2);background:var(--ink1);gap:4px;margin-bottom:22px;flex-wrap:wrap}
+.os button{min-height:44px;padding:0 18px;border-radius:9px;border:0;background:transparent;color:var(--frost2);font:inherit;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.os button.on{background:var(--ink3);color:var(--frost);box-shadow:inset 0 0 0 1px var(--line2)}
+.os .me{font-family:"Martian Mono",monospace;font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(76,214,138,.14);color:#4CD68A}
+.stcard{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:0;border-radius:24px;border:1px solid var(--line2);background:var(--ink1);overflow:hidden;clip-path:polygon(0 0,100% 0,100% calc(100% - 26px),calc(100% - 26px) 100%,0 100%)}
+.stcard .l{padding:34px;display:grid;gap:20px;align-content:start}
+.stcard .l img{height:48px;width:auto;max-width:100%}
+.stcard ul{margin:0;padding:0;list-style:none;display:grid;gap:10px}
+.stcard li{display:flex;gap:12px;color:var(--frost2);font-size:15px}
+.stcard li::before{content:"";flex:none;width:6px;height:6px;margin-top:9px;background:var(--frost);transform:rotate(45deg)}
+.stcard .file{font-family:"Martian Mono",monospace;font-size:12px;color:var(--mist)}
+.stcard .r{position:relative;background:radial-gradient(80% 80% at 70% 30%,rgba(154,140,255,.18),transparent 70%),radial-gradient(80% 80% at 30% 80%,rgba(92,200,232,.14),transparent 70%),var(--ink2);display:grid;place-items:center;padding:34px;border-left:1px solid var(--line)}
+.inst{width:100%;max-width:380px;border-radius:16px;border:1px solid var(--line2);background:#0B1016;padding:20px;display:grid;gap:14px;font-size:14px;box-shadow:0 40px 80px -40px rgba(0,0,0,.9)}
+.inst .t{display:flex;justify-content:space-between;color:var(--mist);font-family:"Martian Mono",monospace;font-size:11px}
+.inst .bar{height:8px;border-radius:8px;background:var(--line);overflow:hidden}
+.inst .bar i{display:block;height:100%;background:linear-gradient(90deg,#9A8CFF,#5CC8E8);transform-origin:left;animation:fill 6s ease-in-out infinite}
+@keyframes fill{0%{transform:scaleX(0)}70%,100%{transform:scaleX(1)}}
+.inst .it{display:flex;justify-content:space-between;color:var(--frost2)}
+.inst .it span:last-child{color:#4CD68A;font-family:"Martian Mono",monospace;font-size:12px;animation:ok 6s infinite}
+.inst .it:nth-of-type(4) span:last-child{animation-delay:.6s}.inst .it:nth-of-type(5) span:last-child{animation-delay:1.2s}.inst .it:nth-of-type(6) span:last-child{animation-delay:1.8s}
+@keyframes ok{0%,30%{opacity:0}40%,100%{opacity:1}}
+.btns{display:flex;flex-wrap:wrap;gap:12px}
+/* Appareils */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px}
+.chips button{min-height:40px;padding:0 16px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--frost2);font:inherit;font-size:14px;cursor:pointer}
+.chips button.on{background:var(--frost);color:var(--ink0);border-color:transparent}
+.devs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.dev{position:relative;display:grid;gap:12px;align-content:start;padding:22px;border-radius:18px;border:1px solid var(--line);background:var(--ink1);min-width:0;transition:border-color .3s,transform .4s cubic-bezier(.2,.9,.1,1),opacity .3s}
+.dev:hover{border-color:var(--line2);transform:translateY(-3px)}
+.dev.dim{opacity:.28}
+.dev.mine{border-color:rgba(76,214,138,.5);box-shadow:0 30px 70px -40px rgba(76,214,138,.5)}
+.dev .hd{display:flex;align-items:center;gap:12px}
+.dev .ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;background:var(--ink3);border:1px solid var(--line2);color:var(--frost)}
+.dev h3{font-size:17px;line-height:1.25}
+.dev p{color:var(--frost2);font-size:14px}
+.dev .how{font-family:"Martian Mono",monospace;font-size:11px;color:var(--mist)}
+.dev .tag{position:absolute;top:14px;right:14px;font-family:"Martian Mono",monospace;font-size:10px;padding:3px 7px;border-radius:5px;background:rgba(76,214,138,.14);color:#4CD68A}
+.dev .btn{min-height:40px;font-size:14px;padding:0 14px;justify-self:start}
+/* Associer */
+.pair{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:28px;align-items:center}
+.scr{border-radius:18px;border:1px solid var(--line2);background:#0B1016;padding:22px;display:grid;gap:14px;font-size:14px;min-height:220px;align-content:start}
+.scr .t{color:var(--mist);font-family:"Martian Mono",monospace;font-size:11px;letter-spacing:.1em}
+.code{display:flex;gap:8px}
+.code span{flex:1;min-width:0;text-align:center;font-family:"Martian Mono",monospace;font-size:26px;padding:12px 0;border-radius:10px;background:var(--ink3);border:1px solid var(--line2);animation:digit 8s infinite}
+.code span:nth-child(2){animation-delay:.2s}.code span:nth-child(3){animation-delay:.4s}.code span:nth-child(4){animation-delay:.6s}.code span:nth-child(5){animation-delay:.8s}.code span:nth-child(6){animation-delay:1s}
+@keyframes digit{0%,8%{opacity:.12}14%,100%{opacity:1}}
+.link{display:grid;justify-items:center;gap:8px;color:var(--mist);font-family:"Martian Mono",monospace;font-size:11px}
+.link svg{width:120px;height:20px;overflow:visible}
+.req{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:var(--ink3);border:1px solid var(--line2);animation:req 8s infinite}
+@keyframes req{0%,30%{opacity:0;transform:translateY(10px)}38%,100%{opacity:1;transform:none}}
+.accept{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:6px 6px 0 6px;background:var(--frost);color:#05070A;font-weight:600;font-size:13px;animation:press 8s infinite}
+@keyframes press{0%,52%{transform:none}55%{transform:scale(.94)}58%,100%{transform:none}}
+.done{color:#4CD68A;font-size:13px;animation:done 8s infinite}
+@keyframes done{0%,58%{opacity:0}64%,100%{opacity:1}}
+/* Confiance */
+.trust{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:22px;overflow:hidden}
+.trust div{background:var(--ink1);padding:26px 22px;display:grid;gap:10px;align-content:start}
+.trust b{font-size:17px}
+.trust p{color:var(--frost2);font-size:14px}
+.trust a{font-size:14px;color:var(--frost)}
+.beta{margin-top:28px;display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between;padding:26px 30px;border-radius:22px;border:1px solid var(--line2);background:radial-gradient(70% 140% at 0% 50%,rgba(154,140,255,.14),transparent 60%),radial-gradient(70% 140% at 100% 50%,rgba(92,200,232,.12),transparent 60%),var(--ink1)}
+.beta p{color:var(--frost2);max-width:70ch}
+.ft{padding-block:40px;border-top:1px solid var(--line);color:var(--mist);font-size:14px}
+.ft .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* Thème clair */
+.thm{width:38px;height:38px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--frost2);display:grid;place-items:center;cursor:pointer;padding:0}
+.thm:hover{color:var(--frost)}
+.thm .sun{display:none}
+.pg.light .thm .sun{display:block}.pg.light .thm .moon{display:none}
+.pg:not(.light) .lt{display:none!important}
+.pg.light .dk{display:none!important}
+.pg.light{--ink0:#F2F5F6;--ink1:#E8EDEF;--ink2:#FFFFFF;--ink3:#F6F8F9;--line:#D8E0E4;--line2:#C3CED4;--frost:#0B1117;--frost2:#2F3B45;--mist:#55636E;--spectre:#5340E6;--glacier:#08779E;--src:#0B1117;--veil:242,245,246;--veil2:232,237,239;--onsig:#FFFFFF;color-scheme:light}
+.pg.light :is(.stcard .inst,.pair .scr){--ink0:#05070A;--ink1:#090D12;--ink2:#0E141A;--ink3:#141B23;--line:#1E2832;--line2:#2B3742;--frost:#E3EDF0;--frost2:#B4C2C9;--mist:#8A99A3;--veil:5,7,10;--veil2:9,13,18;--sig:var(--sigd);--soft:rgba(154,140,255,.14);--sline:rgba(154,140,255,.45);--src:#E3EDF0;color:var(--frost)}
+.pg.light .hphoto img{filter:brightness(1.08) saturate(.95)}
+
+/* Menu mobile */
+.burger{display:none;width:44px;height:44px;border-radius:10px;border:1px solid var(--line2);background:transparent;cursor:pointer;padding:0;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.burger span{display:block;width:18px;height:1.6px;border-radius:2px;background:var(--frost);transition:transform .35s cubic-bezier(.2,.9,.1,1),opacity .2s}
+.burger[aria-expanded="true"] span:nth-child(1){transform:translateY(6.6px) rotate(45deg)}
+.burger[aria-expanded="true"] span:nth-child(2){opacity:0}
+.burger[aria-expanded="true"] span:nth-child(3){transform:translateY(-6.6px) rotate(-45deg)}
+.sheet{position:fixed;left:0;right:0;top:64px;bottom:0;z-index:19;display:none;flex-direction:column;justify-content:space-between;gap:28px;padding:28px 24px calc(28px + env(safe-area-inset-bottom, 0px));background:rgba(var(--veil),.97);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);overflow-y:auto}
+.sheet-in{display:grid;gap:4px}
+.mi{display:block;padding:12px 0;font-size:34px;font-stretch:118%;font-weight:720;letter-spacing:-.01em;line-height:1.1;text-decoration:none;color:var(--frost);border-bottom:1px solid var(--line);opacity:0;transform:translateY(14px)}
+.mi.j{color:var(--spectre)}.mi.p{color:var(--glacier)}
+.sheet.open .mi{animation:miIn .5s cubic-bezier(.2,.9,.1,1) both;animation-delay:calc(var(--i) * 45ms + 60ms)}
+@keyframes miIn{to{opacity:1;transform:none}}
+.sheet-foot{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}
+.sheet-foot .btn{grid-column:1 / -1}
+.mi-small{font-size:16px;color:var(--frost2);text-decoration:none;min-height:44px;display:inline-flex;align-items:center}
+@media (max-width:900px){
+  .burger{display:inline-flex}
+  .sheet.open{display:flex}
+  .top .tools > span{display:none}
+  .top .tools{gap:10px;margin-left:auto}
+  .top .wrap{flex-wrap:nowrap;gap:12px;min-height:64px}
+  .top .logo,.top .wrap > a:first-child{flex:none}
+  .top .tools .btn.sig{min-height:40px;padding:0 14px;font-size:14px}
+}
+@media (prefers-reduced-motion:reduce){.sheet.open .mi{animation:none;opacity:1;transform:none}}
+@supports (animation-timeline: view()){
+  .rv{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 70%}
+  @keyframes rise{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}
+  .stephead h2{animation:curtain linear both;animation-timeline:view();animation-range:entry 5% entry 85%}
+  @keyframes curtain{from{clip-path:inset(0 0 100% 0);transform:translateY(.4em)}to{clip-path:inset(0 0 0 0);transform:none}}
+}
+@media (max-width:900px){
+  .hero,.stcard,.pair{grid-template-columns:1fr}
+  .devs{grid-template-columns:1fr}
+  .trust{grid-template-columns:1fr 1fr}
+  .nav{display:none}
+  .stcard .r{border-left:0;border-top:1px solid var(--line)}
+  .link svg{transform:rotate(90deg)}
+}
+@media (prefers-reduced-motion:reduce){
+  .logo .g,.beam,.node,.sigc,.sigs,.inst .bar i,.inst .it span:last-child,.code span,.req,.accept,.done{animation:none}
+  .rv,.stephead h2{animation:none}
+}
+/* ===== Téléphone (sous 900 px) ===== */
+.pg{--ok:#4CD68A;--okr:76,214,138}
+.pg.light{--ok:#13824A;--okr:19,130,74}
+.herome{display:none}
+@keyframes popm{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes cycc{0%,40%{color:var(--spectre)}50%,90%{color:var(--glacier)}100%{color:var(--spectre)}}
+@keyframes trunk{to{background-position:0 12px}}
+@keyframes brl{to{background-position:-10px 0}}
+@keyframes brr{to{background-position:10px 0}}
+@keyframes pkt{0%,18%{opacity:0;transform:translateY(0)}21%{opacity:1;transform:translateY(0)}31%{opacity:1;transform:translateY(var(--run,68px))}34%,100%{opacity:0;transform:translateY(var(--run,68px))}}
+@media (max-width:900px){
+  .pg{font-size:16px}
+  /* Héros */
+  .hero{padding-block:36px 64px;gap:44px}
+  .hero > div:first-child{gap:18px!important}
+  .hero h1{font-size:clamp(38px,11.4vw,46px)}
+  .hero .lead{font-size:17px;line-height:1.5}
+  .steps3{gap:8px;margin-top:4px}
+  .steps3 a{flex:1 1 0;justify-content:center;min-height:46px;padding:0 10px;gap:8px}
+  .herome{display:grid;grid-template-columns:44px minmax(0,1fr);gap:0 14px;align-items:center;margin-top:6px;padding:16px;border-radius:18px;border:1px solid rgba(var(--okr),.45);background:radial-gradient(90% 120% at 100% 0%,rgba(var(--okr),.10),transparent 60%),var(--ink1);box-shadow:0 30px 60px -44px rgba(var(--okr),.7)}
+  .herome .tg{grid-column:1 / -1;justify-self:start;margin-bottom:12px;font-family:"Martian Mono",monospace;font-size:10px;letter-spacing:.06em;padding:3px 7px;border-radius:5px;background:rgba(var(--okr),.14);color:var(--ok)}
+  .herome .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--ink3);border:1px solid var(--line2);color:var(--frost)}
+  .herome .nm{display:grid;gap:3px;min-width:0}
+  .herome b{font-size:17px;line-height:1.25;color:var(--frost)}
+  .herome .how{font-family:"Martian Mono",monospace;font-size:10.5px;line-height:1.45;color:var(--mist)}
+  .herome .btn{grid-column:1 / -1;justify-content:center;margin-top:14px;min-height:50px;font-size:15.5px}
+  /* Schéma : l'ordinateur en haut, un tronc, six écrans de part et d'autre */
+  .map{aspect-ratio:auto;width:100%;max-width:420px;margin-inline:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:32px;row-gap:12px}
+  .map > svg{display:none}
+  .map::before{content:"";position:absolute;left:calc(50% - .75px);top:84px;bottom:23px;width:1.5px;color:var(--spectre);background:linear-gradient(currentColor 0 4px,transparent 4px) 0 0 / 100% 12px repeat-y;animation:trunk 1.2s linear infinite,cycc 8s ease-in-out infinite}
+  .station{position:relative;left:auto;top:auto;transform:none;grid-column:1 / -1;justify-self:center;gap:10px;margin-bottom:20px;z-index:1}
+  .station .mk{width:84px;height:84px;border-radius:22px;box-shadow:0 0 50px -8px rgba(154,140,255,.5)}
+  .station .mk svg{width:46px;height:46px}
+  .station > span{padding:3px 10px;border-radius:99px;background:var(--ink0);border:1px solid var(--line);font-size:13px}
+  .node{position:relative;left:auto!important;top:auto!important;transform:none;min-width:0;min-height:46px;padding:9px 11px;gap:8px;font-size:14px;line-height:1.2;white-space:normal;text-wrap:balance;animation:popm .7s cubic-bezier(.2,.9,.1,1) both}
+  .node svg{flex:none}
+  .node:nth-of-type(odd){flex-direction:row-reverse;text-align:right}
+  .node::after{content:"";position:absolute;top:calc(50% - .75px);width:16px;height:1.5px;color:var(--spectre);animation:cycc 8s ease-in-out infinite}
+  .node:nth-of-type(odd)::after{left:calc(100% + 1px);background:linear-gradient(90deg,transparent 0 6px,currentColor 6px) 0 0 / 10px 100% repeat-x;animation:brl 1.2s linear infinite,cycc 8s ease-in-out infinite}
+  .node:nth-of-type(even)::after{right:calc(100% + 1px);background:linear-gradient(90deg,currentColor 0 4px,transparent 4px) 0 0 / 10px 100% repeat-x;animation:brr 1.2s linear infinite,cycc 8s ease-in-out infinite}
+  .node.here{border-color:rgba(var(--okr),.55);color:var(--frost);box-shadow:0 0 0 3px rgba(var(--okr),.10)}
+  .node.here svg{color:var(--ok)}
+  /* Étapes */
+  .sec{padding-block:72px}
+  .stephead{grid-template-columns:auto minmax(0,1fr);gap:16px 14px;align-items:start;margin-bottom:28px}
+  .stephead > div{display:contents}
+  .num{width:48px;height:48px;border-radius:14px;font-size:18px;margin-top:2px}
+  .stephead h2{font-size:clamp(29px,8.4vw,36px);align-self:center}
+  .stephead p{grid-column:1 / -1;margin-top:0;font-size:16px;line-height:1.55}
+  /* Étape 1 */
+  .os{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;margin-bottom:14px}
+  .os button{justify-content:center;flex-wrap:wrap;gap:3px 8px;min-height:48px;padding:6px 8px}
+  .os .me{font-size:9px}
+  .stcard{border-radius:20px;clip-path:polygon(0 0,100% 0,100% calc(100% - 20px),calc(100% - 20px) 100%,0 100%)}
+  .stcard .l{padding:24px 20px;gap:16px}
+  .stcard .l img{height:36px}
+  .stcard .l h3{font-size:24px!important;line-height:1.15}
+  .stcard li{font-size:15px}
+  .stcard .btns{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px}
+  .stcard .btns .btn{justify-content:center;min-height:50px;padding:0 14px}
+  .stcard .file{overflow-wrap:anywhere}
+  .stcard .r{padding:22px 20px 30px}
+  .inst{padding:18px;gap:12px}
+  /* Étape 2 : filtres au pouce, cartes compactes, cet appareil en premier */
+  .chips{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scrollbar-width:none;margin:0 calc(-1 * clamp(20px,4vw,56px)) 16px;padding:2px clamp(20px,4vw,56px) 4px;scroll-padding-inline:clamp(20px,4vw,56px);-webkit-mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 32px),transparent);mask-image:linear-gradient(90deg,transparent,#000 14px,#000 calc(100% - 32px),transparent)}
+  .chips::-webkit-scrollbar{display:none}
+  .chips button{flex:none;min-height:44px;padding:0 18px;scroll-snap-align:start}
+  .devs{gap:10px}
+  .dev{grid-template-columns:minmax(0,1fr) auto;gap:10px 14px;align-items:center;padding:16px;border-radius:16px}
+  .dev:hover{transform:none}
+  .dev .hd,.dev p{grid-column:1 / -1}
+  .dev .hd{gap:12px}
+  .dev .ic{width:38px;height:38px;border-radius:10px}
+  .dev h3{font-size:16.5px}
+  .dev p{font-size:14.5px;line-height:1.5}
+  .dev .how{font-size:10.5px;line-height:1.5}
+  .dev .btn{min-height:44px;justify-self:end;white-space:nowrap}
+  .dev.dim{display:none}
+  .dev.mine{order:-1;background:radial-gradient(90% 120% at 100% 0%,rgba(var(--okr),.08),transparent 60%),var(--ink1)}
+  .dev .tag{position:static;grid-column:1 / -1;justify-self:start;margin-bottom:-2px;color:var(--ok);background:rgba(var(--okr),.14)}
+  .dev.mine .btn{background:var(--frost);color:var(--ink0);border-color:transparent}
+  /* Étape 3 : les deux écrans l'un sous l'autre, le lien entre eux */
+  .pair{gap:0}
+  .scr{min-height:0;padding:20px;gap:12px}
+  .code{gap:6px}
+  .code span{font-size:24px;padding:10px 0}
+  .req{flex-wrap:wrap}
+  .link{position:relative;height:76px;display:grid;place-items:center;--run:68px}
+  .link svg{display:none}
+  .link::before{content:"";position:absolute;left:calc(50% - .75px);top:0;bottom:0;width:1.5px;color:var(--spectre);background:linear-gradient(currentColor 0 4px,transparent 4px) 0 0 / 100% 12px repeat-y;animation:trunk 1.2s linear infinite,cycc 8s ease-in-out infinite}
+  .link::after{content:"";position:absolute;left:calc(50% - 4px);top:0;width:8px;height:8px;border-radius:50%;background:var(--glacier);box-shadow:0 0 14px 2px var(--glacier);opacity:0;animation:pkt 8s infinite}
+  .link span{position:relative;z-index:1;padding:4px 10px;border-radius:99px;background:var(--ink0);border:1px solid var(--line2)}
+  /* Confiance et bêta */
+  .trust{grid-template-columns:1fr;border-radius:18px}
+  .trust div{padding:20px;gap:8px}
+  .trust b{display:flex;align-items:center;gap:10px}
+  .trust b::before{content:"";flex:none;width:6px;height:6px;background:var(--frost);transform:rotate(45deg)}
+  .trust p{font-size:15px}
+  .trust a{justify-self:start;padding-block:12px;margin-block:-10px -12px}
+  .beta{margin-top:16px;padding:22px 20px;border-radius:18px;gap:18px}
+  .beta p{font-size:16px}
+  .beta .btn{width:100%;justify-content:center;min-height:50px}
+  .ft{padding-block:32px calc(32px + env(safe-area-inset-bottom, 0px))}
+}
+@media (min-width:600px) and (max-width:900px){
+  .devs{grid-template-columns:1fr 1fr}
+  .trust{grid-template-columns:1fr 1fr}
+}
+@media (max-width:400px){
+  .top .logo,.top .logo img{width:116px;height:16.2px}
+  .top .wrap{gap:8px}
+  .top .tools{gap:8px}
+  .top .tools .btn.sig{padding:0 12px;font-size:13.5px}
+}
+@media (max-width:389px){
+  .top .tools .btn.sig{padding:0 10px}
+  .map{column-gap:26px}
+  .node{font-size:13.5px;padding:9px 9px;gap:7px}
+  .node::after{width:13px}
+}
+@media (prefers-reduced-motion:reduce){
+  .map::before,.node::after,.link::before{animation:none}
+  .link::after{animation:none;opacity:0}
+}
+</style>
+</helmet>
+<div class="{{ rootCls }}">
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="MainClair.dc.html" aria-label="KyberNow, accueil">
+      <img class="dk" src="/_blob/17a5ec7a51421394b7eb52319ad30a07" alt="KyberNow"><img class="lt" src="/_blob/611b6d20f3b5596ebeeb51e67178b61e" alt="" aria-hidden="true">
+      <img class="g dk" src="/_blob/1eaee3615692f218cd7e2a9e89c4ed16" alt="" aria-hidden="true"><img class="g lt" src="/_blob/1a7bfae102793249377414c9af3ab1ca" alt="" aria-hidden="true" aria-hidden="true">
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="JeuClair.dc.html">Jouer</a>
+      <a class="p" href="ProClair.dc.html">Travailler</a>
+      <a href="MainClair.dc.html#famille">Share</a>
+      <a href="MainClair.dc.html#trajet">Technologie</a>
+      <a href="GuideClair.dc.html">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Discord</a>
+    </nav>
+    <div class="tools"><button class="thm" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button><span>Se connecter</span><span class="mono" style="font-size:12px">FR</span><a class="btn sig" href="#etape-1">Télécharger</a><button class="burger" onClick="{{ toggleMenu }}" aria-expanded="{{ menuExpanded }}" aria-controls="menu-mobile" aria-label="{{ menuLabel }}"><span></span><span></span><span></span></button></div>
+  </div>
+</header>
+<div class="{{ sheetCls }}" id="menu-mobile" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav class="sheet-in" aria-label="Menu principal">
+      <a class="mi j" href="JeuClair.dc.html" onClick="{{ closeMenu }}" style="--i: 0">Jouer</a>
+      <a class="mi p" href="ProClair.dc.html" onClick="{{ closeMenu }}" style="--i: 1">Travailler</a>
+      <a class="mi" href="MainClair.dc.html#famille" onClick="{{ closeMenu }}" style="--i: 2">Share</a>
+      <a class="mi" href="MainClair.dc.html#trajet" onClick="{{ closeMenu }}" style="--i: 3">Technologie</a>
+      <a class="mi" href="GuideClair.dc.html" onClick="{{ closeMenu }}" style="--i: 4">Guide</a>
+      <a class="mi" href="https://discord.gg/sVy2mu5WdT" onClick="{{ closeMenu }}" style="--i: 5">Discord</a>
+  </nav>
+  <div class="sheet-foot">
+    <a class="mi-small" href="#" onClick="{{ closeMenu }}">Se connecter</a>
+    <span class="mi-small">FR · <span style="opacity: .6">EN</span></span>
+    <a class="btn sig" href="TelechargerClair.dc.html" onClick="{{ closeMenu }}" style="width: 100%; justify-content: center">Télécharger KyberNow</a>
+  </div>
+</div>
+
+<section class="wrap hero">
+  <div style="display: grid; gap: 22px">
+    <p class="k">Télécharger</p>
+    <h1 class="disp">Installez KyberNow</h1>
+    <p class="lead">KyberNow Station sur l'ordinateur à retrouver, KyberNow Link sur chaque écran où vous voulez l'utiliser. Gratuit.</p>
+    <div class="steps3">
+      <a href="#etape-1"><b>1</b> Station</a>
+      <a href="#etape-2"><b>2</b> Link</a>
+      <a href="#etape-3"><b>3</b> Le code</a>
+    </div>
+    <sc-if value="{{ mineDev }}" hint-placeholder-val="{{ false }}">
+      <div class="herome">
+        <span class="tg">CET APPAREIL</span>
+        <span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ mineDev.icon }}"/></svg></span>
+        <span class="nm"><b>{{ mineDev.name }}</b><span class="how">{{ mineDev.how }}</span></span>
+        <a class="btn sig" href="{{ mineDev.href }}">{{ mineDev.cta }}</a>
+      </div>
+    </sc-if>
+  </div>
+  <div class="map" aria-label="Une Station reliée à six écrans&#8239;: télé, tablette, téléphone, portable, navigateur, Raspberry Pi">
+    <svg viewBox="0 0 460 400" aria-hidden="true">
+      <g fill="none" stroke-width="1.5">
+        <path class="beam sigs" d="M100 200 C 220 200, 250 50, 360 46" stroke="#9A8CFF"/>
+        <path class="beam sigs" d="M100 200 C 220 200, 250 116, 380 112" stroke="#9A8CFF" style="animation-delay: .2s"/>
+        <path class="beam sigs" d="M100 200 C 220 200, 260 180, 400 178" stroke="#9A8CFF" style="animation-delay: .4s"/>
+        <path class="beam sigs" d="M100 200 C 220 200, 260 244, 400 244" stroke="#9A8CFF" style="animation-delay: .6s"/>
+        <path class="beam sigs" d="M100 200 C 220 200, 250 306, 380 310" stroke="#9A8CFF" style="animation-delay: .8s"/>
+        <path class="beam sigs" d="M100 200 C 220 200, 250 370, 360 374" stroke="#9A8CFF" style="animation-delay: 1s"/>
+      </g>
+    </svg>
+    <div class="station">
+      <div class="mk"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z" fill="#E3EDF0" style="fill: var(--src)"/><path class="sigc" d="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" fill="#9A8CFF"/></svg></div>
+      <span>Votre ordinateur</span>
+    </div>
+    <span class="node" style="left: 78%; top: 11.5%; animation-delay: .1s"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></svg>La télé</span>
+    <span class="{{ nTab }}" style="left: 83%; top: 28%; animation-delay: .2s"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 3h14v18H5zM11 18h2"/></svg>La tablette</span>
+    <span class="{{ nPhone }}" style="left: 87%; top: 44.5%; animation-delay: .3s"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M7 3h10v18H7zM11 18h2"/></svg>Le téléphone</span>
+    <span class="node" style="left: 87%; top: 61%; animation-delay: .4s"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 5h16v11H4zM2 19h20"/></svg>Un portable</span>
+    <span class="node" style="left: 83%; top: 77.5%; animation-delay: .5s"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18"/></svg>Un navigateur</span>
+    <span class="node" style="left: 78%; top: 93.5%; animation-delay: .6s"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 10h2M8 14h2M14 10h2"/></svg>Un Raspberry Pi</span>
+  </div>
+</section>
+
+<section class="sec" id="etape-1">
+  <div class="wrap">
+    <div class="stephead rv"><span class="num">1</span><div><h2 class="disp">Sur l'ordinateur à retrouver</h2><p>KyberNow Station installe le moteur, l'écran virtuel et le pilote des manettes, puis règle le pare-feu.</p></div></div>
+    <div class="os" role="tablist" aria-label="Système de l'ordinateur">
+      <sc-for list="{{ oses }}" as="o" hint-placeholder-count="3">
+        <button class="{{ o.cls }}" role="tab" aria-selected="{{ o.sel }}" onClick="{{ o.pick }}">{{ o.label }}<sc-if value="{{ o.mine }}" hint-placeholder-val="{{ false }}"><span class="me">CET ORDINATEUR</span></sc-if></button>
+      </sc-for>
+    </div>
+    <div class="stcard rv">
+      <div class="l">
+        <img class="dk" src="/_blob/2f8f231b8fadc0f1e96c2fbcdaaa2dcd" alt="KyberNow Station"><img class="lt" src="/_blob/5b7db1a3743ca82286f2529ce5f49ecb" alt="" aria-hidden="true">
+        <h3 style="font-size: 26px; font-stretch: 115%">{{ st.title }}</h3>
+        <ul><sc-for list="{{ st.reqs }}" as="r" hint-placeholder-count="3"><li>{{ r }}</li></sc-for></ul>
+        <div class="btns"><sc-for list="{{ st.files }}" as="f" hint-placeholder-count="1"><a class="{{ f.cls }}" href="{{ f.href }}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>{{ f.label }}</a></sc-for></div>
+        <span class="file">{{ st.file }}</span>
+      </div>
+      <div class="r">
+        <div class="inst" aria-hidden="true">
+          <div class="t"><span>KYBERNOW STATION</span><span>{{ st.short }}</span></div>
+          <b style="font-weight: 600; font-size: 16px">Installation</b>
+          <div class="bar"><i></i></div>
+          <div class="it"><span>Moteur Kyber</span><span>prêt</span></div>
+          <div class="it"><span>Écran virtuel</span><span>prêt</span></div>
+          <div class="it"><span>Manettes</span><span>prêt</span></div>
+          <div class="it"><span>Admin</span><span>ouvert</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="etape-2">
+  <div class="wrap">
+    <div class="stephead rv"><span class="num">2</span><div><h2 class="disp">Sur l'écran devant vous</h2><p>Installez KyberNow Link sur chacun de vos appareils, ou ouvrez-le directement dans un navigateur.</p></div></div>
+    <div class="chips" role="group" aria-label="Filtrer les appareils">
+      <sc-for list="{{ kinds }}" as="k" hint-placeholder-count="5"><button class="{{ k.cls }}" aria-pressed="{{ k.sel }}" onClick="{{ k.pick }}">{{ k.label }}</button></sc-for>
+    </div>
+    <div class="devs">
+      <sc-for list="{{ devs }}" as="d" hint-placeholder-count="9">
+        <div class="{{ d.cls }}">
+          <sc-if value="{{ d.mine }}" hint-placeholder-val="{{ false }}"><span class="tag">CET APPAREIL</span></sc-if>
+          <div class="hd"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ d.icon }}"/></svg></span><h3>{{ d.name }}</h3></div>
+          <p>{{ d.req }}</p>
+          <span class="how">{{ d.how }}</span>
+          <a class="btn" href="{{ d.href }}">{{ d.cta }}</a>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="etape-3">
+  <div class="wrap">
+    <div class="stephead rv"><span class="num">3</span><div><h2 class="disp">Associez l'appareil à l'ordinateur</h2><p>Ouvrez Link&#8239;: votre ordinateur apparaît tout seul. Acceptez le code dans Admin, une fois par appareil.</p></div></div>
+    <div class="pair rv">
+      <div class="scr">
+        <span class="t">LINK · APPLE TV DU SALON</span>
+        <b style="font-weight: 600">Code de l'appareil</b>
+        <div class="code" aria-label="Code 482913"><span>4</span><span>8</span><span>2</span><span>9</span><span>1</span><span>3</span></div>
+        <span style="color: var(--mist); font-size: 13px">À accepter dans Admin, sur l'ordinateur.</span>
+      </div>
+      <div class="link" aria-hidden="true">
+        <svg viewBox="0 0 120 20"><path class="beam sigs" d="M0 10 H120" stroke="#9A8CFF" stroke-width="1.5" fill="none"/></svg>
+        <span>CHIFFRÉ</span>
+      </div>
+      <div class="scr">
+        <span class="t">ADMIN · PC DU SALON</span>
+        <b style="font-weight: 600">Nouvel appareil</b>
+        <div class="req"><span>Apple TV du salon · 482&nbsp;913</span><span class="accept">Accepter</span></div>
+        <span class="done">Accepté. L'Apple TV peut se connecter.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="verifier">
+  <div class="wrap">
+    <div class="trust rv">
+      <div><b>Signé</b><p>Les apps Mac sont signées et notarisées par Apple, les mises à jour vérifiées avant d'être installées.</p></div>
+      <div><b>Vérifiable</b><p>Chaque fichier a son empreinte SHA-256, publiée avec la version.</p><a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS">Empreintes SHA-256</a></div>
+      <div><b>Ouvert</b><p>Tout le code est sur GitHub, avec les corrections apportées au moteur Kyber.</p><a href="https://github.com/MonsieurNours/kybernow">Code source</a></div>
+      <div><b>À jour</b><p>La Station se met à jour d'un clic depuis Admin, la plupart des apps toutes seules.</p><a href="https://github.com/MonsieurNours/kybernow/releases/latest">Notes de version</a></div>
+    </div>
+    <div class="beta rv">
+      <p><b style="color: var(--frost)">KyberNow est en bêta.</b> Nous l'utilisons tous les jours, mais certains réglages peuvent encore changer. Pour une question ou un souci, le Discord vous répond en français et en anglais.</p>
+      <a class="btn" href="https://discord.gg/sVy2mu5WdT">Rejoindre le Discord</a>
+    </div>
+  </div>
+</section>
+
+<footer class="ft"><div class="wrap"><span>KyberNow · Les Lignes Claires</span><span>Jouer · Travailler · Share · Technologie · Comparer · Guide · Mentions légales</span></div></footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"light"},"$preview":{"width":1440,"height":4008}}'>
+class Component extends DCLogic {
+  componentDidMount() {
+    const ua = (navigator.userAgent || '') + ' ' + (navigator.platform || '');
+    let me = 'mac', os = 'mac', form = '';
+    const ipados = /Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+    if (/iPhone|iPad/.test(ua) || ipados) { me = 'ios'; os = 'mac'; form = /iPad/.test(ua) || ipados ? 'tab' : 'phone'; }
+    else if (/Android/.test(ua)) { me = 'android'; os = 'win'; form = /Mobile/.test(ua) ? 'phone' : 'tab'; }
+    else if (/Win/.test(ua)) { me = 'win'; os = 'win'; }
+    else if (/Linux|X11/.test(ua)) { me = 'linux'; os = 'linux'; }
+    this.setState({ me, os, form });
+  }
+  renderVals() {
+    const s = this.state || {};
+    const menu = !!s.menu;
+    const theme = s.theme || this.props.theme || 'light';
+    const os = s.os || 'win';
+    const me = s.me || '';
+    const kind = s.kind || 'all';
+    const R = 'https://github.com/MonsieurNours/kybernow/releases/latest';
+    const D = R + '/download/';
+    const ST = {
+      win: { title: 'KyberNow Station pour Windows', short: 'WINDOWS', file: 'KyberNow-Station-Setup.exe',
+        reqs: ['Windows 10 ou 11', 'Une carte graphique NVIDIA, AMD ou Intel, ou à défaut le processeur', "Un écran virtuel à la définition de chaque appareil"],
+        files: [{ label: 'Télécharger pour Windows', href: D + 'KyberNow-Station-Setup.exe', cls: 'btn sig' }] },
+      mac: { title: 'KyberNow Station pour Mac', short: 'MAC', file: 'KyberNow-Station-Mac.dmg',
+        reqs: ['Mac à puce Apple, macOS 15 ou plus récent', 'Signée et notarisée par Apple', 'Écran virtuel, son et HDR compris'],
+        files: [{ label: 'Télécharger pour Mac', href: D + 'KyberNow-Station-Mac.dmg', cls: 'btn sig' }] },
+      linux: { title: 'KyberNow Station pour Linux', short: 'LINUX', file: 'Paquets .deb et .rpm · x86_64 et arm64',
+        reqs: ['GNOME ou KDE, sous Wayland', 'Carte NVIDIA, carte Intel ou AMD par VA-API, ou le processeur', 'Debian, Ubuntu, Fedora et leurs dérivées'],
+        files: [{ label: 'Paquet .deb', href: R, cls: 'btn sig' }, { label: 'Paquet .rpm', href: R, cls: 'btn' }] }
+    };
+    const O = [{ id: 'win', label: 'Windows' }, { id: 'mac', label: 'Mac' }, { id: 'linux', label: 'Linux' }];
+    const I = {
+      tv: 'M3 5h18v11H3zM8 20h8M12 16v4', tab: 'M5 3h14v18H5zM11 18h2', pc: 'M4 5h16v11H4zM2 19h20',
+      web: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9s1.3-6.4 3.8-9z',
+      pi: 'M4 6h16v12H4zM8 10h2M8 14h2M14 10h2'
+    };
+    const DV = [
+      { id: 'mac', k: 'pc', icon: I.pc, name: 'Link pour Mac', req: 'Mac à puce Apple, macOS 14 ou plus récent.', how: 'APP · SIGNÉE ET NOTARISÉE', cta: 'Télécharger', href: D + 'KyberNow-Link-macOS.zip' },
+      { id: 'win', k: 'pc', icon: I.pc, name: 'Link pour Windows', req: 'Windows 10 22H2 ou 11, x64 ou ARM64. Se met à jour seule.', how: 'INSTALLATEUR · SANS DROITS ADMIN', cta: 'Télécharger', href: D + 'KyberNow-Link-Setup.exe' },
+      { id: 'linux', k: 'pc', icon: I.pc, name: 'Link pour Linux et Steam Deck', req: 'GNOME, KDE, Steam Deck, x86_64 ou ARM.', how: 'FLATPAK', cta: 'Télécharger', href: D + 'KyberNow-Link-Linux-x86_64.flatpak' },
+      { id: 'atv', k: 'tv', icon: I.tv, name: 'Link pour Apple TV', req: 'Apple TV 4K de 2021 ou plus récente. Quatre manettes, son 5.1 et 7.1.', how: 'APP STORE', cta: "Voir sur l'App Store", href: '#etape-2' },
+      { id: 'lg', k: 'tv', icon: I.tv, name: 'Link pour téléviseurs LG', req: 'webOS 5 ou plus récent. Jusqu’à la 4K à 120 Hz, son 5.1 vers un ampli.', how: 'DEPUIS UN ORDINATEUR', cta: 'Installer sur la télé', href: '#etape-2' },
+      { id: 'pi', k: 'tv', icon: I.pi, name: 'KyberNow Link OS', req: 'Raspberry Pi 3, 4 ou 5, Pi 400 et 500. Une carte microSD de 8 Go.', how: 'IMAGE POUR RASPBERRY PI IMAGER', cta: "Télécharger l'image", href: D + 'KyberNow-Link-OS.img.xz' },
+      { id: 'ios', k: 'mob', icon: I.tab, name: 'Link pour iPhone et iPad', req: 'iOS et iPadOS 18. Toucher, trackpad, clavier, Apple Pencil, manettes.', how: 'APP STORE', cta: "Voir sur l'App Store", href: '#etape-2' },
+      { id: 'android', k: 'mob', icon: I.tab, name: 'Link pour Android', req: 'Android 11 ou plus récent, sur téléphone, tablette ou Android TV.', how: 'APK SIGNÉ', cta: 'Télécharger', href: D + 'KyberNow-Link-Android.apk' },
+      { id: 'web', k: 'web', icon: I.web, name: 'Link dans le navigateur', req: "Rien à installer. Ouvrez l'adresse de votre ordinateur, suivie de /link.", how: 'CHROME, EDGE, SAFARI, FIREFOX', cta: "Comment l'ouvrir", href: '#etape-3' }
+    ];
+    const K = [{ id: 'all', label: 'Tous' }, { id: 'tv', label: 'Télé' }, { id: 'mob', label: 'Tablette et téléphone' }, { id: 'pc', label: 'Ordinateur' }, { id: 'web', label: 'Navigateur' }];
+    const st = ST[os];
+    const form = s.form || '';
+    return {
+      toggleMenu: () => this.setState({ menu: !menu }),
+      closeMenu: () => this.setState({ menu: false }),
+      menuExpanded: menu ? 'true' : 'false',
+      menuLabel: menu ? 'Fermer le menu' : 'Ouvrir le menu',
+      sheetCls: menu ? 'sheet open' : 'sheet',
+      rootCls: 'pg' + (theme === 'light' ? ' light' : ''),
+      toggleTheme: () => this.setState({ theme: theme === 'light' ? 'dark' : 'light' }),
+      themeLabel: theme === 'light' ? 'Passer en thème sombre' : 'Passer en thème clair',
+      oses: O.map((o) => ({ ...o, cls: o.id === os ? 'on' : '', sel: o.id === os ? 'true' : 'false', mine: o.id === me, pick: () => this.setState({ os: o.id }) })),
+      st,
+      kinds: K.map((k) => ({ ...k, cls: k.id === kind ? 'on' : '', sel: k.id === kind ? 'true' : 'false', pick: () => this.setState({ kind: k.id }) })),
+      mineDev: DV.find((d) => d.id === me) || null,
+      nPhone: 'node' + (form === 'phone' ? ' here' : ''),
+      nTab: 'node' + (form === 'tab' ? ' here' : ''),
+      devs: DV.map((d) => ({ ...d, mine: d.id === me, cls: 'dev' + (kind !== 'all' && d.k !== kind ? ' dim' : '') + (d.id === me ? ' mine' : '') }))
+    };
+  }
+}
+</script>
+</body>
+</html>

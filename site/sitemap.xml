@@ -2,58 +2,492 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://www.kybernow.app/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/"/>
   </url>
   <url>
     <loc>https://www.kybernow.app/en/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/"/>
   </url>
   <url>
+    <loc>https://www.kybernow.app/jeu/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/jeu/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/play/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/play/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/play/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/jeu/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/play/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/play/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/pro/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/pro/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/pro/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/pro/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/pro/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/pro/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/pro/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/pro/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/telecharger/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/telecharger/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/download/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/download/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/download/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/telecharger/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/download/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/download/"/>
+  </url>
+  <url>
     <loc>https://www.kybernow.app/share/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/share/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/share/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/share/"/>
   </url>
   <url>
     <loc>https://www.kybernow.app/en/share/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/share/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/share/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/share/"/>
   </url>
   <url>
     <loc>https://www.kybernow.app/technologie/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/technologie/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/technology/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/technology/"/>
   </url>
   <url>
     <loc>https://www.kybernow.app/en/technology/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/technologie/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/technology/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/technology/"/>
   </url>
   <url>
     <loc>https://www.kybernow.app/guide/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/"/>
   </url>
   <url>
     <loc>https://www.kybernow.app/en/guide/</loc>
-    <lastmod>2026-11-25</lastmod>
+    <lastmod>2026-11-27</lastmod>
     <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/android/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/android/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/android/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/android/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/android/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/android/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/android/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/android/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/apple-tv/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/apple-tv/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/apple-tv/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/apple-tv/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/apple-tv/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/apple-tv/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/apple-tv/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/apple-tv/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/ce-qu-il-vous-faut/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/ce-qu-il-vous-faut/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/what-you-need/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/what-you-need/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/what-you-need/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/ce-qu-il-vous-faut/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/what-you-need/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/what-you-need/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/clavier-et-raccourcis/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/clavier-et-raccourcis/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/keyboard-and-shortcuts/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/keyboard-and-shortcuts/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/keyboard-and-shortcuts/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/clavier-et-raccourcis/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/keyboard-and-shortcuts/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/keyboard-and-shortcuts/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/compte-kybernow/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/compte-kybernow/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/kybernow-account/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/kybernow-account/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/kybernow-account/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/compte-kybernow/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/kybernow-account/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/kybernow-account/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/connecter-un-appareil/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/connecter-un-appareil/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/connect-a-device/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/connect-a-device/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/connect-a-device/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/connecter-un-appareil/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/connect-a-device/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/connect-a-device/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/desinstaller/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/desinstaller/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/uninstall/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/uninstall/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/uninstall/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/desinstaller/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/uninstall/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/uninstall/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/familles-et-equipes/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/familles-et-equipes/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/families-and-teams/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/families-and-teams/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/families-and-teams/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/familles-et-equipes/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/families-and-teams/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/families-and-teams/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/faq/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/faq/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/faq/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/faq/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/faq/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/faq/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/faq/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/faq/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/hors-de-chez-vous/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/hors-de-chez-vous/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/away-from-home/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/away-from-home/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/away-from-home/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/hors-de-chez-vous/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/away-from-home/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/away-from-home/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/installer-station-linux/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-linux/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-linux/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-linux/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/install-station-linux/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-linux/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-linux/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-linux/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/installer-station-mac/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-mac/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-mac/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-mac/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/install-station-mac/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-mac/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-mac/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-mac/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/installer-station-windows/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-windows/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-windows/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-windows/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/install-station-windows/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-station-windows/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-station-windows/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-station-windows/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/installer-votre-relais/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-votre-relais/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-your-relay/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-your-relay/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/install-your-relay/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/installer-votre-relais/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/install-your-relay/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/install-your-relay/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/iphone-ipad/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/iphone-ipad/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/iphone-ipad/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/iphone-ipad/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/iphone-ipad/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/iphone-ipad/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/iphone-ipad/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/iphone-ipad/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/link-linux-steam-deck/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-linux-steam-deck/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/link-linux-steam-deck/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-linux-steam-deck/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-linux-steam-deck/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/link-mac/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-mac/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-mac/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-mac/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/link-mac/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-mac/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-mac/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-mac/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/link-windows/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-windows/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-windows/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-windows/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/link-windows/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/link-windows/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/link-windows/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/link-windows/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/mettre-a-jour/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/mettre-a-jour/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/update/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/update/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/update/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/mettre-a-jour/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/update/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/update/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/navigateur/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/navigateur/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/browser/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/browser/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/browser/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/navigateur/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/browser/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/browser/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/partager/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/partager/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/share/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/share/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/share/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/partager/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/share/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/share/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/playstation/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/playstation/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/playstation/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/playstation/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/playstation/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/playstation/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/playstation/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/playstation/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/plusieurs-ecrans-et-ordinateurs/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/plusieurs-ecrans-et-ordinateurs/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/multiple-displays-and-computers/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/multiple-displays-and-computers/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/multiple-displays-and-computers/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/plusieurs-ecrans-et-ordinateurs/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/multiple-displays-and-computers/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/multiple-displays-and-computers/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/preter/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/preter/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/lend/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/lend/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/lend/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/preter/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/lend/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/lend/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/profils-et-qualite/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/profils-et-qualite/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/profiles-and-quality/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/profiles-and-quality/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/profiles-and-quality/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/profils-et-qualite/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/profiles-and-quality/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/profiles-and-quality/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/raspberry-pi/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/raspberry-pi/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/raspberry-pi/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/raspberry-pi/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/raspberry-pi/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/raspberry-pi/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/raspberry-pi/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/raspberry-pi/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/stylet-micro-webcam/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/stylet-micro-webcam/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/stylus-microphone-camera/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/stylus-microphone-camera/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/stylus-microphone-camera/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/stylet-micro-webcam/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/stylus-microphone-camera/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/stylus-microphone-camera/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/guide/televiseur-lg/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/televiseur-lg/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/lg-tv/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/lg-tv/"/>
+  </url>
+  <url>
+    <loc>https://www.kybernow.app/en/guide/lg-tv/</loc>
+    <lastmod>2026-11-27</lastmod>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/televiseur-lg/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/lg-tv/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/lg-tv/"/>
   </url>
 </urlset>

@@ -1,0 +1,37 @@
+[
+ {
+  "old": "Une app sur l'ordinateur à retrouver, une autre sur chaque écran où vous voulez l'utiliser.",
+  "new": "KyberNow Station sur l'ordinateur à retrouver, KyberNow Link sur chaque écran où vous voulez l'utiliser.",
+  "pourquoi": "calque de l’accueil, apps nommées"
+ },
+ {
+  "old": "six écrans : télé",
+  "new": "six écrans&#8239;: télé",
+  "pourquoi": "espace fine avant deux-points"
+ },
+ {
+  "old": "KyberNow Link s'installe sur chacun de vos appareils. Dans un navigateur, il n'y a rien à installer.",
+  "new": "Installez KyberNow Link sur chacun de vos appareils, ou ouvrez-le directement dans un navigateur.",
+  "pourquoi": "redite mot pour mot de l’accueil"
+ },
+ {
+  "old": "Jusqu’à la 4K à 120 Hz",
+  "new": "Jusqu’à la 4K à 120 Hz",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "microSD de 8 Go.",
+  "new": "microSD de 8 Go.",
+  "pourquoi": "espace insécable entre nombre et unité"
+ },
+ {
+  "old": "'Android 11 ou plus récent, téléphone, tablette ou Android TV.'",
+  "new": "'Android 11 ou plus récent, sur téléphone, tablette ou Android TV.'",
+  "pourquoi": "énumération sans attache"
+ },
+ {
+  "old": "On s'en sert tous les jours, mais",
+  "new": "Nous l'utilisons tous les jours, mais",
+  "pourquoi": "« nous » comme sur la page pro"
+ }
+]

@@ -1,0 +1,542 @@
+<title>KyberNow, deux entrées</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,300..700&display=swap">
+<style>
+/* Mise en page : un dossier de projet sombre (encre KyberNow), puis trois maquettes dans des cadres de navigateur.
+   Chaque univers porte son signal : Spectre (jeu) ou Glacier (pro) ; le reste de la marque est commun. */
+:root {
+  --ink-0: #05070A; --ink-1: #090D12; --ink-2: #0E141A; --ink-3: #141B23;
+  --line: #1E2832; --line-2: #2B3742;
+  --frost: #E3EDF0; --frost-2: #B4C2C9; --mist: #8A99A3; --faint: #65737E;
+  --spectre: #9A8CFF; --spectre-strong: #6D5BFF; --spectre-light: #5340E6;
+  --glacier: #5CC8E8; --glacier-strong: #1FA6D1; --glacier-light: #08779E;
+  --sig: var(--spectre); --sig-strong: var(--spectre-strong);
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --text: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r-card: 16px; --r-ctl: 6px; --chamfer: 10px;
+  color-scheme: dark;
+}
+.u-jeu { --sig: var(--spectre); --sig-strong: var(--spectre-strong); }
+.u-pro { --sig: var(--glacier); --sig-strong: var(--glacier-strong); }
+.u-jeu, .u-pro { --sig-soft: color-mix(in oklab, var(--sig) 14%, transparent); --sig-line: color-mix(in oklab, var(--sig) 45%, transparent); }
+
+* { box-sizing: border-box; }
+body { background: var(--ink-0); color: var(--frost); font-family: var(--text); font-size: 16px; line-height: 1.55; margin: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--ink-0); }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--glacier); outline-offset: 3px; border-radius: 4px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; font-family: var(--display); }
+p { margin: 0; }
+.wrap { max-width: 1180px; margin: 0 auto; }
+.mono { font-family: var(--mono); font-size: .72rem; letter-spacing: .04em; }
+
+/* ---------- Dossier ---------- */
+.doc-nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in oklab, var(--ink-0) 88%, transparent);
+  backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); margin: 0 calc(-1 * max(16px, env(safe-area-inset-left, 0px))); }
+.doc-nav .wrap { display: flex; gap: 6px 22px; align-items: center; flex-wrap: wrap; padding: 12px max(16px, env(safe-area-inset-left, 0px)); }
+.doc-nav b { font-stretch: 125%; font-weight: 700; margin-right: auto; font-size: .95rem; }
+.doc-nav a { text-decoration: none; color: var(--frost-2); font-size: .88rem; }
+.doc-nav a:hover { color: var(--frost); }
+
+.intro { padding-block: 56px 32px; display: grid; gap: 18px; }
+.eyebrow { font-family: var(--mono); font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; color: var(--mist); }
+.intro h1 { font-size: clamp(2rem, 5vw, 3.6rem); font-stretch: 125%; font-weight: 750; line-height: 1.02; letter-spacing: -.01em; max-width: 16ch; }
+.intro h1 .j { color: var(--spectre); } .intro h1 .p { color: var(--glacier); }
+.lede { color: var(--frost-2); font-size: 1.12rem; max-width: 64ch; }
+
+.block { padding-block: 40px; border-top: 1px solid var(--line); display: grid; gap: 22px; }
+.block > h2 { font-size: 1.55rem; font-stretch: 112%; font-weight: 700; }
+.block > p, .prose p { color: var(--frost-2); max-width: 68ch; }
+.prose { display: grid; gap: 12px; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols > * { min-width: 0; }
+.panel { background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--r-card); padding: 20px; display: grid; gap: 10px; align-content: start; }
+.panel h3 { font-size: 1.02rem; font-weight: 650; }
+.panel p, .panel li { color: var(--frost-2); font-size: .94rem; }
+.panel ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+
+/* Arborescence */
+.tree { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.tree .root { grid-column: 1 / -1; text-align: center; }
+.node { border: 1px solid var(--line-2); border-radius: 12px; padding: 14px 16px; background: var(--ink-1); display: grid; gap: 4px; min-width: 0; }
+.node code { font-family: var(--mono); font-size: .75rem; color: var(--mist); }
+.node strong { font-size: 1rem; }
+.node small { color: var(--frost-2); font-size: .86rem; }
+.node.j { border-color: color-mix(in oklab, var(--spectre) 50%, transparent); }
+.node.j strong { color: var(--spectre); }
+.node.p { border-color: color-mix(in oklab, var(--glacier) 50%, transparent); }
+.node.p strong { color: var(--glacier); }
+.tree .common { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.chip { font-family: var(--mono); font-size: .72rem; padding: 6px 10px; border: 1px solid var(--line-2); border-radius: 99px; color: var(--frost-2); background: var(--ink-2); }
+
+/* Palette */
+.swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.sw { border-radius: var(--r-card); border: 1px solid var(--line); overflow: hidden; background: var(--ink-2); }
+.sw .bar { height: 84px; display: flex; align-items: flex-end; padding: 12px 14px; font-family: var(--mono); font-size: .72rem; color: #05070A; }
+.sw.j .bar { background: linear-gradient(120deg, var(--spectre-strong), var(--spectre)); }
+.sw.p .bar { background: linear-gradient(120deg, var(--glacier-strong), var(--glacier)); }
+.sw dl { margin: 0; padding: 12px 14px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: .84rem; }
+.sw dt { font-family: var(--mono); font-size: .7rem; color: var(--mist); padding-top: 2px; }
+.sw dd { margin: 0; color: var(--frost-2); font-variant-numeric: tabular-nums; }
+.dot { display: inline-block; width: .8em; height: .8em; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+
+ol.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; counter-reset: s; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 2.2rem 1fr; gap: 12px; padding: 14px 16px; background: var(--ink-2); border: 1px solid var(--line); border-radius: 12px; }
+ol.steps li::before { content: counter(s); font-family: var(--mono); font-size: .8rem; color: var(--glacier); padding-top: 2px; }
+ol.steps b { display: block; }
+ol.steps span { color: var(--frost-2); font-size: .93rem; }
+
+/* ---------- Cadre de navigateur ---------- */
+.mock-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+.mock-head h2 { font-size: 1.55rem; font-stretch: 112%; font-weight: 700; }
+.mock-head p { color: var(--frost-2); max-width: 70ch; }
+.browser { border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; background: var(--ink-0); box-shadow: 0 30px 80px -30px rgb(0 0 0 / .8); }
+.chrome { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--ink-2); border-bottom: 1px solid var(--line); }
+.chrome i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-2); flex: none; }
+.chrome .url { flex: 1; min-width: 0; font-family: var(--mono); font-size: .7rem; color: var(--mist); background: var(--ink-0); border-radius: 6px; padding: 5px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chrome .url b { color: var(--frost-2); font-weight: 500; }
+
+/* ---------- Maquette : composants du site ---------- */
+.m { --pad: clamp(18px, 4vw, 48px); background: var(--ink-0); position: relative; overflow: hidden; }
+.m-top { display: flex; align-items: center; gap: 18px; padding: 14px var(--pad); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-stretch: 112%; font-size: .98rem; text-decoration: none; }
+.logo .mk { width: 18px; height: 18px; border-radius: 4px; background: linear-gradient(135deg, #fff, var(--sig, var(--spectre))); transform: rotate(-8deg); }
+.logo .beta { font-family: var(--mono); font-size: .55rem; letter-spacing: .1em; border: 1px solid var(--line-2); padding: 2px 6px; border-radius: 4px; color: var(--mist); font-weight: 400; }
+.m-nav { display: flex; gap: 18px; font-size: .84rem; color: var(--frost-2); margin-right: auto; flex-wrap: wrap; }
+.m-nav span.on { color: var(--frost); box-shadow: inset 0 -2px 0 var(--sig); padding-bottom: 3px; }
+.m-tools { display: flex; align-items: center; gap: 14px; font-size: .8rem; color: var(--frost-2); }
+.btn { display: inline-flex; align-items: center; gap: 8px; font-family: var(--text); font-weight: 600; font-size: .88rem; border-radius: var(--r-ctl);
+  padding: 10px 16px; border: 1px solid var(--line-2); color: var(--frost); background: var(--ink-2); text-decoration: none; cursor: pointer; }
+.btn.sig { background: var(--sig); color: #05070A; border-color: transparent;
+  clip-path: polygon(0 0, calc(100% - var(--chamfer)) 0, 100% var(--chamfer), 100% 100%, 0 100%); }
+.btn.sm { padding: 7px 12px; font-size: .8rem; }
+.switch { font-size: .78rem; color: var(--frost-2); display: inline-flex; border: 1px solid var(--line-2); border-radius: 99px; overflow: hidden; }
+.switch span { padding: 5px 10px; }
+.switch .on { background: var(--sig-soft); color: var(--sig); }
+
+.m-hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 32px; padding: 56px var(--pad) 48px; align-items: center; position: relative; }
+.m-hero h1 { font-size: clamp(2rem, 4.6vw, 3.5rem); font-stretch: 125%; font-weight: 760; line-height: 1.02; letter-spacing: -.015em; }
+.m-hero h1 em { font-style: normal; color: var(--sig); }
+.m-hero .sub { color: var(--frost-2); font-size: 1.06rem; max-width: 46ch; margin-top: 16px; }
+.m-hero .ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.m-hero .note { margin-top: 16px; font-size: .82rem; color: var(--mist); }
+.photo { position: relative; border-radius: var(--r-card); overflow: hidden; border: 1px solid var(--line); aspect-ratio: 16 / 10; max-width: 100%; background: var(--ink-2); }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .04), inset 0 -60px 80px -40px rgb(5 7 10 / .7); }
+.glow { position: absolute; width: 520px; height: 520px; border-radius: 50%; filter: blur(90px); opacity: .22; background: var(--sig); pointer-events: none; }
+
+.m-sec { padding: 48px var(--pad); border-top: 1px solid var(--line); display: grid; gap: 24px; }
+.m-sec > header { display: grid; gap: 8px; max-width: 60ch; }
+.m-sec h2 { font-size: clamp(1.4rem, 3vw, 2.1rem); font-stretch: 118%; font-weight: 720; line-height: 1.08; }
+.m-sec h2 em { font-style: normal; color: var(--sig); }
+.m-sec header p { color: var(--frost-2); }
+.kicker { font-family: var(--mono); font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; color: var(--sig); }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.grid3 > *, .grid2 > * { min-width: 0; }
+.card { background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--r-card); padding: 18px; display: grid; gap: 8px; align-content: start; }
+.card h3 { font-size: 1rem; font-weight: 650; }
+.card p { color: var(--frost-2); font-size: .9rem; }
+.card .ic { width: 30px; height: 30px; border-radius: 8px; background: var(--sig-soft); border: 1px solid var(--sig-line); display: grid; place-items: center; color: var(--sig); font-family: var(--mono); font-size: .72rem; }
+.scene { display: grid; gap: 10px; }
+.scene .photo { aspect-ratio: 16 / 9; }
+.scene h3 { font-size: 1rem; font-weight: 650; }
+.scene p { color: var(--frost-2); font-size: .9rem; }
+
+/* Carrefour : les deux portes */
+.doors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 var(--pad) 48px; }
+.door { position: relative; border-radius: 22px; overflow: hidden; border: 1px solid var(--sig-line); background: var(--ink-2); display: grid; text-decoration: none; min-width: 0;
+  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%); transition: transform .32s cubic-bezier(.2,.9,.1,1), box-shadow .32s; }
+.door:hover { transform: translateY(-3px); box-shadow: 0 20px 60px -20px var(--sig); }
+.door .photo { border: 0; border-radius: 0; aspect-ratio: 16 / 8; }
+.door .in { padding: 20px 22px 22px; display: grid; gap: 10px; }
+.door h2 { font-size: clamp(1.25rem, 2.4vw, 1.7rem); font-stretch: 118%; font-weight: 720; line-height: 1.1; }
+.door p { color: var(--frost-2); font-size: .94rem; }
+.door .go { color: var(--sig); font-weight: 650; font-size: .92rem; display: inline-flex; gap: 8px; align-items: center; }
+.door .tag { position: absolute; top: 14px; left: 14px; z-index: 1; font-family: var(--mono); font-size: .64rem; letter-spacing: .12em; text-transform: uppercase;
+  padding: 5px 9px; border-radius: 6px; background: rgb(5 7 10 / .72); color: var(--sig); border: 1px solid var(--sig-line); backdrop-filter: blur(6px); }
+.cross-hero { padding: 56px var(--pad) 36px; display: grid; gap: 16px; justify-items: center; text-align: center; position: relative; }
+.cross-hero h1 { font-size: clamp(2.1rem, 5.2vw, 3.9rem); font-stretch: 125%; font-weight: 770; line-height: 1.02; letter-spacing: -.015em; max-width: 18ch; }
+.cross-hero h1 .a { color: var(--spectre); } .cross-hero h1 .b { color: var(--glacier); }
+.cross-hero p { color: var(--frost-2); font-size: 1.06rem; max-width: 58ch; }
+.cube { width: 74px; height: 74px; border-radius: 16px; transform: rotate(-14deg) skew(-4deg);
+  background: linear-gradient(135deg, #F4F1FF 0%, var(--spectre) 45%, var(--glacier) 100%);
+  box-shadow: 0 0 2px #fff, -18px 8px 50px -6px color-mix(in oklab, var(--spectre) 70%, transparent), 18px 10px 50px -6px color-mix(in oklab, var(--glacier) 70%, transparent); }
+.cube.solo { background: linear-gradient(135deg, #F4F1FF 0%, var(--sig) 55%, var(--sig-strong) 100%); box-shadow: 0 0 2px #fff, 0 0 40px -4px var(--sig); }
+
+.apps3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
+.figures div { background: var(--ink-1); padding: 18px; display: grid; gap: 2px; }
+.figures b { font-family: var(--display); font-stretch: 125%; font-size: 1.6rem; font-weight: 720; font-variant-numeric: tabular-nums; }
+.figures span { color: var(--frost-2); font-size: .84rem; }
+.figures.split b.a { color: var(--spectre); } .figures.split b.b { color: var(--glacier); }
+
+/* Pro : fiche technique et console */
+.spec { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.spec th, .spec td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.spec th { font-weight: 600; width: 32%; }
+.spec td { color: var(--frost-2); }
+.spec td code { font-family: var(--mono); font-size: .74rem; color: var(--sig); }
+.scroll-x { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--ink-1); }
+.uses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.use { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; background: var(--ink-2); }
+.use .photo { border: 0; border-radius: 0; aspect-ratio: auto; height: 100%; min-height: 180px; }
+.use .in { padding: 16px 18px; display: grid; gap: 8px; align-content: start; }
+.use h3 { font-size: 1rem; font-weight: 680; }
+.use p { color: var(--frost-2); font-size: .88rem; }
+.use ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.use li { font-family: var(--mono); font-size: .64rem; padding: 3px 7px; border-radius: 5px; background: var(--sig-soft); color: var(--sig); }
+
+.console { display: grid; grid-template-columns: 180px minmax(0, 1fr); border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; background: var(--ink-1); font-size: .86rem; }
+.console aside { border-right: 1px solid var(--line); padding: 14px; display: grid; gap: 4px; align-content: start; background: var(--ink-2); }
+.console aside small { font-family: var(--mono); font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; color: var(--mist); margin: 8px 0 4px; }
+.console aside span { padding: 6px 8px; border-radius: 6px; color: var(--frost-2); }
+.console aside span.on { background: var(--sig-soft); color: var(--sig); }
+.console main { padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.console h4 { margin: 0; font-size: .98rem; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink-2); }
+.row .who b { display: block; font-weight: 600; } .row .who small { color: var(--mist); font-size: .78rem; }
+.rights { display: flex; flex-wrap: wrap; gap: 5px; }
+.rights span { font-size: .72rem; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--line-2); color: var(--frost-2); }
+.rights span.y { border-color: var(--sig-line); color: var(--sig); background: var(--sig-soft); }
+.row .end { font-family: var(--mono); font-size: .66rem; color: var(--mist); }
+.log { font-family: var(--mono); font-size: .68rem; color: var(--mist); display: grid; gap: 4px; padding-top: 4px; border-top: 1px dashed var(--line-2); }
+.log b { color: var(--frost-2); font-weight: 500; }
+pre.cmd { margin: 0; padding: 14px 16px; font-family: var(--mono); font-size: .74rem; color: var(--frost); background: var(--ink-1); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+pre.cmd .c { color: var(--mist); } pre.cmd .s { color: var(--sig); }
+.price { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; align-items: center; padding: 26px; border-radius: 22px; border: 1px solid var(--sig-line);
+  background: radial-gradient(120% 140% at 100% 0%, var(--sig-soft), transparent 60%), var(--ink-2); }
+.price h2 { font-size: clamp(1.4rem, 3vw, 2rem); font-stretch: 118%; font-weight: 720; }
+.price p { color: var(--frost-2); margin-top: 10px; }
+.price .act { display: grid; gap: 10px; justify-items: start; }
+.price .mail { font-family: var(--mono); font-size: .8rem; color: var(--frost-2); user-select: all; }
+.m-foot { padding: 22px var(--pad); border-top: 1px solid var(--line); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: .78rem; color: var(--mist); }
+.more { padding: 18px var(--pad); border-top: 1px dashed var(--line-2); font-family: var(--mono); font-size: .7rem; color: var(--mist); }
+.more b { color: var(--frost-2); font-weight: 500; }
+
+.qs { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.qs li { padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--ink-2); display: grid; gap: 4px; }
+.qs li b { font-weight: 600; } .qs li span { color: var(--frost-2); font-size: .93rem; }
+.foot { padding-block: 36px 56px; color: var(--mist); font-size: .84rem; border-top: 1px solid var(--line); }
+
+@media (max-width: 820px) {
+  .m-hero, .doors, .uses, .price, .apps3 { grid-template-columns: 1fr; }
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .use { grid-template-columns: 1fr; } .use .photo { aspect-ratio: 16 / 9; height: auto; }
+  .console { grid-template-columns: 1fr; } .console aside { display: none; }
+  .row { grid-template-columns: 1fr; }
+  .m-nav { display: none; }
+  .tree { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .door { transition: none; } .door:hover { transform: none; } }
+</style>
+
+<nav class="doc-nav" aria-label="Sommaire">
+  <div class="wrap">
+    <b>KyberNow · refonte du site</b>
+    <a href="#projet">Projet</a>
+    <a href="#carrefour">Carrefour</a>
+    <a href="#jeu">Jouer</a>
+    <a href="#pro">Travailler</a>
+    <a href="#questions">Questions</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+<header class="intro" id="projet">
+  <p class="eyebrow">Projet de refonte · 27 novembre 2026 · pour validation</p>
+  <h1>Un accueil, deux entrées&#8239;: <span class="j">jouer</span> et <span class="p">travailler</span>.</h1>
+  <p class="lede">L'accueil devient un carrefour court. Il dit ce qu'est KyberNow en une phrase, puis ouvre deux portes. «&#8239;Jouer&#8239;» reprend l'accueil actuel, recentré sur le jeu, en violet Spectre. «&#8239;Travailler&#8239;» est une nouvelle page pour les créatifs, les stations de travail déportées, les studios et les équipes, en bleu Glacier. Le produit, les apps et la technologie restent communs. Tout est présenté comme si les chantiers en cours étaient finis.</p>
+</header>
+
+<section class="block" aria-labelledby="h-arbo">
+  <h2 id="h-arbo">Arborescence</h2>
+  <div class="tree">
+    <div class="node root"><code>/ · /en/</code><strong>Carrefour</strong><small>Une phrase, deux portes, les trois apps, quelques chiffres, téléchargement</small></div>
+    <div class="node j"><code>/jeu/ · /en/play/</code><strong>Jouer</strong><small>L'accueil actuel réorganisé&#8239;: la télé, les manettes, PS5 et PS4, jouer à plusieurs, prêter l'ordinateur, FAQ</small></div>
+    <div class="node p"><code>/pro/ · /en/pro/</code><strong>Travailler</strong><small>Au pixel près, quatre usages, équipes et accès, déploiement, sécurité, prix, nous écrire</small></div>
+    <div class="common">
+      <span class="chip">/share/ · deux angles déjà écrits</span>
+      <span class="chip">/technologie/</span>
+      <span class="chip">/comparer/ · section devenue page</span>
+      <span class="chip">/telecharger/ · nouvelle page commune</span>
+      <span class="chip">/guide/</span>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="panel"><h3>Navigation</h3><ul>
+      <li>Le logo ramène toujours au carrefour.</li>
+      <li>En-tête&#8239;: Jouer · Travailler · Share · Technologie · Guide, puis Se connecter, la langue et Télécharger.</li>
+      <li>L'onglet de l'univers en cours est souligné de sa couleur.</li>
+      <li>Une phrase discrète passe d'un univers à l'autre en haut de chaque page («&#8239;Vous travaillez avec KyberNow&#8239;?&#8239;»).</li>
+    </ul></div>
+    <div class="panel"><h3>Anciens liens</h3><ul>
+      <li>Les ancres de l'accueil actuel (<span class="mono">#partage</span>, <span class="mono">#playstation</span>, <span class="mono">#telecharger</span>…) sont redirigées par un petit script vers /jeu/ ou /telecharger/.</li>
+      <li>Les apps qui ouvrent le site gardent leurs liens.</li>
+      <li>Le plan du site, <span class="mono">llms.txt</span> et les données structurées suivent.</li>
+    </ul></div>
+    <div class="panel"><h3>Ce qui ne change pas</h3><ul>
+      <li>Fond encre, Archivo et Martian Mono, néon, coins coupés.</li>
+      <li>Le ton de <span class="mono">docs/ton-du-site.md</span>, vouvoiement, faits vérifiés.</li>
+      <li>«&#8239;Votre ordinateur sur tous vos appareils&#8239;», sans liste de plateformes hors téléchargement.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section class="block" aria-labelledby="h-coul">
+  <h2 id="h-coul">Deux signaux, une marque</h2>
+  <p>Seule la teinte du signal change d'un univers à l'autre&#8239;: boutons, soulignés, lueurs, petites étiquettes. La classe <span class="mono">.u-jeu</span> ou <span class="mono">.u-pro</span> sur la page redéfinit <span class="mono">--kn-signal</span> et ses dérivés&#8239;; aucun composant n'est dupliqué. Le carrefour porte les deux. Les couleurs d'état (vert, ambre, rouge) restent à part.</p>
+  <div class="swatches">
+    <div class="sw j"><div class="bar">Spectre · jeu</div><dl>
+      <dt>signal</dt><dd><span class="dot" style="background:#9A8CFF"></span>#9A8CFF</dd>
+      <dt>fort</dt><dd><span class="dot" style="background:#6D5BFF"></span>#6D5BFF</dd>
+      <dt>sur clair</dt><dd><span class="dot" style="background:#5340E6"></span>#5340E6</dd>
+    </dl></div>
+    <div class="sw p"><div class="bar">Glacier · pro</div><dl>
+      <dt>signal</dt><dd><span class="dot" style="background:#5CC8E8"></span>#5CC8E8</dd>
+      <dt>fort</dt><dd><span class="dot" style="background:#1FA6D1"></span>#1FA6D1</dd>
+      <dt>sur clair</dt><dd><span class="dot" style="background:#08779E"></span>#08779E (contraste AA sur #F2F5F6)</dd>
+    </dl></div>
+  </div>
+</section>
+
+<section class="block" aria-labelledby="h-photos">
+  <h2 id="h-photos">Photos</h2>
+  <p>Les scènes du jeu sont celles du site. Pour «&#8239;Travailler&#8239;», quatre nouvelles scènes ont été générées pour ces maquettes sur votre ComfyUI (Z-Image Turbo, mêmes réglages)&#8239;: retouche au stylet, portable dans une cuisine, petite équipe au montage, testeuse dans un studio de jeu. Pour le site, elles seront refaites avec un écran vert puis de vraies captures posées par <span class="mono">scripts/site-scenes/</span>, comme les autres.</p>
+</section>
+
+<section class="block" aria-labelledby="h-etapes">
+  <h2 id="h-etapes">Étapes proposées</h2>
+  <ol class="steps">
+    <li><div><b>Jetons et carrefour</b><span>Signal Glacier dans <span class="mono">kybernow.css</span>, classes d'univers, nouvel accueil, page /telecharger/.</span></div></li>
+    <li><div><b>Jouer</b><span>L'accueil actuel déplacé vers /jeu/, allégé de ce qui part au carrefour et au pro, ancres redirigées.</span></div></li>
+    <li><div><b>Travailler</b><span>Page /pro/, textes vérifiés dans le code et la doc (comptes, stylet, HDR, webcam, micro, enregistrement).</span></div></li>
+    <li><div><b>Photos</b><span>Quatre scènes pro avec captures réelles, en français et en anglais.</span></div></li>
+    <li><div><b>Anglais et référencement</b><span>/en/play/ et /en/pro/ écrites à la main, titres, descriptions, images de partage pour chaque univers.</span></div></li>
+  </ol>
+</section>
+
+<!-- ===================== CARREFOUR ===================== -->
+<section class="block" id="carrefour" aria-labelledby="h-carrefour">
+  <div class="mock-head"><h2 id="h-carrefour">Maquette 1 · Carrefour</h2><p>Court, à l'image de la question qu'il pose. On choisit sa porte dans le premier écran.</p></div>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url"><b>www.kybernow.app</b>/</div></div>
+    <div class="m u-jeu">
+      <div class="glow" style="left:-160px;top:-200px;background:var(--spectre)"></div>
+      <div class="glow" style="right:-160px;top:-160px;background:var(--glacier)"></div>
+      <div class="m-top">
+        <a class="logo" href="#carrefour"><span class="mk" style="background:linear-gradient(135deg,#fff,var(--spectre) 50%,var(--glacier))"></span>KyberNow <span class="beta">BÊTA</span></a>
+        <div class="m-nav"><span>Jouer</span><span>Travailler</span><span>Share</span><span>Technologie</span><span>Guide</span></div>
+        <div class="m-tools"><span>Se connecter</span><span>FR</span><span class="btn sm">Télécharger</span></div>
+      </div>
+      <div class="cross-hero">
+        <div class="cube" aria-hidden="true"></div>
+        <h1>Votre ordinateur sur tous vos appareils.</h1>
+        <p>KyberNow affiche votre ordinateur sur un autre écran, et vous le prenez en main, chez vous comme loin de chez vous. Moins de 10&nbsp;ms de délai sur votre réseau. Gratuit et libre.</p>
+      </div>
+      <div class="doors">
+        <a class="door u-jeu" href="#jeu">
+          <span class="tag">Jouer</span>
+          <div class="photo"><img src="img/salon-duo-fr-960.webp" alt="Deux personnes jouent à la manette devant la télé du salon"></div>
+          <div class="in">
+            <h2>Vos jeux sur la télé, la tablette ou le Steam Deck</h2>
+            <p>Vos manettes, le son sur vos enceintes, la 4K et le HDR. Vous jouez à plusieurs, et vous prêtez votre ordinateur à un ami.</p>
+            <span class="go">Jouer avec KyberNow →</span>
+          </div>
+        </a>
+        <a class="door u-pro" href="#pro">
+          <span class="tag">Travailler</span>
+          <div class="photo"><img src="img/creation.webp" alt="Une graphiste retouche un portrait au stylet sur deux écrans"></div>
+          <div class="in">
+            <h2>Votre station de travail, où que vous soyez</h2>
+            <p>Un texte net, des couleurs justes, votre stylet et tous vos écrans. Vous ouvrez vos ordinateurs à votre équipe et vous gardez la main sur les accès.</p>
+            <span class="go">Travailler avec KyberNow →</span>
+          </div>
+        </a>
+      </div>
+      <div class="m-sec">
+        <header><p class="kicker" style="color:var(--frost-2)">Pour tout le monde</p><h2>Les mêmes apps, que vous jouiez ou que vous travailliez</h2></header>
+        <div class="apps3">
+          <div class="card"><div class="ic">ST</div><h3>KyberNow Station</h3><p>S'installe sur l'ordinateur que vous voulez retrouver. Admin règle qui peut s'y connecter.</p></div>
+          <div class="card"><div class="ic">LK</div><h3>KyberNow Link</h3><p>S'installe sur l'appareil devant vous&#8239;: télé, téléphone, tablette, autre ordinateur, ou rien du tout, dans le navigateur.</p></div>
+          <div class="card"><div class="ic">SH</div><h3>KyberNow Share</h3><p>Fait entrer quelqu'un d'autre&#8239;: un deuxième joueur, un collègue qui regarde, un ami à qui vous prêtez l'ordinateur.</p></div>
+        </div>
+        <div class="figures split">
+          <div><b class="a">9,4&nbsp;ms</b><span>délai médian sur un réseau local</span></div>
+          <div><b class="b">4:4:4</b><span>des couleurs entières, un texte net</span></div>
+          <div><b class="a">HDR</b><span>les couleurs et les lumières telles quelles</span></div>
+          <div><b class="b">0&nbsp;€</b><span>gratuit, code ouvert</span></div>
+        </div>
+      </div>
+      <div class="more"><b>Puis</b> · un projet ouvert (gratuit, mises à jour vérifiées, communauté) · trois questions fréquentes · «&#8239;Installez KyberNow&#8239;» vers /telecharger/</div>
+      <div class="m-foot"><span>KyberNow · Les Lignes Claires</span><span>Jouer · Travailler · Share · Technologie · Comparer · Guide · Mentions légales</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== JOUER ===================== -->
+<section class="block" id="jeu" aria-labelledby="h-jeu">
+  <div class="mock-head"><h2 id="h-jeu">Maquette 2 · Jouer</h2><p>L'accueil actuel, recentré. Ce qui parle au travail (multi-écrans, texte net, stylet) part sur l'autre page&#8239;; il reste un lien vers elle.</p></div>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url"><b>www.kybernow.app</b>/jeu/</div></div>
+    <div class="m u-jeu">
+      <div class="glow" style="right:-180px;top:-140px"></div>
+      <div class="m-top">
+        <a class="logo" href="#carrefour"><span class="mk"></span>KyberNow <span class="beta">BÊTA</span></a>
+        <div class="m-nav"><span class="on">Jouer</span><span>Travailler</span><span>Share</span><span>Technologie</span><span>Guide</span></div>
+        <div class="m-tools"><span>Se connecter</span><span>FR</span><span class="btn sm sig">Télécharger</span></div>
+      </div>
+      <div class="m-hero">
+        <div>
+          <p class="kicker">Jouer</p>
+          <h1 style="margin-top:10px">Les jeux de votre ordinateur, <em>sur la télé du salon.</em></h1>
+          <p class="sub">Lancez un jeu sur votre ordinateur et jouez depuis le canapé, avec votre manette. L'image arrive en moins de 10&nbsp;ms, en 4K et en HDR, sur la télé, la tablette, le téléphone ou le Steam Deck.</p>
+          <div class="ctas"><a class="btn sig" href="#jeu">Télécharger KyberNow</a><a class="btn" href="#jeu">Voir comment ça marche</a></div>
+          <p class="note">Vous travaillez avec KyberNow&#8239;? <a href="#pro" style="color:var(--glacier)">C'est par ici</a>.</p>
+        </div>
+        <div class="photo"><img src="img/salon-duo-fr-960.webp" alt="Deux personnes jouent ensemble devant la télé"></div>
+      </div>
+      <div class="m-sec">
+        <header><p class="kicker">Au quotidien</p><h2>Votre ordinateur vous suit <em>dans toute la maison</em></h2></header>
+        <div class="grid3">
+          <div class="scene"><div class="photo"><img src="img/salon-amis-960.webp" alt="Des amis jouent ensemble dans un salon"></div><h3>Une soirée jeux sur la télé</h3><p>Chacun sa manette, l'ordinateur les reconnaît toutes.</p></div>
+          <div class="scene"><div class="photo"><img src="img/canape-fr-960.webp" alt="Une personne joue sur un Steam Deck dans le canapé"></div><h3>Sur la tablette ou le Steam Deck</h3><p>Le jeu continue dans le canapé, l'ordinateur reste dans le bureau.</p></div>
+          <div class="scene"><div class="photo"><img src="img/hotel-960.webp" alt="Une personne joue dans une chambre d'hôtel"></div><h3>À l'hôtel ou chez des amis</h3><p>Par le relais de KyberNow, sans rien ouvrir sur votre box.</p></div>
+        </div>
+      </div>
+      <div class="m-sec">
+        <header><p class="kicker">À plusieurs</p><h2>Jouez ensemble, <em>prêtez votre ordinateur</em></h2><p>Un ami entre dans votre partie avec sa manette, de chez lui. Votre ordinateur sert aussi quand vous n'êtes pas devant&#8239;: un code, un créneau, et il devient une console pour quelqu'un d'autre.</p></header>
+        <div class="grid3">
+          <div class="card"><div class="ic">2P</div><h3>Un deuxième joueur</h3><p>Vous envoyez un lien. Il joue dans le navigateur ou dans l'app, avec sa manette.</p></div>
+          <div class="card"><div class="ic">◉</div><h3>Regarder une partie</h3><p>Votre fils vous montre son jeu, sans toucher à rien.</p></div>
+          <div class="card"><div class="ic">⏱</div><h3>Prêter l'ordinateur</h3><p>Un code pour une soirée, ou des créneaux. Steam avec son compte ou le vôtre, et vos fichiers restent cachés.</p></div>
+        </div>
+      </div>
+      <div class="m-sec">
+        <header><p class="kicker">Réglé pour le jeu</p><h2>Les soucis du jeu à distance, <em>réglés d'avance</em></h2></header>
+        <div class="grid3">
+          <div class="card"><h3>Vos manettes, reconnues</h3><p>La DualSense au complet, vibrations et gâchettes comprises.</p></div>
+          <div class="card"><h3>PS5 et PS4 aussi</h3><p>Une association, puis «&#8239;Jouer&#8239;», sur tous vos appareils.</p></div>
+          <div class="card"><h3>Encore moins de délai, par câble</h3><p>PyroWave prend le relais quand votre appareil est branché.</p></div>
+        </div>
+      </div>
+      <div class="more"><b>Puis</b> · ce qu'il vous faut · Raspberry Pi et KyberNow Link OS · questions · télécharger</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== TRAVAILLER ===================== -->
+<section class="block" id="pro" aria-labelledby="h-pro">
+  <div class="mock-head"><h2 id="h-pro">Maquette 3 · Travailler</h2><p>Une page neuve. Elle part de la qualité d'image, montre quatre usages, puis ce qu'une équipe attend&#8239;: les accès, le déploiement, la sécurité, le prix.</p></div>
+  <div class="browser">
+    <div class="chrome"><i></i><i></i><i></i><div class="url"><b>www.kybernow.app</b>/pro/</div></div>
+    <div class="m u-pro">
+      <div class="glow" style="right:-180px;top:-140px"></div>
+      <div class="m-top">
+        <a class="logo" href="#carrefour"><span class="mk"></span>KyberNow <span class="beta">BÊTA</span></a>
+        <div class="m-nav"><span>Jouer</span><span class="on">Travailler</span><span>Share</span><span>Technologie</span><span>Guide</span></div>
+        <div class="m-tools"><span>Se connecter</span><span>FR</span><span class="btn sm sig">Télécharger</span></div>
+      </div>
+      <div class="m-hero">
+        <div>
+          <p class="kicker">Travailler</p>
+          <h1 style="margin-top:10px">Votre station de travail, <em>où que vous soyez.</em></h1>
+          <p class="sub">Vous travaillez sur la machine du studio depuis un portable, une tablette ou un autre ordinateur. Le texte reste net, les couleurs restent justes, votre stylet et vos raccourcis répondent comme sur place.</p>
+          <div class="ctas"><a class="btn sig" href="#pro">Télécharger KyberNow</a><a class="btn" href="#pro-prix">Nous écrire</a></div>
+          <p class="note">Gratuit aujourd'hui, pour une personne comme pour une équipe. Code ouvert.</p>
+        </div>
+        <div class="photo"><img src="img/creation.webp" alt="Une graphiste retouche un portrait au stylet"></div>
+      </div>
+
+      <div class="m-sec">
+        <header><p class="kicker">Au pixel près</p><h2>L'image de votre machine, <em>sans rien perdre en route</em></h2><p>Ce que vous voyez sur votre portable est ce que l'ordinateur affiche, couleur par couleur.</p></header>
+        <div class="scroll-x">
+          <table class="spec">
+            <tr><th>Texte net</th><td>Le profil Bureau envoie les couleurs entières (<code>4:4:4</code>)&#8239;: les petites polices et les interfaces restent lisibles.</td></tr>
+            <tr><th>Couleurs et HDR</th><td>Images en <code>10 bits</code>, <code>BT.2020</code> et <code>PQ</code> sur un écran HDR. Les mires de réglage aident à caler votre écran.</td></tr>
+            <tr><th>Stylet</th><td>Pression, inclinaison, rotation, gomme et bouton du stylet, reçus par vos logiciels comme ceux d'une tablette branchée.</td></tr>
+            <tr><th>Tous vos écrans</th><td>Chaque écran de votre appareil reçoit un écran de l'ordinateur. L'écran principal garde sa fréquence.</td></tr>
+            <tr><th>Plusieurs machines</th><td>Plusieurs ordinateurs ouverts à la fois, une fenêtre chacun&#8239;: la station de rendu et le Mac de montage côte à côte.</td></tr>
+            <tr><th>Clavier, micro, caméra</th><td>Tous les raccourcis, le copier-coller dans les deux sens. Votre micro et votre webcam arrivent sur la station, pour une visio lancée là-bas.</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="m-sec">
+        <header><p class="kicker">Pour qui</p><h2>Quatre façons de <em>travailler avec KyberNow</em></h2></header>
+        <div class="uses">
+          <div class="use"><div class="photo"><img src="img/creation.webp" alt="Retouche d'un portrait au stylet"></div><div class="in"><h3>Création et studios</h3><p>Retouche, illustration, montage, 3D, son. Vous dessinez au stylet sur la tablette, la station calcule.</p><ul><li>4:4:4</li><li>stylet</li><li>HDR</li><li>multi-écrans</li></ul></div></div>
+          <div class="use"><div class="photo"><img src="img/deportee.webp" alt="Un architecte travaille sur un modèle 3D depuis un portable dans sa cuisine"></div><div class="in"><h3>Station de travail déportée</h3><p>La machine puissante reste au bureau ou dans la baie. Vous la retrouvez depuis un portable léger, chez vous, à l'hôtel ou chez un client.</p><ul><li>hors du bureau</li><li>sans VPN</li><li>Admin à distance</li></ul></div></div>
+          <div class="use"><div class="photo"><img src="img/jeustudio.webp" alt="Une testeuse joue sur un écran pendant qu'un collègue prend des notes"></div><div class="in"><h3>Studios de jeu</h3><p>Un testeur joue à la version du jour sur la machine du studio, de chez lui. Vous regardez son écran et vous enregistrez la séance.</p><ul><li>Regarder</li><li>enregistrement</li><li>manettes</li><li>prêt</li></ul></div></div>
+          <div class="use"><div class="photo"><img src="img/equipe.webp" alt="Une petite équipe au montage devant deux écrans"></div><div class="in"><h3>Équipes et parc</h3><p>Les ordinateurs appartiennent à l'équipe. Vous les rangez en groupes et vous donnez à chacun ce dont il a besoin.</p><ul><li>rôles</li><li>groupes</li><li>journal</li><li>déploiement</li></ul></div></div>
+        </div>
+      </div>
+
+      <div class="m-sec">
+        <header><p class="kicker">Équipes</p><h2>Qui a accès à quoi, <em>au même endroit</em></h2><p>Une équipe a ses membres, ses rôles (Propriétaire, Administrateur, Membre), ses groupes de personnes et ses groupes d'ordinateurs. Les droits donnés à un groupe valent pour ses ordinateurs présents et à venir.</p></header>
+        <div class="console" aria-label="Aperçu de la console des comptes">
+          <aside><small>Équipe</small><span>Membres</span><span>Groupes</span><span class="on">Ordinateurs</span><span>Liens d'accès</span><span>Journal</span><small>Groupes d'ordinateurs</small><span>Postes du studio</span><span>Stations de rendu</span></aside>
+          <main>
+            <h4>STATION-RENDU-02 <span class="btn sm sig">Ajouter une personne</span></h4>
+            <div class="row"><div class="who"><b>Claire Martin</b><small>Administratrice</small></div><div class="rights"><span class="y">Bureau</span><span class="y">Partage</span><span class="y">Administrer</span></div><span class="end">—</span></div>
+            <div class="row"><div class="who"><b>Graphistes</b><small>Par le groupe Postes du studio</small></div><div class="rights"><span class="y">Bureau</span><span class="y">Partage</span><span>Administrer</span></div><span class="end">—</span></div>
+            <div class="row"><div class="who"><b>Karim Benali</b><small>Freelance · lien d'accès</small></div><div class="rights"><span class="y">Bureau</span><span>Partage</span><span>Administrer</span></div><span class="end">jusqu'au 31/12</span></div>
+            <div class="row"><div class="who"><b>Inès Roux</b><small>Testeuse</small></div><div class="rights"><span class="y">Regarder</span><span class="y">Prêt</span><span>Bureau</span></div><span class="end">créneaux</span></div>
+            <div class="log">
+              <span>27/11 18:42 · <b>Karim Benali</b> a ouvert STATION-RENDU-02 · par le relais</span>
+              <span>27/11 17:05 · <b>Claire Martin</b> a créé un lien d'accès · 7 jours</span>
+              <span>27/11 09:12 · <b>Inès Roux</b> regarde l'écran de POSTE-TEST-01</span>
+            </div>
+          </main>
+        </div>
+        <p style="font-size:.78rem;color:var(--mist)">Noms des droits à aligner sur <span class="mono">docs/link-ui.md</span> (Session, Prêt, Partage, Administrer, Regarder).</p>
+      </div>
+
+      <div class="m-sec">
+        <div class="grid2">
+          <div style="display:grid;gap:12px;align-content:start">
+            <p class="kicker">Déployer</p><h2 style="font-size:1.45rem">Tout un parc, sans un clic</h2>
+            <p style="color:var(--frost-2)">La console de l'équipe donne un jeton d'inscription. L'installateur s'en sert en silence et range la station dans le bon groupe.</p>
+            <pre class="cmd"><span class="c"># Sur chaque poste</span>
+KyberNow-Station-Setup.exe /quiet <span class="s">/enroll=</span>kne_… <span class="s">/relay=</span>relais.studio.fr</pre>
+          </div>
+          <div style="display:grid;gap:12px;align-content:start">
+            <p class="kicker">Sécurité</p><h2 style="font-size:1.45rem">Vos accès restent chez vous</h2>
+            <div class="grid3" style="grid-template-columns:1fr 1fr">
+              <div class="card"><h3>Chiffré</h3><p>L'image et les frappes circulent chiffrées, même sur votre réseau.</p></div>
+              <div class="card"><h3>Votre relais</h3><p>Le relais public, ou le vôtre, sur votre serveur.</p></div>
+              <div class="card"><h3>Double authentification</h3><p>Obligatoire pour qui administre, clés d'accès comprises.</p></div>
+              <div class="card"><h3>Journal</h3><p>Qui a ouvert quoi, quand, d'où, et chaque droit changé.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="m-sec" id="pro-prix">
+        <div class="price">
+          <div><p class="kicker">Prix</p><h2>Gratuit aujourd'hui, pour vous comme pour votre équipe</h2><p>Toutes les fonctions de cette page sont gratuites. Des offres pour les équipes arriveront plus tard&#8239;; nous vous préviendrons avant tout changement.</p></div>
+          <div class="act"><a class="btn sig" href="#pro">Télécharger KyberNow</a><a class="btn" href="#pro">Nous écrire</a><span class="mail">pro@kybernow.app (à confirmer)</span></div>
+        </div>
+      </div>
+      <div class="more"><b>Puis</b> · ce qu'il vous faut (station Windows, Mac ou Linux) · comparer · questions des équipes · télécharger</div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="questions" aria-labelledby="h-q">
+  <h2 id="h-q">À trancher ensuite</h2>
+  <ul class="qs">
+    <li><b>L'adresse de «&#8239;Nous écrire&#8239;»</b><span>Une adresse dédiée (pro@kybernow.app), hello@kybernow.app, ou un formulaire&#8239;?</span></li>
+    <li><b>Le nom de l'entrée</b><span>«&#8239;Travailler&#8239;» dans la nav et l'URL /pro/, ou «&#8239;Pros&#8239;», «&#8239;Studios et équipes&#8239;»&#8239;?</span></li>
+    <li><b>Ce que dit «&#8239;Jouer&#8239;» de la promesse de gratuité</b><span>Le site dit «&#8239;Gratuit, pour de bon&#8239;». Pour le pro, la maquette dit «&#8239;gratuit aujourd'hui&#8239;». Garde-t-on la phrase forte côté jeu&#8239;?</span></li>
+    <li><b>Témoignages et logos</b><span>Parsec appuie le pro sur des logos de studios. Avez-vous des utilisateurs pros à citer, ou on s'en passe&#8239;?</span></li>
+  </ul>
+</section>
+
+<footer class="foot">Maquettes de travail&#8239;: textes à relire, photos pro provisoires (écrans non remplacés par de vraies captures). Fichier source&#8239;: <span class="mono">docs/refonte-site-2026-11/index.html</span>.</footer>
+</div>

@@ -47,7 +47,7 @@ Admin et l'app Windows cherchent d'abord le nouveau nom, puis l'ancien s'il manq
 
 **Pourquoi elles restent.** Sans elles, une app Windows restée en 0.3.1 ou avant ne trouverait plus sa mise à jour, et Admin en 0.3.1 ou avant renverrait vers un fichier absent : il faudrait réinstaller à la main avec le nouveau fichier. Les copies sont listées dans `LEGACY_STATION`, `LEGACY_LINK` et `LEGACY_MAC` de `release.sh` et dans `FILES` de `scripts/sign-manifest.sh` ; les retirer de ces listes les retire des versions suivantes.
 
-**Piège.** Le site est mis en ligne à chaque push sur `main` qui touche `site/` : un lien `releases/latest/download/` vers un nouveau nom de fichier ne mène à rien tant que la version qui contient ce fichier n'est pas publiée. Pour les fichiers renommés (installateurs, archive Mac), `site/assets/main.js` (table `LEGACY`) retombe sur l'ancien nom tant que la dernière version ne publie que lui ; tout autre nouveau nom de fichier attend la publication.
+**Piège.** Le site est mis en ligne à chaque push sur `main` qui touche `site/` : un lien `releases/latest/download/` vers un nouveau nom de fichier ne mène à rien tant que la version qui contient ce fichier n'est pas publiée. La page Télécharger (`site/telecharger/`, `site/en/download/`) pointe directement sur les noms de fichiers : ne poussez une page qui emploie un nouveau nom de fichier qu'une fois la version qui le contient publiée.
 
 ## Mettre à jour
 

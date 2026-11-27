@@ -49,7 +49,7 @@ Chaque app capte le micro à sa façon et donne ses échantillons au cœur (`Ses
 | App | Capture | Écho et bruit |
 |---|---|---|
 | Mac | AVAudioEngine (nœud d'entrée) | traitement voix d'Apple (`setVoiceProcessingEnabled`) |
-| iPhone, iPad | AVAudioEngine, session `playAndRecord` en mode `voiceChat` tant que le micro est allumé | traitement voix d'Apple |
+| iPhone, iPad | AVAudioEngine, session `playAndRecord` tant que le micro est allumé, en mode `voiceChat` seulement si « Réduire l'écho et le bruit » est allumé (sinon `default`) | traitement voix d'Apple |
 | Android | `AudioRecord`, source `VOICE_COMMUNICATION` | `AcousticEchoCanceler` et `NoiseSuppressor` quand l'appareil les a |
 | Windows | WASAPI, catégorie « Communications » | traitement du système quand le pilote du micro en a |
 | Linux, Deck, Pi | SDL2 (capture), rôle « communication » | module d'écho de PipeWire s'il est chargé ; sinon rien |
