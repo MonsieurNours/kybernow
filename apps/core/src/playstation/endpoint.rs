@@ -11,13 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use super::discovery::{Model, PORT_PS4, PORT_PS5};
 
-/// Port de l'association, de la demande de session et du canal de contrôle
-/// (TCP), et de la recherche de l'association (UDP).
-pub const PORT_RP: u16 = 9295;
-/// Port de Takion (UDP).
-pub const PORT_TAKION: u16 = 9296;
-/// Ports TCP de la PS4 (dialogue de contrôle, `host-request-port`).
-pub const PORT_PS4_REQUEST: u16 = 997;
+/// Association, demande de session et canal de contrôle (TCP), recherche de
+/// l'association (UDP) ; Takion (UDP) ; dialogue de contrôle d'une PS4
+/// (`host-request-port`, TCP) : les ports du tunnel (`kybernow_tunnel::console`),
+/// les mêmes pour le relais, Admin et le cœur.
+pub use kybernow_tunnel::console::{PORT_PS4_REQUEST, PORT_RP, PORT_TAKION};
 /// MTU de Takion annoncée à la console sur le réseau (valeur de secours de chiaki-ng).
 pub const MTU_LAN: u32 = 1454;
 /// MTU par le relais : un paquet tient dans un datagramme du tunnel.
