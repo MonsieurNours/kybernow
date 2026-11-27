@@ -92,61 +92,73 @@ fn pointer_state(state: &kybernow_core::input::pointer_layer::State, now: Durati
 /// `holds_position` : l'appareil tient une position à lui (Apple TV) ; le Mac non.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_new(holds_position: bool, callbacks: KnPointerCallbacks) -> *mut KnPointer {
-    let clock = Arc::new(MonotonicClock::new());
-    let layer = Arc::new(PointerLayer::new(clock.clone(), holds_position));
-    let c = clock.clone();
-    // Un `Arc` : la fermeture capture l'ensemble (Send), pas ses champs.
-    let callbacks = Arc::new(callbacks);
-    layer.set_on_changed(move |state, change| {
-        let Some(f) = callbacks.on_changed else { return };
-        let premultiplied = if change.shape { state.shape.as_ref().map(|s| s.premultiplied()) } else { None };
-        let pixels = premultiplied.as_ref().map_or(std::ptr::null(), |p| p.as_ptr());
-        let s = pointer_state(state, c.now(), pixels);
-        unsafe { f(callbacks.userdata, &s, change.visibility, change.shape) };
-    });
-    Box::into_raw(Box::new(KnPointer { layer, clock }))
+    kybernow_core::ffi_guard!(null => {
+        let clock = Arc::new(MonotonicClock::new());
+        let layer = Arc::new(PointerLayer::new(clock.clone(), holds_position));
+        let c = clock.clone();
+        // Un `Arc` : la fermeture capture l'ensemble (Send), pas ses champs.
+        let callbacks = Arc::new(callbacks);
+        layer.set_on_changed(move |state, change| {
+            let Some(f) = callbacks.on_changed else { return };
+            let premultiplied = if change.shape { state.shape.as_ref().map(|s| s.premultiplied()) } else { None };
+            let pixels = premultiplied.as_ref().map_or(std::ptr::null(), |p| p.as_ptr());
+            let s = pointer_state(state, c.now(), pixels);
+            unsafe { f(callbacks.userdata, &s, change.visibility, change.shape) };
+        });
+        Box::into_raw(Box::new(KnPointer { layer, clock }))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_free(p: *mut KnPointer) {
-    if !p.is_null() {
-        let p = unsafe { Box::from_raw(p) };
-        // La couche vit encore dans les chaînes qui l'ont clonée : son rappel
-        // est remplacé d'abord (sous son verrou : un appel en cours finit
-        // avant), plus rien n'atteint l'objet de l'app (MAC-01).
-        p.layer.set_on_changed(|_, _| {});
-    }
+    kybernow_core::ffi_guard!({
+        if !p.is_null() {
+            let p = unsafe { Box::from_raw(p) };
+            // La couche vit encore dans les chaînes qui l'ont clonée : son rappel
+            // est remplacé d'abord (sous son verrou : un appel en cours finit
+            // avant), plus rien n'atteint l'objet de l'app (MAC-01).
+            p.layer.set_on_changed(|_, _| {});
+        }
+    })
 }
 
 /// État en ce moment (sans les pixels de la forme).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_state(p: *const KnPointer, out: *mut KnPointerState) {
-    let (Some(p), Some(out)) = (unsafe { p.as_ref() }, unsafe { out.as_mut() }) else { return };
-    *out = pointer_state(&p.layer.state(), p.clock.now(), std::ptr::null());
+    kybernow_core::ffi_guard!({
+        let (Some(p), Some(out)) = (unsafe { p.as_ref() }, unsafe { out.as_mut() }) else { return };
+        *out = pointer_state(&p.layer.state(), p.clock.now(), std::ptr::null());
+    })
 }
 
 /// L'écran de l'ordinateur a changé de taille en cours de session.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_set_host_size(p: *const KnPointer, width: f64, height: f64) {
-    if let Some(p) = unsafe { p.as_ref() } {
-        p.layer.set_host_size((width, height));
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { p.as_ref() } {
+            p.layer.set_host_size((width, height));
+        }
+    })
 }
 
 /// Position tenue par l'appareil déplacée (Apple TV : télécommande, manette).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_move_by(p: *const KnPointer, dx: f64, dy: f64) {
-    if let Some(p) = unsafe { p.as_ref() } {
-        p.layer.move_by(dx, dy);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { p.as_ref() } {
+            p.layer.move_by(dx, dy);
+        }
+    })
 }
 
 /// Fin de session : plus de forme ni de position.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_reset(p: *const KnPointer) {
-    if let Some(p) = unsafe { p.as_ref() } {
-        p.layer.reset();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { p.as_ref() } {
+            p.layer.reset();
+        }
+    })
 }
 
 /// Mode de la souris (`KN_MOUSE_*`).
@@ -170,13 +182,15 @@ pub extern "C" fn kn_mouse_wants_relative(
     visible_for_ms: f64,
     relative_active: bool,
 ) -> bool {
-    let mode = match mode {
-        KN_MOUSE_DESKTOP => MouseMode::Desktop,
-        KN_MOUSE_GAME => MouseMode::Game,
-        _ => MouseMode::Auto,
-    };
-    let visible_for = Duration::from_secs_f64(visible_for_ms.max(0.0) / 1000.0);
-    MouseModeRules { needs_hidden_pointer }.wants_relative(mode, game_fullscreen, remote_hidden, visible_for, relative_active)
+    kybernow_core::ffi_guard!({
+        let mode = match mode {
+            KN_MOUSE_DESKTOP => MouseMode::Desktop,
+            KN_MOUSE_GAME => MouseMode::Game,
+            _ => MouseMode::Auto,
+        };
+        let visible_for = Duration::from_secs_f64(visible_for_ms.max(0.0) / 1000.0);
+        MouseModeRules { needs_hidden_pointer }.wants_relative(mode, game_fullscreen, remote_hidden, visible_for, relative_active)
+    })
 }
 
 /// Multi-écrans : le pointeur de l'ordinateur pour la souris Auto, sur les
@@ -186,24 +200,28 @@ pub extern "C" fn kn_mouse_wants_relative(
 /// donner à `kn_mouse_wants_relative`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_summary(layers: *const *const KnPointer, count: usize, hidden: *mut bool, visible_for_ms: *mut f64) {
-    let list: &[*const KnPointer] = if layers.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(layers, count) } };
-    let pointers: Vec<&KnPointer> = list.iter().filter_map(|p| unsafe { p.as_ref() }).collect();
-    let s = PointerLayer::summary(pointers.iter().map(|p| p.layer.as_ref()));
-    unsafe {
-        if !hidden.is_null() {
-            *hidden = s.hidden;
+    kybernow_core::ffi_guard!({
+        let list: &[*const KnPointer] = if layers.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(layers, count) } };
+        let pointers: Vec<&KnPointer> = list.iter().filter_map(|p| unsafe { p.as_ref() }).collect();
+        let s = PointerLayer::summary(pointers.iter().map(|p| p.layer.as_ref()));
+        unsafe {
+            if !hidden.is_null() {
+                *hidden = s.hidden;
+            }
+            if !visible_for_ms.is_null() {
+                *visible_for_ms = s.visible_for.as_secs_f64() * 1000.0;
+            }
         }
-        if !visible_for_ms.is_null() {
-            *visible_for_ms = s.visible_for.as_secs_f64() * 1000.0;
-        }
-    }
+    })
 }
 
 /// Facteur d'échelle d'un pointeur de `width` × `height` pixels pour tenir
 /// dans une case de `box_` points, au plus `max_factor`.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_pointer_scale(width: u32, height: u32, box_: f64, max_factor: f64) -> f64 {
-    PointerLayer::scale((width, height), box_, max_factor)
+    kybernow_core::ffi_guard!({
+        PointerLayer::scale((width, height), box_, max_factor)
+    })
 }
 
 // MARK: - Clavier
@@ -213,14 +231,18 @@ pub extern "C" fn kn_pointer_scale(width: u32, height: u32, box_: f64, max_facto
 /// touche inconnue de kynput. `iso` n'est lu que pour les deux touches concernées.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_keymap_scancode(hid: u16, command_as_control: bool, iso: bool) -> i32 {
-    keymap::scancode(hid, command_as_control, || iso).map_or(-1, i32::from)
+    kybernow_core::ffi_guard!(-1 => {
+        keymap::scancode(hid, command_as_control, || iso).map_or(-1, i32::from)
+    })
 }
 
 /// La Station est un Mac (`os` de `kn_console_info`, « macOS 26.1 ») :
 /// docs/link-ui.md, « Face à une Station Mac ».
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_station_is_mac(os: *const c_char) -> bool {
-    keymap::station_is_mac(&text(os))
+    kybernow_core::ffi_guard!({
+        keymap::station_is_mac(&text(os))
+    })
 }
 
 /// « ⌘ envoyée comme Ctrl » pour cet ordinateur : le réglage gardé, sauf face
@@ -229,7 +251,9 @@ pub unsafe extern "C" fn kn_station_is_mac(os: *const c_char) -> bool {
 /// comme pour un invité ou un ami qui emprunte : le réglage s'applique).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_command_as_control(setting: bool, os: *const c_char) -> bool {
-    command_as_control(setting, &text(os))
+    kybernow_core::ffi_guard!({
+        command_as_control(setting, &text(os))
+    })
 }
 
 fn command_as_control(setting: bool, os: &str) -> bool {
@@ -239,21 +263,27 @@ fn command_as_control(setting: bool, os: &str) -> bool {
 /// Verr. maj. ou Verr. num. : une bascule, envoyée en appui + relâchement.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_keymap_is_lock(hid: u16) -> bool {
-    keymap::is_lock(hid)
+    kybernow_core::ffi_guard!({
+        keymap::is_lock(hid)
+    })
 }
 
 /// Les deux touches échangées par les claviers Apple ISO (la disposition
 /// n'est à demander que pour elles).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_keymap_needs_iso(hid: u16) -> bool {
-    hid == keymap::GRAVE || hid == keymap::ISO_SECTION
+    kybernow_core::ffi_guard!({
+        hid == keymap::GRAVE || hid == keymap::ISO_SECTION
+    })
 }
 
 /// Clavier Apple, ou de fabricant inconnu (réglage « Clavier Apple ISO » de l'Apple TV).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_keymap_apple_keyboard(vendor_name: *const c_char) -> bool {
-    let name = text(vendor_name);
-    keymap::apple_keyboard((!name.is_empty()).then_some(name.as_str()))
+    kybernow_core::ffi_guard!({
+        let name = text(vendor_name);
+        keymap::apple_keyboard((!name.is_empty()).then_some(name.as_str()))
+    })
 }
 
 // MARK: - Chaîne d'entrées
@@ -405,43 +435,47 @@ pub struct KnInput {
 /// combinaison, presse-papiers) jusqu'à `kn_input_stop`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_new(options: KnInputOptions, pointer: *const KnPointer, callbacks: KnInputCallbacks) -> *mut KnInput {
-    let Some(pointer) = (unsafe { pointer.as_ref() }) else { return std::ptr::null_mut() };
-    let callbacks = Arc::new(Callbacks(callbacks));
-    let has_board = callbacks.0.pasteboard_change_count.is_some() && callbacks.0.pasteboard_text.is_some() && callbacks.0.pasteboard_set_text.is_some();
-    let clipboard: Option<Arc<dyn Pasteboard>> = (options.clipboard && has_board).then(|| Arc::new(Board(callbacks.clone())) as Arc<dyn Pasteboard>);
-    let clock: Arc<dyn Clock> = pointer.clock.clone();
-    let platform: Arc<dyn InputPlatform> = callbacks;
-    let pipeline = InputPipeline::new(
-        Options {
-            display_id: options.display_id,
-            host_size: (options.host_width, options.host_height),
-            clipboard,
-            gamepads_from_app: options.gamepads_from_app,
-        },
-        pointer.layer.clone(),
-        platform,
-        clock,
-    );
-    // Manettes SDL (Mac) : celles de kynput, ou celles du lecteur du cœur
-    // quand libkynput est construite sans le sien (`gamepads_from_app` faux
-    // dans les deux cas) ; le hook voit leurs paquets dans les deux cas
-    // (combinaison, manette prise par la barre).
-    if !options.gamepads_from_app {
-        pipeline.install_gamepad_gate();
-    }
-    if let Err(e) = pipeline.spawn_driver() {
-        log::error!("entrées : fil des minuteries impossible ({e})");
-    }
-    Box::into_raw(Box::new(KnInput { pipeline }))
+    kybernow_core::ffi_guard!(null => {
+        let Some(pointer) = (unsafe { pointer.as_ref() }) else { return std::ptr::null_mut() };
+        let callbacks = Arc::new(Callbacks(callbacks));
+        let has_board = callbacks.0.pasteboard_change_count.is_some() && callbacks.0.pasteboard_text.is_some() && callbacks.0.pasteboard_set_text.is_some();
+        let clipboard: Option<Arc<dyn Pasteboard>> = (options.clipboard && has_board).then(|| Arc::new(Board(callbacks.clone())) as Arc<dyn Pasteboard>);
+        let clock: Arc<dyn Clock> = pointer.clock.clone();
+        let platform: Arc<dyn InputPlatform> = callbacks;
+        let pipeline = InputPipeline::new(
+            Options {
+                display_id: options.display_id,
+                host_size: (options.host_width, options.host_height),
+                clipboard,
+                gamepads_from_app: options.gamepads_from_app,
+            },
+            pointer.layer.clone(),
+            platform,
+            clock,
+        );
+        // Manettes SDL (Mac) : celles de kynput, ou celles du lecteur du cœur
+        // quand libkynput est construite sans le sien (`gamepads_from_app` faux
+        // dans les deux cas) ; le hook voit leurs paquets dans les deux cas
+        // (combinaison, manette prise par la barre).
+        if !options.gamepads_from_app {
+            pipeline.install_gamepad_gate();
+        }
+        if let Err(e) = pipeline.spawn_driver() {
+            log::error!("entrées : fil des minuteries impossible ({e})");
+        }
+        Box::into_raw(Box::new(KnInput { pipeline }))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_free(i: *mut KnInput) {
-    if !i.is_null() {
-        let i = unsafe { Box::from_raw(i) };
-        // Le fil des minuteries s'arrête avec la chaîne.
-        i.pipeline.wake();
-    }
+    kybernow_core::ffi_guard!({
+        if !i.is_null() {
+            let i = unsafe { Box::from_raw(i) };
+            // Le fil des minuteries s'arrête avec la chaîne.
+            i.pipeline.wake();
+        }
+    })
 }
 
 fn with(i: *const KnInput, f: impl FnOnce(&Arc<InputPipeline>)) {
@@ -454,22 +488,28 @@ fn with(i: *const KnInput, f: impl FnOnce(&Arc<InputPipeline>)) {
 /// de `KnPlatform` (la session la passe à Kyber).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_kynput(i: *const KnInput) -> *mut c_void {
-    match unsafe { i.as_ref() } {
-        Some(i) => i.pipeline.kynput().to_ptr().cast(),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match unsafe { i.as_ref() } {
+            Some(i) => i.pipeline.kynput().to_ptr().cast(),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_key(i: *const KnInput, scancode: u16, pressed: bool) {
-    with(i, |p| p.key(scancode, pressed));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.key(scancode, pressed));
+    })
 }
 
 /// Position absolue sur l'écran de l'ordinateur affiché, en pixels
 /// (multi-écrans : l'écran principal).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_mouse(i: *const KnInput, x: i16, y: i16) {
-    with(i, |p| p.mouse(x, y));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.mouse(x, y));
+    })
 }
 
 /// Multi-écrans : un écran de la session vu des entrées (`kn_input_set_screens`).
@@ -493,17 +533,19 @@ pub struct KnInputScreen {
 /// `kn_input_mouse_on` à l'écran de Kyber de leur écran. `count` à 0 : un écran.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_screens(i: *const KnInput, screens: *const KnInputScreen, count: usize) {
-    let list: &[KnInputScreen] = if screens.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(screens, count) } };
-    let targets: Vec<ScreenTarget> = list
-        .iter()
-        .map(|s| ScreenTarget {
-            screen: s.screen as usize,
-            display_id: s.display_id,
-            host_size: (s.host_width, s.host_height),
-            pointer: unsafe { s.pointer.as_ref() }.map(|p| p.layer.clone()),
-        })
-        .collect();
-    with(i, |p| p.set_screens(targets));
+    kybernow_core::ffi_guard!({
+        let list: &[KnInputScreen] = if screens.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(screens, count) } };
+        let targets: Vec<ScreenTarget> = list
+            .iter()
+            .map(|s| ScreenTarget {
+                screen: s.screen as usize,
+                display_id: s.display_id,
+                host_size: (s.host_width, s.host_height),
+                pointer: unsafe { s.pointer.as_ref() }.map(|p| p.layer.clone()),
+            })
+            .collect();
+        with(i, |p| p.set_screens(targets));
+    })
 }
 
 /// Multi-écrans : position absolue sur l'écran `screen` de l'appareil, en
@@ -511,7 +553,9 @@ pub unsafe extern "C" fn kn_input_set_screens(i: *const KnInput, screens: *const
 /// l'écran principal).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_mouse_on(i: *const KnInput, screen: u32, x: i16, y: i16) {
-    with(i, |p| p.mouse_on(screen as usize, x, y));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.mouse_on(screen as usize, x, y));
+    })
 }
 
 /// Un état du stylet (docs/link-ui.md, « Stylet ») : tablette graphique sur
@@ -543,111 +587,135 @@ pub struct KnPen {
 /// envoie alors la position et les clics comme avant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_pen(i: *const KnInput, screen: i32, x: i16, y: i16, pen: *const KnPen) -> bool {
-    let (Some(i), Some(pen)) = (unsafe { i.as_ref() }, unsafe { pen.as_ref() }) else { return false };
-    let input = kybernow_core::input::PenInput {
-        in_range: pen.in_range,
-        contact: pen.contact,
-        pressure: pen.pressure,
-        tilt: pen.has_tilt.then_some((pen.tilt_x, pen.tilt_y)),
-        rotation: pen.has_rotation.then_some(pen.rotation),
-        eraser: pen.eraser,
-        barrel: pen.barrel,
-    };
-    i.pipeline.pen_on((screen >= 0).then_some(screen as usize), x, y, &input)
+    kybernow_core::ffi_guard!({
+        let (Some(i), Some(pen)) = (unsafe { i.as_ref() }, unsafe { pen.as_ref() }) else { return false };
+        let input = kybernow_core::input::PenInput {
+            in_range: pen.in_range,
+            contact: pen.contact,
+            pressure: pen.pressure,
+            tilt: pen.has_tilt.then_some((pen.tilt_x, pen.tilt_y)),
+            rotation: pen.has_rotation.then_some(pen.rotation),
+            eraser: pen.eraser,
+            barrel: pen.barrel,
+        };
+        i.pipeline.pen_on((screen >= 0).then_some(screen as usize), x, y, &input)
+    })
 }
 
 /// Inclinaison X / Y (degrés) d'après l'altitude et l'azimut en radians
 /// (Apple Pencil), voir `tilt_from_altitude_azimuth` du cœur.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pen_tilt(altitude: f32, azimuth: f32, tilt_x: *mut f32, tilt_y: *mut f32) {
-    let (tx, ty) = kybernow_core::input::tilt_from_altitude_azimuth(altitude, azimuth);
-    unsafe {
-        if let Some(t) = tilt_x.as_mut() {
-            *t = tx;
+    kybernow_core::ffi_guard!({
+        let (tx, ty) = kybernow_core::input::tilt_from_altitude_azimuth(altitude, azimuth);
+        unsafe {
+            if let Some(t) = tilt_x.as_mut() {
+                *t = tx;
+            }
+            if let Some(t) = tilt_y.as_mut() {
+                *t = ty;
+            }
         }
-        if let Some(t) = tilt_y.as_mut() {
-            *t = ty;
-        }
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_mouse_move(i: *const KnInput, dx: i16, dy: i16) {
-    with(i, |p| p.mouse_move(dx, dy));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.mouse_move(dx, dy));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_mouse_button(i: *const KnInput, button: u32, pressed: bool) {
-    let button = match button {
-        KN_MOUSE_RIGHT => MouseButtonType::Right,
-        KN_MOUSE_MIDDLE => MouseButtonType::Middle,
-        KN_MOUSE_SIDE => MouseButtonType::Side,
-        KN_MOUSE_EXTRA => MouseButtonType::Extra,
-        _ => MouseButtonType::Left,
-    };
-    with(i, |p| p.mouse_button(button, pressed));
+    kybernow_core::ffi_guard!({
+        let button = match button {
+            KN_MOUSE_RIGHT => MouseButtonType::Right,
+            KN_MOUSE_MIDDLE => MouseButtonType::Middle,
+            KN_MOUSE_SIDE => MouseButtonType::Side,
+            KN_MOUSE_EXTRA => MouseButtonType::Extra,
+            _ => MouseButtonType::Left,
+        };
+        with(i, |p| p.mouse_button(button, pressed));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_wheel(i: *const KnInput, dx: f32, dy: f32) {
-    with(i, |p| p.wheel(dx, dy));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.wheel(dx, dy));
+    })
 }
 
 /// Texte tapé (clavier de l'écran), un caractère à la fois.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_type_text(i: *const KnInput, s: *const c_char) {
-    let s = text(s);
-    with(i, |p| p.type_text(&s));
+    kybernow_core::ffi_guard!({
+        let s = text(s);
+        with(i, |p| p.type_text(&s));
+    })
 }
 
 /// L'ordinateur relâche tout ce qu'il tient de nous, manettes comprises.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_flush_keys(i: *const KnInput) {
-    with(i, |p| p.flush_keys());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.flush_keys());
+    })
 }
 
 /// Relâche les touches et clics que nous tenons (la fenêtre perd le clavier).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_release_all(i: *const KnInput) {
-    with(i, |p| p.release_all());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.release_all());
+    })
 }
 
 /// Touche de modification de la plateforme (code kVK sur Mac) tenue ou
 /// relâchée ; `false` : déjà dans cet état (rien à envoyer).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_modifier(i: *const KnInput, id: u16, pressed: bool) -> bool {
-    let mut changed = false;
-    with(i, |p| changed = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifier(id, pressed));
-    changed
+    kybernow_core::ffi_guard!({
+        let mut changed = false;
+        with(i, |p| changed = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifier(id, pressed));
+        changed
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_modifier_held(i: *const KnInput, id: u16) -> bool {
-    let mut held = false;
-    with(i, |p| held = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers().contains(&id));
-    held
+    kybernow_core::ffi_guard!({
+        let mut held = false;
+        with(i, |p| held = p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers().contains(&id));
+        held
+    })
 }
 
 /// Modificateurs tenus chez nous (codes de la plateforme), au plus `cap` dans `out`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_held_modifiers(i: *const KnInput, out: *mut u16, cap: usize) -> usize {
-    let mut n = 0;
-    with(i, |p| {
-        for id in p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers() {
-            if n == cap || out.is_null() {
-                break;
+    kybernow_core::ffi_guard!({
+        let mut n = 0;
+        with(i, |p| {
+            for id in p.held().lock().unwrap_or_else(|e| e.into_inner()).modifiers() {
+                if n == cap || out.is_null() {
+                    break;
+                }
+                unsafe { *out.add(n) = *id };
+                n += 1;
             }
-            unsafe { *out.add(n) = *id };
-            n += 1;
-        }
-    });
-    n
+        });
+        n
+    })
 }
 
 /// Les modificateurs repartent de zéro (service d'entrées neuf sur l'ordinateur).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_forget_modifiers(i: *const KnInput) {
-    with(i, |p| p.held().lock().unwrap_or_else(|e| e.into_inner()).forget_modifiers());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.held().lock().unwrap_or_else(|e| e.into_inner()).forget_modifiers());
+    })
 }
 
 /// La fenêtre retrouve le clavier : `held` (codes de la plateforme) sont les
@@ -655,99 +723,127 @@ pub unsafe extern "C" fn kn_input_forget_modifiers(i: *const KnInput) {
 /// renvoyer appuyés, et les note tenus.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_resync_modifiers(i: *const KnInput, held: *const u16, count: usize, out: *mut u16, cap: usize) -> usize {
-    let held = if held.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(held, count) } };
-    let mut n = 0;
-    with(i, |p| {
-        p.held().lock().unwrap_or_else(|e| e.into_inner()).resync_modifiers(held, |id| {
-            if n < cap && !out.is_null() {
-                unsafe { *out.add(n) = id };
-                n += 1;
-            }
+    kybernow_core::ffi_guard!({
+        let held = if held.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(held, count) } };
+        let mut n = 0;
+        with(i, |p| {
+            p.held().lock().unwrap_or_else(|e| e.into_inner()).resync_modifiers(held, |id| {
+                if n < cap && !out.is_null() {
+                    unsafe { *out.add(n) = id };
+                    n += 1;
+                }
+            });
         });
-    });
-    n
+        n
+    })
 }
 
 /// Souris relative (jeux) : seuls les déplacements partent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_relative(i: *const KnInput, on: bool) {
-    with(i, |p| p.set_relative(on));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.set_relative(on));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_is_relative(i: *const KnInput) -> bool {
-    let mut on = false;
-    with(i, |p| on = p.is_relative());
-    on
+    kybernow_core::ffi_guard!({
+        let mut on = false;
+        with(i, |p| on = p.is_relative());
+        on
+    })
 }
 
 /// Une fois la chaîne branchée au réseau.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_start_clipboard(i: *const KnInput) {
-    with(i, |p| p.start_clipboard());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.start_clipboard());
+    })
 }
 
 /// Les entrées rejoignent l'ordinateur (début de session, reconnexion).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_network_connected(i: *const KnInput) {
-    with(i, |p| p.network_connected());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.network_connected());
+    })
 }
 
 /// Les manettes SDL prises par l'app (barre ouverte) ou rendues.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_gamepad_captured(i: *const KnInput, captured: bool) {
-    with(i, |p| p.set_gamepad_captured(captured));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.set_gamepad_captured(captured));
+    })
 }
 
 /// Fin de l'image : plus rien ne part, l'ordinateur relâche tout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_stop(i: *const KnInput) {
-    with(i, |p| p.stop());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.stop());
+    })
 }
 
 /// Arrête les gestionnaires de kynput (manettes SDL).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_shutdown(i: *const KnInput) {
-    with(i, |p| p.shutdown());
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.shutdown());
+    })
 }
 
 // MARK: - Manettes produites par l'app (Apple TV, iOS)
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_gamepad_plug(i: *const KnInput, pad: u32, vendor_id: i32, product_id: i32) {
-    let v = u16::try_from(vendor_id).ok();
-    let pr = u16::try_from(product_id).ok();
-    with(i, |p| p.gamepad_plug(pad, v, pr));
+    kybernow_core::ffi_guard!({
+        let v = u16::try_from(vendor_id).ok();
+        let pr = u16::try_from(product_id).ok();
+        with(i, |p| p.gamepad_plug(pad, v, pr));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_gamepad_unplug(i: *const KnInput, pad: u32) {
-    with(i, |p| p.gamepad_unplug(pad));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.gamepad_unplug(pad));
+    })
 }
 
 /// `button` : valeur kynput (`KYNPUT_GAMEPAD_BUTTON_*`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_gamepad_button(i: *const KnInput, pad: u32, button: u32, pressed: bool) {
-    let Some(b) = PadButton::from_u32(button) else { return };
-    with(i, |p| p.gamepad_button(pad, b, pressed));
+    kybernow_core::ffi_guard!({
+        let Some(b) = PadButton::from_u32(button) else { return };
+        with(i, |p| p.gamepad_button(pad, b, pressed));
+    })
 }
 
 /// `axis` : valeur kynput (`KYNPUT_GAMEPAD_AXIS_*`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_gamepad_axis(i: *const KnInput, pad: u32, axis: u32, value: i16) {
-    let Some(a) = PadAxis::from_u32(axis) else { return };
-    with(i, |p| p.gamepad_axis(pad, a, value));
+    kybernow_core::ffi_guard!({
+        let Some(a) = PadAxis::from_u32(axis) else { return };
+        with(i, |p| p.gamepad_axis(pad, a, value));
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_gamepad_axes_rest(i: *const KnInput, pad: u32) {
-    with(i, |p| p.gamepad_axes_rest(pad));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.gamepad_axes_rest(pad));
+    })
 }
 
 /// Réglage « la combinaison ouvre le menu » (Apple TV).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_combo_enabled(i: *const KnInput, enabled: bool) {
-    with(i, |p| p.combo().set_enabled(enabled));
+    kybernow_core::ffi_guard!({
+        with(i, |p| p.combo().set_enabled(enabled));
+    })
 }
 
 // MARK: - Combinaison seule (Apple TV, iOS)
@@ -788,53 +884,57 @@ unsafe impl Sync for KnComboCallbacks {}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_combo_new(callbacks: KnComboCallbacks) -> *mut KnCombo {
-    let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
-    let combo = Arc::new(PadCombo::new(clock.clone()));
-    let callbacks = Arc::new(callbacks);
-    combo.set_on_formed(move |pad| {
-        if let Some(f) = callbacks.on_formed {
-            unsafe { f(callbacks.userdata, pad) };
-        }
-    });
-    let driver = Arc::new(ComboDriver {
-        woken: std::sync::Mutex::new((false, false)),
-        cvar: std::sync::Condvar::new(),
-    });
-    let (c, d) = (Arc::downgrade(&combo), driver.clone());
-    let spawned = std::thread::Builder::new().name("kybernow-combinaison".into()).spawn(move || {
-        loop {
-            let Some(combo) = c.upgrade() else { break };
-            combo.poll();
-            let wait = combo.next_deadline().map(|at| at.saturating_sub(clock.now()));
-            drop(combo);
-            let mut w = d.woken.lock().unwrap_or_else(|e| e.into_inner());
-            if !w.0 {
-                w = match wait {
-                    Some(t) => d.cvar.wait_timeout(w, t).unwrap().0,
-                    None => d.cvar.wait(w).unwrap(),
-                };
+    kybernow_core::ffi_guard!(null => {
+        let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
+        let combo = Arc::new(PadCombo::new(clock.clone()));
+        let callbacks = Arc::new(callbacks);
+        combo.set_on_formed(move |pad| {
+            if let Some(f) = callbacks.on_formed {
+                unsafe { f(callbacks.userdata, pad) };
             }
-            if w.1 {
-                break;
+        });
+        let driver = Arc::new(ComboDriver {
+            woken: std::sync::Mutex::new((false, false)),
+            cvar: std::sync::Condvar::new(),
+        });
+        let (c, d) = (Arc::downgrade(&combo), driver.clone());
+        let spawned = std::thread::Builder::new().name("kybernow-combinaison".into()).spawn(move || {
+            loop {
+                let Some(combo) = c.upgrade() else { break };
+                combo.poll();
+                let wait = combo.next_deadline().map(|at| at.saturating_sub(clock.now()));
+                drop(combo);
+                let mut w = d.woken.lock().unwrap_or_else(|e| e.into_inner());
+                if !w.0 {
+                    w = match wait {
+                        Some(t) => d.cvar.wait_timeout(w, t).unwrap().0,
+                        None => d.cvar.wait(w).unwrap(),
+                    };
+                }
+                if w.1 {
+                    break;
+                }
+                w.0 = false;
             }
-            w.0 = false;
+        });
+        if let Err(e) = spawned {
+            log::error!("combinaison : fil impossible ({e})");
         }
-    });
-    if let Err(e) = spawned {
-        log::error!("combinaison : fil impossible ({e})");
-    }
-    Box::into_raw(Box::new(KnCombo { combo, driver }))
+        Box::into_raw(Box::new(KnCombo { combo, driver }))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_free(c: *mut KnCombo) {
-    if !c.is_null() {
-        let c = unsafe { Box::from_raw(c) };
-        // Le fil de la combinaison peut tenir encore la combinaison : son
-        // rappel est coupé d'abord (sous son verrou), MAC-01.
-        c.combo.set_on_formed(|_| {});
-        c.driver.wake(true);
-    }
+    kybernow_core::ffi_guard!({
+        if !c.is_null() {
+            let c = unsafe { Box::from_raw(c) };
+            // Le fil de la combinaison peut tenir encore la combinaison : son
+            // rappel est coupé d'abord (sous son verrou), MAC-01.
+            c.combo.set_on_formed(|_| {});
+            c.driver.wake(true);
+        }
+    })
 }
 
 fn combo<'a>(c: *const KnCombo) -> Option<&'a KnCombo> {
@@ -844,64 +944,78 @@ fn combo<'a>(c: *const KnCombo) -> Option<&'a KnCombo> {
 /// Réglage « la combinaison ouvre le menu » ; `false` : rien n'est armé.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_set_enabled(c: *const KnCombo, enabled: bool) {
-    if let Some(c) = combo(c) {
-        c.combo.set_enabled(enabled);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(c) = combo(c) {
+            c.combo.set_enabled(enabled);
+        }
+    })
 }
 
 /// Touche d'une manette (`button` : valeur kynput).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_button(c: *const KnCombo, pad: u32, button: u32, pressed: bool) {
-    let (Some(c), Some(b)) = (combo(c), PadButton::from_u32(button)) else { return };
-    c.combo.button(pad, b, pressed);
-    if c.combo.next_deadline().is_some() {
-        c.driver.wake(false);
-    }
+    kybernow_core::ffi_guard!({
+        let (Some(c), Some(b)) = (combo(c), PadButton::from_u32(button)) else { return };
+        c.combo.button(pad, b, pressed);
+        if c.combo.next_deadline().is_some() {
+            c.driver.wake(false);
+        }
+    })
 }
 
 /// Touches tenues de cette manette (valeurs kynput), au plus `cap` dans `out`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_pressed(c: *const KnCombo, pad: u32, out: *mut u32, cap: usize) -> usize {
-    let Some(c) = combo(c) else { return 0 };
-    let mut n = 0;
-    for b in c.combo.pressed(pad) {
-        if n == cap || out.is_null() {
-            break;
+    kybernow_core::ffi_guard!({
+        let Some(c) = combo(c) else { return 0 };
+        let mut n = 0;
+        for b in c.combo.pressed(pad) {
+            if n == cap || out.is_null() {
+                break;
+            }
+            unsafe { *out.add(n) = b.to_u32() };
+            n += 1;
         }
-        unsafe { *out.add(n) = b.to_u32() };
-        n += 1;
-    }
-    n
+        n
+    })
 }
 
 /// Les touches tenues d'une manette, d'après son état réel (resynchronisation).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_set_pressed(c: *const KnCombo, pad: u32, buttons: *const u32, count: usize) {
-    let Some(c) = combo(c) else { return };
-    let list = if buttons.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(buttons, count) } };
-    c.combo.set_pressed(pad, list.iter().filter_map(|b| PadButton::from_u32(*b)).collect());
+    kybernow_core::ffi_guard!({
+        let Some(c) = combo(c) else { return };
+        let list = if buttons.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(buttons, count) } };
+        c.combo.set_pressed(pad, list.iter().filter_map(|b| PadButton::from_u32(*b)).collect());
+    })
 }
 
 /// La combinaison s'est formée et ses touches ne sont pas toutes relâchées.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_formed(c: *const KnCombo, pad: u32) -> bool {
-    combo(c).is_some_and(|c| c.combo.formed(pad))
+    kybernow_core::ffi_guard!({
+        combo(c).is_some_and(|c| c.combo.formed(pad))
+    })
 }
 
 /// Manette débranchée.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_combo_forget(c: *const KnCombo, pad: u32) {
-    if let Some(c) = combo(c) {
-        c.combo.forget(pad);
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(c) = combo(c) {
+            c.combo.forget(pad);
+        }
+    })
 }
 
 /// Position tenue renvoyée à l'ordinateur (entrées reliées de nouveau).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_pointer_resend_held(p: *const KnPointer) {
-    if let Some(p) = unsafe { p.as_ref() } {
-        p.layer.resend_held();
-    }
+    kybernow_core::ffi_guard!({
+        if let Some(p) = unsafe { p.as_ref() } {
+            p.layer.resend_held();
+        }
+    })
 }
 
 #[cfg(test)]

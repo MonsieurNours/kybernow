@@ -85,14 +85,16 @@ pub unsafe extern "C" fn kn_lend_status(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(target) = parsed::<ShareTarget>(target_json, error) else { return KN_ERROR };
-    match lend::status(&target, route(route_json).as_ref(), &text(login), &text(password)) {
-        Ok(s) => {
-            give_to(out, serde_json::to_string(&s).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(target) = parsed::<ShareTarget>(target_json, error) else { return KN_ERROR };
+        match lend::status(&target, route(route_json).as_ref(), &text(login), &text(password)) {
+            Ok(s) => {
+                give_to(out, serde_json::to_string(&s).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => lend_failure(e, "", error),
         }
-        Err(e) => lend_failure(e, "", error),
-    }
+    })
 }
 
 /// « Emprunter » : `request_json` `{"code"}` ou `{"login","password"}`, avec
@@ -110,15 +112,17 @@ pub unsafe extern "C" fn kn_lend_status(
 /// Comme `kn_lend_status`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_borrow(target_json: *const c_char, route_json: *const c_char, request_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(target) = parsed::<ShareTarget>(target_json, error) else { return KN_ERROR };
-    let Some(request) = parsed::<BorrowRequest>(request_json, error) else { return KN_ERROR };
-    match lend::borrow(&target, route(route_json).as_ref(), &request) {
-        Ok(b) => {
-            give_to(out, serde_json::to_string(&b).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(target) = parsed::<ShareTarget>(target_json, error) else { return KN_ERROR };
+        let Some(request) = parsed::<BorrowRequest>(request_json, error) else { return KN_ERROR };
+        match lend::borrow(&target, route(route_json).as_ref(), &request) {
+            Ok(b) => {
+                give_to(out, serde_json::to_string(&b).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => lend_failure(e, "", error),
         }
-        Err(e) => lend_failure(e, "", error),
-    }
+    })
 }
 
 /// L'hôte a-t-il répondu (`pending_json` : `pending` de `kn_lend_borrow`) ?
@@ -130,15 +134,17 @@ pub unsafe extern "C" fn kn_lend_borrow(target_json: *const c_char, route_json: 
 /// Comme `kn_lend_status`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_wait(pending_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(pending) = parsed::<PendingBorrow>(pending_json, error) else { return KN_ERROR };
-    match lend::wait(&pending) {
-        Ok(Some(loan)) => {
-            give_to(out, serde_json::to_string(&loan).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(pending) = parsed::<PendingBorrow>(pending_json, error) else { return KN_ERROR };
+        match lend::wait(&pending) {
+            Ok(Some(loan)) => {
+                give_to(out, serde_json::to_string(&loan).unwrap_or_default());
+                KN_OK
+            }
+            Ok(None) => KN_LEND_WAITING,
+            Err(e) => lend_failure(e, &pending.host, error),
         }
-        Ok(None) => KN_LEND_WAITING,
-        Err(e) => lend_failure(e, &pending.host, error),
-    }
+    })
 }
 
 /// « Annuler » une demande en attente.
@@ -147,9 +153,11 @@ pub unsafe extern "C" fn kn_lend_wait(pending_json: *const c_char, out: *mut *mu
 /// `pending_json` : chaîne C valable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_cancel(pending_json: *const c_char) -> i32 {
-    let Ok(pending) = serde_json::from_str::<PendingBorrow>(&text(pending_json)) else { return KN_ERROR };
-    lend::cancel(&pending);
-    KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Ok(pending) = serde_json::from_str::<PendingBorrow>(&text(pending_json)) else { return KN_ERROR };
+        lend::cancel(&pending);
+        KN_OK
+    })
 }
 
 /// « Rendre l'ordinateur » hors d'une session (`loan_json` : `{target,
@@ -159,11 +167,13 @@ pub unsafe extern "C" fn kn_lend_cancel(pending_json: *const c_char) -> i32 {
 /// `loan_json` : chaîne C valable ; `error` valable ou nul.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_leave(loan_json: *const c_char, error: *mut *mut c_char) -> i32 {
-    let Some(loan) = parsed::<Loan>(loan_json, error) else { return KN_ERROR };
-    match lend::leave(&loan) {
-        Ok(()) => KN_OK,
-        Err(e) => lend_failure(e, "", error),
-    }
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(loan) = parsed::<Loan>(loan_json, error) else { return KN_ERROR };
+        match lend::leave(&loan) {
+            Ok(()) => KN_OK,
+            Err(e) => lend_failure(e, "", error),
+        }
+    })
 }
 
 /// Lit un lien d'invitation (`kybernow://borrow?host&port&fp&login[&relay&sid]`,
@@ -176,14 +186,16 @@ pub unsafe extern "C" fn kn_lend_leave(loan_json: *const c_char, error: *mut *mu
 /// `url` : chaîne C valable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_parse_invite(url: *const c_char) -> *mut c_char {
-    match lend::parse_invite(&text(url)) {
-        Some(invite) => {
-            let mut v = serde_json::to_value(&invite).unwrap_or_default();
-            v["route"] = serde_json::to_value(invite.relay_route()).unwrap_or_default();
-            give(v.to_string())
+    kybernow_core::ffi_guard!(null => {
+        match lend::parse_invite(&text(url)) {
+            Some(invite) => {
+                let mut v = serde_json::to_value(&invite).unwrap_or_default();
+                v["route"] = serde_json::to_value(invite.relay_route()).unwrap_or_default();
+                give(v.to_string())
+            }
+            None => std::ptr::null_mut(),
         }
-        None => std::ptr::null_mut(),
-    }
+    })
 }
 
 /// L'état de la carte « Ordinateur de {hôte} » (`free`, `busy`, `lent`,
@@ -193,10 +205,12 @@ pub unsafe extern "C" fn kn_lend_parse_invite(url: *const c_char) -> *mut c_char
 /// `state` : chaîne C valable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_availability_label(state: *const c_char) -> *mut c_char {
-    match LendAvailability::parse(&text(state)) {
-        Some(a) => give(a.label(i18n::current())),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match LendAvailability::parse(&text(state)) {
+            Some(a) => give(a.label(i18n::current())),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le texte d'un préavis (`notice_json` : `{reason, at}`) ; `name` : le
@@ -206,10 +220,12 @@ pub unsafe extern "C" fn kn_lend_availability_label(state: *const c_char) -> *mu
 /// Chaînes C valables (`name` nul : sans nom).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_lend_notice_text(notice_json: *const c_char, name: *const c_char) -> *mut c_char {
-    match serde_json::from_str::<LendNotice>(&text(notice_json)) {
-        Ok(n) => give(n.text(i18n::current(), &text(name))),
-        Err(_) => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match serde_json::from_str::<LendNotice>(&text(notice_json)) {
+            Ok(n) => give(n.text(i18n::current(), &text(name))),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 // L'hôte : sur la `KnConsole` de l'ordinateur (appareil appairé). `out` :
@@ -220,8 +236,10 @@ pub unsafe extern "C" fn kn_lend_notice_text(notice_json: *const c_char, name: *
 /// `c` : console valable ; `out`, `error` valables ou nuls.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_lend_state(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.lend_state(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.lend_state(), out, error)
+    })
 }
 
 /// « Créer un code » : `duration` en secondes (0 ou moins : « Jusqu'à ce
@@ -231,9 +249,11 @@ pub unsafe extern "C" fn kn_console_lend_state(c: *const KnConsole, out: *mut *m
 /// Comme `kn_console_lend_state`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_lend_code(c: *const KnConsole, duration: i64, steam: i32, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    let duration = (duration > 0).then_some(duration as u64);
-    console_result(c.0.lend_code(duration, LendSteam::from_code(steam)), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        let duration = (duration > 0).then_some(duration as u64);
+        console_result(c.0.lend_code(duration, LendSteam::from_code(steam)), out, error)
+    })
 }
 
 /// « Annuler le code ».
@@ -242,8 +262,10 @@ pub unsafe extern "C" fn kn_console_lend_code(c: *const KnConsole, duration: i64
 /// Comme `kn_console_lend_state`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_lend_cancel_code(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.lend_cancel_code(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.lend_cancel_code(), out, error)
+    })
 }
 
 /// « Accepter » (`accept`, avec `steam`) ou « Refuser » une demande
@@ -253,8 +275,10 @@ pub unsafe extern "C" fn kn_console_lend_cancel_code(c: *const KnConsole, out: *
 /// Comme `kn_console_lend_state` ; `request` : chaîne C valable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_lend_answer(c: *const KnConsole, request: *const c_char, accept: bool, steam: i32, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.lend_answer(&text(request), accept, LendSteam::from_code(steam)), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.lend_answer(&text(request), accept, LendSteam::from_code(steam)), out, error)
+    })
 }
 
 /// « Reprendre l'ordinateur » (préavis de 2 min) ou, `now`, « Reprendre
@@ -264,6 +288,8 @@ pub unsafe extern "C" fn kn_console_lend_answer(c: *const KnConsole, request: *c
 /// Comme `kn_console_lend_state`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_lend_take_back(c: *const KnConsole, now: bool, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.lend_take_back(now), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.lend_take_back(now), out, error)
+    })
 }

@@ -26,36 +26,46 @@ fn keep(s: &WelcomeState) -> *mut c_char {
 /// Montrer l'accueil : jamais vu dans cette version, et sans compte.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_should_show(state_json: *const c_char, has_account: bool) -> bool {
-    state(state_json).should_show(has_account)
+    kybernow_core::ffi_guard!({
+        state(state_json).should_show(has_account)
+    })
 }
 
 /// L'accueil est vu (fini, « Passer », « Plus tard ») : le nouvel état.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_done(state_json: *const c_char) -> *mut c_char {
-    let mut s = state(state_json);
-    s.welcome_done();
-    keep(&s)
+    kybernow_core::ffi_guard!(null => {
+        let mut s = state(state_json);
+        s.welcome_done();
+        keep(&s)
+    })
 }
 
 /// La carte du compte à l'accueil (sans compte ; revenue 30 jours après une
 /// première fermeture ; jamais après « Ne plus afficher »).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_card_visible(state_json: *const c_char, has_account: bool, now: u64) -> bool {
-    state(state_json).card_visible(has_account, now)
+    kybernow_core::ffi_guard!({
+        state(state_json).card_visible(has_account, now)
+    })
 }
 
 /// La croix de la carte dit « Ne plus afficher » (sinon « Fermer »).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_card_close_is_final(state_json: *const c_char) -> bool {
-    state(state_json).card_close_is_final()
+    kybernow_core::ffi_guard!({
+        state(state_json).card_close_is_final()
+    })
 }
 
 /// La croix de la carte : le nouvel état.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_close_card(state_json: *const c_char, now: u64) -> *mut c_char {
-    let mut s = state(state_json);
-    s.close_card(now);
-    keep(&s)
+    kybernow_core::ffi_guard!(null => {
+        let mut s = state(state_json);
+        s.close_card(now);
+        keep(&s)
+    })
 }
 
 /// Le bandeau après l'appairage de `computer` (un identifiant stable de
@@ -63,33 +73,41 @@ pub unsafe extern "C" fn kn_welcome_close_card(state_json: *const c_char, now: u
 /// nouvel état (toujours rendu).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_take_paired_hint(state_json: *const c_char, has_account: bool, computer: *const c_char, out: *mut *mut c_char) -> bool {
-    let mut s = state(state_json);
-    let take = s.take_paired_hint(has_account, &text(computer));
-    give_to(out, serde_json::to_string(&s).unwrap_or_default());
-    take
+    kybernow_core::ffi_guard!({
+        let mut s = state(state_json);
+        let take = s.take_paired_hint(has_account, &text(computer));
+        give_to(out, serde_json::to_string(&s).unwrap_or_default());
+        take
+    })
 }
 
 /// La fenêtre « Hors de chez vous ? » pour `computer` : vrai une fois par
 /// jour au plus, sans compte. `out` : le nouvel état (toujours rendu).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_take_away_hint(state_json: *const c_char, has_account: bool, computer: *const c_char, now: u64, out: *mut *mut c_char) -> bool {
-    let mut s = state(state_json);
-    let take = s.take_away_hint(has_account, &text(computer), now);
-    give_to(out, serde_json::to_string(&s).unwrap_or_default());
-    take
+    kybernow_core::ffi_guard!({
+        let mut s = state(state_json);
+        let take = s.take_away_hint(has_account, &text(computer), now);
+        give_to(out, serde_json::to_string(&s).unwrap_or_default());
+        take
+    })
 }
 
 /// La page d'inscription du relais (vide : le relais public), dans la langue
 /// de l'app, à ouvrir dans le navigateur de l'appareil.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_welcome_sign_up_url(relay: *const c_char) -> *mut c_char {
-    give(welcome::sign_up_url(&text(relay), i18n::current()))
+    kybernow_core::ffi_guard!(null => {
+        give(welcome::sign_up_url(&text(relay), i18n::current()))
+    })
 }
 
 /// La page de téléchargement de KyberNow Station (écran 3 de l'accueil).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_welcome_station_download_url() -> *mut c_char {
-    give(welcome::STATION_DOWNLOAD_URL.to_string())
+    kybernow_core::ffi_guard!(null => {
+        give(welcome::STATION_DOWNLOAD_URL.to_string())
+    })
 }
 
 #[cfg(test)]

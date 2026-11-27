@@ -44,21 +44,25 @@ pub unsafe extern "C" fn kn_console_recording(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.recording(&text(device_id), record) {
-        Ok(state) => {
-            give_to(out, state.ui_json(i18n::current(), None).to_string());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.recording(&text(device_id), record) {
+            Ok(state) => {
+                give_to(out, state.ui_json(i18n::current(), None).to_string());
+                KN_OK
+            }
+            Err(e) => {
+                give_to(error, e.text(i18n::current()));
+                code(&e)
+            }
         }
-        Err(e) => {
-            give_to(error, e.text(i18n::current()));
-            code(&e)
-        }
-    }
+    })
 }
 
 /// « 02:14 », « 1:02:14 » : le `{time}` des textes de l'enregistrement.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_recording_clock(seconds: u64) -> *mut c_char {
-    give(kybernow_core::recording::clock(seconds))
+    kybernow_core::ffi_guard!(null => {
+        give(kybernow_core::recording::clock(seconds))
+    })
 }

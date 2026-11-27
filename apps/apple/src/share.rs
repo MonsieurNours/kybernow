@@ -119,13 +119,17 @@ fn role(code: i32) -> Option<ShareRole> {
 /// la souris tels quels (`KN_SHARE_ROLE_*` ; −1 pour un code inconnu).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_share_role_with_pads(role_code: i32, pads: bool) -> i32 {
-    role(role_code).map_or(-1, |r| r.with_pads(pads).code())
+    kybernow_core::ffi_guard!(-1 => {
+        role(role_code).map_or(-1, |r| r.with_pads(pads).code())
+    })
 }
 
 /// Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_share_role_with_kbm(role_code: i32, kbm: bool) -> i32 {
-    role(role_code).map_or(-1, |r| r.with_kbm(kbm).code())
+    kybernow_core::ffi_guard!(-1 => {
+        role(role_code).map_or(-1, |r| r.with_kbm(kbm).code())
+    })
 }
 
 /// « Qualité de l'image » d'un invité (`kn_session_set_share_quality`,
@@ -146,7 +150,9 @@ pub const KN_SHARE_QUALITY_2160P60: i32 = 4;
 /// pour un code inconnu.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_share_quality_label(quality: i32) -> *mut c_char {
-    ShareQuality::from_code(quality).map_or(std::ptr::null_mut(), |q| give(q.label(i18n::current())))
+    kybernow_core::ffi_guard!(null => {
+        ShareQuality::from_code(quality).map_or(std::ptr::null_mut(), |q| give(q.label(i18n::current())))
+    })
 }
 
 /// « Auto » : ce que l'appareil sait afficher et décoder, à mettre dans
@@ -159,10 +165,12 @@ pub extern "C" fn kn_share_quality_label(quality: i32) -> *mut c_char {
 /// yuv444}`, nul si un JSON est illisible.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_auto_quality(screen_json: *const c_char, decoder_json: *const c_char, host_json: *const c_char) -> *mut c_char {
-    let Ok(screen) = serde_json::from_str::<DeviceScreen>(&text(screen_json)) else { return std::ptr::null_mut() };
-    let Ok(decoder) = serde_json::from_str::<DecoderCaps>(&text(decoder_json)) else { return std::ptr::null_mut() };
-    let host = optional(host_json).and_then(|h| serde_json::from_str::<ShareDisplay>(&h).ok());
-    give(serde_json::to_string(&share::auto_quality(&screen, &decoder, host.as_ref())).unwrap_or_default())
+    kybernow_core::ffi_guard!(null => {
+        let Ok(screen) = serde_json::from_str::<DeviceScreen>(&text(screen_json)) else { return std::ptr::null_mut() };
+        let Ok(decoder) = serde_json::from_str::<DecoderCaps>(&text(decoder_json)) else { return std::ptr::null_mut() };
+        let host = optional(host_json).and_then(|h| serde_json::from_str::<ShareDisplay>(&h).ok());
+        give(serde_json::to_string(&share::auto_quality(&screen, &decoder, host.as_ref())).unwrap_or_default())
+    })
 }
 
 /// La qualité reçue (`image_json` de `on_share_image`, ou `guests[].image`
@@ -170,10 +178,12 @@ pub unsafe extern "C" fn kn_share_auto_quality(screen_json: *const c_char, decod
 /// 60 Hz » ; nul si illisible.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_image_label(image_json: *const c_char) -> *mut c_char {
-    match serde_json::from_str::<ShareImage>(&text(image_json)) {
-        Ok(i) => i.label().map_or(std::ptr::null_mut(), give),
-        Err(_) => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match serde_json::from_str::<ShareImage>(&text(image_json)) {
+            Ok(i) => i.label().map_or(std::ptr::null_mut(), give),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 // MARK: - Rejoindre
@@ -202,32 +212,34 @@ pub unsafe extern "C" fn kn_share_join(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let targets: Vec<ShareTarget> = match serde_json::from_str(&text(targets_json)) {
-        Ok(t) => t,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return KN_ERROR;
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let targets: Vec<ShareTarget> = match serde_json::from_str(&text(targets_json)) {
+            Ok(t) => t,
+            Err(e) => {
+                give_to(error, e.to_string());
+                return KN_ERROR;
+            }
+        };
+        let request: JoinRequest = match serde_json::from_str(&text(request_json)) {
+            Ok(r) => r,
+            Err(e) => {
+                give_to(error, e.to_string());
+                return KN_ERROR;
+            }
+        };
+        let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+        let result = match caps {
+            Some(caps) => share::join_checked(&targets, &request, caps),
+            None => share::join(&targets, &request),
+        };
+        match result {
+            Ok(found) => {
+                give_to(out, serde_json::to_string(&found).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => share_failure(e, out, error),
         }
-    };
-    let request: JoinRequest = match serde_json::from_str(&text(request_json)) {
-        Ok(r) => r,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return KN_ERROR;
-        }
-    };
-    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    let result = match caps {
-        Some(caps) => share::join_checked(&targets, &request, caps),
-        None => share::join(&targets, &request),
-    };
-    match result {
-        Ok(found) => {
-            give_to(out, serde_json::to_string(&found).unwrap_or_default());
-            KN_OK
-        }
-        Err(e) => share_failure(e, out, error),
-    }
+    })
 }
 
 /// « Rejoindre » sur le réseau **et hors de chez soi** (docs/relais.md) :
@@ -247,27 +259,29 @@ pub unsafe extern "C" fn kn_share_join_anywhere(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let targets: Vec<ShareTarget> = serde_json::from_str(&text(targets_json)).unwrap_or_default();
-    let relays: Vec<kybernow_core::relay::RelayAddr> = serde_json::from_str::<Vec<String>>(&text(relays_json))
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|r| r.parse().ok())
-        .collect();
-    let request: JoinRequest = match serde_json::from_str(&text(request_json)) {
-        Ok(r) => r,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return KN_ERROR;
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let targets: Vec<ShareTarget> = serde_json::from_str(&text(targets_json)).unwrap_or_default();
+        let relays: Vec<kybernow_core::relay::RelayAddr> = serde_json::from_str::<Vec<String>>(&text(relays_json))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| r.parse().ok())
+            .collect();
+        let request: JoinRequest = match serde_json::from_str(&text(request_json)) {
+            Ok(r) => r,
+            Err(e) => {
+                give_to(error, e.to_string());
+                return KN_ERROR;
+            }
+        };
+        let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+        match share::join_anywhere(&targets, &relays, &request, caps) {
+            Ok(joining) => {
+                give_to(out, serde_json::to_string(&joining).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => share_failure(e, out, error),
         }
-    };
-    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    match share::join_anywhere(&targets, &relays, &request, caps) {
-        Ok(joining) => {
-            give_to(out, serde_json::to_string(&joining).unwrap_or_default());
-            KN_OK
-        }
-        Err(e) => share_failure(e, out, error),
-    }
+    })
 }
 
 /// Un lien de partage (`link_json` : celui de `kn_share_parse_link`) : la
@@ -282,17 +296,19 @@ pub unsafe extern "C" fn kn_share_join_link(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let (Ok(link), Ok(request)) = (serde_json::from_str::<share::JoinLink>(&text(link_json)), serde_json::from_str::<JoinRequest>(&text(request_json))) else {
-        return KN_ERROR;
-    };
-    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    match share::join_link(&link, &request, caps) {
-        Ok(joining) => {
-            give_to(out, serde_json::to_string(&joining).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let (Ok(link), Ok(request)) = (serde_json::from_str::<share::JoinLink>(&text(link_json)), serde_json::from_str::<JoinRequest>(&text(request_json))) else {
+            return KN_ERROR;
+        };
+        let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+        match share::join_link(&link, &request, caps) {
+            Ok(joining) => {
+                give_to(out, serde_json::to_string(&joining).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => share_failure(e, out, error),
         }
-        Err(e) => share_failure(e, out, error),
-    }
+    })
 }
 
 /// L'hôte a-t-il répondu à la demande (`pending_json` : `pending` de
@@ -304,16 +320,18 @@ pub unsafe extern "C" fn kn_share_join_link(
 /// plus la demande). Bloquant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_wait(pending_json: *const c_char, capabilities_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Ok(pending) = serde_json::from_str::<share::PendingJoin>(&text(pending_json)) else { return KN_ERROR };
-    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    match share::wait(&pending, caps) {
-        Ok(Some(found)) => {
-            give_to(out, serde_json::to_string(&found).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Ok(pending) = serde_json::from_str::<share::PendingJoin>(&text(pending_json)) else { return KN_ERROR };
+        let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+        match share::wait(&pending, caps) {
+            Ok(Some(found)) => {
+                give_to(out, serde_json::to_string(&found).unwrap_or_default());
+                KN_OK
+            }
+            Ok(None) => KN_SHARE_WAITING,
+            Err(e) => share_failure(e, out, error),
         }
-        Ok(None) => KN_SHARE_WAITING,
-        Err(e) => share_failure(e, out, error),
-    }
+    })
 }
 
 // MARK: - Regarder (droit « Regarder » d'un compte KyberNow, docs/comptes.md)
@@ -351,24 +369,28 @@ pub unsafe extern "C" fn kn_share_watch(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let (Ok(params), Ok(request)) = (
-        serde_json::from_str::<kybernow_core::account::AccessParams>(&text(access_json)),
-        serde_json::from_str::<WatchRequest>(&text(request_json)),
-    ) else {
-        give_to(error, "JSON illisible".to_string());
-        return KN_ERROR;
-    };
-    let lan = optional(lan_json).and_then(|l| serde_json::from_str::<ShareTarget>(&l).ok());
-    let route = optional(route_json).and_then(|r| serde_json::from_str::<kybernow_core::relay::RelayRoute>(&r).ok());
-    let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    let access = kybernow_core::account::StationAccess::new(params);
-    watch_answer(share::watch_account(access, lan, route, &request, caps), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let (Ok(params), Ok(request)) = (
+            serde_json::from_str::<kybernow_core::account::AccessParams>(&text(access_json)),
+            serde_json::from_str::<WatchRequest>(&text(request_json)),
+        ) else {
+            give_to(error, "JSON illisible".to_string());
+            return KN_ERROR;
+        };
+        let lan = optional(lan_json).and_then(|l| serde_json::from_str::<ShareTarget>(&l).ok());
+        let route = optional(route_json).and_then(|r| serde_json::from_str::<kybernow_core::relay::RelayRoute>(&r).ok());
+        let caps = optional(capabilities_json).and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
+        let access = kybernow_core::account::StationAccess::new(params);
+        watch_answer(share::watch_account(access, lan, route, &request, caps), out, error)
+    })
 }
 
 /// « Regarder {nom} » : le titre des étapes de la connexion de qui regarde.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_watch_title(computer: *const c_char) -> *mut c_char {
-    give(share::watch_title(i18n::current(), &text(computer)))
+    kybernow_core::ffi_guard!(null => {
+        give(share::watch_title(i18n::current(), &text(computer)))
+    })
 }
 
 /// Les mots de qui regarde, dans la langue de l'app : `action` « Regarder »
@@ -376,29 +398,35 @@ pub unsafe extern "C" fn kn_share_watch_title(computer: *const c_char) -> *mut c
 /// place de « Quitter le partage »), `screen` « Écran » (barre).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_watch_word(word: *const c_char) -> *mut c_char {
-    give(share::watch_word(i18n::current(), &text(word)))
+    kybernow_core::ffi_guard!(null => {
+        give(share::watch_word(i18n::current(), &text(word)))
+    })
 }
 
 /// Une ligne du menu « Écran » (`screen_json` : un élément de
 /// `joined.watch.screens`) : « Écran 1 — 3840 × 2160 » ; nul si illisible.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_watch_screen_label(screen_json: *const c_char) -> *mut c_char {
-    match serde_json::from_str::<WatchScreen>(&text(screen_json)) {
-        Ok(screen) => give(screen.label(i18n::current())),
-        Err(_) => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match serde_json::from_str::<WatchScreen>(&text(screen_json)) {
+            Ok(screen) => give(screen.label(i18n::current())),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// « Annuler » une demande en attente. Bloquant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_cancel(pending_json: *const c_char) -> i32 {
-    match serde_json::from_str::<share::PendingJoin>(&text(pending_json)) {
-        Ok(p) => {
-            share::cancel(&p);
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        match serde_json::from_str::<share::PendingJoin>(&text(pending_json)) {
+            Ok(p) => {
+                share::cancel(&p);
+                KN_OK
+            }
+            Err(_) => KN_ERROR,
         }
-        Err(_) => KN_ERROR,
-    }
+    })
 }
 
 /// L'invité repart avant d'avoir ouvert sa session (l'utilisateur annule) ;
@@ -406,13 +434,15 @@ pub unsafe extern "C" fn kn_share_cancel(pending_json: *const c_char) -> i32 {
 /// part seule. Bloquant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_leave(found_json: *const c_char) -> i32 {
-    match serde_json::from_str::<Found>(&text(found_json)) {
-        Ok(found) => {
-            share::leave(&found);
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        match serde_json::from_str::<Found>(&text(found_json)) {
+            Ok(found) => {
+                share::leave(&found);
+                KN_OK
+            }
+            Err(_) => KN_ERROR,
         }
-        Err(_) => KN_ERROR,
-    }
+    })
 }
 
 /// Lit un lien de partage (`kybernow://join?host=…&port=…&fp=…&code=…`, ou
@@ -421,25 +451,31 @@ pub unsafe extern "C" fn kn_share_leave(found_json: *const c_char) -> i32 {
 /// liste de `kn_share_join`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_parse_link(url: *const c_char) -> *mut c_char {
-    match share::parse_link(&text(url)) {
-        Some(link) => give(serde_json::to_string(&link).unwrap_or_default()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match share::parse_link(&text(url)) {
+            Some(link) => give(serde_json::to_string(&link).unwrap_or_default()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Les six chiffres d'un code tapé (« 123 456 »), nul sinon.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_normalize_code(code: *const c_char) -> *mut c_char {
-    match share::normalize_code(&text(code)) {
-        Some(c) => give(c),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match share::normalize_code(&text(code)) {
+            Some(c) => give(c),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le code à afficher : « 123 456 ».
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_format_code(code: *const c_char) -> *mut c_char {
-    give(share::format_code(&text(code)))
+    kybernow_core::ffi_guard!(null => {
+        give(share::format_code(&text(code)))
+    })
 }
 
 // MARK: - Hôte
@@ -448,28 +484,34 @@ pub unsafe extern "C" fn kn_share_format_code(code: *const c_char) -> *mut c_cha
 /// `KN_SHARE_UNSUPPORTED`, `KN_SHARE_DISABLED` ou `KN_SHARE_AVAILABLE`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_availability(info_json: *const c_char) -> i32 {
-    let info: Info = serde_json::from_str(&text(info_json)).unwrap_or_default();
-    ShareAvailability::of(&info).code()
+    kybernow_core::ffi_guard!(crate::share::KN_SHARE_UNSUPPORTED => {
+        let info: Info = serde_json::from_str(&text(info_json)).unwrap_or_default();
+        ShareAvailability::of(&info).code()
+    })
 }
 
 /// Le texte de `kn_share_availability` dans la langue de l'app, nul quand
 /// le partage est disponible.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_share_availability_text(availability: i32) -> *mut c_char {
-    let a = match availability {
-        KN_SHARE_UNSUPPORTED => ShareAvailability::Unsupported,
-        KN_SHARE_DISABLED => ShareAvailability::Disabled,
-        _ => return std::ptr::null_mut(),
-    };
-    a.text(i18n::current()).map(give).unwrap_or(std::ptr::null_mut())
+    kybernow_core::ffi_guard!(null => {
+        let a = match availability {
+            KN_SHARE_UNSUPPORTED => ShareAvailability::Unsupported,
+            KN_SHARE_DISABLED => ShareAvailability::Disabled,
+            _ => return std::ptr::null_mut(),
+        };
+        a.text(i18n::current()).map(give).unwrap_or(std::ptr::null_mut())
+    })
 }
 
 /// Ouvre le partage de l'écran principal de la session de cet appareil :
 /// `{"code", "link", "web", "display": {"id", "label"}}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_open(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.share_open(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.share_open(), out, error)
+    })
 }
 
 /// Le partage en cours : `{"open", "code", "link", "web", "web_local",
@@ -478,15 +520,19 @@ pub unsafe extern "C" fn kn_console_share_open(c: *const KnConsole, out: *mut *m
 /// venue par le relais, pas encore acceptée), "via" ("lan" ou "relay")}]}`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_state(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.share_state(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.share_state(), out, error)
+    })
 }
 
 /// « Nouveau code » (même réponse que `kn_console_share_open`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_code(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.share_code(), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.share_code(), out, error)
+    })
 }
 
 /// « Laisser les invités parler » (docs/micro.md) : vaut tout de suite pour
@@ -495,8 +541,10 @@ pub unsafe extern "C" fn kn_console_share_code(c: *const KnConsole, out: *mut *m
 /// d'avant le micro : pas d'interrupteur).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_speak(c: *const KnConsole, on: bool, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.share_speak(on), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.share_speak(on), out, error)
+    })
 }
 
 /// Le rôle d'un invité (`KN_SHARE_ROLE_*`) : « Donner les manettes »,
@@ -505,12 +553,14 @@ pub unsafe extern "C" fn kn_console_share_speak(c: *const KnConsole, on: bool, o
 /// `kn_share_role_with_kbm` : l'autre droit tel quel).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_guest(c: *const KnConsole, guest: *const c_char, role_code: i32, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    let Some(r) = role(role_code) else { return KN_ERROR };
-    match c.0.share_guest(&text(guest), r) {
-        Ok(()) => KN_OK,
-        Err(e) => failure(e, error),
-    }
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        let Some(r) = role(role_code) else { return KN_ERROR };
+        match c.0.share_guest(&text(guest), r) {
+            Ok(()) => KN_OK,
+            Err(e) => failure(e, error),
+        }
+    })
 }
 
 /// « Accepter » la demande d'un invité venu par le relais (`pending` dans
@@ -519,34 +569,42 @@ pub unsafe extern "C" fn kn_console_share_guest(c: *const KnConsole, guest: *con
 /// −409 (`error` : le texte d'Admin) si les quatre places sont prises.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_accept(c: *const KnConsole, guest: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.share_accept(&text(guest)), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.share_accept(&text(guest)), out, error)
+    })
 }
 
 /// « Refuser » la demande d'un invité venu par le relais (son appareil est
 /// refusé dix minutes). `out` : la vue du partage.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_refuse(c: *const KnConsole, guest: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    console_result(c.0.share_refuse(&text(guest)), out, error)
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        console_result(c.0.share_refuse(&text(guest)), out, error)
+    })
 }
 
 /// « Retirer » un invité.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_kick(c: *const KnConsole, guest: *const c_char, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.share_kick(&text(guest)) {
-        Ok(()) => KN_OK,
-        Err(e) => failure(e, error),
-    }
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.share_kick(&text(guest)) {
+            Ok(()) => KN_OK,
+            Err(e) => failure(e, error),
+        }
+    })
 }
 
 /// « Arrêter le partage ».
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_share_close(c: *const KnConsole, error: *mut *mut c_char) -> i32 {
-    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
-    match c.0.share_close() {
-        Ok(()) => KN_OK,
-        Err(e) => failure(e, error),
-    }
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+        match c.0.share_close() {
+            Ok(()) => KN_OK,
+            Err(e) => failure(e, error),
+        }
+    })
 }

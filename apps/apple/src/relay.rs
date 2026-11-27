@@ -24,9 +24,11 @@ pub unsafe extern "C" fn kn_console_new_relay(
     pinned: *const c_char,
     route_json: *const c_char,
 ) -> *mut KnConsole {
-    let route = route_or_broken(optional(route_json));
-    let console = Console::new(&text(host), port, &text(user), &text(password), optional(pinned)).with_relay(route);
-    Box::into_raw(Box::new(KnConsole(std::sync::Arc::new(console))))
+    kybernow_core::ffi_guard!(null => {
+        let route = route_or_broken(optional(route_json));
+        let console = Console::new(&text(host), port, &text(user), &text(password), optional(pinned)).with_relay(route);
+        Box::into_raw(Box::new(KnConsole(std::sync::Arc::new(console))))
+    })
 }
 
 /// La route d'un ordinateur par son relais, d'après son `info` (`relay`) et
@@ -35,11 +37,13 @@ pub unsafe extern "C" fn kn_console_new_relay(
 /// `kn_console_new_relay` ; nul sans relais ou sans empreinte.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_relay_route_from_info(info_json: *const c_char, admin_fp: *const c_char) -> *mut c_char {
-    let Ok(info) = serde_json::from_str::<Info>(&text(info_json)) else { return std::ptr::null_mut() };
-    match info.relay.and_then(|r| r.route(&text(admin_fp))) {
-        Some(route) => give(serde_json::to_string(&route).unwrap_or_default()),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let Ok(info) = serde_json::from_str::<Info>(&text(info_json)) else { return std::ptr::null_mut() };
+        match info.relay.and_then(|r| r.route(&text(admin_fp))) {
+            Some(route) => give(serde_json::to_string(&route).unwrap_or_default()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Quels ordinateurs sont joignables par ce relais (accueil : « Hors de chez
@@ -47,40 +51,48 @@ pub unsafe extern "C" fn kn_relay_route_from_info(info_json: *const c_char, admi
 /// false, …]` dans le même ordre. Bloquant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_relay_presence(relay_addr: *const c_char, stations_json: *const c_char, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
-    let Ok(addr) = text(relay_addr).parse::<RelayAddr>() else { return KN_ERROR };
-    let Ok(stations) = serde_json::from_str::<Vec<String>>(&text(stations_json)) else { return KN_ERROR };
-    match relay::presence(&addr, &stations) {
-        Ok(online) => {
-            give_to(out, serde_json::to_string(&online).unwrap_or_default());
-            KN_OK
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let Ok(addr) = text(relay_addr).parse::<RelayAddr>() else { return KN_ERROR };
+        let Ok(stations) = serde_json::from_str::<Vec<String>>(&text(stations_json)) else { return KN_ERROR };
+        match relay::presence(&addr, &stations) {
+            Ok(online) => {
+                give_to(out, serde_json::to_string(&online).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => failure(kybernow_core::console::ConsoleError::Relay(e), error),
         }
-        Err(e) => failure(kybernow_core::console::ConsoleError::Relay(e), error),
-    }
+    })
 }
 
 /// `KYBERNOW_RELAY` : 0 normal, 1 toujours par le relais (essais), 2 jamais.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_relay_mode() -> i32 {
-    RelayMode::current().code()
+    kybernow_core::ffi_guard!(0 => {
+        RelayMode::current().code()
+    })
 }
 
 /// La ligne « Chemin » des statistiques : 0 « Direct », 1 « Par le relais »,
 /// 2 « Par le relais (TCP) » (langue de l'app) ; nul pour un code inconnu.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_relay_path_label(transport: i32) -> *mut c_char {
-    let t = match transport {
-        0 => RouteTransport::Direct,
-        1 => RouteTransport::Relay,
-        2 => RouteTransport::RelayTcp,
-        _ => return std::ptr::null_mut(),
-    };
-    give(t.label(i18n::current()))
+    kybernow_core::ffi_guard!(null => {
+        let t = match transport {
+            0 => RouteTransport::Direct,
+            1 => RouteTransport::Relay,
+            2 => RouteTransport::RelayTcp,
+            _ => return std::ptr::null_mut(),
+        };
+        give(t.label(i18n::current()))
+    })
 }
 
 /// Le relais public, `share.kybernow.app` (port 443).
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_relay_default() -> *mut c_char {
-    give(relay::DEFAULT_RELAY.to_string())
+    kybernow_core::ffi_guard!(null => {
+        give(relay::DEFAULT_RELAY.to_string())
+    })
 }
 
 /// Une adresse de relais sous sa forme normale (sans port pour le 443 :
@@ -91,10 +103,12 @@ pub extern "C" fn kn_relay_default() -> *mut c_char {
 /// `addr` : chaîne C valable ou nul.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_relay_normalize(addr: *const c_char) -> *mut c_char {
-    match relay::normalize(&text(addr)) {
-        Some(a) => give(a),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        match relay::normalize(&text(addr)) {
+            Some(a) => give(a),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Le texte de link-ui d'une erreur du relais (`KN_RELAY_UNREACHABLE`,
@@ -108,11 +122,13 @@ pub unsafe extern "C" fn kn_relay_normalize(addr: *const c_char) -> *mut c_char 
 /// `name` : chaîne C valable ou nul.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_relay_error_text(code: i32, name: *const c_char) -> *mut c_char {
-    let name = text(name);
-    match relay::RelayError::from_code(code) {
-        Some(e) => give(e.text(i18n::current(), Some(&name))),
-        None => std::ptr::null_mut(),
-    }
+    kybernow_core::ffi_guard!(null => {
+        let name = text(name);
+        match relay::RelayError::from_code(code) {
+            Some(e) => give(e.text(i18n::current(), Some(&name))),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// La route donnée par l'app : une route illisible n'est jamais prise pour

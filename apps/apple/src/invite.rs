@@ -52,25 +52,27 @@ pub unsafe extern "C" fn kn_invite_redeem(
     out: *mut *mut c_char,
     error: *mut *mut c_char,
 ) -> i32 {
-    let code: InviteCode = match serde_json::from_str(&text(invite_code_json)) {
-        Ok(c) => c,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return KN_ERROR;
+    kybernow_core::ffi_guard!(crate::KN_ERROR => {
+        let code: InviteCode = match serde_json::from_str(&text(invite_code_json)) {
+            Ok(c) => c,
+            Err(e) => {
+                give_to(error, e.to_string());
+                return KN_ERROR;
+            }
+        };
+        let device: DeviceInfo = match serde_json::from_str(&text(device_json)) {
+            Ok(d) => d,
+            Err(e) => {
+                give_to(error, e.to_string());
+                return KN_ERROR;
+            }
+        };
+        match invite::redeem(&code, &text(password), &device) {
+            Ok(invited) => {
+                give_to(out, serde_json::to_string(&invited).unwrap_or_default());
+                KN_OK
+            }
+            Err(e) => invite_failure(e, &code.computer, error),
         }
-    };
-    let device: DeviceInfo = match serde_json::from_str(&text(device_json)) {
-        Ok(d) => d,
-        Err(e) => {
-            give_to(error, e.to_string());
-            return KN_ERROR;
-        }
-    };
-    match invite::redeem(&code, &text(password), &device) {
-        Ok(invited) => {
-            give_to(out, serde_json::to_string(&invited).unwrap_or_default());
-            KN_OK
-        }
-        Err(e) => invite_failure(e, &code.computer, error),
-    }
+    })
 }
