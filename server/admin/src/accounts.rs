@@ -663,6 +663,15 @@ pub struct EnrollBody {
     relay: Option<String>,
 }
 
+/// L'adresse d'une page d'Admin (`https://hôte[:port]`) : rien après l'hôte,
+/// ni identifiants (`@`). Découpée sur le préfixe, jamais par position
+/// d'octet (un caractère accentué y ferait paniquer Admin).
+pub fn origin_ok(origin: &str) -> bool {
+    let Some(rest) = origin.strip_prefix("https://").or_else(|| origin.strip_prefix("http://")) else { return false };
+    // Un navigateur donne l'origine en ASCII (nom international en punycode).
+    origin.len() <= 200 && !rest.is_empty() && rest.is_ascii() && !rest.contains(['/', '?', '#', '@', ' ', '\\']) && !rest.chars().any(|c| c.is_ascii_control())
+}
+
 /// Forme d'un jeton d'enrôlement acceptée avant de le passer au relais : il
 /// ne voyage que dans un message JSON, mais un jeton collé de travers
 /// (espaces, guillemets, retour à la ligne) se voit tout de suite.
@@ -1050,7 +1059,7 @@ pub async fn web_login_start(State(s): State<AppState>, via: Option<axum::Extens
         return refuse(StatusCode::CONFLICT, "unavailable", Msg::new("accounts.webLoginOff"));
     }
     let origin = body.origin.trim().trim_end_matches('/').to_string();
-    if !(origin.starts_with("https://") || origin.starts_with("http://")) || origin.len() > 200 || origin[8..].contains(['/', '?', '#', '@', ' ']) {
+    if !origin_ok(&origin) {
         return refuse(StatusCode::BAD_REQUEST, "bad_origin", Msg::new("accounts.badOrigin"));
     }
     let relay = s.settings.lock().unwrap().account.relay.clone().unwrap_or_default();
@@ -1688,6 +1697,18 @@ mod tests {
         let status = r.status();
         let bytes = axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap();
         (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    #[test]
+    fn adresse_de_la_page_d_admin() {
+        assert!(origin_ok("https://192.168.1.20:9443"));
+        assert!(origin_ok("http://station.local:9443"));
+        // Plus de panique sur un caractère accentué, ni d'identifiants qui passent.
+        assert!(!origin_ok("http://é"));
+        assert!(!origin_ok("http://@hote"));
+        assert!(!origin_ok("https://hote/chemin"));
+        assert!(!origin_ok("ftp://hote"));
+        assert!(!origin_ok("https://"));
     }
 
     #[test]
