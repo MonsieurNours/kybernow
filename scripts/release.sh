@@ -637,6 +637,17 @@ empreinte_de() {
 }
 # Tout ce qui entre dans l'empreinte d'une étape, recette comprise (modifier
 # construire_<id> la refait).
+# Profils d'approvisionnement d'Apple installés (noms et empreintes), et ceux
+# que désignent KYBERNOW_GAMEPADS_PROFILE et KYBERNOW_STATION_PROFILE.
+profils_apple() {
+    local f
+    for f in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.provisionprofile \
+             "$HOME/Library/MobileDevice/Provisioning Profiles"/*.provisionprofile \
+             ${KYBERNOW_GAMEPADS_PROFILE:+"$KYBERNOW_GAMEPADS_PROFILE"} ${KYBERNOW_STATION_PROFILE:+"$KYBERNOW_STATION_PROFILE"}; do
+        [ -f "$f" ] && echo "profil $(basename "$f") $(shasum -a 256 < "$f" | cut -d' ' -f1)"
+    done
+    return 0
+}
 entrees_de() {
     local id=$1 lc k t d
     lc=($(release_chemins "$id"))
@@ -649,7 +660,11 @@ entrees_de() {
         station) echo "maj $UPDATE_FLAGS_STR" ;;
         notarisation) echo "notariser $NOTARISER" ;;
         surcouche) declare -f overlay_voulue ;;
-        station_mac) echo "notariser $NOTARISER"; declare -f mac_kyber_hash mac_kyber_a_jour ;;
+        # Les profils d'Apple installés : build-station-app.sh y choisit celui
+        # des manettes (droit HID Virtual Device) et celui de la caméra
+        # (extension système) ; un profil Developer ID ajouté (droit des
+        # manettes accordé le 27/11/2026) doit refaire la Station Mac.
+        station_mac) echo "notariser $NOTARISER"; declare -f mac_kyber_hash mac_kyber_a_jour; profils_apple ;;
         flatpak_aarch64 | flatpak_x86_64 | deb_pi) echo "$VM_TOOLS" ;;
         station_linux) echo "$VM_TOOLS"; echo "$VM_KYBER_STATION" ;;
     esac
