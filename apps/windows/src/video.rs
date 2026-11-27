@@ -22,13 +22,15 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::i18n::Lang;
 use kybernow_core::latency::{LatencyTracker, now_micros};
-use kybernow_core::media::{FOURCC_AV1, FOURCC_PYROWAVE, Packet, PacketHandler, ResumeGate};
+use kybernow_core::frames::{FrameFlow, KEYFRAME_EVERY, Step};
+use kybernow_core::media::{FOURCC_PYROWAVE, Packet, PacketHandler};
 use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, codec_name, is_corrupt};
 use crate::gpu::{Gpu, SessionGpu};
-use crate::hdr::ScreenHdr;
-use crate::pyrowave::{self, Config as PyroConfig, Outcome};
+use crate::hdr::{FrameHdr, ScreenHdr};
+use crate::pyrowave::{self, Outcome};
+use kybernow_core::pyrowave::Config as PyroConfig;
 use crate::render::{DrawError, Renderer};
 
 /// Tampons des images, repris d'une image à l'autre : le fil du réseau ne
@@ -256,8 +258,21 @@ impl Shared {
     /// Une image perdue sur l'image de la Station : le cœur demande la
     /// reprise sans image clé, puis une image clé si rien ne vient.
     fn image_lost(&self) {
+        if let Some(c) = self.link.console.get() {
+            (c.lost)();
+            return;
+        }
         if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
             s.keyframe_lost();
+        }
+    }
+
+    /// Le décodeur PyroWave ne s'ouvre pas sur ce PC : la session passe au
+    /// format de repli pour elle seule (le cœur le fait une fois, et donne
+    /// l'avis par `Platform::on_pyrowave_fallback`).
+    fn pyrowave_failed(&self) {
+        if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
+            s.pyrowave_failed();
         }
     }
 
@@ -458,90 +473,41 @@ fn run(
     // chaîne fausserait son compte (première image retardée, ou une image de
     // plus en file pour toute la session).
     let mut gpu = session_gpu.current();
-    let mut decoder: Option<Decoder> = None;
-    // PyroWave (docs/pyrowave-client-windows.md) : son propre décodeur, à la
-    // place de FFmpeg, et le dernier paquet de configuration reçu.
-    let mut pyro: Option<pyrowave::Decoder> = None;
-    let mut pyro_config: Option<PyroConfig> = None;
+    // Ce que le flux demande au décodeur (le cœur, `FrameFlow`) : quel
+    // décodeur ouvrir, quelles images décoder ou écarter, quand dire une
+    // perte ou demander une image clé ; le décodage reste ici.
+    shared.link.codec.store(opts.codec, Ordering::Relaxed);
+    let mut d = Decoders {
+        flow: FrameFlow::new(opts.codec),
+        ffmpeg: None,
+        pyro: None,
+        pyro_config: None,
+        pyro_meta: FrameHdr::default(),
+        pyro_failed: false,
+        hw_allowed: opts.hardware,
+        corrupt_request: None,
+    };
     let mut pyro_skipped: u64 = 0;
-    // L'ouverture du décodeur PyroWave a échoué pour ce format : pas de nouvel
-    // essai à chaque image (fence, handle partagé, journal) avant le prochain
-    // changement de format.
-    let mut pyro_failed = false;
-    let mut fourcc = 0u32;
-    let mut config: Vec<u8> = Vec::new();
-    let mut send_config = false;
-    let mut waiting_key = true;
-    // Ce que le décodeur a reçu : reprise sans image clé possible.
-    let mut gate = ResumeGate::default();
-    let mut hw_allowed = opts.hardware;
     let mut unsupported_logged = false;
-    let mut last_request = Instant::now() - Duration::from_secs(1);
     // Diagnostic : le journal note le format annoncé, les paramètres, les
     // premières données et la première image clé.
     let (mut seen_codec, mut seen_config, mut seen_frame, mut seen_key) = (false, false, false, false);
     let mut dropped: u64 = 0;
-    // Format voulu par la session, et s'il a été annoncé depuis son dernier changement.
-    shared.link.codec.store(opts.codec, Ordering::Relaxed);
-    let mut last_wanted = opts.codec;
-    let mut codec_announced = false;
     // Arrivée des dernières images (pts, µs) : le décodeur peut rendre une
     // image un peu après d'autres arrivées.
     let mut arrivals: VecDeque<(u64, i64)> = VecDeque::with_capacity(32);
-    let mut keyframe = |shared: &Shared, force: bool| {
-        if force || last_request.elapsed() >= Duration::from_millis(300) {
-            last_request = Instant::now();
-            shared.request_keyframe();
-        }
-    };
-    let open_pyro = |gpu: &Gpu, shared: &Shared, config: Option<PyroConfig>| -> Option<pyrowave::Decoder> {
-        let device = gpu.pyrowave()?;
-        match pyrowave::Decoder::new(device, &gpu.device) {
-            Ok(mut d) => {
-                if let Some(c) = config {
-                    if let Err(e) = d.configure(c) {
-                        log::error!("PyroWave : {e}");
-                    }
-                }
-                let what = |lang: Lang| format!("PyroWave · {}", crate::i18n::tr(lang, "decoder.hardware", &[]));
-                log::info!("décodeur : {}", what(Lang::Fr));
-                *shared.decoder.locked() = what(crate::i18n::lang());
-                Some(d)
-            }
-            Err(e) => {
-                log::error!("décodeur PyroWave : {e}");
-                None
-            }
-        }
-    };
-    let open = |gpu: &Gpu, fourcc: u32, hw: bool, shared: &Shared| -> Option<Decoder> {
-        match Decoder::new(fourcc, hw.then_some(&gpu.device), Some(&gpu.lock)) {
-            Ok(d) => {
-                let key = if d.hardware { "decoder.hardware" } else { "decoder.software" };
-                let what = |lang: Lang| format!("{} · {}", codec_name(fourcc), crate::i18n::tr(lang, key, &[]));
-                log::info!("décodeur : {}", what(Lang::Fr));
-                // Montré dans la barre et le titre de la session : langue de l'app.
-                *shared.decoder.locked() = what(crate::i18n::lang());
-                Some(d)
-            }
-            Err(e) => {
-                log::error!("décodeur {} : {e}", codec_name(fourcc));
-                None
-            }
-        }
-    };
 
     loop {
         if handler.stopped.load(Ordering::Relaxed) {
             break;
         }
         // Carte graphique perdue : carte de la session et rendu recréés,
-        // décodeurs rouverts sur elle, image clé demandée.
+        // décodeurs rouverts sur elle à la prochaine image clé (demandée).
         if let Some(why) = renderer.lost().map(str::to_string) {
             log::error!("image : carte graphique perdue ({why}), reprise");
-            decoder = None;
-            pyro = None;
-            pyro_failed = false;
+            d.ffmpeg = None;
+            d.pyro = None;
+            d.pyro_failed = false;
             let vsync = renderer.vsync;
             // Une seule chaîne d'échange par fenêtre : l'ancienne part d'abord.
             drop(renderer);
@@ -574,15 +540,10 @@ fn run(
             gpu = g;
             renderer = r;
             log::info!("image : rendu recréé sur la nouvelle carte");
-            hw_allowed = opts.hardware;
-            if fourcc != 0 && fourcc != FOURCC_PYROWAVE {
-                decoder = open(&gpu, fourcc, hw_allowed, &shared);
-            }
-            gate.reset();
-            send_config = true;
-            waiting_key = true;
+            d.hw_allowed = opts.hardware;
             unsupported_logged = false;
-            keyframe(&shared, true);
+            let steps = d.flow.reset(Instant::now());
+            d.run(steps, &gpu, &shared);
         }
         if renderer.resize(shared.client_size()) {
             // Plein écran ↔ fenêtre sur un bureau immobile : l'image en place
@@ -596,14 +557,11 @@ fn run(
                 // Le trait du bord haut a changé sans image neuve (écran fixe) :
                 // l'image en place est redessinée, avec ou sans le trait.
                 renderer.repaint(shared.edge_hint.load(Ordering::Relaxed));
-                // Comme sur Mac : une image clé se demande après une perte,
-                // pas avant les premières données (l'encodeur commence par
-                // une image clé ; le harceler pendant qu'il démarre le bloque).
-                // Décodeur intact après une perte : le cœur a demandé la
-                // reprise et redemande lui-même une image clé.
-                if waiting_key && seen_frame && !gate.intact() {
-                    keyframe(&shared, false);
-                }
+                // En attente d'une image clé sans rien d'avant la perte : elle
+                // est redemandée (pas avant les premières données : l'encodeur
+                // commence par une image clé, le harceler le bloque).
+                let steps = d.flow.idle(Instant::now());
+                d.run(steps, &gpu, &shared);
                 continue;
             }
             Err(RecvTimeoutError::Disconnected) => break,
@@ -613,54 +571,37 @@ fn run(
             // Le redessin se fait en haut de la boucle, au tour suivant.
             VideoMsg::Resized => {}
             VideoMsg::Lost => {
-                if !waiting_key {
+                let steps = d.flow.lost();
+                if !steps.is_empty() {
                     log::info!("image : perte non réparée, attente d'une image clé ou d'une reprise");
                 }
-                let first = !waiting_key;
-                waiting_key = true;
-                if shared.link.console.get().is_some() {
-                    keyframe(&shared, true);
-                } else if first {
-                    shared.image_lost();
-                }
+                d.run(steps, &gpu, &shared);
             }
             VideoMsg::Codec(c) => {
-                codec_announced = true;
                 if !seen_codec {
                     seen_codec = true;
                     log::info!("image : format annoncé, {}", codec_name(c));
                 }
-                // Début d'un flux : décodeur neuf.
-                fourcc = c;
-                decoder.take();
-                gate.reset();
-                pyro.take();
-                pyro_failed = false;
-                if c == FOURCC_PYROWAVE {
-                    // Le paquet de configuration suit ; celui d'avant ne vaut plus.
-                    pyro_config = None;
-                    pyro = open_pyro(&gpu, &shared, None);
-                    pyro_failed = pyro.is_none();
-                } else {
-                    decoder = open(&gpu, c, hw_allowed, &shared);
-                }
-                waiting_key = true;
-                send_config = true;
+                // Début d'un flux : décodeurs neufs (celui de FFmpeg s'ouvre sur
+                // la première image clé, celui de PyroWave tout de suite) ; le
+                // paquet de configuration de PyroWave suit.
+                d.ffmpeg = None;
+                d.pyro = None;
+                d.pyro_config = None;
+                d.pyro_meta = FrameHdr::default();
+                d.pyro_failed = false;
+                let steps = d.flow.codec(c);
+                d.run(steps, &gpu, &shared);
                 shared.first_image.store(false, Ordering::Relaxed);
             }
-            VideoMsg::Config(d) => {
+            VideoMsg::Config(data) => {
                 if !seen_config {
                     seen_config = true;
-                    log::info!("image : paramètres du flux reçus ({} octets)", d.len());
+                    log::info!("image : paramètres du flux reçus ({} octets)", data.len());
                 }
-                if fourcc == FOURCC_PYROWAVE || PyroConfig::is_config(&d) {
-                    pyro_configure(&mut pyro, &mut pyro_config, &d);
-                    continue;
-                }
-                // AV1 : un `av1C` (4 octets de résumé, puis les OBU) n'entre
-                // pas tel quel dans un flux d'OBU.
-                config = if fourcc == FOURCC_AV1 && d.len() > 4 && d[0] == 0x81 { d[4..].to_vec() } else { d };
-                send_config = true;
+                d.pyro_header(&data);
+                let steps = d.flow.config(&data);
+                d.run(steps, &gpu, &shared);
             }
             VideoMsg::Frame { data, pts, key, received, resume } => {
                 if arrivals.len() >= 32 {
@@ -678,184 +619,146 @@ fn run(
                     seen_key = true;
                     log::info!("image : première image clé ({} octets)", data.len());
                 }
-                // Le paquet qui annonce le format s'est perdu (transport rapide,
-                // avec pertes) : sans lui, aucun décodeur et un écran noir sans
-                // fin. On ouvre celui du format demandé pour la session.
-                let wanted = shared.link.codec.load(Ordering::Relaxed);
-                if wanted != last_wanted {
-                    last_wanted = wanted;
-                    codec_announced = false;
+                let now = Instant::now();
+                // Le format que la session demande (profil changé) : ouvert
+                // d'office si le paquet qui l'annonce s'est perdu (transport
+                // rapide), sans quoi l'écran resterait noir.
+                d.flow.set_wanted(shared.link.codec.load(Ordering::Relaxed));
+                // Le décodage ne suivait plus : des images ont été écartées avant lui.
+                if handler.overflow.swap(false, Ordering::Relaxed) && d.flow.fourcc() != FOURCC_PYROWAVE {
+                    log::warn!("image : file pleine, reprise sur une image clé");
+                    let steps = d.flow.dropped();
+                    d.run(steps, &gpu, &shared);
                 }
-                // Profil changé vers un autre format et paquet de format perdu.
-                let stale = decoder.is_some() && wanted != 0 && fourcc != wanted && !codec_announced;
-                if (decoder.is_none() && fourcc == 0 && wanted != 0) || stale {
-                    log::warn!("image : format jamais annoncé, décodeur {} ouvert d'office", codec_name(wanted));
-                    fourcc = wanted;
-                    // PyroWave n'est pas pour FFmpeg : son décodeur s'ouvre plus bas.
-                    decoder = if fourcc == FOURCC_PYROWAVE { None } else { open(&gpu, fourcc, hw_allowed, &shared) };
-                    gate.reset();
-                    send_config = true;
-                    waiting_key = true;
-                }
-                // PyroWave : chaque image est complète (intra seule), rien
-                // n'attend une image clé ; une image en retard ou incomplète
-                // est seulement sautée.
-                if fourcc == FOURCC_PYROWAVE || (fourcc == 0 && wanted == FOURCC_PYROWAVE) {
-                    if fourcc == 0 {
-                        log::warn!("image : format jamais annoncé, décodeur PyroWave ouvert d'office");
-                        fourcc = FOURCC_PYROWAVE;
-                        decoder.take();
-                    }
-                    handler.overflow.store(false, Ordering::Relaxed);
-                    if PyroConfig::is_config(&data) {
-                        pyro_configure(&mut pyro, &mut pyro_config, &data);
+                d.pyro_header(&data);
+                let mut after = Vec::new();
+                for step in d.flow.frame(key, &data, resume, now) {
+                    let Step::Decode { head, .. } = step else {
+                        d.run(vec![step], &gpu, &shared);
                         continue;
-                    }
-                    if pyro.is_none() && !pyro_failed {
-                        pyro = open_pyro(&gpu, &shared, pyro_config);
-                        if pyro.is_none() {
-                            // Noté une fois (`open_pyro`) ; pas d'autre essai avant un autre format.
-                            pyro_failed = true;
+                    };
+                    if d.flow.fourcc() == FOURCC_PYROWAVE {
+                        // PyroWave : chaque image est complète (intra seule) ;
+                        // une image en retard ou incomplète est seulement sautée.
+                        if d.pyro.is_none() && !d.pyro_failed {
+                            d.open_pyro(&gpu, &shared);
                         }
-                    }
-                    // D'autres images attendent : celle-ci n'est pas décodée du tout.
-                    let Some(dec) = pyro.as_mut().filter(|_| !newer_waiting) else {
-                        if !newer_waiting {
+                        // D'autres images attendent : celle-ci n'est pas décodée du tout.
+                        if newer_waiting {
+                            continue;
+                        }
+                        let Some(dec) = d.pyro.as_mut() else {
                             dropped += 1;
                             if dropped == 1 || dropped % 600 == 0 {
                                 log::warn!("image : {dropped} images reçues sans décodeur PyroWave");
                             }
+                            continue;
+                        };
+                        match dec.decode(&data) {
+                            Ok(Outcome::Ready(img)) => {
+                                let decoded = now_micros();
+                                renderer.set_screen(*shared.screen_hdr.locked());
+                                renderer.set_snapshots(shared.is_primary());
+                                match renderer.draw_pyrowave(dec, img.config, d.pyro_meta, shared.edge_hint.load(Ordering::Relaxed)) {
+                                    Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
+                                    // Repris en haut de la boucle.
+                                    Err(DrawError::Lost(_)) => {}
+                                    Err(e) => {
+                                        if !unsupported_logged {
+                                            log::error!("rendu PyroWave : {e}");
+                                            unsupported_logged = true;
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(Outcome::Skipped(why)) => {
+                                pyro_skipped += 1;
+                                if pyro_skipped <= 3 || pyro_skipped % 600 == 0 {
+                                    log::warn!("PyroWave : {why}, image sautée ({pyro_skipped} en tout)");
+                                }
+                            }
+                            Err(e) => {
+                                pyro_skipped += 1;
+                                if pyro_skipped <= 3 || pyro_skipped % 600 == 0 {
+                                    log::error!("PyroWave : {e} ({pyro_skipped} images sautées en tout)");
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    let Some(dec) = d.ffmpeg.as_mut() else {
+                        dropped += 1;
+                        if dropped == 1 || dropped % 600 == 0 {
+                            log::warn!("image : {dropped} images reçues sans décodeur");
                         }
                         continue;
                     };
-                    match dec.decode(&data) {
-                        Ok(Outcome::Ready(img)) => {
-                            let decoded = now_micros();
-                            renderer.set_screen(*shared.screen_hdr.locked());
-                            renderer.set_snapshots(shared.is_primary());
-                            match renderer.draw_pyrowave(dec, img.config, shared.edge_hint.load(Ordering::Relaxed)) {
-                                Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
-                                // Repris en haut de la boucle.
-                                Err(DrawError::Lost(_)) => {}
-                                Err(e) => {
-                                    if !unsupported_logged {
-                                        log::error!("rendu PyroWave : {e}");
-                                        unsupported_logged = true;
+                    let sent = if head.is_empty() {
+                        dec.send(&data, pts, key)
+                    } else {
+                        let mut buf = head;
+                        buf.extend_from_slice(&data);
+                        dec.send(&buf, pts, key)
+                    };
+                    if let Err(e) = sent {
+                        log::warn!("décodage : {}", decoder::error_text(e));
+                        after.extend(d.flow.failed(now));
+                        continue;
+                    }
+                    d.flow.fed(pts);
+                    let mut fallback = false;
+                    let mut corrupt = false;
+                    while let Some(r) = dec.receive() {
+                        match r {
+                            Ok(frame) => {
+                                let decoded = now_micros();
+                                corrupt |= is_corrupt(frame);
+                                let pts = frame.pts as u64;
+                                if newer_waiting {
+                                    continue;
+                                }
+                                renderer.set_screen(*shared.screen_hdr.locked());
+                                renderer.set_snapshots(shared.is_primary());
+                                match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed), shared.stream_hdr.load(Ordering::Relaxed)) {
+                                    Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
+                                    // Carte perdue : pas un repli sur le processeur, la
+                                    // carte est recréée en haut de la boucle.
+                                    Err(DrawError::Lost(_)) => break,
+                                    Err(e) => {
+                                        if dec.hardware {
+                                            log::warn!("rendu : {e}");
+                                            fallback = true;
+                                        } else if !unsupported_logged {
+                                            // Format que l'app ne sait pas montrer (10 bits…).
+                                            log::error!("rendu impossible : {e}");
+                                            unsupported_logged = true;
+                                        }
+                                        break;
                                     }
                                 }
                             }
-                        }
-                        Ok(Outcome::Skipped(why)) => {
-                            pyro_skipped += 1;
-                            if pyro_skipped <= 3 || pyro_skipped % 600 == 0 {
-                                log::warn!("PyroWave : {why}, image sautée ({pyro_skipped} en tout)");
-                            }
-                        }
-                        Err(e) => {
-                            pyro_skipped += 1;
-                            if pyro_skipped <= 3 || pyro_skipped % 600 == 0 {
-                                log::error!("PyroWave : {e} ({pyro_skipped} images sautées en tout)");
+                            Err(e) => {
+                                log::warn!("décodage : {}", decoder::error_text(e));
+                                after.extend(d.flow.failed(now));
+                                break;
                             }
                         }
                     }
-                    continue;
-                }
-                if handler.overflow.swap(false, Ordering::Relaxed) {
-                    log::warn!("image : file pleine, reprise sur une image clé");
-                    waiting_key = true;
-                    gate.reset();
-                }
-                // Après une perte : une image clé, ou une image de reprise qui
-                // ne dépend que d'images que ce décodeur a déjà (il n'est pas
-                // refait). Décodeur intact : le cœur redemande lui-même.
-                let resuming = waiting_key && !key && decoder.is_some() && gate.resumes(resume);
-                if waiting_key && !key && !resuming {
-                    if !gate.intact() {
-                        keyframe(&shared, false);
+                    // Image abîmée mais montrée : une image clé, au rythme du cœur.
+                    if corrupt && d.corrupt_request.is_none_or(|t| now.saturating_duration_since(t) >= KEYFRAME_EVERY) {
+                        d.corrupt_request = Some(now);
+                        shared.request_keyframe();
                     }
-                    continue;
-                }
-                if waiting_key {
-                    if resuming {
-                        log::info!("image : reprise sans image clé");
-                    }
-                    shared.image_recovered();
-                }
-                waiting_key = false;
-                let Some(dec) = decoder.as_mut() else {
-                    dropped += 1;
-                    if dropped == 1 || dropped % 600 == 0 {
-                        log::warn!("image : {dropped} images reçues sans décodeur");
-                    }
-                    continue;
-                };
-                let sent = if send_config && !config.is_empty() {
-                    send_config = false;
-                    let mut buf = config.clone();
-                    buf.extend_from_slice(&data);
-                    dec.send(&buf, pts, key)
-                } else {
-                    dec.send(&data, pts, key)
-                };
-                if let Err(e) = sent {
-                    log::warn!("décodage : {}", decoder::error_text(e));
-                    waiting_key = true;
-                    gate.reset();
-                    keyframe(&shared, true);
-                    continue;
-                }
-                gate.fed(pts);
-                let mut fallback = false;
-                while let Some(r) = dec.receive() {
-                    match r {
-                        Ok(frame) => {
-                            let decoded = now_micros();
-                            if is_corrupt(frame) {
-                                keyframe(&shared, false);
-                            }
-                            let pts = frame.pts as u64;
-                            if newer_waiting {
-                                continue;
-                            }
-                            renderer.set_screen(*shared.screen_hdr.locked());
-                            renderer.set_snapshots(shared.is_primary());
-                            match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed), shared.stream_hdr.load(Ordering::Relaxed)) {
-                                Ok(()) => shown(&shared, hwnd, &arrivals, pts, decoded),
-                                // Carte perdue : pas un repli sur le processeur, la
-                                // carte est recréée en haut de la boucle.
-                                Err(DrawError::Lost(_)) => break,
-                                Err(e) => {
-                                    if dec.hardware {
-                                        log::warn!("rendu : {e}");
-                                        fallback = true;
-                                    } else if !unsupported_logged {
-                                        // Format que l'app ne sait pas montrer (10 bits…).
-                                        log::error!("rendu impossible : {e}");
-                                        unsupported_logged = true;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("décodage : {}", decoder::error_text(e));
-                            waiting_key = true;
-                            gate.reset();
-                            keyframe(&shared, true);
-                            break;
-                        }
+                    if fallback {
+                        // La carte décode dans un format qu'on ne sait pas montrer :
+                        // le décodeur se rouvre sur le processeur à l'image clé.
+                        log::warn!("décodage par le processeur à la place de la carte graphique");
+                        d.hw_allowed = false;
+                        d.ffmpeg = None;
+                        after.extend(d.flow.reset(now));
                     }
                 }
-                if fallback {
-                    // La carte décode dans un format qu'on ne sait pas montrer.
-                    log::warn!("décodage par le processeur à la place de la carte graphique");
-                    hw_allowed = false;
-                    decoder = open(&gpu, fourcc, false, &shared);
-                    gate.reset();
-                    send_config = true;
-                    waiting_key = true;
-                    keyframe(&shared, true);
-                }
+                d.run(after, &gpu, &shared);
             }
         }
     }
@@ -889,20 +792,124 @@ fn shown(shared: &Shared, hwnd: isize, arrivals: &VecDeque<(u64, i64)>, pts: u64
     }
 }
 
-/// Paquet de configuration PyroWave : gardé, et donné au décodeur (qui se
-/// recrée s'il change). Illisible : la définition sera lue dans le flux.
-fn pyro_configure(pyro: &mut Option<pyrowave::Decoder>, kept: &mut Option<PyroConfig>, data: &[u8]) {
-    let Some(c) = PyroConfig::parse(data) else {
-        log::warn!("PyroWave : paquet de configuration illisible ({} octets)", data.len());
-        return;
-    };
-    if *kept != Some(c) {
-        log::info!("PyroWave : configuration {}", c.label());
+/// Les décodeurs d'un écran et ce que le flux leur demande.
+struct Decoders {
+    flow: FrameFlow,
+    /// HEVC, H.264, AV1 : FFmpeg (sur la carte, ou le processeur).
+    ffmpeg: Option<Decoder>,
+    /// PyroWave (docs/pyrowave-client-windows.md) : son propre décodeur, la
+    /// dernière configuration (`KNPW`) et ses métadonnées HDR10 (version 2).
+    pyro: Option<pyrowave::Decoder>,
+    pyro_config: Option<PyroConfig>,
+    pyro_meta: FrameHdr,
+    /// Le décodeur PyroWave ne s'ouvre pas : pas de nouvel essai à chaque
+    /// image (fence, handle partagé, journal) avant le prochain format
+    /// (WINAPP-11) ; le cœur a été prévenu (`Session::pyrowave_failed`).
+    pyro_failed: bool,
+    /// Décodage par la carte permis (sinon, après un repli : le processeur).
+    hw_allowed: bool,
+    /// Image abîmée : dernière image clé demandée.
+    corrupt_request: Option<Instant>,
+}
+
+impl Decoders {
+    /// Fait les étapes du flux (`FrameFlow`), sauf `Decode`, que l'appelant
+    /// fait avec l'image.
+    fn run(&mut self, steps: Vec<Step>, gpu: &Gpu, shared: &Shared) {
+        for step in steps {
+            match step {
+                Step::Open(fourcc) if fourcc == FOURCC_PYROWAVE => {
+                    self.ffmpeg = None;
+                    self.pyro = None;
+                    self.pyro_failed = false;
+                    self.open_pyro(gpu, shared);
+                }
+                Step::Open(fourcc) => {
+                    self.pyro = None;
+                    self.ffmpeg = open_ffmpeg(gpu, fourcc, self.hw_allowed, shared);
+                    if self.ffmpeg.is_none() {
+                        self.flow.unavailable();
+                    }
+                }
+                Step::Configure(c) => {
+                    self.pyro_config = Some(c);
+                    if let Some(d) = self.pyro.as_mut() {
+                        if let Err(e) = d.configure(c) {
+                            log::error!("PyroWave : {e}");
+                        }
+                    }
+                }
+                Step::Lost => shared.image_lost(),
+                Step::Keyframe => shared.request_keyframe(),
+                Step::Recovered { resumed } => {
+                    if resumed {
+                        log::info!("image : reprise sans image clé");
+                    }
+                    shared.image_recovered();
+                }
+                Step::Skip | Step::Decode { .. } => {}
+            }
+        }
     }
-    *kept = Some(c);
-    if let Some(d) = pyro.as_mut() {
-        if let Err(e) = d.configure(c) {
-            log::error!("PyroWave : {e}");
+
+    /// Ouvre le décodeur PyroWave, avec la configuration déjà reçue. Il ne
+    /// s'ouvre pas (pas de Vulkan, fence partagée refusée…) : noté une fois,
+    /// ses images écartées, et la session passe au format de repli de ce PC
+    /// pour elle seule (`Session::pyrowave_failed`, avis
+    /// `Platform::on_pyrowave_fallback`).
+    fn open_pyro(&mut self, gpu: &Gpu, shared: &Shared) {
+        let opened = gpu.pyrowave().and_then(|device| match pyrowave::Decoder::new(device, &gpu.device) {
+            Ok(mut dec) => {
+                if let Some(c) = self.pyro_config {
+                    if let Err(e) = dec.configure(c) {
+                        log::error!("PyroWave : {e}");
+                    }
+                }
+                let what = |lang: Lang| format!("PyroWave · {}", crate::i18n::tr(lang, "decoder.hardware", &[]));
+                log::info!("décodeur : {}", what(Lang::Fr));
+                *shared.decoder.locked() = what(crate::i18n::lang());
+                Some(dec)
+            }
+            Err(e) => {
+                log::error!("décodeur PyroWave : {e}");
+                None
+            }
+        });
+        if opened.is_none() {
+            if gpu.pyrowave().is_none() {
+                log::error!("décodeur PyroWave : pas de Vulkan sur cette carte");
+            }
+            self.pyro_failed = true;
+            self.flow.unavailable();
+            shared.pyrowave_failed();
+        }
+        self.pyro = opened;
+    }
+
+    /// Un paquet de configuration PyroWave (avec les paramètres du flux, ou
+    /// parmi les images) : ses métadonnées HDR10 (version 2, KYB-29), pour le
+    /// rendu ; la tête est lue par le flux (`FrameFlow`).
+    fn pyro_header(&mut self, data: &[u8]) {
+        if PyroConfig::is_config(data) && PyroConfig::parse(data).is_some() {
+            self.pyro_meta = crate::hdr::pyrowave_hdr(data);
+        }
+    }
+}
+
+/// Ouvre le décodeur FFmpeg d'un format (sur la carte si `hw`).
+fn open_ffmpeg(gpu: &Gpu, fourcc: u32, hw: bool, shared: &Shared) -> Option<Decoder> {
+    match Decoder::new(fourcc, hw.then_some(&gpu.device), Some(&gpu.lock)) {
+        Ok(d) => {
+            let key = if d.hardware { "decoder.hardware" } else { "decoder.software" };
+            let what = |lang: Lang| format!("{} · {}", codec_name(fourcc), crate::i18n::tr(lang, key, &[]));
+            log::info!("décodeur : {}", what(Lang::Fr));
+            // Montré dans la barre et le titre de la session : langue de l'app.
+            *shared.decoder.locked() = what(crate::i18n::lang());
+            Some(d)
+        }
+        Err(e) => {
+            log::error!("décodeur {} : {e}", codec_name(fourcc));
+            None
         }
     }
 }

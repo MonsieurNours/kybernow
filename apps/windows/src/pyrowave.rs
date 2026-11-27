@@ -292,7 +292,10 @@ fn check(r: pw_result, what: &str) -> Result<(), String> {
     if r == PYROWAVE_SUCCESS { Ok(()) } else { Err(format!("{what} : erreur PyroWave {r}")) }
 }
 
-pub use crate::pyrowave_config::Config;
+/// Le paquet de configuration (`KNPW`) : celui du cœur (WINAPP-50), qui lit
+/// la version 1 et la tête de la version 2 ; ses métadonnées HDR10 :
+/// `hdr::pyrowave_hdr`.
+pub use kybernow_core::pyrowave::Config;
 
 // --- Le device PyroWave d'une carte ---
 

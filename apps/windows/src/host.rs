@@ -775,6 +775,15 @@ impl Platform for WinPlatform {
             _ => {}
         }
     }
+    /// PyroWave ne s'ouvre pas sur ce PC (`Session::pyrowave_failed`, dit par
+    /// le fil de l'image) : l'image repart dans le format de repli pour cette
+    /// session ; l'avis bref de link-ui, une fois (« Image en HEVC : PyroWave
+    /// n'a pas pu démarrer sur cet appareil. »). La barre et les Statistiques
+    /// disent le format reçu.
+    fn on_pyrowave_fallback(&self, codec: kybernow_core::profile::Codec, text: &str) {
+        log::warn!("PyroWave : pas de décodeur sur ce PC, image en {}", codec.label());
+        self.events.notice(text);
+    }
     /// Micro (docs/micro.md) : la capture suit l'état, puis l'app (barre, avis).
     fn on_microphone(&self, state: MicState) {
         self.follow_microphone(state);
