@@ -39,7 +39,9 @@ release_chemins() {
         notarisation) ;;
         # L'app Apple TV compile des sources de l'app Mac, et l'app iPhone/iPad
         # celles de l'Apple TV (apps/ios/project.yml : KyberKitTV).
-        tvos) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple apps/tvos ;;
+        # Et l'Apple TV, depuis la 0.11.8, les règles de session de l'iPhone
+        # (SessionRules.swift, citée par apps/tvos/project.yml).
+        tvos) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple apps/tvos apps/ios/KyberNowIOS/SessionRules.swift ;;
         ios) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple apps/tvos apps/ios ;;
         station_mac) release_server_sauf linux; printf '%s\n' apps/macos/kyber-patches apps/webos/kyber-patches "${RELEASE_PYROWAVE[@]}" \
             scripts/kyber-toolchain.sh scripts/verrou.sh brand LICENSE LICENSE.md ;;
@@ -48,7 +50,7 @@ release_chemins() {
         # build-kyber.sh pose aussi les correctifs des apps (stylet 0005, dont
         # dépend 0027) ; package.sh copie LICENSE ; la VM est jointe par vm.sh.
         station_linux) release_server_sauf macos; printf '%s\n' apps/macos/kyber-patches apps/webos/kyber-patches \
-            apps/linux/scripts/vm.sh scripts/kyber-toolchain.sh brand LICENSE LICENSE.md ;;
+            apps/linux/scripts/vm.sh scripts/kyber-toolchain.sh scripts/verrou.sh brand LICENSE LICENSE.md ;;
         *) echo "étape inconnue : $1" >&2; return 1 ;;
     esac
 }

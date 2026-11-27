@@ -19,7 +19,7 @@
 # (git checkout -- .) reste à la charge de l'appelant (release-station.sh).
 # Une seule construction à la fois sur ces sources (scripts/verrou.sh).
 # Un morceau de correctif qui ne s'applique qu'avec un décalage du contexte
-# (« fuzz ») est signalé (STCOM-05 ; KYBERNOW_PATCH_STRICT=1 : un échec).
+# (« fuzz ») est refusé (STCOM-05 ; KYBERNOW_PATCH_STRICT=0 : signalé seulement), comme dans apply.sh.
 #
 # Sortie : $KYBER_DIR/rootfs-<arch>-linux (bin/kycontroller, bin/kyavserver,
 # bin/kynputserver, lib/…), et l'empreinte des correctifs dans
@@ -77,16 +77,15 @@ HERE_PATCHES="$ROOT/server/kyber-patches"
 
 # Un correctif qui ne se pose qu'avec un décalage du contexte (« fuzz »)
 # est signalé : il peut tomber au mauvais endroit sans échec
-# (STCOM-05). KYBERNOW_PATCH_STRICT=1 en fait un échec. Pas encore d'échec
-# par défaut : le correctif Mac 0009 n'a pas été rafraîchi (session des
-# correctifs Kyber).
+# (STCOM-05) : un échec par défaut, comme dans apply.sh (toute la série se pose
+# sans décalage depuis le 27/11/2026) ; KYBERNOW_PATCH_STRICT=0 le signale seulement.
 kyber_patch_fuzz_warn() {
     # $1 : le correctif, $2 : le dossier. Essai à blanc sans décalage permis
     # (-F0) : le patch d'Apple ne dit pas quand il en prend un.
     local p=$1 dir=$2
     (cd "$dir" && patch -p1 -F0 --forward --dry-run -s < "$p" >/dev/null 2>&1) && return 0
     echo "    Attention : $(basename "$p") ne se pose qu'avec un décalage du contexte (fuzz) : à rafraîchir" >&2
-    [ -z "${KYBERNOW_PATCH_STRICT:-}" ]
+    [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ]
 }
 
 # Correctifs propres à Linux : même nommage que les correctifs communs.
