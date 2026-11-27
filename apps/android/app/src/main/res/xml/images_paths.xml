@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <files-path name="images" path="images/" />
+    <!-- « Envoyer le journal » (Réglages › À propos) : le fichier texte du journal, partagé. -->
+    <files-path name="journal" path="journal/" />
 </paths>

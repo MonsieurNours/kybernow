@@ -31,7 +31,6 @@ object PsNative {
     /** `{"code": 0, "handle": …}` ou `{"code": 30 | 31 | 32 | −401 | −404 | 40 | 1, "error": …}`. */
     @JvmStatic external fun remoteOpen(console: Long, hostId: String): String
     @JvmStatic external fun remoteAddress(remote: Long): String?
-    @JvmStatic external fun remoteState(remote: Long): String?
     @JvmStatic external fun remoteRoute(remote: Long): String?
     @JvmStatic external fun remoteFree(remote: Long)
 

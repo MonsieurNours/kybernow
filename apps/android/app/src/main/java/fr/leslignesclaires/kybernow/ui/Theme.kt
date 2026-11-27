@@ -5,7 +5,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -283,9 +282,6 @@ fun FocusCard(onClick: () -> Unit, modifier: Modifier = Modifier, shape: Shape =
 
 private fun Modifier.combinedClickableCompat(i: MutableInteractionSource, onClick: () -> Unit, onLongClick: () -> Unit) =
     this.combinedClickable(interactionSource = i, indication = null, role = Role.Button, onClick = onClick, onLongClick = onLongClick)
-
-/** Rend un élément focalisable sans action (lecture au téléviseur). */
-fun Modifier.readable(): Modifier = this.focusable()
 
 /** Nombre mis en forme dans la langue de l'interface (observée par Compose). */
 @Composable

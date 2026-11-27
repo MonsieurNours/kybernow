@@ -272,10 +272,12 @@ private fun AddressPane(onSeen: (Target, String) -> Unit, onConsole: (fr.leslign
         error = null
         scope.launch {
             // Une console d'abord (1,5 s ; une Station et une console ne répondent pas à la même adresse), puis la Station.
-            val ipv4 = address.split('.').let { parts -> parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 } }
-            val console = if (ipv4) ps.searchAt(address) else null
+            // Un nom (« salon.local », « ps5 ») est d'abord résolu en IPv4 : les consoles ne répondent qu'en IPv4 (AND-34 :
+            // un nom ou une IPv6 donnait « Console injoignable. » sans rien chercher).
+            val ipv4 = consoleIpv4(address)
+            val console = if (ipv4 != null) ps.searchAt(ipv4) else null
             if (console != null) {
-                ps.rememberAddress(address)
+                ps.rememberAddress(ipv4!!)
                 busy = false
                 onConsole(console)
                 return@launch
@@ -283,7 +285,9 @@ private fun AddressPane(onSeen: (Target, String) -> Unit, onConsole: (fr.leslign
             val p = port.toIntOrNull()
             if (p == null) {
                 busy = false
-                error = consoleUnreachable
+                // Sans port, seule une console pouvait répondre : une IPv4 cherchée sans réponse dit la console ; un nom ou
+                // une IPv6 sans IPv4, l'ordinateur.
+                error = if (ipv4 != null) consoleUnreachable else unreachable
                 return@launch
             }
             val t = Target(address, p, address, null)
@@ -521,5 +525,14 @@ private fun QrPane(onShareLink: (ShareLink) -> Unit, onInvite: (LendInvite) -> U
         }
     } else {
         Body(stringResource(R.string.add_qr_permission), color = Kn.warn, size = 14f)
+    }
+}
+
+/** L'IPv4 où chercher une console : l'adresse elle-même, ou le nom résolu (hors du fil principal) ; nulle sinon. */
+internal suspend fun consoleIpv4(address: String): String? {
+    if (fr.leslignesclaires.kybernow.model.isIpv4(address)) return address
+    if (address.contains(':') || address.isBlank()) return null
+    return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching { java.net.InetAddress.getAllByName(address).firstOrNull { it is java.net.Inet4Address }?.hostAddress }.getOrNull()
     }
 }

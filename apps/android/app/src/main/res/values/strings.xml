@@ -242,6 +242,7 @@
     <string name="settings_mac_enter">Enter the MAC address</string>
     <string name="settings_mac_help">For a Station that does not give it yet: the hardware address of the computer\'s network card, sent as well as those Admin gives.</string>
     <string name="settings_mac">MAC address</string>
+    <string name="settings_mac_invalid">This MAC address is not valid: 12 digits and letters from A to F, like 3C:7C:3F:1A:2B:4C.</string>
     <string name="last_title">Last session</string>
     <string name="last_median">median</string>
     <string name="last_p95" formatted="true">95%% of frames under %1$s ms</string>
@@ -515,6 +516,9 @@
     <string name="welcome3_station_title">Not installed yet</string>
     <string name="welcome3_station_body">Download KyberNow Station on the computer you want to reach.</string>
     <string name="welcome_replay">Show the welcome again</string>
+    <string name="journal_send">Send the log</string>
+    <string name="journal_send_help">If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to.</string>
+    <string name="journal_preparing">Preparing the log…</string>
     <string name="account_card_eyebrow">KyberNow account</string>
     <string name="account_card_title">Find your computers everywhere</string>
     <string name="account_card_body">On all your devices, even away from home.</string>
@@ -739,7 +743,6 @@
     <string name="ps_stats_losses" formatted="true">Pictures lost: %1$d · repaired: %2$d</string>
     <string name="ps_keyboard_banner">Type your text · Return to accept · Escape to cancel</string>
     <string name="ps_keyboard_banner_touch">Type your text · ✓ to accept · ✕ to cancel</string>
-    <string name="ps_touchpad">Touchpad</string>
     <string name="ps_hint_tv">The Back button opens the menu, as does Options + Create + L1 + R1.</string>
     <string name="ps_pad_bar">The controller drives the bar and the console receives nothing; Circle closes it.</string>
     <string name="ps_sign_in_title">PlayStation Network</string>
@@ -787,15 +790,6 @@
     <string name="ps_deadzone">Minimum tilt</string>
     <string name="ps_deadzone_help">To get past games\' dead zone.</string>
     <string name="ps_invert_y">Invert vertical axis</string>
-    <plurals name="share_guests">
-        <item quantity="one">%d guest</item>
-        <item quantity="other">%d guests</item>
-    </plurals>
-    <plurals name="share_requests">
-        <item quantity="one">%d request</item>
-        <item quantity="other">%d requests</item>
-    </plurals>
-    <!-- Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») -->
     <string name="camera">Camera</string>
     <string name="camera_starting">Camera…</string>
     <string name="camera_turn_on">Turn on camera</string>
@@ -805,6 +799,14 @@
     <string name="camera_back">Back camera</string>
     <string name="camera_external">External camera</string>
     <string name="camera_resolution">Camera resolution</string>
-    <string name="camera_resolution_help">30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer.</string>
-    <string name="camera_stats">Camera: %1$s</string>
+    <string name="camera_resolution_help">30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer.</string>
+    <string name="camera_stats" formatted="true">Camera: %1$s</string>
+    <plurals name="share_guests">
+        <item quantity="one">%d guest</item>
+        <item quantity="other">%d guests</item>
+    </plurals>
+    <plurals name="share_requests">
+        <item quantity="one">%d request</item>
+        <item quantity="other">%d requests</item>
+    </plurals>
 </resources>

@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Wi-Fi gardé en faible latence pendant une session (WifiLock, WIFI_MODE_FULL_LOW_LATENCY). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Découverte des ordinateurs sur le réseau (mDNS) et Wake-on-LAN. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -69,11 +71,14 @@
         </activity>
 
         <!-- La session : plein écran, paysage sur téléphone (choisi au
-             lancement), clavier et souris capturés. -->
+             lancement), clavier et souris capturés. Aucun changement de
+             configuration ne recrée l'activité (une recréation fermait la
+             session : écran HDR ou large gamme, langue, police, écran tactile
+             branché) ; la taille est suivie par l'écouteur de mise en page. -->
         <activity
             android:name=".session.SessionActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|colorMode|fontScale|locale|layoutDirection|touchscreen|fontWeightAdjustment|grammaticalGender|mcc|mnc"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:theme="@style/Theme.KyberNow.Session"
@@ -84,7 +89,7 @@
         <activity
             android:name=".session.PsSessionActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|colorMode|fontScale|locale|layoutDirection|touchscreen|fontWeightAdjustment|grammaticalGender|mcc|mnc"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:theme="@style/Theme.KyberNow.Session"

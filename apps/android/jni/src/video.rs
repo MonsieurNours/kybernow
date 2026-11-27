@@ -19,7 +19,7 @@
 //! plusieurs attendent, seule la plus récente est décodée.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -49,8 +49,14 @@ pub enum Msg {
 }
 
 /// Un flux d'image (un par démarrage de l'image).
+/// Images en file au plus : au-delà (décodeur qui cale), les suivantes sont
+/// jetées et comptées comme un trou, au lieu de remplir la mémoire (AND-26).
+const MAX_QUEUED: usize = 120;
+
 pub struct VideoSink {
     tx: Mutex<Sender<Msg>>,
+    queued: Arc<AtomicUsize>,
+    overflowing: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
     host: Arc<dyn MediaHost>,
 }
@@ -60,11 +66,13 @@ impl VideoSink {
         let (tx, rx) = channel();
         host.set_video_tx(tx.clone());
         let h = host.clone();
+        let queued = Arc::new(AtomicUsize::new(0));
+        let q = queued.clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-image".into())
-            .spawn(move || DecodeLoop::new(h).run(rx))
+            .spawn(move || DecodeLoop::new(h, q).run(rx))
             .ok();
-        Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), host })
+        Arc::new(Self { tx: Mutex::new(tx), queued, overflowing: AtomicBool::new(false), thread: Mutex::new(thread), host })
     }
 
     fn send(&self, m: Msg) {
@@ -79,6 +87,16 @@ impl PacketHandler for VideoSink {
             Packet::Media { is_config: true, data, .. } => self.send(Msg::Config(data.to_vec())),
             Packet::Media { is_key, pts, data, resume, .. } => {
                 self.host.received_bytes(data.len());
+                if self.queued.load(Ordering::Acquire) >= MAX_QUEUED {
+                    if !self.overflowing.swap(true, Ordering::AcqRel) {
+                        log::warn!("image : {MAX_QUEUED} images en attente, les suivantes sont jetées");
+                    }
+                    self.host.hole();
+                    self.send(Msg::Hole);
+                    return;
+                }
+                self.overflowing.store(false, Ordering::Release);
+                self.queued.fetch_add(1, Ordering::AcqRel);
                 self.send(Msg::Frame { key: is_key, pts, data: data.to_vec(), received: latency::now_micros(), resume });
             }
             Packet::Hole { .. } => {
@@ -145,10 +163,14 @@ struct DecodeLoop {
     pw_config: Option<PwConfig>,
     pw_failed: bool,
     pw_announced: Option<PwConfig>,
+    /// Le dernier changement de surface pris en compte (`SurfaceGate`).
+    surface_gen: u64,
+    /// Images en file (`VideoSink::queued`).
+    queued: Arc<AtomicUsize>,
 }
 
 impl DecodeLoop {
-    fn new(host: Arc<dyn MediaHost>) -> Self {
+    fn new(host: Arc<dyn MediaHost>, queued: Arc<AtomicUsize>) -> Self {
         Self {
             host,
             fourcc: 0,
@@ -164,6 +186,8 @@ impl DecodeLoop {
             pw_config: None,
             pw_failed: false,
             pw_announced: None,
+            surface_gen: 0,
+            queued,
         }
     }
 
@@ -173,20 +197,30 @@ impl DecodeLoop {
 
     fn run(mut self, rx: Receiver<Msg>) {
         let mut pending: VecDeque<Msg> = VecDeque::new();
+        self.surface_gen = self.host.surface_gate().generation();
         loop {
             let m = match pending.pop_front() {
                 Some(m) => m,
                 None => match rx.recv() {
-                    Ok(m) => m,
+                    Ok(m) => self.took(m),
                     Err(_) => break,
                 },
             };
+            // La surface a changé : avant toute image en file, le décodeur la
+            // lâche, et le fil principal qui attend dans `surfaceDestroyed` le
+            // sait (AND-04). `Msg::Surface` ne sert qu'à réveiller ce fil.
+            let g = self.host.surface_gate().generation();
+            if g != self.surface_gen {
+                self.surface_gen = g;
+                self.surface_changed();
+                self.host.surface_gate().released(g);
+            }
             // PyroWave : seule la plus récente des images en attente est
             // décodée (les autres comptent parmi les images perdues).
             let m = match m {
                 Msg::Frame { .. } if self.pyrowave() => {
                     let mut latest = m;
-                    while let Ok(next) = rx.try_recv() {
+                    while let Ok(next) = rx.try_recv().map(|n| self.took(n)) {
                         if matches!(next, Msg::Frame { .. }) {
                             latest = next;
                         } else {
@@ -229,21 +263,37 @@ impl DecodeLoop {
                 // PyroWave : chaque image se décode seule, rien à attendre ni à demander.
                 Msg::Hole if self.pyrowave() => {}
                 Msg::Hole => self.lost(),
-                Msg::Surface if self.pyrowave() => {
-                    self.pw = None;
-                    self.pw_failed = false;
-                }
-                Msg::Surface => {
-                    self.decoder = None;
-                    self.gate.reset();
-                    self.waiting_key = true;
-                    self.request_keyframe();
-                }
+                Msg::Surface => {}
                 Msg::Stop => break,
             }
         }
         self.decoder = None;
         self.pw = None;
+        self.host.surface_gate().released(self.host.surface_gate().generation());
+    }
+
+    /// Un message sorti de la file : une image de moins en attente.
+    fn took(&self, m: Msg) -> Msg {
+        if matches!(m, Msg::Frame { .. }) {
+            self.queued.fetch_sub(1, Ordering::AcqRel);
+        }
+        m
+    }
+
+    /// Surface refaite ou retirée : décodeur (ou swapchain) lâché ; une image
+    /// clé redemandée seulement s'il y a de nouveau où l'afficher.
+    fn surface_changed(&mut self) {
+        if self.pyrowave() {
+            self.pw = None;
+            self.pw_failed = false;
+            return;
+        }
+        self.decoder = None;
+        self.gate.reset();
+        self.waiting_key = true;
+        if self.host.window().is_some() {
+            self.request_keyframe();
+        }
     }
 
     /// Une image PyroWave : session d'affichage ouverte sur la surface au
@@ -331,7 +381,11 @@ impl DecodeLoop {
         let stale = self.decoder.as_ref().is_some_and(|d| key && !self.config.is_empty() && d.config != self.config);
         if self.decoder.is_none() || stale {
             if !key {
-                self.request_keyframe();
+                // Sans surface (arrière-plan), rien à demander : la surface
+                // revenue redemandera l'image clé (AND-15).
+                if self.host.window().is_some() {
+                    self.request_keyframe();
+                }
                 return;
             }
             self.decoder = None;

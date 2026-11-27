@@ -119,12 +119,16 @@ class KyberNowApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Le journal d'abord (AND-01) : une exception ou une panique dès le lancement y est notée.
+        fr.leslignesclaires.kybernow.model.Journal.install(this)
         hosts = HostStore(this)
         gamepads = Gamepads(this)
         discovery = Discovery(this)
         device = DeviceIdentity.of(this)
         form = DeviceIdentity.formFactor(this)
-        Native.init(language())
+        Native.init(language(), fr.leslignesclaires.kybernow.model.Journal.dir(this).path)
+        // La raison de la fin précédente (plantage, ANR…), écrite dans le journal et dans logcat.
+        Thread({ runCatching { fr.leslignesclaires.kybernow.model.Journal.recordExits(this) } }, "kybernow-journal").start()
         // Micro (docs/micro.md) : téléphone et tablette qui en ont un ; jamais le téléviseur (rien n'en parle).
         hasMicrophone = form != FormFactor.TV && packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_MICROPHONE)
         Native.setDeviceHasMicrophone(hasMicrophone)

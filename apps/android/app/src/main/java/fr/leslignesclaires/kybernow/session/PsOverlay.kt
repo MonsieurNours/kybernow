@@ -65,6 +65,8 @@ class ConsoleUi(
     val onKeyboardDone: (Boolean) -> Unit,
 ) {
     var muted by mutableStateOf(false)
+    /** Réveillée avant la partie : « Réveil de la console » en première étape, faite (docs/link-ui.md). */
+    var woken = false
     /** Images par seconde demandées (réglages de la console). */
     var fps by mutableStateOf(60)
     /** Contenu protégé : « La console ne peut pas diffuser ce qu'elle affiche. » */

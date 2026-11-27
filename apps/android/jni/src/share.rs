@@ -63,29 +63,6 @@ fn bad(e: impl std::fmt::Display) -> String {
     serde_json::json!({ "code": 1, "error": e.to_string() }).to_string()
 }
 
-/// « Rejoindre » (comme `kn_share_join`) : `targets` `[{host, port,
-/// fingerprint}]`, `request` `{code, name, device, app}`, `capabilities`
-/// `{hevc, hevc444, av1}` ou nul. `value` : `{target, joined}`. Bloquant
-/// (6 s au plus), hors du fil principal.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareJoin(
-    mut env: Env,
-    _: JClass,
-    targets: JString,
-    request: JString,
-    capabilities: JString,
-) -> jstring {
-    let (targets, request, caps) = (string(&mut env, &targets), string(&mut env, &request), optional(&mut env, &capabilities));
-    let s = match (serde_json::from_str::<Vec<ShareTarget>>(&targets), serde_json::from_str::<JoinRequest>(&request)) {
-        (Ok(t), Ok(r)) => match caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok()) {
-            Some(caps) => share_envelope(share::join_checked(&t, &r, caps)),
-            None => share_envelope(share::join(&t, &r)),
-        },
-        (Err(e), _) | (_, Err(e)) => bad(e),
-    };
-    give(&mut env, &s)
-}
-
 fn joining_envelope(r: Result<share::Joining, ShareError>) -> String {
     match r {
         Ok(j) => serde_json::json!({ "code": 0, "value": j }).to_string(),
@@ -185,15 +162,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareParseL
     }
 }
 
-/// Les six chiffres d'un code tapé, nul sinon.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareNormalizeCode(mut env: Env, _: JClass, code: JString) -> jstring {
-    match share::normalize_code(&string(&mut env, &code)) {
-        Some(c) => give(&mut env, &c),
-        None => std::ptr::null_mut(),
-    }
-}
-
 /// Le code à afficher : « 123 456 ».
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareFormatCode(mut env: Env, _: JClass, code: JString) -> jstring {
@@ -223,29 +191,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareAvaila
     }
 }
 
-/// Le rôle avec les manettes données ou reprises, le clavier et la souris
-/// tels quels (codes de `consoleShareGuest` ; −1 pour un code inconnu).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWithPads(_: Env, _: JClass, role: jint, pads: jboolean) -> jint {
-    ShareRole::from_code(role).map_or(-1, |r| r.with_pads(pads != 0).code())
-}
-
-/// Le rôle avec le clavier et la souris donnés ou repris, les manettes telles quelles.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareRoleWithKbm(_: Env, _: JClass, role: jint, kbm: jboolean) -> jint {
-    ShareRole::from_code(role).map_or(-1, |r| r.with_kbm(kbm != 0).code())
-}
-
 // MARK: - Qualité de l'image d'un invité (0 Auto, 1 comme l'hôte, 2 1080p60, 3 720p30, 4 2160p60)
-
-/// Le libellé d'une qualité dans la langue de l'app, nul pour un code inconnu.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareQualityLabel(mut env: Env, _: JClass, quality: jint) -> jstring {
-    match ShareQuality::from_code(quality) {
-        Some(q) => give(&mut env, &q.label(i18n::current())),
-        None => std::ptr::null_mut(),
-    }
-}
 
 /// « Auto » (comme `kn_share_auto_quality`) : `screen` (`pixel_width`,
 /// `pixel_height`, `refresh`), `decoder` (`hevc`, `hevc444`, `av1`,
@@ -389,19 +335,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_shareWatch(
         }
         (Err(e), _) => bad(e),
         (_, Err(e)) => bad(e),
-    };
-    give(&mut env, &s)
-}
-
-/// « Regarder » par la console d'un ordinateur du compte (`consoleNewAccount`) ; même `value` que `shareWatch`.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleShareWatch(mut env: Env, _: JClass, h: jlong, request: JString, capabilities: JString) -> jstring {
-    let Some(c) = console(h) else { return std::ptr::null_mut() };
-    let (request, caps) = (string(&mut env, &request), optional(&mut env, &capabilities));
-    let caps = caps.and_then(|c| serde_json::from_str::<Capabilities>(&c).ok());
-    let s = match serde_json::from_str::<WatchRequest>(&request) {
-        Ok(req) => share_envelope(share::watch(c, &req, caps)),
-        Err(e) => bad(e),
     };
     give(&mut env, &s)
 }

@@ -526,9 +526,14 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         if (!notice.isNullOrBlank()) show(Capsule.RecordingNotice(notice), 6000)
     }
 
+    /** Les formes du pointeur déjà vues (flèche, main, texte…) : une image par forme, pas par changement (AND-26). */
+    private val pointerShapes = ShapeCache<Bitmap>(16)
+
     override fun onPointer(hasPosition: Boolean, x: Double, y: Double, remoteHidden: Boolean, width: Int, height: Int, hotX: Int, hotY: Int, pixels: IntArray?) {
         if (pixels != null && width > 0 && height > 0) {
-            val bmp = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888).apply { isPremultiplied = true }
+            val bmp = pointerShapes.get(width, height, hotX, hotY, pixels) {
+                Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888).apply { isPremultiplied = true }
+            }
             pointerShape.value = bmp to (hotX to hotY)
         }
         val prev = pointer.value

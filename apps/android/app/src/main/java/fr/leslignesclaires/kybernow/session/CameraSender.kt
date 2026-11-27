@@ -55,7 +55,7 @@ class CameraSender(private val context: Context, private val handle: () -> Long)
     private var name = ""
 
     companion object {
-        private const val TAG = "KyberNowCamera"
+        private const val TAG = "KyberNow"
 
         /** Les caméras de l'appareil, avant d'abord : identifiant et libellé (« Caméra avant », « Caméra arrière »). */
         fun cameras(context: Context): List<Pair<String, String>> {

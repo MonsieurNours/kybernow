@@ -93,10 +93,7 @@ class PsStore(context: Context) {
         refreshPairings()
     }
 
-    private fun <T> loadList(key: String, parse: (JSONObject) -> T): List<T> = runCatching {
-        val a = JSONArray(prefs.getString(key, "[]"))
-        List(a.length()) { parse(a.getJSONObject(it)) }
-    }.getOrDefault(emptyList())
+    private fun <T> loadList(key: String, parse: (JSONObject) -> T): List<T> = fr.leslignesclaires.kybernow.model.parseEach(prefs.getString(key, "[]"), parse)
 
     private fun saveConsoles(list: List<PsConsole>) {
         _consoles.value = list

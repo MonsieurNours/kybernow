@@ -112,12 +112,11 @@ class PadRouter(private val handle: () -> Long, private val gamepads: Gamepads) 
     private var startSlot = -1
     val mouse = PadMouse(handle)
 
-    private fun slot(deviceId: Int): Int = gamepads.byDevice(deviceId)?.slot ?: run { gamepads.refresh(); gamepads.byDevice(deviceId)?.slot ?: -1 }
+    private fun slot(deviceId: Int): Int = gamepads.slotOf(deviceId)
 
     /** Une touche de manette ; `true` si elle est prise (rien d'autre à faire). */
     fun key(e: KeyEvent): Boolean {
         if (e.repeatCount > 0) return true
-        gamepads.noteUsed(e.deviceId)
         val h = handle()
         val down = e.action == KeyEvent.ACTION_DOWN
         if (captured) return false
@@ -155,10 +154,10 @@ class PadRouter(private val handle: () -> Long, private val gamepads: Gamepads) 
 
     /** Sticks, gâchettes et croix en chapeau. */
     fun motion(e: MotionEvent): Boolean {
-        gamepads.noteUsed(e.deviceId)
         if (captured) return false
         val s = slot(e.deviceId)
-        if (s < 0) return true
+        // Un appareil qui n'est pas une manette : son mouvement n'est plus avalé (AND-25).
+        if (s < 0) return gamepads.byDevice(e.deviceId) != null
         val now = PadAxes.read(e)
         val before = last[e.deviceId] ?: PadAxes.REST
         last[e.deviceId] = now
@@ -270,6 +269,9 @@ class PadMouse(private val handle: () -> Long) {
                     wheelAcc -= wheelAcc.toInt()
                 }
             }
+            // Sticks au repos, molette vide : la boucle s'arrête (125 réveils par seconde du fil principal sinon,
+            // AND-27) ; `axes` la relance au prochain mouvement.
+            if (x == 0.0 && y == 0.0 && wy == 0.0) running = false
             if (running) main.postDelayed(this, 8)
         }
     }
@@ -561,6 +563,17 @@ class StylusInput(
         deliver(x, y, s.copy(inRange = false, contact = false, pressure = 0f))
     }
 
+    /** L'inclinaison que l'appareil sait lire, par appareil, lue une fois (pas à chaque échantillon, AND-26). */
+    private var tiltDevice = Int.MIN_VALUE
+    private var tiltKnown = false
+    private fun hasTilt(e: MotionEvent): Boolean {
+        if (e.deviceId != tiltDevice) {
+            tiltDevice = e.deviceId
+            tiltKnown = e.device?.getMotionRange(MotionEvent.AXIS_TILT) != null
+        }
+        return tiltKnown
+    }
+
     /** Un état du stylet (`h` : position de l'historique, −1 : l'actuelle) vers l'ordinateur, en stylet ou en souris. */
     private fun send(e: MotionEvent, i: Int, h: Int, contact: Boolean, inRange: Boolean) {
         val x = if (h < 0) e.getX(i) else e.getHistoricalX(i, h)
@@ -572,7 +585,7 @@ class StylusInput(
             inRange = inRange,
             contact = contact,
             pressure = pressure,
-            hasTilt = e.device?.getMotionRange(MotionEvent.AXIS_TILT) != null,
+            hasTilt = hasTilt(e),
             tilt = axis(MotionEvent.AXIS_TILT),
             orientation = axis(MotionEvent.AXIS_ORIENTATION),
             eraser = e.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER,
@@ -784,5 +797,101 @@ class TouchInput(private val out: PointerOut, private val toHost: (Float, Float)
     private companion object {
         /** Clavier sorti, toucher direct : au-delà, le doigt posé n'est plus un toucher, il clique et tient. */
         const val HOLD_DIRECT_MS = 350L
+    }
+}
+
+/**
+ * Souris capturée (déplacements bruts) : les échantillons regroupés par Android additionnés, et les fractions de
+ * pixel gardées pour le déplacement suivant (AND-13), pour qu'un mouvement lent ne s'annule pas à l'arrondi.
+ */
+class RelativeMotion {
+    private var x = 0f
+    private var y = 0f
+
+    fun add(dx: Float, dy: Float) {
+        x += dx
+        y += dy
+    }
+
+    /** Les pixels entiers accumulés (s'il y en a), le reste gardé. */
+    inline fun take(send: (Int, Int) -> Unit) {
+        val ix = wholeX()
+        val iy = wholeY()
+        if (ix != 0 || iy != 0) send(ix, iy)
+    }
+
+    @PublishedApi internal fun wholeX(): Int = x.toInt().also { x -= it }
+    @PublishedApi internal fun wholeY(): Int = y.toInt().also { y -= it }
+
+    fun reset() {
+        x = 0f
+        y = 0f
+    }
+}
+
+/**
+ * Les dernières formes du pointeur, par contenu (taille, point chaud, pixels) : en bureau Windows, la forme change à
+ * chaque survol d'un lien ou d'un texte, et chaque changement refaisait une image (AND-26).
+ */
+class ShapeCache<T>(private val size: Int) {
+    private class Key(val w: Int, val h: Int, val hx: Int, val hy: Int, val pixels: IntArray, val hash: Int) {
+        override fun hashCode() = hash
+        override fun equals(other: Any?) = other is Key && other.hash == hash && other.w == w && other.h == h &&
+            other.hx == hx && other.hy == hy && other.pixels.contentEquals(pixels)
+    }
+
+    private val map = object : LinkedHashMap<Key, T>(size, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, T>?) = this.size > this@ShapeCache.size
+    }
+
+    @Synchronized
+    fun get(w: Int, h: Int, hotX: Int, hotY: Int, pixels: IntArray, make: () -> T): T {
+        val key = Key(w, h, hotX, hotY, pixels, (((w * 31 + h) * 31 + hotX) * 31 + hotY) * 31 + pixels.contentHashCode())
+        return map.getOrPut(key, make)
+    }
+
+    @Synchronized
+    fun count() = map.size
+}
+
+/**
+ * Le pavé tactile d'une DualSense vers la console (docs/playstation.md) : Android le voit comme un appareil à part
+ * (`SOURCE_TOUCHPAD`, même fabricant et même produit que la manette). Deux doigts au plus, positions ramenées à 0..1,
+ * et le clic du pavé.
+ */
+class PadTouchpad(
+    private val gamepads: Gamepads,
+    private val touch: (slot: Int, finger: Int, down: Boolean, x: Float, y: Float) -> Unit,
+    private val click: (slot: Int, pressed: Boolean) -> Unit,
+) {
+    private var clicked = false
+
+    fun motion(e: MotionEvent): Boolean {
+        if (!e.isFromSource(android.view.InputDevice.SOURCE_TOUCHPAD)) return false
+        val d = e.device ?: return false
+        val slot = gamepads.pads.value.filter { it.vendorId == d.vendorId && it.productId == d.productId && it.slot >= 0 }.singleOrNull()?.slot ?: return false
+        val rx = d.getMotionRange(MotionEvent.AXIS_X, e.source)
+        val ry = d.getMotionRange(MotionEvent.AXIS_Y, e.source)
+        val ending = when (e.actionMasked) {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> -2
+            MotionEvent.ACTION_POINTER_UP -> e.actionIndex
+            else -> -1
+        }
+        for (i in 0 until e.pointerCount) {
+            val finger = e.getPointerId(i)
+            if (finger > 1) continue
+            val down = ending != -2 && ending != i
+            touch(slot, finger, down, normalize(e.getX(i), rx?.min ?: 0f, rx?.max ?: 0f), normalize(e.getY(i), ry?.min ?: 0f, ry?.max ?: 0f))
+        }
+        val now = e.buttonState and MotionEvent.BUTTON_PRIMARY != 0
+        if (now != clicked) {
+            clicked = now
+            click(slot, now)
+        }
+        return true
+    }
+
+    companion object {
+        fun normalize(v: Float, min: Float, max: Float): Float = if (max > min) ((v - min) / (max - min)).coerceIn(0f, 1f) else 0f
     }
 }

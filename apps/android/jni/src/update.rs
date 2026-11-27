@@ -19,9 +19,7 @@ pub const APK: &str = "KyberNow-Link-Android.apk";
 
 static FOUND: Mutex<Option<Available>> = Mutex::new(None);
 
-fn give(env: &mut JNIEnv, s: &str) -> jstring {
-    env.new_string(s).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
-}
+use crate::exports::give;
 
 /// `{"available": {version, channel, notes, page, size}}`, `{"none": true}`
 /// ou `{"error": "…"}`. Réseau : à appeler hors du fil principal.

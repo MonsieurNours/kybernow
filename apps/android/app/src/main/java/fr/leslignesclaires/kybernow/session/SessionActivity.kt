@@ -135,6 +135,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var sessionMode = Triple(1920, 1080, 60)
     private var tv = false
     private var relative = false
+    private val relativeMotion = RelativeMotion()
     private var mouseSeen = false
     /** Le dernier appui venait d'une souris (et pas d'un doigt ni d'une touche) : voir [share]. */
     private var mouseClick = false
@@ -169,6 +170,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var hdrScreen = HdrScreen.SDR
     private var hdrInfo: HostInfo? = null
     private var hdrWatch: AutoCloseable? = null
+    /** L'écran où se trouve la fenêtre (AND-12) : déplacée sur un autre, mode, fréquence et HDR sont refaits pour lui. */
+    private var displayId = -1
+    private var displayWatch: android.hardware.display.DisplayManager.DisplayListener? = null
 
     /**
      * Micro (docs/micro.md) : la capture (tant que le cœur dit `waiting` ou `on`), l'avis « Micro envoyé à {nom}. » dû
@@ -190,6 +194,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
     private val padDowns = mutableSetOf<Int>()
     private var quitting = false
+    private val wifi by lazy { LowLatencyWifi(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -423,6 +428,46 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
     }
 
+    /**
+     * Mode bureau : la fenêtre passe sur un autre écran sans recréer l'activité (`density`, `screenSize` déclarés). Le
+     * mode préféré visait l'ancien écran, la fréquence et le suivi du HDR aussi : tout est refait pour le nouveau, et la
+     * surface redonnée au cœur avec sa fréquence (AND-12).
+     */
+    private fun watchDisplay() {
+        displayId = display?.displayId ?: -1
+        val dm = getSystemService(android.hardware.display.DisplayManager::class.java) ?: return
+        val l = object : android.hardware.display.DisplayManager.DisplayListener {
+            override fun onDisplayAdded(id: Int) = checkDisplay()
+            override fun onDisplayRemoved(id: Int) = checkDisplay()
+            override fun onDisplayChanged(id: Int) = checkDisplay()
+        }
+        dm.registerDisplayListener(l, main)
+        displayWatch = l
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        checkDisplay()
+    }
+
+    private fun checkDisplay() {
+        if (!::state.isInitialized || handle == 0L) return
+        val d = display ?: return
+        if (d.displayId == displayId) return
+        displayId = d.displayId
+        android.util.Log.i("KyberNow", "écran : fenêtre passée sur l'écran ${d.displayId}")
+        applyDisplay()
+        val now = HdrScreen.of(d)
+        if (now != hdrScreen) {
+            hdrScreen = now
+            Native.sessionScreenHdrChanged(handle, now.hdr, now.luminance?.json()?.toString())
+            updateHdrState()
+        }
+        watchHdr()
+        val holder = surfaceView.holder
+        if (holder.surface?.isValid == true) surfaceCreated(holder)
+    }
+
     private fun audioChannels(): Int = when (host.settings.audio) {
         "computer" -> 0
         "stereo" -> 2
@@ -432,7 +477,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     private fun start() {
-        val screen = Screen.of(display ?: return)
+        // Sans écran (fenêtre pas encore posée) : pas d'écran noir sans issue, on revient à l'accueil (AND-24).
+        val screen = Screen.of(display ?: run { finishSession(); return })
         hdrScreen = HdrScreen.of(display)
         val settings = settingsJson(ui.profile)
         val g = guest
@@ -529,6 +575,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         updateHdrState()
         refreshHdr()
         watchHdr()
+        watchDisplay()
         // Micro retenu allumé pour cet ordinateur : dit au cœur juste après le départ ; l'autorisation perdue entre-temps
         // (« Seulement cette fois ») est redemandée, sans avis à l'arrivée.
         if (ui.micChoice) {
@@ -658,27 +705,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     /** L'image garde son format, centrée (bandes d'encre). */
-    private fun fitSurface(vw: Int, vh: Int) {
-        val root = surfaceView.parent as View
-        val (W, H) = root.width to root.height
-        if (W == 0 || H == 0 || vw == 0 || vh == 0) return
-        val k = min(W.toDouble() / vw, H.toDouble() / vh)
-        val lp = surfaceView.layoutParams as FrameLayout.LayoutParams
-        lp.width = (vw * k).roundToInt()
-        lp.height = (vh * k).roundToInt()
-        lp.gravity = Gravity.CENTER
-        surfaceView.layoutParams = lp
-    }
+    private fun fitSurface(vw: Int, vh: Int) = SessionSurface.fit(surfaceView, vw, vh)
 
     // MARK: - Surface
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         val s = holder.surface
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            s.setFrameRate(refresh.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS)
-        } else {
-            s.setFrameRate(refresh.toFloat(), Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
-        }
+        SessionSurface.frameRate(s, refresh)
         Native.sessionSetSurface(handle, s, refresh)
         surfaceView.requestFocus()
     }
@@ -704,6 +737,42 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         haptics.stop()
         if (handle != 0L) Native.sessionSetBackground(handle, true, 2_000_000)
         pads.mouse.stop()
+        wifi.release()
+    }
+
+    /**
+     * Mode bureau (fenêtres libres) : une fenêtre qui perd le focus reste « resumed », `onPause` n'est pas appelé
+     * (AND-05). Les relâchements qui suivent iront à l'autre fenêtre : tout est relâché ici, et Android a retiré la
+     * capture du pointeur, qu'on oublie aussi (sinon elle n'était jamais redemandée). Au retour du focus, la souris
+     * reprend son mode (capturée si le jeu le veut).
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!::ui.isInitialized || !::haptics.isInitialized || !::stylus.isInitialized) return
+        if (!hasFocus) {
+            ui.pad.releaseAll()
+            haptics.stop()
+            touch.cancel()
+            stylus.cancel()
+            pads.mouse.stop()
+            if (handle != 0L) Native.inputReleaseAll(handle)
+            pointerCaptureLost()
+        } else {
+            surfaceView.requestFocus()
+            updateMouseMode()
+        }
+    }
+
+    /** Android a retiré la capture (focus perdu, autre app, geste du système) : la souris repasse en absolu. */
+    override fun onPointerCaptureChanged(hasCapture: Boolean) {
+        super.onPointerCaptureChanged(hasCapture)
+        if (!hasCapture && ::ui.isInitialized) pointerCaptureLost()
+    }
+
+    private fun pointerCaptureLost() {
+        if (!relative) return
+        relative = false
+        if (handle != 0L) Native.inputSetRelative(handle, false)
     }
 
     override fun onResume() {
@@ -714,16 +783,20 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             state.cameraState.value = 2
         }
         if (handle != 0L) Native.sessionSetBackground(handle, false, 0)
+        if (::state.isInitialized) wifi.acquire()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        wifi.release()
         // `onCreate` s'arrête avant de construire quoi que ce soit quand la remise d'un invité est perdue (processus ou
         // activité recréés : les jetons ne se gardent pas) ou que l'ordinateur n'existe plus : `onDestroy` suit aussitôt.
         if (!::state.isInitialized) return
         if (::haptics.isInitialized) haptics.stop()
         hdrWatch?.close()
         hdrWatch = null
+        displayWatch?.let { getSystemService(android.hardware.display.DisplayManager::class.java)?.unregisterDisplayListener(it) }
+        displayWatch = null
         if (::ui.isInitialized && ui.micShown) micCapture.stop()
         linkWatch?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         linkWatch = null
@@ -1451,12 +1524,22 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         return@launch
                     }
                     app.handOverLoan(reply.loan, ask)
+                    // `singleTask` : la demande arrive à cette activité même (`onNewIntent`), qui se refait avec le nouveau
+                    // prêt. Avant, `finishSession()` la fermait aussitôt et rien ne s'ouvrait (AND-11).
                     startActivity(Intent(this@SessionActivity, SessionActivity::class.java).putExtra(EXTRA_BORROW, true))
-                    finishSession()
                 }
                 is BorrowReply.Refused -> ui.comeBack = ComeBack(ComeBack.Step.FAILED, reply.message.ifBlank { getString(R.string.add_unreachable) })
                 is BorrowReply.Pending -> ui.comeBack = ComeBack(ComeBack.Step.FAILED, getString(R.string.add_unreachable))
             }
+        }
+    }
+
+    /** « Revenir » : la nouvelle session d'emprunt, dans cette activité refaite (l'ancienne session a fini). */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_BORROW, false)) {
+            setIntent(intent)
+            recreate()
         }
     }
 
@@ -1496,7 +1579,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (want == relative) return
         relative = want
         Native.inputSetRelative(handle, want)
-        if (want) surfaceView.requestPointerCapture() else surfaceView.releasePointerCapture()
+        relativeMotion.reset()
+        if (want) {
+            surfaceView.requestPointerCapture()
+            // Chaque déplacement brut tout de suite, sans attendre l'image suivante d'Android.
+            surfaceView.requestUnbufferedDispatch(InputDevice.SOURCE_MOUSE_RELATIVE)
+        } else surfaceView.releasePointerCapture()
         surfaceView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
     }
 
@@ -1505,7 +1593,13 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (!ui.keyboardMouseAllowed()) return true
         val h = handle
         when (e.actionMasked) {
-            MotionEvent.ACTION_MOVE -> Native.inputMouseMove(h, e.x.roundToInt(), e.y.roundToInt())
+            // Android regroupe les déplacements bruts : l'historique compte aussi, et les fractions sont gardées pour le
+            // suivant (AND-13 : avant, seul le dernier échantillon partait, arrondi).
+            MotionEvent.ACTION_MOVE -> {
+                for (i in 0 until e.historySize) relativeMotion.add(e.getHistoricalX(i), e.getHistoricalY(i))
+                relativeMotion.add(e.x, e.y)
+                relativeMotion.take { dx, dy -> Native.inputMouseMove(h, dx, dy) }
+            }
             MotionEvent.ACTION_BUTTON_PRESS -> Native.inputMouseButton(h, button(e.actionButton), true)
             MotionEvent.ACTION_BUTTON_RELEASE -> Native.inputMouseButton(h, button(e.actionButton), false)
             MotionEvent.ACTION_SCROLL -> Native.inputWheel(h, e.getAxisValue(MotionEvent.AXIS_HSCROLL), -e.getAxisValue(MotionEvent.AXIS_VSCROLL))
@@ -1529,6 +1623,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val lx = (x - v.left) / v.width
         val ly = (y - v.top) / v.height
         return (lx.coerceIn(0f, 1f) * d.width).toDouble() to (ly.coerceIn(0f, 1f) * d.height).toDouble()
+    }
+
+    /** La souris (non capturée) à cet endroit de la vue : le calcul de [viewToHost], sans objet par mouvement (AND-26). */
+    private fun mouseMoveTo(h: Long, x: Float, y: Float) {
+        val d = state.display.value ?: return
+        val v = surfaceView
+        if (v.width == 0 || v.height == 0) return
+        val lx = ((x - v.left) / v.width).coerceIn(0f, 1f)
+        val ly = ((y - v.top) / v.height).coerceIn(0f, 1f)
+        Native.pointerMoveTo(h, (lx * d.width).toDouble(), (ly * d.height).toDouble())
     }
 
     /** Pixels de l'ordinateur par pixel de l'image à l'écran (gain du pavé tactile). */
@@ -1559,6 +1663,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Volume, alimentation : au système.
         if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_MUTE || code == KeyEvent.KEYCODE_POWER) {
             return super.dispatchKeyEvent(event)
+        }
+        // Bouton Retour (ou Suivant) de la souris : Android en fait aussi la touche Retour, qui ouvrait la barre en plus du
+        // bouton envoyé à l'ordinateur (AND-24). Sur l'image, seul le bouton part ; barre ou menu ouverts, il les ferme.
+        if ((code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_FORWARD) && event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {
+            return true
         }
         // Manettes (Retour et Menu d'une manette, comme sa touche Select ou Start, partent au jeu).
         val fromPad = event.device?.let(Gamepads::isGamepad) == true
@@ -1633,7 +1742,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
      */
     private fun padsRouted() = padsAllowed() || pads.asMouse
 
-    /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
+    /**
+     * Ce qui prend les touches (clavier, manette). La barre pilotée à la manette passe par `pads.captured`. La souris, elle,
+     * s'arrête dès que quelque chose recouvre l'image (`SessionUi.covering`).
+     */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing || shareOpen || qualityOpen || lendOpen || giveBackConfirm
 
     private fun isKeyboard(e: KeyEvent): Boolean {
@@ -1649,13 +1761,19 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Survol du stylet (tout près de l'écran, sans le toucher) : sur l'image seulement, pas sous la barre ou un menu.
         // Barre ou menu ouverts : le stylet qui survolait l'image s'en va (les menus prennent le survol).
         if (event.isFromSource(InputDevice.SOURCE_CLASS_POINTER) && StylusInput.isPen(event)) {
-            if (!ui.covering && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
+            if (!ui.covering && ui.keyboardMouseAllowed()) {
                 if (stylus.onHover(event)) return true
             } else {
                 stylus.away()
             }
         }
-        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anythingModal() && ui.keyboardMouseAllowed()) {
+        // Un bouton relâché pendant que la barre s'ouvre : le relâché part quand même, rien ne reste enfoncé sur l'ordinateur.
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && ui.covering && event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE && ui.keyboardMouseAllowed()) {
+            Native.inputMouseButton(handle, button(event.actionButton), false)
+        }
+        // Barre, statistiques ou feuille ouvertes (`covering`, AND-14) : clics et molette vont à l'interface, pas aussi à
+        // l'ordinateur.
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering && ui.keyboardMouseAllowed()) {
             if (!mouseSeen) {
                 mouseSeen = true
                 surfaceView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
@@ -1663,7 +1781,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             }
             val h = handle
             when (event.actionMasked) {
-                MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> viewToHost(event.x, event.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> mouseMoveTo(h, event.x, event.y)
                 MotionEvent.ACTION_BUTTON_PRESS -> Native.inputMouseButton(h, button(event.actionButton), true)
                 MotionEvent.ACTION_BUTTON_RELEASE -> Native.inputMouseButton(h, button(event.actionButton), false)
                 MotionEvent.ACTION_SCROLL -> Native.inputWheel(h, event.getAxisValue(MotionEvent.AXIS_HSCROLL), -event.getAxisValue(MotionEvent.AXIS_VSCROLL))
@@ -1681,7 +1799,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (ev.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {
             val h = handle
             when (ev.actionMasked) {
-                MotionEvent.ACTION_MOVE -> if (ui.keyboardMouseAllowed()) viewToHost(ev.x, ev.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                MotionEvent.ACTION_MOVE -> if (ui.keyboardMouseAllowed()) mouseMoveTo(h, ev.x, ev.y)
             }
             return true
         }

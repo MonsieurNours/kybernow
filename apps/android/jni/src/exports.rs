@@ -17,11 +17,10 @@ use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_T
 use jni::JNIEnv;
 use ndk::native_window::NativeWindow;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton};
 use kybernow_core::kynput_rs::MouseButtonType;
-use kybernow_core::latency;
 use kybernow_core::station_offer;
 use kybernow_core::wake;
 
@@ -59,12 +58,19 @@ pub(crate) fn jbool(b: bool) -> jboolean {
 
 // MARK: - Général
 
-/// Journal vers logcat (étiquette `KyberNow`) et langue des messages du cœur.
+/// Journal vers logcat (étiquette `KyberNow`) et, en copie, dans `journal`
+/// (dossier de l'app : `natif.log`, crochet de panique, voir `journal.rs`),
+/// et langue des messages du cœur.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut env: Env, _: JClass, language: JString) {
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_init(mut env: Env, _: JClass, language: JString, journal: JString) {
     static LOG: OnceLock<()> = OnceLock::new();
+    let dir = string(&mut env, &journal);
     LOG.get_or_init(|| {
-        android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("KyberNow"));
+        crate::journal::init_logger();
+        if !dir.is_empty() {
+            crate::journal::install(std::path::Path::new(&dir));
+        }
+        log::info!("KyberNow Link {} : journal ouvert", env!("CARGO_PKG_VERSION"));
     });
     let tag = string(&mut env, &language);
     i18n::set_current(Lang::from_tag(&tag));
@@ -78,11 +84,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_pyrowavePro
     let (available, report) = crate::pyrowave::probe();
     log::info!("PyroWave : {} ({report})", if available { "disponible" } else { "indisponible" });
     give(&mut env, &serde_json::json!({ "available": available, "report": report }).to_string())
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_nowMicros(_: Env, _: JClass) -> jlong {
-    latency::now_micros()
 }
 
 // MARK: - Admin
@@ -304,7 +305,27 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleAdmi
     give(&mut env, &url)
 }
 
+/// Adresse d'Admin sans connexion (`console::admin_url` du cœur) : une IPv6
+/// prend ses crochets (`https://[fe80::1]:47990/`), une seule fois (TRANS-36).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_adminUrl(mut env: Env, _: JClass, host: JString, port: jint) -> jstring {
+    let host = string(&mut env, &host);
+    give(&mut env, &kybernow_core::console::admin_url(&host, port.clamp(0, u16::MAX as jint) as u16))
+}
+
 // MARK: - Réveil par le réseau
+
+/// Une adresse MAC tapée à la main, lue par le cœur (`wake::parse_mac` :
+/// séparateurs au choix, ni adresse nulle ni de groupe) : `AA:BB:CC:DD:EE:FF`,
+/// ou nul si elle ne vaut rien (AND-21).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wakeParseMac(mut env: Env, _: JClass, text: JString) -> jstring {
+    let text = string(&mut env, &text);
+    match wake::parse_mac(&text) {
+        Some(m) => give(&mut env, &m.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")),
+        None => std::ptr::null_mut(),
+    }
+}
 
 /// Réveille un ordinateur (Wake-on-LAN) : `targets_json`, les cartes gardées
 /// par l'app pour cet ordinateur (`wake` de `consoleInfo`, une liste ; une
@@ -328,8 +349,11 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wake(mut en
 
 // MARK: - Session
 
-pub(crate) fn handle<'a>(h: jlong) -> Option<&'a Handle> {
-    (h != 0).then(|| unsafe { &*(h as *const Handle) })
+/// Les sessions ouvertes, par numéro (`registry`, AND-10).
+static SESSIONS: crate::registry::Registry<Handle> = crate::registry::Registry::new();
+
+pub(crate) fn handle(h: jlong) -> Option<std::sync::Arc<Handle>> {
+    SESSIONS.get(h)
 }
 
 /// Démarre une session (JSON des paramètres : voir `session::start`) ; 0 si
@@ -349,7 +373,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionStar
     let w = window(&mut env, &surface);
     let Ok(listener) = Listener::new(&mut env, &listener) else { return 0 };
     match session::start(&params, listener, w, refresh.max(0) as u32) {
-        Ok(h) => Box::into_raw(Box::new(h)) as jlong,
+        Ok(h) => SESSIONS.insert(h),
         Err(e) => {
             log::error!("session : paramètres illisibles ({e})");
             0
@@ -376,13 +400,14 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionGive
 /// fil principal de préférence).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionFree(_: Env, _: JClass, h: jlong) {
-    if h == 0 {
-        return;
-    }
-    let h = unsafe { Box::from_raw(h as *mut Handle) };
+    let Some(h) = SESSIONS.remove(h) else { return };
     h.session.stop();
     h.session.wait();
     h.shared.set_window(None);
+    // La chaîne d'entrées tient `Shared` (rappels, presse-papiers) et `Shared`
+    // la tient : sans ceci, une fin par panique du fil de session laissait
+    // fuir `Shared` et l'activité de Kotlin (AND-16).
+    h.shared.input.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
 #[unsafe(no_mangle)]
@@ -436,13 +461,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetL
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPickDisplay(_: Env, _: JClass, h: jlong, id: jint) {
     if let Some(h) = handle(h) {
         h.session.pick_display(id as u32);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetMode(_: Env, _: JClass, h: jlong, w: jint, hh: jint, refresh: jint) {
-    if let Some(h) = handle(h) {
-        h.session.set_mode(Mode { width: w as u32, height: hh as u32, refresh: refresh as u32 });
     }
 }
 
@@ -829,15 +847,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxis(_: 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxesRest(_: Env, _: JClass, h: jlong, pad: jint) {
     input(h, |p| p.gamepad_axes_rest(pad as u32));
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padSetComboEnabled(_: Env, _: JClass, h: jlong, enabled: jboolean) {
-    let Some(h) = handle(h) else { return };
-    h.shared.combo_enabled.store(enabled != 0, std::sync::atomic::Ordering::Relaxed);
-    if let Some(p) = h.shared.current_input() {
-        p.combo().set_enabled(enabled != 0);
-    }
 }
 
 // MARK: - Profils

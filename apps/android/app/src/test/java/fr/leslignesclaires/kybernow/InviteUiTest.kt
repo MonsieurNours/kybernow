@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow
 
+import androidx.compose.ui.semantics.getOrNull
 import android.app.Application
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.assertCountEquals
@@ -48,12 +49,16 @@ class InviteUiTest {
         // Vide : le bouton attend.
         rule.onNodeWithText("Ajouter l'ordinateur").assertIsNotEnabled()
         rule.onNode(hasSetTextAction()).performTextInput("k7mq-p2xa-9fz3")
-        // Masqué (des points) jusqu'à « Afficher », puis « Masquer ».
-        rule.onNodeWithText("k7mq-p2xa-9fz3").assertDoesNotExist()
+        // Masqué (des points) jusqu'à « Afficher », puis « Masquer ». Ce que le champ affiche (`EditableText`) : Compose
+        // expose aussi le texte tapé (`InputText`) au service d'accessibilité, en clair, quel que soit le masque.
+        val shown = androidx.compose.ui.test.SemanticsMatcher("affiche le mot de passe en clair") {
+            it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.EditableText)?.text == "k7mq-p2xa-9fz3"
+        }
+        rule.onNode(shown).assertDoesNotExist()
         rule.onNodeWithText("Afficher").performClick()
-        rule.onNodeWithText("k7mq-p2xa-9fz3").assertExists()
+        rule.onNode(shown).assertExists()
         rule.onNodeWithText("Masquer").performClick()
-        rule.onNodeWithText("k7mq-p2xa-9fz3").assertDoesNotExist()
+        rule.onNode(shown).assertDoesNotExist()
         rule.onNodeWithText("Afficher").assertExists()
         rule.onNodeWithText("Ajouter l'ordinateur").assertIsEnabled().performClick()
         assertEquals(listOf("k7mq-p2xa-9fz3"), sent)

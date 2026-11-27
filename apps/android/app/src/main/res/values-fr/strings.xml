@@ -242,6 +242,7 @@
     <string name="settings_mac_enter">Saisir l\'adresse MAC</string>
     <string name="settings_mac_help">Pour une Station qui ne la donne pas encore : l\'adresse matérielle de la carte réseau de l\'ordinateur, envoyée en plus de celles qu\'Admin donne.</string>
     <string name="settings_mac">Adresse MAC</string>
+    <string name="settings_mac_invalid">Cette adresse MAC n\'est pas valable : 12 chiffres et lettres de A à F, comme 3C:7C:3F:1A:2B:4C.</string>
     <string name="last_title">Dernière session</string>
     <string name="last_median">médiane</string>
     <string name="last_p95" formatted="true">95 %% des images sous %1$s ms</string>
@@ -515,6 +516,9 @@
     <string name="welcome3_station_title">Pas encore installé</string>
     <string name="welcome3_station_body">Téléchargez KyberNow Station sur l\'ordinateur à rejoindre.</string>
     <string name="welcome_replay">Revoir l\'accueil</string>
+    <string name="journal_send">Envoyer le journal</string>
+    <string name="journal_send_help">Si l\'app se ferme ou qu\'une session se coupe, ce fichier texte raconte ce qui s\'est passé. Joignez-le à votre message : vous choisissez à qui l\'envoyer.</string>
+    <string name="journal_preparing">Préparation du journal…</string>
     <string name="account_card_eyebrow">Compte KyberNow</string>
     <string name="account_card_title">Retrouvez vos ordinateurs partout</string>
     <string name="account_card_body">Sur tous vos appareils, même hors de chez vous.</string>
@@ -739,7 +743,6 @@
     <string name="ps_stats_losses" formatted="true">Images perdues : %1$d · réparées : %2$d</string>
     <string name="ps_keyboard_banner">Tapez votre texte · Entrée pour valider · Échap pour annuler</string>
     <string name="ps_keyboard_banner_touch">Tapez votre texte · ✓ pour valider · ✕ pour annuler</string>
-    <string name="ps_touchpad">Pavé tactile</string>
     <string name="ps_hint_tv">Le bouton Retour ouvre le menu, comme Options + Create + L1 + R1.</string>
     <string name="ps_pad_bar">La manette pilote la barre, la console ne reçoit rien ; Rond la ferme.</string>
     <string name="ps_sign_in_title">PlayStation Network</string>
@@ -787,6 +790,17 @@
     <string name="ps_deadzone">Inclinaison minimale</string>
     <string name="ps_deadzone_help">Pour passer la zone morte des jeux.</string>
     <string name="ps_invert_y">Inverser l\'axe vertical</string>
+    <string name="camera">Caméra</string>
+    <string name="camera_starting">Caméra…</string>
+    <string name="camera_turn_on">Allumer la caméra</string>
+    <string name="camera_turn_off">Éteindre la caméra</string>
+    <string name="camera_indicator">● Caméra</string>
+    <string name="camera_front">Caméra avant</string>
+    <string name="camera_back">Caméra arrière</string>
+    <string name="camera_external">Caméra externe</string>
+    <string name="camera_resolution">Définition de la caméra</string>
+    <string name="camera_resolution_help">30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l\'ordinateur.</string>
+    <string name="camera_stats" formatted="true">Caméra : %1$s</string>
     <plurals name="share_guests">
         <item quantity="one">%d invité</item>
         <item quantity="many">%d invités</item>
@@ -797,16 +811,4 @@
         <item quantity="many">%d demandes</item>
         <item quantity="other">%d demandes</item>
     </plurals>
-    <!-- Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») -->
-    <string name="camera">Caméra</string>
-    <string name="camera_starting">Caméra…</string>
-    <string name="camera_turn_on">Allumer la caméra</string>
-    <string name="camera_turn_off">Éteindre la caméra</string>
-    <string name="camera_indicator">● Caméra</string>
-    <string name="camera_front">Caméra avant</string>
-    <string name="camera_back">Caméra arrière</string>
-    <string name="camera_external">Caméra externe</string>
-    <string name="camera_resolution">Définition de la caméra</string>
-    <string name="camera_resolution_help">30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l\'ordinateur.</string>
-    <string name="camera_stats">Caméra : %1$s</string>
 </resources>

@@ -38,8 +38,7 @@ use crate::video::{Msg, VideoSink};
 pub struct Shared {
     pub listener: Listener,
     session: OnceLock<Weak<Session>>,
-    pub window: Mutex<Option<NativeWindow>>,
-    pub video_tx: Mutex<Option<Sender<Msg>>>,
+    pub surface: crate::media::SurfaceSlot,
     pub pointer: Arc<PointerLayer>,
     clock: Arc<MonotonicClock>,
     pub input: Mutex<Option<Arc<InputPipeline>>>,
@@ -80,10 +79,7 @@ impl Shared {
     }
 
     pub fn set_window(&self, window: Option<NativeWindow>) {
-        *self.window.lock().unwrap() = window;
-        if let Some(tx) = self.video_tx.lock().unwrap().as_ref() {
-            let _ = tx.send(Msg::Surface);
-        }
+        self.surface.set(window);
     }
 
     pub fn set_device_refresh(&self, hz: u32) {
@@ -114,7 +110,7 @@ impl MediaHost for Shared {
     }
 
     fn window(&self) -> Option<NativeWindow> {
-        self.window.lock().unwrap().clone()
+        self.surface.window()
     }
 
     fn video_size(&self) -> (u32, u32) {
@@ -126,7 +122,11 @@ impl MediaHost for Shared {
     }
 
     fn set_video_tx(&self, tx: Sender<Msg>) {
-        *self.video_tx.lock().unwrap() = Some(tx);
+        self.surface.set_video_tx(tx);
+    }
+
+    fn surface_gate(&self) -> &crate::gate::SurfaceGate {
+        self.surface.gate()
     }
 
     fn hdr(&self) -> bool {
@@ -681,8 +681,7 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
     let shared = Arc::new(Shared {
         listener,
         session: OnceLock::new(),
-        window: Mutex::new(window),
-        video_tx: Mutex::new(None),
+        surface: crate::media::SurfaceSlot::new(window),
         pointer: pointer.clone(),
         clock: clock.clone(),
         input: Mutex::new(None),
@@ -708,17 +707,20 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         };
         let shape = if change.shape { state.shape.as_ref() } else { None };
         let pixels = shape.map(|s| s.premultiplied());
-        sh.listener.with(|env, obj| {
+        let listener = &sh.listener;
+        listener.with(|env, obj| {
             let arr: JObject = match &pixels {
                 Some(p) => {
                     let a = env.new_int_array(p.len() as i32)?;
-                    let ints: Vec<i32> = p.iter().map(|v| *v as i32).collect();
-                    env.set_int_array_region(&a, 0, &ints)?;
+                    // u32 et i32 ont la même disposition : pas de copie de plus (AND-26).
+                    let ints: &[i32] = unsafe { std::slice::from_raw_parts(p.as_ptr() as *const i32, p.len()) };
+                    env.set_int_array_region(&a, 0, ints)?;
                     a.into()
                 }
                 None => JObject::null(),
             };
-            env.call_method(
+            listener.call_void(
+                env,
                 obj,
                 "onPointer",
                 "(ZDDZIIII[I)V",

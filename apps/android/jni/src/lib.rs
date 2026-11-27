@@ -18,12 +18,17 @@ mod autotest;
 mod camera;
 #[cfg(target_os = "android")]
 mod exports;
+/// La surface retirée, attendue (AND-04).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod gate;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod hdr;
 #[cfg(target_os = "android")]
 mod invite;
 #[cfg(target_os = "android")]
 mod jvm;
+/// Journal de l'app : logcat, fichier tournant, crochet de panique (AND-01).
+mod journal;
 #[cfg(target_os = "android")]
 mod lend;
 #[cfg(target_os = "android")]
@@ -34,6 +39,9 @@ mod playstation;
 mod pyrowave;
 #[cfg(target_os = "android")]
 mod recording;
+/// Les objets rendus à Kotlin, par numéro (AND-10).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod registry;
 #[cfg(target_os = "android")]
 mod relay;
 #[cfg(target_os = "android")]

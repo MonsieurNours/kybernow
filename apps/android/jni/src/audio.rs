@@ -9,6 +9,8 @@
 //! la stéréo, mixée par le moteur (le nombre de voies vient de la taille
 //! du tampon demandé).
 
+use std::mem::ManuallyDrop;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -25,8 +27,38 @@ use crate::media::MediaHost;
 
 const RATE: i32 = 48_000;
 
-struct Stream(AudioStream);
+/// Un flux AAudio qui se ferme sans jamais paniquer (AND-08) : le `Drop` de
+/// ndk 0.9 fait `unwrap()` sur le code d'`AAudioStream_close`, qui peut être
+/// une erreur quand la sortie vient de disparaître (casque Bluetooth, HDMI).
+/// Paniquer là, garde du Mutex tenue, empoisonnait la session (fin
+/// « session.internal ») ou arrêtait l'app depuis un export JNI. La panique
+/// est rattrapée ici (et écrite au journal par le crochet de panique).
+struct Stream(ManuallyDrop<AudioStream>);
 unsafe impl Send for Stream {}
+
+impl Stream {
+    fn new(s: AudioStream) -> Self {
+        Self(ManuallyDrop::new(s))
+    }
+}
+
+impl std::ops::Deref for Stream {
+    type Target = AudioStream;
+    fn deref(&self) -> &AudioStream {
+        &self.0
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // SAFETY : pris une seule fois, ici ; plus rien ne lit `self.0` ensuite.
+        let s = unsafe { ManuallyDrop::take(&mut self.0) };
+        let _ = s.request_stop();
+        if std::panic::catch_unwind(AssertUnwindSafe(move || drop(s))).is_err() {
+            log::warn!("son : fermeture d'AAudio en erreur, ignorée");
+        }
+    }
+}
 
 pub struct AudioSink {
     engine: Arc<AudioEngine>,
@@ -71,9 +103,9 @@ impl Drop for AudioSink {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::Release);
         self.engine.stop();
-        if let Some(s) = self.stream.lock().unwrap().take() {
-            let _ = s.0.request_stop();
-        }
+        // Fermé hors du verrou (et sans panique : voir `Stream`).
+        let s = self.stream.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(s);
     }
 }
 
@@ -81,9 +113,8 @@ fn open(engine: Arc<AudioEngine>, slot: Arc<Mutex<Option<Stream>>>, closed: Arc<
     if closed.load(Ordering::Acquire) {
         return;
     }
-    if let Some(old) = slot.lock().unwrap().take() {
-        let _ = old.0.request_stop();
-    }
+    let old = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+    drop(old);
     let wanted = engine.channels().max(2) as i32;
     let attempts = [(wanted, AudioSharingMode::Exclusive), (wanted, AudioSharingMode::Shared), (2, AudioSharingMode::Shared)];
     let mut opened = None;
@@ -93,7 +124,7 @@ fn open(engine: Arc<AudioEngine>, slot: Arc<Mutex<Option<Stream>>>, closed: Arc<
         }
         match build(engine.clone(), slot.clone(), closed.clone(), shared.clone(), channels, sharing) {
             Ok(s) => {
-                opened = Some(s);
+                opened = Some(Stream::new(s));
                 break;
             }
             Err(e) => log::warn!("son : sortie {channels} voies ({sharing:?}) refusée ({e:?})"),
@@ -118,7 +149,12 @@ fn open(engine: Arc<AudioEngine>, slot: Arc<Mutex<Option<Stream>>>, closed: Arc<
         stream.performance_mode()
     );
     shared.listener().void("onAudioOutput", "(ID)V", &[JValue::Int(channels), JValue::Double(buffer_ms)]);
-    *slot.lock().unwrap() = Some(Stream(stream));
+    // Fermée entre-temps (fin de session pendant l'ouverture) : le flux part tout de suite.
+    if closed.load(Ordering::Acquire) {
+        return;
+    }
+    let previous = slot.lock().unwrap_or_else(|e| e.into_inner()).replace(stream);
+    drop(previous);
 }
 
 fn build(

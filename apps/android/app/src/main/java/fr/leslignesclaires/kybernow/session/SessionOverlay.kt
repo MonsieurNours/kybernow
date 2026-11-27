@@ -470,7 +470,8 @@ private fun Passage(ui: SessionUi) {
         // Un échec laisse sa carte seule (EndedCard).
         if (open.value < 0.5f && ended == null) {
             // Une console : « Connexion à la console », puis « Premières images ».
-            val step = if (ui.console != null) when (phase) {
+            val woke = if (ui.console?.woken == true) 1 else 0
+            val step = if (ui.console != null) woke + when (phase) {
                 Phase.PREPARING, Phase.CONNECTING -> 0
                 Phase.FIRST_IMAGES -> 1
                 else -> 2
@@ -490,7 +491,7 @@ private fun Passage(ui: SessionUi) {
                 // La Station redémarre (dernier recours) : à la place des étapes, qui reprennent ensuite.
                 if (restarting) StepLine(stringResource(R.string.station_restarting), done = false, current = true)
                 // L'emprunt : « Préparation de l'ordinateur » en première étape (le mode console de la Station).
-                else (if (ui.console != null) listOf(R.string.ps_step_connect, R.string.session_first_images) else listOf(if (ui.borrower) R.string.lend_preparing else R.string.session_preparing, R.string.session_connecting, R.string.session_first_images)).forEachIndexed { i, label ->
+                else (if (ui.console != null) listOfNotNull(R.string.ps_step_wake.takeIf { ui.console.woken }, R.string.ps_step_connect, R.string.session_first_images) else listOf(if (ui.borrower) R.string.lend_preparing else R.string.session_preparing, R.string.session_connecting, R.string.session_first_images)).forEachIndexed { i, label ->
                     StepLine(stringResource(label), done = i < step, current = i == step)
                 }
                 hint(ui)?.let { Body(it, size = 13f, color = Kn.muted, modifier = Modifier.padding(top = s.dp(4f))) }

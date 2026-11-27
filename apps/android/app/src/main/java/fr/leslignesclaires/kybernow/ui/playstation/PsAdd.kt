@@ -480,33 +480,39 @@ fun ReceiveSection(ps: PlayStations, autoStart: Boolean) {
         received?.let { ReceivedLine(it) }
         return
     }
+    // L'attente précédente (« Nouveau code ») : la suivante n'écoute qu'une fois celle-ci finie.
+    val previous = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     DisposableEffect(round) {
         val wifi = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
         // Les recherches arrivent en diffusion (port 9340) : le Wi-Fi ne les laisse passer qu'avec ce verrou.
         val lock = wifi?.createMulticastLock("kybernow-handoff")?.apply { setReferenceCounted(false); acquire() }
         val platform = if (app.form == FormFactor.TV) "androidtv" else "android"
-        val h = PsNative.handoffReceive(app.device.name, platform)
-        code = if (h != 0L) PsNative.handoffCode(h) else null
+        code = null
         expired = false
-        val job = kotlinx.coroutines.MainScope().launch {
-            while (isActive && h != 0L) {
-                val e = withContext(Dispatchers.IO) { PsNative.handoffNext(h, 1000) } ?: continue
-                val o = JSONObject(e)
+        // Hors de la composition : la poignée n'est libérée qu'après le retour de l'appel bloquant (AND-09).
+        val job = fr.leslignesclaires.kybernow.playstation.HandoffWait.launch(
+            kotlinx.coroutines.MainScope(), previous[0],
+            start = { PsNative.handoffReceive(app.device.name, platform) },
+            next = { h -> PsNative.handoffNext(h, 500) },
+            stop = { h -> PsNative.handoffStop(h) },
+            onStart = { h -> code = if (h != 0L) PsNative.handoffCode(h) else null },
+            onEvent = { o ->
                 when (o.optString("event")) {
                     "received" -> {
                         received = Handoff.merge(ps.store, app.hosts.hosts.value, o.optString("bundle"))
                         on = false
-                        break
+                        true
                     }
-                    "new_code" -> code = o.optString("code")
-                    "expired" -> { expired = true; break }
+                    "new_code" -> { code = o.optString("code"); false }
+                    "expired" -> { expired = true; true }
+                    else -> false
                 }
-            }
-        }
+            },
+        )
+        previous[0] = job
         onDispose {
             job.cancel()
-            if (h != 0L) PsNative.handoffStop(h)
-            runCatching { lock?.release() }
+            job.invokeOnCompletion { runCatching { lock?.release() } }
         }
     }
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(18f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {

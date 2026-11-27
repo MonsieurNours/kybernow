@@ -236,14 +236,21 @@ class PlayStations(private val context: Context, val store: PsStore, private val
             }
             val address = PsNative.remoteAddress(handle) ?: run { PsNative.remoteFree(handle); return null }
             val remote = PsRemote(handle, address, station)
-            val seen = searchAt(address, 2000)
-            if (seen?.ready != true) {
-                _reaching.value = _reaching.value - c.id
-                if (!wake(c, address)) {
-                    remote.close()
-                    _reachErrors.value = _reachErrors.value + (c.id to ReachError.NotAnswering)
-                    return null
+            try {
+                val seen = searchAt(address, 2000)
+                if (seen?.ready != true) {
+                    _reaching.value = _reaching.value - c.id
+                    if (!wake(c, address)) {
+                        remote.close()
+                        _reachErrors.value = _reachErrors.value + (c.id to ReachError.NotAnswering)
+                        return null
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Annulé pendant la recherche ou le réveil (jusqu'à 30 s) : la console jointe est rendue, son signe de vie
+                // vers la Station s'arrête (AND-18).
+                remote.close()
+                throw e
             }
             return remote
         } finally {

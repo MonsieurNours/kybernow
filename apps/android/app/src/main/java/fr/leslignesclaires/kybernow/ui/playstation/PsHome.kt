@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow.ui.playstation
 
+import androidx.compose.material3.PlainTooltip
 import android.content.Context
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
@@ -59,7 +60,8 @@ import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.ui.home.elides
 
-/** Ce que l'accueil montre des consoles. */
+/** Ce que l'accueil montre des consoles (immuable, comme `HomeState`). */
+@androidx.compose.runtime.Immutable
 data class PsHomeState(
     val consoles: List<PsConsole> = emptyList(),
     val status: Map<String, PsStatus> = emptyMap(),
@@ -187,12 +189,19 @@ private fun AccountChip(c: PsConsole, accounts: List<PsAccount>, chosen: PsAccou
     }
 }
 
+/** La puce HDR d'une console, avec son aide comme celle d'un ordinateur : la raison, sinon ce qu'il apporte (link-ui). */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun HdrChip(c: PsConsole, state: PsHomeState, actions: PsHomeActions) {
     val reason = hdrReason(c, state)
     val on = c.hdr && reason == null
     val desc = stringResource(if (on) R.string.ps_hdr_on else R.string.ps_hdr_off)
-    Column {
+    val help = reason ?: stringResource(R.string.ps_hdr_help)
+    androidx.compose.material3.TooltipBox(
+        positionProvider = androidx.compose.material3.TooltipDefaults.rememberTooltipPositionProvider(androidx.compose.material3.TooltipAnchorPosition.Below),
+        tooltip = { PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(help, size = 13f) } },
+        state = androidx.compose.material3.rememberTooltipState(),
+    ) {
         GlassButton(stringResource(R.string.ps_hdr), { actions.setHdr(c, !c.hdr) }, Modifier.semantics { stateDescription = desc }, selected = on, enabled = reason == null)
     }
 }

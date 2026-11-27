@@ -49,9 +49,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
 import fr.leslignesclaires.kybernow.BuildConfig
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
-import fr.leslignesclaires.kybernow.core.ConsoleClient
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.Native
 import fr.leslignesclaires.kybernow.model.MicInputs
@@ -299,9 +300,8 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
     val hdrScreen = rememberHdrScreen()
     val hdr = remember(host, st.info, hdrScreen) { Hdr.state(host, st.info, app.decoders, hdrScreen) }
     val vibrator = remember { fr.leslignesclaires.kybernow.session.Haptics.available(context) }
-    val adminUrl = remember(host.address, host.port) {
-        ConsoleClient(host.address, host.port).use { it.adminUrl } ?: "https://${host.address}:${host.port}/"
-    }
+    // Écrite par le cœur : une IPv6 prend ses crochets (TRANS-36), sans ouvrir de connexion pour si peu.
+    val adminUrl = remember(host.address, host.port) { Native.adminUrl(host.address, host.port) }
     // Certificat changé : l'empreinte présentée maintenant, à comparer à celle d'Admin.
     var check by remember { mutableStateOf<FingerprintCheck?>(null) }
     LaunchedEffect(st.certificateChanged, host.fingerprint) {
@@ -696,6 +696,7 @@ private fun WakeRow(host: Host, actions: HostSettingsActions) {
     val s = LocalScale.current
     var mac by remember(host.id) { mutableStateOf(host.mac ?: "") }
     var manual by remember(host.id) { mutableStateOf(host.mac != null) }
+    var macInvalid by remember(host.id) { mutableStateOf(false) }
     val target = host.wakeTargets.firstOrNull()
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -709,10 +710,16 @@ private fun WakeRow(host: Host, actions: HostSettingsActions) {
             GlassButton(stringResource(R.string.settings_mac_enter), { manual = true })
         } else {
             Body(stringResource(R.string.settings_mac_help), size = 13f, color = Kn.muted)
-            OutlinedTextField(mac, { mac = it.uppercase() }, label = { Text(stringResource(R.string.settings_mac)) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = colors())
+            OutlinedTextField(mac, { mac = it.uppercase(); macInvalid = false }, label = { Text(stringResource(R.string.settings_mac)) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = colors())
+            if (macInvalid) Body(stringResource(R.string.settings_mac_invalid), size = 13f, color = Kn.warn)
             GlassButton(stringResource(R.string.add_save), {
-                val clean = mac.filter { it.isLetterOrDigit() }
-                actions.saveMac(if (clean.length == 12) clean.chunked(2).joinToString(":") else null)
+                // Vide : l'adresse saisie est retirée. Sinon, lue par le cœur : une adresse qui ne vaut rien n'est pas
+                // gardée (« Prêt » promettait un réveil qui n'envoyait rien, AND-21).
+                if (mac.isBlank()) actions.saveMac(null)
+                else {
+                    val parsed = Native.wakeParseMac(mac)
+                    if (parsed == null) macInvalid = true else { mac = parsed; actions.saveMac(parsed) }
+                }
             })
         }
     }
@@ -1021,6 +1028,8 @@ data class AppSettingsState(
     val mics: List<Pair<String, String>>? = null,
     val micDevice: String? = null,
     val voiceProcessing: Boolean = true,
+    /** « Envoyer le journal » : le fichier se prépare (logcat lu), le bouton attend. */
+    val journalPreparing: Boolean = false,
 )
 
 class AppSettingsActions(
@@ -1048,6 +1057,8 @@ class AppSettingsActions(
     /** Le micro choisi (nul : celui du système). */
     val setMic: (String?) -> Unit = {},
     val setVoiceProcessing: (Boolean) -> Unit = {},
+    /** « Envoyer le journal » (À propos) : le fichier texte du journal, à la feuille de partage d'Android. */
+    val sendJournal: () -> Unit = {},
 )
 
 @Composable
@@ -1078,10 +1089,14 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     }
     var micDevice by remember { mutableStateOf(MicPrefs.device(context)) }
     var voice by remember { mutableStateOf(MicPrefs.voiceProcessing(context)) }
+    var journalPreparing by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val journalTitle = stringResource(R.string.journal_send)
     AppSettingsContent(
         AppSettingsState(
             language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn,
             syncSettings = syncSettings, syncTexts = syncTexts, mics = mics, micDevice = micDevice, voiceProcessing = voice,
+            journalPreparing = journalPreparing,
         ),
         AppSettingsActions(
             setLanguage = { v -> AppCompatDelegate.setApplicationLocales(if (v == "auto") LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(v)) },
@@ -1098,6 +1113,17 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             replayWelcome = onReplayWelcome,
             setMic = { k -> MicPrefs.setDevice(context, k); micDevice = k },
             setVoiceProcessing = { on -> MicPrefs.setVoiceProcessing(context, on); voice = on },
+            sendJournal = {
+                if (!journalPreparing) {
+                    journalPreparing = true
+                    scope.launch {
+                        val file = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { fr.leslignesclaires.kybernow.model.Journal.build(context) } }.getOrNull()
+                        journalPreparing = false
+                        // Au téléviseur, il n'y a pas toujours d'app pour le recevoir : rien ne s'ouvre, l'app ne tombe pas.
+                        if (file != null) runCatching { context.startActivity(fr.leslignesclaires.kybernow.model.Journal.shareIntent(context, file, journalTitle)) }
+                    }
+                }
+            },
             setSyncSettings = { on ->
                 app.accounts.settings.setEnabled(on)
                 // Rallumé : les réglages du compte arrivent tout de suite.
@@ -1176,6 +1202,10 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
 
         Section(stringResource(R.string.app_settings_about))
         InfoRow("KyberNow Link", state.version, stringResource(R.string.app_settings_about_body))
+        ActionRow(
+            stringResource(if (state.journalPreparing) R.string.journal_preparing else R.string.journal_send),
+            stringResource(R.string.journal_send_help), enabled = !state.journalPreparing, onClick = actions.sendJournal,
+        )
         GlassButton(stringResource(R.string.welcome_replay), actions.replayWelcome)
         InfoRow(stringResource(R.string.app_settings_licenses), "AGPL-3.0", stringResource(R.string.app_settings_licenses_body))
     }

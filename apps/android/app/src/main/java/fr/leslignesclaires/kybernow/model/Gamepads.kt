@@ -71,9 +71,9 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
     private val _pads = MutableStateFlow<List<Gamepad>>(emptyList())
     val pads: StateFlow<List<Gamepad>> = _pads.asStateFlow()
 
-    /** Le dernier appareil de jeu utilisé (glyphes d'aide : ✕ / A, télécommande). */
-    private val _lastUsed = MutableStateFlow<Gamepad?>(null)
-    val lastUsed: StateFlow<Gamepad?> = _lastUsed.asStateFlow()
+    /** Change à chaque relecture des appareils : un appareil refusé peut être revu (AND-25). */
+    @Volatile var generation = 0
+        private set
 
     private val slots = PlayerSlots()
     private var started = 0
@@ -102,6 +102,7 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
     override fun onInputDeviceChanged(deviceId: Int) = refresh()
 
     fun refresh() {
+        generation++
         val devices: List<InputDevice> = InputDevice.getDeviceIds().toList().mapNotNull { id: Int -> InputDevice.getDevice(id) }.filter { d -> isGamepad(d) }
         val slot = slots.assign(devices.map { it.descriptor } + listOfNotNull(ON_SCREEN.takeIf { onScreen }))
         _pads.value = (
@@ -123,10 +124,27 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
 
     fun byDevice(deviceId: Int): Gamepad? = _pads.value.firstOrNull { it.deviceId == deviceId }
 
-    fun noteUsed(deviceId: Int) {
-        val p = byDevice(deviceId) ?: return
-        if (_lastUsed.value?.deviceId != deviceId) _lastUsed.value = p
+    /**
+     * La place de la manette de [deviceId] (−1 : aucune). Un appareil sans place (souris qui se dit joystick,
+     * télécommande) n'est relu qu'une fois par changement d'appareils, pas à chaque mouvement (AND-25 : une
+     * énumération des périphériques sur le fil principal à chaque événement). Sessions d'ordinateur et parties.
+     */
+    fun slotOf(deviceId: Int): Int {
+        byDevice(deviceId)?.let { return it.slot }
+        if (refusedAt != generation) {
+            refused.clear()
+            refusedAt = generation
+        }
+        if (deviceId in refused) return -1
+        refresh()
+        byDevice(deviceId)?.let { return it.slot }
+        refusedAt = generation
+        refused += deviceId
+        return -1
     }
+
+    private val refused = HashSet<Int>()
+    private var refusedAt = -1
 
     // MARK: - Vibrations
 

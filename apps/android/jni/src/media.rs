@@ -4,13 +4,57 @@
 //! (`playstation::Host`). Les mêmes MediaCodec et AAudio servent les deux.
 
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kybernow_core::audio::AudioEngine;
 use ndk::native_window::NativeWindow;
 
+use crate::gate::{SurfaceGate, RELEASE_TIMEOUT};
 use crate::jvm::Listener;
 use crate::video::Msg;
+
+/// La surface d'une session ou d'une partie, et le fil de l'image à prévenir
+/// quand elle change.
+#[derive(Default)]
+pub struct SurfaceSlot {
+    window: Mutex<Option<NativeWindow>>,
+    gate: SurfaceGate,
+    video_tx: Mutex<Option<Sender<Msg>>>,
+}
+
+impl SurfaceSlot {
+    pub fn new(window: Option<NativeWindow>) -> Self {
+        Self { window: Mutex::new(window), ..Default::default() }
+    }
+
+    pub fn window(&self) -> Option<NativeWindow> {
+        self.window.lock().unwrap().clone()
+    }
+
+    pub fn gate(&self) -> &SurfaceGate {
+        &self.gate
+    }
+
+    pub fn set_video_tx(&self, tx: Sender<Msg>) {
+        *self.video_tx.lock().unwrap() = Some(tx);
+    }
+
+    /// Nouvelle surface, ou surface retirée (`None`, `surfaceDestroyed`) :
+    /// dans ce cas, on attend (250 ms au plus) que le fil de l'image l'ait
+    /// lâchée, pour qu'Android la reprenne sans qu'on y écrive encore (AND-04).
+    pub fn set(&self, window: Option<NativeWindow>) {
+        let gone = window.is_none();
+        let generation = {
+            let mut w = self.window.lock().unwrap();
+            *w = window;
+            self.gate.bump()
+        };
+        let sent = self.video_tx.lock().unwrap().as_ref().is_some_and(|tx| tx.send(Msg::Surface).is_ok());
+        if gone && sent && !self.gate.wait_released(generation, RELEASE_TIMEOUT) {
+            log::warn!("image : la surface retirée était encore utilisée après {} ms", RELEASE_TIMEOUT.as_millis());
+        }
+    }
+}
 
 pub trait MediaHost: Send + Sync + 'static {
     /// L'objet Kotlin qui reçoit `onDecoder`, `onVideoSize`, `onAudioOutput`.
@@ -23,6 +67,8 @@ pub trait MediaHost: Send + Sync + 'static {
     fn frame_period_micros(&self) -> i64;
     /// Le fil du décodeur (la surface qui change lui est annoncée).
     fn set_video_tx(&self, tx: Sender<Msg>);
+    /// Les changements de surface, numérotés : le fil de l'image dit quand il a lâché l'ancienne.
+    fn surface_gate(&self) -> &SurfaceGate;
     /// L'image est en HDR10 (BT.2020, PQ) : dit au décodeur.
     fn hdr(&self) -> bool {
         false

@@ -78,12 +78,6 @@ def main():
     # Logo signé, fond sombre.
     inner, (_, _, w, h) = body(BRAND / "logo/kybernow-link-dark.svg")
     write("kn_logo_link.xml", vector(round(w / 4, 1), round(h / 4, 1), w, h, inner, "Logo KyberNow Link (charte v2)."))
-    # Logo sans signature (petites tailles).
-    inner, (_, _, w, h) = body(BRAND / "logo/kybernow-logo-dark.svg")
-    write("kn_logo.xml", vector(round(w / 4, 1), round(h / 4, 1), w, h, inner, "Logo KyberNow (charte v2)."))
-    # Symbole « Relais », état now.
-    inner, (_, _, w, h) = body(BRAND / "mark/kybernow-mark-now-dark.svg")
-    write("kn_mark.xml", vector(48, 48, w, h, inner, "Symbole Relais, état now (charte v2)."))
 
     # Couche monochrome de l'icône : le symbole dans la zone sûre (66 sur 108).
     mark, _ = body(BRAND / "mark/kybernow-mark-now-dark.svg", indent=2)

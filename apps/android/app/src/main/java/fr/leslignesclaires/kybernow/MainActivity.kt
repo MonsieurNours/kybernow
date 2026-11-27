@@ -93,6 +93,44 @@ sealed class Route {
      * comptes connectés à son ouverture (un compte de plus : la connexion a réussi, l'accueil se termine).
      */
     data class Welcome(val page: Int = 0, val accounts: Int = 0) : Route()
+
+    /**
+     * L'écran gardé quand l'activité est recréée (langue, police… AND-24) : son nom et ses identifiants, sans ce que
+     * l'on ne garde pas sur l'appareil (lien d'invitation, de partage : l'écran se rouvre vide).
+     */
+    fun saved(): String = when (this) {
+        Home -> "home"
+        is Add -> "add|${pairConsole ?: ""}"
+        is ConsoleSettings -> "console|$id"
+        is HostSettings -> "host|$id"
+        AppSettings -> "app"
+        Gamepads -> "gamepads"
+        is Join -> "join"
+        is AccountCode -> "code|$relay|${back.saved()}"
+        is AccountRelay -> "relay|$other|${back.saved()}"
+        is Welcome -> "welcome|$page|$accounts"
+    }
+
+    companion object {
+        fun restore(s: String?): Route? {
+            if (s == null) return null
+            val p = s.split('|')
+            fun rest(from: Int) = p.drop(from).joinToString("|")
+            return when (p[0]) {
+                "home" -> Home
+                "add" -> Add(pairConsole = p.getOrNull(1)?.takeIf { it.isNotEmpty() })
+                "console" -> p.getOrNull(1)?.let { ConsoleSettings(it) }
+                "host" -> p.getOrNull(1)?.let { HostSettings(it) }
+                "app" -> AppSettings
+                "gamepads" -> Gamepads
+                "join" -> Join()
+                "code" -> p.getOrNull(1)?.let { AccountCode(it, restore(rest(2)) ?: Home) }
+                "relay" -> AccountRelay(p.getOrNull(1) == "true", restore(rest(2)) ?: AppSettings)
+                "welcome" -> Welcome(p.getOrNull(1)?.toIntOrNull() ?: 0, p.getOrNull(2)?.toIntOrNull() ?: 0)
+                else -> null
+            }
+        }
+    }
 }
 
 class MainActivity : AppCompatActivity() {
@@ -101,10 +139,17 @@ class MainActivity : AppCompatActivity() {
     /** « Hors de chez vous ? » : l'ordinateur, et ce que « Pas maintenant » laisse faire (réessayer, réveiller). */
     private var awayHint by mutableStateOf<Pair<Host, () -> Unit>?>(null)
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("route", route.saved())
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        handle(intent)
+        // Recréée (langue changée…) : le lien qui l'avait ouverte est déjà traité, il ne se rejoue pas (AND-24).
+        if (savedInstanceState == null) handle(intent)
+        else Route.restore(savedInstanceState.getString("route"))?.let { route = it }
         val app = KyberNowApp.instance
         // Au premier lancement, et une fois après la mise à jour qui l'apporte, sans compte : l'accueil en trois écrans
         // (pas par-dessus un lien qui ouvre un autre écran).
@@ -454,8 +499,9 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             var address = c.address
             var remote: PsRemote? = null
+            var woken = false
             when (ps.status(c)) {
-                PsStatus.STANDBY -> if (!ps.wake(c)) return@launch
+                PsStatus.STANDBY -> if (ps.wake(c)) woken = true else return@launch
                 PsStatus.AWAY -> {
                     remote = ps.reach(c) ?: return@launch
                     address = remote.address
@@ -468,6 +514,7 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
             val i = Intent(this@MainActivity, PsSessionActivity::class.java).putExtra(PsSessionActivity.EXTRA_CONSOLE, c.id).putExtra(PsSessionActivity.EXTRA_ADDRESS, address)
+                .putExtra(PsSessionActivity.EXTRA_WOKEN, woken)
             remote?.let { KyberNowApp.instance.handOverRemote(it); i.putExtra(PsSessionActivity.EXTRA_REMOTE, true) }
             startActivity(i)
         }

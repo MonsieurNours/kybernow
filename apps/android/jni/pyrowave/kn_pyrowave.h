@@ -53,9 +53,6 @@ KN_PW_API int kn_pw_frame(kn_pw_session *session, const uint8_t *data, size_t si
 // « PyroWave, Vulkan, <GPU>, fragment|compute, HDR10 » pour les statistiques.
 KN_PW_API const char *kn_pw_describe(kn_pw_session *session);
 
-// La surface affichée en HDR10 (swapchain HDR10_ST2084).
-KN_PW_API int kn_pw_hdr_output(kn_pw_session *session);
-
 KN_PW_API void kn_pw_close(kn_pw_session *session);
 
 #ifdef __cplusplus
