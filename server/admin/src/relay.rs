@@ -2127,6 +2127,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Avec le relais simulé : la zone annoncée et un certificat déjà là pour `<id>.<zone>`, la Station
+    /// le dit au relais (`tls_ready`) et se marque de bout en bout avec lui ; un relais marqué qui
+    /// n'annonce plus la zone suspend « Admin à distance » (`lost`).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn de_bout_en_bout_avec_un_relais_simule() {
+        use kybernow_tunnel::msg::Msg as TunnelMsg;
+        use kybernow_tunnel::testing::FakeRelay;
+
+        let zone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let z = zone.clone();
+        let relay = FakeRelay::start(move |m| match m {
+            TunnelMsg::AdminStatus { .. } if z.load(std::sync::atomic::Ordering::Relaxed) => Some(TunnelMsg::TlsZone { zone: "station.relay.test".into() }),
+            _ => None,
+        })
+        .await;
+        // Un certificat valable pour `<id>.station.relay.test`, posé avant le démarrage.
+        let dir = std::env::temp_dir().join(format!("kyber-admin-e2e-{}", rand::random::<u64>()));
+        let id = StationIdentity::load_or_create(&dir.join("relay").join("station.key")).unwrap().id().to_string();
+        let name = format!("{id}.station.relay.test");
+        let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let cert = rcgen::CertificateParams::new(vec![name.clone()]).unwrap().self_signed(&key).unwrap();
+        std::fs::create_dir_all(dir.join("relay").join("tls")).unwrap();
+        std::fs::write(dir.join("relay").join("tls").join("cert.pem"), format!("{}{}", key.serialize_pem(), cert.pem())).unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default())).with_tls_fingerprint(&format!("sha256:{}", ["ab"; 32].join(":")));
+        {
+            let mut st = s.settings.lock().unwrap();
+            st.relay.server = Some(relay.addr.to_string());
+            st.relay.remote_access = true;
+        }
+        supervise(s.clone(), Router::new());
+        let server = relay.addr.to_string();
+        let mut latched = false;
+        for _ in 0..100 {
+            if s.settings.lock().unwrap().relay.e2e.as_deref() == Some(server.as_str()) {
+                latched = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(latched, "marquée de bout en bout avec ce relais");
+        assert!(s.relay.tls.ready());
+        assert_eq!(s.relay.status(&s)["remote_tls"]["state"], "ready");
+        assert_eq!(s.relay.status(&s)["remote_tls"]["name"], name.as_str());
+        let told = relay.received().iter().any(|m| matches!(m, TunnelMsg::AdminStatus { tls_ready: true, .. }));
+        assert!(told, "tls_ready dit au relais");
+        // Le relais n'annonce plus la zone (reconnexion) : suspendu.
+        zone.store(false, std::sync::atomic::Ordering::Relaxed);
+        s.relay.running.lock().unwrap().take();
+        s.relay.wake();
+        let mut lost = false;
+        for _ in 0..100 {
+            if s.settings.lock().unwrap().relay.e2e_suspended.as_deref() == Some("lost") {
+                lost = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(lost, "suspendu quand la zone n'est plus annoncée");
+        assert_eq!(s.relay.status(&s)["remote_tls"]["state"], "lost");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     fn console_state() -> (AppState, PathBuf) {
         let dir = std::env::temp_dir().join(format!("kyber-admin-relay-{}", rand::random::<u64>()));
         std::fs::create_dir_all(&dir).unwrap();

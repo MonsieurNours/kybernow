@@ -37,7 +37,10 @@ const BACKOFF: [Duration; 5] = [
     Duration::from_secs(24 * 3600),
 ];
 /// Un relais joint qui n'a pas annoncé de zone depuis ce temps ne la fait plus passer.
+#[cfg(not(test))]
 pub const ZONE_GRACE: Duration = Duration::from_secs(10);
+#[cfg(test)]
+pub const ZONE_GRACE: Duration = Duration::from_millis(500);
 /// La surveillance des journaux publics, une fois par jour.
 const CT_EVERY: Duration = Duration::from_secs(24 * 3600);
 
@@ -864,6 +867,9 @@ mod tests {
         tls.observe(true, None, true);
         assert_eq!(tls.name(), None);
         assert!(!tls.zone_missing(), "pas encore : la zone suit le welcome");
+        std::thread::sleep(ZONE_GRACE);
+        assert!(tls.zone_missing());
+        assert_eq!(tls.status()["state"], "unsupported");
         tls.observe(false, None, true);
         assert_eq!(tls.status()["state"], "off");
         let _ = std::fs::remove_dir_all(dir);
