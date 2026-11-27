@@ -536,7 +536,7 @@
           {/if}
         </div>
         <form class="relay-form" onsubmit={(e) => (e.preventDefault(), saveRelay({ server: (relayServer ?? '').trim() }))}>
-          <input id="relay-server" class="mono" type="text" placeholder="relais.exemple.org:9443" autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={relayServer} />
+          <input id="relay-server" class="mono" type="text" placeholder={t('devices.away.relayExample')} autocomplete="off" autocapitalize="off" spellcheck="false" bind:value={relayServer} />
           <button type="submit" class="ghost small" disabled={relaySaving || !relayEdited}>{t('devices.away.save')}</button>
         </form>
       </div>

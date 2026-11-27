@@ -767,7 +767,8 @@
         "scan": "Scan this QR code with the phone that will keep the key, or open the link on this device. It works once, for 10 minutes.",
         "openHere": "Open on this device",
         "done": "Done"
-      }
+      },
+      "relayExample": "relay.example.org:9443"
     }
   },
   "users": {

@@ -767,7 +767,8 @@
         "scan": "Scannez ce QR code avec le téléphone qui gardera la clé, ou ouvrez le lien sur cet appareil. Il sert une fois, pendant 10 minutes.",
         "openHere": "Ouvrir sur cet appareil",
         "done": "Terminé"
-      }
+      },
+      "relayExample": "relais.exemple.org:9443"
     }
   },
   "users": {
