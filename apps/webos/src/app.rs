@@ -2496,6 +2496,7 @@ impl App {
     /// Un lien `kybernow://` donné au lancement : un lien d'invitation ouvre l'ajout « Avec un compte d'ami »
     /// (identifiant rempli, titre « {hôte} vous prête son ordinateur. ») ; un lien de partage, « Rejoindre un partage »
     /// (code rempli) ; un lien d'invitation illisible le dit en avis. Pendant une session, il attend qu'elle finisse.
+    #[cfg(any(test, not(feature = "device")))]
     pub fn open_link(&mut self, link: LinkUi) -> Vec<Action> {
         self.pending_link = Some(link);
         self.poll_link()
@@ -4522,6 +4523,7 @@ impl App {
     }
 
     /// Les captures et les essais : un réglage choisi comme avec OK.
+    #[cfg(any(test, not(feature = "device")))]
     pub fn adjust_for_preview(&mut self, s: Setting) -> Vec<Action> {
         self.adjust(s, 1)
     }

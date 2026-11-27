@@ -204,6 +204,7 @@ pub fn run(args: &[String]) {
             return;
         }
     }
+    sdl::register_wake();
     let title = CString::new("KyberNow Link").unwrap();
     let window = unsafe {
         sdl::SDL_CreateWindow(title.as_ptr(), sdl::SDL_WINDOWPOS_UNDEFINED, sdl::SDL_WINDOWPOS_UNDEFINED, UI_W, UI_H, sdl::SDL_WINDOW_SHOWN | sdl::SDL_WINDOW_FULLSCREEN)
@@ -417,6 +418,24 @@ pub fn run(args: &[String]) {
             }
         }
 
+        // Retour au premier plan (WEBOS-14) : rien n'a tourné pendant la veille. L'accueil se sonde et le réseau, les
+        // comptes se relisent tout de suite ; en session, le décodeur du téléviseur est rechargé à l'image clé
+        // suivante (le téléviseur a pu le décharger sans le dire : l'image resterait figée).
+        if FOREGROUND.swap(false, Ordering::AcqRel) {
+            log::info!("premier plan : reprise");
+            last_poll = Instant::now() - Duration::from_secs(60);
+            last_net = Instant::now() - Duration::from_secs(60);
+            perform(Action::AccountsRefresh, &mut app, &mut pads, &mut live, &tx, &mut pairing, &mut quit);
+            if let Some(l) = live.as_ref() {
+                esplayer::suspend();
+                ndl::unload();
+                if let Some(s) = l.handle.shared.session() {
+                    s.request_keyframe();
+                }
+            }
+            dirty = true;
+        }
+
         // Fin de session : l'accueil, la dernière session enregistrée.
         if live.is_some() && matches!(app.session.as_ref().map(|s| &s.phase), Some(Phase::Ended { .. }) | None) {
             let l = live.take().unwrap();
@@ -606,6 +625,9 @@ fn in_game(app: &App) -> bool {
     app.screen == Screen::Session && app.dialog.is_none() && app.session.as_ref().is_some_and(|s| s.ps.is_none() && !s.menu && !s.keys && !s.share_panel && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }))
 }
 
+/// Retour au premier plan, vu par `handle_sdl`, traité par la boucle.
+static FOREGROUND: AtomicBool = AtomicBool::new(false);
+
 #[allow(clippy::too_many_arguments)]
 fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool) {
     // Une partie sur une console n'est jamais « en jeu » ici : ses entrées passent par `playstation::handle_sdl`, et sa barre
@@ -619,6 +641,12 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
             if let Some(p) = &input {
                 p.release_all();
             }
+        }
+        // Retour au premier plan (sortie de veille du téléviseur, retour depuis une autre app) : traité par la boucle
+        // (`resume_foreground`, WEBOS-14).
+        sdl::SDL_APP_DIDENTERFOREGROUND => {
+            FOREGROUND.store(true, Ordering::Release);
+            *dirty = true;
         }
         sdl::SDL_KEYDOWN | sdl::SDL_KEYUP => {
             let down = ev.kind() == sdl::SDL_KEYDOWN;

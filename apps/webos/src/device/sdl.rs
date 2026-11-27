@@ -94,6 +94,30 @@ impl Default for SDL_Event {
     }
 }
 
+/// Événement propre à l'app qui réveille la boucle principale (`wake_main`) ; 0 tant qu'il n'est pas réservé.
+pub static WAKE_EVENT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Réserve l'événement de réveil (après `SDL_Init`).
+pub fn register_wake() {
+    let kind = unsafe { SDL_RegisterEvents(1) };
+    if kind != u32::MAX {
+        WAKE_EVENT.store(kind, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Réveille la boucle principale, qui dort jusqu'à 50 ms dans `SDL_WaitEventTimeout` quand rien n'anime (WEBOS-10) :
+/// un événement du cœur (vibration, combinaison du menu, état, forme du pointeur) est traité tout de suite. Sûr depuis
+/// n'importe quel fil (`SDL_PushEvent`).
+pub fn wake_main() {
+    let kind = WAKE_EVENT.load(std::sync::atomic::Ordering::Relaxed);
+    if kind == 0 {
+        return;
+    }
+    let mut ev = SDL_Event::default();
+    ev.raw[0..4].copy_from_slice(&kind.to_ne_bytes());
+    unsafe { SDL_PushEvent(&mut ev) };
+}
+
 impl SDL_Event {
     pub fn kind(&self) -> u32 {
         self.u32(0)
@@ -183,6 +207,8 @@ unsafe extern "C" {
     pub fn SDL_RenderSetLogicalSize(r: *mut SDL_Renderer, w: c_int, h: c_int) -> c_int;
     pub fn SDL_WaitEventTimeout(e: *mut SDL_Event, timeout: c_int) -> c_int;
     pub fn SDL_PollEvent(e: *mut SDL_Event) -> c_int;
+    pub fn SDL_PushEvent(e: *mut SDL_Event) -> c_int;
+    pub fn SDL_RegisterEvents(n: c_int) -> u32;
     pub fn SDL_ShowCursor(toggle: c_int) -> c_int;
     pub fn SDL_StartTextInput();
     pub fn SDL_StopTextInput();

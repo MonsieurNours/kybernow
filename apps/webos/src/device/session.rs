@@ -71,6 +71,7 @@ impl Shared {
 
     fn send(&self, e: Event) {
         let _ = self.tx.lock().unwrap().send(e);
+        super::sdl::wake_main();
     }
 
     pub fn video_size(&self) -> (u32, u32) {

@@ -484,17 +484,27 @@ fn ensure_any(owner: u64, plane: AudioPlane, kind: i32, width: u32, height: u32,
         log::info!("image : NDL chargé ({}, {width} × {height}, son {plane:?}, {})", name(kind), if hdr.is_some() { "HDR" } else { "SDR" });
     }
     // Le plan de son, amorcé jusqu'à la confirmation du chargement : NDL cale
-    // alors les images sur leur horodatage.
+    // alors les images sur leur horodatage. Le verrou est relâché entre deux
+    // salves (WEBOS-08) : l'interface qui lit l'état du son ne fige pas.
     let generation = GENERATION.load(Ordering::Acquire);
+    let at = st.loaded.as_ref().map(|(_, at)| *at).unwrap_or_else(Instant::now);
+    drop(g);
     let mut primed = 0;
-    while !LOAD_COMPLETED.load(Ordering::Acquire) && st.loaded.as_ref().is_some_and(|(_, at)| at.elapsed() < PRIME_BUDGET) {
-        primed += prime(st);
+    while !LOAD_COMPLETED.load(Ordering::Acquire) && at.elapsed() < PRIME_BUDGET {
+        {
+            let mut g = NDL.lock().unwrap();
+            let Some(st) = g.as_mut() else { break };
+            if st.loaded.is_none() || GENERATION.load(Ordering::Acquire) != generation {
+                // Déchargé ou rechargé entre-temps par un autre : son amorce est la sienne.
+                return Ok(());
+            }
+            primed += prime(st);
+        }
         let until = Instant::now() + PRIME_RETRY;
         while Instant::now() < until && !LOAD_COMPLETED.load(Ordering::Acquire) {
             std::thread::sleep(Duration::from_millis(2));
         }
     }
-    let at = st.loaded.as_ref().map(|(_, at)| *at).unwrap_or_else(Instant::now);
     if LOAD_COMPLETED.load(Ordering::Acquire) {
         log::info!("image : NDL confirmé après {} ms ({primed} trames vides)", at.elapsed().as_millis());
     } else {

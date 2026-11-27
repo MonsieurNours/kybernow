@@ -14,6 +14,9 @@ mod i18n;
 mod journal;
 mod mires;
 mod model;
+// Le générateur de captures (scripts/preview.sh) : sur l'ordinateur seulement, pas dans le binaire du téléviseur
+// (WEBOS-23).
+#[cfg(not(feature = "device"))]
 mod preview;
 mod ps;
 mod station_offer;
@@ -22,6 +25,7 @@ mod welcome;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(not(feature = "device"))]
     if let Some(i) = args.iter().position(|a| a == "--preview") {
         let dir = args.get(i + 1).cloned().unwrap_or_else(|| "preview".into());
         let lang = args.get(i + 2).cloned().unwrap_or_else(|| "fr".into());
