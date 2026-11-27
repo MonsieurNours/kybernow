@@ -12,7 +12,7 @@ This document is the common contract of the relay, Admin, the Rust core, the Lin
 ## In short
 
 - The public relay is `share.kybernow.app`, at the author's home. **A single public port, 443, over TCP and UDP** (the router forwards it to the machine's 8443). A relay address without a port means 443, and links never write `:443`; a relay installed elsewhere can carry its port (`relay.example.org:9443`). It is open to every Station, with no bitrate cap. Anyone can install their own (Docker image, [server/relay/README.en.md](../server/relay/README.en.md)); the Station picks its relay in Admin.
-- The relay does not see what the apps exchange with the Station: they talk to Admin over TLS **end to end** (Admin's certificate pinned), and to Kyber with its fingerprint. It sees addresses, bitrates and share codes. The **browser** is the exception: the relay presents a real certificate (`*.share.kybernow.app`) and decrypts that traffic to forward it.
+- The relay does not see what the apps exchange with the Station: they talk to Admin over TLS **end to end** (Admin's certificate pinned), and to Kyber with its fingerprint. It sees addresses, bitrates and share codes. The **browser** too, since 0.11.8: it opens the Station at `https://<id>.station.share.kybernow.app`, whose certificate and key are on the Station, and the relay passes TLS through without decrypting it (“Browser encrypted end to end”, below). With an older Station or relay, the browser goes through `https://<id>.share.kybernow.app`, which the relay decrypts to forward it.
 - Kyber is not modified. The apps do not have to change kyclient: the core opens a tunnel and gives kyclient an address on the device's loopback (`127.0.0.1:L`, over TCP and UDP on the same number).
 - Cost: one more round trip through the relay (close to nothing when the relay sits in the same house as the computer, 5 to 20 ms within France otherwise), under half a millisecond of processing, about thirty bytes per packet.
 
@@ -56,9 +56,9 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 
 | Message | Direction | Fields |
 |---|---|---|
-| `hello` | Station → relay | `v`, `role: "station"`, `version` (Admin), `admin_fp` (Admin's fingerprint), `sig` (the Station's signature over `admin_fp`, below), `codes` (codes to keep, after a reconnection) |
+| `hello` | Station → relay | `v`, `role: "station"`, `version` (Admin), `admin_fp` (Admin's fingerprint), `sig` (the Station's signature over `admin_fp`, below), `codes` (codes to keep, after a reconnection); since 0.11.8: `browser_tls` (true: the Station serves `browser_tls` streams) and `tls_ready` (true: it holds a valid certificate for `<id>.<tls_zone>`) |
 | `hello` | app → relay | `v`, `role: "client"`, `station` (identifier, or absent for a connection used only for `status`), `token` |
-| `welcome` | relay → end | `v`, `id` (the Station's identifier, or the client's), `relay` (relay version); for an app: `online` (is the Station there); for the Station: `codes` (those from `hello` the relay kept; the others must be reserved again) |
+| `welcome` | relay → end | `v`, `id` (the Station's identifier, or the client's), `relay` (relay version); for an app: `online` (is the Station there); for the Station: `codes` (those from `hello` the relay kept; the others must be reserved again) and, since 0.11.8, `tls_zone` (`station.share.kybernow.app`: the relay passes through the TLS of names `<id>.<tls_zone>`; absent: older relay, or passthrough off) |
 | `error` | relay → end | `req` (when it is an answer), `code`: `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts`, `enroll_refused`; optional `message` (logs, never shown as is) |
 | `reserve` | Station → relay | `req`, `preferred` (wanted code, optional) |
 | `reserved` | relay → Station | `req`, `code` (the wanted code if free, otherwise another) |
@@ -76,6 +76,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 | `ping` / `pong` | both ways | `n`; keep-alive and measurement over the TCP fallback |
 | `attach_request` / `attach_code` | Station → relay / relay → Station | KyberNow accounts: attach code (docs/comptes.en.md, “Attaching and devices on the relay”) |
 | `attach_status`, `detach` | Station → relay | Where attaching stands; detached in Admin |
+| `admin_status` | Station → relay | `admin_lan`, `remote_admin` (docs/comptes.en.md, “Admin from KyberNow Share”) and, since 0.11.8, `tls_ready`; on each change |
 | `attached` / `detached` | relay → Station | Attached (relay, account, owner, keys); detached in the console |
 | `enroll` | Station → relay | KyberNow accounts, batch 5: enrollment (silent installation) with an organization token; answer `attached` (with `req`) or `error` `enroll_refused` (reason in `message`) / `no_accounts` (docs/comptes.en.md, “People, rights and organizations” and “Installers”) |
 
@@ -85,7 +86,7 @@ The connecting end opens the first bidirectional stream of `kn-ctl/1` (or the fi
 
 - The app opens a bidirectional stream on `kn-ctl/1` (after `welcome`), writes a frame `{"t":"open","service":"admin_tls"|"kyber_tcp"}`, then its bytes.
 - The relay opens a stream on the Station's connection and first writes the **header**, a frame only the relay writes (an app cannot forge it): `{"t":"stream","v":1,"kind":…,"client":"<id>","ip":"<public address>","host":null|"<requested name>"}`. Then it copies both ways; closing one side closes the other (half-close), a reset resets both.
-- `kind`: `admin_tls` (an app to Admin, TLS end to end), `admin_http` (a browser, decrypted by the relay, plain HTTP/1.1 inside the tunnel, `host` = the requested name), `kyber_tcp` (kyclient to Kyber: HTTPS control, WebSocket).
+- `kind`: `admin_tls` (an app to Admin, TLS end to end), `browser_tls` (a browser, or the certificate authority, to Admin: TLS as is from the first byte, `host` = the presented name; only to a Station that announced it, “Browser encrypted end to end”), `admin_http` (a browser, decrypted by the relay, plain HTTP/1.1 inside the tunnel, `host` = the requested name), `kyber_tcp` (kyclient to Kyber: HTTPS control, WebSocket).
 - Station absent: the relay resets the app's stream.
 
 ### Relayed UDP packets
@@ -112,7 +113,8 @@ On TCP, the relay looks at the start of each TLS connection:
 
 - ALPN `kn-tcp/1`: the tunnel's fallback;
 - name `share.kybernow.app`: its pages;
-- name `<id>.share.kybernow.app`: the browser to Station `<id>`;
+- name `<id>.station.share.kybernow.app`: the browser to Station `<id>`, **without decrypting** (TLS passes as is to the Station, “Browser encrypted end to end”);
+- name `<id>.share.kybernow.app`: the browser to Station `<id>`, decrypted by the relay (Stations and links from before 0.11.8);
 - any other name: connection closed.
 
 | Address | Answer |
@@ -130,6 +132,64 @@ The relay's pages have no script, no cookie and no audience measurement, and loa
 Proxy: `Host` passed as is, `X-Forwarded-For` and `Forwarded` removed (the browser's address travels in the stream header), `Domain=` removed from every `Set-Cookie`. One origin per Station: one Station's code never reads another's cookies.
 
 Codes: the relay **reserves codes**, unique across all the Stations connected to it. Four codes at most per Station: the share's, the loan's and the invitations' (two at most). The relay's logs never contain a code.
+
+## Browser encrypted end to end (0.11.8)
+
+Decided with the author on 27/11/2026 (audit, STWIN-17). Up to 0.11.7, the browser (“Remote Admin”, the guests' web client) goes through `https://<id>.share.kybernow.app`: the relay presents its `*.share.kybernow.app` wildcard certificate, decrypts, and forwards plain HTTP inside the tunnel (`admin_http`). It can therefore read everything, Admin's session cookie included. Since 0.11.8, the relay **passes TLS through by the presented name** (SNI) all the way to the Station, which holds its own key and its own certificate.
+
+### The name: a zone the relay's certificate does not cover
+
+- The browser opens the Station at **`https://<id>.<tls_zone>`**, `tls_zone` being `station.<relay domain>`: `https://<id>.station.share.kybernow.app` for the public relay.
+- Why not `<id>.share.kybernow.app`: the relay keeps its `*.share.kybernow.app` wildcard certificate for 0.11.7 Stations; it is valid for all those names, and a relay holding it could get in the middle without the browser noticing anything. A wildcard certificate only covers one label: `*.share.kybernow.app` is not valid for `<id>.station.share.kybernow.app`. The relay holds **no key valid** for the new zone, and never asks for a certificate for it.
+- DNS: the `*.share.kybernow.app` wildcard already answers for `<id>.station.share.kybernow.app` (RFC 4592, as long as `station.share.kybernow.app` has no record of its own); an explicit `*.station.share.kybernow.app` to the same machine is clearer (deployment, below).
+- The relay only announces the zone if its public port is 443 (the certificate authority only validates on 443) and `tls_zone` is not empty in its configuration (`tls_zone = ""` turns the passthrough off).
+
+### The Station's certificate: ACME, TLS-ALPN-01 challenge, relayed as is
+
+- Admin draws an ECDSA P-256 key that **never leaves the Station** (`<data>/relay/tls/key.pem`, a folder protected like the rest of the data), and asks Let's Encrypt for a certificate for `<id>.<tls_zone>` (ACME, RFC 8555), with its own ACME account (`<data>/relay/tls/account.key`). `KYBERNOW_ACME_DIRECTORY` replaces the directory (tests, Let's Encrypt “staging”).
+- **TLS-ALPN-01** challenge (RFC 8737): the authority opens a TLS connection to `<id>.<tls_zone>:443` with the `acme-tls/1` ALPN. The relay passes it through like a browser's (`browser_tls` stream); Admin answers with the challenge certificate (critical `acmeIdentifier` extension: the SHA-256 of the key authorization). The relay needs to know nothing about ACME, and cannot answer in the Station's place: it does not know the key of the Station's ACME account.
+- Why not HTTP-01: it would need port 80, which the public relay does not open, and the relay would serve the answer itself. Why not DNS-01: the relay would have to write into DNS for each Station, with its API token.
+- When: agent joined with `tls_zone`, and a need from the browser: “Remote Admin” on, or a share, a loan code or an invitation open. Renewal when less than a third of the validity remains. Failure: new attempt after 5 min, 15 min, 1 h, 4 h, then every 24 h, or after the authority's `Retry-After`. One attempt at a time.
+- Admin keeps the serial numbers of the certificates it obtained (`<data>/relay/tls/issued.json`) and tells the relay `tls_ready` (in `hello` and `admin_status`) when it holds a valid certificate for the current name.
+
+### What the relay does
+
+- Over TCP, it reads the `ClientHello` without answering. Name `<id>.<tls_zone>`: if Station `<id>` is connected and announced `browser_tls`, it opens a `browser_tls` stream to it (header as for `admin_http`, `host` = the name) and copies the bytes as they are, `ClientHello` included, both ways, cut after 5 minutes without a byte (like `admin_tls`). Otherwise (Station away, or older than 0.11.8), it closes: it has no certificate to show a page with.
+- Links: when the Station is connected with `tls_ready`, `/j/<code>`, “Open Admin” (`/compte/admin`) and the console lead to `https://<id>.<tls_zone>`; otherwise to `https://<id>.share.kybernow.app`, as before. `/compte/ouvrir-admin` accepts both as this Station's `retour`.
+- `<id>.share.kybernow.app` is still served as before (`admin_http`), for 0.11.7 Stations and links already handed out.
+
+### What Admin does
+
+- A `browser_tls` stream: TLS with the Station's key (ALPN `http/1.1`, or `acme-tls/1` during a challenge only), then the same HTTP as `admin_http`, with the route `Via { kind: browser_tls }`: same guard, same rules for guests and for “Remote Admin”. No valid certificate: connection closed.
+- **No going back**: as soon as the Station has held an end-to-end certificate with this relay (`[relay] e2e = "<relay>"` in `kyber-admin.toml`), “Remote Admin” no longer goes through `admin_http`: the start, the return and the sessions are refused there (`403 {"code":"remote_admin_e2e"}`), and remote sessions already opened through `admin_http` are closed at that moment. A relay that would stop announcing `tls_zone` (rolled back, or wanting to see) therefore does not reopen the decrypted path. Changing relay clears that mark; turning “Remote Admin” on again on site does too (the host's explicit consent, if their relay really no longer passes TLS through).
+- Guests (web client, `/link/`) go through both names: the relay picks the encrypted path as soon as it is ready.
+- **Watching the public logs**: once a day, as long as the Station has an end-to-end certificate, Admin asks `crt.sh` for the certificates issued for its name (Certificate Transparency: every authority browsers trust must publish what it issues). A serial number the Station did not obtain itself: a warning line in the feed, `remote_tls.foreign` in `GET /api/relay`, and “Remote Admin” suspended until the host turns it on again on site. `crt.sh` unreachable: nothing changes, try again the next day.
+- `GET /api/relay` gains `remote_tls`: `{"state":"off"|"pending"|"ready"|"error"|"unsupported"|"lost","name":"<id>.station.share.kybernow.app"|null,"until":<Unix seconds>|null,"reason":null|"<text>","foreign":false}`. `unsupported`: relay older than 0.11.8, or passthrough off; `lost`: the relay no longer announces the zone although the Station has already been end to end with it (“Remote Admin” suspended).
+
+### Compatibility
+
+| Station | Relay | Browser |
+|---|---|---|
+| 0.11.7 | 0.11.7 or 0.11.8 | `<id>.share…`, decrypted by the relay, as before (the Station does not announce `browser_tls`: the relay never sends it a `browser_tls` stream, and closes `<id>.station…`) |
+| 0.11.8 | 0.11.7 | `<id>.share…`, as before (no `tls_zone` in `welcome`: no certificate requested, “Remote Admin” works as in 0.11.7) |
+| 0.11.8 | 0.11.8 | `<id>.station…`, end to end as soon as the certificate is there; `<id>.share…` meanwhile, and for guests holding an old link |
+
+The added fields (`browser_tls`, `tls_ready`, `tls_zone`) are ignored by versions that do not know them.
+
+### What the relay still sees, and what it can still do
+
+- It sees the presented name (so the Station's identifier), addresses, volumes and times, nothing of the content any more.
+- To pass itself off as the Station, the domain's operator would have to get another certificate issued for `<id>.station…` (they hold the DNS, they can): that certificate would be published in the Certificate Transparency logs, the Station would see it and suspend “Remote Admin”. Browsers do not allow pinning a certificate: this is the best guarantee possible for a site opened in a browser.
+- **Account tokens**: it is still the relay that signs the `via: "relay"` token that opens a remote session (after the passkey, which it checks). A compromised relay could forge one and open Admin itself, going through the encrypted path like a browser. Closing that needs a proof the Station checks itself (“Later”).
+- The Certificate Transparency logs are public: every Station that got a certificate appears there, under its identifier (already present in its share links). The relay's `/privacy` page says so.
+
+### Deployment on the public relay (for the author to do)
+
+1. DNS (Gandi): add `*.station.share` (A and AAAA, like `*.share`) to the same address. Check: `dig +short abc.station.share.kybernow.app`. If the `kybernow.app` zone has CAA records, they must allow `letsencrypt.org`.
+2. Relay image 0.11.8 (`ghcr.io/monsieurnours/kybernow-relay`): nothing to set, `tls_zone` defaults to `station.share.kybernow.app`. lego and the wildcard certificate do not change (they still serve 0.11.7 Stations).
+3. Check: `/v1/health` (version 0.11.8); a 0.11.8 Station with “Remote Admin” gets its certificate in under a minute (`GET /api/relay`: `remote_tls.state = "ready"`); `https://<id>.station.share.kybernow.app` opens, and the certificate the browser shows is the Station's (issued for that name alone, not `*.share`).
+4. Let's Encrypt limits: 50 new certificates per week for `kybernow.app` (renewals do not count). Beyond that, Stations wait and retry (the browser uses the old name meanwhile). When the number of Stations gets close: ask Let's Encrypt for an increase (“Rate Limit Adjustment” form), or add `station.share.kybernow.app` to the Public Suffix List (each Station then becomes its own domain for limits and cookies; never add `share.kybernow.app`, which carries the accounts' passkeys).
+5. Rollback: `KN_RELAY_TLS_ZONE=""` (or `tls_zone = ""`); Stations that had been end to end suspend “Remote Admin” (state `lost`) until the host turns it on again on site.
 
 ## Admin
 
@@ -167,13 +227,13 @@ Admin session only, never through the relay. Empty `server`: no relay (neither s
 
 Admin considers “local” what comes from the loopback (`/api/local/*`, `local_or_admin`). The relay must never pass for local:
 
-- The agent **serves itself** what arrives through the relay, inside Admin's process (`admin_tls`: TLS on Admin's certificate, then HTTP; `admin_http`: HTTP), never by reconnecting over TCP to `127.0.0.1`. The peer address is the one given by the stream header, **forced outside the loopback and private addresses**, and the request carries the route (`Via::Relay {kind, client}`).
+- The agent **serves itself** what arrives through the relay, inside Admin's process (`admin_tls`: TLS on Admin's certificate, then HTTP; `browser_tls`: TLS on the Station's certificate for `<id>.<tls_zone>`, then HTTP; `admin_http`: HTTP), never by reconnecting over TCP to `127.0.0.1`. The peer address is the one given by the stream header, **forced outside the loopback and private addresses**, and the request carries the route (`Via::Relay {kind, client}`).
 - A separate `Router`, `relay_guard`, only opens:
   - to a **guest**, when a share is open: `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, a reduced `GET /api/session`, Admin's proxy to Kyber (`kyber_proxy`) with an accepted guest's cookie (WebSocket only, never `/kymux/start_mux`);
   - to a **paired device** (Basic account), only when “Access away from home” is on: `/api/stream/*` (except `/api/stream/station/*`) and the host routes `/api/share*`; access off: `403 {"error":…,"code":"remote_access_off"}`;
   - to an **invited device**, when an invitation is open and “Access away from home” is on: `POST /api/pair/invite` (the invitation's code and password, [invitations.en.md](invitations.en.md)); `POST /api/share/join` also passes when an invitation is open (it answers `"invite": true`);
   - **never** through the relay: restarting and updating the Station (`/api/stream/station/restart`, `/api/stream/station/update`: a heavy action, done on site or in Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*` (except `/api/pair/invite`), `/api/pairing`, `/api/invites*`, `/api/local/*`, configuration, accounts, logs, service, display, sound, Admin's update, devices, apps, `/api/events`, Admin's interface. Pairing by code happens on the network only; an invitation adds a device from afar.
-  - **except “Remote Admin”** (docs/comptes.en.md, “Admin from KyberNow Share”): a browser (`admin_http`) with a session opened by `/api/login/kybernow` thanks to a `via: "relay"` token (passkey), cookie `__Host-kyber_admin_session`, switch on: all of Admin, the guard turning that cookie back into the session cookie. That sign-in's start and return (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) also pass, switch on. “Remote Admin” can't be turned on through the relay (`PUT /api/relay`, `403 network_only`).
+  - **except “Remote Admin”** (docs/comptes.en.md, “Admin from KyberNow Share”): a browser (`browser_tls`, or `admin_http` as long as the Station has never been end to end with this relay: “Browser encrypted end to end”) with a session opened by `/api/login/kybernow` thanks to a `via: "relay"` token (passkey), cookie `__Host-kyber_admin_session`, switch on: all of Admin, the guard turning that cookie back into the session cookie. That sign-in's start and return (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) also pass, switch on. “Remote Admin” can't be turned on through the relay (`PUT /api/relay`, `403 network_only`).
 - **Blocking**: 10 Basic account failures through the relay from the same address (a /64 in IPv6) within 10 minutes block **that address** for 10 minutes (`429 {"code":"locked"}`); the owner, from elsewhere, still gets through. Safeguard: 100 failures within 10 minutes, all addresses together, block all of the devices' access through the relay for 10 minutes (`locked_until` of `GET /api/relay`). Each block puts a line in the feed.
 - **Kyber**: the agent reaches Kyber only for an authorised client (an accepted guest, while it keeps sending signs of life; a paired device after `prepare`, for 30 s renewed by the heartbeat), and always **from and to the computer's local network address**, never through the loopback (patch 0019 keeps `/kybernow/*` for the loopback). Kyber listens on all addresses.
 - Admin authorises a **relay client** (its identifier): the one that made the successful `wait`, `beat` or `prepare`/`heartbeat`. A client that reconnects keeps its identifier.
@@ -243,8 +303,8 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 - **Typed code**: the relay gives Admin's fingerprint. A lying relay could get in the middle; that is the price of a six-digit code. The host sees and accepts each guest.
 - **Link and QR code**: `fp` and `sid` come from the Station; the exchange is end to end, the relay cannot get in the middle.
 - **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use, except the invitation: with a typed code the fingerprint comes from the relay (as for a share), hence the extra password; with its link or QR code it comes from the Station ([invitations.en.md](invitations.en.md)).
-- **Browser**: the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
-- **“Remote Admin” and KyberNow accounts**: the relay sees in the clear the Admin session a browser opens from afar (cookie included), and it is the relay that signs KyberNow account tokens (Session, Administer rights…). Whoever controls it therefore has a hand on the attached Stations that have “Remote Admin” or accept accounts: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
+- **Browser**: since 0.11.8, encrypted end to end to the Station (`<id>.station.share.kybernow.app`, the Station's certificate and key); the relay can only pass itself off as the Station by getting another certificate issued, which the public logs show and the Station watches (“Browser encrypted end to end”). With an older Station or relay, the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
+- **“Remote Admin” and KyberNow accounts**: it is the relay that signs KyberNow account tokens (Session, Administer rights…, and the `via: "relay"` token that opens Admin remotely). It no longer reads the Admin session opened remotely (0.11.8, end to end), but a compromised relay could forge a token and open a session itself. Whoever controls it therefore still has a hand on the attached Stations that have “Remote Admin” or accept accounts: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
 - The public relay is in France; it keeps IP addresses in its logs for a few days (logs rotated by size), never codes. Privacy page on the relay (`/privacy`).
 
 ## Relay limits and protections
@@ -258,9 +318,11 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 
 ## Installing a relay at home
 
-A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. The relay image is published with every version (`ghcr.io/monsieurnours/kybernow-relay`, by `.github/workflows/relay-image.yml`); the compose's `updater` service pulls it every night. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
+A Linux machine with Docker, a domain name whose DNS zone accepts an API token (Gandi by default, for the wildcard certificate), one port open over TCP **and** UDP, 443 preferably. The browser encrypted end to end needs public port 443 and `*.station.<domain>` leading to the relay (the `*.<domain>` wildcard usually suffices); on another port, the relay does not announce it and the browser goes through `<id>.<domain>`, decrypted, as before. The relay listens on a port of the machine (`RELAY_LISTEN`, 8443 by default) and announces the public port the router forwards to it (`RELAY_PUBLIC_PORT`); the step by step is in [server/relay/README.en.md](../server/relay/README.en.md), “Ports and the router”. The relay image is published with every version (`ghcr.io/monsieurnours/kybernow-relay`, by `.github/workflows/relay-image.yml`); the compose's `updater` service pulls it every night. In each Station's Admin: “Away from home › Relay” = the address with its public port, `relay.example.org` for 443, `relay.example.org:9443` for another one.
 
 ## Later
+
+- “Remote Admin” without trusting the relay for identity: a passkey registered on site with the Station (on `<id>.station…`, after a code shown by Admin on the network), which the Station checks itself at each opening, on top of the relay's token. A compromised relay could then no longer open Admin. To decide with the author (one more step for the host).
 
 - The browser's picture over WebTransport through the relay (except Safari): the relay would read the name in the first QUIC packet and forward without decrypting.
 - Fair sharing of the home's uplink between several guests.
