@@ -518,7 +518,12 @@ mod tests {
         assert_eq!(loss.loss_point(), Some(Some(20)));
         send(MediaPacketKind::Media, false, 50, &marked(true, 4, Some(20)));
         assert_eq!(loss.loss_point(), None);
-        send(MediaPacketKind::Closed, false, 0, &[]);
+        // Le dernier appel (`Closed`, qui libère le gestionnaire) vient du
+        // `Drop` du `PacketSink` depuis le correctif KYB-25 de kyclient : le
+        // faire aussi à la main libérerait deux fois.
+        drop(send);
+        drop(sink);
+        assert_eq!(Arc::strong_count(&seen), 1, "gestionnaire rendu par le dernier appel");
         assert_eq!(*seen.0.lock().unwrap(), ["codec", "10", "20", "trou", "40", "50<20"]);
     }
 
