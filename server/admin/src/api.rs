@@ -846,7 +846,53 @@ pub(crate) fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String
     let encoded = value.strip_prefix("Basic ").ok_or_else(bad)?;
     let decoded = base64_decode(encoded.trim()).ok_or_else(bad)?;
     let (user, pass) = decoded.split_once(':').ok_or_else(bad)?;
-    if s.kyber.verify_login(user, pass) { Ok(user.to_string()) } else { Err(bad()) }
+    // Les mots de passe des comptes Kyber sont vérifiés par une empreinte
+    // rapide (imposée par Kyber) : les refus sont plafonnés, toutes adresses
+    // confondues (le relais, lui, compte déjà par adresse).
+    let now = std::time::Instant::now();
+    if BASIC_FAILURES.locked(now) {
+        return Err(ApiError::msg(StatusCode::TOO_MANY_REQUESTS, Msg::new("api.tooManyKyberLogins")));
+    }
+    if s.kyber.verify_login(user, pass) {
+        Ok(user.to_string())
+    } else {
+        BASIC_FAILURES.fail(now);
+        Err(bad())
+    }
+}
+
+/// Mots de passe de comptes Kyber refusés sur les routes des apps : au-delà
+/// de [`BasicFailures::MAX`] par minute, plus aucun n'est vérifié jusqu'à ce
+/// que la minute passe (une force brute depuis le réseau local tombe à
+/// quelques dizaines d'essais par minute).
+pub(crate) struct BasicFailures(std::sync::Mutex<std::collections::VecDeque<std::time::Instant>>);
+
+static BASIC_FAILURES: BasicFailures = BasicFailures(std::sync::Mutex::new(std::collections::VecDeque::new()));
+
+impl BasicFailures {
+    const MAX: usize = 20;
+    const WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn prune(q: &mut std::collections::VecDeque<std::time::Instant>, now: std::time::Instant) {
+        while q.front().is_some_and(|t| now.saturating_duration_since(*t) >= Self::WINDOW) {
+            q.pop_front();
+        }
+    }
+
+    pub(crate) fn locked(&self, now: std::time::Instant) -> bool {
+        let mut q = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self::prune(&mut q, now);
+        q.len() >= Self::MAX
+    }
+
+    pub(crate) fn fail(&self, now: std::time::Instant) {
+        let mut q = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        Self::prune(&mut q, now);
+        q.push_back(now);
+        if q.len() == Self::MAX {
+            tracing::warn!("{} mots de passe de comptes Kyber refusés en une minute : vérifications suspendues", Self::MAX);
+        }
+    }
 }
 
 /// Nom sous lequel le client web se connecte à Kyber : le compte créé à
@@ -2323,6 +2369,18 @@ async fn admin_preview(State(s): State<AppState>, Query(q): Query<PreviewQuery>)
 
 #[cfg(all(test, not(windows)))]
 mod tests {
+
+    #[test]
+    fn kyber_passwords_are_capped_once_too_many_fail() {
+        let limit = BasicFailures(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let t0 = std::time::Instant::now();
+        for _ in 0..BasicFailures::MAX {
+            assert!(!limit.locked(t0));
+            limit.fail(t0);
+        }
+        assert!(limit.locked(t0));
+        assert!(!limit.locked(t0 + BasicFailures::WINDOW));
+    }
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 

@@ -12,6 +12,7 @@
     "wrongPassword": "incorrect password",
     "localOnly": "only available on this computer",
     "localToken": "local token missing or expired",
+    "tooManyKyberLogins": "too many wrong passwords: try again in a minute",
     "localDuringLoan": "not while the computer is lent: use KyberNow Admin",
     "unknownAction": "unknown action: {action}",
     "unreadableBody": "unreadable request: {error}",

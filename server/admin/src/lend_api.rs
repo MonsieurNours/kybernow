@@ -745,7 +745,13 @@ pub async fn borrow(
         if let Some(res) = come_back(&s, &who, via.as_ref()).await {
             return res;
         }
-        let Some(c) = s.lend.take_code(&code) else { return friend_error(StatusCode::NOT_FOUND, "no_code") };
+        if let Some(wait) = s.lend.limits.codes_locked(Instant::now()) {
+            return too_many(wait);
+        }
+        let Some(c) = s.lend.take_code(&code) else {
+            s.lend.limits.code_failed(Instant::now());
+            return friend_error(StatusCode::NOT_FOUND, "no_code");
+        };
         until = c.duration.map(|d| now_secs() + d);
         steam = c.steam;
         from_session = c.from_session;

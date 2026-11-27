@@ -233,7 +233,7 @@ pub enum Blocked {
 
 /// L'adresse comptée pour le blocage : IPv4 telle quelle, IPv6 réduite à son
 /// /64 (un abonné en a tout un).
-fn ip_key(ip: IpAddr) -> IpAddr {
+pub(crate) fn ip_key(ip: IpAddr) -> IpAddr {
     match ip.to_canonical() {
         IpAddr::V6(v6) => {
             let s = v6.segments();
