@@ -1943,8 +1943,8 @@ final class SessionController: NSObject, ObservableObject {
         case .stationRestarting:
             stationRestarting = true
         case let .hdrRefused(text):
-            // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
-            showHint(.notice(text.isEmpty ? HDRText.refused : text), after: 0, for: 6)
+            // Windows a refusé le HDR : une fois par session ; le texte du cœur.
+            showHint(.notice(text), after: 0, for: 6)
         }
     }
 

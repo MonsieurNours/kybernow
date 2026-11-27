@@ -4401,22 +4401,6 @@
         }
       }
     },
-    "Ce partage est arrêté." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This share has stopped."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ce partage est arrêté."
-          }
-        }
-      }
-    },
     "Cet ordinateur" : {
       "localizations" : {
         "en" : {
@@ -6349,22 +6333,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L'ordinateur n'a pas pu créer cet écran."
-          }
-        }
-      }
-    },
-    "L'ordinateur n'a pas pu passer en HDR : image en SDR." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The computer couldn't switch to HDR: picture in SDR."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L'ordinateur n'a pas pu passer en HDR : image en SDR."
           }
         }
       }
@@ -10445,22 +10413,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trois façons de faire, choisissez la plus simple pour vous."
-          }
-        }
-      }
-    },
-    "Trop de demandes en attente : réessayez dans un instant." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Too many requests waiting: try again in a moment."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trop de demandes en attente : réessayez dans un instant."
           }
         }
       }

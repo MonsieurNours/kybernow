@@ -781,7 +781,7 @@ mod tests {
     fn textes_des_refus() {
         assert_eq!(RelayError::Unreachable("x".into()).text(Lang::Fr, None), "Le relais ne répond pas.");
         assert_eq!(RelayError::Unreachable("x".into()).text(Lang::En, None), "The relay is not answering.");
-        assert_eq!(RelayError::StationOffline.text(Lang::Fr, Some("PC-ATELIER")), "PC-ATELIER n'est pas joignable : l'ordinateur est éteint ou en veille.");
+        assert_eq!(RelayError::StationOffline.text(Lang::Fr, Some("PC-ATELIER")), "PC-ATELIER n'est pas joignable : l'ordinateur est éteint ou en veille.");
         assert_eq!(RelayError::StationOffline.text(Lang::En, Some("PC-ATELIER")), "PC-ATELIER cannot be reached: the computer is off or asleep.");
         assert!(RelayError::StationOffline.text(Lang::Fr, None).contains("éteint ou en veille"));
         assert_eq!(RelayError::from(TunnelError::StationOffline), RelayError::StationOffline);

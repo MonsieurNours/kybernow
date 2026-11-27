@@ -783,7 +783,7 @@ mod tests {
         assert_eq!(HdrReason::Display.text(Lang::Fr), "L'écran de l'ordinateur n'est pas en HDR.");
         assert_eq!(HdrReason::Off.text(Lang::En), "The computer doesn't offer HDR.");
         assert_eq!(HdrReason::Codec.text(Lang::En), "HDR needs the HEVC or AV1 format.");
-        assert_eq!(hdr_refused_text(Lang::Fr), "L'ordinateur n'a pas pu passer en HDR : image en SDR.");
+        assert_eq!(hdr_refused_text(Lang::Fr), "L'ordinateur n'a pas pu passer en HDR : image en SDR.");
         assert_eq!(hdr_refused_text(Lang::En), "The computer couldn't switch to HDR: picture in SDR.");
     }
 

@@ -6022,7 +6022,7 @@ mod tests {
         // L'avis de link-ui, une fois, avec le format de repli.
         assert_eq!(rec.fallbacks.lock().unwrap().len(), 1);
         assert_eq!(rec.fallbacks.lock().unwrap()[0].0, Codec::Hevc);
-        assert_eq!(crate::pyrowave::fallback_text(Codec::Hevc, Lang::Fr), "Image en HEVC : PyroWave n'a pas pu démarrer sur cet appareil.");
+        assert_eq!(crate::pyrowave::fallback_text(Codec::Hevc, Lang::Fr), "Image en HEVC : PyroWave n'a pas pu démarrer sur cet appareil.");
         assert_eq!(crate::pyrowave::fallback_text(Codec::Av1, Lang::En), "Picture in AV1: PyroWave couldn't start on this device.");
         // Le choix de l'app reste PyroWave : il revient à la session suivante.
         assert_eq!(w.params.settings.codec, Codec::PyroWave);
@@ -6688,9 +6688,9 @@ mod tests {
             [
                 (false, None),
                 (true, Some("Enregistrement lancé sur l'ordinateur.".into())),
-                (false, Some("Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.".into())),
+                (false, Some("Enregistrement terminé : retrouvez-le dans Admin › Enregistrements.".into())),
             ],
-            "dit quand il change, jamais pour le temps qui passe ; une Station muette ne change rien"
+            "dit quand il change, jamais pour le temps qui passe ; une Station muette ne change rien"
         );
 
         let (mut g, recorder) = guest(ShareRole::Spectator);

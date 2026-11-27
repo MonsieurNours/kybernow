@@ -11,7 +11,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | Fichier | Contenu |
 |---|---|
 | `src/console.rs` | Client d'Admin : session (`prepare`, `heartbeat`, `foreground`, `end`), accueil et ajout (`info`, `probe`, `preview`, `pair_request`, `pair_status`), la Station (`station_restart`, `station_update`, `station_check`, `admin_url`, ci-dessous), KyberNow Share (`share_*`, ci-dessous ; `Console::guest` sans compte), certificat épinglé, `Accept-Language` |
-| `src/i18n.rs` | Langue (détection, choix), catalogues de textes, notes de version par langue ([docs/i18n.md](../../docs/i18n.md)) |
+| `src/i18n.rs` | Langue (détection, choix), catalogues de textes, notes de version par langue ([docs/i18n.md](../../docs/i18n.md)) ; en français, une espace fine insécable (U+202F) avant « : ; ! ? » dans tout le catalogue, vérifiée par `catalogues_du_coeur_complets` (TRANS-32) : les apps montrent les textes du cœur tels quels |
 | `src/session.rs` | Déroulé d'une session sur un fil dédié, dernier recours de la connexion (ci-dessous) ; ce que la plateforme fournit : `Platform` |
 | `src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), avec leur source chez Kyber (`PacketHandler::packet_from`), en-tête Opus |
 | `src/profile.rs` | Profils, format, débit selon les pixels par seconde ; puce HDR (`hdr_state`, ci-dessous) ; PyroWave (`pyrowave_format`, ci-dessous) |

@@ -1448,7 +1448,7 @@ mod tests {
         let text = |e: RelayError| relay_failure_text(Some(&e), Some("raison du cœur".into()), "Atelier");
         assert_eq!(text(RelayError::AccessOff).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
         // Le texte du cœur (son catalogue garde l'espace ordinaire).
-        assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
+        assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
         assert_eq!(text(RelayError::Unreachable("x".into())).as_deref(), Some("Le relais ne répond pas."), "relais muet");
         let looks_like = RelayError::StationOffline.text(Lang::Fr, None);
         assert_eq!(relay_failure_text(None, Some(looks_like.clone()), "Atelier"), Some(looks_like), "le texte ne se lit pas");

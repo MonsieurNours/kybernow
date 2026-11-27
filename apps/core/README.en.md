@@ -11,7 +11,7 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | File | Contents |
 |---|---|
 | `src/console.rs` | Admin client: session (`prepare`, `heartbeat`, `foreground`, `end`), home and adding (`info`, `probe`, `preview`, `pair_request`, `pair_status`), the Station (`station_restart`, `station_update`, `station_check`, `admin_url`, below), KyberNow Share (`share_*`, below; `Console::guest` without an account), pinned certificate, `Accept-Language` |
-| `src/i18n.rs` | Language (detection, choice), text catalogues, release notes per language ([docs/i18n.en.md](../../docs/i18n.en.md)) |
+| `src/i18n.rs` | Language (detection, choice), text catalogues, release notes per language ([docs/i18n.en.md](../../docs/i18n.en.md)); in French, a narrow no-break space (U+202F) before “: ; ! ?” throughout the catalogue, checked by `catalogues_du_coeur_complets` (TRANS-32): the apps show the core's texts as they are |
 | `src/session.rs` | A session's flow on a dedicated thread, the connection's last resort (below); what the platform provides: `Platform` |
 | `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), with their source in Kyber (`PacketHandler::packet_from`), Opus header |
 | `src/profile.rs` | Profiles, format, bitrate following pixels per second; HDR chip (`hdr_state`, below); PyroWave (`pyrowave_format`, below) |

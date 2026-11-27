@@ -339,10 +339,6 @@ final class ShareJoinModel: ObservableObject {
     /// Le texte d'un refus : celui du cœur, dans la langue de l'app, en phrase
     /// (les erreurs d'appel, comme un certificat changé, commencent par une minuscule).
     static func text(_ error: Error) -> String {
-        // Trois demandes attendent déjà : le texte de link-ui (celui du cœur le dit un peu autrement).
-        if case .pendingFull? = error as? ShareJoinError { return ShareText.pendingFull }
-        // L'hôte a arrêté le partage pendant l'attente (code 28 du cœur, jamais le texte).
-        if case .stopped? = error as? ShareJoinError { return ShareText.stopped }
         let text = (error as? ShareJoinError)?.errorDescription ?? error.localizedDescription
         return text.isEmpty ? ShareText.noShare : ShareText.sentence(text)
     }

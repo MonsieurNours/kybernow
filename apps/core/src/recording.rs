@@ -361,8 +361,8 @@ mod tests {
         assert_eq!(notice(Some(&idle), &on, Viewer::Host, fr).as_deref(), Some("Enregistrement lancé sur l'ordinateur."));
         assert_eq!(notice(None, &on, Viewer::Host, fr), None, "already running when the session opens");
         assert_eq!(notice(Some(&on), &on, Viewer::Host, fr), None);
-        assert_eq!(notice(Some(&on), &saved, Viewer::Host, fr).as_deref(), Some("Enregistrement terminé : retrouvez-le dans Admin › Enregistrements."));
-        assert_eq!(notice(Some(&on), &full, Viewer::Host, fr).as_deref(), Some("L'enregistrement s'est arrêté : le disque de l'ordinateur est plein."));
+        assert_eq!(notice(Some(&on), &saved, Viewer::Host, fr).as_deref(), Some("Enregistrement terminé : retrouvez-le dans Admin › Enregistrements."));
+        assert_eq!(notice(Some(&on), &full, Viewer::Host, fr).as_deref(), Some("L'enregistrement s'est arrêté : le disque de l'ordinateur est plein."));
         assert_eq!(notice(Some(&on), &ended, Viewer::Host, fr), None);
         let guest = Viewer::Guest("Atelier");
         assert_eq!(notice(None, &on, guest, fr).as_deref(), Some("Atelier enregistre la session."), "joining a recorded session");
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn errors() {
-        assert_eq!(RecordingError::from_code("codec", "").text(Lang::Fr), "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.");
+        assert_eq!(RecordingError::from_code("codec", "").text(Lang::Fr), "PyroWave et AV1 ne s'enregistrent pas : passez en HEVC ou H.264.");
         assert_eq!(RecordingError::from_code("lent", "Léa utilise l'ordinateur.").text(Lang::En), "Léa is using the computer.");
         assert_eq!(RecordingError::from_code("lent", "Léa is using the computer.").text(Lang::Fr), "Léa utilise l'ordinateur.");
         assert_eq!(RecordingError::from_code("???", "").text(Lang::En), "Recording could not start.");

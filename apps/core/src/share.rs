@@ -1917,7 +1917,7 @@ mod tests {
         assert_eq!(u.text(Lang::En, "Léa"), "This device cannot play this computer's picture (HEVC).");
         assert_eq!(ShareError::NoShare.text(Lang::Fr), "Aucun partage avec ce code sur le réseau.");
         assert_eq!(ShareError::Full.text(Lang::En), "This share is full (four guests at most).");
-        assert_eq!(ShareError::Unavailable.text(Lang::Fr), "Le partage n'est pas disponible pour le moment : réessayez dans un instant.");
+        assert_eq!(ShareError::Unavailable.text(Lang::Fr), "Le partage n'est pas disponible pour le moment : réessayez dans un instant.");
         assert!(matches!(crate::console::share_refusal_for_tests(503, &serde_json::json!({})), ShareError::Unavailable));
         assert_eq!(ShareAvailability::Unsupported.text(Lang::Fr).unwrap(), "Le partage demande KyberNow Station 0.8.0 ou plus récente.");
         assert_eq!(ShareAvailability::Disabled.text(Lang::En).unwrap(), "Sharing is turned off on this computer (Admin › Link devices).");
@@ -2070,7 +2070,7 @@ mod tests {
         assert_eq!(ShareImage { fps: None, ..lag.clone() }.notice(Some(&full), Lang::Fr), None, "taille reçue inconnue");
         assert!(img(540, 30, ShareImageReason::Lag).notice(Some(&lag), Lang::Fr).is_some(), "encore un cran plus bas");
         let limit = img(1080, 60, ShareImageReason::Limit);
-        assert_eq!(limit.notice(None, Lang::Fr).as_deref(), Some("L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz."));
+        assert_eq!(limit.notice(None, Lang::Fr).as_deref(), Some("L'ordinateur ne peut pas faire une image de plus : vous recevez 1080p · 60 Hz."));
         assert_eq!(limit.notice(Some(&unknown), Lang::En).as_deref(), Some("The computer can't make another picture: you get 1080p · 60 Hz."));
         assert_eq!(limit.notice(Some(&ShareImage { codec: Some("h264".into()), ..limit.clone() }), Lang::Fr), None, "déjà dit pour cette image");
         assert_eq!(ShareImage { width: None, ..limit }.notice(None, Lang::Fr), None);

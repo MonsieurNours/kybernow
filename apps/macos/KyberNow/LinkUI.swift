@@ -339,7 +339,6 @@ enum ShareText {
     }
 
     /// Un invité qui attend l'accord de l'hôte, quand l'hôte arrête le partage.
-    static var stopped: String { String(localized: "Ce partage est arrêté.") }
 
     /// La pastille de la barre : « 1 invité », « 2 invités ».
     static func guestCount(_ n: Int) -> String {
@@ -356,8 +355,6 @@ enum ShareText {
     static var looking: String { String(localized: "Recherche du partage…") }
     /// Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » quitte la demande).
     static var waiting: String { String(localized: "En attente de l'accord de l'hôte…") }
-    /// Trois demandes attendent déjà l'accord de l'hôte.
-    static var pendingFull: String { String(localized: "Trop de demandes en attente : réessayez dans un instant.") }
     static var noShare: String { String(localized: "Aucun partage avec ce code sur le réseau.") }
     static func guestOn(_ computer: String) -> String { String(localized: "Invité sur \(computer)") }
     static var spectator: String { String(localized: "Spectateur") }
@@ -706,8 +703,6 @@ enum HDRText {
     static func help(_ state: HDRState, settings: Bool = false) -> String {
         state.reason ?? (settings ? settingsHelp : help)
     }
-    /// Windows n'a pas pu passer l'écran virtuel en HDR (une fois par session).
-    static var refused: String { String(localized: "L'ordinateur n'a pas pu passer en HDR : image en SDR.") }
 
     // MARK: Réglage du HDR (docs/hdr.md, « Réglage du HDR »)
 

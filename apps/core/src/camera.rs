@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn avis_de_l_app() {
-        assert_eq!(device_notice(DeviceNotice::NoAnswer, "", Lang::Fr), "L'ordinateur ne répond pas : la caméra est éteinte.");
+        assert_eq!(device_notice(DeviceNotice::NoAnswer, "", Lang::Fr), "L'ordinateur ne répond pas : la caméra est éteinte.");
         assert_eq!(device_notice(DeviceNotice::StartRefused, "", Lang::En), "The camera couldn't start on the computer.");
         assert_eq!(device_notice(DeviceNotice::Unplugged, "FaceTime HD", Lang::Fr), "FaceTime HD n'est plus branchée.");
         for n in [DeviceNotice::Denied, DeviceNotice::InUse, DeviceNotice::Unplugged, DeviceNotice::NoEncoder, DeviceNotice::StartRefused, DeviceNotice::NoAnswer] {

@@ -1188,10 +1188,10 @@ mod tests {
             .collect();
         assert_eq!(codes, (40..=48).map(Some).collect::<Vec<_>>());
         let n = |reason| LendNotice { reason, at: 0 };
-        assert_eq!(n(LendNoticeReason::TakenBack).text(Lang::Fr, "Matthieu"), "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.");
+        assert_eq!(n(LendNoticeReason::TakenBack).text(Lang::Fr, "Matthieu"), "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.");
         assert_eq!(n(LendNoticeReason::TimeUp).text(Lang::En, "M"), "The loan ends in 2 min: save your game.");
-        assert_eq!(n(LendNoticeReason::SlotEnd).text(Lang::Fr, "M"), "Votre créneau se termine dans 2 min : sauvegardez votre partie.");
-        assert_eq!(n(LendNoticeReason::SlotStart).text(Lang::Fr, "Léa"), "Créneau de Léa : l'ordinateur lui est prêté dans 2 min.");
+        assert_eq!(n(LendNoticeReason::SlotEnd).text(Lang::Fr, "M"), "Votre créneau se termine dans 2 min : sauvegardez votre partie.");
+        assert_eq!(n(LendNoticeReason::SlotStart).text(Lang::Fr, "Léa"), "Créneau de Léa : l'ordinateur lui est prêté dans 2 min.");
         assert_eq!(LendEnd::TakenBack.text(Lang::Fr, "Matthieu"), "Matthieu a repris l'ordinateur.");
         assert_eq!(LendEnd::TimeUp.text(Lang::Fr, "M"), "Le prêt est terminé.");
         assert_eq!(LendEnd::SlotEnd.text(Lang::En, "M"), "Your time slot is over.");

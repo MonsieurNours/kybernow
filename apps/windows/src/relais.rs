@@ -221,7 +221,7 @@ mod tests {
         // L'accès coupé dans Admin et l'ordinateur absent du relais : choisis par l'erreur typée, avec le nom.
         assert_eq!(text(RelayError::AccessOff, Lang::Fr).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
         assert_eq!(text(RelayError::AccessOff, Lang::En).as_deref(), Some("Atelier cannot be reached away from home (access turned off in Admin)."));
-        assert_eq!(text(RelayError::StationOffline, Lang::Fr).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
+        assert_eq!(text(RelayError::StationOffline, Lang::Fr).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
         assert_eq!(text(RelayError::StationOffline, Lang::En).as_deref(), Some("Atelier cannot be reached: the computer is off or asleep."));
         // Le relais muet garde son texte.
         assert_eq!(text(RelayError::Unreachable("x".into()), Lang::Fr).as_deref(), Some("Le relais ne répond pas."));

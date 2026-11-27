@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(r(500, serde_json::json!({})), "other");
         let e = invite_refusal(429, &serde_json::json!({"error":"too_many","retry_after":540}), None);
         assert!(matches!(e, InviteError::TooManyTries { seconds: Some(540) }));
-        assert_eq!(e.text(Lang::Fr, ""), "Trop d'essais : réessayez dans 9 min.");
+        assert_eq!(e.text(Lang::Fr, ""), "Trop d'essais : réessayez dans 9 min.");
         assert_eq!(InviteError::AccessOff.text(Lang::En, "Living room PC"), "Living room PC cannot be reached away from home (access turned off in Admin).");
     }
 

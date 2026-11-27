@@ -207,7 +207,7 @@ fn code_de_televiseur() {
     let many = Fake::new(|_, _| Ok(Reply { status: 429, body: json!({ "error": "too_many" }), retry_after: Some(300) }));
     let e = tv_code_with(&*many, "", "TV").unwrap_err();
     assert_eq!(e, AccountError::TooMany { seconds: Some(300) });
-    assert_eq!(e.text(Lang::Fr), "Trop d'essais : réessayez dans 5 min.");
+    assert_eq!(e.text(Lang::Fr), "Trop d'essais : réessayez dans 5 min.");
 }
 
 #[test]
@@ -452,9 +452,9 @@ fn textes_et_codes() {
             assert!(!t.is_empty() && !t.starts_with("account."), "{} : {t}", e.kind());
         }
     }
-    assert_eq!(AccountError::SignedOut.text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+    assert_eq!(AccountError::SignedOut.text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
     assert_eq!(AccountError::Denied.text(Lang::En), "Sign-in declined on the phone.");
-    assert_eq!(AccountError::TooMany { seconds: None }.text(Lang::Fr), "Trop d'essais : réessayez dans 15 min.");
+    assert_eq!(AccountError::TooMany { seconds: None }.text(Lang::Fr), "Trop d'essais : réessayez dans 15 min.");
 }
 
 // MARK: - Réglages synchronisés
