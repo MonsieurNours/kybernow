@@ -64,7 +64,7 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 | Partie | État |
 |---|---|
 | Transport | flux montant commun 0085 (session webcam), fusionné dans la branche ; « microphone » demandé à chaque départ |
-| Droit et plusieurs micros (ami, invités autorisés, pas de `busy`) | `0085-kycontroller-micro-droits.patch`, posé après le canal commun ; 114 essais de kycontroller |
+| Droit et plusieurs micros (ami, invités autorisés, pas de `busy`) | `0086-kycontroller-micro-droits.patch`, posé après le canal commun ; 114 essais de kycontroller |
 | Aide `kybernow-micro` | compilée Mac, Windows, Linux ; 7 essais (paquets, pertes, tampon) ; `--check` vérifié sur ce Mac (3 : pilote d'avant) |
 | Pilote Mac « Micro KyberNow » | compilé ; pas installé (administrateur) |
 | VB-CABLE | livré par l'installateur de la Station Windows à partir de la 0.11.6 (pack 46 dans `third_party/payload/vbcable/`) ; pas encore essayé sur un PC |
@@ -74,7 +74,7 @@ Réglages de l'app : « Micro » (« Celui du système » ou un micro de l'appar
 
 ### Reste à faire
 
-- Refaire `0085-kycontroller-micro-droits` par-dessus la correction de l'emprunteur que la webcam fait dans 0085.
+- Refaire `0086-kycontroller-micro-droits` par-dessus la correction de l'emprunteur que la webcam fait dans 0085.
 - Client web : le flux montant dans le moteur (copie web de kyclient et kyber-web), puis `engineSendsMicrophone()`.
 - Essais : micro reçu dans « CABLE Output » (Windows, l'aide tourne en SYSTEM : WASAPI et le micro par défaut en session 0 sont à vérifier), « Micro KyberNow » (Mac, après pose du pilote), PipeWire (VM) ; écho avec et sans le traitement voix ; perte en Wi-Fi sur le flux fiable ; invités et prêt.
 - `scripts/release.sh` : l'empreinte de la surcouche Windows (`kyber-overlay.stamp`) ne compte pas `server/micro` ; la version de `server/micro/Cargo.toml` n'est pas alignée.

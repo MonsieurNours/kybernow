@@ -1,8 +1,8 @@
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index af9a756..26dfbfd 100644
+index 0729b38..0cd379e 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1303,7 +1303,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
+@@ -1324,7 +1324,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
  }
  
  /// KyberNow Admin only: from this computer (403), with its own token (401).
@@ -11,7 +11,7 @@ index af9a756..26dfbfd 100644
      if !from_loopback(req) {
          warn!("/kybernow refused to {:?}: not local", req.peer_addr());
          return Some(HttpResponse::Forbidden().finish());
-@@ -1324,7 +1324,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
+@@ -1345,7 +1345,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
  }
  
  /// The body is only read once the caller is known to be KyberNow Admin.
@@ -56,7 +56,7 @@ index c010120..0bf09e3 100644
  #[derive(Default)]
  struct GuestQueue {
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 7ee2888..d723e2a 100644
+index 06ed3f9..1f2b8d1 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -54,7 +54,10 @@ mod kyber_agent;
@@ -70,7 +70,7 @@ index 7ee2888..d723e2a 100644
  mod rtp;
  mod security;
  mod session;
-@@ -1035,7 +1038,9 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -1046,7 +1049,9 @@ async fn real_main(config: config::Config) -> Result<()> {
                          .service(kybernow::get_sessions)
                          .service(kybernow::post_role)
                          .service(kybernow::post_quality)
@@ -81,7 +81,7 @@ index 7ee2888..d723e2a 100644
                  )
                  .service(capabilities)
                  .service(websocket_service)
-@@ -1075,6 +1080,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -1086,6 +1091,8 @@ async fn real_main(config: config::Config) -> Result<()> {
      }
  
      ctrl_for_tray.shutdown_tray();
@@ -92,10 +92,10 @@ index 7ee2888..d723e2a 100644
      if let Some(agent_task) = agent_task {
 diff --git a/kycontroller/src/mp4.rs b/kycontroller/src/mp4.rs
 new file mode 100644
-index 0000000..f499f1d
+index 0000000..37d18f5
 --- /dev/null
 +++ b/kycontroller/src/mp4.rs
-@@ -0,0 +1,1233 @@
+@@ -0,0 +1,1458 @@
 +// KyberNow: a fragmented MP4 writer for session recordings (patch 0070).
 +//
 +// The packets are the encoder's own: H.264 or HEVC in Annex B (start codes),
@@ -392,6 +392,152 @@ index 0000000..f499f1d
 +    depth_chroma: u32,
 +    width: u32,
 +    height: u32,
++    /// The colours of its VUI, when it says them (`colr` box).
++    colour: Option<Colour>,
++}
++
++/// The colour description of a VUI (H.273 code points), for a `colr`
++/// `nclx` box: without it, some players read an HDR10 stream as SDR.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++struct Colour {
++    primaries: u8,
++    transfer: u8,
++    matrix: u8,
++    full_range: bool,
++}
++
++impl Colour {
++    fn colr_box(self) -> Vec<u8> {
++        let mut p = b"nclx".to_vec();
++        p.extend_from_slice(&u16::from(self.primaries).to_be_bytes());
++        p.extend_from_slice(&u16::from(self.transfer).to_be_bytes());
++        p.extend_from_slice(&u16::from(self.matrix).to_be_bytes());
++        p.push(if self.full_range { 0x80 } else { 0 });
++        mp4_box(b"colr", &p)
++    }
++}
++
++/// HEVC `scaling_list_data()` (H.265 § 7.3.4), read past.
++fn skip_hevc_scaling_lists(b: &mut Bits) -> Option<()> {
++    for size_id in 0..4u32 {
++        let step = if size_id == 3 { 3 } else { 1 };
++        for _ in (0..6).step_by(step) {
++            if b.bit()? == 0 {
++                b.ue()?; // scaling_list_pred_matrix_id_delta
++            } else {
++                let coefs = 64.min(1u32 << (4 + (size_id << 1)));
++                if size_id > 1 {
++                    b.se()?; // scaling_list_dc_coef_minus8
++                }
++                for _ in 0..coefs {
++                    b.se()?;
++                }
++            }
++        }
++    }
++    Some(())
++}
++
++/// HEVC `st_ref_pic_set(idx)` of an SPS (H.265 § 7.3.7), read past; the
++/// number of pictures of each set (`NumDeltaPocs`) goes into `counts`.
++fn skip_hevc_short_term_set(b: &mut Bits, idx: usize, counts: &mut Vec<u32>) -> Option<()> {
++    let inter = idx != 0 && b.bit()? == 1;
++    let count = if inter {
++        // In an SPS, the set predicted from is always the previous one.
++        b.bit()?; // delta_rps_sign
++        b.ue()?; // abs_delta_rps_minus1
++        let mut count = 0;
++        for _ in 0..=*counts.get(idx - 1)? {
++            let used = b.bit()? == 1;
++            if used || b.bit()? == 1 {
++                count += 1;
++            }
++        }
++        count
++    } else {
++        let negative = b.ue()?;
++        let positive = b.ue()?;
++        let count = negative.checked_add(positive).filter(|c| *c <= 32)?;
++        for _ in 0..count {
++            b.ue()?; // delta_poc_sN_minus1
++            b.bit()?; // used_by_curr_pic_sN_flag
++        }
++        count
++    };
++    counts.push(count);
++    Some(())
++}
++
++/// The rest of an HEVC SPS after the bit depths, to its VUI's colours.
++/// `None` when it cannot be read; `Some(None)` without a colour description.
++fn read_hevc_colour(b: &mut Bits, max_sub_layers_minus1: u32) -> Option<Option<Colour>> {
++    let log2_max_poc_lsb = b.ue()?.checked_add(4).filter(|v| *v <= 16)?;
++    let ordering_all = b.bit()? == 1;
++    let first = if ordering_all { 0 } else { max_sub_layers_minus1 };
++    for _ in first..=max_sub_layers_minus1 {
++        b.ue()?;
++        b.ue()?;
++        b.ue()?;
++    }
++    for _ in 0..6 {
++        b.ue()?; // coding and transform block sizes, hierarchy depths
++    }
++    if b.bit()? == 1 && b.bit()? == 1 {
++        skip_hevc_scaling_lists(b)?;
++    }
++    b.bit()?; // amp_enabled_flag
++    b.bit()?; // sample_adaptive_offset_enabled_flag
++    if b.bit()? == 1 {
++        // pcm: bit depths (4 + 4), two sizes, loop filter flag
++        b.bits(8)?;
++        b.ue()?;
++        b.ue()?;
++        b.bit()?;
++    }
++    let sets = b.ue()?;
++    if sets > 64 {
++        return None;
++    }
++    let mut counts = Vec::with_capacity(sets as usize);
++    for idx in 0..sets as usize {
++        skip_hevc_short_term_set(b, idx, &mut counts)?;
++    }
++    if b.bit()? == 1 {
++        let long_term = b.ue()?;
++        if long_term > 32 {
++            return None;
++        }
++        for _ in 0..long_term {
++            b.bits(log2_max_poc_lsb)?;
++            b.bit()?;
++        }
++    }
++    b.bit()?; // sps_temporal_mvp_enabled_flag
++    b.bit()?; // strong_intra_smoothing_enabled_flag
++    if b.bit()? == 0 {
++        return Some(None); // no VUI
++    }
++    if b.bit()? == 1 && b.bits(8)? == 255 {
++        b.bits(16)?; // sar_width
++        b.bits(16)?; // sar_height
++    }
++    if b.bit()? == 1 {
++        b.bit()?; // overscan_appropriate_flag
++    }
++    if b.bit()? == 0 {
++        return Some(None); // no video_signal_type
++    }
++    b.bits(3)?; // video_format
++    let full_range = b.bit()? == 1;
++    if b.bit()? == 0 {
++        return Some(None); // no colour_description
++    }
++    Some(Some(Colour {
++        primaries: b.bits(8)? as u8,
++        transfer: b.bits(8)? as u8,
++        matrix: b.bits(8)? as u8,
++        full_range,
++    }))
 +}
 +
 +fn parse_hevc_sps(sps: &[u8]) -> Option<HevcSps> {
@@ -440,6 +586,9 @@ index 0000000..f499f1d
 +    let depth_chroma = b.ue()?.checked_add(8)?;
 +    let sub_w: u32 = if chroma == 1 || chroma == 2 { 2 } else { 1 };
 +    let sub_h: u32 = if chroma == 1 { 2 } else { 1 };
++    // KYB-37: the colours of the VUI; a stream whose SPS reads badly past
++    // the size keeps its file, without a `colr` box.
++    let colour = read_hevc_colour(&mut b, max_sub_layers_minus1).flatten();
 +    Some(HevcSps {
 +        ptl,
 +        sub_layers: max_sub_layers_minus1 + 1,
@@ -449,6 +598,7 @@ index 0000000..f499f1d
 +        depth_chroma,
 +        width: pic_width.checked_sub(sub_w.checked_mul(left.checked_add(right)?)?)?,
 +        height: pic_height.checked_sub(sub_h.checked_mul(top.checked_add(bottom)?)?)?,
++        colour,
 +    })
 +}
 +
@@ -520,7 +670,13 @@ index 0000000..f499f1d
 +                        c.extend_from_slice(n);
 +                    }
 +                }
-+                (info.width, info.height, mp4_box(b"hvcC", &c))
++                let mut config = mp4_box(b"hvcC", &c);
++                // KYB-37: HDR10 (BT.2020, PQ) said in the file, not only in
++                // the stream.
++                if let Some(colour) = info.colour {
++                    config.extend_from_slice(&colour.colr_box());
++                }
++                (info.width, info.height, config)
 +            }
 +        };
 +        if width == 0 || height == 0 || width > 16384 || height > 16384 {
@@ -675,7 +831,27 @@ index 0000000..f499f1d
 +    full_box(b"mvhd", 0, 0, &p)
 +}
 +
-+fn trak(track: u32, timescale: u32, handler: &[u8; 4], entry: &[u8], size: Option<(u32, u32)>) -> Vec<u8> {
++/// An edit list that starts the track `skip` media ticks in (Opus
++/// pre-skip): players leave those samples out, as the codec asks
++/// (RFC 7845 § 4.2). Duration 0: the whole track (a fragmented file).
++fn edts(skip: u32) -> Vec<u8> {
++    let mut e = Vec::new();
++    e.extend_from_slice(&1u32.to_be_bytes()); // entry_count
++    e.extend_from_slice(&0u32.to_be_bytes()); // segment_duration
++    e.extend_from_slice(&skip.to_be_bytes()); // media_time
++    e.extend_from_slice(&1u16.to_be_bytes()); // media_rate_integer
++    e.extend_from_slice(&0u16.to_be_bytes()); // media_rate_fraction
++    mp4_box(b"edts", &full_box(b"elst", 0, 0, &e))
++}
++
++fn trak(
++    track: u32,
++    timescale: u32,
++    handler: &[u8; 4],
++    entry: &[u8],
++    size: Option<(u32, u32)>,
++    skip: u32,
++) -> Vec<u8> {
 +    let mut t = Vec::new();
 +    t.extend_from_slice(&[0; 8]);
 +    t.extend_from_slice(&track.to_be_bytes());
@@ -727,7 +903,8 @@ index 0000000..f499f1d
 +    );
 +    let minf = mp4_box(b"minf", &concat(&[&media_header, &dinf, &stbl]));
 +    let mdia = mp4_box(b"mdia", &concat(&[&mdhd, &hdlr, &minf]));
-+    mp4_box(b"trak", &concat(&[&tkhd, &mdia]))
++    let edts = if skip > 0 { edts(skip) } else { Vec::new() };
++    mp4_box(b"trak", &concat(&[&tkhd, &edts, &mdia]))
 +}
 +
 +fn trex(track: u32) -> Vec<u8> {
@@ -808,9 +985,12 @@ index 0000000..f499f1d
 +            VideoFormat::Hevc => b"hvc1",
 +        };
 +        let ftyp = mp4_box(b"ftyp", &concat(&[b"isom", &0x200u32.to_be_bytes(), b"isom", b"iso6", b"mp41", brand]));
-+        let mut traks = trak(VIDEO_TRACK, VIDEO_TIMESCALE, b"vide", &video.sample_entry, Some((video.width, video.height)));
++        let mut traks = trak(VIDEO_TRACK, VIDEO_TIMESCALE, b"vide", &video.sample_entry, Some((video.width, video.height)), 0);
 +        if let Some(a) = audio {
-+            traks.extend_from_slice(&trak(AUDIO_TRACK, AUDIO_TIMESCALE, b"soun", &a.sample_entry(), None));
++            // KYB-37: the Opus pre-skip (48 kHz samples, the track's own
++            // timescale) in an edit list.
++            let skip = u32::from(a.pre_skip) * AUDIO_TIMESCALE / 48_000;
++            traks.extend_from_slice(&trak(AUDIO_TRACK, AUDIO_TIMESCALE, b"soun", &a.sample_entry(), None, skip));
 +        }
 +        let mehd = full_box(b"mehd", 1, 0, &[0; 8]);
 +        let mut mvex = mehd.clone();
@@ -1150,6 +1330,51 @@ index 0000000..f499f1d
 +        let info = parse_hevc_sps(&hevc10_sps()).unwrap();
 +        assert_eq!((info.width, info.height, info.depth_luma, info.chroma), (2560, 1440, 10, 1));
 +        assert!(VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc10_vps(), &hevc10_sps(), &hevc_pps()])).is_some());
++    }
++
++    /// KYB-37: the colours of the VUI. SPS of libx265 (HDR10 tagged, and
++    /// untagged) and of VideoToolbox (Main 10, matrix only), checked with
++    /// ffprobe.
++    #[test]
++    fn reads_the_colours_of_an_hevc_vui() {
++        let colour = |sps: &str| parse_hevc_sps(&hex(sps)).unwrap().colour;
++        assert_eq!(
++            colour("42010102200000030090000003000003003ca00a080f1365959a4932bc05a848804820000003002000000303c1"),
++            Some(Colour { primaries: 9, transfer: 16, matrix: 9, full_range: false })
++        );
++        assert_eq!(
++            colour("420101022000000300b0000003000003003ca00a080f1362023b916452ffcb9fc4feb016a040412010"),
++            Some(Colour { primaries: 2, transfer: 2, matrix: 9, full_range: false })
++        );
++        assert_eq!(
++            colour("42010101600000030090000003000003003ca00a080f165959a4932bc05a020000030002000003003c10"),
++            None
++        );
++        // Cut in the middle of its VUI: read for its size, no colours.
++        let cut = hex("42010102200000030090000003000003003ca00a080f1365959a4932bc05a8");
++        let info = parse_hevc_sps(&cut).unwrap();
++        assert_eq!(((info.width, info.height), info.colour), ((320, 240), None));
++    }
++
++    #[test]
++    fn an_hdr10_sample_entry_says_its_colours() {
++        let sps = hex("42010102200000030090000003000003003ca00a080f1365959a4932bc05a848804820000003002000000303c1");
++        let c = VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc10_vps(), &sps, &hevc_pps()])).unwrap();
++        let at = c.sample_entry.windows(4).position(|w| w == b"colr").expect("colr");
++        assert_eq!(&c.sample_entry[at + 4..at + 15], &[b'n', b'c', b'l', b'x', 0, 9, 0, 16, 0, 9, 0]);
++        let sdr = VideoConfig::from_annexb(VideoFormat::Hevc, &annexb(&[&hevc_vps(), &hevc_sps(), &hevc_pps()])).unwrap();
++        let sdr_colour = parse_hevc_sps(&hevc_sps()).unwrap().colour;
++        assert_eq!(sdr.sample_entry.windows(4).any(|w| w == b"colr"), sdr_colour.is_some());
++    }
++
++    #[test]
++    fn the_opus_pre_skip_is_an_edit_list() {
++        let t = trak(AUDIO_TRACK, AUDIO_TIMESCALE, b"soun", &[], None, 312);
++        let at = t.windows(4).position(|w| w == b"elst").expect("elst");
++        // version and flags, 1 entry, duration 0, media_time 312, rate 1.0
++        assert_eq!(&t[at + 4..at + 24], &[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 56, 0, 1, 0, 0]);
++        let video = trak(VIDEO_TRACK, VIDEO_TIMESCALE, b"vide", &[], Some((16, 16)), 0);
++        assert!(!video.windows(4).any(|w| w == b"edts"));
 +    }
 +
 +    #[test]

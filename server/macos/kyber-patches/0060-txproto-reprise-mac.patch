@@ -1,0 +1,17 @@
+diff --git a/subprojects/txproto/src/iosys_screencapturekit.m b/subprojects/txproto/src/iosys_screencapturekit.m
+index 0b538b3..eef269d 100644
+--- a/subprojects/txproto/src/iosys_screencapturekit.m
++++ b/subprojects/txproto/src/iosys_screencapturekit.m
+@@ -1103,7 +1103,11 @@ static int sck_startVideoCapture(IOSysEntry *entry)
+ 
+     capture->streamConfiguration = [[SCStreamConfiguration alloc] init];
+     [capture->streamConfiguration setShowsCursor:NO];
+-    [capture->streamConfiguration setQueueDepth:3];
++    /* KyberNow (server/macos/kyber-patches/0060): one surface more than 3,
++     * for the last image the encoder keeps to encode it again on a still
++     * screen (0060-txproto-reprise, encode.c): ScreenCaptureKit hands out
++     * no more surfaces than its queue depth. */
++    [capture->streamConfiguration setQueueDepth:4];
+     [capture->streamConfiguration setCapturesAudio:NO];
+     /* KyberNow (0010): HDR10, the display's HDR as PQ BT.2100, 10-bit
+      * 4:2:0 (P010 frames for VideoToolbox's HEVC Main 10). */

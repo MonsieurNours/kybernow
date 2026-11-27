@@ -1,5 +1,5 @@
 diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
-index 897c92d..3f1a2b7 100644
+index b2f875a..d866c4b 100644
 --- a/kyclient/src/capi.rs
 +++ b/kyclient/src/capi.rs
 @@ -811,6 +811,7 @@ pub unsafe extern "C" fn kyclient_video_player_config_default(
@@ -10,42 +10,7 @@ index 897c92d..3f1a2b7 100644
          };
  
          *out_config = Box::into_raw(Box::new(VideoPlayerConfig { config }));
-@@ -848,6 +849,34 @@ pub extern "C" fn kyclient_video_player_config_set_software_decode(
-     config.config.software_decode = software_decode;
- }
- 
-+/// KyberNow: deliver encoded video packets to `cb` instead of VLC. The
-+/// window handle is then unused. `cb` is called from a network thread.
-+#[unsafe(no_mangle)]
-+pub extern "C" fn kyclient_video_player_config_set_packet_sink(
-+    config: &mut VideoPlayerConfig,
-+    cb: crate::media_sink::MediaPacketCb,
-+    userdata: *mut std::ffi::c_void,
-+) {
-+    config.config.packet_sink = Some(crate::media_sink::PacketSink {
-+        cb,
-+        userdata: userdata as usize,
-+    });
-+}
-+
-+/// KyberNow: deliver Opus packets to `cb` instead of VLC. `cb` is called
-+/// from a network thread.
-+#[unsafe(no_mangle)]
-+pub extern "C" fn kyclient_audio_session_config_set_packet_sink(
-+    config: &mut AudioSessionConfig,
-+    cb: crate::media_sink::MediaPacketCb,
-+    userdata: *mut std::ffi::c_void,
-+) {
-+    config.config.packet_sink = Some(crate::media_sink::PacketSink {
-+        cb,
-+        userdata: userdata as usize,
-+    });
-+}
-+
- #[unsafe(no_mangle)]
- pub extern "C" fn kyclient_video_player_config_set_video_buffer(
-     config: &mut VideoPlayerConfig,
-@@ -892,7 +921,10 @@ pub unsafe extern "C" fn kyclient_audio_session_config_default(
+@@ -918,7 +919,10 @@ pub unsafe extern "C" fn kyclient_audio_session_config_default(
      out_config: *mut *mut AudioSessionConfig,
  ) -> c_int {
      unsafe {
@@ -57,24 +22,6 @@ index 897c92d..3f1a2b7 100644
          *out_config = Box::into_raw(Box::new(AudioSessionConfig { config }));
          0
      }
-@@ -1146,6 +1178,17 @@ pub unsafe extern "C" fn kyclient_client_audio_set_mute(client: *mut Client, mut
-     }
- }
- 
-+/// KyberNow: ask the host for a keyframe (the application's decoder lost a
-+/// reference picture). Needs the KyberNow kycontroller patch on the host;
-+/// otherwise the request is logged and ignored.
-+#[unsafe(no_mangle)]
-+pub unsafe extern "C" fn kyclient_client_request_keyframe(client: *mut Client) -> c_int {
-+    unsafe {
-+        let ret = (&(*client)).client.request_keyframe();
-+        result_to_c_int(ret)
-+    }
-+}
-+
- #[unsafe(no_mangle)]
- pub unsafe extern "C" fn kyclient_client_set_bitrate(client: *mut Client, bitrate: u32) -> c_int {
-     unsafe {
 diff --git a/kyclient/src/enums.rs b/kyclient/src/enums.rs
 index 38b3c57..4f9715a 100644
 --- a/kyclient/src/enums.rs
@@ -113,7 +60,7 @@ index c214ec2..bf28881 100644
      let url = format!("{base_url}/set_bitrate", base_url = http_client.base_url());
  
 diff --git a/kyclient/src/kymux_backend/desktop.rs b/kyclient/src/kymux_backend/desktop.rs
-index c33eb83..9285cdc 100644
+index c33eb83..72b35d2 100644
 --- a/kyclient/src/kymux_backend/desktop.rs
 +++ b/kyclient/src/kymux_backend/desktop.rs
 @@ -19,7 +19,7 @@
@@ -125,16 +72,17 @@ index c33eb83..9285cdc 100644
  
  use kymux::{kycom, types};
  
-@@ -27,6 +27,8 @@ use super::{KymuxBackendConfig, PlatformEndpoints};
+@@ -27,6 +27,9 @@ use super::{KymuxBackendConfig, PlatformEndpoints};
  use crate::metrics::MetricsProducer;
  use crate::platform::message::MessageForwarder;
  use crate::platform::player;
++use crate::media_sink::MediaSinks;
 +use crate::platform::{MediaPacket, MediaPacketKind, PacketSink};
 +use crate::runtime::Task;
  use crate::platform::{InputClient, InputPipeline};
  use crate::{BackendDriver, MessageSender};
  use crate::{Error, Result};
-@@ -43,10 +45,88 @@ impl Player {
+@@ -43,10 +46,91 @@ impl Player {
      }
  }
  
@@ -144,30 +92,32 @@ index c33eb83..9285cdc 100644
 +/// the lifetime of `userdata` to this last call.
 +struct SinkClosed {
 +    source_id: u32,
-+    sink: PacketSink,
++    sink: Option<PacketSink>,
++}
++
++impl SinkClosed {
++    fn send(&self, packet: &MediaPacket) {
++        if let Some(sink) = &self.sink {
++            sink.send(packet);
++        }
++    }
 +}
 +
 +impl Drop for SinkClosed {
 +    fn drop(&mut self) {
-+        let out = MediaPacket {
-+            kind: MediaPacketKind::Closed,
-+            source_id: self.source_id,
-+            codec: 0,
-+            is_config: false,
-+            is_key: false,
-+            pts: 0,
-+            missing_samples: 0,
-+            data: std::ptr::null(),
-+            len: 0,
-+        };
-+        (self.sink.cb)(&out, self.sink.userdata as *mut std::ffi::c_void);
++        if let Some(sink) = self.sink.take() {
++            sink.close(self.source_id);
++        }
 +    }
 +}
 +
 +/// KyberNow: forward audio or video packets to the application (native
 +/// decoding). Audio and video endpoints share the same packet type.
 +async fn packet_sink_task(source_id: u32, endpoint: types::VideoClientEndpoint, sink: PacketSink) {
-+    let _closed = SinkClosed { source_id, sink };
++    let sink = SinkClosed {
++        source_id,
++        sink: Some(sink),
++    };
 +    let mut recv = match endpoint.ready().await {
 +        Ok(recv) => recv,
 +        Err(err) => {
@@ -211,7 +161,7 @@ index c33eb83..9285cdc 100644
 +            }
 +            types::AVPacket::Hole(p) => out.missing_samples = p.header.missing_audio_samples,
 +        }
-+        (sink.cb)(&out, sink.userdata as *mut std::ffi::c_void);
++        sink.send(&out);
 +    }
 +}
 +
@@ -219,22 +169,25 @@ index c33eb83..9285cdc 100644
      kycom: &mut kycom::KyCom,
      backend_config: &KymuxBackendConfig<'_>,
      endpoints: Vec<types::VideoClientEndpoint>,
++    media_sinks: &mut MediaSinks,
 +    sinks: &mut Vec<Task>,
  ) -> Result<Option<Vec<player::VideoConfig>>> {
      if endpoints.is_empty() {
          return Ok(None);
-@@ -67,6 +147,10 @@ fn create_video_config(
+@@ -66,7 +150,11 @@ fn create_video_config(
+ 
      let mut player_config_list = vec![];
  
-     for (config, endpoint) in video_config.iter().zip(endpoints.into_iter()) {
-+        if let Some(sink) = config.player.packet_sink {
+-    for (config, endpoint) in video_config.iter().zip(endpoints.into_iter()) {
++    for (index, (config, endpoint)) in video_config.iter().zip(endpoints.into_iter()).enumerate() {
++        if let Some(sink) = media_sinks.video.get_mut(index).and_then(Option::take) {
 +            sinks.push(Task::spawn(packet_sink_task(config.display_id, endpoint, sink)));
 +            continue;
 +        }
          let uri = kycom.register_and_forward(endpoint)?.url();
  
          let player_config = player::VideoConfig {
-@@ -80,6 +164,9 @@ fn create_video_config(
+@@ -80,6 +168,9 @@ fn create_video_config(
          player_config_list.push(player_config);
      }
  
@@ -244,19 +197,20 @@ index c33eb83..9285cdc 100644
      Ok(Some(player_config_list))
  }
  
-@@ -87,6 +174,7 @@ fn create_audio_config(
+@@ -87,6 +178,8 @@ fn create_audio_config(
      kycom: &mut kycom::KyCom,
      backend_config: &KymuxBackendConfig<'_>,
      endpoint: Option<types::AudioClientEndpoint>,
++    media_sinks: &mut MediaSinks,
 +    sinks: &mut Vec<Task>,
  ) -> Result<Option<player::AudioConfig>> {
      let Some(endpoint) = endpoint else {
          return Ok(None);
-@@ -98,6 +186,11 @@ fn create_audio_config(
+@@ -98,6 +191,11 @@ fn create_audio_config(
          .as_ref()
          .expect("called without audio config");
  
-+    if let Some(sink) = audio_config.packet_sink {
++    if let Some(sink) = media_sinks.audio.take() {
 +        sinks.push(Task::spawn(packet_sink_task(u32::MAX, endpoint, sink)));
 +        return Ok(None);
 +    }
@@ -264,21 +218,23 @@ index c33eb83..9285cdc 100644
      let uri = kycom.register_and_forward(endpoint)?.url();
      let player_config = player::AudioConfig {
          uri,
-@@ -113,10 +206,11 @@ fn create_player(
+@@ -113,10 +211,13 @@ fn create_player(
      metrics: Option<&MetricsProducer>,
      video_endpoints: Vec<types::VideoClientEndpoint>,
      audio_endpoint: Option<types::AudioClientEndpoint>,
++    media_sinks: &mut MediaSinks,
 +    sinks: &mut Vec<Task>,
  ) -> Result<Option<Player>> {
 -    let video_config = create_video_config(kycom, backend_config, video_endpoints)?;
-+    let video_config = create_video_config(kycom, backend_config, video_endpoints, sinks)?;
++    let video_config =
++        create_video_config(kycom, backend_config, video_endpoints, media_sinks, sinks)?;
  
 -    let audio_config = create_audio_config(kycom, backend_config, audio_endpoint)?;
-+    let audio_config = create_audio_config(kycom, backend_config, audio_endpoint, sinks)?;
++    let audio_config = create_audio_config(kycom, backend_config, audio_endpoint, media_sinks, sinks)?;
  
      let player = if video_config.is_some() || audio_config.is_some() {
          let audio_buffer = audio_config.as_ref().map(|config| config.audio_buffer);
-@@ -190,6 +284,7 @@ struct InputService {
+@@ -190,6 +291,7 @@ struct InputService {
  
  pub(super) struct KymuxDesktop {
      _kycom: kycom::KyCom,
@@ -286,7 +242,13 @@ index c33eb83..9285cdc 100644
      player: Option<Player>,
      input_service: Option<InputService>,
  }
-@@ -204,12 +299,14 @@ impl KymuxDesktop {
+@@ -199,17 +301,21 @@ impl KymuxDesktop {
+         backend_config: &KymuxBackendConfig<'_>,
+         endpoints: PlatformEndpoints,
+         metrics: Option<MetricsProducer>,
++        mut media_sinks: MediaSinks,
+     ) -> Result<Self> {
+         const IPC_PORTS: std::ops::Range<u16> = 9090..9100;
          let mut kycom = kycom::KyCom::start_on_any_port(IPC_PORTS).await?;
  
          // Play Video and Audio
@@ -297,11 +259,12 @@ index c33eb83..9285cdc 100644
              metrics.as_ref(),
              endpoints.video,
              endpoints.audio,
++            &mut media_sinks,
 +            &mut packet_sinks,
          )?;
  
          // Start input
-@@ -222,6 +319,7 @@ impl KymuxDesktop {
+@@ -222,6 +328,7 @@ impl KymuxDesktop {
  
          Ok(Self {
              _kycom: kycom,
@@ -309,7 +272,7 @@ index c33eb83..9285cdc 100644
              player,
              input_service,
          })
-@@ -268,6 +366,9 @@ impl BackendDriver for KymuxDesktop {
+@@ -268,6 +375,9 @@ impl BackendDriver for KymuxDesktop {
      }
  
      async fn stop(&mut self) -> Result<()> {
@@ -319,8 +282,58 @@ index c33eb83..9285cdc 100644
          if let Some(player) = self.player.take() {
              player.stop().await?;
          }
+diff --git a/kyclient/src/kymux_backend/mod.rs b/kyclient/src/kymux_backend/mod.rs
+index 244d72d..4c22152 100644
+--- a/kyclient/src/kymux_backend/mod.rs
++++ b/kyclient/src/kymux_backend/mod.rs
+@@ -62,8 +62,10 @@ async fn new_platform_backend(
+     backend_config: &KymuxBackendConfig<'_>,
+     endpoints: PlatformEndpoints,
+     metrics: Option<MetricsProducer>,
++    media_sinks: crate::media_sink::MediaSinks,
+ ) -> Result<Box<dyn BackendDriver>> {
+-    let backend = desktop::KymuxDesktop::new(backend_config, endpoints, metrics).await?;
++    let backend =
++        desktop::KymuxDesktop::new(backend_config, endpoints, metrics, media_sinks).await?;
+     Ok(Box::new(backend))
+ }
+ 
+@@ -72,6 +74,8 @@ async fn new_platform_backend(
+     backend_config: &KymuxBackendConfig<'_>,
+     endpoints: PlatformEndpoints,
+     metrics: Option<MetricsProducer>,
++    // KyberNow (KYB-25): the web player has no sink; dropped (`Closed`).
++    _media_sinks: crate::media_sink::MediaSinks,
+ ) -> Result<Box<dyn BackendDriver>> {
+     let backend = web::KymuxWeb::new(backend_config, endpoints, metrics).await?;
+     Ok(Box::new(backend))
+@@ -107,9 +111,13 @@ pub(crate) struct KymuxBackend {
+ 
+ impl KymuxBackend {
+     pub(crate) async fn new(
+-        backend_config: KymuxBackendConfig<'_>,
++        mut backend_config: KymuxBackendConfig<'_>,
+         metrics: Option<&MetricsProducer>,
+     ) -> Result<Self> {
++        // KyberNow (KYB-25): the application's sinks, out of the
++        // configuration now: on any failure below, those not given to a
++        // stream send `Closed` (the application frees what they hold).
++        let media_sinks = crate::media_sink::MediaSinks::take(&mut backend_config.streaming_config);
+         let (transport, endpoints) = match &backend_config.kymux_config {
+             KymuxConfig::KyProto(_) => {
+                 let (transport, endpoint) =
+@@ -135,7 +143,8 @@ impl KymuxBackend {
+             }
+         };
+ 
+-        let platform = new_platform_backend(&backend_config, endpoints, metrics.cloned()).await?;
++        let platform =
++            new_platform_backend(&backend_config, endpoints, metrics.cloned(), media_sinks).await?;
+ 
+         Ok(Self {
+             platform,
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index f09fec4..c414be7 100644
+index 3258d78..9c75658 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
 @@ -28,6 +28,7 @@ mod message_bus;
@@ -331,7 +344,7 @@ index f09fec4..c414be7 100644
  
  #[cfg_attr(not(target_family = "wasm"), path = "./platform/desktop/mod.rs")]
  #[cfg_attr(target_family = "wasm", path = "./platform/web/mod.rs")]
-@@ -197,10 +198,12 @@ enum ConnectOutcome {
+@@ -201,10 +202,12 @@ enum ConnectOutcome {
  
  struct Handler {
      conn_params: ConnectionParams,
@@ -345,7 +358,7 @@ index f09fec4..c414be7 100644
  
      state: Arc<Mutex<State>>,
      reconnection_state: ReconnectionState,
-@@ -240,7 +243,7 @@ impl Handler {
+@@ -249,7 +252,7 @@ impl Handler {
      ) -> Result<Self> {
          let auto_reconnection = connect_config.auto_reconnection;
          let conn_params = ConnectionParams::new(connect_config)?;
@@ -354,7 +367,7 @@ index f09fec4..c414be7 100644
  
          Ok(Self {
              conn_params,
-@@ -248,6 +251,7 @@ impl Handler {
+@@ -257,6 +260,7 @@ impl Handler {
              event_manager,
              message_sender,
              metrics,
@@ -362,7 +375,7 @@ index f09fec4..c414be7 100644
              state,
              reconnection_state: ReconnectionState::new(auto_reconnection),
  
-@@ -671,6 +675,34 @@ impl Handler {
+@@ -684,6 +688,34 @@ impl Handler {
              Message::SetBitrate { bitrate } => {
                  host_service::set_bitrate(&self.http_client, bitrate).await?
              }
@@ -397,16 +410,30 @@ index f09fec4..c414be7 100644
              Message::BitrateChanged { bitrate } => self.bitrate_changed(bitrate)?,
              Message::PlayerStarted => {
                  info!("Player started");
-@@ -840,6 +872,8 @@ pub struct VideoSessionConfig {
- #[derive(Clone, Debug)]
+@@ -879,9 +911,21 @@ pub struct VideoSessionConfig {
+     pub player: VideoPlayerConfig,
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Debug)]
  pub struct AudioSessionConfig {
      pub audio_buffer: Option<u32>, // None means default value
 +    /// KyberNow: when set, audio packets go to the application instead of VLC.
 +    pub packet_sink: Option<media_sink::PacketSink>,
++}
++
++/// KyberNow (KYB-25): a sink belongs to one stream: a copy has none.
++impl Clone for AudioSessionConfig {
++    fn clone(&self) -> Self {
++        Self {
++            audio_buffer: self.audio_buffer,
++            packet_sink: None,
++        }
++    }
  }
  
  impl AudioSessionConfig {
-@@ -1170,6 +1204,13 @@ impl Client {
+@@ -1223,6 +1267,13 @@ impl Client {
          Ok(())
      }
  
@@ -422,10 +449,10 @@ index f09fec4..c414be7 100644
      }
 diff --git a/kyclient/src/media_sink.rs b/kyclient/src/media_sink.rs
 new file mode 100644
-index 0000000..24ac288
+index 0000000..b74e815
 --- /dev/null
 +++ b/kyclient/src/media_sink.rs
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,150 @@
 +// KyberNow: audio and video packets handed to the application for native
 +// decoding (VideoToolbox + Metal, Opus + Core Audio on Apple platforms)
 +// instead of VLC.
@@ -465,13 +492,119 @@ index 0000000..24ac288
 +pub type MediaPacketCb = extern "C" fn(packet: *const MediaPacket, userdata: *mut std::ffi::c_void);
 +
 +/// Application callback receiving the packets of one stream.
-+#[derive(Clone, Copy, Debug)]
++///
++/// KyberNow (KYB-25): it owns what `userdata` points to until its last
++/// call, `Closed`, made exactly once: by its stream when it ends, or when
++/// it is dropped without ever reaching a stream (a start refused, no
++/// endpoint for it, an error before its stream starts). So it is neither
++/// `Copy` nor `Clone`; a copy of a configuration has no sink. It is still
++/// built and read field by field, as before (apps/core, phase 2b).
++#[derive(Debug)]
 +pub struct PacketSink {
 +    pub cb: MediaPacketCb,
 +    pub userdata: usize,
 +}
++
++impl PacketSink {
++    /// Hands `packet` to the application.
++    pub(crate) fn send(&self, packet: &MediaPacket) {
++        (self.cb)(packet, self.userdata as *mut std::ffi::c_void);
++    }
++
++    /// The last call: `Closed` for `source_id`. The sink is gone after it.
++    pub(crate) fn close(self, source_id: u32) {
++        let this = std::mem::ManuallyDrop::new(self);
++        this.send_closed(source_id);
++    }
++
++    fn send_closed(&self, source_id: u32) {
++        self.send(&MediaPacket {
++            kind: MediaPacketKind::Closed,
++            source_id,
++            codec: 0,
++            is_config: false,
++            is_key: false,
++            pts: 0,
++            missing_samples: 0,
++            data: std::ptr::null(),
++            len: 0,
++        });
++    }
++}
++
++impl Drop for PacketSink {
++    /// Never given to a stream: its last call all the same (the stream it
++    /// was meant for is unknown here).
++    fn drop(&mut self) {
++        self.send_closed(u32::MAX);
++    }
++}
++
++/// KyberNow (KYB-25): the sinks of a session's streams, taken out of its
++/// configuration when it starts, each one given to its stream. Dropped
++/// with some left (a start refused, an endpoint missing), those send
++/// `Closed` there.
++#[derive(Debug, Default)]
++pub(crate) struct MediaSinks {
++    /// In the order of the session's video configurations.
++    pub(crate) video: Vec<Option<PacketSink>>,
++    pub(crate) audio: Option<PacketSink>,
++}
++
++impl MediaSinks {
++    pub(crate) fn take(config: &mut crate::StreamingSessionConfig) -> Self {
++        Self {
++            #[cfg(not(target_family = "wasm"))]
++            video: config.video.iter_mut().map(|v| v.player.packet_sink.take()).collect(),
++            #[cfg(target_family = "wasm")]
++            video: Vec::new(),
++            audio: config.audio.as_mut().and_then(|a| a.packet_sink.take()),
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::Mutex;
++
++    static CALLS: Mutex<Vec<(MediaPacketKind, u32, usize)>> = Mutex::new(Vec::new());
++
++    extern "C" fn record(packet: *const MediaPacket, userdata: *mut std::ffi::c_void) {
++        let p = unsafe { &*packet };
++        CALLS.lock().unwrap().push((p.kind, p.source_id, userdata as usize));
++    }
++
++    fn calls_for(userdata: usize) -> Vec<(MediaPacketKind, u32)> {
++        CALLS.lock().unwrap().iter().filter(|c| c.2 == userdata).map(|c| (c.0, c.1)).collect()
++    }
++
++    #[test]
++    fn a_sink_never_given_to_a_stream_is_closed_once() {
++        drop(PacketSink { cb: record, userdata: 101 });
++        assert_eq!(calls_for(101), [(MediaPacketKind::Closed, u32::MAX)]);
++    }
++
++    #[test]
++    fn a_sink_closed_by_its_stream_is_not_closed_again() {
++        let sink = PacketSink { cb: record, userdata: 102 };
++        sink.close(7);
++        assert_eq!(calls_for(102), [(MediaPacketKind::Closed, 7)]);
++    }
++
++    #[test]
++    fn the_sinks_left_in_a_refused_start_are_closed() {
++        let sinks = MediaSinks {
++            video: vec![Some(PacketSink { cb: record, userdata: 103 }), None],
++            audio: Some(PacketSink { cb: record, userdata: 104 }),
++        };
++        drop(sinks);
++        assert_eq!(calls_for(103), [(MediaPacketKind::Closed, u32::MAX)]);
++        assert_eq!(calls_for(104), [(MediaPacketKind::Closed, u32::MAX)]);
++    }
++}
 diff --git a/kyclient/src/platform/desktop/mod.rs b/kyclient/src/platform/desktop/mod.rs
-index d4a8d65..76b2cf0 100644
+index d4a8d65..18836a9 100644
 --- a/kyclient/src/platform/desktop/mod.rs
 +++ b/kyclient/src/platform/desktop/mod.rs
 @@ -36,6 +36,7 @@ pub(crate) use host_events::{WsClient, WsClientBuilder};
@@ -482,13 +615,31 @@ index d4a8d65..76b2cf0 100644
  
  use crate::{AuthCredentials, Error, Result};
  
-@@ -111,14 +112,19 @@ pub struct VideoPlayerConfig {
+@@ -106,19 +107,36 @@ impl ConnectConfig {
+     }
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Debug)]
+ pub struct VideoPlayerConfig {
      pub window_handle: WindowHandle,
      pub software_decode: bool,
      pub video_buffer: u32, // ms
 +    /// KyberNow: when set, video packets go to the application (native
 +    /// decoding) instead of VLC.
 +    pub packet_sink: Option<PacketSink>,
++}
++
++/// KyberNow (KYB-25): a sink belongs to one stream: a copy has none.
++impl Clone for VideoPlayerConfig {
++    fn clone(&self) -> Self {
++        Self {
++            window_handle: self.window_handle.clone(),
++            software_decode: self.software_decode,
++            video_buffer: self.video_buffer,
++            packet_sink: None,
++        }
++    }
  }
  
 +

@@ -1,5 +1,5 @@
 diff --git a/subprojects/txproto/src/encode.c b/subprojects/txproto/src/encode.c
-index f9e1fae..7680f45 100644
+index 21b9f6e..5374dd8 100644
 --- a/subprojects/txproto/src/encode.c
 +++ b/subprojects/txproto/src/encode.c
 @@ -30,6 +30,8 @@
@@ -11,7 +11,7 @@ index f9e1fae..7680f45 100644
  #include "os_compat.h"
  #include <libtxproto/utils.h>
  #include "utils.h"
-@@ -724,6 +726,10 @@ static void *encoding_thread(void *arg)
+@@ -770,6 +772,10 @@ static void *encoding_thread(void *arg)
                      tx_metrics_push(ctx->metrics, metrics, SP_ARRAY_ELEMS(metrics));
                  }
  
@@ -22,7 +22,7 @@ index f9e1fae..7680f45 100644
                  /* Give frame */
                  ret = avcodec_send_frame(ctx->avctx, frame);
                  av_frame_free(&frame);
-@@ -789,6 +795,13 @@ static void *encoding_thread(void *arg)
+@@ -835,6 +841,13 @@ static void *encoding_thread(void *arg)
                  goto fail;
              }
  
@@ -36,7 +36,7 @@ index f9e1fae..7680f45 100644
              out_pkt->opaque = (void *)(intptr_t)sp_class_get_id(ctx);
              out_pkt->time_base = ctx->avctx->time_base;
  
-@@ -977,6 +990,7 @@ static void encoder_free(void *opaque, uint8_t *data)
+@@ -1023,6 +1036,7 @@ static void encoder_free(void *opaque, uint8_t *data)
          av_buffer_unref(&ctx->enc_frames_ref);
  
      avcodec_free_context(&ctx->avctx);
@@ -59,7 +59,7 @@ index 6483015..2c768a1 100644
  
  AVBufferRef *sp_encoder_alloc(void);
 diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
-index ac217a2..e6ec33f 100644
+index 74d9aaf..74f6e4e 100644
 --- a/subprojects/txproto/src/iosys_dxgi.c
 +++ b/subprojects/txproto/src/iosys_dxgi.c
 @@ -35,6 +35,8 @@
@@ -149,7 +149,7 @@ index ac217a2..e6ec33f 100644
      if (FAILED(hr)) {
          if (!priv->kn_conv_errors++)
              sp_log(entry, SP_LOG_ERROR, "HDR: conversion failed: 0x%lX\n", hr);
-@@ -1644,6 +1669,7 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+@@ -1707,6 +1732,7 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
              lock_timeouts++;
              continue;
          }
@@ -157,7 +157,7 @@ index ac217a2..e6ec33f 100644
  
          ID3D11Resource *source = (ID3D11Resource *)w->textures[slot];
          if (!priv->got_first_frame) {
-@@ -1667,8 +1693,10 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
+@@ -1730,8 +1756,10 @@ static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *
              continue;
          }
  
@@ -170,7 +170,7 @@ index ac217a2..e6ec33f 100644
          IDXGIKeyedMutex_ReleaseSync(w->mutexes[slot], 0);
          if (err < 0) {
              av_frame_free(&frame);
-@@ -1791,6 +1819,13 @@ static void *dxgi_capture_thread(void *s)
+@@ -1838,6 +1866,13 @@ static void *dxgi_capture_thread(void *s)
      /* KyberNow (0022): SDR white and luminance (WGC on an HDR display too). */
      kn_hdr_output_info((IUnknown *)dxgi_output, &priv->kn_info);
  
@@ -184,7 +184,7 @@ index ac217a2..e6ec33f 100644
      err = sp_dxgi_cursor_handler_init(&priv->cursor_sink, entry->identifier,
                                        priv->cursor_move_rate);
      if (err < 0) {
-@@ -1876,6 +1911,7 @@ static void *dxgi_capture_thread(void *s)
+@@ -1932,6 +1967,7 @@ static void *dxgi_capture_thread(void *s)
              goto fail;
          }
  
@@ -192,7 +192,7 @@ index ac217a2..e6ec33f 100644
          if (!priv->got_first_frame) {
              sp_log(entry, SP_LOG_INFO, "First frame acquired (desktop duplication, %dx%d at (%d,%d))\n",
                     entry->width, entry->height, entry->x, entry->y);
-@@ -1943,7 +1979,8 @@ static void *dxgi_capture_thread(void *s)
+@@ -1999,7 +2035,8 @@ static void *dxgi_capture_thread(void *s)
          sp_log(entry, SP_LOG_TRACE, "Grab image\n");
  
          /* KyberNow (0022): converted on the graphics card for HDR. */
@@ -202,7 +202,7 @@ index ac217a2..e6ec33f 100644
  
          IDXGIResource_Release(acquired_tex);
          acquired_tex = NULL;
-@@ -2009,6 +2046,7 @@ fail:
+@@ -2065,6 +2102,7 @@ fail:
  
      stop_capture(priv);
      kn_hdr_conv_free(&priv->kn_conv); /* KyberNow (0022) */
@@ -212,15 +212,15 @@ index ac217a2..e6ec33f 100644
      if (dxgi_output)
 diff --git a/subprojects/txproto/src/kn_timing.h b/subprojects/txproto/src/kn_timing.h
 new file mode 100644
-index 0000000..fe9cc31
+index 0000000..782b2fb
 --- /dev/null
 +++ b/subprojects/txproto/src/kn_timing.h
 @@ -0,0 +1,467 @@
 +/*
 + * KyberNow (0023): time spent by each image at each step on the computer,
-+ * in SDR and in HDR, for both capture engines. The same file is in txproto
-+ * (src/kn_timing.h), libavgrab (libavgrab/kn_timing.h) and libavconv
-+ * (libavconv/kn_timing.h).
++ * in SDR and in HDR, for both capture engines: this one file, which
++ * libavgrab (dxgi.c) and libavconv (enc.c) include from here
++ * (0023-libavgrab-latence).
 + *
 + * The capture attaches a KnFrameTiming to each image: frame side data of a
 + * type of its own (like libavgrab's), carried through the filters with the

@@ -1,6 +1,8 @@
+diff --git a/kyavservice/src/kybernow.rs b/kyavservice/src/kybernow.rs
+index 7ef6d6b..c323689 100644
 --- a/kyavservice/src/kybernow.rs
 +++ b/kyavservice/src/kybernow.rs
-@@ -31,14 +31,24 @@
+@@ -31,12 +31,22 @@ pub(crate) fn minimum_bitrate(display_floor: u32, guest_image: bool) -> u32 {
  /// Encoders whose image can be scaled down: on Windows only (D3D11 frames of
  /// the desktop capture), on the graphics card for NVENC, AMF and QSV, in
  /// software for x264.
@@ -16,18 +18,16 @@
 -        )
 +        ))
 +        || (cfg!(target_os = "macos") && matches!(encoder, VideoEncoder::VIDEOTOOLBOX))
- }
- 
++}
++
 +/// KyberNow (0007): VideoToolbox scales a guest's own image down on the
 +/// capture's frames (ScreenCaptureKit, VideoToolbox pixel buffers).
 +pub(crate) fn vt_scale(scale: VideoScale) -> String {
 +    format!("scale_vt=w={}:h={}", scale.width, scale.height)
-+}
-+
+ }
+ 
  /// Checks a guest's own image against what the engine can make: `scaling`
- /// with this encoder, `rate_limit` a capped rate. The error is why the
- /// stream is refused at start.
-@@ -129,13 +139,18 @@
+@@ -129,13 +139,18 @@ mod tests {
              assert!(can_scale(encoder, true), "{encoder:?}");
              assert!(!can_scale(encoder, false), "{encoder:?}");
          }
@@ -51,12 +51,14 @@
      }
  
      #[test]
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index 45cddf6..cadd16b 100644
 --- a/kyavservice/src/txproto/run.rs
 +++ b/kyavservice/src/txproto/run.rs
-@@ -241,7 +241,9 @@
+@@ -275,7 +275,9 @@ async fn handle_command(
              // PyroWave scales it down itself.
-             let scaling = (windows && codec == VideoCodec::PyroWave)
-                 || kybernow::can_scale(config.encoder(), windows);
+             let scaling =
+                 codec == VideoCodec::PyroWave || kybernow::can_scale(config.encoder(), windows);
 -            if let Err(reason) = kybernow::check(scale, max_fps, scaling, windows) {
 +            // KyberNow (0007): ScreenCaptureKit caps the rate too (Mac Station).
 +            let rate_limit = windows || cfg!(target_os = "macos");
@@ -64,9 +66,11 @@
                  error!("Refused Kymux Video: {reason}");
                  response.send(Err(kyavservice_types::Error(reason)))?;
                  return Ok(());
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index 7dc94d7..9bb138a 100644
 --- a/kyavservice/src/txproto/video.rs
 +++ b/kyavservice/src/txproto/video.rs
-@@ -592,6 +592,7 @@
+@@ -663,6 +663,7 @@ fn create_videotoolbox(
      config: &VideoConfig,
      video_source: &txproto_rs::Handle,
  ) -> Result<txproto_rs::Handle> {
@@ -74,7 +78,7 @@
      // Configure Codec
      let mut options = vec![
          ("preset", "medium").into(),
-@@ -632,7 +633,21 @@
+@@ -708,7 +709,21 @@ fn create_videotoolbox(
  
      info!("Create encoder {enc_name}");
      let encoder = ctx.create_encoder(config)?;
@@ -97,7 +101,7 @@
  
      Ok(encoder)
  }
-@@ -704,7 +719,19 @@
+@@ -782,7 +797,19 @@ pub(crate) fn configure(
          Some(Dictionary::from_entries(&options)?)
      };
  

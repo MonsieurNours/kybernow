@@ -1,17 +1,103 @@
+diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
+index b5a5940..1726929 100644
+--- a/kycontroller/src/avservice.rs
++++ b/kycontroller/src/avservice.rs
+@@ -247,6 +247,10 @@ impl Handler {
+         // its host (an SDR image is then brought down from it).
+         hdr: bool,
+         hdr_capture: bool,
++        // KyberNow (0025): the client's codec if PyroWave is refused after
++        // all, and the PyroWave configuration packet it reads.
++        fallback_codec: Option<VideoCodec>,
++        pyrowave_header: u8,
+     ) -> Result<Self> {
+         Self::start_inner(
+             process_factory,
+@@ -266,6 +270,8 @@ impl Handler {
+                 max_fps,
+                 hdr,
+                 hdr_capture,
++                fallback_codec,
++                pyrowave_header,
+             },
+         )
+         .await
+diff --git a/kycontroller/src/avservices_manager.rs b/kycontroller/src/avservices_manager.rs
+index a35eed9..78816fa 100644
+--- a/kycontroller/src/avservices_manager.rs
++++ b/kycontroller/src/avservices_manager.rs
+@@ -526,6 +526,12 @@ pub(crate) struct VideoStreamConfig {
+     /// KyberNow (0022): the display is captured in HDR (its host's image is
+     /// HDR); with `hdr` false, an SDR image brought down from that capture.
+     pub(crate) hdr_capture: bool,
++    /// KyberNow (0025): the client's codec when kyavserver cannot encode
++    /// PyroWave after all (kycontroller already chose by the same rule).
++    pub(crate) fallback_codec: Option<VideoCodec>,
++    /// KyberNow (0025): the PyroWave configuration packet the encoder
++    /// writes (`pyrowave::header`: 0 for another codec, 1 or 2).
++    pub(crate) pyrowave_header: u8,
+ }
+ 
+ /// KyberNow: tells the share supervisor when the guest image `key` sent no
+@@ -561,6 +567,7 @@ impl VideoStreamConfig {
+             && self.intra_refresh == other.intra_refresh
+             && self.hdr == other.hdr
+             && self.hdr_capture == other.hdr_capture
++            && self.pyrowave_header == other.pyrowave_header
+     }
+ }
+ 
+@@ -1033,6 +1040,8 @@ impl AVServicesManager {
+             max_fps,
+             config.hdr,
+             config.hdr_capture,
++            config.fallback_codec.clone(),
++            config.pyrowave_header,
+         )
+         .await?;
+ 
+@@ -1304,6 +1313,7 @@ impl AVServicesManager {
+             codec: ImageCodec::from(&stream.config.codec),
+             yuv444: stream.config.yuv444,
+             hdr: stream.config.hdr,
++            pyrowave_header: stream.config.pyrowave_header,
+             bitrate: stream.config.bitrate,
+         })
+     }
+@@ -1759,6 +1769,8 @@ mod tests {
+             pixel_rate: 0,
+             hdr: false,
+             hdr_capture: false,
++            fallback_codec: None,
++            pyrowave_header: 0,
+         }
+     }
+ 
+@@ -2068,6 +2080,7 @@ mod tests {
+                 codec: ImageCodec::H264,
+                 hdr: false,
+                 hdr_source: false,
++                pyrowave_header: 0,
+             },
+             screen: SCREEN,
+         }
 diff --git a/kycontroller/src/config.rs b/kycontroller/src/config.rs
-index 3516040..9ce8d79 100644
+index 3516040..c0c1709 100644
 --- a/kycontroller/src/config.rs
 +++ b/kycontroller/src/config.rs
-@@ -194,12 +194,23 @@ impl Config {
+@@ -194,12 +194,26 @@ impl Config {
      }
  }
  
 +impl Config {
 +    /// KyberNow (0025): PyroWave offered by this Station (docs/pyrowave.md):
-+    /// Windows, `[kyavserver] pyrowave` true or missing (KyberNow Admin
-+    /// writes false when the graphics card has no suitable Vulkan 1.3).
++    /// its engine encodes it on this system (`pyrowave::engine_encodes`:
++    /// txproto on Windows and the Mac, libavconv on Windows and Linux), and
++    /// `[kyavserver] pyrowave` is true or missing (KyberNow Admin writes
++    /// false when the graphics card has no suitable Vulkan 1.3).
 +    pub(crate) fn pyrowave(&self) -> bool {
-+        cfg!(target_os = "windows") && self.kyavserver.pyrowave.unwrap_or(true)
++        crate::pyrowave::engine_encodes(self.kyavserver.backend.as_deref())
++            && self.kyavserver.pyrowave.unwrap_or(true)
 +    }
 +}
 +
@@ -26,7 +112,7 @@ index 3516040..9ce8d79 100644
  }
  
  #[derive(Debug, thiserror::Error)]
-@@ -270,6 +281,7 @@ pub(crate) fn from_table(table: &toml::Table) -> Result<Config, ParseError> {
+@@ -270,6 +284,7 @@ pub(crate) fn from_table(table: &toml::Table) -> Result<Config, ParseError> {
          config.kyavserver = KyavserverEngine {
              backend: text("backend"),
              encoder: text("encoder"),
@@ -34,23 +120,27 @@ index 3516040..9ce8d79 100644
          };
      }
  
-@@ -286,6 +298,14 @@ mod tests {
+@@ -286,6 +301,18 @@ mod tests {
          from_table(&text.parse().unwrap()).unwrap().share_images()
      }
  
 +    #[test]
-+    fn pyrowave_is_offered_on_windows_unless_turned_off() {
++    fn pyrowave_is_offered_by_its_engine_unless_turned_off() {
 +        let offered = |text: &str| from_table(&text.parse().unwrap()).unwrap().pyrowave();
-+        assert_eq!(offered("[kyavserver]\nencoder = \"nvenc\""), cfg!(target_os = "windows"));
-+        assert_eq!(offered(""), cfg!(target_os = "windows"));
++        let txproto = cfg!(any(target_os = "windows", target_os = "macos"));
++        let libavconv = cfg!(any(target_os = "windows", target_os = "linux"));
++        assert_eq!(offered("[kyavserver]\nencoder = \"nvenc\""), txproto);
++        assert_eq!(offered(""), txproto);
++        assert_eq!(offered("[kyavserver]\nbackend = \"libavconv\""), libavconv);
 +        assert!(!offered("[kyavserver]\npyrowave = false"));
++        assert!(!offered("[kyavserver]\nbackend = \"libavconv\"\npyrowave = false"));
 +    }
 +
      #[test]
      fn the_guest_image_budget_comes_from_kyavserver() {
          let both = |with_host, can_scale| ImageBudget {
 diff --git a/kycontroller/src/guest_image.rs b/kycontroller/src/guest_image.rs
-index bd382fd..2bad36e 100644
+index bd382fd..f9a5fe1 100644
 --- a/kycontroller/src/guest_image.rs
 +++ b/kycontroller/src/guest_image.rs
 @@ -37,6 +37,8 @@ pub(crate) enum ImageCodec {
@@ -86,28 +176,248 @@ index bd382fd..2bad36e 100644
          }
      }
  }
+@@ -113,24 +118,32 @@ pub(crate) struct GuestImage {
+     /// KyberNow (0022): made from the display's HDR capture (the host's
+     /// image is HDR); an SDR image is then brought down from it.
+     pub(crate) hdr_source: bool,
++    /// KyberNow (0025): the PyroWave configuration packet its encoder
++    /// writes (0 for another codec): guests reading another version never
++    /// share it.
++    pub(crate) pyrowave_header: u8,
+ }
+ 
+ impl GuestImage {
+-    fn new(mode: Mode, codec: ImageCodec, hdr: bool, hdr_source: bool) -> Self {
++    fn new(mode: Mode, reader: Reader, hdr: bool, hdr_source: bool) -> Self {
+         Self {
+             width: mode.width,
+             height: mode.height,
+             fps: mode.fps,
+-            codec,
++            codec: reader.codec,
+             hdr,
+             hdr_source,
++            pyrowave_header: reader.pyrowave_header,
+         }
+     }
+ 
+     /// KyberNow (0022): whether `reader` can show it (its format; HDR
+-    /// only on an HDR screen).
++    /// only on an HDR screen; KyberNow (0025): a PyroWave configuration
++    /// packet it reads).
+     fn read_by(self, reader: Reader) -> bool {
+-        self.codec == reader.codec && (!self.hdr || reader.hdr)
++        self.codec == reader.codec
++            && (!self.hdr || reader.hdr)
++            && self.pyrowave_header <= reader.pyrowave_header
+     }
+ 
+     pub(crate) fn mode(self) -> Mode {
+@@ -287,6 +300,9 @@ pub(crate) struct HostImage {
+     pub(crate) yuv444: bool,
+     /// KyberNow (0022): HDR10, its display captured in HDR.
+     pub(crate) hdr: bool,
++    /// KyberNow (0025): the PyroWave configuration packet its encoder
++    /// writes (0 for another codec).
++    pub(crate) pyrowave_header: u8,
+     /// Its current bitrate.
+     pub(crate) bitrate: u32,
+ }
+@@ -299,11 +315,17 @@ pub(crate) struct Reader {
+     pub(crate) yuv444: bool,
+     /// KyberNow (0022): the guest's screen shows HDR (its `hdr`).
+     pub(crate) hdr: bool,
++    /// KyberNow (0025): the newest PyroWave configuration packet it reads
++    /// (0 for another codec, 1 for an app before 0.11.8).
++    pub(crate) pyrowave_header: u8,
+ }
+ 
+ impl Reader {
+     fn reads(self, host: &HostImage) -> bool {
+-        self.codec == host.codec && (!host.yuv444 || self.yuv444) && (!host.hdr || self.hdr)
++        self.codec == host.codec
++            && (!host.yuv444 || self.yuv444)
++            && (!host.hdr || self.hdr)
++            && host.pyrowave_header <= self.pyrowave_header
+     }
+ }
+ 
+@@ -505,7 +527,7 @@ fn place(
+     // Without a host image, the guest's own display tells (a lent display
+     // in HDR: captured in HDR, brought to SDR for an SDR reader).
+     let hdr_source = s.host.map_or(ask.source_hdr, |h| h.hdr);
+-    let image = GuestImage::new(mode, ask.reader.codec, hdr_source && ask.reader.hdr, hdr_source);
++    let image = GuestImage::new(mode, ask.reader, hdr_source && ask.reader.hdr, hdr_source);
+     if s.open.contains(&image) {
+         return Ok(Choice {
+             placement: Placement::Join(image),
+@@ -664,6 +686,7 @@ mod tests {
+             codec,
+             yuv444,
+             hdr: false,
++            pyrowave_header: 0,
+             bitrate: 80_000_000,
+         }
+     }
+@@ -673,6 +696,7 @@ mod tests {
+             codec,
+             yuv444,
+             hdr: false,
++            pyrowave_header: 0,
+         }
+     }
+ 
+@@ -705,6 +729,7 @@ mod tests {
+             codec,
+             hdr: false,
+             hdr_source: false,
++            pyrowave_header: 0,
+         }
+     }
+ 
+@@ -743,6 +768,36 @@ mod tests {
+         assert_eq!(c.placement, Placement::FollowHost);
+     }
+ 
++    /// KyberNow (0025): a PyroWave host image with the version 2 header is
++    /// never given to an app that reads only version 1 (0.11.7).
++    #[test]
++    fn an_older_pyrowave_reader_never_gets_a_newer_header() {
++        let h = HostImage {
++            pyrowave_header: 2,
++            ..host(UHD160, ImageCodec::PyroWave, false)
++        };
++        let old = Reader {
++            pyrowave_header: 1,
++            ..reader(ImageCodec::PyroWave, false)
++        };
++        let c = choose(&with_host(h, &[], 0), &ask(ShareQuality::Host, old)).unwrap();
++        let image = opened(c);
++        assert_eq!(image.pyrowave_header, 1);
++        let new = Reader {
++            pyrowave_header: 2,
++            ..old
++        };
++        let c = choose(&with_host(h, &[], 0), &ask(ShareQuality::Host, new)).unwrap();
++        assert_eq!(c.placement, Placement::FollowHost);
++        // Open images: a reader of version 1 does not join a version 2 one.
++        let open = [GuestImage {
++            pyrowave_header: 2,
++            ..image
++        }];
++        let c = choose(&with_host(h, &open, 1), &ask(ShareQuality::Host, old)).unwrap();
++        assert_ne!(c.placement, Placement::Join(open[0]));
++    }
++
+     #[test]
+     fn an_sdr_guest_of_an_hdr_host_gets_an_sdr_image_of_its_own() {
+         let c = choose(
+diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index 7b38fb6..7618b43 100644
+--- a/kycontroller/src/kybernow.rs
++++ b/kycontroller/src/kybernow.rs
+@@ -307,6 +307,9 @@ pub(crate) struct GuestRequest {
+     pub(crate) yuv444: bool,
+     /// KyberNow (0022): its screen shows HDR (its start request's `hdr`).
+     pub(crate) hdr: bool,
++    /// KyberNow (0025): the PyroWave configuration packet it reads
++    /// (`pyrowave::header`).
++    pub(crate) pyrowave_header: u8,
+     pub(crate) bitrate: u32,
+     pub(crate) intra_refresh: Option<bool>,
+ }
+@@ -402,6 +405,7 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
+                 codec: request.codec,
+                 yuv444: request.yuv444,
+                 hdr: request.hdr,
++                pyrowave_header: request.pyrowave_header,
+             },
+             bitrate: request.bitrate,
+             source_hdr: s.share.as_ref().is_some_and(|share| share.hdr),
+@@ -548,6 +552,9 @@ async fn acquire_placement(
+                 // host's HDR capture; SDR brought down from it otherwise.
+                 hdr: image.hdr,
+                 hdr_capture: image.hdr_source,
++                // Its codec was chosen by its start request already.
++                fallback_codec: None,
++                pyrowave_header: image.pyrowave_header,
+             };
+             let topology = VideoTopology::Guest {
+                 display_id,
+@@ -1781,6 +1788,8 @@ mod tests {
+             pixel_rate: 0,
+             hdr: false,
+             hdr_capture: false,
++            fallback_codec: None,
++            pyrowave_header: 0,
+         }
+     }
+ 
+@@ -1806,6 +1815,7 @@ mod tests {
+                 codec: ImageCodec::H264,
+                 hdr: false,
+                 hdr_source: false,
++                pyrowave_header: 0,
+             },
+             screen,
+         }
+@@ -1823,6 +1833,7 @@ mod tests {
+                 codec: ImageCodec::H264,
+                 yuv444: false,
+                 hdr: false,
++                pyrowave_header: 0,
+                 bitrate: 40_000_000,
+                 intra_refresh: None,
+             },
+@@ -1841,6 +1852,7 @@ mod tests {
+                 codec: ImageCodec::H264,
+                 yuv444: false,
+                 hdr: false,
++                pyrowave_header: 0,
+             },
+             bitrate: 40_000_000,
+             source_hdr: false,
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 34f0646..6ae6f2b 100644
+index 00c4f3f..dd08e57 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -398,7 +398,14 @@ async fn start_video(
+@@ -398,7 +398,16 @@ async fn start_video(
          };
          let display_id = stream_request.display_id;
  
 -        let codec = stream_request.codec.convert();
 +        // KyberNow (0025): PyroWave only where this Station offers it, else
 +        // the client's fallback; the stream's codec packet tells it which.
++        let fallback_codec = stream_request.fallback_codec.clone();
 +        let codec = crate::pyrowave::codec(
 +            stream_request.codec,
 +            stream_request.fallback_codec,
 +            ctrl.config.pyrowave(),
-+        )
-+        .convert();
++        );
++        let pyrowave_header = crate::pyrowave::header(&codec, stream_request.pyrowave_header);
++        let codec = codec.convert();
          // KyberNow (0022): HDR of this display, not with H.264 nor 4:4:4.
          let hdr = crate::hdr::accepted(
              display_id,
+@@ -416,6 +425,8 @@ async fn start_video(
+             // The host's (and a single client's) display is captured in
+             // HDR when its image is HDR.
+             hdr_capture: hdr,
++            fallback_codec: fallback_codec.map(|c| c.convert()),
++            pyrowave_header,
+         };
+ 
+         // Build the topology. In Mono mode we consume `client_endpoint`
+@@ -431,6 +442,7 @@ async fn start_video(
+                     codec: crate::guest_image::ImageCodec::from(&config.codec),
+                     yuv444: config.yuv444,
+                     hdr: config.hdr,
++                    pyrowave_header: config.pyrowave_header,
+                     bitrate: config.bitrate,
+                     intra_refresh: config.intra_refresh,
+                 };
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index 550582f..d69a8ec 100644
+index a72b735..2528e7d 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -54,6 +54,7 @@ mod kyber_agent;
@@ -120,17 +430,30 @@ index 550582f..d69a8ec 100644
  mod session;
 diff --git a/kycontroller/src/pyrowave.rs b/kycontroller/src/pyrowave.rs
 new file mode 100644
-index 0000000..03e28c3
+index 0000000..578deec
 --- /dev/null
 +++ b/kycontroller/src/pyrowave.rs
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,77 @@
 +// KyberNow (0025): PyroWave (docs/pyrowave.md). A client asks for it only
 +// when the Station announces it (KyberNow Admin, `GET /api/stream/info`),
-+// with a fallback codec; the Station encodes it only when it offers it
-+// (`[kyavserver] pyrowave`, Windows). kyavserver checks again.
++// with a fallback codec; the Station encodes it only when the engine of
++// `[kyavserver] backend` has a PyroWave encoder on this system and
++// `[kyavserver] pyrowave` allows it. kyavserver checks again with the same
++// rule (0025-kyavservice, `engine_encodes`) and the same fallback.
 +
 +use kyctl_common::enums::VideoCodec;
 +use log::warn;
++
++/// Whether the engine of `[kyavserver] backend` encodes PyroWave on this
++/// system: txproto (the default) on Windows and the Mac (ScreenCaptureKit),
++/// libavconv on Windows and Linux (PipeWire).
++pub(crate) fn engine_encodes(backend: Option<&str>) -> bool {
++    if backend.is_some_and(|b| b.eq_ignore_ascii_case("libavconv")) {
++        cfg!(any(target_os = "windows", target_os = "linux"))
++    } else {
++        cfg!(any(target_os = "windows", target_os = "macos"))
++    }
++}
 +
 +/// The codec a display's stream gets: PyroWave if asked for and offered,
 +/// else the fallback (H.264 without one); any other codec as asked.
@@ -145,6 +468,17 @@ index 0000000..03e28c3
 +    fallback
 +}
 +
++/// The newest PyroWave configuration packet (`KNPW` version) the encoder
++/// writes for a client that reads up to `asked` (its start request): 0 for
++/// another codec, 1 for an app that says nothing (0.11.7 and older), 2 at
++/// most (the newest this Station writes).
++pub(crate) fn header(codec: &VideoCodec, asked: Option<u8>) -> u8 {
++    if *codec != VideoCodec::PyroWave {
++        return 0;
++    }
++    asked.unwrap_or(1).clamp(1, 2)
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
@@ -156,6 +490,25 @@ index 0000000..03e28c3
 +        assert_eq!(codec(VideoCodec::PyroWave, None, false), VideoCodec::H264);
 +        assert_eq!(codec(VideoCodec::PyroWave, Some(VideoCodec::PyroWave), false), VideoCodec::H264);
 +        assert_eq!(codec(VideoCodec::AV1, None, false), VideoCodec::AV1);
++    }
++
++    #[test]
++    fn the_engines_that_encode_pyrowave() {
++        // Same rule as kyavservice's `engine_encodes` (KYB-31).
++        let txproto = cfg!(any(target_os = "windows", target_os = "macos"));
++        let libavconv = cfg!(any(target_os = "windows", target_os = "linux"));
++        assert_eq!(engine_encodes(None), txproto);
++        assert_eq!(engine_encodes(Some("txproto")), txproto);
++        assert_eq!(engine_encodes(Some("libavconv")), libavconv);
++    }
++
++    #[test]
++    fn the_header_an_older_app_reads() {
++        assert_eq!(header(&VideoCodec::HEVC, Some(2)), 0);
++        assert_eq!(header(&VideoCodec::PyroWave, None), 1);
++        assert_eq!(header(&VideoCodec::PyroWave, Some(0)), 1);
++        assert_eq!(header(&VideoCodec::PyroWave, Some(2)), 2);
++        assert_eq!(header(&VideoCodec::PyroWave, Some(9)), 2);
 +    }
 +}
 diff --git a/kycontroller/src/utils.rs b/kycontroller/src/utils.rs

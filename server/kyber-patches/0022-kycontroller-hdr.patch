@@ -1,8 +1,8 @@
 diff --git a/kycontroller/src/auth/jwt.rs b/kycontroller/src/auth/jwt.rs
-index 35e6fa4..e0f82b1 100644
+index f8def04..fed0877 100644
 --- a/kycontroller/src/auth/jwt.rs
 +++ b/kycontroller/src/auth/jwt.rs
-@@ -137,6 +137,11 @@ struct Claims {
+@@ -142,6 +142,11 @@ struct Claims {
      /// KyberNow: KyberNow Admin's own token, for the `/kybernow` routes.
      #[serde(default)]
      kn_admin: bool,
@@ -14,18 +14,18 @@ index 35e6fa4..e0f82b1 100644
  }
  
  pub struct Jwt {
-@@ -199,6 +204,7 @@ impl Backend for Jwt {
-                 display,
+@@ -205,6 +210,7 @@ impl Backend for Jwt {
                  rev: jwt.claims.kn_rev.unwrap_or(0),
                  quality: guest_quality(jwt.claims.kn_quality.as_deref()),
+                 qrev: jwt.claims.kn_qrev.unwrap_or(0),
 +                hdr: jwt.claims.kn_hdr,
              }),
              (Some(_), None) => {
                  return Err(Error::MissingField {
-@@ -338,11 +344,30 @@ mod tests {
-                 display: 2221634456,
+@@ -345,11 +351,30 @@ mod tests {
                  rev: 3,
                  quality: ShareQuality::Host,
+                 qrev: 0,
 +                hdr: false,
              })
          );
@@ -54,13 +54,13 @@ index 35e6fa4..e0f82b1 100644
      fn keyboard_and_mouse_without_gamepads_is_a_role() {
          let session = authenticate(serde_json::json!({
 diff --git a/kycontroller/src/auth/mod.rs b/kycontroller/src/auth/mod.rs
-index 25d681c..122d8bb 100644
+index 4e6b8e9..443e00a 100644
 --- a/kycontroller/src/auth/mod.rs
 +++ b/kycontroller/src/auth/mod.rs
-@@ -182,6 +182,8 @@ pub struct GuestShare {
-     pub display: u32,
-     pub rev: u64,
-     pub quality: ShareQuality,
+@@ -186,6 +186,8 @@ pub struct GuestShare {
+     /// Revision of `quality` (`kn_qrev`, 0 when absent): a quality pushed
+     /// with an older one (or none) gives way to it at login.
+     pub qrev: u64,
 +    /// KyberNow (0022): its display is in HDR without a host image (`kn_hdr`).
 +    pub hdr: bool,
  }
@@ -91,7 +91,7 @@ index c2deb57..b5a5940 100644
          )
          .await
 diff --git a/kycontroller/src/avservices_manager.rs b/kycontroller/src/avservices_manager.rs
-index 651f5a2..016d757 100644
+index 4a304e2..a35eed9 100644
 --- a/kycontroller/src/avservices_manager.rs
 +++ b/kycontroller/src/avservices_manager.rs
 @@ -521,6 +521,11 @@ pub(crate) struct VideoStreamConfig {
@@ -115,7 +115,7 @@ index 651f5a2..016d757 100644
      }
  }
  
-@@ -1002,6 +1009,8 @@ impl AVServicesManager {
+@@ -1024,6 +1031,8 @@ impl AVServicesManager {
              config.intra_refresh,
              scale,
              max_fps,
@@ -124,7 +124,7 @@ index 651f5a2..016d757 100644
          )
          .await?;
  
-@@ -1272,6 +1281,7 @@ impl AVServicesManager {
+@@ -1294,6 +1303,7 @@ impl AVServicesManager {
              mode: screen,
              codec: ImageCodec::from(&stream.config.codec),
              yuv444: stream.config.yuv444,
@@ -132,7 +132,7 @@ index 651f5a2..016d757 100644
              bitrate: stream.config.bitrate,
          })
      }
-@@ -1725,6 +1735,8 @@ mod tests {
+@@ -1747,6 +1757,8 @@ mod tests {
              yuv444: false,
              intra_refresh: None,
              pixel_rate: 0,
@@ -141,7 +141,7 @@ index 651f5a2..016d757 100644
          }
      }
  
-@@ -2032,6 +2044,8 @@ mod tests {
+@@ -2054,6 +2066,8 @@ mod tests {
                  height,
                  fps,
                  codec: ImageCodec::H264,
@@ -150,7 +150,7 @@ index 651f5a2..016d757 100644
              },
              screen: SCREEN,
          }
-@@ -2096,6 +2110,14 @@ mod tests {
+@@ -2118,6 +2132,14 @@ mod tests {
              ..video_config()
          };
          assert_eq!(manager.host_start(1, &yuv444), HostStart::New);
@@ -562,10 +562,10 @@ index 0000000..f9a197b
 +    }
 +}
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 55e9ffc..06ff9c2 100644
+index bfa79bc..7b38fb6 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -260,6 +260,8 @@ pub(crate) struct GuestRequest {
+@@ -305,6 +305,8 @@ pub(crate) struct GuestRequest {
      /// The format its device reads, and whether it reads 4:4:4.
      pub(crate) codec: ImageCodec,
      pub(crate) yuv444: bool,
@@ -574,7 +574,7 @@ index 55e9ffc..06ff9c2 100644
      pub(crate) bitrate: u32,
      pub(crate) intra_refresh: Option<bool>,
  }
-@@ -354,8 +356,10 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
+@@ -399,8 +401,10 @@ fn guest_ask(ctrl: &Controller, uid: &Uuid, request: &GuestRequest) -> crate::er
              reader: Reader {
                  codec: request.codec,
                  yuv444: request.yuv444,
@@ -585,7 +585,7 @@ index 55e9ffc..06ff9c2 100644
          })
      })
  }
-@@ -495,6 +499,10 @@ async fn acquire_placement(
+@@ -540,6 +544,10 @@ async fn acquire_placement(
                  yuv444: false,
                  intra_refresh: request.intra_refresh,
                  pixel_rate: image.mode().weight(),
@@ -596,7 +596,7 @@ index 55e9ffc..06ff9c2 100644
              };
              let topology = VideoTopology::Guest {
                  display_id,
-@@ -1212,6 +1220,8 @@ struct StreamEntry {
+@@ -1266,6 +1274,8 @@ struct StreamEntry {
      display: u32,
      codec: &'static str,
      yuv444: bool,
@@ -605,7 +605,7 @@ index 55e9ffc..06ff9c2 100644
      /// Patch 0020: `host` (the host's image, first) or `guest` (a guest
      /// image).
      kind: &'static str,
-@@ -1316,6 +1326,7 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
+@@ -1370,6 +1380,7 @@ pub(crate) async fn get_sessions(ctrl: web::Data<Controller>, req: HttpRequest)
                      display: key.display_id(),
                      codec: ImageCodec::from(&stream.config.codec).name(),
                      yuv444: stream.config.yuv444,
@@ -613,15 +613,15 @@ index 55e9ffc..06ff9c2 100644
                      kind,
                      width: mode.width,
                      height: mode.height,
-@@ -1519,6 +1530,7 @@ mod tests {
-             display: 7,
+@@ -1571,6 +1582,7 @@ mod tests {
              rev,
              quality: ShareQuality::Host,
+             qrev: 0,
 +            hdr: false,
          })
      }
  
-@@ -1671,6 +1683,8 @@ mod tests {
+@@ -1767,6 +1779,8 @@ mod tests {
              yuv444: false,
              intra_refresh: None,
              pixel_rate: 0,
@@ -630,7 +630,7 @@ index 55e9ffc..06ff9c2 100644
          }
      }
  
-@@ -1694,6 +1708,8 @@ mod tests {
+@@ -1790,6 +1804,8 @@ mod tests {
                  height,
                  fps,
                  codec: ImageCodec::H264,
@@ -639,7 +639,7 @@ index 55e9ffc..06ff9c2 100644
              },
              screen,
          }
-@@ -1710,6 +1726,7 @@ mod tests {
+@@ -1806,6 +1822,7 @@ mod tests {
              request: GuestRequest {
                  codec: ImageCodec::H264,
                  yuv444: false,
@@ -647,7 +647,7 @@ index 55e9ffc..06ff9c2 100644
                  bitrate: 40_000_000,
                  intra_refresh: None,
              },
-@@ -1727,8 +1744,10 @@ mod tests {
+@@ -1823,8 +1840,10 @@ mod tests {
              reader: Reader {
                  codec: ImageCodec::H264,
                  yuv444: false,
@@ -659,7 +659,7 @@ index 55e9ffc..06ff9c2 100644
      }
  
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index fd01cc4..34f0646 100644
+index bd72cf3..00c4f3f 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
 @@ -318,6 +318,7 @@ async fn start_kymux(
@@ -736,7 +736,7 @@ index fd01cc4..34f0646 100644
          session_id,
          av_services_manager,
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
-index d48e7db..0dedc45 100644
+index f69df02..6330bfd 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
 @@ -63,8 +63,18 @@ pub(crate) async fn start_mux(
@@ -759,7 +759,7 @@ index d48e7db..0dedc45 100644
      let session_id = match user.uid() {
          Ok(uid) => uid,
          Err(_) => {
-@@ -105,7 +115,7 @@ pub(crate) async fn start_session(
+@@ -112,7 +122,7 @@ pub(crate) async fn start_session(
      };
  
      // Start session
@@ -769,7 +769,7 @@ index d48e7db..0dedc45 100644
          Ok(response) => {
              let numeric_session_id = generate_session_id();
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index a35d677..550582f 100644
+index f757a80..a72b735 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -46,6 +46,7 @@ mod config;

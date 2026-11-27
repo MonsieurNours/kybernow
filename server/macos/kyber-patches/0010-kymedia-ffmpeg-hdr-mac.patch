@@ -1,0 +1,126 @@
+diff --git a/subprojects/ffmpeg.wrap b/subprojects/ffmpeg.wrap
+index d239137..44c1480 100644
+--- a/subprojects/ffmpeg.wrap
++++ b/subprojects/ffmpeg.wrap
+@@ -48,7 +48,8 @@ diff_files =
+   ffmpeg/patches/0020-avutil-hwcontext-fix-bogus-unmap-detection-in-av_hw.patch,
+   ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch,
+   ffmpeg/patches/0023-avcodec-debit-en-direct.patch,
+-  ffmpeg/patches/0030-avcodec-kybernow-vbv.patch
++  ffmpeg/patches/0030-avcodec-kybernow-vbv.patch,
++  ffmpeg/patches/0031-avcodec-videotoolboxenc-hdr10-metadata.patch
+ 
+ [provide]
+ dependency_names = ffmpeg, libavcodec, libavformat, libavutil, libswresample, libswscale, libavfilter, libavdevice
+diff --git a/subprojects/packagefiles/ffmpeg/patches/0031-avcodec-videotoolboxenc-hdr10-metadata.patch b/subprojects/packagefiles/ffmpeg/patches/0031-avcodec-videotoolboxenc-hdr10-metadata.patch
+new file mode 100644
+index 0000000..f447fe6
+--- /dev/null
++++ b/subprojects/packagefiles/ffmpeg/patches/0031-avcodec-videotoolboxenc-hdr10-metadata.patch
+@@ -0,0 +1,106 @@
++From: KyberNow
++Subject: [PATCH] avcodec/videotoolboxenc: HDR10 static metadata from the capture
++
++The mastering display colour volume and content light level that the
++caller copied into decoded_side_data (frame side data of the capture) are
++given to VideoToolbox (kVTCompressionPropertyKey_MasteringDisplayColorVolume,
++kVTCompressionPropertyKey_ContentLightLevelInfo) for HEVC in PQ, which
++writes them in the stream. KyberNow, docs/kyber-changes.md (Mac 0010).
++---
++diff --git a/libavcodec/videotoolboxenc.c b/libavcodec/videotoolboxenc.c
++index d83e065..2ee3d37 100644
++--- a/libavcodec/videotoolboxenc.c
+++++ b/libavcodec/videotoolboxenc.c
++@@ -28,10 +28,12 @@
++ 
++ #include "libavutil/avassert.h"
++ #include "libavutil/imgutils.h"
+++#include "libavutil/intreadwrite.h"
++ #include "libavutil/mem.h"
++ #include "libavutil/opt.h"
++ #include "libavutil/pixdesc.h"
++ #include "libavutil/hwcontext_videotoolbox.h"
+++#include "libavutil/mastering_display_metadata.h"
++ 
++ #include "atsc_a53.h"
++ #include "codec_internal.h"
++@@ -1273,6 +1275,70 @@ static OSStatus kn_vtenc_set_rate_window(AVCodecContext *avctx, VTEncContext *vt
++     return status;
++ }
++ 
+++/* KyberNow: units of the HEVC SEI messages (137, 144) for VideoToolbox. */
+++static uint32_t kn_vt_fixed(AVRational q, int64_t scale, uint32_t max)
+++{
+++    int64_t v;
+++    if (q.den <= 0 || q.num < 0)
+++        return 0;
+++    v = av_rescale(q.num, scale, q.den);
+++    return v > max ? max : (uint32_t)v;
+++}
+++
+++/* KyberNow: the HDR10 static metadata of the capture (frame side data that
+++ * the caller copied into decoded_side_data before opening the encoder) to
+++ * the HEVC stream, as VideoToolbox writes it: mastering display colour
+++ * volume (24 bytes, big endian, green, blue, red, white, max and min
+++ * luminance) and content light level (4 bytes). Without them, a device
+++ * assumes a default luminance and tone maps the picture worse. */
+++static void kn_vtenc_hdr_metadata(AVCodecContext *avctx, VTCompressionSessionRef session)
+++{
+++    const AVFrameSideData *sd;
+++    OSStatus status;
+++
+++    if (avctx->codec_id != AV_CODEC_ID_HEVC || avctx->color_trc != AVCOL_TRC_SMPTE2084)
+++        return;
+++    sd = av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data,
+++                                AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
+++    if (sd) {
+++        const AVMasteringDisplayMetadata *m = (const AVMasteringDisplayMetadata *)sd->data;
+++        if (m->has_primaries && m->has_luminance) {
+++            static const int order[3] = { 1, 2, 0 }; /* green, blue, red */
+++            uint8_t buf[24];
+++            for (int i = 0; i < 3; i++) {
+++                AV_WB16(buf + 4 * i,     kn_vt_fixed(m->display_primaries[order[i]][0], 50000, 50000));
+++                AV_WB16(buf + 4 * i + 2, kn_vt_fixed(m->display_primaries[order[i]][1], 50000, 50000));
+++            }
+++            AV_WB16(buf + 12, kn_vt_fixed(m->white_point[0], 50000, 50000));
+++            AV_WB16(buf + 14, kn_vt_fixed(m->white_point[1], 50000, 50000));
+++            AV_WB32(buf + 16, kn_vt_fixed(m->max_luminance, 10000, UINT32_MAX));
+++            AV_WB32(buf + 20, kn_vt_fixed(m->min_luminance, 10000, UINT32_MAX));
+++            CFDataRef data = CFDataCreate(kCFAllocatorDefault, buf, sizeof(buf));
+++            if (data) {
+++                status = VTSessionSetProperty(session, kVTCompressionPropertyKey_MasteringDisplayColorVolume, data);
+++                CFRelease(data);
+++                if (status)
+++                    av_log(avctx, AV_LOG_WARNING, "Could not set the mastering display: %d\n", (int)status);
+++            }
+++        }
+++    }
+++    sd = av_frame_side_data_get(avctx->decoded_side_data, avctx->nb_decoded_side_data,
+++                                AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
+++    if (sd) {
+++        const AVContentLightMetadata *c = (const AVContentLightMetadata *)sd->data;
+++        uint8_t buf[4];
+++        AV_WB16(buf,     FFMIN(c->MaxCLL, 65535));
+++        AV_WB16(buf + 2, FFMIN(c->MaxFALL, 65535));
+++        CFDataRef data = CFDataCreate(kCFAllocatorDefault, buf, sizeof(buf));
+++        if (data) {
+++            status = VTSessionSetProperty(session, kVTCompressionPropertyKey_ContentLightLevelInfo, data);
+++            CFRelease(data);
+++            if (status)
+++                av_log(avctx, AV_LOG_WARNING, "Could not set the content light level: %d\n", (int)status);
+++        }
+++    }
+++}
+++
++ static int vtenc_create_encoder(AVCodecContext   *avctx,
++                                 CMVideoCodecType codec_type,
++                                 CFStringRef      profile_level,
++@@ -1652,6 +1718,8 @@ static int vtenc_create_encoder(AVCodecContext   *avctx,
++         }
++     }
++ 
+++    kn_vtenc_hdr_metadata(avctx, vtctx->session); /* KyberNow */
+++
++     if (gamma_level) {
++         status = VTSessionSetProperty(vtctx->session,
++                                       kCVImageBufferGammaLevelKey,

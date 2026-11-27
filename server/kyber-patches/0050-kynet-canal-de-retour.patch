@@ -14,10 +14,10 @@ index 9bd11d9..c0efcc3 100644
  
 diff --git a/kyproto/src/feedback/arrivals.rs b/kyproto/src/feedback/arrivals.rs
 new file mode 100644
-index 0000000..5917443
+index 0000000..531e747
 --- /dev/null
 +++ b/kyproto/src/feedback/arrivals.rs
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,229 @@
 +// KyberNow: what the viewer sees of the Station's numbered datagrams
 +// (docs/canal-de-retour.md, "Datagram numbering").
 +
@@ -30,8 +30,11 @@ index 0000000..5917443
 +/// Window of the out-of-order delays.
 +pub(crate) const REORDER_WINDOW: Duration = Duration::from_secs(2);
 +/// Gaps followed one by one; past it (a stall), the rest counts lost at once.
-+const MAX_GAP: u64 = 16_384;
-+/// Datagrams judged lost that a late arrival can still be matched to.
++/// 2 048 datagrams: about 200 ms at 100 Mbit/s, four times LOSE_AFTER (KYB-39:
++/// 16 384 made a burst insert as many entries under the lock).
++const MAX_GAP: u64 = 2_048;
++/// Datagrams judged lost that a late arrival can still be matched to: a
++/// ring indexed by number (no search, KYB-39).
 +const RECENT_LOST: usize = 4_096;
 +
 +/// The missing-frame wait before any numbered datagram, and with an older
@@ -55,7 +58,9 @@ index 0000000..5917443
 +    hi: Option<u64>,
 +    /// Missing numbers, and when a later one made them missing.
 +    missing: BTreeMap<u64, Instant>,
-+    recent_lost: VecDeque<u64>,
++    /// Numbers judged lost, at `number % RECENT_LOST` (empty until the
++    /// first loss; `u64::MAX`: a free place).
++    recent_lost: Vec<u64>,
 +    pub(crate) received: u64,
 +    pub(crate) lost: u64,
 +    pub(crate) late: u64,
@@ -106,8 +111,10 @@ index 0000000..5917443
 +            self.reorder.push_back((now, delay.as_micros().min(u32::MAX as u128) as u32));
 +            self.received += 1;
 +            self.received_i += 1;
-+        } else if let Some(i) = self.recent_lost.iter().position(|s| *s == seq) {
-+            self.recent_lost.remove(i);
++        } else if let Some(slot) = self.recent_lost.get_mut(seq as usize % RECENT_LOST)
++            && *slot == seq
++        {
++            *slot = u64::MAX;
 +            self.late += 1;
 +        }
 +        // Else a copy of one already here: nothing.
@@ -122,10 +129,10 @@ index 0000000..5917443
 +            self.missing.remove(&seq);
 +            self.lost += 1;
 +            self.lost_i += 1;
-+            self.recent_lost.push_back(seq);
-+            if self.recent_lost.len() > RECENT_LOST {
-+                self.recent_lost.pop_front();
++            if self.recent_lost.is_empty() {
++                self.recent_lost = vec![u64::MAX; RECENT_LOST];
 +            }
++            self.recent_lost[seq as usize % RECENT_LOST] = seq;
 +        }
 +        while self
 +            .reorder
@@ -206,6 +213,28 @@ index 0000000..5917443
 +        log.settle(t0 + Duration::from_secs(1));
 +        assert_eq!((log.received, log.lost), (4, 0));
 +        assert_eq!(log.hi_raw(), 1);
++    }
++
++    #[test]
++    fn a_late_datagram_is_matched_once_and_only_while_remembered() {
++        let t0 = Instant::now();
++        let mut log = ArrivalLog::default();
++        log.arrived(0, t0);
++        log.arrived(10, t0);
++        log.settle(t0 + Duration::from_millis(60));
++        assert_eq!(log.lost, 9);
++        log.arrived(5, t0 + Duration::from_millis(70));
++        log.arrived(5, t0 + Duration::from_millis(71));
++        assert_eq!(log.late, 1, "a copy is not late twice");
++        // A loss after a stall is remembered beside the older ones.
++        let far = 10 + RECENT_LOST as u32;
++        log.arrived(far + 1, t0 + Duration::from_millis(80));
++        log.arrived(far + 3, t0 + Duration::from_millis(80));
++        log.settle(t0 + Duration::from_millis(200));
++        log.arrived(far + 2, t0 + Duration::from_millis(210));
++        assert_eq!(log.late, 2);
++        log.arrived(6, t0 + Duration::from_millis(220));
++        assert_eq!(log.late, 3, "6 still remembered");
 +    }
 +
 +    #[test]
@@ -521,10 +550,10 @@ index 0000000..093a90e
 +}
 diff --git a/kyproto/src/feedback/mod.rs b/kyproto/src/feedback/mod.rs
 new file mode 100644
-index 0000000..93f5d9b
+index 0000000..8846569
 --- /dev/null
 +++ b/kyproto/src/feedback/mod.rs
-@@ -0,0 +1,879 @@
+@@ -0,0 +1,878 @@
 +// KyberNow: feedback channel from the viewer to the Station, and what uses
 +// it: the RaptorQ repair share, the missing-frame wait and the sound's
 +// redundancy. Contract: docs/canal-de-retour.md (KyberNow repository).
@@ -541,7 +570,7 @@ index 0000000..93f5d9b
 +use std::collections::{HashMap, VecDeque};
 +use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 +
-+use bytes::{BufMut, Bytes, BytesMut};
++use bytes::{BufMut, Bytes};
 +use kymux_util::*;
 +#[allow(unused)]
 +use log::{debug, error, info, warn};
@@ -638,8 +667,7 @@ index 0000000..93f5d9b
 +
 +fn encode(channel: &KyChannel, msg: &Msg) -> Option<Bytes> {
 +    let body = rmp_serde::to_vec_named(msg).ok()?;
-+    let mut buf = BytesMut::with_capacity(2 + body.len());
-+    channel.write_datagram_header(&mut buf);
++    let mut buf = channel.datagram_buffer(2 + body.len());
 +    buf.put(&body[..]);
 +    let max = channel.max_datagram_size()?;
 +    (buf.len() <= max).then(|| buf.freeze())
@@ -1781,7 +1809,7 @@ index f547efb..e2fdc18 100644
          self.conn.close(0, "Closed by Kyproto user");
      }
 diff --git a/kyproto/src/protocol/driver/av/audio_unreliable.rs b/kyproto/src/protocol/driver/av/audio_unreliable.rs
-index d300bf2..dab9426 100644
+index d300bf2..e64fb05 100644
 --- a/kyproto/src/protocol/driver/av/audio_unreliable.rs
 +++ b/kyproto/src/protocol/driver/av/audio_unreliable.rs
 @@ -48,10 +48,26 @@ const KYPACKET_HEADER_SIZE: usize = AVPacketHeader::SERIALIZED_SIZE;
@@ -1811,7 +1839,7 @@ index d300bf2..dab9426 100644
  }
  
  impl AudioUnreliableProtocolSendDriver {
-@@ -64,10 +80,97 @@ impl AudioUnreliableProtocolSendDriver {
+@@ -64,10 +80,93 @@ impl AudioUnreliableProtocolSendDriver {
              ky_channel,
              stream,
              kypacket_seq: 0,
@@ -1849,10 +1877,7 @@ index d300bf2..dab9426 100644
 +                    <= max_datagram_size
 +                    && data.len() < 1 << 16 =>
 +            {
-+                let mut buf = BytesMut::with_capacity(
-+                    DATAGRAM_HEADER_SIZE + REDUNDANCY_LEN_SIZE + data.len() + prev.len(),
-+                );
-+                self.ky_channel.write_datagram_header(&mut buf);
++                let mut buf = self.ky_channel.datagram_buffer(DATAGRAM_HEADER_SIZE + REDUNDANCY_LEN_SIZE + data.len() + prev.len(),);
 +                buf.put_u32(kypacket_seq);
 +                buf.put_u32((1 << 31) | REDUNDANCY_BIT);
 +                buf.put_u16(data.len() as u16);
@@ -1890,8 +1915,7 @@ index d300bf2..dab9426 100644
 +                data.len() - offset,
 +            );
 +            let end = offset + payload_size == data.len();
-+            let mut buf = BytesMut::with_capacity(DATAGRAM_HEADER_SIZE + payload_size);
-+            self.ky_channel.write_datagram_header(&mut buf);
++            let mut buf = self.ky_channel.datagram_buffer(DATAGRAM_HEADER_SIZE + payload_size);
 +            buf.put_u32(kypacket_seq);
 +            buf.put_u32(datagram_number | if end { 1 << 31 } else { 0 });
 +            buf.put(&data[offset..offset + payload_size]);
@@ -1909,7 +1933,24 @@ index d300bf2..dab9426 100644
          let max_datagram_size = self
              .ky_channel
              .max_datagram_size()
-@@ -285,9 +388,32 @@ impl AudioUnreliableProtocolRecvDriver {
+@@ -89,7 +188,7 @@ impl AudioUnreliableProtocolSendDriver {
+                 max_datagram_size - DATAGRAM_HEADER_SIZE,
+                 data.len() - offset,
+             );
+-            let mut buf = BytesMut::with_capacity(DATAGRAM_HEADER_SIZE + payload_size);
++            let mut buf = self.ky_channel.datagram_buffer(DATAGRAM_HEADER_SIZE + payload_size);
+ 
+             assert!(payload_size < 1 << 16);
+ 
+@@ -98,7 +197,6 @@ impl AudioUnreliableProtocolSendDriver {
+ 
+             let kypacket_seq = self.kypacket_seq;
+ 
+-            self.ky_channel.write_datagram_header(&mut buf);
+             buf.put_u32(kypacket_seq);
+             buf.put_u32(datagram_number_and_end);
+             buf.put(&data[offset..offset + payload_size]);
+@@ -285,9 +383,32 @@ impl AudioUnreliableProtocolRecvDriver {
              let raw_kypacket_seq = datagram.get_u32();
  
              let datagram_number_and_end = datagram.get_u32();
@@ -1943,7 +1984,7 @@ index d300bf2..dab9426 100644
              tx.send(RecvMsg::Datagram(DatagramMsg {
                  data: datagram,
                  raw_kypacket_seq,
-@@ -645,6 +771,9 @@ impl PendingGroup {
+@@ -645,6 +766,9 @@ impl PendingGroup {
      }
  }
  
@@ -1953,7 +1994,7 @@ index d300bf2..dab9426 100644
  #[derive(Debug)]
  struct DatagramSegments {
      kypacket_seq: u64,
-@@ -680,6 +809,16 @@ impl DatagramSegments {
+@@ -680,6 +804,16 @@ impl DatagramSegments {
      }
  
      fn set_segment(&mut self, index: usize, segment: Bytes, end: bool) {
@@ -1970,7 +2011,7 @@ index d300bf2..dab9426 100644
          if index >= self.segments.len() {
              self.segments.resize(index + 1, None);
          }
-@@ -720,6 +859,29 @@ impl DatagramSegments {
+@@ -720,6 +854,29 @@ impl DatagramSegments {
  mod tests {
      use super::*;
  
@@ -2000,8 +2041,44 @@ index d300bf2..dab9426 100644
      #[test]
      fn test() {
          let d0 = {
+diff --git a/kyproto/src/protocol/driver/av/audio_unreliable_fec.rs b/kyproto/src/protocol/driver/av/audio_unreliable_fec.rs
+index f13ae5a..be98b97 100644
+--- a/kyproto/src/protocol/driver/av/audio_unreliable_fec.rs
++++ b/kyproto/src/protocol/driver/av/audio_unreliable_fec.rs
+@@ -101,9 +101,8 @@ impl AudioUnreliableFecProtocolSendDriver {
+ 
+             let (payload_id, data) = encoded_packet.split();
+             let raw_payload_id = payload_id.serialize();
+-            let mut buf = BytesMut::with_capacity(DATAGRAM_HEADER_SIZE + data.len());
++            let mut buf = self.ky_channel.datagram_buffer(DATAGRAM_HEADER_SIZE + data.len());
+ 
+-            self.ky_channel.write_datagram_header(&mut buf);
+             buf.put_u32(kypacket_seq);
+             buf.put(&oti[..]);
+             buf.put(&raw_payload_id[..]);
+diff --git a/kyproto/src/protocol/driver/av/video_unreliable.rs b/kyproto/src/protocol/driver/av/video_unreliable.rs
+index fe5a17a..8378c70 100644
+--- a/kyproto/src/protocol/driver/av/video_unreliable.rs
++++ b/kyproto/src/protocol/driver/av/video_unreliable.rs
+@@ -316,7 +316,7 @@ impl VideoUnreliableProtocolSendDriver {
+                 max_datagram_size - DATAGRAM_HEADER_SIZE,
+                 data.len() - offset,
+             );
+-            let mut buf = BytesMut::with_capacity(DATAGRAM_HEADER_SIZE + payload_size);
++            let mut buf = self.ky_channel.datagram_buffer(DATAGRAM_HEADER_SIZE + payload_size);
+ 
+             assert!(payload_size < 1 << 16);
+ 
+@@ -326,7 +326,6 @@ impl VideoUnreliableProtocolSendDriver {
+             let kypacket_seq = self.kypacket_seq;
+             let group_seq = self.group_seq;
+ 
+-            self.ky_channel.write_datagram_header(&mut buf);
+             buf.put_u32(kypacket_seq);
+             buf.put_u32(group_seq);
+             buf.put_u32(datagram_number_and_end);
 diff --git a/kyproto/src/protocol/driver/av/video_unreliable_fec.rs b/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
-index 5d3d8da..a904340 100644
+index 5d3d8da..7184069 100644
 --- a/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
 +++ b/kyproto/src/protocol/driver/av/video_unreliable_fec.rs
 @@ -340,8 +340,17 @@ impl VideoUnreliableFecProtocolSendDriver {
@@ -2024,7 +2101,17 @@ index 5d3d8da..a904340 100644
  
          let oti = oti.serialize();
  
-@@ -461,6 +470,9 @@ impl VideoUnreliableFecProtocolRecvDriver {
+@@ -351,8 +360,7 @@ impl VideoUnreliableFecProtocolSendDriver {
+ 
+             let (payload_id, data) = encoded_packet.split();
+             let raw_payload_id = payload_id.serialize();
+-            let mut buf = BytesMut::with_capacity(DATAGRAM_HEADER_SIZE + data.len());
+-            self.ky_channel.write_datagram_header(&mut buf);
++            let mut buf = self.ky_channel.datagram_buffer(DATAGRAM_HEADER_SIZE + data.len());
+             buf.put_u32(kypacket_seq);
+             buf.put_u32(group_seq);
+             buf.put(&oti[..]);
+@@ -461,6 +469,9 @@ impl VideoUnreliableFecProtocolRecvDriver {
          protocol_stats: &KyArc<KyMutex<ProtocolStats>>,
      ) -> Result<Self, ProtocolError> {
          let stream = ky_channel.accept_uni().await.map_err(ProtocolError::new)?;
@@ -2034,7 +2121,7 @@ index 5d3d8da..a904340 100644
  
          let (tx, rx) = mpsc::channel(16);
          let (tx_client, rx_client) = mpsc::channel(16);
-@@ -488,7 +500,8 @@ impl VideoUnreliableFecProtocolRecvDriver {
+@@ -488,7 +499,8 @@ impl VideoUnreliableFecProtocolRecvDriver {
          let protocol_stats = protocol_stats.clone();
          let process_task = Task::spawn_task(
              async move {
@@ -2044,7 +2131,7 @@ index 5d3d8da..a904340 100644
                  if let Err(err) = ret {
                      error!("process() error: {err}");
                  }
-@@ -569,6 +582,8 @@ impl VideoUnreliableFecProtocolRecvDriver {
+@@ -569,6 +581,8 @@ impl VideoUnreliableFecProtocolRecvDriver {
          mut rx: mpsc::Receiver<RecvMsg>,
          tx_client: mpsc::Sender<AVPacket>,
          protocol_stats: KyArc<KyMutex<ProtocolStats>>,
@@ -2053,7 +2140,7 @@ index 5d3d8da..a904340 100644
      ) -> Result<(), ProtocolError> {
          let mut group_sequencer = Sequencer::<u32>::new();
          let mut kypacket_sequencer = Sequencer::<u32>::new();
-@@ -621,6 +636,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
+@@ -621,6 +635,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
                  } => {}
              }
  
@@ -2061,7 +2148,7 @@ index 5d3d8da..a904340 100644
              match pending_groups.take_next_packet(next_kypacket_seq) {
                  Action::None => deadline = None,
                  Action::Deadline(instant) => {
-@@ -634,6 +650,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
+@@ -634,6 +649,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
                      debug!("===== SEND kypacket {kypacket_seq} to client");
                      if kypacket_seq > next_kypacket_seq {
                          let missing_packets = kypacket_seq - next_kypacket_seq;
@@ -2069,7 +2156,7 @@ index 5d3d8da..a904340 100644
                          {
                              let mut protocol_stats = protocol_stats.lock();
                              let dropped_packets =
-@@ -651,6 +668,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
+@@ -651,6 +667,7 @@ impl VideoUnreliableFecProtocolRecvDriver {
                          }
                      }
                      next_kypacket_seq = kypacket_seq + 1;
@@ -2077,7 +2164,7 @@ index 5d3d8da..a904340 100644
                      tx_client.send(packet).await.map_err(ProtocolError::new)?;
                      deadline = None;
                  }
-@@ -751,12 +769,16 @@ impl ConfigPacket {
+@@ -751,12 +768,16 @@ impl ConfigPacket {
  #[derive(Debug)]
  struct PendingGroups {
      pending_groups: Vec<PendingGroup>,
@@ -2094,7 +2181,7 @@ index 5d3d8da..a904340 100644
          }
      }
  
-@@ -835,7 +857,7 @@ impl PendingGroups {
+@@ -835,7 +856,7 @@ impl PendingGroups {
                          };
                          if let Some(min_instant) = min_instant {
                              let deadline =
@@ -2104,7 +2191,7 @@ index 5d3d8da..a904340 100644
                                  ready = true;
                              } else {
 diff --git a/kyproto/src/router.rs b/kyproto/src/router.rs
-index b81f0f0..253f7ea 100644
+index b81f0f0..7086609 100644
 --- a/kyproto/src/router.rs
 +++ b/kyproto/src/router.rs
 @@ -18,6 +18,7 @@
@@ -2211,7 +2298,7 @@ index b81f0f0..253f7ea 100644
      /// See [`KyChannelDropper`].
      #[expect(dead_code)]
      dropper: KyArc<KyChannelDropper>,
-@@ -324,12 +348,30 @@ impl KyChannelSend {
+@@ -324,12 +348,36 @@ impl KyChannelSend {
          Ok((send, recv))
      }
  
@@ -2223,9 +2310,15 @@ index b81f0f0..253f7ea 100644
 +    ) -> Result<(), SendDatagramError> {
 +        // KyberNow: once the viewer asked for the feedback channel, every
 +        // datagram of the connection ends with its number.
++        // The number goes in place when the datagram is ours alone with
++        // room for it (`KyChannel::datagram_buffer`, every datagram of the
++        // drivers): no allocation nor copy per datagram (KYB-39).
 +        if transport.numbering() && data.len() >= 2 {
-+            let mut buf = BytesMut::with_capacity(data.len() + SEQ_SIZE);
-+            buf.put_slice(&data);
++            let mut buf = data.try_into_mut().unwrap_or_else(|shared| {
++                let mut buf = BytesMut::with_capacity(shared.len() + SEQ_SIZE);
++                buf.put_slice(&shared);
++                buf
++            });
 +            buf[0] |= (NUMBERED >> 8) as u8;
 +            buf.put_u32(transport.next_seq());
 +            return conn.send_datagram(buf.freeze()).await;
@@ -2245,7 +2338,7 @@ index b81f0f0..253f7ea 100644
      }
  
      fn write_datagram_header_(endpoint_id: u16, buf: &mut BytesMut) {
-@@ -348,12 +390,12 @@ impl KyChannelSend {
+@@ -348,12 +396,12 @@ impl KyChannelSend {
  
      #[expect(dead_code)]
      pub async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
@@ -2260,7 +2353,7 @@ index b81f0f0..253f7ea 100644
      }
  
      #[expect(dead_code)]
-@@ -405,6 +447,7 @@ impl KyChannel {
+@@ -405,6 +453,7 @@ impl KyChannel {
      pub(crate) fn new(
          endpoint_id: u16,
          conn: Connection,
@@ -2268,7 +2361,7 @@ index b81f0f0..253f7ea 100644
          clients: KyArc<KyMutex<ClientMap>>,
          rx_unistreams: mpsc::Receiver<RecvStream>,
          rx_bistreams: mpsc::Receiver<(SendStream, RecvStream)>,
-@@ -413,6 +456,7 @@ impl KyChannel {
+@@ -413,6 +462,7 @@ impl KyChannel {
          Self {
              endpoint_id,
              conn,
@@ -2276,7 +2369,7 @@ index b81f0f0..253f7ea 100644
              rx_unistreams,
              rx_bistreams,
              rx_datagrams,
-@@ -447,7 +491,12 @@ impl KyChannel {
+@@ -447,7 +497,12 @@ impl KyChannel {
      }
  
      pub async fn send_datagram(&self, data: Bytes) -> Result<(), SendDatagramError> {
@@ -2290,7 +2383,7 @@ index b81f0f0..253f7ea 100644
      }
  
      pub async fn recv_datagram(&mut self) -> Result<Bytes, RouterError> {
-@@ -455,7 +504,7 @@ impl KyChannel {
+@@ -455,13 +510,22 @@ impl KyChannel {
      }
  
      pub fn max_datagram_size(&self) -> Option<usize> {
@@ -2299,7 +2392,22 @@ index b81f0f0..253f7ea 100644
      }
  
      pub fn write_datagram_header(&self, buf: &mut BytesMut) {
-@@ -475,6 +524,7 @@ impl KyChannel {
+         KyChannelSend::write_datagram_header_(self.endpoint_id, buf);
+     }
+ 
++    /// KyberNow (0050): a datagram's buffer for `len` bytes (header and
++    /// payload), its header written, with room for the number
++    /// `send_datagram` adds once the feedback channel is on.
++    pub fn datagram_buffer(&self, len: usize) -> BytesMut {
++        let mut buf = BytesMut::with_capacity(len + SEQ_SIZE);
++        self.write_datagram_header(&mut buf);
++        buf
++    }
++
+     pub async fn connection_stats_(conn: &Connection) -> ConnectionStats {
+         conn.stats().await
+     }
+@@ -475,6 +539,7 @@ impl KyChannel {
          let KyChannel {
              endpoint_id,
              conn,
@@ -2307,7 +2415,7 @@ index b81f0f0..253f7ea 100644
              rx_unistreams,
              rx_bistreams,
              rx_datagrams,
-@@ -486,6 +536,7 @@ impl KyChannel {
+@@ -486,6 +551,7 @@ impl KyChannel {
          let send = KyChannelSend {
              endpoint_id,
              conn: conn.clone(),

@@ -1,10 +1,10 @@
 #!/bin/bash
 # Encodeur PyroWave de la Station Mac (docs/pyrowave.md, « La Station Mac ») :
-# le port Metal de PyroWave vendu dans apps/macos/PyroWave (commit a32b05e,
-# le même que le décodeur de l'app Mac) et la conversion de KyberNow
-# (kn_pyrowave_metal.mm), en une bibliothèque statique que FFmpeg lie
-# (encodeur libpyrowave_metal, correctif Mac 0016), plus l'outil de
-# vérification d'Admin.
+# le port Metal de PyroWave vendu dans apps/macos/PyroWave (au commit de
+# apps/macos/PyroWave/COMMIT, le même que le décodeur de l'app Mac) et la
+# conversion de KyberNow (kn_pyrowave_metal.mm), en une bibliothèque
+# statique que FFmpeg lie (encodeur libpyrowave_metal, correctif Mac 0016),
+# plus l'outil de vérification d'Admin.
 #
 #   build.sh <préfixe>
 #
@@ -40,7 +40,7 @@ libdir=\${prefix}/lib
 includedir=\${prefix}/include
 
 Name: kn-pyrowave-metal
-Description: KyberNow PyroWave encoder for Apple silicon (Metal port of PyroWave a32b05e)
+Description: KyberNow PyroWave encoder for Apple silicon (Metal port of PyroWave, apps/macos/PyroWave/COMMIT)
 Version: 1.0.0
 Libs: -L\${libdir} -lkn-pyrowave-metal -lc++ -lobjc $FRAMEWORKS
 Cflags: -I\${includedir}
