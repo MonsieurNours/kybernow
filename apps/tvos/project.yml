@@ -80,6 +80,9 @@ targets:
     platform: tvOS
     sources:
       - path: KyberNowTV
+      # Règles de session sans interface (veille, Retour pendant la
+      # reconnexion), communes avec l'iPhone ; essais : apps/ios/tests/session-rules.
+      - path: ../ios/KyberNowIOS/SessionRules.swift
       - path: ../macos/KyberNow/Model.swift
       - path: ../macos/KyberNow/Discovery.swift
       - path: ../macos/KyberNow/LinkUI.swift

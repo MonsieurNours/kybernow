@@ -23,9 +23,26 @@ final class SessionController: ObservableObject {
         case ending
         case ended
         case failed(String)
+
+        var stage: SessionStage {
+            switch self {
+            case .preparing: .preparing
+            case .connecting: .connecting
+            case .starting: .starting
+            case .streaming: .streaming
+            case .reconnecting: .reconnecting
+            case .ending: .ending
+            case .ended: .ended
+            case .failed: .failed
+            }
+        }
     }
 
-    @Published private(set) var phase: Phase = .preparing
+    /// L'économiseur et la veille de l'Apple TV sont retenus tant que la
+    /// session vit (`SessionRules.keepsAwake`).
+    @Published private(set) var phase: Phase = .preparing {
+        didSet { SleepGuard.hold(self, SessionRules.keepsAwake(phase.stage)) }
+    }
     @Published private(set) var host: Host
     /// Instant où l'image est apparue (le passage s'ouvre).
     @Published private(set) var revealedAt: Date?
@@ -81,6 +98,7 @@ final class SessionController: ObservableObject {
     private var engineStreaming = false
     private var streamMode = (width: 0, height: 0, refresh: 0)
     private var routeObserver: NSObjectProtocol?
+    private var interruptionObserver: NSObjectProtocol?
     private static let revealDelay: TimeInterval = 0.9
     /// Repli quand l'image ne passe pas : un débit plus bas que sur Mac.
     private static let fallbackBitrate: UInt32 = 150_000_000
@@ -301,7 +319,7 @@ final class SessionController: ObservableObject {
     private var engineSettings: SessionEngine.Settings {
         let s = host.settings
         var codec = codecOverride ?? s.codec
-        if codec == .av1 { codec = DecoderCapabilities.current.hevc ? .hevc : .h264 }
+        if codec == .av1, !DecoderCapabilities.current.av1 { codec = DecoderCapabilities.current.hevc ? .hevc : .h264 }
         return SessionEngine.Settings(
             profile: codecOverride == nil ? s.profile?.rawValue : nil,
             codec: codec,
@@ -528,6 +546,14 @@ final class SessionController: ObservableObject {
         streamView.appleISOKeyboard = prefs.appleISOKeyboard
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.route = AudioRoute.current }
+        }
+        // Siri, une autre app qui prend le son : à la fin de l'interruption,
+        // la session audio repart.
+        interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
+            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            guard raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .ended else { return }
+            KyberLog.app.notice("fin de l'interruption du son : session audio reprise")
+            try? AVAudioSession.sharedInstance().setActive(true)
         }
 
         // Regarder : la personne entre d'abord dans le partage de l'ordinateur
@@ -971,7 +997,10 @@ final class SessionController: ObservableObject {
             show(notice: text)
         case let .fallback(level, mbps):
             fallbackNote = level == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(mbps) Mbit/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.fallbackNote = nil }
+            fallbackNoteClose?.cancel()
+            let close = DispatchWorkItem { [weak self] in self?.fallbackNote = nil }
+            fallbackNoteClose = close
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: close)
         case .stationRestarting:
             stationRestarting = true
         case let .hdrRefused(text):
@@ -1037,7 +1066,8 @@ final class SessionController: ObservableObject {
 
     /// Bouton Retour de la télécommande, ou combinaison à la manette.
     private func menuRequested() {
-        guard phase == .streaming else { return }
+        // Pendant la reconnexion aussi : le menu a « Se déconnecter ».
+        guard SessionRules.opensMenu(phase.stage) else { return }
         if menuOpen {
             closeMenu()
         } else {
@@ -1057,8 +1087,30 @@ final class SessionController: ObservableObject {
         withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.5)) { menuOpen = false }
         GamepadBridge.shared.setCaptured(false)
         withAnimation(.easeOut(duration: 0.35)) { menuHint = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+        // Le rappel d'avant ne cache pas celui-ci trop tôt.
+        menuHintClose?.cancel()
+        let close = DispatchWorkItem { [weak self] in
             withAnimation(.easeIn(duration: 0.35)) { self?.menuHint = false }
+        }
+        menuHintClose = close
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: close)
+    }
+
+    private var menuHintClose: DispatchWorkItem?
+    private var fallbackNoteClose: DispatchWorkItem?
+
+    /// Retour de la télécommande quand l'app a la main (`SessionView`).
+    func exitCommand() {
+        if menuOpen {
+            closeMenu()
+        } else if case .failed = phase {
+            finish()
+        } else if SessionRules.opensMenu(phase.stage) {
+            // Reconnexion : le menu, d'où « Se déconnecter » sort.
+            openMenu()
+        } else {
+            // Préparation, connexion : l'attente est annulée.
+            end()
         }
     }
 
@@ -1338,12 +1390,7 @@ final class SessionController: ObservableObject {
             phase = .ending
             menuOpen = false
         }
-        streamView.detach()
-        engine?.stop()
-        matchDisplay(nil)
-        hdrObservers.forEach(NotificationCenter.default.removeObserver)
-        hdrObservers = []
-        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        tearDown()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.finish() }
     }
 
@@ -1363,14 +1410,25 @@ final class SessionController: ObservableObject {
         GamepadBridge.shared.onMenuRequest = nil
         padsWatch = nil
         GamepadBridge.shared.macKeys = false
+        tearDown()
+        withAnimation(Theme.easeOut) {
+            menuOpen = false
+            phase = .failed(message)
+        }
+    }
+
+    /// Ce que `end()` et `fail()` défont tous les deux (avant, l'échec gardait
+    /// l'observateur du son et la manette en souris).
+    private func tearDown() {
+        streamView.padMouse = false
         streamView.detach()
         engine?.stop()
         matchDisplay(nil)
         hdrObservers.forEach(NotificationCenter.default.removeObserver)
         hdrObservers = []
-        withAnimation(Theme.easeOut) {
-            menuOpen = false
-            phase = .failed(message)
-        }
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        routeObserver = nil
+        if let interruptionObserver { NotificationCenter.default.removeObserver(interruptionObserver) }
+        interruptionObserver = nil
     }
 }

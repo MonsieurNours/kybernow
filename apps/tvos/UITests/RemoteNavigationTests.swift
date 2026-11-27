@@ -131,4 +131,31 @@ final class RemoteNavigationTests: XCTestCase {
         sleep(1)
         XCTAssertTrue(app.staticTexts["Son adresse et son port"].exists, "le volet Adresse doit rester affiché après le clavier")
     }
+
+    /// Menu de session (`-screen menu`) : le panneau « Son » garde le focus,
+    /// et Retour ne ferme que lui ; le menu reste ouvert, le focus revient à
+    /// la tuile « Son » (avant, Retour fermait tout le menu).
+    func testSoundPanelBackClosesOnlyThePanel() {
+        let app = launch(["-screen", "menu"])
+        XCTAssertTrue(app.staticTexts["Reprendre"].waitForExistence(timeout: 8))
+        sleep(1)
+        // De « Reprendre », la tuile « Son » : à droite ou en dessous, selon la rangée.
+        var reached = false
+        for move in [XCUIRemote.Button.right, .right, .right, .right, .down, .left, .left, .left, .left] {
+            if focused(app).label.hasPrefix("Son") { reached = true; break }
+            remote.press(move)
+            usleep(400_000)
+        }
+        reached = reached || focused(app).label.hasPrefix("Son")
+        XCTAssertTrue(reached, "tuile « Son » introuvable à la télécommande (\(focused(app).label))")
+        remote.press(.select)
+        XCTAssertTrue(app.staticTexts["Changer de sortie : AirPods, HomePod, téléviseur"].waitForExistence(timeout: 3))
+        sleep(1)
+        XCTAssertEqual(focused(app).label, "Fermer", "le focus doit entrer dans le panneau")
+        remote.press(.menu)
+        sleep(1)
+        XCTAssertFalse(app.staticTexts["Changer de sortie : AirPods, HomePod, téléviseur"].exists, "Retour ferme le panneau")
+        XCTAssertTrue(app.staticTexts["Reprendre"].exists, "le menu reste ouvert")
+        XCTAssertTrue(focused(app).label.hasPrefix("Son"), "le focus revient à la tuile « Son » (\(focused(app).label))")
+    }
 }
