@@ -32,7 +32,8 @@ struct SessionView: View {
             // telle quelle à l'écran, soit un balayage de plus (16,7 ms à 60 Hz).
             // Menu fermé, la couche Metal est seule : plein écran, opaque,
             // sans transformation ni coins arrondis.
-            SessionStage(view: session.streamView, gameOnly: streaming && !session.menuOpen && session.phase != .ending,
+            // Pendant la reconnexion, Retour revient à l'app (menu, « Se déconnecter »).
+            SessionStage(view: session.streamView, gameOnly: SessionRules.gameOwnsRemote(session.phase.stage) && !session.menuOpen,
                          scale: revealed ? (session.menuOpen ? 0.94 : 1) : 1.06, corner: session.menuOpen ? 28 : 0)
                 .frame(width: 1920, height: 1080)
                 .overlay(alignment: .topLeading) {
@@ -147,14 +148,9 @@ struct SessionView: View {
         .frame(width: 1920, height: 1080)
         .ignoresSafeArea()
         .onExitCommand {
-            // Bouton Retour quand l'app a la main : il ferme le menu, ou annule l'attente.
-            if session.menuOpen {
-                session.closeMenu()
-            } else if case .failed = session.phase {
-                session.finish()
-            } else if session.phase != .streaming {
-                session.end()
-            }
+            // Bouton Retour quand l'app a la main : il ferme le menu, ouvre le
+            // menu pendant la reconnexion, ou annule l'attente.
+            session.exitCommand()
         }
     }
 }

@@ -379,9 +379,11 @@ struct HomeView: View {
                     .accessibilityLabel(LinkText.settingsTitle(host.name))
                 }
                 .padding(.top, 26)
-                // La puce « HDR » focalisée : son aide ; inactive : sa raison, toujours lisible.
+                // La puce « HDR » focalisée : son aide, ou sa raison si elle est
+                // inactive ; sans le focus, le bandeau de la Station passe d'abord
+                // (docs/link-ui.md : la raison le remplaçait à jamais).
                 let hdr = hdrState(host)
-                if hdr.shown, let reason = hdr.reason {
+                if focus == .hdr, hdr.shown, let reason = hdr.reason {
                     HStack(spacing: 10) {
                         Icon("monitor", size: 22).foregroundStyle(Theme.faint)
                         Text(verbatim: "\(HDRText.label) · \(reason)")

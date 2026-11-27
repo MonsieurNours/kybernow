@@ -24,13 +24,17 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, record, disconnect, quit, restoreMode, hdr, pyrowave, autoTest, camera }
+    enum Item: Hashable { case resume, pads, sound, quality, qualityChoice(ShareQuality), screen, screenChoice(UInt32), mouse, padMouse, type, share, lend, record, disconnect, quit, restoreMode, hdr, pyrowave, autoTest, camera, soundClose, typeField }
 
     init(session: SessionController) {
         self.session = session
         _share = ObservedObject(wrappedValue: session.share)
         _lend = ObservedObject(wrappedValue: session.lend)
+        _meter = ObservedObject(wrappedValue: session.meter)
     }
+
+    /// Les mesures de chaque seconde (le menu se recalcule avec elles).
+    @ObservedObject private var meter: SessionMeter
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -525,7 +529,8 @@ struct SessionMenu: View {
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .camera)
         .continuityDevicePicker(isPresented: $cameraPicker) { device in
-            if device != nil { session.toggleCamera() }
+            // L'appareil choisi, pas la première caméra que la découverte voit.
+            if let device { session.toggleCamera(chosen: device.videoDevices.first?.uniqueID) }
         }
     }
 
@@ -629,14 +634,24 @@ struct SessionMenu: View {
                         .frame(width: 80, height: 80)
                     Text("Changer de sortie : AirPods, HomePod, téléviseur").font(Theme.sans(22)).foregroundStyle(Theme.muted)
                 }
-                Button("Fermer") { sound = false }
+                Button("Fermer") { closeSound() }
                     .buttonStyle(ChoiceButton(selected: false, height: 72))
+                    .focused($focus, equals: .soundClose)
             }
             .padding(56)
             .glass(30, tint: 0.6)
+            // Le focus reste dans le panneau : Retour le ferme lui seul, les
+            // flèches n'atteignent plus les tuiles derrière.
+            .focusSection()
         }
         .frame(width: 1920, height: 1080)
-        .onExitCommand { sound = false }
+        .onExitCommand { closeSound() }
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .soundClose } }
+    }
+
+    private func closeSound() {
+        sound = false
+        focus = .sound
     }
 
     private var mouseTile: some View {
@@ -674,18 +689,27 @@ struct SessionMenu: View {
                 TextField("Texte à envoyer", text: $text)
                     .font(Theme.sans(27))
                     .frame(width: 900)
+                    .focused($focus, equals: .typeField)
                     .onSubmit(send)
                 HStack(spacing: 20) {
                     Button("Envoyer", action: send).buttonStyle(PrimaryButton(height: 72, fontSize: 25))
-                    Button("Annuler") { typing = false; text = "" }
+                    Button("Annuler") { closeTyping() }
                         .buttonStyle(ChoiceButton(selected: false, height: 72))
                 }
             }
             .padding(56)
             .glass(30, tint: 0.6)
+            .focusSection()
         }
         .frame(width: 1920, height: 1080)
-        .onExitCommand { typing = false }
+        .onExitCommand { closeTyping() }
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .typeField } }
+    }
+
+    private func closeTyping() {
+        typing = false
+        text = ""
+        focus = .type
     }
 
     private func send() {

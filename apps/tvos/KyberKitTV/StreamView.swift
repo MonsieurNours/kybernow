@@ -76,6 +76,9 @@ public final class StreamView: UIView {
     let pointer = PointerLayer(queue: InputQueue.device, holdsPosition: true)
     /// Dernier état de la couche de pointeur, recopié sur le fil principal pour le dessin.
     private var pointerState = PointerLayer.State()
+    private let pendingPointer = PendingPointer()
+    /// L'image posée sur la couche : refaite seulement quand la forme change.
+    private var shownShape: CGImage?
 
     private let pointerLayer: CALayer = {
         let layer = CALayer()
@@ -97,9 +100,11 @@ public final class StreamView: UIView {
             self.mouseSeen = true
             self.updatePointerLayer()
         }
+        let pending = pendingPointer
         pointer.onChanged = { [weak self] state, _ in
+            guard pending.put(state) else { return }
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, let state = pending.take() else { return }
                 self.pointerState = state
                 self.updatePointerLayer()
             }
@@ -161,6 +166,8 @@ public final class StreamView: UIView {
     /// pointeur tenu par l'app reste dans l'écran, les positions suivent.
     func setHostSize(_ size: CGSize) {
         hostSize = size
+        // La vitesse du pointeur à la manette suit la nouvelle définition.
+        GamepadBridge.shared.setHostSize(size)
         // Le pointeur garde sa place relative (le centre reste au centre), et
         // l'ordinateur l'apprend tout de suite (PointerLayer).
         pointer.setHostSize(size)
@@ -170,8 +177,8 @@ public final class StreamView: UIView {
 
     public func detach() {
         GamepadBridge.shared.setPointer(nil)
-        GamepadBridge.shared.detach()
-        keyboardMouse.detach()
+        GamepadBridge.shared.detach(keeping: input)
+        keyboardMouse.detach(keeping: input)
         pointer.reset()
         input?.flushKeys()
         input = nil
@@ -258,7 +265,10 @@ public final class StreamView: UIView {
         kynput_video_layout_host_to_local(layout, &hostPos, &local)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        pointerLayer.contents = shape.image
+        if shownShape !== shape.image {
+            shownShape = shape.image
+            pointerLayer.contents = shape.image
+        }
         pointerLayer.frame = PointerLayer.frame(shape: shape, local: CGPoint(x: local.x, y: local.y), factor: factor)
         pointerLayer.isHidden = false
         CATransaction.commit()
@@ -286,4 +296,29 @@ public final class StreamView: UIView {
         }
         return PointerLayer.Shape(image: image.cgImage!, hotSpot: CGPoint(x: 1, y: 1))
     }()
+}
+
+/// Le dernier état du pointeur en attente du fil principal : un seul saut de
+/// file à la fois, quel que soit le nombre de mouvements entre deux images
+/// (avant : un bloc par mouvement et par écho de l'ordinateur).
+private final class PendingPointer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var state: PointerLayer.State?
+
+    /// `true` : aucun saut n'était en attente, il faut en lancer un.
+    func put(_ s: PointerLayer.State) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let idle = state == nil
+        state = s
+        return idle
+    }
+
+    func take() -> PointerLayer.State? {
+        lock.lock()
+        defer { lock.unlock() }
+        let s = state
+        state = nil
+        return s
+    }
 }

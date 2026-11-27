@@ -27,7 +27,13 @@ final class PlayStationSession: ObservableObject {
         case ended(String?)
     }
 
-    @Published private(set) var phase: Phase = .connecting
+    /// La veille est retenue pendant la partie (`SleepGuard`), jusqu'à la carte de fin.
+    @Published private(set) var phase: Phase = .connecting {
+        didSet {
+            let alive = if case .ended = phase { false } else { true }
+            SleepGuard.hold(self, alive)
+        }
+    }
     /// Contenu protégé à l'écran de la console.
     @Published private(set) var cantDisplay = false
     @Published private(set) var menuOpen = false
@@ -205,6 +211,9 @@ final class PlayStationSession: ObservableObject {
             let text = resting ? nil : PSText.end(e)
             phase = .ended(text)
             stopPlay()
+            // La carte de fin : Home et les touches reviennent à l'app (le
+            // pont restait en mode console jusqu'à « Fermer »).
+            GamepadBridge.shared.detachConsole()
             if text == nil { close() }
         }
     }
@@ -296,6 +305,7 @@ final class PlayStationSession: ObservableObject {
     func close() {
         guard !finished else { return }
         finished = true
+        SleepGuard.hold(self, false)
         statsTask?.cancel()
         stopPlay()
         GamepadBridge.shared.onMenuRequest = nil

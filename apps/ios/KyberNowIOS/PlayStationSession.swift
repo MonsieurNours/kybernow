@@ -47,7 +47,13 @@ final class PlayStationSession: ObservableObject {
     /// L'écran de la partie est HDR (celui de l'appareil ; PlayStationStore.play).
     static var screenIsHDR: Bool { HDRDisplay.isHDR(nil) }
 
-    @Published private(set) var phase: Phase = .connecting
+    /// La veille est retenue pendant la partie (`SleepGuard`), jusqu'à la carte de fin.
+    @Published private(set) var phase: Phase = .connecting {
+        didSet {
+            let alive = if case .ended = phase { false } else { true }
+            SleepGuard.hold(self, alive)
+        }
+    }
     /// Étape de la carte de connexion (celle des ordinateurs) : 0 « Connexion »,
     /// 1 « Premières images ».
     @Published private(set) var connectStep = 0
@@ -149,6 +155,8 @@ final class PlayStationSession: ObservableObject {
             .sink { [weak self] n in self?.padsChanged(n) }
             .store(in: &bag)
         keyMouse.attach(play)
+        // Souris ou trackpad de l'iPad : pointeur verrouillé pendant la partie, barre fermée.
+        streamView.consolePointerLock = true
         keyMouse.onShortcut = { [weak self] key in self?.shortcut(key) ?? false }
         observe()
         if !play.start(address: address, registered: registered, settings: settings,
@@ -184,6 +192,7 @@ final class PlayStationSession: ObservableObject {
             padMode = false
         }
         keyMouse.suspended = open
+        streamView.consolePointerLock = !open
         play?.setCaptured(open)
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barOpen = open }
     }
@@ -404,6 +413,7 @@ final class PlayStationSession: ObservableObject {
         GamepadBridge.shared.detachConsole()
         bag.removeAll()
         keyMouse.detach()
+        streamView.consolePointerLock = false
         guard let play else { return }
         self.play = nil
         let remote = self.remote
@@ -418,6 +428,7 @@ final class PlayStationSession: ObservableObject {
     func close() {
         guard !finished else { return }
         finished = true
+        SleepGuard.hold(self, false)
         statsTask?.cancel()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []

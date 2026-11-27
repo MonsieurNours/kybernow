@@ -65,6 +65,7 @@
 		7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */; };
 		7EF6831F76CB7B77729367E6 /* WelcomeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72450C3885643AFBBB76E5FB /* WelcomeViews.swift */; };
 		812AD19263390D73ABB5265E /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D44B7B7CC32E4F400A995C /* Backdrops.swift */; };
+		83A855B7AAAC907E2BC22B6A /* SessionRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 647CEC0B268ED66CF311A51C /* SessionRules.swift */; };
 		86468B92C625C587213360F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = F0FC01552ACFFE060EB414DC /* OFL.txt */; };
 		86AEDB1A89AC4F8E0EC9009B /* HDRCalibrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EA4B452EFF2B73B060EABC2 /* HDRCalibrationView.swift */; };
 		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
@@ -178,6 +179,7 @@
 		5FB00E053D5A34379CC5BAD0 /* KyberNowIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KyberNowIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		61DC9C4C33AF7E83D5F35C91 /* AutoTestBench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestBench.swift; sourceTree = "<group>"; };
 		62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
+		647CEC0B268ED66CF311A51C /* SessionRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRules.swift; sourceTree = "<group>"; };
 		66675E7942D7F082D80B96EB /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
 		6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchView.swift; sourceTree = "<group>"; };
 		7075E01B3DE975548C5DD81C /* AutoTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTestView.swift; sourceTree = "<group>"; };
@@ -345,6 +347,7 @@
 				11E7F53DBCDC4AAFE88274F2 /* ScreenPad.swift */,
 				F6252F747ADD2695330E7860 /* ScreenPadLogic.swift */,
 				942EA9510C5B257877855EB8 /* SessionController.swift */,
+				647CEC0B268ED66CF311A51C /* SessionRules.swift */,
 				B3F54BF416D5315CDBC05036 /* SessionStats.swift */,
 				CFDADC5155C777613D3C1002 /* SessionView.swift */,
 				66675E7942D7F082D80B96EB /* SettingsControls.swift */,
@@ -619,6 +622,7 @@
 				7CB98801894B060E3310BA8A /* ScreenPad.swift in Sources */,
 				0B20F98F515386F14517B926 /* ScreenPadLogic.swift in Sources */,
 				F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */,
+				83A855B7AAAC907E2BC22B6A /* SessionRules.swift in Sources */,
 				3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */,
 				D0970783026227DA84F25AEC /* SessionView.swift in Sources */,
 				1C13DF9E94B8190A40F99521 /* SettingsControls.swift in Sources */,

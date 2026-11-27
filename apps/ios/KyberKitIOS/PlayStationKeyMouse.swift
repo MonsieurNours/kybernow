@@ -10,6 +10,12 @@
 // en arrière-plan (`suspended`) : rien ne part, tout est relâché. Clavier de
 // la console ouvert (`consoleKeyboard`) : les touches vont au champ de texte
 // de l'app (UIKit), pas à la manette.
+//
+// Les rappels de GameController arrivent sur une file à elle (`queue`), posée
+// explicitement : sans elle, ils gardaient la file des entrées laissée par une
+// session d'ordinateur, ou tombaient sur le fil principal (souris à 1 000 Hz).
+// `suspended` et `consoleKeyboard`, écrits sur le fil principal, y sont lus
+// sous le verrou.
 
 import GameController
 
@@ -22,18 +28,38 @@ public final class PlayStationKeyMouse {
     private var held: Set<UInt16> = []
     private var buttons: Set<UInt8> = []
     private let lock = NSLock()
+    private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.ps-keymouse", qos: .userInteractive)
+    /// Sous le verrou : copies de `suspended` et `consoleKeyboard` pour la file.
+    private var isSuspended = false
+    private var keyboardOpen = false
 
     /// ⌃⌥⌘ + une lettre (« d », « s »…) : vrai si l'app l'a prise (fil principal).
     public var onShortcut: ((String) -> Bool)?
 
     /// Barre ouverte, arrière-plan : rien ne part à la console.
     public var suspended = false {
-        didSet { if suspended { releaseAll() } }
+        didSet {
+            lock.lock()
+            isSuspended = suspended
+            lock.unlock()
+            if suspended { releaseAll() }
+        }
     }
 
     /// Le clavier de la console est ouvert : les touches écrivent dans le champ de l'app.
     public var consoleKeyboard = false {
-        didSet { if consoleKeyboard { releaseKeys() } }
+        didSet {
+            lock.lock()
+            keyboardOpen = consoleKeyboard
+            lock.unlock()
+            if consoleKeyboard { releaseKeys() }
+        }
+    }
+
+    private var state: (suspended: Bool, keyboard: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (isSuspended, keyboardOpen)
     }
 
     public init() {}
@@ -71,16 +97,18 @@ public final class PlayStationKeyMouse {
     }
 
     private func setUp(_ keyboard: GCKeyboard) {
+        keyboard.handlerQueue = queue
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             self?.key(UInt16(truncatingIfNeeded: keyCode.rawValue), pressed: pressed)
         }
     }
 
     private func setUp(_ mouse: GCMouse) {
+        mouse.handlerQueue = queue
         guard let m = mouse.mouseInput else { return }
         // Vers le haut : positif chez GameController, négatif pour le cœur (comme AppKit).
         m.mouseMovedHandler = { [weak self] _, dx, dy in
-            guard let self, !self.suspended else { return }
+            guard let self, !self.state.suspended else { return }
             self.play?.mouseMove(dx: dx, dy: -dy)
         }
         let list: [(GCControllerButtonInput?, UInt8)] = [(m.leftButton, 0), (m.rightButton, 1), (m.middleButton, 2)]
@@ -103,7 +131,8 @@ public final class PlayStationKeyMouse {
             return
         }
         // Clavier de la console ouvert : le champ de l'app reçoit le texte.
-        guard !suspended, !consoleKeyboard || !pressed else { return }
+        let now = state
+        guard !now.suspended, !now.keyboard || !pressed else { return }
         lock.lock()
         if pressed { held.insert(usage) } else if held.remove(usage) == nil { lock.unlock(); return }
         lock.unlock()
@@ -111,7 +140,7 @@ public final class PlayStationKeyMouse {
     }
 
     private func mouseButton(_ b: UInt8, pressed: Bool) {
-        guard !suspended || !pressed else { return }
+        guard !state.suspended || !pressed else { return }
         lock.lock()
         if pressed { buttons.insert(b) } else if buttons.remove(b) == nil { lock.unlock(); return }
         lock.unlock()

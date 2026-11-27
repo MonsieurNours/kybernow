@@ -162,7 +162,7 @@ public final class GamepadBridge: ObservableObject {
     /// bureau, elle tient la position du pointeur et l'envoie en absolu, sur
     /// cette même file ; nil : déplacements relatifs.
     func setPointer(_ layer: PointerLayer?) {
-        queue.sync { pointer = layer }
+        queue.async { self.pointer = layer }
     }
     /// Sur la file seulement.
     private var pointer: PointerLayer?
@@ -255,11 +255,26 @@ public final class GamepadBridge: ObservableObject {
         // Arrière-plan (bouton TV, autre app, veille) : les relâchements qui
         // suivent ne nous parviendront pas, rien ne doit rester enfoncé sur
         // l'ordinateur. Au retour, l'état réel des manettes est renvoyé.
-        // Synchrone : tout est parti avant que l'app soit suspendue.
+        // Sans attendre la file depuis le fil principal (un appel lent du cœur
+        // y figerait l'interface) : une tâche d'arrière-plan garde l'app
+        // éveillée le temps que tout parte.
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 guard let self else { return }
-                self.queue.sync { self.appLeft() }
+                let app = UIApplication.shared
+                var task = UIBackgroundTaskIdentifier.invalid
+                task = app.beginBackgroundTask(withName: "relâcher les manettes") {
+                    app.endBackgroundTask(task)
+                    task = .invalid
+                }
+                self.queue.async {
+                    self.appLeft()
+                    DispatchQueue.main.async {
+                        guard task != .invalid else { return }
+                        app.endBackgroundTask(task)
+                        task = .invalid
+                    }
+                }
             }
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
@@ -278,6 +293,9 @@ public final class GamepadBridge: ObservableObject {
     private func setMonitoring(_ on: Bool) {
         onQueue()
         config.monitoring = on
+        // Les touches ne sont suivies qu'à l'écran de test : on repart de
+        // celles réellement tenues.
+        if on { for slot in slots.values { slot.live.pressed = Self.heldNames(slot) } }
         if on, liveTimer == nil {
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now(), repeating: 1.0 / 30, leeway: .milliseconds(5))
@@ -290,6 +308,11 @@ public final class GamepadBridge: ObservableObject {
             liveTimer = nil
         }
         applyHomeGesture()
+    }
+
+    private static func heldNames(_ slot: Slot) -> Set<String> {
+        guard let pad = slot.controller?.extendedGamepad else { return [] }
+        return Set(buttons(pad).filter { $0.0?.isPressed == true }.map(\.1.name))
     }
 
     private func publishLive() {
@@ -307,7 +330,8 @@ public final class GamepadBridge: ObservableObject {
     // MARK: - Session
 
     /// Branche les manettes sur la chaîne d'entrées de la session (fil
-    /// principal ; synchrone : la file est prête au retour).
+    /// principal ; sans attendre : la file est série, ce qui suit y passe
+    /// après).
     func attach(_ input: InputPipeline) {
         // Vibrations : reçues sur le fil de kynput, jouées depuis la file.
         input.onRumble = { [weak self] r in
@@ -325,7 +349,7 @@ public final class GamepadBridge: ObservableObject {
                 self.plugAll(input)
             }
         }
-        queue.sync {
+        queue.async { [self] in
             self.input = input
             if input.hostSize.width > 0, input.hostSize.height > 0 { hostSize = input.hostSize }
             // `captured` reste au contrôleur de session : l'image redémarre
@@ -344,10 +368,19 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
-    /// Fin de session (fil principal ; synchrone : tout est relâché et
-    /// débranché avant que la chaîne d'entrées s'arrête).
-    func detach() {
-        queue.sync {
+    /// L'écran de l'ordinateur a changé de taille : la vitesse du pointeur
+    /// à la manette et à la Siri Remote suit la nouvelle définition.
+    func setHostSize(_ size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        queue.async { self.hostSize = size }
+    }
+
+    /// Fin de session (fil principal ; sans attendre). `keeping` : la chaîne
+    /// d'entrées de la vue, gardée en vie jusqu'à ce que tout y soit relâché et
+    /// débranché (la file ne la tient qu'en référence faible).
+    func detach(keeping session: InputPipeline? = nil) {
+        queue.async { [self] in
+            defer { withExtendedLifetime(session) {} }
             for slot in slots.values {
                 slot.motors?.stop()
                 slot.motors?.setSession(false)
@@ -378,7 +411,7 @@ public final class GamepadBridge: ObservableObject {
             guard let self else { return }
             self.queue.async { self.consoleFeedback(e) }
         }
-        queue.sync {
+        queue.async { [self] in
             guard !console else { return }
             console = true
             captured = false
@@ -393,11 +426,11 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
-    /// Fin de la partie (fil principal ; synchrone) : tout est relâché et
+    /// Fin de la partie (fil principal ; sans attendre) : tout est relâché et
     /// débranché du lecteur du cœur, gâchettes rendues libres.
     public func detachConsole() {
         ConsolePads.setFeedback(nil)
-        queue.sync {
+        queue.async { [self] in
             guard console else { return }
             for slot in slots.values {
                 slot.motors?.stop()
@@ -446,7 +479,7 @@ public final class GamepadBridge: ObservableObject {
     /// gâchettes adaptatives sur une DualSense.
     private func consoleFeedback(_ e: ConsolePads.Feedback) {
         onQueue()
-        guard console else { return }
+        guard console, !inBackground else { return }
         switch e {
         case let .rumble(r):
             guard let slot = slots.values.first(where: { $0.id == r.id }) else { return }
@@ -468,7 +501,7 @@ public final class GamepadBridge: ObservableObject {
     /// six axes, et les clics et touches de la manette en souris) ; à la
     /// fermeture, un stick encore tenu est renvoyé tel quel.
     public func setCaptured(_ value: Bool) {
-        queue.sync { capture(value) }
+        queue.async { self.capture(value) }
     }
 
     private func capture(_ value: Bool) {
@@ -520,6 +553,9 @@ public final class GamepadBridge: ObservableObject {
     private var inBackground = false
 
     private func appLeft() {
+        // Les vibrations s'arrêtent avec l'app (un grondement continu durait
+        // sur l'accueil de tvOS).
+        if !inBackground { for slot in slots.values { slot.motors?.stop() } }
         if !inBackground, console {
             inBackground = true
             KyberLog.app.notice("app en arrière-plan : tout relâché sur la console")
@@ -536,6 +572,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func appBack() {
+        for slot in slots.values { slot.motors?.resume() }
         guard inBackground else { return }
         inBackground = false
         KyberLog.app.notice("app au premier plan")
@@ -570,10 +607,8 @@ public final class GamepadBridge: ObservableObject {
         let slot = Slot(controller: c, id: nextID, player: 0)
         nextID += 1
         slots[key] = slot
-        slot.motors = Motors(controller: c, label: Self.name(c))
-        slot.motors?.setSession(input != nil)
+        makeMotors(for: slot, key: key) { Motors(controller: c, label: Self.name(c)) }
         setUpPad(slot)
-        applyHomeGesture()
         if player > 0 {
             seat(slot, player)
         } else {
@@ -582,6 +617,24 @@ public final class GamepadBridge: ObservableObject {
             post(String(localized: "\(Self.name(c)) en attente : l'ordinateur ne voit que quatre manettes", bundle: .kyberKit))
         }
         publishPads()
+    }
+
+    /// Les moteurs d'une manette, créés sur la file des vibrations (Core
+    /// Haptics peut y prendre des dizaines de millisecondes : la file des
+    /// entrées ne les attend pas), puis posés sur la manette si elle est
+    /// toujours là.
+    private func makeMotors(for slot: Slot, key: ObjectIdentifier, _ make: @escaping () -> Motors?) {
+        Motors.queue.async { [weak self] in
+            let motors = make()
+            guard let self else { return }
+            self.queue.async {
+                guard let current = self.slots[key], current === slot else { return }
+                slot.motors = motors
+                // Partie sur console comprise : sinon chaque (0, 0) arrêtait le moteur.
+                motors?.setSession(self.input != nil || self.console)
+                self.publishPads()
+            }
+        }
     }
 
     /// Donne une place (J1…J4) à une manette et l'annonce à l'ordinateur.
@@ -601,6 +654,9 @@ public final class GamepadBridge: ObservableObject {
             setSensors(slot, on: true)
         }
         KyberLog.app.notice("manette branchée : \(slot.controller?.vendorName ?? "à l'écran", privacy: .public) (J\(player))")
+        // Maintenant active : Home part au jeu si le réglage le veut (une
+        // manette rallumée en pleine partie gardait Home à tvOS).
+        applyHomeGesture()
     }
 
     /// Capsule de session (fil principal), effacée au bout de 6 s.
@@ -722,12 +778,14 @@ public final class GamepadBridge: ObservableObject {
         pad.leftThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in
             guard let self, let slot else { return }
             slot.live.leftStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+            self.wakeMouse()
             self.axis(slot, .leftX, Self.stick(x))
             self.axis(slot, .leftY, Self.stick(-y))
         }
         pad.rightThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in
             guard let self, let slot else { return }
             slot.live.rightStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+            self.wakeMouse()
             self.axis(slot, .rightX, Self.stick(x))
             self.axis(slot, .rightY, Self.stick(-y))
         }
@@ -747,10 +805,15 @@ public final class GamepadBridge: ObservableObject {
         onQueue()
         // La combinaison ne s'arme qu'en session, si le réglage le permet ; la
         // touche part au jeu comme les autres (formée après 250 ms, voir PadCombo).
-        combo.enabled = config.menuFromCombo && input != nil
+        // Appel au cœur seulement quand l'état change, pas à chaque appui.
+        let armed = config.menuFromCombo && input != nil
+        if combo.enabled != armed { combo.enabled = armed }
         combo.button(slot.id, button, pressed: pressed)
-        if pressed { slot.live.pressed.insert(button.name) } else { slot.live.pressed.remove(button.name) }
-        liveDirty = true
+        // L'état en direct ne sert qu'à l'écran de test (`String(describing:)` à chaque appui sinon).
+        if config.monitoring {
+            if pressed { slot.live.pressed.insert(button.name) } else { slot.live.pressed.remove(button.name) }
+            liveDirty = true
+        }
         noteKind(slot.controller.map(Self.kind) ?? .xbox)
         if console {
             consoleButton(slot, button, pressed: pressed)
@@ -955,10 +1018,12 @@ public final class GamepadBridge: ObservableObject {
             guard let slot = self.slots[Self.screenKey] else { return }
             if right {
                 slot.live.rightStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+                self.wakeMouse()
                 self.axis(slot, .rightX, Self.stick(x))
                 self.axis(slot, .rightY, Self.stick(-y))
             } else {
                 slot.live.leftStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+                self.wakeMouse()
                 self.axis(slot, .leftX, Self.stick(x))
                 self.axis(slot, .leftY, Self.stick(-y))
             }
@@ -989,8 +1054,7 @@ public final class GamepadBridge: ObservableObject {
         slots[Self.screenKey] = slot
         #if os(iOS)
         // Les vibrations du jeu passent par le moteur de l'appareil (iPhone).
-        slot.motors = Motors.device()
-        slot.motors?.setSession(input != nil || console)
+        makeMotors(for: slot, key: Self.screenKey) { Motors.device() }
         #endif
         if player > 0 {
             seat(slot, player)
@@ -1163,8 +1227,11 @@ public final class GamepadBridge: ObservableObject {
         input.releaseAll()
     }
 
+    /// Armée seulement quand un stick sort de sa zone morte (`wakeMouse`), et
+    /// arrêtée quand ils reviennent au repos : avant, 120 réveils par seconde
+    /// toute la session en profil Bureau, sticks au repos ou menu ouvert.
     private func updateMouseTimer() {
-        guard config.padMouse, input != nil else {
+        guard config.padMouse, input != nil, sticksMoving else {
             stopMouseTimer()
             return
         }
@@ -1174,6 +1241,20 @@ public final class GamepadBridge: ObservableObject {
         timer.setEventHandler { [weak self] in self?.mouseTick() }
         timer.resume()
         mouseTimer = timer
+    }
+
+    /// Un stick a bougé : la minuterie de la manette en souris repart si besoin.
+    private func wakeMouse() {
+        guard config.padMouse, mouseTimer == nil, input != nil, sticksMoving else { return }
+        updateMouseTimer()
+    }
+
+    /// Un stick hors de sa zone morte (mêmes seuils que `mouseTick`).
+    private var sticksMoving: Bool {
+        slots.values.contains { slot in
+            let l = slot.live.leftStick, r = slot.live.rightStick
+            return hypot(l.x, l.y) > 0.12 || abs(r.x) > 0.15 || abs(r.y) > 0.15
+        }
     }
 
     private func stopMouseTimer() {
@@ -1186,7 +1267,8 @@ public final class GamepadBridge: ObservableObject {
     /// 120 fois par seconde : le stick gauche déplace le pointeur (lent près
     /// du centre, rapide à fond), le droit fait tourner la molette.
     private func mouseTick() {
-        guard config.padMouse, !captured, let input else { return }
+        // App en arrière-plan : le stick tenu ne pousse plus le pointeur.
+        guard config.padMouse, !captured, !inBackground, let input else { return }
         let dt = 1.0 / 120
         var dx = 0.0, dy = 0.0, wx = 0.0, wy = 0.0
         for slot in slots.values {
@@ -1213,6 +1295,8 @@ public final class GamepadBridge: ObservableObject {
             input.wheel(dx: Float(wheelRest.x), dy: Float(wheelRest.y))
             wheelRest = (0, 0)
         }
+        // Sticks revenus au repos : plus de réveil jusqu'au prochain mouvement.
+        if !sticksMoving { stopMouseTimer() }
     }
 
     /// Courbe d'accélération du pointeur (manette et Siri Remote) : lent près
@@ -1313,6 +1397,7 @@ public final class GamepadBridge: ObservableObject {
 
     private func rumble(_ r: GamepadRumble) {
         onQueue()
+        guard !inBackground else { return }
         let slot = slots.values.first(where: { $0.id == r.id })
         // Une fois par session et par manette : le paquet arrive-t-il, et
         // trouve-t-il sa manette (« rien n'arrive » ou « le moteur ne joue pas »).
@@ -1613,6 +1698,15 @@ final class Motors {
     }
 
     /// Fin de session ou manette débranchée : vibration et moteur arrêtés.
+    /// Retour de l'app au premier plan : une vibration encore demandée reprend
+    /// sur un moteur arrêté par le système entre-temps.
+    func resume() {
+        queue.async {
+            self.large?.resume()
+            self.small?.resume()
+        }
+    }
+
     func stop() {
         queue.async {
             self.expiry?.cancel()
@@ -1669,6 +1763,24 @@ final class Motors {
             configure(engine)
         }
 
+        /// Les arrêts après lesquels le moteur repart tout de suite ; les autres
+        /// (app suspendue, son interrompu, veille, manette partie, fin voulue)
+        /// attendent le retour de l'app ou la vibration suivante.
+        static func restartsAtOnce(_ reason: CHHapticEngine.StoppedReason) -> Bool {
+            switch reason {
+            case .systemError: true
+            case .audioSessionInterrupt, .applicationSuspended, .idleTimeout, .notifyWhenFinished,
+                 .engineDestroyed, .gameControllerDisconnect: false
+            @unknown default: false
+            }
+        }
+
+        /// Au retour de l'app : une vibration encore demandée reprend.
+        func resume() {
+            guard level > 0, !running else { return }
+            set(level)
+        }
+
         private func configure(_ engine: CHHapticEngine) {
             engine.isAutoShutdownEnabled = false
             engine.playsHapticsOnly = true
@@ -1676,10 +1788,16 @@ final class Motors {
             engine.stoppedHandler = { [weak self] reason in
                 guard let self else { return }
                 queue.async {
+                    // Plus de relance des motifs courts sur un moteur arrêté.
+                    self.generation += 1
                     self.running = false
                     self.player = nil
                     self.playing = false
                     KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : moteur arrêté par le système (\(reason.rawValue))")
+                    // Panne du serveur haptique : la vibration en cours reprend
+                    // tout de suite. App suspendue, son interrompu (Siri), veille :
+                    // elle reprend au retour de l'app (`Motors.resume`).
+                    if Self.restartsAtOnce(reason), self.level > 0 { self.set(self.level) }
                 }
             }
             // Serveur haptique relancé : les lecteurs ne valent plus rien ; la
@@ -1799,7 +1917,22 @@ final class Motors {
             }
         }
 
+        /// Motifs courts déjà faits, par palier de 10 % : avant, un motif neuf
+        /// toutes les 0,26 s, même à intensité constante.
+        private var chunkPatterns: [Int: CHHapticPattern] = [:]
+
         private func pattern(intensity: Float) throws -> CHHapticPatternPlayer {
+            if !advanced {
+                let step = max(1, min(10, Int((intensity * 10).rounded())))
+                if let cached = chunkPatterns[step] { return try engine.makePlayer(with: cached) }
+                let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: Float(step) / 10),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+                ], relativeTime: 0, duration: Self.chunk)
+                let made = try CHHapticPattern(events: [event], parameters: [])
+                chunkPatterns[step] = made
+                return try engine.makePlayer(with: made)
+            }
             let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
                 CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),

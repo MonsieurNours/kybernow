@@ -559,9 +559,15 @@ final class AppModel: ObservableObject {
         let entries = store.ordered.map { h in
             TopShelfEntry(id: h.id, name: h.name, online: store.status[h.id]?.online ?? false,
                           reach: store.status[h.id]?.online == true ? "en ligne" : "hors ligne",
-                          lastSession: h.lastSession, imageFile: store.imagery.file(h.id))
+                          lastSession: h.lastSession, imageFile: store.imagery.file(h.id), imageDate: store.imagery.date(h.id))
         }
+        // Rien de changé (signe de vie du prêt, statut répété) : ni écriture
+        // ni rechargement du Top Shelf.
+        guard entries != lastTopShelf else { return }
+        lastTopShelf = entries
         TopShelfStore.write(entries)
         TVTopShelfContentProvider.topShelfContentDidChange()
     }
+
+    private var lastTopShelf: [TopShelfEntry]?
 }

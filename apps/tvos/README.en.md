@@ -64,7 +64,7 @@ What `KyberKitTV/` provides: capture of GameController's events (`GamepadBridge`
 
 ```sh
 # Kyber SDK for tvOS (once, then after a change to kyber-patches):
-rustup toolchain install nightly --profile minimal --component rust-src
+rustup toolchain install nightly-2026-10-19 --profile minimal --component rust-src  # KYBER_NIGHTLY (scripts/kyber-toolchain.sh)
 scripts/build-kyber-tvos.sh
 
 # The Rust core and its C bridge for tvOS (after every change to apps/core or apps/apple):
@@ -75,7 +75,7 @@ xcodegen generate
 open KyberNowTV.xcodeproj
 ```
 
-`scripts/build-kyber-tvos.sh` builds Kyber 0.29's libkynput and libkyclient, with the Mac app's patches (`apps/macos/kyber-patches`), for Apple TV and its simulator (tier 3 Rust targets: `-Zbuild-std`, like Kyber's `build-ios.sh`), plus libopus. VLC is never called (the app decodes image and sound): empty functions satisfy the linker. Everything goes into `Vendor/KyberSDK.xcframework` (arm64 only), the headers into `Vendor/include` (`CKyber` and `COpus` modules); the app only takes libkynput, libopus and those empty functions from it. The script empties `Vendor/` before writing, core included: run `build-apple-mobile.sh tvos` again afterwards. `apps/apple/scripts/build-apple-mobile.sh tvos` builds the core (`kybernow-core`) and its C bridge (`kybernow-apple`) as static libraries, device and simulator, gathered in `Vendor/KyberNow.xcframework` with the `kybernow.h` header (`CKyberNow` module, `Vendor/KyberNow/include`).
+`scripts/build-kyber-tvos.sh` builds Kyber 0.29's libkynput and libkyclient, with the Mac app's patches (`apps/macos/kyber-patches`), for Apple TV and its simulator (tier 3 Rust targets: `-Zbuild-std`, like Kyber's `build-ios.sh`), plus libopus. VLC is never called (the app decodes image and sound): empty functions satisfy the linker. Everything goes into `Vendor/KyberSDK.xcframework` (arm64 only), the headers into `Vendor/include` (`CKyber` and `COpus` modules); the app only takes libkynput, libopus and those empty functions from it. The script only replaces those two entries of `Vendor/`: the core (`Vendor/KyberNow.xcframework`) stays in place. `apps/apple/scripts/build-apple-mobile.sh tvos` builds the core (`kybernow-core`) and its C bridge (`kybernow-apple`) as static libraries, device and simulator, gathered in `Vendor/KyberNow.xcframework` with the `kybernow.h` header (`CKyberNow` module, `Vendor/KyberNow/include`).
 
 **PyroWave and Kyber** ([docs/pyrowave-client-apple.en.md](../../docs/pyrowave-client-apple.en.md)): the decoder is in KyberKit and the `pyrowave` capability always goes to the core, but the kyclient patch 0025 (`VideoCodec::PyroWave`, `fallback_codec`) and the core's `pyrowave` feature are only applied with an explicit flag, off by default, until they are turned on for every app (`third_party/` is shared): `scripts/build-kyber-tvos.sh --kyber-pyrowave` then `../apple/scripts/build-apple-mobile.sh tvos --kyber-pyrowave` (`kybernow-apple`'s `kyber-pyrowave` feature). Without them, the core never asks Kyber for PyroWave.
 

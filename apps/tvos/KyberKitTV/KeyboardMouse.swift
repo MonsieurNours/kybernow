@@ -14,6 +14,9 @@
 // Apple ISO », appliqué aux claviers Apple ou de fabricant inconnu.
 
 import GameController
+#if os(iOS)
+import UIKit
+#endif
 
 final class KeyboardMouse {
     private var queue: DispatchQueue { GamepadBridge.queue }
@@ -45,10 +48,12 @@ final class KeyboardMouse {
     /// et chaque clavier branché serait réglé autant de fois.
     func attach(_ input: InputPipeline, pointer: PointerLayer) {
         observers.forEach(NotificationCenter.default.removeObserver)
-        queue.sync {
+        // Sans attendre la file depuis le fil principal : elle est série, les
+        // gestionnaires posés ensuite y passent après.
+        queue.async {
             self.input = input
             self.pointer = pointer
-            activitySent = false
+            self.activitySent = false
         }
         if let keyboard = GCKeyboard.coalesced { setUp(keyboard) }
         GCMouse.mice().forEach(setUp)
@@ -62,7 +67,8 @@ final class KeyboardMouse {
         ]
     }
 
-    func detach() {
+    /// `keeping` : la chaîne d'entrées, gardée en vie le temps de tout relâcher.
+    func detach(keeping session: InputPipeline? = nil) {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = nil
@@ -74,10 +80,11 @@ final class KeyboardMouse {
             mouse.mouseInput?.scroll.valueChangedHandler = nil
             mouse.mouseInput?.auxiliaryButtons?.forEach { $0.pressedChangedHandler = nil }
         }
-        queue.sync {
-            input?.flushKeys()
-            input = nil
-            pointer = nil
+        queue.async {
+            defer { withExtendedLifetime(session) {} }
+            self.input?.flushKeys()
+            self.input = nil
+            self.pointer = nil
         }
     }
 
@@ -113,6 +120,11 @@ final class KeyboardMouse {
     private func setUp(_ mouse: GCMouse) {
         mouse.handlerQueue = queue
         guard let m = mouse.mouseInput else { return }
+        #if os(iOS)
+        // iPad seulement : l'iPhone n'a pas de pointeur système, la souris n'y
+        // passe que par GameController.
+        let systemPointer = UIDevice.current.userInterfaceIdiom == .pad
+        #endif
         m.mouseMovedHandler = { [weak self] _, dx, dy in
             guard let self, let input = self.input else { return }
             if !self.activitySent {
@@ -123,6 +135,12 @@ final class KeyboardMouse {
             // de suite. Sinon, la couche de pointeur tient la position et
             // l'envoie en absolu, sur cette même file : clics et molette qui
             // suivent restent derrière le déplacement.
+            // iPad : hors souris des jeux, le pointeur d'iPadOS sert déjà
+            // (survol de la vue, en absolu) ; ses deltas bruts en plus
+            // faisaient sauter le curseur entre deux positions.
+            #if os(iOS)
+            if systemPointer, !input.isRelative { return }
+            #endif
             if !input.isRelative, let pointer = self.pointer {
                 pointer.move(dx: Double(dx), dy: Double(-dy))
                 return
@@ -136,7 +154,14 @@ final class KeyboardMouse {
         for (button, kind) in zip(m.auxiliaryButtons ?? [], [InputPipeline.MouseButton.side, .extra]) {
             button.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(kind, pressed: pressed) }
         }
-        m.scroll.valueChangedHandler = { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
+        // iPad : la molette arrive déjà par UIKit (défilement de la vue de
+        // session) ; la lire ici aussi la faisait défiler deux fois.
+        let wheel: GCControllerDirectionPadValueChangedHandler = { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
+        #if os(iOS)
+        m.scroll.valueChangedHandler = systemPointer ? nil : wheel
+        #else
+        m.scroll.valueChangedHandler = wheel
+        #endif
     }
 
     /// Molette de GameController : premier axe vertical (positif = vers le
