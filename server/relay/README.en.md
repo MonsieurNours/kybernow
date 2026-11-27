@@ -114,6 +114,12 @@ Without a real certificate (self-signed relay), the apps work if the address car
 
 **By itself**: the compose's `updater` service pulls the latest relay image every night (at 4 am UTC, `RELAY_UPDATE_HOUR` in `.env`) and only restarts the relay if it changed. `RELAY_AUTO_UPDATE=no` turns it off. The certificate and settings are not touched. Run `docker compose` from the relay's folder: the service sees it at the same path as the machine.
 
+This service controls Docker (`docker.sock`, the same as root on the machine): a tampered image on the registry would go live the next night. Three safeguards:
+
+- `RELAY_COSIGN_KEY=cosign.pub` (a [cosign](https://docs.sigstore.dev/) public key in the relay's folder): a new image is only taken if its signature checks out; otherwise the relay stays as it is and the `updater` log says so;
+- `RELAY_IMAGE=ghcr.io/monsieurnours/kybernow-relay@sha256:…`: the image is pinned, `updater` does nothing; you change the digest by hand;
+- an image built on the machine (see "From source") is never replaced.
+
 **By hand**, whenever you like:
 
 ```sh
@@ -123,7 +129,7 @@ docker compose up -d
 
 When a version changes the compose file itself (rare, the changelog says so), fetch the files again (`for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`) before these two commands.
 
-**From source**, without the published image: clone the repository and, in `server/relay`, `docker compose build relay && docker compose up -d`. The image is built with the machine's network (`network: host`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names. `RELAY_IMAGE` in `.env` picks another image (a specific version, `…:0.8.0`).
+**From source**, without the published image: clone the repository, put `RELAY_IMAGE=kybernow-relay:local` in `.env`, then, in `server/relay`, `docker compose build relay && docker compose up -d`. The nightly update sees an image built on the machine and does not replace it. The image is built with the machine's network (`network: host`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names. `RELAY_IMAGE` in `.env` picks another image (a specific version, `…:0.8.0`).
 
 ## Settings
 

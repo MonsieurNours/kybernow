@@ -114,6 +114,12 @@ Sans vrai certificat (relais signé par lui-même), les apps marchent si l'adres
 
 **Tout seul** : le service `updater` du compose reprend chaque nuit la dernière image du relais (à 4 h UTC, `RELAY_UPDATE_HOUR` dans `.env`), et ne relance le relais que si elle a changé. `RELAY_AUTO_UPDATE=no` le coupe. Le certificat et les réglages ne sont pas touchés. Lancez `docker compose` depuis le dossier du relais : le service le voit au même chemin que la machine.
 
+Ce service a la main sur Docker (`docker.sock`, l'équivalent de root sur la machine) : une image piégée sur le registre passerait la nuit suivante. Trois garde-fous :
+
+- `RELAY_COSIGN_KEY=cosign.pub` (une clé publique [cosign](https://docs.sigstore.dev/) dans le dossier du relais) : une nouvelle image n'est prise que si sa signature se vérifie ; sinon le relais reste tel quel et le journal de `updater` le dit ;
+- `RELAY_IMAGE=ghcr.io/monsieurnours/kybernow-relay@sha256:…` : l'image est épinglée, `updater` ne fait rien ; on change l'empreinte à la main ;
+- une image construite sur place (voir « Depuis les sources ») n'est jamais remplacée.
+
 **À la main**, quand vous voulez :
 
 ```sh
@@ -123,7 +129,7 @@ docker compose up -d
 
 Quand une version change le compose lui-même (rare, le journal des versions le dit), reprenez les fichiers (`for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`) avant ces deux commandes.
 
-**Depuis les sources**, sans l'image publiée : clonez le dépôt et, dans `server/relay`, `docker compose build relay && docker compose up -d`. L'image se construit avec le réseau de la machine (`network: host`) : derrière un DNS local (Pi-hole, unbound), le réseau de construction de Docker ne résout pas les noms. `RELAY_IMAGE` dans `.env` choisit une autre image (une version précise, `…:0.8.0`).
+**Depuis les sources**, sans l'image publiée : clonez le dépôt, mettez `RELAY_IMAGE=kybernow-relay:local` dans `.env`, puis, dans `server/relay`, `docker compose build relay && docker compose up -d`. La mise à jour de la nuit voit une image construite sur place et ne la remplace pas. L'image se construit avec le réseau de la machine (`network: host`) : derrière un DNS local (Pi-hole, unbound), le réseau de construction de Docker ne résout pas les noms. `RELAY_IMAGE` dans `.env` choisit une autre image (une version précise, `…:0.8.0`).
 
 ## Réglages
 
