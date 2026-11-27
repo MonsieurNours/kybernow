@@ -1764,6 +1764,11 @@ final class SessionController: NSObject, ObservableObject {
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, les
     /// fins voulues et les fins en erreur se séparent ici.
     private func phaseChanged(_ p: SessionEngine.Phase) {
+        // Après `end()` : un état déjà en file (connexion, reprise, image) ne
+        // fait pas revivre la session ; seule sa fin dans le cœur compte.
+        var incomingIsEnded = false
+        if case .ended = p { incomingIsEnded = true }
+        if SessionRules.ignoresAfterEnd(ending: phase == .ending || phase == .ended, incomingIsEnded: incomingIsEnded) { return }
         if case .failed = phase {
             // Échec dit par l'app (registre plein…) : la session du cœur finit
             // quand même ; plus rien à attendre d'elle (fin de l'app).
@@ -1799,7 +1804,7 @@ final class SessionController: NSObject, ObservableObject {
             }
             phase = .starting
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
-                guard let self, self.revealedAt == nil, self.engineStreaming, self.engine != nil else { return }
+                guard let self, self.revealedAt == nil, self.engineStreaming, self.engine != nil, self.phase == .starting else { return }
                 // Dès la première image, l'image seule : ni capsule, ni barre, ni chiffre.
                 self.revealedAt = Date()
                 self.phase = .streaming
@@ -2113,6 +2118,7 @@ final class SessionController: NSObject, ObservableObject {
         // console vérifie la remise en état en arrière-plan (onReport).
         scene.close(over: revealedAt != nil ? last : nil, home: homeImage) { [weak self] in self?.finish() }
         withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
+        engineStreaming = false
         clearScreenOffer()
         streamView.detach()
         engine?.stop()
@@ -2321,12 +2327,19 @@ final class SessionController: NSObject, ObservableObject {
 
     /// La fenêtre de la session se ferme ; en plein écran, après en être
     /// sortie (3 s au plus : une sortie refusée pendant une transition).
+    ///
+    /// Le contrôleur se retient lui-même jusque-là : le gestionnaire l'a déjà
+    /// retiré (`onFinish`) et le cœur a pu le dire fini. Libéré avant la
+    /// sortie du plein écran, il ne fermait jamais sa fenêtre : elle restait
+    /// par-dessus tout, figée sur l'accueil photographié, et l'accueil ne
+    /// revenait pas (« l'app ne répond plus » en fin de session).
     private func closeWindow() {
         guard let window else { return }
         guard window.styleMask.contains(.fullScreen) else { return dropWindow() }
-        windowDelegate.onExitFullScreen = { [weak self] in self?.dropWindow() }
+        // Retenue forte, rompue par `dropWindow` (qui vide `onExitFullScreen`).
+        windowDelegate.onExitFullScreen = { self.dropWindow() }
         window.toggleFullScreen(nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.dropWindow() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.dropWindow() }
     }
 
     private func dropWindow() {
