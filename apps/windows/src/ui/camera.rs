@@ -91,7 +91,12 @@ fn snapshot(app: &AppHandle, id: &str) -> BarCamera {
 }
 
 fn emit(app: &AppHandle, id: &str) {
-    let _ = app.emit("bar-camera", snapshot(app, id));
+    let snap = snapshot(app, id);
+    // Barre fermée, la capsule « ● Caméra » en haut à gauche de l'image (`window::apply_signs`).
+    if let Some(session) = app.state::<UiState>().with_session(id, |r| r.host.id()) {
+        crate::window::set_signs(session, Some(snap.state == 2), None);
+    }
+    let _ = app.emit("bar-camera", snap);
 }
 
 fn notice(app: &AppHandle, id: &str, text: &str) {

@@ -190,6 +190,9 @@
   "pyrowave": {
     "banner_text": "The picture may stutter."
   },
+  "camera": {
+    "capsule": "● Camera"
+  },
   "micro": {
     "shortcut": "Ctrl+Alt+Shift+V"
   }

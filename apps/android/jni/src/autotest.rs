@@ -91,7 +91,7 @@ mod android {
     use std::time::{Duration, Instant};
 
     use jni::objects::{JClass, JObject, JString, JValue};
-    use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE};
+    use jni::sys::{jboolean, jint, jlong, jstring};
     use ndk::hardware_buffer::HardwareBufferUsage;
     use ndk::media::image_reader::{AcquireResult, ImageFormat, ImageReader};
     use ndk::media::media_codec::{DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection};

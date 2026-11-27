@@ -55,6 +55,9 @@ mod gpu;
 // HDR : écrans de ce PC (Windows), règles et courbes du rendu (se testent sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
 mod hdr;
+// Capsules transparentes sur l'image (aides d'une partie, signes d'une session).
+#[cfg(windows)]
+mod hint;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]

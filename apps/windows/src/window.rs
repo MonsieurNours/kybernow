@@ -61,6 +61,7 @@ use kybernow_core::session::{Device, Session, Status, StreamScreen};
 use crate::displays::{Layout, Monitor};
 use crate::focus;
 use crate::gpu::SessionGpu;
+use crate::hint::{Hint, Look, MIC_ICON, Place};
 use crate::host::{HostEvents, Role, ScreenSet, ScreenState};
 use crate::i18n::t;
 use crate::render::{Renderer, video_rect};
@@ -88,6 +89,9 @@ const WM_APP_DISPLAYS: u32 = WM_APP + 7;
 /// sur le fil des fenêtres de la session, jamais dans le rappel qui bloque
 /// tout le clavier de Windows.
 const WM_APP_HOOK_KEY: u32 = WM_APP + 8;
+/// Les signes de la session barre fermée (capsule « ● Caméra », icône du
+/// micro) à remettre à jour, sur le fil des fenêtres.
+const WM_APP_SIGNS: u32 = WM_APP + 9;
 
 /// Minuterie (fenêtre de contrôle) du recontrôle du mode de la souris
 /// (pointeur remontré en jeu).
@@ -129,6 +133,16 @@ pub fn set_bar_session(id: Option<u64>) {
     for a in apps() {
         a.bar_visible.store(Some(a.id) == id, Ordering::Relaxed);
         a.refresh_hints();
+        a.post(WM_APP_SIGNS);
+    }
+}
+
+/// La caméra ou le micro de ce PC part vers l'ordinateur de la session `id`
+/// (`SessionHost::id`), ou plus : ses signes barre fermée suivent
+/// ([`App::set_signs`]) ; rien si la session n'a pas encore ses fenêtres.
+pub fn set_signs(id: u64, camera: Option<bool>, mic: Option<bool>) {
+    if let Some(a) = apps().into_iter().find(|a| a.id == id) {
+        a.set_signs(camera, mic);
     }
 }
 
@@ -630,6 +644,12 @@ pub struct App {
     title_stats: bool,
     /// La barre de session est affichée pour cette session (une seule barre).
     bar_visible: AtomicBool,
+    /// La caméra de ce PC part vers l'ordinateur (voyant) : barre fermée, la
+    /// capsule « ● Caméra » en haut à gauche de l'image (`apply_signs`).
+    camera_sign: AtomicBool,
+    /// Le micro de ce PC part vers l'ordinateur : barre fermée, son icône
+    /// près du trait du bord haut.
+    mic_sign: AtomicBool,
     /// Dernière fenêtre active (le clavier y revient quand la barre se cache).
     last_active: AtomicIsize,
     /// Toutes ses fenêtres sont réduites : session en arrière-plan (`Session::set_background`).
@@ -775,6 +795,8 @@ impl App {
             fullscreen,
             title_stats,
             bar_visible: AtomicBool::new(false),
+            camera_sign: AtomicBool::new(false),
+            mic_sign: AtomicBool::new(false),
             last_active: AtomicIsize::new(0),
             hidden_cap: AtomicBool::new(false),
             grabbed: Mutex::new(Vec::new()),
@@ -935,6 +957,22 @@ impl App {
     }
 
     /// Un message à la fenêtre de contrôle (tout fil).
+    /// La caméra (`camera`) ou le micro (`mic`) de ce PC part, ou plus : les
+    /// signes de la session barre fermée suivent (docs/link-ui.md, « Caméra
+    /// de l'appareil » : chacun à sa place, jamais une capsule commune).
+    pub fn set_signs(&self, camera: Option<bool>, mic: Option<bool>) {
+        let mut changed = false;
+        if let Some(c) = camera {
+            changed |= self.camera_sign.swap(c, Ordering::Relaxed) != c;
+        }
+        if let Some(m) = mic {
+            changed |= self.mic_sign.swap(m, Ordering::Relaxed) != m;
+        }
+        if changed {
+            self.post(WM_APP_SIGNS);
+        }
+    }
+
     pub fn post(&self, msg: u32) {
         unsafe {
             let _ = PostMessageW(Some(self.control()), msg, WPARAM(0), LPARAM(0));
@@ -2571,6 +2609,12 @@ unsafe fn control_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM
                 }
                 LRESULT(0)
             }
+            WM_APP_SIGNS => {
+                if let Some(a) = app() {
+                    apply_signs(&a);
+                }
+                LRESULT(0)
+            }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
@@ -2690,6 +2734,7 @@ unsafe fn screen_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             WM_SIZE => {
                 update_client_size(&app, &win);
                 follow_minimized(&app);
+                app.post(WM_APP_SIGNS);
                 LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
@@ -2716,6 +2761,8 @@ unsafe fn screen_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // HDR : la fenêtre a pu passer sur un autre écran (glissée, Win+Maj+flèche).
             WM_WINDOWPOSCHANGED => {
                 follow_monitor(&app, &win, false);
+                // Les signes barre fermée suivent la fenêtre (déplacée, montrée, cachée).
+                app.post(WM_APP_SIGNS);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {
@@ -2966,9 +3013,79 @@ unsafe fn screen_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 if win.edge_armed.load(Ordering::Relaxed) {
                     edge_cancel(&win);
                 }
+                drop_signs(hwnd);
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
     }
+}
+
+thread_local! {
+    /// Les signes de chaque session barre fermée (`App::id` : capsule de la
+    /// caméra, icône du micro), sur le fil de ses fenêtres.
+    static SIGNS: RefCell<std::collections::HashMap<u64, [Option<Hint>; 2]>> = RefCell::new(std::collections::HashMap::new());
+}
+
+/// Barre fermée, la caméra envoyée se signale par la capsule « ● Caméra » en
+/// haut à gauche de l'image, le micro envoyé par son icône près du trait du
+/// bord haut ; les deux à la fois, chacun à sa place (docs/link-ui.md,
+/// « Caméra de l'appareil » et « Micro »). Sur l'écran principal de la
+/// session ; rien barre ouverte (elle a ses puces), ni pour la ligne de
+/// commande, ni une session en fin.
+fn apply_signs(app: &App) {
+    let windows = app.windows();
+    let owner = windows.iter().find(|w| w.primary.load(Ordering::Relaxed)).or_else(|| windows.first()).cloned();
+    let ready = !app.title_stats
+        && !app.closing.load(Ordering::Relaxed)
+        && !app.bar_visible.load(Ordering::Relaxed)
+        && owner.as_ref().is_some_and(|w| w.shown.load(Ordering::Relaxed));
+    let wanted = [
+        (ready && app.camera_sign.load(Ordering::Relaxed)).then(|| t("camera.capsule", &[])),
+        (ready && app.mic_sign.load(Ordering::Relaxed)).then(|| MIC_ICON.to_string()),
+    ];
+    let looks = [(Place::TopLeft, Look::Text), (Place::BesideEdge, Look::Icon)];
+    SIGNS.with(|all| {
+        let mut all = all.borrow_mut();
+        let slots = all.entry(app.id).or_default();
+        for ((slot, text), (place, look)) in slots.iter_mut().zip(wanted).zip(looks) {
+            match (&owner, text) {
+                (Some(w), Some(text)) => {
+                    let hwnd = w.hwnd();
+                    if slot.as_ref().is_none_or(|h| !h.alive() || h.owner() != hwnd) {
+                        if let Some(old) = slot.take() {
+                            old.destroy();
+                        }
+                        *slot = Some(Hint::new(hwnd, place, look));
+                    }
+                    if let Some(h) = slot.as_mut() {
+                        h.show(Some(&text));
+                    }
+                }
+                _ => {
+                    if let Some(h) = slot.as_mut() {
+                        h.show(None);
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Une fenêtre de session s'en va : ses signes avec elle (Windows les détruit
+/// aussi, leur texte gardé part ici).
+fn drop_signs(hwnd: HWND) {
+    SIGNS.with(|all| {
+        let mut all = all.borrow_mut();
+        for slots in all.values_mut() {
+            for slot in slots.iter_mut() {
+                if slot.as_ref().is_some_and(|h| h.owner() == hwnd) {
+                    if let Some(h) = slot.take() {
+                        h.destroy();
+                    }
+                }
+            }
+        }
+        all.retain(|_, slots| slots.iter().any(Option::is_some));
+    });
 }
