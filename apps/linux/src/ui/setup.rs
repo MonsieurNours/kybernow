@@ -260,7 +260,36 @@ fn language(app: &App, cv: &mut Canvas, f: &mut Frame) {
         choice_card(cv, f, Target::SetupLang(i), r, badge, name, desc, "", i == app.setup.lang);
         x += 560.0 + 40.0;
     }
+    // « Pays » (proposé d'après la langue) et « Fuseau horaire » pour un pays qui en a plusieurs (LINAPP-30) ; les deux
+    // langues, comme le reste de l'écran ; le nom du pays dans la langue choisie.
+    let c = app.setup.country;
+    let name = if app.setup.lang == 0 { c.name.1 } else { c.name.0 };
+    let mut ry = y + 48.0 + 300.0 + 36.0;
+    picker(cv, f, Target::SetupCountry, ry, "Country · Pays", name);
+    ry += 76.0;
+    if c.zones.len() > 1 {
+        picker(cv, f, Target::SetupZone, ry, "Time zone · Fuseau horaire", &crate::country::zone_label(app.setup.zone));
+        ry += 76.0;
+    }
+    cv.text_fit(96.0, ry + 20.0, Text::new(Font::Regular, 20.0, FAINT), "Wi-Fi, time and keyboard follow the country. · Le Wi-Fi, l'heure et le clavier suivent le pays.", cv.w - 192.0);
     footer(app, cv, &[(&["A"], "Choose · Choisir".into()), (&["B"], "Back · Retour".into())], None);
+}
+
+/// Une ligne à valeurs (‹ valeur ›) de l'écran Langue : son libellé, la valeur ; ‹ › ou A la changent.
+fn picker(cv: &mut Canvas, f: &mut Frame, t: Target, y: f32, label: &str, value: &str) {
+    let r = Rect::new(96.0, y, 1160.0, 60.0);
+    let (focused, hover) = f.state(t, r);
+    cv.rrect(r.x, r.y, r.w, r.h, 14.0, if hover { Rgba(20, 27, 35, 235) } else { Rgba(14, 20, 26, 217) });
+    cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, 1.0, LINE);
+    if focused {
+        widgets::ring(cv, r, 14.0);
+    }
+    cv.text_fit(r.x + 28.0, r.y + 39.0, Text::new(Font::Regular, 22.0, MUTED), label, 520.0);
+    let st = Text::new(Font::Semibold, 24.0, FROST).align(Align::Right);
+    cv.text(r.x + r.w - 64.0, r.y + 40.0, st, value);
+    cv.text(r.x + r.w - 28.0, r.y + 40.0, Text::new(Font::Regular, 24.0, if focused { SPECTRE } else { FAINT }).align(Align::Right), "›");
+    let vw = cv.text_width(Text::new(Font::Semibold, 24.0, FROST), value);
+    cv.text(r.x + r.w - 64.0 - vw - 16.0, r.y + 40.0, Text::new(Font::Regular, 24.0, if focused { SPECTRE } else { FAINT }).align(Align::Right), "‹");
 }
 
 /// Une grande carte à choisir (langue, usage) : icône ou sigle, titre, texte, note.

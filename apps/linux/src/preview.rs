@@ -1686,6 +1686,12 @@ fn os_shots(en: bool, dir: &Path) {
     app.setup.step = SetupStep::Language;
     app.go(Screen::Setup);
     shot(&mut app, &mut cv, None, dir, "os-02-langue");
+    // Anglais : les États-Unis proposés, et leur fuseau (LINAPP-30).
+    app.activate(Target::SetupLang(0));
+    app.setup.step = SetupStep::Language;
+    app.focus = Target::SetupZone;
+    shot(&mut app, &mut cv, None, dir, "os-02b-langue-pays-fuseau");
+    app.setup.lang = 1;
     app.setup.step = SetupStep::Network;
     app.net.kind = NetKind::Unknown;
     app.setup.wifi = vec![
@@ -2712,6 +2718,50 @@ mod tests {
             assert!(app.rows(crate::app::Section::App).iter().any(|r| r.setting == crate::app::Setting::SendLog), "À propos, dans les Réglages de l'app");
         }
         crate::i18n::force_english(false);
+    }
+
+    /// LINAPP-30 : à l'écran Langue de Link OS, le pays suit la langue (France pour le français, États-Unis pour
+    /// l'anglais) tant qu'on ne l'a pas choisi ; ‹ › le changent, le fuseau aussi pour un pays qui en a plusieurs ;
+    /// continuer le donne au système ; Réglages de l'appareil › Langue a les mêmes lignes.
+    #[test]
+    fn link_os_country_and_time_zone() {
+        use crate::app::{Action, Nav, OsAction, SetupStep};
+        let mut app = demo(false, Layout::Tv);
+        app.os = Some(crate::app::OsInfo::default());
+        app.start_setup();
+        app.setup.step = SetupStep::Language;
+        app.go(Screen::Setup);
+        assert_eq!(app.setup.country.code, "FR");
+        // La langue choisie propose son pays.
+        app.setup.lang = 0;
+        app.focus = Target::SetupCountry;
+        let hits = ui::draw(&app, &mut { let mut cv = Canvas::new(); cv.resize(1920, 1080, 1.0); cv });
+        assert!(hits.iter().any(|(t, _)| *t == Target::SetupCountry));
+        app.nav(Nav::Right);
+        assert!(app.setup.country_chosen && app.setup.country.code != "FR", "‹ › changent le pays");
+        app.nav(Nav::Left);
+        assert_eq!(app.setup.country.code, "FR");
+        // Un pays à plusieurs fuseaux : la ligne du fuseau.
+        while app.setup.country.code != "US" {
+            app.nav(Nav::Right);
+        }
+        assert_eq!(app.setup.zone, "America/New_York");
+        app.focus = Target::SetupZone;
+        app.nav(Nav::Right);
+        assert_eq!(app.setup.zone, "America/Chicago");
+        if let Some(d) = std::env::var_os("KN_SHOTS").map(std::path::PathBuf::from) {
+            let _ = std::fs::create_dir_all(&d);
+            let mut cv = Canvas::new();
+            cv.resize(1920, 1080, 1.0);
+            shot(&mut app, &mut cv, None, &d, "os-langue-pays-fuseau");
+        }
+        // Continuer : le pays, le fuseau et le clavier vont au système.
+        let acts = app.activate(Target::SetupLang(1));
+        assert!(acts.contains(&Action::Os(OsAction::Locale("COUNTRY=US\nTIMEZONE=America/Chicago\nKEYMAP=us\n".into()))), "{acts:?}");
+        assert_eq!((app.store.app.os_country.as_str(), app.store.app.os_timezone.as_str()), ("US", "America/Chicago"));
+        // Réglages de l'appareil › Langue : « Pays » et « Fuseau horaire ».
+        let rows = app.rows(crate::app::Section::OsLanguage);
+        assert!(rows.iter().any(|r| r.setting == crate::app::Setting::OsCountry) && rows.iter().any(|r| r.setting == crate::app::Setting::OsTimezone));
     }
 
     /// TRANS-38 : le panneau « Statistiques » de link-ui (titre, croix « Fermer les statistiques », latence, trajet,

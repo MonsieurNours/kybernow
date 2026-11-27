@@ -395,6 +395,10 @@ pub struct AppSettings {
     /// KyberNow Link OS : mode de la sortie HDMI au démarrage : `auto`,
     /// `2160p60`, `1080p120`, `1080p60`.
     pub os_hdmi: String,
+    /// KyberNow Link OS : le pays (code ISO, vide : pas encore choisi) et son fuseau (docs/link-ui.md, « KyberNow
+    /// Link OS : langue, pays et fuseau ») ; le Wi-Fi, l'heure et le clavier le suivent (`kybernow-os-ctl locale`).
+    pub os_country: String,
+    pub os_timezone: String,
     /// KyberNow Share : le prénom donné en rejoignant un partage, retenu pour
     /// la fois suivante (vide : le nom de cet appareil est proposé). Avec la qualité de l'image ci-dessous, la
     /// seule trace d'un partage sur l'appareil : un invité n'est jamais ajouté aux ordinateurs.
@@ -423,7 +427,7 @@ pub struct AppSettings {
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), legacy_keep_last_image: None, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), legacy_keep_last_image: None, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into(), os_country: String::new(), os_timezone: String::new(), share_name: String::new(), share_quality: String::new(), lend_warned: false, sync_settings: true, last_launched: String::new(), welcome: Default::default(), mic_device: String::new(), mic_echo: true }
     }
 }
 

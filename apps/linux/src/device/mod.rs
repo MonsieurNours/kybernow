@@ -3659,6 +3659,12 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             }
             OsAction::Cec(on) => os::ctl(&[if on { "cec-name" } else { "cec-off" }]),
             OsAction::Hdmi(m) => os::ctl(&["hdmi", &m]),
+            // Le pays, le fuseau et le clavier : laissés dans le dossier de l'app, lus et vérifiés par root (sudoers :
+            // `locale` sans argument).
+            OsAction::Locale(request) => match std::fs::write(crate::model::Store::dir().join("os-locale"), request) {
+                Ok(()) => os::ctl(&["locale"]),
+                Err(e) => log::warn!("pays et fuseau : {e}"),
+            },
         },
         // « Envoyer le journal » (Réglages de l'app › À propos) ; « Terminé » retire le dépôt pas encore ouvert.
         Action::SendLog => journal::start(app, tx),

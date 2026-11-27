@@ -2645,6 +2645,9 @@ pub enum Setting {
     OsUsage,
     OsWifi,
     OsBtPair,
+    /// Link OS › Langue : « Pays », « Fuseau horaire » (docs/link-ui.md, « KyberNow Link OS : langue, pays et fuseau »).
+    OsCountry,
+    OsTimezone,
     OsHdmi,
     OsCec,
     OsAutoUpdate,
@@ -2768,6 +2771,8 @@ pub enum OsAction {
     Cec(bool),
     /// Mode HDMI pour le prochain démarrage.
     Hdmi(String),
+    /// Le pays, le fuseau et le clavier (`country::request`) : le Wi-Fi, l'heure et le clavier le suivent.
+    Locale(String),
 }
 
 /// Les crans du menu « Débit » (Mbit/s), gardés entre les bornes du débit réglé à la main.
@@ -2937,11 +2942,15 @@ pub struct SetupState {
     pub lang: usize,
     /// 0 : salon, 1 : bureau.
     pub usage: usize,
+    /// Le pays et le fuseau de l'écran Langue ; le pays suit la langue tant qu'on ne l'a pas choisi.
+    pub country: &'static crate::country::Country,
+    pub zone: &'static str,
+    pub country_chosen: bool,
 }
 
 impl Default for SetupState {
     fn default() -> Self {
-        Self { active: false, step: SetupStep::Controller, bt: Vec::new(), bt_listening: false, wifi: Vec::new(), wifi_scanning: false, wifi_pick: None, password: String::new(), shift: false, net_message: None, net_busy: false, lang: 1, usage: 0 }
+        Self { active: false, step: SetupStep::Controller, bt: Vec::new(), bt_listening: false, wifi: Vec::new(), wifi_scanning: false, wifi_pick: None, password: String::new(), shift: false, net_message: None, net_busy: false, lang: 1, usage: 0, country: crate::country::for_language("fr"), zone: crate::country::for_language("fr").zones[0], country_chosen: false }
     }
 }
 
@@ -3145,6 +3154,9 @@ pub enum Target {
     SetupSkip,
     SetupLang(usize),
     SetupUsage(usize),
+    /// L'écran Langue de Link OS : « Pays » et « Fuseau horaire » (‹ › pour changer).
+    SetupCountry,
+    SetupZone,
     SetupWifi(usize),
     SetupRescan,
     KeyShift,
@@ -4231,6 +4243,8 @@ impl App {
             SetupStep::Language => {
                 self.store.app.language = if self.setup.lang == 0 { "en".into() } else { "fr".into() };
                 acts.push(Action::Language);
+                // Le pays : le Wi-Fi, l'heure et le clavier le suivent.
+                acts.extend(self.set_country(self.setup.country.code, self.setup.zone));
                 acts.push(Action::Save);
                 self.setup.step = SetupStep::Network;
                 if self.net.kind != NetKind::Ethernet {
@@ -4404,6 +4418,11 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        // L'écran Langue de Link OS : ‹ › changent le pays et le fuseau.
+        if self.screen == Screen::Setup && matches!(self.focus, Target::SetupCountry | Target::SetupZone) && matches!(n, Nav::Left | Nav::Right) {
+            let dir = if n == Nav::Left { -1 } else { 1 };
+            return if self.focus == Target::SetupCountry { self.setup_country(dir) } else { self.setup_zone(dir) };
         }
         // Le panneau du journal : son bouton, B le ferme.
         if self.journal.is_some() {
@@ -5233,9 +5252,11 @@ impl App {
             }
             // Une carte (langue, usage) : la choisir, c'est continuer (A « Choisir »).
             Target::SetupLang(i) => {
-                self.setup.lang = i;
+                self.setup_lang(i);
                 self.setup_next()
             }
+            Target::SetupCountry => self.setup_country(1),
+            Target::SetupZone => self.setup_zone(1),
             Target::SetupUsage(i) => {
                 self.setup.usage = i;
                 self.setup_next()
@@ -5503,6 +5524,49 @@ impl App {
         self.journal = None;
         self.focus = Target::Setting(Setting::SendLog);
         vec![Action::JournalClose]
+    }
+
+    /// L'écran Langue de Link OS : la langue choisie propose son pays, tant qu'on n'en a pas choisi un.
+    fn setup_lang(&mut self, i: usize) {
+        self.setup.lang = i;
+        if !self.setup.country_chosen {
+            let c = crate::country::for_language(if i == 0 { "en" } else { "fr" });
+            self.setup.country = c;
+            self.setup.zone = c.zones[0];
+        }
+    }
+
+    /// « Pays » de l'écran Langue : le suivant (`dir` 1) ou le précédent (-1) ; son premier fuseau.
+    fn setup_country(&mut self, dir: i32) -> Vec<Action> {
+        let all = crate::country::COUNTRIES;
+        let i = all.iter().position(|c| c.code == self.setup.country.code).unwrap_or(0);
+        let c = &all[cycle(i, all.len(), dir)];
+        self.setup.country = c;
+        self.setup.zone = c.zones[0];
+        self.setup.country_chosen = true;
+        Vec::new()
+    }
+
+    /// « Fuseau horaire » de l'écran Langue (pays à plusieurs fuseaux).
+    fn setup_zone(&mut self, dir: i32) -> Vec<Action> {
+        let zones = self.setup.country.zones;
+        let i = zones.iter().position(|z| *z == self.setup.zone).unwrap_or(0);
+        self.setup.zone = zones[cycle(i, zones.len(), dir)];
+        Vec::new()
+    }
+
+    /// Le pays de l'appareil (Link OS) : celui choisi, sinon celui de la langue.
+    pub fn os_country(&self) -> &'static crate::country::Country {
+        crate::country::by_code(&self.store.app.os_country).unwrap_or_else(|| crate::country::for_language(if english() { "en" } else { "fr" }))
+    }
+
+    /// Le pays et le fuseau de l'appareil (Link OS) : gardés, et donnés au système (`kybernow-os-ctl locale`).
+    fn set_country(&mut self, code: &str, zone: &str) -> Vec<Action> {
+        let Some(c) = crate::country::by_code(code) else { return Vec::new() };
+        let zone = crate::country::zone(c, zone);
+        self.store.app.os_country = c.code.into();
+        self.store.app.os_timezone = zone.into();
+        vec![Action::Os(OsAction::Locale(crate::country::request(c, zone))), Action::Save]
     }
 
     /// Le menu de la souris de la barre : le choix s'applique tout de suite et reste pour cet ordinateur, comme le
@@ -7375,7 +7439,18 @@ impl App {
             Section::OsUpdate => Vec::new(),
             Section::OsLanguage => {
                 let lang = ["auto", "fr", "en"].iter().position(|v| *v == a.language).unwrap_or(0);
-                vec![choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système", "Auto: the system's").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3])]
+                let mut v = vec![choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système", "Auto: the system's").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3])];
+                // « Pays » (et « Fuseau horaire » pour un pays qui en a plusieurs) : le Wi-Fi, l'heure et le clavier le suivent.
+                let c = self.os_country();
+                let all = crate::country::COUNTRIES;
+                let ci = all.iter().position(|x| x.code == c.code).unwrap_or(0);
+                v.push(choice(Setting::OsCountry, crate::country::country_label(), crate::country::help().into(), all.iter().map(|x| x.name().to_string()).collect(), ci, vec![false; all.len()]));
+                if c.zones.len() > 1 {
+                    let zone = crate::country::zone(c, &a.os_timezone);
+                    let zi = c.zones.iter().position(|z| *z == zone).unwrap_or(0);
+                    v.push(choice(Setting::OsTimezone, crate::country::zone_title(), String::new(), c.zones.iter().map(|z| crate::country::zone_label(z)).collect(), zi, vec![false; c.zones.len()]));
+                }
+                v
             }
             Section::OsAdvanced => {
                 let o = self.os.clone().unwrap_or_default();
@@ -7452,6 +7527,18 @@ impl App {
                 let desktop = if i == usize::MAX { self.store.app.interface != "desktop" } else { i == 1 };
                 self.store.app.interface = if desktop { "desktop".into() } else { "tv".into() };
                 return vec![Action::Save, Action::Interface];
+            }
+            Setting::OsCountry => {
+                let all = crate::country::COUNTRIES;
+                let cur = all.iter().position(|x| x.code == self.os_country().code).unwrap_or(0);
+                let i = if i == usize::MAX { (cur + 1) % all.len() } else { i.min(all.len() - 1) };
+                return self.set_country(all[i].code, "");
+            }
+            Setting::OsTimezone => {
+                let c = self.os_country();
+                let cur = c.zones.iter().position(|z| *z == crate::country::zone(c, &self.store.app.os_timezone)).unwrap_or(0);
+                let i = if i == usize::MAX { (cur + 1) % c.zones.len() } else { i.min(c.zones.len() - 1) };
+                return self.set_country(c.code, c.zones[i]);
             }
             Setting::OsHdmi => {
                 let modes = ["auto", "2160p60", "1080p120", "1080p60"];
