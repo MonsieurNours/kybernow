@@ -706,4 +706,19 @@ mod tests {
         s.add_passkey(a, &key, "Clé", "", 20).unwrap();
         assert!(s.two_factor(a).unwrap());
     }
+
+    #[test]
+    fn une_invitation_s_ajoute_aux_droits_deja_la() {
+        // REL-30 : Léa a Regarder ; on l'invite par adresse avec Session avant qu'elle ne la vérifie.
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let b = s.create_account("lea@exemple.org", "Léa", "h", "fr", Some(0), 0).unwrap().unwrap();
+        s.attach_station("st1", "PC", a, a, 10).unwrap();
+        s.grant_person("st1", b, &rights(&[Right::View]), None, a, 10).unwrap();
+        s.grant_invite("st1", "lea@exemple.org", &rights(&[Right::Session]), Some(500), a, 20).unwrap();
+        assert_eq!(s.claim_invitations(b, 30).unwrap(), 1);
+        assert_eq!(s.granted_rights(b, "st1", 40).unwrap(), rights(&[Right::View, Right::Session]));
+        assert_eq!(s.granted_rights(b, "st1", 600).unwrap(), rights(&[Right::View]), "Session garde son échéance");
+        assert!(s.grants_of("st1").unwrap().iter().all(|g| !matches!(g.subject, Subject::Invite { .. })), "l'invitation est partie");
+    }
 }
