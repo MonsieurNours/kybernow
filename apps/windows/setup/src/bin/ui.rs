@@ -111,6 +111,8 @@ mod ui {
     }
 
     pub fn main() -> wry::Result<()> {
+        // Son dossier (dans %TEMP%, fait par le lanceur) porte WebView2Loader.dll.
+        sys::protect_dll_search(true);
         let _ = std::env::set_current_dir(std::env::temp_dir());
         sys::init_log("setup-ui");
         let payload = arg("--payload");

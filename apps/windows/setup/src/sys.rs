@@ -196,6 +196,19 @@ pub fn run(program: &str, args: &[&str]) -> Result<Output> {
         .with_context(|| format!("lancement de {program}"))
 }
 
+/// Les DLL chargées à la demande ne viennent que de System32 (et, avec
+/// `app_dir`, du dossier de l'exécutable) : jamais du dossier courant ni du
+/// PATH, ni, pour le lanceur, du dossier de Téléchargements où il a été
+/// ouvert (une DLL piégée au nom d'une DLL système). En première ligne de `main`.
+pub fn protect_dll_search(app_dir: bool) {
+    use windows_sys::Win32::System::LibraryLoader::{
+        LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_SYSTEM32, SetDefaultDllDirectories,
+    };
+    unsafe {
+        SetDefaultDllDirectories(if app_dir { LOAD_LIBRARY_SEARCH_DEFAULT_DIRS } else { LOAD_LIBRARY_SEARCH_SYSTEM32 });
+    }
+}
+
 /// Ouvre une page web dans le navigateur par défaut, par `ShellExecuteW`
 /// (verbe `open`) : jamais par `cmd.exe`, qui exécuterait ce qui suit un `&`
 /// de l'adresse.
