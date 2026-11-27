@@ -1,6 +1,7 @@
 package fr.leslignesclaires.kybernow
 
 import androidx.lifecycle.lifecycleScope
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.playstation.PsConsole
 import fr.leslignesclaires.kybernow.playstation.PsRemote
 import fr.leslignesclaires.kybernow.playstation.PsStatus
@@ -334,12 +335,12 @@ class MainActivity : AppCompatActivity() {
             route = Route.AccountCode(Accounts.DEFAULT_RELAY, back)
             return
         }
-        if (openBrowser(Welcome.signUpUrl("", app.language()))) Toast.makeText(this, R.string.welcome_create_notice, Toast.LENGTH_LONG).show()
+        if (openBrowser(Welcome.signUpUrl(""))) Toast.makeText(this, R.string.welcome_create_notice, Toast.LENGTH_LONG).show()
     }
 
     /** Une page dans le navigateur de l'appareil ; faux s'il n'y en a pas (téléviseur sans navigateur). */
     private fun openBrowser(url: String): Boolean =
-        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
+        url.isNotBlank() && runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.isSuccess
 
     /** Un ordinateur vient d'être appairé (ou ajouté par une invitation) : sans compte, le bandeau du compte, une fois. */
     private fun paired(h: Host) {
@@ -383,7 +384,7 @@ class MainActivity : AppCompatActivity() {
         // `kybernow://borrow?host=…&port=…&fp=…&login=…` : le lien d'invitation d'un compte d'ami (prêt de l'ordinateur).
         Lend.parseInvite(data.toString())?.let { route = Route.Add(invite = it); return }
         // Un lien d'invitation abîmé (coupé dans un message, recopié à la main) : « Ce lien d'invitation est illisible. »
-        if (Lend.isInviteLink(data.toString())) { route = Route.Add(inviteUnreadable = true); return }
+        if (Core.looksLikeInvite(data.toString())) { route = Route.Add(inviteUnreadable = true); return }
         PairingLink.parse(data.toString())?.let { route = Route.Add(it) }
     }
 

@@ -78,6 +78,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.LendAvailable
 import fr.leslignesclaires.kybernow.core.LendDuration
 import fr.leslignesclaires.kybernow.core.LendRequest
@@ -174,7 +175,7 @@ class SessionUi(
      */
     var micShown by mutableStateOf(false)
     var micChoice by mutableStateOf(false)
-    var mic by mutableStateOf<Mic>(Mic.Off)
+    var mic by mutableStateOf(Mic())
     /**
      * PyroWave (docs/link-ui.md, « PyroWave ») : choisi à la main pour cet ordinateur ([pyroChosen], hôte seulement),
      * le réseau de l'appareil au début ([pyroLink] : câble ou Wi-Fi ; le relais se lit dans la route), le bandeau du
@@ -383,7 +384,7 @@ fun SessionOverlay(ui: SessionUi) {
         if (!ui.tv && ui.padShown && (!ui.guest || role.pads) && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
         Capsules(ui, Modifier.align(Alignment.TopCenter))
         // Barre fermée (téléphone, tablette : pas de barre permanente) : la petite icône du micro tant qu'il est envoyé.
-        if (!ui.tv && !ui.barOpen && ui.passageDone && !ui.leaving && ui.mic == Mic.On) MicIndicator(Modifier.align(Alignment.TopEnd))
+        if (!ui.tv && !ui.barOpen && ui.passageDone && !ui.leaving && ui.mic.sent) MicIndicator(ui, Modifier.align(Alignment.TopEnd))
         CameraIndicator(ui, Modifier.align(Alignment.TopStart))
         if (!ui.passageDone) Passage(ui)
         if (ui.tv) {
@@ -610,9 +611,9 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.ResolutionLowered -> c.text
     Capsule.AutoTestLater -> stringResource(R.string.autotest_later)
     is Capsule.RecordingNotice -> c.text
-    is Capsule.MicSent -> stringResource(R.string.mic_notice_sent, c.name)
+    is Capsule.MicNotice -> c.text
+    is Capsule.PyroWaveFallback -> c.text
     Capsule.MicNoAccess -> stringResource(R.string.mic_no_access)
-    is Capsule.MicRefused -> c.text
 }
 
 // MARK: - Téléphone et tablette
@@ -725,7 +726,7 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
     StatsCard(ui, sec, Modifier.focusRequester(first))
     QualityButton(ui)
     // « Micro » quand l'hôte laisse les invités parler.
-    if ((ui.mic as? Mic.Refused)?.reason != Mic.NOT_ALLOWED) MicChip(ui)
+    MicChip(ui)
     // Qui regarde, sur un PC à plusieurs écrans : « Écran » et celui qu'on regarde.
     ui.watch?.takeIf { it.screens.isNotEmpty() }?.let { w ->
         val shown by ui.state.watchDisplay.collectAsState()
@@ -856,20 +857,11 @@ private fun RouteChip(ui: SessionUi) {
     val route by ui.state.route.collectAsState()
     if (route?.viaRelay != true) return
     GlassButton(
-        stringResource(R.string.route_relay), { ui.statsOpen = !ui.statsOpen }, selected = true,
+        Core.routeLabel(RouteTransport.RELAY), { ui.statsOpen = !ui.statsOpen }, selected = true,
         leading = { KnIcon(KnIcons.network, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
     )
 }
 
-/** « Direct », « Par le relais », « Par le relais (TCP) » : la ligne « Chemin » des statistiques (textes de docs/link-ui.md). */
-@Composable
-fun routeLabel(transport: RouteTransport) = stringResource(
-    when (transport) {
-        RouteTransport.DIRECT -> R.string.route_direct
-        RouteTransport.RELAY -> R.string.route_relay
-        RouteTransport.RELAY_TCP -> R.string.route_relay_tcp
-    },
-)
 
 /** L'infobulle d'un élément inactif à la souris : [reason], au survol ; sans raison, l'élément seul. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1038,7 +1030,7 @@ private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, au
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
         // Par le relais (hors de chez vous) : une tuile, comme la puce de la barre ; elle ouvre les statistiques (« Chemin »).
-        if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
+        if (route?.viaRelay == true) Tile(KnIcons.network, Core.routeLabel(RouteTransport.RELAY), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         // La qualité reçue (« 1080p · 60 Hz ») quand la Station la dit, sinon celle qu'on a choisie (« Auto »).
@@ -1067,7 +1059,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
     val route by ui.state.route.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
-        if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
+        if (route?.viaRelay == true) Tile(KnIcons.network, Core.routeLabel(RouteTransport.RELAY), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         PyroTile(ui)
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(if (p == Profile.AUTO) KnIcons.sparkles else KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
@@ -1142,12 +1134,12 @@ private fun KeysSheet(ui: SessionUi, modifier: Modifier) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     // Face à une Station Mac, ses touches à la place de celles d'un PC (docs/link-ui.md).
-    val items = Shortcut.menu(ui.mac).map { it to shortcutLabel(it) }
+    val items = Shortcut.menu(ui.mac).map { Triple(it, shortcutLabel(it), shortcutHint(it)) }
     Column(modifier.padding(s.dp(20f)).panel(22.dp).padding(s.dp(22f)).widthIn(max = s.dp(720f)), verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
         Eyebrow(stringResource(R.string.session_keys))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-            items.forEachIndexed { i, (sc, label) ->
-                GlassButton(label, { ui.actions.shortcut(sc); ui.keysOpen = false }, if (i == 0) Modifier.focusRequester(first) else Modifier)
+            items.forEachIndexed { i, (sc, label, hint) ->
+                GlassButton(label, { ui.actions.shortcut(sc); ui.keysOpen = false }, if (i == 0) Modifier.focusRequester(first) else Modifier, detail = hint)
             }
         }
         GlassButton(stringResource(R.string.session_close), { ui.keysOpen = false })
@@ -1159,7 +1151,7 @@ private fun KeysSheet(ui: SessionUi, modifier: Modifier) {
 private fun shortcutLabel(s: Shortcut): String = when (s) {
     Shortcut.CTRL_ALT_DEL -> stringResource(R.string.keys_ctrl_alt_del)
     Shortcut.ALT_TAB -> "Alt + Tab"
-    Shortcut.WIN -> "⊞"
+    Shortcut.WIN -> stringResource(R.string.keys_win)
     Shortcut.WIN_D -> "⊞ + D"
     Shortcut.WIN_L -> "⊞ + L"
     Shortcut.PRINT -> stringResource(R.string.keys_print)
@@ -1172,6 +1164,21 @@ private fun shortcutLabel(s: Shortcut): String = when (s) {
     Shortcut.MAC_LOCK -> stringResource(R.string.keys_mac_lock)
     Shortcut.MAC_SCREENSHOT -> stringResource(R.string.keys_mac_screenshot)
     Shortcut.MAC_FORCE_QUIT -> stringResource(R.string.keys_mac_force_quit)
+}
+
+/** L'indication d'un raccourci, en petit dessous (« verrouiller, changer », « menu Démarrer »…) ; nulle pour Échap et face à un Mac. */
+@Composable
+private fun shortcutHint(s: Shortcut): String? = when (s) {
+    Shortcut.CTRL_ALT_DEL -> stringResource(R.string.keys_hint_ctrl_alt_del)
+    Shortcut.WIN -> stringResource(R.string.keys_hint_win)
+    Shortcut.ALT_TAB -> stringResource(R.string.keys_hint_alt_tab)
+    Shortcut.PRINT -> stringResource(R.string.keys_hint_print)
+    Shortcut.WIN_D -> stringResource(R.string.keys_hint_win_d)
+    Shortcut.WIN_L -> stringResource(R.string.keys_hint_win_l)
+    Shortcut.ALT_F4 -> stringResource(R.string.keys_hint_alt_f4)
+    Shortcut.TASK_MANAGER -> stringResource(R.string.keys_hint_task_manager)
+    Shortcut.F11 -> stringResource(R.string.keys_hint_f11)
+    else -> null
 }
 
 /** La touche que montrent la tuile « Touches » et la rangée du clavier de l'écran : « Ctrl+Alt+Suppr », « ⌥ ⌘ Échap » face à un Mac. */
@@ -1203,41 +1210,15 @@ private fun TypeText(ui: SessionUi, modifier: Modifier) {
 /** Mesures détaillées : trajet d'une image, pertes, aller-retour, décodeur, son. */
 @Composable
 private fun Stats(ui: SessionUi, modifier: Modifier) {
+    // Une session d'ordinateur : le panneau complet de link-ui (StatsPanel.kt).
+    val c = ui.console ?: return SessionStatsPanel(ui, modifier)
+    // Une console : ce qui est demandé, ce qui arrive, les images perdues et réparées, le chemin.
     val s = LocalScale.current
-    val sec by ui.state.second.collectAsState()
-    val decoder by ui.state.decoder.collectAsState()
-    val audio by ui.state.audioOutput.collectAsState()
-    val video by ui.state.videoSize.collectAsState()
     val route by ui.state.route.collectAsState()
-    val hdr by ui.state.hdr.collectAsState()
-    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
-    fun f(v: Double?) = v?.let { String.format(locale, "%.1f", it) } ?: "—"
     Column(modifier.panel(18.dp).padding(s.dp(16f)).widthIn(max = s.dp(340f)), verticalArrangement = Arrangement.spacedBy(s.dp(5f))) {
         Eyebrow(stringResource(R.string.session_stats))
-        // Une console : ce qui est demandé, ce qui arrive, les images perdues et réparées.
-        ui.console?.let { ConsoleStatsLines(it) }
-        if (ui.console == null) Mono("${stringResource(R.string.stats_latency)} ${f(sec?.latencyMs)} ms", color = Kn.frost)
-        sec?.chain?.let { c ->
-            val names = listOf(R.string.stats_capture, R.string.stats_encode, R.string.stats_send, R.string.stats_network, R.string.stats_decode, R.string.stats_display)
-            names.forEachIndexed { i, n -> Mono("  ${stringResource(n)} ${f(c[i])} ms", size = 11f) }
-        }
-        if (ui.console == null) Mono("${stringResource(R.string.stats_rtt)} ${f(sec?.rttMs)} ms", size = 11f)
-        // « Chemin : Direct », « Chemin : Par le relais », « Chemin : Par le relais (TCP) ».
-        route?.let { Mono(stringResource(R.string.stats_path, routeLabel(it.transport)), size = 11f) }
-        // La caméra de l'appareil, allumée (docs/webcam.md).
-        val cameraState by ui.state.cameraState.collectAsState()
-        if (cameraState != 0) ui.actions.cameraStatsLine()?.let { Mono(stringResource(R.string.camera_stats, it), size = 11f) }
-        if (ui.console == null) {
-            Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
-            // Sous « Débit » : la courbe des 30 dernières secondes, le trait du débit visé et la ligne « Débit visé ».
-            val history by ui.state.bitrateHistory.collectAsState()
-            BitrateStats(history, sec?.target)
-            Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
-            PyroStats(ui, sec)
-        }
-        // « HDR » quand l'image l'est : en allumant et éteignant le HDR depuis la barre, on voit quelle étape change.
-        video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}" + if (hdr && ui.console == null) " · HDR" else "", size = 11f) }
-        audio?.let { (c, ms) -> Mono(stringResource(R.string.session_sound_detail, c, ms), size = 11f) }
+        ConsoleStatsLines(c)
+        route?.let { Mono(stringResource(R.string.stats_path, Core.routeLabel(it.transport)), size = 11f) }
         if (!ui.tv) GlassButton(stringResource(R.string.session_close), { ui.statsOpen = false })
     }
 }

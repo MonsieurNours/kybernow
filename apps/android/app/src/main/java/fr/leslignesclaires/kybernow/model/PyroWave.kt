@@ -33,6 +33,15 @@ object PyroWave {
         Log.i("KyberNow", "PyroWave : ${if (decodes) "disponible" else "indisponible"} ($report)")
     }
 
+    /**
+     * Le décodeur ne s'est pas ouvert en session (le cœur a repris l'image dans le format de repli, avis
+     * `onPyroWaveFallback`) : PyroWave n'est plus proposé jusqu'au prochain lancement, où la sonde le redit.
+     */
+    fun failed() {
+        decodes = false
+        report = "failed in session"
+    }
+
     /** L'appareil est relié par câble (Ethernet) au réseau, en ce moment. */
     fun wired(context: Context): Boolean = runCatching {
         val cm = context.getSystemService(ConnectivityManager::class.java)

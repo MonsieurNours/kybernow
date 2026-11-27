@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.LendEnd
 import fr.leslignesclaires.kybernow.core.LendNotice
 import fr.leslignesclaires.kybernow.core.LendNoticeReason
@@ -51,6 +52,10 @@ data class Second(
     val lowered: Lowered? = null,
     /** Le débit visé (`Second::target` du cœur) : la ligne « Débit visé » et le trait de la courbe ; nul sans (invité sur l'image de l'hôte). */
     val target: TargetBitrate? = null,
+    /** Images dont la latence a été mesurée (« Mesures » : la part des images montrées). */
+    val measured: Int = 0,
+    /** Images clés demandées (« Images clés » des pertes). */
+    val keyframes: Int = 0,
 )
 
 /**
@@ -98,16 +103,6 @@ internal fun shareRightsNotice(before: ShareRole, now: ShareRole): Int? = when {
     else -> null
 }
 
-/**
- * Le texte de link-ui (« Hors de chez vous ») d'un refus du relais, avec le nom de l'ordinateur : « {nom} n'est pas
- * joignable hors de chez vous (accès coupé dans Admin). » (32), « {nom} n'est pas joignable : l'ordinateur est éteint ou
- * en veille. » (31). Nul pour le relais muet (30) : le texte du cœur (« Le relais ne répond pas. ») est gardé.
- */
-internal fun relayText(context: Context, failure: RelayFailure, name: String): String? = when (failure) {
-    RelayFailure.ACCESS_OFF -> context.getString(R.string.relay_access_off, name)
-    RelayFailure.STATION_OFFLINE -> context.getString(R.string.relay_station_offline, name)
-    RelayFailure.UNREACHABLE -> null
-}
 
 /** Une capsule en haut de l'image (jamais une alerte). */
 sealed class Capsule {
@@ -141,6 +136,8 @@ sealed class Capsule {
     data class HdrRefused(val text: String) : Capsule()
     /** PyroWave : la définition ramenée, le texte du cœur (docs/link-ui.md, « PyroWave »). */
     data class ResolutionLowered(val text: String) : Capsule()
+    /** PyroWave n'a pas pu démarrer sur l'appareil : « Image en HEVC : PyroWave n'a pas pu démarrer sur cet appareil. » (le cœur). */
+    data class PyroWaveFallback(val text: String) : Capsule()
     /**
      * Enregistrement de la session : l'avis bref du cœur (« Enregistrement lancé sur l'ordinateur. », « {nom} enregistre
      * la session. »), ou le texte d'un refus (« PyroWave et AV1 ne s'enregistrent pas… », « L'enregistrement est coupé
@@ -149,12 +146,13 @@ sealed class Capsule {
     data class RecordingNotice(val text: String) : Capsule()
     /** Profil Auto : « Le test se fera à la fin de la session. » (« Refaire le test », ou Auto choisi sans test, en session). */
     data object AutoTestLater : Capsule()
-    /** Micro (docs/link-ui.md, « Micro ») : « Micro envoyé à {nom}. », à l'allumage par l'utilisateur. */
-    data class MicSent(val name: String) : Capsule()
+    /**
+     * Micro (docs/link-ui.md, « Micro »), le texte du cœur tel quel : « Micro envoyé à {nom}. » à l'allumage par
+     * l'utilisateur, ou, au toucher de « Micro » estompé, la raison du refus de l'ordinateur.
+     */
+    data class MicNotice(val text: String) : Capsule()
     /** « KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages. » (autorisation refusée). */
     data object MicNoAccess : Capsule()
-    /** Au toucher, « Micro » estompé : la raison du refus de l'ordinateur, le texte du cœur. */
-    data class MicRefused(val text: String) : Capsule()
 }
 
 /**
@@ -205,13 +203,17 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val audioOutput = MutableStateFlow<Pair<Int, Double>?>(null)
     val gameFullscreen = MutableStateFlow(false)
     /** Micro de l'appareil : ce que dit le cœur (`onMicrophone`) ; coupé tant qu'il n'a rien dit. */
-    val mic = MutableStateFlow<Mic>(Mic.Off)
+    val mic = MutableStateFlow(Mic())
     /** HDR : l'image en cours est en HDR (le cœur le dit à chaque démarrage de l'image). */
     val hdr = MutableStateFlow(false)
     /** PyroWave : le texte de la définition ramenée en place (avis du cœur), nul sans ; repris par le bandeau du début. */
     val lowered = MutableStateFlow<String?>(null)
     /** Les 30 dernières secondes du débit et du débit visé : la courbe « Débit » des Statistiques. */
     val bitrateHistory = MutableStateFlow<List<BitratePoint>>(emptyList())
+    /** Les mesures des [HISTORY_SECONDS] dernières secondes (Statistiques : courbe de la latence, « Pertes · 30 s »). */
+    val history = MutableStateFlow<List<Second>>(emptyList())
+    /** Images et paquets perdus depuis le début de la session (« Session : 12 images, 40 paquets »). */
+    val totals = MutableStateFlow(0 to 0)
     /** PyroWave : le réseau sature depuis 5 s (avis du cœur, une fois par session) ; le bandeau « Le réseau sature ». */
     val strained = MutableStateFlow(false)
     val pointer = MutableStateFlow(PointerState(false, 0.0, 0.0, false, 0))
@@ -302,7 +304,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     internal var clockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() }
 
     /** Le texte de la fin par le relais (avec le nom de l'ordinateur) ; nul si la session n'a pas fini ainsi. */
-    internal fun relayEndText(): String? = relayEnd?.let { (failure, text) -> relayText(context, failure, computerName) ?: text }
+    internal fun relayEndText(): String? = relayEnd?.let { (failure, text) -> Core.relayErrorText(failure.code, computerName)?.takeIf { it.isNotBlank() } ?: text }
 
     private var capsuleClear: Runnable? = null
 
@@ -374,8 +376,22 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             hdr = values.size > 17 && values[17] > 0.5,
             lowered = if (values.size > 21 && values[18] > 0) Lowered(values[18].toInt(), values[19].toInt(), values[20].toInt(), values[21].toInt()) else null,
             target = TargetBitrate.of(values),
-        ).also { s -> bitrateHistory.value = (bitrateHistory.value + BitratePoint(s.mbps, s.target?.mbps)).takeLast(HISTORY_SECONDS) }
+            measured = values[3].toInt(),
+            keyframes = values[7].toInt(),
+        ).also { s ->
+            bitrateHistory.value = (bitrateHistory.value + BitratePoint(s.mbps, s.target?.mbps)).takeLast(HISTORY_SECONDS)
+            history.value = (history.value + s).takeLast(HISTORY_SECONDS)
+            totals.value = totals.value.let { (f, p) -> (f + s.lostFrames) to (p + s.lostPackets) }
+            s.target?.let { profileBitrate = it.profile }
+        }
     }
+
+    /**
+     * Le débit de la session tel que le cœur l'a demandé pour ses réglages (`Second::target`, débit du profil en bit/s,
+     * avant les baisses du débit automatique) : celui que garde la dernière session (Statistiques). 0 : pas encore dit.
+     */
+    @Volatile var profileBitrate: Long = 0
+        private set
 
     override fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?) {
         when (kind) {
@@ -501,8 +517,16 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         android.util.Log.i("KyberNow", "prêt : fin ${lendEnd}")
     }
 
-    override fun onMicrophone(json: String) {
+    override fun onPyroWaveFallback(format: String, text: String) {
+        android.util.Log.w("KyberNow", "PyroWave : n'a pas pu démarrer, image en $format pour la session")
+        // Retenu jusqu'au prochain lancement : ni Auto ni « Format vidéo » ne le reprennent (la sonde le redira).
+        fr.leslignesclaires.kybernow.model.PyroWave.failed()
+        if (text.isNotBlank()) show(Capsule.PyroWaveFallback(text), 6000)
+    }
+
+    override fun onMicrophone(json: String, notice: String?) {
         mic.value = Mic.parse(json)
+        if (!notice.isNullOrBlank()) show(Capsule.MicNotice(notice))
     }
 
     override fun onLend(json: String?) {

@@ -42,6 +42,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class AccountTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     private val station = "abcdefghijklmnopqrstuvwxyz"
     private val station2 = "bcdefghijklmnopqrstuvwxyza"
 

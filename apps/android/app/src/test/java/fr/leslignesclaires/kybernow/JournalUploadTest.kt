@@ -8,6 +8,7 @@ import fr.leslignesclaires.kybernow.model.JournalSeal
 import fr.leslignesclaires.kybernow.model.JournalState
 import fr.leslignesclaires.kybernow.model.PinnedTrust
 import fr.leslignesclaires.kybernow.ui.settings.JournalQrStep
+import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -79,7 +80,7 @@ class JournalUploadTest {
     @Test
     fun qrAddressCarriesTheKeyAfterTheHash() {
         val key = ByteArray(32) { 0xFB.toByte() }
-        val url = JournalSeal.qrUrl(JournalRelay.parse("share.kybernow.app")!!, "AAAAAAAAAAAAAAAAAAAAAA", key)
+        val url = JournalSeal.qrUrl(JournalRelay("share.kybernow.app", null), "AAAAAAAAAAAAAAAAAAAAAA", key)
         val k = url.substringAfter("#k=")
         assertEquals("https://share.kybernow.app/journal/AAAAAAAAAAAAAAAAAAAAAA#k=$k", url)
         assertEquals(43, k.length)
@@ -87,22 +88,20 @@ class JournalUploadTest {
         assertArrayEquals(key, Base64.getUrlDecoder().decode(k))
         assertEquals(43, JournalSeal.keyText(JournalSeal.newKey()).length)
         // Le port d'un relais hors du 443 reste dans l'adresse ; l'empreinte, jamais.
-        val pinned = JournalRelay.parse("relais.exemple.org:9443#sha256:" + "ab".repeat(32))!!
+        val pinned = JournalRelay("relais.exemple.org:9443", ByteArray(32) { 0xAB.toByte() })
         assertTrue(JournalSeal.qrUrl(pinned, "AAAAAAAAAAAAAAAAAAAAAA", key).startsWith("https://relais.exemple.org:9443/journal/"))
     }
 
     @Test
-    fun relayAddresses() {
-        assertEquals(JournalRelay("share.kybernow.app", 443, null), JournalRelay.parse("https://Share.KyberNow.app/"))
-        assertEquals("relais.exemple.org:9443", JournalRelay.parse("relais.exemple.org:9443")!!.authority)
-        assertEquals("[fe80::1]:9443", JournalRelay.parse("[fe80::1]:9443")!!.authority)
-        assertEquals("[fe80::1]", JournalRelay.parse("fe80::1")!!.authority)
-        val pin = JournalRelay.parse("r.exemple.org#sha256:" + (0 until 32).joinToString(":") { "%02x".format(it) })!!.pin!!
-        assertArrayEquals(ByteArray(32) { it.toByte() }, pin)
-        assertNull(JournalRelay.parse("r.exemple.org#sha256:abcd"))
-        assertNull(JournalRelay.parse(""))
-        assertNull(JournalRelay.parse("r.exemple.org:0"))
-        assertNull(JournalRelay.parse("moi@r.exemple.org"))
+    fun relayFromTheCore() {
+        // La lecture de l'adresse est celle du cœur (`rules::relay::parse`, ses essais) : ici, sa réponse.
+        assertEquals(JournalRelay("share.kybernow.app", null), JournalRelay.of(JSONObject().put("authority", "share.kybernow.app").put("pin", JSONObject.NULL)))
+        val pin = JournalRelay.of(JSONObject().put("authority", "[fe80::1]:9443").put("pin", "sha256:" + (0 until 32).joinToString(":") { "%02x".format(it) }))!!
+        assertEquals("[fe80::1]:9443", pin.authority)
+        assertArrayEquals(ByteArray(32) { it.toByte() }, pin.pin)
+        assertNull(JournalRelay.of(JSONObject().put("authority", "r.exemple.org").put("pin", "sha256:abcd")))
+        assertNull(JournalRelay.of(null))
+        assertNull(JournalRelay.of(JSONObject().put("authority", "")))
         // L'empreinte épinglée : celle du certificat entier.
         val der = "certificat".toByteArray()
         assertTrue(PinnedTrust.matches(der, MessageDigest.getInstance("SHA-256").digest(der)))
@@ -132,7 +131,7 @@ class JournalUploadTest {
 
     @Test
     fun stepAfterTheDeposit() {
-        val relay = JournalRelay.parse("share.kybernow.app")!!
+        val relay = JournalRelay("share.kybernow.app", null)
         val key = ByteArray(32)
         val shown = JournalQrStep.after(JournalPost.Posted("AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB", 3600), relay, key, 1000L)
         assertTrue(shown is JournalQrStep.Shown)

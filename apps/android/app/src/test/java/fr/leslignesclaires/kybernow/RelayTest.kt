@@ -45,6 +45,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class RelayTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     private val format = { code: String -> code.take(3) + " " + code.drop(3) }
     private val noLabel = { _: String -> null as String? }
     private val station = "abcdefghijklmnopqrstuvwxyz"
@@ -381,9 +385,9 @@ class RelayTest {
             state.onStatus(6, 0, 0, coreText, false, false, false, null)
             return state.ended.value?.error
         }
-        // Les textes de link-ui avec le nom (la langue de l'essai : celle du catalogue d'Android).
-        assertEquals(context.getString(R.string.relay_access_off, "Atelier"), ended(32, "L'accès hors de chez vous est coupé dans Admin."))
-        assertEquals(context.getString(R.string.relay_station_offline, "Atelier"), ended(31, "L'ordinateur n'est pas joignable."))
+        // Les textes de link-ui avec le nom, ceux du cœur (`Core.relayErrorText`).
+        assertEquals("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin).", ended(32, "L'accès hors de chez vous est coupé dans Admin."))
+        assertEquals("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille.", ended(31, "L'ordinateur n'est pas joignable."))
         assertTrue(ended(32, "x")!!.startsWith("Atelier "))
         // Relais muet : le texte du cœur, tel quel.
         assertEquals("Le relais ne répond pas.", ended(30, "Le relais ne répond pas."))

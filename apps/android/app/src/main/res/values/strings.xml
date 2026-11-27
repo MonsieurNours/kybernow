@@ -18,11 +18,6 @@
     <string name="home_offline">Offline</string>
     <string name="home_away">Away from home</string>
     <string name="home_connecting">Connecting…</string>
-    <string name="relay_station_offline" formatted="true">%1$s cannot be reached: the computer is off or asleep.</string>
-    <string name="relay_access_off" formatted="true">%1$s cannot be reached away from home (access turned off in Admin).</string>
-    <string name="route_direct">Direct</string>
-    <string name="route_relay">Via the relay</string>
-    <string name="route_relay_tcp">Via the relay (TCP)</string>
     <string name="stats_path" formatted="true">Path: %1$s</string>
     <string name="home_display_match" formatted="true">%1$d × %2$d display at %3$d Hz, sized for this screen</string>
     <string name="home_display_custom" formatted="true">%1$d × %2$d display at %3$d Hz</string>
@@ -172,14 +167,8 @@
     <string name="settings_sound_help">Auto follows the output: 5.1 or 7.1 to an HDMI amplifier, stereo elsewhere.</string>
     <string name="settings_sound_computer">On the computer</string>
     <string name="mic">Microphone</string>
-    <string name="mic_off">Microphone off</string>
-    <string name="mic_sent">On</string>
-    <string name="mic_cut">Off</string>
-    <string name="mic_connecting">Connecting…</string>
-    <string name="mic_tip_on" formatted="true">Microphone: sent to the computer (%1$s)</string>
-    <string name="mic_tip_off" formatted="true">Microphone off (%1$s)</string>
     <string name="mic_shortcut">Ctrl + Alt + Shift + V</string>
-    <string name="mic_notice_sent" formatted="true">Microphone sent to %1$s.</string>
+    <string name="record_shortcut">Ctrl + Alt + Shift + R</string>
     <string name="mic_no_access">KyberNow Link can\'t access the microphone. Allow it in Settings.</string>
     <string name="settings_mic_help">Sends this device\'s microphone to the computer during the session, to talk in a game, a call or a video meeting.</string>
     <string name="app_settings_mic_system">System default</string>
@@ -376,7 +365,6 @@
     <string name="session_leaving_detail">The computer gets its display and sound back</string>
     <string name="session_switch_profile">Switch profile</string>
     <string name="session_sound">Sound</string>
-    <string name="session_sound_detail" formatted="true">%1$d channels · %2$.0f ms buffer</string>
     <string name="session_sound_channels" formatted="true">%1$d channels</string>
     <string name="session_remote_mouse">Remote as mouse</string>
     <string name="session_pad_mouse">Controller as mouse</string>
@@ -414,20 +402,58 @@
     <string name="keys_escape">Esc</string>
     <string name="keys_ctrl_alt_del">Ctrl + Alt + Del</string>
     <string name="keys_ctrl_alt_del_short">Ctrl+Alt+Del</string>
+    <string name="keys_win">⊞ key alone</string>
+    <string name="keys_hint_ctrl_alt_del">lock, switch user</string>
+    <string name="keys_hint_win">Start menu</string>
+    <string name="keys_hint_alt_tab">switch apps</string>
+    <string name="keys_hint_print">screenshot</string>
+    <string name="keys_hint_win_d">desktop</string>
+    <string name="keys_hint_win_l">lock</string>
+    <string name="keys_hint_alt_f4">close the window</string>
+    <string name="keys_hint_task_manager">Ctrl + Shift + Esc</string>
+    <string name="keys_hint_f11">full screen</string>
     <string name="keys_mac_switch">⌘ ⇥</string>
     <string name="keys_mac_spotlight">⌘ Space</string>
     <string name="keys_mac_lock">⌃ ⌘ Q</string>
     <string name="keys_mac_screenshot">⇧ ⌘ 5</string>
     <string name="keys_mac_force_quit">⌥ ⌘ Esc</string>
     <string name="stats_latency">Latency</string>
-    <string name="stats_capture">capture</string>
-    <string name="stats_encode">encoding</string>
-    <string name="stats_send">sending</string>
-    <string name="stats_network">network</string>
-    <string name="stats_decode">decoding</string>
-    <string name="stats_display">display</string>
-    <string name="stats_rtt">Round trip</string>
-    <string name="stats_losses" formatted="true">Losses: %1$d frames, %2$d gaps, %3$d packets</string>
+    <string name="stats_shortcut">Ctrl + Alt + Shift + S</string>
+    <string name="stats_close">Close statistics</string>
+    <string name="stats_waiting">Statistics appear as soon as the picture arrives.</string>
+    <string name="stats_from_capture">from capture to your screen</string>
+    <string name="stats_path_title">Path of a frame</string>
+    <string name="stats_step_capture">Capture</string>
+    <string name="stats_step_encode">Encoding</string>
+    <string name="stats_step_send">Sending</string>
+    <string name="stats_step_network">Network</string>
+    <string name="stats_step_decode">Decoding</string>
+    <string name="stats_step_display">Display</string>
+    <string name="stats_help_capture">From capturing the frame to the start of its encoding</string>
+    <string name="stats_help_encode">Frame compression by the computer\'s graphics card</string>
+    <string name="stats_help_send">Packetising and sending over the network</string>
+    <string name="stats_help_network">From leaving the computer to the full frame received here</string>
+    <string name="stats_help_decode" formatted="true">Frame decompression by %1$s</string>
+    <string name="stats_help_display">Rendering and waiting for the display\'s next refresh</string>
+    <string name="stats_on_computer">On the computer</string>
+    <string name="stats_place_network">Network</string>
+    <string name="stats_on_device" formatted="true">On %1$s</string>
+    <string name="stats_this_device">this device</string>
+    <string name="stats_this_tv">this TV</string>
+    <string name="stats_bitrate">Bitrate</string>
+    <string name="stats_one_frame">1 frame</string>
+    <string name="stats_losses_30s">Losses · 30 s</string>
+    <string name="stats_lost_packets">Lost packets</string>
+    <string name="stats_keyframes">Keyframes</string>
+    <string name="stats_session_losses" formatted="true">Session: %1$d frames, %2$d packets</string>
+    <string name="stats_row_path">Path</string>
+    <string name="stats_row_network">Network</string>
+    <string name="stats_round_trip" formatted="true">round trip %1$s ms</string>
+    <string name="stats_row_image">Picture</string>
+    <string name="stats_row_measures">Measures</string>
+    <string name="stats_measured" formatted="true">%1$d%% of frames</string>
+    <string name="stats_row_sound">Sound</string>
+    <string name="stats_sound_buffer" formatted="true">buffer %1$.0f ms</string>
     <string name="share_join_title">Join with a code</string>
     <string name="share_join_help">The code of a share, a loan or an invitation.</string>
     <string name="share_join_name">Your name</string>
@@ -616,11 +642,6 @@
     <string name="lend_taking_back" formatted="true">Taking back in %1$s</string>
     <string name="lend_take_back_now">Take back now</string>
     <string name="lend_card_title" formatted="true">%1$s\'s computer</string>
-    <string name="lend_state_free">Available</string>
-    <string name="lend_state_busy">In use</string>
-    <string name="lend_state_lent">Lent to someone else</string>
-    <string name="lend_state_locked">Locked</string>
-    <string name="lend_state_off">Lending off</string>
     <string name="lend_slot_next" formatted="true">Your time slot: %1$s, %2$s – %3$s</string>
     <string name="lend_slot_now" formatted="true">Your time slot, until %1$s</string>
     <string name="lend_borrow">Borrow</string>
@@ -803,6 +824,8 @@
     <string name="ps_invert_y">Invert vertical axis</string>
     <string name="camera">Camera</string>
     <string name="camera_starting">Camera…</string>
+    <string name="camera_start_refused">The camera couldn\'t start on the computer.</string>
+    <string name="camera_no_answer">The computer isn\'t answering: the camera is off.</string>
     <string name="camera_turn_on">Turn on camera</string>
     <string name="camera_turn_off">Turn off camera</string>
     <string name="camera_indicator">● Camera</string>
@@ -811,7 +834,6 @@
     <string name="camera_external">External camera</string>
     <string name="camera_resolution">Camera resolution</string>
     <string name="camera_resolution_help">30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer.</string>
-    <string name="camera_stats" formatted="true">Camera: %1$s</string>
     <plurals name="share_guests">
         <item quantity="one">%d guest</item>
         <item quantity="other">%d guests</item>

@@ -69,8 +69,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.core.LendView
+import fr.leslignesclaires.kybernow.core.RelayFailure
 import fr.leslignesclaires.kybernow.model.Announced
 import fr.leslignesclaires.kybernow.model.BorrowedComputer
 import fr.leslignesclaires.kybernow.model.Decoders
@@ -659,16 +661,16 @@ fun statusLabel(st: HostStatus?) = stringResource(
 )
 
 /**
- * Pourquoi un ordinateur n'a pas pu être ouvert hors de chez soi : « {nom} n'est pas joignable : l'ordinateur est
- * éteint ou en veille. », « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). », ou le texte du
- * cœur (« Le relais ne répond pas. »).
+ * Pourquoi un ordinateur n'a pas pu être ouvert hors de chez soi : le texte du cœur, avec le nom de l'ordinateur
+ * (« {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. », « {nom} n'est pas joignable hors de chez vous
+ * (accès coupé dans Admin). »), ou celui d'Admin tel quel.
  */
 @Composable
 fun relayRefusalText(why: RelayRefusal, name: String): String = when (why) {
-    RelayRefusal.StationOffline -> stringResource(R.string.relay_station_offline, name)
-    RelayRefusal.AccessOff -> stringResource(R.string.relay_access_off, name)
-    is RelayRefusal.Message -> why.text.ifBlank { stringResource(R.string.add_unreachable) }
-}
+    RelayRefusal.StationOffline -> Core.relayErrorText(RelayFailure.STATION_OFFLINE.code, name).orEmpty()
+    RelayRefusal.AccessOff -> Core.relayErrorText(RelayFailure.ACCESS_OFF.code, name).orEmpty()
+    is RelayRefusal.Message -> why.text
+}.ifBlank { stringResource(R.string.add_unreachable) }
 
 @Composable
 private fun StatusLine(st: HostStatus) {

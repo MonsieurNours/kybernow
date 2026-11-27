@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
 import fr.leslignesclaires.kybernow.BuildConfig
+import fr.leslignesclaires.kybernow.core.Core
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import fr.leslignesclaires.kybernow.KyberNowApp
@@ -497,7 +498,7 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
     ) { v -> actions.update { it.copy(codec = v) } }
     ChoiceRow(
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
-        listOf(0 to auto) + listOf(20, 40, 60, 90, 150, 300).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
+        listOf(0 to auto) + manualBitrates(pyroChosen).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
     ) { v -> actions.update { it.copy(mbps = v) } }
     // Carte « Débit » (docs/link-ui.md, « Profil Auto et débit adaptatif ») : sous le débit, profil Auto, le test qui
     // l'a choisi et « Refaire le test » ; puis « Débit adaptatif », à part du profil (jamais « Personnalisé »), avec
@@ -742,9 +743,20 @@ private fun StatsRubric(state: HostSettingsState, actions: HostSettingsActions) 
         Fact(stringResource(R.string.computer_system), info?.os?.takeIf { it.isNotBlank() } ?: host.os ?: "—")
         Fact(stringResource(R.string.computer_gpu), info?.gpu ?: host.gpu ?: "—")
         Fact(stringResource(R.string.computer_address), "${host.address}:${host.port}", mono = true)
-        Fact(stringResource(R.string.computer_fingerprint), host.fingerprint?.let { shortFingerprint(it) } ?: "—", mono = true)
+        Fact(stringResource(R.string.computer_fingerprint), Core.shortFingerprint(host.fingerprint).ifEmpty { "—" }, mono = true)
     }
     if (state.status.certificateChanged) FingerprintPanel(state.fingerprint, actions)
+}
+
+/**
+ * Les débits proposés à la main (docs/link-ui.md, « Débit ») : des paliers jusqu'à 300 Mbit/s, puis, en PyroWave,
+ * jusqu'à la borne du cœur (`manual_mbps`, 2 500) ; aucun au-delà de la borne du format.
+ */
+internal fun manualBitrates(pyrowave: Boolean): List<Int> {
+    val v = Core.values()
+    val max = if (pyrowave) v.manualMbpsMaxPyroWave else v.manualMbpsMax
+    val stops = listOf(20, 40, 60, 90, 150, 300) + if (pyrowave) listOf(500, 1000, 1500, 2000, 2500) else emptyList()
+    return if (max > 0) stops.filter { it <= max } else stops.filter { it <= 300 }
 }
 
 @Composable
@@ -756,9 +768,6 @@ private fun Fact(label: String, value: String, mono: Boolean = false) {
         else Body(value, Modifier.weight(0.62f), size = 15f)
     }
 }
-
-/** Les quatre premiers groupes d'une empreinte, comme dans Admin. */
-private fun shortFingerprint(fp: String) = fr.leslignesclaires.kybernow.ui.add.shortFingerprint(fp)
 
 /** La Station a été réinstallée : la nouvelle empreinte, à comparer à celle d'Admin avant de l'épingler. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -778,7 +787,7 @@ private fun FingerprintPanel(check: FingerprintCheck?, actions: HostSettingsActi
             else -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Body(stringResource(R.string.computer_fingerprint_new), Modifier.weight(0.38f), size = 14f, color = Kn.muted)
-                    Mono(shortFingerprint(seen), Modifier.weight(0.62f), size = 15f, color = Kn.frost, weight = 500)
+                    Mono(Core.shortFingerprint(seen), Modifier.weight(0.62f), size = 15f, color = Kn.frost, weight = 500)
                 }
                 if (!refused) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(8f)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
@@ -1097,7 +1106,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val journalTitle = stringResource(R.string.journal_send)
     if (journalQr) {
-        JournalQrScreen(stored.firstOrNull()?.relay ?: fr.leslignesclaires.kybernow.model.JournalRelay.DEFAULT) { journalQr = false }
+        JournalQrScreen(stored.firstOrNull()?.relay ?: Core.values().defaultRelay) { journalQr = false }
         return
     }
     AppSettingsContent(

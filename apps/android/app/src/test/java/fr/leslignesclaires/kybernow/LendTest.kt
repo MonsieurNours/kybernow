@@ -313,17 +313,6 @@ class LendTest {
     }
 
     @Test
-    fun anInvitationLink_isRecognisedEvenWhenUnreadable() {
-        assertTrue(Lend.isInviteLink("kybernow://borrow?host=192.168.1.20&port=41234&login=lea"))
-        assertTrue(Lend.isInviteLink("  KyberNow://Borrow?host="))
-        // Coupé dans un message : toujours un lien d'invitation (« Ce lien d'invitation est illisible. »).
-        assertTrue(Lend.isInviteLink("kybernow://borrow"))
-        assertFalse(Lend.isInviteLink("kybernow://join?host=x&port=1&code=123456"))
-        assertFalse(Lend.isInviteLink("kybernow://192.168.1.20:41234?name=PC"))
-        assertFalse(Lend.isInviteLink("https://192.168.1.20:41234/link/?borrow=lea"))
-    }
-
-    @Test
     fun aBorrowedComputer_isKeptAndItsRouteNeedsTheFingerprint() {
         val c = BorrowedComputer(host = "Matthieu", computer = "PC-SALON", address = "192.168.1.20", port = 41234, fingerprint = "sha256:ab", login = "lea", relay = "share.kybernow.app", sid = "abcdefghijklmnopqrstuvwxyz")
         assertEquals(c, BorrowedComputer.parse(c.json()))

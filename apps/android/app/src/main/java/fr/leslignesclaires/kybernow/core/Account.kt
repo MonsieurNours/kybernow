@@ -179,8 +179,8 @@ sealed class TvPoll {
 }
 
 object Accounts {
-    /** Le relais public, proposé d'abord. */
-    const val DEFAULT_RELAY = "share.kybernow.app"
+    /** Le relais public, proposé d'abord (`rules::relay::DEFAULT_RELAY`, par les valeurs communes du cœur). */
+    val DEFAULT_RELAY: String get() = Core.values().defaultRelay
 
     /** Une réponse du cœur. Illisible : un refus sans texte (l'écran en met un), jamais une chute de l'app. */
     internal fun <T> read(text: String?, value: (Any?) -> T?): AccountReply<T> {
@@ -298,8 +298,8 @@ object Accounts {
         }
     }.toString()
 
-    /** Le relais tel qu'on l'écrit (« Relais : {relais} ») : la forme normale sans l'empreinte épinglée. */
-    fun relayLabel(relay: String): String = relay.substringBefore('#').ifBlank { DEFAULT_RELAY }
+    /** Le relais tel qu'on l'écrit (« Relais : {relais} ») : sans l'empreinte épinglée ni le port 443 ; vide : le relais public. */
+    fun relayLabel(relay: String): String = Core.relayLabel(relay.ifBlank { DEFAULT_RELAY })
 
     /** Avec des comptes sur plusieurs relais, la pastille dit lequel (« Compte · {relais} »). */
     fun severalRelays(accounts: List<StoredAccount>): Boolean = accounts.map { it.relay.substringBefore('#').lowercase() }.distinct().size > 1

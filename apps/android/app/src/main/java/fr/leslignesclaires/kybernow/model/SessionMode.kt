@@ -70,16 +70,4 @@ object SessionMode {
     fun matchesScreen(screen: Screen, settings: HostSettings, mode: Triple<Int, Int, Int>): Boolean =
         settings.resolution == 0 && mode.first == max(screen.current.width, screen.current.height) &&
             mode.second == min(screen.current.width, screen.current.height)
-
-    /**
-     * Débit demandé (Mbit/s) pour un mode, comme `StreamSettings::bitrate` du cœur : celui d'un
-     * profil suit les pixels par seconde (puissance 0,75, de 0,4 à 3 fois), un débit choisi reste.
-     */
-    fun bitrate(baseMbps: Int, fromProfile: Boolean, width: Int, height: Int, refresh: Int): Int {
-        val mbps = if (fromProfile) {
-            val ratio = width.toDouble() * height * max(refresh, 1) / (3840.0 * 2160.0 * 60.0)
-            (baseMbps * Math.pow(ratio, 0.75).coerceIn(0.4, 3.0)).roundToInt()
-        } else baseMbps
-        return mbps.coerceIn(5, 4294)
-    }
 }

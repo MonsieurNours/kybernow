@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow.playstation
 
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.PsNative
 import fr.leslignesclaires.kybernow.model.Host
 import org.json.JSONArray
@@ -88,7 +89,7 @@ object Handoff {
                 val st = stations.optJSONObject(j) ?: JSONObject().put("id", stations.optString(j))
                 val fp = st.optString("fingerprint").takeIf { !st.isNull("fingerprint") && it.isNotEmpty() }
                 val h = hosts.firstOrNull { it.id == st.optString("id") }
-                    ?: fp?.let { f -> hosts.firstOrNull { it.fingerprint == f } }
+                    ?: fp?.let { f -> hosts.firstOrNull { Core.sameFingerprint(it.fingerprint, f) } }
                     ?: hosts.firstOrNull { it.address == st.optString("address") }
                     ?: continue
                 store.addStation(hostId, h.id)

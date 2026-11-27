@@ -61,6 +61,10 @@ object Native {
     @JvmStatic external fun relayNormalize(addr: String): String?
     /** Le texte de link-ui d'une erreur du relais (30, 31, 32) avec le nom de l'ordinateur ; `null` pour un autre code. */
     @JvmStatic external fun relayErrorText(code: Int, name: String?): String?
+    /** Les parties d'une adresse de relais : `{authority, pin}` (`authority` sans le port 443, `pin` `sha256:…` ou nul) ; nul si illisible. */
+    @JvmStatic external fun relayParts(addr: String): String?
+    /** Le relais tel qu'on le montre : `share.kybernow.app`, `relais.exemple.org:9443`, sans empreinte épinglée ni port 443. */
+    @JvmStatic external fun relayLabel(addr: String): String
     @JvmStatic external fun consoleFree(handle: Long)
     @JvmStatic external fun consoleFingerprintSeen(handle: Long): String?
     @JvmStatic external fun consoleInfo(handle: Long): String?
@@ -78,6 +82,19 @@ object Native {
     @JvmStatic external fun wakeParseMac(text: String): String?
     /** Adresse d'Admin sans connexion, écrite par le cœur (crochets d'une IPv6 compris). */
     @JvmStatic external fun adminUrl(host: String, port: Int): String
+    /** L'empreinte d'Admin telle qu'on la montre : les quatre premiers groupes, `7C41 E09B AABB CCDD` ; vide sans chiffre. */
+    @JvmStatic external fun shortFingerprint(fp: String): String
+    /** Deux empreintes sont la même (préfixe, deux-points, espaces et casse ignorés ; une empreinte vide ne l'est jamais). */
+    @JvmStatic external fun fingerprintSame(a: String, b: String): Boolean
+    /** Une adresse tapée : `{host, port}`, le port [defaultPort] quand il manque (0 : il est exigé) ; nul si elle ne se lit pas. */
+    @JvmStatic external fun parseAddress(text: String, defaultPort: Int): String?
+    /**
+     * Les valeurs communes des apps pour les décodeurs de l'appareil (`{hevc, hevc444, av1, hdr, pyrowave}`) : profils,
+     * bornes du débit à la main, débit en arrière-plan, maxima, délais, port d'Admin. Une fois au lancement ; nul si illisible.
+     */
+    @JvmStatic external fun valuesJson(capabilitiesJson: String): String?
+    /** Le texte ressemble à un lien d'invitation, lisible ou non. */
+    @JvmStatic external fun looksLikeInvite(text: String): Boolean
 
     // Mise à jour des Stations proposée par l'app (docs/link-ui.md, « Mise à jour des Stations » ; cœur : `station_offer`).
     /** `POST /api/stream/station/check` : `value`, l'objet `station` d'`info`, nul avant la Station 0.11.3. Bloquant (20 s au plus). */
@@ -201,6 +218,8 @@ object Native {
      * 92 moins de 2 Go libres, 93 dossier inaccessible, 94 ordinateur prêté, 95 autre refus ; 1 l'appel n'a pas abouti.
      */
     @JvmStatic external fun consoleRecording(handle: Long, deviceId: String, record: Boolean): String?
+    /** Le temps d'un enregistrement : « 02:14 », « 1:02:14 ». */
+    @JvmStatic external fun recordingClock(seconds: Long): String
 
     // Invitations (docs/invitations.md) : ajouter un ordinateur de loin, sans accord sur place. Bloquant (15 s au plus).
     /**
@@ -311,7 +330,8 @@ object Native {
     @JvmStatic external fun sessionFree(handle: Long)
     @JvmStatic external fun sessionSetSurface(handle: Long, surface: Surface?, refresh: Int)
     @JvmStatic external fun sessionSetSettings(handle: Long, json: String): Boolean
-    @JvmStatic external fun sessionSetBackground(handle: Long, background: Boolean, capBitsPerSecond: Int)
+    /** L'image n'est plus regardée (app en arrière-plan), puis l'est de nouveau : débit plafonné par le cœur, image figée. */
+    @JvmStatic external fun sessionSetBackground(handle: Long, background: Boolean)
     /** PyroWave : débit du lien vers l'ordinateur en Mbit/s, 0 inconnu (docs/pyrowave.md, « Définition ramenée »). */
     @JvmStatic external fun sessionSetLinkMbps(handle: Long, mbps: Int)
 
@@ -540,11 +560,17 @@ interface SessionListener {
     fun onRecording(json: String, notice: String?) {}
 
     /**
-     * Micro de l'appareil (docs/micro.md) : `{"state": "off" | "waiting" | "on"}` ou `{"state": "refused", "reason":
-     * "not_allowed" | "no_device" | "unsupported" | "old_station", "text": "…"}` quand il change. L'app capte tant
-     * qu'il est `waiting` ou `on`.
+     * Micro de l'appareil (docs/micro.md) : ce que l'interface en montre (`MicUi::ui_json` du cœur : `on`, `state`
+     * `off` | `waiting` | `on` | `refused`, `lit`, `sent`, `reason`, `label`, `tooltip`, `tile`) quand il change, et
+     * l'avis bref à montrer tel quel (« Micro envoyé à {nom}. ») ou `null`. L'app capte tant qu'il est `waiting` ou `on`.
      */
-    fun onMicrophone(json: String) {}
+    fun onMicrophone(json: String, notice: String?) {}
+
+    /**
+     * PyroWave n'a pas pu démarrer sur l'appareil : l'image repart en [format] (« HEVC »…) pour cette session ; [text] :
+     * l'avis de link-ui à montrer une fois (« Image en HEVC : PyroWave n'a pas pu démarrer sur cet appareil. »).
+     */
+    fun onPyroWaveFallback(format: String, text: String) {}
 }
 
 /**

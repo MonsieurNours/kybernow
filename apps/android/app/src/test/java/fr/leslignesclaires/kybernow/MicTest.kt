@@ -19,16 +19,21 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = Application::class)
 class MicTest {
     @Test
-    fun parsesCoreStates() {
-        assertEquals(Mic.Off, Mic.parse("""{"state":"off"}"""))
-        assertEquals(Mic.Waiting, Mic.parse("""{"state":"waiting"}"""))
-        assertEquals(Mic.On, Mic.parse("""{"state":"on"}"""))
-        val r = Mic.parse("""{"state":"refused","reason":"no_device","text":"L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son."}""")
-        assertEquals(Mic.Refused("no_device", "L'ordinateur n'a pas de micro virtuel : voyez Admin › Image et son."), r)
-        assertFalse(r.capturing)
-        assertTrue(Mic.Waiting.capturing && Mic.On.capturing)
-        assertEquals(Mic.Off, Mic.parse("illisible"))
-        assertEquals(Mic.Off, Mic.parse(null))
+    fun parsesTheCoresMicUi() {
+        // `MicUi::ui_json` du cœur, plus `shown` du pont : les textes viennent tels quels.
+        val waiting = Mic.parse("""{"on":true,"state":"waiting","lit":true,"sent":false,"shown":true,"reason":null,"label":"Micro","tooltip":"Micro : envoyé à l'ordinateur (Ctrl + Alt + Maj + V)","tile":"Envoi…"}""")
+        assertTrue(waiting.capturing && waiting.lit && !waiting.sent && !waiting.refused)
+        assertEquals("Envoi…", waiting.tile)
+        assertNull(waiting.reason)
+        val on = Mic.parse("""{"on":true,"state":"on","lit":true,"sent":true,"reason":null,"label":"Micro","tooltip":"t","tile":"Envoyé"}""")
+        assertTrue(on.capturing && on.sent && on.shown)
+        val refused = Mic.parse("""{"on":true,"state":"refused","lit":false,"sent":false,"shown":false,"reason":"L'hôte ne laisse pas les invités parler.","label":"Micro coupé","tooltip":"L'hôte ne laisse pas les invités parler.","tile":"Coupé"}""")
+        assertFalse(refused.capturing || refused.lit || refused.shown)
+        assertTrue(refused.refused)
+        assertEquals("L'hôte ne laisse pas les invités parler.", refused.reason)
+        assertEquals(Mic(), Mic.parse("illisible"))
+        assertEquals(Mic(), Mic.parse(null))
+        assertFalse(Mic().capturing)
     }
 
     @Test

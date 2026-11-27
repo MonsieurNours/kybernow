@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -35,8 +34,7 @@ data class Announced(val serviceName: String, val name: String, val address: Str
  */
 class Discovery(private val context: Context) {
     private val nsd = context.getSystemService(NsdManager::class.java)
-    private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
-    private var lock: WifiManager.MulticastLock? = null
+    private var lock: Multicast.Hold? = null
     private val main = Handler(Looper.getMainLooper())
     private val resolver = Executors.newSingleThreadExecutor()
     private val _found = MutableStateFlow<List<Announced>>(emptyList())
@@ -50,7 +48,7 @@ class Discovery(private val context: Context) {
     fun start() {
         if (listener != null) return
         generation++
-        lock = wifi?.createMulticastLock("kybernow")?.apply { setReferenceCounted(false); acquire() }
+        lock = Multicast.acquire(context)
         val l = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {}
             override fun onDiscoveryStopped(serviceType: String) {}

@@ -33,7 +33,7 @@ class JournalQrUiTest {
 
     @Test
     fun qrCodeWithItsSentences() {
-        val relay = JournalRelay.parse("share.kybernow.app")!!
+        val relay = JournalRelay("share.kybernow.app", null)
         show(JournalQrStep.Shown("https://share.kybernow.app/journal/AAAAAAAAAAAAAAAAAAAAAA#k=" + "A".repeat(43), relay, "AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB", 0))
         rule.onNodeWithText("Envoyer le journal").assertExists()
         rule.onNodeWithText("Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal.").assertExists()

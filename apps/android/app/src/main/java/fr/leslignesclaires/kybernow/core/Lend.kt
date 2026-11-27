@@ -429,12 +429,6 @@ object Lend {
     /** Un lien d'invitation, ou `null` si ce n'en est pas un (ou s'il est illisible). */
     fun parseInvite(url: String): LendInvite? = runCatching { Native.lendParseInvite(url)?.let { LendInvite.parse(JSONObject(it)) } }.getOrNull()
 
-    /**
-     * Le lien se veut un lien d'invitation (`kybernow://borrow…`), lisible ou non : illisible ([parseInvite] nul), l'app
-     * dit « Ce lien d'invitation est illisible. » au lieu de l'ignorer.
-     */
-    fun isInviteLink(url: String): Boolean = url.trim().startsWith("kybernow://borrow", ignoreCase = true)
-
     /** La carte « Ordinateur de {hôte} » : l'état pour ce compte, ou un refus (`Reply.Failed`, 40 : identifiant ou mot de passe). */
     suspend fun status(target: ShareTarget, route: String?, login: String, password: String): Reply<LendStatus> = withContext(Dispatchers.IO) {
         readStatus(Native.lendStatus(target.json().toString(), route, login, password))

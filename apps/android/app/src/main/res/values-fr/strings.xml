@@ -18,11 +18,6 @@
     <string name="home_offline">Hors ligne</string>
     <string name="home_away">Hors de chez vous</string>
     <string name="home_connecting">Connexion…</string>
-    <string name="relay_station_offline" formatted="true">%1$s n\'est pas joignable : l\'ordinateur est éteint ou en veille.</string>
-    <string name="relay_access_off" formatted="true">%1$s n\'est pas joignable hors de chez vous (accès coupé dans Admin).</string>
-    <string name="route_direct">Direct</string>
-    <string name="route_relay">Par le relais</string>
-    <string name="route_relay_tcp">Par le relais (TCP)</string>
     <string name="stats_path" formatted="true">Chemin : %1$s</string>
     <string name="home_display_match" formatted="true">Écran de %1$d × %2$d à %3$d Hz, à la taille de cet écran</string>
     <string name="home_display_custom" formatted="true">Écran de %1$d × %2$d à %3$d Hz</string>
@@ -172,14 +167,8 @@
     <string name="settings_sound_help">Auto suit la sortie : 5.1 ou 7.1 sur un ampli HDMI, stéréo ailleurs.</string>
     <string name="settings_sound_computer">Sur l\'ordinateur</string>
     <string name="mic">Micro</string>
-    <string name="mic_off">Micro coupé</string>
-    <string name="mic_sent">Envoyé</string>
-    <string name="mic_cut">Coupé</string>
-    <string name="mic_connecting">Envoi…</string>
-    <string name="mic_tip_on" formatted="true">Micro : envoyé à l\'ordinateur (%1$s)</string>
-    <string name="mic_tip_off" formatted="true">Micro coupé (%1$s)</string>
     <string name="mic_shortcut">Ctrl + Alt + Maj + V</string>
-    <string name="mic_notice_sent" formatted="true">Micro envoyé à %1$s.</string>
+    <string name="record_shortcut">Ctrl + Alt + Maj + R</string>
     <string name="mic_no_access">KyberNow Link n\'a pas accès au micro. Autorisez-le dans les Réglages.</string>
     <string name="settings_mic_help">Envoie le micro de cet appareil à l\'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.</string>
     <string name="app_settings_mic_system">Celui du système</string>
@@ -376,7 +365,6 @@
     <string name="session_leaving_detail">L\'ordinateur retrouve son écran et son son</string>
     <string name="session_switch_profile">Changer de profil</string>
     <string name="session_sound">Son</string>
-    <string name="session_sound_detail" formatted="true">%1$d voies · tampon %2$.0f ms</string>
     <string name="session_sound_channels" formatted="true">%1$d voies</string>
     <string name="session_remote_mouse">Télécommande en souris</string>
     <string name="session_pad_mouse">Manette en souris</string>
@@ -414,20 +402,58 @@
     <string name="keys_escape">Échap</string>
     <string name="keys_ctrl_alt_del">Ctrl + Alt + Suppr</string>
     <string name="keys_ctrl_alt_del_short">Ctrl+Alt+Suppr</string>
+    <string name="keys_win">Touche ⊞ seule</string>
+    <string name="keys_hint_ctrl_alt_del">verrouiller, changer</string>
+    <string name="keys_hint_win">menu Démarrer</string>
+    <string name="keys_hint_alt_tab">changer d\'app</string>
+    <string name="keys_hint_print">capture</string>
+    <string name="keys_hint_win_d">bureau</string>
+    <string name="keys_hint_win_l">verrouiller</string>
+    <string name="keys_hint_alt_f4">fermer la fenêtre</string>
+    <string name="keys_hint_task_manager">Ctrl + Maj + Échap</string>
+    <string name="keys_hint_f11">plein écran</string>
     <string name="keys_mac_switch">⌘ ⇥</string>
     <string name="keys_mac_spotlight">⌘ Espace</string>
     <string name="keys_mac_lock">⌃ ⌘ Q</string>
     <string name="keys_mac_screenshot">⇧ ⌘ 5</string>
     <string name="keys_mac_force_quit">⌥ ⌘ Échap</string>
     <string name="stats_latency">Latence</string>
-    <string name="stats_capture">capture</string>
-    <string name="stats_encode">encodage</string>
-    <string name="stats_send">envoi</string>
-    <string name="stats_network">réseau</string>
-    <string name="stats_decode">décodage</string>
-    <string name="stats_display">affichage</string>
-    <string name="stats_rtt">Aller-retour</string>
-    <string name="stats_losses" formatted="true">Pertes : %1$d images, %2$d trous, %3$d paquets</string>
+    <string name="stats_shortcut">Ctrl + Alt + Maj + S</string>
+    <string name="stats_close">Fermer les statistiques</string>
+    <string name="stats_waiting">Les statistiques s\'affichent dès que l\'image arrive.</string>
+    <string name="stats_from_capture">de la capture à votre écran</string>
+    <string name="stats_path_title">Trajet d\'une image</string>
+    <string name="stats_step_capture">Capture</string>
+    <string name="stats_step_encode">Encodage</string>
+    <string name="stats_step_send">Envoi</string>
+    <string name="stats_step_network">Réseau</string>
+    <string name="stats_step_decode">Décodage</string>
+    <string name="stats_step_display">Affichage</string>
+    <string name="stats_help_capture">De la capture de l\'image au début de son encodage</string>
+    <string name="stats_help_encode">Compression de l\'image par la carte graphique de l\'ordinateur</string>
+    <string name="stats_help_send">Mise en paquets et départ sur le réseau</string>
+    <string name="stats_help_network">Du départ de l\'ordinateur à l\'image complète reçue ici</string>
+    <string name="stats_help_decode" formatted="true">Décompression de l\'image par %1$s</string>
+    <string name="stats_help_display">Rendu et attente du prochain rafraîchissement de l\'écran</string>
+    <string name="stats_on_computer">Sur l\'ordinateur</string>
+    <string name="stats_place_network">Réseau</string>
+    <string name="stats_on_device" formatted="true">Sur %1$s</string>
+    <string name="stats_this_device">cet appareil</string>
+    <string name="stats_this_tv">ce téléviseur</string>
+    <string name="stats_bitrate">Débit</string>
+    <string name="stats_one_frame">1 image</string>
+    <string name="stats_losses_30s">Pertes · 30 s</string>
+    <string name="stats_lost_packets">Paquets perdus</string>
+    <string name="stats_keyframes">Images clés</string>
+    <string name="stats_session_losses" formatted="true">Session : %1$d images, %2$d paquets</string>
+    <string name="stats_row_path">Chemin</string>
+    <string name="stats_row_network">Réseau</string>
+    <string name="stats_round_trip" formatted="true">aller-retour %1$s ms</string>
+    <string name="stats_row_image">Image</string>
+    <string name="stats_row_measures">Mesures</string>
+    <string name="stats_measured" formatted="true">%1$d %% des images</string>
+    <string name="stats_row_sound">Son</string>
+    <string name="stats_sound_buffer" formatted="true">tampon %1$.0f ms</string>
     <string name="share_join_title">Rejoindre avec un code</string>
     <string name="share_join_help">Le code d\'un partage, d\'un prêt ou d\'une invitation.</string>
     <string name="share_join_name">Votre prénom</string>
@@ -616,11 +642,6 @@
     <string name="lend_taking_back" formatted="true">Reprise dans %1$s</string>
     <string name="lend_take_back_now">Reprendre tout de suite</string>
     <string name="lend_card_title" formatted="true">Ordinateur de %1$s</string>
-    <string name="lend_state_free">Disponible</string>
-    <string name="lend_state_busy">Occupé</string>
-    <string name="lend_state_lent">Prêté à quelqu\'un d\'autre</string>
-    <string name="lend_state_locked">Verrouillé</string>
-    <string name="lend_state_off">Prêt coupé</string>
     <string name="lend_slot_next" formatted="true">Votre créneau : %1$s, %2$s – %3$s</string>
     <string name="lend_slot_now" formatted="true">Votre créneau, jusqu\'à %1$s</string>
     <string name="lend_borrow">Emprunter</string>
@@ -803,6 +824,8 @@
     <string name="ps_invert_y">Inverser l\'axe vertical</string>
     <string name="camera">Caméra</string>
     <string name="camera_starting">Caméra…</string>
+    <string name="camera_start_refused">La caméra n\'a pas pu démarrer sur l\'ordinateur.</string>
+    <string name="camera_no_answer">L\'ordinateur ne répond pas : la caméra est éteinte.</string>
     <string name="camera_turn_on">Allumer la caméra</string>
     <string name="camera_turn_off">Éteindre la caméra</string>
     <string name="camera_indicator">● Caméra</string>
@@ -811,7 +834,6 @@
     <string name="camera_external">Caméra externe</string>
     <string name="camera_resolution">Définition de la caméra</string>
     <string name="camera_resolution_help">30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l\'ordinateur.</string>
-    <string name="camera_stats" formatted="true">Caméra : %1$s</string>
     <plurals name="share_guests">
         <item quantity="one">%d invité</item>
         <item quantity="many">%d invités</item>

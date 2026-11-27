@@ -28,51 +28,37 @@ import fr.leslignesclaires.kybernow.ui.KnIcons
 import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.panel
 
-/** Le sous-titre de « Micro » (docs/link-ui.md, « Micro ») : « Envoyé », « Envoi… » ou « Coupé ». */
-@Composable
-internal fun micDetail(ui: SessionUi): String = stringResource(
-    when {
-        ui.mic is Mic.Refused || !ui.micChoice -> R.string.mic_cut
-        ui.mic == Mic.On -> R.string.mic_sent
-        else -> R.string.mic_connecting
-    },
-)
-
 /**
- * « Micro » de la barre (hôte, invité que l'hôte laisse parler, ami qui emprunte) : « Micro » allumé quand il est
- * envoyé, « Micro coupé » sinon, et son sous-titre ; un toucher l'allume ou le coupe. L'ordinateur ne le prend pas :
- * estompé, mais toujours touchable : la raison en avis (et en infobulle à la souris). Rien sans micro sur l'appareil.
+ * « Micro » de la barre (hôte, invité que l'hôte laisse parler, ami qui emprunte) : le libellé, le sous-titre
+ * (« Envoyé », « Envoi… », « Coupé ») et l'infobulle du cœur (`MicUi`) ; un toucher l'allume ou le coupe. L'ordinateur
+ * ne le prend pas : estompé, mais toujours touchable : la raison en avis (et en infobulle à la souris). Rien sans micro
+ * sur l'appareil, ni chez un invité que l'hôte ne laisse pas parler.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MicChip(ui: SessionUi) {
-    if (!ui.micShown) return
+    if (!ui.micShown || !ui.mic.shown) return
     val s = LocalScale.current
-    val refused = ui.mic as? Mic.Refused
-    val on = ui.micChoice && refused == null
-    val shortcut = stringResource(R.string.mic_shortcut)
-    val tip = refused?.text ?: stringResource(if (on) R.string.mic_tip_on else R.string.mic_tip_off, shortcut)
-    val label = stringResource(if (on) R.string.mic else R.string.mic_off)
-    val detail = micDetail(ui)
+    val mic = ui.mic
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-        tooltip = { PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(tip, size = 13f) } },
+        tooltip = { PlainTooltip(containerColor = Kn.panel, contentColor = Kn.frost) { Body(mic.tooltip, size = 13f) } },
         state = rememberTooltipState(),
     ) {
         GlassButton(
-            label, { ui.actions.setMicrophone(!ui.micChoice) },
-            Modifier.alpha(if (refused != null) 0.45f else 1f).semantics { stateDescription = detail },
-            selected = on, detail = detail, singleLine = true,
-            leading = { KnIcon(if (on) KnIcons.mic else KnIcons.micOff, tint = if (on) Kn.spectre else Kn.frost2, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
+            mic.label, { ui.actions.setMicrophone(!ui.micChoice) },
+            Modifier.alpha(if (mic.refused) 0.45f else 1f).semantics { stateDescription = mic.tile },
+            selected = mic.lit, detail = mic.tile, singleLine = true,
+            leading = { KnIcon(if (mic.lit) KnIcons.mic else KnIcons.micOff, tint = if (mic.lit) Kn.spectre else Kn.frost2, size = 16f); Spacer(Modifier.width(s.dp(6f))) },
         )
     }
 }
 
 /** Barre fermée : la petite icône du micro, en haut à droite, tant qu'il est envoyé (docs/link-ui.md, « Indicateur »). */
 @Composable
-internal fun MicIndicator(modifier: Modifier) {
+internal fun MicIndicator(ui: SessionUi, modifier: Modifier) {
     val s = LocalScale.current
-    val label = stringResource(R.string.mic) + ", " + stringResource(R.string.mic_sent)
+    val label = ui.mic.label + ", " + ui.mic.tile
     Box(modifier.padding(s.dp(12f)).panel(999.dp).padding(s.dp(6f)).semantics { contentDescription = label }) {
         KnIcon(KnIcons.mic, tint = Kn.spectre, size = 14f)
     }

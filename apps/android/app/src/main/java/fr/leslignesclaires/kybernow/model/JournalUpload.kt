@@ -1,5 +1,6 @@
 package fr.leslignesclaires.kybernow.model
 
+import fr.leslignesclaires.kybernow.core.Core
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -28,60 +29,32 @@ import javax.net.ssl.X509TrustManager
  * [JournalRelay] fait les appels, hors du fil principal.
  */
 
-/** Le relais d'un dépôt : `hôte[:port]` (l'autorité des pages du relais) et, s'il en a une, l'empreinte épinglée. */
-data class JournalRelay(val host: String, val port: Int, val pin: ByteArray?) {
-    /** `hôte`, ou `hôte:port` hors du 443 ; une IPv6 entre crochets. */
-    val authority: String
-        get() {
-            val h = if (host.contains(':')) "[$host]" else host
-            return if (port == 443) h else "$h:$port"
-        }
-
+/**
+ * Le relais d'un dépôt : [authority], `hôte[:port]` (l'autorité des pages du relais, sans le port 443, une IPv6 entre
+ * crochets), et, s'il en a une, l'empreinte épinglée ([pin], 32 octets). Lu par le cœur ([Core.relayParts],
+ * `rules::relay::parse`), la seule règle des adresses de relais.
+ */
+data class JournalRelay(val authority: String, val pin: ByteArray?) {
     override fun equals(other: Any?): Boolean =
-        other is JournalRelay && host == other.host && port == other.port &&
+        other is JournalRelay && authority == other.authority &&
             (if (pin == null || other.pin == null) pin == other.pin else pin.contentEquals(other.pin))
 
-    override fun hashCode() = 31 * (31 * host.hashCode() + port) + (pin?.contentHashCode() ?: 0)
+    override fun hashCode() = 31 * authority.hashCode() + (pin?.contentHashCode() ?: 0)
 
     companion object {
-        /** Le relais public de KyberNow. */
-        const val DEFAULT = "share.kybernow.app"
+        /** Un relais lu par le cœur ; nul s'il ne se lit pas. */
+        fun parse(addr: String): JournalRelay? = of(Core.relayParts(addr))
 
-        /**
-         * Lit un relais sous sa forme normale (`share.kybernow.app`, `relais.exemple.org:9443`,
-         * `relais.exemple.org#sha256:aa:bb:…`, voir `rules::relay`) ; nul s'il ne se lit pas.
-         */
-        fun parse(addr: String): JournalRelay? {
-            val s = addr.trim().removePrefix("https://").trimEnd('/')
-            val main = s.substringBefore('#')
-            val pin = if (s.contains('#')) parsePin(s.substringAfter('#')) ?: return null else null
-            val host: String
-            val port: Int
-            if (main.startsWith("[")) {
-                host = main.substring(1).substringBefore(']', "").ifEmpty { return null }
-                val after = main.substringAfter(']')
-                port = when {
-                    after.isEmpty() -> 443
-                    after.startsWith(":") -> after.drop(1).toIntOrNull() ?: return null
-                    else -> return null
-                }
-            } else {
-                val i = main.lastIndexOf(':')
-                if (i >= 0 && main.indexOf(':') == i) {
-                    host = main.substring(0, i)
-                    port = main.substring(i + 1).toIntOrNull() ?: return null
-                } else {
-                    host = main
-                    port = 443
-                }
-            }
-            if (host.isBlank() || port !in 1..65535 || host.any { it.isWhitespace() || it == '/' || it == '@' }) return null
-            return JournalRelay(host.lowercase(), port, pin)
+        /** La réponse du cœur, `{authority, pin}` (`pin` : `sha256:aa:bb:…` ou nul). */
+        fun of(parts: JSONObject?): JournalRelay? {
+            val authority = parts?.optString("authority")?.takeIf { it.isNotEmpty() } ?: return null
+            val pin = if (parts.isNull("pin")) null else hexBytes(parts.optString("pin").removePrefix("sha256:")) ?: return null
+            return JournalRelay(authority, pin)
         }
 
-        /** `sha256:aa:bb:…` ou les seuls chiffres : les 32 octets ; nul si ce n'en est pas une. */
-        private fun parsePin(text: String): ByteArray? {
-            val hex = text.trim().lowercase().removePrefix("sha256:").filter { it != ':' && !it.isWhitespace() }
+        /** Les octets d'une empreinte en hexadécimal (`aa:bb:…`, forme normale du cœur) ; nul si ce ne sont pas 32 octets. */
+        private fun hexBytes(text: String): ByteArray? {
+            val hex = text.filter { it != ':' }.lowercase()
             if (hex.length != 64 || hex.any { it !in "0123456789abcdef" }) return null
             return ByteArray(32) { i -> hex.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
         }

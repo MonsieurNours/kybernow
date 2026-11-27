@@ -32,6 +32,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.model.Journal
 import fr.leslignesclaires.kybernow.model.JournalPost
 import fr.leslignesclaires.kybernow.model.JournalRelay
@@ -83,7 +84,7 @@ sealed class JournalQrStep {
 
 /** Prépare, chiffre et dépose le journal : l'étape à montrer ensuite. Hors du fil principal. */
 private fun upload(context: Context, relayAddress: String): JournalQrStep {
-    val relay = JournalRelay.parse(relayAddress) ?: JournalRelay.parse(JournalRelay.DEFAULT)!!
+    val relay = JournalRelay.parse(relayAddress) ?: JournalRelay.parse(Core.values().defaultRelay) ?: return JournalQrStep.Unreachable
     val text = runCatching { Journal.build(context).readBytes() }.getOrNull() ?: return JournalQrStep.Unreachable
     val key = JournalSeal.newKey()
     val deposit = JournalSeal.seal(JournalSeal.fit(text, Journal.headEnd(text)), key)

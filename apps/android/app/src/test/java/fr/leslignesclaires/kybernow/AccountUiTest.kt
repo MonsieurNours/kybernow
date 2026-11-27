@@ -51,6 +51,10 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], application = Application::class, qualifiers = "fr-w914dp-h411dp-land-xxhdpi")
 class AccountUiTest {
+    @org.junit.Before fun fakeCore() = FakeCore.install()
+
+    @org.junit.After fun realCore() = FakeCore.reset()
+
     @get:Rule val rule = createComposeRule()
 
     /** Espace fine insécable (avant : ; ! ?, dans « »), espace insécable (avant min). */

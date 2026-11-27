@@ -40,7 +40,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.PsNative
+import fr.leslignesclaires.kybernow.core.RelayFailure
 import fr.leslignesclaires.kybernow.model.HdrScreen
 import fr.leslignesclaires.kybernow.playstation.PsAccount
 import fr.leslignesclaires.kybernow.playstation.PsConsole
@@ -142,11 +144,8 @@ fun ConsoleHero(c: PsConsole, state: PsHomeState, actions: PsHomeActions, nameSi
         state.reachErrors[c.id]?.let { e ->
             Body(
                 when (e) {
-                    is ReachError.Relay -> when (e.code) {
-                        31 -> stringResource(R.string.relay_station_offline, e.station)
-                        32 -> stringResource(R.string.relay_access_off, e.station)
-                        else -> e.message.ifBlank { stringResource(R.string.ps_end_unreachable) }
-                    }
+                    is ReachError.Relay -> (if (e.code == RelayFailure.STATION_OFFLINE.code || e.code == RelayFailure.ACCESS_OFF.code) Core.relayErrorText(e.code, e.station) else null)
+                        ?.takeIf { it.isNotBlank() } ?: e.message.ifBlank { stringResource(R.string.ps_end_unreachable) }
                     ReachError.NotAnswering -> stringResource(R.string.ps_end_unreachable)
                 },
                 color = Kn.warn, size = 13f,

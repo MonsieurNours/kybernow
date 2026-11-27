@@ -25,7 +25,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import fr.leslignesclaires.kybernow.R
+import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.core.Lend
+import fr.leslignesclaires.kybernow.core.RouteTransport
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.Eyebrow
 import fr.leslignesclaires.kybernow.ui.GlassButton
@@ -111,7 +113,7 @@ internal fun BorrowerTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int
     val route by ui.state.route.collectAsState()
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
-        if (route?.viaRelay == true) Tile(KnIcons.network, stringResource(R.string.route_relay), null, selected = true) { ui.statsOpen = !ui.statsOpen }
+        if (route?.viaRelay == true) Tile(KnIcons.network, Core.routeLabel(RouteTransport.RELAY), null, selected = true) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.info, stringResource(R.string.lend_lent_by, ui.lender), lendTimeText(ui), selected = true) { ui.statsOpen = !ui.statsOpen }
         HdrTile(ui)
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
