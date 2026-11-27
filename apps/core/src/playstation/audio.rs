@@ -130,11 +130,11 @@ impl AudioReceiver {
         }
         // Saut de plus que la mémoire : on reprend à la plus ancienne trame
         // gardée, avec un seul trou, au lieu de masquer des milliers de trames.
-        if let Some(&first) = self.buffer.keys().next() {
-            if first > n + BUFFER_MAX as u64 {
-                out.push(AudioOut::Hole);
-                n = first;
-            }
+        if let Some(&first) = self.buffer.keys().next()
+            && first > n + BUFFER_MAX as u64
+        {
+            out.push(AudioOut::Hole);
+            n = first;
         }
         loop {
             if let Some(data) = self.buffer.remove(&n) {

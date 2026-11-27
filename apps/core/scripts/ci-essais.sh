@@ -68,7 +68,7 @@ mkdir -p "$PREFIX/lib/pkgconfig"
 stamp="$(kyber_kynput_stamp "$KYSDK")"
 if ! kyber_kynput_current "$PREFIX" "$stamp"; then
     echo "==> libkynput dans $PREFIX"
-    (cd "$KYSDK/kynput" && cargo cinstall --quiet -p kynput --release --library-type=staticlib --prefix="$PREFIX" --libdir="$PREFIX/lib")
+    (cd "$KYSDK/kynput" && cargo cinstall -p kynput --release --library-type=staticlib --prefix="$PREFIX" --libdir="$PREFIX/lib")
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
     kyber_kynput_mark "$PREFIX" "$stamp"
 fi

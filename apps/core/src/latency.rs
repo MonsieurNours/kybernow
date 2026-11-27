@@ -69,6 +69,8 @@ mod clock {
         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "visionos")))]
         const CLOCK_MONOTONIC: i32 = 1;
         unsafe { clock_gettime(CLOCK_MONOTONIC, &mut ts) };
+        // `i64::from` : inutile en 64 bits, nécessaire en 32 bits.
+        #[allow(clippy::useless_conversion)]
         timespec_micros(i64::from(ts.tv_sec), i64::from(ts.tv_nsec))
     }
 

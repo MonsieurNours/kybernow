@@ -75,12 +75,13 @@ fn percent_decode(text: &str) -> String {
     while i < bytes.len() {
         // Sur les octets (un `%` suivi d'un caractère non ASCII faisait
         // paniquer la découpe du texte, COEUR-07) ; un `%xx` final compte.
-        if bytes[i] == b'%' && i + 3 <= bytes.len() {
-            if let Some(b) = super::hex_pair(bytes[i + 1], bytes[i + 2]) {
-                out.push(b);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 3 <= bytes.len()
+            && let Some(b) = super::hex_pair(bytes[i + 1], bytes[i + 2])
+        {
+            out.push(b);
+            i += 3;
+            continue;
         }
         out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
         i += 1;
