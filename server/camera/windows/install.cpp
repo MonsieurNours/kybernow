@@ -179,6 +179,12 @@ int install_windows10(bool install)
 
 } // namespace
 
+// Windows 11 (build 22000 et après) : la mémoire partagée n'est lue que par Frame Server.
+extern "C" int kn_windows11(void)
+{
+    return windows11() ? 1 : 0;
+}
+
 extern "C" int kn_windows_install(int install)
 {
     return windows11() ? install_windows11(install != 0) : install_windows10(install != 0);

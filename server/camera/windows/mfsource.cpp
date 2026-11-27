@@ -102,17 +102,38 @@ public:
         return r;
     }
 
-    // IMFMediaEventGenerator
-    STDMETHODIMP BeginGetEvent(IMFAsyncCallback *cb, IUnknown *state) override { return queue_ ? queue_->BeginGetEvent(cb, state) : MF_E_SHUTDOWN; }
-    STDMETHODIMP EndGetEvent(IMFAsyncResult *r, IMFMediaEvent **e) override { return queue_ ? queue_->EndGetEvent(r, e) : MF_E_SHUTDOWN; }
-    STDMETHODIMP GetEvent(DWORD flags, IMFMediaEvent **e) override
+    // IMFMediaEventGenerator : la file est prise sous le verrou (Shutdown la
+    // libère depuis un autre fil), puis utilisée hors du verrou.
+    IMFMediaEventQueue *queue()
     {
-        IMFMediaEventQueue *q;
         EnterCriticalSection(&lock_);
-        q = queue_;
+        IMFMediaEventQueue *q = queue_;
         if (q)
             q->AddRef();
         LeaveCriticalSection(&lock_);
+        return q;
+    }
+    STDMETHODIMP BeginGetEvent(IMFAsyncCallback *cb, IUnknown *state) override
+    {
+        IMFMediaEventQueue *q = queue();
+        if (!q)
+            return MF_E_SHUTDOWN;
+        HRESULT hr = q->BeginGetEvent(cb, state);
+        q->Release();
+        return hr;
+    }
+    STDMETHODIMP EndGetEvent(IMFAsyncResult *r, IMFMediaEvent **e) override
+    {
+        IMFMediaEventQueue *q = queue();
+        if (!q)
+            return MF_E_SHUTDOWN;
+        HRESULT hr = q->EndGetEvent(r, e);
+        q->Release();
+        return hr;
+    }
+    STDMETHODIMP GetEvent(DWORD flags, IMFMediaEvent **e) override
+    {
+        IMFMediaEventQueue *q = queue();
         if (!q)
             return MF_E_SHUTDOWN;
         HRESULT hr = q->GetEvent(flags, e);
@@ -121,7 +142,12 @@ public:
     }
     STDMETHODIMP QueueEvent(MediaEventType t, REFGUID ext, HRESULT status, const PROPVARIANT *v) override
     {
-        return queue_ ? queue_->QueueEventParamVar(t, ext, status, v) : MF_E_SHUTDOWN;
+        IMFMediaEventQueue *q = queue();
+        if (!q)
+            return MF_E_SHUTDOWN;
+        HRESULT hr = q->QueueEventParamVar(t, ext, status, v);
+        q->Release();
+        return hr;
     }
 
     // IMFMediaStream
@@ -146,15 +172,19 @@ public:
             return MF_E_INVALIDREQUEST;
         }
         int w = width_, h = height_;
+        LONGLONG last = last_;
         LeaveCriticalSection(&lock_);
 
-        // Une image toutes les 1/30 s, quel que soit le rythme des demandes.
+        // Une image toutes les 1/30 s, quel que soit le rythme des demandes
+        // (l'attente se fait hors du verrou : Shutdown n'attend pas).
         LONGLONG now = MFGetSystemTime();
-        if (last_ && now < last_ + FRAME_100NS) {
-            Sleep((DWORD)((last_ + FRAME_100NS - now) / 10000));
+        if (last && now < last + FRAME_100NS) {
+            Sleep((DWORD)((last + FRAME_100NS - now) / 10000));
             now = MFGetSystemTime();
         }
+        EnterCriticalSection(&lock_);
         last_ = now;
+        LeaveCriticalSection(&lock_);
 
         DWORD size = (DWORD)(w * h * 3 / 2);
         IMFSample *sample = NULL;
@@ -166,7 +196,15 @@ public:
             BYTE *data = NULL;
             hr = buffer->Lock(&data, NULL, NULL);
             if (SUCCEEDED(hr)) {
-                kn_shared_read(&mapping_, &view_, data, w, h);
+                // Lue sous le verrou : Shutdown (l'app qui filme se ferme)
+                // démappe la vue ; une lecture en cours ferait tomber Frame
+                // Server, et une lecture après rouvrirait la mémoire pour rien.
+                EnterCriticalSection(&lock_);
+                if (queue_)
+                    kn_shared_read(&mapping_, &view_, data, w, h);
+                else
+                    hr = MF_E_SHUTDOWN;
+                LeaveCriticalSection(&lock_);
                 buffer->Unlock();
                 buffer->SetCurrentLength(size);
                 hr = sample->AddBuffer(buffer);
@@ -324,17 +362,38 @@ public:
         return r;
     }
 
-    // IMFMediaEventGenerator
-    STDMETHODIMP BeginGetEvent(IMFAsyncCallback *cb, IUnknown *state) override { return queue_ ? queue_->BeginGetEvent(cb, state) : MF_E_SHUTDOWN; }
-    STDMETHODIMP EndGetEvent(IMFAsyncResult *r, IMFMediaEvent **e) override { return queue_ ? queue_->EndGetEvent(r, e) : MF_E_SHUTDOWN; }
-    STDMETHODIMP GetEvent(DWORD flags, IMFMediaEvent **e) override
+    // IMFMediaEventGenerator : la file est prise sous le verrou (Shutdown la
+    // libère depuis un autre fil), puis utilisée hors du verrou.
+    IMFMediaEventQueue *queue()
     {
-        IMFMediaEventQueue *q;
         EnterCriticalSection(&lock_);
-        q = queue_;
+        IMFMediaEventQueue *q = queue_;
         if (q)
             q->AddRef();
         LeaveCriticalSection(&lock_);
+        return q;
+    }
+    STDMETHODIMP BeginGetEvent(IMFAsyncCallback *cb, IUnknown *state) override
+    {
+        IMFMediaEventQueue *q = queue();
+        if (!q)
+            return MF_E_SHUTDOWN;
+        HRESULT hr = q->BeginGetEvent(cb, state);
+        q->Release();
+        return hr;
+    }
+    STDMETHODIMP EndGetEvent(IMFAsyncResult *r, IMFMediaEvent **e) override
+    {
+        IMFMediaEventQueue *q = queue();
+        if (!q)
+            return MF_E_SHUTDOWN;
+        HRESULT hr = q->EndGetEvent(r, e);
+        q->Release();
+        return hr;
+    }
+    STDMETHODIMP GetEvent(DWORD flags, IMFMediaEvent **e) override
+    {
+        IMFMediaEventQueue *q = queue();
         if (!q)
             return MF_E_SHUTDOWN;
         HRESULT hr = q->GetEvent(flags, e);
@@ -343,7 +402,12 @@ public:
     }
     STDMETHODIMP QueueEvent(MediaEventType t, REFGUID ext, HRESULT status, const PROPVARIANT *v) override
     {
-        return queue_ ? queue_->QueueEventParamVar(t, ext, status, v) : MF_E_SHUTDOWN;
+        IMFMediaEventQueue *q = queue();
+        if (!q)
+            return MF_E_SHUTDOWN;
+        HRESULT hr = q->QueueEventParamVar(t, ext, status, v);
+        q->Release();
+        return hr;
     }
 
     // IMFMediaSource

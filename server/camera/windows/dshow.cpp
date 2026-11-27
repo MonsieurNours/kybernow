@@ -187,6 +187,13 @@ public:
     {
         Disconnect();
         free_type_content(preferred_);
+        // Tampon de conversion et vue de la mémoire partagée : une instance
+        // par graphe (Zoom ou Teams le recréent à chaque changement de caméra).
+        free(nv12_);
+        if (view_)
+            UnmapViewOfFile(view_);
+        if (mapping_)
+            CloseHandle(mapping_);
         DeleteCriticalSection(&lock_);
     }
 
@@ -408,9 +415,11 @@ public:
             if (SUCCEEDED(hr)) {
                 BYTE *data = NULL;
                 long size = (long)(w * h * 2);
-                if (SUCCEEDED(sample->GetPointer(&data)) && sample->GetSize() >= size) {
-                    if (!nv12_)
-                        nv12_ = (uint8_t *)malloc(KN_SHARED_FRAME_MAX);
+                if (!nv12_)
+                    nv12_ = (uint8_t *)malloc(KN_SHARED_FRAME_MAX);
+                if (!nv12_) {
+                    hr = E_OUTOFMEMORY;
+                } else if (SUCCEEDED(sample->GetPointer(&data)) && sample->GetSize() >= size) {
                     kn_shared_read(&mapping_, &view_, nv12_, w, h);
                     nv12_to_yuy2(nv12_, data, w, h);
                     sample->SetActualDataLength(size);
@@ -579,8 +588,9 @@ public:
     // IMediaFilter
     STDMETHODIMP Stop() override
     {
-        stop_thread();
+        // L'allocateur d'abord : un fil bloqué dans GetBuffer en sort tout de suite.
         pin_.Decommit();
+        stop_thread(5000);
         EnterCriticalSection(&lock_);
         state_ = State_Stopped;
         LeaveCriticalSection(&lock_);
@@ -595,7 +605,7 @@ public:
         if (was == State_Stopped)
             pin_.Commit();
         if (was == State_Running)
-            stop_thread();
+            stop_thread(5000);
         return S_OK;
     }
     STDMETHODIMP Run(REFERENCE_TIME start) override
@@ -690,7 +700,9 @@ public:
 private:
     ~Filter()
     {
-        stop_thread();
+        // Jamais détruit sous un fil qui tourne encore.
+        pin_.Decommit();
+        stop_thread(INFINITE);
         if (clock_)
             clock_->Release();
         CloseHandle(stop_);
@@ -700,19 +712,28 @@ private:
 
     void start_thread()
     {
+        // Un fil gardé après un arrêt trop lent, qui a fini depuis : refermé.
+        if (thread_ && WaitForSingleObject(thread_, 0) == WAIT_OBJECT_0) {
+            CloseHandle(thread_);
+            thread_ = NULL;
+        }
         if (thread_)
             return;
         ResetEvent(stop_);
         thread_ = CreateThread(NULL, 0, &Filter::thread_main, this, 0, NULL);
     }
-    void stop_thread()
+    // Arrête le fil ; s'il ne s'arrête pas à temps, il est gardé (attendu
+    // de nouveau, sans limite, avant la destruction du filtre).
+    bool stop_thread(DWORD timeout)
     {
         if (!thread_)
-            return;
+            return true;
         SetEvent(stop_);
-        WaitForSingleObject(thread_, 5000);
+        if (WaitForSingleObject(thread_, timeout) != WAIT_OBJECT_0)
+            return false;
         CloseHandle(thread_);
         thread_ = NULL;
+        return true;
     }
     static DWORD WINAPI thread_main(LPVOID self)
     {

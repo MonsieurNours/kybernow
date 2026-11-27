@@ -49,6 +49,8 @@ windows)
     ;;
 macos)
     mkdir -p "$(dirname "$OUTPUT")"
+    # Jamais l'ancien binaire si clang échoue (sa sortie est filtrée ci-dessous).
+    rm -f "$OUTPUT"
     # shellcheck disable=SC2046
     clang -O2 -mmacosx-version-min=15.0 -o "$OUTPUT" "$HERE/camera.c" "$HERE/out_macos.c" -I"$HERE" -I"$ROOTFS/include" \
         $(PKG_CONFIG_LIBDIR="$PC" pkg-config --static --libs $FFMPEG) \
