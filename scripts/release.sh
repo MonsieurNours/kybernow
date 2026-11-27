@@ -642,6 +642,7 @@ entrees_de() {
     case "$id" in
         station) echo "maj $UPDATE_FLAGS_STR" ;;
         notarisation) echo "notariser $NOTARISER" ;;
+        surcouche) declare -f overlay_voulue ;;
         station_mac) echo "notariser $NOTARISER"; declare -f mac_kyber_hash mac_pyrowave_id mac_kyber_a_jour ;;
         flatpak_aarch64 | flatpak_x86_64 | deb_pi) echo "$VM_TOOLS" ;;
         station_linux) echo "$VM_TOOLS"; echo "$VM_KYBER_STATION" ;;

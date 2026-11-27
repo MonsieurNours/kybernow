@@ -296,6 +296,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 | Admin, icône, installateur | macOS | `cargo test` d'Admin et de l'installateur de la Station ; `cargo check --target x86_64-pc-windows-gnu` d'Admin, de l'installateur (`--features ui`) et de l'icône, ressources Windows comprises (MinGW par Homebrew) |
 | Interfaces Svelte | Linux | `npm ci`, `npm run build`, `npm run check` dans `server/web` et `server/installer/ui` |
 | Scripts et update.ps1 | Linux | `shellcheck` de tous les scripts, `update.ps1` en ASCII, banc de `update.ps1` (`server/installer/tests/update-bench.ps1`, services simulés) |
+| App iPhone/iPad (règles) | macOS | chaque `apps/ios/tests/*/run.sh` (manette à l'écran et toucher, règles de session ; un essai pas encore là est sauté), sans simulateur |
 | App Apple TV | macOS | `xcodegen`, puis `xcodebuild` pour le simulateur, sans signature, avec le `KyberSDK-tvOS.zip` de la dernière release |
 
 `.github/workflows/outillage.yml`, aux mêmes moments :
@@ -311,7 +312,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 Ce qu'elle ne couvre pas :
 - **L'app Mac.** Elle lie le SDK client de Kyber et VLC (`apps/macos/Vendor`, 88 Mo, compilés depuis les sources de Kyber par `build-kyclient.sh`), publiés nulle part.
 - **L'app Apple TV quand les correctifs client ou le cœur Rust ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `apps/webos/kyber-patches`, les correctifs de la Station que les apps posent aussi, `*-kyclient-*`, `*-kynput-*`, `*-kynet-*`, `*-kycontroller-*`, `*-kywebplayer-*`, `scripts/kyber-client-patches.sh`, `kyber-toolchain.sh`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`, `apps/Cargo.*`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante.
-- **Le cœur Rust et les autres apps KyberNow Link** (`apps/core`, Windows, Android, webOS, Linux, iPhone et iPad) : ni compilés ni testés en CI ; ils demandent les sources de Kyber (`third_party/`).
+- **Les apps KyberNow Link autres que l'Apple TV** (Windows, Android, webOS, Linux, iPhone et iPad) : ni compilées ni testées en CI, elles demandent les sources de Kyber (`third_party/`) ; seules les règles de l'app iPhone/iPad sans interface le sont (`apps/ios/tests`). Le cœur Rust a son propre workflow (`coeur.yml`).
 - **Les binaires Windows liés et Kyber** : la CI vérifie le code, elle ne produit ni `KyberNow-Station-Setup.exe` ni la surcouche (correctifs de Kyber, `third_party/` absent), et ne lance rien sous Windows.
 - **Rien n'est signé ni publié** : la publication reste `scripts/release.sh`, sur le Mac de l'auteur (notarisation, clés Sparkle et minisign).
 

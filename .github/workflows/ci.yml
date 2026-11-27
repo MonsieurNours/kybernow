@@ -1,14 +1,16 @@
 # Vérifications de chaque push et pull request vers main : KyberNow Admin,
 # icône et installateur de la Station (tests sur macOS, compilation pour
 # Windows), interfaces Svelte, scripts (shellcheck, banc de update.ps1), app
-# Apple TV (simulateur, sans signature). Voir docs/releases.md, « Intégration
-# continue ».
+# Apple TV (simulateur, sans signature), règles de l'app iPhone/iPad sans
+# simulateur. Voir docs/releases.md, « Intégration continue ». Les essais du
+# cœur Rust ont leur workflow (coeur.yml), ceux de l'outillage et du relais
+# le leur (outillage.yml).
 #
 # L'app Mac n'est pas compilée ici : elle lie le SDK client de Kyber et VLC
 # (apps/macos/Vendor, 88 Mo, compilés depuis les sources de Kyber par
-# apps/macos/scripts/build-kyclient.sh), qui ne sont publiés nulle part. Le
-# cœur Rust (apps/core) et les autres apps KyberNow Link ne le sont pas non
-# plus : ils demandent les sources de Kyber (third_party/).
+# apps/macos/scripts/build-kyclient.sh), qui ne sont publiés nulle part. Les
+# autres apps KyberNow Link ne le sont pas non plus : elles demandent les
+# sources de Kyber (third_party/).
 #
 # Rien n'est signé ni publié : la publication reste scripts/release.sh, sur le
 # Mac de l'auteur (notarisation, clés Sparkle et minisign).
@@ -107,6 +109,24 @@ jobs:
           fi
       - name: Banc de update.ps1 (services simulés)
         run: pwsh -NoProfile -File server/installer/tests/update-bench.ps1
+
+  ios-regles:
+    name: App iPhone/iPad (règles, sans simulateur)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Chaque essai de apps/ios/tests (run.sh : swiftc puis le programme) ;
+      # un essai pas encore fusionné est simplement absent.
+      - name: Essais de apps/ios/tests
+        run: |
+          for t in screen-pad session-rules; do
+            if [ -x "apps/ios/tests/$t/run.sh" ]; then
+              echo "== $t"
+              "apps/ios/tests/$t/run.sh"
+            else
+              echo "== $t : absent, sauté"
+            fi
+          done
 
   tvos:
     name: App Apple TV (simulateur)

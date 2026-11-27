@@ -296,6 +296,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 | Admin, tray icon, installer | macOS | `cargo test` of Admin and the Station installer; `cargo check --target x86_64-pc-windows-gnu` of Admin, the installer (`--features ui`) and the tray icon, Windows resources included (MinGW from Homebrew) |
 | Svelte interfaces | Linux | `npm ci`, `npm run build`, `npm run check` in `server/web` and `server/installer/ui` |
 | Scripts and update.ps1 | Linux | `shellcheck` of all the scripts, `update.ps1` in ASCII, `update.ps1` test bench (`server/installer/tests/update-bench.ps1`, simulated services) |
+| iPhone/iPad app (rules) | macOS | each `apps/ios/tests/*/run.sh` (on-screen gamepad and touch, session rules; a test not merged yet is skipped), no simulator |
 | Apple TV app | macOS | `xcodegen`, then `xcodebuild` for the simulator, unsigned, with the latest release's `KyberSDK-tvOS.zip` |
 
 `.github/workflows/outillage.yml`, at the same moments:
@@ -311,7 +312,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 What it does not cover:
 - **The Mac app.** It links Kyber's client SDK and VLC (`apps/macos/Vendor`, 88 MB, built from Kyber's sources by `build-kyclient.sh`), published nowhere.
 - **The Apple TV app when the client patches or the Rust core have changed** since the latest release (`apps/macos/kyber-patches`, `apps/webos/kyber-patches`, the Station patches the apps also apply, `*-kyclient-*`, `*-kynput-*`, `*-kynet-*`, `*-kycontroller-*`, `*-kywebplayer-*`, `scripts/kyber-client-patches.sh`, `kyber-toolchain.sh`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`, `apps/Cargo.*`): the published SDK no longer matches the code, so the build is skipped with a warning until the next release.
-- **The Rust core and the other KyberNow Link apps** (`apps/core`, Windows, Android, webOS, Linux, iPhone and iPad): neither built nor tested in CI; they need Kyber's sources (`third_party/`).
+- **The KyberNow Link apps other than Apple TV** (Windows, Android, webOS, Linux, iPhone and iPad): neither built nor tested in CI, they need Kyber's sources (`third_party/`); only the iPhone/iPad app's UI-free rules are (`apps/ios/tests`). The Rust core has its own workflow (`coeur.yml`).
 - **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Station-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
 - **Nothing is signed or published**: releasing stays `scripts/release.sh`, on the author's Mac (notarisation, Sparkle and minisign keys).
 

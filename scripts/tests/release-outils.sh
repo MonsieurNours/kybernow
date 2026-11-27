@@ -98,6 +98,42 @@ MSG="l'état change avec les sources" vrai test "$E1" != "$(arbre_sources_etat "
 E2="$(arbre_sources_etat "$KD")"
 MSG="l'état est stable sans changement" vrai test "$E2" = "$(arbre_sources_etat "$KD")"
 
+# arbre_kyber_origine : sans condition, même quand les sources sont dans
+# l'état noté (la surcouche recompilée parce que son empreinte a changé sans
+# que les correctifs changent : build.sh les trouvait à moitié posés).
+(cd "$KD/kysdk/kyctl" && git apply "$T/arbre/apps/macos/kyber-patches/0001-kyclient-essai.patch")
+ARBRES_AVANT="$ARBRES"; ARBRES="$T/arbres"
+mkdir -p "$T/arbres/station-windows/third_party"
+cp -R "$T/arbre/server" "$T/arbre/apps" "$T/arbres/station-windows/"
+ln -s "$KD" "$T/arbres/station-windows/third_party/kyber-desktop"
+arbre_kyber_noter station-windows
+SORTIE="$(arbre_kyber_pret station-windows)"
+MSG="sources dans l'état noté : arbre_kyber_pret n'y touche pas" vrai grep -q "rien à remettre" <<< "$SORTIE"
+MSG="… le correctif reste posé" vrai grep -qx c "$KD/kysdk/kyctl/f.txt"
+arbre_kyber_origine station-windows
+MSG="arbre_kyber_origine : remises à l'origine quand même" vrai grep -qx b "$KD/kysdk/kyctl/f.txt"
+MSG="… fichier ajouté retiré, état noté effacé" vrai test ! -e "$KD/kysdk/kyctl/n.rs" -a ! -e "$KD/.kybernow-arbre"
+ARBRES="$ARBRES_AVANT"
+
+echo "== empreinte de la surcouche Windows (server/kyber-patches/stamp.sh)"
+# Calculée dans la copie où elle tourne (l'arbre, au commit de version), et
+# sensible aux sources et aux Cargo.toml des aides micro, caméra, encodeur.
+git clone -q --no-checkout --shared "$ROOT" "$T/copie"
+git -C "$T/copie" checkout -q HEAD -- server/kyber-patches server/micro server/camera server/encoder-check apps/macos/kyber-patches apps/webos/kyber-patches
+S0="$("$T/copie/server/kyber-patches/stamp.sh")"
+MSG="stable d'un calcul à l'autre" vrai test "$S0" = "$("$T/copie/server/kyber-patches/stamp.sh")"
+AIDES=(server/kyber-patches server/micro server/camera server/encoder-check apps/macos/kyber-patches apps/webos/kyber-patches)
+if git -C "$ROOT" diff --quiet HEAD -- "${AIDES[@]}"; then
+    MSG="même valeur que dans le dépôt au même commit" vrai test "$S0" = "$("$ROOT/server/kyber-patches/stamp.sh")"
+fi
+sed -i '' -E '1,10s/^version = "(.*)"/version = "\1-essai"/' "$T/copie/server/micro/Cargo.toml"
+S1="$("$T/copie/server/kyber-patches/stamp.sh")"
+MSG="version de l'aide micro changée (commit de version) : empreinte changée" vrai test "$S1" != "$S0"
+MSG="… et calculée dans sa copie, pas dans le dépôt d'où l'on lance" vrai test "$S1" != "$("$ROOT/server/kyber-patches/stamp.sh")"
+git -C "$T/copie" checkout -q HEAD -- server/micro
+echo "// essai" >> "$(git -C "$T/copie" ls-files -- server/camera | grep -E '\.(c|m|mm|rs|cpp)$' | head -1 | sed "s|^|$T/copie/|")"
+MSG="source de l'aide caméra changée : empreinte changée" vrai test "$("$T/copie/server/kyber-patches/stamp.sh")" != "$S0"
+
 echo "== correctifs client : non réécrits quand déjà posés"
 . "$ROOT/scripts/kyber-client-patches.sh"
 KYBER_CLIENT_PATCHES_ROOT="$T/arbre"    # pas de correctifs de la Station ici

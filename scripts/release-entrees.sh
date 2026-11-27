@@ -63,7 +63,10 @@ release_kyber() {
         station_mac) echo "station-mac:kyber-desktop-macos" ;;
         flatpak_aarch64 | flatpak_x86_64 | deb_pi) echo "linux:kyber-desktop" ;;
         # La Station Linux se compile sur les sources de Kyber de la VM et du
-        # chroot x86_64 : release.sh lit leurs commits par ssh (VM_KYBER_STATION).
+        # chroot x86_64 : release.sh lit leurs commits par ssh (VM_KYBER_STATION) ;
+        # plus celles de third_party/kyber-desktop-linux (défaut de build-kyber.sh
+        # et package.sh lancés à la main), si elles sont là.
+        station_linux) echo "linux:kyber-desktop-linux" ;;
         *) echo "" ;;
     esac
 }
