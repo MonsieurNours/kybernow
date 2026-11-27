@@ -73,6 +73,10 @@ pub struct GkCrypt {
     gmac_current: Block,
     gmac_index: u64,
     aes: Aes128,
+    /// AES-GCM de la clé GMAC en cours, gardé tant qu'elle ne change pas
+    /// (tous les 45 000 octets) au lieu d'être refait à chaque paquet
+    /// (COEUR-32).
+    gmac_cipher: Option<(Block, aes_gcm::AesGcm<Aes128, U16>)>,
 }
 
 impl std::fmt::Debug for GkCrypt {
@@ -99,10 +103,11 @@ impl GkCrypt {
 
     fn from_parts(index: u8, key_base: Block, iv: Block) -> Self {
         let gmac_base = gmac_key(0, &key_base, &iv);
-        GkCrypt { index, key_base, iv, gmac_base, gmac_current: gmac_base, gmac_index: 0, aes: Aes128::new(&key_base.into()) }
+        GkCrypt { index, key_base, iv, gmac_base, gmac_current: gmac_base, gmac_index: 0, aes: Aes128::new(&key_base.into()), gmac_cipher: None }
     }
 
     /// Flux de clé à partir de `key_pos` (multiple de 16), `len` multiple de 16.
+    #[cfg(test)]
     fn key_stream(&self, key_pos: u64, len: usize) -> Vec<u8> {
         debug_assert!(key_pos % BLOCK_SIZE as u64 == 0 && len % BLOCK_SIZE == 0);
         let mut out = vec![0u8; len];
@@ -118,11 +123,21 @@ impl GkCrypt {
     /// Chiffre ou déchiffre `buf` sur place à la position `key_pos`
     /// (`chiaki_gkcrypt_decrypt`, le même pour les deux sens).
     pub fn crypt(&self, key_pos: u64, buf: &mut [u8]) {
-        let pre = (key_pos % BLOCK_SIZE as u64) as usize;
-        let full = (pre + buf.len()).div_ceil(BLOCK_SIZE) * BLOCK_SIZE;
-        let ks = self.key_stream(key_pos - pre as u64, full);
-        for (b, k) in buf.iter_mut().zip(&ks[pre..]) {
-            *b ^= k;
+        // Bloc par bloc, sans flux de clé alloué (COEUR-32).
+        let mut counter = key_pos / BLOCK_SIZE as u64;
+        let mut skip = (key_pos % BLOCK_SIZE as u64) as usize;
+        let mut rest = buf;
+        while !rest.is_empty() {
+            let mut block = counter_add(&self.iv, counter).into();
+            self.aes.encrypt_block(&mut block);
+            let n = (BLOCK_SIZE - skip).min(rest.len());
+            let (head, tail) = rest.split_at_mut(n);
+            for (b, k) in head.iter_mut().zip(&block[skip..]) {
+                *b ^= k;
+            }
+            rest = tail;
+            skip = 0;
+            counter += 1;
         }
     }
 
@@ -139,7 +154,10 @@ impl GkCrypt {
         } else {
             self.gmac_current
         };
-        let cipher = aes_gcm::AesGcm::<Aes128, U16>::new(&key.into());
+        if self.gmac_cipher.as_ref().is_none_or(|(k, _)| *k != key) {
+            self.gmac_cipher = Some((key, aes_gcm::AesGcm::<Aes128, U16>::new(&key.into())));
+        }
+        let (_, cipher) = self.gmac_cipher.as_ref().expect("posé juste au-dessus");
         let tag = cipher
             .encrypt_in_place_detached(&iv.into(), buf, &mut [])
             .expect("GMAC sans texte chiffré");
@@ -158,6 +176,7 @@ impl GkCrypt {
             gmac_current,
             gmac_index: 0,
             aes: Aes128::new(&[0u8; 16].into()),
+            gmac_cipher: None,
         }
     }
 }
@@ -266,6 +285,20 @@ mod tests {
         assert_eq!(g.iv, GK_KEY_STREAM_GKCRYPT_IV);
         assert_eq!(g.key_stream(0x30, 0x20), GK_KEY_STREAM_KEY_STREAM.to_vec());
         assert_eq!(g.key_stream((1 << 32) + 0x420, 0x20), GK_KEY_STREAM_KEY_STREAM_HIGH.to_vec());
+    }
+
+    /// COEUR-32 : le chiffrement bloc par bloc rend le même flux que
+    /// l'ancien flux de clé alloué, à toute position.
+    #[test]
+    fn chiffrement_sans_flux_alloue() {
+        let g = GkCrypt::new(42, &arr(&GK_KEY_STREAM_HANDSHAKE_KEY), &arr(&GK_KEY_STREAM_ECDH_SECRET));
+        for (pos, len) in [(0u64, 0usize), (0, 1), (5, 11), (5, 12), (16, 48), (0x11, 0x25), ((1 << 32) + 3, 70)] {
+            let mut buf = vec![0u8; len];
+            g.crypt(pos, &mut buf);
+            let pre = (pos % 16) as usize;
+            let ks = g.key_stream(pos - pre as u64, (pre + len).div_ceil(16) * 16);
+            assert_eq!(buf, ks[pre..pre + len].to_vec(), "position {pos}, {len} octets");
+        }
     }
 
     #[test]

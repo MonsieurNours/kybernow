@@ -71,8 +71,9 @@ impl Assembler {
         Assembler { headers, profile_sent: None, current: None, last_started: None, last_complete: None }
     }
 
-    /// Ajoute un paquet d'image.
-    pub fn push(&mut self, p: &AvPacket) -> Assembled {
+    /// Ajoute un paquet d'image (pris tel quel : ses octets ne sont pas
+    /// recopiés, COEUR-32).
+    pub fn push(&mut self, mut p: AvPacket) -> Assembled {
         let mut out = Assembled::default();
         if let Some(cur) = self.last_started {
             if seq16_lt(p.frame_index, cur) {
@@ -96,11 +97,11 @@ impl Assembler {
                 }
             }
             self.last_started = Some(p.frame_index);
-            self.current = Self::start(p);
+            self.current = Self::start(&p);
         }
         let ready = match self.current.as_mut() {
             Some(b) => {
-                b.put(p);
+                b.put(&mut p);
                 b.data_received + b.fec_received >= b.k || p.unit_index + 1 == p.units_in_frame_total
             }
             None => false,
@@ -185,7 +186,8 @@ impl Assembler {
             }
             recovered = true;
         }
-        let mut data = Vec::new();
+        let size = units.iter().take(k).flatten().map(|u| u.len().saturating_sub(2)).sum::<usize>();
+        let mut data = Vec::with_capacity(size + self.headers.get(profile as usize).map_or(0, Vec::len));
         if self.profile_sent != Some(profile) {
             data.extend_from_slice(&self.headers[profile as usize]);
             self.profile_sent = Some(profile);
@@ -201,12 +203,12 @@ impl Assembler {
 }
 
 impl Building {
-    fn put(&mut self, p: &AvPacket) {
+    fn put(&mut self, p: &mut AvPacket) {
         let i = p.unit_index as usize;
         if i >= self.units.len() || p.data.is_empty() || p.data.len() > self.unit_size || self.units[i].is_some() {
             return;
         }
-        self.units[i] = Some(p.data.clone());
+        self.units[i] = Some(std::mem::take(&mut p.data));
         if i < self.k {
             self.data_received += 1;
         } else {
@@ -267,14 +269,14 @@ mod tests {
         let f1: Vec<u8> = (0..100).collect();
         let mut frames = Vec::new();
         for p in split(1, &f1, 3, 1).iter().take(3) {
-            frames.extend(a.push(p).frame);
+            frames.extend(a.push(p.clone()).frame);
         }
         assert_eq!(frames.len(), 1);
         assert_eq!(&frames[0].data[..3], b"HDR");
         assert_eq!(&frames[0].data[3..], &f1[..]);
         let f2: Vec<u8> = (0..40).rev().collect();
         for p in split(2, &f2, 2, 1).iter().take(2) {
-            frames.extend(a.push(p).frame);
+            frames.extend(a.push(p.clone()).frame);
         }
         assert_eq!(frames[1].data, f2);
         assert!(!frames[1].recovered);
@@ -290,7 +292,7 @@ mod tests {
             if i == 0 || i == 3 {
                 continue;
             }
-            if let Some(fr) = a.push(p).frame {
+            if let Some(fr) = a.push(p.clone()).frame {
                 out = Some(fr);
             }
         }
@@ -303,9 +305,9 @@ mod tests {
     fn reports_missing_frames() {
         let mut a = Assembler::new(vec![Vec::new()]);
         for p in split(1, &[1, 2, 3, 4], 1, 1).iter().take(1) {
-            a.push(p);
+            a.push(p.clone());
         }
-        let r = a.push(&split(4, &[5, 6], 1, 1)[0]);
+        let r = a.push(split(4, &[5, 6], 1, 1)[0].clone());
         assert_eq!(r.missing, Some((2, 3)));
         assert_eq!(r.frame.unwrap().data, vec![5, 6]);
     }
@@ -313,11 +315,11 @@ mod tests {
     #[test]
     fn too_many_losses_drop_the_frame() {
         let mut a = Assembler::new(vec![Vec::new()]);
-        assert!(a.push(&split(1, &[7], 1, 1)[0]).frame.is_some());
+        assert!(a.push(split(1, &[7], 1, 1)[0].clone()).frame.is_some());
         let packets = split(2, &(0..90).collect::<Vec<u8>>(), 3, 1);
-        assert!(a.push(&packets[1]).frame.is_none());
+        assert!(a.push(packets[1].clone()).frame.is_none());
         // Image suivante : la 2, irréparable, est perdue et signalée.
-        let r = a.push(&split(3, &[9], 1, 1)[0]);
+        let r = a.push(split(3, &[9], 1, 1)[0].clone());
         assert_eq!(r.frame.unwrap().data, vec![9]);
         assert_eq!(r.missing, Some((2, 2)));
     }

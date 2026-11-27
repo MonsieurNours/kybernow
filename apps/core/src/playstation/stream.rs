@@ -13,7 +13,7 @@
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -117,6 +117,21 @@ pub enum StreamEvent {
     Pad(u8, Vec<u8>),
     /// Fin : la raison donnée par la console, ou la nôtre.
     Ended(String),
+}
+
+/// Événements du flux en attente de la partie au plus (≈ 2 s d'images).
+const EVENT_QUEUE_MAX: usize = 256;
+
+/// Une image vers la partie, sans attendre : si la partie a pris du retard
+/// (décodeur occupé, app en arrière-plan), l'image est jetée et une image
+/// clé demandée, plutôt que d'accumuler des secondes de retard (COEUR-33).
+fn send_video(tx: &SyncSender<StreamEvent>, frame: Frame, want_key: &AtomicBool) {
+    if let Err(TrySendError::Full(_)) = tx.try_send(StreamEvent::Video(frame)) {
+        if !want_key.swap(true, Ordering::Relaxed) {
+            log::warn!("PlayStation : la partie prend du retard, image jetée et image clé demandée");
+            let _ = tx.send(StreamEvent::VideoLost);
+        }
+    }
 }
 
 /// « Launch spec » de la console (`chiaki_launchspec_format`).
@@ -287,7 +302,8 @@ impl Stream {
         want_key: Arc<AtomicBool>,
     ) -> io::Result<(Self, Receiver<StreamEvent>)> {
         let (takion, events) = Takion::connect(at.ip, at.ports.takion, rpcrypt::is_ps5(target))?;
-        let (tx, rx) = mpsc::channel();
+        // Borné (COEUR-33) : voir `send_video`.
+        let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE_MAX);
         let stop = Arc::new(AtomicBool::new(false));
         let thread = {
             let stop = stop.clone();
@@ -379,7 +395,7 @@ fn run(
     mut controller: Option<ControllerSource>,
     want_key: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
-    tx: Sender<StreamEvent>,
+    tx: SyncSender<StreamEvent>,
 ) {
     // Demande d'image clé (IDRREQUEST) répétée tant qu'il en faut une.
     let mut last_idr: Option<Instant> = None;
@@ -461,7 +477,7 @@ fn run(
                 if drop_frames.contains(&av.frame_index) {
                     continue;
                 }
-                let out = a.push(&av);
+                let out = a.push(av);
                 if let Some((start, end)) = out.missing {
                     log::info!("PlayStation : images {start} à {end} perdues, signalées à la console");
                     let _ = takion.send_data(1, 2, &corrupt_frame(start, end), true);
@@ -481,7 +497,7 @@ fn run(
                             if let Some(since) = repairing.take() {
                                 log::info!("PlayStation : image reprise sans image clé en {} ms (n° {})", since.elapsed().as_millis(), frame.index);
                             }
-                            let _ = tx.send(StreamEvent::Video(frame));
+                            send_video(&tx, frame, &want_key);
                         }
                         Some(Verdict::Broken) => {
                             // S'appuie sur une image perdue : écartée. Sans
@@ -501,7 +517,7 @@ fn run(
                                 want_key.store(true, Ordering::Relaxed);
                                 let _ = tx.send(StreamEvent::VideoLost);
                             }
-                            let _ = tx.send(StreamEvent::Video(frame));
+                            send_video(&tx, frame, &want_key);
                         }
                     }
                 }
