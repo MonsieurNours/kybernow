@@ -1057,7 +1057,7 @@ class AppSettingsActions(
     /** Le micro choisi (nul : celui du système). */
     val setMic: (String?) -> Unit = {},
     val setVoiceProcessing: (Boolean) -> Unit = {},
-    /** « Envoyer le journal » (À propos) : le fichier texte du journal, à la feuille de partage d'Android. */
+    /** « Envoyer le journal » (À propos) : le fichier texte du journal, à la feuille de partage d'Android ; au téléviseur, par QR code. */
     val sendJournal: () -> Unit = {},
 )
 
@@ -1090,8 +1090,16 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
     var micDevice by remember { mutableStateOf(MicPrefs.device(context)) }
     var voice by remember { mutableStateOf(MicPrefs.voiceProcessing(context)) }
     var journalPreparing by remember { mutableStateOf(false) }
+    // Android TV : le journal passe par le relais et un QR code (`JournalQrScreen`) ; le relais du compte de l'appareil,
+    // sinon le relais public.
+    val tv = LocalForm.current == FormFactor.TV
+    var journalQr by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val journalTitle = stringResource(R.string.journal_send)
+    if (journalQr) {
+        JournalQrScreen(stored.firstOrNull()?.relay ?: fr.leslignesclaires.kybernow.model.JournalRelay.DEFAULT) { journalQr = false }
+        return
+    }
     AppSettingsContent(
         AppSettingsState(
             language, app.device.name, app.device.os, app.decoders, screen, audio, update, beta, accounts = accounts, signingIn = signingIn,
@@ -1114,7 +1122,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onGamepads: () -> Unit, onSignIn: () -
             setMic = { k -> MicPrefs.setDevice(context, k); micDevice = k },
             setVoiceProcessing = { on -> MicPrefs.setVoiceProcessing(context, on); voice = on },
             sendJournal = {
-                if (!journalPreparing) {
+                if (tv) journalQr = true
+                else if (!journalPreparing) {
                     journalPreparing = true
                     scope.launch {
                         val file = runCatching { withContext(kotlinx.coroutines.Dispatchers.IO) { fr.leslignesclaires.kybernow.model.Journal.build(context) } }.getOrNull()
@@ -1204,7 +1213,7 @@ fun AppSettingsContent(state: AppSettingsState, actions: AppSettingsActions) {
         InfoRow("KyberNow Link", state.version, stringResource(R.string.app_settings_about_body))
         ActionRow(
             stringResource(if (state.journalPreparing) R.string.journal_preparing else R.string.journal_send),
-            stringResource(R.string.journal_send_help), enabled = !state.journalPreparing, onClick = actions.sendJournal,
+            stringResource(if (tv) R.string.journal_send_help_tv else R.string.journal_send_help), enabled = !state.journalPreparing, onClick = actions.sendJournal,
         )
         GlassButton(stringResource(R.string.welcome_replay), actions.replayWelcome)
         InfoRow(stringResource(R.string.app_settings_licenses), "AGPL-3.0", stringResource(R.string.app_settings_licenses_body))

@@ -519,6 +519,17 @@
     <string name="journal_send">Send the log</string>
     <string name="journal_send_help">If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to.</string>
     <string name="journal_preparing">Preparing the log…</string>
+    <string name="journal_send_help_tv">If the app closes or a session cuts out, this text file tells what happened. It goes through your phone: you choose who to send it to.</string>
+    <string name="journal_uploading">Uploading the log…</string>
+    <string name="journal_qr_body">Scan this QR code with your phone, then save or share the log.</string>
+    <string name="journal_qr_note">Encrypted on this device: only this QR code opens it. It works once, for one hour.</string>
+    <string name="journal_done">Done</string>
+    <string name="journal_opened">Log opened on the phone.</string>
+    <string name="journal_expired">This QR code has expired.</string>
+    <string name="journal_new_qr">New QR code</string>
+    <string name="journal_unreachable">The relay isn\'t answering: check the internet connection, then try again.</string>
+    <string name="journal_old_relay">This relay doesn\'t take logs yet: it needs updating.</string>
+    <string name="journal_too_many">Too many uploads: try again in an hour.</string>
     <string name="account_card_eyebrow">KyberNow account</string>
     <string name="account_card_title">Find your computers everywhere</string>
     <string name="account_card_body">On all your devices, even away from home.</string>

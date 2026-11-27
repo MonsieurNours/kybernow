@@ -589,6 +589,19 @@ S = [
 ("journal_send", "Envoyer le journal", "Send the log"),
 ("journal_send_help", "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Joignez-le à votre message : vous choisissez à qui l'envoyer.", "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to."),
 ("journal_preparing", "Préparation du journal…", "Preparing the log…"),
+# Au téléviseur, par un QR code : le journal chiffré sur l'appareil, déposé sur le relais, ouvert par le téléphone
+# (docs/link-ui.md, « Réglages de l'app › À propos » ; docs/relais.md, « Dépôt d'un journal »).
+("journal_send_help_tv", "Si l'app se ferme ou qu'une session se coupe, ce fichier texte raconte ce qui s'est passé. Il passe par votre téléphone : vous choisissez à qui l'envoyer.", "If the app closes or a session cuts out, this text file tells what happened. It goes through your phone: you choose who to send it to."),
+("journal_uploading", "Envoi du journal…", "Uploading the log…"),
+("journal_qr_body", "Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal.", "Scan this QR code with your phone, then save or share the log."),
+("journal_qr_note", "Chiffré sur cet appareil : seul ce QR code l'ouvre. Il sert une fois, pendant une heure.", "Encrypted on this device: only this QR code opens it. It works once, for one hour."),
+("journal_done", "Terminé", "Done"),
+("journal_opened", "Journal ouvert sur le téléphone.", "Log opened on the phone."),
+("journal_expired", "Ce QR code a expiré.", "This QR code has expired."),
+("journal_new_qr", "Nouveau QR code", "New QR code"),
+("journal_unreachable", "Le relais ne répond pas : vérifiez la connexion à Internet, puis réessayez.", "The relay isn't answering: check the internet connection, then try again."),
+("journal_old_relay", "Ce relais ne prend pas encore les journaux : il doit être mis à jour.", "This relay doesn't take logs yet: it needs updating."),
+("journal_too_many", "Trop d'envois : réessayez dans une heure.", "Too many uploads: try again in an hour."),
 
 # Sans compte, ensuite : la carte du compte, « Hors de chez vous ? », le bandeau après un appairage.
 ("account_card_eyebrow", "Compte KyberNow", "KyberNow account"),
