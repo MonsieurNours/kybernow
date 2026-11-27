@@ -1,7 +1,9 @@
 //! L'objet Kotlin qui reçoit les rappels du cœur (`SessionListener`), appelé
 //! depuis les fils du cœur (fil de session, fil réseau de Kyber, fils du
 //! décodeur et des entrées). Chaque appel attache le fil à la JVM s'il ne
-//! l'est pas (en démon : il n'a pas à s'en détacher) et travaille dans un
+//! l'est pas (en démon ; jni-rs le détache quand même à la fin du fil, par
+//! un garde de stockage local, sans quoi ART arrêterait l'app à la fin de
+//! chaque fil de décodage) et travaille dans un
 //! cadre de références locales, libérées au retour : ces fils ne repassent
 //! jamais par Java, rien ne les libérerait sinon.
 
