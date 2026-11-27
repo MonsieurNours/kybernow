@@ -13,7 +13,7 @@ use super::super::links::{AccessLink, LINK_DAYS, LinkState};
 use super::super::moves::MovePlan;
 use super::super::orgs::{EnrollToken, Group, Invite, Kind, LogLine, Member, Role};
 use super::super::station_groups::StationGroup;
-use super::{Notice, Registration, View, date, esc, field, notice_html, passkey_create_form_with, passkey_get_form_with, passkey_unsupported, pct};
+use super::{Notice, Registration, View, date, end_date, esc, field, notice_html, passkey_create_form_with, passkey_get_form_with, passkey_unsupported, pct};
 use crate::assets;
 use crate::pages::{Lang, t};
 
@@ -232,7 +232,7 @@ pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &s
         Lang::Fr => (Lang::En, "English"),
         Lang::En => (Lang::Fr, "Français"),
     };
-    let script = if body.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
+    let script = super::page_scripts(&body);
     format!(
         r##"<!doctype html>
 <html lang="{lang}">
@@ -607,8 +607,8 @@ pub fn invitations(v: &View<'_>, shell: &Shell, list: &[super::super::people::Pe
             let what = match (&i.rights, i.role) {
                 (Some((rights, until)), _) => {
                     let until = until.map(|e| match v.lang {
-                        Lang::Fr => t(v.lang, &format!(", jusqu'au {}", date(v.lang, e - 1)), ""),
-                        Lang::En => format!(", until {}", date(v.lang, e - 1)),
+                        Lang::Fr => t(v.lang, &format!(", jusqu'au {}", end_date(v.lang, e)), ""),
+                        Lang::En => format!(", until {}", end_date(v.lang, e)),
                     });
                     format!("{}{}", esc(&rights_words(v.lang, rights)), esc(&until.unwrap_or_default()))
                 }
@@ -783,8 +783,8 @@ fn links_section(v: &View<'_>, p: &PeopleView, sheets: &mut String) -> String {
             let mut detail = vec![esc(&link_state(v, l, p.now)), rights_words(v.lang, &l.rights)];
             if let Some(end) = l.access_expires_at {
                 detail.push(match v.lang {
-                    Lang::Fr => t(v.lang, &format!("accès jusqu'au {}", date(v.lang, end - 1)), ""),
-                    Lang::En => format!("access until {}", date(v.lang, end - 1)),
+                    Lang::Fr => t(v.lang, &format!("accès jusqu'au {}", end_date(v.lang, end)), ""),
+                    Lang::En => format!("access until {}", end_date(v.lang, end)),
                 });
             }
             let frag = format!("lien-{}", l.id);
@@ -853,7 +853,7 @@ fn links_section(v: &View<'_>, p: &PeopleView, sheets: &mut String) -> String {
         during = v.tr("Le lien sert pendant", "The link works for"),
         until = field(
             &v.tr("Accès jusqu'au (facultatif)", "Access until (optional)"),
-            &format!(r#"<input id="lien-fin" name="fin" type="date" value="{}" placeholder="{}">"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+            &format!(r#"<input id="lien-fin" name="fin" type="date" value="{}" placeholder="{}">{}"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy"), super::tz_field()),
         ),
         cancel = v.tr("Annuler", "Cancel"),
         create = v.tr("Créer le lien", "Create the link"),
@@ -1029,7 +1029,7 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
             rights = rights_tiles(v, &v.tr("Ce qu'elle peut faire", "What they can do"), rights, "ajout"),
             until = field(
                 &v.tr("Jusqu'au (facultatif)", "Until (optional)"),
-                &format!(r#"<input id="fin" name="fin" type="date" value="{}" placeholder="{}">"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+                &format!(r#"<input id="fin" name="fin" type="date" value="{}" placeholder="{}">{}"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy"), super::tz_field()),
             ),
             cancel = v.tr("Annuler", "Cancel"),
             send = v.tr("Envoyer l'invitation", "Send the invitation"),
@@ -1578,8 +1578,8 @@ fn station_groups_section(v: &View<'_>, o: &OrgView, sheets: &mut String) -> Str
                     let mut line = format!("{} : {}", esc(&group_grant_who(v, &gr.subject, o.kind)), rights_words(v.lang, &gr.rights));
                     if let Some(end) = gr.expires_at {
                         line.push_str(&match v.lang {
-                            Lang::Fr => format!(" · jusqu'au {}", date(v.lang, end - 1)),
-                            Lang::En => format!(" · until {}", date(v.lang, end - 1)),
+                            Lang::Fr => format!(" · jusqu'au {}", end_date(v.lang, end)),
+                            Lang::En => format!(" · until {}", end_date(v.lang, end)),
                         });
                     }
                     if gr.expired(o.now) {
@@ -1630,8 +1630,8 @@ fn station_groups_section(v: &View<'_>, o: &OrgView, sheets: &mut String) -> Str
                         let mut detail = vec![rights_words(v.lang, &gr.rights)];
                         if let Some(end) = gr.expires_at {
                             detail.push(match v.lang {
-                                Lang::Fr => t(v.lang, &format!("jusqu'au {}", date(v.lang, end - 1)), ""),
-                                Lang::En => format!("until {}", date(v.lang, end - 1)),
+                                Lang::Fr => t(v.lang, &format!("jusqu'au {}", end_date(v.lang, end)), ""),
+                                Lang::En => format!("until {}", end_date(v.lang, end)),
                             });
                         }
                         let remove = form_at(
@@ -1660,7 +1660,7 @@ fn station_groups_section(v: &View<'_>, o: &OrgView, sheets: &mut String) -> Str
                         rights = rights_tiles(v, &v.tr("Ce qu'ils peuvent faire", "What they can do"), &Rights::new([Right::Session]), &format!("groupe-{}", g.id)),
                         until = field(
                             &v.tr("Jusqu'au (facultatif)", "Until (optional)"),
-                            &format!(r#"<input id="fin-{}" name="fin" type="date" placeholder="{}">"#, g.id, v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+                            &format!(r#"<input id="fin-{}" name="fin" type="date" placeholder="{}">{}"#, g.id, v.tr("jj/mm/aaaa", "dd/mm/yyyy"), super::tz_field()),
                         ),
                         go = v.tr("Ouvrir le groupe", "Open the group"),
                     ),
@@ -2379,7 +2379,7 @@ pub fn welcome(v: &View<'_>, step: u8, w: &Welcome) -> String {
         stage = stage(step),
     );
     let refresh = if step == 2 && w.computer.is_none() { "\n<meta http-equiv=\"refresh\" content=\"5\">" } else { "" };
-    let script = if body.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
+    let script = super::page_scripts(&body);
     format!(
         r##"<!doctype html>
 <html lang="{lang}">
@@ -2540,8 +2540,8 @@ pub fn link_accept(v: &View<'_>, here: &str, by: &str, computer: &str, rights: &
         Some(end) => format!(
             "<p class=\"help\">{}</p>\n",
             match v.lang {
-                Lang::Fr => t(v.lang, &format!("Jusqu'au {}.", date(v.lang, end - 1)), ""),
-                Lang::En => format!("Until {}.", date(v.lang, end - 1)),
+                Lang::Fr => t(v.lang, &format!("Jusqu'au {}.", end_date(v.lang, end)), ""),
+                Lang::En => format!("Until {}.", end_date(v.lang, end)),
             }
         ),
         None => String::new(),

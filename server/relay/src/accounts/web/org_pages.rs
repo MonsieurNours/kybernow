@@ -17,7 +17,7 @@ use super::super::pages::console::{self, DeployView, OrgComputer, OrgView, Tab, 
 use super::super::people::{Resend, Subject, rights_text};
 use super::super::station_groups::GroupTarget;
 use super::super::store::Account;
-use super::console::{form_rights, parse_until, shell, signed_in};
+use super::console::{form_rights, parse_until_tz, shell, signed_in, tz_of};
 use super::device_pages::sign_in_first;
 use super::{Cx, Reply, lang_of, normalize_email, token_hash};
 
@@ -601,7 +601,7 @@ pub(super) fn sgroup_open(cx: Cx<'_>) -> Reply {
     if rights.is_empty() {
         return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NoRights));
     }
-    let Some(until) = parse_until(cx.req.form("fin"), cx.now) else {
+    let Some(until) = parse_until_tz(cx.req.form("fin"), cx.now, tz_of(&cx)) else {
         return show(cx, &account, &org, role, Tab::Computers, Some(Notice::BadDate));
     };
     // À qui : toute l'organisation, un de ses groupes de personnes, un de ses membres.

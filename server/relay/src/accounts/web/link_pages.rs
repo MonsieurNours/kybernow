@@ -17,7 +17,7 @@ use super::super::pages::{self, Notice, console};
 use super::super::people::rights_text;
 use super::super::stations::StationRow;
 use super::super::store::Account;
-use super::console::{Kept, bounded, form_rights, managed_station, not_found, parse_until, people_page, signed_in};
+use super::console::{Kept, bounded, form_rights, managed_station, not_found, parse_until_tz, people_page, signed_in, tz_of};
 use super::device_pages::{set_next_for, sign_in_first};
 use super::{Cx, Reply, token_hash};
 
@@ -39,7 +39,7 @@ pub(super) fn create(cx: Cx<'_>) -> Reply {
     if !LINK_DAYS.contains(&days) {
         return people_page(cx, &account, &station, Some(Notice::BadNumber), kept(days));
     }
-    let Some(until) = parse_until(&until_text, cx.now) else {
+    let Some(until) = parse_until_tz(&until_text, cx.now, tz_of(&cx)) else {
         return people_page(cx, &account, &station, Some(Notice::BadDate), kept(days));
     };
     // Qui a reçu Administrer ne donne que ses droits, jusqu'à leur échéance (REL-02).

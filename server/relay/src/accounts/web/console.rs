@@ -12,7 +12,7 @@ use super::super::mail::Message;
 use super::super::pages::console::{
     self, AllPeopleView, ComputerCard, ComputersView, FamiliesView, Granted, NavOrg, OrgCard, PeopleView, PersonRow, Shell, Start, Welcome, invite_state, rights_words,
 };
-use super::super::pages::{Notice, date};
+use super::super::pages::{Notice, date, end_date};
 use super::super::people::{Grant, Resend, Subject};
 use super::super::stations::StationRow;
 use super::super::store::Account;
@@ -50,7 +50,18 @@ pub(super) fn form_rights(cx: &Cx<'_>) -> Rights {
 }
 
 /// Une date de fin (`2026-12-31`, ou `31/12/2026`) : la fin de ce jour (UTC), à venir ; `Some(None)` : pas de date.
+#[cfg(test)]
 pub(super) fn parse_until(text: &str, now: i64) -> Option<Option<i64>> {
+    parse_until_tz(text, now, 0)
+}
+
+/// Le décalage du navigateur (`tz`, minutes, comme `getTimezoneOffset`), borné à [-12 h, +12 h[ ; 0 sans lui.
+pub(super) fn tz_of(cx: &Cx<'_>) -> i64 {
+    cx.req.form("tz").trim().parse::<i64>().map(|m| m.clamp(-720, 719)).unwrap_or(0)
+}
+
+/// La même, à minuit chez la personne (REL-29) : `tz` est son décalage (UTC − heure locale, en minutes).
+pub(super) fn parse_until_tz(text: &str, now: i64, tz: i64) -> Option<Option<i64>> {
     let text = text.trim();
     if text.is_empty() {
         return Some(None);
@@ -76,7 +87,7 @@ pub(super) fn parse_until(text: &str, now: i64) -> Option<Option<i64>> {
     if date(Lang::Fr, days * 86_400) != format!("{d:02}/{m:02}/{y}") {
         return None;
     }
-    let end = (days + 1) * 86_400;
+    let end = (days + 1) * 86_400 + tz.clamp(-720, 719) * 60;
     (end > now).then_some(Some(end))
 }
 
@@ -330,8 +341,8 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         }
         for g in db.grants_of(&station.id).unwrap_or_default() {
             let until = g.expires_at.map(|e| match cx.lang {
-                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", date(cx.lang, e - 1)), ""),
-                Lang::En => format!("until {}", date(cx.lang, e - 1)),
+                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", end_date(cx.lang, e)), ""),
+                Lang::En => format!("until {}", end_date(cx.lang, e)),
             });
             let expired = g.expired(cx.now).then(|| cx.tr("échu", "expired"));
             let (name, mut detail) = match &g.subject {
@@ -358,8 +369,8 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
                 Lang::En => format!("Through the group {}", g.group_name),
             }];
             detail.extend(g.expires_at.map(|e| match cx.lang {
-                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", date(cx.lang, e - 1)), ""),
-                Lang::En => format!("until {}", date(cx.lang, e - 1)),
+                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", end_date(cx.lang, e)), ""),
+                Lang::En => format!("until {}", end_date(cx.lang, e)),
             }));
             detail.extend(g.expired(cx.now).then(|| cx.tr("échu", "expired")));
             rows.push(PersonRow { grant: None, group: Some(g.group_name.clone()), name, detail: detail.join(" · "), rights: g.rights.clone(), resend: false });
@@ -489,7 +500,7 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     if rights.is_empty() {
         return people_page(cx, &account, &station, Some(Notice::NoRights), Kept { form, ..Kept::default() });
     }
-    let Some(until) = parse_until(&until_text, cx.now) else {
+    let Some(until) = parse_until_tz(&until_text, cx.now, tz_of(&cx)) else {
         return people_page(cx, &account, &station, Some(Notice::BadDate), Kept { form, ..Kept::default() });
     };
     // Qui a reçu Administrer ne donne que ses droits, jusqu'à leur échéance (REL-02).
@@ -557,7 +568,7 @@ fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str
         None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
     };
     let words = rights_words(lang, rights);
-    let until = until.map(|e| date(lang, e - 1));
+    let until = until.map(|e| end_date(lang, e));
     let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
     cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), pending, link: &link });
 }
@@ -692,5 +703,16 @@ mod tests {
         assert_eq!(parse_until("2026-11-22", now), None, "passée");
         assert_eq!(parse_until("2027-02-30", now), None);
         assert_eq!(parse_until("demain", now), None);
+        // REL-29 : à New York (UTC−5, `getTimezoneOffset` = 300), « jusqu'au 31/12 » finit à minuit là-bas.
+        let ny = parse_until_tz("2026-12-31", now, 300).unwrap().unwrap();
+        assert_eq!(ny, end + 5 * 3600);
+        assert_eq!(end_date(Lang::Fr, ny), "31/12/2026");
+        // À Paris (UTC+1, −60) : une heure plus tôt ; même jour affiché.
+        let paris = parse_until_tz("2026-12-31", now, -60).unwrap().unwrap();
+        assert_eq!((paris, end_date(Lang::Fr, paris)), (end - 3600, "31/12/2026".to_string()));
+        // Bornes : ±12 h, et le jour affiché reste le bon.
+        for tz in [-720, -1000, 719, 1000] {
+            assert_eq!(end_date(Lang::Fr, parse_until_tz("2026-12-31", now, tz).unwrap().unwrap()), "31/12/2026", "{tz}");
+        }
     }
 }

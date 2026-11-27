@@ -58,6 +58,24 @@ pub fn title_text(s: &str) -> String {
     esc(&plain)
 }
 
+/// Les scripts d'une page (REL-37 : un seul endroit) : `passkey.js` là où il y a une passkey,
+/// `tz.js` là où une date de fin attend le fuseau du navigateur (REL-29).
+pub fn page_scripts(body: &str) -> String {
+    let mut out = String::new();
+    if body.contains("data-passkey=\"") {
+        out.push_str(&format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")));
+    }
+    if body.contains(" data-tz") {
+        out.push_str(&format!("\n<script src=\"{}\" defer></script>", assets::url("tz.js")));
+    }
+    out
+}
+
+/// Le champ caché du fuseau, à côté d'un champ `fin` (REL-29).
+pub fn tz_field() -> &'static str {
+    "<input type=\"hidden\" name=\"tz\" value=\"\" data-tz>"
+}
+
 /// Encode une valeur pour une adresse (`?appareil=iPad%20de%20L%C3%A9a`).
 pub fn pct(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -385,7 +403,7 @@ fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> S
         Lang::En => (Lang::Fr, "Français"),
     };
     // Le seul script des pages, et seulement là où il y a une passkey (lot 1b).
-    let script = if card.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
+    let script = page_scripts(card);
     format!(
         r##"<!doctype html>
 <html lang="{lang}">
@@ -861,6 +879,13 @@ pub fn duration_words(lang: Lang, secs: i64) -> String {
 }
 
 /// Le jour d'une heure Unix (UTC) : `23/11/2026`, ou `Nov 23, 2026`.
+/// Le jour d'une date de fin « jusqu'au JJ/MM » : minuit du lendemain chez la personne, à
+/// 12 h près d'UTC (REL-29 : les décalages sont bornés à [-12 h, +12 h[). Midi avant la fin
+/// tombe toujours dans le jour choisi.
+pub fn end_date(lang: Lang, end: i64) -> String {
+    date(lang, end - 43_200)
+}
+
 pub fn date(lang: Lang, unix: i64) -> String {
     let days = unix.div_euclid(86_400);
     // Jours depuis 1970 vers le calendrier (H. Hinnant, « civil_from_days »).
@@ -1561,13 +1586,16 @@ mod tests {
     }
 
     #[test]
-    fn rien_qui_charge_du_dehors_et_un_seul_script() {
+    fn rien_qui_charge_du_dehors_et_deux_scripts_au_plus() {
         let script = format!("<script src=\"{}\" defer></script>", assets::url("passkey.js"));
         for lang in [Lang::Fr, Lang::En] {
             for (name, page) in all(lang, None) {
                 // Le seul script : celui des passkeys, servi par le relais, là où il y a une passkey.
-                let page_without = page.replace(&script, "");
+                // Et celui du fuseau (REL-29), là où une date de fin l'attend.
+                let tz = format!("<script src=\"{}\" defer></script>", assets::url("tz.js"));
+                let page_without = page.replace(&script, "").replace(&tz, "");
                 assert_eq!(page.contains(&script), page.contains("data-passkey=\""), "{name} : script des passkeys");
+                assert_eq!(page.contains(&tz), page.contains(" data-tz"), "{name} : script du fuseau");
                 for bad in ["<script", "<iframe", "style=", "onclick=", "onload=", "analytics", "javascript:"] {
                     assert!(!page_without.contains(bad), "{name} : {bad}");
                 }

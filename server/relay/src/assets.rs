@@ -21,6 +21,8 @@ const FAVICON: &str = include_str!("../assets/kybernow-favicon.svg");
 pub const MAIL_LOGO: &[u8] = include_bytes!("../assets/kybernow-share-mail.png");
 /// Le seul script des pages : les passkeys des comptes (lot 1b), écrit à la main.
 const PASSKEY_JS: &str = include_str!("../assets/passkey.js");
+/// Le fuseau du navigateur pour les dates de fin (REL-29), écrit à la main.
+const TZ_JS: &str = include_str!("../assets/tz.js");
 
 /// Les icônes de la page d'accueil, écrites en ligne dans la page.
 pub const ICONS: &str = include_str!("../assets/icons-symbols.html");
@@ -32,14 +34,14 @@ pub struct Asset {
 }
 
 /// Les noms servis sous `/assets/`.
-pub const NAMES: [&str; 7] = ["share.css", "archivo.woff2", "martian-mono.woff2", "kybernow-share-dark.svg", "kybernow-favicon.svg", "passkey.js", "kybernow-share-mail.png"];
+pub const NAMES: [&str; 8] = ["share.css", "archivo.woff2", "martian-mono.woff2", "kybernow-share-dark.svg", "kybernow-favicon.svg", "passkey.js", "tz.js", "kybernow-share-mail.png"];
 
 /// Les huit premiers chiffres hexadécimaux du SHA-256 des fichiers.
 pub fn version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         let mut input = Vec::new();
-        for part in [TOKENS.as_bytes(), STYLE.as_bytes(), ARCHIVO, MARTIAN_MONO, LOGO.as_bytes(), FAVICON.as_bytes(), PASSKEY_JS.as_bytes()] {
+        for part in [TOKENS.as_bytes(), STYLE.as_bytes(), ARCHIVO, MARTIAN_MONO, LOGO.as_bytes(), FAVICON.as_bytes(), PASSKEY_JS.as_bytes(), TZ_JS.as_bytes()] {
             input.extend_from_slice(&(part.len() as u64).to_le_bytes());
             input.extend_from_slice(part);
         }
@@ -67,6 +69,7 @@ pub fn get(name: &str) -> Option<Asset> {
         "kybernow-share-dark.svg" => ("image/svg+xml", LOGO.as_bytes()),
         "kybernow-favicon.svg" => ("image/svg+xml", FAVICON.as_bytes()),
         "passkey.js" => ("text/javascript; charset=utf-8", PASSKEY_JS.as_bytes()),
+        "tz.js" => ("text/javascript; charset=utf-8", TZ_JS.as_bytes()),
         "kybernow-share-mail.png" => ("image/png", MAIL_LOGO),
         _ => return None,
     };
@@ -111,6 +114,7 @@ mod tests {
         // Rien du dehors, pas de requête : seulement l'API WebAuthn et le formulaire de la page.
         for bad in ["http:", "https:", "fetch(", "XMLHttpRequest", "import ", "eval(", "innerHTML", "localStorage", "document.cookie"] {
             assert!(!PASSKEY_JS.contains(bad), "passkey.js : {bad}");
+            assert!(!TZ_JS.contains(bad), "tz.js : {bad}");
         }
         assert!(PASSKEY_JS.contains("navigator.credentials.create") && PASSKEY_JS.contains("navigator.credentials.get"));
         assert!(PASSKEY_JS.len() < 6_000, "passkey.js : {} octets", PASSKEY_JS.len());
