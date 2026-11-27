@@ -304,6 +304,41 @@ MSG="… et le fichier est celui des deux correctifs" vrai test "$(cat "$NG/kyct
 
 echo "== empreintes de Kyber des Stations (STCOM-11, TRANS-03)"
 . "$ROOT/server/kyber-patches/apply.sh"
+# Pose des Stations : une seconde construction sur les mêmes sources (un
+# correctif d'app recouvert par un commun ; avant le 27/11 : « à moitié posé »).
+SR="$T/station"
+mkdir -p "$SR/server/kyber-patches" "$SR/apps/macos/kyber-patches" "$SR/apps/webos/kyber-patches"
+for r in kyctl kymux kynput kymedia; do
+    mkdir -p "$SR/k/$r"
+    ( cd "$SR/k/$r" && git init -q && printf '1\n2\n3\n' > f.txt && git add f.txt && git -c user.name=t -c user.email=t@t commit -qm o )
+done
+cat > "$SR/server/kyber-patches/0002-kyclient-b.patch" << 'FIN'
+--- a/f.txt
++++ b/f.txt
+@@ -1,3 +1,3 @@
+ 1
+ 2
+-3
++trois
+FIN
+cat > "$SR/apps/macos/kyber-patches/0001-kyclient-a.patch" << 'FIN'
+--- a/f.txt
++++ b/f.txt
+@@ -1,3 +1,3 @@
+-1
++un
+ 2
+ trois
+--- /dev/null
++++ b/n.rs
+@@ -0,0 +1 @@
++nouveau
+FIN
+# shellcheck disable=SC2034  # lues par kyber_apply_server_patches
+pose_station() { ( HERE="$SR/server/kyber-patches" ROOT="$SR" KYCTL="$SR/k/kyctl" KYMUX="$SR/k/kymux" KYNPUT="$SR/k/kynput" KYMEDIA="$SR/k/kymedia"; kyber_apply_server_patches ) > /dev/null; }
+MSG="Stations : première pose" vrai pose_station
+MSG="Stations : seconde pose sur les mêmes sources" vrai pose_station
+MSG="… même résultat (commun et app, fichier ajouté)" vrai test "$(cat "$SR/k/kyctl/f.txt")" = "$(printf 'un\n2\ntrois')" -a -f "$SR/k/kyctl/n.rs"
 H_windows="$(kyber_station_hash "$ROOT" windows)"; H_mac="$(kyber_station_hash "$ROOT" mac)"; H_linux="$(kyber_station_hash "$ROOT" linux)"
 for st in windows mac linux; do
     MSG="$st : stable d'un calcul à l'autre" vrai test "$(kyber_station_hash "$ROOT" "$st")" = "$(kyber_station_hash "$ROOT" "$st")"

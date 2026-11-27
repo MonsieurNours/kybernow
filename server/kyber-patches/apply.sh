@@ -47,6 +47,15 @@ kyber_app_repo() {
     esac
 }
 
+# Les correctifs des apps (apps/macos, apps/webos) : les scripts des apps les
+# posent dans les mêmes kyctl, kymux et kynput.
+kyber_app_patches() {
+    local p
+    for p in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/apps/webos/kyber-patches/*.patch; do
+        [ -f "$p" ] && echo "$p"
+    done
+}
+
 kyber_apply_server_patches() {
     # L'ordre de pose est celui des noms, octet par octet, quelle que soit la
     # langue du système : un même numéro est une famille (un correctif par
@@ -55,54 +64,39 @@ kyber_apply_server_patches() {
     local LC_ALL=C
     local p repo
     echo "==> Correctifs"
-    # Piège : les correctifs des apps (apps/macos, apps/webos) posés par leurs
-    # scripts dans kyctl, kymux et kynput touchent parfois les mêmes fichiers
-    # (kynput/Cargo.toml : 0013 et le correctif webOS). Remis à l'origine, ces
-    # fichiers perdraient leur part, et le script de l'app trouverait ensuite son
-    # correctif à moitié posé, ni applicable ni retirable. Ceux qui sont posés en
-    # entier sont donc retirés d'abord (du dernier au premier), puis reposés après
-    # ceux du serveur.
-    local client_applied=()
-    for p in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/apps/webos/kyber-patches/*.patch; do
-        repo=$(kyber_app_repo "$p")
-        [ -n "$repo" ] && git -C "$repo" apply --reverse --check "$p" 2>/dev/null \
-            && client_applied=("$p" ${client_applied[@]+"${client_applied[@]}"})
-    done
-    for p in ${client_applied[@]+"${client_applied[@]}"}; do
-        git -C "$(kyber_app_repo "$p")" apply --reverse "$p" || exit 1
-    done
-    # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
-    # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
-    # Seuls les fichiers des correctifs sont remis à l'origine : kyctl et kymux
-    # portent aussi les correctifs des apps.
+    # On part toujours des sources d'origine : les fichiers de tous les
+    # correctifs qui visent ces dépôts sont remis à l'origine, ceux des
+    # correctifs communs et ceux des apps, qui touchent parfois les mêmes
+    # (kyclient : 0001 des apps et les *-kyclient-* communs ; kynput/Cargo.toml :
+    # 0013 et le correctif webOS). Seuls ces fichiers-là : kyctl et kymux
+    # portent aussi ce que les apps y ajoutent. Ensuite, les correctifs communs
+    # dans l'ordre, puis toujours ceux de apps/macos : le correctif commun du
+    # stylet (0027-kynput) s'appuie sur celui des apps (0005-kynput, Pen). Ceux
+    # de webOS ne sont pas reposés : les scripts des apps reposent tous les
+    # leurs (scripts/kyber-client-patches.sh). Avant le 27/11, les correctifs
+    # des apps posés en entier étaient retirés puis reposés, ceux à moitié
+    # posés arrêtaient tout : une seconde construction sur les mêmes sources
+    # trouvait 0001 « à moitié posé » (recouvert par les *-kyclient-*).
     for p in "$HERE"/*.patch; do
         repo=$(kyber_server_repo "$p")
         [ -n "$repo" ] || continue
         kyber_patch_reset "$repo" "$p" || exit 1
     done
+    while IFS= read -r p; do
+        repo=$(kyber_app_repo "$p")
+        [ -n "$repo" ] || { echo "Dépôt inconnu pour le correctif d'app $(basename "$p")" >&2; exit 1; }
+        kyber_patch_reset "$repo" "$p" || exit 1
+    done < <(kyber_app_patches)
     for p in "$HERE"/*.patch; do
         repo=$(kyber_server_repo "$p")
         [ -n "$repo" ] || continue
         echo "    $(basename "$p")"
         kyber_patch_put "$p" "$repo" || exit 1
     done
-    # Puis ceux des apps : ceux qui étaient posés, et toujours ceux de
-    # apps/macos (tous les clients les posent) : le correctif serveur du stylet
-    # (0027-kynput) s'appuie sur celui des apps (0005-kynput, Pen). Sur des
-    # sources d'origine (arbre de construction de release.sh), rien ne les
-    # avait encore posés et kynput ne compilait pas.
-    local reapply=("$ROOT"/apps/macos/kyber-patches/*.patch)
-    for p in ${client_applied[@]+"${client_applied[@]}"}; do
-        case "$p" in "$ROOT"/apps/macos/*) ;; *) reapply+=("$p") ;; esac
-    done
-    for p in ${reapply[@]+"${reapply[@]}"}; do
+    for p in "$ROOT"/apps/macos/kyber-patches/*.patch; do
         repo=$(kyber_app_repo "$p")
-        if git -C "$repo" apply --check "$p" 2>/dev/null; then
-            git -C "$repo" apply "$p" && echo "    $(basename "$p") (app) reposé"
-        elif ! git -C "$repo" apply --reverse --check "$p" 2>/dev/null; then
-            echo "Correctif d'app $(basename "$p") à moitié posé : remettre $repo à l'origine (git -C $repo checkout -- .), puis relancer" >&2
-            exit 1
-        fi
+        git -C "$repo" apply "$p" || { echo "Correctif d'app $(basename "$p") inapplicable après les correctifs communs" >&2; exit 1; }
+        echo "    $(basename "$p") (app)"
     done
 }
 
@@ -111,15 +105,18 @@ kyber_apply_server_patches() {
 # nommage que les communs, posés après eux dans l'ordre de leur nom. Leurs
 # fichiers sont remis à l'origine une fois pour toutes, avant le premier (deux
 # correctifs propres peuvent toucher le même fichier : Mac 0003 et 0004,
-# mod.rs) ; un fichier déjà touché par un correctif commun reste tel quel.
+# mod.rs) ; un fichier déjà touché par un correctif commun ou d'app (remis à
+# l'origine puis corrigé par kyber_apply_server_patches) reste tel quel.
 kyber_apply_own_patches() {
     local LC_ALL=C
     local dir=$1 label=$2 p
     local own=()
     for p in "$dir"/*.patch; do [ -f "$p" ] && own+=("$p"); done
     [ ${#own[@]} -gt 0 ] || return 0
+    local common=("$HERE"/*.patch)
+    while IFS= read -r p; do common+=("$p"); done < <(kyber_app_patches)
     for p in "${own[@]}"; do
-        kyber_patch_reset "$(kyber_server_repo "$p")" "$p" "$HERE"/*.patch || exit 1
+        kyber_patch_reset "$(kyber_server_repo "$p")" "$p" "${common[@]}" || exit 1
     done
     for p in "${own[@]}"; do
         echo "    $(basename "$p") ($label)"
