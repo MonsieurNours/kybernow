@@ -34,6 +34,9 @@ services:
       # Port public annoncé dans les liens et les adresses des Stations
       # (vide : le port d'écoute ; 443 : sans port).
       KN_RELAY_PUBLIC_PORT: ${RELAY_PUBLIC_PORT:-}
+      # Navigateur chiffré de bout en bout (docs/relais.md) : la zone dont le TLS passe tel quel
+      # jusqu'aux Stations (vide : station.<domaine> ; off : coupé ; au port public 443 seulement).
+      KN_RELAY_TLS_ZONE: ${RELAY_TLS_ZONE:-}
       KN_RELAY_METRICS: ${RELAY_METRICS:-127.0.0.1:9464}
       KN_RELAY_BANLIST: /config/banlist.txt
       # Comptes KyberNow (README.md, « Comptes ») : on ou off ; vide, relay.toml décide.

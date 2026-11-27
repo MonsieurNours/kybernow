@@ -413,4 +413,26 @@ fn ouvrir_admin_sur_le_reseau_avec_le_droit_administrer() {
     // L'adresse d'une autre Station par le relais : refusée.
     let other = format!("https://{}.share.test", station(52));
     assert_eq!(ana.post("/compte/ouvrir-admin?lang=fr", &[("station", &st), ("nonce", nonce), ("retour", &other), ("action", "ouvrir")]).status, 400);
+    // De bout en bout (docs/relais.md, « Navigateur chiffré de bout en bout ») : la Station tient son
+    // certificat ; la console mène à `<id>.station.share.test`, et le jeton part dans le fragment.
+    let e2e = format!("https://{st}.station.share.test");
+    link.tls.lock().unwrap().insert(st.clone(), e2e.clone());
+    assert_eq!(location(&ana.get(&format!("/compte/admin?id={st}&lang=fr"))), format!("{e2e}/api/login/kybernow/start?lang=fr"));
+    let nonce = "bcdefghijklmnopqrstuvwxyza";
+    let e2e_url = format!("/compte/ouvrir-admin?station={st}&nonce={nonce}&retour={}&lang=fr", e2e.replace(':', "%3A").replace('/', "%2F"));
+    let extra = [("station", st.as_str()), ("nonce", nonce), ("retour", e2e.as_str()), ("action", "ouvrir")];
+    let r = ana.passkey(&e2e_url, "/compte/ouvrir-admin?lang=fr", &mut auth, &extra);
+    let target = between(html(&r), "content=\"0;url=", "\"").replace("&amp;", "&");
+    assert!(target.starts_with(&format!("{e2e}/api/login/kybernow#token=")), "{target}");
+    let claims = Verifier::new("share.test", &st, &w.acc.stations.keys.key_set().keys).verify(target.split("token=").nth(1).unwrap(), w.now() as u64, Use::Once).unwrap();
+    assert_eq!((claims.via.as_deref(), claims.jti.as_str()), (Some("relay"), nonce));
+    // L'ancien nom reste accepté comme retour (un Admin qui ne sait pas encore qu'il est prêt), jeton en `?token=`.
+    let nonce = "cdefghijklmnopqrstuvwxyzab";
+    let legacy_url = format!("/compte/ouvrir-admin?station={st}&nonce={nonce}&retour={}&lang=fr", remote.replace(':', "%3A").replace('/', "%2F"));
+    let extra = [("station", st.as_str()), ("nonce", nonce), ("retour", remote.as_str()), ("action", "ouvrir")];
+    let r = ana.passkey(&legacy_url, "/compte/ouvrir-admin?lang=fr", &mut auth, &extra);
+    assert!(between(html(&r), "content=\"0;url=", "\"").starts_with(&format!("{remote}/api/login/kybernow?token=")));
+    // L'origine de bout en bout d'une autre Station : refusée.
+    let other = format!("https://{}.station.share.test", station(52));
+    assert_eq!(ana.post("/compte/ouvrir-admin?lang=fr", &[("station", &st), ("nonce", nonce), ("retour", &other), ("action", "ouvrir")]).status, 400);
 }

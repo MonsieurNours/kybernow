@@ -231,6 +231,9 @@
     "accountAdminRemote": "{name} ouvre Admin à distance, par KyberNow Share",
     "remoteAdminOn": "Admin à distance allumé",
     "remoteAdminOff": "Admin à distance coupé",
+    "remoteAdminE2e": "Admin à distance chiffré de bout en bout, jusqu'à cet ordinateur ({name})",
+    "remoteAdminForeign": "Un certificat que cet ordinateur n'a pas demandé existe pour {name} : Admin à distance est suspendu. Rallumez-le ici, sur le réseau, pour le reprendre.",
+    "remoteAdminLost": "Le relais ne fait plus passer le chiffrement de bout en bout : Admin à distance est suspendu. Rallumez-le ici, sur le réseau, pour l'accepter quand même.",
     "recordingStarted": "{name} enregistre la session",
     "recordingSaved": "Enregistrement terminé ({duration})",
     "recordingDiskFull": "Enregistrement arrêté : disque plein",
@@ -311,7 +314,9 @@
     "badOrigin": "Adresse d'Admin illisible.",
     "alreadyAttached": "Cet ordinateur est déjà rattaché à un compte KyberNow : détachez-le d'abord dans Admin.",
     "badEnrollToken": "Jeton d'enrôlement refusé : il est inconnu, révoqué, échu ou a déjà servi pour toutes ses Stations.",
-    "remoteAdminOff": "Admin à distance est coupé sur cet ordinateur. Allumez-le dans Admin › Hors de chez vous, sur le réseau."
+    "remoteAdminOff": "Admin à distance est coupé sur cet ordinateur. Allumez-le dans Admin › Hors de chez vous, sur le réseau.",
+    "remoteAdminE2e": "Cet ordinateur ne s'ouvre à distance que de bout en bout : passez par « Ouvrir Admin » dans KyberNow Share.",
+    "remoteAdminSuspended": "Admin à distance est suspendu sur cet ordinateur (chiffrement de bout en bout perdu, ou certificat inconnu). Rallumez-le dans Admin › Hors de chez vous, sur le réseau."
   },
   "linux": {
     "update": {

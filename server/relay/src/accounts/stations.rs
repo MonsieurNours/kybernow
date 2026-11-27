@@ -101,6 +101,11 @@ pub trait StationLink: Send + Sync {
     fn admin(&self, _station: &str) -> Option<(Vec<String>, bool)> {
         None
     }
+    /// `https://<id>.<tls_zone>` quand la Station est connectée et tient son certificat de bout en
+    /// bout (docs/relais.md, « Navigateur chiffré de bout en bout ») ; `None` sinon.
+    fn tls_origin(&self, _station: &str) -> Option<String> {
+        None
+    }
 }
 
 /// L'empreinte d'Admin d'une Station et de quoi la vérifier : sa clé publique
@@ -211,6 +216,11 @@ impl Stations {
     /// Les adresses d'Admin sur le réseau et « Admin à distance » de la Station connectée.
     pub fn admin(&self, station: &str) -> Option<(Vec<String>, bool)> {
         self.link().and_then(|l| l.admin(station))
+    }
+
+    /// `https://<id>.<tls_zone>` quand la Station tient son certificat de bout en bout.
+    pub fn tls_origin(&self, station: &str) -> Option<String> {
+        self.link().and_then(|l| l.tls_origin(station))
     }
 
     /// Un nouveau code pour cette Station (le précédent ne vaut plus).
@@ -379,8 +389,15 @@ impl Accounts {
         host.strip_suffix(":443").unwrap_or(host).to_string()
     }
 
-    /// L'adresse d'Admin de cette Station par le relais (`https://<id>.share.kybernow.app`).
+    /// L'adresse d'Admin de cette Station par le relais : de bout en bout
+    /// (`https://<id>.station.share.kybernow.app`) quand elle tient son certificat, sinon déchiffrée
+    /// par le relais (`https://<id>.share.kybernow.app`, docs/relais.md, « Navigateur chiffré de bout en bout »).
     pub fn station_origin(&self, station: &str) -> String {
+        self.stations.tls_origin(station).unwrap_or_else(|| self.legacy_origin(station))
+    }
+
+    /// L'adresse de cette Station déchiffrée par le relais (`https://<id>.share.kybernow.app`).
+    pub fn legacy_origin(&self, station: &str) -> String {
         format!("https://{station}.{}", self.relay_name())
     }
 

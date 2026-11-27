@@ -27,6 +27,9 @@
 
 #[cfg(windows)]
 pub mod agent;
+/// L'agent des écrans d'une Station Mac ou Linux, par lignes JSON, avec délai.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod agent_pipe;
 #[cfg(windows)]
 pub mod cursor;
 pub mod hdr;

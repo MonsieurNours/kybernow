@@ -94,11 +94,11 @@ pub fn announce(port: u16, fingerprint: Option<&str>, kyber: bool) -> Option<Ser
     Some(daemon)
 }
 
-#[cfg(test)]
+// Le service simulé n'existe pas sous Windows.
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 
-    #[cfg(not(windows))]
     #[test]
     fn console_sans_kyber() {
         let simulated = crate::service::Simulated::default();

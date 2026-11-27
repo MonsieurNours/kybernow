@@ -49,6 +49,26 @@ pub struct AgentConfig {
     pub roots: Option<Arc<RootCertStore>>,
     /// Toujours le repli TCP (essais).
     pub force_tcp: bool,
+    /// La Station sert les flux `browser_tls` (Admin 0.11.8, docs/relais.md, « Navigateur chiffré de
+    /// bout en bout ») : dit au relais dans `hello`.
+    pub browser_tls: bool,
+}
+
+/// Ce que la Station dit d'Admin au relais (`hello`, `admin_status`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AdminInfo {
+    /// Ses adresses d'Admin sur le réseau (`https://192.168.1.20:8443`).
+    pub admin_lan: Vec<String>,
+    /// « Admin à distance » est allumé.
+    pub remote_admin: bool,
+    /// Un certificat valable pour `<id>.<tls_zone>` (0.11.8).
+    pub tls_ready: bool,
+}
+
+impl AdminInfo {
+    fn msg(&self) -> Msg {
+        Msg::AdminStatus { admin_lan: self.admin_lan.clone(), remote_admin: self.remote_admin, tls_ready: self.tls_ready }
+    }
 }
 
 impl fmt::Debug for AgentConfig {
@@ -163,8 +183,10 @@ struct AgentShared {
     flows: Mutex<StationFlows>,
     incoming: mpsc::Sender<Incoming>,
     active: ActiveCounter,
-    /// Les adresses d'Admin sur le réseau et « Admin à distance » (dans `hello`, et `admin_status`).
-    admin: Mutex<(Vec<String>, bool)>,
+    /// Ce qu'Admin dit de lui au relais (dans `hello`, et `admin_status`).
+    admin: Mutex<AdminInfo>,
+    /// La zone annoncée par le relais (`tls_zone`) sur la connexion en cours.
+    tls_zone: watch::Sender<Option<String>>,
 }
 
 impl AgentShared {
@@ -334,7 +356,8 @@ impl Agent {
             flows: Mutex::new(StationFlows::default()),
             incoming,
             active: ActiveCounter::default(),
-            admin: Mutex::new((Vec::new(), false)),
+            admin: Mutex::new(AdminInfo::default()),
+            tls_zone: watch::channel(None).0,
         });
         let task = tokio::spawn(run(shared.clone()));
         let gc = tokio::spawn(collect_sockets(Arc::downgrade(&shared)));
@@ -362,6 +385,18 @@ impl Agent {
     /// Aller-retour Station ↔ relais.
     pub fn rtt(&self) -> Option<Duration> {
         self.shared.current().and_then(|l| l.conn.rtt())
+    }
+
+    /// La zone dont le relais fait passer le TLS jusqu'à la Station (`station.share.kybernow.app`),
+    /// annoncée sur la connexion en cours ; `None` sans connexion, avec un relais d'avant la
+    /// 0.11.8, ou passage coupé.
+    pub fn tls_zone(&self) -> Option<String> {
+        self.shared.tls_zone.borrow().clone()
+    }
+
+    /// Suit les annonces de la zone (`tls_zone`).
+    pub fn subscribe_tls_zone(&self) -> watch::Receiver<Option<String>> {
+        self.shared.tls_zone.subscribe()
     }
 
     /// Le transport de la connexion en cours.
@@ -448,17 +483,17 @@ impl Agent {
         live.ctl.send(Msg::AttachStatus { req }).is_ok()
     }
 
-    /// Les adresses d'Admin sur le réseau et « Admin à distance » : gardés pour chaque `hello`, et dits
-    /// au relais tout de suite s'ils changent.
-    pub fn admin_status(&self, admin_lan: Vec<String>, remote_admin: bool) {
+    /// Les adresses d'Admin sur le réseau, « Admin à distance » et le certificat de bout en bout :
+    /// gardés pour chaque `hello`, et dits au relais tout de suite s'ils changent.
+    pub fn admin_status(&self, info: AdminInfo) {
         let changed = {
             let mut cur = self.shared.admin.lock().unwrap();
-            let changed = *cur != (admin_lan.clone(), remote_admin);
-            *cur = (admin_lan.clone(), remote_admin);
+            let changed = *cur != info;
+            *cur = info.clone();
             changed
         };
         if changed && let Some(live) = self.shared.current() {
-            let _ = live.ctl.send(Msg::AdminStatus { admin_lan, remote_admin });
+            let _ = live.ctl.send(info.msg());
         }
     }
 
@@ -541,7 +576,7 @@ async fn collect_sockets(shared: Weak<AgentShared>) {
 
 fn dial_config(shared: &AgentShared) -> DialConfig {
     let id = &shared.cfg.identity;
-    let (admin_lan, remote_admin) = shared.admin.lock().unwrap().clone();
+    let admin = shared.admin.lock().unwrap().clone();
     DialConfig {
         relay: shared.cfg.relay.clone(),
         roots: shared.cfg.roots.clone(),
@@ -556,8 +591,10 @@ fn dial_config(shared: &AgentShared) -> DialConfig {
             sig: Some(id.sign_admin_fp(&shared.cfg.admin_fp)),
             codes: shared.codes.lock().unwrap().iter().cloned().collect(),
             version: Some(shared.cfg.version.clone()),
-            admin_lan,
-            remote_admin,
+            admin_lan: admin.admin_lan,
+            remote_admin: admin.remote_admin,
+            browser_tls: shared.cfg.browser_tls,
+            tls_ready: admin.tls_ready,
         },
         with_media: true,
         force_tcp: shared.cfg.force_tcp,
@@ -637,8 +674,10 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
     // (après le `hello`, avant `live`) : [`Agent::admin_status`] les a
     // gardés sans pouvoir les envoyer, et ne les renvoie qu'au changement
     // suivant. On les redonne une fois la connexion prête.
-    let (admin_lan, remote_admin) = shared.admin.lock().unwrap().clone();
-    let _ = live.ctl.send(Msg::AdminStatus { admin_lan, remote_admin });
+    let info = shared.admin.lock().unwrap().clone();
+    let _ = live.ctl.send(info.msg());
+    // La zone se redit à chaque connexion (un relais mis à jour entre-temps).
+    shared.tls_zone.send_replace(None);
     shared.state.send_replace(AgentState::Joined { transport });
     log::info!("relais {} joint en {transport} (Station {})", shared.cfg.relay, welcome.id);
     let _media_task = AbortOnDrop(tokio::spawn(media_loop(shared.clone(), media_rx)));
@@ -720,6 +759,15 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
             Msg::Ping { n } => {
                 let _ = ctl_tx.send(Msg::Pong { n });
             }
+            // Seulement une zone qui peut porter `<id>.` devant elle (le reste du nom vient du relais).
+            Msg::TlsZone { zone } => {
+                let zone = zone.trim().trim_end_matches('.').to_ascii_lowercase();
+                let ok = !zone.is_empty()
+                    && zone.len() <= 200
+                    && zone.split('.').count() >= 2
+                    && zone.split('.').all(|l| !l.is_empty() && l.len() <= 63 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+                shared.tls_zone.send_replace(ok.then_some(zone));
+            }
             Msg::Pong { n } => {
                 if let Some(p) = &pinger {
                     p.pong(n);
@@ -729,6 +777,7 @@ async fn serve(shared: &Arc<AgentShared>, session: Session) -> End {
         }
     };
     shared.live.send_replace(None);
+    shared.tls_zone.send_replace(None);
     shared.flows.lock().unwrap().orphan_all();
     conn.close("fin");
     end

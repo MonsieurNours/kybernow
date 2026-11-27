@@ -7,7 +7,9 @@
 //!   `<données>/relay/station.key` et gardée d'une installation à l'autre.
 //! - **Ce qui arrive du relais est servi dans ce processus**, jamais en se
 //!   reconnectant sur `127.0.0.1` : `admin_tls` (une app, TLS de bout en bout
-//!   sur le certificat d'Admin) et `admin_http` (un navigateur, déchiffré par le
+//!   sur le certificat d'Admin), `browser_tls` (un navigateur, TLS de bout en
+//!   bout sur le certificat de la Station pour `<id>.<tls_zone>`,
+//!   `crate::relay_tls`) et `admin_http` (un navigateur, déchiffré par le
 //!   relais) passent par un `Router` à part, gardé par [`guard`]. Chaque
 //!   requête y porte l'adresse donnée par le relais, **forcée hors de la boucle
 //!   locale et des adresses privées** (`ConnectInfo`), et sa voie ([`Via`]).
@@ -37,7 +39,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
-use kybernow_tunnel::{Agent, AgentConfig, AgentState, AttachCode, ConsoleTarget, FlowRequest, Incoming, RelayAddr, StationIdentity, StreamHeader, StreamKind, TunnelError};
+use kybernow_tunnel::{AdminInfo, Agent, AgentConfig, AgentState, AttachCode, ConsoleTarget, FlowRequest, Incoming, RelayAddr, StationIdentity, StreamHeader, StreamKind, TunnelError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -100,6 +102,16 @@ pub struct RelaySettings {
     /// s'allume que sur le réseau.
     #[serde(default)]
     pub remote_admin: bool,
+    /// Le relais avec lequel la Station a déjà été de bout en bout (docs/relais.md, « Navigateur
+    /// chiffré de bout en bout ») : « Admin à distance » ne passe plus par lui en clair
+    /// (`admin_http`). Effacé quand le relais change, ou quand « Admin à distance » est rallumé sur place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e: Option<String>,
+    /// « Admin à distance » suspendu : `lost` (le relais ne fait plus passer le TLS alors qu'il le
+    /// faisait) ou `foreign` (un certificat que la Station n'a pas demandé existe pour son nom).
+    /// Levé en le rallumant sur place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e_suspended: Option<String>,
 }
 
 impl RelaySettings {
@@ -287,6 +299,8 @@ pub struct Relay {
     /// Détachée dans Admin : à dire au relais dès qu'il est joint.
     detach_pending: Mutex<bool>,
     wake: Notify,
+    /// Le certificat de bout en bout de la Station (`<id>.<tls_zone>`).
+    pub tls: Arc<crate::relay_tls::RelayTls>,
 }
 
 fn now_secs() -> u64 {
@@ -310,6 +324,7 @@ impl Relay {
             attaching: Mutex::new(None),
             detach_pending: Mutex::new(false),
             wake: Notify::new(),
+            tls: crate::relay_tls::RelayTls::new(data_dir),
         }
     }
 
@@ -719,6 +734,14 @@ impl Relay {
         out["remote_admin"] = json!(settings.remote_admin);
         out["remote_admin_ready"] = json!(crate::accounts::web_login_available(s));
         out["remote_admin_sessions"] = json!(s.auth.remote_names());
+        // Navigateur chiffré de bout en bout : le certificat de la Station, et la suspension.
+        let mut tls = self.tls.status();
+        if settings.e2e_suspended.as_deref() == Some("lost") {
+            tls["state"] = json!("lost");
+        }
+        tls["foreign"] = json!(settings.e2e_suspended.as_deref() == Some("foreign"));
+        tls["e2e"] = json!(settings.e2e.is_some() && settings.e2e.as_deref() == Some(settings.server().as_str()));
+        out["remote_tls"] = tls;
         out
     }
 
@@ -838,11 +861,74 @@ async fn supervise_tick(s: &AppState, router: &Router) {
         }
     }
     s.relay.expire_grants();
+    // Le navigateur en a besoin : « Admin à distance », ou un partage, un prêt, une invitation (le client web).
+    let browser = settings.remote_admin || open || lingering || lending || inviting;
+    tls_tick(s, &settings, browser);
     // « Admin depuis KyberNow Share » : l'adresse d'Admin sur le réseau et l'interrupteur, pour la console.
     if let Some(agent) = s.relay.agent() {
-        agent.admin_status(admin_lan(s), crate::accounts::remote_admin_on(s));
+        agent.admin_status(AdminInfo { admin_lan: admin_lan(s), remote_admin: crate::accounts::remote_admin_on(s), tls_ready: s.relay.tls.ready() });
     }
     sync_codes(s).await;
+}
+
+/// Navigateur chiffré de bout en bout (docs/relais.md) : le nom annoncé par le relais, le certificat
+/// à demander ou renouveler, la marque « déjà de bout en bout avec ce relais », la suspension quand
+/// le relais n'annonce plus la zone, et la surveillance des journaux publics.
+fn tls_tick(s: &AppState, settings: &RelaySettings, browser: bool) {
+    let tls = &s.relay.tls;
+    let agent = s.relay.joined_agent();
+    let name = agent.as_ref().and_then(|a| a.tls_zone().map(|zone| format!("{}.{zone}", a.id())));
+    tls.observe(agent.is_some(), name, browser);
+    if let Some(name) = tls.due() {
+        tracing::info!("relais : demande du certificat de bout en bout pour {name}");
+        let state = s.clone();
+        tls.spawn_obtain(name, move |_| state.relay.wake());
+    }
+    let server = settings.server();
+    let latched = settings.e2e.as_deref() == Some(server.as_str());
+    if tls.ready() && !latched {
+        let name = tls.name().unwrap_or_default();
+        if s.update_settings(|st| st.relay.e2e = Some(server.clone())).is_ok() {
+            tracing::info!("relais : Admin à distance de bout en bout avec {server} ({name})");
+            s.activity.event("info", Msg::new("events.remoteAdminE2e").with("name", name));
+            // Les sessions à distance ouvertes en clair ne valent plus.
+            s.auth.close_remote_sessions_except_e2e();
+        }
+    }
+    if latched && settings.e2e_suspended.is_none() && agent.is_some() && tls.zone_missing() {
+        tracing::warn!("relais : {server} n'annonce plus la zone de bout en bout ; Admin à distance suspendu");
+        if s.update_settings(|st| st.relay.e2e_suspended = Some("lost".into())).is_ok() {
+            s.activity.event("warn", Msg::new("events.remoteAdminLost"));
+            s.auth.close_remote_sessions();
+        }
+    }
+    if let Some(name) = tls.ct_due() {
+        let state = s.clone();
+        tls.spawn_ct_check(name.clone(), move |foreign| {
+            tracing::warn!("relais : certificat(s) inconnu(s) pour {name} dans les journaux publics ({}) ; Admin à distance suspendu", foreign.join(", "));
+            if state.update_settings(|st| st.relay.e2e_suspended = Some("foreign".into())).is_ok() {
+                state.activity.event("warn", Msg::new("events.remoteAdminForeign").with("name", name));
+                state.auth.close_remote_sessions();
+            }
+        });
+    }
+}
+
+/// « Admin à distance » vaut-il pour un navigateur arrivé par cette voie ? `Err` : le code et le
+/// texte du refus. De bout en bout (`browser_tls`) toujours ; déchiffré par le relais
+/// (`admin_http`) seulement si la Station n'a jamais été de bout en bout avec ce relais.
+pub fn remote_admin_for(s: &AppState, kind: StreamKind) -> Result<(), (&'static str, Msg)> {
+    if !matches!(kind, StreamKind::AdminHttp | StreamKind::BrowserTls) || !crate::accounts::remote_admin_on(s) {
+        return Err(("remote_admin_off", Msg::new("accounts.remoteAdminOff")));
+    }
+    let settings = s.settings.lock().unwrap().relay.clone();
+    if settings.e2e_suspended.is_some() {
+        return Err(("remote_admin_suspended", Msg::new("accounts.remoteAdminSuspended")));
+    }
+    if kind == StreamKind::AdminHttp && settings.e2e.as_deref() == Some(settings.server().as_str()) {
+        return Err(("remote_admin_e2e", Msg::new("accounts.remoteAdminE2e")));
+    }
+    Ok(())
 }
 
 /// Les adresses d'Admin sur le réseau (`https://192.168.1.20:8443`).
@@ -872,6 +958,7 @@ fn start(s: &AppState, router: &Router, relay: RelayAddr) {
         version: env!("CARGO_PKG_VERSION").into(),
         roots: None,
         force_tcp,
+        browser_tls: true,
     });
     let agent = Arc::new(agent);
     tracing::info!("relais : connexion à {relay} (Station {})", agent.id());
@@ -954,6 +1041,13 @@ fn tls_acceptor(data_dir: &Path) -> anyhow::Result<tokio_rustls::TlsAcceptor> {
 }
 
 async fn serve_incoming(s: AppState, router: Router, mut incoming: mpsc::Receiver<Incoming>, acceptor: Option<tokio_rustls::TlsAcceptor>) {
+    let browser_acceptor = match s.relay.tls.acceptor() {
+        Ok(a) => Some(a),
+        Err(e) => {
+            tracing::warn!("relais : TLS de bout en bout impossible : {e:#}");
+            None
+        }
+    };
     while let Some(event) = incoming.recv().await {
         match event {
             Incoming::Stream { header, stream } => match header.kind {
@@ -970,6 +1064,21 @@ async fn serve_incoming(s: AppState, router: Router, mut incoming: mpsc::Receive
                 }
                 StreamKind::AdminHttp => {
                     tokio::spawn(serve_http(stream, router.clone(), header));
+                }
+                // Un navigateur (ou l'autorité de certification, pour le défi) : TLS sur la clé de la Station.
+                StreamKind::BrowserTls => {
+                    let Some(acceptor) = browser_acceptor.clone() else { continue };
+                    let router = router.clone();
+                    tokio::spawn(async move {
+                        match tokio::time::timeout(HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
+                            Ok(Ok(tls)) if crate::relay_tls::is_acme(tls.get_ref().1.alpn_protocol()) => {
+                                tracing::debug!("relais : défi TLS-ALPN-01 présenté");
+                            }
+                            Ok(Ok(tls)) => serve_http(tls, router, header).await,
+                            Ok(Err(e)) => tracing::debug!("relais : TLS de bout en bout refusé pour {} : {e}", header.client),
+                            Err(_) => tracing::debug!("relais : TLS de bout en bout trop lent pour {}", header.client),
+                        }
+                    });
                 }
                 StreamKind::KyberTcp => kyber_tcp(&s, &header, stream),
                 StreamKind::ConsoleTcp => console_tcp(&s, &header, stream),
@@ -1280,11 +1389,13 @@ fn strip_console_cookie(headers: &mut HeaderMap) {
 pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> Response {
     // « Admin à distance » : une session ouverte par le relais (jeton `via: "relay"`, passkey) ouvre tout
     // Admin à ce navigateur ; son cookie `__Host-` devient le cookie de session pour la suite.
-    let browser = req.extensions().get::<Via>().is_some_and(|v| v.kind == StreamKind::AdminHttp);
-    if browser
+    let kind = req.extensions().get::<Via>().map(|v| v.kind);
+    let browser = matches!(kind, Some(StreamKind::AdminHttp | StreamKind::BrowserTls));
+    let e2e = kind == Some(StreamKind::BrowserTls);
+    if let Some(kind) = kind.filter(|_| browser)
         && let Some(token) = crate::auth::remote_session_token(req.headers())
-        && crate::accounts::remote_admin_on(&s)
-        && s.auth.remote_session_valid(&token)
+        && remote_admin_for(&s, kind).is_ok()
+        && s.auth.remote_session_valid(&token, e2e)
     {
         strip_console_cookie(req.headers_mut());
         if let Ok(v) = HeaderValue::from_str(&format!("{}={token}", crate::auth::COOKIE)) {
@@ -1383,8 +1494,8 @@ pub async fn guard(State(s): State<AppState>, mut req: Request, next: Next) -> R
             }
         }
         Class::RemoteLogin => {
-            if !browser || !crate::accounts::remote_admin_on(&s) {
-                return refusal(StatusCode::FORBIDDEN, "remote_admin_off", Msg::new("accounts.remoteAdminOff"));
+            if let Err((code, msg)) = kind.map_or(Err(("remote_admin_off", Msg::new("accounts.remoteAdminOff"))), |k| remote_admin_for(&s, k)) {
+                return refusal(StatusCode::FORBIDDEN, code, msg);
             }
         }
         Class::Never => return refusal(StatusCode::FORBIDDEN, "relay_forbidden", Msg::new("relay.forbidden")),
@@ -1430,7 +1541,18 @@ pub async fn put_relay(State(s): State<AppState>, via: Option<axum::Extension<Vi
             settings.relay.remote_access = on;
         }
         if let Some(on) = body.remote_admin {
+            // Rallumé sur place : l'accord de l'hôte lève la suspension et la marque de bout en bout
+            // (elle revient d'elle-même dès que le relais refait passer le TLS).
+            if on && !settings.relay.remote_admin {
+                settings.relay.e2e = None;
+                settings.relay.e2e_suspended = None;
+            }
             settings.relay.remote_admin = on;
+        }
+        // Un autre relais : rien de ce qui valait avec l'ancien.
+        if settings.relay.e2e.as_deref().is_some_and(|e| e != settings.relay.server()) {
+            settings.relay.e2e = None;
+            settings.relay.e2e_suspended = None;
         }
     });
     if let Err(e) = saved {
@@ -1663,7 +1785,7 @@ mod tests {
         let settings = RelaySettings::default();
         assert_eq!(settings.server(), DEFAULT_SERVER);
         assert!(settings.addr().is_some());
-        let off = RelaySettings { server: Some(String::new()), remote_access: true, remote_admin: false };
+        let off = RelaySettings { server: Some(String::new()), remote_access: true, ..RelaySettings::default() };
         assert!(off.addr().is_none());
     }
 
@@ -1907,14 +2029,14 @@ mod tests {
             req.extensions_mut().insert(Via { kind, client: "c".into() });
             tower::ServiceExt::oneshot(router.clone(), req)
         };
-        let token = s.auth.open_remote_session("Léa Martin");
+        let token = s.auth.open_remote_session("Léa Martin", false);
         let remote = Some(format!("{}={token}", crate::auth::REMOTE_COOKIE));
         // Coupé : rien, même avec la session ; ni le départ de la connexion.
         assert_eq!(call(Method::GET, "/api/relay", remote.clone(), StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
         assert_eq!(call(Method::GET, "/api/login/kybernow/start", None, StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
         // Allumé : tout Admin au navigateur qui a la session à distance.
         s.settings.lock().unwrap().relay.remote_admin = true;
-        let token = s.auth.open_remote_session("Léa Martin");
+        let token = s.auth.open_remote_session("Léa Martin", false);
         let remote = Some(format!("{}={token}", crate::auth::REMOTE_COOKIE));
         assert_eq!(call(Method::GET, "/api/relay", remote.clone(), StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::OK);
         let res = call(Method::GET, "/api/session", remote.clone(), StreamKind::AdminHttp, None).await.unwrap();
@@ -1940,6 +2062,137 @@ mod tests {
         assert!(s.auth.remote_names().is_empty());
         s.settings.lock().unwrap().relay.remote_admin = true;
         assert_eq!(call(Method::GET, "/api/relay", remote, StreamKind::AdminHttp, None).await.unwrap().status(), StatusCode::FORBIDDEN);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Navigateur chiffré de bout en bout (docs/relais.md, STWIN-17) : une session ne vaut que sur le
+    /// chemin où elle s'est ouverte ; une fois la Station de bout en bout avec ce relais, plus rien en
+    /// clair (`admin_http`) ; suspendue, plus rien du tout ; rallumée sur place, tout repart.
+    #[tokio::test]
+    async fn admin_a_distance_de_bout_en_bout() {
+        let (s, dir) = console_state();
+        let _k = crate::accounts::attach_for_tests(&s);
+        s.settings.lock().unwrap().account.accept = true;
+        s.settings.lock().unwrap().relay.remote_admin = true;
+        let router = router(s.clone());
+        let call = |method: Method, path: &str, cookie: Option<String>, kind: StreamKind, host: &str| {
+            let mut req = axum::http::Request::builder().method(method).uri(path).header("x-kyber-admin", "1").header(header::HOST, host);
+            if let Some(c) = cookie {
+                req = req.header(header::COOKIE, c);
+            }
+            let mut req = req.body(Body::empty()).unwrap();
+            req.extensions_mut().insert(ConnectInfo(SocketAddr::new(IpAddr::V6(OUTSIDE), 0)));
+            req.extensions_mut().insert(Via { kind, client: "c".into() });
+            tower::ServiceExt::oneshot(router.clone(), req)
+        };
+        let (old, e2e) = ("abc.share.kybernow.app", "abc.station.share.kybernow.app");
+        let cookie = |t: &str| Some(format!("{}={t}", crate::auth::REMOTE_COOKIE));
+        let clear = s.auth.open_remote_session("Léa", false);
+        let sealed = s.auth.open_remote_session("Léa", true);
+        // Chaque session sur son chemin seulement.
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&sealed), StreamKind::BrowserTls, e2e).await.unwrap().status(), StatusCode::OK);
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&sealed), StreamKind::AdminHttp, old).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&clear), StreamKind::BrowserTls, e2e).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&clear), StreamKind::AdminHttp, old).await.unwrap().status(), StatusCode::OK);
+        // Le départ de bout en bout : le retour vers le nom de bout en bout.
+        let res = call(Method::GET, "/api/login/kybernow/start?lang=fr", None, StreamKind::BrowserTls, e2e).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        assert!(res.headers()[header::LOCATION].to_str().unwrap().contains("&retour=https%3A%2F%2Fabc.station.share.kybernow.app&"));
+        // De bout en bout avec ce relais : plus rien en clair, ni départ, ni retour, ni session.
+        s.settings.lock().unwrap().relay.e2e = Some(DEFAULT_SERVER.into());
+        s.auth.close_remote_sessions_except_e2e();
+        let res = call(Method::GET, "/api/login/kybernow/start", None, StreamKind::AdminHttp, old).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let body = String::from_utf8(axum::body::to_bytes(res.into_body(), 8192).await.unwrap().to_vec()).unwrap();
+        assert!(body.contains("remote_admin_e2e") || body.contains("bout en bout"), "{body}");
+        assert_eq!(call(Method::GET, "/api/login/kybernow?token=x", None, StreamKind::AdminHttp, old).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&clear), StreamKind::AdminHttp, old).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&sealed), StreamKind::BrowserTls, e2e).await.unwrap().status(), StatusCode::OK);
+        assert!(remote_admin_for(&s, StreamKind::AdminHttp).is_err() && remote_admin_for(&s, StreamKind::BrowserTls).is_ok());
+        // Suspendu (relais qui ne fait plus passer le TLS, ou certificat inconnu) : plus rien.
+        s.settings.lock().unwrap().relay.e2e_suspended = Some("foreign".into());
+        assert_eq!(call(Method::GET, "/api/relay", cookie(&sealed), StreamKind::BrowserTls, e2e).await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(remote_admin_for(&s, StreamKind::BrowserTls).unwrap_err().0, "remote_admin_suspended");
+        assert_eq!(s.relay.status(&s)["remote_tls"]["foreign"], true);
+        // Rallumé sur place : suspension et marque levées.
+        let _ = put_relay(State(s.clone()), None, Json(RelayBody { server: None, remote_access: None, remote_admin: Some(false) })).await;
+        let _ = put_relay(State(s.clone()), None, Json(RelayBody { server: None, remote_access: None, remote_admin: Some(true) })).await;
+        let relay = s.settings.lock().unwrap().relay.clone();
+        assert_eq!((relay.e2e, relay.e2e_suspended), (None, None));
+        assert!(remote_admin_for(&s, StreamKind::AdminHttp).is_ok());
+        // Un autre relais efface la marque.
+        s.settings.lock().unwrap().relay.e2e = Some(DEFAULT_SERVER.into());
+        let _ = put_relay(State(s.clone()), None, Json(RelayBody { server: Some("relais.exemple.org".into()), remote_access: None, remote_admin: None })).await;
+        assert_eq!(s.settings.lock().unwrap().relay.e2e, None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Avec le relais simulé : la zone annoncée et un certificat déjà là pour `<id>.<zone>`, la Station
+    /// le dit au relais (`tls_ready`) et se marque de bout en bout avec lui ; un relais marqué qui
+    /// n'annonce plus la zone suspend « Admin à distance » (`lost`).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn de_bout_en_bout_avec_un_relais_simule() {
+        use kybernow_tunnel::msg::Msg as TunnelMsg;
+        use kybernow_tunnel::testing::FakeRelay;
+
+        let zone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let z = zone.clone();
+        let relay = FakeRelay::start(move |m| match m {
+            TunnelMsg::AdminStatus { .. } if z.load(std::sync::atomic::Ordering::Relaxed) => Some(TunnelMsg::TlsZone { zone: "station.relay.test".into() }),
+            _ => None,
+        })
+        .await;
+        // Un certificat valable pour `<id>.station.relay.test`, posé avant le démarrage.
+        let dir = std::env::temp_dir().join(format!("kyber-admin-e2e-{}", rand::random::<u64>()));
+        let id = StationIdentity::load_or_create(&dir.join("relay").join("station.key")).unwrap().id().to_string();
+        let name = format!("{id}.station.relay.test");
+        let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let cert = rcgen::CertificateParams::new(vec![name.clone()]).unwrap().self_signed(&key).unwrap();
+        std::fs::create_dir_all(dir.join("relay").join("tls")).unwrap();
+        std::fs::write(dir.join("relay").join("tls").join("cert.pem"), format!("{}{}", key.serialize_pem(), cert.pem())).unwrap();
+        let s = AppState::for_tests(dir.clone(), Box::new(crate::service::Simulated::default())).with_tls_fingerprint(&format!("sha256:{}", ["ab"; 32].join(":")));
+        {
+            let mut st = s.settings.lock().unwrap();
+            st.relay.server = Some(relay.addr.to_string());
+            st.relay.remote_access = true;
+        }
+        supervise(s.clone(), Router::new());
+        let server = relay.addr.to_string();
+        let mut latched = false;
+        for _ in 0..100 {
+            if s.settings.lock().unwrap().relay.e2e.as_deref() == Some(server.as_str()) {
+                latched = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(latched, "marquée de bout en bout avec ce relais");
+        assert!(s.relay.tls.ready());
+        assert_eq!(s.relay.status(&s)["remote_tls"]["state"], "ready");
+        assert_eq!(s.relay.status(&s)["remote_tls"]["name"], name.as_str());
+        let mut told = false;
+        for _ in 0..100 {
+            told = relay.received().iter().any(|m| matches!(m, TunnelMsg::AdminStatus { tls_ready: true, .. }));
+            if told {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(told, "tls_ready dit au relais");
+        // Le relais n'annonce plus la zone (reconnexion) : suspendu.
+        zone.store(false, std::sync::atomic::Ordering::Relaxed);
+        s.relay.running.lock().unwrap().take();
+        s.relay.wake();
+        let mut lost = false;
+        for _ in 0..100 {
+            if s.settings.lock().unwrap().relay.e2e_suspended.as_deref() == Some("lost") {
+                lost = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(lost, "suspendu quand la zone n'est plus annoncée");
+        assert_eq!(s.relay.status(&s)["remote_tls"]["state"], "lost");
         let _ = std::fs::remove_dir_all(dir);
     }
 

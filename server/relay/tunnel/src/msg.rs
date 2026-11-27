@@ -94,6 +94,11 @@ pub enum StreamKind {
     AdminTls,
     /// Un navigateur vers Admin, déchiffré par le relais : HTTP/1.1 en clair.
     AdminHttp,
+    /// Un navigateur (ou l'autorité de certification) vers Admin, TLS de bout
+    /// en bout jusqu'à la Station : les octets tels quels depuis le
+    /// `ClientHello` (docs/relais.md, « Navigateur chiffré de bout en bout »).
+    /// Seulement vers une Station qui a annoncé `browser_tls`.
+    BrowserTls,
     /// kyclient vers Kyber, en TCP.
     KyberTcp,
     /// Une app vers une console PlayStation du réseau de la Station, en TCP.
@@ -105,6 +110,7 @@ impl StreamKind {
         match self {
             StreamKind::AdminTls => "admin_tls",
             StreamKind::AdminHttp => "admin_http",
+            StreamKind::BrowserTls => "browser_tls",
             StreamKind::KyberTcp => "kyber_tcp",
             StreamKind::ConsoleTcp => "console_tcp",
         }
@@ -180,6 +186,12 @@ pub struct Hello {
     /// Station : « Admin à distance » est allumé.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_admin: bool,
+    /// Station : elle sert les flux `browser_tls` (0.11.8).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub browser_tls: bool,
+    /// Station : elle tient un certificat valable pour `<id>.<tls_zone>`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tls_ready: bool,
 }
 
 /// `welcome` : la réponse du relais à `hello`.
@@ -428,6 +440,16 @@ pub enum Msg {
         admin_lan: Vec<String>,
         #[serde(default)]
         remote_admin: bool,
+        /// Un certificat valable pour `<id>.<tls_zone>` (0.11.8).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        tls_ready: bool,
+    },
+    /// Relais → Station, juste après `welcome` (0.11.8) : la zone dont le relais fait passer le TLS
+    /// jusqu'à elle (`station.share.kybernow.app` : le navigateur l'ouvre par `<id>.<zone>`). Jamais
+    /// envoyé par un relais d'avant, ni quand le passage est coupé (docs/relais.md, « Navigateur
+    /// chiffré de bout en bout »).
+    TlsZone {
+        zone: String,
     },
     /// Station → relais : Admin vient d'être ouvert à distance par ce compte (son identifiant et son nom),
     /// pour le journal de la famille ou de l'équipe et l'e-mail aux propriétaires.
@@ -497,6 +519,7 @@ impl Msg {
             Msg::Detach {} => "detach",
             Msg::Detached { .. } => "detached",
             Msg::AdminStatus { .. } => "admin_status",
+            Msg::TlsZone { .. } => "tls_zone",
             Msg::AdminOpened { .. } => "admin_opened",
             Msg::Unknown => "unknown",
         }
@@ -628,6 +651,8 @@ mod tests {
             version: None,
             admin_lan: vec![],
             remote_admin: false,
+            browser_tls: false,
+            tls_ready: false,
         });
         assert_eq!(serde_json::to_string(&c).unwrap(), r#"{"t":"hello","v":1,"role":"client","station":"s","token":"t"}"#);
     }

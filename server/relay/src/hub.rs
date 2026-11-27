@@ -43,7 +43,7 @@ const MAX_STATUS: usize = 16;
 const STREAMS_PER_CLIENT: usize = 32;
 /// Une connexion Admin relayée sans un octet dans un sens ni dans l'autre pendant ce temps est
 /// coupée (REL-15) : le navigateur en rouvre une au besoin.
-const ADMIN_STREAM_IDLE: Duration = Duration::from_secs(300);
+pub const ADMIN_STREAM_IDLE: Duration = Duration::from_secs(300);
 /// Les messages de contrôle d'un client (hors `ping` et `pong`) : 64 d'un coup, 32 par seconde (REL-19).
 const CLIENT_MSGS_BURST: u32 = 64;
 const CLIENT_MSGS_PERIOD: Duration = Duration::from_secs(2);
@@ -70,6 +70,10 @@ pub struct StationPeer {
     pending: Mutex<HashMap<u64, Pending>>,
     /// Ses adresses d'Admin sur le réseau et « Admin à distance » (`hello`, `admin_status`), en mémoire seulement.
     admin: Mutex<(Vec<String>, bool)>,
+    /// Elle sert les flux `browser_tls` (`hello`, 0.11.8) : le TLS du navigateur passe jusqu'à elle.
+    browser_tls: bool,
+    /// Elle tient un certificat valable pour `<id>.<tls_zone>` (`hello`, `admin_status`) : les liens y mènent.
+    tls_ready: std::sync::atomic::AtomicBool,
     /// Retirée de la table ou remplacée : ses paquets ne passent plus (lu sans verrou à chaque paquet, REL-34).
     gone: std::sync::atomic::AtomicBool,
     /// Ses demandes aux comptes (REL-36).
@@ -505,6 +509,8 @@ impl Hub {
             flows: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             admin: Mutex::new((clean_admin_lan(hello.admin_lan.clone()), hello.remote_admin)),
+            browser_tls: hello.browser_tls,
+            tls_ready: std::sync::atomic::AtomicBool::new(hello.browser_tls && hello.tls_ready),
             gone: std::sync::atomic::AtomicBool::new(false),
             account_msgs: Mutex::new(Bucket::new(STATION_ACCOUNT_MSGS, Duration::from_secs(60), Instant::now())),
         });
@@ -517,6 +523,12 @@ impl Hub {
         }
         let kept = self.codes.lock().unwrap().station_back(&id, &hello.codes, self.cfg.limits.codes_per_station, Instant::now());
         let _ = tx.send(Msg::Welcome(Welcome { v: 1, id: id.clone(), relay: VERSION.into(), online: None, codes: kept }));
+        // Navigateur chiffré de bout en bout (docs/relais.md) : la zone, à une Station qui sait s'en servir.
+        if hello.browser_tls
+            && let Some(zone) = self.tls_zone()
+        {
+            let _ = tx.send(Msg::TlsZone { zone });
+        }
         tracing::info!(station = %id, ip = %ip, transport = %conn.transport(), version = hello.version.as_deref().unwrap_or("?"), "Station connectée");
         self.notify_station(&id, true);
         // Les flux se prennent à part : une lecture de message interrompue
@@ -633,8 +645,9 @@ impl Hub {
                 }
             },
             // « Admin depuis KyberNow Share » (docs/comptes.md).
-            Msg::AdminStatus { admin_lan, remote_admin } => {
+            Msg::AdminStatus { admin_lan, remote_admin, tls_ready } => {
                 *peer.admin.lock().unwrap() = (clean_admin_lan(admin_lan), remote_admin);
+                peer.tls_ready.store(peer.browser_tls && tls_ready, Ordering::Relaxed);
             }
             Msg::AdminOpened { account, name } => {
                 if let Some(accounts) = self.accounts.clone() {
@@ -1119,6 +1132,33 @@ impl Hub {
         let header = StreamHeader::new(StreamKind::AdminHttp, browser, ip, Some(host.into()));
         open_to_station(&station, header).await
     }
+
+    /// La zone de bout en bout annoncée aux Stations (`station.<domaine>`), ou `None` (coupée, ou
+    /// port public autre que le 443).
+    pub fn tls_zone(&self) -> Option<String> {
+        self.cfg.tls_zone(self.link_port.load(Ordering::Relaxed))
+    }
+
+    /// Un flux `browser_tls` vers la Station, pour un navigateur (ou l'autorité de certification)
+    /// qui présente `<id>.<tls_zone>` : `None` si elle n'est pas là, ou ne sert pas ces flux.
+    pub async fn open_tls_stream(&self, station: &str, browser: &str, ip: IpAddr, host: &str) -> Option<RelayStream> {
+        let station = self.station(station).filter(|s| s.browser_tls)?;
+        let header = StreamHeader::new(StreamKind::BrowserTls, browser, ip, Some(host.into()));
+        open_to_station(&station, header).await
+    }
+
+    /// L'origine où le navigateur ouvre la Station : `https://<id>.<tls_zone>` quand elle est
+    /// connectée avec un certificat de bout en bout, sinon `https://<id>.<domaine>[:port]`.
+    pub fn browser_origin(&self, station: &str) -> String {
+        self.tls_origin(station).unwrap_or_else(|| crate::web::station_origin(station, &self.cfg.domain, self.link_port.load(Ordering::Relaxed)))
+    }
+
+    /// `https://<id>.<tls_zone>` si la Station est connectée et tient son certificat de bout en bout.
+    fn tls_origin(&self, station: &str) -> Option<String> {
+        let zone = self.tls_zone()?;
+        let peer = self.station(station)?;
+        (peer.browser_tls && peer.tls_ready.load(Ordering::Relaxed)).then(|| format!("https://{station}.{zone}"))
+    }
 }
 
 impl StationLink for Hub {
@@ -1132,6 +1172,10 @@ impl StationLink for Hub {
 
     fn admin(&self, station: &str) -> Option<(Vec<String>, bool)> {
         self.station(station).map(|s| s.admin.lock().unwrap().clone())
+    }
+
+    fn tls_origin(&self, station: &str) -> Option<String> {
+        Hub::tls_origin(self, station)
     }
 
     fn attest(&self, station: &str) -> Option<crate::accounts::stations::Attest> {

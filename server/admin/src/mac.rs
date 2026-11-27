@@ -7,8 +7,9 @@
 //! [`is_station`] le dit, une fois pour toutes au démarrage.
 //!
 //! Sur une vraie Station, Kyber est piloté par launchd ([`Launchd`]) dans la
-//! session de l'utilisateur devant l'écran (domaine `gui/<uid>`), et il n'y a
-//! pas encore d'écran virtuel ni de sortie son virtuelle (jalons 3 et 4).
+//! session de la Station : le domaine `gui/<uid>` du compte qui fait tourner
+//! Admin ([`launchd_domain`]), jamais celui de la session devant l'écran (un
+//! autre compte après un changement rapide d'utilisateur, STMAC-06).
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -44,6 +45,25 @@ pub fn kyber_plist() -> Option<&'static Path> {
         .as_deref()
 }
 
+/// Le domaine launchd de la Station : `gui/<uid>` du compte qui fait tourner
+/// Admin (et l'applicateur des mises à jour, lancé dans la même session).
+/// Pas le propriétaire de `/dev/console` : après un changement rapide
+/// d'utilisateur, ou à la fenêtre de connexion, ce serait un autre compte (ou
+/// root), et `launchctl` agirait sur ses services (STMAC-06). Compilé sur tout
+/// Unix (le redémarrage de la Station est commun), servi sur Mac seulement.
+#[cfg(unix)]
+pub fn launchd_domain() -> String {
+    // SAFETY : `getuid` ne lit que l'identité du processus, et réussit toujours.
+    format!("gui/{}", unsafe { libc::getuid() })
+}
+
+/// `launchctl` : une erreur s'il ne se lance pas (jamais compté comme un succès, STMAC-07).
+#[cfg(unix)]
+pub fn launchctl(args: &[&str]) -> anyhow::Result<std::process::Output> {
+    use anyhow::Context;
+    std::process::Command::new("/bin/launchctl").args(args).output().with_context(|| format!("launchctl {}", args.first().copied().unwrap_or("")))
+}
+
 /// Ce Mac est une Station (Kyber installé), pas un Mac de développement.
 pub fn is_station() -> bool {
     kyber_plist().is_some()
@@ -75,6 +95,7 @@ pub fn preferred_host(peer: std::net::IpAddr, called: Option<std::net::IpAddr>) 
 
 /// `lan` si `peer` est sur son sous-réseau (masque lu dans `ifconfig`) et
 /// n'appelle pas déjà cette adresse.
+#[cfg(any(target_os = "macos", test))]
 fn preferred_among(
     ifconfig: &str,
     lan: std::net::Ipv4Addr,
@@ -100,31 +121,20 @@ pub use launchd::Launchd;
 
 #[cfg(target_os = "macos")]
 mod launchd {
-    use std::os::unix::fs::MetadataExt;
     use std::path::PathBuf;
-    use std::process::Command;
 
-    use anyhow::{Context, Result};
+    use anyhow::Result;
 
-    use super::KYBER_LABEL;
+    use super::{KYBER_LABEL, launchctl};
     use crate::service::{ServiceControl, ServiceState};
 
-    /// Kyber en LaunchAgent, dans la session de l'utilisateur devant l'écran.
+    /// Kyber en LaunchAgent, dans la session de la Station (celle d'Admin).
     pub struct Launchd {
         pub plist: PathBuf,
     }
 
-    /// Compte de la session affichée à l'écran (propriétaire de /dev/console).
-    fn console_uid() -> Result<u32> {
-        Ok(std::fs::metadata("/dev/console").context("/dev/console")?.uid())
-    }
-
     fn domain() -> Result<String> {
-        Ok(format!("gui/{}", console_uid()?))
-    }
-
-    fn launchctl(args: &[&str]) -> Result<std::process::Output> {
-        Command::new("/bin/launchctl").args(args).output().context("launchctl")
+        Ok(super::launchd_domain())
     }
 
     /// `state = …` de `launchctl print`, lu tel quel.

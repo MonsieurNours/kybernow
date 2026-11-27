@@ -8,7 +8,9 @@
 //!   (`/v1/devices/…`, `/v1/computers`, `/v1/access`, en JSON) et les textes
 //!   juridiques `/conditions` et `/confidentialite` ([`crate::legal`]) ;
 //! - `<id>.share.<domaine>` : mandataire HTTP/1.1 (WebSocket compris) vers
-//!   Admin de la Station `<id>`, par un flux `admin_http`.
+//!   Admin de la Station `<id>`, par un flux `admin_http` ;
+//! - `<id>.<tls_zone>` (`station.<domaine>`) : rien ici, le TLS passe tel quel
+//!   jusqu'à la Station (`crate::tcp`, flux `browser_tls`).
 //!
 //! Les journaux ne contiennent jamais un code (pas de chemins).
 
@@ -43,18 +45,24 @@ type Body = BoxBody<Bytes, hyper::Error>;
 pub enum Site {
     /// `share.<domaine>` : les pages du relais.
     Relay,
-    /// `<id>.share.<domaine>` : Admin de cette Station.
+    /// `<id>.share.<domaine>` : Admin de cette Station, déchiffré par le relais.
     Station(String),
+    /// `<id>.<tls_zone>` : cette Station, de bout en bout (le relais ne déchiffre pas).
+    Passthrough(String),
 }
 
-/// Le site d'un nom (SNI), ou `None` (connexion fermée).
-pub fn site_for(sni: Option<&str>, domain: &str) -> Option<Site> {
+/// Le site d'un nom (SNI), ou `None` (connexion fermée). `zone` : la zone de
+/// bout en bout (`station.<domaine>`), si elle est ouverte.
+pub fn site_for(sni: Option<&str>, domain: &str, zone: Option<&str>) -> Option<Site> {
     let sni = sni?.trim_end_matches('.').to_ascii_lowercase();
     if sni == domain {
         return Some(Site::Relay);
     }
-    let label = sni.strip_suffix(domain)?.strip_suffix('.')?;
-    id::is_station_id(label).then(|| Site::Station(label.to_string()))
+    let station = |suffix: &str| sni.strip_suffix(suffix).and_then(|l| l.strip_suffix('.')).filter(|l| id::is_station_id(l)).map(str::to_string);
+    if let Some(id) = zone.and_then(station) {
+        return Some(Site::Passthrough(id));
+    }
+    station(domain).map(Site::Station)
 }
 
 fn full(body: impl Into<Bytes>) -> Body {
@@ -151,6 +159,8 @@ where
             });
             let _ = builder.serve_connection(TokioIo::new(io), svc).with_upgrades().await;
         }
+        // Jamais déchiffré : `crate::tcp` fait passer ces octets tels quels jusqu'à la Station.
+        Site::Passthrough(_) => {}
     }
 }
 
@@ -383,10 +393,7 @@ fn join(hub: &Hub, code: &str, ip: IpAddr, lang: Lang) -> Response<Body> {
         Err(wait) => retry_after(html(StatusCode::TOO_MANY_REQUESTS, pages::home(lang, Some(pages::Notice::TooMany))), wait),
         Ok(None) => html(StatusCode::NOT_FOUND, pages::home(lang, Some(pages::Notice::Unknown))),
         Ok(Some(found)) if !found.online => html(StatusCode::SERVICE_UNAVAILABLE, pages::offline(lang)),
-        Ok(Some(found)) => {
-            let port = hub.link_port.load(std::sync::atomic::Ordering::Relaxed);
-            redirect(&format!("{}/link/?join={code}", station_origin(&found.station, &hub.cfg.domain, port)))
-        }
+        Ok(Some(found)) => redirect(&format!("{}/link/?join={code}", hub.browser_origin(&found.station))),
     }
 }
 
@@ -494,13 +501,20 @@ mod tests {
     #[test]
     fn aiguillage_par_le_nom() {
         let id = id::station_id(b"cle");
-        assert_eq!(site_for(Some("share.kybernow.app"), "share.kybernow.app"), Some(Site::Relay));
-        assert_eq!(site_for(Some("SHARE.kybernow.app."), "share.kybernow.app"), Some(Site::Relay));
-        assert_eq!(site_for(Some(&format!("{id}.share.kybernow.app")), "share.kybernow.app"), Some(Site::Station(id.clone())));
-        assert_eq!(site_for(Some("www.share.kybernow.app"), "share.kybernow.app"), None);
-        assert_eq!(site_for(Some(&format!("a.{id}.share.kybernow.app")), "share.kybernow.app"), None);
-        assert_eq!(site_for(Some("kybernow.app"), "share.kybernow.app"), None);
-        assert_eq!(site_for(None, "share.kybernow.app"), None);
+        let (d, z) = ("share.kybernow.app", Some("station.share.kybernow.app"));
+        assert_eq!(site_for(Some("share.kybernow.app"), d, z), Some(Site::Relay));
+        assert_eq!(site_for(Some("SHARE.kybernow.app."), d, z), Some(Site::Relay));
+        assert_eq!(site_for(Some(&format!("{id}.share.kybernow.app")), d, z), Some(Site::Station(id.clone())));
+        assert_eq!(site_for(Some(&format!("{id}.station.share.kybernow.app")), d, z), Some(Site::Passthrough(id.clone())));
+        assert_eq!(site_for(Some(&format!("{}.Station.share.kybernow.app.", id.to_uppercase())), d, z), Some(Site::Passthrough(id.clone())));
+        // Zone coupée : ce nom n'est plus servi du tout (le relais n'a pas de certificat pour lui).
+        assert_eq!(site_for(Some(&format!("{id}.station.share.kybernow.app")), d, None), None);
+        assert_eq!(site_for(Some("station.share.kybernow.app"), d, z), None);
+        assert_eq!(site_for(Some("www.share.kybernow.app"), d, z), None);
+        assert_eq!(site_for(Some(&format!("a.{id}.share.kybernow.app")), d, z), None);
+        assert_eq!(site_for(Some(&format!("a.{id}.station.share.kybernow.app")), d, z), None);
+        assert_eq!(site_for(Some("kybernow.app"), d, z), None);
+        assert_eq!(site_for(None, d, z), None);
     }
 
     #[test]

@@ -18,6 +18,11 @@ pub struct Config {
     /// d'écoute : liens (`/j/{code}`) et origines des Stations
     /// (`https://<id>.<domaine>`, sans port au 443).
     pub public_port: Option<u16>,
+    /// La zone dont le relais fait passer le TLS jusqu'aux Stations, sans le
+    /// déchiffrer : le navigateur ouvre une Station par `<id>.<tls_zone>`
+    /// (docs/relais.md, « Navigateur chiffré de bout en bout »). Absente :
+    /// `station.<domain>` ; vide : passage coupé. Seulement au port public 443.
+    pub tls_zone: Option<String>,
     /// Certificat (chaîne complète, PEM) et clé de `<domain>` et `*.<domain>`.
     pub cert: PathBuf,
     pub key: PathBuf,
@@ -168,6 +173,7 @@ impl Default for Config {
             domain,
             listen: "0.0.0.0:8443".parse().expect("adresse"),
             public_port: None,
+            tls_zone: None,
             banlist: None,
             egress_alert_mbps: 0,
             global_cap_mbps: 0,
@@ -193,7 +199,7 @@ impl Config {
         Ok(cfg)
     }
 
-    /// `KN_RELAY_DOMAIN`, `KN_RELAY_LISTEN`, `KN_RELAY_PUBLIC_PORT`,
+    /// `KN_RELAY_DOMAIN`, `KN_RELAY_LISTEN`, `KN_RELAY_PUBLIC_PORT`, `KN_RELAY_TLS_ZONE` (une zone, ou `off`),
     /// `KN_RELAY_CERT`, `KN_RELAY_KEY`, `KN_RELAY_BANLIST`, `KN_RELAY_METRICS`
     /// (adresse, ou `off`), `KN_RELAY_EGRESS_ALERT_MBPS`, `KN_RELAY_GLOBAL_CAP_MBPS` ;
     /// les comptes : `KN_RELAY_ACCOUNTS` (`on` ou `off`), `KN_RELAY_ACCOUNTS_DATABASE`,
@@ -216,6 +222,9 @@ impl Config {
         }
         if let Some(v) = get("KN_RELAY_PUBLIC_PORT") {
             self.public_port = Some(v.parse().with_context(|| format!("KN_RELAY_PUBLIC_PORT : {v}"))?);
+        }
+        if let Some(v) = get("KN_RELAY_TLS_ZONE") {
+            self.tls_zone = Some(if v == "off" { String::new() } else { v.to_ascii_lowercase() });
         }
         if let Some(v) = get("KN_RELAY_CERT") {
             self.cert = v.into();
@@ -284,6 +293,11 @@ impl Config {
             && self.domain.split('.').all(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
         anyhow::ensure!(ok, "domaine invalide : {}", self.domain);
         anyhow::ensure!(self.public_port != Some(0), "port public invalide : 0");
+        if let Some(zone) = self.tls_zone.as_deref().filter(|z| !z.is_empty()) {
+            let ok = zone.len() <= 200 && zone.split('.').count() >= 2 && zone.split('.').all(|l| !l.is_empty() && l.len() <= 63 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+            anyhow::ensure!(ok, "tls_zone invalide : {zone}");
+            anyhow::ensure!(zone != self.domain, "tls_zone : une zone à part du domaine du relais, que son certificat ne couvre pas (station.{})", self.domain);
+        }
         if let Some(url) = &self.accounts.public_url {
             anyhow::ensure!(url.starts_with("https://") && url.len() > 8 && !url.ends_with('/'), "[accounts] public_url : https://… sans / final ({url})");
         }
@@ -300,6 +314,20 @@ impl Config {
             Some(url) => url.clone(),
             None if link_port == 443 => format!("https://{}", self.domain),
             None => format!("https://{}:{link_port}", self.domain),
+        }
+    }
+
+    /// La zone de bout en bout annoncée aux Stations : `None` si elle est
+    /// coupée, ou si le port public n'est pas le 443 (l'autorité de
+    /// certification ne valide le défi TLS-ALPN-01 que sur le 443).
+    pub fn tls_zone(&self, link_port: u16) -> Option<String> {
+        if link_port != 443 {
+            return None;
+        }
+        match &self.tls_zone {
+            None => Some(format!("station.{}", self.domain)),
+            Some(z) if z.is_empty() => None,
+            Some(z) => Some(z.clone()),
         }
     }
 
@@ -368,6 +396,28 @@ mod tests {
         assert_eq!(cfg.link_port(8443), 8443);
         let mut cfg = Config::default();
         assert!(cfg.apply_env(|k| (k == "KN_RELAY_PUBLIC_PORT").then(|| "0".to_string())).and_then(|_| cfg.check()).is_err());
+    }
+
+    /// La zone de bout en bout : `station.<domaine>` par défaut, au 443 seulement ; `off` la coupe ;
+    /// jamais le domaine lui-même (son certificat générique la couvrirait).
+    #[test]
+    fn zone_de_bout_en_bout() {
+        let cfg = Config::default();
+        assert_eq!(cfg.tls_zone(443).as_deref(), Some("station.share.kybernow.app"));
+        assert_eq!(cfg.tls_zone(8443), None, "le défi TLS-ALPN-01 ne se valide qu'au 443");
+        let mut cfg = Config::default();
+        cfg.apply_env(|k| (k == "KN_RELAY_TLS_ZONE").then(|| "off".to_string())).unwrap();
+        assert_eq!(cfg.tls_zone(443), None);
+        let cfg: Config = toml::from_str("tls_zone = \"\"").unwrap();
+        assert_eq!(cfg.tls_zone(443), None);
+        let mut cfg = Config::default();
+        cfg.apply_env(|k| (k == "KN_RELAY_TLS_ZONE").then(|| "E2E.Exemple.org".to_string())).unwrap();
+        assert!(cfg.check().is_ok());
+        assert_eq!(cfg.tls_zone(443).as_deref(), Some("e2e.exemple.org"));
+        for bad in ["share.kybernow.app", "a..b", "seul", "a b.org"] {
+            let cfg = Config { tls_zone: Some(bad.into()), ..Config::default() };
+            assert!(cfg.check().is_err(), "{bad}");
+        }
     }
 
     #[test]

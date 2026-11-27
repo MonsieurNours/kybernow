@@ -34,6 +34,7 @@ async fn enrolement_par_la_connexion_de_controle() {
         version: "essai".into(),
         roots: None,
         force_tcp: false,
+        browser_tls: false,
     });
 
     let a = agent.enroll("kne_bon", "GRAPH-01").await.unwrap();
@@ -61,6 +62,7 @@ async fn un_relais_qui_ne_connait_pas_l_enrolement_ne_repond_pas() {
         version: "essai".into(),
         roots: None,
         force_tcp: false,
+        browser_tls: false,
     });
     assert!(matches!(agent.enroll("kne_bon", "PC").await, Err(TunnelError::Timeout)));
 }

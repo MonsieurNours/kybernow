@@ -2,6 +2,7 @@
 
 mod access;
 mod accounts;
+mod acme;
 mod activity;
 mod api;
 mod assets;
@@ -47,6 +48,7 @@ mod pyrowave;
 /// Enregistrement des sessions (docs/enregistrement.md).
 mod recording;
 mod relay;
+mod relay_tls;
 mod schema;
 mod service;
 mod settings;

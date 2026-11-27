@@ -526,6 +526,17 @@ export interface RelayStatus {
   remote_admin_ready?: boolean
   /** Qui a Admin ouvert à distance en ce moment. */
   remote_admin_sessions?: string[]
+  /** Navigateur chiffré de bout en bout (docs/relais.md) : le certificat de la Station pour `<id>.<zone>`. */
+  remote_tls?: {
+    state: 'off' | 'pending' | 'ready' | 'error' | 'unsupported' | 'lost'
+    name: string | null
+    until: number | null
+    reason: string | null
+    /** Un certificat que la Station n'a pas demandé existe pour son nom : « Admin à distance » suspendu. */
+    foreign: boolean
+    /** La Station a déjà été de bout en bout avec ce relais : plus rien en clair. */
+    e2e: boolean
+  }
   /** Cette page est ouverte à distance, par le relais. */
   via_relay?: boolean
 }

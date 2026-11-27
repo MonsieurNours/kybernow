@@ -980,8 +980,10 @@ pub async fn web_login_begin(
     axum::extract::Query(q): axum::extract::Query<WebLoginBegin>,
 ) -> Response {
     let remote = via.is_some();
-    if remote && !remote_admin_on(&s) {
-        return web_login_page(&Msg::new("accounts.remoteAdminOff").text(), false, vec![]);
+    if let Some(v) = &via
+        && let Err((_, msg)) = crate::relay::remote_admin_for(&s, v.kind)
+    {
+        return web_login_page(&msg.text(), false, vec![]);
     }
     if !web_login_available(&s) {
         return web_login_page(&Msg::new("accounts.webLoginOff").text(), false, vec![]);
@@ -1138,7 +1140,7 @@ pub async fn web_login_return(
     if q.token.trim().is_empty() {
         return ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], FRAGMENT_PAGE).into_response();
     }
-    web_login_finish(&s, via.is_some(), &headers, &q.token)
+    web_login_finish(&s, via.map(|v| v.0.kind), &headers, &q.token)
 }
 
 /// `POST /api/login/kybernow/return` (formulaire `token=…`) : le même retour,
@@ -1151,19 +1153,24 @@ pub async fn web_login_post(
     headers: HeaderMap,
     axum::Form(q): axum::Form<WebLoginReturn>,
 ) -> Response {
-    web_login_finish(&s, via.is_some(), &headers, &q.token)
+    web_login_finish(&s, via.map(|v| v.0.kind), &headers, &q.token)
 }
 
-fn web_login_finish(s: &AppState, remote: bool, headers: &HeaderMap, token: &str) -> Response {
+/// `via` : la voie d'une requête du relais (`admin_http`, `browser_tls`), `None` sur le réseau.
+fn web_login_finish(s: &AppState, via: Option<kybernow_tunnel::StreamKind>, headers: &HeaderMap, token: &str) -> Response {
     let s = s.clone();
+    let remote = via.is_some();
     let clear = if remote {
         format!("{REMOTE_LOGIN_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")
     } else {
         format!("{WEB_LOGIN_COOKIE}=; Path=/api/login/kybernow; HttpOnly; SameSite=Lax; Max-Age=0{}", if s.secure_cookies { "; Secure" } else { "" })
     };
-    // Par le relais : seulement avec « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share »).
-    if remote && !remote_admin_on(&s) {
-        return web_login_page(&Msg::new("accounts.remoteAdminOff").text(), false, vec![clear]);
+    // Par le relais : seulement avec « Admin à distance » (docs/comptes.md, « Admin depuis KyberNow Share »),
+    // et seulement de bout en bout une fois que la Station l'a été avec ce relais (docs/relais.md).
+    if let Some(kind) = via
+        && let Err((_, msg)) = crate::relay::remote_admin_for(&s, kind)
+    {
+        return web_login_page(&msg.text(), false, vec![clear]);
     }
     let cookie_name = if remote { REMOTE_LOGIN_COOKIE } else { WEB_LOGIN_COOKIE };
     let Some(nonce) = web_login_cookie(headers, cookie_name).filter(|n| s.accounts.take_web_login(n)) else {
@@ -1180,7 +1187,7 @@ fn web_login_finish(s: &AppState, remote: bool, headers: &HeaderMap, token: &str
         tracing::info!("comptes : Admin ouvert à distance avec KyberNow ({})", grant.label());
         s.activity.event("warn", Msg::new("events.accountAdminRemote").with("name", name.clone()));
         s.relay.admin_opened(&grant.claims.account, &name);
-        let session = s.auth.open_remote_session(&name);
+        let session = s.auth.open_remote_session(&name, via == Some(kybernow_tunnel::StreamKind::BrowserTls));
         return web_login_page("…", true, vec![crate::auth::remote_session_cookie(&session), clear]);
     }
     tracing::info!("comptes : Admin ouvert avec KyberNow ({})", grant.label());
@@ -1333,8 +1340,8 @@ pub async fn block(State(s): State<AppState>, UrlPath(id): UrlPath<String>, Json
     Json(access_view(&s)).into_response()
 }
 
-/// Pour les essais des autres modules : rattache la Station à une clé neuve.
-#[cfg(test)]
+/// Pour les essais des autres modules (hors Windows, comme eux) : rattache la Station à une clé neuve.
+#[cfg(all(test, not(windows)))]
 pub fn attach_for_tests(s: &AppState) -> access::Signer {
     let signer = access::Signer::from_pkcs8(&access::Signer::generate_pkcs8().unwrap()).unwrap();
     let owner = Owner { kind: OwnerKind::Person, id: "acc_owner".into(), name: "Matthieu".into(), email: None };
@@ -1343,7 +1350,7 @@ pub fn attach_for_tests(s: &AppState) -> access::Signer {
 }
 
 /// Un en-tête `Authorization: KyberNow <jeton>` pour cette Station.
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 pub fn token_headers(s: &AppState, signer: &access::Signer, account: &str, device: &str, rights: &[Right]) -> HeaderMap {
     let names = access::Names { account: "Léa Martin".into(), email: None, device: "iPad de Léa".into() };
     let claims = Claims::issue("share.kybernow.app", &s.relay.id().unwrap(), account, device, rights.iter().copied().collect(), names, now_secs());

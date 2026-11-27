@@ -35,6 +35,8 @@ Two records pointing to your public IPv4 address:
 
 Only add an AAAA if the machine really is reachable over IPv6 on the public port. The wildcard name is for the browser: each computer gets its own address, `https://<identifier>.relay.example.org` (with `:<port>` if the public port is not 443).
 
+On public port 443, the browser also goes **end to end** through `https://<identifier>.station.relay.example.org`: the relay passes TLS through as is, and each computer (KyberNow 0.11.8 or later) gets its own certificate from Let's Encrypt, without the relay ever seeing its key ([docs/relais.en.md](../../docs/relais.en.md), “Browser encrypted end to end”). The `*.relay.example.org` wildcard already answers for it; a `*.station.relay.example.org` record to the same address is clearer. If the zone has CAA records, they must allow `letsencrypt.org`.
+
 ### 3. Ports and the router
 
 Three ports follow one another, over TCP **and** UDP:
@@ -140,6 +142,7 @@ Environment variables (`docker-compose.yml`) take precedence over `config/relay.
 | `KN_RELAY_DOMAIN` | `share.kybernow.app` | The relay's name; Stations are served under `<id>.<name>` |
 | `KN_RELAY_LISTEN` (`RELAY_LISTEN` in `.env`) | `0.0.0.0:8443` | Listening address, TCP and UDP |
 | `KN_RELAY_PUBLIC_PORT` (`RELAY_PUBLIC_PORT`) | the listening port | Announced public port, when the router translates it: the one in `/j/<code>` links and `https://<id>.<name>` addresses, without a port when it is 443 |
+| `KN_RELAY_TLS_ZONE` (`RELAY_TLS_ZONE`) | `station.<name>` | The zone whose TLS passes as is to the Stations (`https://<id>.<zone>`); `off` turns it off. Announced only on public port 443; never the relay's own name, which its wildcard certificate covers |
 | `KN_RELAY_CERT`, `KN_RELAY_KEY` | `/certs/certificates/<name>.crt` and `.key` | lego's certificate |
 | `KN_RELAY_BANLIST` | none | Ban list, reloaded live |
 | `KN_RELAY_METRICS` | `127.0.0.1:9464` | Metrics and `/healthz` (`off` to turn off; the image's health check needs it) |
@@ -182,7 +185,7 @@ docker compose up -d relay
 ## Operations
 
 - **Logs**: `docker compose logs relay`, rotated by Docker (20 MB × 5). They keep Stations' IP addresses and connection times, never a share code nor a page path. `RUST_LOG=debug` says more.
-- **Metrics** (Prometheus, `http://127.0.0.1:9464/metrics`): `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. An alert on `relay_tls_cert_expiry_seconds < 1209600` (14 days) warns of an expired Gandi token.
+- **Metrics** (Prometheus, `http://127.0.0.1:9464/metrics`): `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. An alert on `relay_tls_cert_expiry_seconds < 1209600` (14 days) warns of an expired Gandi token. `relay_handshakes_total{alpn="browser_tls"}` counts browsers passed through end to end (`refused`: Station away or too old).
 - **Banning**: one address or network per line in `config/banlist.txt` (`203.0.113.0/24`, `#` for a comment); taken into account within 30 seconds.
 - **Health**: `docker compose ps` shows the health check's state (`kybernow-relay --healthcheck`).
 - **Pages**: `https://<name>/` (code entry; `https://<name>:<port>/` other than 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health`; with accounts, `/compte/…`, `/conditions` and `/confidentialite`.

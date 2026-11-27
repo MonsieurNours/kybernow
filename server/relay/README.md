@@ -35,6 +35,8 @@ Deux enregistrements vers votre adresse IPv4 publique :
 
 N'ajoutez un AAAA que si la machine est vraiment joignable en IPv6 sur le port public. Le nom générique sert au navigateur : chaque ordinateur a sa propre adresse, `https://<identifiant>.relais.exemple.org` (avec `:<port>` si le port public n'est pas le 443).
 
+Au port public 443, le navigateur passe aussi **de bout en bout** par `https://<identifiant>.station.relais.exemple.org` : le relais fait passer le TLS tel quel, et chaque ordinateur (KyberNow 0.11.8 ou plus récent) obtient lui-même son certificat auprès de Let's Encrypt, sans que le relais n'en voie la clé ([docs/relais.md](../../docs/relais.md), « Navigateur chiffré de bout en bout »). Le nom générique `*.relais.exemple.org` y répond déjà ; un enregistrement `*.station.relais.exemple.org` vers la même adresse est plus clair. Si la zone a des enregistrements CAA, ils doivent permettre `letsencrypt.org`.
+
 ### 3. Les ports et la box
 
 Trois ports se suivent, en TCP **et** en UDP :
@@ -140,6 +142,7 @@ Les variables d'environnement (`docker-compose.yml`) passent avant `config/relay
 | `KN_RELAY_DOMAIN` | `share.kybernow.app` | Le nom du relais ; les Stations sont servies sous `<id>.<nom>` |
 | `KN_RELAY_LISTEN` (`RELAY_LISTEN` dans `.env`) | `0.0.0.0:8443` | Adresse d'écoute, TCP et UDP |
 | `KN_RELAY_PUBLIC_PORT` (`RELAY_PUBLIC_PORT`) | le port d'écoute | Port public annoncé, quand la box le traduit : celui des liens `/j/<code>` et des adresses `https://<id>.<nom>`, sans port quand c'est 443 |
+| `KN_RELAY_TLS_ZONE` (`RELAY_TLS_ZONE`) | `station.<nom>` | La zone dont le TLS passe tel quel jusqu'aux Stations (`https://<id>.<zone>`) ; `off` la coupe. Annoncée seulement au port public 443 ; jamais le nom du relais lui-même, que son certificat générique couvre |
 | `KN_RELAY_CERT`, `KN_RELAY_KEY` | `/certs/certificates/<nom>.crt` et `.key` | Le certificat de lego |
 | `KN_RELAY_BANLIST` | aucune | Liste de bannissement, relue à chaud |
 | `KN_RELAY_METRICS` | `127.0.0.1:9464` | Métriques et `/healthz` (`off` pour couper ; le contrôle de santé de l'image en a besoin) |
@@ -182,7 +185,7 @@ docker compose up -d relay
 ## Exploitation
 
 - **Journaux** : `docker compose logs relay`, tournés par Docker (20 Mo × 5). Ils gardent les adresses IP des Stations et l'heure des connexions, jamais un code de partage ni un chemin de page. `RUST_LOG=debug` en dit plus.
-- **Métriques** (Prometheus, `http://127.0.0.1:9464/metrics`) : `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. Une alerte sur `relay_tls_cert_expiry_seconds < 1209600` (14 jours) prévient d'un jeton Gandi expiré.
+- **Métriques** (Prometheus, `http://127.0.0.1:9464/metrics`) : `relay_stations_connected{transport}`, `relay_clients_connected{kind}`, `relay_sessions_active`, `relay_bytes_total{leg,dir}`, `relay_datagrams_total{result}`, `relay_code_lookups_total{result}`, `relay_codes_active`, `relay_handshakes_total{alpn,result}`, `relay_rtt_seconds{peer}`, `relay_limit_hits_total{limit}`, `relay_tls_cert_expiry_seconds`, `relay_egress_mbps`. Une alerte sur `relay_tls_cert_expiry_seconds < 1209600` (14 jours) prévient d'un jeton Gandi expiré. `relay_handshakes_total{alpn="browser_tls"}` compte les navigateurs passés de bout en bout (`refused` : Station absente ou trop ancienne).
 - **Bannir** : une adresse ou un réseau par ligne dans `config/banlist.txt` (`203.0.113.0/24`, `#` pour un commentaire) ; pris dans les 30 secondes.
 - **Santé** : `docker compose ps` montre l'état du contrôle de santé (`kybernow-relay --healthcheck`).
 - **Pages** : `https://<nom>/` (saisie du code ; `https://<nom>:<port>/` hors du 443), `/j/<code>`, `/privacy`, `/assets/…`, `/v1/health` ; avec les comptes, `/compte/…`, `/conditions` et `/confidentialite`.

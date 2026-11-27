@@ -17,14 +17,13 @@
 //! Nom d'écran (`gdi_name` du reste du module) : `linux:<identifiant Kyber>`
 //! (101 pour le premier écran virtuel, 1, 2… pour ceux de l'ordinateur).
 
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
+use super::agent_pipe::{AgentPipe, CALL_TIMEOUT, OBSERVE_TIMEOUT};
 use super::{Backend, Created, MAX_SCREENS, Mode, Observed, PhysicalDisplay, PointerRecord, Screen, hdr, slot_guid};
 
 /// Variable d'environnement : chemin de l'agent, s'il n'est pas à côté d'Admin.
@@ -54,15 +53,8 @@ fn id_of(gdi_name: &str) -> Result<u32> {
     gdi_name.strip_prefix("linux:").and_then(|n| n.parse().ok()).with_context(|| format!("écran inconnu : {gdi_name}"))
 }
 
-struct Agent {
-    child: Child,
-    stdin: ChildStdin,
-    out: BufReader<ChildStdout>,
-}
-
 pub struct LinuxBackend {
-    path: PathBuf,
-    agent: Mutex<Option<Agent>>,
+    pipe: AgentPipe,
     created: Mutex<[Option<u32>; MAX_SCREENS]>,
     watched: Mutex<Vec<u32>>,
     /// Bureau que l'agent a trouvé (« GNOME », « KDE »).
@@ -72,8 +64,7 @@ pub struct LinuxBackend {
 impl LinuxBackend {
     pub fn new(path: PathBuf) -> Self {
         let backend = Self {
-            path,
-            agent: Mutex::new(None),
+            pipe: AgentPipe::new(path),
             created: Mutex::new([None; MAX_SCREENS]),
             watched: Mutex::new(Vec::new()),
             desktop: Mutex::new(String::new()),
@@ -91,43 +82,9 @@ impl LinuxBackend {
         backend
     }
 
-    /// Une requête à l'agent, relancé s'il s'est arrêté.
+    /// Une requête à l'agent, relancé s'il s'est arrêté ; réponse attendue au plus [`CALL_TIMEOUT`].
     fn call(&self, req: Value, _start: bool) -> Result<Option<Value>> {
-        let mut agent = self.agent.lock().unwrap();
-        if let Some(a) = agent.as_mut()
-            && a.child.try_wait().ok().flatten().is_some()
-        {
-            tracing::warn!("agent des écrans arrêté : relancé");
-            *agent = None;
-        }
-        if agent.is_none() {
-            let mut child = Command::new(&self.path)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .with_context(|| format!("lancement de {}", self.path.display()))?;
-            let stdin = child.stdin.take().context("entrée de l'agent")?;
-            let out = BufReader::new(child.stdout.take().context("sortie de l'agent")?);
-            tracing::info!("agent des écrans lancé ({})", self.path.display());
-            *agent = Some(Agent { child, stdin, out });
-        }
-        let a = agent.as_mut().unwrap();
-        let mut answer = String::new();
-        let sent = writeln!(a.stdin, "{req}").and_then(|()| a.stdin.flush()).and_then(|()| a.out.read_line(&mut answer));
-        match sent {
-            Ok(n) if n > 0 => {}
-            Ok(_) | Err(_) => {
-                let _ = a.child.kill();
-                let _ = a.child.wait();
-                *agent = None;
-                bail!("l'agent des écrans ne répond plus");
-            }
-        }
-        let v: Value = serde_json::from_str(&answer).context("réponse de l'agent illisible")?;
-        if v["ok"] != json!(true) {
-            bail!("{}", v["error"].as_str().unwrap_or("échec de l'agent"));
-        }
-        Ok(Some(v))
+        self.pipe.call(&req, true, CALL_TIMEOUT)
     }
 
     fn isolate_with(&self, screens: &[(Created, Screen)], keep_others: bool) -> Result<Value> {
@@ -177,7 +134,7 @@ impl Backend for LinuxBackend {
             "KDE" => "KWin zkde_screencast (KDE Plasma)",
             _ => "Linux",
         };
-        Ok(json!({ "version": version, "watchdog_seconds": 0, "agent": self.path, "desktop": desktop }))
+        Ok(json!({ "version": version, "watchdog_seconds": 0, "agent": self.pipe.path(), "desktop": desktop }))
     }
     fn windows_workarounds(&self) -> bool {
         false
@@ -212,9 +169,12 @@ impl Backend for LinuxBackend {
     }
     fn remove(&self, guid: [u8; 16]) -> Result<()> {
         let Some(slot) = (0..MAX_SCREENS).find(|i| slot_guid(*i) == guid) else { return Ok(()) };
-        self.created.lock().unwrap()[slot] = None;
-        self.call(json!({ "cmd": "remove", "slot": slot }), false)?;
-        Ok(())
+        let removed = self.call(json!({ "cmd": "remove", "slot": slot }), false);
+        // Oublié une fois retiré, ou parti avec l'agent ; un refus de l'agent le laisse en place.
+        if removed.is_ok() || !self.pipe.running() {
+            self.created.lock().unwrap()[slot] = None;
+        }
+        removed.map(|_| ())
     }
     fn ping(&self) -> Result<()> {
         Ok(())
@@ -238,7 +198,8 @@ impl Backend for LinuxBackend {
     fn observe(&self) -> Option<Observed> {
         let ids = self.watched.lock().unwrap().clone();
         let first = *ids.first()?;
-        let v = self.call(json!({ "cmd": "state", "ids": ids }), false).ok()??;
+        // La veille (chaque seconde) n'attend pas plus de [`OBSERVE_TIMEOUT`] un agent bloqué.
+        let v = self.pipe.call(&json!({ "cmd": "state", "ids": ids }), true, OBSERVE_TIMEOUT).ok()??;
         let modes: Vec<Mode> = v["modes"].as_array()?.iter().map(mode_of).collect();
         let extra = ids.iter().zip(&modes).skip(1).map(|(id, m)| (*m, name(*id))).collect();
         Some(Observed {

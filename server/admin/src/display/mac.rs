@@ -13,14 +13,15 @@
 //! Nom d'écran (`gdi_name` du reste du module) : `mac:<CGDirectDisplayID>`.
 //! Retina dès 2048 pixels de large ([`hidpi`]).
 
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::Command;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
+use super::agent_pipe::{AgentPipe, CALL_TIMEOUT, OBSERVE_TIMEOUT};
 use super::{Backend, Created, MAX_SCREENS, Mode, Observed, PhysicalDisplay, PointerRecord, Screen, hdr, slot_guid};
 
 /// Variable d'environnement : chemin de l'agent, s'il n'est pas à côté d'Admin.
@@ -65,15 +66,11 @@ fn id_of(gdi_name: &str) -> Result<u32> {
     gdi_name.strip_prefix("mac:").and_then(|n| n.parse().ok()).with_context(|| format!("écran inconnu : {gdi_name}"))
 }
 
-struct Agent {
-    child: Child,
-    stdin: ChildStdin,
-    out: BufReader<ChildStdout>,
-}
+/// L'agent, sans réponse, s'arrête de lui-même après `restore` : attendu ce temps au plus.
+const FINISH_WITHIN: Duration = Duration::from_secs(5);
 
 pub struct MacBackend {
-    path: PathBuf,
-    agent: Mutex<Option<Agent>>,
+    pipe: AgentPipe,
     /// Écrans virtuels en place, par rang.
     created: Mutex<[Option<u32>; MAX_SCREENS]>,
     /// Écrans suivis par la veille, le principal en premier.
@@ -91,50 +88,13 @@ impl MacBackend {
             Ok(out) => tracing::warn!("reprise des écrans du Mac : {}", String::from_utf8_lossy(&out.stdout).trim()),
             Err(e) => tracing::warn!("reprise des écrans du Mac : {e}"),
         });
-        Self { path, agent: Mutex::new(None), created: Mutex::new([None; MAX_SCREENS]), watched: Mutex::new(Vec::new()) }
+        Self { pipe: AgentPipe::new(path), created: Mutex::new([None; MAX_SCREENS]), watched: Mutex::new(Vec::new()) }
     }
 
-    /// Une requête à l'agent. `start` : le lancer s'il ne tourne pas (sinon,
-    /// sans agent, il n'y a rien à faire et la réponse est `None`).
+    /// Une requête à l'agent, réponse attendue au plus [`CALL_TIMEOUT`]. `start` : le lancer s'il ne
+    /// tourne pas (sinon, sans agent, il n'y a rien à faire et la réponse est `None`).
     fn call(&self, req: Value, start: bool) -> Result<Option<Value>> {
-        let mut agent = self.agent.lock().unwrap();
-        if let Some(a) = agent.as_mut()
-            && a.child.try_wait().ok().flatten().is_some()
-        {
-            *agent = None;
-        }
-        if agent.is_none() {
-            if !start {
-                return Ok(None);
-            }
-            let mut child = Command::new(&self.path)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .with_context(|| format!("lancement de {}", self.path.display()))?;
-            let stdin = child.stdin.take().context("entrée de l'agent")?;
-            let out = BufReader::new(child.stdout.take().context("sortie de l'agent")?);
-            tracing::info!("agent des écrans virtuels lancé ({})", self.path.display());
-            *agent = Some(Agent { child, stdin, out });
-        }
-        let a = agent.as_mut().unwrap();
-        let mut answer = String::new();
-        let sent = writeln!(a.stdin, "{req}").and_then(|()| a.stdin.flush()).and_then(|()| a.out.read_line(&mut answer));
-        match sent {
-            Ok(n) if n > 0 => {}
-            Ok(_) | Err(_) => {
-                // L'agent s'est arrêté : macOS a déjà tout défait.
-                let _ = a.child.kill();
-                let _ = a.child.wait();
-                *agent = None;
-                bail!("l'agent des écrans virtuels ne répond plus");
-            }
-        }
-        let v: Value = serde_json::from_str(&answer).context("réponse de l'agent illisible")?;
-        if v["ok"] != json!(true) {
-            bail!("{}", v["error"].as_str().unwrap_or("échec de l'agent"));
-        }
-        Ok(Some(v))
+        self.pipe.call(&req, start, CALL_TIMEOUT)
     }
 
     fn isolate_with(&self, screens: &[(Created, Screen)], keep_others: bool) -> Result<Value> {
@@ -179,7 +139,7 @@ fn mode_of(v: &Value) -> Mode {
 
 impl Backend for MacBackend {
     fn driver(&self) -> Result<Value> {
-        Ok(json!({ "version": "CGVirtualDisplay (macOS)", "watchdog_seconds": 0, "agent": self.path }))
+        Ok(json!({ "version": "CGVirtualDisplay (macOS)", "watchdog_seconds": 0, "agent": self.pipe.path() }))
     }
     fn windows_workarounds(&self) -> bool {
         false
@@ -214,9 +174,12 @@ impl Backend for MacBackend {
     }
     fn remove(&self, guid: [u8; 16]) -> Result<()> {
         let Some(slot) = (0..MAX_SCREENS).find(|i| slot_guid(*i) == guid) else { return Ok(()) };
-        self.created.lock().unwrap()[slot] = None;
-        self.call(json!({ "cmd": "remove", "slot": slot }), false)?;
-        Ok(())
+        let removed = self.call(json!({ "cmd": "remove", "slot": slot }), false);
+        // Oublié une fois retiré, ou parti avec l'agent ; un refus de l'agent le laisse en place (STMAC-08).
+        if removed.is_ok() || !self.pipe.running() {
+            self.created.lock().unwrap()[slot] = None;
+        }
+        removed.map(|_| ())
     }
     fn ping(&self) -> Result<()> {
         // Pas de chien de garde : l'écran vit avec l'agent, qui vit avec Admin.
@@ -232,10 +195,7 @@ impl Backend for MacBackend {
         // Sans écran virtuel restant, l'agent s'arrête après sa réponse.
         let _ = self.call(json!({ "cmd": "restore" }), false)?;
         if self.created.lock().unwrap().iter().all(Option::is_none) {
-            let mut agent = self.agent.lock().unwrap();
-            if let Some(mut a) = agent.take() {
-                let _ = a.child.wait();
-            }
+            self.pipe.finish(FINISH_WITHIN);
         }
         Ok(())
     }
@@ -248,7 +208,8 @@ impl Backend for MacBackend {
     fn observe(&self) -> Option<Observed> {
         let ids = self.watched.lock().unwrap().clone();
         let first = *ids.first()?;
-        let v = self.call(json!({ "cmd": "state", "ids": ids }), false).ok()??;
+        // La veille (chaque seconde) n'attend pas plus de [`OBSERVE_TIMEOUT`] un agent bloqué.
+        let v = self.pipe.call(&json!({ "cmd": "state", "ids": ids }), false, OBSERVE_TIMEOUT).ok()??;
         let modes: Vec<Mode> = v["modes"].as_array()?.iter().map(mode_of).collect();
         let extra = ids.iter().zip(&modes).skip(1).map(|(id, m)| (*m, name(*id))).collect();
         Some(Observed {
@@ -282,9 +243,7 @@ impl Backend for MacBackend {
         // Personne d'autre que nous ne demandait l'agent : il peut s'arrêter.
         if self.created.lock().unwrap().iter().all(Option::is_none) {
             let _ = self.call(json!({ "cmd": "restore" }), false);
-            if let Some(mut a) = self.agent.lock().unwrap().take() {
-                let _ = a.child.wait();
-            }
+            self.pipe.finish(FINISH_WITHIN);
         }
         Ok(displays)
     }

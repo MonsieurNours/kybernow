@@ -12,7 +12,7 @@ Ce document est le contrat commun du relais, d'Admin, du cœur Rust, des apps Li
 ## En bref
 
 - Le relais public est `share.kybernow.app`, chez l'auteur. **Un seul port public, 443, en TCP et en UDP** (la box le renvoie vers le 8443 de la machine). Une adresse de relais sans port, c'est le 443, et les liens n'écrivent jamais `:443` ; un relais installé ailleurs peut porter son port (`relais.exemple.org:9443`). Il est ouvert à toute Station, sans plafond de débit. Chacun peut installer le sien (image Docker, [server/relay/README.md](../server/relay/README.md)) ; la Station choisit son relais dans Admin.
-- Le relais ne voit pas ce que les apps échangent avec la Station : elles parlent à Admin en TLS **de bout en bout** (certificat d'Admin épinglé), et à Kyber avec son empreinte. Il voit les adresses, les débits et les codes de partage. Le **navigateur** est l'exception : le relais présente un vrai certificat (`*.share.kybernow.app`) et déchiffre ce trafic pour le faire suivre.
+- Le relais ne voit pas ce que les apps échangent avec la Station : elles parlent à Admin en TLS **de bout en bout** (certificat d'Admin épinglé), et à Kyber avec son empreinte. Il voit les adresses, les débits et les codes de partage. Le **navigateur** aussi, depuis la 0.11.8 : il ouvre la Station par `https://<id>.station.share.kybernow.app`, dont le certificat et la clé sont sur la Station, et le relais fait passer le TLS sans le déchiffrer (« Navigateur chiffré de bout en bout », plus bas). Avec une Station ou un relais plus anciens, le navigateur passe par `https://<id>.share.kybernow.app`, que le relais déchiffre pour le faire suivre.
 - Kyber n'est pas modifié. Les apps n'ont pas à changer kyclient : le cœur ouvre un tunnel et donne à kyclient une adresse sur la boucle locale de l'appareil (`127.0.0.1:L`, en TCP et en UDP sur le même numéro).
 - Coût : un aller-retour de plus par le relais (à peu près nul quand le relais est dans la même maison que l'ordinateur, 5 à 20 ms en France sinon), moins d'un demi-milliseconde de traitement, une trentaine d'octets par paquet.
 
@@ -56,7 +56,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 
 | Message | Sens | Champs |
 |---|---|---|
-| `hello` | Station → relais | `v`, `role: "station"`, `version` (Admin), `admin_fp` (empreinte d'Admin), `sig` (signature de la Station sur `admin_fp`, ci-dessous), `codes` (codes à garder, après une reconnexion) |
+| `hello` | Station → relais | `v`, `role: "station"`, `version` (Admin), `admin_fp` (empreinte d'Admin), `sig` (signature de la Station sur `admin_fp`, ci-dessous), `codes` (codes à garder, après une reconnexion) ; depuis la 0.11.8 : `browser_tls` (vrai : la Station sert les flux `browser_tls`) et `tls_ready` (vrai : elle tient un certificat valable pour `<id>.<tls_zone>`) |
 | `hello` | app → relais | `v`, `role: "client"`, `station` (identifiant, ou absent pour une connexion qui ne sert qu'à `status`), `token` |
 | `welcome` | relais → bout | `v`, `id` (identifiant de la Station, ou du client), `relay` (version du relais) ; pour une app : `online` (la Station est-elle là) ; pour la Station : `codes` (ceux de `hello` que le relais a gardés ; les autres sont à réserver de nouveau) |
 | `error` | relais → bout | `req` (si c'est une réponse), `code` : `version`, `bad_request`, `unknown_station`, `too_many`, `banned`, `replaced`, `no_code`, `not_bound`, `no_accounts`, `enroll_refused` ; `message` facultatif (journaux, jamais affiché tel quel) |
@@ -76,6 +76,8 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 | `ping` / `pong` | dans les deux sens | `n` ; sert de signe de vie et de mesure sur le repli TCP |
 | `attach_request` / `attach_code` | Station → relais / relais → Station | Comptes KyberNow : code de rattachement (docs/comptes.md, « Rattachement et appareils sur le relais ») |
 | `attach_status`, `detach` | Station → relais | Où en est le rattachement ; détachée dans Admin |
+| `tls_zone` | relais → Station | `zone` (`station.share.kybernow.app`), juste après `welcome` : le relais fait passer le TLS des noms `<id>.<zone>` jusqu'à la Station (0.11.8 ; jamais envoyé par un relais d'avant, ni passage coupé) |
+| `admin_status` | Station → relais | `admin_lan`, `remote_admin` (docs/comptes.md, « Admin depuis KyberNow Share ») et, depuis la 0.11.8, `tls_ready` ; à chaque changement |
 | `attached` / `detached` | relais → Station | Rattachée (relais, compte, propriétaire, clés) ; détachée dans la console |
 | `enroll` | Station → relais | Comptes KyberNow, lot 5 : enrôlement (installation silencieuse) par un jeton d'organisation ; réponse `attached` (avec `req`) ou `error` `enroll_refused` (raison dans `message`) / `no_accounts` (docs/comptes.md, « Personnes, droits et organisations » et « Installateurs ») |
 
@@ -85,7 +87,7 @@ Le bout qui se connecte ouvre le premier flux bidirectionnel de `kn-ctl/1` (ou l
 
 - L'app ouvre un flux bidirectionnel sur `kn-ctl/1` (après `welcome`), écrit une trame `{"t":"open","service":"admin_tls"|"kyber_tcp"}`, puis ses octets.
 - Le relais ouvre un flux sur la connexion de la Station et écrit d'abord l'**en-tête**, une trame que seul le relais écrit (une app ne peut pas le forger) : `{"t":"stream","v":1,"kind":…,"client":"<id>","ip":"<adresse publique>","host":null|"<nom demandé>"}`. Puis il copie dans les deux sens ; fermer un côté le ferme de l'autre (demi-fermeture), une coupure coupe les deux.
-- `kind` : `admin_tls` (une app vers Admin, TLS de bout en bout), `admin_http` (un navigateur, déchiffré par le relais, HTTP/1.1 en clair dans le tunnel, `host` = le nom demandé), `kyber_tcp` (kyclient vers Kyber : contrôle HTTPS, WebSocket).
+- `kind` : `admin_tls` (une app vers Admin, TLS de bout en bout), `browser_tls` (un navigateur, ou l'autorité de certification, vers Admin : le TLS tel quel depuis le premier octet, `host` = le nom présenté ; seulement vers une Station qui l'a annoncé, « Navigateur chiffré de bout en bout »), `admin_http` (un navigateur, déchiffré par le relais, HTTP/1.1 en clair dans le tunnel, `host` = le nom demandé), `kyber_tcp` (kyclient vers Kyber : contrôle HTTPS, WebSocket).
 - Une Station absente : le relais coupe le flux de l'app.
 
 ### Paquets UDP relayés
@@ -112,7 +114,8 @@ Sur TCP, le relais regarde le début de chaque connexion TLS :
 
 - ALPN `kn-tcp/1` : le repli du tunnel ;
 - nom `share.kybernow.app` : ses pages ;
-- nom `<id>.share.kybernow.app` : le navigateur vers la Station `<id>` ;
+- nom `<id>.station.share.kybernow.app` : le navigateur vers la Station `<id>`, **sans déchiffrer** (le TLS passe tel quel jusqu'à la Station, « Navigateur chiffré de bout en bout ») ;
+- nom `<id>.share.kybernow.app` : le navigateur vers la Station `<id>`, déchiffré par le relais (Stations et liens d'avant la 0.11.8) ;
 - autre nom : connexion fermée.
 
 | Adresse | Réponse |
@@ -130,6 +133,64 @@ Les pages du relais n'ont ni script, ni cookie, ni mesure d'audience, et ne char
 Mandataire : `Host` passé tel quel, `X-Forwarded-For` et `Forwarded` retirés (l'adresse du navigateur voyage dans l'en-tête du flux), `Domain=` retiré de tout `Set-Cookie`. Une origine par Station : le code d'une Station ne lit jamais les cookies d'une autre.
 
 Codes : le relais **réserve les codes**, uniques entre toutes les Stations qui lui sont connectées. Quatre codes au plus par Station : celui du partage, celui du prêt et ceux des invitations (deux au plus). Les journaux du relais ne contiennent jamais un code.
+
+## Navigateur chiffré de bout en bout (0.11.8)
+
+Décidé avec l'auteur le 27/11/2026 (audit, STWIN-17). Jusqu'à la 0.11.7, le navigateur (« Admin à distance », le client web des invités) passe par `https://<id>.share.kybernow.app` : le relais présente son certificat générique `*.share.kybernow.app`, déchiffre, et fait suivre en HTTP dans le tunnel (`admin_http`). Il peut donc tout lire, cookie de session d'Admin compris. Depuis la 0.11.8, le relais **fait passer le TLS par le nom présenté** (SNI) jusqu'à la Station, qui tient sa propre clé et son propre certificat.
+
+### Le nom : une zone que le certificat du relais ne couvre pas
+
+- Le navigateur ouvre la Station par **`https://<id>.<tls_zone>`**, `tls_zone` valant `station.<domaine du relais>` : `https://<id>.station.share.kybernow.app` pour le relais public.
+- Pourquoi pas `<id>.share.kybernow.app` : le relais garde son certificat générique `*.share.kybernow.app` pour les Stations 0.11.7 ; il vaut pour tous ces noms, et un relais qui le tient pourrait s'interposer sans que le navigateur voie rien. Un certificat générique ne couvre qu'une étiquette : `*.share.kybernow.app` ne vaut pas pour `<id>.station.share.kybernow.app`. Le relais ne tient **aucune clé valable** pour la nouvelle zone, et ne demande jamais de certificat pour elle.
+- DNS : le joker `*.share.kybernow.app` répond déjà pour `<id>.station.share.kybernow.app` (RFC 4592, tant que `station.share.kybernow.app` n'a pas d'enregistrement à lui) ; un `*.station.share.kybernow.app` explicite vers la même machine est plus clair (déploiement, plus bas).
+- Le relais n'annonce la zone (message `tls_zone`, juste après `welcome`) que si son port public est le 443 (l'autorité de certification ne valide que sur le 443) et que `tls_zone` n'est pas vide dans sa configuration (`tls_zone = ""` coupe le passage).
+
+### Le certificat de la Station : ACME, défi TLS-ALPN-01, relayé tel quel
+
+- Admin tire une clé ECDSA P-256 qui **ne quitte jamais la Station** (`<données>/relay/tls/cert.pem`, la clé et la chaîne ensemble, réservé à SYSTEM et aux Administrateurs sous Windows, à son compte sur Mac et Linux), une nouvelle à chaque certificat,, et demande un certificat pour `<id>.<tls_zone>` à Let's Encrypt (ACME, RFC 8555), avec son propre compte ACME (`<données>/relay/tls/account.key`). `KYBERNOW_ACME_DIRECTORY` remplace l'annuaire (essais, Let's Encrypt « staging »).
+- Défi **TLS-ALPN-01** (RFC 8737) : l'autorité ouvre une connexion TLS vers `<id>.<tls_zone>:443` avec l'ALPN `acme-tls/1`. Le relais la fait passer comme celle d'un navigateur (flux `browser_tls`) ; Admin répond avec le certificat du défi (extension `acmeIdentifier`, critique : le SHA-256 de l'autorisation de clé). Le relais n'a rien à savoir d'ACME, et ne peut pas répondre à sa place : il ne connaît pas la clé du compte ACME de la Station.
+- Pourquoi pas HTTP-01 : il faudrait le port 80, que le relais public n'ouvre pas, et le relais servirait lui-même la réponse. Pourquoi pas DNS-01 : il faudrait que le relais écrive dans le DNS pour chaque Station, avec son jeton d'API.
+- Quand : agent joint avec `tls_zone`, et un besoin du navigateur : « Admin à distance » allumé, ou un partage, un code de prêt ou une invitation ouverts. Renouvellement quand il reste moins d'un tiers de la durée de validité. Échec : nouvel essai après 5 min, 15 min, 1 h, 4 h puis toutes les 24 h, ou après le `Retry-After` de l'autorité. Un seul essai à la fois.
+- Admin garde les numéros de série des certificats qu'il a obtenus (`<données>/relay/tls/issued.json`) et dit au relais `tls_ready` (dans `hello` et `admin_status`) quand il tient un certificat valable pour le nom en cours.
+
+### Ce que fait le relais
+
+- Sur TCP, il lit le `ClientHello` sans répondre. Nom `<id>.<tls_zone>` : si la Station `<id>` est connectée et a annoncé `browser_tls`, il ouvre vers elle un flux `browser_tls` (en-tête comme `admin_http`, `host` = le nom) et y copie les octets tels quels, `ClientHello` compris, dans les deux sens, coupés après 5 minutes sans un octet (comme `admin_tls`). Sinon (Station absente, ou d'avant la 0.11.8), il ferme : il n'a pas de certificat pour montrer une page.
+- Liens : quand la Station est connectée avec `tls_ready`, `/j/<code>`, « Ouvrir Admin » (`/compte/admin`) et la console mènent à `https://<id>.<tls_zone>` ; sinon à `https://<id>.share.kybernow.app`, comme avant. `/compte/ouvrir-admin` accepte les deux comme `retour` de cette Station.
+- `<id>.share.kybernow.app` reste servi comme avant (`admin_http`), pour les Stations 0.11.7 et les liens déjà donnés.
+
+### Ce que fait Admin
+
+- Un flux `browser_tls` : TLS avec la clé de la Station (ALPN `http/1.1`, ou `acme-tls/1` pendant un défi seulement), puis le même HTTP que `admin_http`, avec la voie `Via { kind: browser_tls }` : même garde, mêmes règles pour les invités et pour « Admin à distance ». Pas de certificat valable : connexion fermée.
+- **Pas de retour en arrière** : dès que la Station a tenu un certificat de bout en bout avec ce relais (`[relay] e2e = "<relais>"` dans `kyber-admin.toml`), « Admin à distance » ne passe plus par `admin_http` : le départ, le retour et les sessions y sont refusés (`403 {"code":"remote_admin_e2e"}`), et les sessions à distance déjà ouvertes par `admin_http` sont fermées à ce moment-là. Un relais qui cesserait d'annoncer `tls_zone` (mis à jour vers l'arrière, ou qui voudrait voir) ne rouvre donc pas le chemin déchiffré. Changer de relais efface cette marque ; rallumer « Admin à distance » sur place aussi (c'est l'accord explicite de l'hôte, si son relais ne fait vraiment plus passer le TLS).
+- Les invités (client web, `/link/`) passent par les deux noms : le relais choisit le chemin chiffré dès qu'il est prêt.
+- **Surveillance des journaux publics** : une fois par jour, tant que la Station a un certificat de bout en bout, Admin demande à `crt.sh` les certificats émis pour son nom (Certificate Transparency : toute autorité reconnue par les navigateurs doit y publier ce qu'elle émet). Un numéro de série que la Station n'a pas obtenu elle-même : une ligne d'avertissement dans le fil, `remote_tls.foreign` dans `GET /api/relay`, et « Admin à distance » suspendu jusqu'à ce que l'hôte le rallume sur place. `crt.sh` injoignable : rien ne change, on réessaie le lendemain.
+- `GET /api/relay` gagne `remote_tls` : `{"state":"off"|"pending"|"ready"|"error"|"unsupported"|"lost","name":"<id>.station.share.kybernow.app"|null,"until":<secondes Unix>|null,"reason":null|"<texte>","foreign":false}`. `unsupported` : relais d'avant la 0.11.8, ou passage coupé ; `lost` : le relais n'annonce plus la zone alors que la Station a déjà été de bout en bout avec lui (« Admin à distance » suspendu).
+
+### Compatibilité
+
+| Station | Relais | Navigateur |
+|---|---|---|
+| 0.11.7 | 0.11.7 ou 0.11.8 | `<id>.share…`, déchiffré par le relais, comme avant (la Station n'annonce pas `browser_tls` : le relais ne lui envoie jamais de flux `browser_tls`, et ferme `<id>.station…`) |
+| 0.11.8 | 0.11.7 | `<id>.share…`, comme avant (pas de message `tls_zone` : pas de certificat demandé, « Admin à distance » marche comme en 0.11.7) |
+| 0.11.8 | 0.11.8 | `<id>.station…`, de bout en bout dès que le certificat est là ; `<id>.share…` en attendant, et pour les invités qui ont un ancien lien |
+
+Les champs ajoutés (`browser_tls`, `tls_ready`) et le message `tls_zone` sont ignorés par les versions qui ne les connaissent pas.
+
+### Ce que le relais voit encore, et ce qu'il peut encore
+
+- Il voit le nom présenté (donc l'identifiant de la Station), les adresses, les volumes et les heures, plus rien du contenu.
+- Pour se faire passer pour la Station, il faudrait que l'exploitant du domaine fasse émettre un autre certificat pour `<id>.station…` (il tient le DNS, il le peut) : ce certificat serait publié dans les journaux Certificate Transparency, la Station le verrait et suspendrait « Admin à distance ». Les navigateurs, eux, ne permettent pas d'épingler un certificat : c'est la meilleure garantie possible pour un site ouvert dans un navigateur.
+- **Les jetons des comptes** : c'est toujours le relais qui signe le jeton `via: "relay"` qui ouvre une session à distance (après la passkey, vérifiée par lui). Un relais compromis pourrait en forger un et ouvrir lui-même Admin, en passant par le chemin chiffré comme un navigateur. Le fermer demande une preuve que la Station vérifie elle-même (« Plus tard »).
+- Les journaux Certificate Transparency sont publics : chaque Station qui a eu un certificat y figure, sous son identifiant (déjà présent dans ses liens de partage). La page `/privacy` du relais le dit.
+
+### Déploiement sur le relais public (à faire par l'auteur)
+
+1. DNS (Gandi) : ajouter `*.station.share` (A et AAAA, comme `*.share`) vers la même adresse. Vérifier : `dig +short abc.station.share.kybernow.app`. Si la zone `kybernow.app` a des enregistrements CAA, ils doivent permettre `letsencrypt.org`.
+2. Image du relais 0.11.8 (`ghcr.io/monsieurnours/kybernow-relay`) : rien à régler, `tls_zone` vaut `station.share.kybernow.app` par défaut. lego et le certificat générique ne changent pas (ils servent encore les Stations 0.11.7).
+3. Vérifier : `/v1/health` (version 0.11.8) ; une Station 0.11.8 avec « Admin à distance » obtient son certificat en moins d'une minute (`GET /api/relay` : `remote_tls.state = "ready"`) ; `https://<id>.station.share.kybernow.app` s'ouvre, et le certificat montré par le navigateur est celui de la Station (émis pour ce nom seul, pas `*.share`).
+4. Limites de Let's Encrypt : 50 nouveaux certificats par semaine pour `kybernow.app` (les renouvellements n'y comptent pas). Au-delà, les Stations attendent et réessaient (le navigateur passe par l'ancien nom en attendant). Quand le nombre de Stations s'en approche : demander une hausse à Let's Encrypt (formulaire « Rate Limit Adjustment »), ou inscrire `station.share.kybernow.app` à la Public Suffix List (chaque Station devient alors son propre domaine pour les limites et pour les cookies ; ne jamais y inscrire `share.kybernow.app`, qui porte les passkeys des comptes).
+5. Retour en arrière : `KN_RELAY_TLS_ZONE=off` (ou `tls_zone = ""`) ; les Stations qui avaient été de bout en bout suspendent « Admin à distance » (état `lost`) jusqu'à ce que l'hôte le rallume sur place.
 
 ## Admin
 
@@ -167,13 +228,13 @@ Session d'Admin seulement, jamais par le relais. `server` vide : pas de relais (
 
 Admin juge « local » ce qui vient de la boucle locale (`/api/local/*`, `local_or_admin`). Le relais ne doit jamais passer pour local :
 
-- L'agent **sert lui-même** ce qui arrive par le relais, dans le processus d'Admin (`admin_tls` : TLS sur le certificat d'Admin, puis HTTP ; `admin_http` : HTTP), jamais en se reconnectant en TCP sur `127.0.0.1`. L'adresse du pair est celle que donne l'en-tête du flux, **forcée hors de la boucle locale et des adresses privées**, et la requête porte la voie (`Via::Relay {kind, client}`).
+- L'agent **sert lui-même** ce qui arrive par le relais, dans le processus d'Admin (`admin_tls` : TLS sur le certificat d'Admin, puis HTTP ; `browser_tls` : TLS sur le certificat de la Station pour `<id>.<tls_zone>`, puis HTTP ; `admin_http` : HTTP), jamais en se reconnectant en TCP sur `127.0.0.1`. L'adresse du pair est celle que donne l'en-tête du flux, **forcée hors de la boucle locale et des adresses privées**, et la requête porte la voie (`Via::Relay {kind, client}`).
 - Un `Router` à part, `relay_guard`, n'ouvre que :
   - à un **invité**, quand un partage est ouvert : `/api/share/join|wait|beat|quality|leave`, `/link/*`, `/assets/*`, `GET /api/session` réduit, le mandataire d'Admin vers Kyber (`kyber_proxy`) avec le cookie d'un invité accepté (WebSocket seulement, jamais `/kymux/start_mux`) ;
   - à un **appareil appairé** (compte Basic), seulement quand « Accès hors de chez vous » est actif : `/api/stream/*` (sauf `/api/stream/station/*`) et les routes de l'hôte `/api/share*` ; accès coupé : `403 {"error":…,"code":"remote_access_off"}` ;
   - à un **appareil invité**, quand une invitation est ouverte et que « Accès hors de chez vous » est actif : `POST /api/pair/invite` (code et mot de passe de l'invitation, [invitations.md](invitations.md)) ; `POST /api/share/join` passe aussi quand une invitation est ouverte (il répond `"invite": true`) ;
   - **jamais** par le relais : le redémarrage et la mise à jour de la Station (`/api/stream/station/restart`, `/api/stream/station/update` : une action lourde, qui se fait sur place ou dans Admin), `/api/login`, `/api/setup`, `/api/password`, `/api/web/ticket`, `/api/pair*` (sauf `/api/pair/invite`), `/api/pairing`, `/api/invites*`, `/api/local/*`, la configuration, les comptes, les journaux, le service, l'écran, le son, la mise à jour d'Admin, les appareils, les apps, `/api/events`, l'interface d'Admin. L'appairage par code se fait sur le réseau seulement ; une invitation ajoute un appareil de loin.
-  - **sauf « Admin à distance »** (docs/comptes.md, « Admin depuis KyberNow Share ») : un navigateur (`admin_http`) avec une session ouverte par `/api/login/kybernow` grâce à un jeton `via: "relay"` (passkey), cookie `__Host-kyber_admin_session`, interrupteur allumé : tout Admin, la garde remettant ce cookie en cookie de session. Le départ et le retour de cette connexion (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) passent aussi, interrupteur allumé. « Admin à distance » ne s'allume pas par le relais (`PUT /api/relay`, `403 network_only`).
+  - **sauf « Admin à distance »** (docs/comptes.md, « Admin depuis KyberNow Share ») : un navigateur (`browser_tls`, ou `admin_http` tant que la Station n'a jamais été de bout en bout avec ce relais : « Navigateur chiffré de bout en bout ») avec une session ouverte par `/api/login/kybernow` grâce à un jeton `via: "relay"` (passkey), cookie `__Host-kyber_admin_session`, interrupteur allumé : tout Admin, la garde remettant ce cookie en cookie de session. Le départ et le retour de cette connexion (`GET /api/login/kybernow/start`, `GET /api/login/kybernow`) passent aussi, interrupteur allumé. « Admin à distance » ne s'allume pas par le relais (`PUT /api/relay`, `403 network_only`).
 - **Blocage** : 10 échecs du compte Basic par le relais depuis une même adresse (un /64 en IPv6) en 10 minutes bloquent **cette adresse** 10 minutes (`429 {"code":"locked"}`) ; le propriétaire, d'ailleurs, passe toujours. Garde-fou : 100 échecs en 10 minutes, toutes adresses confondues, bloquent tout l'accès des appareils par le relais 10 minutes (`locked_until` de `GET /api/relay`). Chaque blocage met une ligne dans le fil.
 - **Kyber** : l'agent ne joint Kyber que pour un client autorisé (un invité accepté, tant qu'il donne signe de vie ; un appareil appairé après `prepare`, pour 30 s renouvelées par le signe de vie), et toujours **depuis et vers l'adresse du réseau local** de l'ordinateur, jamais par la boucle locale (le correctif 0019 réserve `/kybernow/*` à la boucle locale). Kyber écoute sur toutes les adresses.
 - Admin autorise un **client du relais** (son identifiant) : celui qui a fait le `wait`, le `beat` ou le `prepare`/`heartbeat` réussi. Un client qui se reconnecte garde son identifiant.
@@ -243,8 +304,8 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 - **Code tapé** : c'est le relais qui donne l'empreinte d'Admin. Un relais menteur pourrait s'interposer ; c'est le prix du code à six chiffres. L'hôte voit et accepte chaque invité.
 - **Lien et QR code** : `fp` et `sid` viennent de la Station ; l'échange est de bout en bout, le relais ne peut pas s'interposer.
 - **Appareils appairés** : empreintes épinglées à l'appairage (sur le réseau). Par le relais, jamais de premier contact, sauf l'invitation : par un code tapé, l'empreinte vient du relais (comme pour un partage), d'où le mot de passe en plus ; par son lien ou son QR code, elle vient de la Station ([invitations.md](invitations.md)).
-- **Navigateur** : le relais déchiffre (vrai certificat `*.share.kybernow.app`). Les apps, elles, restent chiffrées de bout en bout.
-- **« Admin à distance » et comptes KyberNow** : le relais voit en clair la session d'Admin ouverte à distance par un navigateur (cookie compris), et c'est lui qui signe les jetons des comptes KyberNow (droits Session, Administrer…). Qui le contrôle a donc la main sur les Stations rattachées qui ont « Admin à distance » ou les comptes acceptés : un relais personnel n'est sûr que s'il est aussi bien tenu que la Station. Sans « Admin à distance » ni comptes, le relais ne fait que transporter des flux chiffrés.
+- **Navigateur** : depuis la 0.11.8, chiffré de bout en bout jusqu'à la Station (`<id>.station.share.kybernow.app`, certificat et clé de la Station) ; le relais ne peut se faire passer pour elle qu'en faisant émettre un autre certificat, que les journaux publics montrent et que la Station surveille (« Navigateur chiffré de bout en bout »). Avec une Station ou un relais plus anciens, le relais déchiffre (vrai certificat `*.share.kybernow.app`). Les apps, elles, restent chiffrées de bout en bout.
+- **« Admin à distance » et comptes KyberNow** : c'est le relais qui signe les jetons des comptes KyberNow (droits Session, Administrer…, et le jeton `via: "relay"` qui ouvre Admin à distance). Il ne lit plus la session d'Admin ouverte à distance (0.11.8, de bout en bout), mais un relais compromis pourrait forger un jeton et ouvrir lui-même une session. Qui le contrôle a donc encore la main sur les Stations rattachées qui ont « Admin à distance » ou les comptes acceptés : un relais personnel n'est sûr que s'il est aussi bien tenu que la Station. Sans « Admin à distance » ni comptes, le relais ne fait que transporter des flux chiffrés.
 - Le relais public est en France ; il garde les adresses IP dans ses journaux quelques jours (journaux tournés par taille), jamais les codes. Page de confidentialité sur le relais (`/privacy`).
 
 ## Limites et protections du relais
@@ -258,9 +319,11 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 
 ## Installer un relais chez soi
 
-Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), un port ouvert en TCP **et** UDP, le 443 de préférence. Le relais écoute sur un port de la machine (`RELAY_LISTEN`, 8443 par défaut) et annonce le port public que la box renvoie vers lui (`RELAY_PUBLIC_PORT`) ; le pas à pas est dans [server/relay/README.md](../server/relay/README.md), « Les ports et la box ». L'image du relais est publiée à chaque version (`ghcr.io/monsieurnours/kybernow-relay`, par `.github/workflows/relay-image.yml`) ; le service `updater` du compose la reprend chaque nuit. Dans Admin de chaque Station : « Hors de chez vous › Relais » = l'adresse avec son port public, `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre.
+Une machine Linux avec Docker, un nom de domaine dont la zone DNS accepte un jeton d'API (Gandi par défaut, pour le certificat générique), un port ouvert en TCP **et** UDP, le 443 de préférence. Le navigateur chiffré de bout en bout demande le 443 public et que `*.station.<domaine>` mène au relais (le joker `*.<domaine>` suffit d'ordinaire) ; sur un autre port, le relais ne l'annonce pas et le navigateur passe par `<id>.<domaine>`, déchiffré, comme avant. Le relais écoute sur un port de la machine (`RELAY_LISTEN`, 8443 par défaut) et annonce le port public que la box renvoie vers lui (`RELAY_PUBLIC_PORT`) ; le pas à pas est dans [server/relay/README.md](../server/relay/README.md), « Les ports et la box ». L'image du relais est publiée à chaque version (`ghcr.io/monsieurnours/kybernow-relay`, par `.github/workflows/relay-image.yml`) ; le service `updater` du compose la reprend chaque nuit. Dans Admin de chaque Station : « Hors de chez vous › Relais » = l'adresse avec son port public, `relais.exemple.org` pour le 443, `relais.exemple.org:9443` pour un autre.
 
 ## Plus tard
+
+- « Admin à distance » sans confiance dans le relais pour l'identité : une passkey enregistrée sur place auprès de la Station (sur `<id>.station…`, après un code montré par Admin sur le réseau), que la Station vérifie elle-même à chaque ouverture, en plus du jeton du relais. Un relais compromis ne pourrait alors plus ouvrir Admin. À décider avec l'auteur (une étape de plus pour l'hôte).
 
 - Image du navigateur en WebTransport par le relais (sauf Safari) : le relais lirait le nom dans le premier paquet QUIC et ferait suivre sans déchiffrer.
 - Partage équitable du lien montant de la maison entre plusieurs invités.
