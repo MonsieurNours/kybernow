@@ -244,6 +244,7 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 - **Lien et QR code** : `fp` et `sid` viennent de la Station ; l'échange est de bout en bout, le relais ne peut pas s'interposer.
 - **Appareils appairés** : empreintes épinglées à l'appairage (sur le réseau). Par le relais, jamais de premier contact, sauf l'invitation : par un code tapé, l'empreinte vient du relais (comme pour un partage), d'où le mot de passe en plus ; par son lien ou son QR code, elle vient de la Station ([invitations.md](invitations.md)).
 - **Navigateur** : le relais déchiffre (vrai certificat `*.share.kybernow.app`). Les apps, elles, restent chiffrées de bout en bout.
+- **« Admin à distance » et comptes KyberNow** : le relais voit en clair la session d'Admin ouverte à distance par un navigateur (cookie compris), et c'est lui qui signe les jetons des comptes KyberNow (droits Session, Administrer…). Qui le contrôle a donc la main sur les Stations rattachées qui ont « Admin à distance » ou les comptes acceptés : un relais personnel n'est sûr que s'il est aussi bien tenu que la Station. Sans « Admin à distance » ni comptes, le relais ne fait que transporter des flux chiffrés.
 - Le relais public est en France ; il garde les adresses IP dans ses journaux quelques jours (journaux tournés par taille), jamais les codes. Page de confidentialité sur le relais (`/privacy`).
 
 ## Limites et protections du relais

@@ -244,6 +244,7 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 - **Link and QR code**: `fp` and `sid` come from the Station; the exchange is end to end, the relay cannot get in the middle.
 - **Paired devices**: fingerprints pinned at pairing (on the network). Through the relay, never trust on first use, except the invitation: with a typed code the fingerprint comes from the relay (as for a share), hence the extra password; with its link or QR code it comes from the Station ([invitations.en.md](invitations.en.md)).
 - **Browser**: the relay decrypts (real `*.share.kybernow.app` certificate). The apps stay encrypted end to end.
+- **“Remote Admin” and KyberNow accounts**: the relay sees in the clear the Admin session a browser opens from afar (cookie included), and it is the relay that signs KyberNow account tokens (Session, Administer rights…). Whoever controls it therefore has a hand on the attached Stations that have “Remote Admin” or accept accounts: a personal relay is only as safe as it is well kept. Without “Remote Admin” or accounts, the relay only carries encrypted streams.
 - The public relay is in France; it keeps IP addresses in its logs for a few days (logs rotated by size), never codes. Privacy page on the relay (`/privacy`).
 
 ## Relay limits and protections
