@@ -1402,6 +1402,8 @@ pub struct Session {
     microphone: Arc<crate::micro::Microphone>,
     /// La caméra de l'appareil vers l'ordinateur (docs/webcam.md).
     camera: Arc<crate::camera::CameraLink>,
+    /// « Stylet : Pression / Souris » de l'ordinateur, partagé avec la session.
+    pen: Arc<crate::input::pen::PenSwitch>,
 }
 
 impl Session {
@@ -1437,6 +1439,7 @@ impl Session {
         let watch_display = worker.watch_display.clone();
         let microphone = worker.microphone.clone();
         let camera = worker.camera.clone();
+        let pen = worker.pen.clone();
         let guard_platform = worker.platform.clone();
         let label = focus.label().clone();
         let thread = std::thread::Builder::new()
@@ -1466,6 +1469,7 @@ impl Session {
             watch_display,
             microphone,
             camera,
+            pen,
         })
     }
 
@@ -1479,6 +1483,26 @@ impl Session {
 
     pub fn microphone(&self) -> crate::micro::MicState {
         self.microphone.state()
+    }
+
+    /// « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : le
+    /// choix retenu par l'app pour cet ordinateur, donné au départ et à
+    /// chaque changement (barre, tuile, raccourci, réglage). Pression par
+    /// défaut ; en « Souris », [`crate::input::InputPipeline::pen_on`] rend
+    /// `false` et l'app envoie le stylet comme une souris.
+    pub fn set_pen_mode(&self, mode: crate::input::PenMode) {
+        self.pen.set(mode);
+    }
+
+    pub fn pen_mode(&self) -> crate::input::PenMode {
+        self.pen.mode()
+    }
+
+    /// La ligne « Stylet » de la barre (et la tuile) : montrée quand un
+    /// stylet a servi ou que l'appareil en a un (`device_has_pen`), et que
+    /// l'ordinateur le reçoit.
+    pub fn pen_choice(&self, device_has_pen: bool) -> crate::input::PenChoice {
+        self.pen.choice(device_has_pen)
     }
 
     /// Des échantillons du micro, mono, à `rate` Hz (n'importe quelle
@@ -1973,6 +1997,8 @@ struct Worker {
     hdr_used: Arc<AtomicBool>,
     /// La caméra de l'appareil (docs/webcam.md).
     camera: Arc<crate::camera::CameraLink>,
+    /// « Stylet : Pression / Souris », partagé avec [`Session`].
+    pen: Arc<crate::input::pen::PenSwitch>,
     /// La fin a été demandée pendant un appel de la mise en route
     /// ([`Worker::step`]) : la tentative s'arrête sans échec.
     cancelled: bool,
@@ -2195,6 +2221,7 @@ impl Worker {
             hdr_pending: false,
             hdr_used: Arc::new(AtomicBool::new(false)),
             camera: Arc::new(crate::camera::CameraLink::new()),
+            pen: Arc::default(),
             cancelled: false,
             step_seq: 0,
             inflight: None,
@@ -2525,6 +2552,7 @@ impl Worker {
         next.lowered = self.lowered;
         next.microphone = self.microphone.clone();
         next.camera = self.camera.clone();
+        next.pen = self.pen.clone();
         *self = next;
     }
 
@@ -5236,6 +5264,7 @@ impl Worker {
             let (pipeline, input) = crate::input::pipeline::created_during(|| self.platform.input_pipeline());
             if let Some(input) = &input {
                 self.focus.attach_input(input);
+                self.pen.attach(input);
             }
             self.pipeline = Some(pipeline.clone());
             Some(InputSessionConfig {

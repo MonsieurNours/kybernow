@@ -473,6 +473,10 @@ Et, en dehors des traits : la **capture des événements** (AppKit, GameControll
 
 Création : `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` rend un `Arc` ; `kynput()` donne la chaîne à `session::Platform::input_pipeline` ; `start_clipboard()` une fois le réseau relié ; `stop()` en fin de session (FlushKeys direct, total des pertes au journal), `shutdown()` pour arrêter les gestionnaires de kynput.
 
+## Stylet : Pression / Souris (`src/input/pen.rs`, `src/input/pipeline.rs`, `src/session.rs`)
+
+Règle et textes : [docs/link-ui.md](../../docs/link-ui.md), « Stylet ». `PenMode` (`Pressure` par défaut, `Mouse` ; clés `pressure` et `mouse`, `toggled`, `label`, `notice` : l'avis bref du raccourci Ctrl+Alt+Maj+P, ⌃⌥⌘P), retenu par l'app pour chaque ordinateur et donné à la session (`Session::set_pen_mode`, au départ et à chaque changement) ; la session l'applique à chaque chaîne d'entrées (`InputPipeline::set_pen_mode` : en « Souris », `pen_on` rend `false` et l'app envoie le stylet comme une souris absolue ; choisi pendant que le stylet survole, il est levé d'abord). La ligne « Stylet » du menu « Souris » et la tuile : `Session::pen_choice(appareil_avec_stylet)` → `PenChoice` (`shown` : un stylet a servi, `pen_seen`, ou l'appareil en a un, et l'ordinateur le reçoit, `pen_offered` ; `ui_json(lang)` : `shown`, `mode`, `title`, `label`, `choices`, `help`). Synchronisé avec les réglages de l'ordinateur (clé `pen`, `SyncedValues::with_pen`, `pen_mode`). Textes `pen.*` du catalogue. Essais : `stylet_pression_ou_souris`, `stylet_en_souris`.
+
 ## Micro de l'appareil (`src/micro.rs`)
 
 Contrat : [docs/micro.md](../../docs/micro.md) ; textes : [docs/link-ui.md](../../docs/link-ui.md), « Micro ». Le cœur encode, l'app capte.

@@ -290,5 +290,13 @@
     "no_encoder": "This device can't send its camera.",
     "no_answer": "The computer isn't answering: the camera is off.",
     "start_refused": "The camera couldn't start on the computer."
+  },
+  "pen": {
+    "title": "Pen",
+    "pressure": "Pressure",
+    "mouse": "Mouse",
+    "help": "Pressure: the pen arrives as a real pen, for drawing. Mouse: it works as a mouse, without pressure or Windows Ink.",
+    "notice_pressure": "Pen: pressure",
+    "notice_mouse": "Pen: mouse"
   }
 }

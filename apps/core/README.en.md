@@ -473,6 +473,10 @@ And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw I
 
 Creation: `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` returns an `Arc`; `kynput()` gives the chain to `session::Platform::input_pipeline`; `start_clipboard()` once the network is connected; `stop()` at the end of the session (direct FlushKeys, total losses logged), `shutdown()` to stop kynput's handlers.
 
+## Pen: Pressure / Mouse (`src/input/pen.rs`, `src/input/pipeline.rs`, `src/session.rs`)
+
+Rule and texts: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Pen”. `PenMode` (`Pressure` by default, `Mouse`; keys `pressure` and `mouse`, `toggled`, `label`, `notice`: the Ctrl+Alt+Shift+P / ⌃⌥⌘P shortcut's brief notice), kept by the app for each computer and given to the session (`Session::set_pen_mode`, at the start and at every change); the session applies it to each input chain (`InputPipeline::set_pen_mode`: in “Mouse”, `pen_on` returns `false` and the app sends the pen as an absolute mouse; chosen while the pen hovers, it is lifted first). The “Pen” line of the “Mouse” menu and the tile: `Session::pen_choice(device_has_pen)` → `PenChoice` (`shown`: a pen was used, `pen_seen`, or the device has one, and the computer takes the pen, `pen_offered`; `ui_json(lang)`: `shown`, `mode`, `title`, `label`, `choices`, `help`). Synced with the computer's settings (key `pen`, `SyncedValues::with_pen`, `pen_mode`). Catalogue texts `pen.*`. Tests: `stylet_pression_ou_souris`, `stylet_en_souris`.
+
 ## The device's microphone (`src/micro.rs`)
 
 Contract: [docs/micro.en.md](../../docs/micro.en.md); wording: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Microphone”. The core encodes, the app captures.

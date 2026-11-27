@@ -290,5 +290,13 @@
     "no_encoder": "Cet appareil ne peut pas envoyer sa caméra.",
     "no_answer": "L'ordinateur ne répond pas : la caméra est éteinte.",
     "start_refused": "La caméra n'a pas pu démarrer sur l'ordinateur."
+  },
+  "pen": {
+    "title": "Stylet",
+    "pressure": "Pression",
+    "mouse": "Souris",
+    "help": "Pression : le stylet arrive comme un vrai stylet, pour dessiner. Souris : il sert de souris, sans la pression ni Windows Ink.",
+    "notice_pressure": "Stylet : pression",
+    "notice_mouse": "Stylet : souris"
   }
 }
