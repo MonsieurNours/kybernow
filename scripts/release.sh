@@ -680,6 +680,8 @@ note_kyber() { arbre_kyber_noter "$1" > /dev/null; }
 construire_surcouche() {
     cd "$(arbre_dir station-windows)"
     if [ "$(cat third_party/payload/kyber-overlay.stamp 2>/dev/null)" != "$OVERLAY_WANT" ]; then
+        # build.sh pose tous les correctifs : il part des sources d'origine.
+        arbre_kyber_origine station-windows
         server/kyber-patches/build.sh
     fi
     [ "$(cat third_party/payload/kyber-overlay.stamp)" = "$OVERLAY_WANT" ]

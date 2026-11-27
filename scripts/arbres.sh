@@ -239,6 +239,22 @@ arbre_kyber_pret() {
     done
 }
 
+# arbre_kyber_origine <variante> : sources de Kyber de l'arbre remises à
+# l'origine sans condition, pour un script qui repose tous les correctifs
+# (server/kyber-patches/build.sh relancé parce que l'empreinte de la surcouche a
+# changé sans que les correctifs changent : les sources, dans l'état noté,
+# portaient déjà les correctifs des apps, que build.sh trouvait à moitié posés).
+arbre_kyber_origine() {
+    local v=$1 dir e kd
+    dir="$(arbre_dir "$v")"
+    for e in $(arbre_sources_kyber "$v"); do
+        kd="$dir/third_party/$e"
+        [ -d "$kd" ] || continue
+        rm -f "$kd/.kybernow-arbre"
+        arbre_sources_origine "$kd" "$dir"
+    done
+}
+
 # arbre_kyber_noter <variante> : note l'état des sources après une construction réussie.
 arbre_kyber_noter() {
     local v=$1 dir e kd want
