@@ -2,6 +2,9 @@
 //! (`session::Platform`) et les rappels vers la boucle principale, comme sur
 //! webOS (apps/webos/src/device/session.rs) et Android.
 
+pub use kybernow_core::relay::session_end_text as relay_failure_text;
+pub use kybernow_core::share::join_relays;
+pub use kybernow_ui::from_core::{core_quality, core_role, relay_of, role_of};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
@@ -649,85 +652,10 @@ pub fn relay_route(host: &Host) -> Option<RelayRoute> {
     RelayInfo { server: r.server.clone(), id: r.id.clone(), remote_access: r.remote_access }.route(host.fingerprint.as_deref()?)
 }
 
-/// Les relais où chercher le code d'un partage en plus du relais public : ceux des ordinateurs de l'appareil
-/// (`info.relay.server`), sans doublon ; une adresse illisible est écartée. Le cœur (`share::join_anywhere`)
-/// interroge toujours le relais public lui-même : le code d'un ami y part même quand l'ordinateur de l'utilisateur
-/// en a un autre. `KYBERNOW_RELAY=off` : aucun relais, et `jobs::share_join` n'appelle alors que le réseau.
-pub fn join_relays<'a>(servers: impl IntoIterator<Item = &'a str>) -> Vec<kybernow_core::relay::RelayAddr> {
-    use kybernow_core::relay::{RelayAddr, RelayMode};
-    if RelayMode::current() == RelayMode::Off {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    for server in servers {
-        if let Ok(addr) = server.trim().parse::<RelayAddr>()
-            && !out.contains(&addr)
-        {
-            out.push(addr);
-        }
-    }
-    out
-}
-
-/// Le texte de link-ui (« Hors de chez vous ») d'un échec de session par le relais, avec le nom de l'ordinateur :
-/// « {nom} n'est pas joignable hors de chez vous (accès coupé dans Admin). » quand Admin refuse l'accès,
-/// « {nom} n'est pas joignable : l'ordinateur est éteint ou en veille. » quand le relais ne le connaît pas,
-/// « Le relais ne répond pas. » quand le relais est muet.
-///
-/// `relay` est l'erreur typée que le cœur a donnée en fin de session (`Platform::on_relay_error`) : c'est elle qui
-/// choisit le texte, jamais le texte d'Admin. `error` est la raison de la fin donnée par le cœur ; sans erreur du
-/// relais, elle reste telle quelle.
-pub fn relay_failure_text(relay: Option<&kybernow_core::relay::RelayError>, error: Option<String>, name: &str) -> Option<String> {
-    match (relay, error) {
-        (Some(e), Some(_)) => Some(e.text(kybernow_core::i18n::current(), Some(name))),
-        (_, error) => error,
-    }
-}
-
-/// Le rôle de l'interface d'après celui du cœur.
-pub fn role_of(r: share::ShareRole) -> crate::app::ShareRole {
-    match r {
-        share::ShareRole::Spectator => crate::app::ShareRole::Spectator,
-        share::ShareRole::Player => crate::app::ShareRole::Player,
-        share::ShareRole::Kbm => crate::app::ShareRole::Kbm,
-        share::ShareRole::PlayerKbm => crate::app::ShareRole::PlayerKbm,
-    }
-}
-
-/// Le rôle du cœur d'après celui de l'interface (les deux boutons de droits de l'hôte).
-pub fn core_role(r: crate::app::ShareRole) -> share::ShareRole {
-    match r {
-        crate::app::ShareRole::Spectator => share::ShareRole::Spectator,
-        crate::app::ShareRole::Player => share::ShareRole::Player,
-        crate::app::ShareRole::Kbm => share::ShareRole::Kbm,
-        crate::app::ShareRole::PlayerKbm => share::ShareRole::PlayerKbm,
-    }
-}
-
-/// La « Qualité de l'image » du cœur d'après celle de l'interface (le choix de « Rejoindre » et de la barre).
-pub fn core_quality(q: crate::app::ShareQuality) -> share::ShareQuality {
-    match q {
-        crate::app::ShareQuality::Auto => share::ShareQuality::Auto,
-        crate::app::ShareQuality::Host => share::ShareQuality::Host,
-        crate::app::ShareQuality::P2160_60 => share::ShareQuality::P2160_60,
-        crate::app::ShareQuality::P1080_60 => share::ShareQuality::P1080_60,
-        crate::app::ShareQuality::P720_30 => share::ShareQuality::P720_30,
-    }
-}
-
 /// La qualité de l'image d'un invité telle que le panneau de l'hôte la montre : seulement quand c'est une image à
 /// part (pas celle de l'hôte) dont Kyber sait la taille. Une image encore inconnue compte comme celle de l'hôte.
 fn guest_quality(g: &share::ShareGuest) -> Option<String> {
     g.image.as_ref().filter(|i| i.own()).and_then(|i| i.label())
-}
-
-/// Le relais d'un partage ou d'un code de prêt (`relay.state` d'Admin) tel que l'interface le montre.
-pub fn relay_of(r: Option<share::ShareRelay>) -> Option<ShareRelay> {
-    r.map(|r| match r.state {
-        share::ShareRelayState::Joined => ShareRelay::Joined,
-        share::ShareRelayState::Connecting => ShareRelay::Connecting,
-        share::ShareRelayState::Unreachable => ShareRelay::Unreachable,
-    })
 }
 
 /// Le partage ouvert d'une session d'hôte tel que l'interface le montre (`None` : fermé).
@@ -1118,13 +1046,9 @@ mod tests {
         kybernow_core::input::RemoteCursor { visible, image: None, position: (10, 20) }
     }
 
-    /// Le miroir de l'interface (`app::station_is_mac`, sans le cœur) dit comme le cœur ; « Ctrl agit comme ⌘ »
-    /// part dans la chaîne d'entrées d'un ordinateur Mac, jamais d'un PC ni d'un invité.
+    /// « Ctrl agit comme ⌘ » part dans la chaîne d'entrées d'un ordinateur Mac, jamais d'un PC ni d'un invité.
     #[test]
     fn mac_station_like_the_core() {
-        for os in ["macOS 26.1", " macos 15", "MacOS", "Windows 11 Pro", "", "mac", "Linux"] {
-            assert_eq!(crate::app::station_is_mac(os), keymap::station_is_mac(os), "{os:?}");
-        }
         let mut mac = host(HostSettings::default());
         mac.os = Some("macOS 26.1".into());
         assert!(keymap::control_as_command(mac.settings.ctrl_command, mac.os.as_deref().unwrap_or("")));
@@ -1452,7 +1376,7 @@ mod tests {
         let text = |e: RelayError| relay_failure_text(Some(&e), Some("raison du cœur".into()), "Atelier");
         assert_eq!(text(RelayError::AccessOff).as_deref(), Some("Atelier n'est pas joignable hors de chez vous (accès coupé dans Admin)."));
         // Le texte du cœur (son catalogue garde l'espace ordinaire).
-        assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
+        assert_eq!(text(RelayError::StationOffline).as_deref(), Some("Atelier n'est pas joignable : l'ordinateur est éteint ou en veille."));
         assert_eq!(text(RelayError::Unreachable("x".into())).as_deref(), Some("Le relais ne répond pas."), "relais muet");
         let looks_like = RelayError::StationOffline.text(Lang::Fr, None);
         assert_eq!(relay_failure_text(None, Some(looks_like.clone()), "Atelier"), Some(looks_like), "le texte ne se lit pas");

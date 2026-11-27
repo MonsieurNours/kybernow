@@ -9,7 +9,7 @@ import mockEn from './i18n/mock.en.json'
 import mockFr from './i18n/mock.fr.json'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
-import type { AutoChoice, AutoResult, AutoStep, BarMic, SessionPlan, StationOffer, Values } from './api'
+import type { AutoChoice, AutoResult, AutoStep, BarMic, BarPen, PenMode, SessionPlan, StationOffer, Values } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
@@ -399,6 +399,26 @@ const barMic = (on: boolean, state: BarMic['state']): BarMic => {
   return { on, state, lit, sent: on && state === 'on', reason: null, label, tooltip: `${label} (${shortcut})`, tile: lit ? (state === 'on' ? 'Envoyé' : 'Envoi…') : 'Coupé' }
 }
 
+/** La ligne « Stylet » telle que le cœur la décrit (`PenChoice::ui_json`), imitée : textes de l'imitation. */
+let penMode: PenMode = 'pressure'
+const barPen = (shown = true): BarPen => {
+  const fr = i18n.lang === 'fr'
+  const choices = [
+    { key: 'pressure' as const, label: fr ? 'Pression' : 'Pressure' },
+    { key: 'mouse' as const, label: fr ? 'Souris' : 'Mouse' },
+  ]
+  return {
+    shown,
+    mode: penMode,
+    title: fr ? 'Stylet' : 'Pen',
+    label: choices.find((c) => c.key === penMode)!.label,
+    choices,
+    help: fr
+      ? 'Pression\u202f: le stylet arrive comme un vrai stylet, pour dessiner. Souris\u202f: il sert de souris, sans la pression ni Windows Ink.'
+      : 'Pressure: the pen arrives as a real pen, for drawing. Mouse: it works as a mouse, without pressure or Windows Ink.',
+  }
+}
+
 /** L'empreinte telle que l'app la met en forme (`console::short_fingerprint` du cœur : « 7C41 E09B AABB CCDD »). */
 const shortFp = (f: string | null | undefined) => (f ?? '').replace(/^sha256:/i, '').replace(/[^0-9a-f]/gi, '').slice(0, 16).toUpperCase().match(/.{1,4}/g)?.join(' ') ?? ''
 const computerViews = () =>
@@ -624,6 +644,7 @@ const update = () => ({ version: '0.5.1', channel: 'stable', notes: notesFor(i18
  */
 const commonValues: Values = {
   manual_mbps: { min: 5, step: 5, max: 500, max_pyrowave: 2500, lg_tv_max: 95 },
+  hevc_after_pyrowave_mbps: 80,
   background_bitrate: { computer: 20_000_000 },
   max_guests: 4,
   max_sessions: 4,
@@ -1378,6 +1399,14 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     if (on) setTimeout(() => emit('bar-mic', { id: a.id as string, mic: barMic(on, 'on') }), 600)
     return null
   },
+  // `?stylet` : la ligne « Stylet » du menu « Souris » de la barre.
+  session_pen: (a) => {
+    penMode = a.mode === 'mouse' ? 'mouse' : 'pressure'
+    emit('bar-pen', { id: a.id as string, pen: barPen() })
+    return null
+  },
+  session_pen_state: () => (flags.has('stylet') ? barPen() : null),
+  pen_texts: () => barPen(false),
   mic_settings: () => ({
     devices: [
       { id: 'mic-1', name: 'Microphone (Realtek Audio)' },
@@ -2067,7 +2096,7 @@ export function mockTauri() {
           const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
           const room = Number(flags.get('largeur') ?? 1240) || 1240
           // `?mac` : une Station Mac (menu Touches du Mac).
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), system: flags.has('mac') ? 'mac' : flags.has('linux') ? 'other' : 'windows', room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : barMic(false, 'off'), console: psBarFlag ? psBarState : null }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), lend_warning: t(flags.has('mac') ? 'mock.lend_warning_mac' : flags.has('linux') ? 'mock.lend_warning_other' : 'mock.lend_warning'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : barMic(false, 'off'), pen: flags.has('stylet') ? barPen() : null, console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
           const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined)) || (host && autoFlag === 'reseau')
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.

@@ -341,14 +341,9 @@ impl AutoResult {
     /// résultat appliqué, d'après celui qu'il avait (`previous`) : la limite
     /// trouvée ; sinon un plafond gardé plus bas que le débit accepté du
     /// premier coup est retiré ; sinon celui d'avant.
+    /// (`rules::limits::next_encoder_max`, la règle que LG prend aussi sans le cœur.)
     pub fn next_encoder_max(&self, previous: Option<u32>) -> Option<u32> {
-        if let Some(n) = self.encoder_max() {
-            return Some(n);
-        }
-        match (previous, self.encoder_ok()) {
-            (Some(p), Some(ok)) if p < ok => None,
-            (p, _) => p,
-        }
+        kybernow_rules::limits::next_encoder_max(self.encoder_max(), self.encoder_ok(), previous)
     }
 
     /// Le test a-t-il été fait sur ce réseau ? (`network` : celui du moment,

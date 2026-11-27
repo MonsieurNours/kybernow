@@ -81,12 +81,13 @@ impl RefTracker {
     /// donner au décodeur ?
     pub fn check(&mut self, index: u16, data: &[u8]) -> Verdict {
         let mut slice = None;
-        for nal in nal_units(data) {
+        for nal in crate::nal::units(data) {
             if nal.len() < 3 {
                 continue;
             }
             let kind = (nal[0] >> 1) & 0x3f;
-            let rbsp = unescape(&nal[2..]);
+            // Le début seul suffit (en-têtes de tranche, SPS, PPS).
+            let rbsp = crate::nal::unescape_prefix(&nal[2..], 512);
             match kind {
                 33 => self.read_sps(&rbsp),
                 34 => self.read_pps(&rbsp),
@@ -363,44 +364,6 @@ fn parse_sps(rbsp: &[u8]) -> Option<(u32, Sps)> {
         return None;
     }
     Some((id, Sps { log2_max_poc_lsb, sets, long_term, separate_colour_plane }))
-}
-
-/// Les unités NAL d'un flux Annex B (sans le code de début).
-fn nal_units(data: &[u8]) -> impl Iterator<Item = &[u8]> {
-    let mut starts = Vec::new();
-    let mut i = 0;
-    while i + 3 <= data.len() {
-        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
-            starts.push(i + 3);
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    let mut out = Vec::with_capacity(starts.len());
-    for (k, &s) in starts.iter().enumerate() {
-        let mut e = starts.get(k + 1).map(|n| n - 3).unwrap_or(data.len());
-        while e > s && data[e - 1] == 0 {
-            e -= 1;
-        }
-        out.push(&data[s..e]);
-    }
-    out.into_iter()
-}
-
-/// Retire les octets d'échappement (00 00 03) ; le début seul suffit.
-fn unescape(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len().min(256));
-    let mut zeros = 0;
-    for &b in data.iter().take(512) {
-        if zeros >= 2 && b == 3 {
-            zeros = 0;
-            continue;
-        }
-        zeros = if b == 0 { zeros + 1 } else { 0 };
-        out.push(b);
-    }
-    out
 }
 
 struct Bits<'a> {

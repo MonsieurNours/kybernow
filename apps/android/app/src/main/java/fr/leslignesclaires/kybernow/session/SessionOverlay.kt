@@ -90,6 +90,7 @@ import fr.leslignesclaires.kybernow.core.ShareQuality
 import fr.leslignesclaires.kybernow.core.ShareRole
 import fr.leslignesclaires.kybernow.model.Mic
 import fr.leslignesclaires.kybernow.model.HdrState
+import fr.leslignesclaires.kybernow.model.PenChoice
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.PyroWaveLink
 import fr.leslignesclaires.kybernow.ui.Body
@@ -147,8 +148,8 @@ class SessionUi(
      * clavier de l'écran proposent les touches du Mac. Toujours faux pour un invité et un ami qui emprunte.
      */
     val mac: Boolean = false,
-    /** Le système de la Station (avertissement du prêt). */
-    val stationSystem: StationSystem = StationSystem.OTHER,
+    /** L'avertissement du prêt, selon le système de la Station (`lend::warning` du cœur). */
+    val lendWarningText: String = "",
     /**
      * « Regarder » avec un compte (docs/link-ui.md, « Regarder, barre ») : la session d'un invité ([guest] vrai), avec
      * « Arrêter de regarder » et, quand la Station le permet, « Écran » et sa liste ; nul pour un invité venu par un code.
@@ -178,6 +179,12 @@ class SessionUi(
     var micShown by mutableStateOf(false)
     var micChoice by mutableStateOf(false)
     var mic by mutableStateOf(Mic())
+    /**
+     * « Stylet » (docs/link-ui.md, « Stylet ») : la tuile telle que le cœur la donne (`PenChoice` : montrée quand un
+     * stylet a servi ou que l'appareil en a un, et que l'ordinateur le reçoit ; « Pression » ou « Souris »), relue à
+     * l'ouverture de la barre ou du menu et à chaque changement.
+     */
+    var pen by mutableStateOf(PenChoice())
     /**
      * PyroWave (docs/link-ui.md, « PyroWave ») : choisi à la main pour cet ordinateur ([pyroChosen], hôte seulement),
      * le réseau de l'appareil au début ([pyroLink] : câble ou Wi-Fi ; le relais se lit dans la route), le bandeau du
@@ -288,6 +295,8 @@ interface SessionActions {
     fun setHdr(on: Boolean) {}
     /** « Micro » allumé ou coupé (barre, raccourci V) ; refusé par l'ordinateur : la raison en avis. */
     fun setMicrophone(on: Boolean) {}
+    /** « Stylet » : bascule entre « Pression » et « Souris » (tuile, raccourci P) ; retenu pour l'ordinateur. */
+    fun togglePen() {}
     /** « Passer en HEVC » du bandeau PyroWave : l'image repart en HEVC, pour cette session seulement. */
     fun switchToHevc() {}
     /** « Refaire le test » du profil Auto : le panneau du test s'ouvre après la session. */
@@ -615,6 +624,7 @@ private fun capsuleText(c: Capsule): String = when (c) {
     is Capsule.RecordingNotice -> c.text
     is Capsule.MicNotice -> c.text
     is Capsule.PyroWaveFallback -> c.text
+    is Capsule.PenNotice -> c.text
     Capsule.MicNoAccess -> stringResource(R.string.mic_no_access)
 }
 
@@ -710,6 +720,8 @@ private fun HostBarItems(ui: SessionUi, sec: Second?, first: FocusRequester) {
         stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
         { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
     )
+    // « Stylet », après la souris (seulement avec un stylet, face à un ordinateur qui le reçoit).
+    PenChip(ui)
     screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
     BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
     GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
@@ -745,6 +757,8 @@ private fun GuestBarItems(ui: SessionUi, sec: Second?, role: ShareRole, first: F
             stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
             { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
         )
+        // Le stylet est la souris : un invité l'a avec le clavier et la souris.
+        PenChip(ui)
         BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
         GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
     }
@@ -1044,6 +1058,7 @@ private fun GuestTiles(ui: SessionUi, role: ShareRole, first: FocusRequester, au
         if (role.keyboardMouse) {
             Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
             Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
+            PenTile(ui)
             Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
             Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
         }
@@ -1070,6 +1085,7 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Doubl
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
         Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
+        PenTile(ui)
         // Le menu reste ouvert : on passe d'un écran à l'autre en voyant l'image derrière.
         screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }

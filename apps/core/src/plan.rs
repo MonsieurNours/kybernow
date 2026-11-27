@@ -45,6 +45,10 @@ pub struct Choices {
     /// quel que soit le profil ; sans lui, aucun (même pour Auto : le
     /// plafond gardé passe avant celui du résultat).
     pub encoder_max: Option<u32>,
+    /// « Passer en HEVC » du bandeau de PyroWave, pour la fin de la session
+    /// ([`StreamSettings::hevc_instead`] : un débit de PyroWave ramené, sans
+    /// reprendre PyroWave par câble ; l'app n'envoie pas `wired`).
+    pub hevc_instead: bool,
 }
 
 fn profile_key<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Profile>, D::Error> {
@@ -141,6 +145,9 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
     settings.adaptive = !c.fixed;
     // Hors du profil : il ne rend pas « Personnalisé ».
     settings.encoder_max = c.encoder_max.filter(|&n| n > 0);
+    if c.hevc_instead {
+        settings = settings.hevc_instead(caps.hevc444);
+    }
     (settings, mode)
 }
 
@@ -157,6 +164,7 @@ pub fn values_json(caps: Capabilities) -> serde_json::Value {
         "profiles": { "jeu": profile(Profile::Jeu), "bureau": profile(Profile::Bureau), "max": profile(Profile::Max) },
         "pyrowave_mbps": limits::PYROWAVE_MBPS,
         "pyrowave_mbps_444": limits::PYROWAVE_MBPS_444,
+        "hevc_after_pyrowave_mbps": limits::HEVC_AFTER_PYROWAVE_MBPS,
         "manual_mbps": { "min": limits::MANUAL_MBPS_MIN, "step": limits::MANUAL_MBPS_STEP, "max": limits::MANUAL_MBPS_MAX, "max_pyrowave": limits::MANUAL_MBPS_MAX_PYROWAVE, "lg_tv_max": limits::LG_TV_MBPS_MAX },
         "background_bitrate": {
             "computer": limits::background_bitrate(limits::Device::Computer),
@@ -168,6 +176,7 @@ pub fn values_json(caps: Capabilities) -> serde_json::Value {
         "max_guests": limits::MAX_GUESTS,
         "max_sessions": limits::MAX_SESSIONS,
         "relay_link_wait_secs": limits::RELAY_LINK_WAIT_SECS,
+        "camera_answer_wait_secs": crate::camera::ANSWER_WAIT.as_secs(),
         "station_notice_wait_secs": limits::STATION_NOTICE_WAIT_SECS,
         "station_notice_before": limits::STATION_NOTICE_BEFORE,
         "admin_port": address::ADMIN_PORT,
@@ -326,5 +335,19 @@ mod tests {
         let v = plan_json(r#"{"profile":"jeu","mbps":80}"#, caps(), screen()).unwrap();
         assert_eq!((v["settings"]["profile"].is_null(), v["mbps"].as_u64()), (true, Some(80)));
         assert!(plan_json("pas du json", caps(), screen()).is_none());
+    }
+
+    #[test]
+    fn passer_en_hevc() {
+        let pw = Choices { profile: None, codec: Some(Codec::PyroWave), mbps: Some(1500), hevc_instead: true, ..Default::default() };
+        let (s, _) = plan(&pw, caps(), screen());
+        assert_eq!(s.codec, Codec::Hevc);
+        assert_eq!(s.mbps, kybernow_rules::limits::HEVC_AFTER_PYROWAVE_MBPS);
+        assert!(!s.wired);
+        // Un profil garde son débit (celui de HEVC).
+        let max = Choices { profile: Some(Profile::Max), hevc_instead: true, ..Default::default() };
+        let (s, _) = plan(&max, caps(), screen());
+        let (base, _) = plan(&Choices { profile: Some(Profile::Max), ..Default::default() }, caps(), screen());
+        assert_eq!((s.codec, s.mbps, s.profile), (Codec::Hevc, base.mbps, Some(Profile::Max)));
     }
 }

@@ -8,86 +8,18 @@
 
 use kybernow_core::pyrowave::Config;
 
-/// Les métadonnées HDR10 du contenu, dans l'en-tête `KNPW` version 2
-/// (docs/kyber-changes.md, « En-tête KNPW version 2 », KYB-29) : le
-/// mastering display et les niveaux de lumière de la capture de la Station.
-/// Le cœur lit la tête du paquet ([`Config`]) ; ces octets en plus ne servent
-/// qu'à la swapchain de l'app, d'où leur lecture ici.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct ContentHdr {
-    /// Primaires rouge, vert, bleu puis blanc (x, y CIE 1931), luminances
-    /// max et min (nits).
-    pub mastering: Option<Mastering>,
-    /// MaxCLL, MaxFALL (nits).
-    pub light: Option<(u16, u16)>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Mastering {
-    pub primaries: [f32; 6],
-    pub white: [f32; 2],
-    pub max_nits: f32,
-    pub min_nits: f32,
-}
-
-/// Taille de l'en-tête version 2.
-pub const SIZE_V2: usize = 48;
-
-impl ContentHdr {
-    /// Les métadonnées d'un paquet de version 2 ou plus récente (au moins
-    /// [`SIZE_V2`] octets, les suivants ignorés) ; vides pour la version 1 ou
-    /// un paquet trop court.
-    pub fn parse(d: &[u8]) -> Self {
-        if d.len() < SIZE_V2 || d[4] < 2 {
-            return Self::default();
-        }
-        let u16le = |o: usize| u16::from_le_bytes([d[o], d[o + 1]]);
-        let u32le = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
-        // Unités de 0,00002 pour les coordonnées, de 0,0001 nit pour les luminances.
-        let xy = |o: usize| u16le(o) as f32 * 0.000_02;
-        let flags = d[16];
-        let mastering = (flags & 1 != 0).then(|| Mastering {
-            primaries: [xy(20), xy(22), xy(24), xy(26), xy(28), xy(30)],
-            white: [xy(32), xy(34)],
-            max_nits: u32le(36) as f32 * 0.0001,
-            min_nits: u32le(40) as f32 * 0.0001,
-        });
-        let light = (flags & 2 != 0).then(|| (u16le(44), u16le(46)));
-        Self { mastering, light }
-    }
-}
-
-/// Le format d'un flux PyroWave : la tête du paquet `KNPW` lue par le cœur
-/// (version 1 ou 2), et les métadonnées HDR10 de la version 2.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PwFormat {
-    pub config: Config,
-    pub content: ContentHdr,
-}
-
-impl PwFormat {
-    /// Un paquet de configuration ; `None` s'il n'en est pas un, s'il décrit
-    /// une image impossible, ou s'il se dit de version 2 sans en avoir la taille.
-    pub fn parse(d: &[u8]) -> Option<Self> {
-        let config = Config::parse(d)?;
-        if d[4] >= 2 && d.len() < SIZE_V2 {
-            return None;
-        }
-        Some(Self { config, content: ContentHdr::parse(d) })
-    }
-
-    /// Sans paquet de configuration (perdu, ou Station qui ne l'envoie pas) :
-    /// la définition et la chroma de l'en-tête de séquence de l'image, sinon
-    /// la taille de la session ; SDR plage pleine.
-    pub fn fallback(frame: &[u8], width: u32, height: u32) -> Self {
-        let config = Config::from_sequence_header(frame).unwrap_or_else(|| Config::fallback(width, height));
-        Self { config, content: ContentHdr::default() }
-    }
+/// Sans paquet de configuration (perdu, ou Station qui ne l'envoie pas) :
+/// la définition et la chroma de l'en-tête de séquence de l'image, sinon la
+/// taille de la session ; SDR plage pleine, sans métadonnées.
+pub fn fallback(frame: &[u8], width: u32, height: u32) -> Config {
+    Config::from_sequence_header(frame).unwrap_or_else(|| Config::fallback(width, height))
 }
 
 #[cfg(all(target_os = "android", feature = "pyrowave"))]
 mod native {
     use std::ffi::{c_char, c_int, c_void, CStr};
+
+    use super::Config;
 
     #[link(name = "kybernow_pyrowave")]
     unsafe extern "C" {
@@ -131,22 +63,23 @@ mod native {
         max_fall: f32,
     }
 
-    pub fn configure(s: &Raw, f: &super::PwFormat, l: Option<kybernow_core::profile::HdrLuminance>) -> bool {
-        let c = &f.config;
+    /// `c.hdr10` : les métadonnées HDR10 du contenu (en-tête `KNPW` version 2,
+    /// lues par le cœur), données au décodeur dans `kn_pw_content_hdr`.
+    pub fn configure(s: &Raw, c: &Config, l: Option<kybernow_core::profile::HdrLuminance>) -> bool {
         let (max, fall, min) = l.map_or((0.0, 0.0, 0.0), |l| (l.max as f32, l.full_frame as f32, l.min as f32));
-        let m = f.content.mastering;
+        let m = c.hdr10.mastering;
+        let light = c.hdr10.light;
         let content = ContentHdr {
             has_mastering: m.is_some() as c_int,
-            primaries: m.map_or([0.0; 6], |m| m.primaries),
-            white: m.map_or([0.0; 2], |m| m.white),
-            max_luminance: m.map_or(0.0, |m| m.max_nits),
-            min_luminance: m.map_or(0.0, |m| m.min_nits),
-            has_light: f.content.light.is_some() as c_int,
-            max_cll: f.content.light.map_or(0.0, |l| l.0 as f32),
-            max_fall: f.content.light.map_or(0.0, |l| l.1 as f32),
+            primaries: m.map_or([0.0; 6], |m| m.primaries_xy()),
+            white: m.map_or([0.0; 2], |m| m.white_xy()),
+            max_luminance: m.map_or(0.0, |m| m.max_nits() as f32),
+            min_luminance: m.map_or(0.0, |m| m.min_nits() as f32),
+            has_light: light.is_some() as c_int,
+            max_cll: light.map_or(0.0, |l| f32::from(l.max_cll)),
+            max_fall: light.map_or(0.0, |l| f32::from(l.max_fall)),
         };
-        let has = f.content != super::ContentHdr::default();
-        let p = if has { &content as *const ContentHdr } else { std::ptr::null() };
+        let p = if c.hdr10.is_empty() { std::ptr::null() } else { &content as *const ContentHdr };
         unsafe {
             kn_pw_configure(s.0, c.width, c.height, c.chroma444 as c_int, c.hdr as c_int, c.full_range as c_int, max, fall, min, p) != 0
         }
@@ -198,7 +131,7 @@ pub struct PwSession {
     raw: native::Raw,
     /// La surface, gardée tant que la swapchain l'utilise.
     _window: ndk::native_window::NativeWindow,
-    pub format: Option<PwFormat>,
+    pub format: Option<Config>,
 }
 
 #[cfg(target_os = "android")]
@@ -219,7 +152,7 @@ impl PwSession {
     /// Décodeur et plans pour ce format (rien si inchangé) ; des métadonnées
     /// HDR10 seules changées sont redonnées à la swapchain.
     #[allow(unused_variables)]
-    pub fn configure(&mut self, f: PwFormat, luminance: Option<kybernow_core::profile::HdrLuminance>) -> bool {
+    pub fn configure(&mut self, f: Config, luminance: Option<kybernow_core::profile::HdrLuminance>) -> bool {
         if self.format == Some(f) {
             return true;
         }
@@ -271,64 +204,15 @@ impl Drop for PwSession {
 mod tests {
     use super::*;
 
-    fn v1(chroma444: bool, hdr: bool, full: bool, w: u32, h: u32) -> Vec<u8> {
-        Config { chroma444, hdr, full_range: full, width: w, height: h }.bytes().to_vec()
-    }
-
-    /// L'en-tête v2 de docs/kyber-changes.md : 48 octets, petit-boutiste.
-    fn v2(flags: u8) -> Vec<u8> {
-        let mut b = v1(false, true, false, 3840, 2160);
-        b[4] = 2;
-        b.extend_from_slice(&[flags, 0, 0, 0]);
-        for v in [35400u16, 14600, 8500, 39850, 6550, 2300, 15635, 16450] {
-            b.extend_from_slice(&v.to_le_bytes());
-        }
-        b.extend_from_slice(&10_000_000u32.to_le_bytes()); // 1 000 nits
-        b.extend_from_slice(&1u32.to_le_bytes()); // 0,0001 nit
-        b.extend_from_slice(&1600u16.to_le_bytes());
-        b.extend_from_slice(&400u16.to_le_bytes());
-        assert_eq!(b.len(), SIZE_V2);
-        b
-    }
-
-    #[test]
-    fn version_1_lue_par_le_coeur() {
-        let f = PwFormat::parse(&v1(false, false, true, 3840, 2160)).unwrap();
-        assert_eq!(f.config, Config { chroma444: false, hdr: false, full_range: true, width: 3840, height: 2160 });
-        assert_eq!(f.content, ContentHdr::default());
-        assert!(PwFormat::parse(&v1(false, false, true, 1921, 1080)).is_none(), "4:2:0 de taille impaire");
-        assert!(PwFormat::parse(&v1(false, false, true, 3840, 2160)[..12]).is_none(), "trop court");
-    }
-
-    #[test]
-    fn version_2_et_ses_metadonnees() {
-        let f = PwFormat::parse(&v2(3)).unwrap();
-        assert!(f.config.hdr && !f.config.full_range && f.config.width == 3840);
-        let m = f.content.mastering.unwrap();
-        assert!((m.primaries[0] - 0.708).abs() < 1e-4 && (m.primaries[3] - 0.797).abs() < 1e-4);
-        assert!((m.white[0] - 0.3127).abs() < 1e-4 && (m.white[1] - 0.329).abs() < 1e-4);
-        assert!((m.max_nits - 1000.0).abs() < 1e-3 && (m.min_nits - 0.0001).abs() < 1e-6);
-        assert_eq!(f.content.light, Some((1600, 400)));
-        // Un champ sans son drapeau ne veut rien dire.
-        let f = PwFormat::parse(&v2(2)).unwrap();
-        assert!(f.content.mastering.is_none() && f.content.light == Some((1600, 400)));
-        assert_eq!(PwFormat::parse(&v2(0)).unwrap().content, ContentHdr::default());
-        // Octets en plus ignorés (version plus récente) ; version 2 trop courte refusée.
-        let mut longer = v2(3);
-        longer[4] = 3;
-        longer.extend_from_slice(&[9; 8]);
-        assert_eq!(PwFormat::parse(&longer).unwrap().content.light, Some((1600, 400)));
-        assert!(PwFormat::parse(&v2(3)[..32]).is_none());
-    }
-
     #[test]
     fn repli_sans_paquet() {
         // En-tête de séquence : bit de poids fort, largeur − 1 et hauteur − 1 sur 14 bits.
         let w0: u32 = (1 << 31) | ((1080 - 1) << 14) | (1920 - 1);
         let mut frame = w0.to_le_bytes().to_vec();
         frame.extend_from_slice(&0u32.to_le_bytes());
-        let f = PwFormat::fallback(&frame, 3840, 2160);
-        assert_eq!((f.config.width, f.config.height, f.config.hdr), (1920, 1080, false));
-        assert_eq!(PwFormat::fallback(&[1, 2], 1921, 1081).config.width, 1920);
+        let f = fallback(&frame, 3840, 2160);
+        assert_eq!((f.width, f.height, f.hdr), (1920, 1080, false));
+        assert!(f.hdr10.is_empty());
+        assert_eq!(fallback(&[1, 2], 1921, 1081).width, 1920);
     }
 }

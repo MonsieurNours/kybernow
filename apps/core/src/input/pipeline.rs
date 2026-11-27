@@ -230,6 +230,14 @@ pub struct InputPipeline {
     /// Le stylet était près de la surface au dernier envoi : la souris de
     /// l'appareil qui reprend le fait d'abord partir.
     pen_in_range: AtomicBool,
+    /// « Stylet : Souris » choisi pour l'ordinateur ([`Self::set_pen_mode`]) :
+    /// le stylet part en souris même quand l'ordinateur le reçoit.
+    pen_mouse: AtomicBool,
+    /// Un stylet a servi dans cette session (la ligne « Stylet » de la barre).
+    pen_seen: AtomicBool,
+    /// Écran et position du dernier stylet envoyé : il y est levé quand
+    /// « Souris » est choisi pendant qu'il est près de la surface.
+    pen_last: Mutex<(u32, i16, i16)>,
 }
 
 /// Les axes d'une tranche de 4 ms partent ensemble.
@@ -337,6 +345,9 @@ impl InputPipeline {
                 clipboard_allowed: AtomicBool::new(true),
                 connected: AtomicBool::new(false),
                 pen_available: AtomicBool::new(false),
+                pen_mouse: AtomicBool::new(false),
+                pen_seen: AtomicBool::new(false),
+                pen_last: Mutex::new((0, 0, 0)),
                 pen_contact: AtomicBool::new(false),
                 pen_in_range: AtomicBool::new(false),
             }
@@ -525,9 +536,41 @@ impl InputPipeline {
     }
 
     /// Le stylet part en stylet (ordinateur qui l'annonce, souris du
-    /// bureau) ; sinon l'app le traite en souris, comme avant.
+    /// bureau, « Stylet : Pression ») ; sinon l'app le traite en souris,
+    /// comme avant.
     pub fn pen_available(&self) -> bool {
-        self.pen_available.load(Ordering::SeqCst) && !self.is_relative()
+        self.pen_offered() && !self.is_relative() && !self.pen_mouse.load(Ordering::SeqCst)
+    }
+
+    /// L'ordinateur reçoit le stylet (« stylet disponible »), quel que soit
+    /// le choix « Pression » / « Souris » : la ligne « Stylet » de la barre.
+    pub fn pen_offered(&self) -> bool {
+        self.pen_available.load(Ordering::SeqCst)
+    }
+
+    /// Un stylet a servi dans cette session (même parti en souris).
+    pub fn pen_seen(&self) -> bool {
+        self.pen_seen.load(Ordering::SeqCst)
+    }
+
+    /// « Stylet : Pression / Souris » de l'ordinateur (docs/link-ui.md,
+    /// « Stylet »), donné au départ et à chaque changement. Passer en
+    /// « Souris » pendant que le stylet est près de la surface le lève
+    /// d'abord, là où il était.
+    pub fn set_pen_mode(&self, mode: super::PenMode) {
+        let mouse = mode == super::PenMode::Mouse;
+        if self.pen_mouse.swap(mouse, Ordering::SeqCst) == mouse {
+            return;
+        }
+        log::info!("{}stylet : {}", self.label.prefix(), mode.key());
+        if mouse && self.pen_available.load(Ordering::SeqCst) {
+            let (display_id, x, y) = *self.pen_last.lock().unwrap();
+            self.pen_leaves(display_id, x, y);
+        }
+    }
+
+    pub fn pen_mode(&self) -> super::PenMode {
+        if self.pen_mouse.load(Ordering::SeqCst) { super::PenMode::Mouse } else { super::PenMode::Pressure }
     }
 
     pub(crate) fn gamepad_gate(&self) -> Option<&GamepadGate> {
@@ -978,6 +1021,9 @@ impl InputPipeline {
     /// et ses clics comme avant. Les changements de contact partent
     /// sûrement, les déplacements une fois (le suivant rattrape).
     pub fn pen_on(&self, screen: Option<usize>, x: i16, y: i16, pen: &super::PenInput) -> bool {
+        if pen.in_range {
+            self.pen_seen.store(true, Ordering::SeqCst);
+        }
         if !self.pen_available() {
             return false;
         }
@@ -990,6 +1036,7 @@ impl InputPipeline {
         let contact = pen.in_range && pen.contact;
         let display_id = screen.and_then(|s| self.screen_display_id(s)).unwrap_or(self.display_id);
         let packet = OwnedPacket::from_packet(pen.to_kynput(display_id, x, y).to_packet(InputTarget::Host));
+        *self.pen_last.lock().unwrap() = (display_id, x, y);
         self.pen_contact.store(contact, Ordering::SeqCst);
         self.pen_in_range.store(pen.in_range, Ordering::SeqCst);
         if contact != was || !pen.in_range {
@@ -1845,6 +1892,30 @@ mod tests {
         b.pipeline.mouse(60, 0);
         b.pipeline.mouse(61, 0);
         assert_eq!(b.host.received(), ["stylet 60 sur 1 parti", "position 60", "position 61"]);
+    }
+
+    /// « Stylet : Souris » (docs/link-ui.md, « Stylet ») : le stylet part en
+    /// souris même quand l'ordinateur le reçoit ; choisi pendant qu'il
+    /// survole, il est levé d'abord ; la ligne de la barre sait qu'il a servi.
+    #[test]
+    fn stylet_en_souris() {
+        use crate::input::{PenInput, PenMode};
+        let b = Bench::new();
+        let hover = PenInput { in_range: true, ..Default::default() };
+        assert!(!b.pipeline.pen_seen());
+        b.pipeline.on_pen_available();
+        assert!(b.pipeline.pen_on(None, 10, 0, &hover));
+        assert!(b.pipeline.pen_seen());
+        b.host.clear();
+        b.pipeline.set_pen_mode(PenMode::Mouse);
+        assert_eq!(b.pipeline.pen_mode(), PenMode::Mouse);
+        assert_eq!(b.host.received(), ["stylet 10 sur 1 parti"]);
+        assert!(b.pipeline.pen_offered() && !b.pipeline.pen_available());
+        assert!(!b.pipeline.pen_on(None, 11, 0, &hover), "en souris : l'app l'envoie comme une souris");
+        b.pipeline.set_pen_mode(PenMode::Mouse);
+        assert_eq!(b.host.received().len(), 1, "le même choix ne renvoie rien");
+        b.pipeline.set_pen_mode(PenMode::Pressure);
+        assert!(b.pipeline.pen_on(None, 12, 0, &hover));
     }
 
     #[test]

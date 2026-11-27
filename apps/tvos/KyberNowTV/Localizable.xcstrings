@@ -2289,22 +2289,6 @@
         }
       }
     },
-    "Ce partage est arrêté." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This share has stopped."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ce partage est arrêté."
-          }
-        }
-      }
-    },
     "Ce QR code a expiré." : {
       "localizations" : {
         "en" : {
@@ -5261,22 +5245,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L'ordinateur n'a pas pu créer cet écran."
-          }
-        }
-      }
-    },
-    "L'ordinateur n'a pas pu passer en HDR : image en SDR." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The computer couldn't switch to HDR: picture in SDR."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L'ordinateur n'a pas pu passer en HDR : image en SDR."
           }
         }
       }
@@ -10230,7 +10198,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Test rumble"
+            "value" : "Test vibration"
           }
         },
         "fr" : {
@@ -10413,22 +10381,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trop d'envois : réessayez dans une heure."
-          }
-        }
-      }
-    },
-    "Trop de demandes en attente : réessayez dans un instant." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Too many requests waiting: try again in a moment."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Trop de demandes en attente : réessayez dans un instant."
           }
         }
       }
@@ -10621,54 +10573,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Une sortie Bluetooth ajoute du retard. Pour jouer en rythme, préférez la sortie HDMI."
-          }
-        }
-      }
-    },
-    "Vibration d'essai" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Test rumble"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vibration d'essai"
-          }
-        }
-      }
-    },
-    "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
-          }
-        }
-      }
-    },
-    "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
           }
         }
       }
@@ -10893,22 +10797,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur."
-          }
-        }
-      }
-    },
-    "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance."
           }
         }
       }

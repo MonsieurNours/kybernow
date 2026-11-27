@@ -153,6 +153,8 @@ sealed class Capsule {
     data class MicNotice(val text: String) : Capsule()
     /** « KyberNow Link n'a pas accès au micro. Autorisez-le dans les Réglages. » (autorisation refusée). */
     data object MicNoAccess : Capsule()
+    /** Le raccourci Ctrl+Alt+Maj+P : « Stylet : souris » / « Stylet : pression », le texte du cœur tel quel. */
+    data class PenNotice(val text: String) : Capsule()
 }
 
 /**

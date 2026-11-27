@@ -14,8 +14,10 @@ path = "src/main.rs"
 kybernow-core = { path = "../core", optional = true }
 # Règles communes des apps (adresses, empreintes, codes, relais, bornes) : sans le cœur, pour que l'interface se
 # compile aussi pour les captures.
-kybernow-rules = { path = "../core/rules" }
-keycode = { version = "1.0", optional = true }
+kybernow-rules = { path = "../core/rules", features = ["serde"] }
+# L'interface commune avec l'autre app sans le cœur (Linux et LG : langue, dates, test Auto, partage, prêt, mise à
+# jour des Stations).
+kybernow-ui = { path = "../ui-common" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -27,19 +29,12 @@ mdns-sd = { version = "0.13", default-features = false }
 getrandom = "0.2"
 # QR code de l'adresse d'Admin (rubrique Station) : pur Rust, sans dépendance.
 qrcodegen = "1.8"
-# « Envoyer le journal » : compressé et chiffré sur le téléviseur (KNJ1, docs/relais.md, « Dépôt d'un journal »).
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
-base64 = "0.22"
-flate2 = "1"
-# Le dépôt sur le relais, vérifié comme par le tunnel (empreinte épinglée d'un relais chez soi).
-kybernow-tunnel = { path = "../../server/relay/tunnel", optional = true }
-ureq = { version = "2.12", default-features = false, features = ["json", "tls"], optional = true }
 
 [features]
 # L'app pour le téléviseur : cœur, décodeur NDL, SDL. Sans elle (--no-default-features),
 # seule l'interface se compile : captures des écrans sur l'ordinateur (scripts/preview.sh).
 default = ["device"]
-device = ["dep:kybernow-core", "dep:keycode", "dep:kybernow-tunnel", "dep:ureq"]
+device = ["dep:kybernow-core", "kybernow-ui/core"]
 
 [build-dependencies]
 cc = "1"

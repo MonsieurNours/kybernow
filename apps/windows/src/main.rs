@@ -55,6 +55,9 @@ mod gpu;
 // HDR : écrans de ce PC (Windows), règles et courbes du rendu (se testent sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
 mod hdr;
+// Capsules transparentes sur l'image (aides d'une partie, signes d'une session).
+#[cfg(windows)]
+mod hint;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]
@@ -177,8 +180,7 @@ fn main() {
             "kybernow"
         };
         system::init_logging(name);
-        pyrowave_header();
-        system::dpi_aware();
+            system::dpi_aware();
         // Lancée depuis un terminal : on écrit dans le sien.
         system::attach_console();
         std::process::exit(cli::main());
@@ -202,17 +204,6 @@ fn main() {
     }
     instance::listen();
     system::init_logging("kybernow");
-    pyrowave_header();
     system::dpi_aware();
     ui::run(args);
-}
-
-/// La version du paquet de configuration de PyroWave que lit l'app, dite à
-/// Kyber pour toutes ses sessions (KYB-29) : avec la 2, la Station y joint
-/// les métadonnées HDR10 de sa capture (`hdr::pyrowave_hdr`) ; une Station
-/// d'avant l'ignore et envoie la version 1, toujours lue.
-#[cfg(windows)]
-fn pyrowave_header() {
-    #[cfg(feature = "kyber-pyrowave")]
-    kyclient::set_pyrowave_header(hdr::PYROWAVE_HEADER);
 }

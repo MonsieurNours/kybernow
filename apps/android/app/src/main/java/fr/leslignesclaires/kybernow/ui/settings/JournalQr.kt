@@ -35,10 +35,8 @@ import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.Core
 import fr.leslignesclaires.kybernow.model.Journal
 import fr.leslignesclaires.kybernow.model.JournalPost
-import fr.leslignesclaires.kybernow.model.JournalRelay
-import fr.leslignesclaires.kybernow.model.JournalRelayCalls
-import fr.leslignesclaires.kybernow.model.JournalSeal
 import fr.leslignesclaires.kybernow.model.JournalState
+import fr.leslignesclaires.kybernow.model.JournalUpload
 import fr.leslignesclaires.kybernow.ui.Body
 import fr.leslignesclaires.kybernow.ui.GlassButton
 import fr.leslignesclaires.kybernow.ui.Kn
@@ -58,8 +56,8 @@ sealed class JournalQrStep {
     data object Preparing : JournalQrStep()
     /** « Envoi du journal… » : le dépôt sur le relais. */
     data object Uploading : JournalQrStep()
-    /** Le QR code ; [until] : l'heure (ms, horloge de l'appareil) où le dépôt expire. */
-    data class Shown(val url: String, val relay: JournalRelay, val id: String, val owner: String, val until: Long) : JournalQrStep()
+    /** Le QR code ; [relay] : celui du dépôt, tel que l'app l'a donné ; [until] : l'heure (ms, horloge de l'appareil) où il expire. */
+    data class Shown(val url: String, val relay: String, val id: String, val owner: String, val until: Long) : JournalQrStep()
     /** « Journal ouvert sur le téléphone. » */
     data object Opened : JournalQrStep()
     /** « Ce QR code a expiré. », « Nouveau QR code ». */
@@ -73,28 +71,26 @@ sealed class JournalQrStep {
 
     companion object {
         /** L'étape après le dépôt. Un relais plein (503) dit, comme trop d'envois, de réessayer plus tard. */
-        fun after(post: JournalPost, relay: JournalRelay, key: ByteArray, now: Long): JournalQrStep = when (post) {
-            is JournalPost.Posted -> Shown(JournalSeal.qrUrl(relay, post.id, key), relay, post.id, post.owner, now + post.expiresIn * 1000L)
-            is JournalPost.TooMany, JournalPost.Full -> TooMany
+        fun after(post: JournalPost, now: Long): JournalQrStep = when (post) {
+            is JournalPost.Posted -> post.deposit.let { Shown(it.url, it.relay, it.id, it.owner, now + it.expiresIn * 1000L) }
+            JournalPost.TooMany -> TooMany
             JournalPost.OldRelay -> OldRelay
-            JournalPost.TooLarge, JournalPost.Unreachable -> Unreachable
+            JournalPost.Unreachable -> Unreachable
         }
     }
 }
 
-/** Prépare, chiffre et dépose le journal : l'étape à montrer ensuite. Hors du fil principal. */
+/** Prépare le journal, puis le cœur le chiffre et le dépose : l'étape à montrer ensuite. Hors du fil principal. */
 private fun upload(context: Context, relayAddress: String): JournalQrStep {
-    val relay = JournalRelay.parse(relayAddress) ?: JournalRelay.parse(Core.values().defaultRelay) ?: return JournalQrStep.Unreachable
     val text = runCatching { Journal.build(context).readBytes() }.getOrNull() ?: return JournalQrStep.Unreachable
-    val key = JournalSeal.newKey()
-    val deposit = JournalSeal.seal(JournalSeal.fit(text, Journal.headEnd(text)), key)
-    return JournalQrStep.after(JournalRelayCalls.post(relay, deposit), relay, key, System.currentTimeMillis())
+    val (header, body) = JournalUpload.split(text)
+    return JournalQrStep.after(JournalUpload.readPost(Core.journalDeposit(relayAddress, header, body)), System.currentTimeMillis())
 }
 
 /**
- * Android TV : « Envoyer le journal » par un QR code que le téléphone scanne. Le journal est chiffré ici, la clé n'est
- * que dans le QR code ; le relais du compte de l'appareil ([relay], sinon le public) le garde une heure, pour une
- * ouverture. L'écran suit le dépôt toutes les 2 s ; « Terminé » (ou Retour) retire un dépôt pas encore ouvert.
+ * Android TV : « Envoyer le journal » par un QR code que le téléphone scanne. Le journal est chiffré ici (par le cœur),
+ * la clé n'est que dans le QR code ; le relais du compte de l'appareil ([relay], sinon le public) le garde une heure,
+ * pour une ouverture. L'écran suit le dépôt toutes les 2 s ; « Terminé » (ou Retour) retire un dépôt pas encore ouvert.
  */
 @Composable
 fun JournalQrScreen(relay: String, onClose: () -> Unit) {
@@ -114,7 +110,7 @@ fun JournalQrScreen(relay: String, onClose: () -> Unit) {
         while (true) {
             delay(2000)
             if (System.currentTimeMillis() >= shown.until) { step = JournalQrStep.Expired; return@LaunchedEffect }
-            when (withContext(Dispatchers.IO) { JournalRelayCalls.state(shown.relay, shown.id, shown.owner) }) {
+            when (withContext(Dispatchers.IO) { JournalUpload.readState(Core.journalState(shown.relay, shown.id, shown.owner)) }) {
                 JournalState.OPENED -> { step = JournalQrStep.Opened; return@LaunchedEffect }
                 JournalState.GONE -> { step = JournalQrStep.Expired; return@LaunchedEffect }
                 // Un suivi manqué (réseau) ne change rien : le QR code reste.
@@ -126,7 +122,7 @@ fun JournalQrScreen(relay: String, onClose: () -> Unit) {
     DisposableEffect(Unit) {
         onDispose {
             val s = current as? JournalQrStep.Shown ?: return@onDispose
-            CoroutineScope(Dispatchers.IO).launch { JournalRelayCalls.delete(s.relay, s.id, s.owner) }
+            CoroutineScope(Dispatchers.IO).launch { Core.journalDiscard(s.relay, s.id, s.owner) }
         }
     }
     JournalQrContent(step, onDone = onClose, onRetry = { attempt++ })

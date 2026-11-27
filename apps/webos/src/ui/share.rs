@@ -274,7 +274,7 @@ fn card(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, r: Rect, m: &M
         let mut bx = x;
         let by = y + m.row - 48.0;
         for mv in ShareMove::ALL {
-            bx += button(cv, f, mv.target(i), bx, by, mv.label(g.role), 21.0, false) + 12.0;
+            bx += button(cv, f, crate::app::share_move_target(mv, i), bx, by, mv.label(g.role), 21.0, false) + 12.0;
         }
         button(cv, f, Target::ShareKick(i), bx, by, tr("Retirer", "Remove"), 21.0, true);
         y += m.row;

@@ -587,12 +587,7 @@ pub fn handle(e: AccountEvent, app: &mut App, actions: &mut Vec<crate::app::Acti
                     // Relais d'avant les réglages synchronisés (sans rien dire), trop gros, refusé : pas d'autre essai.
                     Err(e) => {
                         log::info!("comptes : réglages de {} pas gardés par le relais ({})", s.station, e.kind());
-                        if let Some(p) = sync.pending.get_mut(&s.station) {
-                            p.remove_sent(&s.values);
-                            if p.is_empty() {
-                                sync.pending.remove(&s.station);
-                            }
-                        }
+                        sync.refused(&s.station, &s.values);
                     }
                 }
                 keep(app, &key, &sync);
@@ -645,7 +640,7 @@ mod tests {
         let back: AccountSync = serde_json::from_value(serde_json::to_value(&ours).unwrap()).unwrap();
         assert_eq!(back, sync);
         // Les clés : `SyncKeys` est le JSON de `SyncedValues`, « Personnalisé » (`null`) compris.
-        let v = SyncedValues { profile: Some(None), yuv444: Some(true), hdr: Some(false), ..Default::default() };
+        let v = SyncedValues { profile: Some(None), yuv444: Some(true), hdr: Some(false), pen: Some("mouse".into()), ..Default::default() };
         assert_eq!(keys_to_core(&keys_from_core(&v)), Some(v));
     }
 }

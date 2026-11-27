@@ -190,11 +190,10 @@
   "pyrowave": {
     "banner_text": "The picture may stutter."
   },
+  "camera": {
+    "capsule": "● Camera"
+  },
   "micro": {
     "shortcut": "Ctrl+Alt+Shift+V"
-  },
-  "camera": {
-    "no_answer": "The computer isn't answering: the camera is off.",
-    "start_refused": "The camera couldn't start on the computer."
   }
 }

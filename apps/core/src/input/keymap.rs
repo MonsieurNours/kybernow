@@ -92,10 +92,8 @@ pub const SC_LEFT_WIN: u16 = 0xE05B;
 pub const SC_RIGHT_WIN: u16 = 0xE05C;
 
 /// La Station est un Mac : son système (`Info::os`, « macOS 26.1 ») commence
-/// par « macOS ».
-pub fn station_is_mac(os: &str) -> bool {
-    os.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("macos"))
-}
+/// par « macOS » (`rules::station`, la règle de toutes les apps).
+pub use kybernow_rules::station::station_is_mac;
 
 /// « Ctrl agit comme ⌘ » pour cet ordinateur : seulement face à un Mac, et
 /// allumé tant que l'utilisateur ne l'a pas éteint (`setting` : le réglage
@@ -123,12 +121,17 @@ pub fn scancode_of_usage(usage: u16) -> Option<u16> {
 }
 
 /// Hors des systèmes d'Apple, kynput n'exporte pas sa table HID
-/// (`kynput_keycode_usb_to_kyber` n'existe que pour macOS, iOS, tvOS) : le
-/// lien de l'app Windows échouait dès que le module d'entrées y était
-/// utilisé. Windows envoie ses propres scancodes, sans passer par ici.
+/// (`kynput_keycode_usb_to_kyber` n'existe que pour macOS, iOS, tvOS) : la
+/// table de la caisse `keycode` (usages 4 à 231 du clavier). Linux et LG y
+/// passent (scancode SDL = usage HID) ; Windows envoie ses propres
+/// scancodes, sans passer par ici.
 #[cfg(not(target_vendor = "apple"))]
-pub fn scancode_of_usage(_usage: u16) -> Option<u16> {
-    None
+pub fn scancode_of_usage(usage: u16) -> Option<u16> {
+    use keycode::{KeyMap, KeyMapping};
+    if !(4..=231).contains(&usage) {
+        return None;
+    }
+    KeyMap::from_key_mapping(KeyMapping::Usb(usage)).ok().map(|k| k.win).filter(|w| *w != 0)
 }
 
 /// Les deux en un : scancode à envoyer pour une touche donnée en usage HID.

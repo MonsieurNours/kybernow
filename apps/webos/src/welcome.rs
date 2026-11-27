@@ -11,14 +11,10 @@
 //!   (`card_visible`, « Fermer » puis « Ne plus afficher ») ; « Hors de chez vous ? » quand « Se connecter » vise un
 //!   ordinateur appairé absent du réseau (`take_away_hint`) ; le bandeau après un appairage (`take_paired_hint`).
 //!
-//! Les règles sont celles du cœur, `apps/core/src/welcome.rs`, reprises telles quelles (l'interface se compile sans
-//! le cœur, pour les captures) ; `WelcomeState` est gardé dans `kybernow.json` (`Store::welcome`).
+//! Les règles sont celles de `kybernow_rules::welcome` (la caisse des règles, sans le cœur : l'interface se compile
+//! aussi pour les captures) ; `WelcomeState` est gardé dans `kybernow.json` (`Store::welcome`).
 
-#[allow(dead_code)]
-#[path = "../../core/src/welcome.rs"]
-mod rules;
-
-pub use rules::{WelcomeState, STATION_DOWNLOAD_URL};
+pub use kybernow_rules::welcome::{WelcomeState, STATION_DOWNLOAD_URL};
 
 use crate::accounts::AccountFlow;
 use crate::app::{Action, App, Dialog, Screen, Target};
@@ -391,7 +387,7 @@ mod tests {
         assert!(app.account_card_shown() && app.account_button_shown());
         app.activate(Target::WelcomeCardClose);
         assert!(!app.account_card_shown(), "fermée : 30 jours");
-        app.store.welcome.card_closed_at -= rules::CARD_BACK_AFTER_SECS;
+        app.store.welcome.card_closed_at -= kybernow_rules::welcome::CARD_BACK_AFTER_SECS;
         assert!(app.account_card_shown() && app.store.welcome.card_close_is_final());
         app.activate(Target::WelcomeCardClose);
         assert!(!app.account_card_shown(), "ne plus afficher");

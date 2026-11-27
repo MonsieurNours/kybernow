@@ -673,7 +673,7 @@ mod tests {
         assert_eq!(m.changed(MicState::On, "PC-SALON"), None, "l'avis une fois");
         assert!(m.sent());
         assert_eq!((m.label(Lang::Fr), m.tile(Lang::En)), ("Micro".to_string(), "On".to_string()));
-        assert_eq!(m.tooltip(Lang::Fr, "Ctrl+Alt+Maj+V"), "Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)");
+        assert_eq!(m.tooltip(Lang::Fr, "Ctrl+Alt+Maj+V"), "Micro : envoyé à l'ordinateur (Ctrl+Alt+Maj+V)");
         // Refusé : puce estompée, la raison en infobulle et à l'appui.
         m.changed(MicState::Refused(MicRefusal::NoDevice), "PC");
         assert!(!m.lit() && m.refused().is_some());

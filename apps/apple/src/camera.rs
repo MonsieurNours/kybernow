@@ -24,6 +24,10 @@ pub const KN_CAMERA_DENIED: i32 = 0;
 pub const KN_CAMERA_IN_USE: i32 = 1;
 pub const KN_CAMERA_UNPLUGGED: i32 = 2;
 pub const KN_CAMERA_NO_ENCODER: i32 = 3;
+/// La session ne prend pas la caméra (`kn_camera_start` refusé).
+pub const KN_CAMERA_START_REFUSED: i32 = 4;
+/// Pas de réponse de l'ordinateur en `camera_answer_wait_secs` (`kn_values_json`).
+pub const KN_CAMERA_NO_ANSWER: i32 = 5;
 
 /// Allume la caméra, ou change de caméra ou de définition sans l'éteindre.
 /// `hevc` : HEVC (sinon H.264) ; `width`×`height` : la taille encodée ;
@@ -134,17 +138,12 @@ pub unsafe extern "C" fn kn_camera_stats_line(s: *const KnSession) -> *mut c_cha
     })
 }
 
-/// L'avis d'un refus de l'appareil (`KN_CAMERA_DENIED`, `_IN_USE`,
-/// `_UNPLUGGED` avec le nom de la caméra, `_NO_ENCODER`). À libérer.
+/// L'avis de la caméra que l'app montre (`KN_CAMERA_DENIED`, `_IN_USE`,
+/// `_UNPLUGGED` avec le nom de la caméra, `_NO_ENCODER`, `_START_REFUSED`,
+/// `_NO_ANSWER` ; `camera::DeviceNotice::code`). À libérer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_camera_device_notice(which: i32, camera_name: *const c_char) -> *mut c_char {
     kybernow_core::ffi_guard!(null => {
-        let which = match which {
-            KN_CAMERA_DENIED => DeviceNotice::Denied,
-            KN_CAMERA_IN_USE => DeviceNotice::InUse,
-            KN_CAMERA_UNPLUGGED => DeviceNotice::Unplugged,
-            _ => DeviceNotice::NoEncoder,
-        };
-        give(camera::device_notice(which, &text(camera_name), i18n::current()))
+        give(camera::device_notice(DeviceNotice::from_code(which), &text(camera_name), i18n::current()))
     })
 }

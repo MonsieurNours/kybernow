@@ -8,6 +8,17 @@
 //! macros `jinfo!` et `jwarn!` du cœur ajoutent le nom. Une
 //! session qui n'a pas de nom (une app à un ordinateur, qui ne l'inscrit pas
 //! dans [`crate::focus`]) écrit ses lignes comme avant, sans rien devant.
+//!
+//! « Envoyer le journal » par QR code (dépôt chiffré `KNJ1` sur le relais) :
+//! [`deposit`], [`state`], [`discard`], et l'en-tête du journal ([`header`]),
+//! dans `journal/upload.rs`.
+
+mod upload;
+
+pub use upload::{
+    CHECK_EVERY, DEFAULT_LIFETIME_SECS, DEPOSIT_MAX, Deposit, DepositError, MAGIC, Remote, compress, deposit, discard, header, header_now, open, page_url, seal,
+    seal_with, state, valid_token,
+};
 
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};

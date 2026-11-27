@@ -71,11 +71,6 @@ pub fn choices_json(result_json: &str, lang: Lang) -> Option<String> {
     result(result_json).map(|r| serde_json::to_string(&r.choices(lang)).unwrap_or_default())
 }
 
-/// Les réglages de session d'Auto (`AutoResult::settings`), le JSON de `sessionStart`.
-pub fn settings_json(result_json: &str, hdr: bool, wired: bool) -> Option<String> {
-    result(result_json).map(|r| r.settings(hdr, wired).to_json().to_string())
-}
-
 /// Le plafond de l'encodeur à garder pour l'ordinateur quand ce résultat est
 /// appliqué (« Appliquer » à la fin d'un test : `AutoResult::next_encoder_max`),
 /// d'après celui qu'il avait (`previous`) ; un résultat illisible le laisse.
@@ -96,7 +91,7 @@ mod android {
     use std::time::{Duration, Instant};
 
     use jni::objects::{JClass, JObject, JString, JValue};
-    use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE};
+    use jni::sys::{jboolean, jint, jlong, jstring};
     use ndk::hardware_buffer::HardwareBufferUsage;
     use ndk::media::image_reader::{AcquireResult, ImageFormat, ImageReader};
     use ndk::media::media_codec::{DequeuedInputBufferResult, DequeuedOutputBufferInfoResult, MediaCodec, MediaCodecDirection};
@@ -110,7 +105,7 @@ mod android {
     use crate::jvm::Listener;
     use kybernow_core::pyrowave::Config;
 
-    use crate::pyrowave::{ContentHdr, PwFormat, PwSession, Shown};
+    use crate::pyrowave::{PwSession, Shown};
 
     const BUFFER_FLAG_KEY_FRAME: u32 = 1;
     /// Durée de l'essai d'un extrait, une fois la première image sortie.
@@ -202,24 +197,6 @@ mod android {
         kybernow_core::ffi_guard!(null => {
             let r = string(&mut env, &result);
             match super::choices_json(&r, i18n::current()) {
-                Some(s) => give(&mut env, &s),
-                None => std::ptr::null_mut(),
-            }
-        })
-    }
-
-    /// Les réglages de session d'Auto pour ce résultat ; nul s'il est illisible.
-    #[unsafe(no_mangle)]
-    pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_autotestSettings(
-        mut env: Env,
-        _: JClass,
-        result: JString,
-        hdr: jboolean,
-        wired: jboolean,
-    ) -> jstring {
-        kybernow_core::ffi_guard!(null => {
-            let r = string(&mut env, &result);
-            match super::settings_json(&r, hdr != JNI_FALSE, wired != JNI_FALSE) {
                 Some(s) => give(&mut env, &s),
                 None => std::ptr::null_mut(),
             }
@@ -377,8 +354,8 @@ mod android {
         let reader = offscreen(s, 2)?;
         let window = reader.window().ok()?;
         let mut pw = PwSession::open(window).map_err(|e| log::warn!("profil Auto : PyroWave impossible ({e})")).ok()?;
-        let config = Config { chroma444: s.yuv444, hdr: false, full_range: true, width: s.width & !1, height: s.height & !1 };
-        if !pw.configure(PwFormat { config, content: ContentHdr::default() }, None) {
+        let config = Config::new(s.yuv444, false, true, s.width & !1, s.height & !1);
+        if !pw.configure(config, None) {
             return None;
         }
         let started = Instant::now();
@@ -452,14 +429,9 @@ mod tests {
         assert_eq!(done["choices"].as_array().unwrap().len(), 6);
         assert_eq!(done["choices"][0]["title"], "Format vidéo");
         let stored = done["result"].to_string();
-        // Le résultat gardé relu : le même résumé, les réglages d'Auto, le réseau.
+        // Le résultat gardé relu : le même résumé, le réseau (ses réglages : `plan::plan`, essayé dans le cœur).
         let choices: Value = serde_json::from_str(&choices_json(&stored, Lang::En).unwrap()).unwrap();
         assert_eq!(choices[0]["title"], "Video format");
-        let settings: Value = serde_json::from_str(&settings_json(&stored, false, true).unwrap()).unwrap();
-        assert_eq!(settings["profile"], "auto");
-        assert_eq!(settings["codec"], "hevc");
-        assert_eq!(settings["adaptive"], true);
-        assert_eq!(settings["wired"], true);
         assert!(same_network(&stored, Some("Wi-Fi")));
         assert!(!same_network(&stored, Some("Ethernet")));
         assert!(!same_network(&stored, Some("relay")));
@@ -489,8 +461,6 @@ mod tests {
         let limite = avec(Some(mesure(200, true)));
         assert_eq!(next_encoder_max(&limite, None), Some(200));
         assert_eq!(next_encoder_max(&limite, Some(150)), Some(200));
-        let settings: Value = serde_json::from_str(&settings_json(&limite, false, true).unwrap()).unwrap();
-        assert_eq!(settings["encoder_max"], 200);
         // Accepté du premier coup au-dessus du plafond gardé : il est retiré ; en dessous, il reste.
         let ok = avec(Some(mesure(300, false)));
         assert_eq!(next_encoder_max(&ok, Some(250)), None);

@@ -247,6 +247,41 @@ final class SessionController: SessionModel {
     /// Réglages de l'app changés (micro choisi, écho et bruit) : la capture reprend avec eux.
     func microphoneSettingsChanged() { engine?.microphoneSettingsChanged() }
 
+    // MARK: - Stylet : Pression / Souris (docs/link-ui.md, « Stylet »)
+
+    /// La tuile « Stylet », textes du cœur ; relue à l'ouverture de la barre
+    /// et quand l'Apple Pencil touche ou survole l'image.
+    @Published private(set) var pen = PenView()
+
+    /// La tuile a sa place : l'Apple Pencil a servi (dans cette session, ou
+    /// déjà dans l'app sur cet iPad) et l'ordinateur reçoit le stylet ;
+    /// seulement avec le clavier et la souris.
+    var penShown: Bool { pen.shown && (!isGuest || shareRole.keyboardAndMouse) }
+
+    func refreshPen() {
+        let view = engine?.penView(deviceHasPen: PenView.deviceHasPen) ?? PenView()
+        if view != pen { pen = view }
+    }
+
+    /// L'Apple Pencil touche ou survole l'image : retenu pour cet iPad.
+    private func pencilArrived() {
+        if !PenView.deviceHasPen { PenView.deviceHasPen = true }
+        refreshPen()
+    }
+
+    /// « Pression » ou « Souris » (tuile, réglage de l'ordinateur) : gardé
+    /// pour l'ordinateur, appliqué tout de suite.
+    func setPenMode(_ mode: PenMode) {
+        guard mode != host.settings.pen else { return }
+        host.settings.pen = mode
+        if !isVisitor { store.update(host) }
+        engine?.setPenMode(mode)
+        refreshPen()
+    }
+
+    /// La tuile « Stylet » touchée : bascule entre Pression et Souris.
+    func togglePenMode() { setPenMode(host.settings.pen.toggled) }
+
     /// « HDR » inactif touché dans la barre : sa raison, en avis.
     func explainHDR() {
         if let reason = hdrState.reason { show(notice: reason, for: 4) }
@@ -328,6 +363,8 @@ final class SessionController: SessionModel {
             show(notice: MicText.permission, for: 6, opensSettings: true)
         }
         refreshMic()
+        // « Stylet : Pression / Souris » retenu pour cet ordinateur.
+        params.penMode = settings.pen
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux, \(settings.consoleProfile, privacy: .public)")
         // Joignable par le relais seulement (ou relais forcé pour essayer) : la radio
         // cellulaire s'allume d'abord, par une requête de l'app vers le relais.
@@ -401,6 +438,15 @@ final class SessionController: SessionModel {
         streamView.onTap = { [weak self] in self?.setBar(false) }
         streamView.onTopEdgeSwipe = { [weak self] in self?.setBar(true) }
         streamView.onStickyChanged = { [weak self] in self?.sticky = $0 }
+        streamView.onPencil = { [weak self] in self?.pencilArrived() }
+        // Clavier de l'iPad : ⌃⌥⌘P bascule « Stylet : Pression / Souris »,
+        // avec l'avis bref (docs/link-ui.md, « Stylet »).
+        streamView.shortcutLetters = ["p"]
+        streamView.onShortcut = { [weak self] letter in
+            guard let self, letter == "p" else { return }
+            self.togglePenMode()
+            self.show(notice: self.host.settings.pen.notice, for: 2)
+        }
         let gamepads = GamepadBridge.shared
         gamepads.onMenuRequest = { [weak self] in self?.gamepadCombo() }
         gamepads.menuFromCombo = prefs.menuCombo
@@ -525,6 +571,8 @@ final class SessionController: SessionModel {
             GamepadBridge.shared.setCaptured(false)
         }
         guard open != barOpen else { return }
+        // La tuile « Stylet » : relue à l'ouverture de la barre.
+        if open { refreshPen() }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barOpen = open }
         // Pupitre : tout l'écran reste le pavé tactile, barre ouverte ou non.
         streamView.touchesSuspended = open && !external

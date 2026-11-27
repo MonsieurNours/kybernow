@@ -91,6 +91,9 @@ mod recording;
 // La caméra de ce PC vers l'ordinateur : la puce de la barre, Ctrl+Alt+Maj+C,
 // les réponses de l'ordinateur (docs/webcam.md).
 mod camera;
+// « Stylet : Pression / Souris » : la ligne du menu « Souris » de la barre,
+// Ctrl+Alt+Maj+P, le choix par ordinateur (docs/link-ui.md « Stylet »).
+mod pen;
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -1564,19 +1567,6 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on, plan: planned })
 }
 
-/// Le système d'une Station d'après `os` de son `info` (« Windows 11 Pro
-/// 24H2 », « macOS 15.2 », une distribution Linux) : `windows`, `mac`
-/// (la règle du cœur, `keymap::station_is_mac`), sinon `other`.
-fn station_system(os: &str) -> &'static str {
-    if kybernow_core::input::keymap::station_is_mac(os) {
-        "mac"
-    } else if os.trim_start().to_ascii_lowercase().starts_with("windows") {
-        "windows"
-    } else {
-        "other"
-    }
-}
-
 /// « Envoyer le journal » (Réglages de l'app › À propos, docs/link-ui.md) :
 /// le fichier `kybernow-journal.txt` (`journal.rs`), puis la fenêtre
 /// « Partager » de Windows au-dessus de l'accueil. Le temps de la préparation,
@@ -2011,6 +2001,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     let adaptive = settings.adaptive;
     let hdr = settings.hdr_on();
     let microphone = settings.microphone;
+    let pen_mode = settings.pen_mode();
     let before = state.with_store(|s| {
         let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         let before = std::mem::replace(&mut c.settings, settings);
@@ -2027,6 +2018,10 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
     // « Micro » de la rubrique Son pendant sa session : tout de suite.
     if microphone != before.microphone && state.in_session(&id) {
         let _ = micro::apply(&app, &id, microphone);
+    }
+    // « Stylet » de la rubrique Commandes pendant sa session : tout de suite.
+    if pen_mode != before.pen_mode() && state.in_session(&id) {
+        let _ = pen::apply(&app, &id, pen_mode);
     }
     // « Ctrl agit comme ⌘ » changé pendant sa session : tout de suite.
     let on = kybernow_core::input::keymap::control_as_command(ctrl_command, &computer_os(&state, &id));
@@ -2162,10 +2157,10 @@ struct BarShown {
     /// (« ⌘ ⇥ », « ⌘ Espace »…). Faux pour un invité ou un ami, qui ne
     /// connaissent pas son système.
     mac: bool,
-    /// Le système de la Station (`windows`, `mac`, `other` : Linux ou
-    /// inconnu), d'après `os` de son `info` : l'avertissement du prêt le dit
-    /// (« votre session Windows », « du Mac », ou « votre session »).
-    system: &'static str,
+    /// L'avertissement du prêt selon le système de la Station (`os` de son
+    /// `info`, `lend::warning` du cœur) : « votre session Windows », « du
+    /// Mac », ou « votre session ».
+    lend_warning: String,
     /// La largeur de la zone cliente de la session, en points (bornée par la
     /// fenêtre de la barre) : au-delà, la barre se fait étroite.
     room: f64,
@@ -2214,6 +2209,10 @@ struct BarShown {
     /// La puce « Micro » (docs/link-ui.md « Micro ») : `MicUi::ui_json` du cœur ;
     /// absente sans micro sur ce PC.
     mic: Option<serde_json::Value>,
+    /// La ligne « Stylet » du menu « Souris » (docs/link-ui.md « Stylet ») :
+    /// `PenChoice::ui_json` du cœur ; absente tant qu'elle ne se montre pas
+    /// (aucun stylet, ou ordinateur qui ne le reçoit pas).
+    pen: Option<serde_json::Value>,
     /// PyroWave (docs/link-ui.md) : ce PC rejoint l'ordinateur par câble ;
     /// la barre en tire la puce ambre « PyroWave en Wi-Fi » quand l'image est
     /// en PyroWave (format des mesures) sans câble.
@@ -2242,7 +2241,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         mouse: "auto".to_string(),
         clipboard: false,
         mac: false,
-        system: "other",
+        lend_warning: String::new(),
         room: BAR_WINDOW_WIDTH,
         stats: false,
         pinned,
@@ -2262,6 +2261,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         route,
         hdr: None,
         mic: None,
+        pen: None,
         wired: None,
         notice_kind: None,
         console: Some(console),
@@ -2573,6 +2573,10 @@ impl HostEvents for UiEvents {
     }
     fn toggle_microphone(&self) {
         self.mic_toggle();
+    }
+    // Stylet (docs/link-ui.md « Stylet ») : ui/pen.rs.
+    fn toggle_pen(&self) {
+        self.pen_toggle();
     }
 
     fn camera_offer(&self, offered: bool) {
@@ -3080,6 +3084,7 @@ fn session_plan(
         auto: c.auto.clone(),
         fixed: !s.adaptive,
         encoder_max: c.encoder_max,
+        hevc_instead: false,
     };
     let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.
@@ -3684,6 +3689,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             control_as_command,
             immersive: s.immersive.clone(),
             microphone: s.microphone,
+            pen: s.pen_mode(),
         },
         events.clone(),
     ) {
@@ -3912,9 +3918,10 @@ fn session_hevc(app: AppHandle, id: String) -> Result<(), String> {
     let pc = state.this_pc.locked().clone().unwrap_or_default();
     let settings = {
         let mut sent = sent.locked();
-        sent.settings.codec = kybernow_core::profile::Codec::Hevc;
-        // 4:4:4 en HEVC seulement si la carte le décode.
-        sent.settings.yuv444 = sent.settings.yuv444 && pc.hevc444;
+        // HEVC (4:4:4 seulement si la carte le décode), un débit réglé à la
+        // main pour PyroWave ramené à celui de HEVC, sans PyroWave repris par
+        // câble : la règle du cœur.
+        sent.settings = sent.settings.hevc_instead(pc.hevc444);
         sent.settings.clone()
     };
     let shown = {
@@ -4109,7 +4116,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
     };
     let os = computer_os(&state, id);
     let mac = host_session && kybernow_core::input::keymap::station_is_mac(&os);
-    let system = station_system(&os);
+    let lend_warning = kybernow_core::lend::warning(&os, i18n::lang());
     let before = state.bar_session.locked().replace(id.to_string());
     // La barre servait une partie sur console : la console reçoit de nouveau la manette.
     if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
@@ -4160,7 +4167,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         mouse,
         clipboard,
         mac,
-        system,
+        lend_warning,
         room,
         stats: panel == Some("stats"),
         pinned,
@@ -4180,6 +4187,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         route,
         hdr: bar_hdr(&state, id),
         mic: state.with_session(id, |r| r.events.bar_mic()).flatten(),
+        pen: pen::bar_view(app, id),
         wired: state.with_session(id, |r| r.sent.locked().settings.wired),
         notice_kind: panel.and_then(|p| ["pyrowave_wifi", "pyrowave_relay", "pyrowave_strained", "auto_network"].into_iter().find(|k| *k == p)),
         console: None,
@@ -4652,6 +4660,9 @@ pub fn run(args: Vec<String>) {
             micro::mic_settings,
             micro::set_mic_device,
             micro::set_mic_voice,
+            pen::session_pen,
+            pen::session_pen_state,
+            pen::pen_texts,
             synced::set_sync_settings,
             autotest::autotest_run,
             autotest::autotest_cancel,

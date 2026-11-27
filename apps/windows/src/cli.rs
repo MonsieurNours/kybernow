@@ -383,6 +383,7 @@ pub fn main() -> i32 {
             control_as_command: kybernow_core::input::keymap::control_as_command(None, &info.os),
             immersive: "fullscreen".into(),
             microphone: false,
+            pen: Default::default(),
             layout,
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),

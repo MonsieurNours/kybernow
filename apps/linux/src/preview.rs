@@ -380,8 +380,14 @@ fn computers_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, p
         s.bar_menu = Some(BarMenu::Mouse);
     }
     shot_view(app, cv, Some(video), dir, &name("17j-barre-souris"), ui::View { session: Some(2), ..ui::View::SINGLE });
+    // La ligne « Stylet » sous les choix de la souris (un stylet a servi, l'ordinateur le reçoit).
+    if let Some(s) = app.session_mut() {
+        s.pen_shown = true;
+    }
+    shot_view(app, cv, Some(video), dir, &name("17k-barre-souris-stylet"), ui::View { session: Some(2), ..ui::View::SINGLE });
     if let Some(s) = app.session_mut() {
         s.bar_menu = None;
+        s.pen_shown = false;
     }
     app.pointer = None;
     app.set_session(None);
@@ -744,7 +750,7 @@ fn relay_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
 
 /// L'ordinateur de Matthieu, emprunté avec un compte d'ami (prêt de l'ordinateur).
 fn borrowed() -> Borrowed {
-    Borrowed { hdr_off: false, mic: false, id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
+    Borrowed { hdr_off: false, mic: false, pen_mouse: false, id: "lend:m".into(), host: "Matthieu".into(), computer: "PC-SALON".into(), address: "192.168.1.42".into(), port: 24811, fingerprint: Some("sha256:3e:91:0a:7c:55:d2:18:b4".into()), relay: None, sid: None, login: "lea".into(), password: "secret".into(), remember: true }
 }
 
 /// Un emprunt à l'image : l'ordinateur de Matthieu, jusqu'à dans 1 h 20.
@@ -3102,6 +3108,47 @@ mod tests {
         app.set_session(Some(g));
         let s = app.session().unwrap().clone();
         assert!(ui::at_bar_edge(&mut cv, &app, &s, 1280.0, 640.0, 0.0));
+    }
+
+    /// « Stylet : Pression / Souris » (docs/link-ui.md) : la ligne « Stylet » du menu de la souris et la tuile du menu
+    /// n'existent que quand le cœur les montre (`pen_shown`) ; les deux choix sous ceux de la souris, le menu dans la
+    /// fenêtre la plus étroite.
+    #[test]
+    fn pen_row_only_when_shown() {
+        crate::i18n::force_english(false);
+        let mut app = demo(false, Layout::Desktop);
+        let mut cv = Canvas::new();
+        for size in [(1280, 800), (960, 600)] {
+            cv.resize(size.0, size.1, 1.0);
+            let mut s = session(&app);
+            s.menu = false;
+            s.relative = false;
+            s.bar = true;
+            s.bar_menu = Some(BarMenu::Mouse);
+            s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+            app.set_session(Some(s));
+            app.screen = Screen::Session;
+            let pens = |hits: &[(Target, crate::app::Rect)]| hits.iter().filter(|(t, _)| matches!(t, Target::BarPenPick(_))).map(|(t, r)| (*t, *r)).collect::<Vec<_>>();
+            let hits = ui::draw(&app, &mut cv);
+            assert!(pens(hits.as_slice()).is_empty(), "sans stylet : pas de ligne « Stylet »");
+            assert_eq!(hits.iter().filter(|(t, _)| matches!(t, Target::BarMousePick(_))).count(), 3);
+            app.session_mut().unwrap().pen_shown = true;
+            let hits = ui::draw(&app, &mut cv);
+            let pen = pens(hits.as_slice());
+            assert_eq!(pen.iter().map(|p| p.0).collect::<Vec<_>>(), vec![Target::BarPenPick(0), Target::BarPenPick(1)], "{size:?}");
+            let last_mouse = hits.iter().filter(|(t, _)| matches!(t, Target::BarMousePick(_))).map(|(_, r)| r.y + r.h).fold(0.0f32, f32::max);
+            assert!(pen.iter().all(|(_, r)| r.y >= last_mouse && r.y + r.h <= size.1 as f32 && r.x >= 0.0 && r.x + r.w <= size.0 as f32), "{size:?} : {pen:?}");
+            // La tuile du menu à la manette, avec la même règle.
+            let mut s = app.session().unwrap().clone();
+            s.bar_menu = None;
+            s.menu = true;
+            app.set_session(Some(s));
+            let tiles = ui::draw(&app, &mut cv);
+            assert!(tiles.iter().any(|(t, _)| *t == Target::Menu(MenuItem::Pen)));
+            app.session_mut().unwrap().pen_shown = false;
+            let tiles = ui::draw(&app, &mut cv);
+            assert!(tiles.iter().all(|(t, _)| *t != Target::Menu(MenuItem::Pen)));
+        }
     }
 
     /// « Qualité de l'image » d'un invité, au bureau : une puce dans la barre (la qualité reçue), les cinq choix dans son

@@ -37,8 +37,6 @@ object Native {
     @JvmStatic external fun autotestFree(handle: Long)
     /** Le résumé d'un résultat gardé, dans la langue de l'app : `[{key, title, value, reason}]` ; nul s'il est illisible. */
     @JvmStatic external fun autotestChoices(resultJson: String): String?
-    /** Les réglages de session d'Auto pour ce résultat (`AutoResult::settings`, profil `auto`) ; nul s'il est illisible. */
-    @JvmStatic external fun autotestSettings(resultJson: String, hdr: Boolean, wired: Boolean): String?
     /**
      * « Appliquer » un nouveau résultat : le plafond de l'encodeur à garder pour l'ordinateur (Mbit/s par écran, 0 : aucun ;
      * `AutoResult::next_encoder_max`), d'après celui gardé ([previous], 0 : aucun) ; un résultat illisible le laisse.
@@ -61,8 +59,12 @@ object Native {
     @JvmStatic external fun relayNormalize(addr: String): String?
     /** Le texte de link-ui d'une erreur du relais (30, 31, 32) avec le nom de l'ordinateur ; `null` pour un autre code. */
     @JvmStatic external fun relayErrorText(code: Int, name: String?): String?
-    /** Les parties d'une adresse de relais : `{authority, pin}` (`authority` sans le port 443, `pin` `sha256:…` ou nul) ; nul si illisible. */
-    @JvmStatic external fun relayParts(addr: String): String?
+    /** « Envoyer le journal » : `{relay, id, owner, url, expires_in}` ou `{error, detail}` (`journal::deposit`). Bloquant. */
+    @JvmStatic external fun journalDeposit(relay: String, header: String, body: String): String?
+    /** L'état d'un dépôt : 0 en attente, 1 ouvert, 93 plus là, 90 pas de réponse. Bloquant. */
+    @JvmStatic external fun journalState(relay: String, id: String, owner: String): Int
+    /** Retire un dépôt pas encore ouvert ; faux si le relais n'a pas répondu. Bloquant. */
+    @JvmStatic external fun journalDiscard(relay: String, id: String, owner: String): Boolean
     /** Le relais tel qu'on le montre : `share.kybernow.app`, `relais.exemple.org:9443`, sans empreinte épinglée ni port 443. */
     @JvmStatic external fun relayLabel(addr: String): String
     @JvmStatic external fun consoleFree(handle: Long)
@@ -87,6 +89,12 @@ object Native {
     @JvmStatic external fun fingerprintSame(a: String, b: String): Boolean
     /** Une adresse tapée : `{host, port}`, le port [defaultPort] quand il manque (0 : il est exigé) ; nul si elle ne se lit pas. */
     @JvmStatic external fun parseAddress(text: String, defaultPort: Int): String?
+    /**
+     * Le plan d'une session (`plan::plan_json`) : les choix de l'ordinateur (`profile`, `codec`, `mbps`, `reliable`,
+     * `auto`, `fixed`, `encoder_max`, `hevc_instead`), ce que décode l'appareil, l'écran de l'appareil ; `{settings, mode,
+     * mbps, label}`.
+     */
+    @JvmStatic external fun planJson(choicesJson: String, capabilitiesJson: String, width: Int, height: Int, refresh: Int): String?
     /**
      * Les valeurs communes des apps pour les décodeurs de l'appareil (`{hevc, hevc444, av1, hdr, pyrowave}`) : profils,
      * bornes du débit à la main, débit en arrière-plan, maxima, délais, port d'Admin. Une fois au lancement ; nul si illisible.
@@ -296,12 +304,16 @@ object Native {
      * `last` (le dernier `{station, updated_at, values}` connu, nul sinon) : `value`, le nouveau à garder. Bloquant.
      */
     @JvmStatic external fun accountSettingsPut(accountJson: String, station: String, lastJson: String?, valuesJson: String): String
-    /** Les clés connues et vérifiées d'un `{station, updated_at, values}` : `value` `{profile, codec, yuv444, mbps, hdr, immersive}`. */
-    @JvmStatic external fun accountSettingsKnown(syncedJson: String): String
     /** Les clés à envoyer d'après des réglages de session (`settings` de [sessionStart]) et le mode immersif (nul ici). */
     @JvmStatic external fun accountSettingsFromStream(settingsJson: String, immersive: String?): String
     /** Les réglages de session `base` avec les clés reçues, ramenés à ce que l'appareil décode (`caps`) : `value`, le JSON de `base`. */
     @JvmStatic external fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String): String
+    /**
+     * La mémoire des réglages synchronisés d'un compte (`account::AccountSync`, JSON gardé par l'app ; vide : neuve) :
+     * l'opération [op] (`to_send`, `sent`, `unsent`, `refused`, `forget`, `fetched`, `last`, `pending`) pour [station],
+     * avec [a] et [b] selon l'opération ; rend `{sync, value}` (la mémoire après l'opération, et sa réponse).
+     */
+    @JvmStatic external fun accountSync(op: String, sync: String, station: String, a: String, b: String): String?
     /** « Synchroniser les réglages des ordinateurs » et son aide : `[titre, aide]` en JSON. */
     @JvmStatic external fun accountSyncSettingsTexts(): String
 
@@ -319,13 +331,12 @@ object Native {
     // Face à une Station Mac (docs/link-ui.md, « Face à une Station Mac » ; règles du cœur, `keymap`).
     /** La Station est un Mac : son système (`os` de l'info, « macOS 26.1 ») commence par « macOS ». */
     @JvmStatic external fun stationIsMac(os: String): Boolean
+    /** L'avertissement du prêt selon le système de la Station (`lend::warning`). */
+    @JvmStatic external fun lendWarning(os: String): String
     /** « Ctrl agit comme ⌘ » pour cet ordinateur : face à un Mac seulement, allumé par défaut ; `setting` −1 jamais changé, 0, 1. */
     @JvmStatic external fun controlAsCommand(setting: Int, os: String): Boolean
     /** L'ordinateur crée les manettes de l'appareil (`gamepads` de l'info, JSON de [consoleInfo]) ; vrai sans le champ. */
     @JvmStatic external fun gamepadsAvailable(infoJson: String): Boolean
-
-    /** Réglages d'un profil (`jeu`, `bureau`, `max`) selon les décodeurs de l'appareil. */
-    @JvmStatic external fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
 
     // Session.
     @JvmStatic external fun sessionStart(params: String, surface: Surface?, listener: SessionListener, refresh: Int): Long
@@ -374,6 +385,24 @@ object Native {
     /** Les [n] premiers échantillons de [samples] (flottants mono, [rate] Hz), depuis le fil de capture ; ne bloque pas. */
     @JvmStatic external fun sessionPushMicrophone(handle: Long, samples: FloatArray, n: Int, rate: Int)
 
+    // Stylet (docs/link-ui.md, « Stylet » ; docs/stylet.md).
+    /**
+     * « Stylet : Pression / Souris » de l'ordinateur (`pressure`, `mouse` ; une autre clé : « Pression ») : juste après
+     * [sessionStart], puis à chaque changement (tuile, raccourci Ctrl+Alt+Maj+P, réglage). En « Souris », [inputPen]
+     * rend `false` : le stylet part en souris.
+     */
+    @JvmStatic external fun sessionSetPenMode(handle: Long, mode: String)
+    /**
+     * La tuile « Stylet » de la session (`PenChoice::ui_json`) : `{shown, mode, title, label, choices: [{key, label}],
+     * help}` ; `shown` quand un stylet a servi ou que l'appareil en a un ([deviceHasPen]) et que l'ordinateur le reçoit.
+     * Nul sans session.
+     */
+    @JvmStatic external fun sessionPenChoice(handle: Long, deviceHasPen: Boolean): String?
+    /** La ligne « Stylet » des réglages de l'ordinateur : le même JSON, sans session (`shown` faux, « Pression »). */
+    @JvmStatic external fun penTexts(): String?
+    /** L'avis bref du raccourci : « Stylet : souris » / « Stylet : pression » (`PenMode::notice`). */
+    @JvmStatic external fun penNotice(mode: String): String
+
     // HDR (docs/hdr.md).
     /** Le choix « HDR » changé en session (barre, menu) : l'image est relancée, [SessionListener.onHdr] suit. */
     @JvmStatic external fun sessionSetHdr(handle: Long, hdr: Boolean)
@@ -402,7 +431,7 @@ object Native {
     /**
      * Stylet (docs/link-ui.md, « Stylet »), état complet, en pixels de l'écran de l'ordinateur. `tilt` et `orientation` :
      * `AXIS_TILT` et `AXIS_ORIENTATION` en radians, lus si `hasTilt`. `false` : le stylet part en souris (Station
-     * d'avant, souris des jeux), l'app envoie la position et le clic gauche.
+     * d'avant, « Stylet : Souris », souris des jeux), l'app envoie la position et le clic (droit avec le bouton du stylet).
      */
     @JvmStatic external fun inputPen(
         handle: Long, x: Double, y: Double, inRange: Boolean, contact: Boolean, pressure: Float,

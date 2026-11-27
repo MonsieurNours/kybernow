@@ -1655,6 +1655,8 @@ fn share_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>
         (403, "refused") => ShareError::Refused,
         (410, _) => ShareError::Expired,
         (429, _) => ShareError::TooManyTries { seconds: body.get("retry_after").and_then(|s| s.as_u64()).or(retry_after) },
+        // Passager : la Station ne peut pas signer le jeton de Kyber.
+        (503, _) => ShareError::Unavailable,
         _ => {
             let message = if code.is_empty() { tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]) } else { code.to_string() };
             ShareError::Other(ConsoleError::Http { status, message })
@@ -2055,7 +2057,7 @@ mod tests {
     fn station_trop_ancienne() {
         assert_eq!(
             StationError::Unsupported.text(Lang::Fr),
-            "cette version de KyberNow Station ne le permet pas : mettez-la à jour depuis Admin"
+            "cette version de KyberNow Station ne le permet pas : mettez-la à jour depuis Admin"
         );
         assert_eq!(StationError::Unsupported.text(Lang::En), "this version of KyberNow Station can’t do this: update it from Admin");
     }
@@ -2226,7 +2228,7 @@ mod tests {
         // Session de l'appareil fermée : rien ne part vers Admin, la raison est rendue.
         let c = Console::account("127.0.0.1", port, access(Tokens { closed: true, ..Default::default() }), None);
         assert!(matches!(c.info(), Err(ConsoleError::Account(AccountError::SignedOut))));
-        assert_eq!(ConsoleError::Account(AccountError::SignedOut).text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+        assert_eq!(ConsoleError::Account(AccountError::SignedOut).text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
     }
 
     /// Vérification des mises à jour de la Station (docs/link-ui.md, « Mise à
@@ -2291,7 +2293,7 @@ mod tests {
         // Une Station qui ne connaît pas la route.
         let old = c.share_watch(&req).unwrap_err();
         assert!(matches!(old, ShareError::WatchUnsupported));
-        assert_eq!(old.text(Lang::Fr), "Cette Station ne permet pas encore de regarder : mettez-la à jour.");
+        assert_eq!(old.text(Lang::Fr), "Cette Station ne permet pas encore de regarder : mettez-la à jour.");
         assert_eq!(old.text(Lang::En), "This Station can't be watched yet: update it.");
         // « Écran » : la réponse d'un signe de vie.
         let b = Console::guest("127.0.0.1", port, None).share_watch_display("g1", "s1", 8).unwrap();

@@ -89,7 +89,7 @@
   import LendPanelView from './bar/LendPanel.svelte'
   import SharePanel from './bar/SharePanel.svelte'
   import PsBarView, { type PsItem } from './bar/PsBar.svelte'
-  import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
+  import type { BarHdr, BarMic, BarPen, Chosen, PenMode, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
   import { fillRecording, invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
@@ -121,7 +121,7 @@
   /** L'ordinateur est une Station Mac : le menu Touches propose ses touches (« ⌘ ⇥ »…). */
   let mac = $state(false)
   /** Le système de la Station (`windows`, `mac`, `other`) : l'avertissement du prêt le dit. */
-  let system = $state<'windows' | 'mac' | 'other'>('other')
+  let lendWarning = $state('')
   /** La place de la barre (points) : la largeur de la session, bornée par sa fenêtre. */
   let room = $state(1240)
   /** Barre étroite : les puces perdent leur texte (sauf le profil), les pastilles se réduisent au nombre. */
@@ -211,6 +211,11 @@
   let hdr = $state<BarHdr | null>(null)
   /** « Micro » (docs/link-ui.md « Micro ») : absent sans micro sur ce PC, et pour un invité que l'hôte ne laisse pas parler. */
   let mic = $state<BarMic | null>(null)
+  /**
+   * La ligne « Stylet » du menu « Souris » (docs/link-ui.md « Stylet ») : « Pression » / « Souris », textes du cœur ;
+   * absente tant qu'aucun stylet n'a servi (ou que ce PC n'en a pas) ou que l'ordinateur ne le reçoit pas.
+   */
+  let pen = $state<BarPen | null>(null)
   /** Sessions ouvertes : le bouton « Garder le son » à partir de deux. */
   let sessionCount = $state(1)
   /** Le menu « Ordinateurs » : tous les ordinateurs (celui de la session est écarté à l'affichage). */
@@ -235,7 +240,7 @@
     mouse?: string
     clipboard?: boolean
     mac?: boolean
-    system?: 'windows' | 'mac' | 'other'
+    lend_warning?: string
     room?: number
     stats?: boolean
     pinned?: boolean
@@ -258,6 +263,8 @@
     hdr?: BarHdr | null
     /** La puce « Micro ». */
     mic?: BarMic | null
+    /** La ligne « Stylet » du menu « Souris ». */
+    pen?: BarPen | null
     lend?: LendPanel | null
     borrow?: BorrowBar | null
     /** L'enregistrement de la session (absent : la Station n'enregistre pas). */
@@ -404,6 +411,10 @@
         if (e.id !== id) return
         mic = e.mic
         reportWidth()
+      }),
+      // « Stylet » changé (barre, Ctrl+Alt+Maj+P, réglages) : la ligne suit.
+      listen<{ id: string; pen: BarPen | null }>('bar-pen', (e) => {
+        if (e.id === id) pen = e.pen?.shown ? e.pen : null
       }),
       listen<Shown>('bar-label', (s) => {
         if (s.id !== id) return
@@ -560,7 +571,7 @@
         mouseSetting = s.mouse === 'jeu' || s.mouse === 'bureau' ? s.mouse : 'auto'
         clipboard = !!s.clipboard
         mac = !!s.mac
-        system = s.system ?? 'other'
+        lendWarning = s.lend_warning ?? ''
         room = s.room ?? 1240
         compact = false
         overflow = 0
@@ -571,6 +582,7 @@
         invoke<BarCamera>('session_camera_state', { id: s.id }).then((c) => { if (c.id === id) camera = c }).catch(() => {})
         hdr = s.hdr ?? null
         mic = s.mic ?? null
+        pen = s.pen?.shown ? s.pen : null
         wired = s.wired ?? null
         sessionCount = s.sessions ?? 1
         refusal = null
@@ -766,6 +778,11 @@
     if (next === 'computers') computers = await invoke<BarComputer[]>('bar_computers')
     // Regarder : l'écran regardé maintenant (il suit aussi le choix d'un autre spectateur).
     if (next === 'screen') watched = await invoke<number | null>('share_watch_display', { id }).catch(() => null)
+    // Souris : la ligne « Stylet » relue (un stylet a pu servir depuis que la barre s'est montrée).
+    if (next === 'mouse') {
+      const now = await invoke<BarPen | null>('session_pen_state', { id }).catch(() => pen)
+      pen = now?.shown ? now : null
+    }
     if (next && !menu) await invoke('bar_menu', { open: true })
     menu = next
     if (next) await growForMenu()
@@ -816,6 +833,21 @@
       await invoke('session_mouse', { id, mode: m })
     } catch (e) {
       mouseSetting = before
+      showNotice(String(e))
+    }
+  }
+
+  /** « Stylet » : « Pression » ou « Souris », retenu pour l'ordinateur et appliqué tout de suite ; la ligne revient par `bar-pen`. */
+  async function pickPen(m: PenMode) {
+    await closeMenu()
+    afterMenu()
+    if (!pen || pen.mode === m) return
+    const before = pen
+    pen = { ...pen, mode: m, label: pen.choices.find((c) => c.key === m)?.label ?? pen.label }
+    try {
+      await invoke('session_pen', { id, mode: m })
+    } catch (e) {
+      pen = before
       showNotice(String(e))
     }
   }
@@ -1427,6 +1459,19 @@
         <span class="name">{m.name}</span><span class="hint"></span>
       </button>
     {/each}
+    {#if pen}
+      <!-- « Stylet » (docs/link-ui.md) : sous les choix de la souris, séparé par un trait ; le raccourci à droite du titre. -->
+      <div class="menu-sep" role="separator"></div>
+      <div class="menu-title pen-title" aria-hidden="true"><span>{pen.title}</span><span class="hint">{t('bar.pen_shortcut')}</span></div>
+      <div class="pen-choices" role="group" aria-label={pen.title}>
+        {#each pen.choices as c (c.key)}
+          <button role="menuitemradio" aria-checked={c.key === pen.mode} title={pen.help} onclick={() => pickPen(c.key)}>
+            <span class="tick">{#if c.key === pen.mode}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+            <span class="name">{c.label}</span><span class="hint"></span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 {/snippet}
 
@@ -1906,7 +1951,7 @@
             bind:duration={lendDuration}
             bind:steam={lendSteam}
             {trustOnce}
-            {system}
+            warning={lendWarning}
             requestMeta={lendRequestMeta}
             on={{ answer, copy: copyLendLink, cancelCode, createCode }}
           />
@@ -2453,6 +2498,31 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--faint);
+  }
+
+  /* « Stylet » dans le menu « Souris » : un trait, son titre et le raccourci, ses deux choix. */
+  .menu-sep {
+    height: 1px;
+    margin: 6px 4px;
+    background: rgb(43 55 66 / 0.9);
+  }
+
+  .pen-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .pen-title .hint {
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .pen-choices {
+    display: flex;
+    flex-direction: column;
   }
 
   /* Pastilles dans le bouton « Partager » ou « Prêter l'ordinateur… » : « 2 invités », « 1 demande ». */

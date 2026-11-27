@@ -38,7 +38,7 @@ const CATALOGS = {
       "arrow-left", "arrow-right", "arrow-up", "arrows-clockwise", "article", "check", "check-circle", "cloud",
       "copy", "cursor", "eye", "game-controller", "gear-six", "globe-hemisphere-west", "info", "key", "keyboard",
       "lightning", "link-simple", "lock-simple", "microphone", "microphone-slash", "monitor", "number-square-one",
-      "plus", "power", "share-network", "sliders-horizontal", "sparkle", "speaker-high", "speaker-slash",
+      "pen-nib", "plus", "power", "share-network", "sliders-horizontal", "sparkle", "speaker-high", "speaker-slash",
       "television-simple", "trash", "user", "video-camera", "video-camera-slash", "warning", "wifi-high", "x",
     ],
   },

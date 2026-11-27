@@ -25,7 +25,7 @@
 //!
 //! Les aides (« Cliquez dans l'image pour jouer… », « Ctrl+Alt+Maj+M pour
 //! rendre la souris », le bandeau du clavier, le contenu protégé) sont de
-//! petites fenêtres transparentes posées sur celle de la partie.
+//! petites fenêtres transparentes posées sur celle de la partie (`hint.rs`).
 
 use crate::sync::Locked;
 use std::cell::RefCell;
@@ -34,10 +34,9 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -55,6 +54,7 @@ use kybernow_core::relay::RouteInfo;
 
 use crate::audio::{self, AudioOutput};
 use crate::gpu::SessionGpu;
+use crate::hint::{Hint, Look, Place, scale_of};
 use crate::i18n::t;
 use crate::render::Renderer;
 use crate::video::{self, ConsoleLink, Link, Shared, VideoHandler, VideoOptions};
@@ -357,15 +357,6 @@ fn register_class() -> windows::core::Result<()> {
             ..Default::default()
         };
         RegisterClassExW(&class);
-        let hint = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            lpfnWndProc: Some(hint_proc),
-            hInstance: instance.into(),
-            hCursor: LoadCursorW(None, IDC_ARROW)?,
-            lpszClassName: w!("KyberNowConsoleHint"),
-            ..Default::default()
-        };
-        RegisterClassExW(&hint);
     }
     let _ = DONE.set(());
     Ok(())
@@ -400,10 +391,6 @@ fn client_size(hwnd: HWND) -> (u32, u32) {
     ((r.right - r.left).max(0) as u32, (r.bottom - r.top).max(0) as u32)
 }
 
-fn scale_of(hwnd: HWND) -> f32 {
-    let dpi = unsafe { GetDpiForWindow(hwnd) };
-    if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 }
-}
 
 fn run(start: Start, inner: Arc<Inner>) {
     let fail = |inner: &Arc<Inner>, why: String| {
@@ -525,8 +512,8 @@ fn run(start: Start, inner: Arc<Inner>) {
 
     let pad = !kybernow_core::gamepads::global().pads().is_empty();
     inner.set_bar(|b| b.pad = pad);
-    let hint = Hint::new(hwnd, Place::Bottom);
-    let notice = Hint::new(hwnd, Place::Middle);
+    let hint = Hint::new(hwnd, Place::Bottom, Look::Text);
+    let notice = Hint::new(hwnd, Place::Middle, Look::Text);
     CTX.with(|c| {
         *c.borrow_mut() = Some(Ctx {
             inner: inner.clone(),
@@ -1317,168 +1304,3 @@ unsafe fn proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRE
 
 // MARK: - Aides posées sur l'image
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Place {
-    /// Une capsule en bas de l'image (aides du clavier et de la souris).
-    Bottom,
-    /// Au milieu (contenu protégé).
-    Middle,
-}
-
-/// Une petite fenêtre transparente au-dessus de celle de la partie : un texte
-/// clair sur une capsule sombre, qui ne prend ni clic ni clavier.
-struct Hint {
-    owner: HWND,
-    hwnd: HWND,
-    place: Place,
-    text: Option<String>,
-}
-
-thread_local! {
-    /// Le texte de chaque aide, lu par son `WM_PAINT`.
-    static HINT_TEXT: RefCell<Vec<(isize, Vec<u16>)>> = const { RefCell::new(Vec::new()) };
-}
-
-impl Hint {
-    fn new(owner: HWND, place: Place) -> Hint {
-        let hwnd = unsafe {
-            let instance = GetModuleHandleW(None).ok();
-            CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
-                w!("KyberNowConsoleHint"),
-                w!(""),
-                WS_POPUP,
-                0,
-                0,
-                10,
-                10,
-                Some(owner),
-                None,
-                instance.map(Into::into),
-                None,
-            )
-            .unwrap_or_default()
-        };
-        if !hwnd.0.is_null() {
-            unsafe {
-                let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 225, LWA_ALPHA);
-            }
-        }
-        Hint { owner, hwnd, place, text: None }
-    }
-
-    fn font(scale: f32) -> HFONT {
-        unsafe {
-            CreateFontW(
-                -((14.0 * scale) as i32),
-                0,
-                0,
-                0,
-                FW_SEMIBOLD.0 as i32,
-                0,
-                0,
-                0,
-                DEFAULT_CHARSET,
-                OUT_DEFAULT_PRECIS,
-                CLIP_DEFAULT_PRECIS,
-                CLEARTYPE_QUALITY,
-                0,
-                w!("Segoe UI"),
-            )
-        }
-    }
-
-    /// Montre ce texte (ou se cache), à sa place sous la fenêtre de la partie.
-    fn show(&mut self, text: Option<&str>) {
-        if self.hwnd.0.is_null() {
-            return;
-        }
-        let visible = unsafe { IsWindowVisible(self.owner).as_bool() && !IsIconic(self.owner).as_bool() };
-        let Some(text) = text.filter(|_| visible) else {
-            self.text = None;
-            unsafe {
-                let _ = ShowWindow(self.hwnd, SW_HIDE);
-            }
-            return;
-        };
-        self.text = Some(text.to_string());
-        let wide: Vec<u16> = text.encode_utf16().collect();
-        HINT_TEXT.with(|h| {
-            let mut h = h.borrow_mut();
-            h.retain(|(k, _)| *k != self.hwnd.0 as isize);
-            h.push((self.hwnd.0 as isize, wide.clone()));
-        });
-        unsafe {
-            let scale = scale_of(self.owner);
-            let dc = GetDC(Some(self.hwnd));
-            let font = Self::font(scale);
-            let old = SelectObject(dc, font.into());
-            let mut size = windows::Win32::Foundation::SIZE::default();
-            let _ = GetTextExtentPoint32W(dc, &wide, &mut size);
-            SelectObject(dc, old);
-            let _ = DeleteObject(font.into());
-            ReleaseDC(Some(self.hwnd), dc);
-            let (pad_x, pad_y) = ((16.0 * scale) as i32, (9.0 * scale) as i32);
-            let (w, h) = (size.cx + 2 * pad_x, size.cy + 2 * pad_y);
-            let mut client = RECT::default();
-            let _ = GetClientRect(self.owner, &mut client);
-            let mut tl = POINT { x: client.left, y: client.top };
-            let mut br = POINT { x: client.right, y: client.bottom };
-            let _ = ClientToScreen(self.owner, &mut tl);
-            let _ = ClientToScreen(self.owner, &mut br);
-            let x = (tl.x + br.x) / 2 - w / 2;
-            let y = match self.place {
-                Place::Bottom => br.y - h - (24.0 * scale) as i32,
-                Place::Middle => (tl.y + br.y) / 2 - h / 2,
-            };
-            let rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, h, h);
-            let _ = SetWindowRgn(self.hwnd, Some(rgn), true);
-            let _ = SetWindowPos(self.hwnd, None, x, y, w, h, SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW);
-            let _ = InvalidateRect(Some(self.hwnd), None, true);
-        }
-    }
-
-    fn destroy(&self) {
-        if !self.hwnd.0.is_null() {
-            unsafe {
-                let _ = DestroyWindow(self.hwnd);
-            }
-        }
-    }
-}
-
-/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
-/// et notée au journal, `ffi_guard!` du cœur), le corps est `hint_proc_body`.
-unsafe extern "system" fn hint_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    kybernow_core::ffi_guard!({ unsafe { hint_proc_body(hwnd, msg, wparam, lparam) } })
-}
-
-unsafe fn hint_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    unsafe {
-        match msg {
-            WM_PAINT => {
-                let mut ps = PAINTSTRUCT::default();
-                let dc = BeginPaint(hwnd, &mut ps);
-                let mut r = RECT::default();
-                let _ = GetClientRect(hwnd, &mut r);
-                let brush = CreateSolidBrush(COLORREF(0x00120e0c));
-                FillRect(dc, &r, brush);
-                let _ = DeleteObject(brush.into());
-                let owner = GetWindow(hwnd, GW_OWNER).unwrap_or(hwnd);
-                let font = Hint::font(scale_of(owner));
-                let old = SelectObject(dc, font.into());
-                SetBkMode(dc, TRANSPARENT);
-                SetTextColor(dc, COLORREF(0x00ffffff));
-                let mut text = HINT_TEXT.with(|h| h.borrow().iter().find(|(k, _)| *k == hwnd.0 as isize).map(|(_, t)| t.clone())).unwrap_or_default();
-                DrawTextW(dc, &mut text, &mut r, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-                SelectObject(dc, old);
-                let _ = DeleteObject(font.into());
-                let _ = EndPaint(hwnd, &ps);
-                LRESULT(0)
-            }
-            WM_NCHITTEST => LRESULT(HTTRANSPARENT as isize),
-            WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-        }
-    }
-}

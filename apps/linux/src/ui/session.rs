@@ -1029,10 +1029,17 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             dropdown_titled(cv, f, more_x, h + 6.0, 260.0, Some(tr("Plus", "More")), &items);
         }
         Some(BarMenu::Mouse) => {
-            // « Auto », « Souris du bureau », « Souris des jeux », le réglage de l'ordinateur coché.
+            // « Auto », « Souris du bureau », « Souris des jeux », le réglage de l'ordinateur coché ; puis, séparée
+            // par un trait, la ligne « Stylet » (« Pression », « Souris ») quand le cœur la montre (docs/link-ui.md).
             let current = app.mouse_setting(s);
             let items: Vec<(Target, String, String, bool)> = crate::app::MOUSE_MODES.iter().enumerate().map(|(i, (key, name))| (Target::BarMousePick(i), tr(name.0, name.1).to_string(), String::new(), *key == current)).collect();
-            dropdown_titled(cv, f, mouse_x, h + 6.0, 260.0, Some(tr("Souris", "Mouse")), &items);
+            if s.pen_shown {
+                let pen = pen_items(s);
+                let shortcut = crate::pen::shortcut();
+                dropdown_sections(cv, f, mouse_x, h + 6.0, 260.0, &[(tr("Souris", "Mouse").to_string(), None, items), (crate::pen::title(), Some(shortcut.as_str()), pen)]);
+            } else {
+                dropdown_titled(cv, f, mouse_x, h + 6.0, 260.0, Some(tr("Souris", "Mouse")), &items);
+            }
         }
         Some(BarMenu::Profile) => {
             let items: Vec<(Target, String, String, bool)> = Profile::ALL
@@ -1198,26 +1205,72 @@ fn dropdown_titled(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, title
         eyebrow(cv, x + 16.0, y + 24.0, 10.5, FAINT, t);
     }
     let mut yy = y + 6.0 + head;
-    for (t, label, hint, on) in items {
-        let r = Rect::new(x + 6.0, yy, w - 12.0, ih);
-        let (focused, hover) = f.state(*t, r);
-        if hover || focused {
-            cv.rrect(r.x, r.y, r.w, r.h, 7.0, Rgba(227, 237, 240, 16));
-        }
-        if *on {
-            cv.icon(&Icon::Check, r.x + 8.0, r.y + 10.0, 16.0, 2.0, SPECTRE);
-        }
-        // Auto : les étincelles après le nom.
-        let mut lw = cv.text_fit(r.x + 32.0, r.y + 23.0, Text::new(Font::Regular, 13.5, FROST), label, (r.w - 44.0).max(0.0));
-        if let Some(icon) = widgets::profile_icon(*t) {
-            cv.icon(&icon, r.x + 32.0 + lw + 6.0, r.y + 10.0, 15.0, 1.4, SPECTRE);
-            lw += 22.0;
-        }
-        if !hint.is_empty() {
-            cv.text_fit(r.x + 32.0 + lw + 10.0, r.y + 23.0, Text::new(Font::Regular, 12.0, FAINT), hint, (r.w - lw - 50.0).max(0.0));
-        }
+    for item in items {
+        dropdown_row(cv, f, Rect::new(x + 6.0, yy, w - 12.0, ih), item);
         yy += ih;
     }
+}
+
+/// Une ligne d'un menu déroulant : la coche du choix en cours, le nom, son indication en petit.
+fn dropdown_row(cv: &mut Canvas, f: &mut Frame, r: Rect, item: &(Target, String, String, bool)) {
+    let (t, label, hint, on) = item;
+    let (focused, hover) = f.state(*t, r);
+    if hover || focused {
+        cv.rrect(r.x, r.y, r.w, r.h, 7.0, Rgba(227, 237, 240, 16));
+    }
+    if *on {
+        cv.icon(&Icon::Check, r.x + 8.0, r.y + 10.0, 16.0, 2.0, SPECTRE);
+    }
+    // Auto : les étincelles après le nom.
+    let mut lw = cv.text_fit(r.x + 32.0, r.y + 23.0, Text::new(Font::Regular, 13.5, FROST), label, (r.w - 44.0).max(0.0));
+    if let Some(icon) = widgets::profile_icon(*t) {
+        cv.icon(&icon, r.x + 32.0 + lw + 6.0, r.y + 10.0, 15.0, 1.4, SPECTRE);
+        lw += 22.0;
+    }
+    if !hint.is_empty() {
+        cv.text_fit(r.x + 32.0 + lw + 10.0, r.y + 23.0, Text::new(Font::Regular, 12.0, FAINT), hint, (r.w - lw - 50.0).max(0.0));
+    }
+}
+
+/// Un menu déroulant en rubriques, chacune avec son titre en capitales (et une indication à sa droite : le
+/// raccourci), séparée de la précédente par un trait : le menu de la souris, puis la ligne « Stylet » (docs/link-ui.md,
+/// « Stylet : Pression / Souris »). Borné à la fenêtre comme `dropdown_titled` ; les lignes qui ne tiennent pas ne
+/// sont pas montrées.
+fn dropdown_sections(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f32, sections: &[(String, Option<&str>, Vec<(Target, String, String, bool)>)]) {
+    let (ih, head, sep) = (36.0, 30.0, 9.0);
+    let extra = sections.len().saturating_sub(1) as f32 * (sep + head);
+    let rows: usize = sections.iter().map(|s| s.2.len()).sum();
+    let (x, w, shown) = dropdown_place(cv.w, cv.h, x, y, w, head + extra, rows);
+    let h = shown as f32 * ih + 12.0 + head + extra;
+    cv.rrect(x, y, w, h, 10.0, Rgba(9, 13, 18, 245));
+    cv.rrect_stroke(x, y, w, h, 10.0, 1.0, LINE_2);
+    let mut yy = y + 6.0;
+    let mut left = shown;
+    for (k, (title, hint, items)) in sections.iter().enumerate() {
+        if k > 0 {
+            if left == 0 {
+                break;
+            }
+            cv.rect(x + 12.0, (yy + 4.0).round(), w - 24.0, 1.0, LINE_2);
+            yy += sep;
+        }
+        eyebrow(cv, x + 16.0, yy + 18.0, 10.5, FAINT, title);
+        if let Some(hint) = hint {
+            cv.text(x + w - 16.0, yy + 18.0, Text::new(Font::Mono, 10.5, FAINT).align(Align::Right), hint);
+        }
+        yy += head;
+        for item in items.iter().take(left) {
+            dropdown_row(cv, f, Rect::new(x + 6.0, yy, w - 12.0, ih), item);
+            yy += ih;
+        }
+        left = left.saturating_sub(items.len());
+    }
+}
+
+/// La ligne « Stylet » du menu de la souris : « Pression », « Souris », le choix de la session coché.
+fn pen_items(s: &SessionUi) -> Vec<(Target, String, String, bool)> {
+    let current = crate::pen::parse(&s.pen);
+    crate::pen::MODES.iter().enumerate().map(|(i, m)| (Target::BarPenPick(i), crate::pen::label(m), String::new(), *m == current)).collect()
 }
 
 /// Capsule en haut (bureau) ou en bas (manette) : un point (ambre pendant une attente) ou une icône avant le texte.
@@ -1826,6 +1879,10 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     if kbm {
         tiles.push((MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false));
+        // « Stylet » (la ligne de la barre se montre) : « Pression » ou « Souris » ; un toucher bascule.
+        if s.pen_shown {
+            tiles.push((MenuItem::Pen, crate::pen::title(), crate::pen::label(&s.pen), false, false));
+        }
         tiles.push((MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam", "Steam keyboard").into(), false, false));
         // Face à une Station Mac, les touches du Mac (docs/link-ui.md, « Face à une Station Mac »).
         let keys_sub = if app.session_mac(s) { tr("⌘ ⇥, ⌥ ⌘ Échap", "⌘ ⇥, ⌥ ⌘ Esc") } else { tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab") };

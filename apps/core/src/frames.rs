@@ -364,7 +364,7 @@ mod tests {
         let t = Instant::now();
         let mut f = FrameFlow::new(FOURCC_PYROWAVE);
         assert_eq!(f.codec(FOURCC_PYROWAVE), [Step::Open(FOURCC_PYROWAVE)]);
-        let c = Config { chroma444: false, hdr: false, full_range: true, width: 1920, height: 1080 };
+        let c = Config::new(false, false, true, 1920, 1080);
         assert_eq!(f.config(&c.bytes()), [Step::Configure(c)]);
         assert_eq!(f.config(&c.bytes()), [], "la même : rien");
         // Chaque image se décode ; un paquet KNPW dans le flux des images configure.

@@ -1,6 +1,6 @@
 //! Accueil au premier lancement et incitation au compte KyberNow, côté interface (sans le cœur ni SDL) ; textes et
-//! règles : docs/link-ui.md, « Accueil et compte KyberNow » ; logique commune : `apps/core/src/welcome.rs`, reprise
-//! telle quelle (`crate::welcome_rules`), l'état gardé dans `AppSettings::welcome` (kybernow.json).
+//! règles : docs/link-ui.md, « Accueil et compte KyberNow » ; logique commune : `kybernow_rules::welcome` (la caisse
+//! des règles, sans le cœur), l'état gardé dans `AppSettings::welcome` (kybernow.json).
 //!
 //! - **Accueil en trois écrans** (`Screen::Welcome`) : au premier lancement, et une fois après la mise à jour qui
 //!   l'apporte, sans compte (`WelcomeState::should_show`) ; « Passer », « Plus tard » ou la fin le marquent vu.
@@ -17,10 +17,10 @@
 //!   la fenêtre : pas de navigateur sous la main ; l'écran du code dit « Pas encore de compte ? Créez-le sur cette
 //!   page. », et la page du code le propose.
 
-pub use crate::welcome_rules::{sign_up_url, WelcomeState, STATION_DOWNLOAD_URL};
+pub use kybernow_rules::welcome::{sign_up_url, WelcomeState, STATION_DOWNLOAD_URL};
 
 use crate::app::{Action, App, Nav, Online, Row, RowKind, Screen, Setting, Target};
-use crate::i18n::{english, tr, Lang};
+use crate::i18n::{english, tr};
 use crate::model::{now_secs, Host};
 
 /// La fenêtre « Hors de chez vous ? » : l'ordinateur, son nom, et ce que voulait le bouton principal (« Pas
@@ -198,7 +198,7 @@ impl App {
     /// « Créer un compte » : la page d'inscription du relais public dans le navigateur, puis l'avis.
     fn sign_up(&mut self) -> Vec<Action> {
         self.toast(sign_up_notice());
-        vec![Action::OpenUrl(sign_up_url("", Lang::current()))]
+        vec![Action::OpenUrl(sign_up_url("", if english() { "en" } else { "fr" }))]
     }
 
     /// La carte du compte, en fin de rangée des ordinateurs : sans compte, pas fermée (ou revenue), et pas sur
@@ -468,7 +468,7 @@ mod tests {
         assert!(app.account_card_visible());
         app.activate(Target::CardClose);
         assert!(!app.account_card_visible());
-        app.store.app.welcome.card_closed_at -= crate::welcome_rules::CARD_BACK_AFTER_SECS;
+        app.store.app.welcome.card_closed_at -= kybernow_rules::welcome::CARD_BACK_AFTER_SECS;
         assert!(app.account_card_visible() && app.store.app.welcome.card_close_is_final());
         app.activate(Target::CardClose);
         assert!(!app.account_card_visible(), "« Ne plus afficher »");

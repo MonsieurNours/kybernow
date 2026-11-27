@@ -47,6 +47,21 @@ pub enum LendAvailability {
     Off,
 }
 
+/// L'avertissement du panneau « Prêter » (docs/link-ui.md, « Prêt de
+/// l'ordinateur »), selon le système de la Station (`os` de son info,
+/// `rules::station`) : « Votre ami joue dans votre session Windows. »,
+/// « … du Mac. », sinon (Linux, système inconnu) « … dans votre session. »,
+/// puis la même suite.
+pub fn warning(os: &str, lang: Lang) -> String {
+    use kybernow_rules::station::StationSystem;
+    let key = match StationSystem::of(os) {
+        StationSystem::Windows => "lend.warning_windows",
+        StationSystem::Mac => "lend.warning_mac",
+        StationSystem::Linux | StationSystem::Unknown => "lend.warning_other",
+    };
+    tr(lang, key, &[])
+}
+
 impl LendAvailability {
     /// L'état de la carte, dans la langue donnée (docs/link-ui.md).
     pub fn label(self, lang: Lang) -> String {
@@ -1149,6 +1164,14 @@ mod tests {
     }
 
     #[test]
+    fn avertissement_selon_le_systeme() {
+        assert!(warning("Windows 11 Pro", Lang::Fr).starts_with("Votre ami joue dans votre session Windows. Il ne voit"));
+        assert!(warning("macOS 26.1", Lang::En).starts_with("Your friend plays in your Mac session."));
+        assert!(warning("Ubuntu 24.04 LTS", Lang::Fr).starts_with("Votre ami joue dans votre session. Il ne voit"));
+        assert_eq!(warning("", Lang::Fr), warning("Fedora Linux 41", Lang::Fr));
+    }
+
+    #[test]
     fn textes_et_codes() {
         assert_eq!(LendError::BadCredentials.text(Lang::Fr, ""), "Identifiant ou mot de passe refusé.");
         assert_eq!(LendError::NoCode.text(Lang::En, ""), "This code is no longer valid.");
@@ -1165,10 +1188,10 @@ mod tests {
             .collect();
         assert_eq!(codes, (40..=48).map(Some).collect::<Vec<_>>());
         let n = |reason| LendNotice { reason, at: 0 };
-        assert_eq!(n(LendNoticeReason::TakenBack).text(Lang::Fr, "Matthieu"), "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.");
+        assert_eq!(n(LendNoticeReason::TakenBack).text(Lang::Fr, "Matthieu"), "Matthieu reprend l'ordinateur dans 2 min : sauvegardez votre partie.");
         assert_eq!(n(LendNoticeReason::TimeUp).text(Lang::En, "M"), "The loan ends in 2 min: save your game.");
-        assert_eq!(n(LendNoticeReason::SlotEnd).text(Lang::Fr, "M"), "Votre créneau se termine dans 2 min : sauvegardez votre partie.");
-        assert_eq!(n(LendNoticeReason::SlotStart).text(Lang::Fr, "Léa"), "Créneau de Léa : l'ordinateur lui est prêté dans 2 min.");
+        assert_eq!(n(LendNoticeReason::SlotEnd).text(Lang::Fr, "M"), "Votre créneau se termine dans 2 min : sauvegardez votre partie.");
+        assert_eq!(n(LendNoticeReason::SlotStart).text(Lang::Fr, "Léa"), "Créneau de Léa : l'ordinateur lui est prêté dans 2 min.");
         assert_eq!(LendEnd::TakenBack.text(Lang::Fr, "Matthieu"), "Matthieu a repris l'ordinateur.");
         assert_eq!(LendEnd::TimeUp.text(Lang::Fr, "M"), "Le prêt est terminé.");
         assert_eq!(LendEnd::SlotEnd.text(Lang::En, "M"), "Your time slot is over.");

@@ -42,6 +42,36 @@ final class KeyboardMouse {
     var commandAsControl = false {
         didSet { let v = commandAsControl; queue.async { self.commandControl = v } }
     }
+    #if os(iOS)
+    /// iPad avec un clavier : ⌃⌥⌘ + une de ces lettres reste à l'app
+    /// (`onShortcut`, fil principal) au lieu de partir à l'ordinateur
+    /// (⌃⌥⌘P : « Stylet : Pression / Souris »). Les autres lettres partent.
+    var shortcutLetters: Set<String> = [] {
+        didSet { let v = shortcutLetters; queue.async { self.letters = v } }
+    }
+    var onShortcut: ((String) -> Void)?
+    /// Sur la file seulement : les lettres gardées, les modificateurs tenus,
+    /// les touches gardées (leur relâchement ne part pas non plus).
+    private var letters: Set<String> = []
+    private var mods: Set<UInt16> = []
+    private var kept: Set<UInt16> = []
+
+    /// ⌃⌥⌘ + une lettre gardée par l'app : rien ne part, `onShortcut` la reçoit.
+    private func keepsShortcut(_ usage: UInt16, pressed: Bool) -> Bool {
+        if (0xE0...0xE7).contains(usage) {
+            if pressed { mods.insert(usage) } else { mods.remove(usage) }
+            return false
+        }
+        if !pressed { return kept.remove(usage) != nil }
+        let held = { (a: UInt16, b: UInt16) in self.mods.contains(a) || self.mods.contains(b) }
+        guard (0x04...0x1D).contains(usage), held(0xE0, 0xE4), held(0xE2, 0xE6), held(0xE3, 0xE7) else { return false }
+        let letter = String(UnicodeScalar(UInt8(0x61 + usage - 0x04)))
+        guard letters.contains(letter) else { return false }
+        kept.insert(usage)
+        DispatchQueue.main.async { [weak self] in self?.onShortcut?(letter) }
+        return true
+    }
+    #endif
 
     /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
     /// observateurs précédents sont retirés d'abord, sinon ils s'empileraient
@@ -111,6 +141,9 @@ final class KeyboardMouse {
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             guard let self, let input = self.input else { return }
             let usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
+            #if os(iOS)
+            if self.keepsShortcut(usage, pressed: pressed) { return }
+            #endif
             guard let scancode = Keymap.scancode(hid: usage, commandAsControl: self.commandControl, iso: apple && self.iso) else { return }
             if Keymap.isModifier(usage) { input.modifier(usage, pressed: pressed) }
             input.key(scancode: scancode, pressed: pressed)

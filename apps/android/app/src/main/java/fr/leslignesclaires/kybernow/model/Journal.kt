@@ -26,7 +26,7 @@ import java.util.TimeZone
  *   partir d'Android 12) ;
  * - « Envoyer le journal » (Réglages › À propos) réunit le tout, plus ce que logcat a encore de l'app, dans un fichier
  *   texte partagé par la feuille de partage d'Android ; au téléviseur, chiffré et déposé sur le relais, ouvert par le
- *   téléphone qui scanne un QR code ([JournalSeal], `ui/settings/JournalQr.kt`).
+ *   téléphone qui scanne un QR code ([JournalUpload] et le cœur, `ui/settings/JournalQr.kt`).
  *
  * Ni mot de passe, ni jeton, ni code n'y sont écrits par l'app : le cœur et Kyber ne les mettent pas au journal.
  */

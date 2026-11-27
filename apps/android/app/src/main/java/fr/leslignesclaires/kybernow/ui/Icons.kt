@@ -41,6 +41,7 @@ object KnIcons {
     val keys = icon("keys", "M3 4h18v16H3z", "M7 9h2M11 9h2M15 9h2M7 13h10")
     val mic = icon("mic", "M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21")
     val micOff = icon("micOff", "M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z", "M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21", "M4 4l16 16")
+    val pen = icon("pen", "M4 20l1-4L16 5l3 3L8 19z", "M14 7l3 3")
     val mouse = icon("mouse", "M7 7a5 5 0 0 1 10 0v10a5 5 0 0 1-10 0z", "M12 6v3")
     val remote = icon("remote", "M7 2h10v20H7z", "M12 6a2 2 0 1 0 0 4a2 2 0 1 0 0-4z", "M10 14h4M10 17h4")
     val touch = icon("touch", "M9 11V5a2 2 0 0 1 4 0v6", "M13 10a2 2 0 0 1 4 0v2a2 2 0 0 1 2 2v2a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-3l-2-4a1.8 1.8 0 0 1 3-2l1 1")

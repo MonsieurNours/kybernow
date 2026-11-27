@@ -142,18 +142,14 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraStats
     })
 }
 
-/// L'avis d'un refus de l'appareil : 0 accès refusé, 1 caméra prise par une
-/// autre app, 2 caméra débranchée (`camera` : son nom), 3 pas d'encodeur.
+/// L'avis de la caméra que l'app montre : 0 accès refusé, 1 caméra prise par
+/// une autre app, 2 caméra débranchée (`camera` : son nom), 3 pas
+/// d'encodeur, 4 départ refusé par la session, 5 pas de réponse de
+/// l'ordinateur (`camera::DeviceNotice::code`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_cameraDeviceNotice(mut env: Env, _: JClass, which: jint, camera_name: JString) -> jstring {
     kybernow_core::ffi_guard!(null => {
-        let which = match which {
-            0 => DeviceNotice::Denied,
-            1 => DeviceNotice::InUse,
-            2 => DeviceNotice::Unplugged,
-            _ => DeviceNotice::NoEncoder,
-        };
         let name = string(&mut env, &camera_name);
-        give(&mut env, &camera::device_notice(which, &name, i18n::current()))
+        give(&mut env, &camera::device_notice(DeviceNotice::from_code(which), &name, i18n::current()))
     })
 }

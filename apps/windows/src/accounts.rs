@@ -181,7 +181,7 @@ mod tests {
         assert_eq!(serde_json::to_value(SignInOutcome::of(&Err(AccountError::Cancelled), Lang::Fr)).unwrap(), serde_json::json!({ "kind": "cancelled" }));
         assert_eq!(
             serde_json::to_value(SignInOutcome::of(&Err(AccountError::BadCode), Lang::Fr)).unwrap(),
-            serde_json::json!({ "kind": "failed", "message": "La connexion n'a pas abouti : réessayez." })
+            serde_json::json!({ "kind": "failed", "message": "La connexion n'a pas abouti\u{202f}: réessayez." })
         );
         // `api.ts` dit les mêmes noms.
         let api = include_str!("../ui/src/lib/api.ts");

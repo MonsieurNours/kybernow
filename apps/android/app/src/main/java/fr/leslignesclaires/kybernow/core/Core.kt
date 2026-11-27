@@ -19,19 +19,24 @@ object Core {
         fun lendAvailabilityLabel(state: String): String?
         fun relayErrorText(code: Int, name: String?): String?
         fun relayPathLabel(transport: Int): String?
-        fun relayParts(addr: String): String?
+        fun journalDeposit(relay: String, header: String, body: String): String?
+        fun journalState(relay: String, id: String, owner: String): Int
+        fun journalDiscard(relay: String, id: String, owner: String): Boolean
         fun relayLabel(addr: String): String
+        fun lendWarning(os: String): String
         fun looksLikeInvite(text: String): Boolean
         fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int): String
         fun discoveryFound(json: String): String?
         fun recordingClock(seconds: Long): String
-        fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
-        fun accountSettingsKnown(syncedJson: String): String
         fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String): String
         fun accountSettingsFromStream(settingsJson: String): String
+        fun plan(choicesJson: String, capabilitiesJson: String, width: Int, height: Int, refresh: Int): String?
+        fun accountSync(op: String, sync: String, station: String, a: String, b: String): String?
         fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long): String
         fun welcomeSignUpUrl(relay: String): String
         fun welcomeStationUrl(): String
+        fun penTexts(): String?
+        fun penNotice(mode: String): String
     }
 
     /** La bibliothèque native. */
@@ -43,20 +48,26 @@ object Core {
         override fun lendAvailabilityLabel(state: String) = Native.lendAvailabilityLabel(state)
         override fun relayErrorText(code: Int, name: String?) = Native.relayErrorText(code, name)
         override fun relayPathLabel(transport: Int) = Native.relayPathLabel(transport)
-        override fun relayParts(addr: String) = Native.relayParts(addr)
+        override fun journalDeposit(relay: String, header: String, body: String) = Native.journalDeposit(relay, header, body)
+        override fun journalState(relay: String, id: String, owner: String) = Native.journalState(relay, id, owner)
+        override fun journalDiscard(relay: String, id: String, owner: String) = Native.journalDiscard(relay, id, owner)
         override fun relayLabel(addr: String) = Native.relayLabel(addr)
+        override fun lendWarning(os: String) = Native.lendWarning(os)
         override fun looksLikeInvite(text: String) = Native.looksLikeInvite(text)
         override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = Native.pyrowaveLoweredText(width, height, refresh, mbps)
         override fun discoveryFound(json: String) = Native.discoveryFound(json)
         override fun recordingClock(seconds: Long) = Native.recordingClock(seconds)
-        override fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean) = Native.profileSettings(profile, hevc, hevc444, av1)
-        override fun accountSettingsKnown(syncedJson: String) = Native.accountSettingsKnown(syncedJson)
         override fun accountSettingsApply(valuesJson: String, baseJson: String, capsJson: String) = Native.accountSettingsApply(valuesJson, baseJson, capsJson)
         // Android n'a pas de mode immersif : rien à joindre.
         override fun accountSettingsFromStream(settingsJson: String) = Native.accountSettingsFromStream(settingsJson, null)
+        override fun plan(choicesJson: String, capabilitiesJson: String, width: Int, height: Int, refresh: Int) =
+            Native.planJson(choicesJson, capabilitiesJson, width, height, refresh)
+        override fun accountSync(op: String, sync: String, station: String, a: String, b: String) = Native.accountSync(op, sync, station, a, b)
         override fun welcome(stateJson: String, op: String, hasAccount: Boolean, computer: String, now: Long) = Native.welcome(stateJson, op, hasAccount, computer, now)
         override fun welcomeSignUpUrl(relay: String) = Native.welcomeSignUpUrl(relay)
         override fun welcomeStationUrl() = Native.welcomeStationUrl()
+        override fun penTexts() = Native.penTexts()
+        override fun penNotice(mode: String) = Native.penNotice(mode)
     }
 
     @Volatile
@@ -115,6 +126,10 @@ object Core {
         val addressExample: String,
         /** Le relais public. */
         val defaultRelay: String,
+        /** La caméra allumée attend au plus la réponse de l'ordinateur (ms). */
+        val cameraAnswerWaitMs: Long,
+        /** PyroWave quitté pour un autre format : le débit réglé à la main au plus (Mbit/s). */
+        val hevcAfterPyroWaveMbps: Int,
     ) {
         companion object {
             fun parse(json: String?): Values {
@@ -128,6 +143,8 @@ object Core {
                     adminPort = o.optInt("admin_port"),
                     addressExample = o.optString("address_example"),
                     defaultRelay = o.optString("default_relay"),
+                    cameraAnswerWaitMs = o.optLong("camera_answer_wait_secs", 10) * 1000,
+                    hevcAfterPyroWaveMbps = o.optInt("hevc_after_pyrowave_mbps", 80),
                 )
             }
         }
@@ -135,9 +152,23 @@ object Core {
 
     @Volatile private var values: Values? = null
 
+    /**
+     * Le plan d'une session (`plan::plan_json`) : [choices] (`plan::Choices`), [caps] (ce que décode l'appareil), l'écran
+     * de l'appareil ; `{settings, mode, mbps, label}`, nul sans réponse.
+     */
+    fun plan(choices: JSONObject, caps: JSONObject, width: Int, height: Int, refresh: Int): JSONObject? =
+        ask("plan de la session", null) { plan(choices.toString(), caps.toString(), width, height, refresh) }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+
     /** Les valeurs communes (vides sans réponse du cœur, sans être gardées : redemandées à l'appel suivant). */
     fun values(): Values = values ?: ask("valeurs communes", null) { valuesJson("{}") }?.let { Values.parse(it).also { v -> values = v } }
         ?: Values.parse(null)
+
+    /**
+     * L'avertissement du panneau « Prêter », selon le système de la Station (`os` de son info) : « Votre ami joue dans
+     * votre session Windows. », « … du Mac. », sinon « … dans votre session. », puis la même suite (`lend::warning`).
+     */
+    fun lendWarning(os: String?): String = ask("avertissement du prêt", "") { lendWarning(os.orEmpty()) }
 
     /** « Disponible », « Occupé », « Prêté à quelqu'un d'autre », « Verrouillé », « Prêt coupé » (`LendAvailability::label`). */
     fun lendAvailabilityLabel(state: String): String = ask("état du prêt", null) { lendAvailabilityLabel(state) }.orEmpty()
@@ -157,8 +188,19 @@ object Core {
     /** Le relais tel qu'on le montre (`rules::relay::label`) : `share.kybernow.app`, `relais.exemple.org:9443`, sans empreinte. */
     fun relayLabel(addr: String): String = ask("relais", "") { relayLabel(addr) }
 
-    /** Les parties d'une adresse de relais (`rules::relay::parse`) : `{authority, pin}` ; nul si elle ne se lit pas. */
-    fun relayParts(addr: String): JSONObject? = ask("relais", null) { relayParts(addr) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+    /**
+     * « Envoyer le journal » (`journal::deposit`) : [header] et [body] compressés, chiffrés et déposés sur [relay] (celui
+     * du compte de l'appareil ; vide : le relais public) ; `{relay, id, owner, url, expires_in}` ou `{error, detail}`.
+     * Bloquant (30 s au plus).
+     */
+    fun journalDeposit(relay: String, header: String, body: String): JSONObject? =
+        ask("dépôt du journal", null) { journalDeposit(relay, header, body) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    /** L'état d'un dépôt (`journal::state`) : 0 en attente, 1 ouvert, 93 plus là, 90 pas de réponse. Bloquant. */
+    fun journalState(relay: String, id: String, owner: String): Int = ask("état du journal", 90) { journalState(relay, id, owner) }
+
+    /** « Terminé » : retire un dépôt pas encore ouvert (`journal::discard`). Bloquant. */
+    fun journalDiscard(relay: String, id: String, owner: String): Boolean = ask("retrait du journal", false) { journalDiscard(relay, id, owner) }
 
     /**
      * Une Station trouvée sur le réseau, lue par le cœur (`discovery::found`) : l'annonce résolue par l'app ([fullname],
@@ -177,14 +219,6 @@ object Core {
     /** Le texte ressemble à un lien d'invitation, lisible ou non. */
     fun looksLikeInvite(text: String): Boolean = ask("lien d'invitation", false) { looksLikeInvite(text) }
 
-    /** Les réglages d'un profil (`jeu`, `bureau`, `max`, `auto`) ramenés aux décodeurs de l'appareil (`StreamSettings::for_profile`). */
-    fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): JSONObject? =
-        ask("profil", null) { profileSettings(profile, hevc, hevc444, av1) }?.let { runCatching { JSONObject(it) }.getOrNull() }
-
-    /** Les clés connues et vérifiées de réglages synchronisés (`SyncedSettings::known`) ; nul sans réponse. */
-    fun settingsKnown(synced: JSONObject): JSONObject? =
-        ask("réglages synchronisés", null) { accountSettingsKnown(synced.toString()) }?.let(::accountValue)
-
     /** Des réglages reçus appliqués aux réglages de session (`SyncedValues::apply_to`, bornes du débit comprises) ; nul sans réponse. */
     fun settingsApply(values: JSONObject, base: JSONObject, caps: JSONObject): JSONObject? =
         ask("réglages synchronisés", null) { accountSettingsApply(values.toString(), base.toString(), caps.toString()) }?.let(::accountValue)
@@ -193,7 +227,25 @@ object Core {
     fun settingsFromStream(stream: JSONObject): JSONObject? =
         ask("réglages synchronisés", null) { accountSettingsFromStream(stream.toString()) }?.let(::accountValue)
 
+    /**
+     * Une opération sur la mémoire des réglages synchronisés d'un compte (`account::AccountSync`, voir
+     * [Native.accountSync]) : `{sync, value}`, ou nul sans réponse.
+     */
+    fun accountSync(op: String, sync: String, station: String = "", a: String = "", b: String = ""): JSONObject? =
+        ask("réglages synchronisés", null) { accountSync(op, sync, station, a, b) }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }?.takeIf { !it.has("error") }
+
     private fun accountValue(text: String): JSONObject? = (Accounts.read(text) { it as? JSONObject } as? AccountReply.Ok)?.value
+
+    /**
+     * La ligne « Stylet » des réglages de l'ordinateur (docs/link-ui.md, « Stylet ») : « Stylet », « Pression » /
+     * « Souris » et l'aide, sans session (`PenChoice::ui_json`, `shown` faux) ; sans réponse du cœur, vide.
+     */
+    fun penTexts(): fr.leslignesclaires.kybernow.model.PenChoice =
+        fr.leslignesclaires.kybernow.model.PenChoice.parse(ask("stylet", null) { penTexts() })
+
+    /** L'avis bref du raccourci Ctrl+Alt+Maj+P : « Stylet : souris » / « Stylet : pression » ; vide sans réponse. */
+    fun penNotice(mode: String): String = ask("stylet", "") { penNotice(mode) }
 
     /** Le temps d'un enregistrement : « 02:14 », « 59:59 », « 1:02:14 ». */
     fun recordingClock(seconds: Long): String = ask("temps de l'enregistrement", "") { recordingClock(seconds.coerceAtLeast(0)) }

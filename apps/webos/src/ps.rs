@@ -373,7 +373,7 @@ pub fn consoles_label(n: usize) -> String {
 
 /// « Réglages de {nom} ».
 pub fn settings_for(name: &str) -> String {
-    if english() { format!("Settings for {name}") } else { format!("Réglages {}{name}", crate::i18n::de(name)) }
+    crate::i18n::settings_for(name)
 }
 
 /// Le texte d'une fin de partie (`code` : celui du pilote) ; `None` : arrêtée par l'app.

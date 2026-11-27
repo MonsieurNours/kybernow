@@ -339,7 +339,6 @@ enum ShareText {
     }
 
     /// Un invité qui attend l'accord de l'hôte, quand l'hôte arrête le partage.
-    static var stopped: String { String(localized: "Ce partage est arrêté.") }
 
     /// La pastille de la barre : « 1 invité », « 2 invités ».
     static func guestCount(_ n: Int) -> String {
@@ -356,8 +355,6 @@ enum ShareText {
     static var looking: String { String(localized: "Recherche du partage…") }
     /// Hors de chez l'hôte : sa réponse se fait attendre (« Annuler » quitte la demande).
     static var waiting: String { String(localized: "En attente de l'accord de l'hôte…") }
-    /// Trois demandes attendent déjà l'accord de l'hôte.
-    static var pendingFull: String { String(localized: "Trop de demandes en attente : réessayez dans un instant.") }
     static var noShare: String { String(localized: "Aucun partage avec ce code sur le réseau.") }
     static func guestOn(_ computer: String) -> String { String(localized: "Invité sur \(computer)") }
     static var spectator: String { String(localized: "Spectateur") }
@@ -421,18 +418,11 @@ enum LendText {
     }
     static var sessionCloses: String { String(localized: "Votre session se fermera quand votre ami arrivera.") }
     static var cancelCode: String { String(localized: "Annuler le code") }
-    /// L'avertissement, selon le système de la Station (`os` de son info, le
-    /// même test que « Face à une Station Mac ») : Windows, Mac, sinon (Linux,
-    /// système inconnu) la session sans plus de précision.
+    /// L'avertissement, selon le système de la Station (`os` de son info) :
+    /// Windows, Mac, sinon (Linux, système inconnu) la session sans plus de
+    /// précision. Texte et règle du cœur (`kn_lend_warning`).
     static func warning(os: String?) -> String {
-        let os = os ?? ""
-        if os.hasPrefix("Windows") {
-            return String(localized: "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
-        }
-        if Keymap.stationIsMac(os) {
-            return String(localized: "Votre ami joue dans votre session du Mac. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
-        }
-        return String(localized: "Votre ami joue dans votre session. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.")
+        LendWarning.text(os: os)
     }
     static var offInAdmin: String { String(localized: "Le prêt est coupé dans Admin (page « Prêt »).") }
     static var tooOld: String { String(localized: "Le prêt demande KyberNow Station 0.9.0 ou plus récente.") }
@@ -713,8 +703,6 @@ enum HDRText {
     static func help(_ state: HDRState, settings: Bool = false) -> String {
         state.reason ?? (settings ? settingsHelp : help)
     }
-    /// Windows n'a pas pu passer l'écran virtuel en HDR (une fois par session).
-    static var refused: String { String(localized: "L'ordinateur n'a pas pu passer en HDR : image en SDR.") }
 
     // MARK: Réglage du HDR (docs/hdr.md, « Réglage du HDR »)
 

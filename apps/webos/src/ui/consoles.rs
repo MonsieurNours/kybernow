@@ -520,7 +520,7 @@ pub fn settings(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.clear(INK);
     let Some(c) = app.ps_settings_console() else { return };
     cv.rect(520.0, 0.0, 1.0, H, LINE);
-    widgets::label(cv, 96.0, 104.0, if english() { "Settings for" } else if crate::i18n::de(&c.name) == "d'" { "Réglages d'" } else { "Réglages de" });
+    widgets::label(cv, 96.0, 104.0, if english() { "Settings for" } else if crate::i18n::de(&c.name).starts_with("d'") { "Réglages d'" } else { "Réglages de" });
     cv.text_fit(92.0, 172.0, Text::new(Font::Title, 56.0, FROST).tracking(-1.5), &c.name, 410.0);
     cv.text(96.0, 222.0, Text::new(Font::Regular, 22.0, FROST_3), &c.model);
     let mut y = 300.0;

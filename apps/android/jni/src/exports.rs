@@ -19,7 +19,7 @@ use ndk::native_window::NativeWindow;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
-use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton};
+use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton, PenChoice, PenMode};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::station_offer;
 use kybernow_core::wake;
@@ -372,6 +372,35 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_parseAddres
     })
 }
 
+/// Le plan d'une session (`plan::plan_json`) : `choices_json` (les choix de
+/// l'ordinateur : `profile`, `codec`, `mbps`, `reliable`, `auto`, `fixed`,
+/// `encoder_max`, `hevc_instead`), ce que décode l'appareil (`capabilities_json`), l'écran
+/// de l'appareil ; rend `{settings, mode, mbps, label}`, nul pour un JSON
+/// illisible.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_planJson(
+    mut env: Env,
+    _: JClass,
+    choices_json: JString,
+    capabilities_json: JString,
+    width: jint,
+    height: jint,
+    refresh: jint,
+) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let (choices, caps) = (string(&mut env, &choices_json), string(&mut env, &capabilities_json));
+        let caps = serde_json::from_str::<kybernow_core::profile::Capabilities>(&caps).unwrap_or_default();
+        let screen = kybernow_core::console::Mode { width: width.max(0) as u32, height: height.max(0) as u32, refresh: refresh.max(0) as u32 };
+        match kybernow_core::plan::plan_json(&choices, caps, screen) {
+            Some(v) => give(&mut env, &v.to_string()),
+            None => {
+                log::warn!("plan de la session : choix illisibles");
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
 /// Les valeurs communes des apps (`plan::values_json`) pour les décodeurs de
 /// l'appareil (`capabilities_json` : `{hevc, hevc444, av1, hdr, pyrowave}`) :
 /// profils, bornes du débit à la main, débit en arrière-plan, maxima,
@@ -554,6 +583,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetS
         let json = string(&mut env, &json);
         match session::parse_settings(&json) {
             Ok(s) => {
+                h.shared.set_wanted(&s);
                 h.session.set_settings(s);
                 JNI_TRUE
             }
@@ -666,6 +696,57 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPush
                 h.session.push_microphone(&b, rate as u32);
             }
         });
+    })
+}
+
+// MARK: - Stylet (docs/link-ui.md, « Stylet » ; docs/stylet.md)
+
+/// « Stylet : Pression / Souris » de l'ordinateur (`pressure`, `mouse` ; une
+/// autre clé : « Pression ») : juste après `sessionStart`, puis à chaque
+/// changement (tuile, raccourci Ctrl+Alt+Maj+P, réglage). Gardé par la
+/// session et appliqué à chaque chaîne d'entrées.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionSetPenMode(mut env: Env, _: JClass, h: jlong, mode: JString) {
+    kybernow_core::ffi_guard!({
+        let key = string(&mut env, &mode);
+        let mode = PenMode::parse(&key).unwrap_or_default();
+        if let Some(h) = handle(h) {
+            h.session.set_pen_mode(mode);
+        }
+    })
+}
+
+/// La tuile « Stylet » de cette session (`PenChoice::ui_json`) : `{shown,
+/// mode, title, label, choices, help}` ; `device_has_pen` : l'appareil a un
+/// stylet (`InputDevice.SOURCE_STYLUS`). Nul sans session.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_sessionPenChoice(mut env: Env, _: JClass, h: jlong, device_has_pen: jboolean) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let Some(h) = handle(h) else { return std::ptr::null_mut() };
+        let json = h.session.pen_choice(device_has_pen != 0).ui_json(i18n::current()).to_string();
+        give(&mut env, &json)
+    })
+}
+
+/// La ligne « Stylet » des réglages de l'ordinateur (montrée même sans
+/// stylet) : le JSON de `PenChoice::ui_json` hors session (`shown` faux),
+/// pour son titre, ses deux choix et son aide.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_penTexts(mut env: Env, _: JClass) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let json = PenChoice::default().ui_json(i18n::current()).to_string();
+        give(&mut env, &json)
+    })
+}
+
+/// L'avis bref du raccourci : « Stylet : souris » / « Stylet : pression »
+/// (`PenMode::notice` ; une clé inconnue : « Pression »).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_penNotice(mut env: Env, _: JClass, mode: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let key = string(&mut env, &mode);
+        let text = PenMode::parse(&key).unwrap_or_default().notice(i18n::current());
+        give(&mut env, &text)
     })
 }
 
@@ -833,6 +914,16 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_inputSetCon
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_stationIsMac(mut env: Env, _: JClass, os: JString) -> jboolean {
     kybernow_core::ffi_guard!({
         jbool(keymap::station_is_mac(&string(&mut env, &os)))
+    })
+}
+
+/// L'avertissement du panneau « Prêter » selon le système de la Station
+/// (`os` de son info ; `lend::warning`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_lendWarning(mut env: Env, _: JClass, os: JString) -> jstring {
+    kybernow_core::ffi_guard!(null => {
+        let os = string(&mut env, &os);
+        give(&mut env, &kybernow_core::lend::warning(&os, kybernow_core::i18n::current()))
     })
 }
 
@@ -1052,43 +1143,6 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxis(_: 
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_padAxesRest(_: Env, _: JClass, h: jlong, pad: jint) {
     kybernow_core::ffi_guard!({
         input(h, |p| p.gamepad_axes_rest(pad as u32));
-    })
-}
-
-// MARK: - Profils
-
-/// Réglages d'un profil (`jeu`, `bureau`, `max`) ramenés à ce que l'appareil
-/// décode en matériel, dans le JSON de `settings` : la même règle que les
-/// autres apps (`StreamSettings::for_profile`).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_profileSettings(
-    mut env: Env,
-    _: JClass,
-    profile: JString,
-    hevc: jboolean,
-    hevc444: jboolean,
-    av1: jboolean,
-) -> jstring {
-    kybernow_core::ffi_guard!(null => {
-        use kybernow_core::profile::{Capabilities, Codec, Profile, StreamSettings};
-        let p = string(&mut env, &profile);
-        let profile = Profile::parse(&p).unwrap_or(Profile::Jeu);
-        let s = StreamSettings::for_profile(profile, Capabilities { hevc: hevc != 0, hevc444: hevc444 != 0, av1: av1 != 0, hdr: false, pyrowave: false });
-        let codec = match s.codec {
-            Codec::H264 => "h264",
-            Codec::Hevc => "hevc",
-            Codec::Av1 => "av1",
-            Codec::PyroWave => "pyrowave",
-        };
-        let json = serde_json::json!({
-            "profile": p.to_lowercase(),
-            "codec": codec,
-            "yuv444": s.yuv444,
-            "mbps": s.mbps,
-            "reliable": s.reliable,
-        })
-        .to_string();
-        give(&mut env, &json)
     })
 }
 

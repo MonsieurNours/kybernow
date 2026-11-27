@@ -731,6 +731,14 @@ struct KyberNowApp: App {
                 }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
                     .disabled(target?.isLive != true || target?.hasKeyboardAndMouse != true)
+                // « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : le
+                // choix en cours, textes du cœur ; ⌃⌥⌘P bascule, retenu pour l'ordinateur.
+                Button((target?.host.settings.pen ?? .pressure).notice) {
+                    if app.playstation.keySession != nil { return }
+                    app.sessions.commandTarget?.togglePenMode()
+                }
+                    .keyboardShortcut("p", modifiers: [.control, .option, .command])
+                    .disabled(target?.isLive != true || target?.hasKeyboardAndMouse != true || app.playstation.keySession != nil)
                 // Micro (docs/micro.md) : allumé ou coupé, retenu pour l'ordinateur.
                 if target?.micShown ?? true {
                     Toggle(MicText.label, isOn: Binding(get: { target?.micOn == true },

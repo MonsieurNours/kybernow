@@ -63,6 +63,8 @@ import fr.leslignesclaires.kybernow.model.HdrScreen
 import fr.leslignesclaires.kybernow.model.HdrState
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.LastSession
+import fr.leslignesclaires.kybernow.model.PenChoice
+import fr.leslignesclaires.kybernow.model.PenMode
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.PyroWave
 import fr.leslignesclaires.kybernow.model.PyroWaveLink
@@ -96,7 +98,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         /** Session d'emprunt (prêt de l'ordinateur) : le prêt et sa demande sont remis en mémoire par `KyberNowApp.handOverLoan`. */
         const val EXTRA_BORROW = "borrow"
         /** « Caméra… » sans réponse de l'ordinateur : elle s'éteint au bout de ce temps (docs/link-ui.md, « Caméra de l'appareil »). */
-        const val CAMERA_ANSWER_MS = 10_000L
+        /** Les avis du cœur que l'app montre elle-même (`camera::DeviceNotice::code`). */
+        const val CAMERA_START_REFUSED = 4
+        const val CAMERA_NO_ANSWER = 5
 
         /** Un emprunt : la Station du prêt prépare l'écran en HDR à la demande (le cœur fait de même), sans info à lire. */
         private val LENT_HDR by lazy { HostInfo.parse(JSONObject().put("hdr", JSONObject().put("available", true))) }
@@ -258,7 +262,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         pads.mouse.mac = mac
         ui = SessionUi(
             title, tv, state, this, OnScreenPad(onScreenOut), guest = guest != null, computerName = host.name,
-            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, stationSystem = StationSystem.of(host.os, Native.stationIsMac(host.os ?: "")), watch = watchUi,
+            borrower = loan != null, lender = loan?.host ?: "", lendUntil = loan?.until, mac = mac, lendWarningText = Core.lendWarning(host.os), watch = watchUi,
         ).apply {
             lendWarning = !app.lendWarned
             profile = host.settings.profile
@@ -353,34 +357,17 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         refresh = target?.refresh ?: r
     }
 
-    private fun settingsJson(profile: Profile): JSONObject {
-        val d = app.decoders
-        val set = host.settings
-        val wired = PyroWave.wired(this)
-        val profileBase = { Core.profileSettings(profile.id, d.hevc != null, d.hevc444, d.av1 != null && host.av1) ?: JSONObject().put("profile", profile.id) }
-        // Profil Auto : les réglages de son test (docs/profil-auto.md) ; sans test (reçu d'un autre appareil), ceux du cœur.
-        val base = if (profile == Profile.AUTO) AutoProfile.settings(set.autoResult, Hdr.wanted(host), wired, profileBase) else profileBase()
-        when (if (hevcInstead) "hevc" else set.codec) {
-            // PyroWave (docs/pyrowave.md) : le cœur le garde si la Station le propose et que l'appareil le décode,
-            // sinon HEVC ; « Passer en HEVC » le remplace pour cette session seulement.
-            "pyrowave" -> base.put("codec", "pyrowave")
-            "hevc" -> if (d.hevc != null) base.put("codec", "hevc")
-            "h264" -> base.put("codec", "h264").put("yuv444", false)
-            "av1" -> if (d.av1 != null && host.av1) base.put("codec", "av1").put("yuv444", false)
-        }
-        if (set.mbps > 0) base.put("mbps", set.mbps).remove("profile")
-        if (set.transport != "auto") base.put("reliable", set.reliable)
-        // Le choix « HDR » de cet ordinateur ; le cœur ne s'en sert que sur un écran HDR, quand la Station le propose.
-        base.put("hdr", Hdr.wanted(host))
-        // Relié par câble : « Auto » de Max prend PyroWave quand l'ordinateur le propose, le profil Auto quand son test
-        // l'a choisi (`profile::pyrowave_format`).
-        base.put("wired", wired)
-        // « Débit adaptatif » de cet ordinateur (docs/profil-auto.md).
-        base.put("adaptive", set.adaptive)
-        // Le plafond de l'encodeur gardé pour cet ordinateur (celui du test compris, une fois appliqué) ; nul : aucun.
-        base.put("encoder_max", set.encoderMax ?: JSONObject.NULL)
-        return base
-    }
+    /**
+     * Les réglages de la session : le plan du cœur (`plan::plan` : profil, format, débit, transport, résultat du test
+     * d'Auto, « Débit adaptatif », plafond de l'encodeur, « Passer en HEVC ») pour l'écran de la session, puis le choix
+     * « HDR » de cet ordinateur (le cœur ne s'en sert que sur un écran HDR, quand la Station le propose) et le câble
+     * (« Auto » de Max prend PyroWave quand l'ordinateur le propose, le profil Auto quand son test l'a choisi :
+     * `profile::pyrowave_format` ; jamais après « Passer en HEVC »).
+     */
+    private fun settingsJson(profile: Profile): JSONObject =
+        SessionMode.plan(host, app.decoders, sessionMode, profile, hevcInstead).settings
+            .put("hdr", Hdr.wanted(host))
+            .put("wired", PyroWave.wired(this) && !hevcInstead)
 
     /** Ce que le cœur doit savoir du HDR de cet écran : `screen_hdr`, ses valeurs, ce que le décodeur lit. */
     private fun JSONObject.putHdr(): JSONObject {
@@ -480,14 +467,14 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         // Sans écran (fenêtre pas encore posée) : pas d'écran noir sans issue, on revient à l'accueil (AND-24).
         val screen = Screen.of(display ?: run { finishSession(); return })
         hdrScreen = HdrScreen.of(display)
-        val settings = settingsJson(ui.profile)
         val g = guest
         // Le même calcul que l'accueil (« Écran de … »). Un invité reçoit l'écran du partage, tel que la Station le donne.
         val l = loan
         sessionMode = if (g != null && g.width > 0 && g.height > 0) Triple(g.width, g.height, if (g.refresh > 0) g.refresh.coerceIn(24, 240) else 60)
         // Un emprunt reçoit l'écran virtuel que la Station a fait à la taille de l'appareil.
         else if (l != null && l.width > 0 && l.height > 0) Triple(l.width, l.height, if (l.refresh > 0) l.refresh.coerceIn(24, 240) else 60)
-        else SessionMode.pick(screen, host.settings, settings.optString("codec"), app.decoders)
+        else SessionMode.plan(host, app.decoders, screen, ui.profile).mode
+        val settings = settingsJson(ui.profile)
         applyDisplay()
         val (w, h, r) = sessionMode
         val device = JSONObject(app.device.json())
@@ -581,6 +568,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         refreshHdr()
         watchHdr()
         watchDisplay()
+        // « Stylet : Pression / Souris » de cet ordinateur (« Pression » pour un invité ou un emprunt) : dit au cœur juste
+        // après le départ, qui le garde pour chaque chaîne d'entrées de la session.
+        Native.sessionSetPenMode(handle, host.settings.pen)
         // Micro retenu allumé pour cet ordinateur : dit au cœur juste après le départ ; l'autorisation perdue entre-temps
         // (« Seulement cette fois ») est redemandée, sans avis à l'arrivée.
         if (ui.micChoice) {
@@ -606,6 +596,28 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.micChoice = on
         saveSettings { it.copy(microphone = on) }
         if (handle != 0L) Native.sessionSetMicrophone(handle, on)
+    }
+
+    // MARK: - Stylet (docs/link-ui.md, « Stylet »)
+
+    /** La tuile « Stylet » : bascule, sans avis (le sous-titre le dit). */
+    override fun togglePen() = setPen(PenMode.toggled(host.settings.pen), notice = false)
+
+    /**
+     * « Stylet : Pression / Souris » choisi (tuile, raccourci Ctrl+Alt+Maj+P) : gardé pour cet ordinateur (pour la
+     * session chez un invité ou un emprunt), dit au cœur ; le raccourci a son avis bref, écrit par le cœur.
+     */
+    private fun setPen(mode: String, notice: Boolean) {
+        saveSettings { it.copy(pen = mode) }
+        if (handle != 0L) Native.sessionSetPenMode(handle, mode)
+        refreshPen()
+        if (notice) Core.penNotice(mode).takeIf { it.isNotEmpty() }?.let { state.show(Capsule.PenNotice(it)) }
+    }
+
+    /** La tuile « Stylet » telle que le cœur la donne maintenant (un stylet a pu servir, l'ordinateur l'annoncer). */
+    private fun refreshPen() {
+        val h = handle
+        if (h != 0L) ui.pen = PenChoice.parse(Native.sessionPenChoice(h, PenMode.deviceHasPen()))
     }
 
     /** Ce que dit le cœur : capter ou non. */
@@ -659,6 +671,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     }
                 }
                 if (hostSession) launch {
+                    // « Stylet » changé ailleurs pendant la session (réglages synchronisés reçus) : tout de suite.
+                    app.hosts.hosts.map { l -> l.firstOrNull { it.id == host.id }?.settings?.pen }.distinctUntilChanged().collect { pen ->
+                        if (pen != null && pen != host.settings.pen) {
+                            host = host.copy(settings = host.settings.copy(pen = pen))
+                            if (handle != 0L) Native.sessionSetPenMode(handle, pen)
+                            refreshPen()
+                        }
+                    }
+                }
+                if (hostSession) launch {
                     // « Ctrl agit comme ⌘ » changé dans les réglages pendant la session : tout de suite.
                     app.hosts.hosts.map { l -> l.firstOrNull { it.id == host.id }?.settings?.ctrlCommandCode }.distinctUntilChanged().collect { code ->
                         if (code != null && handle != 0L) Native.inputSetControlAsCommand(handle, Native.controlAsCommand(code, host.os ?: ""))
@@ -682,6 +704,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     // Hôte : ce que « Partager » et « Prêter l'ordinateur… » peuvent faire avec cet ordinateur, relu à chaque
                     // ouverture de la barre ou du menu.
                     snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open && hostSession) refreshShareAvailability() }
+                }
+                launch {
+                    // La tuile « Stylet » : relue à chaque ouverture de la barre ou du menu (un stylet a pu servir depuis).
+                    snapshotFlow { ui.barOpen || ui.menuOpen }.collect { open -> if (open) refreshPen() }
                 }
                 launch {
                     // La barre se ferme, quelle que soit la façon (B, la croix, le clavier de l'écran) :
@@ -1052,7 +1078,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 if (ok) startCameraPoll()
                 else {
                     // La session ne la prend pas : « La caméra n'a pas pu démarrer sur l'ordinateur. »
-                    cameraNotice(getString(R.string.camera_start_refused))
+                    cameraNotice(Native.cameraDeviceNotice(CAMERA_START_REFUSED, ""))
                     cameraOff()
                 }
             }
@@ -1078,16 +1104,18 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     /**
      * Les réponses de l'ordinateur, quatre fois par seconde tant qu'elle est allumée. Sans réponse en
-     * [CAMERA_ANSWER_MS] (« Caméra… » qui ne finit pas), elle s'éteint : « L'ordinateur ne répond pas : la caméra est éteinte. »
+     * `camera_answer_wait_secs` du cœur (« Caméra… » qui ne finit pas), elle s'éteint : « L'ordinateur ne répond pas : la
+     * caméra est éteinte. »
      */
     private fun startCameraPoll() {
         cameraPoll.removeCallbacksAndMessages(null)
         val since = android.os.SystemClock.elapsedRealtime()
+        val answerWaitMs = Core.values().cameraAnswerWaitMs
         val tick = object : Runnable {
             override fun run() {
                 if (handle == 0L || state.cameraState.value == 0) return
-                if (state.cameraState.value == 1 && android.os.SystemClock.elapsedRealtime() - since >= CAMERA_ANSWER_MS) {
-                    cameraNotice(getString(R.string.camera_no_answer))
+                if (state.cameraState.value == 1 && android.os.SystemClock.elapsedRealtime() - since >= answerWaitMs) {
+                    cameraNotice(Native.cameraDeviceNotice(CAMERA_NO_ANSWER, ""))
                     cameraOff()
                     return
                 }
@@ -1731,6 +1759,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                     KeyEvent.KEYCODE_M -> { Native.inputReleaseAll(handle); toggleMenu(); return true }
                     KeyEvent.KEYCODE_Q -> { quit(); return true }
                     KeyEvent.KEYCODE_V -> { setMicrophone(!ui.micChoice); return true }
+                    // P : « Stylet : Pression / Souris », avec l'avis bref « Stylet : souris » / « Stylet : pression ».
+                    KeyEvent.KEYCODE_P -> { setPen(PenMode.toggled(host.settings.pen), notice = true); return true }
                     // Les autres raccourcis de docs/link-ui.md : C caméra, D se déconnecter, R enregistrer, S statistiques.
                     KeyEvent.KEYCODE_C -> { toggleCamera(); return true }
                     KeyEvent.KEYCODE_D -> { quit(); return true }

@@ -27,7 +27,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         pills.push((format!("{} · {} {}{t}", p.model, p.ram_gb, tr("Go", "GB")), MUTED));
     }
     pills.push((net_label(app), MUTED));
-    pills.push((crate::app_time::local_hhmm(), MUTED));
+    pills.push((kybernow_ui::time::local_hhmm(), MUTED));
     super::home::pills(cv, w - 96.0, 48.0, &pills);
 
     // Les rubriques.

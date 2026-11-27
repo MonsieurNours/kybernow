@@ -679,7 +679,7 @@ impl Renderer {
     /// « trois plans »). Valeurs : PyroWave écrit la valeur normalisée v, soit
     /// le code v · 255 en 8 bits, et en 16 bits la convention P010 de la
     /// Station (10 bits en haut de 16). Métadonnées HDR10 : celles du paquet
-    /// de configuration version 2 (`meta`, `hdr::pyrowave_hdr`, KYB-29) ;
+    /// de configuration version 2 (`meta`, `hdr::pyrowave_meta`, KYB-29) ;
     /// sans elles (version 1, Station d'avant), crête par défaut (1 000 nits).
     pub fn draw_pyrowave(&mut self, dec: &mut crate::pyrowave::Decoder, c: crate::pyrowave::Config, meta: FrameHdr, hint: u32) -> Result<(), DrawError> {
         if let Some(why) = &self.lost {

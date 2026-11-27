@@ -122,6 +122,7 @@ pub fn poll() -> Vec<PenEvent> {
     }
     let mut ev = PenEvent::default();
     while unsafe { kn_pen_poll(p, &mut ev) } != 0 {
+        SEEN.store(true, Ordering::Relaxed);
         // Dans le journal : chaque approche et chaque départ du stylet.
         let near = ev.in_range != 0;
         if NEAR.swap(near, Ordering::Relaxed) != near {
@@ -146,6 +147,16 @@ pub fn poll() -> Vec<PenEvent> {
 }
 
 static NEAR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Un stylet s'est déjà approché d'une fenêtre de l'app depuis son lancement.
+static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// L'appareil a un stylet, pour la ligne « Stylet » du menu « Souris » (`Session::pen_choice`) : une tablette dont le
+/// stylet s'est déjà approché d'une fenêtre de l'app depuis son lancement (l'app ne lit les tablettes qu'à travers
+/// les états du stylet : une tablette branchée mais jamais approchée ne compte pas encore ; la session, elle, compte
+/// le stylet dès qu'il a servi).
+pub fn device_has_pen() -> bool {
+    SEEN.load(Ordering::Relaxed)
+}
 static TOUCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Le compositeur n'envoie plus le stylet en souris : l'app le rejoue.

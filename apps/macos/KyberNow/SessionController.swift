@@ -458,6 +458,44 @@ final class SessionController: NSObject, ObservableObject {
     /// Réglages de l'app changés (micro choisi, écho et bruit) : la capture reprend avec eux.
     func microphoneSettingsChanged() { engine?.microphoneSettingsChanged() }
 
+    // MARK: Stylet : Pression / Souris (docs/link-ui.md, « Stylet »)
+
+    /// La ligne « Stylet » du menu « Souris », textes du cœur ; relue à
+    /// l'ouverture de la barre et de ce menu, et quand une tablette approche.
+    @Published private(set) var pen = PenView()
+
+    /// La ligne a sa place : un stylet a servi ou ce Mac a une tablette, et
+    /// l'ordinateur reçoit le stylet ; seulement avec le clavier et la souris.
+    var penShown: Bool { pen.shown && hasKeyboardAndMouse }
+
+    func refreshPen() {
+        let view = engine?.penView(deviceHasPen: PenView.deviceHasPen) ?? PenView()
+        if view != pen { pen = view }
+    }
+
+    /// Une tablette graphique approche : retenue pour ce Mac, la ligne peut paraître.
+    private func penNear() {
+        if !PenView.deviceHasPen { PenView.deviceHasPen = true }
+        refreshPen()
+    }
+
+    /// « Pression » ou « Souris » (barre, réglage de l'ordinateur, ⌃⌥⌘P) :
+    /// gardé pour l'ordinateur, appliqué tout de suite.
+    func setPenMode(_ mode: PenMode) {
+        guard mode != host.settings.pen else { return }
+        commit { $0.settings.pen = mode }
+        engine?.setPenMode(mode)
+        refreshPen()
+    }
+
+    /// ⌃⌥⌘P : bascule, avec l'avis bref « Stylet : souris » / « Stylet : pression ».
+    func togglePenMode() {
+        guard hasKeyboardAndMouse else { return }
+        let mode = host.settings.pen.toggled
+        setPenMode(mode)
+        showHint(.notice(mode.notice), after: 0, for: 2)
+    }
+
     /// L'écran de ce Mac qui montre chaque écran de la session est HDR, par
     /// index d'écran de l'appareil (session à un écran : 0, l'écran de la fenêtre).
     @Published private var deviceHDR: [Int: Bool] = [:]
@@ -958,6 +996,7 @@ final class SessionController: NSObject, ObservableObject {
             guard let self, let surface else { return }
             self.pointerMoved(spot, on: surface)
         }
+        view.onPenNear = { [weak self] in self?.penNear() }
         view.onRelativeChanged = { [weak self] on in
             guard let self else { return }
             self.mouseCaptured = self.allViews.contains(where: \.isRelative)
@@ -1223,6 +1262,8 @@ final class SessionController: NSObject, ObservableObject {
             engine?.setGamepadCaptured(false)
         }
         guard visible != barVisible else { return }
+        // La ligne « Stylet » du menu « Souris » : relue à l'ouverture de la barre.
+        if visible { refreshPen() }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barVisible = visible }
         for view in allViews {
             view.reservedTopBand = visible && view === barView ? 150 : 0
@@ -1736,6 +1777,8 @@ final class SessionController: NSObject, ObservableObject {
             showHint(.notice(MicText.permission), after: 2, for: 6)
         }
         refreshMic()
+        // « Stylet : Pression / Souris » retenu pour cet ordinateur.
+        params.penMode = host.settings.pen
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)
@@ -1943,8 +1986,8 @@ final class SessionController: NSObject, ObservableObject {
         case .stationRestarting:
             stationRestarting = true
         case let .hdrRefused(text):
-            // Windows a refusé le HDR : une fois par session (le cœur s'en charge).
-            showHint(.notice(text.isEmpty ? HDRText.refused : text), after: 0, for: 6)
+            // Windows a refusé le HDR : une fois par session ; le texte du cœur.
+            showHint(.notice(text), after: 0, for: 6)
         }
     }
 

@@ -103,7 +103,7 @@ internal fun LendPanel(ui: SessionUi, modifier: Modifier) {
         duration = ui.lendDuration,
         steam = ui.lendSteam,
         warning = ui.lendWarning,
-        system = ui.stationSystem,
+        warningText = ui.lendWarningText,
         actions = ui.actions,
         onDuration = { ui.lendDuration = it },
         onSteam = { ui.lendSteam = it },
@@ -114,8 +114,8 @@ internal fun LendPanel(ui: SessionUi, modifier: Modifier) {
 
 /**
  * Le panneau « Prêter {nom} » sans l'app (les essais le rendent tel quel). [unavailable] : la raison, seule dans le panneau.
- * [warning] : l'avertissement, montré tant qu'aucun code n'a été créé depuis cet appareil, dans la forme du système de la
- * Station ([system] : « votre session Windows », « votre session du Mac », « votre session »).
+ * [warning] : l'avertissement, montré tant qu'aucun code n'a été créé depuis cet appareil ; [warningText] : son texte,
+ * selon le système de la Station (le cœur : « votre session Windows », « votre session du Mac », « votre session »).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -135,7 +135,7 @@ internal fun LendPanelContent(
     onSteam: (LendSteam) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
-    system: StationSystem = StationSystem.WINDOWS,
+    warningText: String = "",
 ) {
     val s = LocalScale.current
     val code = view?.code
@@ -174,7 +174,7 @@ internal fun LendPanelContent(
                 LendCode(code, relay, copy, tv, actions, focusMain)
                 LendCodeHelp(relay, busy, actions, Modifier.fillMaxWidth(), if (tv) focusMain else null)
             }
-            if (warning) Body(stringResource(system.lendWarning), color = Kn.warn, size = 13f)
+            if (warning && warningText.isNotEmpty()) Body(warningText, color = Kn.warn, size = 13f)
             error?.let { Body(it, color = Kn.warn, size = 14f) }
         }
     }
@@ -279,25 +279,6 @@ private fun LendRequestRow(request: LendRequest, busy: Boolean, actions: Session
             GlassButton(stringResource(R.string.share_accept), { actions.lendAnswer(request, true) }, if (focus != null) Modifier.focusRequester(focus) else Modifier, enabled = !busy, selected = true)
             // Pendant un créneau, l'ami passe avant l'hôte : rien à refuser (docs/link-ui.md).
             if (!request.slot) GlassButton(stringResource(R.string.share_refuse), { actions.lendAnswer(request, false) }, enabled = !busy)
-        }
-    }
-}
-
-/**
- * Le système de la Station, pour les textes qui en dépendent (docs/link-ui.md, « Prêt de l'ordinateur », avertissement) :
- * Mac par la règle du cœur ([fr.leslignesclaires.kybernow.core.Native.stationIsMac], « Face à une Station Mac ») ;
- * Windows quand son système (`os` de `GET /api/stream/info`) le dit ; Linux, ou un système inconnu : la forme générale.
- */
-enum class StationSystem(val lendWarning: Int) {
-    WINDOWS(R.string.lend_warning),
-    MAC(R.string.lend_warning_mac),
-    OTHER(R.string.lend_warning_other);
-
-    companion object {
-        fun of(os: String?, mac: Boolean): StationSystem = when {
-            mac -> MAC
-            os?.trimStart()?.startsWith("Windows", ignoreCase = true) == true -> WINDOWS
-            else -> OTHER
         }
     }
 }

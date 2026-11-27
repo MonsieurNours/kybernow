@@ -235,7 +235,7 @@ pub fn run(args: &[String]) {
 
     // L'app.
     let store = Store::load();
-    i18n::set_english(i18n::resolve(&store.app.language, &sdl::locale()));
+    i18n::set_english(kybernow_ui::i18n::resolve(&store.app.language, &sdl::locale()));
     kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
     let damaged = store.damaged.clone();
     let mut app = App::new(store);
@@ -716,7 +716,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                     return;
                 }
                 let sc = if remote_back { sdl::SC_ESCAPE } else { sc };
-                if !repeat && let Some(win) = pads::win_scancode(sc) {
+                if !repeat && let Some(win) = u16::try_from(sc).ok().and_then(kybernow_core::input::keymap::scancode_of_usage) {
                     log::debug!("clavier : touche SDL {sc} (Windows {win:#x}) {} vers l'ordinateur", if down { "appuyée" } else { "relâchée" });
                     // Face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur décide, et relâche chaque
                     // touche telle qu'elle est partie).
@@ -1273,14 +1273,14 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         Action::Quit => *quit = true,
         Action::Ps(_) => {}
         Action::Language => {
-            i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale()));
+            i18n::set_english(kybernow_ui::i18n::resolve(&app.store.app.language, &sdl::locale()));
             kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
             // Les pastilles d'origine sont dans la langue de l'app.
             accounts::sync(app);
         }
         Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name(), tx.clone()),
         Action::AccountCancel => accounts::cancel(),
-        Action::LogSend { attempt, relay, header } => log_send::send(attempt, relay, header, tx.clone()),
+        Action::LogSend { attempt, relay, device } => log_send::send(attempt, relay, device, tx.clone()),
         Action::LogCheck { attempt, relay, id, owner } => log_send::check(attempt, relay, id, owner, tx.clone()),
         Action::LogDiscard { relay, id, owner } => log_send::discard(relay, id, owner),
         Action::AutoTest { host, attempt } => autotest::start(app, &host, attempt, tx.clone()),

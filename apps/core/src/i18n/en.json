@@ -81,7 +81,8 @@
     "watch_unsupported": "This Station can't be watched yet: update it.",
     "watch_lent": "{name} is lent right now.",
     "watch_lent_unnamed": "The computer is lent right now.",
-    "watch_no_route": "the computer is not on this network, and the relay does not know it yet"
+    "watch_no_route": "the computer is not on this network, and the relay does not know it yet",
+    "unavailable": "Sharing is not available right now: try again in a moment."
   },
   "relay": {
     "unreachable": "The relay is not answering.",
@@ -121,7 +122,10 @@
     "state_busy": "In use",
     "state_lent": "Lent to someone else",
     "state_locked": "Locked",
-    "state_off": "Lending off"
+    "state_off": "Lending off",
+    "warning_windows": "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "warning_mac": "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "warning_other": "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust."
   },
   "pyrowave": {
     "lowered": "Resolution lowered to {width} × {height} to fit in {mbps} Mbit/s.",
@@ -283,6 +287,16 @@
     "denied": "Camera access is denied. Allow it in the device's Settings.",
     "in_use": "The camera is being used by another app.",
     "unplugged": "{camera} is no longer connected.",
-    "no_encoder": "This device can't send its camera."
+    "no_encoder": "This device can't send its camera.",
+    "no_answer": "The computer isn't answering: the camera is off.",
+    "start_refused": "The camera couldn't start on the computer."
+  },
+  "pen": {
+    "title": "Pen",
+    "pressure": "Pressure",
+    "mouse": "Mouse",
+    "help": "Pressure: the pen arrives as a real pen, for drawing. Mouse: it works as a mouse, without pressure or Windows Ink.",
+    "notice_pressure": "Pen: pressure",
+    "notice_mouse": "Pen: mouse"
   }
 }

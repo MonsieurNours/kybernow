@@ -5,7 +5,6 @@
 
 mod accounts;
 mod app;
-mod app_time;
 mod autotest;
 mod country;
 #[cfg(feature = "device")]
@@ -16,6 +15,7 @@ mod i18n;
 mod journal;
 mod micro;
 mod model;
+mod pen;
 // Les captures (`--preview`) et leurs essais : pas dans l'app livrée (LINAPP-39).
 #[cfg(any(test, not(feature = "device")))]
 // Avec l'app (`device`), seuls ses essais servent : les captures ne se lancent pas.
@@ -29,10 +29,6 @@ mod synced;
 mod ui;
 mod video_rules;
 mod welcome;
-// Les règles de l'accueil et de la carte du compte : celles du cœur, reprises telles quelles (l'interface se compile
-// sans le cœur : captures, essais sur le Mac).
-#[path = "../../core/src/welcome.rs"]
-mod welcome_rules;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();

@@ -22,7 +22,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::audio::AudioStats;
-use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
+use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PenChoice, PenMode, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::Second;
 use kybernow_core::micro::MicState;
@@ -239,6 +239,9 @@ pub trait HostEvents: Send + Sync {
     fn microphone_denied(&self) {}
     /// Ctrl+Alt+Maj+V sur une fenêtre de la session : « Micro » allumé ou coupé.
     fn toggle_microphone(&self) {}
+    /// Ctrl+Alt+Maj+P sur une fenêtre de la session : « Stylet » bascule entre
+    /// « Pression » et « Souris » (docs/link-ui.md, « Stylet »).
+    fn toggle_pen(&self) {}
 }
 
 pub struct HostOptions {
@@ -270,6 +273,9 @@ pub struct HostOptions {
     /// « Micro » au départ (choix retenu pour l'ordinateur, coupé par défaut) ;
     /// ensuite [`SessionHost::set_microphone`].
     pub microphone: bool,
+    /// « Stylet » au départ (choix retenu pour l'ordinateur, « Pression » par
+    /// défaut) ; ensuite [`SessionHost::set_pen_mode`].
+    pub pen: PenMode,
 }
 
 pub struct SessionHost {
@@ -477,6 +483,31 @@ impl SessionHost {
             }
             None => false,
         }
+    }
+
+    /// « Stylet : Pression / Souris » changé en session (barre, Ctrl+Alt+Maj+P,
+    /// réglages) : le cœur l'applique à la chaîne d'entrées en cours (le stylet
+    /// près de la surface est levé en passant en « Souris ») et à chaque
+    /// nouvelle. Faux quand la session n'est pas encore là.
+    pub fn set_pen_mode(&self, mode: PenMode) -> bool {
+        match self.app().and_then(|a| a.current_session()) {
+            Some(s) => {
+                s.set_pen_mode(mode);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Le choix « Stylet » de la session (`None` : pas encore là).
+    pub fn pen_mode(&self) -> Option<PenMode> {
+        self.app().and_then(|a| a.current_session()).map(|s| s.pen_mode())
+    }
+
+    /// La ligne « Stylet » du menu « Souris » de la barre (`PenChoice` du
+    /// cœur : un stylet a servi ou ce PC en a un, et l'ordinateur le reçoit).
+    pub fn pen_choice(&self) -> Option<PenChoice> {
+        self.app().and_then(|a| a.current_session()).map(|s| s.pen_choice(window::device_has_pen()))
     }
 
     /// Son inscription au registre des sessions du cœur.
@@ -953,6 +984,9 @@ fn run(
     *platform.mic_session.locked() = Some(Arc::downgrade(&session));
     // Le choix retenu pour l'ordinateur, juste après le départ (coupé par défaut).
     session.set_microphone(opts.microphone);
+    // « Stylet » retenu pour l'ordinateur (« Pression » par défaut) : le cœur le
+    // donne à chaque chaîne d'entrées de la session.
+    session.set_pen_mode(opts.pen);
     // Plusieurs ordinateurs : inscrite au registre des sessions du cœur, elle
     // devient active, comme sa fenêtre qui s'ouvre par-dessus (le cœur trouve
     // lui-même sa chaîne d'entrées et son moteur de son). Au-delà de quatre

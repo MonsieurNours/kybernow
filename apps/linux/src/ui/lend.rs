@@ -34,18 +34,14 @@ const FOOT: f32 = 56.0;
 /// de l'ordinateur ») : Windows, Mac, ou Linux et système inconnu (une Station d'avant).
 fn warning(app: &App, s: &SessionUi) -> String {
     let os = app.store.host(&s.host).and_then(|h| h.os.as_deref()).unwrap_or("");
-    let (fr, en) = if os.trim_start().get(..7).is_some_and(|p| p.eq_ignore_ascii_case("windows")) {
-        ("Votre ami joue dans votre session Windows.", "Your friend plays in your Windows session.")
-    } else if crate::app::station_is_mac(os) {
-        ("Votre ami joue dans votre session du Mac.", "Your friend plays in your Mac session.")
-    } else {
-        ("Votre ami joue dans votre session.", "Your friend plays in your session.")
+    use kybernow_rules::station::StationSystem;
+    // Le texte du cœur (`lend::warning`), lu dans son catalogue.
+    let key = match StationSystem::of(os) {
+        StationSystem::Windows => "lend.warning_windows",
+        StationSystem::Mac => "lend.warning_mac",
+        StationSystem::Linux | StationSystem::Unknown => "lend.warning_other",
     };
-    let rest = tr(
-        "Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
-        "They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
-    );
-    format!("{} {rest}", tr(fr, en))
+    crate::i18n::core_text(key, &[])
 }
 const HELP: (&str, &str) = (
     "Votre ami entre ce code avec « Rejoindre avec un code » dans KyberNow Link, ou ouvre ce lien dans un navigateur.",

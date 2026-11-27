@@ -811,7 +811,7 @@ fn device_info(app: &App) -> DeviceInfo {
 }
 
 fn set_language(app: &App) {
-    i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale()));
+    i18n::set_english(kybernow_ui::i18n::resolve(&app.store.app.language, &sdl::locale()));
     kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
 }
 
@@ -884,11 +884,9 @@ pub fn run(args: &[String]) {
     if let Ok(v) = std::env::var("KYBERNOW_VIDEO") {
         sdl::hint("SDL_VIDEODRIVER", &v);
     }
-    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre. Le
-    // décodeur lit l'en-tête `KNPW` version 2 (métadonnées HDR10 de la capture) : demandé à la Station.
+    // PyroWave : la sonde (device Vulkan, image de test) tourne sur un fil pendant que la fenêtre s'ouvre. L'en-tête
+    // `KNPW` version 2 (métadonnées HDR10 de la capture) est demandé à la Station par le cœur.
     system::pyrowave_probe_start();
-    #[cfg(feature = "pyrowave")]
-    kyclient::set_pyrowave_header(2);
     // HDR (docs/hdr.md) : sur un bureau Wayland dont la gestion des couleurs décrit une image PQ BT.2020 et dont un
     // écran est en HDR, SDL prend Wayland (seule voie du HDR ; X11 et Xwayland n'en ont pas), et la fenêtre peut être
     // transparente : l'image HDR, sur une sous-surface dessous, se voit par le trou que l'app y laisse.
@@ -1115,7 +1113,11 @@ pub fn run(args: &[String]) {
                 }
             }
         }
-        // Stylet : ses états partent à l'ordinateur de la session active.
+        // Stylet : le choix « Pression / Souris » de chaque session au cœur, puis ses états à l'ordinateur de la
+        // session active.
+        if sync_pen(&mut app, &lives) {
+            dirty = true;
+        }
         handle_pen(&app, &lives, &wins);
         // Manette en souris : déplacement continu (la session active).
         if let Some(s) = app.session()
@@ -1774,9 +1776,10 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
             }
             *dirty = true;
         }
-        // « Caméra… » sans réponse en 10 s : éteinte, avec l'avis.
+        // « Caméra… » sans réponse dans le délai du cœur : éteinte, avec l'avis du cœur.
         if let Some(t) = l.camera_since
-            && app.camera_unanswered(l.id, t)
+            && t.elapsed() >= kybernow_core::camera::ANSWER_WAIT
+            && app.camera_unanswered(l.id, kybernow_core::camera::device_notice(kybernow_core::camera::DeviceNotice::NoAnswer, "", kybernow_core::i18n::current()))
         {
             l.camera = None;
             l.camera_since = None;
@@ -2209,6 +2212,30 @@ fn pen_holds_mouse(which: u32) -> bool {
     pen::claimed() && (!pen::replays_mouse() || which == pen::PEN_WHICH)
 }
 
+/// « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : le choix de chaque session, tenu par l'interface
+/// (`SessionUi::pen`), donné au cœur quand il change (`Session::set_pen_mode` : en « Souris », `pen_on` rend faux et
+/// le stylet part en souris, comme face à une Station d'avant) ; et la ligne « Stylet » du menu « Souris » suivie
+/// (`PenChoice::shown` : un stylet a servi dans la session ou l'appareil en a un, et l'ordinateur reçoit le stylet).
+/// Rend vrai si l'interface a changé.
+fn sync_pen(app: &mut App, lives: &Lives) -> bool {
+    let has_pen = pen::device_has_pen();
+    let mut changed = false;
+    for l in lives.0.iter() {
+        let Some(s) = app.session_by_mut(l.id) else { continue };
+        let mode = kybernow_core::input::PenMode::parse(&s.pen).unwrap_or_default();
+        if l.handle.session.pen_mode() != mode {
+            l.handle.session.set_pen_mode(mode);
+            log::info!("stylet : {}", mode.key());
+        }
+        let shown = s.console.is_none() && l.handle.session.pen_choice(has_pen).shown();
+        if s.pen_shown != shown {
+            s.pen_shown = shown;
+            changed = true;
+        }
+    }
+    changed
+}
+
 /// Les états du stylet arrivés depuis le dernier tour : à l'ordinateur de la session active, sur l'écran de sa
 /// fenêtre, quand la session est à l'image en souris du bureau ; sinon (et face à une Station d'avant) le stylet
 /// reste une souris. Sur la barre ouverte, le stylet est à l'app : l'ordinateur le voit partir.
@@ -2443,8 +2470,9 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
             }
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris), O (ordinateur
-            // suivant), R (enregistrer), S (statistiques), C (caméra), V (micro) ; ils visent la session de la fenêtre active.
-            if app_combo && matches!(sc, sdl::SC_C | sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_R | sdl::SC_S | sdl::SC_V) {
+            // suivant), P (stylet), R (enregistrer), S (statistiques), C (caméra), V (micro) ; ils visent la session de
+            // la fenêtre active.
+            if app_combo && matches!(sc, sdl::SC_C | sdl::SC_D | sdl::SC_F | sdl::SC_M | sdl::SC_O | sdl::SC_P | sdl::SC_R | sdl::SC_S | sdl::SC_V) {
                 if down && !repeat {
                     match sc {
                         sdl::SC_D => actions.extend(routed.map(Action::Disconnect)),
@@ -2455,6 +2483,13 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                         sdl::SC_R => {
                             if routed.is_some() && routed == app.active {
                                 actions.extend(app.recording_toggle(true));
+                            }
+                            *dirty = true;
+                        }
+                        // P : « Stylet : Pression / Souris », avec l'avis bref « Stylet : souris » / « Stylet : pression ».
+                        sdl::SC_P => {
+                            if let Some(id) = routed {
+                                actions.extend(app.toggle_pen(id, true));
                             }
                             *dirty = true;
                         }
@@ -2498,7 +2533,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 }
                 // Face à un Mac, Ctrl et ⊞ échangés avec « Ctrl agit comme ⌘ » (le cœur décide, et relâche chaque
                 // touche telle qu'elle est partie).
-                if !repeat && let Some(w) = pads::win_scancode(sc) {
+                if !repeat && let Some(w) = u16::try_from(sc).ok().and_then(kybernow_core::input::keymap::scancode_of_usage) {
                     p.key(p.outgoing_scancode(w, down), down);
                 }
                 return;
@@ -3436,7 +3471,7 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
                 camera::Problem::InUse => device_notice(DeviceNotice::InUse, &name, kybernow_core::i18n::current()),
                 camera::Problem::Unplugged => device_notice(DeviceNotice::Unplugged, &name, kybernow_core::i18n::current()),
                 camera::Problem::NoEncoder => device_notice(DeviceNotice::NoEncoder, &name, kybernow_core::i18n::current()),
-                camera::Problem::Refused => crate::app::camera_refused_text().to_string(),
+                camera::Problem::Refused => device_notice(DeviceNotice::StartRefused, &name, kybernow_core::i18n::current()),
             };
             // Débranchée : la suivante de la liste prend la relève ; sinon la caméra s'éteint.
             let next = camera::cameras().into_iter().find(|(_, n)| *n != name);
@@ -3736,7 +3771,11 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             // « Passer en HEVC » : les réglages de la session en HEVC (le cœur relance l'image), le choix de
             // l'ordinateur reste PyroWave pour la prochaine session.
             let Some((host, profile, light)) = app.session_by(id).map(|s| (s.host.clone(), s.profile, s.light)) else { return };
-            let Some(h) = app.store.host(&host).cloned() else { return };
+            let Some(mut h) = app.store.host(&host).cloned() else { return };
+            // Un débit choisi pour PyroWave passe à celui de HEVC au plus (règle commune, `HEVC_AFTER_PYROWAVE_MBPS`).
+            if h.settings.mbps > 0 {
+                h.settings.mbps = kybernow_core::rules::limits::mbps_after_pyrowave(h.settings.mbps);
+            }
             if let Some(l) = lives.get_mut(id) {
                 log::info!("session : PyroWave → HEVC pour cette session");
                 let mode = session_mode_of(app, wins, l, &h);
@@ -4348,6 +4387,11 @@ fn open_session(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<E
         handle.session.set_microphone(m.on);
         ui.mic = Some(mic::view(m, guest.is_some()));
     }
+    // « Stylet : Pression / Souris » : le choix retenu pour cet ordinateur (un invité part en « Pression ») ;
+    // `sync_pen` le redonne au cœur à chaque changement.
+    let pen_mode = app.pen_choice(borrow_key.as_deref().unwrap_or(&h.id), guest.is_some());
+    handle.session.set_pen_mode(kybernow_core::input::PenMode::parse(pen_mode).unwrap_or_default());
+    ui.pen = pen_mode.to_string();
     ui.hdr = match (&guest, &borrow_key) {
         (Some(_), _) => None,
         (None, Some(key)) => app.borrowed_hdr_ui(key),

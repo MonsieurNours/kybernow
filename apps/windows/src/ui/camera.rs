@@ -15,7 +15,6 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::UiState;
-use crate::i18n::t;
 use crate::camera::{self, CameraChoice, CameraSender, Problem};
 
 /// L'état de la caméra d'une session.
@@ -92,7 +91,12 @@ fn snapshot(app: &AppHandle, id: &str) -> BarCamera {
 }
 
 fn emit(app: &AppHandle, id: &str) {
-    let _ = app.emit("bar-camera", snapshot(app, id));
+    let snap = snapshot(app, id);
+    // Barre fermée, la capsule « ● Caméra » en haut à gauche de l'image (`window::apply_signs`).
+    if let Some(session) = app.state::<UiState>().with_session(id, |r| r.host.id()) {
+        crate::window::set_signs(session, Some(snap.state == 2), None);
+    }
+    let _ = app.emit("bar-camera", snap);
 }
 
 fn notice(app: &AppHandle, id: &str, text: &str) {
@@ -148,15 +152,15 @@ fn turn_off(app: &AppHandle, id: &str) {
 }
 
 /// Sans réponse de l'ordinateur en ce temps après l'allumage, la caméra
-/// s'éteint (docs/link-ui.md, « Caméra de l'appareil »).
-const START_WAIT: Duration = Duration::from_secs(10);
+/// s'éteint (docs/link-ui.md, « Caméra de l'appareil ») : celui du cœur.
+const START_WAIT: Duration = core_camera::ANSWER_WAIT;
 
 fn turn_on(app: &AppHandle, id: &str, camera_id: Option<String>) {
     // La session ne prend pas la caméra (pas de lien vers l'ordinateur) :
     // « La caméra n'a pas pu démarrer sur l'ordinateur. »
     let Some(l) = link(app, id) else {
         log::warn!("caméra : la session n'a pas de lien caméra");
-        notice(app, id, &t("camera.start_refused", &[]));
+        notice(app, id, &core_camera::device_notice(DeviceNotice::StartRefused, "", i18n::current()));
         turn_off(app, id);
         return;
     };
@@ -197,7 +201,7 @@ fn turn_on(app: &AppHandle, id: &str, camera_id: Option<String>) {
             // Allumage sans réponse de l'ordinateur : éteinte, avec l'avis.
             if with(&id, |c| c.state == 1) && asked.elapsed() >= START_WAIT {
                 log::warn!("caméra : pas de réponse de l'ordinateur en {} s, éteinte", START_WAIT.as_secs());
-                notice(&app, &id, &t("camera.no_answer", &[]));
+                notice(&app, &id, &core_camera::device_notice(DeviceNotice::NoAnswer, "", i18n::current()));
                 turn_off(&app, &id);
                 return;
             }

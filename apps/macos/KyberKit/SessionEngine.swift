@@ -269,6 +269,10 @@ public final class SessionEngine: @unchecked Sendable {
         /// « Micro » de cet ordinateur (docs/micro.md) : le choix retenu par
         /// l'app, coupé par défaut, donné au cœur juste après le départ.
         public var microphone = false
+        /// « Stylet : Pression / Souris » de cet ordinateur (docs/link-ui.md,
+        /// « Stylet ») : le choix retenu par l'app, Pression par défaut, donné
+        /// au cœur juste après le départ.
+        public var penMode: PenMode = .pressure
 
         /// Session d'invité : la Station trouvée par `Share.join`, ce que
         /// l'appareil décode (le format de l'image est celui de l'hôte) et les
@@ -738,6 +742,8 @@ public final class SessionEngine: @unchecked Sendable {
         if hidden { kn_session_set_background(s, true) }
         // Le micro retenu pour cet ordinateur (proposé même coupé : l'ordinateur répond dès le début).
         kn_session_set_microphone(s, p.microphone)
+        // « Stylet : Pression / Souris » retenu pour cet ordinateur.
+        kn_session_set_pen_mode(s, p.penMode.rawValue)
         hasSession = true
         // Plusieurs ordinateurs : inscrite, elle devient la session active ;
         // refusée (registre plein), elle s'arrête aussitôt, jamais hors registre.
@@ -912,14 +918,14 @@ public final class SessionEngine: @unchecked Sendable {
                     return
                 }
                 startCameraPolling()
-                // Ni « started » ni « failed » de la Station en 10 s : éteinte, et dit.
+                // Ni « started » ni « failed » de la Station à temps : éteinte, et dit.
                 let timeout = DispatchWorkItem { [weak self] in
                     guard let self, request == self.cameraRequest, self.cameraState == .starting else { return }
                     self.cameraOff()
                     self.onCameraNotice?(CameraText.noAnswer)
                 }
                 cameraStartTimeout = timeout
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.cameraStartLimit, execute: timeout)
+                DispatchQueue.main.asyncAfter(deadline: .now() + CoreValues.current.cameraAnswerWait, execute: timeout)
             case let .failure(problem):
                 cameraProblem(problem)
             }
@@ -948,9 +954,9 @@ public final class SessionEngine: @unchecked Sendable {
     /// Numéro de la dernière demande (allumer, éteindre) : une ouverture
     /// dépassée par une autre demande ne fait plus rien.
     private var cameraRequest = 0
-    /// « Caméra… » sans réponse de la Station : éteinte au bout de ce délai.
+    /// « Caméra… » sans réponse de la Station : éteinte au bout de
+    /// `CoreValues.cameraAnswerWait`.
     private var cameraStartTimeout: DispatchWorkItem?
-    static let cameraStartLimit: TimeInterval = 10
 
     /// La ligne « Caméra » des statistiques (nil : éteinte).
     public var cameraStatsLine: String? {
@@ -1068,6 +1074,29 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         KyberLog.app.notice("micro \(on ? "allumé" : "coupé", privacy: .public) en session")
         if let s = live { kn_session_set_microphone(s, on) }
+    }
+
+    // MARK: - Stylet : Pression / Souris (docs/link-ui.md, « Stylet »)
+
+    /// La ligne « Stylet » du menu « Souris », la tuile, ⌃⌥⌘P ou le réglage
+    /// de l'ordinateur : le stylet part en vrai stylet ou en souris, tout de
+    /// suite (le cœur le lève d'abord s'il était près de la surface).
+    public func setPenMode(_ mode: PenMode) {
+        lock.lock()
+        params?.penMode = mode
+        lock.unlock()
+        KyberLog.app.notice("stylet : \(mode.rawValue, privacy: .public) en session")
+        if let s = live { kn_session_set_pen_mode(s, mode.rawValue) }
+    }
+
+    /// La ligne « Stylet » de cette session, dans la langue de l'app :
+    /// montrée (`shown`) quand un stylet a servi ou que l'appareil en a un
+    /// (`deviceHasPen`), et que l'ordinateur le reçoit. Sans session : rien
+    /// de montré.
+    public func penView(deviceHasPen: Bool) -> PenView {
+        guard let s = live, let p = kn_session_pen_choice_json(s, deviceHasPen) else { return PenView() }
+        defer { kn_string_free(p) }
+        return PenView(json: String(cString: p)) ?? PenView()
     }
 
     /// Réglages de l'app changés (micro choisi, « Réduire l'écho et le
@@ -1728,4 +1757,79 @@ private extension KyberDisplay {
     init(_ d: KnDisplay) {
         self.init(id: d.id, width: Int(d.width), height: Int(d.height), x: Int(d.x), y: Int(d.y))
     }
+}
+
+// MARK: - Stylet : Pression / Souris (docs/link-ui.md, « Stylet »)
+
+/// « Stylet : Pression / Souris » d'un ordinateur (`input::PenMode` du cœur) :
+/// retenu par ordinateur, comme le micro, et synchronisé avec le compte (clé
+/// `pen`). « Pression » envoie le vrai stylet ; « Souris », le stylet comme
+/// une souris en position absolue (pointe : clic gauche, bouton : clic droit).
+public enum PenMode: String, Codable, CaseIterable, Sendable {
+    case pressure, mouse
+
+    /// ⌃⌥⌘P et la tuile basculent.
+    public var toggled: PenMode { self == .mouse ? .pressure : .mouse }
+
+    /// L'avis bref du raccourci, pour ce choix qui vient d'être pris :
+    /// « Stylet : souris » / « Stylet : pression » (catalogue du cœur).
+    public var notice: String {
+        guard let p = kn_pen_notice(rawValue) else { return "" }
+        defer { kn_string_free(p) }
+        return String(cString: p)
+    }
+}
+
+/// La ligne « Stylet » (menu « Souris » de la barre, tuile, réglage de
+/// l'ordinateur), textes du cœur dans la langue de l'app.
+public struct PenView: Equatable, Sendable {
+    public struct Choice: Equatable, Sendable, Hashable {
+        public let mode: PenMode
+        /// « Pression », « Souris ».
+        public let label: String
+    }
+
+    /// La ligne a sa place dans la barre (jamais pour le réglage, toujours montré).
+    public var shown = false
+    public var mode: PenMode = .pressure
+    /// « Stylet ».
+    public var title = ""
+    /// Le choix en cours : « Pression » ou « Souris » (sous-titre de la tuile).
+    public var label = ""
+    public var choices: [Choice] = []
+    /// « Pression : le stylet arrive comme un vrai stylet, pour dessiner. Souris : … »
+    public var help = ""
+
+    public init() {}
+
+    init?(json text: String) {
+        guard let j = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return nil }
+        shown = j["shown"] as? Bool ?? false
+        mode = (j["mode"] as? String).flatMap(PenMode.init(rawValue:)) ?? .pressure
+        title = j["title"] as? String ?? ""
+        label = j["label"] as? String ?? ""
+        choices = (j["choices"] as? [[String: Any]] ?? []).compactMap { c in
+            guard let mode = (c["key"] as? String).flatMap(PenMode.init(rawValue:)), let label = c["label"] as? String else { return nil }
+            return Choice(mode: mode, label: label)
+        }
+        help = j["help"] as? String ?? ""
+    }
+
+    /// Les textes du réglage « Stylet » des réglages de l'ordinateur
+    /// (rubrique « Commandes », montré même sans stylet), `mode` coché.
+    public static func settings(_ mode: PenMode) -> PenView {
+        guard let p = kn_pen_texts_json(mode.rawValue) else { return PenView() }
+        defer { kn_string_free(p) }
+        return PenView(json: String(cString: p)) ?? PenView()
+    }
+
+    /// L'appareil a un stylet : une tablette graphique vue par l'app (Mac),
+    /// un Apple Pencil qui a servi dans l'app (iPad ; iPadOS ne dit pas si
+    /// un Pencil est associé). Retenu sur l'appareil, d'une session à l'autre.
+    public static var deviceHasPen: Bool {
+        get { UserDefaults.standard.bool(forKey: deviceHasPenKey) }
+        set { UserDefaults.standard.set(newValue, forKey: deviceHasPenKey) }
+    }
+
+    private static let deviceHasPenKey = "penDeviceSeen"
 }

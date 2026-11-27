@@ -29,16 +29,17 @@ public enum CameraState: Equatable, Sendable {
     case paused
 }
 
-/// Pourquoi la caméra ne part pas (avis de docs/link-ui.md).
-/// Avis de la caméra qui ne viennent pas du cœur (docs/webcam.md).
+/// Avis de la caméra que l'app montre d'elle-même (docs/link-ui.md,
+/// « Caméra de l'appareil »), textes du cœur (`camera::DeviceNotice`).
 public enum CameraText {
-    /// `kn_camera_start` refusé.
+    /// `kn_camera_start` refusé : « La caméra n'a pas pu démarrer sur l'ordinateur. »
     public static var notStarted: String {
-        String(localized: "La caméra n'a pas pu démarrer sur l'ordinateur.", bundle: .kyberKit)
+        Core.take(kn_camera_device_notice(Int32(KN_CAMERA_START_REFUSED), "")) ?? ""
     }
-    /// Ni « started » ni « failed » de la Station dans le délai.
+    /// Ni « started » ni « failed » de la Station dans le délai
+    /// (`CoreValues.cameraAnswerWait`) : « L'ordinateur ne répond pas : la caméra est éteinte. »
     public static var noAnswer: String {
-        String(localized: "L'ordinateur ne répond pas : la caméra est éteinte.", bundle: .kyberKit)
+        Core.take(kn_camera_device_notice(Int32(KN_CAMERA_NO_ANSWER), "")) ?? ""
     }
 }
 

@@ -632,7 +632,7 @@ private struct SettingsPane: View {
                 st.bitrateMbps = PyroWaveRules.mbps(width: m.width, height: m.height, refresh: m.refresh, yuv444: st.yuv444)
             } else if wasPyroWave {
                 // En quittant PyroWave, un débit d'HEVC.
-                st.bitrateMbps = min(st.bitrateMbps, PyroWaveSession.hevcMbps)
+                st.bitrateMbps = CoreValues.mbpsAfterPyroWave(st.bitrateMbps)
             }
         }
     }
@@ -833,6 +833,12 @@ private struct SettingsPane: View {
         }
     }
 
+    /// Gardé pour l'ordinateur ; en session avec lui, appliqué tout de suite.
+    private func setPen(_ mode: PenMode) {
+        if let session = app.session, session.host.id == host.id { return session.setPenMode(mode) }
+        update { $0.pen = mode }
+    }
+
     private var channelsNote: (text: String, warn: Bool) {
         switch s.audio {
         case .auto: return (String(localized: "Auto : \(route.channelsLabel) sur \(route.name) ; 5.1 ou 7.1 vers un ampli ou en audio spatial."), false)
@@ -866,6 +872,14 @@ private struct SettingsPane: View {
         rows.choice(DeviceDisplay.isPad ? String(localized: "Souris et trackpad") : String(localized: "Souris"), mouseNote,
                     MouseChoice.allCases.map { SettingsOption(key: $0.rawValue, label: $0.label) }, s.mouse.rawValue) { v in
             if let m = MouseChoice(rawValue: v) { update { $0.mouse = m } }
+        }
+        // « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet ») : l'Apple
+        // Pencil, sur iPad seulement (l'iPhone n'a pas de stylet) ; textes du cœur.
+        if DeviceDisplay.isPad {
+            let pen = PenView.settings(s.pen)
+            rows.choice(pen.title, pen.help, pen.choices.map { SettingsOption(key: $0.mode.rawValue, label: $0.label) }, s.pen.rawValue) { v in
+                if let m = PenMode(rawValue: v) { setPen(m) }
+            }
         }
         screenPadRows
         rows.choice(String(localized: "Manette vue par l'ordinateur"), s.gamepad.hint,

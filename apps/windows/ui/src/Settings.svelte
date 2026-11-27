@@ -12,7 +12,7 @@
   import Statistics from './Statistics.svelte'
   import Station from './Station.svelte'
   import { onMount, untrack } from 'svelte'
-  import type { Battery, Computer, DisplaysInfo, MicSettings, Settings, ThisPc } from './lib/api'
+  import type { BarPen, Battery, Computer, DisplaysInfo, MicSettings, PenMode, Settings, ThisPc } from './lib/api'
   import { chosenBy, invoke, isMacStation, listen, pyrowaveOffered, values } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
@@ -81,6 +81,20 @@
       .then((m) => (hasMic = m.devices.length > 0))
       .catch(() => (hasMic = false))
   })
+  /** « Stylet » (docs/link-ui.md « Stylet ») : ses textes, ceux du cœur (`pen_texts`) ; le réglage est toujours montré. */
+  let penTexts = $state<BarPen | null>(null)
+  onMount(() => {
+    invoke<BarPen>('pen_texts')
+      .then((p) => (penTexts = p))
+      .catch(() => (penTexts = null))
+  })
+  // « Stylet » changé dans la barre ou par Ctrl+Alt+Maj+P : la copie de travail le reprend.
+  $effect(() => {
+    const mode: PenMode = computer.settings.pen === 'mouse' ? 'mouse' : 'pressure'
+    untrack(() => {
+      if ((s.pen === 'mouse' ? 'mouse' : 'pressure') !== mode) s = { ...s, pen: mode }
+    })
+  })
   // « Micro » changé dans la barre ou par Ctrl+Alt+Maj+V : la copie de travail le reprend.
   $effect(() => {
     const on = !!computer.settings.microphone
@@ -91,6 +105,15 @@
 
   // Enregistrements à la suite : le dernier état gagne toujours.
   let saving: Promise<unknown> = Promise.resolve()
+  /**
+   * Un autre format : en quittant PyroWave, un débit réglé à la main passe à celui de HEVC au plus (règle du cœur,
+   * `values.hevc_after_pyrowave_mbps`, comme « Passer en HEVC ») ; un débit de PyroWave ne vaut rien ailleurs.
+   */
+  function codecChange(codec: Settings['codec']): Partial<Settings> {
+    const leaving = s.codec === 'pyrowave' && codec !== 'pyrowave' && s.mbps != null
+    return leaving ? { codec, mbps: Math.min(s.mbps!, values.hevc_after_pyrowave_mbps) } : { codec }
+  }
+
   function save(patch: Partial<Settings>) {
     s = { ...s, ...patch }
     const settings = $state.snapshot(s)
@@ -350,7 +373,7 @@
                   // PyroWave sous son nom ; inactif (sa raison dans l'aide) s'il ne peut pas servir.
                   ...(pyroShown ? [{ value: 'pyrowave' as const, label: 'PyroWave', disabled: !!pyroReason && s.codec !== 'pyrowave' }] : []),
                 ]}
-                onchange={(v) => save({ codec: v === 'auto' ? null : v })}
+                onchange={(v) => save(codecChange(v === 'auto' ? null : v))}
               />
             </div>
             {#if formatHelp}<span class="help">{formatHelp}</span>{/if}
@@ -468,6 +491,21 @@
             </div>
             <span class="help">{t('settings.mouse_help')}</span>
           </div>
+          {#if penTexts}
+            <!-- « Stylet : Pression / Souris », retenu pour cet ordinateur ; montré même sans stylet branché. -->
+            <div class="line stack">
+              <div class="lr">
+                <span>{penTexts.title}</span>
+                <Segmented
+                  label={penTexts.title}
+                  value={s.pen === 'mouse' ? 'mouse' : 'pressure'}
+                  options={penTexts.choices.map((c) => ({ value: c.key, label: c.label }))}
+                  onchange={(v) => save({ pen: v === 'mouse' ? 'mouse' : 'pressure' })}
+                />
+              </div>
+              <span class="help">{penTexts.help}</span>
+            </div>
+          {/if}
           <div class="line stack">
             <span>{t('settings.keyboard')}</span>
             <span class="help">{t(mac ? 'settings.keyboard_help_mac' : 'settings.keyboard_help')}</span>

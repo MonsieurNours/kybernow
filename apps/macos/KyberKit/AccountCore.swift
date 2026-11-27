@@ -404,10 +404,13 @@ public enum Accounts {
 
     /// Toutes les clés d'après les réglages de l'app pour un ordinateur (le
     /// premier envoi, quand le relais n'a rien pour lui) ; `immersive` :
-    /// `fullscreen`, `always`, `never`, nil sans mode immersif.
-    public static func allKeys(_ settings: SessionEngine.Settings, immersive: String?) -> SyncedKeys? {
+    /// `fullscreen`, `always`, `never`, nil sans mode immersif ; `pen` :
+    /// « Stylet : Pression / Souris », nil sans stylet (Apple TV).
+    public static func allKeys(_ settings: SessionEngine.Settings, immersive: String?, pen: PenMode? = nil) -> SyncedKeys? {
         guard let base = AccountJSON.string(from: settings.json) else { return nil }
-        return Core.take(kn_account_settings_from_stream(base, immersive)).flatMap(SyncedKeys.init(json:))
+        var keys = Core.take(kn_account_settings_from_stream(base, immersive)).flatMap(SyncedKeys.init(json:))
+        if let pen { keys?.pen = pen.rawValue }
+        return keys
     }
 
     /// Les réglages de session de l'app avec ces clés, ramenés à ce que cet
@@ -473,7 +476,8 @@ public struct SyncedSettings: Sendable, Equatable {
 
 /// Les clés synchronisées d'un ordinateur (toutes facultatives) : `profile`
 /// (`jeu`, `bureau`, `max` ; `.some(nil)` : personnalisé), `codec`,
-/// `yuv444`, `mbps`, `hdr`, `immersive` (`fullscreen`, `always`, `never`).
+/// `yuv444`, `mbps`, `hdr`, `immersive` (`fullscreen`, `always`, `never`),
+/// `pen` (`pressure`, `mouse`).
 public struct SyncedKeys: Sendable, Equatable, Codable {
     public var profile: String??
     public var codec: VideoCodec?
@@ -481,6 +485,8 @@ public struct SyncedKeys: Sendable, Equatable, Codable {
     public var mbps: Int?
     public var hdr: Bool?
     public var immersive: String?
+    /// « Stylet : Pression / Souris » (`pressure`, `mouse`).
+    public var pen: String?
 
     public init() {}
 
@@ -492,6 +498,7 @@ public struct SyncedKeys: Sendable, Equatable, Codable {
         mbps = (j["mbps"] as? NSNumber)?.intValue
         hdr = j["hdr"] as? Bool
         immersive = j["immersive"] as? String
+        pen = j["pen"] as? String
     }
 
     public var isEmpty: Bool { self == SyncedKeys() }
@@ -504,6 +511,7 @@ public struct SyncedKeys: Sendable, Equatable, Codable {
         if let m = other.mbps { mbps = m }
         if let h = other.hdr { hdr = h }
         if let i = other.immersive { immersive = i }
+        if let p = other.pen { pen = p }
     }
 
     /// En JSON, les absentes omises, `"profile": null` pour personnalisé.
@@ -515,6 +523,7 @@ public struct SyncedKeys: Sendable, Equatable, Codable {
         if let mbps { j["mbps"] = mbps }
         if let hdr { j["hdr"] = hdr }
         if let immersive { j["immersive"] = immersive }
+        if let pen { j["pen"] = pen }
         return AccountJSON.string(from: j) ?? "{}"
     }
 

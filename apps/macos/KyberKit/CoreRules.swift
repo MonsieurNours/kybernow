@@ -69,6 +69,9 @@ public struct CoreValues: Sendable {
     /// Débit de base de PyroWave, en 4:2:0 et en 4:4:4 (Mbit/s, 4K à 60 Hz).
     public let pyrowaveMbps: Int
     public let pyrowaveMbps444: Int
+    /// PyroWave quitté (« Passer en HEVC », autre format dans les réglages) :
+    /// le débit réglé à la main au plus (`rules::limits::HEVC_AFTER_PYROWAVE_MBPS`).
+    public let hevcAfterPyroWaveMbps: Int
     /// Débit réglé à la main sur cet appareil : le plus bas, le pas, le plus
     /// haut (HEVC, AV1, H.264), le plus haut en PyroWave (Mbit/s).
     public let manualMin: Int
@@ -81,6 +84,8 @@ public struct CoreValues: Sendable {
     public let maxSessions: Int
     /// Attente au plus du lien du relais d'un partage ou d'un code de prêt.
     public let relayLinkWait: TimeInterval
+    /// La caméra allumée attend au plus la réponse de l'ordinateur.
+    public let cameraAnswerWait: TimeInterval
     /// Mise à jour d'une Station : attente avant l'avis, et la version
     /// d'avant laquelle une Station ne sait pas le dire.
     public let stationNoticeWait: TimeInterval
@@ -110,6 +115,7 @@ public struct CoreValues: Sendable {
         max = profile("max")
         pyrowaveMbps = int(v["pyrowave_mbps"])
         pyrowaveMbps444 = int(v["pyrowave_mbps_444"])
+        hevcAfterPyroWaveMbps = int(v["hevc_after_pyrowave_mbps"])
         manualMin = int(manual["min"])
         manualStep = int(manual["step"])
         manualMax = int(device["max"])
@@ -118,11 +124,20 @@ public struct CoreValues: Sendable {
         maxGuests = int(v["max_guests"])
         maxSessions = int(v["max_sessions"])
         relayLinkWait = TimeInterval(int(v["relay_link_wait_secs"]))
+        cameraAnswerWait = TimeInterval(int(v["camera_answer_wait_secs"]))
         stationNoticeWait = TimeInterval(int(v["station_notice_wait_secs"]))
         stationNoticeBefore = v["station_notice_before"] as? String ?? ""
         adminPort = int(v["admin_port"])
         addressExample = v["address_example"] as? String ?? ""
         defaultRelay = v["default_relay"] as? String ?? ""
+    }
+
+    /// Un débit réglé à la main pour PyroWave, en quittant PyroWave : celui
+    /// de HEVC au plus, un débit qui tient en Wi-Fi ; le débit de PyroWave des
+    /// réglages, lui, reste pour la prochaine fois.
+    public static func mbpsAfterPyroWave(_ mbps: Int) -> Int {
+        let cap = current.hevcAfterPyroWaveMbps
+        return cap > 0 ? min(mbps, cap) : mbps
     }
 
     /// Le plus haut débit réglé à la main dans ce format.

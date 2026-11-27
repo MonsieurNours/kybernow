@@ -1962,6 +1962,55 @@ pub unsafe extern "C" fn kn_session_push_microphone(s: *const KnSession, samples
     })
 }
 
+// MARK: - Stylet : Pression / Souris (docs/link-ui.md, « Stylet »)
+
+/// Une clé gardée par l'app (`pressure`, `mouse`) ; inconnue : Pression.
+fn pen_mode(key: *const c_char) -> kybernow_core::input::PenMode {
+    kybernow_core::input::PenMode::parse(&text(key)).unwrap_or_default()
+}
+
+/// « Stylet : Pression / Souris » retenu par l'app pour cet ordinateur
+/// (`pressure` ou `mouse`), donné juste après `kn_session_start` puis à
+/// chaque changement (ligne « Stylet » du menu « Souris », tuile, raccourci
+/// ⌃⌥⌘P, réglage). En « Souris », `kn_input_pen` rend faux et l'app envoie
+/// le stylet comme une souris.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_pen_mode(s: *const KnSession, mode: *const c_char) {
+    kybernow_core::ffi_guard!({
+        let mode = pen_mode(mode);
+        with(s, |s| s.set_pen_mode(mode));
+    })
+}
+
+/// La ligne « Stylet » de la barre (et la tuile), dans la langue de l'app :
+/// `{shown, mode, title, label, choices: [{key, label}], help}` ; `shown`
+/// vrai quand un stylet a servi dans la session ou que l'appareil en a un
+/// (`device_has_pen`), et que l'ordinateur le reçoit. Nul sans session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_pen_choice_json(s: *const KnSession, device_has_pen: bool) -> *mut c_char {
+    kybernow_core::ffi_guard!(null => {
+        with(s, |s| give(s.pen_choice(device_has_pen).ui_json(i18n::current()).to_string())).unwrap_or(std::ptr::null_mut())
+    })
+}
+
+/// Les textes du réglage « Stylet » (rubrique « Commandes » des réglages de
+/// l'ordinateur, montré même sans stylet), le choix `mode` coché : le même
+/// JSON que `kn_session_pen_choice_json` (`shown` y est faux, sans objet).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pen_texts_json(mode: *const c_char) -> *mut c_char {
+    kybernow_core::ffi_guard!(null => {
+        let choice = kybernow_core::input::PenChoice { mode: pen_mode(mode), ..Default::default() };
+        give(choice.ui_json(i18n::current()).to_string())
+    })
+}
+
+/// L'avis bref du raccourci ⌃⌥⌘P pour le choix qui vient d'être pris :
+/// « Stylet : souris » / « Stylet : pression ».
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pen_notice(mode: *const c_char) -> *mut c_char {
+    kybernow_core::ffi_guard!(null => { give(pen_mode(mode).notice(i18n::current())) })
+}
+
 /// Inscrit la session dans le registre des sessions de l'app, `name` : le
 /// nom de son ordinateur (au début des lignes de son journal). Elle devient
 /// active ; les autres passent derrière, leur son coupé (sauf « Garder le
@@ -2083,6 +2132,30 @@ mod tests {
         assert!(available("{}") && available("illisible"), "Station d'avant ou réponse illisible : disponibles");
         assert!(!available(r#"{"os": "macOS 26.1", "gamepads": {"available": false, "reason": "entitlement"}}"#));
         assert!(available(r#"{"gamepads": {"available": true}}"#));
+    }
+
+    /// « Stylet : Pression / Souris » : textes du réglage, avis du raccourci,
+    /// clé inconnue lue comme Pression, rien sans session.
+    #[test]
+    fn stylet_pression_ou_souris() {
+        let take = |p: *mut c_char| {
+            assert!(!p.is_null());
+            let s = unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
+            unsafe { kn_string_free(p) };
+            s
+        };
+        i18n::set_current(Lang::Fr);
+        let v: serde_json::Value = serde_json::from_str(&take(unsafe { kn_pen_texts_json(c"mouse".as_ptr()) })).unwrap();
+        assert_eq!((v["title"].as_str(), v["mode"].as_str(), v["label"].as_str()), (Some("Stylet"), Some("mouse"), Some("Souris")));
+        assert_eq!(v["choices"][0]["key"], "pressure");
+        assert_eq!(v["shown"], false);
+        let v: serde_json::Value = serde_json::from_str(&take(unsafe { kn_pen_texts_json(c"plus tard".as_ptr()) })).unwrap();
+        assert_eq!(v["mode"], "pressure");
+        // Espace fine avant les deux-points (catalogue du cœur).
+        assert_eq!(take(unsafe { kn_pen_notice(c"mouse".as_ptr()) }), "Stylet\u{202F}: souris");
+        assert_eq!(take(unsafe { kn_pen_notice(c"pressure".as_ptr()) }), "Stylet\u{202F}: pression");
+        assert!(unsafe { kn_session_pen_choice_json(std::ptr::null(), true) }.is_null());
+        unsafe { kn_session_set_pen_mode(std::ptr::null(), c"mouse".as_ptr()) };
     }
 
     static RELEASED: AtomicU64 = AtomicU64::new(0);

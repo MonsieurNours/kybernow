@@ -23,7 +23,7 @@
     duration = $bindable(),
     steam = $bindable(),
     trustOnce,
-    system,
+    warning,
     requestMeta,
     on,
   }: {
@@ -37,8 +37,8 @@
     duration: string
     steam: 'friend' | 'host'
     trustOnce: boolean
-    /** Le système de la Station : l'avertissement dit « votre session Windows », « du Mac », ou « votre session ». */
-    system: 'windows' | 'mac' | 'other'
+    /** L'avertissement, selon le système de la Station (le cœur) : « votre session Windows », « du Mac », ou « votre session ». */
+    warning: string
     requestMeta: (r: LendRequest) => string
     on: { answer: (r: LendRequest, accept: boolean) => void; copy: () => void; cancelCode: () => void; createCode: () => void }
   } = $props()
@@ -101,7 +101,7 @@
         onchange={(v) => (steam = v)}
       />
     </div>
-    {#if trustOnce}<p class="note" role="note">{t(system === 'windows' ? 'lend.trust' : system === 'mac' ? 'lend.trust_mac' : 'lend.trust_other')}</p>{/if}
+    {#if trustOnce && warning}<p class="note" role="note">{warning}</p>{/if}
     <div class="foot">
       <button class="primary" disabled={acting} onclick={on.createCode}>{t('lend.create_code')}</button>
     </div>

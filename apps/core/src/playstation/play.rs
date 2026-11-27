@@ -173,20 +173,7 @@ pub(crate) fn recoverable(end: &PlayEnd) -> bool {
 
 /// NAL de référence (image clé) dans une image en Annex B.
 pub(crate) fn has_key_nal(data: &[u8], hevc: bool) -> bool {
-    let mut i = 0;
-    while i + 3 < data.len() {
-        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
-            let h = data[i + 3];
-            let key = if hevc { matches!((h >> 1) & 0x3f, 16..=21) } else { h & 0x1f == 5 };
-            if key {
-                return true;
-            }
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    false
+    crate::nal::starts(data).filter_map(|s| data.get(s)).any(|&h| if hevc { matches!((h >> 1) & 0x3f, 16..=21) } else { h & 0x1f == 5 })
 }
 
 impl Play {

@@ -148,7 +148,10 @@ class LendUiTest {
 
     private fun panel(view: LendView?, unavailable: String? = null, busy: Boolean = false, warning: Boolean = false, tv: Boolean = false, onDuration: (LendDuration) -> Unit = {}, onSteam: (LendSteam) -> Unit = {}) =
         show(if (tv) FormFactor.TV else FormFactor.PHONE) {
-            LendPanelContent("Atelier", view, unavailable, busy, null, null, tv, LendDuration.TWO_HOURS, LendSteam.FRIEND, warning, actions, onDuration, onSteam, {})
+            LendPanelContent(
+                "Atelier", view, unavailable, busy, null, null, tv, LendDuration.TWO_HOURS, LendSteam.FRIEND, warning, actions, onDuration, onSteam, {},
+                warningText = "Votre ami joue dans votre session Windows. Il ne voit ni votre bureau ni vos fenêtres, mais un jeu peut lire vos fichiers : prêtez à des amis de confiance.",
+            )
         }
 
     // MARK: - Le panneau de l'hôte

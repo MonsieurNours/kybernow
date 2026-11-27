@@ -6,8 +6,104 @@
 // (`PenAvailable`, reçu à l'arrivée des entrées) et en souris du bureau ;
 // sinon [`crate::input::InputPipeline::pen_on`] rend `false` et l'app le
 // traite en souris, comme avant.
+//
+// « Stylet : Pression / Souris » (décidé le 27/11/2026) : [`PenMode`], retenu
+// par ordinateur ; en « Souris », le stylet part en souris absolue même quand
+// l'ordinateur le reçoit. La règle de la ligne et de la tuile ([`PenChoice`]),
+// ses textes et l'avis du raccourci (Ctrl+Alt+Maj+P, ⌃⌥⌘P) sont ici, pour
+// toutes les apps.
 
 use kynput_rs::Pen;
+use serde::{Deserialize, Serialize};
+
+use crate::i18n::{self, Lang};
+
+/// « Stylet : Pression / Souris » d'un ordinateur.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PenMode {
+    /// Le vrai stylet (pression, inclinaison, Windows Ink) : par défaut.
+    #[default]
+    Pressure,
+    /// Le stylet comme une souris en position absolue : pointe posée = clic
+    /// gauche, bouton du stylet = clic droit ; ni pression ni Windows Ink.
+    Mouse,
+}
+
+impl PenMode {
+    /// Les clés gardées par les apps et synchronisées (`pen`).
+    pub const KEYS: [&'static str; 2] = ["pressure", "mouse"];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Pressure => "pressure",
+            Self::Mouse => "mouse",
+        }
+    }
+
+    /// Une clé gardée ; inconnue (version plus récente) : `None`.
+    pub fn parse(key: &str) -> Option<Self> {
+        match key {
+            "pressure" => Some(Self::Pressure),
+            "mouse" => Some(Self::Mouse),
+            _ => None,
+        }
+    }
+
+    /// Le raccourci (Ctrl+Alt+Maj+P, ⌃⌥⌘P) et la tuile basculent.
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Pressure => Self::Mouse,
+            Self::Mouse => Self::Pressure,
+        }
+    }
+
+    /// « Pression » / « Souris » (choix de la ligne, sous-titre de la tuile).
+    pub fn label(self, lang: Lang) -> String {
+        i18n::tr(lang, if self == Self::Mouse { "pen.mouse" } else { "pen.pressure" }, &[])
+    }
+
+    /// L'avis bref du raccourci : « Stylet : souris » / « Stylet : pression ».
+    pub fn notice(self, lang: Lang) -> String {
+        i18n::tr(lang, if self == Self::Mouse { "pen.notice_mouse" } else { "pen.notice_pressure" }, &[])
+    }
+}
+
+/// La ligne « Stylet » du menu « Souris » de la barre (et la tuile des barres
+/// en tuiles) : seulement quand un stylet a servi dans la session ou que
+/// l'appareil en a un, et que l'ordinateur reçoit le stylet (« stylet
+/// disponible »). Les réglages de l'ordinateur la montrent toujours.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PenChoice {
+    pub mode: PenMode,
+    /// Un stylet a servi dans cette session ([`crate::input::InputPipeline::pen_seen`]).
+    pub seen: bool,
+    /// L'appareil a un stylet (tablette graphique vue, Apple Pencil associé, stylet d'Android).
+    pub device_has_pen: bool,
+    /// L'ordinateur reçoit le stylet ([`crate::input::InputPipeline::pen_offered`]).
+    pub offered: bool,
+}
+
+impl PenChoice {
+    pub fn shown(&self) -> bool {
+        (self.seen || self.device_has_pen) && self.offered
+    }
+
+    /// Pour les ponts : `{shown, mode, title, label, choices: [{key, label}],
+    /// help}` dans la langue `lang`.
+    pub fn ui_json(&self, lang: Lang) -> serde_json::Value {
+        let choices: Vec<serde_json::Value> =
+            [PenMode::Pressure, PenMode::Mouse].iter().map(|m| serde_json::json!({ "key": m.key(), "label": m.label(lang) })).collect();
+        serde_json::json!({
+            "shown": self.shown(),
+            "mode": self.mode.key(),
+            "title": i18n::tr(lang, "pen.title", &[]),
+            "label": self.mode.label(lang),
+            "choices": choices,
+            "help": i18n::tr(lang, "pen.help", &[]),
+        })
+    }
+}
 
 /// Un état du stylet, tel que l'app le lit.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -90,9 +186,75 @@ pub fn tilt_from_altitude_azimuth(altitude: f32, azimuth: f32) -> (f32, f32) {
     (tx, ty)
 }
 
+/// Le choix d'une session, partagé entre [`crate::session::Session`] et son
+/// fil : donné par l'app (départ, barre, raccourci, réglage), appliqué à la
+/// chaîne d'entrées en cours et à chaque nouvelle.
+#[derive(Default)]
+pub(crate) struct PenSwitch {
+    mode: std::sync::Mutex<PenMode>,
+    input: std::sync::Mutex<std::sync::Weak<super::InputPipeline>>,
+}
+
+impl PenSwitch {
+    pub(crate) fn set(&self, mode: PenMode) {
+        *self.mode.lock().unwrap() = mode;
+        if let Some(input) = self.input.lock().unwrap().upgrade() {
+            input.set_pen_mode(mode);
+        }
+    }
+
+    pub(crate) fn mode(&self) -> PenMode {
+        *self.mode.lock().unwrap()
+    }
+
+    /// Une nouvelle chaîne d'entrées : elle prend le choix en cours.
+    pub(crate) fn attach(&self, input: &std::sync::Arc<super::InputPipeline>) {
+        input.set_pen_mode(self.mode());
+        *self.input.lock().unwrap() = std::sync::Arc::downgrade(input);
+    }
+
+    /// La ligne « Stylet » de cette session ([`PenChoice`]).
+    pub(crate) fn choice(&self, device_has_pen: bool) -> PenChoice {
+        let input = self.input.lock().unwrap().upgrade();
+        PenChoice {
+            mode: self.mode(),
+            seen: input.as_ref().is_some_and(|i| i.pen_seen()),
+            device_has_pen,
+            offered: input.as_ref().is_some_and(|i| i.pen_offered()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// « Stylet : Pression / Souris » : pression par défaut, bascule, clés
+    /// gardées, ligne montrée seulement avec un stylet et un ordinateur qui le
+    /// reçoit, textes de la ligne et de l'avis du raccourci.
+    #[test]
+    fn stylet_pression_ou_souris() {
+        assert_eq!(PenMode::default(), PenMode::Pressure);
+        assert_eq!(PenMode::Pressure.toggled(), PenMode::Mouse);
+        assert_eq!(PenMode::Mouse.toggled(), PenMode::Pressure);
+        for m in [PenMode::Pressure, PenMode::Mouse] {
+            assert_eq!(PenMode::parse(m.key()), Some(m));
+            assert!(PenMode::KEYS.contains(&m.key()));
+            assert_eq!(serde_json::to_value(m).unwrap(), serde_json::json!(m.key()));
+        }
+        assert_eq!(PenMode::parse("gomme"), None);
+        let c = |seen, device_has_pen, offered| PenChoice { mode: PenMode::Pressure, seen, device_has_pen, offered };
+        assert!(!c(false, false, true).shown(), "aucun stylet : pas de ligne");
+        assert!(!c(true, true, false).shown(), "ordinateur qui ne reçoit pas le stylet : pas de ligne");
+        assert!(c(true, false, true).shown());
+        assert!(c(false, true, true).shown());
+        assert_eq!(PenMode::Mouse.notice(Lang::Fr), "Stylet\u{202f}: souris");
+        assert_eq!(PenMode::Pressure.notice(Lang::En), "Pen: pressure");
+        let ui = PenChoice { mode: PenMode::Mouse, ..c(true, false, true) }.ui_json(Lang::Fr);
+        assert_eq!((ui["shown"].as_bool(), ui["mode"].as_str(), ui["label"].as_str()), (Some(true), Some("mouse"), Some("Souris")));
+        assert_eq!(ui["title"], "Stylet");
+        assert_eq!(ui["choices"][0]["label"], "Pression");
+    }
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
     #[test]

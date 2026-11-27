@@ -25,6 +25,15 @@ public enum LendAvailability: String, Sendable, Equatable {
     }
 }
 
+/// L'avertissement du panneau « Prêter » selon le système de la Station
+/// (`os` de son info) : Windows, Mac, sinon la forme générale ; règle et
+/// texte du cœur (`lend::warning`, `rules::station`).
+public enum LendWarning {
+    public static func text(os: String?) -> String {
+        Core.take(kn_lend_warning(os ?? "")) ?? ""
+    }
+}
+
 /// Une plage d'un créneau, à l'heure de la Station.
 public struct LendPeriod: Sendable, Equatable {
     public let start: Date

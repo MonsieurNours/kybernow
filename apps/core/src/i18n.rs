@@ -201,6 +201,20 @@ mod tests {
     #[test]
     fn catalogues_du_coeur_complets() {
         assert_eq!(CORE.mismatched_keys(), Vec::<String>::new());
+        // TRANS-32 : en français, une espace fine insécable (U+202F) avant
+        // « : ; ! ? », jamais une espace ordinaire ni insécable (U+00A0).
+        let (fr, _) = CORE.parsed();
+        let mut texts = Vec::new();
+        fn walk<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
+            match v {
+                Value::Object(m) => m.values().for_each(|x| walk(x, out)),
+                Value::String(s) => out.push(s),
+                _ => {}
+            }
+        }
+        walk(fr, &mut texts);
+        let bad: Vec<&str> = texts.into_iter().filter(|t| [" :", " ;", " !", " ?", "\u{a0}:", "\u{a0};", "\u{a0}!", "\u{a0}?"].iter().any(|p| t.contains(p))).collect();
+        assert!(bad.is_empty(), "espace ordinaire avant la ponctuation : {bad:?}");
     }
 
     #[test]

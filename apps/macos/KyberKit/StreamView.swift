@@ -442,9 +442,14 @@ public final class StreamView: NSView {
     private var penContact = false
     private var penBarrel = false
 
+    /// Un stylet de tablette graphique approche (la ligne « Stylet » de la
+    /// barre a alors sa place, si l'ordinateur le reçoit).
+    public var onPenNear: (() -> Void)?
+
     public override func tabletProximity(with event: NSEvent) {
         penEraser = event.pointingDeviceType == .eraser
         penNear = event.isEnteringProximity
+        if penNear { onPenNear?() }
         if !penNear, penSent {
             _ = sendPen(event, near: false)
             penSent = false

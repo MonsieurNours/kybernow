@@ -141,10 +141,10 @@ fn join_targets(state: &UiState) -> Vec<ShareTarget> {
 }
 
 /// Les relais où chercher le code en plus du relais public (que le cœur interroge
-/// toujours) : ceux des ordinateurs de l'app (`info.relay.server`, `relais::join_relays`).
+/// toujours) : ceux des ordinateurs de l'app (`info.relay.server`, `share::join_relays` du cœur).
 fn join_relays(state: &UiState) -> Vec<kybernow_core::relay::RelayAddr> {
     let servers: Vec<String> = state.with_store(|s| s.computers.iter().filter_map(|c| c.relay.as_ref().map(|r| r.server.clone())).collect());
-    relais::join_relays(servers.iter().map(String::as_str))
+    kybernow_core::share::join_relays(servers.iter().map(String::as_str))
 }
 
 /// Ce que propose « Rejoindre » : le prénom d'avant, sinon le nom de ce PC, et
@@ -636,6 +636,8 @@ pub fn share_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> 
             immersive: "fullscreen".into(),
             // Un invité : coupé au départ (l'hôte décide s'il peut parler).
             microphone: false,
+            // « Pression » au départ, choix gardé le temps de la session.
+            pen: Default::default(),
             layout,
         },
         events.clone(),

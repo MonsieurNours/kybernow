@@ -50,7 +50,8 @@ class SettingsSyncTest {
             .put("account", JSONObject().put("id", "acc_lea").put("name", "Léa").put("email", "lea@exemple.fr")).toString(),
     )!!
 
-    private fun stream(set: HostSettings) = SyncedKeys.stream(set, SyncedKeys.profileBase(set.profile, hevc = true, hevc444 = true, av1 = false), hevc = true, av1 = false)
+    private fun stream(set: HostSettings) =
+        SyncedKeys.stream(Host(id = "pc", name = "PC", address = "", port = 0, fingerprint = null, user = "", settings = set), decoders)
 
     private fun synced(at: Long, values: JSONObject) = JSONObject().put("station", station).put("updated_at", at).put("values", values)
 
@@ -155,12 +156,29 @@ class SettingsSyncTest {
         val (hosts, sync, h) = setup(relay)
         hosts.update(h.id) { it.copy(settings = it.settings.apply(Profile.DESKTOP)) }
         assertEquals(1, relay.puts.size)
-        assertEquals(setOf("profile", "codec", "yuv444", "mbps", "hdr"), relay.puts[0].second.keys().asSequence().toSet())
+        // Toutes les clés, le stylet compris (`with_pen`).
+        assertEquals(setOf("profile", "codec", "yuv444", "mbps", "hdr", "pen"), relay.puts[0].second.keys().asSequence().toSet())
         assertEquals(101L, sync.appliedAt(key, station))
         hosts.update(h.id) { it.copy(settings = it.settings.copy(hdr = false)) }
         assertEquals("""{"hdr":false}""", relay.puts[1].second.toString())
         // Rien de synchronisé n'a changé : rien ne part.
         hosts.update(h.id) { it.copy(settings = it.settings.copy(padSize = 2)) }
+        assertEquals(2, relay.puts.size)
+    }
+
+    @Test
+    fun thePen_isSentAlone_andApplied() = runBlocking {
+        val relay = Relay()
+        val (hosts, sync, h) = setup(relay)
+        hosts.update(h.id) { it.copy(settings = it.settings.copy(hdr = false)) }
+        assertEquals("pressure", relay.puts[0].second.getString("pen"))
+        // « Stylet : Souris » choisi : la clé seule.
+        hosts.update(h.id) { it.copy(settings = it.settings.copy(pen = "mouse")) }
+        assertEquals("""{"pen":"mouse"}""", relay.puts[1].second.toString())
+        // Reçu d'un autre appareil : appliqué, sans rien renvoyer.
+        relay.list = AccountReply.Ok(listOf(synced(500, JSONObject().put("pen", "pressure"))))
+        sync.sync(account)
+        assertEquals("pressure", hosts.get(h.id)!!.settings.pen)
         assertEquals(2, relay.puts.size)
     }
 
@@ -241,5 +259,22 @@ class SettingsSyncTest {
         assertEquals(puts, relay.puts.size)
         // Allumé par défaut, gardé sur l'appareil.
         assertFalse(SettingsSync(RuntimeEnvironment.getApplication(), hosts, { decoders }, { null }, CoroutineScope(Dispatchers.Unconfined), relay).enabled.value)
+    }
+
+    @Test
+    fun whatAnOlderVersionKept_isTakenOver() = runBlocking {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("settings_sync", android.content.Context.MODE_PRIVATE).edit()
+            .putString("lists", JSONObject().put(key, org.json.JSONArray().put(synced(42, JSONObject().put("profile", "max")))).toString())
+            .putString("applied", JSONObject().put("$key\n$station", 42).toString())
+            .putString("pending", JSONObject().put("$key\n$station", JSONObject().put("hdr", false)).toString())
+            .commit()
+        val (_, sync, _) = setup(Relay())
+        assertEquals(42L, sync.appliedAt(key, station))
+        assertEquals("""{"hdr":false}""", sync.pending(key, station).toString())
+        assertEquals(setOf(station), sync.list(key).keys)
+        assertFalse(app.getSharedPreferences("settings_sync", android.content.Context.MODE_PRIVATE).contains("lists"))
+        sync.forgetAccount(key)
+        assertEquals(0L, sync.appliedAt(key, station))
     }
 }

@@ -185,7 +185,23 @@ struct GlassMenuItem: Identifiable {
     var enabled = true
     /// Aide au survol (une ligne inactive dit pourquoi).
     var help: String?
+    /// Un groupe commence à cette ligne : un trait, puis son nom (« Stylet »
+    /// sous les choix de la souris).
+    var section: String?
     let action: () -> Void
+}
+
+/// Le début d'un groupe dans un menu en verre : un trait, puis son nom.
+struct GlassMenuSection: View {
+    let title: String
+
+    var body: some View {
+        Divider().padding(.vertical, 2)
+        Text(title).font(Theme.sans(12, .semibold)).foregroundStyle(Theme.muted)
+            .padding(.horizontal, 10)
+            .padding(.top, 2)
+            .accessibilityAddTraits(.isHeader)
+    }
 }
 
 /// Menu en verre (barre de session) : un bouton, et la liste dans une bulle.
@@ -214,6 +230,7 @@ struct GlassMenu<Label: View>: View {
         .popover(isPresented: $open, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(items) { item in
+                    if let section = item.section { GlassMenuSection(title: section) }
                     MenuRow(item: item) { open = false }
                 }
             }
@@ -304,6 +321,7 @@ struct GlassMoreMenu: View {
                     row(title: entry.title, checked: false, icon: "arrow-left") { self.sub = nil }
                     Divider().padding(.vertical, 2)
                     ForEach(items) { item in
+                        if let section = item.section { GlassMenuSection(title: section) }
                         row(title: item.title, checked: item.checked, enabled: item.enabled, help: item.help) {
                             item.action()
                             open = false

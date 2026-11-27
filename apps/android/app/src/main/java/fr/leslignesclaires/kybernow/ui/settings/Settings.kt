@@ -495,7 +495,13 @@ private fun PictureRubric(state: HostSettingsState, actions: HostSettingsActions
         set.codec,
         disabled = if (pw.usable) emptySet() else setOf("pyrowave"),
         below = if (pyroChosen && pw.link != PyroWaveLink.CABLE) ({ PyroWarning(pw.link) }) else null,
-    ) { v -> actions.update { it.copy(codec = v) } }
+    ) { v ->
+        // PyroWave quitté : un débit réglé à la main pour lui ramené à celui de HEVC (`limits::mbps_after_pyrowave`).
+        actions.update {
+            val leaving = it.codec == "pyrowave" && v != "pyrowave" && it.mbps > 0
+            it.copy(codec = v, mbps = if (leaving) it.mbps.coerceAtMost(Core.values().hevcAfterPyroWaveMbps) else it.mbps)
+        }
+    }
     ChoiceRow(
         stringResource(R.string.settings_bitrate), stringResource(R.string.settings_bitrate_help),
         listOf(0 to auto) + manualBitrates(pyroChosen).map { it to stringResource(R.string.settings_mbps, it) }, set.mbps,
@@ -617,6 +623,12 @@ private fun ControlsRubric(state: HostSettingsState, actions: HostSettingsAction
         stringResource(R.string.settings_mouse), stringResource(R.string.settings_mouse_help),
         listOf(0 to stringResource(R.string.settings_auto), 1 to stringResource(R.string.mouse_desktop), 2 to stringResource(R.string.mouse_game)), set.mouse,
     ) { v -> actions.update { it.copy(mouse = v) } }
+    // « Stylet : Pression / Souris » (docs/link-ui.md, « Stylet »), sous la souris : montré même sans stylet branché ; les
+    // textes du cœur, le choix retenu pour cet ordinateur (et synchronisé).
+    val pen = remember { Core.penTexts() }
+    if (pen.choices.isNotEmpty()) {
+        ChoiceRow(pen.title, pen.help.takeIf { it.isNotEmpty() }, pen.choices, set.pen) { v -> actions.update { it.copy(pen = v) } }
+    }
     // Face à une Station Mac seulement (docs/link-ui.md) : un clavier de PC tape les raccourcis du Mac avec Ctrl.
     if (state.mac) {
         SwitchRow(stringResource(R.string.settings_ctrl_command), stringResource(R.string.settings_ctrl_command_help), set.ctrlCommand ?: true) { v ->

@@ -25,10 +25,10 @@ use std::time::{Duration, Instant};
 
 use super::endpoint::Endpoint;
 
-/// Port de découverte d'une PS5.
-pub const PORT_PS5: u16 = 9302;
-/// Port de découverte d'une PS4.
-pub const PORT_PS4: u16 = 987;
+/// Ports de découverte d'une PS5 et d'une PS4 : ceux du tunnel
+/// (`kybernow_tunnel::console`), une seule fois pour le relais, Admin et le
+/// cœur.
+pub use kybernow_tunnel::console::{PORT_PS4, PORT_PS5};
 /// Version du protocole de découverte annoncée à une PS5.
 pub const PROTOCOL_PS5: &str = "00030010";
 /// Version du protocole de découverte annoncée à une PS4.

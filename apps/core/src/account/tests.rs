@@ -207,7 +207,7 @@ fn code_de_televiseur() {
     let many = Fake::new(|_, _| Ok(Reply { status: 429, body: json!({ "error": "too_many" }), retry_after: Some(300) }));
     let e = tv_code_with(&*many, "", "TV").unwrap_err();
     assert_eq!(e, AccountError::TooMany { seconds: Some(300) });
-    assert_eq!(e.text(Lang::Fr), "Trop d'essais : réessayez dans 5 min.");
+    assert_eq!(e.text(Lang::Fr), "Trop d'essais : réessayez dans 5 min.");
 }
 
 #[test]
@@ -452,9 +452,9 @@ fn textes_et_codes() {
             assert!(!t.is_empty() && !t.starts_with("account."), "{} : {t}", e.kind());
         }
     }
-    assert_eq!(AccountError::SignedOut.text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
+    assert_eq!(AccountError::SignedOut.text(Lang::Fr), "Ce compte a été déconnecté de cet appareil : reconnectez-vous.");
     assert_eq!(AccountError::Denied.text(Lang::En), "Sign-in declined on the phone.");
-    assert_eq!(AccountError::TooMany { seconds: None }.text(Lang::Fr), "Trop d'essais : réessayez dans 15 min.");
+    assert_eq!(AccountError::TooMany { seconds: None }.text(Lang::Fr), "Trop d'essais : réessayez dans 15 min.");
 }
 
 // MARK: - Réglages synchronisés
@@ -467,9 +467,9 @@ fn caps_all() -> crate::profile::Capabilities {
 fn reglages_synchronises_lus() {
     let body = json!({ "settings": [
         { "station": STATION, "updated_at": 1795000000, "values": {
-            "profile": "bureau", "codec": "hevc", "yuv444": true, "mbps": 90, "hdr": false, "immersive": "always", "futur": { "x": 1 } } },
+            "profile": "bureau", "codec": "hevc", "yuv444": true, "mbps": 90, "hdr": false, "immersive": "always", "pen": "mouse", "futur": { "x": 1 } } },
         { "station": "zyxwvutsrqponmlkjihgfedcba", "updated_at": 1795000100, "values": {
-            "profile": null, "codec": "vp9", "mbps": 80.4, "immersive": "plus-tard" } },
+            "profile": null, "codec": "vp9", "mbps": 80.4, "immersive": "plus-tard", "pen": "gomme" } },
         { "station": "pas-une-station", "values": {} },
         { "pas": "lisible" },
     ]});
@@ -488,6 +488,10 @@ fn reglages_synchronises_lus() {
     // Personnalisé ; format et mode immersif inconnus : absents, gardés au relais.
     let b = settings::find(&list, "zyxwvutsrqponmlkjihgfedcba").unwrap().known();
     assert_eq!((b.profile.clone(), b.codec.clone(), b.mbps, b.immersive.clone()), (Some(None), None, Some(80), None));
+    // « Stylet : Pression / Souris » : lu, une valeur inconnue reste au relais.
+    assert_eq!(k.pen_mode(), Some(crate::input::PenMode::Mouse));
+    assert_eq!(b.pen, None);
+    assert_eq!(SyncedValues::default().with_pen(crate::input::PenMode::Mouse).pen.as_deref(), Some("mouse"));
     // En JSON pour les ponts : « profile » nul dit personnalisé, les absentes sont omises.
     assert_eq!(serde_json::to_value(&b).unwrap(), json!({ "profile": null, "mbps": 80 }));
     let back: SyncedValues = serde_json::from_value(json!({ "profile": null, "mbps": 80 })).unwrap();
@@ -604,7 +608,7 @@ fn reglages_synchronises_appliques() {
 fn memoire_des_envois_synchronises() {
     use settings::{AccountSync, SyncedSettings, changed};
     let station = "abcdefghijklmnopqrstuvwxyz";
-    let full = || SyncedValues { profile: Some(Some("jeu".into())), codec: Some("hevc".into()), yuv444: Some(false), mbps: Some(60), hdr: Some(true), immersive: Some("fullscreen".into()) };
+    let full = || SyncedValues { profile: Some(Some("jeu".into())), codec: Some("hevc".into()), yuv444: Some(false), mbps: Some(60), hdr: Some(true), immersive: Some("fullscreen".into()), pen: None };
     let mut m = AccountSync::default();
     // Première fois : tout, le changement par-dessus.
     let change = SyncedValues { hdr: Some(false), ..Default::default() };

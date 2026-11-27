@@ -8,6 +8,7 @@
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 
+use crate::nal;
 use kyclient::media_sink::{MediaPacket, MediaPacketKind, PacketSink};
 
 /// Codecs annoncés par Kyber (FourCC).
@@ -192,54 +193,31 @@ pub struct ImageMark {
 /// La marque d'une image (Annex B, HEVC ou H.264), s'il y en a une : un
 /// SEI placé avant la première tranche.
 pub fn image_mark(data: &[u8], hevc: bool) -> Option<ImageMark> {
-    let mut i = 0;
-    while i + 3 < data.len() {
-        if data[i] != 0 || data[i + 1] != 0 || data[i + 2] != 1 {
-            i += 1;
-            continue;
-        }
-        let start = i + 3;
+    for start in nal::starts(data) {
+        let Some(&first) = data.get(start) else { break };
         let (slice, sei, header) = if hevc {
-            let kind = (data[start] >> 1) & 0x3f;
+            let kind = (first >> 1) & 0x3f;
             (kind < 32, kind == 39, 2)
         } else {
-            let kind = data[start] & 0x1f;
+            let kind = first & 0x1f;
             ((1..=5).contains(&kind), kind == 6, 1)
         };
         if slice {
-            // Première tranche : la marque vient toujours avant.
+            // Première tranche : la marque vient toujours avant (la tranche,
+            // de loin la plus grande, n'est jamais parcourue).
             return None;
         }
-        // Fin du NAL : début du suivant (ou fin des données).
-        let mut end = start + header;
-        while end + 2 < data.len() && !(data[end] == 0 && data[end + 1] == 0 && data[end + 2] <= 1) {
-            end += 1;
+        if !sei {
+            continue;
         }
-        let end = if end + 2 < data.len() { end } else { data.len() };
-        if sei
-            && end > start + header
-            && let Some(mark) = sei_mark(&unescape(&data[start + header..end]))
+        let unit = nal::unit_at(data, start);
+        if unit.len() > header
+            && let Some(mark) = sei_mark(&nal::unescape(&unit[header..]))
         {
             return Some(mark);
         }
-        i = end;
     }
     None
-}
-
-/// Retire les octets d'émulation (00 00 03).
-fn unescape(nal: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(nal.len());
-    let mut zeros = 0;
-    for &b in nal {
-        if zeros >= 2 && b == 3 {
-            zeros = 0;
-            continue;
-        }
-        out.push(b);
-        zeros = if b == 0 { zeros + 1 } else { 0 };
-    }
-    out
 }
 
 /// Les messages d'un SEI : la marque, s'il y est.
@@ -518,7 +496,11 @@ mod tests {
         assert_eq!(loss.loss_point(), Some(Some(20)));
         send(MediaPacketKind::Media, false, 50, &marked(true, 4, Some(20)));
         assert_eq!(loss.loss_point(), None);
-        send(MediaPacketKind::Closed, false, 0, &[]);
+        // Le dernier appel (`Closed`, qui libère le gestionnaire) vient du
+        // `Drop` du `PacketSink` depuis le correctif KYB-25 de kyclient : le
+        // faire aussi à la main libérerait deux fois.
+        drop(sink);
+        assert_eq!(Arc::strong_count(&seen), 1, "gestionnaire rendu par le dernier appel");
         assert_eq!(*seen.0.lock().unwrap(), ["codec", "10", "20", "trou", "40", "50<20"]);
     }
 

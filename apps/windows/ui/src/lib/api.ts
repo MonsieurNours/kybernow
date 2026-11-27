@@ -30,6 +30,8 @@ export const currentWindow = () => tauri.window.getCurrentWindow()
 export type Values = {
   /** Débit réglé à la main (Mbit/s) : de `min` à `max` par pas de `step`, jusqu'à `max_pyrowave` en PyroWave. */
   manual_mbps: { min: number; step: number; max: number; max_pyrowave: number; lg_tv_max: number }
+  /** PyroWave quitté pour un autre format : le débit réglé à la main au plus (Mbit/s, `HEVC_AFTER_PYROWAVE_MBPS`). */
+  hevc_after_pyrowave_mbps: number
   /** Débit quand la fenêtre est cachée (bit/s), par appareil ; ce PC : `computer`. */
   background_bitrate: { computer: number }
   max_guests: number
@@ -77,6 +79,8 @@ export type Settings = {
   hdr?: boolean | null
   /** « Micro » pour cet ordinateur (docs/micro.md) : coupé par défaut, le dernier choix ensuite. */
   microphone?: boolean
+  /** « Stylet » pour cet ordinateur (docs/link-ui.md « Stylet ») : `pressure` (par défaut) ou `mouse` ; absent : « Pression ». */
+  pen?: PenMode
 }
 
 /** Mise à jour de la Station, telle qu'Admin la connaît (`installable` : depuis l'app ; `requires_setup` : avec l'installateur, sur l'ordinateur). */
@@ -628,6 +632,24 @@ export type BarMic = {
   label: string
   tooltip: string
   tile: string
+}
+
+/** « Stylet : Pression / Souris » (docs/link-ui.md « Stylet ») : le vrai stylet, ou le stylet en souris. */
+export type PenMode = 'pressure' | 'mouse'
+
+/**
+ * La ligne « Stylet » telle que le cœur la décrit (`PenChoice::ui_json`) : `shown` (un stylet a servi ou ce PC en a
+ * un, et l'ordinateur le reçoit), `mode` le choix, et ses textes : `title` (« Stylet »), `label` (le choix),
+ * `choices` (« Pression », « Souris »), `help` (l'aide de la rubrique Commandes). Dans la barre, absente tant
+ * qu'elle ne se montre pas ; `pen_texts` donne les mêmes textes aux réglages de l'ordinateur.
+ */
+export type BarPen = {
+  shown: boolean
+  mode: PenMode
+  title: string
+  label: string
+  choices: { key: PenMode; label: string }[]
+  help: string
 }
 
 /** Les micros de ce PC (Réglages de l'app) : `device` nul, celui du système ; `voice` : « Réduire l'écho et le bruit ». */

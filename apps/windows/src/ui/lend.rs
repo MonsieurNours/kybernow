@@ -643,6 +643,8 @@ pub fn lend_connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
             immersive: "fullscreen".into(),
             // L'ami qui emprunte : coupé au départ, comme une première session.
             microphone: false,
+            // « Pression » au départ, choix gardé le temps de la session.
+            pen: Default::default(),
             layout,
         },
         events.clone(),

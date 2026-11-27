@@ -97,6 +97,8 @@ internal fun BorrowerBarItems(ui: SessionUi, sec: Second?, first: FocusRequester
         stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
         { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
     )
+    // « Stylet », comme l'hôte (le choix vaut pour cette session).
+    PenChip(ui)
     BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
     GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
 }
@@ -120,6 +122,7 @@ internal fun BorrowerTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
         Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
+        PenTile(ui)
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
         Tile(KnIcons.power, stringResource(R.string.lend_give_back), null, danger = true) { ui.giveBackConfirm = true }

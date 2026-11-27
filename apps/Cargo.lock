@@ -2532,18 +2532,12 @@ dependencies = [
 name = "kybernow-apple"
 version = "0.11.7"
 dependencies = [
- "aes-gcm",
  "base64 0.22.1",
- "flate2",
- "getrandom 0.2.17",
  "kybernow-core",
- "kybernow-tunnel",
- "kyclient",
  "kynput-sys",
  "log",
  "serde",
  "serde_json",
- "ureq",
 ]
 
 [[package]]
@@ -2554,9 +2548,11 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "cfb-mode",
+ "flate2",
  "getrandom 0.2.17",
  "hmac",
  "k256",
+ "keycode",
  "kybernow-rules",
  "kybernow-tunnel",
  "kyclient",
@@ -2585,16 +2581,12 @@ dependencies = [
 name = "kybernow-linux"
 version = "0.11.7"
 dependencies = [
- "aes-gcm",
- "base64 0.22.1",
  "cc",
- "flate2",
  "fontdue",
  "getrandom 0.2.17",
- "keycode",
  "kybernow-core",
  "kybernow-rules",
- "kyclient",
+ "kybernow-ui",
  "libc",
  "log",
  "mdns-sd 0.13.11",
@@ -2610,6 +2602,10 @@ dependencies = [
 [[package]]
 name = "kybernow-rules"
 version = "0.11.7"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "kybernow-tunnel"
@@ -2633,19 +2629,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "kybernow-ui"
+version = "0.11.7"
+dependencies = [
+ "kybernow-core",
+ "kybernow-rules",
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "kybernow-webos"
 version = "0.11.7"
 dependencies = [
- "aes-gcm",
- "base64 0.22.1",
  "cc",
- "flate2",
  "fontdue",
  "getrandom 0.2.17",
- "keycode",
  "kybernow-core",
  "kybernow-rules",
- "kybernow-tunnel",
+ "kybernow-ui",
  "libc",
  "log",
  "mdns-sd 0.13.11",
@@ -2654,7 +2656,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tiny-skia",
- "ureq",
  "zune-jpeg",
 ]
 
@@ -2666,7 +2667,6 @@ dependencies = [
  "bindgen",
  "getrandom 0.2.17",
  "kybernow-core",
- "kyclient",
  "log",
  "mdns-sd 0.21.5",
  "qrcodegen",

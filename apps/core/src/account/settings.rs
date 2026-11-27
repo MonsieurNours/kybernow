@@ -14,7 +14,8 @@
 //!
 //! Clés connues : `profile` (`jeu`, `bureau`, `max`, ou `null` :
 //! personnalisé), `codec` (`h264`, `hevc`, `av1`, `pyrowave`), `yuv444`,
-//! `mbps`, `hdr`, `immersive` (`fullscreen`, `always`, `never`). Une clé que
+//! `mbps`, `hdr`, `immersive` (`fullscreen`, `always`, `never`), `pen`
+//! (`pressure`, `mouse`). Une clé que
 //! l'app ne connaît pas (écrite par une version plus récente) est gardée :
 //! [`put_settings`] part des dernières valeurs lues et n'y change que ce que
 //! l'app donne. Une valeur que l'appareil ne sait pas appliquer (format
@@ -79,6 +80,10 @@ pub struct SyncedValues {
     /// `fullscreen`, `always` ou `never` ([`IMMERSIVE`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub immersive: Option<String>,
+    /// « Stylet : Pression / Souris » : `pressure` ou `mouse`
+    /// ([`crate::input::PenMode`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pen: Option<String>,
 }
 
 impl SyncedSettings {
@@ -95,6 +100,7 @@ impl SyncedSettings {
         let codec = v.get("codec").and_then(Value::as_str).and_then(Codec::parse).map(|c| c.key().to_string());
         let mbps = v.get("mbps").and_then(Value::as_f64).filter(|m| m.is_finite() && *m >= 1.0 && *m <= 4294.0).map(|m| m.round() as u32);
         let immersive = v.get("immersive").and_then(Value::as_str).filter(|i| IMMERSIVE.contains(i)).map(str::to_string);
+        let pen = v.get("pen").and_then(Value::as_str).and_then(crate::input::PenMode::parse).map(|m| m.key().to_string());
         SyncedValues {
             profile,
             codec,
@@ -102,6 +108,7 @@ impl SyncedSettings {
             mbps,
             hdr: v.get("hdr").and_then(Value::as_bool),
             immersive,
+            pen,
         }
     }
 }
@@ -136,6 +143,7 @@ impl SyncedValues {
             mbps: Some(s.mbps),
             hdr: Some(s.hdr),
             immersive: None,
+            pen: None,
         }
     }
 
@@ -144,6 +152,17 @@ impl SyncedValues {
     pub fn with_immersive(mut self, immersive: Option<&str>) -> Self {
         self.immersive = immersive.filter(|i| IMMERSIVE.contains(i)).map(str::to_string);
         self
+    }
+
+    /// Avec « Stylet : Pression / Souris » de l'ordinateur.
+    pub fn with_pen(mut self, pen: crate::input::PenMode) -> Self {
+        self.pen = Some(pen.key().to_string());
+        self
+    }
+
+    /// Le choix du stylet reçu, s'il est lisible.
+    pub fn pen_mode(&self) -> Option<crate::input::PenMode> {
+        self.pen.as_deref().and_then(crate::input::PenMode::parse)
     }
 
     /// Les valeurs données posées dans `raw` (les autres clés restent).
@@ -165,6 +184,9 @@ impl SyncedValues {
         }
         if let Some(i) = &self.immersive {
             raw.insert("immersive".into(), json!(i));
+        }
+        if let Some(p) = &self.pen {
+            raw.insert("pen".into(), json!(p));
         }
     }
 
@@ -230,6 +252,7 @@ impl SyncedValues {
             mbps: top.mbps.or(self.mbps),
             hdr: top.hdr.or(self.hdr),
             immersive: top.immersive.clone().or_else(|| self.immersive.clone()),
+            pen: top.pen.clone().or_else(|| self.pen.clone()),
         }
     }
 
@@ -247,6 +270,7 @@ impl SyncedValues {
         drop_same(&mut self.mbps, &sent.mbps);
         drop_same(&mut self.hdr, &sent.hdr);
         drop_same(&mut self.immersive, &sent.immersive);
+        drop_same(&mut self.pen, &sent.pen);
     }
 
     /// Ces valeurs sans les clés encore en attente d'envoi (`pending`) :
@@ -271,6 +295,9 @@ impl SyncedValues {
         }
         if pending.immersive.is_some() {
             v.immersive = None;
+        }
+        if pending.pen.is_some() {
+            v.pen = None;
         }
         v
     }
@@ -363,6 +390,18 @@ impl AccountSync {
     pub fn unsent(&mut self, station: &str, values: &SyncedValues) {
         let waiting = self.pending.get(station).cloned().unwrap_or_default();
         self.pending.insert(station.to_string(), waiting.overlay(values));
+    }
+
+    /// Refusé pour de bon (relais d'avant les réglages synchronisés, trop
+    /// gros, valeurs refusées) : ces clés ne repartiront pas ; ce qui a changé
+    /// depuis l'envoi attend encore.
+    pub fn refused(&mut self, station: &str, values: &SyncedValues) {
+        if let Some(p) = self.pending.get_mut(station) {
+            p.remove_sent(values);
+            if p.is_empty() {
+                self.pending.remove(station);
+            }
+        }
     }
 
     /// L'ordinateur n'est plus dans le compte (`AccountError::UnknownComputer`).

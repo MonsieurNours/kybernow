@@ -1,8 +1,8 @@
 //! Réglages synchronisés par le compte, côté Windows (docs/comptes.md,
 //! « Réglages synchronisés et déplacer un ordinateur » ; apps/core/README.md,
 //! « Réglages synchronisés ») : le profil, le format vidéo, le 4:4:4, le débit,
-//! le HDR et le mode immersif de chaque ordinateur d'un compte suivent la
-//! personne d'un appareil à l'autre.
+//! le HDR, le mode immersif et le stylet (Pression ou Souris) de chaque
+//! ordinateur d'un compte suivent la personne d'un appareil à l'autre.
 //!
 //! - **L'interrupteur** « Synchroniser les réglages des ordinateurs » (réglages
 //!   de l'app, « Comptes », textes du cœur) : `Prefs::sync_settings`, allumé
@@ -15,7 +15,8 @@
 //!   prend ses valeurs (`synced::apply`), sans les renvoyer.
 //! - **Envoyer** ([`changed`]) : quand la personne change un de ces réglages
 //!   (réglages de l'ordinateur, profil de l'accueil, de la barre ou de l'icône,
-//!   puce « HDR »), seulement les clés changées ; tout la première fois.
+//!   puce « HDR », « Stylet » de la barre et Ctrl+Alt+Maj+P), seulement les
+//!   clés changées ; tout la première fois.
 //! - Refus : `UnknownComputer` oublie les réglages gardés de l'ordinateur ;
 //!   `NoAccounts` (relais d'avant) : rien, sans rien dire ; relais muet : le
 //!   changement attend le relevé suivant.
@@ -101,6 +102,7 @@ pub fn local_of(s: &Settings) -> Local {
         reliable: s.reliable,
         hdr: s.hdr,
         immersive: s.immersive.clone(),
+        pen: s.pen.clone(),
     }
 }
 
@@ -112,6 +114,7 @@ fn put_local(s: &mut Settings, l: Local) {
     s.reliable = l.reliable;
     s.hdr = l.hdr;
     s.immersive = l.immersive;
+    s.pen = l.pen;
 }
 
 /// Ce que ce PC demanderait pour ces réglages (sans « Sur batterie »).

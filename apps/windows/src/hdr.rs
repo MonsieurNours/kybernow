@@ -45,7 +45,7 @@ pub fn sdr_white_nits(level: u32) -> Option<f64> {
 /// Les métadonnées HDR10 d'un flux : MaxCLL et MaxFALL, luminosités maximale
 /// et minimale de l'écran de matriçage (nits). Celles d'une image HEVC ou AV1
 /// (SEI, `decoder::frame_hdr`) ou du paquet de configuration de PyroWave
-/// version 2 ([`pyrowave_hdr`]).
+/// version 2 ([`pyrowave_meta`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FrameHdr {
     pub max_cll: Option<u32>,
@@ -60,35 +60,18 @@ impl FrameHdr {
     }
 }
 
-/// La version du paquet de configuration de PyroWave que lit l'app (KYB-29) :
-/// la Station envoie la version 2, avec les métadonnées HDR10 de la capture,
-/// à une app qui le demande (`kyclient::set_pyrowave_header`, au lancement).
-pub const PYROWAVE_HEADER: u8 = 2;
-
 /// Les métadonnées HDR10 du paquet de configuration de PyroWave version 2
-/// (`KNPW`, docs/kyber-changes.md, « En-tête KNPW version 2 ») : drapeaux à
-/// l'octet 16 (bit 0 : écran de matriçage, bit 1 : niveaux de lumière),
-/// luminances maximale et minimale (u32 aux octets 36 et 40, en 0,0001 nit),
-/// MaxCLL et MaxFALL (u16 aux octets 44 et 46). Version 1, version 2 de moins
-/// de 48 octets, ou champ sans son drapeau : rien (crête par défaut). Les
-/// octets au-delà sont ignorés (une version plus récente garde ceux-ci). La
-/// tête du paquet (taille, chroma, couleur) est lue par le cœur
-/// (`pyrowave::Config::parse`), qui n'en lit pas les métadonnées.
-pub fn pyrowave_hdr(d: &[u8]) -> FrameHdr {
+/// (lues par le cœur, `pyrowave::Config::hdr10`, KYB-29) dans les termes du
+/// rendu : champ sans son drapeau, ou nul, absent (crête par défaut).
+pub fn pyrowave_meta(h: &kybernow_core::pyrowave::ContentHdr) -> FrameHdr {
     let mut out = FrameHdr::default();
-    if d.len() < 48 || !d.starts_with(b"KNPW") || d[4] < 2 {
-        return out;
+    if let Some(m) = h.mastering {
+        out.mastering_max = Some(m.max_nits()).filter(|v| *v > 0.0);
+        out.mastering_min = Some(m.min_nits());
     }
-    let u16le = |o: usize| u16::from_le_bytes([d[o], d[o + 1]]);
-    let u32le = |o: usize| u32::from_le_bytes([d[o], d[o + 1], d[o + 2], d[o + 3]]);
-    let flags = d[16];
-    if flags & 1 != 0 {
-        out.mastering_max = Some(f64::from(u32le(36)) * 0.0001).filter(|v| *v > 0.0);
-        out.mastering_min = Some(f64::from(u32le(40)) * 0.0001);
-    }
-    if flags & 2 != 0 {
-        out.max_cll = Some(u32::from(u16le(44))).filter(|v| *v > 0);
-        out.max_fall = Some(u32::from(u16le(46))).filter(|v| *v > 0);
+    if let Some(l) = h.light {
+        out.max_cll = Some(u32::from(l.max_cll)).filter(|v| *v > 0);
+        out.max_fall = Some(u32::from(l.max_fall)).filter(|v| *v > 0);
     }
     out
 }
@@ -232,45 +215,24 @@ mod tests {
         assert_eq!((m.max_mastering, m.max_cll, m.max_fall), (600.0, 600, 400));
     }
 
-    /// Un paquet `KNPW` version 2 tel que l'écrit la Station
-    /// (`pyrowave_common.h`, docs/kyber-changes.md).
-    fn knpw_v2(flags: u8, max: u32, min: u32, cll: u16, fall: u16) -> Vec<u8> {
-        let c = kybernow_core::pyrowave::Config { chroma444: false, hdr: true, full_range: false, width: 3840, height: 2160 };
-        let mut d = c.bytes().to_vec();
-        d[4] = 2;
-        d.resize(48, 0);
-        d[16] = flags;
-        // Primaires BT.2020 et blanc D65 (unités de 0,00002), lus par personne ici.
-        for (i, v) in [35400u16, 14600, 8500, 39850, 6550, 2300, 15635, 16450].iter().enumerate() {
-            d[20 + 2 * i..22 + 2 * i].copy_from_slice(&v.to_le_bytes());
-        }
-        d[36..40].copy_from_slice(&max.to_le_bytes());
-        d[40..44].copy_from_slice(&min.to_le_bytes());
-        d[44..46].copy_from_slice(&cll.to_le_bytes());
-        d[46..48].copy_from_slice(&fall.to_le_bytes());
-        d
-    }
-
+    /// Les métadonnées du paquet version 2 (lues par le cœur) dans les termes
+    /// du rendu, et la crête du flux qu'elles donnent.
     #[test]
     fn knpw_version_2_metadonnees_hdr() {
-        let d = knpw_v2(3, 10_000_000, 50, 1600, 400);
-        // La tête : le cœur la lit en version 2 comme en version 1.
-        let c = kybernow_core::pyrowave::Config::parse(&d).expect("paquet v2 lu par le cœur");
-        assert!(c.hdr && (c.width, c.height) == (3840, 2160));
-        assert!(kybernow_core::pyrowave::Config::is_config(&d));
-        let m = pyrowave_hdr(&d);
+        use kybernow_core::pyrowave::{ContentHdr, LightLevel, Mastering};
+        let mastering = |max: u32, min: u32| Mastering { primaries: [35400, 14600, 8500, 39850, 6550, 2300], white: [15635, 16450], max_luminance: max, min_luminance: min };
+        let full = ContentHdr { mastering: Some(mastering(10_000_000, 50)), light: Some(LightLevel { max_cll: 1600, max_fall: 400 }) };
+        let m = pyrowave_meta(&full);
         assert_eq!(m, FrameHdr { max_cll: Some(1600), max_fall: Some(400), mastering_max: Some(1000.0), mastering_min: Some(0.005) });
         assert_eq!(content_peak(m.max_cll, m.mastering_max), 1600.0);
         // Écran de matriçage seul : sa crête fait celle du flux.
-        let m = pyrowave_hdr(&knpw_v2(1, 6_000_000, 1, 1600, 400));
+        let m = pyrowave_meta(&ContentHdr { mastering: Some(mastering(6_000_000, 1)), light: None });
         assert_eq!((m.max_cll, m.mastering_max), (None, Some(600.0)));
         assert_eq!(content_peak(m.max_cll, m.mastering_max), 600.0);
-        // Drapeaux à zéro (SDR, ou capture sans métadonnées) : rien.
-        assert!(pyrowave_hdr(&knpw_v2(0, 10_000_000, 50, 1600, 400)).is_empty());
-        // Octets en plus (version suivante) : ignorés.
-        let mut longer = knpw_v2(2, 0, 0, 800, 0);
-        longer.extend_from_slice(&[9; 16]);
-        assert_eq!(pyrowave_hdr(&longer), FrameHdr { max_cll: Some(800), ..FrameHdr::default() });
+        // Rien (version 1, SDR) ; valeurs nulles : absentes.
+        assert!(pyrowave_meta(&ContentHdr::default()).is_empty());
+        let m = pyrowave_meta(&ContentHdr { mastering: None, light: Some(LightLevel { max_cll: 800, max_fall: 0 }) });
+        assert_eq!(m, FrameHdr { max_cll: Some(800), ..FrameHdr::default() });
     }
 
     /// Le shader (`render.hlsl`), tel qu'écrit.
@@ -362,17 +324,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn knpw_version_1_toujours_lu() {
-        let c = kybernow_core::pyrowave::Config { chroma444: true, hdr: true, full_range: true, width: 2560, height: 1440 };
-        let d = c.bytes();
-        assert_eq!(kybernow_core::pyrowave::Config::parse(&d), Some(c));
-        // Pas de métadonnées en version 1 : crête par défaut.
-        assert!(pyrowave_hdr(&d).is_empty());
-        // Version 2 tronquée à 16 octets : la tête seule.
-        let mut short = d;
-        short[4] = 2;
-        assert!(kybernow_core::pyrowave::Config::parse(&short).is_some());
-        assert!(pyrowave_hdr(&short).is_empty());
-    }
 }

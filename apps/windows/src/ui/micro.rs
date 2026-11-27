@@ -50,6 +50,8 @@ impl UiEvents {
 
     fn emit_mic(&self) {
         let _ = self.app.emit_to("bar", "bar-mic", BarMicEvent { id: self.id.clone(), mic: self.bar_mic() });
+        // Barre fermée, l'icône du micro près du trait du bord haut (`window::apply_signs`).
+        crate::window::set_signs(self.connexion.session, None, Some(self.mic.locked().sent()));
     }
 
     /// `HostEvents::microphone` : la barre suit ; un allumage pris est annoncé

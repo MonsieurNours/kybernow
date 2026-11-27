@@ -144,7 +144,6 @@ fun JoinScreen(
     var inviteError by remember { mutableStateOf<String?>(null) }
     // Le cœur écrit les refus ; ce texte ne sert que s'il n'en donne aucun.
     val unreachable = stringResource(R.string.add_unreachable)
-    val shareUnavailable = stringResource(R.string.share_unavailable)
     // Avec un lien, la Station est donnée : on ne cherche rien sur le réseau (rien ne part avant « Rejoindre »).
     LaunchedEffect(link) { if (link == null) app.discovery.start() }
     // L'écran se ferme (Retour, la session s'ouvre ailleurs) pendant l'attente : la demande quitte la liste de l'hôte.
@@ -224,7 +223,7 @@ fun JoinScreen(
                         }
                         is JoinReply.Refused -> {
                             busy = false
-                            error = if (answer.kind == Share.UNAVAILABLE) shareUnavailable else answer.message.ifBlank { unreachable }
+                            error = answer.message.ifBlank { unreachable }
                         }
                         // Jamais : `waitForHost` n'en rend pas.
                         is JoinReply.Pending -> { busy = false; error = unreachable }

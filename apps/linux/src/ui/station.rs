@@ -41,7 +41,7 @@ pub fn last_session(cv: &mut Canvas, h: &Host, x: f32, y: f32, w: f32, u: f32) -
     panel(cv, Rect::new(x, y, w, height), 14.0 * u);
     let mut yy = y + pad + 11.0 * u;
     eyebrow(cv, ix, yy, 11.0 * u, FAINT, tr("Dernière session", "Last session"));
-    let when = format!("{} · {}", duration(last.seconds), crate::app_time::relative_day(last.at));
+    let when = format!("{} · {}", duration(last.seconds), kybernow_ui::time::relative_day(last.at));
     cv.text(x + w - pad, yy, Text::new(Font::Regular, 13.0 * u, MUTED).align(Align::Right), &when);
     yy += 2.0 * u + 46.0 * u;
     let value = if measured { format!("{} ms", decimal(last.median, 1)) } else { "— ms".into() };
