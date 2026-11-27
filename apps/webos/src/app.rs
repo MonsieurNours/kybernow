@@ -2349,8 +2349,9 @@ pub enum Action {
     AccountsRefresh,
     AccountsSync,
     /// « Envoyer le journal » (`crate::log_send`) : le journal lu, chiffré et déposé sur `relay` (vide : le relais
-    /// public), sous ce numéro ; puis l'état du dépôt relu, et le dépôt pas encore ouvert retiré (« Terminé »).
-    LogSend { attempt: u32, relay: String, header: String },
+    /// public) par le cœur, sous ce numéro, `device` dans son en-tête ; puis l'état du dépôt relu, et le dépôt pas
+    /// encore ouvert retiré (« Terminé »).
+    LogSend { attempt: u32, relay: String, device: String },
     LogCheck { attempt: u32, relay: String, id: String, owner: String },
     LogDiscard { relay: String, id: String, owner: String },
     /// Profil Auto : le test des conditions pour cet ordinateur (`autotest::run` du cœur, sur un fil à part), suivi

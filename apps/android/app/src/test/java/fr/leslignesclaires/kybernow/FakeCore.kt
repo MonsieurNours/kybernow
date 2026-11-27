@@ -28,7 +28,9 @@ open class FakeCore : Core.Source {
         else -> null
     }
     override fun relayPathLabel(transport: Int) = listOf("Direct", "Par le relais", "Par le relais (TCP)").getOrNull(transport)
-    override fun relayParts(addr: String): String? = null
+    override fun journalDeposit(relay: String, header: String, body: String): String? = null
+    override fun journalState(relay: String, id: String, owner: String) = 90
+    override fun journalDiscard(relay: String, id: String, owner: String) = false
     override fun relayLabel(addr: String) = addr.substringBefore('#')
     override fun looksLikeInvite(text: String) = text.contains("borrow")
     override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = "Définition ramenée à $width × $height pour tenir dans $mbps Mbit/s."

@@ -35,7 +35,7 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/station_offer.rs` | Station updates offered outside the settings (below) |
 | `src/welcome.rs` | Welcome and KyberNow account (below) |
 | `src/url.rs` | Address decoding and hexadecimal digits, shared within the core |
-| `src/journal.rs` | The computer's name at the start of each session's log lines |
+| `src/journal.rs` | The computer's name at the start of each session's log lines; “Send the log” through a QR code (`src/journal/upload.rs`, docs/relais.md, “Dépôt d'un journal”): `header` (the “Appareil :” and “Journal écrit le” lines the relay's page reads), `deposit` (gzip, 2 MiB at most keeping the header and the end, AES-256-GCM `KNJ1`, `POST /v1/journal` through the relay's HTTPS agent, pinned fingerprint included; `Deposit::to_json` for the bridges; `DepositError` refusals: unreachable 90, older relay 91, too many uploads 92), `state` (`Remote`: 0, 1, 93, 90), `discard`; KNJ1 test vectors (`cargo test -p kybernow-core journal`). Used by the Apple apps (`kn_journal_upload`…), Android (`Native.journalDeposit`…), Linux and LG |
 | `src/ffi.rs` | Panics and the C boundary: a hook that writes a panic to the platform's log (installed by the core itself), `guard` (`catch_unwind`) for the body of the bridges' `extern "C"` functions and of callbacks handed to C |
 | `src/input/` | Shared input module (below) |
 | `src/audio/` | Sound engine (below) |

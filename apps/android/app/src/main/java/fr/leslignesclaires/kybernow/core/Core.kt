@@ -19,7 +19,9 @@ object Core {
         fun lendAvailabilityLabel(state: String): String?
         fun relayErrorText(code: Int, name: String?): String?
         fun relayPathLabel(transport: Int): String?
-        fun relayParts(addr: String): String?
+        fun journalDeposit(relay: String, header: String, body: String): String?
+        fun journalState(relay: String, id: String, owner: String): Int
+        fun journalDiscard(relay: String, id: String, owner: String): Boolean
         fun relayLabel(addr: String): String
         fun looksLikeInvite(text: String): Boolean
         fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int): String
@@ -43,7 +45,9 @@ object Core {
         override fun lendAvailabilityLabel(state: String) = Native.lendAvailabilityLabel(state)
         override fun relayErrorText(code: Int, name: String?) = Native.relayErrorText(code, name)
         override fun relayPathLabel(transport: Int) = Native.relayPathLabel(transport)
-        override fun relayParts(addr: String) = Native.relayParts(addr)
+        override fun journalDeposit(relay: String, header: String, body: String) = Native.journalDeposit(relay, header, body)
+        override fun journalState(relay: String, id: String, owner: String) = Native.journalState(relay, id, owner)
+        override fun journalDiscard(relay: String, id: String, owner: String) = Native.journalDiscard(relay, id, owner)
         override fun relayLabel(addr: String) = Native.relayLabel(addr)
         override fun looksLikeInvite(text: String) = Native.looksLikeInvite(text)
         override fun pyrowaveLoweredText(width: Int, height: Int, refresh: Int, mbps: Int) = Native.pyrowaveLoweredText(width, height, refresh, mbps)
@@ -157,8 +161,19 @@ object Core {
     /** Le relais tel qu'on le montre (`rules::relay::label`) : `share.kybernow.app`, `relais.exemple.org:9443`, sans empreinte. */
     fun relayLabel(addr: String): String = ask("relais", "") { relayLabel(addr) }
 
-    /** Les parties d'une adresse de relais (`rules::relay::parse`) : `{authority, pin}` ; nul si elle ne se lit pas. */
-    fun relayParts(addr: String): JSONObject? = ask("relais", null) { relayParts(addr) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+    /**
+     * « Envoyer le journal » (`journal::deposit`) : [header] et [body] compressés, chiffrés et déposés sur [relay] (celui
+     * du compte de l'appareil ; vide : le relais public) ; `{relay, id, owner, url, expires_in}` ou `{error, detail}`.
+     * Bloquant (30 s au plus).
+     */
+    fun journalDeposit(relay: String, header: String, body: String): JSONObject? =
+        ask("dépôt du journal", null) { journalDeposit(relay, header, body) }?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    /** L'état d'un dépôt (`journal::state`) : 0 en attente, 1 ouvert, 93 plus là, 90 pas de réponse. Bloquant. */
+    fun journalState(relay: String, id: String, owner: String): Int = ask("état du journal", 90) { journalState(relay, id, owner) }
+
+    /** « Terminé » : retire un dépôt pas encore ouvert (`journal::discard`). Bloquant. */
+    fun journalDiscard(relay: String, id: String, owner: String): Boolean = ask("retrait du journal", false) { journalDiscard(relay, id, owner) }
 
     /**
      * Une Station trouvée sur le réseau, lue par le cœur (`discovery::found`) : l'annonce résolue par l'app ([fullname],

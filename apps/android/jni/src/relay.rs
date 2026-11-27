@@ -2,7 +2,7 @@
 //! le pont C (`apps/apple/src/relay.rs`), pour `Native`.
 
 use jni::objects::{JClass, JString};
-use jni::sys::{jint, jlong, jstring};
+use jni::sys::{jboolean, jint, jlong, jstring};
 
 use kybernow_core::console::{Console, ConsoleError, Info};
 use kybernow_core::i18n;
@@ -105,19 +105,44 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayErrorT
     })
 }
 
-/// Les parties d'une adresse de relais (`rules::relay::parse`) :
-/// `{"authority": "hôte[:port]", "pin": "sha256:aa:bb:…" | null}`
-/// (`authority` : celle des pages du relais, sans le port 443, une IPv6 entre
-/// crochets) ; `null` si elle ne se lit pas. Pour les appels de l'app au relais
-/// hors du cœur (dépôt d'un journal).
+/// « Envoyer le journal » par QR code (`journal::deposit` du cœur : en-tête
+/// et journal compressés, chiffrés `KNJ1`, déposés sur `relay`, celui du
+/// compte de l'appareil, empreinte épinglée comprise ; vide : le relais
+/// public). Rend `{relay, id, owner, url, expires_in}`, ou `{error, detail}`
+/// (`error` : 90 injoignable, 91 relais d'avant, 92 trop d'envois, 1 autre).
+/// Bloquant (30 s au plus) : hors du fil principal.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_relayParts(mut env: Env, _: JClass, addr: JString) -> jstring {
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_journalDeposit(mut env: Env, _: JClass, relay: JString, header: JString, body: JString) -> jstring {
     kybernow_core::ffi_guard!(null => {
-        let addr = string(&mut env, &addr);
-        match kybernow_core::rules::relay::parse(&addr) {
-            Some(r) => give(&mut env, &serde_json::json!({ "authority": r.web_authority(), "pin": r.pin }).to_string()),
-            None => std::ptr::null_mut(),
-        }
+        let (relay, header, body) = (string(&mut env, &relay), string(&mut env, &header), string(&mut env, &body));
+        let json = match kybernow_core::journal::deposit(&relay, &header, &body) {
+            Ok(d) => d.to_json(),
+            Err(e) => {
+                log::warn!("journal : dépôt impossible ({})", e.detail());
+                serde_json::json!({ "error": e.code(), "detail": e.detail() }).to_string()
+            }
+        };
+        give(&mut env, &json)
+    })
+}
+
+/// Où en est un dépôt : 0 en attente, 1 ouvert, 93 plus là, 90 pas de
+/// réponse (`journal::Remote::code`). Bloquant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_journalState(mut env: Env, _: JClass, relay: JString, id: JString, owner: JString) -> jint {
+    kybernow_core::ffi_guard!(90 => {
+        let (relay, id, owner) = (string(&mut env, &relay), string(&mut env, &id), string(&mut env, &owner));
+        kybernow_core::journal::state(&relay, &id, &owner).code()
+    })
+}
+
+/// « Terminé » : retire un dépôt pas encore ouvert ; faux si le relais n'a
+/// pas répondu. Bloquant.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_journalDiscard(mut env: Env, _: JClass, relay: JString, id: JString, owner: JString) -> jboolean {
+    kybernow_core::ffi_guard!(0 => {
+        let (relay, id, owner) = (string(&mut env, &relay), string(&mut env, &id), string(&mut env, &owner));
+        u8::from(kybernow_core::journal::discard(&relay, &id, &owner))
     })
 }
 

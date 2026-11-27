@@ -35,7 +35,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/station_offer.rs` | Mise à jour des Stations proposée hors des réglages (ci-dessous) |
 | `src/welcome.rs` | Accueil et compte KyberNow (ci-dessous) |
 | `src/url.rs` | Décodage d'adresse et chiffres hexadécimaux, communs au cœur |
-| `src/journal.rs` | Le nom de l'ordinateur au début des lignes du journal de chaque session |
+| `src/journal.rs` | Le nom de l'ordinateur au début des lignes du journal de chaque session ; « Envoyer le journal » par QR code (`src/journal/upload.rs`, docs/relais.md, « Dépôt d'un journal ») : `header` (lignes « Appareil : » et « Journal écrit le », que lit la page du relais), `deposit` (gzip, 2 Mio au plus en gardant l'en-tête et la fin, AES-256-GCM `KNJ1`, `POST /v1/journal` par l'agent HTTPS du relais, empreinte épinglée comprise ; `Deposit::to_json` pour les ponts ; refus `DepositError` : injoignable 90, relais d'avant 91, trop d'envois 92), `state` (`Remote` : 0, 1, 93, 90), `discard` ; vecteurs d'essai KNJ1 (`cargo test -p kybernow-core journal`). Pris par les apps Apple (`kn_journal_upload`…), Android (`Native.journalDeposit`…), Linux et LG |
 | `src/ffi.rs` | Paniques et frontière C : crochet qui écrit une panique dans le journal de la plateforme (posé par le cœur lui-même), `guard` (`catch_unwind`) pour le corps des fonctions `extern "C"` des ponts et des rappels donnés au C |
 | `src/input/` | Module d'entrées partagé (ci-dessous) |
 | `src/audio/` | Moteur de son (ci-dessous) |

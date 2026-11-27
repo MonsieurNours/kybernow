@@ -13,14 +13,7 @@ kybernow-core = { path = "../core" }
 kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", features = ["kymux"] }
 kynput-sys = "0.1.0"
 log = "0.4"
-# « Envoyer le journal » par QR code (journal.rs, docs/relais.md) : gzip,
-# AES-256-GCM, dépôt HTTPS sur le relais, comme les comptes du cœur.
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
 base64 = "0.22"
-flate2 = "1"
-getrandom = "0.2"
-kybernow-tunnel = { path = "../../server/relay/tunnel" }
-ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

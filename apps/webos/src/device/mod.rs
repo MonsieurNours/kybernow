@@ -1280,7 +1280,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         }
         Action::AccountCode { attempt, relay } => accounts::sign_in_by_code(attempt, relay, app.device_name(), tx.clone()),
         Action::AccountCancel => accounts::cancel(),
-        Action::LogSend { attempt, relay, header } => log_send::send(attempt, relay, header, tx.clone()),
+        Action::LogSend { attempt, relay, device } => log_send::send(attempt, relay, device, tx.clone()),
         Action::LogCheck { attempt, relay, id, owner } => log_send::check(attempt, relay, id, owner, tx.clone()),
         Action::LogDiscard { relay, id, owner } => log_send::discard(relay, id, owner),
         Action::AutoTest { host, attempt } => autotest::start(app, &host, attempt, tx.clone()),

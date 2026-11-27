@@ -7,24 +7,16 @@
 //! le nonce (12), puis le texte chiffré et son étiquette (16) ; 2 Mio au plus une fois compressé (au-delà : l'en-tête
 //! et la fin du journal, la plus récente).
 //!
-//! Ici : l'écran (`Screen::LogSend`) et ses étapes, l'en-tête du journal, le dépôt chiffré ; sans le cœur ni le
-//! réseau (l'interface se compile aussi pour les captures). Le relais est appelé par `device::log_send`.
+//! Ici : l'écran (`Screen::LogSend`) et ses étapes, sans le cœur ni le réseau (l'interface se compile aussi pour les
+//! captures). L'en-tête, la compression, le chiffrement et les appels au relais sont ceux du cœur
+//! (`kybernow_core::journal`), appelés par `device::log_send`.
 
-use std::io::Write;
 use std::time::{Duration, Instant};
 
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-
 use crate::app::{Action, App, Screen, Target};
-use crate::i18n::{english, tr};
+use crate::i18n::tr;
 
-/// Le plus grand journal compressé qu'un dépôt porte.
-pub const MAX_COMPRESSED: usize = 2 * 1024 * 1024;
-const MAGIC: &[u8; 4] = b"KNJ1";
-/// L'écran du QR code relit l'état du dépôt à ce rythme.
+/// L'écran du QR code relit l'état du dépôt à ce rythme (`journal::CHECK_EVERY` du cœur).
 pub const CHECK_EVERY: Duration = Duration::from_secs(2);
 
 /// Une étape de l'écran.
@@ -153,107 +145,11 @@ impl LogStep {
     }
 }
 
-// MARK: - En-tête du journal
+// MARK: - L'appareil
 
-/// L'en-tête du journal : la version de l'app, l'appareil et son système, le moment, dans les termes que la page du
-/// relais lit (« Appareil : … », « Journal écrit le … » ; “Device: …”, “Log written on …”, dans les 4 premiers Kio).
-/// webOS ne dit pas la raison des fins précédentes de l'app : pas de ligne pour elles.
-pub fn header(version: &str, model: &str, webos: &str, now_secs: u64) -> String {
-    let device = if webos.is_empty() { format!("LG {model} · webOS") } else { format!("LG {model} · webOS {webos}") };
-    let at = utc(now_secs);
-    if english() {
-        format!("KyberNow Link {version}\nDevice: {device}\nLog written on {at}\n\n")
-    } else {
-        format!("KyberNow Link {version}\nAppareil : {device}\nJournal écrit le {at}\n\n")
-    }
-}
-
-/// « 2026-11-27 12:00:00.000 UTC ».
-fn utc(secs: u64) -> String {
-    let (days, rest) = (secs / 86_400, secs % 86_400);
-    // Jours depuis 1970 → date (calendrier grégorien), d'après l'algorithme « civil from days ».
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}.000 UTC", rest / 3600, (rest / 60) % 60, rest % 60)
-}
-
-// MARK: - Dépôt chiffré
-
-fn gzip(data: &[u8]) -> Vec<u8> {
-    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    // Écrire dans un Vec ne peut pas échouer.
-    let _ = e.write_all(data);
-    e.finish().unwrap_or_default()
-}
-
-/// Le journal compressé, tenu dans `limit` : entier s'il tient, sinon l'en-tête, une ligne qui dit la coupure, puis
-/// la fin du journal (coupée au début d'une ligne).
-fn compress(header: &str, body: &str, limit: usize) -> Vec<u8> {
-    let whole = gzip(format!("{header}{body}").as_bytes());
-    if whole.len() <= limit {
-        return whole;
-    }
-    let (mut keep, mut compressed) = (body.len(), whole.len());
-    loop {
-        // Ce que la place permet, d'après le taux de compression du dernier essai.
-        keep = ((keep as f64) * (limit as f64 / compressed as f64) * 0.9) as usize;
-        let mut start = body.len().saturating_sub(keep);
-        while !body.is_char_boundary(start) {
-            start += 1;
-        }
-        if start > 0
-            && let Some(nl) = body[start..].find('\n')
-        {
-            start += nl + 1;
-        }
-        let tail = &body[start..];
-        let cut = if english() { format!("[… start of the log removed: {start} bytes]\n") } else { format!("[… début du journal retiré : {start} octets]\n") };
-        let out = gzip(format!("{header}{cut}{tail}").as_bytes());
-        if out.len() <= limit || tail.is_empty() {
-            return out;
-        }
-        compressed = out.len();
-        keep = tail.len();
-    }
-}
-
-/// Chiffre un journal déjà compressé avec cette clé et ce nonce : `KNJ1`, le nonce, le texte chiffré et son étiquette.
-fn seal_with(plain: &[u8], key: &[u8; 32], nonce: &[u8; 12]) -> Result<Vec<u8>, String> {
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let sealed = cipher.encrypt(Nonce::from_slice(nonce), plain).map_err(|e| e.to_string())?;
-    let mut out = Vec::with_capacity(MAGIC.len() + nonce.len() + sealed.len());
-    out.extend_from_slice(MAGIC);
-    out.extend_from_slice(nonce);
-    out.extend_from_slice(&sealed);
-    Ok(out)
-}
-
-/// Le dépôt chiffré du journal (`header` puis `body`, du plus ancien au plus récent), et sa clé (clé et nonce tirés
-/// au hasard).
-pub fn seal(header: &str, body: &str) -> Result<(Vec<u8>, [u8; 32]), String> {
-    let plain = compress(header, body, MAX_COMPRESSED);
-    let mut key = [0u8; 32];
-    let mut nonce = [0u8; 12];
-    getrandom::getrandom(&mut key).map_err(|e| e.to_string())?;
-    getrandom::getrandom(&mut nonce).map_err(|e| e.to_string())?;
-    Ok((seal_with(&plain, &key, &nonce)?, key))
-}
-
-/// L'adresse du QR code : la page du journal chez ce relais, la clé après `#k=`.
-pub fn page_url(relay_authority: &str, id: &str, key: &[u8; 32]) -> String {
-    format!("https://{relay_authority}/journal/{id}#k={}", URL_SAFE_NO_PAD.encode(key))
-}
-
-/// Un identifiant de dépôt lisible : base64url, rien à échapper dans l'adresse.
-pub fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+/// L'appareil, pour la ligne « Appareil : » de l'en-tête du journal (fait par le cœur, `journal::header`).
+pub fn device(model: &str, webos: &str) -> String {
+    if webos.is_empty() { format!("LG {model} · webOS") } else { format!("LG {model} · webOS {webos}") }
 }
 
 // MARK: - L'écran
@@ -269,9 +165,7 @@ impl App {
         self.go(Screen::LogSend);
         // Le relais du compte KyberNow du téléviseur, sinon le relais public (vide).
         let relay = self.store.accounts.first().map(|a| a.relay.clone()).unwrap_or_default();
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let header = header(self.version, &self.tv.model, &self.tv.webos, now);
-        vec![Action::LogSend { attempt: self.log_attempt, relay, header }]
+        vec![Action::LogSend { attempt: self.log_attempt, relay, device: device(&self.tv.model, &self.tv.webos) }]
     }
 
     /// Le journal est prêt et part au relais.
@@ -356,66 +250,13 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
-
     use super::*;
     use crate::model::Store;
 
-    fn hex(s: &str) -> Vec<u8> {
-        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
-    }
-
-    /// Ce que fait la page du téléphone : déchiffre et décompresse.
-    fn open(deposit: &[u8], key: &[u8; 32]) -> Option<String> {
-        if deposit.len() < 4 + 12 + 16 || &deposit[..4] != MAGIC {
-            return None;
-        }
-        let plain = Aes256Gcm::new_from_slice(key).ok()?.decrypt(Nonce::from_slice(&deposit[4..16]), &deposit[16..]).ok()?;
-        let mut s = String::new();
-        flate2::read::GzDecoder::new(plain.as_slice()).read_to_string(&mut s).ok()?;
-        Some(s)
-    }
-
-    /// Le vecteur d'essai de docs/relais.md (« Vecteurs d'essai KNJ1 ») : le chiffrement de l'entrée donnée.
     #[test]
-    fn knj1_test_vector() {
-        let key: [u8; 32] = hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").try_into().unwrap();
-        let nonce: [u8; 12] = hex("a0a1a2a3a4a5a6a7a8a9aaab").try_into().unwrap();
-        let input = hex("1f8b08000000000002fff3ae4c4a2df2cb2f57f0c9cccb5630d03334d4b3e0722c28482c4acdcc51b052702d2e4ecc54f0f6f332e4f2ca2f2dca4bcc5138bc32b928b344212755c1c8c0c84cd7d050d7c85cc1d0c8cac00088f40c0c0c1442439cb99cf2f3b2801af4b800b1b88fb162000000");
-        let out = hex("4b4e4a31a0a1a2a3a4a5a6a7a8a9aaabf993742d45cb02bf609a747d4b30ed2cbb830ee05b7b893aacde15b2ab189573fe5e0fd3e5ef9f6cefce74e527344fadb7edb57a8622d0516c944092f54839820d94362b1182b1213c223754581e9c6d05576a740d0b597a66813296bd8e0fd7133db759f01c0f816a6306e13d075c4a2450614699bf3b2059e75ad4459d934d121ce0");
-        assert_eq!(seal_with(&input, &key, &nonce).unwrap(), out);
-        assert_eq!(URL_SAFE_NO_PAD.encode(key), "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8");
-        assert_eq!(open(&out, &key).unwrap(), "KyberNow Link 0.11.8\nAppareil : Essai KNJ1\nJournal écrit le 2026-11-27 12:00:00.000 UTC\nBonjour.\n");
-    }
-
-    #[test]
-    fn deposit_round_trip_and_url() {
-        let h = header("0.11.8", "OLED55G26LA", "23.20", 1_795_780_800);
-        assert!(h.contains("Appareil : LG OLED55G26LA · webOS 23.20\nJournal écrit le 2026-11-27 12:00:00.000 UTC\n"), "{h}");
-        let (deposit, key) = seal(&h, "ligne 1\nligne 2\n").unwrap();
-        assert_eq!(open(&deposit, &key).unwrap(), format!("{h}ligne 1\nligne 2\n"));
-        let url = page_url("share.kybernow.app", "AbC_d-9", &key);
-        assert!(url.starts_with("https://share.kybernow.app/journal/AbC_d-9#k=") && url.len() == "https://share.kybernow.app/journal/AbC_d-9#k=".len() + 43);
-        assert!(valid_id("AbC_d-9") && !valid_id("a/b") && !valid_id(""));
-    }
-
-    /// Trop gros : l'en-tête, la coupure dite, puis la fin du journal (les lignes les plus récentes) ; dans la limite.
-    #[test]
-    fn too_big_keeps_header_and_tail() {
-        let mut body = String::new();
-        let mut n: u64 = 1;
-        for i in 0..40_000 {
-            // Des lignes qui se compressent mal : un nombre pseudo-aléatoire chacune.
-            n = n.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-            body.push_str(&format!("{i} {n:x}{:x}\n", n.rotate_left(17)));
-        }
-        let limit = 200_000;
-        let out = compress("EN-TÊTE\n", &body, limit);
-        assert!(out.len() <= limit);
-        let mut s = String::new();
-        flate2::read::GzDecoder::new(out.as_slice()).read_to_string(&mut s).unwrap();
-        assert!(s.starts_with("EN-TÊTE\n[… début du journal retiré : "));
-        assert!(s.ends_with(&format!("{}\n", body.lines().last().unwrap())));
+    fn device_line() {
+        assert_eq!(device("OLED55G26LA", "23.20"), "LG OLED55G26LA · webOS 23.20");
+        assert_eq!(device("OLED55G26LA", ""), "LG OLED55G26LA · webOS");
     }
 
     #[test]

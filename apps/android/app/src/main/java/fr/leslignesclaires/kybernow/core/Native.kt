@@ -61,8 +61,12 @@ object Native {
     @JvmStatic external fun relayNormalize(addr: String): String?
     /** Le texte de link-ui d'une erreur du relais (30, 31, 32) avec le nom de l'ordinateur ; `null` pour un autre code. */
     @JvmStatic external fun relayErrorText(code: Int, name: String?): String?
-    /** Les parties d'une adresse de relais : `{authority, pin}` (`authority` sans le port 443, `pin` `sha256:…` ou nul) ; nul si illisible. */
-    @JvmStatic external fun relayParts(addr: String): String?
+    /** « Envoyer le journal » : `{relay, id, owner, url, expires_in}` ou `{error, detail}` (`journal::deposit`). Bloquant. */
+    @JvmStatic external fun journalDeposit(relay: String, header: String, body: String): String?
+    /** L'état d'un dépôt : 0 en attente, 1 ouvert, 93 plus là, 90 pas de réponse. Bloquant. */
+    @JvmStatic external fun journalState(relay: String, id: String, owner: String): Int
+    /** Retire un dépôt pas encore ouvert ; faux si le relais n'a pas répondu. Bloquant. */
+    @JvmStatic external fun journalDiscard(relay: String, id: String, owner: String): Boolean
     /** Le relais tel qu'on le montre : `share.kybernow.app`, `relais.exemple.org:9443`, sans empreinte épinglée ni port 443. */
     @JvmStatic external fun relayLabel(addr: String): String
     @JvmStatic external fun consoleFree(handle: Long)

@@ -6,22 +6,19 @@
 //! - **Au bureau** : la fenêtre d'un e-mail, le fichier joint (`xdg-email --attach` ; dans le Flatpak, celui du runtime
 //!   passe par le portail e-mail) ; sans app d'e-mail, la fenêtre d'enregistrement (zenity ou kdialog), Téléchargements
 //!   proposé ; sans elle, enregistré dans Téléchargements.
-//! - **Par QR code** (Steam Deck en mode Jeu, salon, KyberNow Link OS ; docs/relais.md, « Dépôt d'un journal ») :
-//!   compressé (gzip, 2 Mio au plus : l'en-tête et la fin du journal, la plus récente), chiffré en AES-256-GCM avec une
-//!   clé tirée pour ce dépôt (`KNJ1`, le nonce, le texte chiffré et son étiquette), déposé sur le relais du compte de
-//!   l'appareil (sinon le relais public) ; le QR code porte `https://<relais>/journal/<id>#k=<clé>`, la clé que le
-//!   téléphone ne renvoie jamais. L'état du dépôt est relu toutes les 2 s (ouvert, expiré) ; « Terminé » retire un
-//!   dépôt pas encore ouvert.
+//! - **Par QR code** (Steam Deck en mode Jeu, salon, KyberNow Link OS ; docs/relais.md, « Dépôt d'un journal ») : par
+//!   le cœur (`kybernow_core::journal`) : compressé (gzip, 2 Mio au plus : l'en-tête et la fin du journal, la plus
+//!   récente), chiffré en AES-256-GCM avec une clé tirée pour ce dépôt (`KNJ1`), déposé sur le relais du compte de
+//!   l'appareil (sinon le relais public), par l'agent HTTPS du relais (empreinte épinglée d'un relais chez soi
+//!   comprise) ; le QR code porte `https://<relais>/journal/<id>#k=<clé>`, la clé que le téléphone ne renvoie jamais.
+//!   L'état du dépôt est relu toutes les 2 s (ouvert, expiré) ; « Terminé » retire un dépôt pas encore ouvert.
 
-use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
-use base64::Engine;
+use kybernow_core::journal::{self, DepositError, Remote};
 
 use super::Event;
 use crate::app::App;
@@ -35,12 +32,6 @@ pub enum JournalEvent {
     Done(JournalDone),
 }
 
-/// Le journal compressé, au plus (docs/link-ui.md).
-pub const MAX_COMPRESSED: usize = 2 * 1024 * 1024;
-/// L'en-tête du dépôt chiffré (docs/relais.md).
-pub const MAGIC: &[u8; 4] = b"KNJ1";
-/// L'état du dépôt est relu à ce rythme.
-const POLL: Duration = Duration::from_secs(2);
 
 /// L'envoi en cours : arrêté (et le dépôt pas encore ouvert retiré) par « Terminé » ou par un nouvel envoi.
 static CURRENT: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
@@ -62,11 +53,11 @@ pub fn start(app: &App, tx: &Sender<Event>) {
     std::thread::Builder::new()
         .name("kybernow-journal".into())
         .spawn(move || {
-            let text = format!("{header}{}", logs());
+            let body = logs();
             if qr {
-                by_qr(&text, &relay, &stop, &send);
+                by_qr(&header, &body, &relay, &stop, &send);
             } else {
-                send(JournalEvent::Done(by_email(&text, &version)));
+                send(JournalEvent::Done(by_email(&format!("{header}{body}"), &version)));
             }
         })
         .ok();
@@ -79,19 +70,19 @@ pub fn close() {
     }
 }
 
-/// L'en-tête du journal : l'appareil, son système, la version de l'app.
+/// L'en-tête du journal (`journal::header` du cœur, les lignes que lit la page du relais) : l'appareil, son système,
+/// l'interface, Link OS, le moment.
 fn header(app: &App) -> String {
     let os = std::fs::read_to_string("/etc/os-release")
         .ok()
         .and_then(|s| s.lines().find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_string())))
         .unwrap_or_else(|| "Linux".into());
     let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").map(|s| s.trim().to_string()).unwrap_or_default();
-    let mut h = format!("KyberNow Link {}\nAppareil : {}\nSystème : {os} · noyau {kernel}\nInterface : {:?}{}\n", app.version, app.device_name, app.layout, if crate::app::flatpak() { " · Flatpak" } else { "" });
+    let mut extra = vec![format!("Système : {os} · noyau {kernel}"), format!("Interface : {:?}{}", app.layout, if crate::app::flatpak() { " · Flatpak" } else { "" })];
     if let Some(o) = &app.os {
-        h.push_str(&format!("KyberNow Link OS {} · emplacement {}\n", o.version, o.slot));
+        extra.push(format!("KyberNow Link OS {} · emplacement {}", o.version, o.slot));
     }
-    h.push_str(&format!("Date : {}\n\n", crate::model::now_secs()));
-    h
+    journal::header_now(kybernow_core::i18n::current(), &app.version, &app.device_name, &extra)
 }
 
 /// La fin du lancement précédent et son arrêt, puis le journal de ce lancement.
@@ -113,163 +104,58 @@ fn logs() -> String {
     out
 }
 
-/// Le relais du dépôt : celui du compte KyberNow de l'appareil, sinon le relais public (`hôte[:port]`, sans
-/// l'empreinte épinglée).
+/// Le relais du dépôt : celui du compte KyberNow de l'appareil (empreinte épinglée comprise), sinon le relais public
+/// (vide).
 fn relay_of(app: &App) -> String {
-    app.store.accounts.first().and_then(|a| kybernow_core::rules::relay::parse(&a.relay)).map(|r| r.web_authority()).unwrap_or_else(|| kybernow_core::rules::relay::DEFAULT_RELAY.to_string())
+    app.store.accounts.first().map(|a| a.relay.clone()).unwrap_or_default()
 }
 
-/// Compressé en gzip.
-fn gzip(text: &str) -> Vec<u8> {
-    let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    let _ = e.write_all(text.as_bytes());
-    e.finish().unwrap_or_default()
-}
-
-/// Le journal compressé, `max` octets au plus : tout s'il tient ; sinon l'en-tête et la fin la plus récente du journal
-/// (la plus longue qui tient).
-pub fn compressed(header: &str, body: &str, max: usize) -> Vec<u8> {
-    let all = gzip(&format!("{header}{body}"));
-    if all.len() <= max {
-        return all;
-    }
-    let cut = "[… début du journal retiré : 2 Mio compressés au plus …]\n";
-    let fits = |start: usize| {
-        let gz = gzip(&format!("{header}{cut}{}", &body[start..]));
-        (gz.len() <= max).then_some(gz)
-    };
-    // Le plus petit début (le plus de journal) qui tient, aux limites des caractères.
-    let (mut lo, mut hi) = (0usize, body.len());
-    let mut best = fits(body.len()).unwrap_or_default();
-    while lo < hi {
-        let mut mid = lo + (hi - lo) / 2;
-        while !body.is_char_boundary(mid) {
-            mid += 1;
-        }
-        match fits(mid) {
-            Some(gz) => {
-                best = gz;
-                hi = mid;
-            }
-            None => lo = mid + 1,
-        }
-    }
-    best
-}
-
-/// Le dépôt chiffré : `KNJ1`, le nonce (12 octets), le texte chiffré et son étiquette (16 octets), AES-256-GCM.
-pub fn seal(data: &[u8], key: &[u8; 32], nonce: &[u8; 12]) -> Vec<u8> {
-    let cipher = Aes256Gcm::new(key.into());
-    let sealed = cipher.encrypt(Nonce::from_slice(nonce), data).unwrap_or_default();
-    let mut out = Vec::with_capacity(4 + 12 + sealed.len());
-    out.extend_from_slice(MAGIC);
-    out.extend_from_slice(nonce);
-    out.extend_from_slice(&sealed);
-    out
-}
-
-/// L'adresse du QR code : la clé après `#k=`, en base64url (43 signes), que le navigateur n'envoie jamais.
-pub fn qr_url(relay: &str, id: &str, key: &[u8; 32]) -> String {
-    format!("https://{relay}/journal/{id}#k={}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key))
-}
-
-/// Un dépôt fait (`201`) : son identifiant, le jeton de son propriétaire, sa durée.
-#[derive(Debug, PartialEq)]
-pub struct Deposit {
-    pub id: String,
-    pub owner: String,
-    pub expires_in: u64,
-}
-
-/// La réponse du relais au dépôt (docs/relais.md) : `201` et le dépôt, ou l'étape à montrer.
-pub fn deposit_of(status: u16, body: &str) -> Result<Deposit, JournalStep> {
-    match status {
-        201 => {
-            let v: serde_json::Value = serde_json::from_str(body).map_err(|_| JournalStep::RelayDown)?;
-            let s = |k: &str| v[k].as_str().filter(|s| !s.is_empty()).map(str::to_string);
-            match (s("id"), s("owner")) {
-                (Some(id), Some(owner)) => Ok(Deposit { id, owner, expires_in: v["expires_in"].as_u64().unwrap_or(3600) }),
-                _ => Err(JournalStep::RelayDown),
-            }
-        }
-        // Un relais d'avant le dépôt.
-        404 => Err(JournalStep::OldRelay),
-        429 => Err(JournalStep::TooMany),
-        _ => Err(JournalStep::RelayDown),
+/// Le refus du cœur, dans les étapes de l'écran.
+fn step_of(e: &DepositError) -> JournalStep {
+    match e {
+        DepositError::OldRelay => JournalStep::OldRelay,
+        DepositError::TooMany => JournalStep::TooMany,
+        DepositError::Unreachable(_) | DepositError::Failed(_) => JournalStep::RelayDown,
     }
 }
 
-fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(8)).timeout(Duration::from_secs(60)).build()
-}
-
-/// Le statut et le corps d'une réponse, d'erreur comprise ; `None` : le relais ne répond pas.
-fn answer(r: Result<ureq::Response, ureq::Error>) -> Option<(u16, String)> {
-    match r {
-        Ok(r) => Some((r.status(), r.into_string().unwrap_or_default())),
-        Err(ureq::Error::Status(code, r)) => Some((code, r.into_string().unwrap_or_default())),
-        Err(_) => None,
-    }
-}
-
-/// Par QR code : compressé, chiffré, déposé ; puis l'état relu jusqu'à l'ouverture, l'expiration ou « Terminé ».
-fn by_qr(text: &str, relay: &str, stop: &AtomicBool, send: &dyn Fn(JournalEvent)) {
-    let (header, body) = text.split_at(text.find("\n\n").map_or(0, |i| i + 2));
-    let gz = compressed(header, body, MAX_COMPRESSED);
-    let mut key = [0u8; 32];
-    let mut nonce = [0u8; 12];
-    if getrandom::getrandom(&mut key).is_err() || getrandom::getrandom(&mut nonce).is_err() {
-        send(JournalEvent::Step(JournalStep::RelayDown));
-        return;
-    }
-    let sealed = seal(&gz, &key, &nonce);
-    if stop.load(Ordering::Relaxed) {
-        return;
-    }
+/// Par QR code (`journal::deposit` du cœur : compressé, chiffré, déposé) ; puis l'état relu jusqu'à l'ouverture,
+/// l'expiration ou « Terminé ».
+fn by_qr(header: &str, body: &str, relay: &str, stop: &AtomicBool, send: &dyn Fn(JournalEvent)) {
     send(JournalEvent::Step(JournalStep::Uploading));
-    let agent = agent();
-    let base = format!("https://{relay}");
-    let r = agent.post(&format!("{base}/v1/journal")).set("content-type", "application/octet-stream").send_bytes(&sealed);
-    let deposit = match answer(r).map(|(status, body)| deposit_of(status, &body)) {
-        Some(Ok(d)) => d,
-        Some(Err(step)) => {
-            log::info!("journal : dépôt refusé par {relay} ({step:?})");
-            send(JournalEvent::Step(step));
-            return;
-        }
-        None => {
-            log::info!("journal : {relay} ne répond pas");
-            send(JournalEvent::Step(JournalStep::RelayDown));
+    let deposit = match journal::deposit(relay, header, body) {
+        Ok(d) => d,
+        Err(e) => {
+            log::info!("journal : dépôt impossible ({})", e.detail());
+            send(JournalEvent::Step(step_of(&e)));
             return;
         }
     };
-    log::info!("journal : déposé sur {relay} ({} octets chiffrés)", sealed.len());
-    send(JournalEvent::Step(JournalStep::Qr { url: qr_url(relay, &deposit.id, &key) }));
-    let state_url = format!("{base}/v1/journal/{}/state", deposit.id);
+    send(JournalEvent::Step(JournalStep::Qr { url: deposit.url.clone() }));
     let end = Instant::now() + Duration::from_secs(deposit.expires_in);
     loop {
         // « Terminé » : retiré s'il n'a pas été ouvert (sans effet sinon : le relais l'a déjà effacé).
         if stop.load(Ordering::Relaxed) {
-            let _ = agent.delete(&format!("{base}/v1/journal/{}", deposit.id)).set("x-kn-owner", &deposit.owner).call();
+            journal::discard(&deposit.relay, &deposit.id, &deposit.owner);
             return;
         }
         if Instant::now() >= end {
             send(JournalEvent::Step(JournalStep::Expired));
             return;
         }
-        match answer(agent.get(&state_url).set("x-kn-owner", &deposit.owner).call()) {
-            Some((200, body)) if body.contains("\"opened\"") => {
+        match journal::state(&deposit.relay, &deposit.id, &deposit.owner) {
+            Remote::Opened => {
                 send(JournalEvent::Step(JournalStep::Opened));
                 return;
             }
-            Some((404, _)) => {
+            Remote::Gone => {
                 send(JournalEvent::Step(JournalStep::Expired));
                 return;
             }
-            _ => {}
+            Remote::Waiting | Remote::Unknown => {}
         }
-        // Attendre 2 s, en voyant « Terminé ».
-        let wait = Instant::now() + POLL;
+        // Attendre, en voyant « Terminé ».
+        let wait = Instant::now() + journal::CHECK_EVERY;
         while Instant::now() < wait && !stop.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -332,66 +218,13 @@ fn downloads_dir() -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
 
-    fn gunzip(b: &[u8]) -> String {
-        let mut s = String::new();
-        flate2::read::GzDecoder::new(b).read_to_string(&mut s).unwrap();
-        s
-    }
-
-    /// Le dépôt du contrat (docs/relais.md) : `KNJ1`, le nonce, le texte chiffré et son étiquette ; il se déchiffre avec
-    /// la clé du QR code, qui est dans l'adresse après `#k=` (43 signes en base64url).
+    /// Les refus du relais (`journal::deposit` du cœur) dans les étapes de l'écran.
     #[test]
-    fn depot_knj1_dechiffrable() {
-        let (key, nonce) = ([7u8; 32], [3u8; 12]);
-        let gz = gzip("KyberNow Link 0.11.8\nAppareil : Deck\n\nune ligne\n");
-        let sealed = seal(&gz, &key, &nonce);
-        assert_eq!(&sealed[..4], b"KNJ1");
-        assert_eq!(&sealed[4..16], &nonce);
-        assert_eq!(sealed.len(), 4 + 12 + gz.len() + 16);
-        let plain = Aes256Gcm::new((&key).into()).decrypt(Nonce::from_slice(&nonce), &sealed[16..]).unwrap();
-        assert_eq!(gunzip(&plain), "KyberNow Link 0.11.8\nAppareil : Deck\n\nune ligne\n");
-        let url = qr_url("share.kybernow.app", "abcdefghijklmnopqrstuv", &key);
-        let k = url.split("#k=").nth(1).unwrap();
-        assert_eq!(k.len(), 43);
-        assert_eq!(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(k).unwrap(), key);
-        assert!(url.starts_with("https://share.kybernow.app/journal/abcdefghijklmnopqrstuv#k="));
-    }
-
-    /// 2 Mio compressés au plus : l'en-tête et la fin du journal, la plus récente.
-    #[test]
-    fn deux_mio_au_plus_l_en_tete_et_la_fin() {
-        let header = "KyberNow Link 0.11.8\n\n";
-        // Du texte qui se compresse mal (pseudo-aléatoire), plus gros que la borne.
-        let mut x = 0x12345678u32;
-        let body: String = (0..40_000)
-            .map(|i| {
-                x ^= x << 13;
-                x ^= x >> 17;
-                x ^= x << 5;
-                format!("{i} {x:08x}{:08x}\n", x.rotate_left(7))
-            })
-            .collect();
-        let max = 64 * 1024;
-        let gz = compressed(header, &body, max);
-        assert!(gz.len() <= max && !gz.is_empty());
-        let text = gunzip(&gz);
-        assert!(text.starts_with(header), "l'en-tête reste");
-        assert!(text.ends_with(&format!("{}\n", body.lines().last().unwrap())), "la fin la plus récente reste");
-        assert!(text.contains("début du journal retiré"));
-        // Petit : tout.
-        assert_eq!(gunzip(&compressed(header, "court\n", max)), format!("{header}court\n"));
-    }
-
-    /// Les réponses du relais au dépôt (docs/relais.md).
-    #[test]
-    fn reponses_du_relais() {
-        let ok = r#"{"id":"AAAAAAAAAAAAAAAAAAAAAA","owner":"BBBBBBBBBBBBBBBBBBBBBB","expires_in":3600}"#;
-        assert_eq!(deposit_of(201, ok), Ok(Deposit { id: "AAAAAAAAAAAAAAAAAAAAAA".into(), owner: "BBBBBBBBBBBBBBBBBBBBBB".into(), expires_in: 3600 }));
-        assert_eq!(deposit_of(404, ""), Err(JournalStep::OldRelay));
-        assert_eq!(deposit_of(429, r#"{"error":"too_many","retry_after":120}"#), Err(JournalStep::TooMany));
-        assert_eq!(deposit_of(503, r#"{"error":"full"}"#), Err(JournalStep::RelayDown));
-        assert_eq!(deposit_of(201, "{}"), Err(JournalStep::RelayDown));
+    fn refus_du_relais() {
+        assert_eq!(step_of(&DepositError::OldRelay), JournalStep::OldRelay);
+        assert_eq!(step_of(&DepositError::TooMany), JournalStep::TooMany);
+        assert_eq!(step_of(&DepositError::Unreachable("HTTP 500".into())), JournalStep::RelayDown);
+        assert_eq!(step_of(&DepositError::Failed("adresse".into())), JournalStep::RelayDown);
     }
 }

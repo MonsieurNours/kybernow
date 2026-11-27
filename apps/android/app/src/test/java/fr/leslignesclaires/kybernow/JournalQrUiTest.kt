@@ -5,7 +5,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import fr.leslignesclaires.kybernow.core.FormFactor
-import fr.leslignesclaires.kybernow.model.JournalRelay
 import fr.leslignesclaires.kybernow.ui.KnTheme
 import fr.leslignesclaires.kybernow.ui.settings.JournalQrContent
 import fr.leslignesclaires.kybernow.ui.settings.JournalQrStep
@@ -33,7 +32,7 @@ class JournalQrUiTest {
 
     @Test
     fun qrCodeWithItsSentences() {
-        val relay = JournalRelay("share.kybernow.app", null)
+        val relay = "share.kybernow.app"
         show(JournalQrStep.Shown("https://share.kybernow.app/journal/AAAAAAAAAAAAAAAAAAAAAA#k=" + "A".repeat(43), relay, "AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB", 0))
         rule.onNodeWithText("Envoyer le journal").assertExists()
         rule.onNodeWithText("Scannez ce QR code avec votre téléphone, puis enregistrez ou partagez le journal.").assertExists()
