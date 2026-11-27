@@ -17,11 +17,10 @@ use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_T
 use jni::JNIEnv;
 use ndk::native_window::NativeWindow;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::input::{keymap, MouseMode, MouseModeRules, PadAxis, PadButton};
 use kybernow_core::kynput_rs::MouseButtonType;
-use kybernow_core::latency;
 use kybernow_core::station_offer;
 use kybernow_core::wake;
 

@@ -224,7 +224,9 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_remoteOpe
 /// Consoles jointes, parties et attentes d'un envoi : par numéro (`registry`).
 static REMOTES: Registry<Remote> = Registry::new();
 static PLAYS: Registry<Handle> = Registry::new();
-static RECEIVERS: Registry<handoff::Receiver> = Registry::new();
+/// `Receiver` n'est pas partageable entre fils (sa file) : derrière un verrou,
+/// que seul `handoffNext` tient longtemps (une attente à la fois).
+static RECEIVERS: Registry<Mutex<handoff::Receiver>> = Registry::new();
 
 fn remote(h: jlong) -> Option<Arc<Remote>> {
     REMOTES.get(h)
@@ -684,7 +686,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_padTouchC
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffReceive(mut env: Env, _: JClass, name: JString, platform: JString) -> jlong {
     let (name, platform) = (string(&mut env, &name), string(&mut env, &platform));
     match handoff::Receiver::start(&name, &platform) {
-        Ok(r) => RECEIVERS.insert(r),
+        Ok(r) => RECEIVERS.insert(Mutex::new(r)),
         Err(e) => {
             log::warn!("PlayStation : attente d'un envoi impossible ({e})");
             0
@@ -692,7 +694,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffRe
     }
 }
 
-fn receiver(h: jlong) -> Option<Arc<handoff::Receiver>> {
+fn receiver(h: jlong) -> Option<Arc<Mutex<handoff::Receiver>>> {
     RECEIVERS.get(h)
 }
 
@@ -700,7 +702,7 @@ fn receiver(h: jlong) -> Option<Arc<handoff::Receiver>> {
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffCode(mut env: Env, _: JClass, h: jlong) -> jstring {
     match receiver(h) {
-        Some(r) => give(&mut env, &r.code()),
+        Some(r) => give(&mut env, &r.lock().unwrap_or_else(|e| e.into_inner()).code()),
         None => std::ptr::null_mut(),
     }
 }
@@ -711,7 +713,7 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffCo
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_PsNative_handoffNext(mut env: Env, _: JClass, h: jlong, timeout_ms: jint) -> jstring {
     let Some(r) = receiver(h) else { return std::ptr::null_mut() };
-    let s = match r.next(Duration::from_millis(timeout_ms.max(0) as u64)) {
+    let s = match r.lock().unwrap_or_else(|e| e.into_inner()).next(Duration::from_millis(timeout_ms.max(0) as u64)) {
         Some(handoff::Event::Received(bundle)) => json!({ "event": "received", "bundle": bundle }).to_string(),
         Some(handoff::Event::NewCode(code)) => json!({ "event": "new_code", "code": code }).to_string(),
         Some(handoff::Event::Expired) => json!({ "event": "expired" }).to_string(),
