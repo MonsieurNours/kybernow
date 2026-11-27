@@ -135,10 +135,21 @@ index d32616d..1795183 100644
  pub const CODEC_OPUS: u32 = 0x6F707573;
  
 diff --git a/kywebplayer/src/video/decoder.rs b/kywebplayer/src/video/decoder.rs
-index 9b03b13..a9c6dd5 100644
+index 9b03b13..387d903 100644
 --- a/kywebplayer/src/video/decoder.rs
 +++ b/kywebplayer/src/video/decoder.rs
-@@ -75,6 +75,11 @@ pub struct VideoDecoder {
+@@ -46,7 +46,9 @@ pub struct VideoDecoder {
+     listener: Rc<dyn VideoPlayerListener>,
+     output_closure: Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
+     error_closure: Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
+-    video_decoder: web_sys::VideoDecoder,
++    /// The WebCodecs decoder; none with PyroWave (KyberNow 0025: the page
++    /// decodes it, KYB-40).
++    video_decoder: Option<web_sys::VideoDecoder>,
+     configured: bool,
+     /// Last configuration and its parameter sets (AnnexB): after a reset, the
+     /// new decoder gets them again, in front of the next keyframe.
+@@ -75,6 +77,11 @@ pub struct VideoDecoder {
      yuv444: bool,
      metrics: bool,
      supported_video_codecs: Vec<VideoDecoderConfig>,
@@ -150,19 +161,25 @@ index 9b03b13..a9c6dd5 100644
  }
  
  pub struct VideoDecoderCallbacks {
-@@ -98,6 +103,11 @@ impl VideoDecoder {
+@@ -97,7 +104,16 @@ impl VideoDecoder {
+     ) -> Result<Self, JsValue> {
          let output_closure = Closure::wrap(cbs.output);
          let error_closure = Closure::wrap(cbs.error);
-         let video_decoder = Self::create_web_decoder(&output_closure, &error_closure)?;
+-        let video_decoder = Self::create_web_decoder(&output_closure, &error_closure)?;
 +        let pyrowave = if kymux_codec == packet::CODEC_PWV1 {
 +            Some(Self::create_pyrowave(&output_closure)?)
 +        } else {
 +            None
 +        };
++        let video_decoder = if pyrowave.is_some() {
++            None
++        } else {
++            Some(Self::create_web_decoder(&output_closure, &error_closure)?)
++        };
  
          Ok(Self {
              listener,
-@@ -118,9 +128,51 @@ impl VideoDecoder {
+@@ -118,9 +134,58 @@ impl VideoDecoder {
              yuv444,
              metrics,
              supported_video_codecs,
@@ -170,6 +187,13 @@ index 9b03b13..a9c6dd5 100644
          })
      }
  
++    /// The WebCodecs decoder (every codec but PyroWave).
++    fn web_decoder(&self) -> Result<&web_sys::VideoDecoder, JsValue> {
++        self.video_decoder
++            .as_ref()
++            .ok_or_else(|| JsError::new("No WebCodecs decoder (PyroWave)").into())
++    }
++
 +    /// KyberNow (0025): the page's PyroWave decoder, which calls `output`
 +    /// with a VideoFrame for each frame it decodes. No decoder (the page
 +    /// didn't install one, no WebGPU): the stream cannot be played.
@@ -214,7 +238,27 @@ index 9b03b13..a9c6dd5 100644
      fn create_web_decoder(
          output_closure: &Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
          error_closure: &Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
-@@ -178,6 +230,7 @@ impl VideoDecoder {
+@@ -136,14 +201,16 @@ impl VideoDecoder {
+         warn!("Video decoder closed by an error, restarting at the next keyframe");
+ 
+         // Already closed: only make sure.
+-        let _ = self.video_decoder.close();
+-        self.video_decoder = Self::create_web_decoder(&self.output_closure, &self.error_closure)?;
++        if let Some(decoder) = self.video_decoder.take() {
++            let _ = decoder.close();
++        }
++        self.video_decoder = Some(Self::create_web_decoder(&self.output_closure, &self.error_closure)?);
+         self.configured = false;
+         // Frames that were in the closed decoder will never come out.
+         self.recv_dates.borrow_mut().clear();
+ 
+         if let Some((config, data)) = &self.config {
+-            self.video_decoder.configure(config)?;
++            self.web_decoder()?.configure(config)?;
+             self.configured = true;
+             self.pending_config = Some(data.clone());
+         }
+@@ -178,6 +245,7 @@ impl VideoDecoder {
              packet::CODEC_H264 => Some(VideoCodec::H264),
              packet::CODEC_H265 => Some(VideoCodec::HEVC),
              packet::CODEC_AV1 => Some(VideoCodec::AV1),
@@ -222,7 +266,7 @@ index 9b03b13..a9c6dd5 100644
              _ => None,
          }
      }
-@@ -211,6 +264,9 @@ impl VideoDecoder {
+@@ -211,6 +279,9 @@ impl VideoDecoder {
      /// Hands a packet to the decoder. Returns whether a frame was submitted
      /// for decoding (it will come out of the output callback).
      pub fn send_packet(&mut self, packet: MediaPacket) -> Result<bool, JsValue> {
@@ -232,10 +276,48 @@ index 9b03b13..a9c6dd5 100644
          if self.failed.replace(false) {
              self.reset()?;
          }
-@@ -320,6 +376,14 @@ impl Drop for VideoDecoder {
+@@ -223,7 +294,7 @@ impl VideoDecoder {
+             if self.configured {
+                 // Frames still in the decoder come out before the new
+                 // configuration applies.
+-                let flush = self.video_decoder.flush();
++                let flush = self.web_decoder()?.flush();
+                 wasm_bindgen_futures::spawn_local(async move {
+                     if let Err(err) = JsFuture::from(flush).await {
+                         debug!("Video decoder flush before configure: {err:?}");
+@@ -231,7 +302,7 @@ impl VideoDecoder {
+                 });
+             }
+ 
+-            self.video_decoder.configure(&decoder_config)?;
++            self.web_decoder()?.configure(&decoder_config)?;
+             self.configured = true;
+             let data = packet.data.to_vec();
+             self.pending_config = Some(data.clone());
+@@ -295,7 +366,7 @@ impl VideoDecoder {
+                 self.listener.on_event(metric);
+             }
+ 
+-            let ret = self.video_decoder.decode(&chunk);
++            let ret = self.web_decoder()?.decode(&chunk);
+             if let Err(err) = &ret {
+                 error!("decode() error: {err:?}");
+                 // A decoder that refuses a frame is closed, or will refuse
+@@ -310,7 +381,7 @@ impl VideoDecoder {
+ 
+     #[allow(dead_code)]
+     pub async fn flush(&self) -> Result<(), JsValue> {
+-        let promise = self.video_decoder.flush();
++        let promise = self.web_decoder()?.flush();
+         JsFuture::from(promise).await?;
+         Ok(())
+     }
+@@ -320,8 +391,17 @@ impl Drop for VideoDecoder {
      fn drop(&mut self) {
          info!("Close video decoder");
  
+-        let ret = self.video_decoder.close();
+-        if let Err(err) = ret {
 +        if let Some((decoder, _)) = self.pyrowave.take() {
 +            if let Ok(close) = js_sys::Reflect::get(&decoder, &"close".into())
 +                .and_then(|f| f.dyn_into::<js_sys::Function>())
@@ -244,9 +326,12 @@ index 9b03b13..a9c6dd5 100644
 +            }
 +        }
 +
-         let ret = self.video_decoder.close();
-         if let Err(err) = ret {
++        if let Some(decoder) = self.video_decoder.take()
++            && let Err(err) = decoder.close()
++        {
              warn!("Failed to close video deocder: {err:?}");
+         }
+     }
 diff --git a/kywebplayer/src/video/mod.rs b/kywebplayer/src/video/mod.rs
 index f06f0fc..6a9582c 100644
 --- a/kywebplayer/src/video/mod.rs
