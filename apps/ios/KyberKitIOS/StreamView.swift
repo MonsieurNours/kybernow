@@ -90,7 +90,14 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         didSet { keyboardMouse.commandAsControl = commandAsControl }
     }
     /// Le toucher sert l'app (barre ouverte, feuille des mesures) : rien ne part.
-    public var touchesSuspended = false
+    public var touchesSuspended = false {
+        didSet {
+            // La barre s'ouvre pendant un glisser : le doigt qui se lève ne
+            // passera plus par `held`, le clic ne reste pas enfoncé.
+            guard touchesSuspended, !oldValue else { return }
+            releasePointerButtons()
+        }
+    }
     /// Le doigt sert de souris (pavé tactile ou toucher direct) ; false pendant
     /// que la manette à l'écran est affichée.
     public var touchAsMouse = true {
@@ -235,6 +242,8 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// L'écran de l'ordinateur a changé de taille en cours de session.
     func setHostSize(_ size: CGSize) {
         hostSize = size
+        // La vitesse du pointeur à la manette suit la nouvelle définition.
+        GamepadBridge.shared.setHostSize(size)
         pointer.setHostSize(size)
         rebuildLayout()
         updatePointerLayer()
@@ -242,11 +251,11 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
 
     public func detach() {
         GamepadBridge.shared.setPointer(nil)
-        GamepadBridge.shared.detach()
-        keyboardMouse.detach()
+        GamepadBridge.shared.detach(keeping: input)
+        keyboardMouse.detach(keeping: input)
         pointer.reset()
-        if dragging { input?.mouseButton(.left, pressed: false) }
-        dragging = false
+        releasePointerButtons()
+        forgetStickyModifiers()
         input?.flushKeys()
         input = nil
         mouseSeen = false
@@ -257,9 +266,18 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Arrière-plan, perte du premier plan (Stage Manager) : rien ne reste
     /// enfoncé sur l'ordinateur.
     public func releaseAll() {
-        if dragging { input?.mouseButton(.left, pressed: false) }
-        dragging = false
+        releasePointerButtons()
         input?.releaseAll()
+        // Le cœur vient de tout relâcher, Ctrl, Alt et ⊞ collants compris :
+        // la rangée ne les montre plus tenus.
+        forgetStickyModifiers()
+    }
+
+    /// Le glisser au maintien et le clic du Pencil (en souris) relâchés.
+    private func releasePointerButtons() {
+        if dragging || pencilMouseDown { input?.mouseButton(.left, pressed: false) }
+        dragging = false
+        pencilMouseDown = false
     }
 
     private func updateRelative() {
@@ -405,6 +423,12 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     }
 
     @objc private func held(_ g: UILongPressGestureRecognizer) {
+        // La fin d'un glisser passe toujours, barre ouverte ou non.
+        if g.state == .ended || g.state == .cancelled || g.state == .failed {
+            if dragging { input?.mouseButton(.left, pressed: false) }
+            dragging = false
+            return
+        }
         guard !touchesSuspended, let input else { return }
         switch g.state {
         case .began:
@@ -518,6 +542,12 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Un état du Pencil vers l'ordinateur : en stylet, ou en souris à cet
     /// endroit (Station qui ne connaît pas le stylet, souris des jeux).
     private func pencil(_ t: UITouch, contact: Bool) {
+        // Le Pencil levé relâche son clic, même si le jeu est passé en
+        // relatif ou si la barre s'est ouverte pendant le trait.
+        if !contact, pencilMouseDown {
+            pencilMouseDown = false
+            input?.mouseButton(.left, pressed: false)
+        }
         guard !touchesSuspended, let input, !isRelative, imageHost == nil, let p = hostPoint(t.location(in: self)) else { return }
         let x = Int16(clamping: Int(p.x.rounded())), y = Int16(clamping: Int(p.y.rounded()))
         var pen = InputPipeline.Pen()
@@ -615,11 +645,49 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         onStickyChanged?(sticky)
     }
 
-    private func releaseStickyModifiers() {
+    /// Les touches collantes relâchées sur l'ordinateur (frappe suivante,
+    /// clavier de l'écran replié).
+    public func releaseStickyModifiers() {
         guard !sticky.isEmpty else { return }
         for usage in sticky { press(usage: usage, pressed: false) }
+        forgetStickyModifiers()
+    }
+
+    /// Plus rien de tenu côté app (le cœur a déjà tout relâché).
+    private func forgetStickyModifiers() {
+        guard !sticky.isEmpty else { return }
         sticky = []
         onStickyChanged?(sticky)
+    }
+
+    // MARK: - Clavier physique
+
+    /// Un clavier physique (Magic Keyboard, Bluetooth) passe par GameController
+    /// (`KeyboardMouse`) ; quand la vue tient le clavier de l'écran, UIKit
+    /// livrait aussi ses frappes en `insertText` : chaque touche partait deux
+    /// fois. Les appuis d'un clavier physique s'arrêtent donc ici.
+    private func fromPhysicalKeyboard(_ presses: Set<UIPress>) -> Bool {
+        GCKeyboard.coalesced != nil && !presses.isEmpty && presses.allSatisfy { $0.key != nil }
+    }
+
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if fromPhysicalKeyboard(presses) { return }
+        super.pressesBegan(presses, with: event)
+    }
+
+    public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if fromPhysicalKeyboard(presses) { return }
+        super.pressesChanged(presses, with: event)
+    }
+
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if fromPhysicalKeyboard(presses) { return }
+        super.pressesEnded(presses, with: event)
+    }
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if fromPhysicalKeyboard(presses) { return }
+        super.pressesCancelled(presses, with: event)
     }
 
     // MARK: - Pointeur de l'ordinateur
