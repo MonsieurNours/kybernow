@@ -47,6 +47,9 @@ final class AudioPlayer: @unchecked Sendable {
     private var channels = 0
     #if os(macOS)
     private var deviceListener: ((UInt32, UnsafePointer<AudioObjectPropertyAddress>) -> Void)?
+    #else
+    /// iPhone, iPad, Apple TV : interruption, route, services audio (`outputQueue`).
+    private var sessionObservers: [NSObjectProtocol] = []
     #endif
     /// La sortie démarre hors du fil réseau de Kyber : démarrer Core Audio
     /// prend jusqu'à 100 ms, et ce fil reçoit aussi l'image.
@@ -220,8 +223,47 @@ final class AudioPlayer: @unchecked Sendable {
         self.deviceListener = nil
     }
     #else
-    private func watchOutputDevice() {}
-    private func unwatchOutputDevice() {}
+    /// iPhone, iPad, Apple TV : la fin d'une interruption (appel, Siri,
+    /// alarme), un changement de route (AirPods, AirPlay, HDMI) ou le
+    /// redémarrage des services audio relancent l'unité de sortie et relisent
+    /// sa latence ; sans cela, RemoteIO restait arrêtée jusqu'à la fin de la
+    /// session (MAC-16, IOS-03).
+    private func watchOutputDevice() {
+        guard sessionObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let restart: (String) -> Void = { [weak self] why in
+            self?.outputQueue.async {
+                guard let self, self.unit != nil else { return }
+                self.lock.lock()
+                let channels = self.channels
+                self.lock.unlock()
+                guard channels > 0 else { return }
+                self.stopOutput()
+                self.startOutput(channels: channels)
+                KyberLog.audio.notice("son : sortie relancée (\(why, privacy: .public))")
+            }
+        }
+        sessionObservers = [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { note in
+                let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+                if raw == AVAudioSession.InterruptionType.ended.rawValue { restart("fin d'interruption") }
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { note in
+                let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                let reason = raw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+                // Nos propres changements de catégorie n'y comptent pas.
+                if reason == .newDeviceAvailable || reason == .oldDeviceUnavailable || reason == .override { restart("route changée") }
+            },
+            center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { _ in
+                restart("services audio relancés")
+            },
+        ]
+    }
+
+    private func unwatchOutputDevice() {
+        sessionObservers.forEach(NotificationCenter.default.removeObserver)
+        sessionObservers = []
+    }
     #endif
 
     // MARK: - Réglages de la sortie
@@ -520,9 +562,12 @@ final class MicrophoneCapture {
         teardown()
         #if os(iOS)
         Self.holdsAudioSession = false
-        if let previous {
-            try? AVAudioSession.sharedInstance().setCategory(previous.category, mode: previous.mode, options: previous.options)
-        }
+        // Toujours la lecture du son de l'ordinateur : la catégorie d'avant
+        // pouvait être `.soloAmbient` (micro allumé avant le premier paquet de
+        // son), soumise au bouton silencieux et coupée au verrouillage (IOS-10).
+        let back = previous.map { $0.category == .soloAmbient || $0.category == .ambient ? (AVAudioSession.Category.playback, AVAudioSession.Mode.default, AVAudioSession.CategoryOptions()) : ($0.category, $0.mode, $0.options) }
+            ?? (.playback, .default, [])
+        try? AVAudioSession.sharedInstance().setCategory(back.0, mode: back.1, options: back.2)
         previous = nil
         #endif
         KyberLog.app.notice("micro arrêté")
