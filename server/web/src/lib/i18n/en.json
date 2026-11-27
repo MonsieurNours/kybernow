@@ -1521,7 +1521,7 @@
       }
     },
     "lend": {
-      "warning": "Your friend plays in your Mac session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
+      "warning": "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
       "apps": {
         "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the Mac's Applications folder."
       },
@@ -1666,7 +1666,7 @@
       }
     },
     "lend": {
-      "warning": "Your friend plays in your session. They don't see your desktop or your windows, but a game can read your files: lend to friends you trust.",
+      "warning": "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
       "apps": {
         "pickIntro": "Your friend can open it from the launcher. Apps and their icons come from the applications installed in your session."
       },
