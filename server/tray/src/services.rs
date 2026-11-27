@@ -16,6 +16,7 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::System::Services::*;
 
 use crate::i18n::t;
+use crate::wide;
 
 /// Serveur de streaming (kyservice).
 pub const KYBER: &str = "kyber";
@@ -30,10 +31,6 @@ impl Drop for Handle {
     fn drop(&mut self) {
         unsafe { CloseServiceHandle(self.0) };
     }
-}
-
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
 }
 
 /// Erreur Windows avec un message lisible pour l'utilisateur.
@@ -179,18 +176,36 @@ pub fn stop_server() -> Result<()> {
     wait(KYBER, State::Stopped, Duration::from_secs(30))
 }
 
-/// Relance le serveur de streaming et la console.
+/// « Redémarrer la Station » (STWIN-45) : demandé à Admin, comme depuis sa
+/// page Système (son assistant, en SYSTEM, arrête de force un service bloqué
+/// en cours d'arrêt). Admin injoignable : le même assistant
+/// (`kyber-admin.exe restart-station`), lancé d'ici avec les droits de
+/// l'utilisateur (sans arrêt forcé), journal dans
+/// `%LOCALAPPDATA%\KyberNow\station\redemarrage.log`.
 pub fn restart_server() -> Result<()> {
-    for name in [ADMIN, KYBER] {
-        if state(name) != State::Stopped {
-            stop(name)?;
-        }
+    let by_admin = match crate::console::port() {
+        Some(port) => crate::console::Client::new().station_restart(port)?,
+        None => false,
+    };
+    if by_admin {
+        return crate::status::after_restart(&state, ADMIN, KYBER);
     }
-    for name in [ADMIN, KYBER] {
-        wait(name, State::Stopped, Duration::from_secs(30))?;
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|e| Some(e.parent()?.parent()?.join("admin").join("kyber-admin.exe")))
+        .filter(|p| p.is_file())
+        .ok_or_else(|| anyhow::anyhow!(t("tray.errors.serviceStartFailed", &[("service", &ADMIN), ("error", &"kyber-admin.exe")])))?;
+    let dir = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow");
+    let _ = std::fs::create_dir_all(&dir);
+    use std::os::windows::process::CommandExt;
+    let status = std::process::Command::new(&exe)
+        .args(["restart-station", "--data-dir"])
+        .arg(&dir)
+        .creation_flags(crate::CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| anyhow::anyhow!(t("tray.errors.serviceStartFailed", &[("service", &ADMIN), ("error", &e)])))?;
+    if !status.success() {
+        bail!(t("tray.errors.restartFailed", &[("log", &dir.join("station").join("redemarrage.log").display())]));
     }
-    start(KYBER)?;
-    start(ADMIN)?;
-    wait(KYBER, State::Running, Duration::from_secs(30))?;
-    wait(ADMIN, State::Running, Duration::from_secs(30))
+    Ok(())
 }

@@ -113,7 +113,16 @@ fn stop_server() -> Result<()> {
     wait(KYBER, State::Stopped, Duration::from_secs(30))
 }
 
+/// « Redémarrer la Station » : demandé à Admin, comme sous Windows (STWIN-45) ;
+/// Admin injoignable : systemd relance Kyber puis Admin, comme le ferait Admin.
 fn restart_server() -> Result<()> {
+    let by_admin = match crate::console::port() {
+        Some(port) => crate::console::Client::new().station_restart(port)?,
+        None => false,
+    };
+    if by_admin {
+        return crate::status::after_restart(&state, ADMIN, KYBER);
+    }
     for unit in [KYBER, ADMIN] {
         let out = systemctl(&["restart", unit])?;
         if !out.status.success() {

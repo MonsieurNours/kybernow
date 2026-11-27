@@ -17,12 +17,10 @@
 
 use std::collections::HashSet;
 use std::ffi::c_void;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::{Mutex, OnceLock, mpsc};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use objc2_app_kit::{
@@ -52,20 +50,10 @@ pub fn dir() -> Option<PathBuf> {
 
 /// Une ligne du journal de l'agent (`~/Library/Logs/KyberNow/console.log`).
 pub fn log(line: &str) {
-    let dir = home().join("Library/Logs/KyberNow");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = dir.join("console.log");
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
-        let _ = std::fs::rename(&path, dir.join("console.old.log"));
-    }
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{} {line}", unix_now());
-    }
+    super::append_log(&home().join("Library/Logs/KyberNow"), "console", line);
 }
 
-pub fn unix_now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
-}
+pub use super::unix_now;
 
 /// Démarrage du Mac (`kern.boottime`), en secondes Unix.
 pub fn boot_time() -> i64 {

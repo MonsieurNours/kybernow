@@ -714,6 +714,7 @@ fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
         "/fonts/archivo.woff2" => (crate::fonts::ARCHIVO, "font/woff2"),
         "/fonts/martian.woff2" => (crate::fonts::MARTIAN, "font/woff2"),
         "/logo.svg" => (LOGO.as_bytes(), "image/svg+xml"),
+        "/common.js" => (crate::COMMON_JS.as_bytes(), "text/javascript; charset=utf-8"),
         "/cover" => (COVER.as_bytes(), "text/html; charset=utf-8"),
         _ => (LAUNCHER.as_bytes(), "text/html; charset=utf-8"),
     };

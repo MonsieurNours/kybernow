@@ -42,6 +42,19 @@ mod startup;
 #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 mod status;
 
+/// `send` et `esc`, communs au panneau et au lanceur du prêt (`/common.js`).
+pub const COMMON_JS: &str = include_str!("common.js");
+
+/// Une chaîne pour Win32 : UTF-16 terminé par un zéro.
+#[cfg(windows)]
+pub fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(Some(0)).collect()
+}
+
+/// `CREATE_NO_WINDOW` : un programme en console lancé par l'icône n'ouvre pas de fenêtre.
+#[cfg(windows)]
+pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

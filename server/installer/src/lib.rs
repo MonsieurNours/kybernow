@@ -20,6 +20,10 @@ pub mod ports;
 pub mod quiet;
 pub mod sys;
 pub mod uninstall;
+/// Les processus de Windows, partagés avec Admin.
+#[cfg(windows)]
+#[path = "../../admin/src/winproc.rs"]
+pub mod winproc;
 
 /// Nom technique : dossiers (`C:\Program Files\KyberNow`, `C:\ProgramData\KyberNow`),
 /// clé `…\Uninstall\KyberNow`, dossier du menu Démarrer. Ne change pas : les

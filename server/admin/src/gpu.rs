@@ -569,10 +569,6 @@ mod windows_monitor {
     use std::os::windows::process::CommandExt;
     use std::time::{Duration, Instant};
 
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-    };
     use windows_sys::Win32::System::Performance::{
         PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE_ITEM_W, PDH_FMT_DOUBLE, PDH_HCOUNTER,
         PDH_HQUERY, PDH_MORE_DATA, PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData,
@@ -609,7 +605,7 @@ mod windows_monitor {
             // Toutes les secondes pendant un flux (kyavserver tourne) ou
             // quand une page regarde l'activité, toutes les 10 s sinon : ni
             // compteurs PDH ni instantané des processus en continu, 24 h/24.
-            let encoder = process_ids(ENCODER_PROCESS);
+            let encoder = crate::winproc::by_name(ENCODER_PROCESS);
             let busy = !encoder.is_empty() || super::read_lately(Duration::from_secs(15));
             if let Some(q) = &query {
                 let samples: Vec<_> = q.collect().into_iter().filter_map(|(name, v)| parse_engine(&name, v)).collect();
@@ -668,27 +664,6 @@ mod windows_monitor {
                 (d.VendorId as u16, d.DeviceId as u16, luid)
             })
             .collect()
-    }
-
-    fn process_ids(exe: &str) -> Vec<u32> {
-        let mut pids = Vec::new();
-        unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if snap == INVALID_HANDLE_VALUE {
-                return pids;
-            }
-            let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
-            let mut ok = Process32FirstW(snap, &mut entry) != 0;
-            while ok {
-                let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-                if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case(exe) {
-                    pids.push(entry.th32ProcessID);
-                }
-                ok = Process32NextW(snap, &mut entry) != 0;
-            }
-            CloseHandle(snap);
-        }
-        pids
     }
 
     /// `\GPU Engine(*)\Utilization Percentage` : un pourcentage par moteur,

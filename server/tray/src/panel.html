@@ -136,6 +136,7 @@ body.shown main { animation: up .28s cubic-bezier(.2,.9,.1,1) both; }
 </head>
 <body>
 <main id="root"></main>
+<script src="/common.js"></script>
 <script>
 // Panneau de l'icône KyberNow Station. L'icône pousse son état (window.__knState) et
 // reçoit les actions par window.ipc.postMessage({ cmd }).
@@ -169,8 +170,6 @@ function t(key, vars = {}) {
 }
 // Singulier ou pluriel (`key.one`, `key.other`) : français, 0 et 1 au singulier ; anglais, 1 seulement.
 const tn = (key, n) => t(`${key}.${(LANG === 'fr' ? n < 2 : n === 1) ? 'one' : 'other'}`, { n })
-const send = (cmd, extra) => window.ipc && window.ipc.postMessage(JSON.stringify({ cmd, ...extra }))
-const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 const icon = (name, color = '#C9D3DC') => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`
 
 function ago(seconds) {

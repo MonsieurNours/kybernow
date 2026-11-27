@@ -520,29 +520,7 @@ mod platform {
 
     /// (pid, pid du parent) de tous les processus.
     fn snapshot() -> Vec<(u32, u32)> {
-        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-        };
-        let mut out = Vec::new();
-        unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if snap == INVALID_HANDLE_VALUE {
-                return out;
-            }
-            let mut entry: PROCESSENTRY32W = std::mem::zeroed();
-            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-            if Process32FirstW(snap, &mut entry) != 0 {
-                loop {
-                    out.push((entry.th32ProcessID, entry.th32ParentProcessID));
-                    if Process32NextW(snap, &mut entry) == 0 {
-                        break;
-                    }
-                }
-            }
-            CloseHandle(snap);
-        }
-        out
+        crate::winproc::processes().into_iter().map(|p| (p.pid, p.parent)).collect()
     }
 
     fn session_of(pid: u32) -> Option<u32> {
@@ -551,38 +529,7 @@ mod platform {
         (unsafe { ProcessIdToSessionId(pid, &mut s) } != 0).then_some(s)
     }
 
-    fn image_path(pid: u32) -> Option<String> {
-        use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h.is_null() {
-                return None;
-            }
-            let mut buf = [0u16; 1024];
-            let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0;
-            CloseHandle(h);
-            ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
-        }
-    }
-
-    /// L'instant de création d'un processus (FILETIME).
-    fn born(pid: u32) -> Option<u64> {
-        use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
-        use windows_sys::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h.is_null() {
-                return None;
-            }
-            let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-            let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
-            let ok = GetProcessTimes(h, &mut created, &mut exited, &mut kernel, &mut user) != 0;
-            CloseHandle(h);
-            ok.then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
-        }
-    }
+    use crate::winproc::{created as born, image_path};
 
     fn terminate(pid: u32) -> bool {
         use windows_sys::Win32::Foundation::CloseHandle;

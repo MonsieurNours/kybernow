@@ -77,8 +77,7 @@ fn run(handoff: Option<std::path::PathBuf>) -> Result<()> {
         services::stop(ADMIN)?;
         services::wait(ADMIN, State::Stopped, Duration::from_secs(30))?;
     }
-    // Sans fenêtre de console (CREATE_NO_WINDOW).
-    let status = Command::new(&admin).arg("reset-password").creation_flags(0x0800_0000).status().with_context(|| format!("lancement de {}", admin.display()))?;
+    let status = Command::new(&admin).arg("reset-password").creation_flags(crate::CREATE_NO_WINDOW).status().with_context(|| format!("lancement de {}", admin.display()))?;
     // Un ancien code ne doit pas être pris pour celui de la console qui redémarre.
     let _ = std::fs::remove_file(console::data_setup_code_path());
     services::start(ADMIN)?;

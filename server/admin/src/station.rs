@@ -232,6 +232,15 @@ fn launch_assistant(data_dir: &Path) -> Result<Option<Child>> {
     Ok(None)
 }
 
+/// Relance un seul service (Kyber, depuis Admin), avec le même arrêt que le
+/// redémarrage de la Station (de force s'il reste bloqué).
+#[cfg(windows)]
+pub fn restart_service(name: &str) -> Result<()> {
+    let mut services = windows::WindowsServices;
+    services.stop(name)?;
+    services.start(name)
+}
+
 #[cfg(windows)]
 fn platform() -> Result<Box<dyn Services>> {
     Ok(Box::new(windows::WindowsServices))

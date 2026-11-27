@@ -155,6 +155,7 @@
     "stationRestarted": "{name} restarted the Station",
     "stationRestartedAccount": "A device on account {account} restarted the Station",
     "stationRestartedAdmin": "Station restarted from Admin",
+    "stationRestartedTray": "Station restarted from the computer's icon",
     "stationUpdate": "{name} started the update to {version}",
     "stationUpdateAccount": "A device on account {account} started the update to {version}",
     "displayKeepsTurningOn": "Windows keeps turning a display of the computer back on: it stays on for the rest of the session",

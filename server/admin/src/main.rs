@@ -65,6 +65,8 @@ mod tls;
 mod update;
 mod wake;
 #[cfg(windows)]
+mod winproc;
+#[cfg(windows)]
 mod winsvc;
 
 use std::future::Future;

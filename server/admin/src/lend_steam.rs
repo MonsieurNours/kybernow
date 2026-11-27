@@ -115,7 +115,7 @@ pub fn answer(kept: &Kept) -> Value {
 #[cfg(windows)]
 pub fn caller_is_agent(peer: std::net::SocketAddr) -> bool {
     let Some(pid) = owner_pid(peer) else { return false };
-    let Some(image) = process_image(pid) else { return false };
+    let Some(image) = crate::winproc::image_path(pid).map(PathBuf::from) else { return false };
     let expected = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.parent()?.join("tray").join("kybernow-tray.exe")));
     let same = expected.is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case(&image.to_string_lossy()));
     if !same {
@@ -173,22 +173,6 @@ fn owner_pid(peer: std::net::SocketAddr) -> Option<u32> {
                 .map(|r| r.dwOwningPid)
         }
     }
-}
-
-/// Chemin complet du programme d'un processus.
-#[cfg(windows)]
-fn process_image(pid: u32) -> Option<PathBuf> {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle.is_null() {
-        return None;
-    }
-    let mut buf = [0u16; 1024];
-    let mut len = buf.len() as u32;
-    let ok = unsafe { QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) } != 0;
-    unsafe { CloseHandle(handle) };
-    ok.then(|| PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
 }
 
 #[cfg(test)]

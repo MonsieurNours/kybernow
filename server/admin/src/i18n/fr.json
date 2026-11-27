@@ -155,6 +155,7 @@
     "stationRestarted": "{name} a redémarré la Station",
     "stationRestartedAccount": "Un appareil du compte {account} a redémarré la Station",
     "stationRestartedAdmin": "Station redémarrée depuis Admin",
+    "stationRestartedTray": "Station redémarrée depuis l'icône de l'ordinateur",
     "stationUpdate": "{name} a lancé la mise à jour vers {version}",
     "stationUpdateAccount": "Un appareil du compte {account} a lancé la mise à jour vers {version}",
     "displayKeepsTurningOn": "Windows rallume sans cesse un écran de l'ordinateur : il reste allumé pour le reste de la session",

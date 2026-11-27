@@ -44,6 +44,26 @@ use serde_json::Value;
 
 use crate::i18n::{Lang, tr};
 
+/// Heure Unix, en secondes.
+pub fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// Une ligne du journal de l'agent, `<dir>/<name>.log` (l'agent n'a ni
+/// console ni fenêtre à lui pour le dire), recommencé au-delà de 1 Mo :
+/// l'ancien est gardé en `<name>.old.log`. Le dossier change selon le système.
+pub fn append_log(dir: &std::path::Path, name: &str, line: &str) {
+    use std::io::Write;
+    let _ = std::fs::create_dir_all(dir);
+    let path = dir.join(format!("{name}.log"));
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1 << 20) {
+        let _ = std::fs::rename(&path, dir.join(format!("{name}.old.log")));
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{} {line}", unix_now());
+    }
+}
+
 /// Phase du prêt vue par l'agent (`phase` de `GET /api/local/lend/console`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -416,11 +436,6 @@ pub fn clock(lang: Lang, hour: u32, minute: u32) -> String {
 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 pub fn clock_at(lang: Lang, unix: i64) -> Option<String> {
     system::local_clock(unix).map(|(h, m)| clock(lang, h, m))
-}
-
-#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-pub fn unix_now() -> i64 {
-    system::unix_now()
 }
 
 /// L'horloge du lanceur et du cache : « 16:40 » ; « 4:40 PM ».

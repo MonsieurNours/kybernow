@@ -324,6 +324,25 @@ impl Client {
         self.lend_call("POST", port, "/api/local/lend/take-back", Some(serde_json::json!({ "now": now })))
     }
 
+    /// « Redémarrer la Station » par Admin (`POST /api/local/station/restart`,
+    /// STWIN-45), après la confirmation de l'icône : `Ok(true)` lancé,
+    /// `Ok(false)` Admin ne répond pas (ou n'a pas la route : avant la 0.11.8),
+    /// une erreur avec son message s'il refuse (une minute entre deux, prêt
+    /// en cours).
+    pub fn station_restart(&self, port: u16) -> anyhow::Result<bool> {
+        let Ok(reply) = self.local("POST", port, "/api/local/station/restart", Some(&serde_json::json!({ "force": true })), Duration::from_secs(10)) else {
+            return Ok(false);
+        };
+        match reply.status {
+            200..=299 => Ok(true),
+            404 => Ok(false),
+            _ => {
+                let message = serde_json::from_slice::<Value>(&reply.body).ok().and_then(|v| v["error"].as_str().map(str::to_owned));
+                anyhow::bail!(message.unwrap_or_else(|| describe(&reply)))
+            }
+        }
+    }
+
     /// Met fin à la session en cours (route réservée à l'ordinateur lui-même).
     pub fn end_session(&self, port: u16) -> anyhow::Result<()> {
         let reply = self.post(port, "/api/local/end", Duration::from_secs(10)).map_err(|e| anyhow::anyhow!(t("tray.errors.endSessionFailed", &[("error", &format!("{e:#}"))])))?;

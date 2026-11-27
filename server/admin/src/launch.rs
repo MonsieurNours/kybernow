@@ -752,17 +752,12 @@ mod platform {
         SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY,
     };
     use windows::core::{Interface, PCWSTR, PWSTR};
-    use windows_sys::Win32::Foundation::{CloseHandle, HWND, INVALID_HANDLE_VALUE, LPARAM};
+    use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
         BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDIBits, GetObjectW,
     };
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
-    };
     use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
-    use windows_sys::Win32::System::Threading::{
-        GetProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
-    };
+    use windows_sys::Win32::System::Threading::GetProcessId;
     use windows_sys::Win32::UI::Shell::{SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GW_OWNER, GetWindow, GetWindowThreadProcessId, IsIconic, IsWindowVisible, PostMessageW, SW_RESTORE, SW_SHOWNORMAL,
@@ -1031,44 +1026,10 @@ mod platform {
         }
     }
 
-    /// Chemin complet de l'exécutable d'un processus.
-    fn process_path(pid: u32) -> Option<String> {
-        unsafe {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if h.is_null() {
-                return None;
-            }
-            let mut buf = [0u16; 1024];
-            let mut len = buf.len() as u32;
-            let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0;
-            CloseHandle(h);
-            ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
-        }
-    }
-
     /// Les processus dont l'exécutable est `exe` (même chemin, sans la casse).
     fn processes_by_exe(exe: &str) -> Vec<u32> {
-        let file = Path::new(exe).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default();
-        let mut pids = Vec::new();
-        unsafe {
-            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-            if snap == INVALID_HANDLE_VALUE {
-                return pids;
-            }
-            let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..std::mem::zeroed() };
-            let mut ok = Process32FirstW(snap, &mut entry) != 0;
-            while ok {
-                let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-                if String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase() == file
-                    && process_path(entry.th32ProcessID).is_some_and(|p| p.eq_ignore_ascii_case(exe))
-                {
-                    pids.push(entry.th32ProcessID);
-                }
-                ok = Process32NextW(snap, &mut entry) != 0;
-            }
-            CloseHandle(snap);
-        }
-        pids
+        let file = Path::new(exe).file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        crate::winproc::by_name(&file).into_iter().filter(|pid| crate::winproc::image_path(*pid).is_some_and(|p| p.eq_ignore_ascii_case(exe))).collect()
     }
 
     struct Windows {
