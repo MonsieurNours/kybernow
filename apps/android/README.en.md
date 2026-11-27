@@ -212,7 +212,7 @@ Logic tests (`app/src/test`, `./gradlew testDebugUnitTest`): player slots (`Play
 
 **Trying it on a device** (Shield or phone connected to Android Studio, USB or network debugging on): `git pull`, `apps/android/scripts/build-native.sh` if `apps/core` or `apps/android/jni` changed, then ▶ Run in Android Studio (project `apps/android`). Without the native library Gradle refuses to build (`libkybernow.so absente…`): an app installed without it would die at launch (`UnsatisfiedLinkError`). The script uses NDK 27.2.12479018; failing that, the newest installed one, with a warning. Log: `adb logcat -s KyberNow` (Rust core and app).
 
-Texts: `scripts/strings.py` (both languages in one file, French typography included) writes `res/values*/strings.xml`. Drawings: `scripts/app-icon.py` (icon, banner; Pillow) and `scripts/brand-drawables.py`.
+Texts: `scripts/strings.py` (both languages in one file, French typography included) writes `res/values*/strings.xml`; never edit those files by hand: `strings.py --check` (run by `release-apk.sh --check`, so before every release) rejects a file that no longer matches the script. Drawings: `scripts/app-icon.py` (icon, banner; Pillow) and `scripts/brand-drawables.py`.
 
 ## Updates and publishing
 

@@ -212,7 +212,7 @@ Tests de la logique (`app/src/test`, `./gradlew testDebugUnitTest`) : places de 
 
 **Essayer sur un appareil** (Shield ou téléphone branché à Android Studio, débogage USB ou réseau activé) : `git pull`, `apps/android/scripts/build-native.sh` si `apps/core` ou `apps/android/jni` ont changé, puis ▶ Run dans Android Studio (projet `apps/android`). Sans la bibliothèque native, Gradle refuse de construire (`libkybernow.so absente…`) : une app installée sans elle mourrait au lancement (`UnsatisfiedLinkError`). Le script prend le NDK 27.2.12479018 ; à défaut, le plus récent installé, avec un avertissement. Journal : `adb logcat -s KyberNow` (cœur Rust et app).
 
-Textes : `scripts/strings.py` (les deux langues dans un seul fichier, typographie française comprise) écrit `res/values*/strings.xml`. Dessins : `scripts/app-icon.py` (icône, bannière ; Pillow) et `scripts/brand-drawables.py`.
+Textes : `scripts/strings.py` (les deux langues dans un seul fichier, typographie française comprise) écrit `res/values*/strings.xml` ; ne jamais modifier ces fichiers à la main : `strings.py --check` (appelé par `release-apk.sh --check`, donc avant chaque publication) refuse un fichier qui n'est plus celui du script. Dessins : `scripts/app-icon.py` (icône, bannière ; Pillow) et `scripts/brand-drawables.py`.
 
 ## Mises à jour et publication
 

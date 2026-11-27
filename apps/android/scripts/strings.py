@@ -9,6 +9,11 @@ Les textes communs à toutes les apps KyberNow Link sont ceux de
 docs/link-ui.md, recopiés à l'identique.
 
     python3 apps/android/scripts/strings.py
+    python3 apps/android/scripts/strings.py --check   # les fichiers du dépôt sont-ils ceux du script ?
+
+`--check` génère à part et compare, sans rien écrire : un texte ajouté à la
+main dans strings.xml (et perdu à la régénération suivante) est signalé.
+Appelé par `release-apk.sh --check`, donc avant chaque publication.
 """
 import re
 import sys
@@ -868,6 +873,18 @@ S = [
 ("ps_deadzone", "Inclinaison minimale", "Minimum tilt"),
 ("ps_deadzone_help", "Pour passer la zone morte des jeux.", "To get past games' dead zone."),
 ("ps_invert_y", "Inverser l'axe vertical", "Invert vertical axis"),
+# Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil »)
+("camera", "Caméra", "Camera"),
+("camera_starting", "Caméra…", "Camera…"),
+("camera_turn_on", "Allumer la caméra", "Turn on camera"),
+("camera_turn_off", "Éteindre la caméra", "Turn off camera"),
+("camera_indicator", "● Caméra", "● Camera"),
+("camera_front", "Caméra avant", "Front camera"),
+("camera_back", "Caméra arrière", "Back camera"),
+("camera_external", "Caméra externe", "External camera"),
+("camera_resolution", "Définition de la caméra", "Camera resolution"),
+("camera_resolution_help", "30 images par seconde. En 1080p, la caméra demande environ 4 Mbit/s vers l'ordinateur.", "30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer."),
+("camera_stats", "Caméra : %1$s", "Camera: %1$s"),
 ]
 
 # Pluriels : (clé, {quantité: (français, anglais)}). Android choisit la quantité selon la langue :
@@ -913,9 +930,23 @@ def write(path, idx, f):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text("\n".join(out) + "\n", encoding="utf-8")
 
-res = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "app/src/main/res"
+def render(idx, f):
+    tmp = Path(__import__("tempfile").mkdtemp()) / "strings.xml"
+    write(tmp, idx, f)
+    return tmp.read_text(encoding="utf-8")
+
 keys = [r[0] for r in S]
 assert len(keys) == len(set(keys)), "clé en double"
-write(res / "values/strings.xml", 2, units)
-write(res / "values-fr/strings.xml", 1, fr)
+args = [a for a in sys.argv[1:] if a != "--check"]
+res = Path(args[0]) if args else Path(__file__).resolve().parents[1] / "app/src/main/res"
+targets = [(res / "values/strings.xml", 2, units), (res / "values-fr/strings.xml", 1, fr)]
+if "--check" in sys.argv[1:]:
+    bad = [str(path) for path, idx, f in targets if not path.exists() or path.read_text(encoding="utf-8") != render(idx, f)]
+    if bad:
+        print("textes Android à régénérer (python3 apps/android/scripts/strings.py) : " + ", ".join(bad), file=sys.stderr)
+        sys.exit(1)
+    print(len(S), "textes, à jour")
+    sys.exit(0)
+for path, idx, f in targets:
+    write(path, idx, f)
 print(len(S), "textes")

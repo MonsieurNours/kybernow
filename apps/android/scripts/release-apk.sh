@@ -3,7 +3,7 @@
 # publication, pour scripts/release.sh (ou à la main) :
 #
 #   apps/android/scripts/release-apk.sh <fichier.apk>     construit et signe
-#   apps/android/scripts/release-apk.sh --check           vérifie clé et outils
+#   apps/android/scripts/release-apk.sh --check           vérifie clé, outils et textes (strings.py --check)
 #   apps/android/scripts/release-apk.sh --fingerprint     empreinte du certificat
 #
 # Étapes : bibliothèque native des trois architectures (build-native.sh),
@@ -37,6 +37,10 @@ case "${1:-}" in
     ""|-*) echo "usage : release-apk.sh <fichier.apk> | --check | --fingerprint" >&2; exit 1 ;;
     *) OUTPUT="$1" ;;
 esac
+
+# Textes : strings.xml doit être celui de strings.py (un texte ajouté à la main
+# disparaîtrait à la régénération suivante, et la compilation casserait).
+python3 "$HERE/scripts/strings.py" --check > /dev/null || exit 1
 
 # JDK : celui de l'environnement, sinon celui d'Android Studio.
 if [ -z "${JAVA_HOME:-}" ]; then

@@ -787,15 +787,6 @@
     <string name="ps_deadzone">Minimum tilt</string>
     <string name="ps_deadzone_help">To get past games\' dead zone.</string>
     <string name="ps_invert_y">Invert vertical axis</string>
-    <plurals name="share_guests">
-        <item quantity="one">%d guest</item>
-        <item quantity="other">%d guests</item>
-    </plurals>
-    <plurals name="share_requests">
-        <item quantity="one">%d request</item>
-        <item quantity="other">%d requests</item>
-    </plurals>
-    <!-- Caméra de l'appareil (docs/link-ui.md, « Caméra de l'appareil ») -->
     <string name="camera">Camera</string>
     <string name="camera_starting">Camera…</string>
     <string name="camera_turn_on">Turn on camera</string>
@@ -805,6 +796,14 @@
     <string name="camera_back">Back camera</string>
     <string name="camera_external">External camera</string>
     <string name="camera_resolution">Camera resolution</string>
-    <string name="camera_resolution_help">30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer.</string>
-    <string name="camera_stats">Camera: %1$s</string>
+    <string name="camera_resolution_help">30 frames per second. In 1080p, the camera needs about 4 Mbit/s towards the computer.</string>
+    <string name="camera_stats" formatted="true">Camera: %1$s</string>
+    <plurals name="share_guests">
+        <item quantity="one">%d guest</item>
+        <item quantity="other">%d guests</item>
+    </plurals>
+    <plurals name="share_requests">
+        <item quantity="one">%d request</item>
+        <item quantity="other">%d requests</item>
+    </plurals>
 </resources>
