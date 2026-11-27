@@ -283,6 +283,10 @@ static bool run(kn_pw *pw, void (^encode)(id<MTLComputeCommandEncoder>)) {
     [cmd commit];
     // L'encodeur de PyroWave a sa propre file : la conversion doit être
     // finie avant qu'il lise les plans (pas d'ordre entre deux files).
+    // STMAC-21 : un MTLSharedEvent attendu par la file de PyroWave éviterait
+    // cette attente, mais `pyrowave_encoder_encode_gpu` ne prend ni tampon de
+    // commandes ni événement (le décodeur, lui, prend un tampon) : il faut
+    // d'abord cette entrée dans PyroWave.
     [cmd waitUntilCompleted];
     if (cmd.status == MTLCommandBufferStatusError) {
         set_err(pw, "conversion : %s", cmd.error.localizedDescription.UTF8String);
@@ -335,9 +339,11 @@ extern "C" int kn_pw_encode(kn_pw *pw, void *pixbuf, size_t budget, size_t packe
             for (int i = 0; i < 3; i++)
                 input.planes[i] = pw->planes[i];
         } else {
-            if (fmt != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange &&
-                fmt != kCVPixelFormatType_420YpCbCr10BiPlanarFullRange) {
-                set_err(pw, "format d'entrée %c%c%c%c en HDR (P010 attendu)", fmt >> 24, fmt >> 16, fmt >> 8, fmt);
+            // P010 plage réduite seulement : c'est ce que le paquet de
+            // configuration annonce (`kn_pw_config_packet`), et la capture ne
+            // demande pas autre chose ; la pleine plage serait mal lue (STMAC-22).
+            if (fmt != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) {
+                set_err(pw, "format d'entrée %c%c%c%c en HDR (P010 plage réduite attendu)", fmt >> 24, fmt >> 16, fmt >> 8, fmt);
                 return -1;
             }
             if (w == pw->width && h == pw->height) {
