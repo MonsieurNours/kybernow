@@ -66,7 +66,7 @@ Le script :
 
 Relancez la même commande après un `git pull`. Avec un compte gratuit, faites-le avant la fin des 7 jours ; vos ordinateurs et réglages restent sur l'Apple TV.
 
-Le SDK n'est téléchargé que si `apps/tvos/Vendor` manque : pour passer à une nouvelle version, supprimez ce dossier avant de relancer (`rm -rf apps/tvos/Vendor`). Il vient d'une version publiée, alors que `git pull` donne le code le plus récent : si le cœur a changé depuis cette version, la compilation échoue. Prenez alors le code de la version du SDK (`git checkout vX.Y.Z`), ou compilez le SDK vous-même (ci-dessous).
+Le SDK n'est téléchargé que s'il manque à `apps/tvos/Vendor` (`KyberSDK.xcframework` ou `KyberNow.xcframework`) : pour passer à une nouvelle version, supprimez ce dossier avant de relancer (`rm -rf apps/tvos/Vendor`). Il vient d'une version publiée, alors que `git pull` donne le code le plus récent : si le cœur a changé depuis cette version, la compilation échoue. Prenez alors le code de la version du SDK (`git checkout vX.Y.Z`), ou compilez le SDK vous-même (ci-dessous).
 
 ## En cas de souci
 

@@ -66,7 +66,7 @@ The script:
 
 Run the same command again after a `git pull`. With a free account, do it before the 7 days are up; your computers and settings stay on the Apple TV.
 
-The SDK is only downloaded when `apps/tvos/Vendor` is missing: to move to a new release, delete that folder before running the script again (`rm -rf apps/tvos/Vendor`). It comes from a published release, while `git pull` gives the most recent code: if the core changed since that release, the build fails. Then take the code of the SDK's release (`git checkout vX.Y.Z`), or build the SDK yourself (below).
+The SDK is only downloaded when `apps/tvos/Vendor` lacks it (`KyberSDK.xcframework` or `KyberNow.xcframework`): to move to a new release, delete that folder before running the script again (`rm -rf apps/tvos/Vendor`). It comes from a published release, while `git pull` gives the most recent code: if the core changed since that release, the build fails. Then take the code of the SDK's release (`git checkout vX.Y.Z`), or build the SDK yourself (below).
 
 ## Troubleshooting
 

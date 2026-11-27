@@ -23,7 +23,8 @@
 # Sortie : Vendor/include (en-têtes, module.modulemap) et
 # Vendor/KyberSDK.xcframework (une bibliothèque statique par plateforme).
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
-# sans toucher à Vendor/. Versions vérifiées : scripts/kyber-toolchain.sh (une
+# sans toucher à Vendor/ ; n'y remplace que ces deux entrées (le cœur,
+# Vendor/KyberNow.xcframework, reste). Versions vérifiées : scripts/kyber-toolchain.sh (une
 # autre est signalée).
 set -euo pipefail
 
@@ -139,7 +140,10 @@ build_platform aarch64-apple-tvos appletvos
 build_platform aarch64-apple-tvos-sim appletvsimulator
 
 echo "==> Vendor/"
-rm -rf "$OUT" && mkdir -p "$OUT/include/opus"
+# Seulement ce que ce script produit : Vendor/KyberNow.xcframework (le cœur,
+# build-apple-mobile.sh tvos) reste en place, sinon le projet Xcode ne se
+# construit plus jusqu'à la prochaine construction du cœur.
+rm -rf "$OUT/include" "$OUT/KyberSDK.xcframework" && mkdir -p "$OUT/include/opus"
 DEVICE="$KYBER/rootfs-aarch64-apple-tvos"
 cp "$DEVICE/include/kyclient/kyclient.h" "$DEVICE/include/kynput/kynput.h" "$OUT/include/"
 cp "$DEVICE"/include/opus/opus*.h "$OUT/include/opus/"
