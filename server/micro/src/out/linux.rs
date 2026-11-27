@@ -103,7 +103,7 @@ impl Player {
                 let mut frame = [0f32; 480];
                 let mut bytes = Vec::with_capacity(480 * 4);
                 while !flag.load(Ordering::Relaxed) {
-                    jitter.lock().unwrap().pull(&mut frame);
+                    super::pull(&jitter, &mut frame);
                     bytes.clear();
                     for s in frame {
                         bytes.extend_from_slice(&s.to_le_bytes());
