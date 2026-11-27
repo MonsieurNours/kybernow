@@ -26,7 +26,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -96,10 +95,10 @@ mod camera;
 struct Live {
     online: Option<bool>,
     info: Option<Info>,
-    preview: Option<String>,
+    preview: Option<Image>,
     preview_at: Option<Instant>,
     /// Dernière image de la dernière session (passe avant l'aperçu).
-    last: Option<String>,
+    last: Option<Image>,
     last_loaded: bool,
     /// L'ordinateur ne répond pas sur le réseau mais le relais le tient : « Hors
     /// de chez vous » (`online` est alors vrai : on peut s'y connecter).
@@ -109,8 +108,48 @@ struct Live {
     lend: Option<kybernow_core::lend::LendView>,
 }
 
-fn data_url(jpeg: &[u8]) -> String {
-    format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg))
+/// Une image de l'accueil (dernière image d'une session ou aperçu de
+/// l'écran, JPEG de 100 à 300 Ko) et son numéro, unique à chaque nouvelle
+/// image. L'interface ne reçoit que son adresse (`image_url`), servie par le
+/// protocole `knimage` de l'app : l'événement `computers`, envoyé souvent
+/// (suivi de réveil : toutes les 2 s), ne transporte plus les images en
+/// base64, et une image n'est relue par la page que quand elle change.
+#[derive(Debug, Clone)]
+struct Image {
+    version: u64,
+    jpeg: std::sync::Arc<Vec<u8>>,
+}
+
+impl Image {
+    fn new(jpeg: Vec<u8>) -> Self {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self { version: SEQ.fetch_add(1, Ordering::Relaxed), jpeg: std::sync::Arc::new(jpeg) }
+    }
+}
+
+/// Protocole des images de l'accueil : `http://knimage.localhost/<ordinateur>?v=<numéro>`
+/// (WebView2 sert un protocole de l'app sous `http://<nom>.localhost`).
+const IMAGE_SCHEME: &str = "knimage";
+
+fn image_url(id: &str, image: &Image) -> String {
+    let id: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')).collect();
+    format!("http://{IMAGE_SCHEME}.localhost/{id}?v={}", image.version)
+}
+
+/// Le JPEG d'une adresse `image_url` : la dernière image, sinon l'aperçu.
+fn serve_image(app: &AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
+    let id = path.trim_start_matches('/');
+    let jpeg = app.state::<UiState>().live.lock().unwrap().get(id).and_then(|l| l.last.clone().or_else(|| l.preview.clone())).map(|i| i.jpeg);
+    let builder = tauri::http::Response::builder();
+    match jpeg {
+        Some(j) => builder
+            .header("Content-Type", "image/jpeg")
+            // L'adresse change avec l'image (`?v=`) : celle-ci ne change jamais.
+            .header("Cache-Control", "max-age=31536000, immutable")
+            .body(j.as_ref().clone()),
+        None => builder.status(404).body(Vec::new()),
+    }
+    .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -536,14 +575,14 @@ impl UiState {
                 if !l.last_loaded {
                     l.last_loaded = true;
                     if c.settings.keep_last_image {
-                        l.last = snapshot::load(&c.id).map(|j| data_url(&j));
+                        l.last = snapshot::load(&c.id).map(Image::new);
                     }
                 }
                 let l = l.clone();
                 let offer = stations::offer(&c, &l, in_session);
-                let (preview, preview_source) = match (l.last, l.preview) {
-                    (Some(last), _) => (Some(last), Some("last")),
-                    (None, Some(p)) => (Some(p), Some("preview")),
+                let (preview, preview_source) = match (&l.last, &l.preview) {
+                    (Some(last), _) => (Some(image_url(&c.id, last)), Some("last")),
+                    (None, Some(p)) => (Some(image_url(&c.id, p)), Some("preview")),
                     (None, None) => (None, None),
                 };
                 let waking = waking.contains(&c.id);
@@ -1140,7 +1179,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     if info.is_some() && wants_preview {
         if let Ok(jpeg) = console.preview(1280) {
             if !jpeg.is_empty() {
-                preview = Some(data_url(&jpeg));
+                preview = Some(Image::new(jpeg));
             }
         }
     }
@@ -2472,7 +2511,7 @@ impl HostEvents for UiEvents {
         let keep = state.with_store(|st| st.get(&self.id).map(|c| c.settings.keep_last_image)).unwrap_or(false);
         if let (true, Some(jpeg)) = (keep, &s.last_image) {
             snapshot::save(&self.id, jpeg);
-            state.live.lock().unwrap().entry(self.id.clone()).or_default().last = Some(data_url(jpeg));
+            state.live.lock().unwrap().entry(self.id.clone()).or_default().last = Some(Image::new(jpeg.clone()));
         }
         // Une session d'au moins 3 s qui a mesuré sa latence : la rubrique
         // Statistiques de cet ordinateur la montre.
@@ -4379,6 +4418,7 @@ pub fn run(args: Vec<String>) {
     *state.prefs.lock().unwrap() = prefs;
     let app = tauri::Builder::default()
         .manage(state)
+        .register_uri_scheme_protocol(IMAGE_SCHEME, |ctx, request| serve_image(ctx.app_handle(), request.uri().path()))
         .invoke_handler(tauri::generate_handler![
             snapshot,
             camera::session_camera,

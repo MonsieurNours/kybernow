@@ -271,7 +271,7 @@ kybernow <address>[:port] [--user <account>] [--profile jeu|bureau|max] [options
 | `apps/core/src/latency.rs` | End-to-end latency, Kyber's clock |
 | `apps/core/src/update.rs` | Updates: versions published on GitHub, signed manifest (minisign), verified download |
 | `apps/windows/src/main.rs` | App or command line |
-| `apps/windows/src/ui.rs` | Tauri app: windows, interface commands, computer polling, this PC |
+| `apps/windows/src/ui.rs` | Tauri app: windows, interface commands, computer polling, this PC. Home-screen images (last image, preview) no longer travel as base64 in the `computers` event: it gives their address `http://knimage.localhost/<computer>?v=<number>`, served by the app's `knimage` protocol, and the page reloads an image only when its number changes |
 | `apps/windows/src/files.rs` | Files in `%APPDATA%\KyberNow` (`app.json`, `computers.json`, `accounts.json`, `friends.json`, `synced.json`, `playstation.json`): one folder, one atomic write (temporary file flushed to disk, then renamed); an unreadable file is set aside (`<name>.<seconds>.illisible`) and logged, never silently overwritten. `app.json` is changed and written under its lock (`update_prefs`): two settings changed almost at once no longer get written out of order; `synced.json` is rewritten only when it changes (tested on the Mac) |
 | `apps/windows/src/store.rs` | Computers and settings (`computers.json`), passwords (Credential Manager), KyberNow accounts (Credential Manager, `KyberNowCompte:…`) and the last list of their computers (`accounts.json`) |
 | `apps/windows/src/ui/account.rs` | KyberNow accounts in the app: sign-in through the relay's page and its `kybernow://compte` return, kept accounts, fetching their computers and the home screen, access token for an account's computers, “Manage account”, “Sign out” |
@@ -307,7 +307,7 @@ kybernow <address>[:port] [--user <account>] [--profile jeu|bureau|max] [options
 | `apps/windows/src/ui/micro.rs` | Microphone: bar chip, per-computer choice, notices, app settings |
 | `apps/windows/src/system.rs` | Log, display, device identity, known Admin fingerprints |
 | `apps/windows/src/i18n.rs` | Windows language, texts of the app's Rust side (`src/i18n/`) |
-| `apps/windows/src/shell.rs` | Windows integration (HKCU): `kybernow://` link, computers on a right-click of the taskbar icon, notifications |
+| `apps/windows/src/shell.rs` | Windows integration (HKCU): `kybernow://` link, computers on a right-click of the taskbar icon (rebuilt only when the computers, their names or the language change, on a single thread), notifications |
 | `apps/windows/src/tray.rs` | Icon next to the clock: hidden window on its own thread, icon following the taskbar theme, Windows menu, coloured dots, confirmation |
 | `apps/windows/src/menu.rs` | What the icon's menu shows depending on the app's state (tested on the Mac) |
 | `apps/windows/src/notice.rs` | When a session's end gives a notification (tested on the Mac) |

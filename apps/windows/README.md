@@ -271,7 +271,7 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | `apps/core/src/latency.rs` | Latence de bout en bout, horloge de Kyber |
 | `apps/core/src/update.rs` | Mises à jour : versions publiées sur GitHub, manifeste signé (minisign), téléchargement vérifié |
 | `apps/windows/src/main.rs` | App ou ligne de commande |
-| `apps/windows/src/ui.rs` | App Tauri : fenêtres, commandes de l'interface, sondage des ordinateurs, ce PC |
+| `apps/windows/src/ui.rs` | App Tauri : fenêtres, commandes de l'interface, sondage des ordinateurs, ce PC. Les images de l'accueil (dernière image, aperçu) ne voyagent plus en base64 dans l'événement `computers` : il donne leur adresse `http://knimage.localhost/<ordinateur>?v=<numéro>`, servie par le protocole `knimage` de l'app, et la page ne relit une image que quand son numéro change |
 | `apps/windows/src/files.rs` | Fichiers de `%APPDATA%\KyberNow` (`app.json`, `computers.json`, `accounts.json`, `friends.json`, `synced.json`, `playstation.json`) : un seul dossier, une seule écriture atomique (fichier temporaire posé sur le disque puis renommé) ; un fichier illisible est mis de côté (`<nom>.<secondes>.illisible`) et noté au journal, jamais écrasé en silence. `app.json` est modifié et écrit sous son verrou (`update_prefs`) : deux réglages changés presque en même temps ne s'écrivent plus dans le désordre ; `synced.json` n'est réécrit que s'il change (testé sur le Mac) |
 | `apps/windows/src/store.rs` | Ordinateurs et réglages (`computers.json`), mots de passe (gestionnaire d'identifiants), comptes KyberNow (gestionnaire d'identifiants, `KyberNowCompte:…`) et dernière liste de leurs ordinateurs (`accounts.json`) |
 | `apps/windows/src/ui/account.rs` | Comptes KyberNow dans l'app : connexion par la page du relais et son retour `kybernow://compte`, comptes gardés, relevé de leurs ordinateurs et accueil, jeton d'accès des ordinateurs d'un compte, « Gérer le compte », « Se déconnecter » |
@@ -307,7 +307,7 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | `apps/windows/src/ui/micro.rs` | Micro : puce de la barre, choix par ordinateur, avis, Réglages de l'app |
 | `apps/windows/src/system.rs` | Journal, écran, identité de l'appareil, empreintes d'Admin connues |
 | `apps/windows/src/i18n.rs` | Langue de Windows, textes du côté Rust de l'app (`src/i18n/`) |
-| `apps/windows/src/shell.rs` | Intégration à Windows (HKCU) : lien `kybernow://`, ordinateurs au clic droit de l'icône de la barre des tâches, notifications |
+| `apps/windows/src/shell.rs` | Intégration à Windows (HKCU) : lien `kybernow://`, ordinateurs au clic droit de l'icône de la barre des tâches (refaite seulement quand les ordinateurs, leurs noms ou la langue changent, sur un seul fil), notifications |
 | `apps/windows/src/tray.rs` | Icône près de l'horloge : fenêtre cachée sur son fil, icône selon le thème de la barre des tâches, menu de Windows, points de couleur, confirmation |
 | `apps/windows/src/menu.rs` | Ce que montre le menu de l'icône selon l'état de l'app (testé sur le Mac) |
 | `apps/windows/src/notice.rs` | Quand la fin d'une session donne une notification (testé sur le Mac) |
