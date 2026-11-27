@@ -8,6 +8,7 @@
 
 mod accounts;
 mod autotest;
+mod dl;
 mod jobs;
 mod link;
 mod log_file;
@@ -32,6 +33,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kybernow_core::console::{DeviceInfo, Mode};
+use kybernow_rules::limits::Device;
 use kybernow_core::input::GamepadRumble;
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::lend;
@@ -442,6 +444,7 @@ pub fn run(args: &[String]) {
                 esplayer::suspend();
                 ndl::unload();
                 if let Some(s) = l.handle.shared.session() {
+                    s.set_background(false, Device::LgTv);
                     s.request_keyframe();
                 }
             }
@@ -649,9 +652,15 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
     let input = live.as_ref().and_then(|l| l.handle.shared.current_input());
     match ev.kind() {
         sdl::SDL_QUIT => *quit = true,
+        // L'app passe en arrière-plan (autre app, veille du téléviseur) : touches relâchées, image figée et débit
+        // demandé à l'ordinateur ramené à 2 Mbit/s (`set_background`, docs/link-ui.md, « Image qui n'est plus
+        // regardée ») jusqu'au retour au premier plan.
         sdl::SDL_APP_WILLENTERBACKGROUND => {
             if let Some(p) = &input {
                 p.release_all();
+            }
+            if let Some(s) = live.as_ref().and_then(|l| l.handle.shared.session()) {
+                s.set_background(true, Device::LgTv);
             }
         }
         // Retour au premier plan (sortie de veille du téléviseur, retour depuis une autre app) : traité par la boucle
@@ -1322,7 +1331,9 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 let mode = app.session_mode(h);
                 let codec = app.codec_for(h);
                 let hdr = session::HdrAsk::of(app, Some(h));
-                l.handle.session.set_settings(session::settings(h, p, codec, mode, app.net.cap_mbps(), hdr));
+                let settings = session::settings(h, p, codec, mode, app.net.cap_mbps(), hdr);
+                l.handle.shared.set_wanted(&settings);
+                l.handle.session.set_settings(settings);
             }
         }
         Action::Mire(m) => mires::show(m),

@@ -7,6 +7,8 @@ use std::ffi::{c_char, c_int, c_ulong, c_void, CStr, CString};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use super::dl;
+
 /// `HContext` de libhelpers (même disposition que la SDL de webOS).
 #[repr(C)]
 struct HContext {
@@ -33,19 +35,15 @@ static API: Mutex<Option<Option<Api>>> = Mutex::new(None);
 fn api() -> Option<(Call, Message)> {
     let mut g = API.lock().unwrap();
     let api = g.get_or_insert_with(|| unsafe {
-        let name = CString::new("libhelpers.so.2").unwrap();
-        let lib = libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
-        if lib.is_null() {
+        let Some(lib) = dl::open("libhelpers.so.2") else {
             log::warn!("téléviseur : libhelpers.so.2 introuvable");
             return None;
-        }
-        let call = libc::dlsym(lib, c"HLunaServiceCall".as_ptr());
-        let message = libc::dlsym(lib, c"HLunaServiceMessage".as_ptr());
-        if call.is_null() || message.is_null() {
+        };
+        let (Some(call), Some(message)) = (dl::sym::<Call>(lib, "HLunaServiceCall"), dl::sym::<Message>(lib, "HLunaServiceMessage")) else {
             log::warn!("téléviseur : libhelpers sans HLunaServiceCall");
             return None;
-        }
-        Some(Api { call: std::mem::transmute::<*mut c_void, Call>(call), message: std::mem::transmute::<*mut c_void, Message>(message) })
+        };
+        Some(Api { call, message })
     });
     api.as_ref().map(|a| (a.call, a.message))
 }
@@ -58,18 +56,20 @@ struct Reply {
 }
 
 extern "C" fn on_reply(_sh: *mut c_void, msg: *mut c_void, ctx: *mut HContext) -> c_int {
-    // Le contexte vit jusqu'à la réponse (laissé en mémoire si l'appelant n'attend plus).
-    let reply = unsafe { &*((*ctx).userdata as *const Reply) };
-    let text = unsafe {
-        let p = (reply.message)(msg);
-        if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().into_owned() }
-    };
-    // Signalé sous le verrou : l'appelant ne libère rien avant qu'il soit rendu.
-    let mut g = reply.text.lock().unwrap();
-    *g = Some(text);
-    reply.done.notify_all();
-    drop(g);
-    0
+    kybernow_core::ffi_guard!(0 => {
+        // Le contexte vit jusqu'à la réponse (laissé en mémoire si l'appelant n'attend plus).
+        let reply = unsafe { &*((*ctx).userdata as *const Reply) };
+        let text = unsafe {
+            let p = (reply.message)(msg);
+            if p.is_null() { String::new() } else { CStr::from_ptr(p).to_string_lossy().into_owned() }
+        };
+        // Signalé sous le verrou : l'appelant ne libère rien avant qu'il soit rendu.
+        let mut g = reply.text.lock().unwrap();
+        *g = Some(text);
+        reply.done.notify_all();
+        drop(g);
+        0
+    })
 }
 
 /// Appelle `uri` (`luna://service/méthode`) avec ce JSON ; la réponse JSON, ou

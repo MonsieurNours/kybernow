@@ -22,6 +22,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use super::dl::{self, sym};
+
 type Callback = extern "C" fn(c_int, i64, *const c_char, *mut c_void);
 
 struct Api {
@@ -78,36 +80,32 @@ const LOAD_BUDGET: Duration = Duration::from_millis(2500);
 /// Durée d'une trame E-AC-3 (1536 images à 48 kHz).
 const FRAME_NS: i64 = 32_000_000;
 
-unsafe fn sym<T>(lib: *mut c_void, name: &str) -> Option<T> {
-    let n = CString::new(name).ok()?;
-    let p = unsafe { libc::dlsym(lib, n.as_ptr()) };
-    if p.is_null() { None } else { Some(unsafe { std::mem::transmute_copy::<*mut c_void, T>(&p) }) }
-}
-
 extern "C" fn on_event(kind: c_int, num: i64, s: *const c_char, _data: *mut c_void) {
-    let s = if s.is_null() { String::new() } else { unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned() };
-    match kind {
-        0x16 => {
-            LOADED.store(true, Ordering::Release);
-            log::info!("son : chaîne Dolby chargée (confirmé) {s}");
-        }
-        0x17 => {
-            // `unload` baisse LOADED avant de décharger : levé ici, le
-            // déchargement vient du téléviseur.
-            if LOADED.swap(false, Ordering::AcqRel) {
-                TV_UNLOADED.store(true, Ordering::Release);
-                log::warn!("son : chaîne Dolby déchargée par le téléviseur {s}");
-            } else {
-                log::info!("son : chaîne Dolby déchargée {s}");
+    kybernow_core::ffi_guard!({
+        let s = if s.is_null() { String::new() } else { unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned() };
+        match kind {
+            0x16 => {
+                LOADED.store(true, Ordering::Release);
+                log::info!("son : chaîne Dolby chargée (confirmé) {s}");
             }
+            0x17 => {
+                // `unload` baisse LOADED avant de décharger : levé ici, le
+                // déchargement vient du téléviseur.
+                if LOADED.swap(false, Ordering::AcqRel) {
+                    TV_UNLOADED.store(true, Ordering::Release);
+                    log::warn!("son : chaîne Dolby déchargée par le téléviseur {s}");
+                } else {
+                    log::info!("son : chaîne Dolby déchargée {s}");
+                }
+            }
+            0x1a => log::info!("son : chaîne Dolby en lecture {s}"),
+            0x1f | 0x20 | 0x2712 => {
+                log::warn!("son : chaîne Dolby, événement 0x{kind:02x} ({num:#x}) {s}");
+                FAILED.store(true, Ordering::Release);
+            }
+            _ => log::debug!("son : chaîne Dolby, événement 0x{kind:02x} ({num:#x}) {s}"),
         }
-        0x1a => log::info!("son : chaîne Dolby en lecture {s}"),
-        0x1f | 0x20 | 0x2712 => {
-            log::warn!("son : chaîne Dolby, événement 0x{kind:02x} ({num:#x}) {s}");
-            FAILED.store(true, Ordering::Release);
-        }
-        _ => log::debug!("son : chaîne Dolby, événement 0x{kind:02x} ({num:#x}) {s}"),
-    }
+    })
 }
 
 fn open() -> Result<(), String> {
@@ -116,11 +114,9 @@ fn open() -> Result<(), String> {
         return Ok(());
     }
     unsafe {
-        let name = CString::new("libNDL_esmedia.so.1").unwrap();
-        let lib = libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL);
-        if lib.is_null() {
+        let Some(lib) = dl::open("libNDL_esmedia.so.1") else {
             return Err("libNDL_esmedia.so.1 introuvable".into());
-        }
+        };
         let init: Option<unsafe extern "C" fn() -> c_int> = sym(lib, "NDL_ESMediaInit");
         let api = (|| {
             Some(Api {
