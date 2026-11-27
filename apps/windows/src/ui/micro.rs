@@ -6,60 +6,23 @@
 //!
 //! Un invité du partage ou l'ami qui emprunte : coupé au départ, choix gardé
 //! le temps de la session (ce n'est pas un ordinateur de l'app).
+//!
+//! L'état de la puce, ses textes (libellé, infobulle) et l'avis sont ceux du
+//! cœur (`micro::MicUi`, WINAPP-56, le même pour toutes les apps) ; l'app
+//! garde le choix par ordinateur, le refus de Windows et le raccourci.
 
 use crate::sync::Locked;
-use kybernow_core::micro::{MicRefusal, MicState};
+use kybernow_core::micro::{MicState, MicTap};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::{UiEvents, UiState, emit_computers, share, update_prefs};
 use crate::i18n::{self, t};
 
-/// Le micro d'une session : le choix de l'utilisateur, l'état dit par le cœur,
-/// et un allumage à annoncer quand l'ordinateur le prend.
-pub(crate) struct MicSlot {
-    on: bool,
-    state: MicState,
-    asked: bool,
-}
-
-impl MicSlot {
-    pub(crate) fn new(on: bool) -> Self {
-        Self { on, state: MicState::Off, asked: false }
-    }
-}
-
-impl Default for MicSlot {
-    fn default() -> Self {
-        Self::new(false)
-    }
-}
-
-/// La puce « Micro » de la barre ; absente sans micro sur ce PC, et pour un
-/// invité que l'hôte ne laisse pas parler.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct BarMic {
-    /// Le choix : allumé ou coupé.
-    on: bool,
-    /// `off`, `waiting`, `on`, `refused`.
-    state: &'static str,
-    /// La raison du refus (infobulle de la puce estompée).
-    reason: Option<String>,
-}
-
 #[derive(Clone, Serialize)]
 struct BarMicEvent {
     id: String,
-    mic: Option<BarMic>,
-}
-
-fn state_code(s: MicState) -> &'static str {
-    match s {
-        MicState::Off => "off",
-        MicState::Waiting => "waiting",
-        MicState::On => "on",
-        MicState::Refused(_) => "refused",
-    }
+    mic: Option<serde_json::Value>,
 }
 
 fn core_text(key: &str, params: &[(&str, &str)]) -> String {
@@ -67,21 +30,13 @@ fn core_text(key: &str, params: &[(&str, &str)]) -> String {
 }
 
 impl UiEvents {
-    /// La puce de cette session.
-    pub(crate) fn bar_mic(&self) -> Option<BarMic> {
-        if !kybernow_core::micro::device_has_microphone() {
-            return None;
-        }
+    /// La puce de cette session, telle que le cœur la décrit (`MicUi::ui_json`,
+    /// WINAPP-56 : `on`, `state`, `lit`, `reason`, `label`, `tooltip`, `tile`,
+    /// les textes de link-ui) ; absente sans micro sur ce PC, et pour un
+    /// invité que l'hôte ne laisse pas parler (`MicUi::shown`).
+    pub(crate) fn bar_mic(&self) -> Option<serde_json::Value> {
         let m = self.mic.locked();
-        // Invité : « Micro » seulement quand l'hôte laisse les invités parler.
-        if self.guest.is_some() && m.state == MicState::Refused(MicRefusal::NotAllowed) {
-            return None;
-        }
-        let reason = match m.state {
-            MicState::Refused(r) => Some(r.text()),
-            _ => None,
-        };
-        Some(BarMic { on: m.on, state: state_code(m.state), reason })
+        m.shown(self.guest.is_some()).then(|| m.ui_json(i18n::lang(), &t("micro.shortcut", &[])))
     }
 
     /// Le nom de l'ordinateur de l'avis « Micro envoyé à {nom}. ».
@@ -97,57 +52,41 @@ impl UiEvents {
         let _ = self.app.emit_to("bar", "bar-mic", BarMicEvent { id: self.id.clone(), mic: self.bar_mic() });
     }
 
-    /// `HostEvents::microphone` : la barre suit ; un allumage pris est annoncé.
+    /// `HostEvents::microphone` : la barre suit ; un allumage pris est annoncé
+    /// (« Micro envoyé à {nom}. », une fois : `MicUi::changed`).
     pub(crate) fn mic_changed(&self, state: MicState) {
-        let tell = {
-            let mut m = self.mic.locked();
-            m.state = state;
-            let tell = m.asked && state == MicState::On;
-            if tell || matches!(state, MicState::Refused(_)) {
-                m.asked = false;
-            }
-            tell
-        };
+        let name = self.mic_computer();
+        let tell = self.mic.locked().changed(state, &name);
         self.emit_mic();
-        if tell {
-            let name = self.mic_computer();
-            share::notice(&self.app, &self.id, &self.connexion.name, &core_text("micro.sent", &[("name", &name)]));
+        if let Some(text) = tell {
+            share::notice(&self.app, &self.id, &self.connexion.name, &text);
         }
     }
 
-    /// `HostEvents::microphone_denied` : coupé, retenu coupé, avis.
+    /// `HostEvents::microphone_denied` : coupé, retenu coupé, avis (la raison
+    /// propre à Windows, `micro.permission_windows`).
     pub(crate) fn mic_denied(&self) {
-        {
-            let mut m = self.mic.locked();
-            m.on = false;
-            m.asked = false;
-        }
+        self.mic.locked().denied();
         remember(&self.app, &self.id, false);
         self.emit_mic();
         share::notice(&self.app, &self.id, &self.connexion.name, &core_text("micro.permission_windows", &[]));
     }
 
-    /// `HostEvents::toggle_microphone` (Ctrl+Alt+Maj+V) ; refusé par
-    /// l'ordinateur : la raison en avis, rien ne change.
+    /// `HostEvents::toggle_microphone` (Ctrl+Alt+Maj+V) : `MicUi::tap` ;
+    /// refusé par l'ordinateur, la raison en avis, rien ne change.
     pub(crate) fn mic_toggle(&self) {
-        let (on, refused) = {
-            let m = self.mic.locked();
-            (m.on, match m.state {
-                MicState::Refused(r) => Some(r),
-                _ => None,
-            })
-        };
         if !kybernow_core::micro::device_has_microphone() {
             return;
         }
-        if let Some(r) = refused {
-            share::notice(&self.app, &self.id, &self.connexion.name, &r.text());
-            return;
+        match self.mic.locked().tap() {
+            MicTap::Refused(r) => share::notice(&self.app, &self.id, &self.connexion.name, &r.text()),
+            MicTap::Set(on) => {
+                let (app, id) = (self.app.clone(), self.id.clone());
+                let _ = self.app.run_on_main_thread(move || {
+                    let _ = set(&app, &id, on);
+                });
+            }
         }
-        let (app, id) = (self.app.clone(), self.id.clone());
-        let _ = self.app.run_on_main_thread(move || {
-            let _ = set(&app, &id, !on);
-        });
     }
 }
 
@@ -183,11 +122,7 @@ pub(crate) fn set(app: &AppHandle, id: &str, on: bool) -> Result<(), String> {
 pub(crate) fn apply(app: &AppHandle, id: &str, on: bool) -> Result<(), String> {
     let state = app.state::<UiState>();
     let applied = state.with_session(id, |r| {
-        {
-            let mut m = r.events.mic.locked();
-            m.on = on;
-            m.asked = on;
-        }
+        r.events.mic.locked().set(on);
         let applied = r.host.set_microphone(on);
         r.events.emit_mic();
         applied

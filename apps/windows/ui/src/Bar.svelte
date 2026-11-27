@@ -820,17 +820,13 @@
     await invoke('session_hdr', { id, on: hdr.on }).catch(() => {})
   }
 
-  /** « Micro » allumé ou coupé : retenu pour l'ordinateur, rien ne se relance ; l'état revient par `bar-mic`. */
+  /** « Micro » allumé ou coupé : retenu pour l'ordinateur, rien ne se relance ; l'état revient aussitôt par `bar-mic`. */
   async function toggleMic() {
     if (!mic || mic.state === 'refused') return
-    mic = { ...mic, on: !mic.on, state: mic.on ? 'off' : 'waiting' }
-    await invoke('session_microphone', { id, on: mic.on }).catch(() => {})
+    await invoke('session_microphone', { id, on: !mic.on }).catch(() => {})
   }
-  /** Allumé (envoyé, ou en attente de la réponse de l'ordinateur) ; jamais quand l'ordinateur le refuse. */
-  const micLit = $derived(!!mic && mic.on && mic.state !== 'refused')
-  const micTitle = $derived(
-    mic?.reason ?? t(micLit ? 'micro.tooltip_on' : 'micro.tooltip_off', { shortcut: t('micro.shortcut') }),
-  )
+  /** Allumé (envoyé, ou en attente de la réponse de l'ordinateur) ; jamais quand l'ordinateur le refuse (le cœur). */
+  const micLit = $derived(!!mic?.lit)
   /** « Allumer la caméra » / « Éteindre la caméra ». */
   async function toggleCamera() {
     if (!camera) return
@@ -1318,11 +1314,11 @@
       class:dim={mic.state === 'refused'}
       disabled={mic.state === 'refused'}
       aria-pressed={micLit}
-      aria-label={micLit ? t('micro.label') : t('micro.label_off')}
-      title={micTitle}
+      aria-label={mic.label}
+      title={mic.tooltip}
       onclick={toggleMic}
     >
-      {@render chipBody(micLit ? 'mic' : 'mic-off', micLit ? t('micro.label') : t('micro.label_off'))}
+      {@render chipBody(micLit ? 'mic' : 'mic-off', mic.label)}
     </button>
   {/if}
 {/snippet}

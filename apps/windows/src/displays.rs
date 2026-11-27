@@ -153,18 +153,6 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
     }
 }
 
-/// HDR (docs/hdr.md) : la session aura un écran HDR. `devices` : les écrans
-/// de ce PC que la session prendra (plusieurs écrans : dès qu'un l'est) ;
-/// `None` (un écran) : « Cet écran ». Ses luminosités suivent.
-pub fn session_hdr(s: &Screens, devices: Option<&[usize]>) -> (bool, Option<HdrLuminance>) {
-    let pick = |i: usize| s.list.get(i).filter(|d| d.hdr).map(|d| d.luminance);
-    let found = match devices {
-        Some(d) => d.iter().find_map(|&i| pick(i)),
-        None => pick(s.current),
-    };
-    (found.is_some(), found.flatten())
-}
-
 /// Écrans que la Station sait créer : ce qu'elle annonce (`virtual_display.
 /// max_screens` d'`info`, 1 avec une Station antérieure), ou, pour l'essai
 /// sans Station multi-écrans, `KYBERNOW_MAX_SCREENS=4` (comme sur Mac,
@@ -184,7 +172,10 @@ pub fn current(monitors: &[Monitor]) -> usize {
     primary(monitors)
 }
 
-/// Index de l'écran principal de Windows (le premier à défaut).
+/// Index de l'écran principal de Windows (le premier à défaut), sur les
+/// écrans relevés, avant que leur liste pour le cœur (`Screens`) existe : la
+/// même règle que `screens::primary_index` du cœur (WINAPP-62), qui sert
+/// une fois la liste faite (`Screens::primary`).
 pub fn primary(monitors: &[Monitor]) -> usize {
     monitors.iter().position(|m| m.primary).unwrap_or(0)
 }
@@ -311,6 +302,8 @@ mod tests {
         // Sans écran marqué principal : le premier.
         let none: Vec<Monitor> = m.iter().cloned().map(|x| Monitor { primary: false, ..x }).collect();
         assert_eq!(primary(&none), 0);
+        // La même règle que le cœur, une fois la liste faite.
+        assert_eq!((screens(&m, spec()).primary(), screens(&none, spec()).primary()), (primary(&m), primary(&none)));
     }
 
     #[test]
@@ -323,11 +316,11 @@ mod tests {
         assert!(s.list[0].hdr && !s.list[1].hdr);
         assert_eq!(s.list[0].luminance, Some(xdr));
         // Un écran : « Cet écran » (le principal, SDR) ; plusieurs : dès qu'un l'est.
-        assert_eq!(session_hdr(&s, None), (false, None));
-        assert_eq!(session_hdr(&s, Some(&[1, 0])), (true, Some(xdr)));
-        assert_eq!(session_hdr(&s, Some(&[1, 2])), (false, None));
+        assert_eq!(s.session_hdr(None), (false, None));
+        assert_eq!(s.session_hdr(Some(&[1, 0])), (true, Some(xdr)));
+        assert_eq!(s.session_hdr(Some(&[1, 2])), (false, None));
         let on_xdr = Screens { current: 0, ..s };
-        assert_eq!(session_hdr(&on_xdr, None), (true, Some(xdr)));
+        assert_eq!(on_xdr.session_hdr(None), (true, Some(xdr)));
     }
 
     #[test]

@@ -1517,7 +1517,7 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     let plan = screens::session_plan_for(&screens, &stream, c.settings.virtual_display);
     let count = plan.as_ref().map_or(1, |p| p.len());
     let devices: Option<Vec<usize>> = plan.map(|p| p.iter().map(|x| x.device).collect());
-    let (screen_hdr, _) = displays::session_hdr(&screens, devices.as_deref());
+    let (screen_hdr, _) = screens.session_hdr(devices.as_deref());
     let hdr = hdr_chip(info.as_ref(), &stream, &pc, screen_hdr);
     let hdr_on = hdr.shown && hdr.available && c.settings.hdr_on();
     Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on, plan: planned })
@@ -2057,7 +2057,7 @@ struct UiEvents {
     /// invité ; `None` : la Station n'enregistre pas (ni bouton ni pastille).
     recording: Mutex<Option<recording::Seen>>,
     /// Le micro de la session : choix, état du cœur, allumage à annoncer.
-    mic: Mutex<micro::MicSlot>,
+    mic: Mutex<kybernow_core::micro::MicUi>,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -2130,8 +2130,9 @@ struct BarShown {
     route: Option<relais::RouteView>,
     /// La puce « HDR » (écran HDR seulement, jamais pour un invité).
     hdr: Option<BarHdr>,
-    /// La puce « Micro » (docs/link-ui.md « Micro ») : absente sans micro sur ce PC.
-    mic: Option<micro::BarMic>,
+    /// La puce « Micro » (docs/link-ui.md « Micro ») : `MicUi::ui_json` du cœur ;
+    /// absente sans micro sur ce PC.
+    mic: Option<serde_json::Value>,
     /// PyroWave (docs/link-ui.md) : ce PC rejoint l'ordinateur par câble ;
     /// la barre en tire la puce ambre « PyroWave en Wi-Fi » quand l'image est
     /// en PyroWave (format des mesures) sans câble.
@@ -3469,7 +3470,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // HDR : l'écran de la session (« Cet écran », ou dès qu'un des écrans pris l'est) ;
     // le cœur relit chaque écran dans les écrans de ce PC.
     let devices: Option<Vec<usize>> = plan.as_ref().map(|p| p.iter().map(|x| x.device).collect());
-    let (screen_hdr, screen_luminance) = displays::session_hdr(&layout.screens(), devices.as_deref());
+    let (screen_hdr, screen_luminance) = layout.screens().session_hdr(devices.as_deref());
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
         other => other.parse().unwrap_or(2),
@@ -3576,7 +3577,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         auto_check,
         auto_told: std::sync::atomic::AtomicBool::new(false),
         recording: Mutex::new(None),
-        mic: Mutex::new(micro::MicSlot::new(s.microphone)),
+        mic: Mutex::new(kybernow_core::micro::MicUi::new(s.microphone)),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));

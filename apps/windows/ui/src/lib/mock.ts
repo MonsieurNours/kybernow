@@ -9,7 +9,7 @@ import mockEn from './i18n/mock.en.json'
 import mockFr from './i18n/mock.fr.json'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
-import type { AutoChoice, AutoResult, AutoStep, SessionPlan, StationOffer, Values } from './api'
+import type { AutoChoice, AutoResult, AutoStep, BarMic, SessionPlan, StationOffer, Values } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
@@ -390,6 +390,15 @@ const offerOf = (c: (typeof computers)[number]): StationOffer => {
   return { banner: { kind: away ? 'away' : 'update', version }, chip }
 }
 /** Les ordinateurs tels que l'app les envoie (copie JSON, avec leur `offer`). */
+/** La puce « Micro » telle que le cœur la décrit (`MicUi::ui_json`), imitée : textes de l'imitation. */
+const barMic = (on: boolean, state: BarMic['state']): BarMic => {
+  const lit = on && state !== 'refused'
+  const fr = i18n.lang === 'fr'
+  const label = lit ? 'Micro' : fr ? 'Micro coupé' : 'Microphone off'
+  const shortcut = fr ? 'Ctrl+Alt+Maj+V' : 'Ctrl+Alt+Shift+V'
+  return { on, state, lit, sent: on && state === 'on', reason: null, label, tooltip: `${label} (${shortcut})`, tile: lit ? (state === 'on' ? 'Envoyé' : 'Envoi…') : 'Coupé' }
+}
+
 /** L'empreinte telle que l'app la met en forme (`console::short_fingerprint` du cœur : « 7C41 E09B AABB CCDD »). */
 const shortFp = (f: string | null | undefined) => (f ?? '').replace(/^sha256:/i, '').replace(/[^0-9a-f]/gi, '').slice(0, 16).toUpperCase().match(/.{1,4}/g)?.join(' ') ?? ''
 const computerViews = () =>
@@ -1364,8 +1373,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   session_microphone: (a) => {
     const on = Boolean(a.on)
-    emit('bar-mic', { id: a.id as string, mic: { on, state: on ? 'waiting' : 'off', reason: null } })
-    if (on) setTimeout(() => emit('bar-mic', { id: a.id as string, mic: { on, state: 'on', reason: null } }), 600)
+    emit('bar-mic', { id: a.id as string, mic: barMic(on, on ? 'waiting' : 'off') })
+    if (on) setTimeout(() => emit('bar-mic', { id: a.id as string, mic: barMic(on, 'on') }), 600)
     return null
   },
   mic_settings: () => ({
@@ -2047,7 +2056,7 @@ export function mockTauri() {
           const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
           const room = Number(flags.get('largeur') ?? 1240) || 1240
           // `?mac` : une Station Mac (menu Touches du Mac).
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : { on: false, state: 'off', reason: null }, console: psBarFlag ? psBarState : null }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : barMic(false, 'off'), console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
           const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined)) || (host && autoFlag === 'reseau')
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.

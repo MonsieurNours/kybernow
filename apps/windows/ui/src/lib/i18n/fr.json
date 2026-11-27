@@ -771,11 +771,6 @@
     "paired_text": "Retrouvez-le aussi hors de chez vous et sur vos autres appareils : connectez un compte KyberNow."
   },
   "micro": {
-    "label": "Micro",
-    "label_off": "Micro coupé",
-    "tooltip_on": "Micro : envoyé à l'ordinateur ({shortcut})",
-    "tooltip_off": "Micro coupé ({shortcut})",
-    "shortcut": "Ctrl+Alt+Maj+V",
     "setting": "Micro",
     "setting_help": "Envoie le micro de cet appareil à l'ordinateur pendant la session, pour parler dans un jeu, un appel ou une visio.",
     "app_setting": "Micro",

@@ -188,5 +188,8 @@
   },
   "pyrowave": {
     "banner_text": "The picture may stutter."
+  },
+  "micro": {
+    "shortcut": "Ctrl+Alt+Shift+V"
   }
 }

@@ -771,11 +771,6 @@
     "paired_text": "Find it away from home and on your other devices too: connect a KyberNow account."
   },
   "micro": {
-    "label": "Microphone",
-    "label_off": "Microphone off",
-    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
-    "tooltip_off": "Microphone off ({shortcut})",
-    "shortcut": "Ctrl+Alt+Shift+V",
     "setting": "Microphone",
     "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
     "app_setting": "Microphone",

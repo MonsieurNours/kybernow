@@ -611,11 +611,21 @@ export type SessionPlan = {
 export type BarHdr = { on: boolean; available: boolean; reason: string | null }
 
 /**
- * La puce « Micro » de la barre (docs/link-ui.md « Micro ») : `on` le choix, `state` ce que dit le cœur
- * (`waiting` : allumé, réponse de l'ordinateur pas encore venue ; `refused` : l'ordinateur ne le prend pas,
- * `reason` en infobulle). Absente sans micro sur ce PC.
+ * La puce « Micro » de la barre (docs/link-ui.md « Micro ») telle que le cœur la décrit (`MicUi::ui_json`) : `on` le
+ * choix, `state` sa réponse (`waiting` : allumé, réponse de l'ordinateur pas encore venue ; `refused` : l'ordinateur
+ * ne le prend pas, `reason`), `lit` la puce allumée, et ses textes : `label`, `tooltip` (la raison d'un refus, sinon
+ * l'état et le raccourci), `tile`. Absente sans micro sur ce PC.
  */
-export type BarMic = { on: boolean; state: 'off' | 'waiting' | 'on' | 'refused'; reason: string | null }
+export type BarMic = {
+  on: boolean
+  state: 'off' | 'waiting' | 'on' | 'refused'
+  lit: boolean
+  sent: boolean
+  reason: string | null
+  label: string
+  tooltip: string
+  tile: string
+}
 
 /** Les micros de ce PC (Réglages de l'app) : `device` nul, celui du système ; `voice` : « Réduire l'écho et le bruit ». */
 export type MicSettings = { devices: { id: string; name: string }[]; device: string | null; voice: boolean }

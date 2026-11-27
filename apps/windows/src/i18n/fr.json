@@ -188,5 +188,8 @@
   },
   "pyrowave": {
     "banner_text": "L'image peut saccader."
+  },
+  "micro": {
+    "shortcut": "Ctrl+Alt+Maj+V"
   }
 }
