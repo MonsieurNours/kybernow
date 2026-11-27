@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import StatusIcon from '../lib/StatusIcon.svelte'
-  import Toggle from '../lib/Toggle.svelte'
+  import Switch from '$appui/lib/Switch.svelte'
   import { t } from '../lib/i18n/index.svelte'
   import { afterWelcome, app, rerunChecks } from '../lib/state.svelte'
 
@@ -30,7 +30,7 @@
         <span class="name">{t('welcome.desktop')}</span>
         <span class="note">{t('welcome.desktopNote')}</span>
       </div>
-      <Toggle bind:checked={app.desktop} label={t('welcome.desktop')} />
+      <Switch checked={app.desktop} label={t('welcome.desktop')} onchange={(v) => (app.desktop = v)} />
     </div>
     {#if app.dir}<p class="mono where kn-enter kn-d3">{app.dir}</p>{/if}
   </div>

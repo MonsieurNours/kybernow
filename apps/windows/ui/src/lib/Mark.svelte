@@ -1,4 +1,5 @@
 <!--
+  Aussi la marque de l'installateur (setup/ui, alias `$appui`).
   Symbole KyberNow v2, en trois états (brand/v2/mark) : « console » (la
   couture seule, ici par défaut), « server » (la moitié haute en signal),
   « now » (la moitié basse). `lit` allume la couture en néon.
