@@ -18,6 +18,9 @@
 # l'arm64 garde les siennes) ; le dépôt partagé /media/psf/kyber-apps y est
 # monté au même endroit.
 set -euo pipefail
+# Versions de Rust, cargo-c et meson : scripts/kyber-toolchain.sh (TRANS-20).
+# shellcheck source=../../../scripts/kyber-toolchain.sh
+. "$(cd "$(dirname "$0")/../../.." && pwd)/scripts/kyber-toolchain.sh"
 
 R="${KN_X86_ROOT:-/srv/kn-amd64}"
 U="$(id -un)"
@@ -81,12 +84,13 @@ setup() {
       libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-randr0-dev libxcb-shape0-dev libxtst-dev libxrandr-dev \
       libxkbcommon-dev libwayland-dev wayland-protocols libevdev-dev libudev-dev libinput-dev libdbus-1-dev \
       libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libxdo-dev'
-    run '
-      [ -x ~/.cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --default-toolchain 1.89.0 --profile minimal
+    # shellcheck disable=SC2016  # $(…) et ~ développés dans le chroot
+    run "RUSTC=$KYBER_RUSTC CARGO_C=$KYBER_CARGO_C MESON=$KYBER_MESON"'
+      [ -x ~/.cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --default-toolchain "$RUSTC" --profile minimal
       . ~/.cargo/env
-      rustup toolchain install 1.89.0 --profile minimal
-      command -v cargo-cbuild >/dev/null || cargo install -q cargo-c --version 0.10.15 --locked --features vendored-openssl
-      [ -x ~/.local/bin/meson ] || { pipx install meson==1.11.2 && pipx inject meson jinja2; }
+      rustup toolchain install "$RUSTC" --profile minimal
+      command -v cargo-cbuild >/dev/null || cargo install -q cargo-c --version "$CARGO_C" --locked --features vendored-openssl
+      [ -x ~/.local/bin/meson ] || { pipx install "meson==$MESON" && pipx inject meson jinja2; }
       echo "chroot $(uname -m) : $(rustc --version), meson $(~/.local/bin/meson --version)"'
     # Sources de Kyber x86_64 : une copie de celles de l'arm64, sans rien de
     # compilé (dossiers de construction, rootfs, contrib/work de kynput : le

@@ -59,7 +59,8 @@ import re, sys
 src, dst, team, bundle, full = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5] == "1"
 s = open(src).read()
 s = s.replace("name: KyberNowTV\n", "name: KyberNowTVSideload\n", 1)
-s = s.replace("DEVELOPMENT_TEAM: P6DB682S4K", f"DEVELOPMENT_TEAM: {team}")
+# Quelle que soit l'équipe du projet (scripts/identite.sh) : la vôtre.
+s = re.sub(r"DEVELOPMENT_TEAM: \S+", f"DEVELOPMENT_TEAM: {team}", s)
 s = s.replace("group.fr.leslignesclaires.kybernow", f"group.{bundle}")
 s = s.replace("fr.leslignesclaires.KyberKit", f"{bundle}.kyberkit")
 s = s.replace("fr.leslignesclaires.kybernow", bundle)

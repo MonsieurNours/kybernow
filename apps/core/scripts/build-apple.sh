@@ -77,12 +77,6 @@ export PKG_CONFIG_ALLOW_CROSS=1
 # d'Xcode refuse (« mis-aligned LINKEDIT string pool »).
 export CARGO_PROFILE_RELEASE_STRIP=false
 
-# Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
-# retour reste celui de cargo.
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
-}
-
 # Chaîne et rootfs de chaque cible.
 needs_nightly() { case "$1" in aarch64-apple-tvos*) return 0 ;; *) return 1 ;; esac; }
 rootfs_of() {
@@ -122,14 +116,7 @@ done
 # Mêmes correctifs que les apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP) : le cœur compile contre cette API de kyclient.
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
-for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
-    esac
-    PATCHES+=("$patch")
-done
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$KYSDK" || exit 1
 
 # libkynput (API C de kynput, sans SDL) dans le rootfs de la cible, pour
 # kynput-sys. Le Mac ne passe pas ici : son rootfs vient de vendor-kyber.sh,

@@ -32,7 +32,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 # Chemin absolu : relatif, git le donne depuis $ROOT, pas depuis le dossier courant (STMAC-18).
 MAIN="$(cd "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
-IDENTITY="${KYBER_SIGN_IDENTITY:-Developer ID Application: Mathieu Requenna (P6DB682S4K)}"
+# Équipe et certificat : scripts/identite.sh.
+# shellcheck source=../../../scripts/identite.sh
+. "$ROOT/scripts/identite.sh"
+IDENTITY="$KYBER_SIGN_IDENTITY"
 ENTITLEMENTS="$ROOT/server/macos/station.entitlements"
 BUNDLE_ID="fr.leslignesclaires.kybernow.station"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/server/installer/Cargo.toml" | head -1)"
@@ -87,7 +90,7 @@ camera_profile_ok() {
     local tmp pb=/usr/libexec/PlistBuddy ok=1
     tmp="$(mktemp -t kybernow-profile)"
     security cms -D -i "$1" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-    [ "$($pb -c 'Print :Entitlements:com.apple.application-identifier' "$tmp" 2>/dev/null)" = "P6DB682S4K.$BUNDLE_ID" ] &&
+    [ "$($pb -c 'Print :Entitlements:com.apple.application-identifier' "$tmp" 2>/dev/null)" = "$KYBER_TEAM_ID.$BUNDLE_ID" ] &&
         [ "$($pb -c 'Print :Entitlements:com.apple.developer.system-extension.install' "$tmp" 2>/dev/null)" = "true" ] &&
         [ "$($pb -c 'Print :ProvisionsAllDevices' "$tmp" 2>/dev/null)" = "true" ] &&
         [ "$(date -j -f '%a %b %d %T %Z %Y' "$($pb -c 'Print :ExpirationDate' "$tmp")" +%s 2>/dev/null || echo 0)" -gt "$(date +%s)" ] &&
@@ -102,7 +105,7 @@ if [ -z "$CAMERA_PROFILE" ]; then
         [ -f "$p" ] && camera_profile_ok "$p" && { CAMERA_PROFILE="$p"; break; }
     done
 elif ! camera_profile_ok "$CAMERA_PROFILE"; then
-    echo "Profil $CAMERA_PROFILE refusé : il faut l'App ID P6DB682S4K.$BUNDLE_ID, « System Extension » et un profil Developer ID valable" >&2
+    echo "Profil $CAMERA_PROFILE refusé : il faut l'App ID $KYBER_TEAM_ID.$BUNDLE_ID, « System Extension » et un profil Developer ID valable" >&2
     exit 1
 fi
 CAMERA_EXT=""

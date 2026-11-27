@@ -19,10 +19,9 @@
 #   rustup toolchain install nightly-<KYBER_NIGHTLY> --profile minimal --component rust-src
 #
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
-# `fallback_codec`) n'est posé qu'avec --kyber-pyrowave (comme
-# build-native.sh --kyber-pyrowave d'Android), tant qu'il n'est pas allumé
-# pour toutes les apps : third_party/ est partagé. Il va avec
-# `build-apple-mobile.sh tvos --kyber-pyrowave` (fonctionnalité `pyrowave` du cœur).
+# `fallback_codec`) est posé par défaut depuis la 0.11.1 (KYBER_PYROWAVE=1),
+# comme pour toutes les apps sauf webOS ; --sans-pyrowave l'écarte. Il va avec
+# la fonctionnalité `pyrowave` du cœur (`build-apple-mobile.sh tvos`, même option).
 #
 # Sortie : Vendor/include (en-têtes, module.modulemap) et
 # Vendor/KyberSDK.xcframework (une bibliothèque statique par plateforme).
@@ -73,23 +72,10 @@ else
 fi
 kyber_toolchain_check cargo-c
 
-# Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
-# retour reste celui de cargo.
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; }
-}
-
 # Mêmes correctifs que l'app Mac (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP).
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
-for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
-    esac
-    PATCHES+=("$patch")
-done
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$KYSDK" || exit 1
 
 export TVOS_DEPLOYMENT_TARGET=$DEPLOYMENT
 export PKG_CONFIG_ALLOW_CROSS=1

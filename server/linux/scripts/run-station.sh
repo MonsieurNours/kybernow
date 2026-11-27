@@ -82,7 +82,9 @@ first_setup() {
 
 units() {
     mkdir -p "$UNITS"
-    local libs="$RT/lib:$RT/lib/$(gcc -dumpmachine 2>/dev/null | sed 's/-pc-/-/; s/-unknown-/-/'):$RT/lib64"
+    local triplet libs
+    triplet="$(gcc -dumpmachine 2>/dev/null | sed 's/-pc-/-/; s/-unknown-/-/')" || true
+    libs="$RT/lib:$RT/lib/$triplet:$RT/lib64"
     cat > "$UNITS/kybernow-kyber.service" <<EOF
 [Unit]
 Description=KyberNow Station (Kyber)

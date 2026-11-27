@@ -55,10 +55,6 @@ export LIBCLANG_PATH="${LIBCLANG_PATH:-/Library/Developer/CommandLineTools/usr/l
 export CARGO_PROFILE_RELEASE_STRIP=false
 kyber_toolchain_check rustc cargo-c
 
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
-}
-
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-apple.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 # Une seule construction à la fois dans ce Vendor/ (scripts/verrou.sh).
@@ -69,10 +65,7 @@ kyber_verrou_sortie "$VENDOR" "apps/apple/scripts/build-apple.sh" || exit 1
 # build-apple-mobile.sh) : le cœur compile kyclient et kynput depuis ces
 # sources, qu'un build webOS ou de la Station a pu laisser autrement (TRANS-06).
 . "$ROOT/scripts/kyber-client-patches.sh"
-. "$MAC/scripts/client-patches.sh"
-PATCHES=()
-while IFS= read -r patch; do PATCHES+=("$patch"); done < <(mac_client_patches "$ROOT")
-kyber_apply_client_patches "$THIRD_PARTY/kyber-desktop/kysdk" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$THIRD_PARTY/kyber-desktop/kysdk" || exit 1
 
 echo "==> kybernow-core + kybernow-apple ($TARGET)"
 # PyroWave demandé à Kyber (fonctionnalité kyber-pyrowave), par défaut comme

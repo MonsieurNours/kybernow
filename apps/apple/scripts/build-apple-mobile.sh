@@ -60,10 +60,6 @@ export PKG_CONFIG_ALLOW_CROSS=1
 # d'Xcode refuse (« mis-aligned LINKEDIT string pool »).
 export CARGO_PROFILE_RELEASE_STRIP=false
 
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
-}
-
 needs_nightly() { case "$1" in aarch64-apple-tvos*) return 0 ;; *) return 1 ;; esac; }
 
 kyber_toolchain_check rustc cargo-c
@@ -91,13 +87,10 @@ for target in "${TARGETS[@]}"; do
 done
 
 # Les correctifs de kyclient (tous, remis à l'origine puis reposés : le
-# cœur compile contre cette API), PyroWave (0025) seulement avec --kyber-pyrowave.
+# cœur compile contre cette API), PyroWave (0025) sauf avec --sans-pyrowave.
 KYSDK="$KYBER/kysdk"
 . "$ROOT/scripts/kyber-client-patches.sh"
-. "$ROOT/apps/macos/scripts/client-patches.sh"
-PATCHES=()
-while IFS= read -r patch; do PATCHES+=("$patch"); done < <(KYBER_PYROWAVE="$KYBER_PYROWAVE" mac_client_patches "$ROOT")
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$KYSDK" || exit 1
 FEATURES=()
 if [ "$KYBER_PYROWAVE" = 1 ]; then
     FEATURES=(--features kyber-pyrowave)

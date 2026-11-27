@@ -1,6 +1,8 @@
 # shellcheck shell=bash
 # PyroWave (https://github.com/Themaister/pyrowave, MIT) pour la Station
-# Windows : sources à un commit épinglé dans third_party/pyrowave (avec le
+# Windows : sources au commit de tout KyberNow (apps/macos/PyroWave/COMMIT, lu
+# par kyber_pyrowave_commit de scripts/kyber-toolchain.sh) dans
+# third_party/pyrowave (avec le
 # Granite partiel de checkout_granite.sh : volk et les en-têtes Vulkan), puis
 # compilation en MinGW de libpyrowave-shared-1.dll (runtime C++ lié en
 # statique) et de pyrowave-device-validation.exe, installés dans le rootfs
@@ -10,12 +12,13 @@
 # À sourcer après avoir défini THIRD_PARTY, ROOTFS et MINGW ; puis appeler
 # pyrowave_fetch et pyrowave_build.
 
+# shellcheck source=../../scripts/kyber-toolchain.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/kyber-toolchain.sh"
 PYROWAVE_REPO=https://github.com/Themaister/pyrowave.git
-# 11/11/2026, « Fix dequant plane offsets for subgroup sizes below 16 (#35) ».
-PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
 
 pyrowave_fetch() {
     local dir="$THIRD_PARTY/pyrowave"
+    PYROWAVE_COMMIT=$(kyber_pyrowave_commit) || exit 1
     echo "==> PyroWave ${PYROWAVE_COMMIT:0:10}"
     if [ ! -d "$dir/.git" ]; then
         git clone -q "$PYROWAVE_REPO" "$dir"

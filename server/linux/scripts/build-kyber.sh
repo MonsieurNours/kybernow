@@ -8,9 +8,9 @@
 # l'architecture ; la VM « KyberNow Linux » pour arm64, la même VM par
 # Rosetta ou un PC pour x86_64).
 #
-# Mêmes correctifs que pour Windows et le Mac (server/kyber-patches, posés par
-# server/kyber-patches/apply.sh), puis ceux propres à Linux
-# (server/linux/kyber-patches), dans l'ordre de leur nom.
+# Mêmes correctifs que pour Windows et le Mac (server/kyber-patches), puis
+# ceux propres à Linux (server/linux/kyber-patches), dans l'ordre de leur nom,
+# posés par server/kyber-patches/apply.sh comme sur Mac.
 #
 # Sources : $KYBER_DIR (défaut : third_party/kyber-desktop-linux), une copie
 # de kyber-desktop à part, comme pour le Mac (docs/build-notes.md). Les
@@ -19,7 +19,7 @@
 # (git checkout -- .) reste à la charge de l'appelant (release-station.sh).
 # Une seule construction à la fois sur ces sources (scripts/verrou.sh).
 # Un morceau de correctif qui ne s'applique qu'avec un décalage du contexte
-# (« fuzz ») est refusé (STCOM-05 ; KYBERNOW_PATCH_STRICT=0 : signalé seulement), comme dans apply.sh.
+# (« fuzz ») est refusé (STCOM-05 ; KYBERNOW_PATCH_STRICT=0 : signalé seulement).
 #
 # Sortie : $KYBER_DIR/rootfs-<arch>-linux (bin/kycontroller, bin/kyavserver,
 # bin/kynputserver, lib/…), et l'empreinte des correctifs dans
@@ -39,6 +39,7 @@ KYBER_DIR="$(cd "${KYBER_DIR:-$ROOT/third_party/kyber-desktop-linux}" 2>/dev/nul
     || { echo "Sources de Kyber introuvables (KYBER_DIR, docs/station-linux.md)" >&2; exit 1; }
 KYMEDIA="$KYBER_DIR/kysdk/kymedia"
 KYCTL="$KYBER_DIR/kysdk/kyctl"
+# shellcheck disable=SC2034  # lu par apply.sh
 KYMUX="$KYBER_DIR/kysdk/kymux"
 KYNPUT="$KYBER_DIR/kysdk/kynput"
 # shellcheck disable=SC2034  # lu par apply.sh ; le moteur web se compile avec la Station Windows
@@ -57,97 +58,28 @@ trap 'rm -f "$STARTED"' EXIT
 . "$ROOT/scripts/verrou.sh"
 kyber_verrou_sortie "$KYBER_DIR" "server/linux/scripts/build-kyber.sh" || exit 1
 # shellcheck source=kyber-stamp.sh
-. "$HERE/kyber-stamp.sh"
+. "$HERE/kyber-stamp.sh"    # lit aussi server/kyber-patches/apply.sh
 # L'empreinte d'avant ne vaut plus pendant la construction.
 rm -f "$OUT/.kybernow-patches"
 
-# Correctifs communs (Windows, Mac et Linux).
-HERE_PATCHES="$ROOT/server/kyber-patches"
-(
-    HERE="$HERE_PATCHES"
-    # shellcheck source=../../kyber-patches/apply.sh
-    . "$HERE_PATCHES/apply.sh"
-    kyber_apply_server_patches
-)
-
+# Correctifs communs (Windows, Mac et Linux), puis ceux de Linux
+# (server/kyber-patches/apply.sh, qui lit les correctifs communs dans HERE).
 # Le protocole du stylet des apps (apps/macos/kyber-patches), dont le
-# correctif commun 0027 a besoin, est reposé par kyber_apply_server_patches
-# avec tous les correctifs des apps (STLIN-25 : l'ancienne boucle ne faisait
-# plus rien).
-
-# Un correctif qui ne se pose qu'avec un décalage du contexte (« fuzz »)
-# est signalé : il peut tomber au mauvais endroit sans échec
-# (STCOM-05) : un échec par défaut, comme dans apply.sh (toute la série se pose
-# sans décalage depuis le 27/11/2026) ; KYBERNOW_PATCH_STRICT=0 le signale seulement.
-kyber_patch_fuzz_warn() {
-    # $1 : le correctif, $2 : le dossier. Essai à blanc sans décalage permis
-    # (-F0) : le patch d'Apple ne dit pas quand il en prend un.
-    local p=$1 dir=$2
-    (cd "$dir" && patch -p1 -F0 --forward --dry-run -s < "$p" >/dev/null 2>&1) && return 0
-    echo "    Attention : $(basename "$p") ne se pose qu'avec un décalage du contexte (fuzz) : à rafraîchir" >&2
-    [ "${KYBERNOW_PATCH_STRICT:-1}" = 0 ]
-}
-
-# Correctifs propres à Linux : même nommage que les correctifs communs.
-LINUX_PATCHES="$ROOT/server/linux/kyber-patches"
-linux_repo() {
-    case "$(basename "$1")" in
-        *-kycontroller-*) echo "$KYCTL" ;;
-        *-kynet-*) echo "$KYMUX" ;;
-        *-kynput-*) echo "$KYNPUT" ;;
-        *) echo "$KYMEDIA" ;;
-    esac
-}
-shopt -s nullglob
-for p in "$LINUX_PATCHES"/*.patch; do
-    repo="$(linux_repo "$p")"
-    for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
-        orig="$f"
-        case "$f" in
-            subprojects/txproto/*) dir="$repo/subprojects/txproto" f="${f#subprojects/txproto/}" ;;
-            subprojects/libavconv/*) dir="$repo/subprojects/libavconv" f="${f#subprojects/libavconv/}" ;;
-            *) dir="$repo" ;;
-        esac
-        # Un fichier déjà touché par un correctif commun reste tel quel.
-        if ! grep -qsF "+++ b/${orig}" "$HERE_PATCHES"/*.patch; then
-            if git -C "$dir" cat-file -e "HEAD:$f" 2>/dev/null; then
-                git -C "$dir" checkout -q HEAD -- "$f"
-            else
-                rm -f "$dir/$f"
-            fi
-        fi
-    done
-done
-for p in "$LINUX_PATCHES"/*.patch; do
-    repo="$(linux_repo "$p")"
-    echo "    $(basename "$p") (Linux)"
-    kyber_patch_fuzz_warn "$p" "$repo" || exit 1
-    (cd "$repo" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
-        echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
-        exit 1
-    }
-done
-shopt -u nullglob
+# correctif commun 0027 a besoin, est reposé avec tous les correctifs des apps.
+(
+    HERE="$ROOT/server/kyber-patches"
+    kyber_apply_server_patches
+    kyber_apply_own_patches "$ROOT/server/linux/kyber-patches" Linux
+)
 
 [ -n "${KYBER_PATCH_ONLY:-}" ] && { echo "==> Correctifs posés (KYBER_PATCH_ONLY)"; exit 0; }
 
-# FFmpeg est extrait une fois par meson, avec les correctifs du wrap de ce
-# moment-là : quand le wrap change (0025, 0026 et les correctifs Linux y
-# ajoutent les leurs), on l'extrait de nouveau.
-FFMPEG_STAMP="$KYMEDIA/subprojects/FFmpeg-n8.1/.kybernow-wrap"
-FFMPEG_WRAP=$(cat "$KYMEDIA/subprojects/ffmpeg.wrap" $(find "$KYMEDIA/subprojects/packagefiles/ffmpeg" -type f | sort) | sha256sum | cut -d' ' -f1)
-if [ -d "$KYMEDIA/subprojects/FFmpeg-n8.1" ] && [ "$(cat "$FFMPEG_STAMP" 2>/dev/null)" != "$FFMPEG_WRAP" ]; then
-    echo "==> FFmpeg : wrap changé, nouvelle extraction"
-    rm -rf "$KYMEDIA/subprojects/FFmpeg-n8.1" "$KYMEDIA/builddir-linux/subprojects/FFmpeg-n8.1"
-fi
-
-# Lua, de même (correctif Linux 0004 dans ses fichiers de construction).
-LUA_STAMP="$KYMEDIA/subprojects/lua-5.4.6/.kybernow-wrap"
-LUA_WRAP=$(cat "$KYMEDIA/subprojects/lua.wrap" $(find "$KYMEDIA/subprojects/packagefiles/lua" -type f | sort) | sha256sum | cut -d' ' -f1)
-if [ -d "$KYMEDIA/subprojects/lua-5.4.6" ] && [ "$(cat "$LUA_STAMP" 2>/dev/null)" != "$LUA_WRAP" ]; then
-    echo "==> Lua : fichiers de construction changés, nouvelle extraction"
-    rm -rf "$KYMEDIA/subprojects/lua-5.4.6" "$KYMEDIA/builddir-linux/subprojects/lua-5.4.6"
-fi
+# FFmpeg et Lua sont extraits une fois par meson, avec les fichiers de leur
+# wrap de ce moment-là (0025, 0026 et les correctifs Linux y ajoutent les
+# leurs ; Linux 0004 touche ceux de Lua) : extraits de nouveau quand ils
+# changent (kyber_wrap_refresh, comme Windows et le Mac).
+kyber_wrap_refresh "$KYMEDIA" ffmpeg builddir-linux || exit 1
+kyber_wrap_refresh "$KYMEDIA" lua builddir-linux || exit 1
 
 # Les scripts de Kyber nomment le dossier des bibliothèques de x86_64 en dur ;
 # sur arm64, meson installe dans lib/aarch64-linux-gnu.
@@ -183,8 +115,8 @@ echo "==> Compilation de kymedia (txproto, libavconv, FFmpeg, kyavserver)"
         -e 's|"-Dbuild_server=enabled")|"-Dbuild_server=enabled" "-Dbuild_client=disabled")|' \
         build-linux.sh > build-linux-kybernow.sh \
     && chmod +x build-linux-kybernow.sh && ./build-linux-kybernow.sh -o "$OUT")
-echo "$FFMPEG_WRAP" > "$FFMPEG_STAMP"
-[ -d "$KYMEDIA/subprojects/lua-5.4.6" ] && echo "$LUA_WRAP" > "$LUA_STAMP"
+kyber_wrap_mark "$KYMEDIA" ffmpeg
+kyber_wrap_mark "$KYMEDIA" lua
 
 echo "==> Compilation de kynput (kynputserver, libkynput)"
 (cd "$KYNPUT" && sed "s|x86_64-linux-gnu|$TRIPLET|g" build-linux.sh > build-linux-kybernow.sh \

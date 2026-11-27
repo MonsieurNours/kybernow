@@ -3,9 +3,22 @@
 # arm64 avec sudo (la VM « KyberNow Linux », ou un Pi) :
 #
 #   apps/linux/os/build-image.sh [--deb FICHIER] [--work DOSSIER] [--no-compress] [--ab-only]
+#   apps/linux/os/build-image.sh --clean [--work DOSSIER]
 #
 #   --ab-only : sans relancer pi-gen, refait la disposition A/B depuis la
 #               dernière image de base construite (mise au point de make-ab-image.sh).
+#   --clean   : retire seulement ce qu'une construction laisse dans le dossier de
+#               travail (voir « Place sur le disque »), puis s'arrête.
+#
+# Place sur le disque : pi-gen garde une copie du système par étape (stages 0,
+# 1 et 2, notre stage, l'export de l'image) : une quinzaine de Go. Une fois
+# l'image vérifiée, et au début de chaque construction (une précédente a pu
+# échouer avant), tout est retiré sauf le système du stage 2, que la
+# construction suivante reprend (environ 3 Go, LINAPP-38), et la dernière image
+# de base (deploy/, pour --ab-only). Aussi pi-gen/work, l'ancien dossier de
+# travail de pi-gen, que plus rien n'emploie. Un dossier où un système de
+# fichiers est encore monté (pi-gen arrêté en cours de route) n'est jamais
+# effacé : le script s'arrête et dit lequel démonter.
 #
 # 1. pi-gen (étiquette PIGEN_TAG, dans $WORK/pi-gen) construit Raspberry Pi OS Lite
 #    (stage0 à stage2) puis notre stage, `stage-kybernow` : le paquet .deb de
@@ -28,28 +41,70 @@ WORK="${KYBERNOW_OS_WORK:-$HOME/kybernow-os}"
 DEB="${KYBERNOW_OS_DEB:-$LINUX/dist/kybernow-link_$(sed -n 's/^version = "\(.*\)"/\1/p' "$APPS/Cargo.toml" | head -1)_arm64.deb}"
 COMPRESS=1
 AB_ONLY=0
+CLEAN=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --deb) DEB="$2"; shift ;;
         --work) WORK="$2"; shift ;;
         --no-compress) COMPRESS=0 ;;
         --ab-only) AB_ONLY=1 ;;
+        --clean) CLEAN=1 ;;
         *) echo "option inconnue : $1" >&2; exit 2 ;;
     esac
     shift
 done
 [ "$(uname -m)" = aarch64 ] || { echo "à lancer sur un Linux arm64 (VM ou Pi) : $(uname -m)" >&2; exit 1; }
-[ -f "$DEB" ] || { echo "paquet absent : $DEB (apps/linux/scripts/deb.sh)" >&2; exit 1; }
 sudo -n true 2>/dev/null || { echo "sudo sans mot de passe requis (pi-gen monte des systèmes de fichiers)" >&2; exit 1; }
+PIGEN="$WORK/pi-gen"
+PIGEN_WORK="$WORK/pi-gen-work"
+mkdir -p "$WORK"
+# Une seule construction (ou un seul nettoyage) à la fois dans ce dossier.
+# shellcheck source=../../../scripts/verrou.sh
+. "$APPS/../scripts/verrou.sh"
+kyber_verrou_sortie "$WORK" "apps/linux/os/build-image.sh" || exit 1
+
+# vider <dossier>… : retire ces dossiers (root y écrit : sudo -n), jamais en
+# traversant un système de fichiers monté (rm --one-file-system) ; s'il en reste
+# un monté dessous (pi-gen arrêté en cours de route : /proc, /dev du chroot),
+# rien n'est retiré et le script s'arrête.
+vider() {
+    local d m
+    for d in "$@"; do
+        [ -e "$d" ] || continue
+        m="$(findmnt -rn -o TARGET | awk -v d="$d" '$0 == d || index($0, d "/") == 1' | head -1)"
+        if [ -n "$m" ]; then
+            echo "$m est encore monté (pi-gen interrompu ?) : sudo umount -R \"$m\", puis relancer" >&2
+            return 1
+        fi
+        sudo -n rm -rf --one-file-system "$d"
+    done
+}
+# Ce qu'une construction laisse et que la suivante ne reprend pas : tout pi-gen-work
+# sauf le système du stage 2 (et sa clé), et pi-gen/work.
+vider_restes() {
+    local d
+    vider "$PIGEN/work" || return 1
+    [ -d "$PIGEN_WORK" ] || return 0
+    for d in "$PIGEN_WORK"/*; do
+        case "$(basename "$d")" in stage2) ;; *) vider "$d" || return 1 ;; esac
+    done
+    [ ! -d "$PIGEN_WORK/stage2" ] || for d in "$PIGEN_WORK/stage2"/*; do
+        [ "$(basename "$d")" = rootfs ] || vider "$d" || return 1
+    done
+}
+if [ "$CLEAN" = 1 ]; then
+    vider_restes
+    echo "==> dossier de travail vidé ($(du -sh "$WORK" 2>/dev/null | cut -f1) gardés : système du stage 2, dernière image de base)"
+    exit 0
+fi
+[ -f "$DEB" ] || { echo "paquet absent : $DEB (apps/linux/scripts/deb.sh)" >&2; exit 1; }
 # commande:paquet (le paquet d'Ubuntu qui la donne).
 for t in debootstrap:debootstrap quilt:quilt parted:parted zerofree:zerofree bsdtar:libarchive-tools pigz:pigz xz:xz-utils arch-test:arch-test; do
     command -v "${t%%:*}" >/dev/null || { echo "${t%%:*} absent (apt install ${t#*:})" >&2; exit 1; }
 done
 VERSION="$(dpkg-deb -f "$DEB" Version)"
-mkdir -p "$WORK"
 
 # 1. pi-gen.
-PIGEN="$WORK/pi-gen"
 if [ "$AB_ONLY" = 1 ]; then
     BASE="$(ls -t "$WORK"/deploy/*KyberNow-Link-OS*.img 2>/dev/null | head -1)"
     [ -n "$BASE" ] || { echo "aucune image de base dans $WORK/deploy" >&2; exit 1; }
@@ -84,7 +139,6 @@ chmod +x "$PIGEN/stage-kybernow"/*/*.sh "$PIGEN/stage-kybernow/prerun.sh"
 # repris tant que l'étiquette de pi-gen et la langue sont les mêmes (SKIP et
 # CONTINUE de pi-gen) ; seul notre stage est refait, depuis une copie fraîche
 # du rootfs du stage 2. KYBERNOW_OS_FRESH=1 repart de zéro (LINAPP-38).
-PIGEN_WORK="$WORK/pi-gen-work"
 BASE_KEY="$PIGEN_TAG ${KYBERNOW_OS_LOCALE:-fr_FR.UTF-8}"
 rm -f "$PIGEN/stage0/SKIP" "$PIGEN/stage1/SKIP" "$PIGEN/stage2/SKIP"
 PIGEN_CONTINUE=0
@@ -92,9 +146,9 @@ if [ "${KYBERNOW_OS_FRESH:-0}" != 1 ] && [ "$(cat "$PIGEN_WORK/.kybernow-base" 2
     echo "==> Raspberry Pi OS Lite repris ($BASE_KEY) ; notre stage seul"
     touch "$PIGEN/stage0/SKIP" "$PIGEN/stage1/SKIP" "$PIGEN/stage2/SKIP"
     PIGEN_CONTINUE=1
-    sudo -n rm -rf "$PIGEN_WORK/stage-kybernow" "$PIGEN_WORK/export-image"
+    vider_restes || exit 1
 else
-    sudo -n rm -rf "$PIGEN_WORK"
+    vider "$PIGEN/work" "$PIGEN_WORK" || exit 1
 fi
 # Les stages de bureau ne servent pas, et seul le nôtre exporte une image.
 touch "$PIGEN/stage3/SKIP" "$PIGEN/stage4/SKIP" "$PIGEN/stage5/SKIP" "$PIGEN/stage2/SKIP_IMAGES" "$PIGEN/stage4/SKIP_IMAGES" "$PIGEN/stage5/SKIP_IMAGES"
@@ -142,7 +196,18 @@ if [ "$COMPRESS" = 1 ]; then
     echo "==> xz"
     rm -f "$OUT.xz"
     xz -T0 -6 --no-warn "$OUT"
+    # Vérifiée avant de vider le dossier de travail : relue en entier.
+    xz -t "$OUT.xz" || { echo "$OUT.xz illisible : dossier de travail gardé" >&2; exit 1; }
     echo "$OUT.xz ($(du -h "$OUT.xz" | cut -f1))"
 else
+    parted -s "$OUT" print >/dev/null || { echo "$OUT illisible : dossier de travail gardé" >&2; exit 1; }
     echo "$OUT ($(du -h "$OUT" | cut -f1))"
+fi
+
+# Image écrite et vérifiée : les copies du système de cette construction sont
+# retirées (une quinzaine de Go) ; le stage 2 reste, pour la prochaine.
+if vider_restes; then
+    echo "==> dossier de travail vidé ($(du -sh "$WORK" | cut -f1) gardés)"
+else
+    echo "Attention : dossier de travail pas vidé (voir plus haut) ; l'image est bonne" >&2
 fi

@@ -20,7 +20,10 @@ release_server_sauf() {
 
 # Le cœur et ce que toutes les apps lisent avec lui.
 RELEASE_COEUR=(apps/core apps/Cargo.toml apps/Cargo.lock apps/macos/kyber-patches server/kyber-patches server/relay
-    server/admin/src/update/kybernow-release.pub scripts/kyber-client-patches.sh scripts/verrou.sh scripts/kyber-toolchain.sh brand)
+    server/admin/src/update/kybernow-release.pub scripts/kyber-client-patches.sh scripts/kyber-patches-lib.sh scripts/verrou.sh
+    scripts/kyber-toolchain.sh apps/macos/PyroWave/COMMIT brand)
+# La pose des correctifs de Kyber et la chaîne d'outils, que lit toute construction de Kyber.
+RELEASE_KYBER=(scripts/kyber-patches-lib.sh scripts/kyber-toolchain.sh scripts/verrou.sh)
 # Les apps Linux (Flatpak, .deb du Pi) : leurs licences sont copiées dans les paquets.
 RELEASE_LINUX=(apps/linux apps/webos/kyber-patches LICENSE LICENSE.md)
 # Le décodeur et l'encodeur PyroWave (port Metal) : commit et sources vendues.
@@ -29,13 +32,13 @@ RELEASE_PYROWAVE=(apps/macos/PyroWave)
 release_chemins() {
     case "$1" in
         surcouche) printf '%s\n' server/kyber-patches server/encoder-check server/camera server/micro \
-            apps/macos/kyber-patches apps/webos/kyber-patches scripts/kyber-toolchain.sh scripts/verrou.sh scripts/arbres.sh \
+            apps/macos/kyber-patches apps/webos/kyber-patches "${RELEASE_KYBER[@]}" scripts/arbres.sh \
             scripts/release-verifie.py "${RELEASE_PYROWAVE[@]}" ;;
-        station) release_server_sauf macos linux; printf '%s\n' scripts/kyber-toolchain.sh scripts/verrou.sh brand LICENSE LICENSE.md ;;
+        station) release_server_sauf macos linux; printf '%s\n' "${RELEASE_KYBER[@]}" brand LICENSE LICENSE.md ;;
         windows) printf '%s\n' "${RELEASE_COEUR[@]}" apps/windows "${RELEASE_PYROWAVE[@]}" scripts/release-verifie.py ;;
         android) printf '%s\n' "${RELEASE_COEUR[@]}" apps/android ;;
         webos) printf '%s\n' "${RELEASE_COEUR[@]}" apps/webos ;;
-        app_mac) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple ;;
+        app_mac) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple scripts/identite.sh ;;
         notarisation) ;;
         # L'app Apple TV compile des sources de l'app Mac, et l'app iPhone/iPad
         # celles de l'Apple TV (apps/ios/project.yml : KyberKitTV).
@@ -44,13 +47,13 @@ release_chemins() {
         tvos) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple apps/tvos apps/ios/KyberNowIOS/SessionRules.swift ;;
         ios) printf '%s\n' "${RELEASE_COEUR[@]}" apps/macos apps/apple apps/tvos apps/ios ;;
         station_mac) release_server_sauf linux; printf '%s\n' apps/macos/kyber-patches apps/webos/kyber-patches "${RELEASE_PYROWAVE[@]}" \
-            scripts/kyber-toolchain.sh scripts/verrou.sh brand LICENSE LICENSE.md ;;
+            "${RELEASE_KYBER[@]}" scripts/identite.sh brand LICENSE LICENSE.md ;;
         flatpak_aarch64 | flatpak_x86_64 | deb_pi) printf '%s\n' "${RELEASE_COEUR[@]}" "${RELEASE_LINUX[@]}" ;;
         link_os) printf '%s\n' apps/linux/os apps/linux/scripts/vm.sh ;;
         # build-kyber.sh pose aussi les correctifs des apps (stylet 0005, dont
         # dépend 0027) ; package.sh copie LICENSE ; la VM est jointe par vm.sh.
         station_linux) release_server_sauf macos; printf '%s\n' apps/macos/kyber-patches apps/webos/kyber-patches \
-            apps/linux/scripts/vm.sh scripts/kyber-toolchain.sh scripts/verrou.sh brand LICENSE LICENSE.md ;;
+            apps/macos/PyroWave/COMMIT apps/linux/scripts/vm.sh "${RELEASE_KYBER[@]}" brand LICENSE LICENSE.md ;;
         *) echo "étape inconnue : $1" >&2; return 1 ;;
     esac
 }
@@ -78,8 +81,8 @@ release_tp() {
         surcouche) echo "payload/kyber-0.29.0" ;;
         station) echo "payload/kyber-0.29.0 payload/vbcable kyber-installer" ;;
         windows) echo "rootfs-winarm64 toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal" ;;
-        android) echo "opus-1.6.1" ;;
-        webos) echo "webos-toolchain-mac ffmpeg-7.1.1 opus-1.6.1" ;;
+        android) echo "opus-$KYBER_OPUS" ;;
+        webos) echo "webos-toolchain-mac ffmpeg-$KYBER_FFMPEG opus-$KYBER_OPUS" ;;
         station_mac) echo "payload/kyber-0.29.0" ;;
         *) echo "" ;;
     esac

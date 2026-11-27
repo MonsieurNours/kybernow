@@ -99,7 +99,7 @@ arbre_copier() {
             kyber-desktop | kyber-desktop-macos)
                 rm -rf "$dst.tmp/Kyber-Client.app.zip" "$dst.tmp/KyberNow-Station-Kyber.app"
                 find "$dst.tmp" -maxdepth 3 -name .kybernow-kynput -delete
-                rm -f "$dst.tmp"/rootfs-*/.kybernow-patches "$dst.tmp/.kybernow-arbre" "$dst.tmp/kysdk/.kybernow-correctifs" ;;
+                rm -f "$dst.tmp"/rootfs-*/.kybernow-patches "$dst.tmp/.kybernow-arbre" "$dst.tmp/.kybernow-correctifs-apps" ;;
         esac
         find "$dst.tmp" -maxdepth 1 \( -name '*.verrou' -o -name '*.verrou-reprise' \) -exec rm -rf {} +
         vsrc="$(arbre_vm "$src")" vdst="$(arbre_vm "$dst")"

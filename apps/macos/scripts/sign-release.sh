@@ -11,11 +11,17 @@
 # L'app garde les droits que lui a donnés Xcode : avec le profil Developer ID
 # (iCloud), Xcode y ajoute l'identifiant d'app et l'équipe, que le fichier
 # .entitlements ne contient pas ; le profil reste dans Contents/.
+#
+# Certificat : scripts/identite.sh (KYBER_SIGN_IDENTITY pour un autre).
 set -euo pipefail
 APP="${1:?usage : sign-release.sh "KyberNow Link.app"}"
-IDENTITY="Developer ID Application: Mathieu Requenna (P6DB682S4K)"
+# shellcheck source=../../../scripts/identite.sh
+. "$(cd "$(dirname "$0")/../../.." && pwd)/scripts/identite.sh"
+IDENTITY="$KYBER_SIGN_IDENTITY"
 FLAGS=(--force --sign "$IDENTITY" --options runtime --timestamp)
-ENTITLEMENTS="$(mktemp -d)/KyberNow.entitlements"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+ENTITLEMENTS="$WORK/KyberNow.entitlements"
 codesign -d --entitlements "$ENTITLEMENTS" --xml "$APP" 2>/dev/null
 
 SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"

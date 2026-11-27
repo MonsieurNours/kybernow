@@ -30,9 +30,15 @@ vm "command -v debootstrap >/dev/null && command -v parted >/dev/null && command
 # ~/kybernow-os/deploy : seule la plus récente sert (build-image.sh --ab-only),
 # les autres sont retirées.
 vm 'd=~/kybernow-os/deploy; [ -d "$d" ] || exit 0; ls -t "$d"/*KyberNow-Link-OS.img 2>/dev/null | tail -n +2 | while read -r f; do sudo -n rm -f "$f" "${f%.img}.info"; done' || true
-# pi-gen remplit le disque de la VM (son dossier work/) : 20 Go libres au moins.
+# Ce qu'une construction précédente a laissé (une quinzaine de Go si elle a
+# échoué avant de vider son dossier de travail) est retiré avant de mesurer la
+# place : build-image.sh --clean garde le système du stage 2 et la dernière
+# image de base, et refuse si une construction tourne ou si un système de
+# fichiers y est encore monté.
+vm "\"$REPO/apps/linux/os/build-image.sh\" --clean" || { echo "VM : dossier de travail de pi-gen pas vidé (message ci-dessus)" >&2; exit 1; }
+# pi-gen remplit le disque de la VM pendant la construction : 20 Go libres au moins.
 free_gb="$(vm "df -Pk ~ | awk 'NR==2 {print int(\$4/1048576)}'")"
-[ "${free_gb:-0}" -ge 20 ] || { echo "VM : ${free_gb:-?} Go libres, 20 au moins pour pi-gen (vider ~/kybernow-os/pi-gen/work : sudo rm -rf ~/kybernow-os/pi-gen/work)" >&2; exit 1; }
+[ "${free_gb:-0}" -ge 20 ] || { echo "VM : ${free_gb:-?} Go libres, 20 au moins pour pi-gen, même après le nettoyage de son dossier de travail (le système du stage 2 gardé, environ 3 Go : sudo rm -rf ~/kybernow-os/pi-gen-work dans la VM pour le retirer aussi ; sinon faire de la place ailleurs dans la VM)" >&2; exit 1; }
 [ "$CHECK" = 1 ] && { echo "VM « $VM_NAME » prête pour l'image ($VM_HOST, $REPO, $free_gb Go libres)"; exit 0; }
 
 echo "==> image KyberNow Link OS (VM « $VM_NAME », pi-gen : long)"

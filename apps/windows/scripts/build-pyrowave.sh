@@ -28,8 +28,6 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-PYROWAVE_REPO=https://github.com/Themaister/pyrowave.git
-PYROWAVE_COMMIT=$(tr -d ' \n' < "$ROOT/apps/macos/PyroWave/COMMIT")
 SRC="$THIRD_PARTY/pyrowave"
 BUILD="$SRC/build-client-$ARCH"
 OUT="$THIRD_PARTY/windows-client-$ARCH/pyrowave"
@@ -58,18 +56,11 @@ case "$ARCH" in
 esac
 command -v cmake >/dev/null && command -v ninja >/dev/null || { echo "cmake et ninja requis (brew install cmake ninja)" >&2; exit 1; }
 
-# Sources au commit épinglé, Granite partiel au commit de checkout_granite.sh.
-if [ ! -d "$SRC/.git" ]; then
-    git clone -q "$PYROWAVE_REPO" "$SRC"
-fi
-if [ "$(git -C "$SRC" rev-parse HEAD)" != "$PYROWAVE_COMMIT" ]; then
-    git -C "$SRC" cat-file -e "$PYROWAVE_COMMIT^{commit}" 2>/dev/null || git -C "$SRC" fetch -q origin
-    git -C "$SRC" checkout -q "$PYROWAVE_COMMIT"
-fi
-GRANITE=$(sed -n 's/^GRANITE_COMMIT=//p' "$SRC/checkout_granite.sh")
-if [ "$(git -C "$SRC/Granite" rev-parse HEAD 2>/dev/null)" != "$GRANITE" ]; then
-    (cd "$SRC" && bash ./checkout_granite.sh >/dev/null 2>&1) || { echo "Granite introuvable (checkout_granite.sh de PyroWave)" >&2; exit 1; }
-fi
+# Sources au commit de apps/macos/PyroWave/COMMIT, Granite partiel au commit
+# de checkout_granite.sh : pyrowave_fetch de la Station (même dossier).
+# shellcheck source=../../../server/kyber-patches/pyrowave.sh
+. "$ROOT/server/kyber-patches/pyrowave.sh"
+pyrowave_fetch
 
 echo "==> PyroWave ${PYROWAVE_COMMIT:0:7} ($ARCH)"
 mkdir -p "$BUILD" "$OUT"

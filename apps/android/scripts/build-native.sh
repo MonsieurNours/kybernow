@@ -37,8 +37,8 @@
 # (la sonde dit « indisponible »).
 # Le correctif kyclient de PyroWave (0025, `VideoCodec::PyroWave`,
 # `fallback_codec`) et la fonctionnalité `pyrowave` du cœur vont ensemble
-# (apps/core/README.md, « PyroWave ») : seulement avec --kyber-pyrowave, tant
-# qu'ils ne sont pas allumés pour toutes les apps (kyber-desktop est partagé).
+# (apps/core/README.md, « PyroWave ») : allumés par défaut depuis la 0.11.1
+# (KYBER_PYROWAVE=1) ; --sans-pyrowave les écarte ensemble.
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
 # sans toucher aux bibliothèques déjà en place.
@@ -52,12 +52,16 @@ ROOT="$(cd "$APPS/.." && pwd)"
 THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_party/ introuvable (docs/build-notes.md)" >&2; exit 1; }
 KYBER="$THIRD_PARTY/kyber-desktop"
 KYSDK="$KYBER/kysdk"
-OPUS_SRC="$THIRD_PARTY/opus-1.6.1"
+. "$ROOT/scripts/kyber-toolchain.sh"
+OPUS_SRC="$THIRD_PARTY/opus-$KYBER_OPUS"
 JNILIBS="$HERE/app/src/main/jniLibs"
 ROOTFS_BASE="${KYBERNOW_ANDROID_ROOTFS:-$KYBER}"
 API=30
 NDK_VERSION=27.2.12479018
-. "$ROOT/scripts/kyber-toolchain.sh"
+# Dossiers temporaires de la construction : retirés à la sortie, même sur une erreur.
+TEMPS=()
+cleanup_temps() { [ ${#TEMPS[@]} -eq 0 ] || rm -rf "${TEMPS[@]}"; }
+trap cleanup_temps EXIT
 
 ALL_TARGETS=(aarch64-linux-android armv7-linux-androideabi x86_64-linux-android)
 TARGETS=()
@@ -127,12 +131,6 @@ if [ -z "${LIBCLANG_PATH:-}" ]; then
 fi
 export PKG_CONFIG_ALLOW_CROSS=1
 
-# Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
-# retour reste celui de cargo.
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
-}
-
 # Triplet de clang pour chaque cible Rust (armv7 : armv7a… côté clang).
 clang_triple() {
     case "$1" in
@@ -177,14 +175,7 @@ done
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP) : le cœur compile contre cette API de kyclient.
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
-for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
-    esac
-    PATCHES+=("$patch")
-done
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+kyber_apply_app_patches "$KYSDK" || exit 1
 
 # libkynput (API C de kynput, sans SDL) dans le rootfs de la cible.
 ensure_kynput() {
@@ -202,16 +193,21 @@ ensure_kynput() {
 }
 
 # libopus (moteur de son du cœur), statique, dans le rootfs de la cible.
-# Sources : le tag v1.6.1 du dépôt d'Opus (la version de Kyber 0.29).
+# Sources : le tag v$KYBER_OPUS du dépôt d'Opus (la version de Kyber 0.29,
+# scripts/kyber-toolchain.sh) ; refaite quand la version change (marqueur).
+# Compilée dans un dossier temporaire, retiré à la sortie même sur une erreur
+# (TRANS-21).
 ensure_opus() {
     local target=$1 prefix=$2 build
-    [ -f "$prefix/lib/pkgconfig/opus.pc" ] && [ -f "$prefix/lib/libopus.a" ] && return 0
+    [ -f "$prefix/lib/pkgconfig/opus.pc" ] && [ -f "$prefix/lib/libopus.a" ] \
+        && [ "$(cat "$prefix/lib/.kybernow-opus" 2>/dev/null)" = "$KYBER_OPUS" ] && return 0
     if [ ! -f "$OPUS_SRC/CMakeLists.txt" ]; then
-        echo "==> sources d'Opus 1.6.1 dans $OPUS_SRC"
-        git clone -q --depth 1 --branch v1.6.1 https://github.com/xiph/opus.git "$OPUS_SRC"
+        echo "==> sources d'Opus $KYBER_OPUS dans $OPUS_SRC"
+        git clone -q --depth 1 --branch "v$KYBER_OPUS" https://github.com/xiph/opus.git "$OPUS_SRC"
     fi
     echo "==> libopus ($target) dans $prefix"
     build="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-opus.XXXXXX")"
+    TEMPS+=("$build")
     cmake -S "$OPUS_SRC" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
         -DANDROID_ABI="$(abi_of "$target")" -DANDROID_PLATFORM=$API \
@@ -220,6 +216,7 @@ ensure_opus() {
     cmake --build "$build" --target install >/dev/null
     rm -rf "$build"
     [ -f "$prefix/lib/libopus.a" ] || { echo "libopus ($target) non construite" >&2; exit 1; }
+    echo "$KYBER_OPUS" > "$prefix/lib/.kybernow-opus"
 }
 
 # libvlc.pc sans bibliothèque : vlc-rs (dépendance de kyvlcplayer sur Android)

@@ -71,6 +71,9 @@ mkdir -p "$PREFIX"
 PREFIX="$(cd "$PREFIX" && pwd)"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 export PATH="$HOME/.cargo/bin:$PATH"
+# Versions (cargo-c, FFmpeg, commit de PyroWave) et cargo_quiet : en un seul
+# endroit pour tout KyberNow (sources.sh le copie dans les sources du Flatpak).
+. "$ROOT/scripts/kyber-toolchain.sh"
 # Dans flatpak-builder avec --ccache (flatpak.sh), /run/ccache survit d'une construction à l'autre : les crates
 # téléchargées y restent au lieu d'être reprises à chaque fois (LINAPP-38).
 if [ -n "${FLATPAK_ID:-}" ] && [ -d /run/ccache ] && [ -w /run/ccache ]; then
@@ -78,75 +81,32 @@ if [ -n "${FLATPAK_ID:-}" ] && [ -d /run/ccache ] && [ -w /run/ccache ]; then
     mkdir -p "$CARGO_HOME"
 fi
 
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
-}
-
 if [ "$MEDIA_ONLY" = 0 ]; then
-# 1. Correctifs. Sources de git (arbre de construction, copie de travail) :
-# remis à l'origine puis tous reposés dans l'ordre, Station d'abord
-# (scripts/kyber-client-patches.sh), comme les autres apps ; un correctif
-# posé puis recouvert par un suivant (0022 puis 0025) n'était ni reconnu ni
-# applicable tel quel (« 0022 inapplicable »). Sans git (sources du Flatpak,
-# déjà prises à l'origine) : un à un, ceux déjà posés passés.
-PATCHES=()
-for patch in "$APPS"/macos/kyber-patches/*.patch "$ROOT"/server/kyber-patches/*-kyclient-*.patch "$APPS"/webos/kyber-patches/*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) [ "$KYBER_PYROWAVE" = 1 ] || continue ;;
-    esac
-    PATCHES+=("$patch")
-done
-if [ -f "$ROOT/scripts/kyber-client-patches.sh" ] && git -C "$KYSDK/kyctl" rev-parse -q --verify HEAD >/dev/null 2>&1; then
-    . "$ROOT/scripts/kyber-client-patches.sh"
-    kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
-else
-    # Ceux de la Station pour kyctl, kymux et kynput d'abord, comme
-    # kyber_station_patches : le canal de retour du client (0051-kyclient)
-    # s'appuie sur celui de kymux (0050-kynet).
-    STATION=()
-    for patch in "$ROOT"/server/kyber-patches/*.patch; do
-        case "$(basename "$patch")" in
-            *-kycontroller-* | *-kywebplayer-* | *-kynet-* | *-kynput-*) STATION+=("$patch") ;;
-        esac
-    done
-    for patch in ${STATION[@]+"${STATION[@]}"} "${PATCHES[@]}"; do
-        case "$(basename "$patch")" in
-            *-kyclient-* | *-kycontroller-* | *-kywebplayer-*) repo="$KYSDK/kyctl" ;;
-            *-kynput-*) repo="$KYSDK/kynput" ;;
-            *-kynet-*) repo="$KYSDK/kymux" ;;
-            *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
-        esac
-        # Déjà appliqué : rien à faire.
-        if (cd "$repo" && patch -p1 -R --dry-run -s -f < "$patch" >/dev/null 2>&1); then
-            continue
-        fi
-        if (cd "$repo" && patch -p1 --dry-run -s -f -F0 < "$patch" >/dev/null 2>&1); then
-            (cd "$repo" && patch -p1 -s -f -F0 < "$patch") && echo "==> $(basename "$patch") appliqué"
-        else
-            echo "Correctif $(basename "$patch") inapplicable" >&2
-            exit 1
-        fi
-    done
-fi
+# 1. Correctifs, comme les autres apps (scripts/kyber-client-patches.sh), plus
+# celui de webOS (kynput en client seul). Sources de git (arbre de
+# construction, copie de travail) : remis à l'origine puis tous reposés dans
+# l'ordre, Station d'abord. Sans git (sources du Flatpak, sources.sh) : un à
+# un, ceux déjà posés passés.
+. "$ROOT/scripts/kyber-client-patches.sh"
+kyber_apply_app_patches "$KYSDK" "$APPS"/webos/kyber-patches/*.patch || exit 1
 
 # kynput en client seul, comme sur webOS et Android.
 export RUSTFLAGS="${RUSTFLAGS:-} --cfg kybernow_webos"
 
 # 2. libkynput, refaite quand les sources de kynput changent
 # (scripts/kyber-client-patches.sh, kyber_kynput_stamp). Dans la copie du
-# Flatpak (apps/linux/scripts/sources.sh), ni ce fichier ni l'historique git de
-# kynput : son dossier de construction part de zéro, libkynput y est faite
-# quand elle manque, comme avant.
+# Flatpak (apps/linux/scripts/sources.sh), pas d'historique git de kynput :
+# son dossier de construction part de zéro, libkynput y est faite quand elle
+# manque.
 KYNPUT_STAMP=""
-if [ -f "$ROOT/scripts/kyber-client-patches.sh" ] && git -C "$KYSDK/kynput" rev-parse -q --verify HEAD >/dev/null 2>&1; then
-    . "$ROOT/scripts/kyber-client-patches.sh"
+if git -C "$KYSDK/kynput" rev-parse -q --verify HEAD >/dev/null 2>&1; then
     KYNPUT_STAMP="$(kyber_kynput_stamp "$KYSDK")"
 fi
 kynput_current() {
     if [ -n "$KYNPUT_STAMP" ]; then kyber_kynput_current "$PREFIX" "$KYNPUT_STAMP"; else [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ]; fi
 }
 if ! kynput_current; then
-    command -v cargo-cinstall >/dev/null || cargo install cargo-c --version 0.10.15 --locked
+    command -v cargo-cinstall >/dev/null || cargo install cargo-c --version "$KYBER_CARGO_C" --locked
     echo "==> libkynput dans $PREFIX"
     (cd "$KYSDK/kynput" && cargo_quiet cargo cinstall -p kynput --release --library-type=staticlib --prefix="$PREFIX" --libdir="$PREFIX/lib" --target-dir="$PREFIX/build/kynput")
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
@@ -158,23 +118,31 @@ fi # MEDIA_ONLY
 #    le FFmpeg de Raspberry Pi et son hwaccel HEVC V4L2 request), plus ce que
 #    demande la caméra de l'appareil (docs/webcam.md) : les encodeurs H.264
 #    matériels (VA-API, V4L2 M2M) et le décodeur MJPEG des webcams USB.
-#    FFMPEG_FEATURES nomme ces ajouts : un FFmpeg construit sans eux est refait.
-FFMPEG_VERSION=7.1.1
+#    Le marqueur nomme la version (KYBER_FFMPEG, scripts/kyber-toolchain.sh ; le
+#    commit du FFmpeg de Raspberry Pi avec --rpi) et ces ajouts
+#    (FFMPEG_FEATURES) : un FFmpeg construit autrement est refait (TRANS-19).
+FFMPEG_VERSION=$KYBER_FFMPEG
 FFMPEG_FEATURES=camera-1
-[ -f "$PREFIX/lib/libavcodec.a" ] && [ "$(cat "$PREFIX/lib/.kybernow-ffmpeg" 2>/dev/null)" != "$FFMPEG_FEATURES" ] && rm -f "$PREFIX/lib/libavcodec.a"
 RPI_FFMPEG_BRANCH="dev/7.1.1/rpi_import_1"
 # La branche du FFmpeg de Raspberry Pi bouge : figée sur un commit (audit TRANS-21).
 RPI_FFMPEG_COMMIT=6dbf87aefd7f491210abe1e043a1c228fa1439a0
+if [ "$RPI" = 1 ]; then FFMPEG_MARK="rpi-$RPI_FFMPEG_COMMIT $FFMPEG_FEATURES"; else FFMPEG_MARK="$FFMPEG_VERSION $FFMPEG_FEATURES"; fi
+[ -f "$PREFIX/lib/libavcodec.a" ] && [ "$(cat "$PREFIX/lib/.kybernow-ffmpeg" 2>/dev/null)" != "$FFMPEG_MARK" ] && rm -f "$PREFIX/lib/libavcodec.a"
 # Des sources téléchargées : l'archive dans un fichier, extraite dans un dossier
 # à part, renommé seulement une fois complète, puis un marqueur. Une coupure ne
 # laisse jamais un `configure` sur des sources incomplètes (audit TRANS-21).
 # Un dossier donné par FFMPEG_SRC est celui du développeur : jamais effacé,
 # jamais rempli (audit LINAPP-28).
-fetch_sources() { # dossier marqueur url compression
-    local dir="$1" mark="$2" url="$3" z="$4" part="$1.part" arc="$1.archive"
+fetch_sources() { # dossier marqueur url compression [sha256 de l'archive]
+    local dir="$1" mark="$2" url="$3" z="$4" sum="${5:-}" part="$1.part" arc="$1.archive"
     [ -f "$dir/$mark" ] && return 0
     rm -rf "$part" "$dir" && mkdir -p "$part"
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "$arc" "$url"
+    if [ -n "$sum" ] && [ "$(kyber_sha256 < "$arc")" != "$sum" ]; then
+        rm -f "$arc"
+        echo "$url : empreinte SHA-256 inattendue (scripts/kyber-toolchain.sh)" >&2
+        exit 1
+    fi
     tar "x${z}f" "$arc" -C "$part" --strip-components=1
     rm -f "$arc"
     touch "$part/$mark"
@@ -194,7 +162,7 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
         mkdir -p "$PREFIX/build"
         [ -f "$src/.kybernow-complet" ] || echo "==> sources de FFmpeg $FFMPEG_VERSION"
         # Avec réessais : le site de FFmpeg coupe parfois la connexion en plein téléchargement.
-        fetch_sources "$src" .kybernow-complet "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" J
+        fetch_sources "$src" .kybernow-complet "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" J "$KYBER_FFMPEG_SHA256"
     fi
     if [ "$RPI" = 1 ]; then
         extra=(--enable-v4l2-request --enable-libudev --enable-sand --enable-hwaccel=hevc_v4l2request --extra-version=kybernow-rpi)
@@ -222,7 +190,7 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
     fi
     (cd "$build" && make -j"$JOBS" >/dev/null && make install >/dev/null)
     [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
-    echo "$FFMPEG_FEATURES" > "$PREFIX/lib/.kybernow-ffmpeg"
+    echo "$FFMPEG_MARK" > "$PREFIX/lib/.kybernow-ffmpeg"
 fi
 
 # 4. PyroWave (docs/pyrowave-client-linux.md) : l'API C de l'amont, chemin
@@ -234,11 +202,13 @@ fi
 #    est Mesa v3dv (docs/pyrowave-client-pi.md) ; c'est l'app qui décide, au
 #    lancement, si la carte sait le décoder. Le déquantificateur y est corrigé
 #    (pyrowave/v3dv-dequant.py : image en r16f, que v3dv exige ; sans effet
-#    ailleurs) ; PYROWAVE_PATCHES nomme cette correction, une bibliothèque qui
-#    ne l'a pas est refaite.
-PYROWAVE_COMMIT=a32b05e03d70826b19d4d11ff74fe166ed74371b
+#    ailleurs) ; PYROWAVE_PATCHES nomme cette correction. Le marqueur nomme le
+#    commit et la correction : une bibliothèque d'un autre commit, ou sans la
+#    correction, est refaite (TRANS-19).
+PYROWAVE_COMMIT=$(kyber_pyrowave_commit) || exit 1
 PYROWAVE_PATCHES=v3dv-dequant-1
-if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES" ]; then
+PYROWAVE_MARK=".pyrowave-${PYROWAVE_COMMIT:0:12}-$PYROWAVE_PATCHES"
+if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/$PYROWAVE_MARK" ]; then
     if [ -n "${PYROWAVE_SRC:-}" ]; then
         # Le clone du développeur : jamais effacé (audit LINAPP-28).
         src="$PYROWAVE_SRC"
@@ -271,7 +241,7 @@ if [ ! -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || [ ! -f "$PREFIX/lib/.pyrowa
     cp -r "$src/Granite/third_party/khronos/vulkan-headers/include/vulkan" "$src/Granite/third_party/khronos/vulkan-headers/include/vk_video" "$PREFIX/include/"
     install -Dm755 "$(readlink -f "$build/libpyrowave-shared.so.1")" "$PREFIX/lib/libpyrowave-shared.so.1"
     [ -f "$PREFIX/lib/libpyrowave-shared.so.1" ] || { echo "libpyrowave-shared.so.1 absente" >&2; exit 1; }
-    rm -f "$PREFIX"/lib/.pyrowave-* && touch "$PREFIX/lib/.pyrowave-$PYROWAVE_PATCHES"
+    rm -f "$PREFIX"/lib/.pyrowave-* && touch "$PREFIX/lib/$PYROWAVE_MARK"
 fi
 [ "$MEDIA_ONLY" = 1 ] && { echo "==> FFmpeg et PyroWave prêts dans $PREFIX"; exit 0; }
 

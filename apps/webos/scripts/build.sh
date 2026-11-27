@@ -25,9 +25,11 @@ APPS="$(cd "$HERE/.." && pwd)"
 ROOT="$(cd "$APPS/.." && pwd)"
 mkdir -p "$ROOT/third_party"
 THIRD_PARTY="$(cd "$ROOT/third_party" && pwd -P)"
+# Versions (FFmpeg, Opus, Rust) et cargo_quiet : scripts/kyber-toolchain.sh.
+. "$ROOT/scripts/kyber-toolchain.sh"
 KYBER="$THIRD_PARTY/kyber-desktop"
 KYSDK="$KYBER/kysdk"
-OPUS_SRC="$THIRD_PARTY/opus-1.6.1"
+OPUS_SRC="$THIRD_PARTY/opus-$KYBER_OPUS"
 TARGET=armv7-unknown-linux-gnueabi
 PREFIX="$KYBER/rootfs-$TARGET"
 # Chaîne figée sur une version (TRANS-21 : `latest` changeait sous nos pieds).
@@ -46,14 +48,13 @@ fetch_extract() {
     tmp="$NEW_TEMP"
     curl -fsSL -o "$tmp/archive" "$url"
     if [ -n "$sha" ]; then
-        echo "$sha  $tmp/archive" | shasum -a 256 -c - >/dev/null || { echo "Somme de contrôle fausse pour $url" >&2; exit 1; }
+        [ "$(kyber_sha256 < "$tmp/archive")" = "$sha" ] || { echo "Somme de contrôle fausse pour $url" >&2; exit 1; }
     fi
     mkdir "$tmp/out"
     tar "$flags" -f "$tmp/archive" -C "$tmp/out"
     rm -f "$tmp/archive"
     FETCHED="$tmp/out"
 }
-. "$ROOT/scripts/kyber-toolchain.sh"
 
 COMMAND=build
 PROFILE=release
@@ -161,10 +162,6 @@ export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
 export PKG_CONFIG_SYSROOT_DIR=
 export CARGO_PROFILE_RELEASE_STRIP=false
 
-cargo_quiet() {
-    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; }
-}
-
 # Mêmes correctifs que les autres apps (image et son vers l'app, presse-papiers,
 # mémoire de réception UDP).
 # Puis ceux de webOS (apps/webos/kyber-patches : kynput en client seul).
@@ -172,15 +169,7 @@ cargo_quiet() {
 # pas PyroWave (docs/pyrowave.md), et le cœur ne compile pas avec lui sans sa
 # fonctionnalité pyrowave.
 . "$ROOT/scripts/kyber-client-patches.sh"
-PATCHES=("$ROOT"/apps/macos/kyber-patches/*.patch)
-for patch in "$ROOT"/server/kyber-patches/*-kyclient-*.patch; do
-    case "$(basename "$patch")" in
-        *-kyclient-pyrowave.patch) continue ;;
-    esac
-    PATCHES+=("$patch")
-done
-PATCHES+=("$HERE"/kyber-patches/*.patch)
-kyber_apply_client_patches "$KYSDK" "${PATCHES[@]}" || exit 1
+KYBER_PYROWAVE=0 kyber_apply_app_patches "$KYSDK" "$HERE"/kyber-patches/*.patch || exit 1
 
 # libkynput (API C de kynput, sans SDL), statique.
 KYNPUT_STAMP="$(kyber_kynput_stamp "$KYSDK")"
@@ -194,11 +183,13 @@ if ! kyber_kynput_current "$PREFIX" "$KYNPUT_STAMP"; then
     kyber_kynput_mark "$PREFIX" "$KYNPUT_STAMP"
 fi
 
-# libopus 1.6.1 (la version de Kyber 0.29), statique.
+# libopus (KYBER_OPUS, la version de Kyber 0.29), statique ; refaite quand la
+# version change (marqueur, TRANS-19).
+[ "$(cat "$PREFIX/lib/.kybernow-opus" 2>/dev/null)" = "$KYBER_OPUS" ] || rm -f "$PREFIX/lib/libopus.a"
 if [ ! -f "$PREFIX/lib/libopus.a" ]; then
     if [ ! -f "$OPUS_SRC/CMakeLists.txt" ]; then
-        echo "==> sources d'Opus 1.6.1 dans $OPUS_SRC"
-        git clone -q --depth 1 --branch v1.6.1 https://github.com/xiph/opus.git "$OPUS_SRC"
+        echo "==> sources d'Opus $KYBER_OPUS dans $OPUS_SRC"
+        git clone -q --depth 1 --branch "v$KYBER_OPUS" https://github.com/xiph/opus.git "$OPUS_SRC"
     fi
     echo "==> libopus ($TARGET) dans $PREFIX"
     new_temp opus
@@ -209,17 +200,20 @@ if [ ! -f "$PREFIX/lib/libopus.a" ]; then
         -DOPUS_BUILD_SHARED_LIBRARY=OFF -DOPUS_DRED=OFF -DOPUS_OSCE=OFF >/dev/null
     cmake --build "$build" --target install -j"$(nproc 2>/dev/null || echo 4)" >/dev/null
     [ -f "$PREFIX/lib/libopus.a" ] || { echo "libopus non construite" >&2; exit 1; }
+    echo "$KYBER_OPUS" > "$PREFIX/lib/.kybernow-opus"
 fi
 
-# Encodeur E-AC-3 (son 5.1 Dolby vers l'ampli) : FFmpeg 7.1.1 réduit à ses
-# encodeurs ac3 et eac3 (libavcodec + libavutil, statiques, ~1,4 Mo, LGPL).
-FFMPEG_VERSION=7.1.1
-FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
+# Encodeur E-AC-3 (son 5.1 Dolby vers l'ampli) : FFmpeg (KYBER_FFMPEG) réduit à
+# ses encodeurs ac3 et eac3 (libavcodec + libavutil, statiques, ~1,4 Mo, LGPL).
+# Refait quand la version ou les options changent (marqueur, TRANS-19).
+FFMPEG_VERSION=$KYBER_FFMPEG
+FFMPEG_MARK="$FFMPEG_VERSION eac3-1"
 FFMPEG_SRC="$THIRD_PARTY/ffmpeg-$FFMPEG_VERSION"
+[ "$(cat "$PREFIX/lib/.kybernow-ffmpeg" 2>/dev/null)" = "$FFMPEG_MARK" ] || rm -f "$PREFIX/lib/libavcodec.a"
 if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
     if [ ! -f "$FFMPEG_SRC/configure" ]; then
         echo "==> sources de FFmpeg $FFMPEG_VERSION dans $FFMPEG_SRC"
-        fetch_extract "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" xJ "$FFMPEG_SHA256"
+        fetch_extract "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" xJ "$KYBER_FFMPEG_SHA256"
         rm -rf "$FFMPEG_SRC"
         mv "$FETCHED/ffmpeg-$FFMPEG_VERSION" "$FFMPEG_SRC"
     fi
@@ -234,6 +228,7 @@ if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
         --disable-programs --disable-doc --disable-network --disable-autodetect --enable-static --disable-shared --enable-pic --disable-debug \
         --extra-cflags="-mfpu=neon -O2 -Dstatic_assert=_Static_assert" >/dev/null && make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" >/dev/null && make install >/dev/null)
     [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
+    echo "$FFMPEG_MARK" > "$PREFIX/lib/.kybernow-ffmpeg"
 fi
 
 # libvlc.pc sans bibliothèque (fonctions vides dans le binaire, build.rs).
