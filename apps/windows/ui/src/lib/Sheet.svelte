@@ -48,7 +48,8 @@
     const made: Element[] = []
     for (let node: Element | null = veil; node && node !== document.body; node = node.parentElement) {
       for (const sibling of Array.from(node.parentElement?.children ?? [])) {
-        if (sibling !== node && !sibling.hasAttribute('inert') && sibling.tagName !== 'SCRIPT') {
+        // La barre de titre (réduire, fermer la fenêtre) reste active.
+        if (sibling !== node && !sibling.hasAttribute('inert') && sibling.tagName !== 'SCRIPT' && !sibling.querySelector('[data-stays-active]') && !sibling.hasAttribute('data-stays-active')) {
           sibling.setAttribute('inert', '')
           made.push(sibling)
         }
