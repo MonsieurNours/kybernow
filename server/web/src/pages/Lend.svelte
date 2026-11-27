@@ -18,7 +18,9 @@
   import LendState from '../lib/LendState.svelte'
   import LendWeek from '../lib/LendWeek.svelte'
   import Switch from '../lib/Switch.svelte'
+  import { untrack } from 'svelte'
   import { t } from '../lib/i18n/index.svelte'
+  import { poll } from '../lib/poll'
 
   type Tab = 'lend' | 'friends' | 'settings'
 
@@ -58,12 +60,14 @@
     }
   }
 
-  $effect(() => {
-    load()
-    loadView()
-    const timer = setInterval(loadView, 3000)
-    return () => clearInterval(timer)
-  })
+  // Une fois à l'ouverture (WEB-03 : `loadView` lit `app.status`, que le relevé remplace toutes les 3 s ; suivi, il
+  // relançait `load()`, qui vidait « Votre prénom » pendant la saisie).
+  $effect(() =>
+    untrack(() => {
+      load()
+      return poll(loadView, 3000)
+    }),
+  )
 
   // Un prêt qui finit entre dans les derniers prêts.
   let wasLent = false

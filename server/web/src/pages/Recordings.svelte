@@ -4,7 +4,8 @@
   durée de garde) et les fichiers (lire dans la page, télécharger, supprimer).
 -->
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
+  import { Generation, poll } from '../lib/poll'
   import { api, type RecordingFile, type RecordingView } from '../lib/api'
   import { errorText, notify } from '../lib/store.svelte'
   import { elapsedNow, fileDate, fileDuration, fileSize, freeSpace, recordingClock } from '../lib/recording'
@@ -61,15 +62,27 @@
 
   // La vue relue : toutes les 3 s pendant un enregistrement (taille du fichier, fin), sinon toutes les 10 s
   // (une session qui commence).
+  // Un enregistrement des réglages rend périmé le relevé parti avant lui (WEB-04 : `busy` n'était testé qu'au départ).
+  const writes = new Generation()
   $effect(() => {
-    const timer = setInterval(() => {
-      if (!busy) api.recording().then(show).catch(() => {})
-    }, active ? 3000 : 10_000)
-    return () => clearInterval(timer)
+    const ms = active ? 3000 : 10_000
+    return untrack(() =>
+      poll(
+        async () => {
+          if (busy) return
+          const at = writes.current()
+          const v = await api.recording()
+          if (!busy && writes.fresh(at)) show(v)
+        },
+        ms,
+        { immediate: false },
+      ),
+    )
   })
 
   async function save(changes: { allowed?: boolean; folder?: string; keep_days?: number }) {
     busy = true
+    writes.bump()
     try {
       show(await api.setRecording(changes))
       notify('ok', t('store.saved'))

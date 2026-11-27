@@ -17,7 +17,9 @@
   import Qr from '../lib/Qr.svelte'
   import SharePanel from '../lib/SharePanel.svelte'
   import Switch from '../lib/Switch.svelte'
+  import { untrack } from 'svelte'
   import { t, tn } from '../lib/i18n/index.svelte'
+  import { Generation, poll } from '../lib/poll'
 
   let pairing = $state<Pairing | null>(null)
   let devices = $state<Device[]>([])
@@ -98,23 +100,20 @@
     }
   }
 
-  $effect(() => {
-    api.pairing().then((p) => (pairing = p)).catch((e) => notify('error', errorText(e)))
-    loadDevices()
-    loadKyber()
-    loadRelay()
-    loadInvites()
-    const timer = setInterval(() => {
-      loadDevices()
-      loadInvites()
-    }, 8000)
-    // L'état du relais change vite après un enregistrement (connexion, puis joint ou injoignable).
-    const relayTimer = setInterval(loadRelay, 3000)
-    return () => {
-      clearInterval(timer)
-      clearInterval(relayTimer)
-    }
-  })
+  // Une fois à l'ouverture, sans suivre ce que lisent les appels (WEB-08 : `kyber.loaded` relançait tout l'effet).
+  $effect(() =>
+    untrack(() => {
+      api.pairing().then((p) => (pairing = p)).catch((e) => notify('error', errorText(e)))
+      loadKyber()
+      const stopLists = poll(() => Promise.all([loadDevices(), loadInvites()]), 8000)
+      // L'état du relais change vite après un enregistrement (connexion, puis joint ou injoignable).
+      const stopRelay = poll(loadRelay, 3000)
+      return () => {
+        stopLists()
+        stopRelay()
+      }
+    }),
+  )
 
   // « Hors de chez vous » : le relais (`GET /api/relay`), relu tant que la page est ouverte.
   let relay = $state<RelayStatus | null>(null)
@@ -124,9 +123,15 @@
   const relayLocked = $derived(!!relay?.locked_until && relay.locked_until > now)
   const relayEdited = $derived(relay !== null && relayServer !== null && relayServer.trim() !== relay.server)
 
+  /** Un enregistrement du relais rend périmé le relevé parti avant lui (WEB-04 : l'interrupteur revenait). */
+  const relayWrites = new Generation()
+
   async function loadRelay() {
+    const at = relayWrites.current()
     try {
-      relay = await api.relay()
+      const r = await api.relay()
+      if (!relayWrites.fresh(at)) return
+      relay = r
       if (relayServer === null) relayServer = relay.server
     } catch {
       // 401 gérée globalement ; une Station sans relais n'a pas la section.
@@ -135,8 +140,10 @@
 
   async function saveRelay(changes: { server?: string; remote_access?: boolean; remote_admin?: boolean }) {
     relaySaving = true
+    relayWrites.bump()
     try {
       relay = await api.setRelay(changes)
+      relayWrites.bump()
       if (changes.server !== undefined) relayServer = relay.server
       notify('ok', t('devices.away.saved'))
     } catch (e) {

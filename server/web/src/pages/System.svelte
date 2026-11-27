@@ -11,6 +11,7 @@
   import Switch from '../lib/Switch.svelte'
   import LangChoice from '../lib/LangChoice.svelte'
   import { i18n, locale, t, tn } from '../lib/i18n/index.svelte'
+  import { poll } from '../lib/poll'
   import { ms } from '../lib/format'
 
   const status = $derived(app.status)
@@ -88,9 +89,15 @@
     await startUpdate(api.updateRollback)
   }
 
-  // La Station s'arrête (Admin compris), remplace ses fichiers et repart : on la guette.
+  // La Station s'arrête (Admin compris), remplace ses fichiers et repart : on la guette. La minuterie est celle de la
+  // page, arrêtée à son démontage (WEB-05) : Admin redémarré, la page passe à la connexion, et la minuterie laissée
+  // seule y affichait « délai dépassé » après une mise à jour réussie.
+  let restartTimer: ReturnType<typeof setInterval> | undefined
+  $effect(() => () => clearInterval(restartTimer))
+
   function waitForRestart(version: string) {
     const started = Date.now()
+    clearInterval(restartTimer)
     const timer = setInterval(async () => {
       try {
         const s = await api.update()
@@ -117,6 +124,7 @@
         notify('error', t('system.update.timeout'))
       }
     }, 3000)
+    restartTimer = timer
   }
 
   const notes = $derived(
@@ -321,33 +329,44 @@
     if (!groupFiles.some((f) => f.name === selected)) selected = groupFiles[0]?.name ?? ''
   })
 
+  /** Lecture en cours du journal : une seule à la fois, et la réponse d'un fichier quitté entre-temps est jetée (WEB-04). */
+  let textBusy = false
+
   async function loadText() {
     if (!selected) {
       text = ''
       return
     }
+    const file = selected
+    if (textBusy) return
+    textBusy = true
     try {
       const atBottom = !pre || pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20
-      text = (await api.logTail(selected, 500)).text
+      const got = (await api.logTail(file, 500)).text
+      if (file !== selected) return
+      text = got
       logError = ''
       if (atBottom) {
         await tick()
         pre?.scrollTo({ top: pre.scrollHeight })
       }
     } catch (e) {
-      logError = errorText(e)
+      if (file === selected) logError = errorText(e)
+    } finally {
+      textBusy = false
+      // Changé pendant la lecture : le nouveau fichier tout de suite.
+      if (file !== selected) void loadText()
     }
   }
 
   $effect(() => {
     void selected
-    loadText()
+    untrack(loadText)
   })
 
   $effect(() => {
     if (!follow) return
-    const timer = setInterval(loadText, 2000)
-    return () => clearInterval(timer)
+    return untrack(() => poll(loadText, 2000, { immediate: false }))
   })
 
   async function download() {
@@ -454,14 +473,12 @@
     untrack(loadUpdate)
   })
 
-  $effect(() => {
+  $effect(() =>
     untrack(() => {
-      loadFiles()
       loadKyber()
-    })
-    const timer = setInterval(loadFiles, 15000)
-    return () => clearInterval(timer)
-  })
+      return poll(loadFiles, 15000)
+    }),
+  )
 </script>
 
 <header class="space-head with-tabs">

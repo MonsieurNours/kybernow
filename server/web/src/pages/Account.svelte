@@ -8,6 +8,8 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { isQuiet } from '../lib/http'
+  import { poll } from '../lib/poll'
   import { api, type AccountAccess, type AccountView } from '../lib/api'
   import { detail, who } from '../lib/account'
   import { dateAt } from '../lib/format'
@@ -23,7 +25,8 @@
   /** La page de la console ouverte par « Se connecter » (pour la rouvrir). */
   let attachUrl = $state<string | null>(null)
 
-  async function load() {
+  /** `quiet` : relevé périodique, une Station injoignable n'y fait pas de toast toutes les 5 s (WEB-07). */
+  async function load(quiet = false) {
     try {
       const before = account
       account = await api.account()
@@ -35,15 +38,14 @@
       }
       entries = (await api.accountAccess()).entries
     } catch (e) {
-      notify('error', errorText(e))
+      if (!(quiet && isQuiet(e))) notify('error', errorText(e))
     }
   }
 
   onMount(() => {
     load()
     // Les venues et la liste bougent pendant que la page est ouverte.
-    const timer = setInterval(load, 5000)
-    return () => clearInterval(timer)
+    return poll(() => load(true), 5000, { immediate: false })
   })
 
   const owner = $derived(account?.owner ?? null)

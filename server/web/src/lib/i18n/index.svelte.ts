@@ -7,6 +7,7 @@
 // objets imbriqués par écran. Une clé absente en anglais retombe sur le
 // français ; `npm run check` compare les deux fichiers (scripts/i18n-check.mjs).
 
+import { untrack } from 'svelte'
 import fr from './fr.json'
 import en from './en.json'
 
@@ -134,8 +135,9 @@ export function list(items: string[]): string {
 }
 
 /** En-tête à joindre aux appels de l'API : la console répond dans cette langue. */
+/** Lu sans être suivi (WEB-08) : un effet qui appelle l'API ne repart pas à chaque changement de langue. */
 export function langHeaders(): Record<string, string> {
-  return { 'accept-language': i18n.lang }
+  return { 'accept-language': untrack(() => i18n.lang) }
 }
 
 applyDocumentLang()

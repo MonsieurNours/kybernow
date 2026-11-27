@@ -2,6 +2,7 @@
 
 import { api, type Field, type FieldValue, type LendView, type PendingAccess, type ShareView, type Status } from './api'
 import { list, t } from './i18n/index.svelte'
+import { Generation } from './poll'
 
 export const app = $state({
   status: null as Status | null,
@@ -18,9 +19,14 @@ export function notify(kind: 'ok' | 'error', text: string) {
   toastTimer = setTimeout(() => (app.toast = null), kind === 'error' ? 6000 : 3000)
 }
 
+/** Écritures locales de l'état (WEB-04) : un relevé parti avant l'une d'elles ne l'écrase plus. */
+const statusWrites = new Generation()
+
 export async function refreshStatus() {
+  const at = statusWrites.current()
   try {
-    app.status = await api.status()
+    const s = await api.status()
+    if (statusWrites.fresh(at)) app.status = s
   } catch {
     // L'erreur 401 est gérée globalement ; le reste réapparaîtra au prochain cycle.
   }
@@ -28,16 +34,19 @@ export async function refreshStatus() {
 
 /** Le partage a changé (réponse d'une action) : affiché sans attendre le prochain relevé de l'état. */
 export function setShare(view: ShareView | null) {
+  statusWrites.bump()
   if (app.status) app.status.share = view
 }
 
 /** Le prêt a changé (réponse d'une action) : affiché sans attendre le prochain relevé de l'état. */
 export function setLend(view: LendView) {
+  statusWrites.bump()
   if (app.status) app.status.lend = view
 }
 
 /** À appeler après une modification qui demande un redémarrage de Kyber. */
 export function markRestartPending() {
+  statusWrites.bump()
   if (app.status) app.status.restart_pending = true
 }
 
