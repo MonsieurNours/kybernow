@@ -43,6 +43,8 @@ pub const ZONE_GRACE: Duration = Duration::from_secs(10);
 pub const ZONE_GRACE: Duration = Duration::from_millis(500);
 /// La surveillance des journaux publics, une fois par jour.
 const CT_EVERY: Duration = Duration::from_secs(24 * 3600);
+/// Où la demander ; vide dans les essais (jamais de requête vers l'extérieur).
+const CT_URL: &str = if cfg!(test) { "" } else { "https://crt.sh/" };
 
 fn unix_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
@@ -330,7 +332,7 @@ impl RelayTls {
     /// La surveillance des journaux publics est-elle à faire (certificat en service, une fois par jour) ?
     pub fn ct_due(&self) -> Option<String> {
         let inner = self.inner.lock().unwrap();
-        let name = inner.current.as_ref().map(|c| c.name.clone())?;
+        let name = inner.current.as_ref().map(|c| c.name.clone()).filter(|_| !CT_URL.is_empty())?;
         if self.ct_busy.load(Ordering::Relaxed) || inner.ct_checked.is_some_and(|t| t.elapsed() < CT_EVERY) {
             return None;
         }
@@ -528,7 +530,7 @@ fn fetch_ct(name: &str) -> Result<String> {
         .user_agent(format!("kyber-admin/{} (ct)", env!("CARGO_PKG_VERSION")))
         .build()
         .into();
-    let url = format!("https://crt.sh/?q={name}&output=json&exclude=expired");
+    let url = format!("{CT_URL}?q={name}&output=json&exclude=expired");
     let mut resp = agent.get(&url).call().context("crt.sh")?;
     Ok(resp.body_mut().with_config().limit(4 * 1024 * 1024).read_to_string()?)
 }

@@ -2170,7 +2170,14 @@ mod tests {
         assert!(s.relay.tls.ready());
         assert_eq!(s.relay.status(&s)["remote_tls"]["state"], "ready");
         assert_eq!(s.relay.status(&s)["remote_tls"]["name"], name.as_str());
-        let told = relay.received().iter().any(|m| matches!(m, TunnelMsg::AdminStatus { tls_ready: true, .. }));
+        let mut told = false;
+        for _ in 0..100 {
+            told = relay.received().iter().any(|m| matches!(m, TunnelMsg::AdminStatus { tls_ready: true, .. }));
+            if told {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
         assert!(told, "tls_ready dit au relais");
         // Le relais n'annonce plus la zone (reconnexion) : suspendu.
         zone.store(false, std::sync::atomic::Ordering::Relaxed);
