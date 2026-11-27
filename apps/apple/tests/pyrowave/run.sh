@@ -26,7 +26,10 @@ case "$PLATFORM" in
 esac
 [ -n "$DEVICE" ] || { echo "Appareil manquant (xcrun devicectl list devices)" >&2; exit 2; }
 BUNDLE=fr.leslignesclaires.kybernow.pyrowavebench
-TEAM=P6DB682S4K
+# L'équipe de KyberNow, en un seul endroit (scripts/identite.sh).
+# shellcheck source=../../../../scripts/identite.sh
+. "$HERE/../../../../scripts/identite.sh"
+TEAM="$KYBER_TEAM_ID"
 WORK="${TMPDIR:-/tmp}/pyrowavebench"
 APP="$WORK/Build/Products/Release-$SDK/PyroWaveBench.app"
 

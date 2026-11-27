@@ -43,7 +43,7 @@ pub const KN_SHARE_LEND: i32 = 29;
 /// `kn_invite_redeem` avec le mot de passe de l'invitation ; `computer` :
 /// le nom de l'ordinateur (« Ajouter {ordinateur} »), vide s'il n'est pas dit.
 pub const KN_SHARE_INVITE: i32 = 33;
-/// « Regarder » (`kn_share_watch`, `kn_console_share_watch`) : Station qui
+/// « Regarder » (`kn_share_watch`) : Station qui
 /// ne sait pas encore regarder (« Cette Station ne permet pas encore de
 /// regarder : mettez-la à jour. »), ordinateur prêté (« {nom} est prêté en
 /// ce moment. »), partage coupé dans Admin. `error` : le texte à montrer ;
