@@ -10,14 +10,14 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ICONS = [
-  "game-controller", "article", "lightning", "monitor", "qr-code", "plus", "sliders-horizontal",
-  "wifi-high", "speaker-high", "speaker-slash", "cursor", "crosshair", "clipboard-text", "corners-out", "corners-in",
-  "power", "arrow-right", "arrow-elbow-down-left", "check", "check-circle", "desktop-tower", "television-simple",
-  "link-simple", "keyboard", "cpu", "dots-three", "arrow-counter-clockwise", "x", "warning", "info",
-  "gear-six", "camera", "shield-check", "globe-hemisphere-west", "trash", "fingerprint", "lock-simple",
-  "magnifying-glass", "monitor-play", "caret-down", "arrow-left", "image", "eye", "eye-slash", "sparkle",
-  "broadcast", "plugs-connected", "wifi-slash", "arrows-clockwise", "copy", "user", "key", "cloud", "chart-line",
-  "share-network",
+  "game-controller", "article", "lightning", "monitor", "plus", "sliders-horizontal", "wifi-high",
+  "speaker-high", "speaker-slash", "cursor", "crosshair", "clipboard-text", "corners-out", "corners-in",
+  "power", "arrow-right", "arrow-elbow-down-left", "check", "check-circle", "desktop-tower",
+  "television-simple", "link-simple", "keyboard", "cpu", "dots-three", "arrow-counter-clockwise", "x",
+  "warning", "info", "gear-six", "shield-check", "globe-hemisphere-west", "trash", "fingerprint",
+  "caret-down", "arrow-left", "image", "eye", "sparkle", "arrows-clockwise", "copy", "user", "key", "cloud",
+  "chart-line", "share-network", "arrow-up", "microphone", "microphone-slash", "video-camera",
+  "video-camera-slash",
 ];
 
 const assets = process.argv[2];
