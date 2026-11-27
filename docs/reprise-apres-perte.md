@@ -114,15 +114,26 @@ compilé, tests du cœur seulement) :
 
 1. **NVENC** (Station Windows, carte NVIDIA, HEVC) : couper le Wi-Fi une
    fraction de seconde, ou perdre des paquets (`clumsy` sous Windows), puis
-   lire le journal de kyavserver : « Loss repaired by invalidation » ou « by
-   a long-term reference ». Vérifier que l'image reprend net, sans image
+   lire le journal de kyavserver. Les lignes de FFmpeg sont au niveau
+   VERBOSE, écrit seulement avec `txproto_log_level = "debug"` (moteur
+   txproto) ou `ffmpeg_log_level = "debug"` (moteur libavconv) dans la
+   section `[kyavserver]` de `kyber_config.toml`. Au démarrage du flux :
+   « Repairs without keyframe: DPB …, invalidation …, … long-term
+   references » (sinon « No invalidation nor long-term reference: losses
+   are repaired by IDR ») ; à chaque perte : « Repair up to {pts} at {pts}:
+   invalidation » (ou « long-term reference », ou « IDR »). Vérifier que l'image reprend net, sans image
    corrompue, et que le débit ne fait plus de pic. À vérifier aussi : la
    carte accepte-t-elle l'invalidation avec le rafraîchissement progressif
    (le réglage par défaut) ?
-2. **VideoToolbox** (Station Mac) : même essai ; le journal doit dire « by a
-   long-term reference ». Si VideoToolbox refuse `EnableLTR` en HEVC, il le
-   dit (« No long-term references ») et tout passe par l'image clé.
-3. **Chaque app** : « reprise sans image clé » au journal (Mac, Windows) ou
+2. **VideoToolbox** (Station Mac) : même essai, même niveau de journal.
+   VideoToolbox n'écrit qu'une ligne, au démarrage du flux : « Repairs
+   without keyframe: long-term references » ; s'il refuse `EnableLTR` en
+   HEVC, « No long-term references (…): losses are repaired by keyframes »
+   (niveau WARNING, toujours écrit), et tout passe par l'image clé. Rien
+   n'est écrit à chaque réparation : le compteur d'images clés de l'app
+   (point 3) le dit.
+3. **Chaque app** : « image perdue après le pts … : reprise demandée » au
+   journal (écrit par le cœur, dans toutes les apps), puis
    le compteur d'images clés qui n'augmente plus à chaque perte
    (Statistiques). Surtout les décodeurs matériels qu'on ne connaît pas de
    l'intérieur : MediaCodec (selon le fabricant), NDL (LG), V4L2 (Raspberry
