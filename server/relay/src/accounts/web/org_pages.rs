@@ -316,11 +316,16 @@ pub(super) fn set_role(cx: Cx<'_>) -> Reply {
     if (current == Role::Owner || wanted == Role::Owner) && role != Role::Owner {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
     }
-    if current == Role::Owner && acc.db().owners(org.id).unwrap_or(0) <= 1 {
-        return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner));
-    }
-    if acc.db().set_member(org.id, target, wanted, cx.now).is_err() {
-        return cx.failed();
+    // Le compte des Propriétaires et le changement sous le même verrou : deux Propriétaires qui
+    // se rétrogradent en même temps n'en laissent pas zéro (REL-24).
+    let changed = {
+        let db = acc.db();
+        if current == Role::Owner && db.owners(org.id).unwrap_or(0) <= 1 { None } else { Some(db.set_member(org.id, target, wanted, cx.now).is_ok()) }
+    };
+    match changed {
+        None => return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner)),
+        Some(false) => return cx.failed(),
+        Some(true) => {}
     }
     let name = acc.db().account(target).ok().flatten().map(|a| a.name).unwrap_or_default();
     log(&cx, &org, &account, "role_change", json!({ "member": name, "role": wanted.as_str() }));
@@ -362,11 +367,15 @@ pub(super) fn leave(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
     let Some((org, role)) = org_of(&cx, &account, true) else { return not_found(cx) };
-    if role == Role::Owner && acc.db().owners(org.id).unwrap_or(0) <= 1 {
-        return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner));
-    }
-    if !acc.db().remove_member(org.id, account.id, cx.now).unwrap_or(false) {
-        return cx.failed();
+    // Sous le même verrou que le compte des Propriétaires (REL-24).
+    let left = {
+        let db = acc.db();
+        if role == Role::Owner && db.owners(org.id).unwrap_or(0) <= 1 { None } else { Some(db.remove_member(org.id, account.id, cx.now).unwrap_or(false)) }
+    };
+    match left {
+        None => return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner)),
+        Some(false) => return cx.failed(),
+        Some(true) => {}
     }
     log(&cx, &org, &account, "membre_parti", json!({}));
     cx.audit(Some(account.id), "organisation_quittee");
@@ -465,6 +474,10 @@ pub(super) fn deploy(cx: Cx<'_>) -> Reply {
         let notice = if role.manages() { Notice::NeedTwoFactor } else { Notice::NotAllowed };
         return show(cx, &account, &org, role, Tab::Computers, Some(notice));
     }
+    // Pas de jetons d'enrôlement pour une famille (REL-27) : l'interface les cache, le serveur aussi.
+    if org.kind == Kind::Family {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NotAllowed));
+    }
     deploy_page(cx, &account, &org, None, None)
 }
 
@@ -472,7 +485,10 @@ pub(super) fn deploy(cx: Cx<'_>) -> Reply {
 pub(super) fn token_create(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
-    let (org, _) = managed!(cx, account, Tab::Computers);
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    if org.kind == Kind::Family {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NotAllowed));
+    }
     let name = clean_org_name(cx.req.form("nom"));
     let days = cx.req.form("jours").trim().parse::<i64>().ok().filter(|d| (1..=ENROLL_MAX_DAYS).contains(d));
     let count = cx.req.form("nombre").trim().parse::<i64>().ok().filter(|n| (1..=ENROLL_MAX_STATIONS).contains(n));

@@ -98,3 +98,18 @@ fn un_administrateur_ne_sort_pas_un_ordinateur_de_l_equipe() {
     assert!(w.acc.db().station("st-org").unwrap().is_some());
     assert!(w.acc.detach_by_account("st-org", &ana).unwrap());
 }
+
+#[test]
+fn pas_de_jetons_d_enrolement_pour_une_famille() {
+    // REL-27 : même par un POST direct.
+    let w = world(false);
+    let mut ana = person(&w, "ana@exemple.org", "Ana", "192.0.2.10");
+    with_totp(&w, &mut ana, "ana@exemple.org");
+    ana.post("/compte/organisations/creer?lang=fr", &[("nom", "Les Martin"), ("genre", "famille")]);
+    let org = w.acc.db().orgs_of(1).unwrap()[0].0.clone();
+    assert_eq!(org.kind, Kind::Family);
+    ana.post("/compte/organisation/jetons/creer?lang=fr", &[("id", &org.public_id), ("nom", "Salon"), ("jours", "7"), ("nombre", "5")]);
+    assert!(w.acc.db().enroll_tokens(org.id).unwrap().is_empty());
+    let r = ana.get(&format!("/compte/organisation/deployer?id={}&lang=fr", org.public_id));
+    assert!(!html(&r).contains("jetons/creer"));
+}

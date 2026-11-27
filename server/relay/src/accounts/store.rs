@@ -837,6 +837,22 @@ pub fn iso(unix: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", secs / 3600, secs / 60 % 60, secs % 60)
 }
 
+/// Des écritures tout ou rien, même dans une transaction déjà ouverte (un `SAVEPOINT`, qui
+/// s'imbrique, au lieu de `BEGIN`, qui ne s'imbrique pas) : REL-25 et REL-26.
+pub(super) fn atomic<T>(conn: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    conn.execute_batch("SAVEPOINT kn_atomic")?;
+    match f() {
+        Ok(v) => {
+            conn.execute_batch("RELEASE kn_atomic")?;
+            Ok(v)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK TO kn_atomic; RELEASE kn_atomic");
+            Err(e)
+        }
+    }
+}
+
 fn migrate(conn: &mut Connection, now: i64) -> Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)")?;
     let current: i64 = conn.query_row("SELECT COALESCE(MAX(version), 0) FROM migrations", [], |r| r.get(0))?;
@@ -855,6 +871,25 @@ fn migrate(conn: &mut Connection, now: i64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tout_ou_rien_meme_imbrique() {
+        // REL-25, REL-26 : une erreur au milieu défait tout, dans une transaction déjà ouverte aussi.
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        s.attach_station("st1", "PC", a, a, 10).unwrap();
+        let r: Result<()> = atomic(&s.conn, || {
+            s.conn.execute("DELETE FROM stations WHERE id = 'st1'", [])?;
+            anyhow::bail!("panne")
+        });
+        assert!(r.is_err());
+        assert!(s.station("st1").unwrap().is_some(), "rien n'a changé");
+        let tx = s.conn.unchecked_transaction().unwrap();
+        s.attach_station("st2", "PC 2", a, a, 10).unwrap();
+        tx.commit().unwrap();
+        assert!(s.station("st2").unwrap().is_some(), "un rattachement dans une transaction ouverte passe");
+        assert!(s.detach_station("st2", None).unwrap());
+    }
 
     #[test]
     fn migration_8_les_invitations_en_attente_repartent_pour_30_jours() {

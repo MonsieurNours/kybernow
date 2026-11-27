@@ -773,12 +773,12 @@ impl Accounts {
             tracing::info!(station = %station, raison = why, "enrôlement refusé");
             return refused(why);
         }
-        let done = (|| -> Result<()> {
-            let tx = db.conn.unchecked_transaction()?;
+        // Tout ou rien (REL-26) : un échec ne consomme pas de place du jeton, ni ne laisse une
+        // Station rattachée sans les droits de son groupe.
+        let done = super::store::atomic(&db.conn, || -> Result<()> {
             // Compté d'abord : deux Stations en même temps ne dépassent pas le nombre.
-            let n = tx.execute("UPDATE enroll_tokens SET used = used + 1 WHERE id = ?1 AND used < max_stations", [t.id])?;
+            let n = db.conn.execute("UPDATE enroll_tokens SET used = used + 1 WHERE id = ?1 AND used < max_stations", [t.id])?;
             anyhow::ensure!(n == 1, "jeton épuisé");
-            tx.commit()?;
             db.attach_station_to_org(station, &name, org, None, Some(t.id), now)?;
             if let Some(grp) = t.grp.filter(|_| !t.rights.is_empty()) {
                 db.grant_group(station, grp, &t.rights, 0, now)?;
@@ -789,7 +789,7 @@ impl Accounts {
             }
             db.org_log(org, None, "station_enrolee", json!({ "station": name, "token": t.name, "group": t.sgroup_name.clone().unwrap_or_default() }), None, now)?;
             Ok(())
-        })();
+        });
         if let Err(e) = done {
             drop(db);
             tracing::warn!("enrôlement : {e:#}");

@@ -286,7 +286,13 @@ impl Store {
     fn attach_to(&self, id: &str, name: &str, account: Option<i64>, org: Option<i64>, by: i64, enrolled_by: Option<i64>, now: i64) -> Result<()> {
         let kind = if org.is_some() { "organization" } else { "person" };
         let by = (by > 0).then_some(by);
-        let tx = self.conn.unchecked_transaction()?;
+        // Tout ou rien, et possible dans un enrôlement déjà ouvert (REL-26).
+        super::store::atomic(&self.conn, || self.attach_now(id, name, kind, account, org, by, enrolled_by, now))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn attach_now(&self, id: &str, name: &str, kind: &str, account: Option<i64>, org: Option<i64>, by: Option<i64>, enrolled_by: Option<i64>, now: i64) -> Result<()> {
+        let tx = &self.conn;
         // Un autre propriétaire : les droits donnés et les premières venues repartent de zéro.
         let previous: Option<(Option<i64>, Option<i64>)> =
             tx.query_row("SELECT account, org FROM stations WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
@@ -305,7 +311,6 @@ impl Store {
              attached_by = excluded.attached_by, attached_at = excluded.attached_at, enrolled_by = excluded.enrolled_by",
             params![id, name, kind, account, org, by, now, enrolled_by],
         )?;
-        tx.commit()?;
         Ok(())
     }
 
@@ -328,7 +333,13 @@ impl Store {
     }
 
     /// Détache ; `account` : seulement si elle est à ce compte. Faux si rien n'a changé.
+    /// Tout ou rien (REL-25) : sans quoi des droits orphelins rouvriraient la machine à un
+    /// prochain propriétaire.
     pub fn detach_station(&self, id: &str, account: Option<i64>) -> Result<bool> {
+        super::store::atomic(&self.conn, || self.detach_station_now(id, account))
+    }
+
+    fn detach_station_now(&self, id: &str, account: Option<i64>) -> Result<bool> {
         let n = match account {
             Some(a) => self.conn.execute("DELETE FROM stations WHERE id = ?1 AND account = ?2", params![id, a])?,
             None => self.conn.execute("DELETE FROM stations WHERE id = ?1", [id])?,
