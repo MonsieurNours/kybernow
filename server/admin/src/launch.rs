@@ -518,6 +518,10 @@ impl Launcher {
             let mut interval = tokio::time::interval(TICK);
             loop {
                 interval.tick().await;
+                // Rien d'ouvert par Admin : pas de tour sur le fil bloquant.
+                if self.state.lock().unwrap().running.is_none() {
+                    continue;
+                }
                 let (me, a) = (self.clone(), activity.clone());
                 let _ = tokio::task::spawn_blocking(move || me.tick(&a)).await;
             }

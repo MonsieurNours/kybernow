@@ -112,6 +112,7 @@ pub fn run_agent(dir: &Path, token: &str, targets: &[Created]) -> anyhow::Result
     let state = dir.join("state.json");
     let tmp = dir.join("state.tmp");
     let started = Instant::now();
+    let (mut last, mut written): (Option<serde_json::Value>, Instant) = (None, Instant::now());
     loop {
         let ours = std::fs::read_to_string(&run).is_ok_and(|t| t.trim() == token);
         if !ours {
@@ -128,8 +129,13 @@ pub fn run_agent(dir: &Path, token: &str, targets: &[Created]) -> anyhow::Result
             Ok(seen) => serde_json::to_value(seen)?,
             Err(e) => json!({ "error": format!("{e:#}") }),
         };
-        std::fs::write(&tmp, serde_json::to_vec(&value)?)?;
-        std::fs::rename(&tmp, &state)?;
+        // Réécrit s'il change, sinon toutes les 2 s (périmé après `FRESH`, 3 s).
+        if last.as_ref() != Some(&value) || written.elapsed() >= Duration::from_secs(2) {
+            std::fs::write(&tmp, serde_json::to_vec(&value)?)?;
+            std::fs::rename(&tmp, &state)?;
+            written = Instant::now();
+            last = Some(value);
+        }
         std::thread::sleep(Duration::from_secs(1));
     }
 }

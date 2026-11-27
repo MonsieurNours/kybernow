@@ -26,8 +26,28 @@ fn env_dir(var: &str, fallback: &str) -> PathBuf {
 /// les administrateurs seulement). L'icône ne lit rien dans
 /// `C:\ProgramData\KyberNow` : ce dossier (où `kyber-admin.toml` garde
 /// l'empreinte du mot de passe) est réservé à SYSTEM et aux administrateurs.
-/// Relu à chaque fois : une réinstallation peut changer le port ou le certificat.
+/// Relu quand il change (date et taille) : une réinstallation peut changer le
+/// port ou le certificat ; sinon la copie en mémoire sert (il est demandé
+/// plusieurs fois par seconde).
 fn record() -> Option<Value> {
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+    static CACHE: Mutex<Option<(SystemTime, u64, Value)>> = Mutex::new(None);
+    let path = record_path()?;
+    let meta = std::fs::metadata(&path).ok()?;
+    let stamp = (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len());
+    let mut cache = CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((modified, len, value)) = cache.as_ref()
+        && (*modified, *len) == stamp
+    {
+        return Some(value.clone());
+    }
+    let value: Value = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+    *cache = Some((stamp.0, stamp.1, value.clone()));
+    Some(value)
+}
+
+fn record_path() -> Option<std::path::PathBuf> {
     // Station Mac : `~/Library/Application Support/KyberNow/Station/kybernow.json`.
     #[cfg(target_os = "macos")]
     let json = env_dir("HOME", "/tmp").join("Library/Application Support/KyberNow/Station/kybernow.json");
@@ -37,7 +57,7 @@ fn record() -> Option<Value> {
     let json = crate::linux::station_dir()?.join("kybernow.json");
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let json = env_dir("ProgramFiles", r"C:\Program Files").join(r"KyberNow\kybernow.json");
-    serde_json::from_slice(&std::fs::read(json).ok()?).ok()
+    Some(json)
 }
 
 /// Port de la console (`console_port`).

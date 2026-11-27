@@ -261,12 +261,18 @@ impl Consoles {
     }
 }
 
-/// La recherche de fond, toutes les 30 s.
+/// La recherche de fond, toutes les 30 s, une fois qu'une console a été vue
+/// (par elle ou par une demande d'une app) : rien n'est diffusé sur le réseau
+/// d'un foyer sans PlayStation. La première recherche se fait au démarrage.
 pub fn supervise(s: AppState) {
     tokio::spawn(async move {
+        s.consoles.refresh(WAIT_BACKGROUND).await;
         loop {
-            s.consoles.refresh(WAIT_BACKGROUND).await;
             tokio::time::sleep(SEARCH_EVERY).await;
+            if s.consoles.seen.lock().unwrap().is_empty() {
+                continue;
+            }
+            s.consoles.refresh(WAIT_BACKGROUND).await;
         }
     });
 }
