@@ -3,9 +3,9 @@
 
 /* ===== Héros en diaporama ===== */
 .hero { position: relative; --p: .3; }
-:root.live .hero { height: 1500px; }
+:root.live .hero { height: calc(max(640px, calc(100vh - var(--top))) + 680px); }
 .hstage { position: relative; height: 820px; overflow: hidden; }
-:root.live .hstage { position: sticky; top: var(--top); }
+:root.live .hstage { position: sticky; top: var(--top); height: max(640px, calc(100vh - var(--top))); }
 .hphoto { position: absolute; inset: 0; transform-origin: 50% 45%; transform: scale(calc(1 + var(--p) * .28)); }
 .hphoto img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.4s ease; }
 .hphoto img.on { opacity: 1; animation: proKb 9s ease-out both; }
@@ -18,8 +18,8 @@
 .htext .in { display: grid; gap: 22px; max-width: 700px; margin-left: auto; }
 .htext h1 { font-size: clamp(42px, 4.6vw, 66px); }
 .rot { display: grid; }
-.rot em { grid-area: 1 / 1; font-style: normal; color: var(--sig); opacity: 0; transform: translateY(.35em); transition: opacity .6s ease, transform .9s cubic-bezier(.2,.9,.1,1); }
-.rot em.on { opacity: 1; transform: none; }
+.rot em { grid-area: 1 / 1; font-style: normal; color: var(--sig); opacity: 0; transform: translateY(.3em); transition: opacity .2s ease, transform .3s ease; }
+.rot em.on { opacity: 1; transform: none; transition: opacity .55s ease .24s, transform .8s cubic-bezier(.2,.9,.1,1) .2s; }
 .cta { display: flex; gap: 12px; flex-wrap: wrap; }
 .hnote { font-size: 14px; color: var(--mist); }
 .hnote a { color: var(--spectre); }
@@ -71,9 +71,9 @@
 
 /* ===== Quatre usages (épinglés en live, carrousel sur téléphone) ===== */
 .uses { position: relative; border-top: 1px solid var(--line); }
-:root.live .uses { height: 2600px; }
+:root.live .uses { height: calc(max(640px, calc(100vh - var(--top))) + 1820px); }
 .ustage { padding-block: 120px; display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 48px; align-items: center; }
-:root.live .ustage { position: sticky; top: var(--top); height: 780px; padding-block: 0; }
+:root.live .ustage { position: sticky; top: var(--top); height: max(640px, calc(100vh - var(--top))); padding-block: 0; }
 .ucol { display: grid; gap: 24px; }
 .ucol .sechead, .tcol .sechead, .dcol .sechead { margin-bottom: 0; }
 .ulist { display: grid; gap: 10px; }
@@ -93,9 +93,9 @@
 
 /* ===== Console d'équipe (se construit au défilement en live) ===== */
 .team { position: relative; border-top: 1px solid var(--line); }
-:root.live .team { height: 2200px; }
+:root.live .team { height: calc(max(640px, calc(100vh - var(--top))) + 1400px); }
 .tstage { padding-block: 120px; display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: 40px; align-items: center; }
-:root.live .tstage { position: sticky; top: var(--top); height: 800px; padding-block: 0; }
+:root.live .tstage { position: sticky; top: var(--top); height: max(640px, calc(100vh - var(--top))); padding-block: 0; }
 .tcol { display: grid; gap: 26px; }
 .tsteps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
 .tsteps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 12px; opacity: .38; transition: opacity .4s; }

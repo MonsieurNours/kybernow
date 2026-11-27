@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="en" class="no-js">
+<html lang="en" data-u="commun" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>KyberNow Share · Play together, lend your computer, at home or from afar</title>
 <meta name="description" content="KyberNow Share lets other people onto your computer: friends who watch or play with you, someone close who borrows it while you are not using it, a team taking turns on a workstation. With a code or a KyberNow account, at home or through the relay.">
 <link rel="canonical" href="https://www.kybernow.app/en/share/">
@@ -30,69 +30,65 @@
 <link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/share/">
 <link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/share/">
 <script src="/assets/lang.js"></script>
+<script src="/assets/kn/theme.js"></script>
 <link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/assets/kybernow.css">
-<link rel="stylesheet" href="/assets/site.css">
-<link rel="stylesheet" href="/assets/doc.css">
-<script type="importmap">
-{ "imports": {
-  "three": "/vendor/three/three.module.min.js",
-  "three/addons/": "/vendor/three/addons/"
-} }
-</script>
+<link rel="stylesheet" href="/assets/kn/base.css">
+<link rel="stylesheet" href="/assets/kn/legacy.css">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebPage","@id":"https://www.kybernow.app/en/share/","url":"https://www.kybernow.app/en/share/","name":"KyberNow Share: your computer, shared with whoever you choose","description":"KyberNow Share lets other people onto your computer: guests who watch or play with you, someone close or a colleague who borrows it while you are not using it, at home or through KyberNow's relay.","inLanguage":"en","isPartOf":{"@id":"https://www.kybernow.app/#site"},"about":{"@id":"https://www.kybernow.app/#kybernow"}}
 </script>
 </head>
 <body>
-
-<canvas id="scene" aria-hidden="true"></canvas>
-<div class="veil" aria-hidden="true"></div>
-
-<header class="nav" id="nav">
-  <a class="nav-logo" href="/en/" aria-label="KyberNow, beta version, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Beta</span></a>
-  <nav class="nav-links" aria-label="Sections">
-    <a href="/en/#appareils">Uses</a>
-    <a href="/en/#apps">The apps</a>
-    <a href="/en/share/" aria-current="page">Share</a>
-    <a href="/en/technology/">Technology</a>
-    <a href="/en/technology/#comparer">Compare</a>
-    <a href="/en/guide/">Guide</a>
-  </nav>
-  <div class="nav-actions">
-    <a class="nav-signin" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Sign in</a>
-    <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
-    <a class="nav-lang" href="/share/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
-    <a class="btn btn-ghost btn-sm nav-dl" href="/en/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Download</a>
-    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu"><span></span><span></span></button>
+<a class="skip" href="#contenu">Skip to content</a>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/en/" aria-label="KyberNow, beta, home">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="150" height="21">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="150" height="21" aria-hidden="true">
+      <span class="beta" aria-hidden="true">Beta</span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a class="j" href="/en/play/">Play</a>
+      <a class="p" href="/en/pro/">Work</a>
+      <a href="/en/share/" aria-current="page">Share</a>
+      <a href="/en/technology/">Technology</a>
+      <a href="/en/guide/">Guide</a>
+      <a class="disc" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    </nav>
+    <div class="tools">
+      <button class="thm" type="button" aria-label="Switch to light theme"><svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg><svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+      <a class="signin" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><span>Sign in</span></a>
+      <a class="lang" href="/share/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+      <a class="btn sig" href="/en/download/">Download</a>
+      <button class="burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
   </div>
 </header>
-<div class="menu" id="menu" hidden>
-  <nav aria-label="Menu">
-    <a href="/en/share/#ensemble">Play together</a>
-    <a href="/en/share/#preter">Lend the computer</a>
-    <a href="/en/share/#comptes">Families and teams</a>
-    <a href="/en/share/#distance">Away from home</a>
-    <a href="/en/share/#questions">Questions</a>
-    <a href="/en/guide/#partage">Step by step</a>
-    <a href="/en/#telecharger">Download</a>
+<div class="sheet" id="menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <nav aria-label="Main menu">
+    <a class="mi j" href="/en/play/" style="--i: 0">Play</a>
+    <a class="mi p" href="/en/pro/" style="--i: 1">Work</a>
+    <a class="mi" href="/en/share/" aria-current="page" style="--i: 2">Share</a>
+    <a class="mi" href="/en/technology/" style="--i: 3">Technology</a>
+    <a class="mi" href="/en/guide/" style="--i: 4">Guide</a>
+    <a class="mi" href="https://discord.gg/sVy2mu5WdT" rel="noopener" style="--i: 5">Discord</a>
   </nav>
-  <div class="menu-foot">
-    <a class="btn btn-ghost" href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#user"/></svg>Sign in</a>
-    <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
-    <a class="btn btn-ghost" href="/share/" hreflang="fr" lang="fr" data-set-lang="fr"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>Français</a>
+  <div class="sheet-foot">
+    <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in</a>
+    <a href="/share/" hreflang="fr" lang="fr" data-set-lang="fr">Français</a>
+    <a class="btn sig" href="/en/download/">Download KyberNow</a>
   </div>
 </div>
 
-<main>
+<main id="contenu">
 
 <!-- 1 · Introduction -->
-<section class="page-hero share-hero" data-scene="guide">
+<section class="page-hero share-hero">
   <div class="wrap">
-    <img class="share-logo" src="/assets/img/kybernow-share-dark.svg" alt="KyberNow Share" width="219" height="40" data-reveal>
-    <h1 class="title page-title" data-split>Your computer, <strong>shared with whoever you choose.</strong></h1>
-    <p class="lede" data-reveal style="--d:.3s">KyberNow Share lets other people onto your computer: friends who watch or play with you, someone close who borrows your gaming PC while you are not using it, a team taking turns on a workstation. They come in with a code, at home or from afar, with no account to create, and your family or your team can also come in with their KyberNow account. You decide what each of them can do, and you take back control whenever you like.</p>
-    <ol class="quick" data-reveal style="--d:.45s">
+    <p class="share-logo rv"><img class="dk" src="/assets/img/logo/share-spectre.svg" alt="KyberNow Share" width="218" height="40"><img class="lt" src="/assets/img/logo/share-spectre-clair.svg" alt="" width="218" height="40" aria-hidden="true"></p>
+    <h1 class="disp">Your computer, <em>shared with whoever you choose.</em></h1>
+    <p class="lead rv">KyberNow Share lets other people onto your computer: friends who watch or play with you, someone close who borrows your gaming PC while you are not using it, a team taking turns on a workstation. They come in with a code, at home or from afar, with no account to create, and your family or your team can also come in with their KyberNow account. You decide what each of them can do, and you take back control whenever you like.</p>
+    <ol class="quick rv">
       <li><a href="#ensemble"><span>1</span>Play together</a></li>
       <li><a href="#preter"><span>2</span>Lend the computer</a></li>
       <li><a href="#comptes"><span>3</span>Families and teams</a></li>
@@ -102,29 +98,31 @@
 </section>
 
 <!-- 2 · Watching and playing together: guests -->
-<section class="section" id="ensemble" data-scene="edge-r">
+<section class="sec" id="ensemble">
   <div class="wrap">
-    <p class="label" data-reveal>Play together</p>
-    <h2 class="title" data-split>Up to four guests <strong>on your screen.</strong></h2>
-    <p class="body-lg" data-reveal>You are playing or working, and you open a share: a friend watches your game from their phone, a second player picks up a controller from the sofa, a colleague follows your screen from their desk. You carry on using your computer as before.</p>
+    <div class="sechead">
+      <p class="k rv">Play together</p>
+      <h2 class="disp">Up to four guests <em>on your screen.</em></h2>
+      <p class="lead rv">You are playing or working, and you open a share: a friend watches your game from their phone, a second player picks up a controller from the sofa, a colleague follows your screen from their desk. You carry on using your computer as before.</p>
+    </div>
 
-    <figure class="share-split" data-reveal>
+    <figure class="share-split rv">
       <img src="/assets/img/scenes/salon-amis-960.webp" srcset="/assets/img/scenes/salon-amis-960.webp 960w, /assets/img/scenes/salon-amis.webp 1536w" sizes="(max-width: 900px) 100vw, 56vw" width="960" height="540" loading="lazy" decoding="async" alt="Four friends in their thirties to fifties on a sofa: two of them play a game together on the TV, the others laugh.">
       <figcaption>
         <h3>One code, and your guests are in</h3>
         <p>From the session bar of your KyberNow Link app, or from the computer itself by choosing the screen to show, you open a share. It gives you a six-digit code, a link and a QR code.</p>
         <p>Your guests come in with the code in the KyberNow Link app, on any device, or with the link in a browser. They give their first name, and that's all: no account, and nothing to install for anyone using the browser.</p>
-        <p class="notice-links"><a href="/en/guide/#partage">Open and join a share, step by step<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+        <p class="notice-links"><a href="/en/guide/share/">Open and join a share, step by step<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
       </figcaption>
     </figure>
 
     <div class="proofs-2 share-cards">
-      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>You stay in charge</h3><p>A guest arrives as a spectator: they see your screen and hear the sound, and send nothing to your computer. You give them their controllers, or the keyboard and mouse, or both, and take them back in one move. The Station only lets through what you have given, even if their device tried to send something else.</p></article>
-      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><h3>Their controller becomes the next controller</h3><p>When you give a guest their controllers, your computer sees them as one more controller, plugged in after yours. Games for several players on the same screen work with no setting to change, as if your friend were sitting next to you.</p></article>
-      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg><h3>A picture for each guest</h3><p>Each guest picks the quality of their picture: Auto, the same as yours, 4K at 60&nbsp;Hz, 1080p at 60&nbsp;Hz or 720p at 30&nbsp;Hz. It is never bigger than yours, and nothing they do changes your screen or your picture. A guest whose connection weakens gets a lighter picture, without you noticing.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#shield-check"/></svg><h3>You stay in charge</h3><p>A guest arrives as a spectator: they see your screen and hear the sound, and send nothing to your computer. You give them their controllers, or the keyboard and mouse, or both, and take them back in one move. The Station only lets through what you have given, even if their device tried to send something else.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#game-controller"/></svg><h3>Their controller becomes the next controller</h3><p>When you give a guest their controllers, your computer sees them as one more controller, plugged in after yours. Games for several players on the same screen work with no setting to change, as if your friend were sitting next to you.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#frame-corners"/></svg><h3>A picture for each guest</h3><p>Each guest picks the quality of their picture: Auto, the same as yours, 4K at 60&nbsp;Hz, 1080p at 60&nbsp;Hz or 720p at 30&nbsp;Hz. It is never bigger than yours, and nothing they do changes your screen or your picture. A guest whose connection weakens gets a lighter picture, without you noticing.</p></article>
     </div>
 
-    <div class="table share-rights" data-reveal>
+    <div class="table share-rights rv">
       <div class="tr"><span class="th">Spectator</span><span>They see and hear. Nothing leaves their device for your computer. This is how every guest arrives.</span></div>
       <div class="tr"><span class="th">Give controllers</span><span>Their controllers play on your computer. “Take back controllers” takes them away again.</span></div>
       <div class="tr"><span class="th">Give keyboard and mouse</span><span>They can type and move the pointer. The clipboard is never shared with a guest.</span></div>
@@ -134,20 +132,22 @@
 </section>
 
 <!-- 3 · Lending the computer -->
-<section class="section" id="preter" data-scene="edge-r">
+<section class="sec" id="preter">
   <div class="wrap">
-    <p class="label" data-reveal>Lend the computer</p>
-    <h2 class="title" data-split>A powerful computer <strong>that serves several people.</strong></h2>
-    <p class="body-lg" data-reveal>A gaming computer or a workstation costs a lot, and it spends a good part of the day switched off or sitting idle. With KyberNow Share, you lend it while you are not using it: the person plays or works from their own device, at your place or from theirs, and you take it back whenever you like.</p>
+    <div class="sechead">
+      <p class="k rv">Lend the computer</p>
+      <h2 class="disp">A powerful computer <em>that serves several people.</em></h2>
+      <p class="lead rv">A gaming computer or a workstation costs a lot, and it spends a good part of the day switched off or sitting idle. With KyberNow Share, you lend it while you are not using it: the person plays or works from their own device, at your place or from theirs, and you take it back whenever you like.</p>
+    </div>
 
     <div class="share-angles">
-      <article class="card" data-reveal>
+      <article class="card rv">
         <p class="mono-label">At home</p>
         <h3>Your games, and theirs, for family and friends</h3>
         <p>One good graphics card in a single machine is enough for the whole household. Your son plays on the living-room TV while you are at work, your friend picks up her game from her laptop, your brother borrows your computer from his place on a Saturday afternoon.</p>
         <p>You choose what they can open: your game launchers, Steam, Epic, GOG, Xbox or Playnite, one game in particular, an emulator, any installed app. With Steam, you also decide at each loan whether the person plays with their own account, with their games and yours through Family Sharing, or with yours, with your library and your saves.</p>
       </article>
-      <article class="card" data-reveal style="--d:.06s">
+      <article class="card rv">
         <p class="mono-label">At work</p>
         <h3>One workstation for the whole team</h3>
         <p>The machine that carries the professional graphics card, the heavy software and the licences stays in the workshop. Your colleagues borrow it one after another, from a light laptop, a tablet or a plain browser, in the office or working from home.</p>
@@ -155,36 +155,38 @@
       </article>
     </div>
 
-    <h3 class="share-sub" data-reveal>Three ways to lend</h3>
+    <h3 class="share-sub rv">Three ways to lend</h3>
     <div class="proofs-2 share-cards share-ways">
-      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>A code for one session</h3><p>“Lend the computer…”, from Admin, the icon next to the clock or your KyberNow Link app. You choose the length (1, 2 or 4&nbsp;hours, or until you take it back), and you hand over the code, the link or the QR code. It works once.</p></article>
-      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#devices"/></svg><h3>Accounts for the people close to you</h3><p>In Admin, you create an account per person: a first name, a username, a password. They receive an invitation link, and “Matthieu's computer” appears on the home screen of their app. When the computer is free, they borrow it without asking you.</p></article>
-      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#list"/></svg><h3>Time slots</h3><p>On a person's account, you set aside parts of the week: Wednesday from 2&nbsp;PM to 6&nbsp;PM, for example. During their slot, they go before you: if you are on the computer, you are warned two minutes ahead.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#qr-code"/></svg><h3>A code for one session</h3><p>“Lend the computer…”, from Admin, the icon next to the clock or your KyberNow Link app. You choose the length (1, 2 or 4&nbsp;hours, or until you take it back), and you hand over the code, the link or the QR code. It works once.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#devices"/></svg><h3>Accounts for the people close to you</h3><p>In Admin, you create an account per person: a first name, a username, a password. They receive an invitation link, and “Matthieu's computer” appears on the home screen of their app. When the computer is free, they borrow it without asking you.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#list"/></svg><h3>Time slots</h3><p>On a person's account, you set aside parts of the week: Wednesday from 2&nbsp;PM to 6&nbsp;PM, for example. During their slot, they go before you: if you are on the computer, you are warned two minutes ahead.</p></article>
     </div>
 
-    <figure class="share-split share-split-rev" data-reveal>
+    <figure class="share-split share-split-rev rv">
       <img src="/assets/img/scenes/canape-en-960.webp" srcset="/assets/img/scenes/canape-en-960.webp 960w, /assets/img/scenes/canape-en.webp 1536w" sizes="(max-width: 900px) 100vw, 56vw" width="960" height="540" loading="lazy" decoding="async" alt="A woman curled up on the sofa holds a Steam Deck showing KyberNow Link; beside her, a man reads.">
       <figcaption>
         <h3>What the person borrowing sees</h3>
         <p>They see neither your desktop nor your windows. Your computer switches to <b>console mode</b>: a full-screen launcher, with one tile per app you have allowed, games, launchers or software, the time left and “Give back the computer”. They move around it with a controller, keyboard or mouse, and next time they find whatever they opened last at the top.</p>
         <p>On the spot, your computer's screen is covered: “Computer lent to Léa”, and the Enter key to take it back. During the loan, File Explorer, the Windows key, Task Manager and apps outside the list are blocked.</p>
         <p>At the end, their apps close, your accounts and windows come back, and you find your session open. You take it back whenever you like: they have two minutes to save.</p>
-        <p class="notice-links"><a href="/en/guide/#pret">Lend your computer, step by step<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+        <p class="notice-links"><a href="/en/guide/lend/">Lend your computer, step by step<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
       </figcaption>
     </figure>
 
-    <p class="share-foot" data-reveal>Your files are protected as well as we can, not watertight: a game or an allowed app can still read your disk. Lend your computer to people you trust.</p>
+    <p class="share-foot rv">Your files are protected as well as we can, not watertight: a game or an allowed app can still read your disk. Lend your computer to people you trust.</p>
   </div>
 </section>
 
 <!-- 3b · With a KyberNow account: families, teams, fleets -->
-<section class="section" id="comptes" data-scene="edge-r">
+<section class="sec" id="comptes">
   <div class="wrap">
-    <p class="label" data-reveal>Families and teams</p>
-    <h2 class="title" data-split>Open your computer <strong>to your family or your team.</strong></h2>
-    <p class="body-lg" data-reveal>The KyberNow account is optional: codes work without it. With an account, you link your computer to it, then open it to someone by their email address, choosing what they can do. It appears on the home screen of their KyberNow Link app, on all their devices, with no code to type. Everything is set on your account page, on share.kybernow.app, which walks you through it the first time.</p>
+    <div class="sechead">
+      <p class="k rv">Families and teams</p>
+      <h2 class="disp">Open your computer <em>to your family or your team.</em></h2>
+      <p class="lead rv">The KyberNow account is optional: codes work without it. With an account, you link your computer to it, then open it to someone by their email address, choosing what they can do. It appears on the home screen of their KyberNow Link app, on all their devices, with no code to type. Everything is set on your account page, on share.kybernow.app, which walks you through it the first time.</p>
+    </div>
 
-    <div class="table share-rights" data-reveal>
+    <div class="table share-rights rv">
       <div class="tr"><span class="th">Watch</span><span>See the computer's screen, with no keyboard, mouse or controller, and without changing anything for you. Your son who wants to show you his game. They appear in the share panel, and you can remove them whenever you like.</span></div>
       <div class="tr"><span class="th">Open the desktop</span><span>Connect to the computer and use it like you, from anywhere. Your partner picking up their files from the laptop.</span></div>
       <div class="tr"><span class="th">Borrow to play</span><span>Play the apps you allowed in Admin, when the computer is free. Your nephew playing on Wednesday afternoons.</span></div>
@@ -193,13 +195,13 @@
     </div>
 
     <div class="share-angles">
-      <article class="card" data-reveal>
+      <article class="card rv">
         <p class="mono-label">At home</p>
         <h3>A family, and everyone's rights</h3>
         <p>Create your family, invite your relatives by their address, and open your computers to them, to everyone or just to a group: the children, the grandparents. As you type an address, people you already know are suggested.</p>
         <p>A pending invitation expires after 30&nbsp;days. You can see when it was sent and when it expires, and “Resend the invitation” sends it again.</p>
       </article>
-      <article class="card" data-reveal style="--d:.06s">
+      <article class="card rv">
         <p class="mono-label">At work</p>
         <h3>A team, and all its computers</h3>
         <p>A team has its members, each with a role (Owner, Administrator or Member), its groups of people, and its groups of computers, such as “Studio workstations”. Rights given on a group of computers apply to all of them, including the ones you add later. The log shows who opened what, when and from where.</p>
@@ -208,44 +210,48 @@
     </div>
 
     <div class="proofs-2 share-cards">
-      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#devices"/></svg><h3>Your computers, everywhere</h3><p>Sign in to the KyberNow Link app: your computers appear on the home screen of every device, with no pairing. On a TV, a code is shown, and you approve it from your phone.</p></article>
-      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#link-simple"/></svg><h3>A link for one person</h3><p>Don't have their address? On the computer's page, create an access link with the rights you choose, and send it to that one person. It works once, expires if it isn't used, and can be revoked in one click.</p></article>
-      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#gear"/></svg><h3>Admin from your account</h3><p>“Open Admin”, next to each computer you administer: confirm with a passkey, and Admin opens already signed in. At home, it goes over your network. From elsewhere, first switch on “Remote Admin” in Admin: the computer announces each opening, and the session closes after 30&nbsp;minutes without activity.</p></article>
-      <article class="card" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Your settings follow you</h3><p>Each computer's profile, format, bitrate, HDR and immersive mode carry over from one device to the next. If you'd rather keep separate settings on each device, a switch in the app's settings keeps them local.</p></article>
-      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#desktop-tower"/></svg><h3>Move a computer</h3><p>From one family or team to another, or over to you. A preview first shows who loses access, and you can keep the access given to individual people if you wish.</p></article>
-      <article class="card" data-reveal style="--d:.10s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>A well-protected account</h3><p>A passkey or two-factor authentication protects your account. The token that opens a computer is only valid for two minutes, and a device left unused for 90&nbsp;days is signed out of your account.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#devices"/></svg><h3>Your computers, everywhere</h3><p>Sign in to the KyberNow Link app: your computers appear on the home screen of every device, with no pairing. On a TV, a code is shown, and you approve it from your phone.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#link-simple"/></svg><h3>A link for one person</h3><p>Don't have their address? On the computer's page, create an access link with the rights you choose, and send it to that one person. It works once, expires if it isn't used, and can be revoked in one click.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#gear"/></svg><h3>Admin from your account</h3><p>“Open Admin”, next to each computer you administer: confirm with a passkey, and Admin opens already signed in. At home, it goes over your network. From elsewhere, first switch on “Remote Admin” in Admin: the computer announces each opening, and the session closes after 30&nbsp;minutes without activity.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Your settings follow you</h3><p>Each computer's profile, format, bitrate, HDR and immersive mode carry over from one device to the next. If you'd rather keep separate settings on each device, a switch in the app's settings keeps them local.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#desktop-tower"/></svg><h3>Move a computer</h3><p>From one family or team to another, or over to you. A preview first shows who loses access, and you can keep the access given to individual people if you wish.</p></article>
+      <article class="card rv"><svg class="ic-lg" aria-hidden="true"><use href="/assets/icons.svg#shield-check"/></svg><h3>A well-protected account</h3><p>A passkey or two-factor authentication protects your account. The token that opens a computer is only valid for two minutes, and a device left unused for 90&nbsp;days is signed out of your account.</p></article>
     </div>
 
-    <p class="notice-links share-links" data-reveal><a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in to your KyberNow account<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#compte">Your account, step by step<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
-    <p class="share-foot" data-reveal>KyberNow accounts arrived with the 0.10 beta and are part of version 0.11. Update the Station and your apps to get them.</p>
+    <p class="notice-links share-links rv"><a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">Sign in to your KyberNow account<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/kybernow-account/">Your account, step by step<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+    <p class="share-foot rv">KyberNow accounts arrived with the 0.10 beta and are part of version 0.11. Update the Station and your apps to get them.</p>
   </div>
 </section>
 
 <!-- 4 · Away from home: the relay -->
-<section class="section" id="distance" data-scene="edge-r">
+<section class="sec" id="distance">
   <div class="wrap">
-    <p class="label" data-reveal>Away from home</p>
-    <h2 class="title" data-split>Your guests can be <strong>anywhere.</strong></h2>
-    <p class="body-lg" data-reveal>The same code, the same link and the same QR code work from anywhere. A guest who is not at your place goes through KyberNow's relay, a server on the internet open to everyone, and you accept each person who comes from afar before they get in. Nothing to open on your router.</p>
+    <div class="sechead">
+      <p class="k rv">Away from home</p>
+      <h2 class="disp">Your guests can be <em>anywhere.</em></h2>
+      <p class="lead rv">The same code, the same link and the same QR code work from anywhere. A guest who is not at your place goes through KyberNow's relay, a server on the internet open to everyone, and you accept each person who comes from afar before they get in. Nothing to open on your router.</p>
+    </div>
 
-    <figure class="share-split" data-reveal>
+    <figure class="share-split rv">
       <img src="/assets/img/scenes/hotel-960.webp" srcset="/assets/img/scenes/hotel-960.webp 960w, /assets/img/scenes/hotel.webp 1536w" sizes="(max-width: 900px) 100vw, 56vw" width="960" height="540" loading="lazy" decoding="async" alt="In a hotel room at night, a woman plays on a laptop the game running on her PC at home, a controller beside her.">
       <figcaption>
         <h3>What the relay sees, and what it doesn't</h3>
         <p>In the KyberNow Link apps, the picture, the sound and your keystrokes stay encrypted end to end: they pass through the relay without it being able to read them, and the app checks that it is really talking to your computer. The relay sees addresses, bitrates and share codes, nothing more.</p>
         <p>The browser is the exception: to pass the picture on, the relay decrypts it. If that matters to you, ask your guests to use the app, or install your own relay: a Linux machine, a domain name, and your household's or your team's shares no longer go through a server run by someone else.</p>
-        <p class="notice-links"><a href="/en/guide/#distance">The relay and VPNs, in the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#relais">Install your own relay<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+        <p class="notice-links"><a href="/en/guide/away-from-home/">The relay and VPNs, in the guide<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/install-your-relay/">Install your own relay<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
       </figcaption>
     </figure>
   </div>
 </section>
 
 <!-- 5 · Questions -->
-<section class="section" id="questions" data-scene="edge-r">
+<section class="sec" id="questions">
   <div class="wrap faq-wrap">
-    <p class="label" data-reveal>Questions</p>
-    <h2 class="title" data-split>The questions <strong>we get asked about Share.</strong></h2>
-    <div class="faq" data-reveal>
+    <div class="sechead">
+      <p class="k rv">Questions</p>
+      <h2 class="disp">The questions <em>we get asked about Share.</em></h2>
+    </div>
+    <div class="faq rv">
         <details><summary>Do I need to install anything extra?</summary><p>No. KyberNow Share comes with KyberNow Station and the KyberNow Link apps. A guest who doesn't have the app simply opens the link in their browser.</p></details>
         <details><summary>Do my guests need an account?</summary><p>No. For a share, a guest only gives their first name. To borrow the computer, they enter a code you give them, or the username and password of the account you created for them in Admin. Nothing is created online. A KyberNow account is only needed if you open your computer to someone for good: it then appears on their devices, with no code.</p></details>
         <details><summary>Can someone just watch my screen?</summary><p>Yes, with the “Watch” right, given from your <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">KyberNow account</a> page: the person sees the computer's actual screen, with no keyboard, mouse or controller. Nothing changes for you: they appear in the share panel, and you can remove them whenever you like. A friend who comes in with a code also arrives as a spectator.</p></details>
@@ -255,44 +261,40 @@
         <details><summary>What about a shared Mac?</summary><p>A Mac with KyberNow Station takes guests like a PC: the same code, the same rights, the same relay.</p></details>
         <details><summary>What happens if my guest's connection drops?</summary><p>A guest in a share comes back with the same code as long as you haven't asked for a new one. The person borrowing the computer can come back within fifteen minutes: their game is waiting for them.</p></details>
     </div>
-    <a class="tech-more" href="/en/guide/#faq" data-reveal>All the questions in the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
+    <a class="tech-more rv" href="/en/guide/faq/">All the questions in the guide<svg class="ic" aria-hidden="true"><use href="/assets/icons.svg#arrow-right"/></svg></a>
   </div>
 </section>
 
 <!-- 6 · Getting started -->
-<section class="section" id="commencer" data-scene="rest-r">
+<section class="sec" id="commencer">
   <div class="wrap">
-    <p class="label" data-reveal>Getting started</p>
-    <h2 class="title" data-split>Share is already <strong>in KyberNow.</strong></h2>
-    <p class="body-lg" data-reveal>Install KyberNow Station on the computer you want to share and KyberNow Link on your devices: “Share” is in the session bar, “Lend the computer…” in Admin and next to the clock, “Join with a code” on the home screen of every app. For your family or your team, <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">sign in to your KyberNow account</a>.</p>
-    <div class="hero-cta share-cta" data-reveal>
-      <a class="btn kn-primary" href="/en/#telecharger">Download KyberNow</a>
-      <a class="btn btn-ghost" href="/en/guide/#partage">Read the guide</a>
+    <div class="sechead">
+      <p class="k rv">Getting started</p>
+      <h2 class="disp">Share is already <em>in KyberNow.</em></h2>
+      <p class="lead rv">Install KyberNow Station on the computer you want to share and KyberNow Link on your devices: “Share” is in the session bar, “Lend the computer…” in Admin and next to the clock, “Join with a code” on the home screen of every app. For your family or your team, <a href="https://share.kybernow.app/compte/connexion?lang=en" rel="noopener">sign in to your KyberNow account</a>.</p>
+    </div>
+    <div class="hero-cta share-cta rv">
+      <a class="btn sig" href="/en/download/">Download KyberNow</a>
+      <a class="btn" href="/en/guide/share/">Read the guide</a>
     </div>
   </div>
 </section>
 
 </main>
 
-<footer class="footer">
-  <div class="wrap footer-grid">
-    <div>
-      <img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18">
-      <p class="footer-mention">KyberNow uses <a href="https://kyber.tech" rel="noopener">Kyber</a>, free software released under the AGPL-3.0 licence. KyberNow is a community, non-commercial project, developed by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>; it is neither published nor endorsed by the Kyber team, and is not affiliated with it. Sunshine, Moonlight, Steam, Playnite, Discord, Windows, macOS, Apple TV, Android, Linux and Raspberry Pi belong to their respective owners.</p>
+<footer class="ft">
+  <div class="wrap">
+    <div class="who">
+      <img class="dk" src="/assets/img/logo/logo-spectre.svg" alt="KyberNow" width="132" height="18">
+      <img class="lt" src="/assets/img/logo/logo-spectre-clair.svg" alt="" width="132" height="18" aria-hidden="true">
+      <span>A free and open project by Les Lignes Claires.</span>
     </div>
-    <ul class="footer-links">
-      <li><a href="/en/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide and FAQ</a></li>
-      <li><a href="/en/share/"><svg class="ic"><use href="/assets/icons.svg#devices"/></svg>KyberNow Share</a></li>
-      <li><a href="/en/technology/"><svg class="ic"><use href="/assets/icons.svg#cpu"/></svg>Technology</a></li>
-      <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
-      <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
-      <li><a href="/en/legal/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Legal notice</a></li>
-      <li><a href="/share/" hreflang="fr" lang="fr" data-set-lang="fr"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>Français</a></li>
-    </ul>
+    <nav aria-label="Footer">
+      <a href="/en/play/">Play</a><a href="/en/pro/">Work</a><a href="/en/share/">Share</a><a href="/en/technology/">Technology</a><a href="/en/guide/">Guide</a><a href="/en/guide/faq/">FAQ</a><a href="/en/download/">Download</a><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">GitHub</a><a href="/en/legal/">Legal notice</a>
+    </nav>
   </div>
 </footer>
-
-<script type="module" src="/assets/main.js"></script>
-<script type="module" src="/assets/scene.js"></script>
+<script src="/assets/kn/base.js" defer></script>
+<script src="/assets/kn/legacy.js" defer></script>
 </body>
 </html>

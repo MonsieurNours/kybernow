@@ -2,6 +2,7 @@
    Socle : base.css. Mode live (héros épinglé) : :root.live, posé par base.js. */
 
 :root { --core: #F4F1FF; --glow: rgba(154,140,255,.22); --hs: clamp(640px, calc(100vh - var(--top)), 860px); }
+:root.live { --hs: max(640px, calc(100vh - var(--top))); }
 :root[data-theme="light"] { --core: var(--sig); --glow: rgba(83,64,230,.12); }
 
 /* ===== Héros vivant ===== */
@@ -22,8 +23,8 @@
 .htext .in { display: grid; gap: 22px; max-width: 700px; }
 .htext h1 { font-size: clamp(42px, 4.6vw, 66px); }
 .rot { display: grid; }
-.rot em { grid-area: 1 / 1; font-style: normal; color: var(--sig); opacity: 0; transform: translateY(.35em); transition: opacity .6s ease, transform .9s cubic-bezier(.2,.9,.1,1); }
-.rot em.on { opacity: 1; transform: none; }
+.rot em { grid-area: 1 / 1; font-style: normal; color: var(--sig); opacity: 0; transform: translateY(.3em); transition: opacity .2s ease, transform .3s ease; }
+.rot em.on { opacity: 1; transform: none; transition: opacity .55s ease .24s, transform .8s cubic-bezier(.2,.9,.1,1) .2s; }
 .acts { display: flex; gap: 12px; flex-wrap: wrap; }
 .aside { font-size: 14px; color: var(--mist); }
 .aside a { color: var(--glacier); }
