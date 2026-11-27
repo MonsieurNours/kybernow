@@ -40,4 +40,4 @@ Documentation exists in French (`*.md`, the source) and in English (`*.en.md`, n
 
 KyberNow uses [Kyber](https://kyber.tech), a free, open-source streaming engine (AGPL-3.0) built by VLC developers. KyberNow is a community, non-commercial project, developed by Les Lignes Claires; it is neither published nor endorsed by the Kyber team, and is not affiliated with it.
 
-Licence: AGPL-3.0-or-later.
+Licence: AGPL-3.0-or-later (full text in [LICENSE](LICENSE)).
