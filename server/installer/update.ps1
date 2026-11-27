@@ -20,8 +20,12 @@
 #     (ex. http://192.168.1.105:8000) avant la commande ci-dessus.
 #
 # Comme Admin, le script refuse, avant d'arreter quoi que ce soit, une
-# version qui exige l'installateur ou une Station trop ancienne pour le
-# paquet (requirements.json du paquet).
+# version qui exige l'installateur, une Station trop ancienne pour le
+# paquet (requirements.json du paquet), et une version qui n'est pas plus
+# recente que celle installee (sauf -Force, pour reinstaller ou revenir en
+# arriere : & ([scriptblock]::Create((irm .../update.ps1))) -Force).
+# Une seule installation a la fois (verrou Global\KyberNowUpdate, partage
+# avec Admin et l'installateur).
 #
 # Bascule sans etat intermediaire : les nouveaux fichiers sont prepares dans
 # kyber.new, admin.new et tray.new, puis chaque dossier est renomme
@@ -31,7 +35,7 @@
 # C:\ProgramData\KyberNow\update\resultat.json (lu par la console). Quoi qu'il
 # arrive, les services et l'icone sont relances a la fin.
 # Fichier en ASCII : PowerShell 5 lit les scripts telecharges en ANSI.
-param([string]$Source)
+param([string]$Source, [switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 # Sans barre de progression : Invoke-WebRequest et Expand-Archive de
@@ -49,7 +53,8 @@ $asSystem = [Security.Principal.WindowsIdentity]::GetCurrent().IsSystem
 $sddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)'
 # Dossiers remplaces, dans l'ordre de la bascule.
 $parts = 'kyber', 'admin', 'tray'
-$kyberProcesses = 'kyavserver', 'kycontroller', 'kynputserver', 'kyclient', 'kyservice', 'kyber-admin'
+# Meme liste que server/admin/src/update/windows_common.rs (KYBER_PROCESSES, compares par un essai), plus la console.
+$kyberProcesses = 'kyavserver', 'kycontroller', 'kynputserver', 'kyclient', 'kyservice', 'kybernow-micro', 'kybernow-camera', 'kyber-admin'
 
 # Ecrit un fichier texte en UTF-8 sans BOM (serde_json refuse le BOM de Set-Content).
 function Write-Utf8([string]$Path, [string]$Text) {
@@ -114,7 +119,24 @@ function Stop-KyberNow {
         if (Get-Service $s -ErrorAction SilentlyContinue) { Stop-Service $s -Force -ErrorAction SilentlyContinue }
     }
     Get-Process $kyberProcesses -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    # Camera de Windows 11 : Frame Server tient sa source (sous kyber\) ; Windows le relance a la demande.
+    foreach ($s in 'FrameServerMonitor', 'FrameServer') {
+        if (Get-Service $s -ErrorAction SilentlyContinue) { Stop-Service $s -Force -ErrorAction SilentlyContinue }
+    }
     Start-Sleep -Seconds 2
+}
+
+# Marqueur de bascule (update\bascule.json), lu par Admin a son demarrage :
+# une coupure pendant les renommages y est rattrapee. Meme format que le
+# marqueur de l'applicateur d'Admin (version, old_suffix, parts).
+function Write-SwitchMarker([string]$Version) {
+    New-Item -ItemType Directory -Force $updates | Out-Null
+    $items = foreach ($p in $parts) { '["' + $p + '","' + ((Join-Path $dir "$p.new") -replace '\\', '\\') + '"]' }
+    Write-Utf8 (Join-Path $updates 'bascule.json') ('{"version":"' + $Version + '","old_suffix":"prev","parts":[' + ($items -join ',') + ']}')
+}
+
+function Remove-SwitchMarker {
+    Remove-Item -LiteralPath (Join-Path $updates 'bascule.json') -Force -ErrorAction SilentlyContinue
 }
 
 # Port de la console : kyber-admin.toml (listen), sinon kybernow.json, sinon 9443.
@@ -255,8 +277,17 @@ $trayWasRunning = $false
 $swapped = New-Object System.Collections.ArrayList
 $failure = $null
 $rolledBack = $false
+$mutex = $null
 
 try {
+    $mutex = New-Object System.Threading.Mutex($false, 'Global\KyberNowUpdate')
+    $owned = $false
+    try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+    if (-not $owned) {
+        $mutex.Dispose()
+        $mutex = $null
+        throw 'une autre installation de KyberNow Station est deja en cours'
+    }
     if ($Source) {
         $pkg = $Source
     } else {
@@ -282,6 +313,10 @@ try {
     $version = Get-PackageVersion $pkg
     Write-Host "==> KyberNow Station $version"
     Assert-Requirements $pkg $version
+    $installed = Get-InstalledVersion
+    if ($installed -and -not $Force -and ([version]$version -le [version]$installed)) {
+        throw "la version $version n'est pas plus recente que celle installee ($installed) : relancez avec -Force pour la reinstaller"
+    }
     $french = Test-French
 
     Write-Host '==> Arret du serveur Kyber, de KyberNow Admin, puis de l''icone'
@@ -315,6 +350,7 @@ try {
     Flush-Volume $dir
 
     Write-Host '==> Bascule (les dossiers precedents restent en .prev)'
+    Write-SwitchMarker $version
     foreach ($p in $parts) {
         $cur = Join-Path $dir $p
         $had = Test-Path $cur
@@ -326,6 +362,7 @@ try {
     $prevLog = Join-Path $dir 'kyber.prev\log'
     if ((Test-Path $prevLog) -and -not (Test-Path (Join-Path $dir 'kyber\log'))) { Move-Item -LiteralPath $prevLog (Join-Path $dir 'kyber\log') }
     Flush-Volume $dir
+    Remove-SwitchMarker
 
     Write-Host '==> Droits des services (l''icone les demarre et les arrete sans droits administrateur)'
     foreach ($s in 'kyber', 'kyber-admin') {
@@ -424,6 +461,8 @@ try {
     $failure = $_.Exception.Message
     Write-Host "ERREUR : $failure"
     Write-Host $_.ScriptStackTrace
+    # Le retour arriere ci-dessous suit son propre chemin (.bad) : le marqueur n'en dit rien.
+    Remove-SwitchMarker
     if ($swapped.Count -gt 0) {
         Write-Host '==> Retour a la version precedente'
         try {
@@ -469,6 +508,10 @@ try {
         }
     }
     # Mise a jour a la main : le paquet telecharge ne sert plus.
+    if ($mutex) {
+        $mutex.ReleaseMutex()
+        $mutex.Dispose()
+    }
     if (-not $Source -and $pkg) { Remove-Item $pkg, "$pkg.zip", "$pkg.sums" -Recurse -Force -ErrorAction SilentlyContinue }
     # Paquets des mises a jour : les deux plus recents restent.
     if (Test-Path $updates) {

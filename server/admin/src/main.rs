@@ -728,7 +728,25 @@ impl AppState {
     }
 }
 
+/// Une panique laisse des verrous empoisonnés : Admin resterait vivant mais
+/// inutilisable. Elle est écrite dans le journal (`kyber-admin.log`, pas
+/// seulement sur la sortie d'erreur), puis Admin s'arrête en échec : le
+/// gestionnaire de services le relance (Windows : actions de relance du
+/// service ; Linux : `Restart=on-failure` ; Mac : `KeepAlive`).
+fn panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let place = info.location().map(|l| format!(" ({}:{})", l.file(), l.line())).unwrap_or_default();
+        let what = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        let thread = std::thread::current().name().unwrap_or("sans nom").to_string();
+        tracing::error!("panique dans le fil {thread}{place} : {what} ; KyberNow Admin s'arrête pour être relancé");
+        default(info);
+        std::process::exit(101);
+    }));
+}
+
 fn main() -> Result<()> {
+    panic_hook();
     let cli = Cli::parse();
     let data_dir = cli.run.data_dir.clone().unwrap_or_else(settings::default_data_dir);
 
@@ -881,6 +899,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("création de {}", data_dir.display()))?;
     update::secure_data_dir(&data_dir);
+    // Mise à jour interrompue pendant la bascule des dossiers (coupure, gel) :
+    // finie ou défaite avant tout le reste (Windows).
+    update::at_start(&data_dir);
     let settings = Settings::load(&data_dir)?;
 
     let kyber_dir = args

@@ -59,9 +59,28 @@ fn install() -> Result<()> {
         .create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START)
         .context("création du service")?;
     service.set_description(DESCRIPTION)?;
+    set_failure_actions(&service);
     service.start::<&str>(&[]).context("démarrage du service")?;
     println!("Service {SERVICE_NAME} installé et démarré.");
     Ok(())
+}
+
+/// Relance automatique après un arrêt anormal ou en échec (panique) : à 5 s,
+/// 5 s puis 30 s, compteur remis à zéro au bout d'un jour. Reposée à chaque
+/// démarrage d'Admin (`update::apply`), comme celle de `kyber`.
+fn set_failure_actions(service: &windows_service::service::Service) {
+    use windows_service::service::{ServiceAction, ServiceActionType, ServiceFailureActions, ServiceFailureResetPeriod};
+    let restart = |secs| ServiceAction { action_type: ServiceActionType::Restart, delay: Duration::from_secs(secs) };
+    let actions = ServiceFailureActions {
+        reset_period: ServiceFailureResetPeriod::After(Duration::from_secs(86400)),
+        reboot_msg: None,
+        command: None,
+        actions: Some(vec![restart(5), restart(5), restart(30)]),
+    };
+    if let Err(e) = service.update_failure_actions(actions) {
+        eprintln!("relance automatique du service non posée : {e}");
+    }
+    let _ = service.set_failure_actions_on_non_crash_failures(true);
 }
 
 fn uninstall() -> Result<()> {
@@ -98,6 +117,8 @@ fn service_main(_args: Vec<OsString>) {
     crate::init_logging(Some(data_dir.join("kyber-admin.log")));
     if let Err(e) = run_service() {
         tracing::error!("kyber-admin s'est arrêté sur une erreur : {e:#}");
+        // Arrêt en échec : le gestionnaire de services relance Admin.
+        std::process::exit(1);
     }
 }
 

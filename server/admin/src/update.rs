@@ -34,6 +34,8 @@ pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod manifest;
+/// Listes partagées avec l'installateur de la Station Windows.
+pub mod windows_common;
 
 pub use manifest::Channel;
 use manifest::{Manifest, Refusal};
@@ -152,6 +154,24 @@ fn install_dir() -> PathBuf {
             admin.file_name().is_some_and(|n| n.eq_ignore_ascii_case("admin")).then(|| admin.parent().map(Path::to_path_buf)).flatten()
         })
         .unwrap_or_else(apply::default_install_dir)
+}
+
+/// Au démarrage d'Admin (Windows) : relance automatique des services reposée,
+/// bascule interrompue reprise, restes de `.staging` effacés.
+pub fn at_start(data_dir: &Path) {
+    #[cfg(windows)]
+    {
+        let layout = apply::Layout { install: install_dir(), data: data_dir.to_path_buf() };
+        if let Some(r) = apply::at_start(&layout) {
+            if r.failed.is_empty() {
+                tracing::warn!("bascule vers {} interrompue, {} au démarrage", r.version, if r.forward { "terminée" } else { "défaite" });
+            } else {
+                tracing::error!("bascule vers {} interrompue : dossiers non remis ({})", r.version, r.failed.join(", "));
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = data_dir;
 }
 
 pub fn current() -> &'static str {
@@ -387,33 +407,35 @@ impl Updater {
 
     /// Télécharge, vérifie et lance l'installation (la console s'arrête ensuite).
     pub fn install(&self) -> Result<String> {
-        let release = {
+        // Vérifiée et réservée dans la même prise du verrou : deux « Installer »
+        // presque simultanés (Admin, icône, app) ne partent jamais tous les deux.
+        let (release, channel) = {
             let mut s = self.state.lock().unwrap();
             self.reap(&mut s);
             if s.installing.is_some() {
                 bail!(Msg::new("update.alreadyInstalling"));
             }
-            s.latest.clone().ok_or_else(|| Msg::new("update.noKnownVersion"))?
-        };
-        if !newer(&release.version, current()) {
-            bail!(Msg::new("update.upToDate").with("version", current()));
-        }
-        if let Some(refusal) = &release.refusal {
-            bail!(refusal.message().clone());
-        }
-        let (Some(package), Some(manifest_url), Some(signature_url)) = (&release.package, &release.manifest_url, &release.signature_url) else {
-            bail!(Msg::new("update.noSignedPackage").with("version", release.version.as_str()));
-        };
-        if !valid_version(&release.version) {
-            bail!(Msg::new("update.badVersion").with("version", release.version.as_str()));
-        }
-        let channel = self.channel();
-        {
-            let mut s = self.state.lock().unwrap();
+            let release = s.latest.clone().ok_or_else(|| Msg::new("update.noKnownVersion"))?;
+            if !newer(&release.version, current()) {
+                bail!(Msg::new("update.upToDate").with("version", current()));
+            }
+            if let Some(refusal) = &release.refusal {
+                bail!(refusal.message().clone());
+            }
+            if release.package.is_none() || release.manifest_url.is_none() || release.signature_url.is_none() {
+                bail!(Msg::new("update.noSignedPackage").with("version", release.version.as_str()));
+            }
+            if !valid_version(&release.version) {
+                bail!(Msg::new("update.badVersion").with("version", release.version.as_str()));
+            }
             s.installing = Some(release.version.clone());
             s.install_error = None;
             s.last_failure = None;
-        }
+            (release, s.channel)
+        };
+        let (Some(package), Some(manifest_url), Some(signature_url)) = (&release.package, &release.manifest_url, &release.signature_url) else {
+            unreachable!("adresses vérifiées sous le verrou")
+        };
         let _ = std::fs::remove_file(&self.results);
         let result = self.download_and_launch(&release.version, channel, package, manifest_url, signature_url);
         let mut s = self.state.lock().unwrap();
@@ -454,8 +476,9 @@ impl Updater {
         let zip = dir.join(package());
         let expected = manifest.file(package())?;
         tracing::info!("mise à jour {version} : téléchargement ({} octets)", expected.size);
-        // Jamais plus que la taille annoncée par le manifeste signé.
-        crate::durable::write(&zip, get(package_url, expected.size + 1)?)?;
+        // Jamais plus que la taille annoncée par le manifeste signé ; écrit au
+        // fil de l'eau (pas tout en mémoire), avec un délai à la mesure du paquet.
+        download_to(package_url, &zip, expected.size)?;
         manifest.check_file(package(), &zip)?;
         tracing::info!("mise à jour {version} : paquet vérifié (signature, taille, empreinte), installation");
         // Linux : le paquet de la version qui tourne, pour le retour arrière,
@@ -558,7 +581,7 @@ impl Updater {
         }
         let expected = manifest.file(package())?;
         let path = dir.join(package());
-        crate::durable::write(&path, get(package_url, expected.size + 1)?)?;
+        download_to(package_url, &path, expected.size)?;
         manifest.check_file(package(), &path)?;
         crate::durable::write(&dir.join(manifest::MANIFEST), &json)?;
         crate::durable::write(&dir.join(manifest::SIGNATURE), &signature)?;
@@ -628,6 +651,43 @@ fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
     let failed = |e: ureq::Error| i18n::because(Msg::new("update.download").with("url", url), &e.into());
     let mut resp = agent().get(url).call().map_err(failed)?;
     resp.body_mut().with_config().limit(limit).read_to_vec().map_err(failed)
+}
+
+/// Délai accordé au téléchargement d'un paquet de `size` octets : 10 min au
+/// moins, et de quoi le recevoir à 32 Kio/s (environ 256 kbit/s). L'ancien
+/// délai de 120 s au total faisait échouer toute connexion sous 4 Mbit/s.
+pub fn package_timeout(size: u64) -> Duration {
+    Duration::from_secs((size / (32 * 1024)).max(600))
+}
+
+/// Télécharge `url` dans `path` (fichier temporaire forcé sur le disque, puis
+/// renommé), sans jamais lire plus de `size` octets.
+fn download_to(url: &str, path: &Path, size: u64) -> Result<()> {
+    use std::io::Write as _;
+    let failed = |e: ureq::Error| i18n::because(Msg::new("update.download").with("url", url), &e.into());
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(30)))
+        .timeout_recv_response(Some(Duration::from_secs(60)))
+        .timeout_recv_body(Some(package_timeout(size)))
+        .user_agent(format!("kyber-admin/{}", current()))
+        .build()
+        .into();
+    let mut resp = agent.get(url).call().map_err(failed)?;
+    let part = path.with_extension("part");
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::File::create(&part)?;
+        let mut reader = resp.body_mut().with_config().limit(size + 1).reader();
+        std::io::copy(&mut reader, &mut file).map_err(|e| i18n::because(Msg::new("update.download").with("url", url), &e.into()))?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        crate::durable::rename(&part, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    result
 }
 
 /// Version la plus récente du canal parmi les dernières publiées : en stable,
