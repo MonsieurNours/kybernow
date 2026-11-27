@@ -539,16 +539,52 @@ impl InputPipeline {
     /// pas l'état des axes. Sans effet sans [`Self::install_gamepad_gate`].
     pub fn set_gamepad_captured(&self, captured: bool) {
         let Some(gate) = self.gate.get() else { return };
+        let was = gate.captured();
         if !gate.set_captured(captured) {
+            if was && !captured {
+                self.gamepads_given_back();
+            }
             return;
         }
         for id in self.combo.pads() {
             for button in self.combo.pressed(id) {
                 self.reliably(Self::button_packet(id, button, false), "manette");
             }
+            {
+                // L'ordinateur a ses axes au repos : la file des axes le sait
+                // aussi (sinon un stick tenu jusqu'à la fermeture de la barre
+                // ne repartait pas, COEUR-11).
+                let mut axes = self.axes.lock().unwrap();
+                axes.pending.remove(&id);
+                let last = axes.last.entry(id).or_default();
+                for axis in PadAxis::ALL {
+                    last.insert(axis, 0);
+                }
+            }
             for axis in PadAxis::ALL {
                 gate.note_axis(id, axis.to_u32(), 0);
                 self.reliably(Self::axis_packet(id, axis, 0), "axe de manette");
+            }
+        }
+    }
+
+    /// La barre se ferme : les axes tenus pendant la prise repartent tels que
+    /// le lecteur de manettes du cœur les connaît (SDL n'émet rien pour un
+    /// stick immobile).
+    fn gamepads_given_back(&self) {
+        for id in self.combo.pads() {
+            {
+                let mut axes = self.axes.lock().unwrap();
+                let last = axes.last.entry(id).or_default();
+                for axis in PadAxis::ALL {
+                    last.insert(axis, 0);
+                }
+            }
+            let held = crate::gamepads::global().axes(id);
+            for (axis, value) in PadAxis::ALL.into_iter().zip(held) {
+                if value != 0 {
+                    self.gamepad_axis(id, axis, value);
+                }
             }
         }
     }
@@ -1673,6 +1709,29 @@ mod tests {
         assert!(b.host.received().is_empty(), "refusé");
         b.elapse(4);
         assert_eq!(b.host.received(), [axis(PadAxis::RightX, 5000)], "représenté à la tranche suivante");
+    }
+
+    /// COEUR-11 : un stick tenu pendant que la barre est ouverte repart à sa
+    /// fermeture, à la valeur que connaît le lecteur de manettes.
+    #[test]
+    fn stick_tenu_pendant_la_barre() {
+        let b = Bench::new();
+        b.pipeline.install_gamepad_gate();
+        let id: PadId = 91_234;
+        crate::gamepads::global().plug(id, None, None);
+        b.pipeline.combo.note(id);
+        crate::gamepads::global().axis(id, PadAxis::LeftX, 20_000);
+        b.pipeline.gamepad_axis(id, PadAxis::LeftX, 20_000);
+        b.elapse(4);
+        b.pipeline.set_gamepad_captured(true);
+        // Pendant la prise, le stick reste à fond (la barrière de kynput jette
+        // ces paquets ; ici, rien ne bouge plus).
+        b.host.clear();
+        b.pipeline.set_gamepad_captured(false);
+        b.elapse(4);
+        let axis = format!("axe {id} {} 20000", PadAxis::LeftX.to_u32());
+        assert_eq!(b.host.received(), [axis], "valeur tenue renvoyée à la fermeture");
+        crate::gamepads::global().unplug(id);
     }
 
     #[test]
