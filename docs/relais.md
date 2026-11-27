@@ -126,6 +126,7 @@ Sur TCP, le relais regarde le début de chaque connexion TLS :
 | `GET /privacy` | Ce que le relais voit et garde (français ou anglais) |
 | `GET /assets/<fichier>?v=<version>` | Feuille de styles, polices, logo et favicon de la page, embarqués dans le binaire ; gardés un an (`immutable`, l'adresse porte la version) ; fichier inconnu : page « introuvable » |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}` ; les apps iPhone et iPad l'appellent avant d'ouvrir le tunnel (réveil de la radio cellulaire) |
+| `POST /v1/journal`, `GET /v1/journal/{id}`, `GET /v1/journal/{id}/state`, `DELETE /v1/journal/{id}`, `GET /journal/{id}` | Le dépôt d'un journal chiffré et sa page (« Dépôt d'un journal ») |
 | `https://<id>.share…/*` | Mandataire HTTP/1.1 vers Admin de la Station (WebSocket compris) ; Station absente : page « ordinateur injoignable » (503) |
 
 Les pages du relais (sauf celle d'un journal, voir « Dépôt d'un journal ») n'ont ni script, ni cookie, ni mesure d'audience, et ne chargent rien d'un autre site : politique de contenu `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. Elles n'écrivent jamais l'adresse du relais (chemins relatifs) : la même page sert sur le port d'écoute du relais et sur son port public (`https://share.kybernow.app`, sans port au 443). Détails : [server/relay/README.md](../server/relay/README.md#la-page-daccueil).
@@ -300,7 +301,7 @@ Une Station fait suivre la partie d'une console PlayStation de son réseau (cont
 
 ## Dépôt d'un journal
 
-État : contrat du 27/11/2026, décidé par l'auteur ; le relais et les apps le réaliseront (phase 2b de l'audit). Textes et étapes à l'écran : [link-ui.md](link-ui.md), « Réglages de l'app › À propos ».
+État : contrat du 27/11/2026, décidé par l'auteur ; réalisé dans le relais 0.11.8 (`server/relay/src/journal.rs`, la page et son script `assets/journal.js`) ; les apps le réalisent dans la phase 2b de l'audit, contre le format, les routes et les vecteurs d'essai ci-dessous. Textes et étapes à l'écran : [link-ui.md](link-ui.md), « Réglages de l'app › À propos ».
 
 Un téléviseur (Apple TV, Android TV, LG), Link OS, le Steam Deck en mode Jeu et l'app Linux au salon n'ont pas de feuille de partage : « Envoyer le journal » y passe par le relais et un QR code. **Le relais ne lit jamais le journal** : il est chiffré sur l'appareil avec une clé qui ne quitte l'appareil que dans le QR code, après `#` dans l'adresse, partie que le navigateur du téléphone n'envoie jamais au serveur.
 
@@ -312,6 +313,35 @@ Un téléviseur (Apple TV, Android TV, LG), Link OS, le Steam Deck en mode Jeu e
 6. **Suivi par l'appareil** : `GET /v1/journal/<id>/state` avec l'en-tête `x-kn-owner: <jeton>` rend `{"state":"waiting"}` ou `{"state":"opened"}` (`404` une fois expiré) ; l'écran du QR code le relit toutes les 2 s. `DELETE /v1/journal/<id>` avec le même en-tête retire un dépôt pas encore ouvert (« Terminé »).
 
 Ce que le relais garde : les dépôts en mémoire seulement, jamais sur disque, une heure au plus ; leur taille et l'heure. Ses journaux ne contiennent ni l'identifiant d'un dépôt ni son jeton (comme les codes) ; la clé, il ne la voit jamais. Limites : 2 Mio et 64 octets par dépôt, 6 dépôts par heure par adresse (un /64 en IPv6), 256 Mio en tout (au-delà, `503`). La page du journal est la seule page du relais qui a un script : `script-src 'self'` et `connect-src 'self'` s'ajoutent, pour elle seule, à la politique de contenu ci-dessus ; le script est embarqué dans le binaire, comme les feuilles de styles, et ne charge rien d'un autre site. La page de confidentialité (`/privacy`) dit ce dépôt.
+
+### Précisions du relais
+
+Ce que le relais fait en plus, sans rien changer à ce qui précède :
+
+- **Chiffrement** : AES-256-GCM sans données associées ; une clé et un nonce tirés au hasard à chaque dépôt (jamais une clé pour deux dépôts).
+- **Refus en plus** : `400 {"error":"bad_request"}` (moins de 32 octets, ou sans la marque `KNJ1`), `408 {"error":"timeout"}` (corps pas arrivé en 60 s), `405 {"error":"method_not_allowed"}`. Un `Content-Length` au-delà de la limite est refusé (`413`) avant que le corps parte : l'app vérifie la taille avant d'envoyer. Chaque essai compte dans les 6 par heure, sauf un `503`.
+- **Plafond** : 4 096 dépôts gardés en même temps au plus (les ouverts comptent jusqu'à leur échéance) ; au-delà, `503 full`, comme au-delà de 256 Mio.
+- **Usage unique** : « envoyé en entier », c'est le dernier octet remis à la connexion. Un envoi interrompu (le téléphone perd le réseau) laisse le dépôt, que le téléphone peut redemander dans l'heure.
+- **Jeton faux ou dépôt inconnu** : `404 {"error":"gone"}` pour `state` comme pour `DELETE` (le relais ne dit pas lequel). `DELETE` d'un dépôt déjà ouvert efface aussi son état (`204`).
+- **La ligne de la page** : le script lit, dans les 4 premiers Kio du journal déchiffré, `Appareil : …` (ou `Device: …`) et `Journal écrit le …` (ou `Log written on …`), comme l'en-tête du journal d'Android ; une ligne absente est omise. La taille est celle du texte décompressé. Les apps écrivent ces deux lignes au début du journal.
+- **La page** : la clé quitte l'adresse affichée et l'historique dès l'ouverture (`history.replaceState`) ; recharger la page demande de scanner de nouveau. Il faut WebCrypto et `DecompressionStream` (Safari 16.4, Chrome 80, Firefox 113) ; sinon, « Ce journal n'a pas pu être ouvert ». Une seule requête, vers ce relais, sans cookie.
+- **Métriques** : `relay_journals_total{result}` (`stored`, `opened`, `too_large`, `bad`, `too_many`, `full`), `relay_journals_waiting`, `relay_journal_bytes`.
+
+### Vecteurs d'essai KNJ1
+
+Pour qu'une app vérifie son chiffrement sans relais. La compression d'une autre bibliothèque donne d'autres octets que ceux-ci (en-tête gzip, niveau) : essayez le chiffrement sur l'entrée donnée, et la compression par un aller-retour.
+
+| | Valeur |
+|---|---|
+| Clé (hex) | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
+| Clé dans le QR code (`#k=`) | `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8` |
+| Nonce (hex) | `a0a1a2a3a4a5a6a7a8a9aaab` |
+| Journal en clair (UTF-8, 98 octets, quatre lignes finies par `\n`) | `KyberNow Link 0.11.8` · `Appareil : Essai KNJ1` · `Journal écrit le 2026-11-27 12:00:00.000 UTC` · `Bonjour.` |
+| Entrée : le journal en gzip (hex, 115 octets) | `1f8b08000000000002fff3ae4c4a2df2cb2f57f0c9cccb5630d03334d4b3e0722c28482c4acdcc51b052702d2e4ecc54f0f6f332e4f2ca2f2dca4bcc5138bc32b928b344212755c1c8c0c84cd7d050d7c85cc1d0c8cac00088f40c0c0c1442439cb99cf2f3b2801af4b800b1b88fb162000000` |
+| Sortie : le dépôt `KNJ1` (hex, 147 octets) | `4b4e4a31a0a1a2a3a4a5a6a7a8a9aaabf993742d45cb02bf609a747d4b30ed2cbb830ee05b7b893aacde15b2ab189573fe5e0fd3e5ef9f6cefce74e527344fadb7edb57a8622d0516c944092f54839820d94362b1182b1213c223754581e9c6d05576a740d0b597a66813296bd8e0fd7133db759f01c0f816a6306e13d075c4a2450614699bf3b2059e75ad4459d934d121ce0` |
+| Ligne montrée par la page (en français) | `Essai KNJ1 · 98 o · 2026-11-27 12:00:00.000 UTC` |
+
+Vérifiés par `journal::tests::vecteur_d_essai_knj1` (AES-GCM de ring, dans les deux sens), par `tests/journal.rs` (le dépôt de bout en bout sur un relais de la boucle locale) et par le script de la page, déchiffré sous Node avec WebCrypto.
 
 ## Confiance
 

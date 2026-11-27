@@ -387,6 +387,28 @@ pub async fn https_body(relay: &Relay, roots: &Arc<RootCertStore>, name: &str, m
     request_body(tls, name, method, path, extra, body).await
 }
 
+/// Une requête HTTPS au relais, corps et réponse en octets (les dépôts de journal).
+pub async fn https_bytes(relay: &Relay, roots: &Arc<RootCertStore>, method: &str, path: &str, extra: &[(&str, &str)], body: Vec<u8>) -> std::io::Result<(u16, hyper::HeaderMap, Bytes)> {
+    let tcp = TcpStream::connect(relay.addr).await?;
+    let mut cfg = rustls::ClientConfig::builder_with_provider(kybernow_tunnel::tls::provider())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots.clone())
+        .with_no_client_auth();
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from(DOMAIN.to_string()).unwrap(), tcp).await?;
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await.map_err(std::io::Error::other)?;
+    tokio::spawn(conn);
+    let mut b = Request::builder().method(method).uri(path).header("host", DOMAIN);
+    for (k, v) in extra {
+        b = b.header(*k, *v);
+    }
+    let resp = sender.send_request(b.body(Full::new(Bytes::from(body))).unwrap()).await.map_err(std::io::Error::other)?;
+    let (status, headers) = (resp.status().as_u16(), resp.headers().clone());
+    let body = resp.into_body().collect().await.map_err(std::io::Error::other)?.to_bytes();
+    Ok((status, headers, body))
+}
+
 pub async fn request<S>(io: S, host: &str, method: &str, path: &str, extra: &[(&str, &str)]) -> std::io::Result<Http>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,

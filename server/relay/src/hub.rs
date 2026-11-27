@@ -289,6 +289,8 @@ pub struct Hub {
     pub link_port: AtomicU16,
     /// Les comptes KyberNow (`[accounts] enabled`), servis sous `/compte/…`.
     pub accounts: Option<Arc<Accounts>>,
+    /// Les journaux déposés (`/v1/journal`), en mémoire.
+    pub journals: Arc<crate::journal::Journals>,
 }
 
 /// Une connexion de navigateur comptée tant qu'elle vit.
@@ -365,6 +367,7 @@ impl Hub {
             next_media: AtomicU64::new(1),
             cap,
             accounts,
+            journals: Arc::new(crate::journal::Journals::new()),
         });
         // Les comptes envoient `attached` et `detached` aux Stations par le hub.
         if let Some(accounts) = &hub.accounts {
@@ -390,6 +393,7 @@ impl Hub {
     pub fn gauges(&self) -> Gauges {
         let stations = self.stations.lock().unwrap();
         let clients = self.clients.lock().unwrap();
+        let (journals, journal_bytes) = self.journals.usage();
         let avg = |rtts: Vec<Duration>| (!rtts.is_empty()).then(|| rtts.iter().map(Duration::as_secs_f64).sum::<f64>() / rtts.len() as f64);
         Gauges {
             stations_quic: stations.values().filter(|s| s.conn.transport() == Transport::Quic).count(),
@@ -398,6 +402,8 @@ impl Hub {
             clients_web: self.web_clients.load(Ordering::Relaxed),
             sessions: clients.values().filter(|c| !c.flows.lock().unwrap().is_empty()).count(),
             codes: self.codes.lock().unwrap().active(Instant::now()),
+            journals,
+            journal_bytes,
             rtt_station: avg(stations.values().filter_map(|s| s.conn.rtt()).collect()),
             rtt_client: avg(clients.values().filter_map(|c| c.conn.rtt()).collect()),
             cert_expiry: self.certs.expires_in(),
@@ -410,6 +416,7 @@ impl Hub {
         self.lookups.lock().unwrap().sweep(now);
         self.station_hellos.lock().unwrap().sweep(now);
         self.codes.lock().unwrap().sweep(now);
+        self.journals.sweep(now);
     }
 
     // --- Codes ---------------------------------------------------------------

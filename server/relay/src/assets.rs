@@ -1,5 +1,5 @@
 //! Les fichiers servis sous `/assets/` : la feuille de styles, les polices, le
-//! logo et le favicon, embarqués dans le binaire (l'image Docker ne voit que
+//! logo, le favicon et les trois scripts écrits à la main (passkeys, fuseau, journal), embarqués dans le binaire (l'image Docker ne voit que
 //! `server/relay`). Les copies viennent de `scripts/relay-assets.py` (jetons de
 //! la charte, polices réduites au latin) et de `brand/v2/tools/generate.mjs`
 //! (logo, favicon) ; `share.css` est écrit à la main.
@@ -21,6 +21,8 @@ const FAVICON: &str = include_str!("../assets/kybernow-favicon.svg");
 pub const MAIL_LOGO: &[u8] = include_bytes!("../assets/kybernow-share-mail.png");
 /// Le seul script des pages : les passkeys des comptes (lot 1b), écrit à la main.
 const PASSKEY_JS: &str = include_str!("../assets/passkey.js");
+/// La page d'un journal déposé : déchiffrer et décompresser dans le navigateur, écrit à la main.
+const JOURNAL_JS: &str = include_str!("../assets/journal.js");
 /// Le fuseau du navigateur pour les dates de fin (REL-29), écrit à la main.
 const TZ_JS: &str = include_str!("../assets/tz.js");
 
@@ -34,14 +36,14 @@ pub struct Asset {
 }
 
 /// Les noms servis sous `/assets/`.
-pub const NAMES: [&str; 8] = ["share.css", "archivo.woff2", "martian-mono.woff2", "kybernow-share-dark.svg", "kybernow-favicon.svg", "passkey.js", "tz.js", "kybernow-share-mail.png"];
+pub const NAMES: [&str; 9] = ["share.css", "archivo.woff2", "martian-mono.woff2", "kybernow-share-dark.svg", "kybernow-favicon.svg", "passkey.js", "tz.js", "journal.js", "kybernow-share-mail.png"];
 
 /// Les huit premiers chiffres hexadécimaux du SHA-256 des fichiers.
 pub fn version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         let mut input = Vec::new();
-        for part in [TOKENS.as_bytes(), STYLE.as_bytes(), ARCHIVO, MARTIAN_MONO, LOGO.as_bytes(), FAVICON.as_bytes(), PASSKEY_JS.as_bytes(), TZ_JS.as_bytes()] {
+        for part in [TOKENS.as_bytes(), STYLE.as_bytes(), ARCHIVO, MARTIAN_MONO, LOGO.as_bytes(), FAVICON.as_bytes(), PASSKEY_JS.as_bytes(), TZ_JS.as_bytes(), JOURNAL_JS.as_bytes()] {
             input.extend_from_slice(&(part.len() as u64).to_le_bytes());
             input.extend_from_slice(part);
         }
@@ -70,6 +72,7 @@ pub fn get(name: &str) -> Option<Asset> {
         "kybernow-favicon.svg" => ("image/svg+xml", FAVICON.as_bytes()),
         "passkey.js" => ("text/javascript; charset=utf-8", PASSKEY_JS.as_bytes()),
         "tz.js" => ("text/javascript; charset=utf-8", TZ_JS.as_bytes()),
+        "journal.js" => ("text/javascript; charset=utf-8", JOURNAL_JS.as_bytes()),
         "kybernow-share-mail.png" => ("image/png", MAIL_LOGO),
         _ => return None,
     };
@@ -118,5 +121,19 @@ mod tests {
         }
         assert!(PASSKEY_JS.contains("navigator.credentials.create") && PASSKEY_JS.contains("navigator.credentials.get"));
         assert!(PASSKEY_JS.len() < 6_000, "passkey.js : {} octets", PASSKEY_JS.len());
+    }
+
+    #[test]
+    fn le_script_du_journal_ne_parle_qu_au_relais() {
+        // Une seule requête, vers le relais qui sert la page, sans cookie ; la clé n'est jamais
+        // écrite dans une adresse, un stockage ou une requête.
+        for bad in ["http:", "https:", "XMLHttpRequest", "import ", "eval(", "innerHTML", "localStorage", "sessionStorage", "document.cookie", "sendBeacon"] {
+            assert!(!JOURNAL_JS.contains(bad), "journal.js : {bad}");
+        }
+        assert_eq!(JOURNAL_JS.matches("fetch(").count(), 1);
+        assert!(JOURNAL_JS.contains(r#"fetch("/v1/journal/" + id, { cache: "no-store", credentials: "omit""#));
+        assert!(JOURNAL_JS.contains("history.replaceState(null, \"\", location.pathname)"), "la clé quitte l'adresse");
+        assert!(JOURNAL_JS.contains("\"kybernow-journal.txt\""));
+        assert!(JOURNAL_JS.len() < 6_000, "journal.js : {} octets", JOURNAL_JS.len());
     }
 }

@@ -126,6 +126,7 @@ On TCP, the relay looks at the start of each TLS connection:
 | `GET /privacy` | What the relay sees and keeps (French or English) |
 | `GET /assets/<file>?v=<version>` | The page's stylesheet, fonts, logo and favicon, embedded in the binary; kept for a year (`immutable`, the address carries the version); unknown file: the “not found” page |
 | `GET /v1/health` | `200 {"ok":true,"version":"…"}`; the iPhone and iPad apps call it before opening the tunnel (wakes the cellular radio) |
+| `POST /v1/journal`, `GET /v1/journal/{id}`, `GET /v1/journal/{id}/state`, `DELETE /v1/journal/{id}`, `GET /journal/{id}` | Dropping an encrypted log, and its page (“Dropping a log”) |
 | `https://<id>.share…/*` | HTTP/1.1 proxy to the Station's Admin (WebSocket included); Station absent: “computer unreachable” page (503) |
 
 The relay's pages (except a log's, see “Dropping a log”) have no script, no cookie and no audience measurement, and load nothing from another site: content policy `default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`. They never write the relay's address (relative paths): the same page serves on the relay's listening port and on its public port (`https://share.kybernow.app`, without a port at 443). Details: [server/relay/README.en.md](../server/relay/README.en.md#the-home-page).
@@ -300,7 +301,7 @@ A Station forwards the play of a PlayStation console on its network (contract: [
 
 ## Dropping a log
 
-Status: contract of 27/11/2026, decided by the author; the relay and the apps will implement it (phase 2b of the audit). On-screen texts and steps: [link-ui.en.md](link-ui.en.md), “App settings › About”.
+Status: contract of 27/11/2026, decided by the author; implemented in relay 0.11.8 (`server/relay/src/journal.rs`, the page and its script `assets/journal.js`); the apps implement it in phase 2b of the audit, against the format, routes and test vectors below. On-screen texts and steps: [link-ui.en.md](link-ui.en.md), “App settings › About”.
 
 A TV (Apple TV, Android TV, LG), Link OS, the Steam Deck in Game mode and the Linux app in the living room have no share sheet: “Send the log” goes through the relay and a QR code there. **The relay never reads the log**: it is encrypted on the device with a key that only leaves the device in the QR code, after `#` in the address, a part the phone's browser never sends to the server.
 
@@ -312,6 +313,35 @@ A TV (Apple TV, Android TV, LG), Link OS, the Steam Deck in Game mode and the Li
 6. **Followed by the device**: `GET /v1/journal/<id>/state` with the `x-kn-owner: <token>` header returns `{"state":"waiting"}` or `{"state":"opened"}` (`404` once expired); the QR code screen reads it again every 2 s. `DELETE /v1/journal/<id>` with the same header removes a drop not yet opened (“Done”).
 
 What the relay keeps: drops in memory only, never on disk, one hour at most; their size and time. Its logs contain neither a drop's identifier nor its token (like codes); the key, it never sees. Limits: 2 MiB and 64 bytes per drop, 6 drops per hour per address (a /64 in IPv6), 256 MiB in all (beyond that, `503`). The log page is the relay's only page with a script: `script-src 'self'` and `connect-src 'self'` are added, for it alone, to the content policy above; the script is embedded in the binary, like the stylesheets, and loads nothing from another site. The privacy page (`/privacy`) describes this drop.
+
+### Relay details
+
+What the relay does on top, without changing anything above:
+
+- **Encryption**: AES-256-GCM with no associated data; a key and a nonce drawn at random for every drop (never one key for two drops).
+- **More refusals**: `400 {"error":"bad_request"}` (under 32 bytes, or without the `KNJ1` mark), `408 {"error":"timeout"}` (body not arrived within 60 s), `405 {"error":"method_not_allowed"}`. A `Content-Length` over the limit is refused (`413`) before the body leaves: the app checks the size before sending. Every attempt counts towards the 6 per hour, except a `503`.
+- **Ceiling**: 4,096 drops kept at once at most (opened ones count until they expire); beyond that, `503 full`, as beyond 256 MiB.
+- **Single use**: “sent whole” means the last byte handed to the connection. An interrupted download (the phone loses the network) leaves the drop, which the phone can ask for again within the hour.
+- **Wrong token or unknown drop**: `404 {"error":"gone"}` for `state` as for `DELETE` (the relay does not say which). `DELETE` of an already opened drop also clears its state (`204`).
+- **The page's line**: the script reads, in the first 4 KiB of the decrypted log, `Appareil : …` (or `Device: …`) and `Journal écrit le …` (or `Log written on …`), like the Android log header; a missing line is left out. The size is the decompressed text's. The apps write these two lines at the start of the log.
+- **The page**: the key leaves the displayed address and the history as soon as the page opens (`history.replaceState`); reloading the page asks to scan again. It needs WebCrypto and `DecompressionStream` (Safari 16.4, Chrome 80, Firefox 113); otherwise, “This log couldn't be opened”. A single request, to this relay, without cookies.
+- **Metrics**: `relay_journals_total{result}` (`stored`, `opened`, `too_large`, `bad`, `too_many`, `full`), `relay_journals_waiting`, `relay_journal_bytes`.
+
+### KNJ1 test vectors
+
+For an app to check its encryption without a relay. Another library's compression gives other bytes than these (gzip header, level): test the encryption on the given input, and the compression by a round trip.
+
+| | Value |
+|---|---|
+| Key (hex) | `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` |
+| Key in the QR code (`#k=`) | `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8` |
+| Nonce (hex) | `a0a1a2a3a4a5a6a7a8a9aaab` |
+| Plain log (UTF-8, 98 bytes, four lines ended by `\n`) | `KyberNow Link 0.11.8` · `Appareil : Essai KNJ1` · `Journal écrit le 2026-11-27 12:00:00.000 UTC` · `Bonjour.` |
+| Input: the gzipped log (hex, 115 bytes) | `1f8b08000000000002fff3ae4c4a2df2cb2f57f0c9cccb5630d03334d4b3e0722c28482c4acdcc51b052702d2e4ecc54f0f6f332e4f2ca2f2dca4bcc5138bc32b928b344212755c1c8c0c84cd7d050d7c85cc1d0c8cac00088f40c0c0c1442439cb99cf2f3b2801af4b800b1b88fb162000000` |
+| Output: the `KNJ1` drop (hex, 147 bytes) | `4b4e4a31a0a1a2a3a4a5a6a7a8a9aaabf993742d45cb02bf609a747d4b30ed2cbb830ee05b7b893aacde15b2ab189573fe5e0fd3e5ef9f6cefce74e527344fadb7edb57a8622d0516c944092f54839820d94362b1182b1213c223754581e9c6d05576a740d0b597a66813296bd8e0fd7133db759f01c0f816a6306e13d075c4a2450614699bf3b2059e75ad4459d934d121ce0` |
+| Line shown by the page (in French) | `Essai KNJ1 · 98 o · 2026-11-27 12:00:00.000 UTC` |
+
+Checked by `journal::tests::vecteur_d_essai_knj1` (ring's AES-GCM, both ways), by `tests/journal.rs` (the drop end to end on a loopback relay) and by the page's script, decrypted under Node with WebCrypto.
 
 ## Trust
 
