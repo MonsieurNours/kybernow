@@ -339,6 +339,8 @@
     "slow": "{name} is connected but not sending a picture. Its log often says why: in Admin, System › Logs."
   },
   "bar": {
+    "more": "More",
+    "more_help": "More controls",
     "toolbar": "Session bar",
     "ctrl_alt_del": "Ctrl + Alt + Del",
     "ctrl_alt_del_hint": "lock, switch user",

@@ -339,6 +339,8 @@
     "slow": "{name} est connecté mais n'envoie pas d'image. Son journal dit souvent pourquoi : dans Admin, Système › Journaux."
   },
   "bar": {
+    "more": "Plus",
+    "more_help": "Plus de commandes",
     "toolbar": "Barre de session",
     "ctrl_alt_del": "Ctrl + Alt + Suppr",
     "ctrl_alt_del_hint": "verrouiller, changer",
