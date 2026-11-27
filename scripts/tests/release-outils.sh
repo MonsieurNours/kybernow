@@ -186,6 +186,7 @@ printf 'essai\nessai\tapps/core\n' > "$T/inconnue.tsv"
 MSG="étape sans recette construire_<id> : signalée" faux couvertes_muet "$T/inconnue.tsv"
 
 echo "== fichiers publiés : une seule liste"
+MSG="liste lue depuis un autre dossier (SHA256SUMS se calcule après un cd)" vrai test "$(cd "$T" && release_fichiers flux)" = appcast.xml
 LISTE_SH="$(release_fichiers construit copie flux station-linux | sort)"
 LISTE_PY="$(python3 -I "$ROOT/scripts/release-verifie.py" liste construit copie flux station-linux | sort)"
 MSG="release.sh et release-verifie.py (sign-manifest.sh) lisent la même liste" vrai test "$LISTE_SH" = "$LISTE_PY"

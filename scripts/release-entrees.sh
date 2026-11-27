@@ -103,7 +103,10 @@ release_libelle() { awk -F'\t' -v id="$1" '!/^#/ && $1 == id {print $2}' "$RELEA
 # Les fichiers publiés (scripts/release-fichiers.txt, lu aussi par
 # scripts/sign-manifest.sh et scripts/release-verifie.py), par groupe :
 # construit, copie (ancien nom : copie d'un autre), flux, station-linux, signature.
-RELEASE_FICHIERS_TXT="$(dirname "${BASH_SOURCE[0]}")/release-fichiers.txt"
+# Chemin absolu : release.sh lit la liste après un « cd » dans le dossier de
+# sortie (SHA256SUMS) ; relatif, le groupe « flux » revenait vide (répétition
+# de la 0.11.8 : appcast.xml absent de SHA256SUMS).
+RELEASE_FICHIERS_TXT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-fichiers.txt"
 release_fichiers() {
     local g
     for g in "$@"; do awk -v g="$g" '!/^#/ && NF >= 2 && $2 == g {print $1}' "$RELEASE_FICHIERS_TXT"; done
