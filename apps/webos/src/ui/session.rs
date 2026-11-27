@@ -254,7 +254,7 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     if let Some(e) = error {
         cv.paragraph(x + 60.0, y + 188.0, Text::new(Font::Regular, 21.0, FROST_2), e, w - 120.0, 30.0);
     }
-    widgets::secondary(cv, f, Target::Back, x + w - 260.0, y + h - 96.0, tr("Retour à l'accueil", "Back home"), 22.0);
+    widgets::secondary(cv, f, Target::Back, x + w - 260.0, y + h - 96.0, tr("Retour à l'accueil", "Back to home"), 22.0);
 }
 
 /// Santé du flux : latence, images par seconde, débit, mode, pertes.

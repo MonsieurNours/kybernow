@@ -96,17 +96,50 @@ impl Fonts {
 
     /// Largeur d'un texte, avec l'interlettrage (`tracking`, en pixels).
     pub fn width(&mut self, font: Font, size: f32, text: &str, tracking: f32) -> f32 {
+        let text = french_spacing(text);
         let mut x = 0.0;
         let mut prev: Option<char> = None;
         for c in text.chars() {
             if let Some(p) = prev {
-                x += self.fonts[&font].horizontal_kern(p, c, size).unwrap_or(0.0);
+                x += self.kern(font, p, c, size);
             }
-            x += self.glyph(font, c, size).metrics.advance_width + tracking;
+            x += self.advance(font, c, size) + tracking;
             prev = Some(c);
         }
         if prev.is_some() { x - tracking } else { 0.0 }
     }
+
+    fn kern(&self, font: Font, p: char, c: char, size: f32) -> f32 {
+        if p == THIN || c == THIN { 0.0 } else { self.fonts[&font].horizontal_kern(p, c, size).unwrap_or(0.0) }
+    }
+
+    /// L'avance d'un signe ; l'espace fine, que les polices n'ont pas : une demi-espace.
+    fn advance(&mut self, font: Font, c: char, size: f32) -> f32 {
+        if c == THIN { self.glyph(font, ' ', size).metrics.advance_width * 0.5 } else { self.glyph(font, c, size).metrics.advance_width }
+    }
+}
+
+/// Espace fine insécable (U+202F) : les polices de la charte ne l'ont pas, le canevas la dessine lui-même.
+const THIN: char = '\u{202F}';
+
+/// La typographie française à l'affichage (docs/i18n.md, TRANS-32) : l'espace (simple ou insécable) avant « : ; ! ? »
+/// devient une espace fine insécable, pour tous les textes montrés (ceux de l'app, du cœur, d'Admin) ; jamais une
+/// ligne qui commence par la ponctuation. Rien en anglais.
+pub fn french_spacing(s: &str) -> std::borrow::Cow<'_, str> {
+    if crate::i18n::english() {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut out: Option<String> = None;
+    let mut chars = s.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let thin = matches!(c, ' ' | '\u{A0}') && chars.peek().is_some_and(|&(_, n)| matches!(n, ':' | ';' | '!' | '?'));
+        if thin {
+            out.get_or_insert_with(|| s[..i].to_string()).push(THIN);
+        } else if let Some(o) = out.as_mut() {
+            o.push(c);
+        }
+    }
+    out.map_or(std::borrow::Cow::Borrowed(s), std::borrow::Cow::Owned)
 }
 
 /// Alignement horizontal d'un texte autour de `x`.
@@ -271,6 +304,7 @@ impl Canvas {
 
     /// Un texte sur une ligne ; `y` est la ligne de base. Rend la largeur.
     pub fn text(&mut self, x: f32, y: f32, style: Text, s: &str) -> f32 {
+        let s = &*french_spacing(s);
         let width = self.fonts.width(style.font, style.size, s, style.tracking);
         let mut pen = match style.align {
             Align::Left => x,
@@ -282,7 +316,12 @@ impl Canvas {
         let size = style.size;
         for c in s.chars() {
             if let Some(p) = prev {
-                pen += self.fonts.fonts[&font].horizontal_kern(p, c, size).unwrap_or(0.0);
+                pen += self.fonts.kern(font, p, c, size);
+            }
+            if c == THIN {
+                pen += self.fonts.advance(font, c, size) + style.tracking;
+                prev = Some(c);
+                continue;
             }
             // La couverture du glyphe, empruntée au cache (WEBOS-20 : plus de copie à chaque dessin).
             let g = self.fonts.glyph(font, c, size);
@@ -317,7 +356,9 @@ impl Canvas {
         let mut line = String::new();
         let mut yy = y;
         let mut lines = 0;
-        for word in s.split_whitespace() {
+        // Coupé aux espaces ordinaires seulement : une espace insécable (fine avant « : ; ! ? ») tient ses voisins.
+        let s = french_spacing(s);
+        for word in s.split([' ', '\n', '\t']).filter(|w| !w.is_empty()) {
             let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
             if !line.is_empty() && self.fonts.width(style.font, style.size, &candidate, style.tracking) > max {
                 self.text(x, yy, style, &line);
@@ -439,4 +480,20 @@ pub fn decode_png(bytes: &[u8]) -> Option<Pixmap> {
 #[cfg(not(feature = "device"))]
 pub fn encode_png(pix: &Pixmap) -> Option<Vec<u8>> {
     pix.encode_png().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn french_spacing_before_double_punctuation() {
+        crate::i18n::force_english(false);
+        assert_eq!(french_spacing("Détails : la Station ; vraiment ? Oui !"), "Détails\u{202F}: la Station\u{202F}; vraiment\u{202F}? Oui\u{202F}!");
+        assert_eq!(french_spacing("Prêt\u{A0}: oui"), "Prêt\u{202F}: oui");
+        assert!(matches!(french_spacing("18 h 30, https://a.b:9443"), std::borrow::Cow::Borrowed(_)));
+        crate::i18n::force_english(true);
+        assert_eq!(french_spacing("Details : x"), "Details : x");
+        crate::i18n::force_english(false);
+    }
 }

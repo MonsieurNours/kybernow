@@ -167,7 +167,7 @@ fn third(app: &App, cv: &mut Canvas, f: &mut Frame) {
             cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(30, 28, 56, 255));
         }
         cv.rrect_dashed(r.x, r.y, r.w, r.h, 14.0, 1.5, SPECTRE.alpha(0.6));
-        cv.text(r.x + 150.0, r.y + 64.0, Text::new(Font::Mono, 15.0, SPECTRE).tracking(2.0).align(Align::Center), &tr("Sur le réseau", "On your network").to_uppercase());
+        cv.text(r.x + 150.0, r.y + 64.0, Text::new(Font::Mono, 15.0, SPECTRE).tracking(2.0).align(Align::Center), &tr("Sur le réseau", "On the network").to_uppercase());
         cv.text_fit(r.x + 150.0, r.y + 128.0, Text::new(Font::Semibold, 28.0, FROST).align(Align::Center), &found.name, 260.0);
         let add = tr("Ajouter", "Add");
         let style = Text::new(Font::Semibold, 22.0, if focused { INK } else { FROST });

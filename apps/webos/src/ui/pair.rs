@@ -42,7 +42,7 @@ fn message(app: &App, cv: &mut Canvas, x: f32, y: f32, w: f32) {
 }
 
 fn code(app: &App, cv: &mut Canvas, f: &mut Frame) {
-    title(cv, tr("Par code", "With a code"));
+    title(cv, tr("Avec un code", "With a code"));
     // Le code, en grand.
     let (x, y, w, h) = (96.0, 260.0, 860.0, 300.0);
     cv.neon(x, y, w, h, 26.0, 0.55);
