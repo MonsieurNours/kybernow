@@ -119,6 +119,8 @@ pub fn normalize_email(input: &str) -> Option<String> {
 pub struct Keys {
     totp: aead::LessSafeKey,
     mac: hmac::Key,
+    /// L'empreinte des secrets courts gardés en base (codes de secours, codes e-mail : REL-22).
+    secrets: hmac::Key,
 }
 
 impl Keys {
@@ -126,7 +128,8 @@ impl Keys {
         let derive = |label: &[u8]| hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, secret), label);
         let totp = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_256_GCM, derive(b"kybernow comptes totp v1").as_ref()).expect("clé AES"));
         let mac = hmac::Key::new(hmac::HMAC_SHA256, derive(b"kybernow comptes cookies v1").as_ref());
-        Keys { totp, mac }
+        let secrets = hmac::Key::new(hmac::HMAC_SHA256, derive(b"kybernow comptes secrets v1").as_ref());
+        Keys { totp, mac, secrets }
     }
 
     /// Lit la clé (au moins 32 caractères), ou la crée (64 chiffres hexadécimaux, réservée au relais).
@@ -167,6 +170,12 @@ impl Keys {
         let mut buf = rest.to_vec();
         let plain = self.totp.open_in_place(nonce, aead::Aad::from(account.to_be_bytes()), &mut buf).ok()?;
         Some(plain.to_vec())
+    }
+
+    /// L'empreinte d'un secret court d'un compte (`usage` : `secours`, `verify`…), avec la clé du
+    /// relais : une base qui fuit sans sa clé ne se retrouve pas en force brute (REL-22).
+    pub fn secret_mac(&self, usage: &str, account: i64, secret: &str) -> Vec<u8> {
+        hmac::sign(&self.secrets, format!("{usage}:{account}:{secret}").as_bytes()).as_ref().to_vec()
     }
 
     /// Signature (HMAC-SHA256) d'une valeur de cookie ou d'un jeton CSRF.

@@ -402,7 +402,9 @@ impl Store {
 
     /// Vérifie un code à six chiffres ; chaque erreur compte, et au-delà de
     /// [`CODE_ATTEMPTS`] le code ne vaut plus.
-    pub fn check_email_code(&self, account: i64, purpose: &str, code: &str, now: i64) -> Result<CodeCheck> {
+    /// Le code tapé, sous ses formes possibles (`candidates` : son empreinte, et le code lui-même
+    /// pour un code gardé en clair avant REL-22).
+    pub fn check_email_code(&self, account: i64, purpose: &str, candidates: &[&str], now: i64) -> Result<CodeCheck> {
         let row: Option<(Vec<u8>, Option<String>, i64)> = self
             .conn
             .query_row(
@@ -415,7 +417,7 @@ impl Store {
         if attempts >= CODE_ATTEMPTS {
             return Ok(CodeCheck::None);
         }
-        if super::ct_eq(expected.as_bytes(), code.as_bytes()) {
+        if candidates.iter().any(|c| super::ct_eq(expected.as_bytes(), c.as_bytes())) {
             return Ok(CodeCheck::Ok);
         }
         self.conn.execute("UPDATE email_tokens SET attempts = attempts + 1 WHERE hash = ?1", [hash])?;
@@ -913,11 +915,11 @@ mod tests {
         assert_eq!(s.email_token_account(b"jeton", "reset", 10).unwrap(), None);
         assert_eq!(s.email_token_account(b"jeton", "verify", 1000).unwrap(), None, "expiré");
         for _ in 0..CODE_ATTEMPTS {
-            assert_eq!(s.check_email_code(id, "verify", "000000", 10).unwrap(), CodeCheck::Wrong);
+            assert_eq!(s.check_email_code(id, "verify", &["000000"], 10).unwrap(), CodeCheck::Wrong);
         }
-        assert_eq!(s.check_email_code(id, "verify", "123456", 10).unwrap(), CodeCheck::None, "trop d'essais : le code ne vaut plus");
+        assert_eq!(s.check_email_code(id, "verify", &["123456"], 10).unwrap(), CodeCheck::None, "trop d'essais : le code ne vaut plus");
         s.replace_email_token(id, "verify", b"autre", Some("654321"), 1000).unwrap();
-        assert_eq!(s.check_email_code(id, "verify", "654321", 10).unwrap(), CodeCheck::Ok);
+        assert_eq!(s.check_email_code(id, "verify", &["654321"], 10).unwrap(), CodeCheck::Ok);
         assert_eq!(s.email_token_account(b"jeton", "verify", 10).unwrap(), None, "l'ancien jeton est remplacé");
         // Changer d'adresse : seulement vers une adresse libre, avant la vérification.
         let other = s.create_account("b@exemple.org", "B", "h", "fr", Some(1), 0).unwrap().unwrap();

@@ -122,3 +122,26 @@ fn retour_vers_l_app_avec_pkce() {
     let code = between(html(&r), "kybernow://compte?code=", "&amp;etat=e2").to_string();
     assert_eq!(api(&w, true, "/v1/devices/token", None, json!({ "code": code })).status, 200);
 }
+
+#[test]
+fn secrets_courts_gardes_en_empreinte() {
+    // REL-22 : ni le code e-mail ni les codes de secours ne sont lisibles en base ; un ancien code
+    // de secours (SHA-256 seul) vaut encore.
+    let w = world(true);
+    let mut b = w.browser();
+    b.post("/compte/inscription?lang=fr", &[("name", "Léa"), ("email", "lea@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
+    let code: String = between(&w.mail("lea@exemple.org").text, "    ", "\n").chars().filter(char::is_ascii_digit).collect();
+    let id = w.acc.db().account_by_email("lea@exemple.org").unwrap().unwrap().id;
+    let kept: String = w.acc.db().conn.query_row("SELECT code FROM email_tokens WHERE account = ?1", [id], |r| r.get(0)).unwrap();
+    assert_ne!(kept, code, "pas en clair");
+    assert_eq!(location(&b.post("/compte/verifier?lang=fr", &[("action", "code"), ("code", &code)])), "/compte/bienvenue?lang=fr");
+    // Les codes de secours.
+    super::lot45::with_totp(&w, &mut b, "lea@exemple.org");
+    let stored: Vec<Vec<u8>> = w.acc.db().conn.prepare("SELECT hash FROM recovery_codes WHERE account = ?1").unwrap().query_map([id], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+    assert_eq!(stored.len(), RECOVERY_CODES);
+    // Un code d'avant (SHA-256 sans sel) reste valable.
+    w.acc.db().conn.execute("INSERT INTO recovery_codes (account, hash) VALUES (?1, ?2)", rusqlite::params![id, token_hash("anciencode")]).unwrap();
+    b.post("/compte/deconnexion?lang=fr", &[]);
+    b.sign_in("lea@exemple.org", PASSWORD);
+    assert_eq!(location(&b.post("/compte/code?lang=fr", &[("secours", "ancien-code")])), "/compte/ordinateurs?lang=fr");
+}

@@ -412,7 +412,9 @@ impl<'a> Cx<'a> {
         }
         let (token, hash) = new_token();
         let code = new_code();
-        if self.acc.db().replace_email_token(account.id, "verify", &hash, Some(&code), self.now + VERIFY_SECS).is_err() {
+        // Gardé en empreinte (REL-22) ; l'e-mail, lui, porte le code.
+        let kept = b64(&self.acc.keys.secret_mac("verify", account.id, &code));
+        if self.acc.db().replace_email_token(account.id, "verify", &hash, Some(&kept), self.now + VERIFY_SECS).is_err() {
             return;
         }
         let link = self.url(&format!("/compte/verifier?jeton={token}&lang={}", lang_of(account).code()));
@@ -724,7 +726,10 @@ fn code_post(mut cx: Cx<'_>) -> Reply {
     }
     let ok = if recovery {
         let code = normalize_recovery(cx.req.form("secours"));
-        acc.db().use_recovery_code(account.id, &token_hash(&code), cx.now).unwrap_or(false)
+        // En HMAC avec la clé du relais (REL-22) ; un code d'avant, en SHA-256 seul, vaut encore.
+        let db = acc.db();
+        db.use_recovery_code(account.id, &acc.keys.secret_mac("secours", account.id, &code), cx.now).unwrap_or(false)
+            || db.use_recovery_code(account.id, &token_hash(&code), cx.now).unwrap_or(false)
     } else {
         let totp = acc.db().totp(account.id).ok().flatten().filter(|t| t.activated_at.is_some());
         match totp {
@@ -927,7 +932,10 @@ fn verify_post(mut cx: Cx<'_>) -> Reply {
             let code: String = cx.req.form("code").chars().filter(char::is_ascii_digit).collect();
             let account = unverified();
             let check = match &account {
-                Some(a) => acc.db().check_email_code(a.id, "verify", &code, cx.now).unwrap_or(CodeCheck::None),
+                Some(a) => {
+                    let mac = b64(&acc.keys.secret_mac("verify", a.id, &code));
+                    acc.db().check_email_code(a.id, "verify", &[&mac, &code], cx.now).unwrap_or(CodeCheck::None)
+                }
                 None => CodeCheck::Wrong,
             };
             match (check, account) {
@@ -1082,7 +1090,8 @@ fn totp_setup(cx: Cx<'_>, post: bool) -> Reply {
     let codes = new_recovery_codes();
     {
         let mut db = acc.db();
-        if db.activate_totp(account.id, step, cx.now).is_err() || db.replace_recovery_codes(account.id, &codes.iter().map(|c| token_hash(&normalize_recovery(c))).collect::<Vec<_>>()).is_err() {
+        let hashes: Vec<Vec<u8>> = codes.iter().map(|c| acc.keys.secret_mac("secours", account.id, &normalize_recovery(c))).collect();
+        if db.activate_totp(account.id, step, cx.now).is_err() || db.replace_recovery_codes(account.id, &hashes).is_err() {
             return cx.failed();
         }
     }
@@ -1145,7 +1154,8 @@ fn totp_off(cx: Cx<'_>, codes: bool) -> Reply {
     acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in_ok(cx.req.ip, &account.email);
     if codes {
         let list = new_recovery_codes();
-        if acc.db().replace_recovery_codes(account.id, &list.iter().map(|c| token_hash(&normalize_recovery(c))).collect::<Vec<_>>()).is_err() {
+        let hashes: Vec<Vec<u8>> = list.iter().map(|c| acc.keys.secret_mac("secours", account.id, &normalize_recovery(c))).collect();
+        if acc.db().replace_recovery_codes(account.id, &hashes).is_err() {
             return cx.failed();
         }
         cx.audit(Some(account.id), "codes_de_secours_refaits");

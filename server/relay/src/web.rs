@@ -139,7 +139,7 @@ where
         Site::Relay => {
             let svc = service_fn(move |req| {
                 let hub = hub.clone();
-                async move { Ok::<_, Infallible>(relay_page(&hub, req, ip).await) }
+                async move { Ok::<_, Infallible>(with_hsts(relay_page(&hub, req, ip).await)) }
             });
             let _ = builder.serve_connection(TokioIo::new(io), svc).await;
         }
@@ -152,6 +152,15 @@ where
             let _ = builder.serve_connection(TokioIo::new(io), svc).with_upgrades().await;
         }
     }
+}
+
+/// HSTS sur les pages du relais (REL-21) : un an, sans les sous-domaines (les pages des Stations
+/// passent par leur propre nom, toujours en TLS, mais ce choix-là reste à faire à part).
+pub const HSTS: &str = "max-age=31536000";
+
+fn with_hsts(mut r: Response<Body>) -> Response<Body> {
+    r.headers_mut().insert(header::STRICT_TRANSPORT_SECURITY, HeaderValue::from_static(HSTS));
+    r
 }
 
 async fn relay_page(hub: &Hub, req: Request<Incoming>, ip: IpAddr) -> Response<Body> {
@@ -475,6 +484,12 @@ async fn proxy(hub: &Arc<Hub>, backend: &Backend, mut req: Request<Incoming>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hsts_sur_les_pages_du_relais() {
+        let r = with_hsts(html(StatusCode::OK, String::new()));
+        assert_eq!(r.headers().get(header::STRICT_TRANSPORT_SECURITY).unwrap(), "max-age=31536000");
+    }
 
     #[test]
     fn aiguillage_par_le_nom() {
