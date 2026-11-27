@@ -1,7 +1,8 @@
 diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index a08b1f8..5048a40 100644
 --- a/kyavservice/src/txproto/video.rs
 +++ b/kyavservice/src/txproto/video.rs
-@@ -661,7 +661,6 @@
+@@ -669,7 +669,6 @@ fn create_videotoolbox(
          ("prio_speed", true).into(),
          ("realtime", true).into(),
          ("power_efficient", 0).into(),
@@ -9,7 +10,7 @@ diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
          ("bf", 0).into(),
          ("b_ref_mode", 0).into(),
          ("b", config.bitrate as i64).into(),
-@@ -677,6 +676,12 @@
+@@ -685,6 +684,12 @@ fn create_videotoolbox(
          options.push(("colorspace", "bt2020nc").into());
          options.push(("color_range", "tv").into());
      }
@@ -20,5 +21,5 @@ diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
 +    // low-latency rate control stays off: it ignores DataRateLimits.
 +    options.extend(rate_control_options(RateControl::VideoToolbox, &config.codec));
  
-     if let Some(encoder_config) = &config.encoder_config {
-         options.extend(encoder_config_to_dict(encoder_config));
+     // KyberNow (0060): repair of a loss without a keyframe.
+     if config.loss_repair && config.codec == VideoCodec::HEVC {

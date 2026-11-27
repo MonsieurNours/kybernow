@@ -1,6 +1,8 @@
+diff --git a/kyavservice/src/hdr.rs b/kyavservice/src/hdr.rs
+index 2b6208d..46fc993 100644
 --- a/kyavservice/src/hdr.rs
 +++ b/kyavservice/src/hdr.rs
-@@ -69,8 +69,10 @@
+@@ -69,8 +69,10 @@ pub(crate) fn mode(
          && !matches!(
              encoder,
              VideoEncoder::NVENC | VideoEncoder::AMF | VideoEncoder::QSV
@@ -12,9 +14,11 @@
          // KyberNow (0025): PyroWave encodes the P010 capture whatever the
          // configured encoder.
          Some(format!(
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index 9675e29..f2cbeff 100644
 --- a/kyavservice/src/txproto/run.rs
 +++ b/kyavservice/src/txproto/run.rs
-@@ -246,7 +246,8 @@
+@@ -283,7 +283,8 @@ async fn handle_command(
                  config.encoder(),
                  &codec,
                  yuv444 && scale.is_none(),
@@ -24,9 +28,11 @@
              );
              if let Some(reason) = refused {
                  warn!("{reason}");
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index b5c3bfa..82e60f5 100644
 --- a/kyavservice/src/txproto/video.rs
 +++ b/kyavservice/src/txproto/video.rs
-@@ -593,11 +593,13 @@
+@@ -658,11 +658,13 @@ fn create_videotoolbox(
      video_source: &txproto_rs::Handle,
  ) -> Result<txproto_rs::Handle> {
      let scale = config.scale;
@@ -41,11 +47,10 @@
          ("flags", "+global_header").into(),
          ("prio_speed", true).into(),
          ("realtime", true).into(),
-@@ -607,6 +609,17 @@
-         ("b_ref_mode", 0).into(),
+@@ -673,6 +675,17 @@ fn create_videotoolbox(
          ("b", config.bitrate as i64).into(),
      ];
-+
+ 
 +    if let Some(profile) = hdr::hevc_profile(config.hdr, &config.codec) {
 +        options.push(("profile", profile).into());
 +    }
@@ -56,10 +61,11 @@
 +        options.push(("colorspace", "bt2020nc").into());
 +        options.push(("color_range", "tv").into());
 +    }
- 
-     if let Some(encoder_config) = &config.encoder_config {
-         options.extend(encoder_config_to_dict(encoder_config));
-@@ -722,13 +735,17 @@
++
+     // KyberNow (0060): repair of a loss without a keyframe.
+     if config.loss_repair && config.codec == VideoCodec::HEVC {
+         options.push(("ref_recovery", true).into());
+@@ -794,13 +807,17 @@ pub(crate) fn configure(
      // KyberNow (0007): a guest's own image at a lower rate (ScreenCaptureKit's
      // minimum frame interval).
      #[cfg(target_os = "macos")]
