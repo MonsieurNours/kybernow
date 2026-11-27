@@ -40,7 +40,7 @@
   import type { AccountSignIn, AccountView, Action, AppInfo, Battery, BorrowOutcome, Candidate, Chosen, Computer, ConnectInfo, Settings as ComputerSettings, Found, Friend, LendEnd, LendInvite, LendSheetKind, LoanReady, Phase, ScreensEvent, ShareJoined, Snapshot, StationRestarting, Summary, ThisPc, Update, WatchWords } from './lib/api'
   import type { PsFound, PsState, StationNotice as StationNoticeData } from './lib/api'
   import type { WelcomeView } from './lib/api'
-  import { guestComputer, invoke, isConsoleId, listen, stationBannerFor } from './lib/api'
+  import { guestComputer, invoke, isConsoleId, listen, stationBannerFor, values } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let computers = $state<Computer[]>([])
@@ -1008,7 +1008,7 @@
   <Welcome
     {computers}
     {discovered}
-    relay={welcome?.relay ?? 'share.kybernow.app'}
+    relay={welcome?.relay ?? values.default_relay}
     {signingIn}
     error={signInError}
     onsignin={connectAccount}

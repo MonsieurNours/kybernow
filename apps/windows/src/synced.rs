@@ -266,7 +266,7 @@ mod tests {
 
     /// Les réglages de session de ces réglages : `plan::plan` (comme `session_plan` de l'app).
     fn plan_of(local: &Local, caps: Capabilities, screen: Mode) -> StreamSettings {
-        let choices = crate::plan::Choices {
+        let choices = kybernow_core::plan::Choices {
             profile: Profile::parse(&local.profile),
             codec: local.codec.as_deref().and_then(kybernow_core::profile::Codec::parse),
             yuv444: local.yuv444,
@@ -274,7 +274,7 @@ mod tests {
             reliable: local.reliable,
             ..Default::default()
         };
-        crate::plan::plan(&choices, caps, screen).0
+        kybernow_core::plan::plan(&choices, caps, screen).0
     }
 
     const STATION: &str = "abcdefghijklmnopqrstuvwxyz";

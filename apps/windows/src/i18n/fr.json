@@ -12,7 +12,6 @@
     "not_a_link": "ce n'est pas un lien kybernow://",
     "bad_address": "adresse invalide",
     "no_port": "port absent du lien",
-    "bad_port": "port invalide",
     "password_store": "le mot de passe n'a pas pu être rangé dans le gestionnaire d'identifiants",
     "unknown_computer": "ordinateur inconnu",
     "session_already_open": "une session est déjà ouverte",

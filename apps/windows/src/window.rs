@@ -56,7 +56,7 @@ use kybernow_core::i18n::Lang;
 use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PenInput, PointerLayer, ScreenTarget, Shape};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::session::{Session, Status, StreamScreen};
+use kybernow_core::session::{Device, Session, Status, StreamScreen};
 
 use crate::displays::{Layout, Monitor};
 use crate::focus;
@@ -615,7 +615,7 @@ pub struct App {
     bar_visible: AtomicBool,
     /// Dernière fenêtre active (le clavier y revient quand la barre se cache).
     last_active: AtomicIsize,
-    /// Toutes ses fenêtres sont réduites : débit plafonné (`HIDDEN_BITRATE`).
+    /// Toutes ses fenêtres sont réduites : session en arrière-plan (`Session::set_background`).
     hidden_cap: AtomicBool,
     /// Touches dont l'enfoncement a été pris par le crochet pour cette
     /// session (leur relâchement suit, même si elle n'est plus active).
@@ -2247,12 +2247,12 @@ fn raw_delta(lparam: LPARAM) -> (i64, i64) {
 }
 
 
-/// Débit plafonné quand toutes les fenêtres d'une session sont réduites (bit/s) :
-/// la même valeur que l'app Mac pour une fenêtre cachée.
-const HIDDEN_BITRATE: u32 = 20_000_000;
-
-/// Toutes les fenêtres de la session réduites : le cœur plafonne le débit
-/// (l'image reste là, prête à la reprise) ; une fenêtre rouverte le rend.
+/// Toutes les fenêtres de la session réduites : l'image n'est plus regardée
+/// (TRANS-40, docs/link-ui.md « Image qui n'est plus regardée ») ; le cœur
+/// plafonne le débit à celui d'un ordinateur (`background_bitrate`, 20 Mbit/s,
+/// comme sur Mac et Linux) et sait l'image figée (la veille « aucune image »
+/// attend) ; une fenêtre rouverte rend les deux. Les Statistiques le disent
+/// (« fenêtre cachée »).
 fn follow_minimized(app: &App) {
     let windows = app.windows();
     let hidden = !windows.is_empty() && windows.iter().all(|w| unsafe { IsIconic(w.hwnd()).as_bool() });
@@ -2260,8 +2260,8 @@ fn follow_minimized(app: &App) {
         return;
     }
     if let Some(s) = app.link.session.get().and_then(Weak::upgrade) {
-        log::info!("[{}] fenêtres {} : débit {}", app.host_name, if hidden { "réduites" } else { "rouvertes" }, if hidden { "plafonné à 20 Mbit/s" } else { "rendu" });
-        s.set_bitrate_cap(hidden.then_some(HIDDEN_BITRATE));
+        log::info!("[{}] fenêtres {} : image {}", app.host_name, if hidden { "réduites" } else { "rouvertes" }, if hidden { "en arrière-plan, débit plafonné" } else { "regardée, débit rendu" });
+        s.set_background(hidden, Device::Computer);
     }
 }
 

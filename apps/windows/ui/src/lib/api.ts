@@ -22,6 +22,27 @@ export const invoke = <T>(cmd: string, args?: Record<string, unknown>) => tauri.
 export const listen = <T>(name: string, cb: (payload: T) => void) => tauri.event.listen<T>(name, (e) => cb(e.payload))
 export const currentWindow = () => tauri.window.getCurrentWindow()
 
+/**
+ * Les valeurs communes du cœur (`plan::values_json`, TRANS-40 à 42) : bornes du débit réglé à la main, nombre de
+ * sessions, délais, port et exemple d'adresse d'Admin, relais public. Lues une fois au chargement de la fenêtre :
+ * l'interface n'en garde aucune copie.
+ */
+export type Values = {
+  /** Débit réglé à la main (Mbit/s) : de `min` à `max` par pas de `step`, jusqu'à `max_pyrowave` en PyroWave. */
+  manual_mbps: { min: number; step: number; max: number; max_pyrowave: number; lg_tv_max: number }
+  /** Débit quand la fenêtre est cachée (bit/s), par appareil ; ce PC : `computer`. */
+  background_bitrate: { computer: number }
+  max_guests: number
+  max_sessions: number
+  /** Lien du relais en préparation : au-delà, « Pas encore joignable hors de chez vous. ». */
+  relay_link_wait_secs: number
+  admin_port: number
+  address_example: string
+  /** Le relais public, proposé d'abord (« Ajouter un compte », « Connecter un compte »). */
+  default_relay: string
+}
+export const values: Values = await invoke<Values>('common_values')
+
 export type Settings = {
   /** `auto` : le profil Auto, avec le test gardé (`Computer.auto`). */
   profile: 'jeu' | 'bureau' | 'max' | 'auto'
@@ -120,10 +141,6 @@ export type Info = {
 /** La Station propose PyroWave (`info.pyrowave`, booléen ou `{ available }`). */
 export const pyrowaveOffered = (info: Info | null | undefined) =>
   info?.pyrowave === true || (typeof info?.pyrowave === 'object' && !!info.pyrowave?.available)
-
-/** Débit de base de PyroWave en 4K à 60 Hz (`PYROWAVE_MBPS`, `PYROWAVE_MBPS_444` de profile.rs). */
-export const PYROWAVE_MBPS = 800
-export const PYROWAVE_MBPS_444 = 1200
 
 /**
  * Le relais d'un ordinateur (`info.relay`) : le relais (`share.kybernow.app`), son identifiant chez lui, et
@@ -316,9 +333,6 @@ export type WelcomeView = { show: boolean; has_account: boolean; card: boolean; 
 export const stationBannerFor = (c: { offer?: StationOffer | null } | null | undefined, sessions: string[] = []) =>
   sessions.length === 0 && !!c?.offer && c.offer.banner.kind !== 'none'
 
-/** Le relais public, proposé d'abord (« Ajouter un compte »). */
-export const DEFAULT_RELAY = 'share.kybernow.app'
-
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
 
 export type Candidate = { host: string; port: number; name: string | null; fingerprint: string | null }
@@ -454,9 +468,6 @@ export type StationOutcome = { id: string; outcome: 'restarted' | 'updated' | 'u
 /** `sessions` : les ordinateurs en session, dans l'ordre d'ouverture (plusieurs ordinateurs, quatre au plus). */
 export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: ThisPc | null; sessions: string[]; version: string }
 
-/** Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : quatre au plus en même temps. */
-export const MAX_SESSIONS = 4
-
 export type Phase = { id: string; phase: 'preparing' | 'connecting' | 'first_images' | 'streaming' | 'reconnecting' | 'ending' | 'ended'; detail: string | null }
 
 /**
@@ -574,7 +585,22 @@ export type ConnexionView = {
 export type HdrState = { shown: boolean; available: boolean; reason: string | null; kind: string | null }
 
 /** `hdr_on` : le HDR sera demandé (allumé et possible, sur un écran HDR) : « …, en HDR », 4:4:4 inactif. */
-export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean; hdr: HdrState; hdr_on: boolean }
+export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean; hdr: HdrState; hdr_on: boolean; plan: SessionPlan }
+
+/**
+ * Ce que la session demandera, calculé par le cœur (`plan::plan`, WINAPP-52) : `custom` (« Personnalisé »),
+ * `base` les valeurs du profil choisi sur ce PC (Auto : celles du test), le mode demandé à l'ordinateur et le
+ * débit de la session pour ce mode (Mbit/s), le nom (« Jeu · HEVC »). L'interface n'en refait aucun calcul.
+ */
+export type SessionPlan = {
+  custom: boolean
+  base: { codec: NonNullable<Settings['codec']>; yuv444: boolean; mbps: number; reliable: boolean }
+  width: number
+  height: number
+  refresh: number
+  mbps: number
+  label: string
+}
 
 /** La puce « HDR » de la barre de session (absente sans écran HDR, et pour un invité). */
 export type BarHdr = { on: boolean; available: boolean; reason: string | null }
@@ -801,68 +827,9 @@ export function moment(at: number, now = Date.now()) {
   return t('time.on_day', { day: date.toLocaleDateString(locale, { day: 'numeric', month: 'long' }) })
 }
 
-/**
- * Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». Un format
- * choisi égal à celui du profil n'en est pas un écart (comme `plan` de plan.rs).
- */
-export const isCustom = (s: Settings, pc: ThisPc | null, auto: AutoResult | null = null) =>
-  (s.codec != null && s.codec !== profileBase(s.profile, pc, auto).codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
-
 /** Les quatre premiers groupes de l'empreinte d'Admin, comme Admin les montre (« 7C41 E09B AABB CCDD »). */
 export const fingerprintGroups = (fp: string | null) =>
   (fp ?? '').replace(/^sha256:/, '').replaceAll(':', '').toUpperCase().match(/.{1,4}/g) ?? []
-
-/**
- * Valeurs d'un profil pour ce PC, comme le cœur les calcule (`StreamSettings::for_profile`, profile.rs) ; Auto : celles
- * du test gardé (`AutoResult::settings`, `profile_settings` de plan.rs), celles de Jeu sans test.
- */
-export function profileBase(profile: Settings['profile'], pc: ThisPc | null, auto: AutoResult | null = null): { codec: NonNullable<Settings['codec']>; yuv444: boolean; mbps: number; reliable: boolean } {
-  if (profile === 'auto' && auto) return { codec: auto.codec, yuv444: auto.yuv444, mbps: auto.mbps, reliable: auto.reliable }
-  const codec: 'h264' | 'hevc' = (pc?.hevc ?? true) ? 'hevc' : 'h264'
-  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false], auto: [false, 60, false] }[profile] as [boolean, number, boolean]
-  if (yuv444 && !(codec === 'hevc' && pc?.hevc444)) {
-    yuv444 = false
-    mbps += Math.floor(mbps / 3)
-  }
-  if (codec === 'h264') mbps += Math.floor(mbps / 2)
-  return { codec, yuv444, mbps, reliable }
-}
-
-type Mode = { width: number; height: number; refresh: number }
-
-/** `fit` de plan.rs : réduit pour tenir dans `maxW` × `maxH`, proportions gardées, dimensions paires (arrondi vers le bas). */
-function fit(m: Mode, maxW: number, maxH: number): Mode {
-  if (m.width <= maxW && m.height <= maxH) return m
-  const k = Math.min(maxW / m.width, maxH / m.height)
-  return { width: Math.floor(m.width * k) & ~1, height: Math.floor(m.height * k) & ~1, refresh: m.refresh }
-}
-
-/**
- * Ce que la session demandera à l'ordinateur : `session_plan` (ui.rs) et
- * `plan` (plan.rs), règle pour règle. Mode de l'écran virtuel et débit en
- * Mbit/s ; `null` sans écran connu (ni ce PC ni taille sur mesure).
- * `battery` : « Sur batterie » des réglages de l'app.
- */
-export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery, auto: AutoResult | null = null): (Mode & { mbps: number }) | null {
-  const custom = s.custom && s.custom.width >= 640 && s.custom.height >= 360 && s.custom.refresh >= 24 ? s.custom : null
-  let mode: Mode | null = custom ?? (pc ? { width: pc.width, height: pc.height, refresh: pc.refresh } : null)
-  if (!mode) return null
-  if (s.max_4k && !s.custom) mode = fit(mode, 3840, 2160)
-  if (battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
-  let base = profileBase(s.profile, pc, auto)
-  // PyroWave choisi à la main : le débit de PyroWave pour ce mode (plan.rs).
-  if (s.codec === 'pyrowave') {
-    const yuv444 = (s.yuv444 ?? base.yuv444) && !!pc?.pyrowave
-    base = { ...base, mbps: yuv444 ? PYROWAVE_MBPS_444 : PYROWAVE_MBPS }
-  }
-  // NVENC n'encode pas l'H.264 au-delà de 4096 de large.
-  if ((s.codec ?? base.codec) === 'h264') mode = fit(mode, 4096, 4096)
-  // Débit du profil pour ce mode (`StreamSettings::bitrate`), sauf débit réglé.
-  const ratio = (mode.width * mode.height * Math.max(1, mode.refresh)) / (3840 * 2160 * 60)
-  const scale = Math.min(3, Math.max(0.4, Math.pow(ratio, 0.75)))
-  const mbps = s.mbps ?? Math.min(4294, Math.max(5, Math.round(base.mbps * scale)))
-  return { ...mode, mbps }
-}
 
 /** Noms des profils tels que le côté Rust les écrit (« Bureau · HEVC 4:4:4 » : barre, et dernière session de la 0.4.x). */
 const profileNames: Record<string, string> = { Jeu: 'jeu', Bureau: 'bureau', Max: 'max', Auto: 'auto', Personnalisé: 'custom' }

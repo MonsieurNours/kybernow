@@ -90,9 +90,6 @@ mod notice;
 mod pasteboard;
 #[cfg(windows)]
 mod pc;
-// Ce que la session demande (se teste sur le Mac, avec les réglages synchronisés).
-#[cfg_attr(not(windows), allow(dead_code))]
-mod plan;
 // PyroWave (docs/pyrowave-client-windows.md) : décodeur Vulkan sur les
 // textures de Direct3D 11 ; son paquet de configuration se teste sur le Mac.
 #[cfg(windows)]

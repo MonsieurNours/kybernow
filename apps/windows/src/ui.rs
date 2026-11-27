@@ -33,7 +33,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
 
-use kybernow_core::console::{Console, Info, PairStatus, StationError};
+use kybernow_core::console::{self, Console, Info, PairStatus, StationError};
 use kybernow_core::relay::RouteInfo;
 use kybernow_core::profile::{Codec, Profile};
 use kybernow_core::screens::{self, DisplaysSetting};
@@ -43,7 +43,7 @@ use crate::discovery::{self, Discovery, Found};
 use crate::displays::{self, Layout, Spec};
 use crate::fonds::{self, Fonds};
 use crate::host::{HostEvents, HostOptions, Role, ScreenSet, SessionHost, Stats, Summary};
-use crate::plan::{Choices, plan};
+use kybernow_core::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
 use crate::pc::{self, ThisPc};
@@ -1420,6 +1420,30 @@ struct DisplaysInfo {
     /// Le HDR sera demandé (allumé et possible, sur un écran HDR) : la ligne
     /// « Écran » dit « …, en HDR », « Texte net (4:4:4) » est inactif.
     hdr_on: bool,
+    plan: PlanView,
+}
+
+/// Ce que la session demandera, calculé par le cœur (`plan::plan`, WINAPP-52 ;
+/// l'interface n'en refait aucun calcul) : l'accueil et les réglages le
+/// montrent tel quel.
+#[derive(Serialize)]
+struct PlanView {
+    /// Le profil retouché est « Personnalisé » (règle du cœur).
+    custom: bool,
+    /// Les valeurs du profil choisi sur ce PC (`plan::profile_settings` ;
+    /// Auto : celles du test, celles de Jeu sans test), en JSON du cœur
+    /// (`StreamSettings::to_json`) : ce que les réglages montrent tant qu'ils
+    /// ne sont pas retouchés.
+    base: serde_json::Value,
+    /// Le mode demandé à l'ordinateur (au plus 4K, H.264, sur batterie,
+    /// définition sur mesure).
+    width: u32,
+    height: u32,
+    refresh: u32,
+    /// Le débit de la session pour ce mode (Mbit/s).
+    mbps: u32,
+    /// « Jeu · HEVC », « Personnalisé · HEVC 4:4:4 ».
+    label: String,
 }
 
 /// `settings` : ceux de l'ordinateur `id`, enregistrés ou en cours de
@@ -1432,7 +1456,17 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     c.settings = settings;
     let pc = state.this_pc.locked().clone().unwrap_or_default();
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    let (stream, _, _) = session_plan(&c, &pc, lighten, None);
+    let (stream, mode, label) = session_plan(&c, &pc, lighten, None);
+    let base = kybernow_core::plan::profile_settings(Profile::parse(&c.settings.profile).unwrap_or(Profile::Jeu), c.auto.as_ref(), capabilities(&pc));
+    let planned = PlanView {
+        custom: stream.profile.is_none(),
+        base: base.to_json(),
+        width: mode.width,
+        height: mode.height,
+        refresh: mode.refresh,
+        mbps: stream.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000,
+        label,
+    };
     let info = state.live.locked().get(&id).and_then(|l| l.info.clone());
     let screens = Layout::now(displays_spec(&c.settings, info.as_ref(), lighten, &pc)).screens();
     let choice = screens.choice(screens::screens_profile(&stream, screens.capabilities), c.settings.virtual_display);
@@ -1442,7 +1476,17 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     let (screen_hdr, _) = displays::session_hdr(&screens, devices.as_deref());
     let hdr = hdr_chip(info.as_ref(), &stream, &pc, screen_hdr);
     let hdr_on = hdr.shown && hdr.available && c.settings.hdr_on();
-    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on })
+    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on, plan: planned })
+}
+
+/// Les valeurs communes du cœur (`plan::values_json`, TRANS-40 à 42) : bornes
+/// du débit réglé à la main, nombre de sessions, délais, port et exemple
+/// d'adresse d'Admin, relais public… Lues par chaque fenêtre de l'interface
+/// à son lancement : elle n'en garde aucune copie.
+#[tauri::command(async)]
+fn common_values(state: tauri::State<'_, UiState>) -> serde_json::Value {
+    let pc = state.this_pc.locked().clone().unwrap_or_default();
+    kybernow_core::plan::values_json(capabilities(&pc))
 }
 
 /// Les écrans de ce PC ont changé (branché, débranché, disposition) : l'accueil
@@ -1553,14 +1597,11 @@ pub fn parse_link_text(link: &str) -> Result<Candidate, String> {
     let rest = link.trim().strip_prefix("kybernow://").ok_or_else(|| t("errors.not_a_link", &[]))?;
     let (authority, query) = rest.split_once('?').unwrap_or((rest, ""));
     let authority = authority.trim_end_matches('/');
-    let (host, port) = if let Some(r) = authority.strip_prefix('[') {
-        let (h, p) = r.split_once(']').ok_or_else(|| t("errors.bad_address", &[]))?;
-        (h.to_string(), p.trim_start_matches(':').to_string())
-    } else {
-        let (h, p) = authority.rsplit_once(':').ok_or_else(|| t("errors.no_port", &[]))?;
-        (h.to_string(), p.to_string())
-    };
-    let port: u16 = port.parse().map_err(|_| t("errors.bad_port", &[]))?;
+    // L'adresse, par la règle du cœur (TRANS-35) ; le port est exigé : sans
+    // lui (mais lisible avec), « no_port ».
+    let (host, port) = console::parse_address(authority, None).ok_or_else(|| {
+        if console::parse_address(authority, Some(console::ADMIN_PORT)).is_some() { t("errors.no_port", &[]) } else { t("errors.bad_address", &[]) }
+    })?;
     let mut name = None;
     let mut fingerprint = None;
     for pair in query.split('&') {
@@ -2920,12 +2961,7 @@ fn session_plan(
     let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.
     settings.hdr = s.hdr_on();
-    let label = format!(
-        "{} · {}{}",
-        settings.label(),
-        settings.codec.label(),
-        if settings.yuv444 { " 4:4:4" } else { "" }
-    );
+    let label = kybernow_core::plan::label(&settings);
     (settings, mode, label)
 }
 
@@ -4501,6 +4537,7 @@ pub fn run(args: Vec<String>) {
             set_profile,
             set_open_at_login,
             displays_info,
+            common_values,
             session_hdr,
             session_hevc,
             computer_wired,

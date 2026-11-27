@@ -12,7 +12,6 @@
     "not_a_link": "this is not a kybernow:// link",
     "bad_address": "invalid address",
     "no_port": "the link has no port",
-    "bad_port": "invalid port",
     "password_store": "the password could not be saved in the Windows Credential Manager",
     "unknown_computer": "unknown computer",
     "session_already_open": "a session is already open",

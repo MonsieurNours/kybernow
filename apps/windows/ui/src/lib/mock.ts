@@ -9,7 +9,7 @@ import mockEn from './i18n/mock.en.json'
 import mockFr from './i18n/mock.fr.json'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
-import type { AutoChoice, AutoResult, AutoStep, StationOffer } from './api'
+import type { AutoChoice, AutoResult, AutoStep, SessionPlan, StationOffer, Values } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
@@ -599,6 +599,49 @@ const outcome = (o: StationOutcome) => {
   emit('station-outcome', o)
 }
 const update = () => ({ version: '0.5.1', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Link-Setup.exe', size: 1 })
+
+/**
+ * Les valeurs communes du cœur (`plan::values_json`), imitées : celles de l'app viennent de Rust
+ * (`common_values`).
+ */
+const commonValues: Values = {
+  manual_mbps: { min: 5, step: 5, max: 500, max_pyrowave: 2500, lg_tv_max: 95 },
+  background_bitrate: { computer: 20_000_000 },
+  max_guests: 4,
+  max_sessions: 4,
+  relay_link_wait_secs: 10,
+  admin_port: 9443,
+  address_example: '192.168.1.20:9443',
+  default_relay: 'share.kybernow.app',
+}
+
+/**
+ * Le plan d'une session imitée (`plan::plan` du cœur, à grands traits : profils, au plus 4K, H.264, sur
+ * batterie, définition sur mesure) ; dans l'app, `displays_info` le donne.
+ */
+const planFor = (s: Settings, auto: AutoResult | null | undefined): SessionPlan => {
+  const codec = (thisPc.hevc ? 'hevc' : 'h264') as NonNullable<Settings['codec']>
+  const profile = s.profile === 'auto' && !auto ? 'jeu' : s.profile
+  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false], auto: [false, 60, false] }[profile] as [boolean, number, boolean]
+  if (yuv444 && !thisPc.hevc444) [yuv444, mbps] = [false, mbps + Math.floor(mbps / 3)]
+  const base = profile === 'auto' && auto ? { codec: auto.codec, yuv444: auto.yuv444, mbps: auto.mbps, reliable: auto.reliable } : { codec, yuv444, mbps, reliable }
+  const custom = (s.codec != null && s.codec !== base.codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
+  let mode = s.custom ?? { width: thisPc.width, height: thisPc.height, refresh: thisPc.refresh }
+  const fit = (w: number, h: number) => {
+    const k = Math.min(1, w / mode.width, h / mode.height)
+    mode = { width: Math.floor(mode.width * k) & ~1, height: Math.floor(mode.height * k) & ~1, refresh: mode.refresh }
+  }
+  if (s.max_4k && !s.custom) fit(3840, 2160)
+  if (battery === 'alleger' && thisPc.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
+  const chosen = s.codec ?? base.codec
+  if (chosen === 'h264') fit(4096, 4096)
+  const from = chosen === 'pyrowave' ? ((s.yuv444 ?? base.yuv444) ? 1200 : 800) : base.mbps
+  const scale = Math.min(3, Math.max(0.4, Math.pow((mode.width * mode.height * Math.max(1, mode.refresh)) / (3840 * 2160 * 60), 0.75)))
+  const session = s.mbps ?? Math.max(5, Math.round(from * scale))
+  const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max', auto: 'Auto' }
+  const label = `${custom ? 'Personnalisé' : names[profile]} · ${chosen === 'pyrowave' ? 'PyroWave' : chosen.toUpperCase()}`
+  return { custom, base, ...mode, mbps: session, label }
+}
 
 /** Écrans que la session d'un ordinateur imité prend (le calcul du cœur, comme `displays_info`). */
 const screensFor = (id: string) => {
@@ -1379,9 +1422,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const hdrShown = flags.has('hdr')
     const hdrReason = flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : s.codec === 'h264' ? t('mock.hdr_codec') : null
     const hdr = { shown: hdrShown, available: !hdrReason, reason: hdrReason, kind: null }
-    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display, hdr, hdr_on: hdrShown && !hdrReason && ((s as Partial<Settings>).hdr ?? true) } satisfies DisplaysInfo
+    const plan = planFor(s as unknown as Settings, (c as { auto?: AutoResult } | undefined)?.auto)
+    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display, hdr, hdr_on: hdrShown && !hdrReason && ((s as Partial<Settings>).hdr ?? true), plan } satisfies DisplaysInfo
   },
   home_hdr: () => flags.has('hdr'),
+  common_values: () => commonValues,
   ps_set_hdr: (a) => {
     const c = psConsole(String(a.id))
     if (c) c.hdr = !!a.on

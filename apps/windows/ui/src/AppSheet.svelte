@@ -21,7 +21,7 @@
   import Segmented from './lib/Segmented.svelte'
   import Switch from './lib/Switch.svelte'
   import type { AccountView, AppInfo, Battery, MicSettings, ThisPc, Update } from './lib/api'
-  import { DEFAULT_RELAY, invoke } from './lib/api'
+  import { invoke, values } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
   let {
@@ -305,7 +305,7 @@
       {:else if adding === 'relay'}
         <!-- Le relais d'abord : le relais public, ou un autre. -->
         <div class="row">
-          <button class="primary" onclick={() => signIn(null)}>{DEFAULT_RELAY}</button>
+          <button class="primary" onclick={() => signIn(null)}>{values.default_relay}</button>
           <button class="ghost" onclick={() => (adding = 'other')}>{t('account.another_relay')}</button>
           <button class="ghost" onclick={() => (adding = null)}>{t('common.cancel')}</button>
         </div>
