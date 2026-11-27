@@ -436,7 +436,8 @@ pub fn decode_png(bytes: &[u8]) -> Option<Pixmap> {
     Pixmap::decode_png(bytes).ok()
 }
 
-/// Encode l'image en PNG (captures de `--preview`).
+/// Encode l'image en PNG (captures de `--preview`, hors du binaire du téléviseur).
+#[cfg(not(feature = "device"))]
 pub fn encode_png(pix: &Pixmap) -> Option<Vec<u8>> {
     pix.encode_png().ok()
 }

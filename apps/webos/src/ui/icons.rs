@@ -5,6 +5,8 @@
 use tiny_skia::{Path, PathBuilder};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+// Clavier, Ethernet, télécommande, USB : dessinés par les captures (`--preview`) seulement pour l'instant.
+#[cfg_attr(feature = "device", allow(dead_code))]
 pub enum Icon {
     Play,
     Monitor,
