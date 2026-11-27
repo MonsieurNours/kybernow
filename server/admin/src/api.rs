@@ -33,6 +33,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Comptes KyberNow, lot 4 : « Se connecter avec KyberNow », sur le réseau seulement.
         .route("/api/login/kybernow", post(crate::accounts::web_login_start).get(crate::accounts::web_login_return))
         .route("/api/login/kybernow/start", get(crate::accounts::web_login_begin))
+        .route("/api/login/kybernow/return", post(crate::accounts::web_login_post))
         .route("/api/logout", post(logout))
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))

@@ -1117,7 +1117,16 @@ fn web_login_page(text: &str, ok: bool, cookies: Vec<String>) -> Response {
     res
 }
 
-/// `GET /api/login/kybernow?token=…` : le retour depuis la console du relais.
+/// Page du retour sans jeton dans l'adresse : le jeton est dans le fragment
+/// (`#token=…`, jamais envoyé au serveur ni gardé dans les journaux) ; la
+/// page l'efface de l'historique et l'envoie en POST.
+const FRAGMENT_PAGE: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\"><meta name=\"referrer\" content=\"no-referrer\"><title>KyberNow Admin</title></head><body>\
+<form id=\"f\" method=\"post\" action=\"/api/login/kybernow/return\"><input type=\"hidden\" name=\"token\" id=\"t\"><noscript><p>JavaScript</p></noscript></form>\
+<script>var p=new URLSearchParams(location.hash.slice(1));var t=p.get('token')||'';history.replaceState(null,'',location.pathname);\
+if(t){document.getElementById('t').value=t;document.getElementById('f').submit();}else{location.replace('/');}</script></body></html>";
+
+/// `GET /api/login/kybernow?token=…` (relais publiés) ou
+/// `GET /api/login/kybernow#token=…` : le retour depuis la console du relais.
 /// Le jeton (droit Administrer, usage unique) doit porter en `jti` le `nonce`
 /// de ce navigateur ; alors la session d'Admin s'ouvre.
 pub async fn web_login_return(
@@ -1126,7 +1135,27 @@ pub async fn web_login_return(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<WebLoginReturn>,
 ) -> Response {
-    let remote = via.is_some();
+    if q.token.trim().is_empty() {
+        return ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], FRAGMENT_PAGE).into_response();
+    }
+    web_login_finish(&s, via.is_some(), &headers, &q.token)
+}
+
+/// `POST /api/login/kybernow/return` (formulaire `token=…`) : le même retour,
+/// jeton dans le corps (la page du fragment, ou un relais qui l'envoie ainsi).
+/// Sans l'en-tête d'Admin : c'est une navigation ; le jeton, à usage unique,
+/// n'est valable qu'avec le cookie de ce navigateur.
+pub async fn web_login_post(
+    State(s): State<AppState>,
+    via: Option<axum::Extension<crate::relay::Via>>,
+    headers: HeaderMap,
+    axum::Form(q): axum::Form<WebLoginReturn>,
+) -> Response {
+    web_login_finish(&s, via.is_some(), &headers, &q.token)
+}
+
+fn web_login_finish(s: &AppState, remote: bool, headers: &HeaderMap, token: &str) -> Response {
+    let s = s.clone();
     let clear = if remote {
         format!("{REMOTE_LOGIN_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")
     } else {
@@ -1137,10 +1166,10 @@ pub async fn web_login_return(
         return web_login_page(&Msg::new("accounts.remoteAdminOff").text(), false, vec![clear]);
     }
     let cookie_name = if remote { REMOTE_LOGIN_COOKIE } else { WEB_LOGIN_COOKIE };
-    let Some(nonce) = web_login_cookie(&headers, cookie_name).filter(|n| s.accounts.take_web_login(n)) else {
+    let Some(nonce) = web_login_cookie(headers, cookie_name).filter(|n| s.accounts.take_web_login(n)) else {
         return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]);
     };
-    let grant = match check(&s, q.token.trim(), Some(Right::Admin), Use::Once, remote) {
+    let grant = match check(&s, token.trim(), Some(Right::Admin), Use::Once, remote) {
         // À distance, le jeton dit que le relais a vu une passkey (`via: "relay"`).
         Ok(g) if g.claims.jti == nonce && (!remote || g.claims.via.as_deref() == Some("relay")) => g,
         Ok(_) => return web_login_page(&Msg::new("accounts.webLoginExpired").text(), false, vec![clear]),
@@ -1614,6 +1643,17 @@ mod tests {
         let session = session.split(';').next().unwrap().split_once('=').unwrap().1.to_string();
         assert!(s.auth.session_valid(&session));
         assert_eq!(back(admin_token, with_cookie(&nonce)).await.status(), StatusCode::FORBIDDEN, "une seule fois");
+        // Le jeton hors de l'adresse (REL-10) : sans `?token=`, la page lit le
+        // fragment et l'envoie en formulaire, qui ouvre la session de même.
+        let page = back(String::new(), HeaderMap::new()).await;
+        assert_eq!(page.status(), StatusCode::OK);
+        let html = String::from_utf8(axum::body::to_bytes(page.into_body(), 1 << 16).await.unwrap().to_vec()).unwrap();
+        assert!(html.contains("location.hash") && html.contains("/api/login/kybernow/return"));
+        let res = web_login_start(State(s.clone()), None, body()).await;
+        let nonce = res.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().split(';').next().unwrap().split_once('=').unwrap().1.to_string();
+        let posted = web_login_post(State(s.clone()), None, with_cookie(&nonce), axum::Form(WebLoginReturn { token: signed(&nonce, &[Right::Admin]) })).await;
+        assert_eq!(posted.status(), StatusCode::OK);
+        assert!(posted.headers().get_all(header::SET_COOKIE).iter().any(|v| v.to_str().unwrap().starts_with(crate::auth::COOKIE)));
         // Le prêt (lot 4) : le droit Prêt du jeton remplace le compte d'ami.
         let lend = token(&s, &k, "acc_lea", "dev_1", &[Right::Lend]);
         let b = crate::lend_api::account_borrower_for_tests(&s, &headers(&lend)).unwrap().unwrap();

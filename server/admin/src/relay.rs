@@ -1195,6 +1195,8 @@ fn class_of(method: &Method, path: &str) -> Class {
     match path {
         "/api/session" if read => return Class::Guest,
         "/api/login/kybernow/start" | "/api/login/kybernow" if read => return Class::RemoteLogin,
+        // Le même retour, jeton en formulaire (jamais dans l'adresse).
+        "/api/login/kybernow/return" if method == Method::POST => return Class::RemoteLogin,
         "/api/share/join" | "/api/share/wait" | "/api/share/beat" | "/api/share/quality" | "/api/share/leave" => return Class::Guest,
         // « Écran » de qui regarde : le secret de l'invité, comme `quality`
         // (`/api/share/watch` lui-même demande le jeton d'un compte : `Device`).
