@@ -79,7 +79,7 @@ open KyberNowTV.xcodeproj
 
 **PyroWave and Kyber** ([docs/pyrowave-client-apple.en.md](../../docs/pyrowave-client-apple.en.md)): the decoder is in KyberKit and the `pyrowave` capability always goes to the core, but the kyclient patch 0025 (`VideoCodec::PyroWave`, `fallback_codec`) and the core's `pyrowave` feature are only applied with an explicit flag, off by default, until they are turned on for every app (`third_party/` is shared): `scripts/build-kyber-tvos.sh --kyber-pyrowave` then `../apple/scripts/build-apple-mobile.sh tvos --kyber-pyrowave` (`kybernow-apple`'s `kyber-pyrowave` feature). Without them, the core never asks Kyber for PyroWave.
 
-Other scripts: `scripts/phosphor-icons.mjs` (Phosphor icons in the catalog, from the `assets` folder of the `@phosphor-icons/core` package given as argument), `scripts/app-icon.py` (layered icon for parallax and Top Shelf images, from the `brand/v2` geometry).
+Other scripts: `node ../macos/scripts/phosphor-icons.mjs tvos <…/@phosphor-icons/core/assets>` (Phosphor icons in the catalog, from the `assets` folder of the `@phosphor-icons/core` package; one script for the three Apple catalogs, with the list of icons the Apple TV uses), `scripts/app-icon.py` (layered icon for parallax and Top Shelf images, from the `brand/v2` geometry).
 
 Remote tests (`UITests/`, XCUIRemote): reaching the computer's settings from the home screen; from every section, entering its panel at the first row and coming back to the same section (left or Back); keeping focus in the app settings list; keeping a form after the keyboard. `xcodebuild test -scheme KyberNowTV -destination 'platform=tvOS Simulator,name=…'`.
 
