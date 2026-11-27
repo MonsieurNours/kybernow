@@ -78,6 +78,9 @@ mod menu;
 // Le micro de ce PC vers l'ordinateur (docs/micro.md) : capture WASAPI.
 #[cfg(windows)]
 mod micro;
+// Souris en mode relatif : écarts d'une souris absolue (se teste sur le Mac).
+#[cfg_attr(not(windows), allow(dead_code))]
+mod mouse;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod notice;
 #[cfg(windows)]

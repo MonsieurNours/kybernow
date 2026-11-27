@@ -31,9 +31,9 @@
 //! seul pour l'app, sur son propre fil) et les déplacements bruts de la souris
 //! (Raw Input, réenregistré à chaque activation) suivent la fenêtre active.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -81,6 +81,12 @@ pub const WM_APP_COMMAND: u32 = WM_APP + 5;
 const WM_APP_SCREENS: u32 = WM_APP + 6;
 /// Fenêtre de contrôle : les écrans de ce PC ont changé (annoncé par une fenêtre d'écran).
 const WM_APP_DISPLAYS: u32 = WM_APP + 7;
+/// Fenêtre de contrôle : une touche prise par le crochet clavier, à envoyer
+/// (`wParam` = scancode, `lParam` = 1 enfoncée, 0 relâchée). Le crochet ne
+/// fait que décider : l'envoi (verrous de la chaîne d'entrées, réseau) se fait
+/// sur le fil des fenêtres de la session, jamais dans le rappel qui bloque
+/// tout le clavier de Windows.
+const WM_APP_HOOK_KEY: u32 = WM_APP + 8;
 
 /// Minuterie (fenêtre de contrôle) du recontrôle du mode de la souris
 /// (pointeur remontré en jeu).
@@ -370,12 +376,12 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     let code = if (k.flags.0 & LLKHF_EXTENDED.0) != 0 { 0xE000 | sc } else { sc };
     if !down {
         // Le relâchement va à la session qui a pris l'enfoncement, active ou non.
-        for app in apps() {
+        for app in APPS.read().unwrap().iter() {
             let mut grabbed = app.grabbed.lock().unwrap();
             if let Some(i) = grabbed.iter().position(|&v| v == k.vkCode) {
                 grabbed.remove(i);
                 drop(grabbed);
-                send_key(&app, code, false);
+                hook_send(app, code, false);
                 return true;
             }
         }
@@ -383,8 +389,9 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     }
     // Répétition d'une touche déjà prise : prise aussi, même si la session a
     // perdu le premier plan entre-temps (sinon Windows verrait l'enfoncement
-    // sans le relâchement, et la touche resterait tenue sur ce PC).
-    if apps().iter().any(|a| a.grabbed.lock().unwrap().contains(&k.vkCode)) {
+    // sans le relâchement, et la touche resterait tenue sur ce PC). Les
+    // répétitions de Windows ne partent pas (l'ordinateur répète lui-même).
+    if APPS.read().unwrap().iter().any(|a| a.grabbed.lock().unwrap().contains(&k.vkCode)) {
         return true;
     }
     // La session active au premier plan, selon son « Mode immersif » : en plein
@@ -430,11 +437,28 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
             grabbed.push(k.vkCode);
         }
     }
-    // Les répétitions de Windows ne partent pas (l'ordinateur répète lui-même).
-    if !key_held(&app, code) {
-        send_key(&app, code, true);
-    }
+    hook_send(&app, code, true);
     true
+}
+
+/// Une touche prise par le crochet part par la fenêtre de contrôle de sa
+/// session (`WM_APP_HOOK_KEY`) ; sans elle, directement.
+fn hook_send(app: &App, code: u16, pressed: bool) {
+    let control = app.control_hwnd();
+    let posted = control != 0
+        && unsafe { PostMessageW(Some(HWND(control as *mut _)), WM_APP_HOOK_KEY, WPARAM(code as usize), LPARAM(pressed as isize)) }.is_ok();
+    if !posted {
+        hook_key(app, code, pressed);
+    }
+}
+
+/// L'envoi d'une touche prise par le crochet, sur le fil de la session.
+fn hook_key(app: &App, code: u16, pressed: bool) {
+    // Une répétition de Windows ne repart pas.
+    if pressed && key_held(app, code) {
+        return;
+    }
+    send_key(app, code, pressed);
 }
 
 /// Pointeur de Windows fait de la forme annoncée par l'ordinateur.
@@ -604,24 +628,52 @@ pub struct App {
 /// Les sessions en cours, dans l'ordre d'ouverture (plusieurs ordinateurs à
 /// la fois) : chaque fenêtre de session et chaque fenêtre de contrôle
 /// appartient à l'une d'elles.
-static APPS: Mutex<Vec<Arc<App>>> = Mutex::new(Vec::new());
+static APPS: RwLock<Vec<Arc<App>>> = RwLock::new(Vec::new());
+/// Change à chaque session ou fenêtre d'écran ajoutée ou retirée : le cache
+/// de `app_of` (un par fil) n'est valable que pour la génération où il a été
+/// fait.
+static REGISTRY: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+    /// La dernière fenêtre trouvée par `app_of` sur ce fil : sa session et sa
+    /// fenêtre d'écran, et la génération du registre. Les messages d'une
+    /// fenêtre (souris à 4-8 kHz) ne prennent plus aucun verrou.
+    static LAST_WINDOW: RefCell<Option<(u64, isize, Weak<App>, Weak<ScreenWin>)>> = const { RefCell::new(None) };
+}
+
+fn registry_changed() {
+    REGISTRY.fetch_add(1, Ordering::SeqCst);
+}
 
 /// Fenêtre qui reçoit les déplacements bruts de la souris (Raw Input) : un
 /// seul enregistrement pour tout le processus, celui de la session active.
 static RAW_TARGET: AtomicIsize = AtomicIsize::new(0);
 
 fn apps() -> Vec<Arc<App>> {
-    APPS.lock().unwrap().clone()
+    APPS.read().unwrap().clone()
 }
 
-/// La session et la fenêtre d'écran de cette fenêtre.
+/// La session et la fenêtre d'écran de cette fenêtre (cache du fil, sans
+/// verrou tant que rien n'a changé).
 fn app_of(hwnd: isize) -> Option<(Arc<App>, Arc<ScreenWin>)> {
-    APPS.lock().unwrap().iter().find_map(|a| a.window(hwnd).map(|w| (a.clone(), w)))
+    let generation = REGISTRY.load(Ordering::SeqCst);
+    let cached = LAST_WINDOW.with(|c| match &*c.borrow() {
+        Some((g, h, a, w)) if *g == generation && *h == hwnd => a.upgrade().zip(w.upgrade()),
+        _ => None,
+    });
+    if cached.is_some() {
+        return cached;
+    }
+    let found = APPS.read().unwrap().iter().find_map(|a| a.window(hwnd).map(|w| (a.clone(), w)));
+    if let Some((a, w)) = &found {
+        LAST_WINDOW.with(|c| *c.borrow_mut() = Some((generation, hwnd, Arc::downgrade(a), Arc::downgrade(w))));
+    }
+    found
 }
 
 /// La session de cette fenêtre de contrôle.
 fn app_of_control(hwnd: isize) -> Option<Arc<App>> {
-    APPS.lock().unwrap().iter().find(|a| a.control.load(Ordering::Relaxed) == hwnd).cloned()
+    APPS.read().unwrap().iter().find(|a| a.control.load(Ordering::Relaxed) == hwnd).cloned()
 }
 
 /// La session dont une fenêtre a le clavier (le premier plan de Windows), et cette fenêtre.
@@ -696,14 +748,16 @@ impl App {
             last_image: Mutex::new(None),
             stream_hdr: Mutex::new(Vec::new()),
         });
-        APPS.lock().unwrap().push(app.clone());
+        APPS.write().unwrap().push(app.clone());
+        registry_changed();
         app
     }
 
     /// Fin de la session : ses fenêtres n'ont plus d'état, elle quitte le
     /// registre (les autres sessions continuent).
     pub fn unregister(&self) {
-        APPS.lock().unwrap().retain(|a| a.id != self.id);
+        APPS.write().unwrap().retain(|a| a.id != self.id);
+        registry_changed();
         self.forget_raw_target();
     }
 
@@ -1309,6 +1363,7 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
         reported_hdr: Mutex::new(screen),
     });
     app.windows.lock().unwrap().push(win.clone());
+    registry_changed();
     log::info!("fenêtre de session : écran {key}{}", if primary { " (principal)" } else { "" });
     Ok(win)
 }
@@ -2077,11 +2132,44 @@ fn mouse_button(app: &App, hwnd: HWND, button: MouseButtonType, pressed: bool) {
     input.mouse_button(button, pressed);
 }
 
-fn raw_input(app: &App, lparam: LPARAM) {
+thread_local! {
+    /// Dernière position (pixels) d'une souris absolue (VM, Bureau à distance,
+    /// tablette) en mode relatif : les écarts se calculent depuis elle.
+    static LAST_ABSOLUTE: Cell<Option<(i32, i32)>> = const { Cell::new(None) };
+}
+
+/// Au plus ce nombre de `WM_INPUT` déjà en file lus d'un coup.
+const RAW_BATCH: usize = 64;
+
+/// Déplacement brut de la souris (mode relatif). Une souris à 4-8 kHz donne
+/// autant de `WM_INPUT` : ceux déjà en file sont lus d'un coup et leurs écarts
+/// cumulés, un seul envoi.
+fn raw_input(app: &App, hwnd: HWND, lparam: LPARAM) {
     if !app.relative() || !app.keyboard_mouse() {
         return;
     }
     let Some(input) = app.input() else { return };
+    let (mut dx, mut dy) = raw_delta(lparam);
+    unsafe {
+        let mut msg = MSG::default();
+        for _ in 0..RAW_BATCH {
+            if !PeekMessageW(&mut msg, Some(hwnd), WM_INPUT, WM_INPUT, PM_REMOVE).as_bool() {
+                break;
+            }
+            let (x, y) = raw_delta(msg.lParam);
+            dx += x as i64;
+            dy += y as i64;
+            // Le système libère les données de ce message.
+            DefWindowProcW(hwnd, WM_INPUT, msg.wParam, msg.lParam);
+        }
+    }
+    for (x, y) in crate::mouse::split_motion(dx, dy) {
+        input.mouse_move(x, y);
+    }
+}
+
+/// L'écart d'un `WM_INPUT` de souris, en pixels.
+fn raw_delta(lparam: LPARAM) -> (i64, i64) {
     unsafe {
         let mut raw = RAWINPUT::default();
         let mut size = std::mem::size_of::<RAWINPUT>() as u32;
@@ -2093,20 +2181,35 @@ fn raw_input(app: &App, lparam: LPARAM) {
             std::mem::size_of::<RAWINPUTHEADER>() as u32,
         );
         if n == u32::MAX || raw.header.dwType != RIM_TYPEMOUSE.0 {
-            return;
+            return (0, 0);
         }
         let m = raw.data.mouse;
-        if (m.usFlags.0 & MOUSE_MOVE_ABSOLUTE.0) == 0 && (m.lLastX != 0 || m.lLastY != 0) {
-            input.mouse_move(m.lLastX.clamp(-32768, 32767) as i16, m.lLastY.clamp(-32768, 32767) as i16);
+        if (m.usFlags.0 & MOUSE_MOVE_ABSOLUTE.0) == 0 {
+            LAST_ABSOLUTE.with(|l| l.set(None));
+            return (m.lLastX as i64, m.lLastY as i64);
         }
+        // Souris absolue (0-65535 sur le bureau virtuel ou l'écran principal) :
+        // l'écart depuis la position précédente, sinon le pointeur ne bougerait
+        // plus dès qu'un jeu le cache.
+        let virtual_desktop = (m.usFlags.0 & MOUSE_VIRTUAL_DESKTOP.0) != 0;
+        let (w, h) = if virtual_desktop {
+            (GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN))
+        } else {
+            (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN))
+        };
+        let now = crate::mouse::absolute_to_pixels(m.lLastX, m.lLastY, w, h);
+        let last = LAST_ABSOLUTE.with(|l| l.replace(Some(now)));
+        crate::mouse::absolute_delta(last, now)
     }
 }
+
 
 /// Une fenêtre d'écran ferme : son fil de l'image s'arrête, la fenêtre part
 /// (la souris relative et les déplacements bruts passent à une autre).
 fn remove_window(app: &Arc<App>, win: &Arc<ScreenWin>) {
     log::info!("fenêtre de session fermée : écran {}", win.key);
     app.windows.lock().unwrap().retain(|w| w.hwnd != win.hwnd);
+    registry_changed();
     edge_cancel(win);
     // Sans attendre son fil de l'image (DXGI peut avoir besoin de ce fil-ci
     // pendant ce temps) : il s'arrête de lui-même et lâche sa chaîne d'échange.
@@ -2334,6 +2437,12 @@ unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
             WM_APP_MOUSE => {
                 if let Some(a) = app() {
                     apply_mouse_mode(&a);
+                }
+                LRESULT(0)
+            }
+            WM_APP_HOOK_KEY => {
+                if let Some(a) = app() {
+                    hook_key(&a, wparam.0 as u16, lparam.0 != 0);
                 }
                 LRESULT(0)
             }
@@ -2664,7 +2773,7 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 LRESULT(0)
             }
             WM_INPUT => {
-                raw_input(&app, lparam);
+                raw_input(&app, hwnd, lparam);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_SETCURSOR => {
