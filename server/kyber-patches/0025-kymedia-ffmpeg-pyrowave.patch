@@ -37,10 +37,10 @@ index c3c5cb3..af406ee 100644
    common_conf += [
 diff --git a/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch b/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
 new file mode 100644
-index 0000000..f7e7a12
+index 0000000..1816804
 --- /dev/null
 +++ b/subprojects/packagefiles/ffmpeg/patches/0021-avcodec-pyrowave-d3d11-encoder.patch
-@@ -0,0 +1,709 @@
+@@ -0,0 +1,741 @@
 +From: KyberNow
 +Subject: [PATCH] avcodec: PyroWave encoder for D3D11 frames (libpyrowave)
 +
@@ -146,7 +146,7 @@ index 0000000..f7e7a12
 +index 0000000..801c184
 +--- /dev/null
 ++++ b/libavcodec/libpyrowave_enc.c
-+@@ -0,0 +1,603 @@
++@@ -0,0 +1,635 @@
 ++/*
 ++ * PyroWave encoder for D3D11 frames (KyberNow).
 ++ *
@@ -242,6 +242,8 @@ index 0000000..f7e7a12
 ++
 ++    pyrowave_packet *packets;
 ++    size_t nb_packets_alloc;
+++    uint8_t *bitstream;
+++    unsigned int bitstream_size;
 ++    int64_t frames;
 ++} PyroWaveD3D11Context;
 ++
@@ -366,6 +368,8 @@ index 0000000..f7e7a12
 ++    r = pyrowave_image_create(&create, &s->image);
 ++    if (r != PYROWAVE_SUCCESS) {
 ++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the shared texture: %s\n", pw_result_name(r));
+++        /* The handle is only taken over by a successful import. */
+++        CloseHandle(handle);
 ++        s->image = NULL;
 ++        pw_release_shared(s);
 ++        return AVERROR_EXTERNAL;
@@ -419,6 +423,8 @@ index 0000000..f7e7a12
 ++    av_buffer_unref(&s->frames_ref);
 ++    av_freep(&s->packets);
 ++    s->nb_packets_alloc = 0;
+++    av_freep(&s->bitstream);
+++    s->bitstream_size = 0;
 ++    return 0;
 ++}
 ++
@@ -532,6 +538,8 @@ index 0000000..f7e7a12
 ++    r = pyrowave_sync_object_create(&sync_info, &s->sync);
 ++    if (r != PYROWAVE_SUCCESS) {
 ++        av_log(avctx, AV_LOG_ERROR, "Vulkan cannot import the shared fence: %s\n", pw_result_name(r));
+++        /* The handle is only taken over by a successful import. */
+++        CloseHandle(fence_handle);
 ++        s->sync = NULL;
 ++        return AVERROR_EXTERNAL;
 ++    }
@@ -669,22 +677,46 @@ index 0000000..f7e7a12
 ++        s->nb_packets_alloc = nb_packets;
 ++    }
 ++
-++    size_t capacity = nb_packets * (size_t)s->packet_size;
-++    if ((ret = ff_get_encode_buffer(avctx, pkt, capacity, 0)) < 0)
-++        return ret;
+++    /* pyrowave_encoder_packetize() ignores the size it is given (only an
+++     * assert checks it, gone in a release build): a block larger than the
+++     * packet boundary makes a packet of its own, larger than the boundary,
+++     * so the frame can take more than nb_packets * packet_size. It never
+++     * takes more than the encoded bitstream plus the sequence header: the
+++     * frame is put together in a buffer of that size, then copied. */
+++    const void *mapped_bitstream, *mapped_meta;
+++    size_t mapped_bitstream_size = 0, mapped_meta_size = 0;
+++    r = pyrowave_encoder_get_mapped_raw_bitstream(s->encoder, &mapped_bitstream, &mapped_bitstream_size,
+++                                                  &mapped_meta, &mapped_meta_size);
+++    if (r != PYROWAVE_SUCCESS) {
+++        av_log(avctx, AV_LOG_ERROR, "Bitstream size unknown: %s\n", pw_result_name(r));
+++        return AVERROR_EXTERNAL;
+++    }
+++    size_t capacity = FFMAX(nb_packets * (size_t)s->packet_size, mapped_bitstream_size + 256);
+++    if (capacity > UINT_MAX)
+++        return AVERROR(ENOMEM);
+++    av_fast_malloc(&s->bitstream, &s->bitstream_size, capacity);
+++    if (!s->bitstream)
+++        return AVERROR(ENOMEM);
 ++    out_packets = nb_packets;
-++    r = pyrowave_encoder_packetize(s->encoder, s->packets, s->packet_size, &out_packets, pkt->data, capacity);
+++    r = pyrowave_encoder_packetize(s->encoder, s->packets, s->packet_size, &out_packets, s->bitstream, capacity);
 ++    if (r != PYROWAVE_SUCCESS || out_packets > nb_packets) {
 ++        av_log(avctx, AV_LOG_ERROR, "Packetization failed: %s\n", pw_result_name(r));
 ++        return AVERROR_EXTERNAL;
 ++    }
 ++    /* One media packet per frame: the PyroWave packets end to end. */
 ++    for (size_t i = 0; i < out_packets; i++) {
+++        if (s->packets[i].offset > capacity || s->packets[i].size > capacity - s->packets[i].offset ||
+++            total > capacity - s->packets[i].size) {
+++            av_log(avctx, AV_LOG_ERROR, "Packetization overflow\n");
+++            return AVERROR_BUG;
+++        }
 ++        if (s->packets[i].offset != total)
-++            memmove(pkt->data + total, pkt->data + s->packets[i].offset, s->packets[i].size);
+++            memmove(s->bitstream + total, s->bitstream + s->packets[i].offset, s->packets[i].size);
 ++        total += s->packets[i].size;
 ++    }
-++    av_shrink_packet(pkt, total);
+++    if ((ret = ff_get_encode_buffer(avctx, pkt, total, 0)) < 0)
+++        return ret;
+++    memcpy(pkt->data, s->bitstream, total);
 ++
 ++    pkt->pts = pkt->dts = frame->pts;
 ++    pkt->flags |= AV_PKT_FLAG_KEY;

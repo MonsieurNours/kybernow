@@ -1,0 +1,19 @@
+diff --git a/subprojects/txproto/src/iosys_dxgi.c b/subprojects/txproto/src/iosys_dxgi.c
+index 5218813..e5e88cf 100644
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -1613,6 +1613,14 @@ static void *dxgi_capture_thread(void *s)
+         if (!priv->output_duplication) {
+             err = start_capture(priv, ctx, dxgi_output);
+             if (err < 0) {
++                /* The output is gone (display unplugged, virtual display
++                 * removed): duplication can never start again. Stop with an
++                 * error rather than retrying forever on a frozen stream. */
++                if (entry->is_unplugged) {
++                    sp_log(entry, SP_LOG_ERROR, "Output unplugged, stopping capture\n");
++                    err = AVERROR(ENODEV);
++                    goto fail;
++                }
+                 av_usleep(100000);
+                 continue;
+             }

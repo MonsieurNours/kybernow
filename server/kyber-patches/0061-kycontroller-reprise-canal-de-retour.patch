@@ -1,7 +1,8 @@
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index dcbabfa..557b586 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1025,6 +1025,36 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+@@ -1037,6 +1037,36 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
      }
  }
  
@@ -35,10 +36,11 @@ diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 +    }
 +}
 +
- /// KyberNow (0060): `/recover` from a share guest: on the images it gets
- /// (its own, or the host's: a repair without a keyframe costs the others
- /// next to nothing, and the encoder falls back to a keyframe by itself).
+ /// KyberNow (0060): `/recover` from a share guest (and the repairs of its
+ /// feedback channel, patch 0061), on the images it gets. Most encoders
+ /// (H.264, AMF, QSV, x264, VideoToolbox) answer a repair with a keyframe:
 diff --git a/kycontroller/src/kymux_controller/requests.rs b/kycontroller/src/kymux_controller/requests.rs
+index cc69269..f0bec97 100644
 --- a/kycontroller/src/kymux_controller/requests.rs
 +++ b/kycontroller/src/kymux_controller/requests.rs
 @@ -191,6 +191,9 @@ pub(crate) async fn start_session(

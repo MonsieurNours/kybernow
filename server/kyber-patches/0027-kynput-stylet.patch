@@ -371,13 +371,13 @@ index 348d93e..35e6bef 100644
  mod utils;
  
 diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
-index 81ecd1a..f9a5366 100644
+index 029150f..87661eb 100644
 --- a/kynputservice/src/pipeline_state.rs
 +++ b/kynputservice/src/pipeline_state.rs
-@@ -53,6 +53,12 @@ pub struct State {
-     /// KyberNow: packets injected by `set_rights`, let through once whatever
-     /// the rights (releases sent after a right was withdrawn).
-     injected: Vec<kynput_rs::Packet>,
+@@ -57,6 +57,12 @@ pub struct State {
+     /// another are refused, and the pointer there is not sent to it. `None`
+     /// for the host (every display).
+     displays: Option<HashSet<u32>>,
 +    /// KyberNow: the client's pen while it is near the surface, to lift it
 +    /// and let it go when the keys are flushed or the mouse taken back.
 +    pen: Option<kynput_rs::Pen>,
@@ -387,16 +387,26 @@ index 81ecd1a..f9a5366 100644
  }
  
  impl State {
-@@ -65,6 +71,8 @@ impl State {
-             rights,
+@@ -70,6 +76,8 @@ impl State {
              plugs: HashMap::new(),
              injected: Vec::new(),
+             displays: None,
 +            pen: None,
 +            pen_available: kynput_rs::host_pen_available(),
          }
      }
  
-@@ -80,7 +88,8 @@ impl State {
+@@ -85,6 +93,9 @@ impl State {
+             kynput_rs::InputType::Cursor => {
+                 kynput_rs::Cursor::from_packet(pkt).is_none_or(|c| displays.contains(&c.display_id))
+             }
++            kynput_rs::InputType::Pen => {
++                kynput_rs::Pen::from_packet(pkt).is_some_and(|p| displays.contains(&p.display_id))
++            }
+             _ => true,
+         }
+     }
+@@ -112,7 +123,8 @@ impl State {
              | InputType::MouseMove
              | InputType::MousePosition
              | InputType::MouseButton
@@ -406,7 +416,7 @@ index 81ecd1a..f9a5366 100644
              InputType::GamepadControl | InputType::GamepadEvent => self.rights.gamepads,
              InputType::Clipboard => self.rights.clipboard,
              InputType::Cursor | InputType::ControlEvent => true,
-@@ -288,6 +297,12 @@ impl State {
+@@ -326,6 +338,12 @@ impl State {
  
                  Ok(())
              }
@@ -419,7 +429,7 @@ index 81ecd1a..f9a5366 100644
              kynput_rs::InputType::Cursor => {
                  if let Some(cursor) = kynput_rs::Cursor::from_packet(pkt) {
                      debug!("Cache cursor");
-@@ -312,12 +327,16 @@ impl State {
+@@ -350,12 +368,16 @@ impl State {
      }
  
      fn on_client_connected(&self) -> Option<Vec<kynput_rs::Packet>> {
@@ -438,7 +448,7 @@ index 81ecd1a..f9a5366 100644
      }
  
      fn on_flush_keys(&mut self) -> Option<Vec<kynput_rs::Packet>> {
-@@ -358,6 +377,16 @@ impl State {
+@@ -396,6 +418,16 @@ impl State {
              generated_events.push(button.to_packet(kynput_rs::InputTarget::Host));
          }
  
@@ -455,16 +465,22 @@ index 81ecd1a..f9a5366 100644
          generated_events
      }
  
-@@ -398,6 +427,8 @@ impl State {
+@@ -434,8 +466,13 @@ impl State {
+     ) -> Result<kynput_rs::RouterHookControlResult, ()> {
+         let generated_events = match msg {
              kynput_rs::ControlEvent::ClientConnected => self.on_client_connected(),
-             kynput_rs::ControlEvent::ClientDisconnected => None,
+-            kynput_rs::ControlEvent::ClientDisconnected => None,
++            // KyberNow: the service may outlive its client (a reconnection
++            // through the relay): what it held is released, or the pen
++            // would go on drawing (Windows repeats its last state).
++            kynput_rs::ControlEvent::ClientDisconnected => self.on_flush_keys(),
              kynput_rs::ControlEvent::FlushKeys => self.on_flush_keys(),
 +            // KyberNow: the host's own announcement, never a client's.
 +            kynput_rs::ControlEvent::PenAvailable => None,
          };
  
          Ok(kynput_rs::RouterHookControlResult { generated_events })
-@@ -418,6 +449,16 @@ impl ServerPipelineState {
+@@ -473,6 +510,16 @@ impl ServerPipelineState {
          }
      }
  
@@ -481,7 +497,7 @@ index 81ecd1a..f9a5366 100644
      /// KyberNow: applies new rights. The returned packets must be injected
      /// into the pipeline (its input sink) by the caller: the hook sees them
      /// and takes the state lock again.
-@@ -582,7 +623,7 @@ mod tests {
+@@ -637,7 +684,7 @@ mod tests {
  
      #[test]
      fn cursor_sync() {
@@ -490,7 +506,7 @@ index 81ecd1a..f9a5366 100644
  
          let ret_process_true = RouterHookPacketResult {
              process_event: true,
-@@ -611,7 +652,7 @@ mod tests {
+@@ -666,7 +713,7 @@ mod tests {
  
      #[test]
      fn cursor_sync_keeps_shape_on_move() {
@@ -499,7 +515,7 @@ index 81ecd1a..f9a5366 100644
  
          let shape = Cursor {
              display_id: 43,
-@@ -647,6 +688,79 @@ mod tests {
+@@ -702,6 +749,96 @@ mod tests {
          );
      }
  
@@ -564,6 +580,23 @@ index 81ecd1a..f9a5366 100644
 +        state.on_packet(&pen(0));
 +        let ret = state.on_control_event(&ControlEvent::FlushKeys);
 +        assert_eq!(ret.generated_events, None);
++    }
++
++    #[test]
++    fn a_lost_client_lifts_the_pen() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        state.on_packet(&pen(kynput_rs::Pen::IN_RANGE | kynput_rs::Pen::CONTACT));
++        let ret = state.on_control_event(&ControlEvent::ClientDisconnected);
++        assert_eq!(ret.generated_events, Some(vec![lifted()]));
++    }
++
++    #[test]
++    fn a_guest_draws_only_on_its_display() {
++        let state = ServerPipelineState::with_pen(InputRights::ALL, true);
++        state.set_displays(Some(HashSet::from([2])));
++        assert!(!state.on_packet(&pen(kynput_rs::Pen::IN_RANGE)).process_event);
++        state.set_displays(Some(HashSet::from([1])));
++        assert!(state.on_packet(&pen(kynput_rs::Pen::IN_RANGE)).process_event);
 +    }
 +
 +    #[test]

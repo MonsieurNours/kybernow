@@ -44,7 +44,7 @@ index 122d8bb..2df7a6b 100644
  
  /// Configuration for authentication backends loaded from TOML.
 diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
-index 94664e5..0621bbc 100644
+index 7e1490e..2e5fbb3 100644
 --- a/kycontroller/src/controller.rs
 +++ b/kycontroller/src/controller.rs
 @@ -110,6 +110,9 @@ pub(crate) struct ClientSession {
@@ -52,8 +52,8 @@ index 94664e5..0621bbc 100644
      /// for lagging, its signs of lag, its keyframes on the host's image.
      pub(crate) guest_image: crate::kybernow::GuestImageState,
 +    /// KyberNow (micro): this session may send the device's microphone (the
-+    /// host always, a guest with `kn_mic`); shared with its uplink task.
-+    pub(crate) microphone: std::sync::Arc<std::sync::atomic::AtomicBool>,
++    /// host always, a guest with `kn_mic`); watched by its uplink task.
++    pub(crate) microphone: std::sync::Arc<tokio::sync::watch::Sender<bool>>,
  }
  
  impl ClientSession {
@@ -71,15 +71,15 @@ index 94664e5..0621bbc 100644
              session: None,
              services: Default::default(),
              last_force_idr: None,
-+            microphone: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(microphone)),
++            microphone: std::sync::Arc::new(tokio::sync::watch::channel(microphone).0),
              share,
              guest_image: Default::default(),
          }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 06ff9c2..d591463 100644
+index bfa8b68..7fefad0 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1348,6 +1348,9 @@ struct RoleRequest {
+@@ -1467,6 +1467,9 @@ struct RoleRequest {
      user: String,
      role: ShareRole,
      rev: u64,
@@ -89,7 +89,7 @@ index 06ff9c2..d591463 100644
  }
  
  /// `POST /kybernow/role`: a guest's new role, for its sessions (newer
-@@ -1358,7 +1361,12 @@ pub(crate) async fn post_role(
+@@ -1477,7 +1480,12 @@ pub(crate) async fn post_role(
      req: HttpRequest,
      body: web::Bytes,
  ) -> HttpResponse {
@@ -103,7 +103,7 @@ index 06ff9c2..d591463 100644
          Ok(request) => request,
          Err(refusal) => return refusal,
      };
-@@ -1373,7 +1381,15 @@ pub(crate) async fn post_role(
+@@ -1492,7 +1500,15 @@ pub(crate) async fn post_role(
          .unwrap()
          .values_mut()
          .filter(|s| s.username == user)
@@ -113,14 +113,14 @@ index 06ff9c2..d591463 100644
 +            // KyberNow (micro): the microphone right follows the same revision.
 +            if updated && let (Some(mic), Some(share)) = (mic, s.share.as_mut()) {
 +                share.mic = mic;
-+                s.microphone.store(mic, std::sync::atomic::Ordering::Relaxed);
++                s.microphone.send_replace(mic);
 +            }
 +            updated.then_some(s.uid)
 +        })
          .collect();
      info!(
          "\"{user}\" is now {role:?} (rev {rev}): {} sessions",
-@@ -1531,6 +1547,7 @@ mod tests {
+@@ -1650,6 +1666,7 @@ mod tests {
              rev,
              quality: ShareQuality::Host,
              hdr: false,
@@ -129,41 +129,83 @@ index 06ff9c2..d591463 100644
      }
  
 diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
-index 2580a7a..fdbaef2 100644
+index ae592eb..2fdddcc 100644
 --- a/kycontroller/src/kymux_controller/mod.rs
 +++ b/kycontroller/src/kymux_controller/mod.rs
-@@ -928,7 +928,9 @@ async fn start_session(
+@@ -958,7 +958,9 @@ async fn start_session(
              .with_session(&session_id, |s| Ok(crate::uplink::is_borrower(&s.username)))
              .unwrap_or(false);
          let guest = crate::kybernow::is_guest(ctrl, &session_id) && !borrower;
 -        crate::uplink::start(connection, session_id, guest, &uplink).await
 +        // KyberNow (micro): the session's microphone right (`kn_mic`).
-+        let microphone = ctrl.with_session(&session_id, |s| Ok(s.microphone.clone()))?;
++        let microphone = ctrl.with_session(&session_id, |s| Ok(s.microphone.subscribe()))?;
 +        crate::uplink::start(connection, session_id, guest, microphone, &uplink).await
      } else {
          crate::uplink::Started::default()
      };
 diff --git a/kycontroller/src/uplink.rs b/kycontroller/src/uplink.rs
-index ae9526c..2d3829b 100644
+index ae9526c..a06dfca 100644
 --- a/kycontroller/src/uplink.rs
 +++ b/kycontroller/src/uplink.rs
-@@ -5,7 +5,8 @@
+@@ -5,7 +5,9 @@
  // can send (`["camera", "microphone"]`), read from the request's JSON beside
  // kyctl-common's `StartRequest`, like `hdr` (an older app sends none). For
  // each kind whose sink sits next to kycontroller (`kybernow-camera`,
 -// `kybernow-micro`), and never for a share guest, a kyproto data endpoint is
-+// `kybernow-micro`), and never for a share guest (except the microphone of a
-+// guest whose token carries `kn_mic`), a kyproto data endpoint is
++// `kybernow-micro`), and never for a share guest (except its microphone,
++// used only while its token or `POST /kybernow/role` gives it `mic`), a
++// kyproto data endpoint is
  // registered; the response gives them in `uplink`
  // (`[{"kind": "camera", "endpoint": 12}]`). A data endpoint is a reliable
  // QUIC stream of its own each way: what goes up never waits behind the
-@@ -110,16 +111,19 @@ pub(crate) async fn start(
+@@ -40,7 +42,7 @@ use kymux::{kyproto, types};
+ use log::{info, warn};
+ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+ use tokio::process::{Child, ChildStdin, Command};
+-use tokio::sync::mpsc;
++use tokio::sync::{mpsc, watch};
+ use uuid::Uuid;
+ 
+ use crate::utils::Task;
+@@ -64,18 +66,22 @@ pub(crate) fn is_borrower(username: &str) -> bool {
+     username.starts_with("kn-lend-")
+ }
+ 
+-/// The kinds asked for in a start request; none when absent.
++/// The kinds asked for in a start request, each once; none when absent.
+ pub(crate) fn requested(request: &serde_json::Value) -> Vec<String> {
+-    request
++    let mut kinds: Vec<String> = Vec::new();
++    for kind in request
+         .get("uplink")
+         .and_then(serde_json::Value::as_array)
+-        .map(|kinds| {
+-            kinds
+-                .iter()
+-                .filter_map(|k| k.as_str().map(str::to_owned))
+-                .collect()
+-        })
+-        .unwrap_or_default()
++        .into_iter()
++        .flatten()
++        .filter_map(serde_json::Value::as_str)
++    {
++        // `["camera", "camera", …]` would make as many endpoints and tasks.
++        if !kinds.iter().any(|k| k == kind) {
++            kinds.push(kind.to_owned());
++        }
++    }
++    kinds
+ }
+ 
+ /// The sink of a kind: next to kycontroller, or in `KYBERNOW_SINKS_DIR`.
+@@ -110,16 +116,20 @@ pub(crate) async fn start(
      connection: &kyproto::Connection,
      session: Uuid,
      guest: bool,
 +    // KyberNow (micro): the session may send its microphone, changed live by
 +    // `POST /kybernow/role` (`mic`); the host always.
-+    microphone: std::sync::Arc<std::sync::atomic::AtomicBool>,
++    microphone: watch::Receiver<bool>,
      kinds: &[String],
  ) -> Started {
      let mut started = Started::default();
@@ -174,16 +216,17 @@ index ae9526c..2d3829b 100644
 -        return started;
 -    }
      for kind in kinds {
-+        // A guest: only its microphone, with the right in its token.
-+        let mic = kind == MICROPHONE;
-+        if guest && !(mic && microphone.load(std::sync::atomic::Ordering::Relaxed)) {
++        // A guest: only its microphone. Its endpoint is there even without
++        // the right, so a right given during the session works at once;
++        // START is refused while it is not given.
++        if guest && kind != MICROPHONE {
 +            info!("Uplink \"{kind}\" refused to a share guest");
 +            continue;
 +        }
          let Some((kind, sink)) = kind_of(kind) else {
              info!("Uplink \"{kind}\": no sink on this computer");
              continue;
-@@ -130,7 +134,7 @@ pub(crate) async fn start(
+@@ -130,7 +140,7 @@ pub(crate) async fn start(
                  started.endpoints.push((kind.to_owned(), id));
                  started
                      .tasks
@@ -192,12 +235,23 @@ index ae9526c..2d3829b 100644
              }
              Err(err) => warn!("Uplink \"{kind}\": endpoint not registered: {err}"),
          }
-@@ -168,7 +172,18 @@ struct Sending {
+@@ -168,7 +178,29 @@ struct Sending {
      session: Uuid,
  }
  
 +/// KyberNow (micro): the kind several devices may send at once.
 +const MICROPHONE: &str = "microphone";
++
++/// KyberNow (micro): what the app is told of its microphone right: taken
++/// back (`failed`/`not_allowed`, as at START without it), or given again
++/// (`stopped`: it may START).
++fn mic_right_status(allowed: bool) -> serde_json::Value {
++    if allowed {
++        serde_json::json!({"state": "stopped"})
++    } else {
++        serde_json::json!({"state": "failed", "reason": "not_allowed"})
++    }
++}
 +
  impl Sending {
 +    /// `take`, except for the microphone: no right held, none refused.
@@ -211,7 +265,7 @@ index ae9526c..2d3829b 100644
      /// `Err` with the device that sends it already.
      fn take(kind: &'static str, session: Uuid, device: &str) -> Result<Self, String> {
          let mut senders = SENDERS.lock().unwrap();
-@@ -201,7 +216,7 @@ impl Drop for Sending {
+@@ -201,7 +233,7 @@ impl Drop for Sending {
  struct Sink {
      child: Child,
      stdin: ChildStdin,
@@ -220,7 +274,7 @@ index ae9526c..2d3829b 100644
      _output: Task,
  }
  
-@@ -227,7 +242,7 @@ impl Sink {
+@@ -227,7 +259,7 @@ impl Sink {
  
  async fn spawn_sink(
      path: &PathBuf,
@@ -229,7 +283,7 @@ index ae9526c..2d3829b 100644
      to_app: mpsc::Sender<types::DataPacket>,
  ) -> std::io::Result<Sink> {
      let mut child = Command::new(path)
-@@ -260,7 +275,13 @@ async fn spawn_sink(
+@@ -260,7 +292,13 @@ async fn spawn_sink(
      })
  }
  
@@ -239,12 +293,54 @@ index ae9526c..2d3829b 100644
 +    kind: &'static str,
 +    path: PathBuf,
 +    session: Uuid,
-+    microphone: std::sync::Arc<std::sync::atomic::AtomicBool>,
++    mut microphone: watch::Receiver<bool>,
 +) {
      let (mut send, mut recv) = match endpoint.ready().await {
          Ok(protocol) => protocol,
          Err(err) => {
-@@ -305,7 +326,9 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+@@ -280,6 +318,23 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+         }
+     });
+ 
++    // KyberNow (micro): the right changes during the session: the app is
++    // told (refused when taken back, ready again when given), and the
++    // loop below stops the sink at the next packet.
++    let _right = (kind == MICROPHONE).then(|| {
++        let to_app = to_app.clone();
++        let mut right = microphone.clone();
++        Task::spawn(async move {
++            right.mark_unchanged();
++            while right.changed().await.is_ok() {
++                let allowed = *right.borrow_and_update();
++                info!("Uplink \"{MICROPHONE}\": right {}", if allowed { "given" } else { "taken back" });
++                if to_app.send(status(mic_right_status(allowed))).await.is_err() {
++                    break;
++                }
++            }
++        })
++    });
+     let mut sink: Option<Sink> = None;
+     loop {
+         let packet = match recv.recv().await {
+@@ -293,7 +348,17 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
+         let Some(&kind_byte) = packet.payload.first() else {
+             continue;
+         };
++        let allowed = kind != MICROPHONE || *microphone.borrow_and_update();
++        if !allowed && let Some(old) = sink.take() {
++            // The right was taken back: the sink ends (its status went out).
++            old.stop().await;
++            info!("Uplink \"{kind}\" stopped: right taken back");
++        }
+         match kind_byte {
++            START if !allowed => {
++                info!("Uplink \"{kind}\" refused: not allowed");
++                let _ = to_app.send(status(mic_right_status(false))).await;
++            }
+             START => {
+                 if let Some(old) = sink.take() {
+                     old.stop().await;
+@@ -305,7 +370,9 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
                      .and_then(serde_json::Value::as_str)
                      .unwrap_or_default()
                      .to_owned();
@@ -255,18 +351,18 @@ index ae9526c..2d3829b 100644
                      Ok(sending) => sending,
                      Err(other) => {
                          info!("Uplink \"{kind}\" refused: already sent by \"{other}\"");
-@@ -343,6 +366,14 @@ async fn serve(endpoint: types::DataEndpoint, kind: &'static str, path: PathBuf,
-                 let Some(running) = sink.as_mut() else {
-                     continue;
-                 };
-+                // KyberNow (micro): right taken back during the session: the
-+                // sound is dropped, the sink plays silence.
-+                if kind == MICROPHONE
-+                    && packet.payload.first() == Some(&MEDIA)
-+                    && !microphone.load(std::sync::atomic::Ordering::Relaxed)
-+                {
-+                    continue;
-+                }
-                 if let Err(err) = running.write(&packet.payload).await {
-                     warn!("Uplink \"{kind}\": sink ended: {err}");
-                     if let Some(old) = sink.take() {
+@@ -380,6 +447,14 @@ mod tests {
+         let request = serde_json::json!({"uplink": ["camera", 3, "microphone"]});
+         assert_eq!(requested(&request), vec!["camera", "microphone"]);
+         assert!(requested(&serde_json::json!({})).is_empty());
++        let twice = serde_json::json!({"uplink": ["camera", "camera", "microphone", "camera"]});
++        assert_eq!(requested(&twice), vec!["camera", "microphone"]);
++    }
++
++    #[test]
++    fn microphone_right_statuses() {
++        assert_eq!(mic_right_status(false), serde_json::json!({"state": "failed", "reason": "not_allowed"}));
++        assert_eq!(mic_right_status(true), serde_json::json!({"state": "stopped"}));
+     }
+ 
+     #[test]

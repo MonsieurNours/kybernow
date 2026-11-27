@@ -1,4 +1,5 @@
 diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
+index b5a5940..01148a4 100644
 --- a/kycontroller/src/avservice.rs
 +++ b/kycontroller/src/avservice.rs
 @@ -320,11 +320,27 @@ impl Handler {
@@ -77,16 +78,40 @@ diff --git a/kycontroller/src/avservice.rs b/kycontroller/src/avservice.rs
      }
  }
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
+index bd78c1e..dcbabfa 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1025,6 +1025,30 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
+@@ -1037,6 +1037,83 @@ pub(crate) async fn guest_force_idr(ctrl: Arc<Controller>, uid: Uuid) {
      }
  }
  
-+/// KyberNow (0060): `/recover` from a share guest: on the images it gets
-+/// (its own, or the host's: a repair without a keyframe costs the others
-+/// next to nothing, and the encoder falls back to a keyframe by itself).
-+pub(crate) async fn guest_recover(ctrl: &Controller, uid: &Uuid, last_pts: u64) {
++/// KyberNow (0060): `/recover` from a share guest (and the repairs of its
++/// feedback channel, patch 0061), on the images it gets. Most encoders
++/// (H.264, AMF, QSV, x264, VideoToolbox) answer a repair with a keyframe:
++/// on the host's image, a guest that keeps losing would force one per
++/// image on the host. So, as its keyframes: at most one repair per
++/// `FORCE_IDR_MIN_INTERVAL` for the session; on its own image at once; on
++/// the host's, spaced with the guests' keyframes (one every 2 s at most for
++/// all of them, [`KeyframeSpacing`](guest_image::KeyframeSpacing): one put
++/// off becomes a keyframe then) and a sign of lag. `single`: only for a
++/// guest with one image (as for the host).
++pub(crate) async fn guest_recover(ctrl: &Controller, uid: &Uuid, last_pts: u64, single: bool) {
++    let now = Instant::now();
++    let recent = ctrl
++        .with_session(uid, |s| {
++            let recent = s
++                .last_force_idr
++                .is_some_and(|last| now.saturating_duration_since(last) < crate::FORCE_IDR_MIN_INTERVAL);
++            if !recent {
++                s.last_force_idr = Some(now);
++            }
++            Ok(recent)
++        })
++        .unwrap_or(true);
++    if recent {
++        debug!("Session {uid}: repair ignored, one less than {:?} ago", crate::FORCE_IDR_MIN_INTERVAL);
++        return;
++    }
 +    let Ok(services) = ctrl.session_services(uid) else {
 +        return;
 +    };
@@ -97,13 +122,43 @@ diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
 +        .iter()
 +        .filter_map(|output| output.current.clone())
 +        .collect();
-+    let manager = ctrl.av_services_manager.lock().await;
++    if single && keys.len() != 1 {
++        return;
++    }
++    let mut on_host = false;
 +    for key in &keys {
++        let mut manager = ctrl.av_services_manager.lock().await;
++        let delay = if matches!(key, VideoStreamKey::Shared { .. }) {
++            on_host = true;
++            match manager.guest_keyframe_delay(key, now) {
++                Some(delay) => delay,
++                None => {
++                    debug!("Session {uid}: keyframe on {key:?} already on its way");
++                    continue;
++                }
++            }
++        } else {
++            Duration::ZERO
++        };
++        if !delay.is_zero() {
++            // Too soon after the last one on the host's image: a keyframe,
++            // put off (it serves the guests asking meanwhile).
++            let idr = manager.idr_sender(key.clone());
++            tokio::spawn(async move {
++                tokio::time::sleep(delay).await;
++                idr();
++            });
++            continue;
++        }
 +        if let Some(stream) = manager.video_streams.get(key)
 +            && let Err(err) = stream.avservice.video_recover(last_pts)
 +        {
 +            warn!("Session {uid}: repair on {key:?} failed: {err:?}");
 +        }
++    }
++    if on_host && lag_sign(ctrl, uid, LagSign::KeyframeRequest) {
++        info!("Session {uid}: repairs asked again and again, image lowered");
++        relocate(ctrl, *uid, Relocation::Lag).await;
 +    }
 +}
 +
@@ -111,6 +166,7 @@ diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
  /// is alone on, within its preset's ceiling and the host's bitrate.
  /// `false`: refused (403).
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index d69a8ec..1cad313 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -763,6 +763,84 @@ pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> Ht
@@ -164,7 +220,7 @@ diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
 +    if kybernow::is_guest(ctrl, uid) {
 +        drop(services);
 +        debug!("Repair up to {last_pts} for a share guest");
-+        kybernow::guest_recover(ctrl, uid, last_pts).await;
++        kybernow::guest_recover(ctrl, uid, last_pts, single).await;
 +        return true;
 +    }
 +

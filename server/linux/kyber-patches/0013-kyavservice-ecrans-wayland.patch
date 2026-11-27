@@ -1,5 +1,5 @@
 diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
-index a6b21c7..3665d10 100644
+index b7bfdac..59bdb0b 100644
 --- a/kyavservice/src/avconv/mod.rs
 +++ b/kyavservice/src/avconv/mod.rs
 @@ -190,9 +190,16 @@ fn video_config(
@@ -49,7 +49,7 @@ index a6b21c7..3665d10 100644
      })
  }
  
-@@ -572,6 +585,34 @@ mode = "{mode}"
+@@ -574,6 +587,34 @@ mode = "{mode}"
          crate::config::from_table(&table).unwrap()
      }
  
@@ -85,7 +85,7 @@ index a6b21c7..3665d10 100644
      fn sdp_probe_follows_gstreamer_raw_source() {
          let config = gstreamer_config("raw", "");
 diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
-index 5ac7cd9..473c362 100644
+index 53d15d3..287da45 100644
 --- a/kyavservice/src/avconv/video.rs
 +++ b/kyavservice/src/avconv/video.rs
 @@ -76,6 +76,10 @@ pub(crate) struct VideoConfig {
@@ -99,27 +99,36 @@ index 5ac7cd9..473c362 100644
  }
  
  impl VideoConfig {
-@@ -226,13 +230,27 @@ fn create_grab_source(
+@@ -226,13 +230,35 @@ fn create_grab_source(
  
      let sources = grab_ctx.sources(payloads, src_types)?;
  
 -    // KyberNow: select by display ID (see displays::display_id), then by
-+    // KyberNow: a Wayland output named in the sources file, by its name;
-+    // else select by display ID (see displays::display_id), then by
-     // index (IDs of sources without a name), then the first available.
+-    // index (IDs of sources without a name), then the first available.
 -    let src = sources
 -        .iter()
 -        .enumerate()
 -        .find(|(idx, s)| super::displays::source_id(s, *idx) == video_config.display_id)
 -        .map(|(_, s)| s)
++    // KyberNow: a Wayland output named in the sources file, by its name,
++    // and never another one: it is a share guest's or a lent display
++    // (`HEADLESS-n`); gone (agent restarted, output removed by the
++    // compositor), the capture fails and the session waits for it, rather
++    // than showing the host's real screen. Else select by display ID (see
++    // displays::display_id), then by index (IDs of sources without a name),
++    // then the first available.
 +    #[cfg(target_os = "linux")]
-+    let by_output = video_config.wayland_output.as_deref().and_then(|name| {
-+        let found = sources.iter().find(|s| s.name().as_deref() == Some(name));
-+        if found.is_none() {
-+            warn!("Wayland output {name} not found, using another one");
++    let by_output = match video_config.wayland_output.as_deref() {
++        Some(name) => {
++            let found = sources.iter().find(|s| s.name().as_deref() == Some(name));
++            if found.is_none() {
++                warn!("Wayland output {name} not found: no capture (never another display)");
++                return Err(libavconv_rs::Error::NoSource.into());
++            }
++            found
 +        }
-+        found
-+    });
++        None => None,
++    };
 +    #[cfg(not(target_os = "linux"))]
 +    let by_output = None;
 +    let src = by_output
@@ -133,7 +142,7 @@ index 5ac7cd9..473c362 100644
          .or_else(|| {
              warn!(
                  "Display {} not found on the capture adapter, using another one",
-@@ -280,6 +298,17 @@ fn create_grab_source(
+@@ -280,6 +306,17 @@ fn create_grab_source(
          &video_config.gpu_priority.capture_option().to_string(),
      )?;
  
@@ -151,7 +160,7 @@ index 5ac7cd9..473c362 100644
      let video_hook = video_hook_closure(metrics.cloned());
      // Encoded Linux sources feed the muxer directly, with no capture-side hook.
      #[cfg(target_os = "linux")]
-@@ -508,11 +537,10 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
+@@ -508,11 +545,10 @@ fn encoder_names(config: &VideoConfig) -> (&'static str, String) {
                  "hwdownload,format=bgra,{}format={pix_fmt}",
                  kybernow::software_scale(config.scale)
              );
@@ -166,7 +175,7 @@ index 5ac7cd9..473c362 100644
                  format!("hwdownload,format=bgr0|bgra,format={pix_fmt}")
              } else {
                  format!("format={pix_fmt}")
-@@ -958,6 +986,8 @@ mod tests {
+@@ -983,6 +1019,8 @@ mod tests {
              grab_backend: config::GrabBackend::Gstreamer,
              #[cfg(target_os = "linux")]
              gstreamer_pipeline: None,
@@ -176,7 +185,7 @@ index 5ac7cd9..473c362 100644
      }
  
 diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
-index ab31322..4bd2ed0 100644
+index dd93131..37278a1 100644
 --- a/kyavservice/src/config.rs
 +++ b/kyavservice/src/config.rs
 @@ -182,6 +182,14 @@ impl GstreamerVideoSource {
@@ -195,7 +204,7 @@ index ab31322..4bd2ed0 100644
          let pipeline = match self.mode {
              VideoSourceMode::Raw => format!(
 diff --git a/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c b/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c
-index 02238bf..a5495f3 100644
+index 02238bf381..a5495f3196 100644
 --- a/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c
 +++ b/subprojects/libavconv/libavgrab/wayland_wlr_screencopy.c
 @@ -131,7 +131,11 @@ static void wayland_scrcpy_buffer_done(void *data,

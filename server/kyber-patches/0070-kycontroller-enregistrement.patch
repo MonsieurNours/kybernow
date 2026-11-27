@@ -1,8 +1,8 @@
 diff --git a/kycontroller/src/kybernow.rs b/kycontroller/src/kybernow.rs
-index 06ff9c2..d42dfc4 100644
+index 557b586..bfa8b68 100644
 --- a/kycontroller/src/kybernow.rs
 +++ b/kycontroller/src/kybernow.rs
-@@ -1156,7 +1156,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
+@@ -1275,7 +1275,7 @@ fn from_loopback(req: &HttpRequest) -> bool {
  }
  
  /// KyberNow Admin only: from this computer (403), with its own token (401).
@@ -11,7 +11,7 @@ index 06ff9c2..d42dfc4 100644
      if !from_loopback(req) {
          warn!("/kybernow refused to {:?}: not local", req.peer_addr());
          return Some(HttpResponse::Forbidden().finish());
-@@ -1177,7 +1177,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
+@@ -1296,7 +1296,7 @@ fn admin_refusal(req: &HttpRequest) -> Option<HttpResponse> {
  }
  
  /// The body is only read once the caller is known to be KyberNow Admin.
@@ -56,7 +56,7 @@ index c010120..0bf09e3 100644
  #[derive(Default)]
  struct GuestQueue {
 diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
-index d69a8ec..547e6ee 100644
+index 1cad313..a8c4c5b 100644
 --- a/kycontroller/src/main.rs
 +++ b/kycontroller/src/main.rs
 @@ -54,7 +54,10 @@ mod kyber_agent;
@@ -70,7 +70,7 @@ index d69a8ec..547e6ee 100644
  mod rtp;
  mod security;
  mod session;
-@@ -957,7 +960,9 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -1035,7 +1038,9 @@ async fn real_main(config: config::Config) -> Result<()> {
                          .service(kybernow::get_sessions)
                          .service(kybernow::post_role)
                          .service(kybernow::post_quality)
@@ -81,7 +81,7 @@ index d69a8ec..547e6ee 100644
                  )
                  .service(capabilities)
                  .service(websocket_service)
-@@ -996,6 +1001,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+@@ -1075,6 +1080,8 @@ async fn real_main(config: config::Config) -> Result<()> {
      }
  
      ctrl_for_tray.shutdown_tray();
@@ -92,10 +92,10 @@ index d69a8ec..547e6ee 100644
      if let Some(agent_task) = agent_task {
 diff --git a/kycontroller/src/mp4.rs b/kycontroller/src/mp4.rs
 new file mode 100644
-index 0000000..e688e72
+index 0000000..94a4aad
 --- /dev/null
 +++ b/kycontroller/src/mp4.rs
-@@ -0,0 +1,1193 @@
+@@ -0,0 +1,1216 @@
 +// KyberNow: a fragmented MP4 writer for session recordings (patch 0070).
 +//
 +// The packets are the encoder's own: H.264 or HEVC in Annex B (start codes),
@@ -916,6 +916,12 @@ index 0000000..e688e72
 +            time: start.max(time.min(start + AUDIO_TIMESCALE as u64)),
 +            sync: true,
 +        });
++        // A still screen sends no image: the sound is written on its own
++        // once a second, so the file holds it up to its last second (and
++        // the size shown goes on growing).
++        if track.ready_time() >= AUDIO_TIMESCALE as u64 {
++            self.flush_fragment()?;
++        }
 +        Ok(())
 +    }
 +
@@ -1200,6 +1206,23 @@ index 0000000..e688e72
 +    }
 +
 +    #[test]
++    fn sound_of_a_still_screen_is_written() {
++        let video = VideoConfig::from_annexb(VideoFormat::H264, &annexb(&[&h264_sps(), &h264_pps()])).unwrap();
++        let audio = AudioConfig::from_opus_head(&opus_head(2)).unwrap();
++        let mut w = Mp4Writer::new(Cursor::new(Vec::new()), video, Some(&audio)).unwrap();
++        w.write_video(0, true, &annexb(&[&[0x65, 1]])).unwrap();
++        let header = w.len();
++        // Three seconds of sound (20 ms packets), no other image.
++        for i in 0..150u64 {
++            w.write_audio(i * 20_000, &[0xf8, 1, 2]).unwrap();
++        }
++        assert!(w.len() > header, "the sound waits for an image");
++        let data = w.finish().unwrap().into_inner();
++        let moofs = top_boxes(&data).into_iter().filter(|(k, _)| k == "moof").count();
++        assert!(moofs >= 3, "{moofs}");
++    }
++
++    #[test]
 +    fn video_only_file() {
 +        let video = VideoConfig::from_annexb(VideoFormat::H264, &annexb(&[&h264_sps(), &h264_pps()])).unwrap();
 +        let mut w = Mp4Writer::new(Cursor::new(Vec::new()), video, None).unwrap();
@@ -1291,10 +1314,10 @@ index 0000000..e688e72
 +}
 diff --git a/kycontroller/src/recording.rs b/kycontroller/src/recording.rs
 new file mode 100644
-index 0000000..0ef0948
+index 0000000..154be66
 --- /dev/null
 +++ b/kycontroller/src/recording.rs
-@@ -0,0 +1,832 @@
+@@ -0,0 +1,1028 @@
 +// KyberNow: recording the host's session into an MP4 (patch 0070).
 +//
 +// KyberNow Admin asks (`POST /kybernow/recording`, its own token, from this
@@ -1309,8 +1332,8 @@ index 0000000..0ef0948
 +// The recording follows the host's image when it changes (a profile chosen
 +// in session): a new format or new parameter sets go on in a new file
 +// (`… (2).mp4`). It ends when Admin stops it, when the host's session
-+// ends, when writing fails (disk full), or with the encoder's format
-+// (AV1 and PyroWave are not recorded).
++// ends, when writing fails or the disk is nearly full (`MIN_FREE`), or with
++// the encoder's format (AV1 and PyroWave are not recorded).
 +
 +use std::fs::File;
 +use std::io::BufWriter;
@@ -1344,6 +1367,12 @@ index 0000000..0ef0948
 +/// How long the first image waits for the sound's header before the file
 +/// is made (without sound if it does not come).
 +const AUDIO_WAIT: Duration = Duration::from_millis(1500);
++/// Free space under which the recording ends (as a write failure: Admin,
++/// which stops at 2 GB, tells it as a full disk). Admin's own check is the
++/// first one; this one holds when Admin does not watch.
++const MIN_FREE: u64 = 1 << 30;
++/// How often the free space is read.
++const FREE_EVERY: Duration = Duration::from_secs(10);
 +
 +// ===========================================================================
 +// State
@@ -1387,15 +1416,16 @@ index 0000000..0ef0948
 +    bytes: AtomicU64,
 +    /// Set by the writer when it stopped by itself (error or format).
 +    failed: Mutex<Option<EndReason>>,
-+    /// The writer fell behind: the image goes back to its next keyframe.
-+    behind: AtomicBool,
-+    /// … which the supervisor asks for at once (intra refresh makes none).
++    /// The writer fell behind (an image was lost): the supervisor asks for
++    /// a keyframe at once (intra refresh makes none).
 +    want_key: AtomicBool,
 +}
 +
 +struct Active {
 +    started_at_ms: u64,
 +    display: u32,
++    /// The folder written to (its free space is watched).
++    dir: PathBuf,
 +    key: VideoStreamKey,
 +    source: watch::Sender<Option<kydup::VideoSource>>,
 +    video_task: Task,
@@ -1410,6 +1440,34 @@ index 0000000..0ef0948
 +struct Recorder {
 +    active: Option<Active>,
 +    last_end: Option<LastEnd>,
++    /// A start is under way (between its check and its `active`): a second
++    /// `POST` meanwhile does not start a second recorder.
++    starting: bool,
++    /// A stop came while starting: the new recording ends at once.
++    stop_asked: Option<EndReason>,
++}
++
++/// Holds the start's place in the recorder until it is installed or fails.
++struct Starting;
++
++impl Starting {
++    /// Takes the place, unless a recording runs or starts already.
++    fn take() -> Option<Self> {
++        with_recorder(|r| {
++            if r.active.is_some() || r.starting {
++                return None;
++            }
++            r.starting = true;
++            r.stop_asked = None;
++            Some(Starting)
++        })
++    }
++}
++
++impl Drop for Starting {
++    fn drop(&mut self) {
++        with_recorder(|r| r.starting = false);
++    }
 +}
 +
 +static RECORDER: Mutex<Option<Recorder>> = Mutex::new(None);
@@ -1454,7 +1512,8 @@ index 0000000..0ef0948
 +// ===========================================================================
 +
 +enum Msg {
-+    Video(AVPacket, Instant),
++    /// An image packet; `true` when packets were lost just before it.
++    Video(AVPacket, Instant, bool),
 +    Audio(AVPacket, Instant),
 +    Stop,
 +}
@@ -1468,6 +1527,10 @@ index 0000000..0ef0948
 +    shared: Arc<Shared>,
 +    /// Set when this output ends (its stream ended).
 +    ended: Option<Arc<AtomicBool>>,
++    /// Image packets were lost (queue full): the next one that gets in
++    /// carries it, so the writer waits for a keyframe from there, and not
++    /// from a packet queued before the loss.
++    lost: bool,
 +}
 +
 +#[async_trait]
@@ -1478,13 +1541,18 @@ index 0000000..0ef0948
 +        let msg = if self.audio {
 +            Msg::Audio(packet, Instant::now())
 +        } else {
-+            Msg::Video(packet, Instant::now())
++            Msg::Video(packet, Instant::now(), self.lost)
 +        };
 +        match self.tx.try_send(msg) {
-+            Ok(()) => Ok(()),
++            Ok(()) => {
++                if !self.audio {
++                    self.lost = false;
++                }
++                Ok(())
++            }
 +            Err(TrySendError::Full(_)) => {
 +                if !self.audio {
-+                    self.shared.behind.store(true, Ordering::Relaxed);
++                    self.lost = true;
 +                    self.shared.want_key.store(true, Ordering::Relaxed);
 +                }
 +                Ok(())
@@ -1546,6 +1614,9 @@ index 0000000..0ef0948
 +    last_video: Option<(u64, Instant)>,
 +    /// Added to the sound's pts when its clock is not the image's.
 +    audio_offset: Option<i128>,
++    /// The sound changed (channel count) in this file: what follows is not
++    /// written under the old header; the next file has it.
++    audio_frozen: bool,
 +}
 +
 +impl Writer {
@@ -1577,6 +1648,7 @@ index 0000000..0ef0948
 +                info!("Recording into {}", path.display());
 +                self.shared.files.lock().unwrap().push(path);
 +                self.file = Some(w);
++                self.audio_frozen = false;
 +                true
 +            }
 +            Err(e) => {
@@ -1600,7 +1672,12 @@ index 0000000..0ef0948
 +        }
 +    }
 +
-+    fn video(&mut self, packet: AVPacket, at: Instant) {
++    fn video(&mut self, packet: AVPacket, at: Instant, after_loss: bool) {
++        if after_loss {
++            // Packets were lost just before this one: what follows cannot
++            // be decoded until the next keyframe.
++            self.need_key = true;
++        }
 +        match packet {
 +            AVPacket::Codec(c) => {
 +                let Some(format) = video_format(c.header.codec) else {
@@ -1622,11 +1699,6 @@ index 0000000..0ef0948
 +            }
 +            AVPacket::Media(m) => {
 +                let Some(format) = self.format else { return };
-+                if self.shared.behind.swap(false, Ordering::Relaxed) {
-+                    // Packets were lost: what follows cannot be decoded
-+                    // until the next keyframe.
-+                    self.need_key = true;
-+                }
 +                // In-band parameter sets on a keyframe count as a config.
 +                if m.header.is_key {
 +                    let in_band = crate::mp4::param_sets_in(format, &m.payload);
@@ -1698,15 +1770,17 @@ index 0000000..0ef0948
 +                        self.audio = Some(config);
 +                    } else if self.audio.as_ref() != Some(&config) {
 +                        // Another channel count: the sound stops in this
-+                        // file, the next one has it.
++                        // file (its header is the old one), the next one
++                        // has it.
 +                        warn!("Recording: the sound changed, ignored until the next file");
 +                        self.audio = Some(config);
++                        self.audio_frozen = true;
 +                    }
 +                }
 +            }
 +            AVPacket::Media(m) => {
 +                let Some(file) = self.file.as_mut() else { return };
-+                if !file.has_audio() {
++                if !file.has_audio() || self.audio_frozen {
 +                    return;
 +                }
 +                let offset = *self.audio_offset.get_or_insert_with(|| {
@@ -1753,7 +1827,7 @@ index 0000000..0ef0948
 +                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
 +            };
 +            match msg {
-+                Msg::Video(p, at) => self.video(p, at),
++                Msg::Video(p, at, after_loss) => self.video(p, at, after_loss),
 +                Msg::Audio(p, at) => self.audio(p, at),
 +                Msg::Stop => break,
 +            }
@@ -1801,6 +1875,9 @@ index 0000000..0ef0948
 +    Codec,
 +    /// The folder could not be made.
 +    Folder,
++    /// Less than `MIN_FREE` free in the folder (Admin's `disk_full`).
++    #[serde(rename = "disk_full")]
++    Disk,
 +}
 +
 +#[derive(Serialize)]
@@ -1834,19 +1911,26 @@ index 0000000..0ef0948
 +        audio: true,
 +        shared: Arc::clone(shared),
 +        ended: Some(Arc::clone(&ended)),
++        lost: false,
 +    });
 +    Some((dup.add_recording_output(send), ended))
 +}
 +
 +async fn start(ctrl: &web::Data<Controller>, dir: PathBuf, base: String) -> Result<RecordingState, Refusal> {
-+    if with_recorder(|r| r.active.is_some()) {
++    // The place is taken before the first await: two `POST`s at once (a
++    // double click, two devices) make one recorder.
++    let Some(starting) = Starting::take() else {
 +        return Ok(state());
-+    }
++    };
 +    let display = host_display(ctrl).await.ok_or(Refusal::NoSession)?;
 +    std::fs::create_dir_all(&dir).map_err(|e| {
 +        warn!("Recording: folder {}: {e}", dir.display());
 +        Refusal::Folder
 +    })?;
++    if free_space(&dir).is_some_and(|free| free < MIN_FREE) {
++        warn!("Recording: less than {} MB free in {}", MIN_FREE >> 20, dir.display());
++        return Err(Refusal::Disk);
++    }
 +
 +    let manager = ctrl.av_services_manager.lock().await;
 +    let key = manager.current_host_key(display).ok_or(Refusal::NoSession)?;
@@ -1859,7 +1943,7 @@ index 0000000..0ef0948
 +    let shared = Arc::new(Shared::default());
 +    let (tx, rx) = sync_channel(QUEUE);
 +    let writer = Writer {
-+        dir,
++        dir: dir.clone(),
 +        base,
 +        shared: Arc::clone(&shared),
 +        format: None,
@@ -1872,6 +1956,7 @@ index 0000000..0ef0948
 +        need_key: true,
 +        last_video: None,
 +        audio_offset: None,
++        audio_frozen: false,
 +    };
 +    let writer = std::thread::Builder::new()
 +        .name("kn-recording".into())
@@ -1884,6 +1969,7 @@ index 0000000..0ef0948
 +        audio: false,
 +        shared: Arc::clone(&shared),
 +        ended: None,
++        lost: false,
 +    });
 +    let video_task = kydup::spawn_recording_video_output(video_send, source_rx);
 +    let audio_task = attach_audio(&manager, &tx, &shared);
@@ -1891,10 +1977,11 @@ index 0000000..0ef0948
 +
 +    let started_at_ms = now_ms();
 +    info!("Recording started on display {display} ({key:?})");
-+    with_recorder(|r| {
++    let stop_asked = with_recorder(|r| {
 +        r.active = Some(Active {
 +            started_at_ms,
 +            display,
++            dir,
 +            key,
 +            source: source_tx,
 +            video_task,
@@ -1904,7 +1991,14 @@ index 0000000..0ef0948
 +            writer: Some(writer),
 +            shared,
 +        });
++        r.starting = false;
++        r.stop_asked.take()
 +    });
++    drop(starting);
++    if let Some(reason) = stop_asked {
++        stop(reason).await;
++        return Ok(state());
++    }
 +    let ctrl = ctrl.clone();
 +    let supervisor = Task::spawn(async move { supervise(ctrl).await });
 +    with_recorder(|r| {
@@ -1917,7 +2011,13 @@ index 0000000..0ef0948
 +
 +/// Stops the recording, if one runs: the files are closed once this returns.
 +async fn stop(reason: EndReason) {
-+    let Some(mut active) = with_recorder(|r| r.active.take()) else {
++    let Some(mut active) = with_recorder(|r| {
++        if r.active.is_none() && r.starting {
++            // Ends as soon as it is installed.
++            r.stop_asked = Some(reason);
++        }
++        r.active.take()
++    }) else {
 +        return;
 +    };
 +    let reason = active.shared.failed.lock().unwrap().unwrap_or(reason);
@@ -1946,6 +2046,7 @@ index 0000000..0ef0948
 +async fn supervise(ctrl: web::Data<Controller>) {
 +    let mut gone_since: Option<Instant> = None;
 +    let mut last_key = Instant::now();
++    let mut last_free = Instant::now();
 +    let mut tick = tokio::time::interval(Duration::from_secs(1));
 +    tick.tick().await;
 +    loop {
@@ -1954,9 +2055,20 @@ index 0000000..0ef0948
 +            tokio::spawn(stop(EndReason::Write));
 +            return;
 +        }
-+        let Some((display, key)) = with_recorder(|r| r.active.as_ref().map(|a| (a.display, a.key.clone()))) else {
++        let Some((display, key, dir)) =
++            with_recorder(|r| r.active.as_ref().map(|a| (a.display, a.key.clone(), a.dir.clone())))
++        else {
 +            return;
 +        };
++        if last_free.elapsed() >= FREE_EVERY {
++            last_free = Instant::now();
++            let free = tokio::task::spawn_blocking(move || free_space(&dir)).await.ok().flatten();
++            if free.is_some_and(|free| free < MIN_FREE) {
++                warn!("Recording: less than {} MB free, stopping", MIN_FREE >> 20);
++                tokio::spawn(stop(EndReason::Write));
++                return;
++            }
++        }
 +        let host = host_display(&ctrl).await;
 +        let manager = ctrl.av_services_manager.lock().await;
 +        let current = host.and_then(|_| manager.current_host_key(display));
@@ -2015,6 +2127,41 @@ index 0000000..0ef0948
 +    }
 +}
 +
++/// Free bytes for this process on the disk of `dir`; `None` if unknown
++/// (the recording then goes on: only writing can stop it).
++#[cfg(windows)]
++fn free_space(dir: &Path) -> Option<u64> {
++    use std::os::windows::ffi::OsStrExt;
++    #[link(name = "kernel32")]
++    unsafe extern "system" {
++        fn GetDiskFreeSpaceExW(dir: *const u16, free: *mut u64, total: *mut u64, total_free: *mut u64) -> i32;
++    }
++    let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
++    let mut free = 0u64;
++    // SAFETY: a NUL-terminated path; the other outputs may be null.
++    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) };
++    (ok != 0).then_some(free)
++}
++
++/// Free bytes on the disk of `dir` (`df -Pk`, the same on macOS and Linux);
++/// `None` if unknown.
++#[cfg(not(windows))]
++fn free_space(dir: &Path) -> Option<u64> {
++    let out = std::process::Command::new("df").arg("-Pk").arg(dir).output().ok()?;
++    if !out.status.success() {
++        return None;
++    }
++    df_available(&String::from_utf8_lossy(&out.stdout))
++}
++
++/// The available kilobytes of `df -Pk`'s second line, in bytes.
++#[cfg_attr(windows, allow(dead_code))]
++fn df_available(out: &str) -> Option<u64> {
++    let line = out.lines().nth(1)?;
++    let kb: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
++    kb.checked_mul(1024)
++}
++
 +/// Stops a recording when the controller quits: the file is closed.
 +pub(crate) async fn shutdown() {
 +    stop(EndReason::Ended).await;
@@ -2055,7 +2202,7 @@ index 0000000..0ef0948
 +
 +/// `POST /kybernow/recording`: `{"record": true, "dir": …, "name": …}`
 +/// starts, `{"record": false}` stops. Answers the state, or 409 with
-+/// `{"code"}` (`no_session`, `codec`, `folder`).
++/// `{"code"}` (`no_session`, `codec`, `folder`, `disk_full`).
 +#[post("/recording")]
 +pub(crate) async fn post_recording(
 +    ctrl: web::Data<Controller>,
@@ -2117,6 +2264,78 @@ index 0000000..0ef0948
 +        assert_eq!(file_path(&dir, "x", 1).file_name().unwrap(), "x (2).mp4");
 +        assert_eq!(file_path(&dir, "x", 3).file_name().unwrap(), "x (3).mp4");
 +        std::fs::remove_dir_all(&dir).unwrap();
++    }
++
++    #[test]
++    fn reads_df() {
++        let out = "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk3s1 1953000 13000 161000 8% /\n";
++        assert_eq!(df_available(out), Some(161_000 * 1024));
++        assert_eq!(df_available("Filesystem\n"), None);
++        assert_eq!(df_available(""), None);
++    }
++
++    #[cfg(not(windows))]
++    #[test]
++    fn free_space_of_the_temp_dir() {
++        assert!(free_space(&std::env::temp_dir()).is_some_and(|f| f > 0));
++    }
++
++    #[test]
++    fn one_start_at_a_time() {
++        let first = Starting::take().expect("free");
++        assert!(Starting::take().is_none(), "a second start while the first runs");
++        drop(first);
++        let again = Starting::take().expect("free again");
++        drop(again);
++    }
++
++    /// A writer without a folder: what reaches the file is only read back.
++    fn writer() -> Writer {
++        Writer {
++            dir: std::env::temp_dir(),
++            base: String::new(),
++            shared: Arc::new(Shared::default()),
++            format: Some(VideoFormat::H264),
++            video: None,
++            audio: None,
++            file: None,
++            part: 0,
++            waiting: Vec::new(),
++            waiting_since: None,
++            need_key: false,
++            last_video: None,
++            audio_offset: None,
++            audio_frozen: false,
++        }
++    }
++
++    fn media(pts: u64, key: bool) -> AVPacket {
++        AVPacket::Media(kymux::types::MediaPacket {
++            header: kymux::types::MediaPacketHeader {
++                pts,
++                is_key: key,
++                is_config: false,
++                size: 6,
++            },
++            payload: bytes::Bytes::from_static(&[0, 0, 0, 1, 0x41, 1]),
++        })
++    }
++
++    #[test]
++    fn a_loss_waits_for_the_next_keyframe() {
++        let mut w = writer();
++        w.video(media(0, true), Instant::now(), false);
++        assert!(!w.need_key);
++        // Queued before the loss: still written.
++        w.video(media(1, false), Instant::now(), false);
++        assert!(!w.need_key);
++        // The first packet after the loss: from here, a keyframe first.
++        w.video(media(2, false), Instant::now(), true);
++        assert!(w.need_key);
++        w.video(media(3, false), Instant::now(), false);
++        assert!(w.need_key);
++        w.video(media(4, true), Instant::now(), false);
++        assert!(!w.need_key);
 +    }
 +
 +    #[test]
