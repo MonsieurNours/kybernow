@@ -23,7 +23,7 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 | TRANS-45, COEUR-47 | Déjà faits par la vague 1 (mêmes titres en FR et EN, vérifié). |
 | TRANS-46 | `reprise-apres-perte` : vrais messages de FFmpeg, niveau de journal qui les écrit (`txproto_log_level` ou `ffmpeg_log_level` à `debug`, vérifié dans kyavserver), ligne du cœur (`session.rs:4218`). |
 | TRANS-47 (chemins) | `PROJECT`, README de Link OS, doc PyroWave Android : chemins complets de `deb.sh`, `apt-repo.sh`, `strings.py`. README du Mac : « Retirer cet ordinateur » sans points de suspension, comme l'app. |
-| MAC-35, MAC-40 | `plusieurs-ordinateurs.md` et README du cœur : plus aucune fonction `kn_*` retirée (vérifié : toute fonction `kn_*` citée dans les docs existe dans `apps/apple/src` ou `apps/core`). |
+| MAC-35, MAC-40 | `plusieurs-ordinateurs.md` : plus aucune fonction `kn_*` retirée (vérifié : hors README du cœur, toute fonction `kn_*` citée dans les docs existe dans `apps/apple/src` ou `apps/core`). Le README du cœur est laissé à la session v2-coeur, qui le réécrit pour les nouvelles API (il cite encore `kn_console_share_watch`). |
 | KYB-49 | README du Mac : l'image clé est demandée par le cœur, `Client::request_keyframe` de kyclient (correctif 0001), pas par la fonction C. |
 | STLIN-26 | `PROJECT` : Station Linux publiée en bêta (0.11.7), onze correctifs propres à Linux, Sway et Hyprland, systèmes immuables, pas de HDR. |
 | WEB-26 | README de la Station : les huit espaces d'Admin (et dans le guide du site). |
@@ -45,6 +45,7 @@ Branche `claude/v2-docs-0db24c`, partie de `main` (`165d333f`). Zone : `docs/` (
 
 - **Commentaires de scripts** qui disent encore PyroWave « seulement avec --kyber-pyrowave » : `apps/tvos/scripts/build-kyber-tvos.sh:22-25`, `apps/android/scripts/build-native.sh:39-41`, `apps/windows/scripts/build.sh:104-106`, `apps/macos/scripts/build-kyclient.sh:15-16` (le code allume bien PyroWave par défaut). Zone des scripts.
 - **KYB-49, le code** : les fonctions C `kyclient_*_packet_sink` et `kyclient_client_request_keyframe` du correctif 0001 de l'app Mac, et leur ligne dans `docs/kyber-changes.md`. KYB-49 n'est dans aucune session de la phase 2a : à confier.
+- **README du cœur** (`apps/core/README*.md`) : confié à la session v2-coeur, à sa demande ; il cite encore `kn_console_share_watch` (MAC-35).
 - **Commentaire** `apps/apple/src/share.rs:46` qui cite `kn_console_share_watch`, retirée (Apple, phase 2b).
 - **SIDELOAD** (TVOS-24) : une seule version minimale de la Station pour l'iPhone et l'Apple TV (« 0.3.1 ou plus récente » proposé) ; `apps/*/SIDELOAD*.md` n'est pas un README, et rien dans le code ne fixe cette limite : à confirmer par l'auteur.
 - **Message agnostique** : `apps/linux/src/ui/setup.rs:424` dit « votre ordinateur Windows » (Linux, phase 2b).
