@@ -3,7 +3,7 @@
 //! processeur si la carte refuse un profil (HEVC 4:4:4 sur une carte qui ne
 //! le décode pas, par exemple).
 
-#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
+#![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
 use std::ffi::c_void;
 use std::ptr;
@@ -86,7 +86,6 @@ pub struct Decoder {
     /// besoin) ; recopié par FFmpeg seulement s'il en tient encore une référence.
     buf: *mut AVBufferRef,
     frame: *mut AVFrame,
-    pub fourcc: u32,
     pub hardware: bool,
     /// Le verrou du contexte Direct3D que FFmpeg a reçu : il doit vivre autant
     /// que le décodeur.
@@ -175,7 +174,6 @@ impl Decoder {
                 pkt: av_packet_alloc(),
                 buf: ptr::null_mut(),
                 frame: av_frame_alloc(),
-                fourcc,
                 hardware,
                 _lock: if hardware { lock.cloned() } else { None },
             })

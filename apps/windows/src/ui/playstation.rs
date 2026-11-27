@@ -134,11 +134,6 @@ fn session(app: &AppHandle, id: &str) -> Option<Arc<PsSession>> {
     ps(app).sessions.locked().iter().find(|s| s.id() == id).cloned()
 }
 
-/// Une partie au moins est en cours.
-pub fn playing(app: &AppHandle) -> bool {
-    !ps(app).sessions.locked().is_empty()
-}
-
 /// Les Stations joignables par le relais en ce moment (« Hors de chez vous »).
 fn away_station(app: &AppHandle, station: &str) -> bool {
     if relais::off() {
@@ -197,7 +192,7 @@ fn search_loop(app: AppHandle) {
     loop {
         let shown = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false);
         let waking = with(&app, |c| !c.waking.is_empty());
-        if (shown && !playing(&app)) || waking {
+        if (shown && !ps(&app).playing()) || waking {
             search_once(&app, Duration::from_millis(2000));
         }
         std::thread::sleep(Duration::from_secs(3));

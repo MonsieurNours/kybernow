@@ -15,7 +15,7 @@
 //! bout à bout), toujours image clé ; image incomplète ou illisible sautée,
 //! jamais d'image clé demandée.
 
-#![allow(non_camel_case_types, dead_code)]
+#![allow(non_camel_case_types)]
 
 use crate::sync::Locked;
 use std::ffi::c_void;
@@ -452,10 +452,6 @@ impl Decoder {
                 planes: None,
             })
         }
-    }
-
-    pub fn config(&self) -> Option<Config> {
-        self.config
     }
 
     /// Paquet de configuration : décodeur et textures recréés s'il change.
