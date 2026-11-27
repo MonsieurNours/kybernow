@@ -134,6 +134,9 @@ final class CloudPublisher: ObservableObject {
 
     /// Après chaque changement des ordinateurs (HostStore.didSave), et au lancement.
     func publish(_ hosts: [Host]) {
+        // Les ordinateurs d'un compte restent sur cet appareil, quel que soit
+        // l'appelant (au lancement aussi, MAC-04).
+        let hosts = hosts.filter { $0.account == nil }
         self.hosts = hosts
         guard enabled else { state = .off; return }
         guard Self.entitled else { state = .unavailable; return }
@@ -164,6 +167,13 @@ final class CloudPublisher: ObservableObject {
         write(others + hosts.map { CloudHost($0, from: from) })
         published = mine
         state = failure.map { .failed(CloudKeychain.message($0)) } ?? .published(hosts.count)
+    }
+
+    /// Nouveau mot de passe d'un ordinateur : recopié dans le Trousseau
+    /// iCloud au lieu d'être tenu pour déjà fait (MAC-13).
+    func passwordChanged(_ id: UUID) {
+        copied.remove(id)
+        if enabled { publish(hosts) }
     }
 
     /// Synchro coupée : ce Mac retire ses ordinateurs et leurs mots de passe

@@ -113,6 +113,7 @@ final class AppModel: ObservableObject {
         }
         #endif
         store.didSave = { [cloud] in cloud.publish($0) }
+        store.passwordChanged = { [cloud] in cloud.passwordChanged($0) }
         cloud.publish(store.hosts)
         // Les comptes PlayStation et leurs associations, dans les deux sens.
         cloud.attach(playstation: playstation)

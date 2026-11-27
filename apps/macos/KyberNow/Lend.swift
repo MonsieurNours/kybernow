@@ -219,6 +219,8 @@ final class BorrowedStore: ObservableObject {
         }
         do {
             let status = try await Lend.status(target, login: computer.login, password: password)
+            // Retiré pendant l'attente : rien n'est recréé pour lui (MAC-19).
+            guard self.computer(computer.id) != nil else { return }
             states[computer.id] = .status(status)
             if var c = self.computer(computer.id), c.host != status.host || c.computer != status.computer {
                 c.host = status.host
@@ -226,9 +228,9 @@ final class BorrowedStore: ObservableObject {
                 update(c)
             }
         } catch let error as LendError where !error.unreachable {
-            states[computer.id] = .refused(ShareText.sentence(error.localizedDescription))
+            if self.computer(computer.id) != nil { states[computer.id] = .refused(ShareText.sentence(error.localizedDescription)) }
         } catch {
-            states[computer.id] = .offline
+            if self.computer(computer.id) != nil { states[computer.id] = .offline }
         }
     }
 
