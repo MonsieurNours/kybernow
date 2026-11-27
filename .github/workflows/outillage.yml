@@ -1,0 +1,62 @@
+# Essais de l'outillage et du relais, à chaque push et pull request vers main
+# (docs/releases.md, « Intégration continue ») :
+#   - les outils de publication (scripts/tests/release-outils.sh : verrous,
+#     arbres, correctifs client, entrées des étapes, liste des fichiers publiés,
+#     vérification des fichiers), sur macOS comme la publication ;
+#   - le relais (server/relay et son tunnel), exposé sur Internet, sans
+#     third_party ; l'image Docker publiée les repasse (relay-image.yml) ;
+#   - le banc de mesure (tools/banc), qui recompile apps/core/src/adaptive.rs.
+# Les essais du cœur Rust ont leur propre workflow.
+name: Outillage et relais
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: outillage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  outils:
+    name: Outils de publication
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scripts/tests/release-outils.sh
+        run: scripts/tests/release-outils.sh
+
+  relais:
+    name: Relais (cargo test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server/relay
+      - name: cargo test --workspace
+        working-directory: server/relay
+        run: cargo test --locked --workspace
+
+  banc:
+    name: Banc de mesure (compilation)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/banc
+      - name: cargo build
+        working-directory: tools/banc
+        run: cargo build --locked

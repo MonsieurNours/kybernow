@@ -15,7 +15,8 @@ use banc::trace::{self, Trace};
 
 // Le calcul du débit automatique des apps, repris tel quel : le rejeu juge
 // toujours le code de la branche en cours. Il ne lit de la seconde que
-// l'aller-retour, les pertes, les octets et les trous ; les petits modules
+// l'aller-retour, les pertes, les octets, les trous et le canal de retour
+// (absent ici) ; les petits modules
 // ci-dessous tiennent la place de ceux du cœur.
 #[path = "../../../apps/core/src/adaptive.rs"]
 #[allow(dead_code)]
@@ -29,6 +30,18 @@ mod latency {
         pub lost_packets: u32,
         pub bytes: u64,
         pub holes: u32,
+        /// Canal de retour de la Station : le banc n'en simule pas (pertes
+        /// estimées, comme face à une Station sans lui).
+        pub feedback: Option<Feedback>,
+    }
+
+    #[derive(Debug, Clone, Copy, Default, PartialEq)]
+    pub struct Feedback {
+        pub datagrams: u64,
+        pub lost: u64,
+        pub lost_frames: u64,
+        pub repair_ratio: Option<f64>,
+        pub wait_ms: f64,
     }
 }
 
@@ -48,7 +61,7 @@ struct DebitAutomatique(adaptive::AdaptiveBitrate);
 
 impl Controle for DebitAutomatique {
     fn seconde(&mut self, m: &Mesure, besoin: u32) -> u32 {
-        let s = latency::Second { rtt_ms: m.rtt_ms, lost_packets: m.lost_packets, bytes: m.bytes, holes: m.holes };
+        let s = latency::Second { rtt_ms: m.rtt_ms, lost_packets: m.lost_packets, bytes: m.bytes, holes: m.holes, feedback: None };
         self.0.second(&s, besoin);
         self.0.bitrate(besoin)
     }

@@ -39,16 +39,23 @@ print("1920x1080@60")
 ')}"
     W="${MODE%%x*}"; REST="${MODE#*x}"; H="${REST%%@*}"; HZ="${MODE##*@}"
     echo "Écran virtuel demandé : ${W} × ${H} à ${HZ} Hz"
-    auth=(-sk -u "$USER_NAME:$PASS" -H "x-kyber-admin: 1")
+    # Identifiants dans un fichier de configuration de curl (lisible par vous
+    # seul, retiré à la fin), pas en argument : ps les montrerait.
+    CURL_CONF="$(mktemp)"
+    chmod 600 "$CURL_CONF"
+    printf 'user = "%s:%s"\n' "$(printf '%s' "$USER_NAME" | sed 's/[\\"]/\\&/g')" "$(printf '%s' "$PASS" | sed 's/[\\"]/\\&/g')" > "$CURL_CONF"
+    auth=(-sk -K "$CURL_CONF" -H "x-kyber-admin: 1")
     curl "${auth[@]}" -X POST "$KYBERNOW_CONSOLE/api/stream/prepare" -H "content-type: application/json" \
         -d "{\"width\":$W,\"height\":$H,\"refresh\":$HZ}" | tee "$RUN_DIR/prepare.json"; echo
     (while sleep 5; do curl "${auth[@]}" -X POST "$KYBERNOW_CONSOLE/api/stream/heartbeat" > /dev/null || true; done) &
     HEARTBEAT_PID=$!
     disown "$HEARTBEAT_PID"
-    trap 'kill $HEARTBEAT_PID 2>/dev/null; curl "${auth[@]}" -X POST "$KYBERNOW_CONSOLE/api/stream/end" > /dev/null || true' EXIT
+    trap 'kill $HEARTBEAT_PID 2>/dev/null; curl "${auth[@]}" -X POST "$KYBERNOW_CONSOLE/api/stream/end" > /dev/null || true; rm -f "$CURL_CONF"' EXIT
 fi
 
 cd "$RUN_DIR"
+# Le client de Kyber ne lit son mot de passe qu'en argument (--auth-password,
+# sans variable d'environnement) : il reste visible par ps pendant la mesure.
 echo "Session en cours — fermer la fenêtre du client pour terminer (Ctrl+Alt+F : plein écran)."
 "$APP" "$HOST" --tls-tofu --auth-username "$USER_NAME" --auth-password "$PASS" --metrics true --auto-reconnect true "$@" \
     > client.log 2>&1 || echo "Le client s'est terminé avec une erreur (voir $RUN_DIR/client.log)."

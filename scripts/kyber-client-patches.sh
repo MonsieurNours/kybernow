@@ -30,8 +30,11 @@ kyber_client_repo() {
 }
 
 # kyber_apply_client_patches <kysdk> <correctif>... : remet à l'origine (HEAD
-# du dépôt) chaque fichier que ces correctifs touchent, puis les pose dans
-# l'ordre donné. S'arrête (code 1) au premier correctif qui ne se pose pas.
+# du dépôt) chaque fichier que touche un correctif connu de kyctl, kymux ou
+# kynput (kyber_known_client_patches : ceux du moment et les autres, pour
+# qu'un build sans 0025, webOS ou --sans-pyrowave, ne garde pas les fichiers
+# que seul 0025 touche après un build avec), puis pose ceux-ci dans l'ordre
+# donné. S'arrête (code 1) au premier correctif qui ne se pose pas.
 # Les correctifs de la Station pour ces dépôts (kycontroller, kywebplayer,
 # kynet, kynput : pas ceux de kyclient, que l'appelant passe, ni ceux du moteur
 # web) sont posés d'abord, comme server/kyber-patches/apply.sh : les apps se
@@ -46,6 +49,19 @@ kyber_station_patches() {
             *-kycontroller-* | *-kywebplayer-* | *-kynet-* | *-kynput-*) echo "$patch" ;;
         esac
     done
+}
+
+# Tous les correctifs connus qui visent kyctl, kymux ou kynput : ceux des apps
+# et ceux des Stations (Windows, Mac, Linux), qu'un build les pose ou non.
+kyber_known_client_patches() {
+    local patch
+    for patch in "$KYBER_CLIENT_PATCHES_ROOT"/apps/*/kyber-patches/*.patch "$KYBER_CLIENT_PATCHES_ROOT"/server/*/kyber-patches/*.patch \
+        "$KYBER_CLIENT_PATCHES_ROOT"/server/kyber-patches/*.patch; do
+        [ -f "$patch" ] || continue
+        case "$(basename "$patch")" in
+            *-kyclient-* | *-kycontroller-* | *-kywebplayer-* | *-kynput-* | *-kynet-*) echo "$patch" ;;
+        esac
+    done | awk '!vu[$0]++'
 }
 
 # État des dépôts que touchent ces correctifs (commit, modifications,
@@ -84,7 +100,9 @@ kyber_apply_client_patches() {
         return 0
     fi
     rm -f "$mark"
-    for patch in "$@"; do
+    local known=()
+    while IFS= read -r patch; do known+=("$patch"); done < <(kyber_known_client_patches)
+    for patch in ${known[@]+"${known[@]}"} "$@"; do
         repo="$(kyber_client_repo "$kysdk" "$patch")" || return 1
         for f in $(grep -h '^+++ b/' "$patch" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
             if git -C "$repo" cat-file -e "HEAD:$f" 2>/dev/null; then

@@ -55,7 +55,14 @@ setup() {
         # this machine/kernel ») : en deux temps, le second dans le chroot,
         # /proc monté (Rosetta lit /proc/self/exe).
         unmount
-        sudo rm -rf "$R"
+        # Jamais d'effacement sous un montage resté en place (un processus encore
+        # dans le chroot) : /dev de la VM et le dépôt partagé du Mac y sont.
+        if [ -d "$R" ] && findmnt -rn -o TARGET | grep -qE "^$R(/|$)"; then
+            echo "Montages encore actifs sous $R (processus dans le chroot ?) : rien n'est effacé." >&2
+            findmnt -rn -o TARGET | grep -E "^$R(/|$)" >&2
+            exit 1
+        fi
+        sudo rm -rf --one-file-system "$R"
         sudo debootstrap --foreign --arch=amd64 --variant=buildd --components=main,universe noble "$R" http://archive.ubuntu.com/ubuntu
         mounts
         sudo chroot "$R" /debootstrap/debootstrap --second-stage

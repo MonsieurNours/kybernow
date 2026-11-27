@@ -4,6 +4,16 @@
 # le docker-compose.yml du dépôt la reprennent d'eux-mêmes chaque nuit (service
 # « updater ») ou par `docker compose pull && docker compose up -d`.
 # Voir server/relay/README.md, « Mettre à jour ».
+#
+# Les essais du relais (cargo test de server/relay et de son tunnel) passent
+# avant toute image : une régression ne part pas en production, où les relais
+# se mettent à jour d'eux-mêmes.
+#
+# L'image poussée est signée avec cosign (par son empreinte, toutes ses
+# étiquettes avec) quand les secrets COSIGN_PRIVATE_KEY et COSIGN_PASSWORD
+# sont posés : server/relay/update.sh vérifie la signature si le relais a
+# RELAY_COSIGN_KEY. Sans clé, une note le dit, et l'image part quand même.
+# Créer la clé : docs/releases.md, « Signature de l'image du relais ».
 name: Image du relais
 
 on:
@@ -28,34 +38,73 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  image:
-    name: Construire et publier
+  # La version et son étiquette, validées avant tout : les entrées passent par
+  # l'environnement, jamais dans le texte du script (pas d'injection).
+  version:
+    name: Version
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      tags: ${{ steps.v.outputs.tags }}
     steps:
       - name: Version
         id: v
+        env:
+          EVENEMENT: ${{ github.event_name }}
+          TAG_RELEASE: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          VERSION_DEMANDEE: ${{ inputs.version }}
+          LATEST_DEMANDE: ${{ inputs.latest }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            tag="${{ github.event.release.tag_name }}"
-            latest="${{ github.event.release.prerelease == false }}"
+          if [ "$EVENEMENT" = "release" ]; then
+            tag="$TAG_RELEASE"
+            latest=true
+            [ "$PRERELEASE" = "true" ] && latest=false
           else
-            tag="v${{ inputs.version }}"
-            latest="${{ inputs.latest }}"
+            tag="v$VERSION_DEMANDEE"
+            latest="$LATEST_DEMANDE"
           fi
           version="${tag#v}"
-          case "$version" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "version illisible : $tag" >&2; exit 1 ;;
-          esac
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version illisible : $tag" >&2; exit 1
+          fi
           image="ghcr.io/monsieurnours/kybernow-relay"
           tags="$image:$version"
           [ "$latest" = "true" ] && tags="$tags,$image:latest"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "tags=$tags"
+          } >> "$GITHUB_OUTPUT"
+
+  tests:
+    name: Essais du relais
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.v.outputs.tag }}
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server/relay
+      - name: cargo test (relais et tunnel)
+        working-directory: server/relay
+        run: cargo test --locked --workspace
+
+  image:
+    name: Construire et publier
+    needs: [version, tests]
+    runs-on: ubuntu-latest
+    env:
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -64,16 +113,37 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: server/relay
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.v.outputs.tags }}
+          tags: ${{ needs.version.outputs.tags }}
           labels: |
             org.opencontainers.image.title=KyberNow relay
             org.opencontainers.image.description=Relais de KyberNow (KyberNow Share, accès hors de chez soi)
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ steps.v.outputs.version }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
             org.opencontainers.image.licenses=AGPL-3.0-or-later
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Clé de signature
+        id: cle
+        run: |
+          if [ -n "$COSIGN_PRIVATE_KEY" ]; then
+            echo "signer=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Image non signée::Secrets COSIGN_PRIVATE_KEY et COSIGN_PASSWORD absents : l'image est publiée sans signature cosign (docs/releases.md, « Signature de l'image du relais »)."
+          fi
+      - uses: sigstore/cosign-installer@v3
+        if: steps.cle.outputs.signer == 'true'
+        with:
+          cosign-release: v2.4.1
+      - name: Signature cosign (par l'empreinte de l'image)
+        if: steps.cle.outputs.signer == 'true'
+        env:
+          EMPREINTE: ${{ steps.build.outputs.digest }}
+        run: |
+          image="ghcr.io/monsieurnours/kybernow-relay@$EMPREINTE"
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$image"
+          echo "signée : $image"

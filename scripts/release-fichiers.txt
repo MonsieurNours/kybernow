@@ -1,0 +1,41 @@
+# Fichiers publiés avec chaque version de KyberNow, en un seul endroit : lus
+# par scripts/release.sh (constructions vérifiées, SHA256SUMS, release GitHub),
+# scripts/sign-manifest.sh (manifeste signé) et scripts/release-verifie.py
+# (tout fichier de la liste présent dans le dossier doit être dans le
+# manifeste et dans SHA256SUMS).
+#
+# nom                                   groupe          (copie : son original)
+# construit : produit par une étape, vérifié, dans SHA256SUMS et le manifeste ;
+# copie : ancien nom publié à l'identique (docs/releases.md, « Anciens noms ») ;
+# flux : flux Sparkle, dans SHA256SUMS et le manifeste ;
+# station-linux : construit, seulement avec la Station Linux (KYBERNOW_STATION_LINUX) ;
+# signature : SHA256SUMS et le manifeste eux-mêmes, publiés seulement.
+KyberNow-Station-Setup.exe              construit
+kybernow-update.zip                     construit
+update.ps1                              construit
+KyberNow-Station-Mac.dmg                construit
+KyberNow-Station-Mac-update.zip         construit
+KyberNow-Link-macOS.zip                 construit
+KyberSDK-tvOS.zip                       construit
+KyberSDK-iOS.zip                        construit
+KyberNow-Link-Setup.exe                 construit
+KyberNow-Link-Android.apk               construit
+KyberNow-Link-webOS.ipk                 construit
+KyberNow-Link-Linux-x86_64.flatpak      construit
+KyberNow-Link-Linux-aarch64.flatpak     construit
+KyberNow-Link-RaspberryPi-arm64.deb     construit
+KyberNow-Link-OS.img.xz                 construit
+KyberNow-macOS.zip                      copie           KyberNow-Link-macOS.zip
+KyberNow-Server-Setup.exe               copie           KyberNow-Station-Setup.exe
+KyberNow-Setup.exe                      copie           KyberNow-Station-Setup.exe
+KyberNow-Client-Setup.exe               copie           KyberNow-Link-Setup.exe
+appcast.xml                             flux
+KyberNow-Station-Linux-arm64.deb        station-linux
+KyberNow-Station-Linux-arm64.rpm        station-linux
+KyberNow-Station-Linux-x86_64.deb       station-linux
+KyberNow-Station-Linux-x86_64.rpm       station-linux
+KyberNow-Station-Linux-aarch64.tar.xz   station-linux
+KyberNow-Station-Linux-x86_64.tar.xz    station-linux
+SHA256SUMS                              signature
+kybernow-release.json                   signature
+kybernow-release.json.minisig           signature

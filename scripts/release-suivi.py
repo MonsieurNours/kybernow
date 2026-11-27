@@ -6,7 +6,8 @@ cochent au fur et à mesure, et un pourcentage d'avancement.
     scripts/release-suivi.py 0.11.2 --une-fois un seul état (essais)
 
 Lit le journal de la publication (~/Library/Logs/kybernow-release-<version>.log,
-écrit par release.sh ; ou --journal CHEMIN). Rien n'est lancé ni arrêté :
+à écrire en lançant release.sh avec « 2>&1 | tee » vers ce fichier :
+docs/releases.md ; ou --journal CHEMIN). Rien n'est lancé ni arrêté :
 release.sh reste seul maître de la publication.
 
 Avancement : vérifications, versions et arbres 5 %, constructions 80 % (part
@@ -20,10 +21,11 @@ import time
 from pathlib import Path
 
 AVANT = ["Vérifications préalables", "Versions", "Arbres de construction"]
+# Libellés des étapes, tels que release.sh les affiche (scripts/release-etapes.txt).
+ETAPES_TXT = Path(__file__).resolve().parent / "release-etapes.txt"
 CONSTRUCTIONS = [
-    "Surcouche Kyber (Windows)", "Station Windows", "App Windows x64+ARM64", "App Android", "App webOS",
-    "App Mac", "Notarisation app Mac", "App Apple TV + SDK", "App iPhone/iPad + SDK", "Station Mac",
-    "Flatpak aarch64 (VM)", "Flatpak x86_64 (VM)", ".deb Raspberry Pi (VM)", "KyberNow Link OS (VM)", "Station Linux (VM)",
+    l.split("\t")[1].strip() for l in ETAPES_TXT.read_text(encoding="utf-8").splitlines()
+    if l and not l.startswith("#") and "\t" in l
 ]
 APRES = [
     "Fichiers de la version", "Vérification des fichiers", "Flux de mises à jour de l'app", "Flux cumulatif du site",
