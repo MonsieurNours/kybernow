@@ -43,6 +43,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # shellcheck source=kyber-stamp.sh
 . "$HERE/kyber-stamp.sh"
 kyber_linux_check_stamp "$ROOT" "$RT_SRC" || exit 1
+[ -f "$ROOT/LICENSE" ] || { echo "LICENSE absent à la racine du dépôt : les paquets doivent porter la licence" >&2; exit 1; }
 [ -f "$ROOT/server/web/dist/index.html" ] || { echo "Interface d'Admin absente : server/web, npm ci && npm run build" >&2; exit 1; }
 
 echo "==> kyber-admin, kybernow-display et kybernow-tray ($ARCH)"
@@ -93,7 +94,8 @@ install -m 644 "$ROOT/server/linux/packaging/kybernow-station.firewalld.xml" "$T
 install -m 644 "$ROOT/server/linux/packaging/kybernow-station.ufw" "$TREE/etc/ufw/applications.d/kybernow-station"
 # KDE Plasma : le droit de l'agent au protocole d'écrans de KWin.
 install -m 644 "$ROOT/server/linux/packaging/fr.leslignesclaires.kybernow.station.display.desktop" "$TREE/usr/share/applications/"
-install -m 644 "$ROOT/LICENSE" "$TREE/usr/share/doc/kybernow-station/copyright" 2>/dev/null || true
+# Licence (AGPL-3.0, à la racine du dépôt) : toujours dans les paquets.
+install -m 644 "$ROOT/LICENSE" "$TREE/usr/share/doc/kybernow-station/copyright"
 SIZE_KB=$(du -sk "$TREE" | cut -f1)
 
 # Après une installation comme après une mise à jour (par Admin : le service
