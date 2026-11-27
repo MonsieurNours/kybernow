@@ -19,7 +19,9 @@
 :root[data-theme="light"] .hphoto img { filter: brightness(1.08) saturate(.95); }
 .hshade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(var(--veil),.94) 0%, rgba(var(--veil),.7) 38%, rgba(var(--veil),.05) 72%), linear-gradient(0deg, rgba(var(--veil),.9), transparent 30%); }
 .hdark { position: absolute; inset: 0; background: var(--ink0); opacity: calc(max(0, var(--p) - .58) * 2.6); pointer-events: none; }
-.htext { position: absolute; left: 0; right: 0; top: 110px; opacity: calc(1 - max(0, var(--p) - .35) * 2.6); transform: translateY(calc(max(0, var(--p) - .35) * -80px)); }
+.htext { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding-bottom: 24px; opacity: calc(1 - max(0, var(--p) - .35) * 2.6); transform: translateY(calc(max(0, var(--p) - .35) * -80px)); }
+.htext > .wrap { width: 100%; }
+@media (min-width: 901px) { .rot { transition: height .6s cubic-bezier(.2,.9,.1,1); } }
 .htext .in { display: grid; gap: 22px; max-width: 700px; }
 .htext h1 { font-size: clamp(42px, 4.6vw, 66px); }
 .rot { display: grid; }
@@ -207,7 +209,7 @@
   .hphoto img:nth-child(4) { object-position: 30% 50%; }
   .hphoto img:nth-child(5) { object-position: 40% 50%; }
   .hshade { inset: 0 0 auto 0; height: var(--hph); background: linear-gradient(180deg, rgba(var(--veil),.5) 0%, rgba(var(--veil),0) 22%, rgba(var(--veil),0) 50%, rgba(var(--veil),.78) 84%, rgba(var(--veil),1) 100%); }
-  .htext { position: relative; top: auto; bottom: auto; padding-top: 18px; }
+  .htext { position: relative; display: block; inset: auto; top: auto; bottom: auto; padding-top: 18px; }
   .htext .in { gap: 18px; }
   .htext h1 { font-size: clamp(38px, 11vw, 46px); line-height: 1; }
   .htext .acts { gap: 10px; }

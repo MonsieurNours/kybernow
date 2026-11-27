@@ -37,11 +37,13 @@ SCENES = {
                  "wireless game controllers and playing a video game together, the woman laughing, bowl of popcorn and two glasses on a "
                  f"low coffee table, a large flat television mounted on the wall in front of them, {GREEN_TV}, wooden media console "
                  f"under the TV with a small white box, plants, bookshelf, {STYLE}", 23, (1536, 864)),
-    "salonamis": ("Four adult friends having a game night in a living room, a man about fifty with grey hair and glasses, a woman in "
-                  "her mid forties with a blond bob haircut, a bald man in his late thirties with a beard, and a woman around forty "
-                  "with long dark hair, sitting on a large sofa, seen from behind and three-quarter view, two of them holding game "
-                  "controllers and playing a video game together, the others laughing and cheering, snacks and drinks on the coffee "
-                  f"table, a large flat television on a media console in front of them, {GREEN_TV}, {STYLE}", 74, (1536, 864)),
+    "salonamis": ("Four adult friends having a game night, seen from behind, sitting side by side on one large sofa that faces a large "
+                  "flat television, all four of them facing the television and looking at the screen, the backs of their heads toward "
+                  "the camera: a man about fifty with grey hair and glasses, a woman in her mid forties with a blond bob haircut, a bald "
+                  "man in his late thirties with a beard, and a woman around forty with long dark hair, two of them holding game "
+                  "controllers and playing together, the others cheering with raised arms, one turning slightly to laugh in profile, "
+                  "snacks and drinks on a low coffee table between the sofa and the TV, the television on a wooden media console against "
+                  f"the far wall, {GREEN_TV}, {STYLE}", 74, (1536, 864)),
     "canape": ("A woman around forty with dark curly hair wearing a cozy knit sweater, curled up on a sofa under a blanket, seen from "
                "behind over her shoulder in three-quarter view, holding a Steam Deck handheld game console with both hands, the console "
                f"screen {GREEN}, a man in his forties reading a book next to her at the other end of the sofa, cup of tea on a side "

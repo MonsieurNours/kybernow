@@ -14,7 +14,9 @@
 :root[data-theme="light"] .hphoto img { filter: brightness(1.08) saturate(.95); }
 .hshade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(var(--veil), .94) 0%, rgba(var(--veil), .7) 38%, rgba(var(--veil), .05) 72%), linear-gradient(0deg, rgba(var(--veil), .9), transparent 30%); }
 .hdark { position: absolute; inset: 0; background: var(--ink0); opacity: calc(max(0, var(--p) - .58) * 2.6); pointer-events: none; }
-.htext { position: absolute; left: 0; right: 0; top: 110px; opacity: calc(1 - max(0, var(--p) - .35) * 2.6); transform: translateY(calc(max(0, var(--p) - .35) * -80px)); }
+.htext { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding-bottom: 24px; opacity: calc(1 - max(0, var(--p) - .35) * 2.6); transform: translateY(calc(max(0, var(--p) - .35) * -80px)); }
+.htext > .wrap { width: 100%; }
+@media (min-width: 901px) { .rot { transition: height .6s cubic-bezier(.2,.9,.1,1); } }
 .htext .in { display: grid; gap: 22px; max-width: 700px; }
 .htext h1 { font-size: clamp(42px, 4.6vw, 66px); }
 .rot { display: grid; }
@@ -190,7 +192,7 @@
   .hphoto img.s3 { object-position: 74% 50%; }
   .hshade { background: linear-gradient(180deg, rgba(var(--veil), .62) 0%, rgba(var(--veil), 0) 20%, rgba(var(--veil), .42) 32%, rgba(var(--veil), .86) 48%, var(--ink0) 64%); }
   :root[data-theme="light"] .hshade { background: linear-gradient(180deg, rgba(var(--veil), .7) 0%, rgba(var(--veil), .1) 18%, rgba(var(--veil), .72) 30%, rgba(var(--veil), .94) 44%, var(--ink0) 60%); }
-  .htext { position: relative; top: auto; bottom: auto; padding-bottom: 36px; }
+  .htext { position: relative; display: block; inset: auto; top: auto; bottom: auto; padding-bottom: 36px; }
   .htext .in { gap: 18px; margin-left: 0; }
   .htext h1 { font-size: clamp(36px, 10.4vw, 46px); line-height: 1.03; }
   .cta .btn { flex: 1 1 auto; justify-content: center; }

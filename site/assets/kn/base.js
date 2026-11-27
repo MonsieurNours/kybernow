@@ -88,6 +88,20 @@
     return io;
   };
 
+  // Mot qui change dans les titres des héros (.rot) : sur bureau, la ligne prend la hauteur du mot affiché
+  // (au lieu de réserver celle du plus long), avec une transition douce.
+  document.querySelectorAll('.rot').forEach(function (rot) {
+    var fit = function () {
+      if (innerWidth < 901) { rot.style.height = ''; return; }
+      var on = rot.querySelector('.on') || rot.firstElementChild;
+      if (on) rot.style.height = on.offsetHeight + 'px';
+    };
+    if ('MutationObserver' in window) new MutationObserver(fit).observe(rot, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('resize', fit);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    fit();
+  });
+
   // Anciennes ancres de l'accueil et du guide d'une seule page : on emmène le visiteur au bon endroit.
   var moves = {
     fr: { '/': { appareils: '/jeu/#appareil', playstation: '/jeu/#playstation', partage: '/share/', fonctions: '/jeu/#regle', telecharger: '/telecharger/', commencer: '/guide/ce-qu-il-vous-faut/', apps: '/#famille', questions: '/guide/faq/', technique: '/technologie/', reel: '/#telecharger' },
