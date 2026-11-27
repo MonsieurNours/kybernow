@@ -9,7 +9,7 @@ import mockEn from './i18n/mock.en.json'
 import mockFr from './i18n/mock.fr.json'
 import type { PsAccount, PsBar, PsConsole, PsFound, PsHandoffEvent, PsKept, PsLayout, PsSettings, PsSettingsView, PsState, PsWaiting } from './api'
 import type { InviteAdded, InviteRefusal } from './api'
-import type { AutoChoice, AutoResult, AutoStep, StationOffer } from './api'
+import type { AutoChoice, AutoResult, AutoStep, BarMic, SessionPlan, StationOffer, Values } from './api'
 import type { AccountComputer, AccountSignIn, AccountView } from './api'
 import type { BarComputer, BorrowBar, BorrowOutcome, Friend, HomeLend, LendEnd, LendPanel, LendRequest, LendWaitOutcome, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, GuestBar, Info, KeepSound, LastSession, RouteEvent, RouteView, ScreensEvent, Settings, Share, ShareGuest, ShareImageEvent, ShareJoinOutcome, ShareJoined, ShareQuality, ShareRole, ShareRoleEvent, ShareWaitOutcome, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
@@ -390,7 +390,25 @@ const offerOf = (c: (typeof computers)[number]): StationOffer => {
   return { banner: { kind: away ? 'away' : 'update', version }, chip }
 }
 /** Les ordinateurs tels que l'app les envoie (copie JSON, avec leur `offer`). */
-const computerViews = () => structuredClone(computers).map((c) => ({ ...c, offer: offerOf(c) }))
+/** La puce « Micro » telle que le cœur la décrit (`MicUi::ui_json`), imitée : textes de l'imitation. */
+const barMic = (on: boolean, state: BarMic['state']): BarMic => {
+  const lit = on && state !== 'refused'
+  const fr = i18n.lang === 'fr'
+  const label = lit ? 'Micro' : fr ? 'Micro coupé' : 'Microphone off'
+  const shortcut = fr ? 'Ctrl+Alt+Maj+V' : 'Ctrl+Alt+Shift+V'
+  return { on, state, lit, sent: on && state === 'on', reason: null, label, tooltip: `${label} (${shortcut})`, tile: lit ? (state === 'on' ? 'Envoyé' : 'Envoi…') : 'Coupé' }
+}
+
+/** L'empreinte telle que l'app la met en forme (`console::short_fingerprint` du cœur : « 7C41 E09B AABB CCDD »). */
+const shortFp = (f: string | null | undefined) => (f ?? '').replace(/^sha256:/i, '').replace(/[^0-9a-f]/gi, '').slice(0, 16).toUpperCase().match(/.{1,4}/g)?.join(' ') ?? ''
+const computerViews = () =>
+  structuredClone(computers).map((c) => ({
+    ...c,
+    fingerprint_short: shortFp(c.fingerprint),
+    address: `${c.host.includes(':') ? `[${c.host}]` : c.host}:${c.port}`,
+    relay_label: (c as { account?: { relay: string } | null }).account?.relay.split('#')[0] ?? '',
+    offer: offerOf(c),
+  }))
 /** Un appareil est en session sur Bureau-Salon (`?maj=session`) : refusé tant qu'on ne force pas. */
 const stationInSession = (a: Record<string, unknown>) => majFlags.includes('session') && a.id === 'a1' && !a.force
 let noticeTaken = false
@@ -599,6 +617,49 @@ const outcome = (o: StationOutcome) => {
   emit('station-outcome', o)
 }
 const update = () => ({ version: '0.5.1', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Link-Setup.exe', size: 1 })
+
+/**
+ * Les valeurs communes du cœur (`plan::values_json`), imitées : celles de l'app viennent de Rust
+ * (`common_values`).
+ */
+const commonValues: Values = {
+  manual_mbps: { min: 5, step: 5, max: 500, max_pyrowave: 2500, lg_tv_max: 95 },
+  background_bitrate: { computer: 20_000_000 },
+  max_guests: 4,
+  max_sessions: 4,
+  relay_link_wait_secs: 10,
+  admin_port: 9443,
+  address_example: '192.168.1.20:9443',
+  default_relay: 'share.kybernow.app',
+}
+
+/**
+ * Le plan d'une session imitée (`plan::plan` du cœur, à grands traits : profils, au plus 4K, H.264, sur
+ * batterie, définition sur mesure) ; dans l'app, `displays_info` le donne.
+ */
+const planFor = (s: Settings, auto: AutoResult | null | undefined): SessionPlan => {
+  const codec = (thisPc.hevc ? 'hevc' : 'h264') as NonNullable<Settings['codec']>
+  const profile = s.profile === 'auto' && !auto ? 'jeu' : s.profile
+  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false], auto: [false, 60, false] }[profile] as [boolean, number, boolean]
+  if (yuv444 && !thisPc.hevc444) [yuv444, mbps] = [false, mbps + Math.floor(mbps / 3)]
+  const base = profile === 'auto' && auto ? { codec: auto.codec, yuv444: auto.yuv444, mbps: auto.mbps, reliable: auto.reliable } : { codec, yuv444, mbps, reliable }
+  const custom = (s.codec != null && s.codec !== base.codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
+  let mode = s.custom ?? { width: thisPc.width, height: thisPc.height, refresh: thisPc.refresh }
+  const fit = (w: number, h: number) => {
+    const k = Math.min(1, w / mode.width, h / mode.height)
+    mode = { width: Math.floor(mode.width * k) & ~1, height: Math.floor(mode.height * k) & ~1, refresh: mode.refresh }
+  }
+  if (s.max_4k && !s.custom) fit(3840, 2160)
+  if (battery === 'alleger' && thisPc.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
+  const chosen = s.codec ?? base.codec
+  if (chosen === 'h264') fit(4096, 4096)
+  const from = chosen === 'pyrowave' ? ((s.yuv444 ?? base.yuv444) ? 1200 : 800) : base.mbps
+  const scale = Math.min(3, Math.max(0.4, Math.pow((mode.width * mode.height * Math.max(1, mode.refresh)) / (3840 * 2160 * 60), 0.75)))
+  const session = s.mbps ?? Math.max(5, Math.round(from * scale))
+  const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max', auto: 'Auto' }
+  const label = `${custom ? 'Personnalisé' : names[profile]} · ${chosen === 'pyrowave' ? 'PyroWave' : chosen.toUpperCase()}`
+  return { custom, base, ...mode, mbps: session, label }
+}
 
 /** Écrans que la session d'un ordinateur imité prend (le calcul du cœur, comme `displays_info`). */
 const screensFor = (id: string) => {
@@ -1206,7 +1267,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   probe_address: async (a) => {
     await sleep(500)
-    return { host: a.host, port: a.port, name: null, fingerprint: 'sha256:9f:3a:c2:71:0d:5e:88:b4' }
+    const fingerprint = 'sha256:9f:3a:c2:71:0d:5e:88:b4'
+    return { host: a.host, port: a.port, name: null, fingerprint, fingerprint_short: shortFp(fingerprint) }
   },
   parse_link: (a) => {
     const m = String(a.link).match(/^kybernow:\/\/([^:/?]+):(\d+)/)
@@ -1312,8 +1374,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   session_microphone: (a) => {
     const on = Boolean(a.on)
-    emit('bar-mic', { id: a.id as string, mic: { on, state: on ? 'waiting' : 'off', reason: null } })
-    if (on) setTimeout(() => emit('bar-mic', { id: a.id as string, mic: { on, state: 'on', reason: null } }), 600)
+    emit('bar-mic', { id: a.id as string, mic: barMic(on, on ? 'waiting' : 'off') })
+    if (on) setTimeout(() => emit('bar-mic', { id: a.id as string, mic: barMic(on, 'on') }), 600)
     return null
   },
   mic_settings: () => ({
@@ -1379,9 +1441,17 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const hdrShown = flags.has('hdr')
     const hdrReason = flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : s.codec === 'h264' ? t('mock.hdr_codec') : null
     const hdr = { shown: hdrShown, available: !hdrReason, reason: hdrReason, kind: null }
-    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display, hdr, hdr_on: hdrShown && !hdrReason && ((s as Partial<Settings>).hdr ?? true) } satisfies DisplaysInfo
+    const plan = planFor(s as unknown as Settings, (c as { auto?: AutoResult } | undefined)?.auto)
+    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display, hdr, hdr_on: hdrShown && !hdrReason && ((s as Partial<Settings>).hdr ?? true), plan } satisfies DisplaysInfo
+  },
+  recording_clock: (a) => {
+    const total = Math.max(0, Math.floor(Number(a.seconds)))
+    const two = (n: number) => String(n).padStart(2, '0')
+    const ms = `${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`
+    return total >= 3600 ? `${Math.floor(total / 3600)}:${ms}` : ms
   },
   home_hdr: () => flags.has('hdr'),
+  common_values: () => commonValues,
   ps_set_hdr: (a) => {
     const c = psConsole(String(a.id))
     if (c) c.hdr = !!a.on
@@ -1408,13 +1478,17 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     const code = flags.get('rejoindre')
     return { kind: 'join', link: code ? `kybernow://join?host=192.168.1.77&port=31544&code=${code}` : null }
   },
+  share_log: async () => {
+    await sleep(800)
+    console.info('share_log : la fenêtre « Partager » de Windows s’ouvrirait')
+    return null
+  },
   app_info: () => ({
     version: '0.5.0',
     channel: 'stable',
     language,
     lang: i18n.lang,
     update: update(),
-    arch: 'x64',
     battery,
     open_at_login: openAtLogin,
     sync_settings: syncSettings,
@@ -1859,7 +1933,7 @@ const psCommands: Record<string, (a: Record<string, unknown>) => unknown> = {
       psHandoffTimer = null
       emit('ps-handoff', (flags.get('recevoir') === 'expire' ? { event: 'expired' } : { event: 'received', text: t('mock.ps_received') }) satisfies PsHandoffEvent)
     }, 6000)
-    return '482913'
+    return '482 913'
   },
   // La barre d'une partie : le son, la souris, le plein écran changent ; « Se déconnecter » et la veille la ferment.
   session_command: (a) => {
@@ -1993,7 +2067,7 @@ export function mockTauri() {
           const title = guest ? t('mock.guest_on') : (computers.find((c) => c.id === served)?.name ?? '')
           const room = Number(flags.get('largeur') ?? 1240) || 1240
           // `?mac` : une Station Mac (menu Touches du Mac).
-          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : { on: false, state: 'off', reason: null }, console: psBarFlag ? psBarState : null }
+          const shown = { id: served, label: 'Jeu · HEVC', profile: 'jeu', title, mouse: 'auto', clipboard: true, mac: flags.has('mac'), system: flags.has('mac') ? 'mac' : flags.has('linux') ? 'other' : 'windows', room, stats: flags.has('statistiques'), multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length), guest, share: host ? shareView() : null, lend: host ? lendView() : null, borrow, recording: borrow ? null : recordingView(), route, hdr: flags.has('hdr') && !guest ? { on: true, available: flags.get('hdr') !== 'windows', reason: flags.get('hdr') === 'windows' ? t('mock.hdr_windows') : null } : null, mic: flags.has('sans-micro') ? null : barMic(false, 'off'), console: psBarFlag ? psBarState : null }
           // Un avis bref (`&avis`, `?arrivee`, `&preavis`) : sa capsule seule, sans la barre.
           const capsuleOnly = (guest && flags.has('avis')) || (!guest && flags.has('arrivee')) || !!borrow?.notice || (host && !!pyroFlag && (pyroFlag === 'wifi' || pyroFlag === 'sature' || !!relayJoined)) || (host && autoFlag === 'reseau')
           // `&manette` : la barre pilotée par la manette, l'anneau va et vient.

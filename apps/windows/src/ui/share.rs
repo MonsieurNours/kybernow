@@ -920,6 +920,8 @@ fn notice_with(app: &AppHandle, id: &str, title: &str, text: &str, panel: Option
             let launch = match panel {
                 // Les bandeaux de PyroWave et du profil Auto n'ouvrent aucun panneau.
                 Some(p) if p.starts_with("pyrowave") || p == "auto_network" => "kybernow://open".to_string(),
+                // Caméra refusée par Windows : la notification ouvre ses paramètres.
+                Some("camera_settings") => shell::CAMERA_PRIVACY.to_string(),
                 Some(p) => format!("kybernow://{p}?id={id}"),
                 None => "kybernow://open".to_string(),
             };

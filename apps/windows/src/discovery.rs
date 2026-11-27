@@ -1,24 +1,20 @@
 //! Ordinateurs annoncés sur le réseau local : annonce Bonjour/mDNS
-//! `_kybernow._tcp` de la console (TXT `name`, `fp`, `kyber`). Celles marquées
-//! `kyber=0` (console sans serveur Kyber derrière) ne sont pas proposées.
+//! `_kybernow._tcp` de la console (TXT `name`, `fp`, `kyber`). L'app garde sa
+//! bibliothèque mDNS ; l'annonce se lit par la règle du cœur
+//! (`kybernow_core::discovery::found`, WINAPP-53, la même pour toutes les
+//! apps) : `kyber=0` (console sans serveur Kyber derrière) et port nul
+//! écartés, une IPv4 hors de 169.254/16 d'abord, jamais une IPv6 locale au
+//! lien, l'empreinte mise en forme (`sha256:aa:bb:…`).
 
 use crate::sync::Locked;
 use std::collections::BTreeMap;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use mdns_sd::{ServiceDaemon, ServiceEvent};
-use serde::Serialize;
 
-const SERVICE: &str = "_kybernow._tcp.local.";
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct Found {
-    pub id: String,
-    pub name: String,
-    pub host: String,
-    pub port: u16,
-    pub fingerprint: Option<String>,
-}
+pub use kybernow_core::discovery::Found;
+use kybernow_core::discovery::{SERVICE, found};
 
 #[derive(Default)]
 pub struct Discovery {
@@ -58,28 +54,18 @@ pub fn start(changed: impl Fn(Vec<Found>) + Send + 'static) -> Arc<Discovery> {
                 let before = map.clone();
                 match event {
                     ServiceEvent::ServiceResolved(info) => {
-                        let txt = |k: &str| info.get_property_val_str(k).map(str::to_owned);
-                        if txt("kyber").as_deref() == Some("0") {
-                            continue;
-                        }
-                        // Une adresse IPv4 de préférence (VPN et IPv6 locales à part).
-                        // Les adresses IPv6 locales au lien (`fe80::…%12`) ne font pas une URL.
-                        let mut addrs: Vec<String> =
-                            info.get_addresses().iter().map(|a| a.to_string()).filter(|a| !a.contains('%')).collect();
-                        addrs.sort_by_key(|a| a.contains(':'));
-                        let Some(host) = addrs.into_iter().next() else { continue };
                         let fullname = info.get_fullname().to_string();
-                        let instance = fullname.trim_end_matches(SERVICE).trim_end_matches('.').to_string();
-                        map.insert(
-                            fullname.clone(),
-                            Found {
-                                id: fullname,
-                                name: txt("name").unwrap_or(instance),
-                                host,
-                                port: info.get_port(),
-                                fingerprint: txt("fp"),
-                            },
-                        );
+                        let addresses: Vec<IpAddr> = info.get_addresses().iter().map(|a| a.to_ip_addr()).collect();
+                        let txt = |k: &str| info.get_property_val_str(k).map(str::to_owned);
+                        match found(&fullname, info.get_port(), &addresses, txt) {
+                            Some(f) => {
+                                map.insert(fullname, f);
+                            }
+                            // Plus une Station à proposer (Kyber arrêté, plus d'adresse) : retirée.
+                            None => {
+                                map.remove(&fullname);
+                            }
+                        }
                     }
                     ServiceEvent::ServiceRemoved(_, fullname) => {
                         map.remove(&fullname);

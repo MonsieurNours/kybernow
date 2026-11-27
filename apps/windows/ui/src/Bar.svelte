@@ -80,7 +80,7 @@
 -->
 <script lang="ts">
   import { menuKeys } from './lib/menukeys'
-  import { onMount, tick, untrack } from 'svelte'
+  import { onMount, tick, untrack, type Snippet } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import StatsPanel from './lib/StatsPanel.svelte'
   import Mark from './lib/Mark.svelte'
@@ -92,7 +92,7 @@
   import type { BarHdr, BarMic, Chosen, PyroWaveBanner, PsBar, PsBarNav, PsStats } from './lib/api'
   import { psStatsLines } from './lib/api'
   import type { AppInfo, BarComputer, BorrowBar, BorrowEvent, GuestBar, KeepSound, LendPanel, LendRequest, LendStateEvent, RecordingEvent, RecordingView, RouteEvent, RouteView, SessionStats, Share, ShareGuest, ShareImageEvent, ShareQr, ShareQuality, ShareRequestEvent, ShareRole, ShareRoleEvent, ShareStateEvent, Stats } from './lib/api'
-  import { fillRecording, invoke, leftText, lendDurations, listen, ms, recordingClock, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
+  import { fillRecording, invoke, leftText, lendDurations, listen, ms, roleKbm, roleOf, rolePads, rolePlays, shareQualities, sinceText } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
   import { relayPhase, type RelayPhase } from './lib/relay.svelte'
 
@@ -104,7 +104,9 @@
   /** Les réglages s'écartent du profil : « Personnalisé ». */
   let custom = $state(false)
   let menu = $state<Menu | null>(null)
-  type Menu = 'profile' | 'mouse' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats' | 'screen' | 'camera'
+  type Menu = 'profile' | 'mouse' | 'keys' | 'computers' | 'share' | 'quality' | 'lend' | 'giveback' | 'stats' | 'screen' | 'camera' | 'more'
+  /** Les commandes que le menu « Plus » prend, une à une, dans cet ordre (docs/link-ui.md, « Menu « Plus » »). */
+  type Overflow = 'computers' | 'keys' | 'mouse' | 'keep_sound' | 'mic' | 'camera' | 'clipboard' | 'fullscreen'
   /**
    * Ce que montre la fenêtre de la barre : la barre (ouverte au pointeur, par « Statistiques », par une capsule
    * choisie), ou la capsule d'un avis bref seule, en haut de l'image (docs/link-ui.md « Barre de session »).
@@ -118,10 +120,14 @@
   let clipboard = $state(false)
   /** L'ordinateur est une Station Mac : le menu Touches propose ses touches (« ⌘ ⇥ »…). */
   let mac = $state(false)
+  /** Le système de la Station (`windows`, `mac`, `other`) : l'avertissement du prêt le dit. */
+  let system = $state<'windows' | 'mac' | 'other'>('other')
   /** La place de la barre (points) : la largeur de la session, bornée par sa fenêtre. */
   let room = $state(1240)
   /** Barre étroite : les puces perdent leur texte (sauf le profil), les pastilles se réduisent au nombre. */
   let compact = $state(false)
+  /** Commandes passées dans le menu « Plus » (les premières d'`overflowItems`) : la barre étroite ne tenait toujours pas. */
+  let overflow = $state(0)
   /** Session d'emprunt (prêt de l'ordinateur) : l'hôte, la fin, le préavis ; la barre est réduite. */
   let borrow = $state<BorrowBar | null>(null)
   /** Session d'hôte : « Prêter l'ordinateur… » et le prêt, tels que l'app les dit. */
@@ -174,7 +180,8 @@
   /** Avis bref d'un changement de rôle, montré à la place des statistiques. */
   let notice = $state<string | null>(null)
   /** L'avis est celui d'une demande (à rejoindre, à emprunter) : le choisir ouvre ce panneau. */
-  let noticePanel = $state<'share' | 'lend' | null>(null)
+  /** L'avis se choisit : il ouvre un panneau (`share`, `lend`) ou les paramètres de la caméra de Windows (`camera_settings`). */
+  let noticePanel = $state<'share' | 'lend' | 'camera_settings' | null>(null)
   /** L'icône de la capsule d'un avis (`gamepad` : « Manettes indisponibles sur cet ordinateur. ») ; sinon celle d'un écran. */
   let noticeIcon = $state<string | null>(null)
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
@@ -228,6 +235,7 @@
     mouse?: string
     clipboard?: boolean
     mac?: boolean
+    system?: 'windows' | 'mac' | 'other'
     room?: number
     stats?: boolean
     pinned?: boolean
@@ -239,6 +247,7 @@
     notice?: string | null
     notice_opens_share?: boolean
     notice_opens_lend?: boolean
+    notice_opens_settings?: boolean
     notice_icon?: string | null
     /** Le bandeau de PyroWave (`pyrowave_wifi`, `pyrowave_relay`, `pyrowave_strained`). */
     notice_kind?: PyroWaveBanner | null
@@ -287,7 +296,10 @@
   const profiles = $derived(
     ['jeu', 'bureau', 'max', 'auto'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
-  /** Le menu Touches : celles d'un PC, ou face à une Station Mac leurs équivalents (docs/link-ui.md « Face à une Station Mac »). */
+  /**
+   * Le menu Touches : les dix d'un PC, dans l'ordre de link-ui, chacune avec son indication ; face à une Station Mac,
+   * leurs équivalents (docs/link-ui.md « Face à une Station Mac »).
+   */
   const keys = $derived(
     (mac
       ? [
@@ -302,9 +314,41 @@
           ['win', 'win'],
           ['alt-tab', 'alt_tab'],
           ['print', 'print'],
+          ['win-d', 'win_d'],
+          ['win-l', 'win_l'],
+          ['alt-f4', 'alt_f4'],
+          ['esc', 'esc'],
+          ['task-manager', 'task_manager'],
+          ['f11', 'f11'],
         ]
-    ).map(([id, k]) => ({ id, name: t(`bar.${k}`), hint: t(`bar.${k}_hint`) })),
+    ).map(([id, k]) => ({ id, name: t(`bar.${k}`), hint: k === 'esc' ? '' : t(`bar.${k}_hint`) })),
   )
+  /**
+   * Les commandes de cette barre que « Plus » peut prendre, dans l'ordre de link-ui ; jamais l'ordinateur, la latence,
+   * le profil, « HDR », « Partager », « Prêter l'ordinateur… », l'enregistrement, « Par le relais », « Se déconnecter ».
+   */
+  const overflowItems = $derived.by((): Overflow[] => {
+    if (psBar) return []
+    const kbm = !guest || roleKbm(guest.role)
+    const present: [Overflow, boolean][] = [
+      ['computers', !guest && !borrow && others.length > 0],
+      ['keys', kbm],
+      ['mouse', kbm],
+      ['keep_sound', !soundOff && sessionCount >= 2],
+      ['mic', !!mic],
+      ['camera', !guest && !!camera?.offered],
+      ['clipboard', !guest && !borrow],
+      ['fullscreen', !multi],
+    ]
+    return present.filter(([, on]) => on).map(([k]) => k)
+  })
+  /** Cette commande est dans « Plus ». */
+  const moved = (k: Overflow) => {
+    const i = overflowItems.indexOf(k)
+    return i >= 0 && i < overflow
+  }
+  /** « Plus » prend la place de la première commande retirée. */
+  const firstMoved = $derived(overflow > 0 ? overflowItems[0] : null)
   let history = $state<number[]>([])
   /**
    * Les dernières mesures et la courbe de latence de chaque session, gardées même barre cachée :
@@ -435,6 +479,11 @@
           }
           return
         }
+        // La caméra refusée par Windows : l'avis qui ouvre ses paramètres, sur cette session.
+        if (e.panel === 'camera_settings') {
+          if (e.id === id) showNotice(e.text, 'camera_settings', 8000)
+          return
+        }
         const panel = e.panel ?? 'share'
         // Barre ouverte : pas de capsule (la pastille « 1 demande » le dit) ; capsule déjà là : elle passe à la nouvelle demande.
         if (e.id !== id || guest || borrow || view !== 'capsule') return
@@ -511,8 +560,10 @@
         mouseSetting = s.mouse === 'jeu' || s.mouse === 'bureau' ? s.mouse : 'auto'
         clipboard = !!s.clipboard
         mac = !!s.mac
+        system = s.system ?? 'other'
         room = s.room ?? 1240
         compact = false
+        overflow = 0
         // La fenêtre repart de toute la place de la session : la largeur de la barre lui est redite.
         sentWidth = 0
         multi = !!s.multi
@@ -552,7 +603,7 @@
           view = 'capsule'
           held = false
           inside = false
-          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : null, s.notice_kind ? 8000 : 4000)
+          showNotice(s.notice, s.notice_opens_share ? 'share' : s.notice_opens_lend ? 'lend' : s.notice_opens_settings ? 'camera_settings' : null, s.notice_kind ? 8000 : 4000)
           noticeIcon = s.notice_icon ?? null
           noticeKind = s.notice_kind ?? null
         } else {
@@ -596,6 +647,12 @@
     // Elle ne tient pas dans la session (une session de plus, aux deux tiers de l'écran) : la barre étroite.
     if (bar && !compact && bar.getBoundingClientRect().width > room - 12) {
       compact = true
+      await tick()
+    }
+    // La barre étroite ne tient toujours pas (8 points de marge de chaque côté) : ses commandes passent une à une
+    // dans le menu « Plus », jusqu'à ce qu'elle tienne.
+    while (bar && compact && overflow < overflowItems.length && bar.getBoundingClientRect().width > room - 16) {
+      overflow++
       await tick()
     }
     const width = Math.round(bar?.getBoundingClientRect().width ?? 0)
@@ -820,17 +877,13 @@
     await invoke('session_hdr', { id, on: hdr.on }).catch(() => {})
   }
 
-  /** « Micro » allumé ou coupé : retenu pour l'ordinateur, rien ne se relance ; l'état revient par `bar-mic`. */
+  /** « Micro » allumé ou coupé : retenu pour l'ordinateur, rien ne se relance ; l'état revient aussitôt par `bar-mic`. */
   async function toggleMic() {
     if (!mic || mic.state === 'refused') return
-    mic = { ...mic, on: !mic.on, state: mic.on ? 'off' : 'waiting' }
-    await invoke('session_microphone', { id, on: mic.on }).catch(() => {})
+    await invoke('session_microphone', { id, on: !mic.on }).catch(() => {})
   }
-  /** Allumé (envoyé, ou en attente de la réponse de l'ordinateur) ; jamais quand l'ordinateur le refuse. */
-  const micLit = $derived(!!mic && mic.on && mic.state !== 'refused')
-  const micTitle = $derived(
-    mic?.reason ?? t(micLit ? 'micro.tooltip_on' : 'micro.tooltip_off', { shortcut: t('micro.shortcut') }),
-  )
+  /** Allumé (envoyé, ou en attente de la réponse de l'ordinateur) ; jamais quand l'ordinateur le refuse (le cœur). */
+  const micLit = $derived(!!mic?.lit)
   /** « Allumer la caméra » / « Éteindre la caméra ». */
   async function toggleCamera() {
     if (!camera) return
@@ -911,7 +964,7 @@
   }
 
   /** Un avis bref à la place des statistiques ; la barre repart ensuite d'elle-même (sauf pointeur dessus ou menu ouvert). */
-  function showNotice(text: string, panel: 'share' | 'lend' | null = null, ms = 4000) {
+  function showNotice(text: string, panel: 'share' | 'lend' | 'camera_settings' | null = null, ms = 4000) {
     clearNotice()
     notice = text
     noticePanel = panel
@@ -963,6 +1016,12 @@
   async function openShareFromNotice() {
     const panel = noticePanel
     clearNotice()
+    // « Ouvrir les Réglages » de la caméra refusée : les paramètres de Windows, la barre repart.
+    if (panel === 'camera_settings') {
+      invoke('open_camera_settings').catch(() => {})
+      if (view === 'capsule') invoke('bar_hide', { id, focus: false })
+      return
+    }
     // La capsule laisse place à la barre, qui reste le temps de répondre (le panneau ouvert la tient).
     view = 'bar'
     held = true
@@ -1120,8 +1179,26 @@
     reportWidth()
   }
 
-  /** Le temps écoulé, chaque seconde (le même que sur les autres appareils : il part de la Station). */
-  const recordingTime = $derived(recording?.active ? recordingClock(recording.elapsed + Math.max(0, Math.floor((recordingTick - recordingAt) / 1000))) : '')
+  /**
+   * Le temps écoulé, chaque seconde (le même que sur les autres appareils : il part de la Station), mis en forme par
+   * le cœur (`recording_clock`). « 59:59 » devient « 1:00:00 » : la barre s'élargit, l'app le sait.
+   */
+  let recordingTime = $state('')
+  const recordingSeconds = $derived(recording?.active ? recording.elapsed + Math.max(0, Math.floor((recordingTick - recordingAt) / 1000)) : null)
+  $effect(() => {
+    const seconds = recordingSeconds
+    if (seconds === null) {
+      recordingTime = ''
+      return
+    }
+    invoke<string>('recording_clock', { seconds })
+      .then((time) => {
+        const wider = time.length !== untrack(() => recordingTime.length)
+        recordingTime = time
+        if (wider) reportWidth()
+      })
+      .catch(() => {})
+  })
   const recordShortcut = $derived(t('bar.record_shortcut'))
   const recordText = (text: string) => fillRecording(text, recordingTime, recordShortcut)
   /** Coupé dans Admin (et rien en cours) : estompé, avec la raison. */
@@ -1129,15 +1206,7 @@
 
   $effect(() => {
     if (!recording?.active) return
-    let width = untrack(() => recordingTime.length)
-    const timer = setInterval(() => {
-      recordingTick = Date.now()
-      // « 59:59 » devient « 1:00:00 » : la barre s'élargit, l'app le sait.
-      if (recordingTime.length !== width) {
-        width = recordingTime.length
-        reportWidth()
-      }
-    }, 1000)
+    const timer = setInterval(() => (recordingTick = Date.now()), 1000)
     return () => clearInterval(timer)
   })
 
@@ -1273,6 +1342,147 @@
   Une puce de la barre : icône, libellé (rien en barre étroite, le libellé accessible reste), ▾ quand elle ouvre un
   menu. Le même dessin que les puces de l'app Mac (SessionChrome.swift, `chip`).
 -->
+<!-- Une commande de la barre, ou, passée dans « Plus » (barre étroite qui ne tient pas), rien : « Plus » prend la
+     place de la première retirée (docs/link-ui.md, « Menu « Plus » »). -->
+{#snippet slot(k: Overflow, chip: Snippet)}
+  {#if !moved(k)}
+    {@render chip()}
+  {:else if firstMoved === k}
+    {@render moreMenu()}
+  {/if}
+{/snippet}
+
+<!-- « Plus » : les commandes retirées, avec leur nom et leur état ; chacune ouvre le même menu, ou fait la même
+     bascule, que sa puce (« Presse-papiers » sans action). -->
+{#snippet moreMenu()}
+  <div class="anchor">
+    <button
+      class="chip"
+      class:open={menu === 'more' || (!!menu && moved(menu as Overflow))}
+      aria-haspopup="menu"
+      aria-expanded={menu === 'more'}
+      aria-label={t('bar.more')}
+      title={t('bar.more_help')}
+      onclick={() => toggle('more')}
+    >
+      {@render chipBody('more', t('bar.more'))}
+    </button>
+    {#if menu === 'more'}
+      <div class="menu more" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.more')}>
+        {#each overflowItems.filter(moved) as k (k)}
+          {#if k === 'computers'}
+            <button role="menuitem" onclick={() => toggle('computers')}><span class="tick"></span><span class="name">{t('bar.computers')}</span><span class="hint">›</span></button>
+          {:else if k === 'keys'}
+            <button role="menuitem" onclick={() => toggle('keys')}><span class="tick"></span><span class="name">{t('bar.keys')}</span><span class="hint">›</span></button>
+          {:else if k === 'mouse'}
+            <button role="menuitem" onclick={() => toggle('mouse')}><span class="tick"></span><span class="name">{t('bar.mouse')}</span><span class="hint">{mouseLabel} ›</span></button>
+          {:else if k === 'keep_sound'}
+            <button role="menuitemcheckbox" aria-checked={keepSound} onclick={() => closeMenu().then(afterMenu).then(toggleKeepSound)}>
+              <span class="tick">{#if keepSound}<Icon name="check" size={14} stroke={2.2} />{/if}</span><span class="name">{t('bar.keep_sound')}</span><span class="hint"></span>
+            </button>
+          {:else if k === 'mic' && mic}
+            <button role="menuitemcheckbox" aria-checked={micLit} aria-disabled={mic.state === 'refused'} class:inert={mic.state === 'refused'} title={mic.tooltip} onclick={() => mic?.state !== 'refused' && closeMenu().then(afterMenu).then(toggleMic)}>
+              <span class="tick">{#if micLit}<Icon name="check" size={14} stroke={2.2} />{/if}</span><span class="name">{t('micro.app_setting')}</span><span class="hint">{mic.state === 'refused' ? (mic.reason ?? '') : ''}</span>
+            </button>
+          {:else if k === 'camera' && camera}
+            <button role="menuitem" onclick={() => toggle('camera')}>
+              <span class="tick">{#if camera.state === 2 || camera.state === 3}<Icon name="check" size={14} stroke={2.2} />{/if}</span><span class="name">{t('camera.camera')}</span><span class="hint">›</span>
+            </button>
+          {:else if k === 'clipboard'}
+            <button role="menuitemcheckbox" aria-checked={clipboard} aria-disabled="true" class="inert" title={clipboard ? t('bar.clipboard_on') : t('bar.clipboard_off')}>
+              <span class="tick">{#if clipboard}<Icon name="check" size={14} stroke={2.2} />{/if}</span><span class="name">{t('bar.clipboard')}</span><span class="hint"></span>
+            </button>
+          {:else if k === 'fullscreen'}
+            <button role="menuitem" onclick={() => closeMenu().then(afterMenu).then(() => command('fullscreen'))}><span class="tick"></span><span class="name">{t('bar.fullscreen')}</span><span class="hint">{t('bar.fullscreen_shortcut').trim()}</span></button>
+          {/if}
+        {/each}
+      </div>
+    {:else if menu === 'computers' && moved('computers')}
+      {@render computersMenu()}
+    {:else if menu === 'keys' && moved('keys')}
+      {@render keysMenu()}
+    {:else if menu === 'mouse' && moved('mouse')}
+      {@render mouseMenu()}
+    {:else if menu === 'camera' && moved('camera')}
+      {@render cameraMenu()}
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet keysMenu()}
+  <div class="menu keys" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.keys')}>
+    {#each keys as k (k.id)}
+      <button role="menuitem" onclick={() => pickKeys(k.id)}>
+        <span class="name">{k.name}</span><span class="hint">{k.hint}</span>
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet mouseMenu()}
+  <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.mouse')}>
+    {#each mouseChoices as m (m.id)}
+      <button role="menuitemradio" aria-checked={m.id === mouseSetting} onclick={() => pickMouse(m.id)}>
+        <span class="tick">{#if m.id === mouseSetting}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+        <span class="name">{m.name}</span><span class="hint"></span>
+      </button>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet cameraMenu()}
+  {#if camera}
+    <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('camera.camera')}>
+      <button role="menuitem" onclick={toggleCamera}>
+        <span class="tick"></span><span class="name">{camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')}</span><span class="hint"></span>
+      </button>
+      {#each camera.cameras as c (c.id)}
+        <button role="menuitemradio" aria-checked={c.id === camera.current} onclick={() => pickCamera(c.id)}>
+          <span class="tick">{#if c.id === camera.current}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+          <span class="name">{c.name}</span><span class="hint"></span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet computersMenu()}
+    <div class="menu computers" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.computers')}>
+      {#each others as c (c.id)}
+        {@const inert = c.pick === 'full' || c.pick === 'waking' || c.pick === 'busy'}
+        <button
+          role="menuitemcheckbox"
+          aria-checked={c.pick === 'show'}
+          aria-disabled={inert}
+          class:inert
+          onclick={() => !inert && pickComputer(c)}
+        >
+          <span class="tick">{#if c.pick === 'show'}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+          <span class="name"><span class="dot {c.dot}" aria-hidden="true"></span>{t('bar.computer', { name: c.name, state: stateText(c) })}</span>
+          <span class="hint">{hintOf(c)}</span>
+        </button>
+      {/each}
+      {#if full}<p class="note" role="note">{t('common.four_at_most')}</p>{/if}
+      {#if refusal}<p class="note refusal" role="alert">{refusal}</p>{/if}
+    </div>
+{/snippet}
+
+{#snippet computersChip()}
+  <!-- Plusieurs ordinateurs : présenté comme les autres menus ; absent sans autre ordinateur. -->
+  <div class="anchor">
+    <button class="chip" class:open={menu === 'computers'} aria-haspopup="menu" aria-expanded={menu === 'computers'} aria-label={t('bar.computers')} title={t('bar.computers')} onclick={() => toggle('computers')}>
+      {@render chipBody('tower', t('bar.computers'), true)}
+    </button>
+    {#if menu === 'computers'}{@render computersMenu()}{/if}
+  </div>
+{/snippet}
+
+{#snippet clipboardChip()}
+  <span class="chip still" class:dim={!clipboard} role="img" aria-label={t('bar.clipboard')} title={clipboard ? t('bar.clipboard_on') : t('bar.clipboard_off')}>
+    {@render chipBody('clipboard', t('bar.clipboard'))}
+  </span>
+{/snippet}
+
 {#snippet chipBody(icon: string, text: string, caret = false, keepText = false)}
   <Icon name={icon} size={18} stroke={1.7} />
   {#if !compact || keepText}<span class="ctext">{text}</span>{/if}
@@ -1318,11 +1528,11 @@
       class:dim={mic.state === 'refused'}
       disabled={mic.state === 'refused'}
       aria-pressed={micLit}
-      aria-label={micLit ? t('micro.label') : t('micro.label_off')}
-      title={micTitle}
+      aria-label={mic.label}
+      title={mic.tooltip}
       onclick={toggleMic}
     >
-      {@render chipBody(micLit ? 'mic' : 'mic-off', micLit ? t('micro.label') : t('micro.label_off'))}
+      {@render chipBody(micLit ? 'mic' : 'mic-off', mic.label)}
     </button>
   {/if}
 {/snippet}
@@ -1346,19 +1556,7 @@
         {#if camera.state === 2}<span class="dot" aria-hidden="true"></span>{/if}
         {@render chipBody(camera.state === 0 ? 'camera-off' : 'camera', camera.state === 1 ? t('camera.starting') : t('camera.camera'), true)}
       </button>
-      {#if menu === 'camera'}
-        <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('camera.camera')}>
-          <button role="menuitem" onclick={toggleCamera}>
-            <span class="tick"></span><span class="name">{camera.state === 0 ? t('camera.turn_on') : t('camera.turn_off')}</span><span class="hint"></span>
-          </button>
-          {#each camera.cameras as c (c.id)}
-            <button role="menuitemradio" aria-checked={c.id === camera.current} onclick={() => pickCamera(c.id)}>
-              <span class="tick">{#if c.id === camera.current}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
-              <span class="name">{c.name}</span><span class="hint"></span>
-            </button>
-          {/each}
-        </div>
-      {/if}
+      {#if menu === 'camera'}{@render cameraMenu()}{/if}
     </div>
   {/if}
 {/snippet}
@@ -1371,22 +1569,13 @@
       class:open={menu === 'mouse'}
       aria-haspopup="menu"
       aria-expanded={menu === 'mouse'}
-      aria-label={t('bar.mouse') + ' : ' + mouseLabel}
+      aria-label={t('bar.labelled', { name: t('bar.mouse'), value: mouseLabel })}
       title={t('bar.mouse_help')}
       onclick={() => toggle('mouse')}
     >
       {@render chipBody(stats?.relative ? 'crosshair' : 'cursor', mouseLabel, true)}
     </button>
-    {#if menu === 'mouse'}
-      <div class="menu" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.mouse')}>
-        {#each mouseChoices as m (m.id)}
-          <button role="menuitemradio" aria-checked={m.id === mouseSetting} onclick={() => pickMouse(m.id)}>
-            <span class="tick">{#if m.id === mouseSetting}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
-            <span class="name">{m.name}</span><span class="hint"></span>
-          </button>
-        {/each}
-      </div>
-    {/if}
+    {#if menu === 'mouse'}{@render mouseMenu()}{/if}
   </div>
 {/snippet}
 
@@ -1396,15 +1585,7 @@
     <button class="chip" class:open={menu === 'keys'} aria-haspopup="menu" aria-expanded={menu === 'keys'} aria-label={t('bar.keys')} title={t('bar.keys')} onclick={() => toggle('keys')}>
       {@render chipBody('keyboard', t('bar.keys'), true)}
     </button>
-    {#if menu === 'keys'}
-      <div class="menu keys" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.keys')}>
-        {#each keys as k (k.id)}
-          <button role="menuitem" onclick={() => pickKeys(k.id)}>
-            <span class="name">{k.name}</span><span class="hint">{k.hint}</span>
-          </button>
-        {/each}
-      </div>
-    {/if}
+    {#if menu === 'keys'}{@render keysMenu()}{/if}
   </div>
 {/snippet}
 
@@ -1535,7 +1716,8 @@
     </div>
   {:else if notice && noticePanel}
     <button class="capsule choice" aria-live="polite" onclick={openShareFromNotice} bind:this={bar}>
-      <Icon name={noticePanel === 'lend' ? 'key' : 'share'} size={15} stroke={1.8} />{notice}
+      <Icon name={noticePanel === 'lend' ? 'key' : noticePanel === 'camera_settings' ? 'camera' : 'share'} size={15} stroke={1.8} />{notice}
+      {#if noticePanel === 'camera_settings'}<strong class="open">{t('camera.open_settings')}</strong>{/if}
     </button>
   {:else if notice}
     <div class="capsule" role="status" bind:this={bar}><Icon name={noticeIcon ?? 'monitor'} size={15} stroke={1.8} />{notice}</div>
@@ -1554,13 +1736,13 @@
     {@render statsButton()}
     <span class="sep"></span>
     {@render hdrChip()}
-    {@render soundChip()}
-    {@render micChip()}
-    {@render cameraChip()}
-    {@render mouseChip()}
-    {@render keysChip()}
+    {@render slot('keep_sound', soundChip)}
+    {@render slot('mic', micChip)}
+    {@render slot('camera', cameraChip)}
+    {@render slot('mouse', mouseChip)}
+    {@render slot('keys', keysChip)}
     <span class="sep"></span>
-    {@render fullscreenButton()}
+    {@render slot('fullscreen', fullscreenButton)}
     <!-- « Se déconnecter » ferme la session sans rendre l'ordinateur (l'ami peut revenir pendant 15 min) ;
          « Rendre l'ordinateur », confirmé, le rend. -->
     <button class="quit soft" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>
@@ -1589,8 +1771,8 @@
     {@render relayChip()}
     {@render statsButton()}
     <span class="sep"></span>
-    {@render soundChip()}
-    {@render micChip()}
+    {@render slot('keep_sound', soundChip)}
+    {@render slot('mic', micChip)}
     <!-- « Qualité de l'image » : la qualité reçue, et les cinq choix. -->
     <div class="anchor">
       <button
@@ -1598,7 +1780,7 @@
         class:open={menu === 'quality'}
         aria-haspopup="menu"
         aria-expanded={menu === 'quality'}
-        aria-label={t('share.quality') + ' : ' + shownQuality}
+        aria-label={t('bar.labelled', { name: t('share.quality'), value: shownQuality })}
         title={t('share.quality')}
         onclick={() => toggle('quality')}
       >
@@ -1637,11 +1819,11 @@
     {/if}
     <!-- Un invité n'a la souris et les touches que si l'hôte lui a donné le clavier et la souris. -->
     {#if roleKbm(guest.role)}
-      {@render mouseChip()}
-      {@render keysChip()}
+      {@render slot('mouse', mouseChip)}
+      {@render slot('keys', keysChip)}
     {/if}
     <span class="sep"></span>
-    {@render fullscreenButton()}
+    {@render slot('fullscreen', fullscreenButton)}
     <!-- Qui regarde : « Arrêter de regarder » (mot du cœur) à la place de « Quitter le partage ». -->
     {@const leave = guest.watch?.stop ?? t('share.leave')}
     <button class="quit" title={leave + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>
@@ -1649,34 +1831,7 @@
     </button>
   {:else}
     <span class="title">{title}</span>
-    {#if others.length > 0}
-      <!-- Plusieurs ordinateurs : présenté comme les autres menus ; absent sans autre ordinateur. -->
-      <div class="anchor">
-        <button class="chip" class:open={menu === 'computers'} aria-haspopup="menu" aria-expanded={menu === 'computers'} aria-label={t('bar.computers')} title={t('bar.computers')} onclick={() => toggle('computers')}>
-          {@render chipBody('tower', t('bar.computers'), true)}
-        </button>
-        {#if menu === 'computers'}
-          <div class="menu computers" role="menu" use:menuKeys={closeMenu} aria-label={t('bar.computers')}>
-            {#each others as c (c.id)}
-              {@const inert = c.pick === 'full' || c.pick === 'waking' || c.pick === 'busy'}
-              <button
-                role="menuitemcheckbox"
-                aria-checked={c.pick === 'show'}
-                aria-disabled={inert}
-                class:inert
-                onclick={() => !inert && pickComputer(c)}
-              >
-                <span class="tick">{#if c.pick === 'show'}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
-                <span class="name"><span class="dot {c.dot}" aria-hidden="true"></span>{t('bar.computer', { name: c.name, state: stateText(c) })}</span>
-                <span class="hint">{hintOf(c)}</span>
-              </button>
-            {/each}
-            {#if full}<p class="note" role="note">{t('common.four_at_most')}</p>{/if}
-            {#if refusal}<p class="note refusal" role="alert">{refusal}</p>{/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
+    {#if others.length > 0}{@render slot('computers', computersChip)}{/if}
     <!-- KyberNow Share : « Partager », ses pastilles dans le bouton (« 2 invités », « 1 demande ») ;
          inactif, il est estompé et dit pourquoi (infobulle, ou son panneau au toucher). -->
     <div class="anchor">
@@ -1751,6 +1906,7 @@
             bind:duration={lendDuration}
             bind:steam={lendSteam}
             {trustOnce}
+            {system}
             requestMeta={lendRequestMeta}
             on={{ answer, copy: copyLendLink, cancelCode, createCode }}
           />
@@ -1780,16 +1936,14 @@
       {/if}
     </div>
     {@render hdrChip()}
-    {@render soundChip()}
-    {@render micChip()}
-    {@render cameraChip()}
-    {@render mouseChip()}
-    {@render keysChip()}
-    <span class="chip still" class:dim={!clipboard} role="img" aria-label={t('bar.clipboard')} title={clipboard ? t('bar.clipboard_on') : t('bar.clipboard_off')}>
-      {@render chipBody('clipboard', t('bar.clipboard'))}
-    </span>
+    {@render slot('keep_sound', soundChip)}
+    {@render slot('mic', micChip)}
+    {@render slot('camera', cameraChip)}
+    {@render slot('mouse', mouseChip)}
+    {@render slot('keys', keysChip)}
+    {@render slot('clipboard', clipboardChip)}
     <span class="sep"></span>
-    {@render fullscreenButton()}
+    {@render slot('fullscreen', fullscreenButton)}
     <button class="quit" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>
       <Icon name="power" size={16} stroke={1.9} />{t('bar.disconnect')}
     </button>
@@ -2037,6 +2191,12 @@
   .capsule.choice:hover {
     color: var(--text);
     border-color: var(--signal);
+  }
+
+  /* « Ouvrir les Réglages » dans l'avis de la caméra refusée. */
+  .capsule.choice .open {
+    color: var(--signal);
+    font-weight: 600;
   }
 
   @keyframes drop {

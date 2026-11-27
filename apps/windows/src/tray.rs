@@ -480,7 +480,14 @@ fn live(state: &menu::State) {
 }
 
 /// Redessine les menus ouverts par ce fil (classe `#32768`).
-unsafe extern "system" fn redraw_menu(hwnd: HWND, _: LPARAM) -> BOOL {
+///
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `redraw_menu_body`.
+unsafe extern "system" fn redraw_menu(hwnd: HWND, l: LPARAM) -> BOOL {
+    kybernow_core::ffi_guard!({ unsafe { redraw_menu_body(hwnd, l) } })
+}
+
+unsafe fn redraw_menu_body(hwnd: HWND, _: LPARAM) -> BOOL {
     let mut class = [0u16; 16];
     let n = unsafe { GetClassNameW(hwnd, &mut class) }.max(0) as usize;
     if String::from_utf16_lossy(&class[..n]) == "#32768" {
@@ -575,7 +582,13 @@ fn show_menu(hwnd: HWND, x: i32, y: i32) {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `wndproc_body`.
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { wndproc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn wndproc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         match msg {
             WM_APP_TRAY => {

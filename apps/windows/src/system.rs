@@ -26,6 +26,13 @@ pub fn camera_choice_path() -> PathBuf {
     data_dir("APPDATA").join("camera.txt")
 }
 
+/// Le journal de ce lancement et celui du précédent (`init_logging`), pour
+/// « Envoyer le journal ».
+pub fn log_files() -> (PathBuf, PathBuf) {
+    let dir = data_dir("LOCALAPPDATA");
+    (dir.join("kybernow.log"), dir.join("kybernow.prev.log"))
+}
+
 fn data_dir(var: &str) -> PathBuf {
     let base = std::env::var_os(var).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let dir = base.join("KyberNow");
@@ -273,7 +280,9 @@ impl std::fmt::Write for StackText {
 /// Plantage : une ligne écrite directement dans le fichier du journal, sans
 /// verrou ni allocation (le plantage a pu arriver pendant une écriture du
 /// journal, ou dans l'allocateur, sur ce même fil). Rien pour un débordement
-/// de pile (plus de place pour rien faire).
+/// de pile (plus de place pour rien faire). Sans `ffi_guard!`, seul rappel de
+/// l'app dans ce cas : rien ici ne panique (texte sur la pile, `write!` sans
+/// allocation), et la garde du cœur alloue pour son journal.
 unsafe extern "system" fn on_crash(info: *const windows::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS) -> i32 {
     use std::fmt::Write;
     const STACK_OVERFLOW: u32 = 0xC000_00FD;

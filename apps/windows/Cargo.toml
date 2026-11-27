@@ -16,10 +16,15 @@ path = "src/main.rs"
 # `fallback_codec`) et fonctionnalité `pyrowave` du cœur, posés ensemble par
 # scripts/build.sh, par défaut (`--sans-pyrowave` les retire), comme Android et
 # les apps Apple. Le cœur sans elle ne compile pas contre le correctif posé.
-kyber-pyrowave = ["kybernow-core/pyrowave"]
+# Le même correctif donne `kyclient::set_pyrowave_header` : l'app demande à
+# la Station l'en-tête `KNPW` version 2, avec les métadonnées HDR10 (KYB-29).
+kyber-pyrowave = ["kybernow-core/pyrowave", "dep:kyclient"]
 
 [dependencies]
 kybernow-core = { path = "../core" }
+# Seulement pour `set_pyrowave_header` (correctif 0025), avec `kyber-pyrowave` :
+# le reste de Kyber passe par le cœur.
+kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", features = ["kymux"], optional = true }
 log = { version = "0.4", features = ["std"] }
 getrandom = "0.2"
 base64 = "0.22"
@@ -89,7 +94,15 @@ features = [
     "Win32_NetworkManagement_Ndis",
     "Win32_NetworkManagement_WiFi",
     "Win32_Networking_WinSock",
+    # « Envoyer le journal » : la fenêtre « Partager » de Windows.
+    "ApplicationModel_DataTransfer",
+    "Storage",
+    "Storage_Streams",
 ]
+
+# Les collections de WinRT (le fichier donné à la fenêtre « Partager »).
+[target.'cfg(windows)'.dependencies.windows-collections]
+version = "0.3"
 
 [build-dependencies]
 bindgen = "0.72"

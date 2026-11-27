@@ -17,10 +17,9 @@ use crate::sharing::Known;
 /// lieu d'être ajouté deux fois.
 pub fn same_computer<'a>(saved: impl IntoIterator<Item = &'a Known>, invited: &Invited) -> Option<usize> {
     let saved: Vec<&Known> = saved.into_iter().collect();
-    let fingerprint = invited.fingerprint.as_deref().map(str::trim).filter(|f| !f.is_empty());
-    if let Some(fp) = fingerprint
-        && let Some(i) = saved.iter().position(|k| k.fingerprint.as_deref().is_some_and(|f| f.trim().eq_ignore_ascii_case(fp)))
-    {
+    // La règle commune des empreintes (`console::same_fingerprint`, TRANS-34) :
+    // préfixe, deux-points, espaces et casse ignorés ; vide, jamais la même.
+    if let Some(i) = saved.iter().position(|k| kybernow_core::console::same_fingerprint_opt(k.fingerprint.as_deref(), invited.fingerprint.as_deref())) {
         return Some(i);
     }
     saved.iter().position(|k| k.host.eq_ignore_ascii_case(&invited.address) && k.port == invited.port)

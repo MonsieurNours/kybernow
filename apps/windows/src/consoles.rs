@@ -2,10 +2,10 @@
 //! docs/link-ui.md, « Consoles PlayStation ») sans rien de Windows : les
 //! comptes PlayStation Network et les consoles associées
 //! (`%APPDATA%\KyberNow\playstation.json`), leur état vu d'ici, ce que
-//! l'interface en reçoit, et le paquet de « Envoyer à un appareil »
-//! (format commun à toutes les apps : note `format-playstation-icloud-et-envoi`
-//! de la session Mac, recopiée dans docs/playstation.md « Plusieurs
-//! appareils »).
+//! l'interface en reçoit, et le rangement du paquet de « Envoyer à un
+//! appareil » (le paquet lui-même, ses identifiants et le rapprochement de
+//! ses comptes et de ses Stations : `kybernow_core::playstation::bundle`,
+//! commun à toutes les apps ; docs/playstation.md « Plusieurs appareils »).
 //!
 //! Les secrets (l'identifiant de chaque compte, et chaque association, qui
 //! porte les clés de la console) ne sont jamais dans le fichier : ils vont au
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+pub use kybernow_core::playstation::bundle::{Bundle, BundleAccount, BundleConsole, BundleStation, new_account_id};
 use kybernow_core::playstation::keymouse::Layout;
 use kybernow_core::playstation::settings::PlaySettings;
 
@@ -43,25 +44,6 @@ pub fn account_secret(account: &str) -> String {
 /// Secret d'une association (console, compte).
 pub fn pair_secret(host_id: &str, account: &str) -> String {
     format!("ps-{}.{account}", host_id.to_ascii_uppercase())
-}
-
-/// Un identifiant de compte tiré au hasard, comme le `uuidString` de Swift
-/// (UUID v4 en MAJUSCULES) : le même format sur tous les appareils.
-pub fn new_uuid() -> String {
-    let mut b = [0u8; 16];
-    let _ = getrandom::getrandom(&mut b);
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    let h: String = b.iter().map(|x| format!("{x:02X}")).collect();
-    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
-}
-
-/// Un identifiant PSN saisi à la main : 8 octets en base64 (12 caractères).
-pub fn valid_psn_id(text: &str) -> Option<String> {
-    use base64::Engine;
-    let t = text.trim();
-    let bytes = base64::engine::general_purpose::STANDARD.decode(t).ok()?;
-    (bytes.len() == 8).then(|| t.to_string())
 }
 
 /// Un compte PlayStation Network gardé sur ce PC.
@@ -378,7 +360,7 @@ impl Consoles {
             }
             return Some((a.clone(), true));
         }
-        let a = Account { id: new_uuid(), name };
+        let a = Account { id: new_account_id(), name };
         if !secrets.set(&account_secret(&a.id), psn_id) {
             return None;
         }
@@ -605,49 +587,41 @@ impl Consoles {
                 })
             })
             .collect();
-        Bundle { from: from.to_string(), accounts, consoles }
+        Bundle { version: 1, from: from.to_string(), accounts, consoles }
     }
 
-    /// Un paquet reçu : fusionné. Un compte au même identifiant PSN qu'un
-    /// compte gardé est ce compte (son nom pris s'il n'en avait pas), sinon un
-    /// nouveau compte (avec l'identifiant du paquet s'il est libre) ; une
-    /// console au même `host_id` est cette console ; les associations
-    /// s'ajoutent (une association déjà là reste). Stations : reliées aux
-    /// ordinateurs de l'app par `station` (identifiant, empreinte, adresse),
-    /// inconnues ignorées. Rend les nombres du paquet (comptes, consoles).
+    /// Un paquet reçu, lu par le cœur (`Bundle::parse`) : fusionné. Les
+    /// comptes sont rapprochés par le cœur (`Bundle::match_accounts`, WINAPP-54) :
+    /// au même identifiant PSN qu'un compte gardé, ce compte (son nom pris
+    /// s'il n'en avait pas), sinon un nouveau compte (avec l'identifiant du
+    /// paquet s'il est libre) ; une console au même `host_id` est cette
+    /// console ; les associations s'ajoutent (une association déjà là reste).
+    /// Stations : reliées aux ordinateurs de l'app par `station`
+    /// (`BundleStation::matches`), inconnues ignorées. Rend les nombres du
+    /// paquet (comptes, consoles). L'app range le tout dans son fichier et le
+    /// gestionnaire d'identifiants de Windows.
     pub fn merge(&mut self, secrets: &mut dyn Secrets, b: &Bundle, station: &dyn Fn(&BundleStation) -> Option<String>) -> (usize, usize) {
         // Identifiant du paquet → identifiant d'ici.
         let mut ids: HashMap<String, String> = HashMap::new();
         let mut fresh: Vec<String> = Vec::new();
-        for a in &b.accounts {
-            if valid_psn_id(&a.psn_id).is_none() {
-                continue;
+        let local: Vec<(String, String)> =
+            self.file.accounts.iter().filter_map(|k| secrets.get(&account_secret(&k.id)).map(|psn| (k.id.clone(), psn))).collect();
+        for (a, m) in b.accounts.iter().zip(b.match_accounts(&local)) {
+            if m.new {
+                if !secrets.set(&account_secret(&m.id), &a.psn_id) {
+                    continue;
+                }
+                self.file.accounts.push(Account { id: m.id.clone(), name: a.name.clone() });
+            } else if let Some(k) = self.file.accounts.iter_mut().find(|k| k.id == m.id) {
+                if k.name.is_none() {
+                    k.name = a.name.clone();
+                }
             }
-            let same = self.file.accounts.iter_mut().find(|k| secrets.get(&account_secret(&k.id)).as_deref() == Some(a.psn_id.trim()));
-            let id = match same {
-                Some(k) => {
-                    if k.name.is_none() {
-                        k.name = a.name.clone();
-                    }
-                    k.id.clone()
-                }
-                None => {
-                    let free = !a.id.trim().is_empty() && !self.file.accounts.iter().any(|k| k.id == a.id);
-                    let id = if free { a.id.to_ascii_uppercase() } else { new_uuid() };
-                    if !secrets.set(&account_secret(&id), a.psn_id.trim()) {
-                        continue;
-                    }
-                    self.file.accounts.push(Account { id: id.clone(), name: a.name.clone() });
-                    id
-                }
-            };
-            ids.insert(a.id.clone(), id);
+            ids.insert(m.from, m.id);
         }
+        // Consoles : `host_id` et modèle déjà en majuscules, adresses réunies (`Bundle::parse`).
         for c in &b.consoles {
-            let host_id = c.host_id.to_ascii_uppercase();
-            if host_id.is_empty() {
-                continue;
-            }
+            let host_id = c.host_id.clone();
             let pairs: Vec<(String, &String)> = c.pairings.iter().filter_map(|(a, r)| ids.get(a).map(|id| (id.clone(), r))).collect();
             if pairs.is_empty() && self.kept(&host_id).is_none() {
                 continue;
@@ -657,8 +631,8 @@ impl Consoles {
                 self.file.consoles.push(Kept {
                     host_id: host_id.clone(),
                     name: c.name.clone(),
-                    model: c.model.to_ascii_uppercase(),
-                    address: c.all_addresses().first().cloned().unwrap_or_default(),
+                    model: c.model.clone(),
+                    address: c.addresses.first().cloned().unwrap_or_default(),
                     target: c.target.clone().unwrap_or_default(),
                     accounts: Vec::new(),
                     account: None,
@@ -682,14 +656,14 @@ impl Consoles {
                     }
                 }
                 if k.address.is_empty() {
-                    k.address = c.all_addresses().first().cloned().unwrap_or_default();
+                    k.address = c.addresses.first().cloned().unwrap_or_default();
                 }
                 if k.target.is_empty() {
                     k.target = c.target.clone().unwrap_or_default();
                 }
             }
             // Les autres adresses retenues : cherchées en direct ensuite.
-            for a in c.all_addresses().iter().skip(1) {
+            for a in c.addresses.iter().skip(1) {
                 if !self.file.addresses.contains(a) {
                     self.file.addresses.push(a.clone());
                 }
@@ -707,119 +681,6 @@ impl Consoles {
             self.learn(s, &[host_id.to_string()]);
         }
     }
-}
-
-/// Le paquet de « Envoyer à un appareil » (chiffré par `playstation::handoff`).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Bundle {
-    #[serde(default)]
-    pub from: String,
-    #[serde(default)]
-    pub accounts: Vec<BundleAccount>,
-    #[serde(default)]
-    pub consoles: Vec<BundleConsole>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BundleAccount {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    /// Toléré : `account`, `account_id` (proposition de l'app webOS).
-    #[serde(alias = "account", alias = "account_id")]
-    pub psn_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BundleConsole {
-    pub host_id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
-    pub addresses: Vec<String>,
-    /// Toléré : une seule adresse en texte.
-    #[serde(default, skip_serializing)]
-    pub address: Option<String>,
-    #[serde(default)]
-    pub accounts: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
-    /// Compte → JSON `Registered` du cœur, en texte. Toléré : l'objet lui-même,
-    /// ou un tableau `[{"account","registered"}]`.
-    #[serde(default, deserialize_with = "pairings_any")]
-    pub pairings: BTreeMap<String, String>,
-    /// Toléré : les seuls identifiants, en texte.
-    #[serde(default, deserialize_with = "stations_any")]
-    pub stations: Vec<BundleStation>,
-}
-
-impl BundleConsole {
-    /// Ses adresses, `address` comprise.
-    fn all_addresses(&self) -> Vec<String> {
-        let mut v = self.addresses.clone();
-        if let Some(a) = self.address.as_ref().filter(|a| !a.is_empty() && !v.contains(a)) {
-            v.push(a.clone());
-        }
-        v
-    }
-}
-
-fn as_text(v: &serde_json::Value) -> Option<String> {
-    match v {
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Object(_) => Some(v.to_string()),
-        _ => None,
-    }
-}
-
-fn pairings_any<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
-    let v = serde_json::Value::deserialize(d)?;
-    let mut out = BTreeMap::new();
-    match v {
-        serde_json::Value::Object(map) => {
-            for (k, r) in map {
-                if let Some(t) = as_text(&r) {
-                    out.insert(k, t);
-                }
-            }
-        }
-        serde_json::Value::Array(list) => {
-            for e in list {
-                if let (Some(a), Some(r)) = (e.get("account").and_then(|a| a.as_str()), e.get("registered").and_then(as_text)) {
-                    out.insert(a.to_string(), r);
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(out)
-}
-
-fn stations_any<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<BundleStation>, D::Error> {
-    let v = serde_json::Value::deserialize(d)?;
-    let serde_json::Value::Array(list) = v else { return Ok(Vec::new()) };
-    Ok(list
-        .into_iter()
-        .filter_map(|e| match e {
-            serde_json::Value::String(id) => Some(BundleStation { id, name: String::new(), address: String::new(), fingerprint: None }),
-            other => serde_json::from_value(other).ok(),
-        })
-        .collect())
-}
-
-/// Une Station qui voit la console, telle que l'appareil qui envoie la connaît.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BundleStation {
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub address: String,
-    #[serde(default)]
-    pub fingerprint: Option<String>,
 }
 
 #[cfg(test)]
@@ -855,111 +716,6 @@ mod tests {
     }
 
     #[test]
-    fn uuid_comme_swift() {
-        let u = new_uuid();
-        assert_eq!(u.len(), 36);
-        assert_eq!(u, u.to_ascii_uppercase());
-        assert_eq!(&u[14..15], "4");
-        assert_ne!(u, new_uuid());
-    }
-
-    #[test]
-    fn identifiant_psn() {
-        assert_eq!(valid_psn_id(" AAAAAAAAAAA= ").as_deref(), Some("AAAAAAAAAAA="));
-        assert!(valid_psn_id("AAAA").is_none());
-        assert!(valid_psn_id("pas du base64").is_none());
-    }
-
-    #[test]
-    fn comptes_sans_doublon() {
-        let mut s = Mem::default();
-        let mut c = Consoles::default();
-        let (a, existed) = c.keep_account(&mut s, "AAAAAAAAAAA=", Some(" Matthieu_PSN ")).unwrap();
-        assert!(!existed);
-        assert_eq!(a.name.as_deref(), Some("Matthieu_PSN"));
-        let (b, existed) = c.keep_account(&mut s, "AAAAAAAAAAA=", Some("Nouveau")).unwrap();
-        assert!(existed);
-        assert_eq!(a.id, b.id);
-        assert_eq!(c.file.accounts.len(), 1);
-        assert_eq!(c.file.accounts[0].name.as_deref(), Some("Nouveau"));
-        // Sans nom : le nom gardé reste.
-        c.keep_account(&mut s, "AAAAAAAAAAA=", None).unwrap();
-        assert_eq!(c.file.accounts[0].name.as_deref(), Some("Nouveau"));
-    }
-
-    #[test]
-    fn associer_choisir_retirer() {
-        let mut s = Mem::default();
-        let mut c = Consoles::default();
-        let (a, _) = c.keep_account(&mut s, "AAAAAAAAAAA=", Some("A")).unwrap();
-        let (b, _) = c.keep_account(&mut s, "AQEBAQEBAQE=", Some("B")).unwrap();
-        let f = found("abcdef012345", "ready");
-        assert!(c.paired(&mut s, &f, &f.host_id, "{\"k\":1}", &a.id));
-        assert_eq!(c.free_accounts("ABCDEF012345").len(), 1);
-        assert!(c.paired(&mut s, &f, &f.host_id, "{\"k\":2}", &b.id));
-        let k = c.kept("ABCDEF012345").unwrap().clone();
-        assert_eq!(k.accounts, vec![a.id.clone(), b.id.clone()]);
-        // Le dernier associé est choisi.
-        assert_eq!(c.chosen(&k).as_deref(), Some(b.id.as_str()));
-        assert_eq!(s.get(&pair_secret("abcdef012345", &a.id)).as_deref(), Some("{\"k\":1}"));
-        // Retirer A : la console reste avec B.
-        c.remove_account(&mut s, &a.id);
-        assert_eq!(c.file.consoles.len(), 1);
-        assert!(s.get(&pair_secret("ABCDEF012345", &a.id)).is_none());
-        assert!(s.get(&account_secret(&a.id)).is_none());
-        // Plus reconnue par B : la console reste, « Associer » revient.
-        c.unpair(&mut s, "ABCDEF012345", &b.id);
-        assert!(c.kept("ABCDEF012345").unwrap().accounts.is_empty());
-        // Retirer B : la console ne lui était plus associée, elle reste (« Associer »).
-        c.remove_account(&mut s, &b.id);
-        assert_eq!(c.file.consoles.len(), 1);
-        assert!(c.file.accounts.is_empty());
-        // Associée de nouveau puis son seul compte retiré : elle part.
-        let (d, _) = c.keep_account(&mut s, "AgICAgICAgI=", None).unwrap();
-        c.paired(&mut s, &f, &f.host_id, "{}", &d.id);
-        c.remove_account(&mut s, &d.id);
-        assert!(c.file.consoles.is_empty());
-    }
-
-    #[test]
-    fn etat_vu_d_ici() {
-        let mut s = Mem::default();
-        let mut c = Consoles::default();
-        let (a, _) = c.keep_account(&mut s, "AAAAAAAAAAA=", None).unwrap();
-        let f = found("ABCDEF012345", "standby");
-        c.paired(&mut s, &f, &f.host_id, "{}", &a.id);
-        let k = c.kept("ABCDEF012345").unwrap().clone();
-        let t0 = Instant::now();
-        assert_eq!(c.status(&k, t0, false), Status::Searching);
-        c.searched = true;
-        assert_eq!(c.status(&k, t0, false), Status::Offline);
-        assert_eq!(c.status(&k, t0, true), Status::Away);
-        let mut moved = f.clone();
-        moved.address = "192.168.1.120".into();
-        assert!(c.record(vec![moved], t0));
-        assert_eq!(c.kept("ABCDEF012345").unwrap().address, "192.168.1.120");
-        assert_eq!(c.status(&k, t0, true), Status::Standby);
-        assert_eq!(c.status(&k, t0 + Duration::from_secs(13), false), Status::Offline);
-        let v = c.view(t0, &|_| false, &["ps-ABCDEF012345".into()]);
-        assert_eq!(v.consoles[0].id, "ps-ABCDEF012345");
-        assert!(v.consoles[0].in_session);
-        assert_eq!(v.consoles[0].running_app.as_deref(), Some("Astro Bot"));
-        assert_eq!(v.accounts[0].consoles, 1);
-        assert_eq!(v.found.len(), 1);
-    }
-
-    #[test]
-    fn stations_retenues() {
-        let mut c = Consoles::default();
-        assert!(c.learn("pc1", &["abcdef012345".into()]));
-        assert!(!c.learn("pc1", &["ABCDEF012345".into()]));
-        assert!(c.learn("pc2", &["ABCDEF012345".into()]));
-        assert_eq!(c.stations_of("abcdef012345"), ["pc1", "pc2"]);
-        c.forget_station("pc1");
-        assert_eq!(c.stations_of("ABCDEF012345"), ["pc2"]);
-    }
-
-    #[test]
     fn envoi_et_fusion() {
         let mut s1 = Mem::default();
         let mut from = Consoles::default();
@@ -969,9 +725,9 @@ mod tests {
         from.learn("pc-salon", &["ABCDEF012345".into()]);
         let station = |id: &str| (id == "pc-salon").then(|| BundleStation { id: id.into(), name: "PC du salon".into(), address: "192.168.1.10".into(), fingerprint: None });
         let b = from.bundle("PC de Léa", &s1, &station);
-        let json = serde_json::to_string(&b).unwrap();
-        assert!(json.contains("\"psn_id\":\"AAAAAAAAAAA=\"") && json.contains("\"pairings\""));
-        let b: Bundle = serde_json::from_str(&json).unwrap();
+        let json = b.to_json();
+        assert!(json.contains("\"psn_id\":\"AAAAAAAAAAA=\"") && json.contains("\"pairings\"") && json.contains("\"version\":1"));
+        let b = Bundle::parse(&json).unwrap();
 
         // L'autre appareil a déjà le même compte, sous un autre identifiant et sans nom.
         let mut s2 = Mem::default();
@@ -1004,7 +760,7 @@ mod tests {
         let json = r#"{"version":1,"accounts":[{"id":"U1","name":null,"account":"AAAAAAAAAAA="}],
             "consoles":[{"host_id":"abcdef012345","name":"PS5","model":"ps5","address":"10.0.0.2",
             "stations":["pc1"],"accounts":["U1"],"pairings":{"U1":{"mac":"abcdef012345"}}}]}"#;
-        let b: Bundle = serde_json::from_str(json).unwrap();
+        let b = Bundle::parse(json).unwrap();
         assert_eq!(b.accounts[0].psn_id, "AAAAAAAAAAA=");
         assert_eq!(b.consoles[0].pairings["U1"], "{\"mac\":\"abcdef012345\"}");
         assert_eq!(b.consoles[0].stations[0].id, "pc1");
@@ -1015,7 +771,7 @@ mod tests {
         assert_eq!((k.model.as_str(), k.address.as_str()), ("PS5", "10.0.0.2"));
         assert_eq!(c.stations_of("ABCDEF012345"), ["pc1"]);
         // Tableau d'associations.
-        let b: Bundle = serde_json::from_str(r#"{"consoles":[{"host_id":"A","pairings":[{"account":"U","registered":"{}"}]}]}"#).unwrap();
+        let b = Bundle::parse(r#"{"consoles":[{"host_id":"A","pairings":[{"account":"U","registered":"{}"}]}]}"#).unwrap();
         assert_eq!(b.consoles[0].pairings["U"], "{}");
     }
 

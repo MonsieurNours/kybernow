@@ -63,11 +63,24 @@ impl Drop for ContextGuard<'_> {
 
 /// `AVD3D11VADeviceContext::lock` : FFmpeg prend le verrou autour de chaque
 /// image décodée.
+///
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `ffmpeg_lock_body`.
 pub unsafe extern "C" fn ffmpeg_lock(ctx: *mut c_void) {
+    kybernow_core::ffi_guard!({ unsafe { ffmpeg_lock_body(ctx) } })
+}
+
+unsafe fn ffmpeg_lock_body(ctx: *mut c_void) {
     unsafe { EnterCriticalSection(ctx as *mut CRITICAL_SECTION) };
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `ffmpeg_unlock_body`.
 pub unsafe extern "C" fn ffmpeg_unlock(ctx: *mut c_void) {
+    kybernow_core::ffi_guard!({ unsafe { ffmpeg_unlock_body(ctx) } })
+}
+
+unsafe fn ffmpeg_unlock_body(ctx: *mut c_void) {
     unsafe { LeaveCriticalSection(ctx as *mut CRITICAL_SECTION) };
 }
 

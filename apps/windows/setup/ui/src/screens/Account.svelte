@@ -138,7 +138,7 @@
         value={a.relayInput}
         oninput={(e) => type(e.currentTarget.value)}
         onkeydown={(e) => e.key === 'Enter' && useRelay()}
-        placeholder="relais.exemple.org:9443"
+        placeholder={t('account.relay.example')}
         autocomplete="off"
         spellcheck="false"
         aria-invalid={!!a.probe && !a.probe.ok}

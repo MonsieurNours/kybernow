@@ -16,6 +16,7 @@ use kybernow_core::media::{FOURCC_AV1, FOURCC_H264, FOURCC_HEVC};
 use kybernow_core::profile::Capabilities;
 
 use crate::gpu::{ContextLock, ffmpeg_lock, ffmpeg_unlock};
+use crate::hdr::FrameHdr;
 
 pub mod ff {
     #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code, unnecessary_transmutes, clippy::all)]
@@ -62,7 +63,13 @@ pub fn codec_name(fourcc: u32) -> &'static str {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `get_format_hw_body`.
 unsafe extern "C" fn get_format_hw(_ctx: *mut AVCodecContext, fmts: *const AVPixelFormat) -> AVPixelFormat {
+    kybernow_core::ffi_guard!(AV_PIX_FMT_NONE => { unsafe { get_format_hw_body(_ctx, fmts) } })
+}
+
+unsafe fn get_format_hw_body(_ctx: *mut AVCodecContext, fmts: *const AVPixelFormat) -> AVPixelFormat {
     let mut p = fmts;
     let mut first = AV_PIX_FMT_NONE;
     unsafe {
@@ -257,22 +264,6 @@ impl Drop for Decoder {
 /// L'image est-elle restée sur la carte graphique ?
 pub fn is_hw_frame(f: &AVFrame) -> bool {
     f.format == AV_PIX_FMT_D3D11
-}
-
-/// Les métadonnées HDR10 portées par l'image (SEI du flux) : MaxCLL et
-/// MaxFALL, luminosités maximale et minimale de l'écran de matriçage (nits).
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct FrameHdr {
-    pub max_cll: Option<u32>,
-    pub max_fall: Option<u32>,
-    pub mastering_max: Option<f64>,
-    pub mastering_min: Option<f64>,
-}
-
-impl FrameHdr {
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
 }
 
 fn rational(r: AVRational) -> Option<f64> {

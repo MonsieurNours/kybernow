@@ -187,6 +187,7 @@
       "lead": "A relay installed at home or by your organization. It has its own accounts: your account on the KyberNow relay doesn't exist there.",
       "address": "Relay address",
       "hint": "Without a port, it's 443. A self-signed relay: add its fingerprint after #sha256:",
+      "example": "relay.example.org:9443",
       "checking": "Checking…",
       "badAddress": "Unreadable address: host, host:port, optionally followed by #sha256:…",
       "unreachable": "Relay unreachable ({reason}).",

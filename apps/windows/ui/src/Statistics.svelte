@@ -7,7 +7,7 @@
 <script lang="ts">
   import FrameRuler from './lib/FrameRuler.svelte'
   import type { Computer } from './lib/api'
-  import { duration, fingerprintGroups, localLabel, moment, ms } from './lib/api'
+  import { duration, localLabel, moment, ms } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let { computer }: { computer: Computer } = $props()
@@ -39,8 +39,8 @@
   /** « Direct », « Par le relais », « Par le relais (TCP) » : le chemin de la dernière session (docs/relais.md). */
   const path = $derived(last?.route ? t(`relay.path_${last.route.transport}`) : null)
 
-  const address = $derived(`${computer.host.includes(':') ? `[${computer.host}]` : computer.host}:${computer.port}`)
-  const fingerprint = $derived(fingerprintGroups(computer.fingerprint).slice(0, 4).join(' '))
+  const address = $derived(computer.address)
+  const fingerprint = $derived(computer.fingerprint_short)
 </script>
 
 <section class="card">

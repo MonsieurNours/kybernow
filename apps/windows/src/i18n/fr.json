@@ -4,6 +4,7 @@
     "bar_title": "Barre de session · KyberNow Link"
   },
   "errors": {
+    "log_failed": "Le journal n'a pas pu être préparé.",
     "session_open_install_later": "une session est ouverte : installez après",
     "no_update": "aucune mise à jour à installer",
     "installer_launch": "lancement de l'installateur : {error}",
@@ -12,7 +13,6 @@
     "not_a_link": "ce n'est pas un lien kybernow://",
     "bad_address": "adresse invalide",
     "no_port": "port absent du lien",
-    "bad_port": "port invalide",
     "password_store": "le mot de passe n'a pas pu être rangé dans le gestionnaire d'identifiants",
     "unknown_computer": "ordinateur inconnu",
     "session_already_open": "une session est déjà ouverte",
@@ -41,7 +41,7 @@
     "close_title": "KyberNow Link est toujours là",
     "close_body": "Vos ordinateurs vous attendent dans la zone de notification, près de l'horloge (sous la flèche ^ si Windows l'a rangée).",
     "station_update_title": "Mise à jour de la Station de {name}",
-    "station_update_body": "La version {version} est prête. Environ une minute ; une session en cours sera coupée.",
+    "station_update_body": "La version {version} est prête. Environ une minute ; une session en cours sera coupée.",
     "station_update_setup": "La version {version} s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe.",
     "update": "Mettre à jour",
     "online_title": "{name} est en ligne",
@@ -159,10 +159,10 @@
   },
   "ps": {
     "sign_in_title": "Se connecter à PlayStation Network",
-    "account_unread": "Identifiant du compte non lu : réessayez, ou saisissez-le à la main.",
+    "account_unread": "Identifiant du compte non lu : réessayez, ou saisissez-le à la main.",
     "bad_account_id": "L'identifiant du compte a 12 caractères (base64 de 8 octets).",
-    "no_answer": "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert.",
-    "wrong_code": "Code refusé : il change toutes les 5 minutes.",
+    "no_answer": "La console ne répond pas : gardez l'écran « Associer un appareil » ouvert.",
+    "wrong_code": "Code refusé : il change toutes les 5 minutes.",
     "account_refused": "La console refuse ce compte.",
     "unreachable": "Console injoignable.",
     "click_to_play": "Cliquez dans l'image pour jouer au clavier et à la souris",
@@ -170,13 +170,13 @@
     "console_keyboard": "Tapez votre texte · Entrée pour valider · Échap pour annuler",
     "cant_display": "La console ne peut pas diffuser ce qu'elle affiche.",
     "end_in_use": "La console est déjà jouée à distance par un autre appareil.",
-    "end_not_paired": "La console ne reconnaît plus cet appareil : associez-la de nouveau.",
+    "end_not_paired": "La console ne reconnaît plus cet appareil : associez-la de nouveau.",
     "end_unreachable": "La console ne répond pas.",
     "end_remote": "La console a terminé la partie.",
     "sent": "Comptes et consoles envoyés à {name}.",
-    "send_refused": "Code refusé : vérifiez-le sur {name}.",
+    "send_refused": "Code refusé : vérifiez-le sur {name}.",
     "send_unreachable": "{name} ne répond plus.",
-    "receive_failed": "Cet appareil ne peut pas attendre un envoi : vérifiez que le pare-feu de Windows laisse passer KyberNow Link.",
+    "receive_failed": "Cet appareil ne peut pas attendre un envoi : vérifiez que le pare-feu de Windows laisse passer KyberNow Link.",
     "received": "{accounts} et {consoles} reçus.",
     "n_accounts_one": "1 compte",
     "n_accounts_other": "{n} comptes",
@@ -189,5 +189,12 @@
   },
   "pyrowave": {
     "banner_text": "L'image peut saccader."
+  },
+  "micro": {
+    "shortcut": "Ctrl+Alt+Maj+V"
+  },
+  "camera": {
+    "no_answer": "L'ordinateur ne répond pas : la caméra est éteinte.",
+    "start_refused": "La caméra n'a pas pu démarrer sur l'ordinateur."
   }
 }

@@ -69,6 +69,10 @@ mod inviting;
 // l'ami (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
 mod lending;
+// « Envoyer le journal » : le fichier (se teste sur le Mac), puis la fenêtre
+// « Partager » de Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod journal;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod link;
 #[cfg(windows)]
@@ -90,17 +94,12 @@ mod notice;
 mod pasteboard;
 #[cfg(windows)]
 mod pc;
-// Ce que la session demande (se teste sur le Mac, avec les réglages synchronisés).
-#[cfg_attr(not(windows), allow(dead_code))]
-mod plan;
 // PyroWave (docs/pyrowave-client-windows.md) : décodeur Vulkan sur les
 // textures de Direct3D 11 ; son paquet de configuration se teste sur le Mac.
 #[cfg(windows)]
 mod pyrowave;
 #[cfg(windows)]
 mod pyrowave_test;
-#[cfg_attr(not(windows), allow(dead_code))]
-mod pyrowave_config;
 // Le relais : route d'un ordinateur, relais d'un code, présence, chemin d'une
 // session, textes des refus (se teste sur le Mac).
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -178,6 +177,7 @@ fn main() {
             "kybernow"
         };
         system::init_logging(name);
+        pyrowave_header();
         system::dpi_aware();
         // Lancée depuis un terminal : on écrit dans le sien.
         system::attach_console();
@@ -202,6 +202,17 @@ fn main() {
     }
     instance::listen();
     system::init_logging("kybernow");
+    pyrowave_header();
     system::dpi_aware();
     ui::run(args);
+}
+
+/// La version du paquet de configuration de PyroWave que lit l'app, dite à
+/// Kyber pour toutes ses sessions (KYB-29) : avec la 2, la Station y joint
+/// les métadonnées HDR10 de sa capture (`hdr::pyrowave_hdr`) ; une Station
+/// d'avant l'ignore et envoie la version 1, toujours lue.
+#[cfg(windows)]
+fn pyrowave_header() {
+    #[cfg(feature = "kyber-pyrowave")]
+    kyclient::set_pyrowave_header(hdr::PYROWAVE_HEADER);
 }

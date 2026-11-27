@@ -2654,6 +2654,7 @@ dependencies = [
  "bindgen",
  "getrandom 0.2.17",
  "kybernow-core",
+ "kyclient",
  "log",
  "mdns-sd 0.21.5",
  "qrcodegen",
@@ -2662,6 +2663,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "windows 0.62.2",
+ "windows-collections 0.3.2",
 ]
 
 [[package]]

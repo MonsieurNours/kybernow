@@ -4,14 +4,14 @@
 use crate::sync::Locked;
 use std::sync::{Arc, mpsc};
 
-use kybernow_core::console::{Console, Mode};
+use kybernow_core::console::{self, Console, Mode};
 use kybernow_core::profile::{Codec, Profile};
 use kybernow_core::screens::DisplaysSetting;
 use kybernow_core::session::SessionParams;
 
 use crate::displays::{self, Layout, Spec};
 use crate::host::{HostEvents, HostOptions, SessionHost, Summary};
-use crate::plan::{Choices, plan};
+use kybernow_core::plan::{Choices, plan};
 use crate::{audio, decoder, render, system};
 
 const USAGE: &str = "\
@@ -159,10 +159,12 @@ fn parse_args() -> Result<Args, String> {
             "--forget-all" => a.forget_all = true,
             "--clear-shell" => a.clear_shell = true,
             s if s.starts_with('-') => return Err(format!("option inconnue : {s}")),
+            // `hôte`, `hôte:port`, `[ipv6]:port`, une IPv6 nue (la règle du
+            // cœur) ; sans port, celui d'Admin.
             s => {
-                let (h, p) = split_host(s);
+                let (h, p) = console::parse_address(s, Some(console::ADMIN_PORT)).ok_or_else(|| format!("adresse illisible : {s}"))?;
                 a.host = h;
-                a.port = p.unwrap_or(0);
+                a.port = p;
             }
         }
     }
@@ -176,19 +178,6 @@ fn parse_mode(s: &str) -> Option<Mode> {
     let (size, hz) = s.split_once('@').unwrap_or((s, "60"));
     let (w, h) = size.split_once(['x', '×'])?;
     Some(Mode { width: w.trim().parse().ok()?, height: h.trim().parse().ok()?, refresh: hz.trim().parse().ok()? })
-}
-
-/// `hôte`, `hôte:port`, `[ipv6]:port`.
-fn split_host(s: &str) -> (String, Option<u16>) {
-    if let Some(rest) = s.strip_prefix('[') {
-        if let Some((h, p)) = rest.split_once(']') {
-            return (h.to_string(), p.strip_prefix(':').and_then(|p| p.parse().ok()));
-        }
-    }
-    match s.rsplit_once(':') {
-        Some((h, p)) if !h.contains(':') => (h.to_string(), p.parse().ok()),
-        _ => (s.to_string(), None),
-    }
 }
 
 fn prompt(label: &str) -> String {
@@ -292,7 +281,7 @@ pub fn main() -> i32 {
         };
     }
 
-    let port = if args.port == 0 { 9443 } else { args.port };
+    let port = args.port;
     let user = args.user.clone().unwrap_or_else(|| prompt("Compte KyberNow de l'ordinateur"));
     let password = args.password.clone().unwrap_or_else(|| prompt("Mot de passe"));
 

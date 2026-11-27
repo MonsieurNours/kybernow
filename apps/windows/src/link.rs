@@ -8,7 +8,7 @@
 //! `&relay=…&sid=…` quand l'hôte est joignable hors de chez lui) est une
 //! demande à part ([`is_join`]), comme le lien d'invitation d'un compte d'ami
 //! (`kybernow://borrow?host=…&port=…&fp=…&login=…`, prêt de l'ordinateur,
-//! [`is_borrow`]). Les autres liens (`kybernow://adresse:port?…`,
+//! reconnu par le cœur : `lend::looks_like_invite`). Les autres liens (`kybernow://adresse:port?…`,
 //! ceux d'Admin) ne sont pas des actions. Sans rien de Windows : testé sur le Mac.
 
 /// L'action d'un lien de notification et l'ordinateur qu'il désigne.
@@ -35,13 +35,6 @@ pub fn is_join(link: &str) -> bool {
     is_path(link, "join")
 }
 
-/// Le lien d'invitation d'un compte d'ami (`kybernow://borrow?…`, prêt de
-/// l'ordinateur) : l'app ajoute « Ordinateur de {hôte} » à son accueil. Ce que le
-/// lien dit est lu par `kybernow_core::lend::parse_invite`.
-pub fn is_borrow(link: &str) -> bool {
-    is_path(link, "borrow")
-}
-
 fn is_path(link: &str, name: &str) -> bool {
     const SCHEME: &str = "kybernow://";
     let link = link.trim();
@@ -55,7 +48,8 @@ fn is_path(link: &str, name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{action, is_borrow, is_join};
+    use super::{action, is_join};
+    use kybernow_core::lend::looks_like_invite;
 
     #[test]
     fn liens() {
@@ -69,7 +63,7 @@ mod tests {
         assert!(!is_join("kybernow://share?id=x9"));
         // Une demande d'emprunt : le panneau de « Prêter l'ordinateur… » de cette session.
         assert_eq!(action("kybernow://lend?id=x9"), Some(("lend", Some("x9".into()))));
-        assert!(!is_borrow("kybernow://lend?id=x9"));
+        assert!(!looks_like_invite("kybernow://lend?id=x9"));
         assert_eq!(action("kybernow://open"), Some(("open", None)));
         assert_eq!(action("kybernow://open/"), Some(("open", None)));
         assert_eq!(action("kybernow://open?id=../../x"), Some(("open", Some("x".into()))));
@@ -98,10 +92,11 @@ mod tests {
 
     #[test]
     fn lien_d_invitation() {
-        assert!(is_borrow("kybernow://borrow?host=192.168.1.100&port=9443&fp=sha256:aa&login=lea"));
-        assert!(is_borrow("kybernow://borrow/?host=192.168.1.100&port=9443&login=lea"));
+        // Reconnu par le cœur (illisible, il le dira : « Ce lien d'invitation est illisible. »).
+        assert!(looks_like_invite("kybernow://borrow?host=192.168.1.100&port=9443&fp=sha256:aa&login=lea"));
+        assert!(looks_like_invite("kybernow://borrow/?host=192.168.1.100&port=9443&login=lea"));
         assert!(!is_join("kybernow://borrow?host=192.168.1.100&port=9443&login=lea"));
-        assert!(!is_borrow("kybernow://join?code=123456"));
+        assert!(!looks_like_invite("kybernow://join?code=123456"));
         // Ni une action de notification.
         assert_eq!(action("kybernow://borrow?host=a&port=1&login=lea"), None);
     }

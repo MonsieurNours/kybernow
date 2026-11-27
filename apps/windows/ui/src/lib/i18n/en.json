@@ -44,6 +44,8 @@
     "maximize": "Maximise"
   },
   "home": {
+    "problem_password_refused": "Password refused: update it in the settings.",
+    "problem_reinstalled": "The Station was reinstalled: check its fingerprint in the settings.",
     "online": "Online",
     "away": "Away from home",
     "offline": "Offline",
@@ -294,7 +296,12 @@
     "row_done": "Up to date"
   },
   "appsheet": {
-    "version": "Version {version} · Windows {arch}",
+    "version": "KyberNow Link {version}",
+    "about": "About",
+    "version_label": "Version",
+    "send_log": "Send the log",
+    "log_help": "If the app closes or a session cuts out, this text file tells what happened. Attach it to your message: you choose who to send it to.",
+    "log_preparing": "Preparing the log…",
     "language": "Language",
     "offered": "Versions offered",
     "channel": "Update channel",
@@ -332,6 +339,9 @@
     "slow": "{name} is connected but not sending a picture. Its log often says why: in Admin, System › Logs."
   },
   "bar": {
+    "labelled": "{name}: {value}",
+    "more": "More",
+    "more_help": "More controls",
     "toolbar": "Session bar",
     "ctrl_alt_del": "Ctrl + Alt + Del",
     "ctrl_alt_del_hint": "lock, switch user",
@@ -341,6 +351,17 @@
     "alt_tab_hint": "switch apps",
     "print": "Print Screen",
     "print_hint": "screenshot",
+    "win_d": "⊞ + D",
+    "win_d_hint": "desktop",
+    "win_l": "⊞ + L",
+    "win_l_hint": "lock",
+    "alt_f4": "Alt + F4",
+    "alt_f4_hint": "close the window",
+    "esc": "Esc",
+    "task_manager": "Task Manager",
+    "task_manager_hint": "Ctrl + Shift + Esc",
+    "f11": "F11",
+    "f11_hint": "full screen",
     "audio": "Sound: {ms} ms to the output, {gaps} gaps filled this second",
     "statistics": "Statistics",
     "profile": "Profile",
@@ -356,7 +377,7 @@
     "computer": "{name} — {state}",
     "show": "Show",
     "keep_sound": "Keep sound",
-    "profile_help": "Profile: Game, Desktop or Max",
+    "profile_help": "Profile: Game, Desktop, Max or Auto",
     "mouse": "Mouse",
     "mouse_auto": "Auto",
     "mouse_help": "Mouse: Auto switches to the game mouse when a game is full screen on the computer (Ctrl+Alt+Shift+M switches)",
@@ -468,6 +489,8 @@
     "session_closes": "Your session will close when your friend arrives.",
     "cancel_code": "Cancel code",
     "trust": "Your friend plays in your Windows session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "trust_mac": "Your friend plays in your Mac session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
+    "trust_other": "Your friend plays in your session. They see neither your desktop nor your windows, but a game can read your files: lend to friends you trust.",
     "disabled": "Lending is off in Admin (“Lending” page).",
     "unsupported": "Lending needs KyberNow Station 0.9.0 or later.",
     "wants_to_borrow": "{name} wants to borrow the computer.",
@@ -540,7 +563,7 @@
     "another_relay": "Another relay…",
     "another_relay_title": "Another relay",
     "relay": "Relay",
-    "relay_example": "relais.exemple.org:9443",
+    "relay_example": "relay.example.org:9443",
     "relay_help": "Your account's relay address, if it isn't share.kybernow.app."
   },
   "ps": {
@@ -703,7 +726,6 @@
     "banner_relay": "PyroWave away from home",
     "banner_strained": "The network is saturated",
     "switch_hevc": "Switch to HEVC",
-    "lowered": "Resolution lowered to {w} × {h} to fit in {n} Mbit/s.",
     "sharp_text_help": "With PyroWave, almost free: only the bitrate goes up.",
     "not_offered": "{name} doesn't offer PyroWave.",
     "cannot_decode": "{device} can't decode PyroWave.",
@@ -771,11 +793,6 @@
     "paired_text": "Find it away from home and on your other devices too: connect a KyberNow account."
   },
   "micro": {
-    "label": "Microphone",
-    "label_off": "Microphone off",
-    "tooltip_on": "Microphone: sent to the computer ({shortcut})",
-    "tooltip_off": "Microphone off ({shortcut})",
-    "shortcut": "Ctrl+Alt+Shift+V",
     "setting": "Microphone",
     "setting_help": "Sends this device's microphone to the computer during the session, to talk in a game, a call or a video meeting.",
     "app_setting": "Microphone",
@@ -787,6 +804,7 @@
   },
   "camera": {
     "camera": "Camera",
+    "open_settings": "Open Settings",
     "starting": "Camera…",
     "turn_on": "Turn on camera",
     "turn_off": "Turn off camera",

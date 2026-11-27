@@ -49,11 +49,13 @@ mod ui {
         AccountReturn(String),
     }
 
-    /// La page du relais en cours : son relais, l'`etat` attendu au retour, sa vue.
+    /// La page du relais en cours : son relais, l'`etat` attendu au retour, le
+    /// vérificateur PKCE rendu à l'échange du code, sa vue.
     struct RelayPage {
         key: (String, bool),
         relay: RelayAddr,
         state: String,
+        verifier: String,
         view: WebView,
     }
 
@@ -63,9 +65,9 @@ mod ui {
     }
 
     /// Échange le code du retour contre la session d'appareil et la remet à l'app.
-    fn finish_sign_in(relay: RelayAddr, code: String, emit: Emit) {
+    fn finish_sign_in(relay: RelayAddr, code: String, verifier: String, emit: Emit) {
         std::thread::spawn(move || {
-            let result = account::exchange(&relay, &code).and_then(|session| account::store(&relay, &session).map(|_| session));
+            let result = account::exchange(&relay, &code, &verifier).and_then(|session| account::store(&relay, &session).map(|_| session));
             match result {
                 Ok(session) => {
                     sys::log(&format!("compte KyberNow : connecté ({}, appareil {})", relay.web_authority(), session.device.id));
@@ -174,7 +176,9 @@ mod ui {
                     relay_page = None;
                     let Some(addr) = RelayAddr::parse(&relay) else { return };
                     let state = account::new_state();
-                    let url = if signup { account::signup_url(&addr, lang().code()) } else { account::login_url(&addr, &device, &state, lang().code()) };
+                    let verifier = account::new_verifier();
+                    let url =
+                        if signup { account::signup_url(&addr, lang().code()) } else { account::login_url(&addr, &device, &state, &verifier, lang().code()) };
                     let origin = addr.origin();
                     let p = proxy.clone();
                     let built = WebViewBuilder::new_with_web_context(&mut context)
@@ -202,7 +206,7 @@ mod ui {
                     match built {
                         Ok(view) => {
                             let _ = view.focus();
-                            relay_page = Some(RelayPage { key: (relay, signup), relay: addr, state, view });
+                            relay_page = Some(RelayPage { key: (relay, signup), relay: addr, state, verifier, view });
                         }
                         Err(e) => sys::log(&format!("page du relais : {e}")),
                     }
@@ -211,7 +215,7 @@ mod ui {
                 WinEvent::UserEvent(UserEvent::AccountReturn(back)) => {
                     let Some(page) = relay_page.take() else { return };
                     match account::parse_return(&back) {
-                        Some(Ok((code, state))) if state == page.state => finish_sign_in(page.relay, code, emit.clone()),
+                        Some(Ok((code, state))) if state == page.state => finish_sign_in(page.relay, code, page.verifier, emit.clone()),
                         Some(Ok(_)) => emit(Event::AccountFailed { code: "state".into(), message: String::new() }),
                         _ => emit(Event::AccountFailed { code: "cancelled".into(), message: String::new() }),
                     }

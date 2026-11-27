@@ -34,6 +34,7 @@
     ondone,
   }: {
     computers: Computer[]
+    /** Les Stations trouvées sur le réseau, sans celles déjà à l'accueil (l'app les écarte). */
     discovered: Found[]
     /** Le relais de « Connecter un compte », tel qu'on le montre (« share.kybernow.app »). */
     relay: string
@@ -56,10 +57,7 @@
   let signedUp = $state(false)
   let localError = $state<string | null>(null)
 
-  /** Même empreinte d'Admin, sans égard à la casse ni aux espaces (comme l'accueil). */
-  const sameFp = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
   /** Les ordinateurs vus sur le réseau et pas encore ajoutés (ceux que l'accueil montre dans « Sur le réseau »). */
-  const fresh = $derived(discovered.filter((f) => !computers.some((c) => (c.host === f.host && c.port === f.port) || (!!c.account && sameFp(c.fingerprint, f.fingerprint)))))
 
   async function signUp() {
     localError = null
@@ -127,7 +125,7 @@
           <div class="reach">
             <div class="eyebrow">{t('welcome.in_reach')}</div>
             <div class="cards">
-              {#each fresh as f (f.id)}
+              {#each discovered as f (f.id)}
                 <div class="card found">
                   <div class="head">
                     <span class="eyebrow"><Icon name="wifi" size={14} stroke={2} />{t('welcome.on_network')}</span>

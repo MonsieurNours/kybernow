@@ -1,9 +1,10 @@
 //! Étape facultative « Votre compte KyberNow » de l'installateur (docs/comptes.md,
 //! « Dans les installateurs ») : la page de connexion du relais s'ouvre dans
 //! la fenêtre de l'installateur, comme la fenêtre du système de l'app
-//! (`/compte/connexion?appareil=…&retour=kybernow://compte&etat=…`) ; au
-//! retour (`kybernow://compte?code=…&etat=…`), le code est échangé contre la
-//! session d'appareil (`POST /v1/devices/token`), remise à l'app comme elle
+//! (`/compte/connexion?appareil=…&retour=kybernow://compte&etat=…&code_challenge=…`) ;
+//! au retour (`kybernow://compte?code=…&etat=…`), le code est échangé, avec le
+//! vérificateur PKCE (RFC 7636), contre la session d'appareil
+//! (`POST /v1/devices/token`), remise à l'app comme elle
 //! garde ses comptes (`apps/windows/src/store.rs`, `save_account`) : le compte
 //! **entier** (`{relay, token, account:{id,name,email}, device:{id,name}}`,
 //! JSON en UTF-8, comme `kybernow_core::account::Account`) dans le
@@ -148,8 +149,17 @@ fn unpct(value: &str) -> String {
 }
 
 /// La page de connexion d'un appareil, pour l'app « KyberNow Link » de ce PC.
-pub fn login_url(relay: &RelayAddr, device: &str, state: &str, lang: &str) -> String {
-    format!("{}/compte/connexion?appareil={}&retour={}&etat={}&lang={lang}", relay.origin(), pct(device), pct(RETURN_URI), pct(state))
+/// Seul le défi du vérificateur PKCE part dans l'adresse (comme le cœur,
+/// `account::sign_in`) ; un relais d'avant PKCE ignore `code_challenge`.
+pub fn login_url(relay: &RelayAddr, device: &str, state: &str, verifier: &str, lang: &str) -> String {
+    format!(
+        "{}/compte/connexion?appareil={}&retour={}&etat={}&code_challenge={}&code_challenge_method=S256&lang={lang}",
+        relay.origin(),
+        pct(device),
+        pct(RETURN_URI),
+        pct(state),
+        pkce_challenge(verifier),
+    )
 }
 
 /// La création d'un compte (sur le site : une app ne crée pas de compte,
@@ -217,6 +227,35 @@ pub fn new_state() -> String {
     let mut bytes = [0u8; 16];
     getrandom(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Vérificateur PKCE (RFC 7636) : 32 octets au hasard en base64url sans
+/// remplissage (43 signes). Gardé avec l'`etat` de la page du relais et rendu
+/// à l'échange du code : une autre app qui intercepterait le retour
+/// `kybernow://compte?code=…` ne peut pas échanger le code.
+pub fn new_verifier() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom(&mut bytes);
+    base64url(&bytes)
+}
+
+/// Défi PKCE (`S256`) : base64url sans remplissage du SHA-256 du vérificateur.
+pub fn pkce_challenge(verifier: &str) -> String {
+    base64url(&Sha256::digest(verifier.as_bytes()))
+}
+
+/// Base64url sans remplissage (RFC 4648, § 5) : la caisse n'a pas de `base64`.
+fn base64url(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, &b)| n | ((b as u32) << (16 - 8 * i)));
+        // 1 octet : 2 signes, 2 octets : 3 signes, 3 octets : 4 signes.
+        for i in 0..=chunk.len() {
+            out.push(ABC[((n >> (18 - 6 * i)) & 63) as usize] as char);
+        }
+    }
+    out
 }
 
 fn getrandom(buf: &mut [u8]) {
@@ -445,9 +484,15 @@ pub struct AccountInfo {
     pub email: String,
 }
 
+/// Le corps de `POST /v1/devices/token` : le code du retour et le
+/// vérificateur PKCE (un relais d'avant PKCE ignore `code_verifier`).
+pub fn token_body(code: &str, verifier: &str) -> Value {
+    json!({ "code": code, "code_verifier": verifier })
+}
+
 /// Échange le code du retour contre la session d'appareil.
-pub fn exchange(relay: &RelayAddr, code: &str) -> Result<DeviceSession> {
-    let reply = request(relay, "POST", "/v1/devices/token", Some(&json!({ "code": code })), Duration::from_secs(15))?;
+pub fn exchange(relay: &RelayAddr, code: &str, verifier: &str) -> Result<DeviceSession> {
+    let reply = request(relay, "POST", "/v1/devices/token", Some(&token_body(code, verifier)), Duration::from_secs(15))?;
     if reply.status != 200 {
         let v: Value = serde_json::from_slice(&reply.body).unwrap_or_default();
         bail!("le relais refuse le code ({}, {})", reply.status, v["error"].as_str().unwrap_or("?"));
@@ -560,8 +605,9 @@ mod tests {
     fn pages_et_retour() {
         let r = RelayAddr::parse("share.kybernow.app").unwrap();
         assert_eq!(
-            login_url(&r, "PC de Léa", "abc", "fr"),
-            "https://share.kybernow.app/compte/connexion?appareil=PC%20de%20L%C3%A9a&retour=kybernow%3A%2F%2Fcompte&etat=abc&lang=fr"
+            login_url(&r, "PC de Léa", "abc", "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", "fr"),
+            "https://share.kybernow.app/compte/connexion?appareil=PC%20de%20L%C3%A9a&retour=kybernow%3A%2F%2Fcompte&etat=abc\
+             &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&lang=fr"
         );
         assert_eq!(parse_return("kybernow://compte?code=XYZ&etat=abc"), Some(Ok(("XYZ".into(), "abc".into()))));
         // Windows écrit parfois une barre avant le « ? ».
@@ -575,6 +621,30 @@ mod tests {
         assert_eq!(navigation("file:///C:/", &origin), Navigation::Block);
         assert_eq!(new_state().len(), 32);
         assert_ne!(new_state(), new_state());
+    }
+
+    #[test]
+    fn pkce() {
+        // Vecteur de la RFC 7636 (annexe B).
+        assert_eq!(pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        // Base64url sans remplissage (RFC 4648, § 10, en alphabet d'adresse).
+        let rfc4648: [(&[u8], &str); 7] =
+            [(b"", ""), (b"f", "Zg"), (b"fo", "Zm8"), (b"foo", "Zm9v"), (b"foob", "Zm9vYg"), (b"fooba", "Zm9vYmE"), (b"foobar", "Zm9vYmFy")];
+        for (bytes, text) in rfc4648 {
+            assert_eq!(base64url(bytes), text);
+        }
+        assert_eq!(base64url(&[0xfb, 0xff, 0xbf]), "-_-_");
+        // Le vérificateur : 43 signes base64url, un par demande.
+        let v = new_verifier();
+        assert_eq!(v.len(), 43);
+        assert!(v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{v}");
+        assert_ne!(v, new_verifier());
+        // L'adresse porte le défi, jamais le vérificateur ; le corps porte le vérificateur.
+        let r = RelayAddr::parse("share.kybernow.app").unwrap();
+        let url = login_url(&r, "PC", "abc", &v, "en");
+        assert!(url.contains(&format!("&code_challenge={}&code_challenge_method=S256&", pkce_challenge(&v))), "{url}");
+        assert!(!url.contains(&v));
+        assert_eq!(token_body("c0de/+x", &v), json!({ "code": "c0de/+x", "code_verifier": v }));
     }
 
     #[test]

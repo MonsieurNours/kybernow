@@ -13,7 +13,7 @@
   import Station from './Station.svelte'
   import { onMount, untrack } from 'svelte'
   import type { Battery, Computer, DisplaysInfo, MicSettings, Settings, ThisPc } from './lib/api'
-  import { chosenBy, invoke, isCustom, isMacStation, listen, profileBase, pyrowaveOffered, sessionPlan } from './lib/api'
+  import { chosenBy, invoke, isMacStation, listen, pyrowaveOffered, values } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
   let {
@@ -98,19 +98,23 @@
     saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch((e) => console.error('save_settings :', e))
   }
 
-  const custom = $derived(isCustom(s, thisPc, auto))
+  // Le réglage « Écrans », « Personnalisé », les valeurs du profil et le débit de la session : ce que le cœur
+  // décide (`displays_info`, le même calcul que la session). Revu à chaque réglage changé, et quand les écrans de
+  // ce PC changent.
+  let displaysInfo = $state<DisplaysInfo | null>(null)
+  const custom = $derived(displaysInfo?.plan.custom ?? false)
+  /** Valeurs du profil choisi sur ce PC (le cœur ; Auto : celles du test) ; `null` le temps de la première réponse. */
+  const base = $derived(displaysInfo?.plan.base ?? null)
   /** Une Station Mac : « Ctrl agit comme ⌘ » et l'aide du clavier face à un Mac. */
   const mac = $derived(isMacStation(computer.info?.os || computer.os))
   const profiles = $derived((['jeu', 'bureau', 'max', 'auto'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`profiles.${value}_sub`) })))
   /** Le profil Auto est celui de l'ordinateur (sans retouche), avec son test. */
   const autoOn = $derived(s.profile === 'auto' && !custom && !!auto)
 
-  /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs) ; Auto : celles du test. */
-  const base = $derived(profileBase(s.profile, thisPc, auto))
 
-  const codec = $derived(s.codec ?? base.codec)
-  const yuv444 = $derived(s.yuv444 ?? base.yuv444)
-  const reliable = $derived(s.reliable ?? base.reliable)
+  const codec = $derived(s.codec ?? base?.codec ?? null)
+  const yuv444 = $derived(s.yuv444 ?? base?.yuv444 ?? false)
+  const reliable = $derived(s.reliable ?? base?.reliable ?? false)
 
   /**
    * PyroWave (docs/link-ui.md « PyroWave ») : la valeur de « Format vidéo » quand l'ordinateur le propose (ou
@@ -154,18 +158,13 @@
   /** PyroWave : 4:4:4 possible (le décodeur le prend toujours). */
   const pyro444 = $derived(codec === 'pyrowave' && pyroDecodes)
 
-  /** Débit réel d'une session : celui que plan.rs demandera. */
-  const realMbps = $derived(sessionPlan(s, thisPc, battery, auto)?.mbps ?? s.mbps ?? base.mbps)
-
-  // Le réglage « Écrans » : actif ou non, et ce qu'il montre, comme le cœur le
-  // décide (la session fait le même calcul). Revu à chaque réglage changé, et
-  // quand les écrans de ce PC changent.
-  let displaysInfo = $state<DisplaysInfo | null>(null)
+  /** Débit réel d'une session : celui que le cœur demandera (`plan` de `displays_info`). */
+  const realMbps = $derived(displaysInfo?.plan.mbps ?? s.mbps ?? 0)
   let screensEpoch = $state(0)
   let asked = 0
   // Ce que ce PC décode compte pour « Personnalisé » (règle du cœur). Une clé :
   // la demande ne repart que si un de ces éléments change vraiment.
-  const displaysKey = $derived(JSON.stringify([computerId, $state.snapshot(s), screensEpoch, $state.snapshot(thisPc)]))
+  const displaysKey = $derived(JSON.stringify([computerId, $state.snapshot(s), screensEpoch, $state.snapshot(thisPc), battery]))
   $effect(() => {
     const [id, settings] = JSON.parse(displaysKey) as [string, unknown]
     const n = ++asked
@@ -364,7 +363,7 @@
                 label={t('settings.sharp_text')}
                 checked={yuv444 && ((codec === 'hevc' && !!thisPc?.hevc444) || pyro444) && !hdrOn}
                 disabled={!((codec === 'hevc' && thisPc?.hevc444) || pyro444) || hdrOn}
-                onchange={(v) => over('yuv444', v, base.yuv444)}
+                onchange={(v) => over('yuv444', v, base?.yuv444 ?? false)}
               />
             </div>
             <span class="help">{hdrOn ? t('hdr.no_444') : pyro444 ? t('pyrowave.sharp_text_help') : t('settings.sharp_text_help')}</span>
@@ -386,9 +385,9 @@
             </div>
             <input
               type="range"
-              min="5"
-              max={codec === 'pyrowave' ? 1500 : 500}
-              step="5"
+              min={values.manual_mbps.min}
+              max={codec === 'pyrowave' ? values.manual_mbps.max_pyrowave : values.manual_mbps.max}
+              step={values.manual_mbps.step}
               value={sliderMbps}
               aria-label={t('settings.bitrate')}
               oninput={(e) => (mbpsDraft = Number((e.currentTarget as HTMLInputElement).value))}
@@ -510,7 +509,7 @@
           <div class="line stack">
             <div class="lr">
               <span>{t('settings.transport')}</span>
-              <Segmented label={t('settings.transport')} value={reliable ? 'fiable' : 'rapide'} options={[{ value: 'rapide', label: t('settings.fast') }, { value: 'fiable', label: t('settings.reliable') }]} onchange={(v) => over('reliable', v === 'fiable', base.reliable)} />
+              <Segmented label={t('settings.transport')} value={reliable ? 'fiable' : 'rapide'} options={[{ value: 'rapide', label: t('settings.fast') }, { value: 'fiable', label: t('settings.reliable') }]} onchange={(v) => over('reliable', v === 'fiable', base?.reliable ?? false)} />
             </div>
             <span class="help">{t('settings.transport_help')}</span>
           </div>

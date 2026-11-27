@@ -56,7 +56,7 @@ use kybernow_core::i18n::Lang;
 use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PenInput, PointerLayer, ScreenTarget, Shape};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::session::{Session, Status, StreamScreen};
+use kybernow_core::session::{Device, Session, Status, StreamScreen};
 
 use crate::displays::{Layout, Monitor};
 use crate::focus;
@@ -200,6 +200,13 @@ pub enum Command {
     MacLock = 17,
     MacScreenshot = 18,
     MacForceQuit = 19,
+    // Les six autres du menu Touches (docs/link-ui.md, dix entrées).
+    WinD = 20,
+    WinL = 21,
+    AltF4 = 22,
+    Escape = 23,
+    TaskManager = 24,
+    F11 = 25,
     /// Les fenêtres de la session ferment tout de suite, sans attendre la fin
     /// du cœur (qui reçoit sa fin et finit derrière, `host::run`) : une fin
     /// demandée avant le départ du cœur, ou une session que l'app abandonne
@@ -220,6 +227,10 @@ mod sc {
     pub const DEL: u16 = 0xE053;
     pub const LWIN: u16 = 0xE05B;
     pub const PRINT: u16 = 0xE037;
+    pub const D: u16 = 0x20;
+    pub const L: u16 = 0x26;
+    pub const F4: u16 = 0x3E;
+    pub const F11: u16 = 0x57;
 }
 
 /// Modificateurs (Ctrl, Alt, Maj, ⊞, gauche et droite) tels que partis à l'ordinateur.
@@ -379,7 +390,13 @@ fn hook_thread(me: Arc<HookThread>) {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `ll_keyboard_body`.
 unsafe extern "system" fn ll_keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { ll_keyboard_body(code, wparam, lparam) } })
+}
+
+unsafe fn ll_keyboard_body(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let mine = MY_HOOK.with(|g| g.get()) == HOOK_GENERATION.load(Ordering::Relaxed);
         if code == HC_ACTION as i32 && mine {
@@ -615,7 +632,7 @@ pub struct App {
     bar_visible: AtomicBool,
     /// Dernière fenêtre active (le clavier y revient quand la barre se cache).
     last_active: AtomicIsize,
-    /// Toutes ses fenêtres sont réduites : débit plafonné (`HIDDEN_BITRATE`).
+    /// Toutes ses fenêtres sont réduites : session en arrière-plan (`Session::set_background`).
     hidden_cap: AtomicBool,
     /// Touches dont l'enfoncement a été pris par le crochet pour cette
     /// session (leur relâchement suit, même si elle n'est plus active).
@@ -2247,12 +2264,12 @@ fn raw_delta(lparam: LPARAM) -> (i64, i64) {
 }
 
 
-/// Débit plafonné quand toutes les fenêtres d'une session sont réduites (bit/s) :
-/// la même valeur que l'app Mac pour une fenêtre cachée.
-const HIDDEN_BITRATE: u32 = 20_000_000;
-
-/// Toutes les fenêtres de la session réduites : le cœur plafonne le débit
-/// (l'image reste là, prête à la reprise) ; une fenêtre rouverte le rend.
+/// Toutes les fenêtres de la session réduites : l'image n'est plus regardée
+/// (TRANS-40, docs/link-ui.md « Image qui n'est plus regardée ») ; le cœur
+/// plafonne le débit à celui d'un ordinateur (`background_bitrate`, 20 Mbit/s,
+/// comme sur Mac et Linux) et sait l'image figée (la veille « aucune image »
+/// attend) ; une fenêtre rouverte rend les deux. Les Statistiques le disent
+/// (« fenêtre cachée »).
 fn follow_minimized(app: &App) {
     let windows = app.windows();
     let hidden = !windows.is_empty() && windows.iter().all(|w| unsafe { IsIconic(w.hwnd()).as_bool() });
@@ -2260,8 +2277,8 @@ fn follow_minimized(app: &App) {
         return;
     }
     if let Some(s) = app.link.session.get().and_then(Weak::upgrade) {
-        log::info!("[{}] fenêtres {} : débit {}", app.host_name, if hidden { "réduites" } else { "rouvertes" }, if hidden { "plafonné à 20 Mbit/s" } else { "rendu" });
-        s.set_bitrate_cap(hidden.then_some(HIDDEN_BITRATE));
+        log::info!("[{}] fenêtres {} : image {}", app.host_name, if hidden { "réduites" } else { "rouvertes" }, if hidden { "en arrière-plan, débit plafonné" } else { "regardée, débit rendu" });
+        s.set_background(hidden, Device::Computer);
     }
 }
 
@@ -2490,7 +2507,13 @@ impl App {
     }
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `control_proc_body`.
 unsafe extern "system" fn control_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { control_proc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn control_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let app = || app_of_control(hwnd.0 as isize);
         match msg {
@@ -2597,6 +2620,12 @@ fn command(app: &Arc<App>, c: usize, arg: isize) {
         x if x == Command::WinKey as usize => send_combo(app, &[sc::LWIN]),
         x if x == Command::AltTab as usize => send_combo(app, &[sc::ALT, sc::TAB]),
         x if x == Command::PrintScreen as usize => send_combo(app, &[sc::PRINT]),
+        x if x == Command::WinD as usize => send_combo(app, &[sc::LWIN, sc::D]),
+        x if x == Command::WinL as usize => send_combo(app, &[sc::LWIN, sc::L]),
+        x if x == Command::AltF4 as usize => send_combo(app, &[sc::ALT, sc::F4]),
+        x if x == Command::Escape as usize => send_combo(app, &[sc::ESC]),
+        x if x == Command::TaskManager as usize => send_combo(app, &[sc::CTRL, sc::SHIFT, sc::ESC]),
+        x if x == Command::F11 as usize => send_combo(app, &[sc::F11]),
         x if x == Command::MacSwitchApp as usize => send_combo(app, &[sc::LWIN, sc::TAB]),
         x if x == Command::MacSpotlight as usize => send_combo(app, &[sc::LWIN, sc::SPACE]),
         x if x == Command::MacLock as usize => send_combo(app, &[sc::CTRL, sc::LWIN, sc::Q]),
@@ -2640,7 +2669,13 @@ fn first_image(app: &Arc<App>, win: &Arc<ScreenWin>) {
     app.events.screen_visible(&win.key);
 }
 
+/// Rappel de Windows ou de FFmpeg : une panique ne le traverse pas (rattrapée
+/// et notée au journal, `ffi_guard!` du cœur), le corps est `screen_proc_body`.
 unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    kybernow_core::ffi_guard!({ unsafe { screen_proc_body(hwnd, msg, wparam, lparam) } })
+}
+
+unsafe fn screen_proc_body(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         let found = app_of(hwnd.0 as isize);
         let Some((app, win)) = found else {

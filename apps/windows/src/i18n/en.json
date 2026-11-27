@@ -4,6 +4,7 @@
     "bar_title": "Session bar · KyberNow Link"
   },
   "errors": {
+    "log_failed": "The log couldn't be prepared.",
     "session_open_install_later": "a session is open: install after it ends",
     "no_update": "no update to install",
     "installer_launch": "starting the installer: {error}",
@@ -12,7 +13,6 @@
     "not_a_link": "this is not a kybernow:// link",
     "bad_address": "invalid address",
     "no_port": "the link has no port",
-    "bad_port": "invalid port",
     "password_store": "the password could not be saved in the Windows Credential Manager",
     "unknown_computer": "unknown computer",
     "session_already_open": "a session is already open",
@@ -189,5 +189,12 @@
   },
   "pyrowave": {
     "banner_text": "The picture may stutter."
+  },
+  "micro": {
+    "shortcut": "Ctrl+Alt+Shift+V"
+  },
+  "camera": {
+    "no_answer": "The computer isn't answering: the camera is off.",
+    "start_refused": "The camera couldn't start on the computer."
   }
 }

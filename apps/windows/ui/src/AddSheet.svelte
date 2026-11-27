@@ -18,7 +18,7 @@
   import Icon from './lib/Icon.svelte'
   import Switch from './lib/Switch.svelte'
   import type { Candidate, Computer, Found, PsAccount, PsFound, PsHandoffEvent, PsState, PsWaiting } from './lib/api'
-  import { fingerprintGroups, invoke, listen, psAccountName, psConsoleCount, psGroupCode, psPlatform } from './lib/api'
+  import { invoke, listen, psAccountName, psConsoleCount, psPlatform, values } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -62,7 +62,7 @@
   // Lien et adresse.
   let link = $state('')
   let host = $state('')
-  let port = $state('9443')
+  let port = $state(String(values.admin_port))
   let seen = $state<Candidate | null>(null)
 
   // Code.
@@ -144,7 +144,7 @@
       error = t('ps.unreachable')
       return
     }
-    const c = await run(() => invoke<Candidate>('probe_address', { host: host.trim(), port: Number(port) || 9443 }))
+    const c = await run(() => invoke<Candidate>('probe_address', { host: host.trim(), port: Number(port) || values.admin_port }))
     if (c) seen = c
   }
 
@@ -506,7 +506,7 @@
           <section class="ps">
             <h3>{t('ps.receive_title')}</h3>
             {#if receiveCode}
-              <div class="bigcode mono" aria-label={t('ps.code6_field') + ' ' + receiveCode}>{psGroupCode(receiveCode)}</div>
+              <div class="bigcode mono" aria-label={t('ps.code6_field') + ' ' + receiveCode}>{receiveCode}</div>
               <p class="hint">{t('ps.receive_help')}</p>
             {:else if receiveExpired}
               <p class="hint">{t('ps.code_expired')}</p>
@@ -527,7 +527,7 @@
           {:else}
             <div class="eyebrow">{t('add.fingerprint')}</div>
             <div class="fp mono">
-              {#each fingerprintGroups(seen.fingerprint) as g, i}<span class:strong={i < 4}>{g}</span>{/each}
+              {#each (seen.fingerprint_short ?? '').split(' ') as g}<span class="strong">{g}</span>{/each}
             </div>
             <p class="hint">{t('add.compare')}</p>
             <div class="row">

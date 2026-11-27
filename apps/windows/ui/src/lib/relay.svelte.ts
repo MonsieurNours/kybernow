@@ -5,10 +5,10 @@
 // « Copier le lien » et le QR code attendent. Au-delà, il vaut `unreachable` : « Copier le
 // lien » donne le lien du réseau et l'aide dit « Pas encore joignable hors de chez vous. ».
 
-import type { RelayState } from './api'
+import { values, type RelayState } from './api'
 
-/** `share::RELAY_LINK_WAIT` du cœur. */
-export const RELAY_WAIT_MS = 10000
+/** L'attente du lien du relais : celle du cœur (`relay_link_wait_secs` de `values_json`). */
+const RELAY_WAIT_MS = values.relay_link_wait_secs * 1000
 
 export type RelayPhase = 'joined' | 'unreachable' | 'waiting' | null
 

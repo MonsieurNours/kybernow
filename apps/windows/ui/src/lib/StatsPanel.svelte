@@ -149,11 +149,12 @@
       <dt>{t('stats.path')}</dt><dd>{route}</dd>
       <dt>{t('stats.network')}</dt><dd>{t('stats.round_trip', { ms: stats.rtt_ms != null ? `${ms(stats.rtt_ms)} ms` : '—' })}</dd>
       <dt>{t('stats.image')}</dt><dd>{imageLine}</dd>
-      {#if measures}<dt>{t('stats.measures')}</dt><dd>{measures}</dd>{/if}
-      {#if sound}<dt>{t('stats.sound')}</dt><dd>{sound}</dd>{/if}
+      <!-- Toujours les cinq lignes de link-ui (TRANS-38) : « — » quand une mesure manque. -->
+      <dt>{t('stats.measures')}</dt><dd>{measures || '—'}</dd>
+      <dt>{t('stats.sound')}</dt><dd>{sound || '—'}</dd>
       {#if camera}<dt>{t('camera.camera')}</dt><dd>{camera}</dd>{/if}
       {#if pyro}<dt>{t('pyrowave.lost_frames')}</dt><dd class="mono">{lostPct}</dd>{/if}
-      {#if pyro && stats.lowered}<dt>{t('stats.image')}</dt><dd>{t('pyrowave.lowered', { w: stats.lowered[0], h: stats.lowered[1], n: stats.lowered[2] })}</dd>{/if}
+      {#if pyro && stats.lowered}<dt>{t('stats.image')}</dt><dd>{stats.lowered}</dd>{/if}
     </dl>
   {/if}
 </section>

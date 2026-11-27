@@ -40,6 +40,12 @@ function walk(d) {
 }
 walk(join(root, 'src'))
 
+// Français : une espace fine insécable (U+202F) avant « : ; ! ? » (docs/i18n.md, TRANS-32), dans l'interface
+// et dans le catalogue Rust de l'installateur (`setup/src/i18n`).
+for (const [k, v] of [...fr, ...flatten(JSON.parse(readFileSync(join(root, '../src/i18n/fr.json'), 'utf8')))]) {
+  if (typeof v === 'string' && /[ \u00a0][:;!?]/.test(v)) problems.push(`espace avant la ponctuation double, à remplacer par l'espace fine (U+202F) : ${k}`)
+}
+
 if (problems.length) {
   console.error(`i18n : ${problems.length} problème(s)\n  ${problems.join('\n  ')}`)
   process.exit(1)

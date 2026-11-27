@@ -33,7 +33,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
 
-use kybernow_core::console::{Console, Info, PairStatus, StationError};
+use kybernow_core::console::{self, Console, Info, PairStatus, StationError};
 use kybernow_core::relay::RouteInfo;
 use kybernow_core::profile::{Codec, Profile};
 use kybernow_core::screens::{self, DisplaysSetting};
@@ -43,7 +43,7 @@ use crate::discovery::{self, Discovery, Found};
 use crate::displays::{self, Layout, Spec};
 use crate::fonds::{self, Fonds};
 use crate::host::{HostEvents, HostOptions, Role, ScreenSet, SessionHost, Stats, Summary};
-use crate::plan::{Choices, plan};
+use kybernow_core::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
 use crate::pc::{self, ThisPc};
@@ -107,6 +107,21 @@ struct Live {
     /// Le prêt de l'ordinateur, quand il y est activé (`GET /api/lend`) :
     /// « Prêté à {prénom} » sur l'accueil.
     lend: Option<kybernow_core::lend::LendView>,
+    /// L'erreur sous son nom à l'accueil (docs/link-ui.md, TRANS-39).
+    problem: Option<Problem>,
+}
+
+/// Ce que l'accueil dit sous le nom d'un ordinateur qui répond mais refuse
+/// (docs/link-ui.md, « Accueil » ; comme sur Mac) : « Mot de passe refusé :
+/// mettez-le à jour dans les réglages. », « La Station a été réinstallée :
+/// vérifiez son empreinte dans les réglages. ».
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Problem {
+    /// Admin refuse le compte (401, 403).
+    PasswordRefused,
+    /// Le certificat d'Admin n'est plus celui retenu (Station réinstallée).
+    Reinstalled,
 }
 
 /// Une image de l'accueil (dernière image d'une session ou aperçu de
@@ -157,6 +172,17 @@ fn serve_image(app: &AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
 pub struct ComputerView {
     #[serde(flatten)]
     computer: Computer,
+    /// L'empreinte d'Admin telle que link-ui la montre (« 7C41 E09B AABB CCDD »,
+    /// `console::short_fingerprint`, TRANS-34) ; vide sans empreinte.
+    fingerprint_short: String,
+    /// L'erreur sous le nom (`Problem`), quand il y en a.
+    problem: Option<Problem>,
+    /// L'adresse et le port d'Admin tels qu'on les montre (« 192.168.1.20:9443 »,
+    /// « [fe80::1]:9443 » : crochets une fois, `console::host_for_url`).
+    address: String,
+    /// Le relais d'un ordinateur d'un compte, tel qu'on le montre
+    /// (`account::relay_label`, sans empreinte) ; vide sinon.
+    relay_label: String,
     online: Option<bool>,
     /// Joignable seulement par le relais (état « Hors de chez vous », docs/relais.md).
     away: bool,
@@ -191,6 +217,18 @@ pub struct Candidate {
     pub port: u16,
     pub name: Option<String>,
     pub fingerprint: Option<String>,
+    /// L'empreinte à comparer à celle qu'Admin affiche (« 7C41 E09B AABB
+    /// CCDD », `console::short_fingerprint`) ; rendue par l'interface sans
+    /// être relue.
+    #[serde(default, skip_deserializing)]
+    pub fingerprint_short: String,
+}
+
+impl Candidate {
+    fn new(host: String, port: u16, name: Option<String>, fingerprint: Option<String>) -> Self {
+        let fingerprint_short = fingerprint.as_deref().map(console::short_fingerprint).unwrap_or_default();
+        Self { host, port, name, fingerprint, fingerprint_short }
+    }
 }
 
 struct Pairing {
@@ -426,8 +464,10 @@ fn parse_action(args: &[String]) -> Option<Action> {
     if crate::link::is_join(first) {
         return Some(Action::Join { link: Some(first.clone()) });
     }
-    // Le lien d'invitation d'un compte d'ami (prêt de l'ordinateur).
-    if crate::link::is_borrow(first) {
+    // Le lien d'invitation d'un compte d'ami (prêt de l'ordinateur), reconnu
+    // par le cœur ; illisible, la feuille le dit (« Ce lien d'invitation est
+    // illisible. »).
+    if kybernow_core::lend::looks_like_invite(first) {
         return Some(Action::Borrow { link: first.clone() });
     }
     if first.starts_with("kybernow://") {
@@ -602,7 +642,10 @@ impl UiState {
                 let via_relay = l.away || relayed.contains(&c.id);
                 let lend = l.lend.as_ref().and_then(crate::lending::HomeLend::of);
                 let origin = origins.remove(&c.id);
-                ComputerView { computer: c, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
+                let fingerprint_short = c.fingerprint.as_deref().map(console::short_fingerprint).unwrap_or_default();
+                let relay_label = c.account.as_ref().map(|a| kybernow_core::account::relay_label(&a.relay)).unwrap_or_default();
+                let address = format!("{}:{}", console::host_for_url(&c.host), c.port);
+                ComputerView { computer: c, fingerprint_short, problem: l.problem, address, relay_label, online: l.online, away: l.away, via_relay, info: l.info, preview, preview_source, waking, station_pending, lend, origin, offer }
             })
             .collect()
     }
@@ -772,8 +815,32 @@ fn emit_computers(app: &AppHandle) {
     let views = state.views();
     shell::update_jump_list(views.iter().map(|v| (v.computer.id.clone(), v.computer.name.clone())).collect());
     let _ = app.emit_to("main", "computers", views);
+    // Un ordinateur ajouté ou retiré : la Station trouvée sur le réseau part ou revient.
+    emit_discovered(app);
     emit_bar_computers(app);
     tray::refresh();
+}
+
+/// Les Stations trouvées sur le réseau qui ne sont pas déjà à l'accueil :
+/// même adresse et même port qu'un ordinateur, ou la même empreinte d'Admin
+/// qu'un ordinateur d'un compte (la règle du cœur, `console::same_fingerprint`,
+/// TRANS-34 : préfixe, deux-points, espaces et casse ignorés).
+fn fresh_found(state: &UiState) -> Vec<Found> {
+    let list = state.discovery.get().map(|d| d.list()).unwrap_or_default();
+    state.with_store(|s| {
+        list.into_iter()
+            .filter(|f| {
+                !s.computers.iter().any(|c| {
+                    (c.host == f.host && c.port == f.port) || (c.account.is_some() && console::same_fingerprint_opt(c.fingerprint.as_deref(), f.fingerprint.as_deref()))
+                })
+            })
+            .collect()
+    })
+}
+
+/// La liste des Stations trouvées pour l'accueil (`fresh_found`).
+fn emit_discovered(app: &AppHandle) {
+    let _ = app.emit_to("main", "discovered", fresh_found(&app.state::<UiState>()));
 }
 
 /// Les sessions ont changé (une de plus, une de moins) : l'accueil (« Afficher
@@ -927,7 +994,6 @@ struct AppInfo {
     language: &'static str,
     lang: &'static str,
     update: Option<Available>,
-    arch: &'static str,
     /// Sur batterie : `alleger` ou `garder`.
     battery: &'static str,
     /// « Ouvrir à l'ouverture de session », tel que Windows le fera.
@@ -948,7 +1014,6 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
         language: language_choice(&prefs),
         lang: i18n::lang().code(),
         update: state.update.locked().clone(),
-        arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
         battery: battery_choice(&state),
         open_at_login: login::enabled(),
         sync_settings: prefs.sync_settings.unwrap_or(true),
@@ -1130,6 +1195,7 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     let located = account::locate(app, c);
     let c = located.as_ref().unwrap_or(c);
     let console = console_for(c);
+    let mut problem = None;
     let info = if c.account.is_some() && c.host.is_empty() {
         // Jamais vu sur le réseau : seulement par le relais (présence, plus bas).
         None
@@ -1138,12 +1204,22 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
             Ok(i) => Some(i),
             // Le relais refuse le jeton d'accès : compte oublié, ou ordinateur retiré du compte.
             Err(e) if account::on_console_error(app, c, &e) => return true,
+            // Il répond, mais refuse le compte, ou n'a plus le même certificat :
+            // en ligne, l'erreur sous son nom.
+            Err(console::ConsoleError::Http { status: 401 | 403, .. }) => {
+                problem = Some(Problem::PasswordRefused);
+                None
+            }
+            Err(console::ConsoleError::CertificateChanged { .. }) => {
+                problem = Some(Problem::Reinstalled);
+                None
+            }
             Err(_) => None,
         }
     };
     // Hors de chez soi : pas de réponse sur le réseau, mais le relais tient l'ordinateur.
-    let away = info.is_none() && away_by_relay(app, c);
-    let online = Some(info.is_some() || away);
+    let away = info.is_none() && problem.is_none() && away_by_relay(app, c);
+    let online = Some(info.is_some() || away || problem.is_some());
     // Son relais, gardé avec lui pour l'ouvrir hors de chez soi (une Station sans
     // relais réglé, ou antérieure, l'efface). Un ordinateur d'un compte garde la
     // route du relais de son compte.
@@ -1201,8 +1277,17 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     // (version, installation, redémarrage) compte aussi.
     let station_changed = info.as_ref().is_some_and(|i| l.info.as_ref().map(|o| &o.station) != Some(&i.station));
     let lend_changed = l.lend != lend_view;
-    let changed = l.online != online || l.away != away || preview.is_some() || station_changed || wake_changed || relay_changed || lend_changed || located.is_some();
+    let changed = l.online != online
+        || l.away != away
+        || l.problem != problem
+        || preview.is_some()
+        || station_changed
+        || wake_changed
+        || relay_changed
+        || lend_changed
+        || located.is_some();
     l.online = online;
+    l.problem = problem;
     l.away = away;
     l.lend = lend_view;
     let on_network = info.is_some();
@@ -1420,6 +1505,30 @@ struct DisplaysInfo {
     /// Le HDR sera demandé (allumé et possible, sur un écran HDR) : la ligne
     /// « Écran » dit « …, en HDR », « Texte net (4:4:4) » est inactif.
     hdr_on: bool,
+    plan: PlanView,
+}
+
+/// Ce que la session demandera, calculé par le cœur (`plan::plan`, WINAPP-52 ;
+/// l'interface n'en refait aucun calcul) : l'accueil et les réglages le
+/// montrent tel quel.
+#[derive(Serialize)]
+struct PlanView {
+    /// Le profil retouché est « Personnalisé » (règle du cœur).
+    custom: bool,
+    /// Les valeurs du profil choisi sur ce PC (`plan::profile_settings` ;
+    /// Auto : celles du test, celles de Jeu sans test), en JSON du cœur
+    /// (`StreamSettings::to_json`) : ce que les réglages montrent tant qu'ils
+    /// ne sont pas retouchés.
+    base: serde_json::Value,
+    /// Le mode demandé à l'ordinateur (au plus 4K, H.264, sur batterie,
+    /// définition sur mesure).
+    width: u32,
+    height: u32,
+    refresh: u32,
+    /// Le débit de la session pour ce mode (Mbit/s).
+    mbps: u32,
+    /// « Jeu · HEVC », « Personnalisé · HEVC 4:4:4 ».
+    label: String,
 }
 
 /// `settings` : ceux de l'ordinateur `id`, enregistrés ou en cours de
@@ -1432,17 +1541,70 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     c.settings = settings;
     let pc = state.this_pc.locked().clone().unwrap_or_default();
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    let (stream, _, _) = session_plan(&c, &pc, lighten, None);
+    let (stream, mode, label) = session_plan(&c, &pc, lighten, None);
+    let base = kybernow_core::plan::profile_settings(Profile::parse(&c.settings.profile).unwrap_or(Profile::Jeu), c.auto.as_ref(), capabilities(&pc));
+    let planned = PlanView {
+        custom: stream.profile.is_none(),
+        base: base.to_json(),
+        width: mode.width,
+        height: mode.height,
+        refresh: mode.refresh,
+        mbps: stream.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000,
+        label,
+    };
     let info = state.live.locked().get(&id).and_then(|l| l.info.clone());
     let screens = Layout::now(displays_spec(&c.settings, info.as_ref(), lighten, &pc)).screens();
     let choice = screens.choice(screens::screens_profile(&stream, screens.capabilities), c.settings.virtual_display);
     let plan = screens::session_plan_for(&screens, &stream, c.settings.virtual_display);
     let count = plan.as_ref().map_or(1, |p| p.len());
     let devices: Option<Vec<usize>> = plan.map(|p| p.iter().map(|x| x.device).collect());
-    let (screen_hdr, _) = displays::session_hdr(&screens, devices.as_deref());
+    let (screen_hdr, _) = screens.session_hdr(devices.as_deref());
     let hdr = hdr_chip(info.as_ref(), &stream, &pc, screen_hdr);
     let hdr_on = hdr.shown && hdr.available && c.settings.hdr_on();
-    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on })
+    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count, virtual_display: choice.virtual_display, hdr, hdr_on, plan: planned })
+}
+
+/// Le système d'une Station d'après `os` de son `info` (« Windows 11 Pro
+/// 24H2 », « macOS 15.2 », une distribution Linux) : `windows`, `mac`
+/// (la règle du cœur, `keymap::station_is_mac`), sinon `other`.
+fn station_system(os: &str) -> &'static str {
+    if kybernow_core::input::keymap::station_is_mac(os) {
+        "mac"
+    } else if os.trim_start().to_ascii_lowercase().starts_with("windows") {
+        "windows"
+    } else {
+        "other"
+    }
+}
+
+/// « Envoyer le journal » (Réglages de l'app › À propos, docs/link-ui.md) :
+/// le fichier `kybernow-journal.txt` (`journal.rs`), puis la fenêtre
+/// « Partager » de Windows au-dessus de l'accueil. Le temps de la préparation,
+/// l'interface dit « Préparation du journal… ».
+#[tauri::command(async)]
+fn share_log(app: AppHandle) -> Result<(), String> {
+    let failed = |e: String| {
+        log::warn!("journal : {e}");
+        t("errors.log_failed", &[])
+    };
+    let path = crate::journal::write().map_err(|e| failed(e.to_string()))?;
+    let window = app.get_webview_window("main").ok_or_else(|| failed("fenêtre de l'accueil absente".into()))?;
+    let hwnd = window.hwnd().map_err(|e| failed(e.to_string()))?.0 as isize;
+    log::info!("journal : préparé ({}), fenêtre « Partager » de Windows", path.display());
+    crate::journal::share(&path, hwnd, |f| {
+        let _ = app.run_on_main_thread(f);
+    })
+    .map_err(failed)
+}
+
+/// Les valeurs communes du cœur (`plan::values_json`, TRANS-40 à 42) : bornes
+/// du débit réglé à la main, nombre de sessions, délais, port et exemple
+/// d'adresse d'Admin, relais public… Lues par chaque fenêtre de l'interface
+/// à son lancement : elle n'en garde aucune copie.
+#[tauri::command(async)]
+fn common_values(state: tauri::State<'_, UiState>) -> serde_json::Value {
+    let pc = state.this_pc.locked().clone().unwrap_or_default();
+    kybernow_core::plan::values_json(capabilities(&pc))
 }
 
 /// Les écrans de ce PC ont changé (branché, débranché, disposition) : l'accueil
@@ -1503,7 +1665,7 @@ fn snapshot(app: AppHandle, state: tauri::State<'_, UiState>) -> Snapshot {
     sessions.extend(playstation::session_ids(&app));
     Snapshot {
         computers: state.views(),
-        discovered: state.discovery.get().map(|d| d.list()).unwrap_or_default(),
+        discovered: fresh_found(&state),
         this_pc: state.this_pc.locked().clone(),
         sessions,
         version: env!("CARGO_PKG_VERSION").into(),
@@ -1517,12 +1679,7 @@ fn probe_address(host: String, port: u16) -> Result<Candidate, String> {
     let console = Console::new(host.trim(), port, "", "", None);
     let info = console.probe().map_err(|e| e.to_string())?;
     let fingerprint = console.fingerprint_seen().ok_or_else(|| t("errors.no_certificate", &[]))?;
-    Ok(Candidate {
-        host: host.trim().into(),
-        port,
-        name: info.map(|i| i.hostname).filter(|n| !n.is_empty()),
-        fingerprint: Some(fingerprint),
-    })
+    Ok(Candidate::new(host.trim().into(), port, info.map(|i| i.hostname).filter(|n| !n.is_empty()), Some(fingerprint)))
 }
 
 fn percent_decode(s: &str) -> String {
@@ -1553,14 +1710,11 @@ pub fn parse_link_text(link: &str) -> Result<Candidate, String> {
     let rest = link.trim().strip_prefix("kybernow://").ok_or_else(|| t("errors.not_a_link", &[]))?;
     let (authority, query) = rest.split_once('?').unwrap_or((rest, ""));
     let authority = authority.trim_end_matches('/');
-    let (host, port) = if let Some(r) = authority.strip_prefix('[') {
-        let (h, p) = r.split_once(']').ok_or_else(|| t("errors.bad_address", &[]))?;
-        (h.to_string(), p.trim_start_matches(':').to_string())
-    } else {
-        let (h, p) = authority.rsplit_once(':').ok_or_else(|| t("errors.no_port", &[]))?;
-        (h.to_string(), p.to_string())
-    };
-    let port: u16 = port.parse().map_err(|_| t("errors.bad_port", &[]))?;
+    // L'adresse, par la règle du cœur (TRANS-35) ; le port est exigé : sans
+    // lui (mais lisible avec), « no_port ».
+    let (host, port) = console::parse_address(authority, None).ok_or_else(|| {
+        if console::parse_address(authority, Some(console::ADMIN_PORT)).is_some() { t("errors.no_port", &[]) } else { t("errors.bad_address", &[]) }
+    })?;
     let mut name = None;
     let mut fingerprint = None;
     for pair in query.split('&') {
@@ -1571,7 +1725,7 @@ pub fn parse_link_text(link: &str) -> Result<Candidate, String> {
             _ => {}
         }
     }
-    Ok(Candidate { host, port, name, fingerprint })
+    Ok(Candidate::new(host, port, name, fingerprint))
 }
 
 #[tauri::command(async)]
@@ -1977,7 +2131,7 @@ struct UiEvents {
     /// invité ; `None` : la Station n'enregistre pas (ni bouton ni pastille).
     recording: Mutex<Option<recording::Seen>>,
     /// Le micro de la session : choix, état du cœur, allumage à annoncer.
-    mic: Mutex<micro::MicSlot>,
+    mic: Mutex<kybernow_core::micro::MicUi>,
 }
 
 /// `session-route` : par où passe la session `id` (la puce « Par le relais » de la
@@ -2008,6 +2162,10 @@ struct BarShown {
     /// (« ⌘ ⇥ », « ⌘ Espace »…). Faux pour un invité ou un ami, qui ne
     /// connaissent pas son système.
     mac: bool,
+    /// Le système de la Station (`windows`, `mac`, `other` : Linux ou
+    /// inconnu), d'après `os` de son `info` : l'avertissement du prêt le dit
+    /// (« votre session Windows », « du Mac », ou « votre session »).
+    system: &'static str,
     /// La largeur de la zone cliente de la session, en points (bornée par la
     /// fenêtre de la barre) : au-delà, la barre se fait étroite.
     room: f64,
@@ -2041,6 +2199,9 @@ struct BarShown {
     /// L'avis est celui d'une demande d'emprunt : le choisir ouvre le panneau de
     /// « Prêter l'ordinateur… ».
     notice_opens_lend: bool,
+    /// L'avis est celui de la caméra refusée par Windows : le choisir ouvre
+    /// ses paramètres de confidentialité (« Ouvrir les Réglages »).
+    notice_opens_settings: bool,
     /// L'icône de l'avis dans sa capsule (`gamepad` : « Manettes indisponibles sur
     /// cet ordinateur. ») ; absente : celle d'un écran.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2050,8 +2211,9 @@ struct BarShown {
     route: Option<relais::RouteView>,
     /// La puce « HDR » (écran HDR seulement, jamais pour un invité).
     hdr: Option<BarHdr>,
-    /// La puce « Micro » (docs/link-ui.md « Micro ») : absente sans micro sur ce PC.
-    mic: Option<micro::BarMic>,
+    /// La puce « Micro » (docs/link-ui.md « Micro ») : `MicUi::ui_json` du cœur ;
+    /// absente sans micro sur ce PC.
+    mic: Option<serde_json::Value>,
     /// PyroWave (docs/link-ui.md) : ce PC rejoint l'ordinateur par câble ;
     /// la barre en tire la puce ambre « PyroWave en Wi-Fi » quand l'image est
     /// en PyroWave (format des mesures) sans câble.
@@ -2080,6 +2242,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         mouse: "auto".to_string(),
         clipboard: false,
         mac: false,
+        system: "other",
         room: BAR_WINDOW_WIDTH,
         stats: false,
         pinned,
@@ -2094,6 +2257,7 @@ fn console_bar_shown(id: &str, name: &str, pinned: bool, sessions: usize, route:
         notice: None,
         notice_opens_share: false,
         notice_opens_lend: false,
+        notice_opens_settings: false,
         notice_icon: None,
         route,
         hdr: None,
@@ -2920,12 +3084,7 @@ fn session_plan(
     let (mut settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     // Le choix « HDR » de cet ordinateur (hors du profil) : la session ne s'en sert que si c'est possible.
     settings.hdr = s.hdr_on();
-    let label = format!(
-        "{} · {}{}",
-        settings.label(),
-        settings.codec.label(),
-        if settings.yuv444 { " 4:4:4" } else { "" }
-    );
+    let label = kybernow_core::plan::label(&settings);
     (settings, mode, label)
 }
 
@@ -3394,7 +3553,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     // HDR : l'écran de la session (« Cet écran », ou dès qu'un des écrans pris l'est) ;
     // le cœur relit chaque écran dans les écrans de ce PC.
     let devices: Option<Vec<usize>> = plan.as_ref().map(|p| p.iter().map(|x| x.device).collect());
-    let (screen_hdr, screen_luminance) = displays::session_hdr(&layout.screens(), devices.as_deref());
+    let (screen_hdr, screen_luminance) = layout.screens().session_hdr(devices.as_deref());
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
         other => other.parse().unwrap_or(2),
@@ -3501,7 +3660,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         auto_check,
         auto_told: std::sync::atomic::AtomicBool::new(false),
         recording: Mutex::new(None),
-        mic: Mutex::new(micro::MicSlot::new(s.microphone)),
+        mic: Mutex::new(kybernow_core::micro::MicUi::new(s.microphone)),
     });
     // Face à un Mac, « Ctrl agit comme ⌘ » (avant de tenir la table des sessions).
     let control_as_command = kybernow_core::input::keymap::control_as_command(s.ctrl_command, &computer_os(&state, &id));
@@ -3566,6 +3725,12 @@ fn session_command(app: AppHandle, id: String, command: String) {
         "keys:win" => Command::WinKey,
         "keys:alt-tab" => Command::AltTab,
         "keys:print" => Command::PrintScreen,
+        "keys:win-d" => Command::WinD,
+        "keys:win-l" => Command::WinL,
+        "keys:alt-f4" => Command::AltF4,
+        "keys:esc" => Command::Escape,
+        "keys:task-manager" => Command::TaskManager,
+        "keys:f11" => Command::F11,
         // Face à une Station Mac.
         "keys:mac-switch" => Command::MacSwitchApp,
         "keys:mac-spotlight" => Command::MacSpotlight,
@@ -3942,7 +4107,9 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
             .with_store(|s| s.get(id).map(|c| (c.settings.mouse.clone(), c.settings.clipboard)))
             .unwrap_or_else(|| ("auto".to_string(), false)),
     };
-    let mac = host_session && kybernow_core::input::keymap::station_is_mac(&computer_os(&state, id));
+    let os = computer_os(&state, id);
+    let mac = host_session && kybernow_core::input::keymap::station_is_mac(&os);
+    let system = station_system(&os);
     let before = state.bar_session.locked().replace(id.to_string());
     // La barre servait une partie sur console : la console reçoit de nouveau la manette.
     if let Some(prev) = before.filter(|p| p != id && crate::consoles::host_of(p).is_some()) {
@@ -3993,6 +4160,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         mouse,
         clipboard,
         mac,
+        system,
         room,
         stats: panel == Some("stats"),
         pinned,
@@ -4007,6 +4175,7 @@ pub(crate) fn show_bar_notice(app: &AppHandle, id: &str, hwnd: isize, pinned: bo
         notice,
         notice_opens_share: panel == Some("share"),
         notice_opens_lend: panel == Some("lend"),
+        notice_opens_settings: panel == Some("camera_settings"),
         notice_icon: icon,
         route,
         hdr: bar_hdr(&state, id),
@@ -4446,14 +4615,12 @@ pub fn run(args: Vec<String>) {
     // Micro : celui choisi et le traitement voix, pour toutes les sessions.
     crate::micro::set_prefs(prefs.microphone.clone(), prefs.voice_processing.unwrap_or(true));
     *state.prefs.locked() = prefs;
-    let app = tauri::Builder::default()
-        .manage(state)
-        .register_uri_scheme_protocol(IMAGE_SCHEME, |ctx, request| serve_image(ctx.app_handle(), request.uri().path()))
-        .invoke_handler(tauri::generate_handler![
+    let commands: Box<dyn Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync> = Box::new(tauri::generate_handler![
             snapshot,
             camera::session_camera,
             camera::session_camera_pick,
             camera::session_camera_state,
+            camera::open_camera_settings,
             probe_address,
             parse_link,
             add_computer,
@@ -4501,6 +4668,8 @@ pub fn run(args: Vec<String>) {
             set_profile,
             set_open_at_login,
             displays_info,
+            common_values,
+            share_log,
             session_hdr,
             session_hevc,
             computer_wired,
@@ -4524,6 +4693,7 @@ pub fn run(args: Vec<String>) {
             share::share_watch_display,
             share::share_kick,
             recording::session_record,
+            recording::recording_clock,
             share::share_close,
             share::copy_text,
             lend::lend_friends,
@@ -4574,7 +4744,19 @@ pub fn run(args: Vec<String>) {
             playstation::ps_handoff_discover,
             playstation::ps_handoff_send,
             playstation::ps_handoff_receive
-        ])
+    ]);
+    let app = tauri::Builder::default()
+        .manage(state)
+        .register_uri_scheme_protocol(IMAGE_SCHEME, |ctx, request| serve_image(ctx.app_handle(), request.uri().path()))
+        // Les commandes de l'interface : une panique d'une commande qui tourne
+        // sur le fil de l'interface (les commandes synchrones, qui appellent
+        // souvent le cœur) ne traverse pas WebView2, qui fermerait l'app ; elle
+        // est rattrapée et notée (`ffi::guard` du cœur). Les commandes
+        // `async` tournent dans leurs propres tâches.
+        .invoke_handler(move |invoke| {
+            let name = invoke.message.command().to_string();
+            kybernow_core::ffi::guard(&name, true, || commands(invoke))
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
             // Langue connue de l'interface dès son premier affichage (ensuite : l'événement `lang`).
@@ -4642,9 +4824,7 @@ pub fn run(args: Vec<String>) {
                 let _ = h.emit_to("main", "this-pc", pc);
             });
             let h = handle.clone();
-            let d = discovery::start(move |list| {
-                let _ = h.emit_to("main", "discovered", list);
-            });
+            let d = discovery::start(move |_| emit_discovered(&h));
             let _ = handle.state::<UiState>().discovery.set(d);
             let h = handle.clone();
             std::thread::spawn(move || poll(h));

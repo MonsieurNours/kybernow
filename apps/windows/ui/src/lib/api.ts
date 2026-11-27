@@ -22,6 +22,27 @@ export const invoke = <T>(cmd: string, args?: Record<string, unknown>) => tauri.
 export const listen = <T>(name: string, cb: (payload: T) => void) => tauri.event.listen<T>(name, (e) => cb(e.payload))
 export const currentWindow = () => tauri.window.getCurrentWindow()
 
+/**
+ * Les valeurs communes du cœur (`plan::values_json`, TRANS-40 à 42) : bornes du débit réglé à la main, nombre de
+ * sessions, délais, port et exemple d'adresse d'Admin, relais public. Lues une fois au chargement de la fenêtre :
+ * l'interface n'en garde aucune copie.
+ */
+export type Values = {
+  /** Débit réglé à la main (Mbit/s) : de `min` à `max` par pas de `step`, jusqu'à `max_pyrowave` en PyroWave. */
+  manual_mbps: { min: number; step: number; max: number; max_pyrowave: number; lg_tv_max: number }
+  /** Débit quand la fenêtre est cachée (bit/s), par appareil ; ce PC : `computer`. */
+  background_bitrate: { computer: number }
+  max_guests: number
+  max_sessions: number
+  /** Lien du relais en préparation : au-delà, « Pas encore joignable hors de chez vous. ». */
+  relay_link_wait_secs: number
+  admin_port: number
+  address_example: string
+  /** Le relais public, proposé d'abord (« Ajouter un compte », « Connecter un compte »). */
+  default_relay: string
+}
+export const values: Values = await invoke<Values>('common_values')
+
 export type Settings = {
   /** `auto` : le profil Auto, avec le test gardé (`Computer.auto`). */
   profile: 'jeu' | 'bureau' | 'max' | 'auto'
@@ -121,10 +142,6 @@ export type Info = {
 export const pyrowaveOffered = (info: Info | null | undefined) =>
   info?.pyrowave === true || (typeof info?.pyrowave === 'object' && !!info.pyrowave?.available)
 
-/** Débit de base de PyroWave en 4K à 60 Hz (`PYROWAVE_MBPS`, `PYROWAVE_MBPS_444` de profile.rs). */
-export const PYROWAVE_MBPS = 800
-export const PYROWAVE_MBPS_444 = 1200
-
 /**
  * Le relais d'un ordinateur (`info.relay`) : le relais (`share.kybernow.app`), son identifiant chez lui, et
  * « Accès hors de chez vous » actif dans Admin. L'app en fait la route pour l'ouvrir hors de chez soi
@@ -181,6 +198,14 @@ export type Computer = {
   port: number
   user: string
   fingerprint: string | null
+  /** L'empreinte telle que link-ui la montre (« 7C41 E09B AABB CCDD », l'app la met en forme) ; vide sans empreinte. */
+  fingerprint_short: string
+  /** L'adresse et le port d'Admin tels qu'on les montre (IPv6 entre crochets), donnés par l'app. */
+  address: string
+  /** L'erreur sous le nom à l'accueil (il répond mais refuse) : mot de passe refusé, Station réinstallée. */
+  problem?: 'password_refused' | 'reinstalled' | null
+  /** Le relais d'un ordinateur d'un compte, tel qu'on le montre (sans empreinte) ; vide sinon. */
+  relay_label: string
   os: string
   gpu: string | null
   settings: Settings
@@ -316,12 +341,10 @@ export type WelcomeView = { show: boolean; has_account: boolean; card: boolean; 
 export const stationBannerFor = (c: { offer?: StationOffer | null } | null | undefined, sessions: string[] = []) =>
   sessions.length === 0 && !!c?.offer && c.offer.banner.kind !== 'none'
 
-/** Le relais public, proposé d'abord (« Ajouter un compte »). */
-export const DEFAULT_RELAY = 'share.kybernow.app'
-
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
 
-export type Candidate = { host: string; port: number; name: string | null; fingerprint: string | null }
+/** `fingerprint_short` : l'empreinte à comparer à celle d'Admin (« 7C41 E09B AABB CCDD », donnée par l'app). */
+export type Candidate = { host: string; port: number; name: string | null; fingerprint: string | null; fingerprint_short?: string }
 
 export type ThisPc = {
   name: string
@@ -358,7 +381,6 @@ export type AppInfo = {
   language: 'auto' | 'fr' | 'en'
   lang: 'fr' | 'en'
   update: Update | null
-  arch: string
   battery: Battery
   open_at_login: boolean
   /** « Synchroniser les réglages des ordinateurs » (comptes KyberNow ; allumé par défaut) et ses textes, ceux du cœur. */
@@ -454,9 +476,6 @@ export type StationOutcome = { id: string; outcome: 'restarted' | 'updated' | 'u
 /** `sessions` : les ordinateurs en session, dans l'ordre d'ouverture (plusieurs ordinateurs, quatre au plus). */
 export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: ThisPc | null; sessions: string[]; version: string }
 
-/** Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : quatre au plus en même temps. */
-export const MAX_SESSIONS = 4
-
 export type Phase = { id: string; phase: 'preparing' | 'connecting' | 'first_images' | 'streaming' | 'reconnecting' | 'ending' | 'ended'; detail: string | null }
 
 /**
@@ -472,8 +491,8 @@ export type StationRestarting = { id: string }
 export type Summary = { error: string | null; median_ms: number | null; p95_ms: number | null; seconds: number }
 
 export type Stats = {
-  /** PyroWave : définition ramenée pour tenir dans le débit [largeur, hauteur, Mbit/s] (pas encore donnée par le cœur). */
-  lowered?: [number, number, number] | null
+  /** PyroWave : « Définition ramenée à {l} × {h} pour tenir dans {n} Mbit/s. », le texte du cœur. */
+  lowered?: string | null
   /**
    * « Débit visé » sous « Débit » (docs/link-ui.md « Statistiques ») : le débit demandé à l'ordinateur
    * (Mbit/s, niveau du trait sur la courbe), la ligne et son libellé, textes du cœur. Absent avant l'image
@@ -574,17 +593,42 @@ export type ConnexionView = {
 export type HdrState = { shown: boolean; available: boolean; reason: string | null; kind: string | null }
 
 /** `hdr_on` : le HDR sera demandé (allumé et possible, sur un écran HDR) : « …, en HDR », 4:4:4 inactif. */
-export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean; hdr: HdrState; hdr_on: boolean }
+export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean; hdr: HdrState; hdr_on: boolean; plan: SessionPlan }
+
+/**
+ * Ce que la session demandera, calculé par le cœur (`plan::plan`, WINAPP-52) : `custom` (« Personnalisé »),
+ * `base` les valeurs du profil choisi sur ce PC (Auto : celles du test), le mode demandé à l'ordinateur et le
+ * débit de la session pour ce mode (Mbit/s), le nom (« Jeu · HEVC »). L'interface n'en refait aucun calcul.
+ */
+export type SessionPlan = {
+  custom: boolean
+  base: { codec: NonNullable<Settings['codec']>; yuv444: boolean; mbps: number; reliable: boolean }
+  width: number
+  height: number
+  refresh: number
+  mbps: number
+  label: string
+}
 
 /** La puce « HDR » de la barre de session (absente sans écran HDR, et pour un invité). */
 export type BarHdr = { on: boolean; available: boolean; reason: string | null }
 
 /**
- * La puce « Micro » de la barre (docs/link-ui.md « Micro ») : `on` le choix, `state` ce que dit le cœur
- * (`waiting` : allumé, réponse de l'ordinateur pas encore venue ; `refused` : l'ordinateur ne le prend pas,
- * `reason` en infobulle). Absente sans micro sur ce PC.
+ * La puce « Micro » de la barre (docs/link-ui.md « Micro ») telle que le cœur la décrit (`MicUi::ui_json`) : `on` le
+ * choix, `state` sa réponse (`waiting` : allumé, réponse de l'ordinateur pas encore venue ; `refused` : l'ordinateur
+ * ne le prend pas, `reason`), `lit` la puce allumée, et ses textes : `label`, `tooltip` (la raison d'un refus, sinon
+ * l'état et le raccourci), `tile`. Absente sans micro sur ce PC.
  */
-export type BarMic = { on: boolean; state: 'off' | 'waiting' | 'on' | 'refused'; reason: string | null }
+export type BarMic = {
+  on: boolean
+  state: 'off' | 'waiting' | 'on' | 'refused'
+  lit: boolean
+  sent: boolean
+  reason: string | null
+  label: string
+  tooltip: string
+  tile: string
+}
 
 /** Les micros de ce PC (Réglages de l'app) : `device` nul, celui du système ; `voice` : « Réduire l'écho et le bruit ». */
 export type MicSettings = { devices: { id: string; name: string }[]; device: string | null; voice: boolean }
@@ -750,7 +794,7 @@ export type ShareStateEvent = { id: string; share: Share }
  * (« Passer en HEVC ») ; profil Auto sur un autre réseau que celui du test (`auto_network`, « Refaire le test »).
  */
 export type PyroWaveBanner = 'pyrowave_wifi' | 'pyrowave_relay' | 'pyrowave_strained' | 'auto_network'
-export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | PyroWaveBanner }
+export type ShareRequestEvent = { id: string; text: string; panel?: 'share' | 'lend' | 'camera_settings' | PyroWaveBanner }
 
 /** Une pseudo-fiche d'ordinateur pour le passage et la connexion d'une session d'invité (ni dans la liste, ni gardée). */
 export const guestComputer = (j: { title: string; fingerprint: string | null }) => ({ name: j.title, preview: null, fingerprint: j.fingerprint })
@@ -799,69 +843,6 @@ export function moment(at: number, now = Date.now()) {
   if (days === 1) return t('time.yesterday', { time })
   if (days < 7) return t('time.days_ago', { days })
   return t('time.on_day', { day: date.toLocaleDateString(locale, { day: 'numeric', month: 'long' }) })
-}
-
-/**
- * Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». Un format
- * choisi égal à celui du profil n'en est pas un écart (comme `plan` de plan.rs).
- */
-export const isCustom = (s: Settings, pc: ThisPc | null, auto: AutoResult | null = null) =>
-  (s.codec != null && s.codec !== profileBase(s.profile, pc, auto).codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
-
-/** Les quatre premiers groupes de l'empreinte d'Admin, comme Admin les montre (« 7C41 E09B AABB CCDD »). */
-export const fingerprintGroups = (fp: string | null) =>
-  (fp ?? '').replace(/^sha256:/, '').replaceAll(':', '').toUpperCase().match(/.{1,4}/g) ?? []
-
-/**
- * Valeurs d'un profil pour ce PC, comme le cœur les calcule (`StreamSettings::for_profile`, profile.rs) ; Auto : celles
- * du test gardé (`AutoResult::settings`, `profile_settings` de plan.rs), celles de Jeu sans test.
- */
-export function profileBase(profile: Settings['profile'], pc: ThisPc | null, auto: AutoResult | null = null): { codec: NonNullable<Settings['codec']>; yuv444: boolean; mbps: number; reliable: boolean } {
-  if (profile === 'auto' && auto) return { codec: auto.codec, yuv444: auto.yuv444, mbps: auto.mbps, reliable: auto.reliable }
-  const codec: 'h264' | 'hevc' = (pc?.hevc ?? true) ? 'hevc' : 'h264'
-  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false], auto: [false, 60, false] }[profile] as [boolean, number, boolean]
-  if (yuv444 && !(codec === 'hevc' && pc?.hevc444)) {
-    yuv444 = false
-    mbps += Math.floor(mbps / 3)
-  }
-  if (codec === 'h264') mbps += Math.floor(mbps / 2)
-  return { codec, yuv444, mbps, reliable }
-}
-
-type Mode = { width: number; height: number; refresh: number }
-
-/** `fit` de plan.rs : réduit pour tenir dans `maxW` × `maxH`, proportions gardées, dimensions paires (arrondi vers le bas). */
-function fit(m: Mode, maxW: number, maxH: number): Mode {
-  if (m.width <= maxW && m.height <= maxH) return m
-  const k = Math.min(maxW / m.width, maxH / m.height)
-  return { width: Math.floor(m.width * k) & ~1, height: Math.floor(m.height * k) & ~1, refresh: m.refresh }
-}
-
-/**
- * Ce que la session demandera à l'ordinateur : `session_plan` (ui.rs) et
- * `plan` (plan.rs), règle pour règle. Mode de l'écran virtuel et débit en
- * Mbit/s ; `null` sans écran connu (ni ce PC ni taille sur mesure).
- * `battery` : « Sur batterie » des réglages de l'app.
- */
-export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery, auto: AutoResult | null = null): (Mode & { mbps: number }) | null {
-  const custom = s.custom && s.custom.width >= 640 && s.custom.height >= 360 && s.custom.refresh >= 24 ? s.custom : null
-  let mode: Mode | null = custom ?? (pc ? { width: pc.width, height: pc.height, refresh: pc.refresh } : null)
-  if (!mode) return null
-  if (s.max_4k && !s.custom) mode = fit(mode, 3840, 2160)
-  if (battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
-  let base = profileBase(s.profile, pc, auto)
-  // PyroWave choisi à la main : le débit de PyroWave pour ce mode (plan.rs).
-  if (s.codec === 'pyrowave') {
-    const yuv444 = (s.yuv444 ?? base.yuv444) && !!pc?.pyrowave
-    base = { ...base, mbps: yuv444 ? PYROWAVE_MBPS_444 : PYROWAVE_MBPS }
-  }
-  // NVENC n'encode pas l'H.264 au-delà de 4096 de large.
-  if ((s.codec ?? base.codec) === 'h264') mode = fit(mode, 4096, 4096)
-  // Débit du profil pour ce mode (`StreamSettings::bitrate`), sauf débit réglé.
-  const ratio = (mode.width * mode.height * Math.max(1, mode.refresh)) / (3840 * 2160 * 60)
-  const scale = Math.min(3, Math.max(0.4, Math.pow(ratio, 0.75)))
-  const mbps = s.mbps ?? Math.min(4294, Math.max(5, Math.round(base.mbps * scale)))
-  return { ...mode, mbps }
 }
 
 /** Noms des profils tels que le côté Rust les écrit (« Bureau · HEVC 4:4:4 » : barre, et dernière session de la 0.4.x). */
@@ -976,14 +957,6 @@ export type RecordingView = { available: boolean; allowed: boolean; active: bool
 /** `recording-state` : l'enregistrement de la session `id` (nul : la Station n'enregistre pas). */
 export type RecordingEvent = { id: string; recording: RecordingView | null }
 
-/** « 02:14 », « 59:59 », puis « 1:02:14 » au-delà d'une heure (la règle de `kybernow_core::recording::clock`). */
-export function recordingClock(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds))
-  const h = Math.floor(total / 3600)
-  const two = (n: number) => String(n).padStart(2, '0')
-  const ms = `${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`
-  return h > 0 ? `${h}:${ms}` : ms
-}
 
 /** Un texte du cœur, `{time}` et `{shortcut}` remplis. */
 export const fillRecording = (text: string, time: string, shortcut: string) => text.split('{time}').join(time).split('{shortcut}').join(shortcut)
@@ -1122,6 +1095,7 @@ export type PsSettingsView = { id: string; name: string; model: PsModel; setting
 /** Un appareil qui attend un envoi (`ps_handoff_discover`) : `platform` `macos`, `ios`, `ipados`, `tvos`, `windows`, `linux`, `steamdeck`, `raspberrypi`, `android`, `androidtv`, `webos` ; `address` « ip:port ». */
 export type PsWaiting = { name: string; platform: string; address: string }
 /** Événement `ps-handoff` (attente d'un envoi, « Recevoir d'un autre appareil ») : reçu (`text` : « 2 comptes et 1 console reçus. »), nouveau code (après 3 échecs), expiré (5 min). */
+/** `code` : déjà mis en forme par l'app (« 482 913 », `format_code` du cœur). */
 export type PsHandoffEvent = { event: 'received'; text: string } | { event: 'new_code'; code: string } | { event: 'expired' }
 /** Barre d'une partie (dans `bar-shown`, champ `console`, et événement `ps-bar`) : `pad` une manette est branchée (pas de « Prendre la souris ») ; `captured` souris prise ; `muted` ; `fullscreen` ; `pad_mode` la barre est pilotée par la manette (ouverte par Options + Create + L1 + R1). */
 export type PsBar = { id: string; name: string; pad: boolean; captured: boolean; muted: boolean; fullscreen: boolean; pad_mode: boolean }
@@ -1190,9 +1164,6 @@ const platformNames: Record<string, string> = {
   webos: 'LG',
 }
 export const psPlatform = (p: string) => platformNames[p] ?? p
-
-/** « 482 913 » : un code à 6 chiffres, en deux groupes de trois. */
-export const psGroupCode = (code: string) => code.replace(/^(\d{3})(\d{3})$/, '$1 $2')
 
 /** Identifiant de compte saisi à la main : 8 octets en base64 (12 caractères). */
 export function psValidId(id: string) {

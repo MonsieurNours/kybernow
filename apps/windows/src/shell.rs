@@ -352,6 +352,20 @@ pub fn notify_to(launch: &str, title: &str, body: &str, action: Option<(&str, &s
 
 /// Ouvre une adresse `https://` dans le navigateur par défaut (`ShellExecuteW`,
 /// verbe `open`) : jamais un chemin ni une commande.
+/// Les paramètres de confidentialité de la caméra de Windows (Paramètres ›
+/// Confidentialité › Caméra), après un accès refusé (docs/link-ui.md, « Caméra
+/// de l'appareil » : « Ouvrir les Réglages »).
+pub const CAMERA_PRIVACY: &str = "ms-settings:privacy-webcam";
+
+pub fn open_camera_privacy() {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let r = unsafe { ShellExecuteW(None, windows::core::w!("open"), &HSTRING::from(CAMERA_PRIVACY), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+    if r.0 as isize <= 32 {
+        log::warn!("paramètres de la caméra : ouverture refusée ({})", r.0 as isize);
+    }
+}
+
 pub fn open_url(url: &str) -> Result<(), String> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;

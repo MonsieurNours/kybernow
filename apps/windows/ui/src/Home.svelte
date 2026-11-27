@@ -53,8 +53,8 @@
   import AccountCard from './AccountCard.svelte'
   import PairedBanner from './PairedBanner.svelte'
   import { onMount } from 'svelte'
-  import type { AccountView, WelcomeView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, Settings, ThisPc, WatchWords } from './lib/api'
-  import { MAX_SESSIONS, stationBannerFor, clock, countdown, friendStateText, hue, invoke, isCustom, listen, psAccountName, psStatusText, psTarget, sessionPlan, slotText, watchRight } from './lib/api'
+  import type { AccountView, WelcomeView, Battery, Computer, DisplaysInfo, Found, Friend, HdrState, PsConsole, PsFound, SessionPlan, Settings, ThisPc, WatchWords } from './lib/api'
+  import { stationBannerFor, clock, countdown, friendStateText, hue, invoke, listen, psAccountName, psStatusText, psTarget, slotText, values, watchRight } from './lib/api'
   import { i18n, t } from './lib/i18n/index.svelte'
 
   let {
@@ -102,6 +102,7 @@
     onpairedlater,
   }: {
     computers: Computer[]
+    /** Les Stations trouvées sur le réseau, sans celles déjà à l'accueil (l'app les écarte, règle d'empreinte du cœur). */
     discovered: Found[]
     thisPc: ThisPc | null
     battery: Battery
@@ -182,10 +183,7 @@
   let accountMenu = $state(false)
   const chosenAccount = $derived(selectedConsole ? (selectedConsole.accounts.find((a) => a.id === selectedConsole!.chosen) ?? selectedConsole.accounts[0] ?? null) : null)
 
-  /** Même empreinte d'Admin, sans égard à la casse ni aux espaces. */
-  const sameFp = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase()
   // Un ordinateur d'un compte vu sur le réseau n'est pas « Sur le réseau » à ajouter : même empreinte d'Admin.
-  const fresh = $derived(discovered.filter((f) => !computers.some((c) => (c.host === f.host && c.port === f.port) || (!!c.account && sameFp(c.fingerprint, f.fingerprint)))))
 
   const stateOf = (c: Computer, searching = false) =>
     c.waking && !c.online
@@ -216,7 +214,7 @@
   /** L'ordinateur choisi est en session : « Afficher la session ». */
   const inSession = $derived(!!selected && sessions.includes(selected.id))
   /** Quatre ordinateurs sont déjà en session : « Se connecter » inactif, avec la raison. */
-  const full = $derived(sessions.length >= MAX_SESSIONS)
+  const full = $derived(sessions.length >= values.max_sessions)
   /** Hors ligne, l'app sait le réveiller : ses cartes réseau, apprises de la Station. */
   const canWake = $derived(!!selected && (selected.wake?.length ?? 0) > 0)
 
@@ -235,6 +233,8 @@
   // La puce « HDR » de l'ordinateur (cœur) et si le HDR sera demandé.
   let hdrChip = $state<HdrState | null>(null)
   let hdrOn = $state(false)
+  /** Ce que la session demandera (le cœur : mode, débit, « Personnalisé »). */
+  let plan = $state<SessionPlan | null>(null)
   // L'écran de l'accueil est HDR (puce des consoles).
   let homeHdr = $state(false)
   let screensEpoch = $state(0)
@@ -259,6 +259,7 @@
     const key = displaysKey
     if (!key) {
       screens = 1
+      plan = null
       return
     }
     const [id, settings] = JSON.parse(key) as [string, unknown]
@@ -270,6 +271,7 @@
         virtualDisplay = i.virtual_display
         hdrChip = i.hdr
         hdrOn = i.hdr_on
+        plan = i.plan
       })
       .catch(() => {})
   })
@@ -292,20 +294,20 @@
     invoke('save_settings', { id: selected.id, settings }).catch(() => {})
   }
 
-  /** L'écran que la session demandera (même calcul que plan.rs : au plus 4K, H.264, sur batterie), ou le nombre d'écrans. */
+  /** L'écran que la session demandera (le plan du cœur : au plus 4K, H.264, sur batterie), ou le nombre d'écrans. */
   const screen = $derived.by(() => {
     if (!selected || !thisPc) return null
     const s = selected.settings
     if (!virtualDisplay) return t('home.screens_as_is')
     if (screens > 1) return t(hdrOn ? 'home.screens_many_hdr' : 'home.screens_many', { count: screens })
-    const p = sessionPlan(s, thisPc, battery, selected.auto ?? null)
+    const p = plan
     if (!p) return null
     const params = { width: p.width, height: p.height, refresh: p.refresh }
     const match = !s.custom && p.width === thisPc.width && p.height === thisPc.height
     return t(match ? (hdrOn ? 'home.screen_match_hdr' : 'home.screen_match') : hdrOn ? 'home.screen_hdr' : 'home.screen', params)
   })
 
-  const custom = $derived(selected ? isCustom(selected.settings, thisPc, selected.auto ?? null) : false)
+  const custom = $derived(selected ? (plan?.custom ?? false) : false)
   // Auto (docs/link-ui.md « Profil Auto et débit adaptatif ») : sans test gardé, le choisir ouvre le panneau du test.
   const profiles: { value: Settings['profile']; label: string }[] = $derived([
     { value: 'jeu', label: t('profiles.jeu') },
@@ -445,6 +447,7 @@
       {/if}
       <h1>{selected.name}</h1>
       {#if selected.info?.os || selected.os}<div class="system">{selected.info?.os || selected.os}</div>{/if}
+      {#if selected.problem}<div class="error" role="alert">{t(`home.problem_${selected.problem}`)}</div>{/if}
       {#if error}<div class="error" role="alert">{error}</div>{/if}
       {#if screen && !watching?.only}
         <div class="chip"><Icon name="monitor" size={20} /><span>{screen}</span></div>
@@ -570,7 +573,7 @@
           </span>
         </button>
       {/each}
-      {#each fresh as f (f.id)}
+      {#each discovered as f (f.id)}
         <button class="card found" aria-label={t('home.add_named', { name: f.name })} onclick={() => onadd(f)}>
           <span class="label">
             <span class="name">{f.name}</span>

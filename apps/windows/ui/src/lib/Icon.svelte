@@ -59,6 +59,8 @@
     'camera-off': 'M3 7h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zM16 10.5l5-3v9l-5-3M3 3l18 18',
     'speaker-off':'M11 5L6 9H2v6h4l5 4zM16 9l6 6M22 9l-6 6',
     other: 'M5 7h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2zM8 12h.01M12 12h.01M16 12h.01',
+    // Menu « Plus » de la barre étroite : trois points.
+    more: 'M3.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0zM10.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0zM17.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0z',
     // Consoles PlayStation : compte, choix du compte, réglages « Auto », envoi et réception entre appareils.
     user: 'M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM4.5 20.5a7.5 7.5 0 0 1 15 0',
     caret: 'M7 10l5 5 5-5',

@@ -15,6 +15,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::UiState;
+use crate::i18n::t;
 use crate::camera::{self, CameraChoice, CameraSender, Problem};
 
 /// L'état de la caméra d'une session.
@@ -146,8 +147,19 @@ fn turn_off(app: &AppHandle, id: &str) {
     emit(app, id);
 }
 
+/// Sans réponse de l'ordinateur en ce temps après l'allumage, la caméra
+/// s'éteint (docs/link-ui.md, « Caméra de l'appareil »).
+const START_WAIT: Duration = Duration::from_secs(10);
+
 fn turn_on(app: &AppHandle, id: &str, camera_id: Option<String>) {
-    let Some(l) = link(app, id) else { return };
+    // La session ne prend pas la caméra (pas de lien vers l'ordinateur) :
+    // « La caméra n'a pas pu démarrer sur l'ordinateur. »
+    let Some(l) = link(app, id) else {
+        log::warn!("caméra : la session n'a pas de lien caméra");
+        notice(app, id, &t("camera.start_refused", &[]));
+        turn_off(app, id);
+        return;
+    };
     // Une autre caméra pendant qu'elle part : la précédente s'arrête d'abord, START de nouveau.
     let old = with(id, |c| c.sender.take());
     drop(old);
@@ -178,9 +190,17 @@ fn turn_on(app: &AppHandle, id: &str, camera_id: Option<String>) {
     let (app, id) = (app.clone(), id.to_owned());
     std::thread::spawn(move || {
         let mut ticks = 0u32;
+        let asked = Instant::now();
         while !stop.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(250));
             ticks += 1;
+            // Allumage sans réponse de l'ordinateur : éteinte, avec l'avis.
+            if with(&id, |c| c.state == 1) && asked.elapsed() >= START_WAIT {
+                log::warn!("caméra : pas de réponse de l'ordinateur en {} s, éteinte", START_WAIT.as_secs());
+                notice(&app, &id, &t("camera.no_answer", &[]));
+                turn_off(&app, &id);
+                return;
+            }
             let name = app.state::<UiState>().with_session(&id, |r| r.name.clone()).unwrap_or_default();
             for e in l.poll() {
                 match &e {
@@ -211,7 +231,9 @@ fn turn_on(app: &AppHandle, id: &str, camera_id: Option<String>) {
 }
 
 /// Un problème de la webcam : l'avis ; débranchée, la suivante de la liste
-/// prend la relève, sinon la caméra s'éteint.
+/// prend la relève, sinon la caméra s'éteint. Accès refusé par la
+/// confidentialité de Windows : l'avis s'ouvre sur ses paramètres
+/// (« Ouvrir les Réglages », TRANS-39).
 fn handle_problem(app: &AppHandle, id: &str, p: Problem, name: String) {
     let which = match p {
         Problem::Denied => DeviceNotice::Denied,
@@ -219,12 +241,25 @@ fn handle_problem(app: &AppHandle, id: &str, p: Problem, name: String) {
         Problem::Unplugged => DeviceNotice::Unplugged,
         Problem::NoEncoder => DeviceNotice::NoEncoder,
     };
-    notice(app, id, &core_camera::device_notice(which, &name, i18n::current()));
+    let text = core_camera::device_notice(which, &name, i18n::current());
+    if p == Problem::Denied {
+        let computer = app.state::<UiState>().with_session(id, |r| r.name.clone()).unwrap_or_default();
+        super::share::panel_notice(app, id, &computer, &text, "camera_settings");
+    } else {
+        notice(app, id, &text);
+    }
     let next = cameras(true).into_iter().find(|c| c.name != name);
     match (p, next) {
         (Problem::Unplugged, Some(next)) if with(id, |c| c.state != 0) => turn_on(app, id, Some(next.id)),
         _ => turn_off(app, id),
     }
+}
+
+/// « Ouvrir les Réglages » de l'avis de la caméra refusée : Paramètres ›
+/// Confidentialité › Caméra de Windows.
+#[tauri::command(async)]
+pub fn open_camera_settings() {
+    crate::shell::open_camera_privacy();
 }
 
 /// Ctrl+Alt+Maj+C, la puce, le menu : l'allume ou l'éteint.
