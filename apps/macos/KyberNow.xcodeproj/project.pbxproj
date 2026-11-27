@@ -22,6 +22,7 @@
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
 		17726570ED6FCB0FD1534141 /* SessionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = D005C450D358A2CD1ED7A01C /* SessionScreens.swift */; };
 		252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8EB2368866E8C3CB15143EE9 /* Sparkle */; };
+		2576FA51005DBA705F6B42A9 /* PlayStationPart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 207C19C59482F0FAB236F600 /* PlayStationPart.swift */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
 		2F107C5080CF93B2441C1103 /* PlayStationHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED13FC132BD04A4BE4F78AA /* PlayStationHandoff.swift */; };
 		2F8B683E44077460CF93EB44 /* CoreRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA7FCFFF45A8860DA89F4AB /* CoreRules.swift */; };
@@ -150,6 +151,7 @@
 		1B18D524B92EC557D60FED25 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
 		202BCC5AA54DDA89D34041F1 /* Immersive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Immersive.swift; sourceTree = "<group>"; };
+		207C19C59482F0FAB236F600 /* PlayStationPart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayStationPart.swift; sourceTree = "<group>"; };
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		299561D683D5C9CF287F4E73 /* Upscaler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Upscaler.swift; sourceTree = "<group>"; };
 		2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
@@ -359,6 +361,7 @@
 				3C1E162A6B7ECA42BAB04CAE /* MicUI.swift */,
 				6AD538B60E8D4385065CFEE6 /* PlayStationCore.swift */,
 				E1A59205F0259E507159059F /* PlayStationInput.swift */,
+				207C19C59482F0FAB236F600 /* PlayStationPart.swift */,
 				F5ED2F31CB6BDBF6BF0C27BA /* PyroWaveConfig.swift */,
 				9959EAF050CC646C3E4D4F5E /* PyroWaveDecoder.swift */,
 				6741AA1E47FF1BB802E90566 /* PyroWaveSupport.swift */,
@@ -616,6 +619,7 @@
 				F09CDB5E3D53DE0FCBC081D4 /* MicUI.swift in Sources */,
 				A5C9DE552BAAC56F107ECA33 /* PlayStationCore.swift in Sources */,
 				C978ADB8A1B4AF7BF61DD9C1 /* PlayStationInput.swift in Sources */,
+				2576FA51005DBA705F6B42A9 /* PlayStationPart.swift in Sources */,
 				947F773BEDBD9F48DB91E96D /* PyroWaveConfig.swift in Sources */,
 				449C629E0CD8B9E1C4F77532 /* PyroWaveDecoder.swift in Sources */,
 				6EEB2048A412716E3FD8613E /* PyroWaveSupport.swift in Sources */,
