@@ -559,6 +559,7 @@ mod lot45;
 mod lot6;
 mod delegation;
 mod noms_hostiles;
+mod reauth;
 // --- Lot 1b : passkeys, conditions, export, suppression ---------------------------
 
 use super::passkeys::tests::Authenticator;

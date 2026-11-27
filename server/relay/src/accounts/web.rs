@@ -38,6 +38,11 @@ pub const VERIFY_SECS: i64 = DAY;
 pub const RESET_SECS: i64 = 3600;
 /// « Ne plus demander sur cet appareil pendant 30 jours ».
 pub const TRUST_SECS: i64 = 30 * DAY;
+/// Ajouter une passkey ou activer la double authentification : sans mot de passe dans ce temps
+/// après l'ouverture de la session (REL-06).
+pub const REAUTH_SECS: i64 = 15 * 60;
+/// Un nouveau mot de passe retire les passkeys ajoutées depuis ce temps (REL-06).
+pub const RESET_PASSKEY_SECS: i64 = 7 * DAY;
 /// Les codes de secours donnés à l'activation.
 pub const RECOVERY_CODES: usize = 10;
 
@@ -297,6 +302,29 @@ impl<'a> Cx<'a> {
     /// Une session entière : adresse vérifiée, double authentification faite.
     fn full_session(&self) -> Option<(Session, Account)> {
         self.session().filter(|(s, a)| s.mfa_done && a.verified())
+    }
+
+    /// La session a été ouverte il y a moins de [`REAUTH_SECS`] (mot de passe, code ou passkey).
+    fn recent_auth(&self) -> bool {
+        self.session().is_some_and(|(s, _)| self.now - s.created_at < REAUTH_SECS)
+    }
+
+    /// Avant d'ajouter une passkey ou d'activer la double authentification (REL-06) : une session
+    /// récente suffit ; sinon le mot de passe du formulaire (`password`), limité comme les codes.
+    fn reauth(&self, account: &Account) -> Result<(), Notice> {
+        if self.recent_auth() {
+            return Ok(());
+        }
+        let key = format!("reauth:{}", account.id);
+        let limit = self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).code(self.req.ip, &key);
+        if let Err(wait) = limit {
+            return Err(Notice::TooMany(wait.0.as_secs().div_ceil(60)));
+        }
+        if !self.acc.hasher.verify(self.req.form("password"), Some(&account.password)) {
+            return Err(Notice::BadPassword);
+        }
+        self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).code_ok(self.req.ip, &key);
+        Ok(())
     }
 
     /// Ouvre une session (et ferme celle du cookie, s'il y en a une).
@@ -670,13 +698,20 @@ fn code_post(mut cx: Cx<'_>) -> Reply {
         acc.db().use_recovery_code(account.id, &token_hash(&code), cx.now).unwrap_or(false)
     } else {
         let totp = acc.db().totp(account.id).ok().flatten().filter(|t| t.activated_at.is_some());
-        match totp.and_then(|t| acc.keys.open(account.id, &t.secret).map(|s| (s, t.last_step))) {
-            Some((secret, last)) => match totp::verify(&secret, cx.req.form("code"), cx.now, last) {
-                Some(step) => acc.db().use_totp_step(account.id, step).unwrap_or(false),
-                None => false,
-            },
+        match totp {
             // Plus de double authentification (coupée entre-temps) : le mot de passe suffit.
             None => true,
+            Some(t) => match acc.keys.open(account.id, &t.secret) {
+                Some(secret) => match totp::verify(&secret, cx.req.form("code"), cx.now, t.last_step) {
+                    Some(step) => acc.db().use_totp_step(account.id, step).unwrap_or(false),
+                    None => false,
+                },
+                // Le secret ne se déchiffre plus (clé des comptes changée ?) : refusé, jamais ouvert (REL-07).
+                None => {
+                    tracing::error!(compte = account.id, "secret TOTP illisible : la clé des comptes a changé ? (code de secours seulement)");
+                    false
+                }
+            },
         }
     };
     if !ok {
@@ -951,6 +986,8 @@ fn new_password(mut cx: Cx<'_>, post: bool) -> Reply {
         // Les appareils connectés aussi (lot 3).
         let _ = db.revoke_devices(account.id);
         let _ = db.forget_trusted_browsers(account.id);
+        // Les passkeys ajoutées ces derniers jours partent aussi : un cookie volé a pu en ajouter une (REL-06).
+        let _ = db.delete_passkeys_since(account.id, cx.now - RESET_PASSKEY_SECS);
     }
     cx.audit(Some(account.id), "mot_de_passe_change");
     let forgot_link = cx.url(&format!("/compte/oubli?lang={}", lang_of(&account).code()));
@@ -985,7 +1022,7 @@ fn totp_setup(cx: Cx<'_>, post: bool) -> Reply {
     let show = |cx: Cx<'_>, notice: Option<Notice>| {
         let uri = totp::otpauth_uri(&secret, &acc.issuer(), &account.email);
         let qr = qr_svg(&uri);
-        let page = pages::totp_setup(&cx.view(), &qr, &totp::grouped(&totp::base32(&secret)), &uri, notice);
+        let page = pages::totp_setup(&cx.view(), &qr, &totp::grouped(&totp::base32(&secret)), &uri, !cx.recent_auth(), notice);
         cx.page(200, page)
     };
     if !post {
@@ -1000,6 +1037,10 @@ fn totp_setup(cx: Cx<'_>, post: bool) -> Reply {
         return r;
     }
     let Some(step) = totp::verify(&secret, cx.req.form("code"), cx.now, 0) else { return show(cx, Some(Notice::WrongCode)) };
+    // Une session ancienne (cookie volé ?) redonne le mot de passe avant d'activer (REL-06).
+    if let Err(notice) = cx.reauth(&account) {
+        return show(cx, Some(notice));
+    }
     acc.limits.lock().unwrap_or_else(|e| e.into_inner()).code_ok(cx.req.ip, &format!("totp:{}", account.id));
     let codes = new_recovery_codes();
     {

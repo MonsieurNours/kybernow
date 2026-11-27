@@ -2867,7 +2867,7 @@ pub(super) mod tests {
         let welcome_view = Welcome {
             name: "Ana".into(),
             protected: false,
-            register: Some(Registration { challenge: "defi".into(), user_id: "dXNlcg".into(), user_name: "ana@exemple.org".into(), display_name: "Ana".into(), exclude: vec![] }),
+            register: Some(Registration { password: false, challenge: "defi".into(), user_id: "dXNlcg".into(), user_name: "ana@exemple.org".into(), display_name: "Ana".into(), exclude: vec![] }),
             computer: None,
         };
         vec![

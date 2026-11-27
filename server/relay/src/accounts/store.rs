@@ -480,6 +480,11 @@ impl Store {
     }
 
     /// Un secret en attente de confirmation (remplace un secret en attente, jamais un secret actif).
+    /// Le nombre de comptes dont la double authentification (TOTP) est activée.
+    pub fn active_totp_count(&self) -> Result<i64> {
+        Ok(self.conn.query_row("SELECT COUNT(*) FROM totp WHERE activated_at IS NOT NULL", [], |r| r.get(0))?)
+    }
+
     pub fn set_pending_totp(&self, account: i64, sealed: &[u8]) -> Result<()> {
         self.conn.execute(
             "INSERT INTO totp (account, secret) VALUES (?1, ?2) ON CONFLICT(account) DO UPDATE SET secret = excluded.secret, last_step = 0 WHERE activated_at IS NULL",
@@ -610,6 +615,11 @@ impl Store {
     }
 
     /// Retire une passkey du compte ; faux si elle n'est pas à lui.
+    /// Retire les passkeys ajoutées à partir de `since` ; leur nombre.
+    pub fn delete_passkeys_since(&self, account: i64, since: i64) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM passkeys WHERE account = ?1 AND created_at >= ?2", params![account, since])?)
+    }
+
     pub fn delete_passkey(&self, id: i64, account: i64) -> Result<bool> {
         Ok(self.conn.execute("DELETE FROM passkeys WHERE id = ?1 AND account = ?2", params![id, account])? == 1)
     }

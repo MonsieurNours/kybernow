@@ -830,6 +830,8 @@ pub struct Registration {
     pub display_name: String,
     /// Les passkeys déjà là (base64url) : l'authentificateur n'en crée pas une deuxième.
     pub exclude: Vec<String>,
+    /// La session n'est pas récente : le mot de passe est redemandé (REL-06).
+    pub password: bool,
 }
 
 /// Une durée écoulée, en mots : « 3 jours », `3 days` (« moins d'une minute » en dessous).
@@ -959,11 +961,12 @@ pub fn account(v: &View<'_>, a: &AccountView, shell: &console::Shell, notice: Op
 }
 
 /// Activer la double authentification : le QR code, la clé, le code.
-pub fn totp_setup(v: &View<'_>, qr_svg: &str, secret_grouped: &str, uri: &str, notice: Option<Notice>) -> String {
+pub fn totp_setup(v: &View<'_>, qr_svg: &str, secret_grouped: &str, uri: &str, password: bool, notice: Option<Notice>) -> String {
     let title = v.tr("Double authentification", "Two-factor authentication");
     let inner = format!(
-        "{field}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
+        "{field}{password}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
         field = field(&v.tr("Code affiché", "Code shown"), &code_input("code", notice.is_some())),
+        password = if password { format!("\n{}", field(&v.tr("Mot de passe, pour confirmer", "Password, to confirm"), &password_input("password", "current-password"))) } else { String::new() },
         submit = v.tr("Activer", "Turn on"),
     );
     let card = format!(
@@ -1256,6 +1259,7 @@ fn passkey_create_form_with(v: &View<'_>, r: &Registration, class: &str, extra: 
         ]
         .concat(),
         csrf = v.csrf_field(),
+        extra = if r.password { format!("{extra}{}\n", field(&v.tr("Mot de passe, pour confirmer", "Password, to confirm"), &password_input("password-passkey", "current-password"))) } else { extra.to_string() },
         label = v.tr("Ajouter une passkey", "Add a passkey"),
         error = passkey_error(v),
     )
@@ -1397,6 +1401,7 @@ mod tests {
             user_name: "ana@exemple.org".into(),
             display_name: "Ana \"<b>".into(),
             exclude: vec!["Y3JlZA".into()],
+            password: true,
         }
     }
 
@@ -1444,7 +1449,7 @@ mod tests {
             ("nouveau", new_password(&v, "jeton", Some(Notice::Weak(Weak::TooShort)))),
             ("compte", account(&v, &account_view, &console::tests::shell(), Some(Notice::TotpOn))),
             ("compte/sans-2fa", account(&v, &AccountView { totp_on: false, passkeys: vec![], register: None, ..account_view.clone() }, &console::tests::shell(), None)),
-            ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", Some(Notice::WrongCode))),
+            ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", true, Some(Notice::WrongCode))),
             ("secours", recovery_codes(&v, &["abcd-efgh".into()], None)),
             ("message", message(&v, "/compte/verifier", "Titre", "Texte.", ("/compte/connexion", "Lien"))),
             ("rattacher", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[])),

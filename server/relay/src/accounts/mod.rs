@@ -308,8 +308,18 @@ impl Accounts {
     /// Ouvre la base et la clé, démarre l'envoi des e-mails.
     pub fn open(cfg: &AccountsConfig, public_url: String) -> Result<Accounts> {
         let clock = system_clock();
-        let keys = Keys::load_or_create(&cfg.secret_key)?;
         let store = Store::open(&cfg.database, clock())?;
+        // Une base qui a des doubles authentifications sans sa clé (restaurée à part ?) : une
+        // nouvelle clé les rendrait illisibles. On refuse de démarrer plutôt (REL-07).
+        if !cfg.secret_key.exists() {
+            let active = store.active_totp_count()?;
+            anyhow::ensure!(
+                active == 0,
+                "clé des comptes {} absente, mais {active} compte(s) ont la double authentification : remettez la clé d'origine",
+                cfg.secret_key.display()
+            );
+        }
+        let keys = Keys::load_or_create(&cfg.secret_key)?;
         let mailer: Option<Arc<dyn Mailer>> = match &cfg.smtp {
             Some(smtp) => Some(Arc::new(mail::Smtp::start(smtp)?)),
             None => {
@@ -403,6 +413,23 @@ mod tests {
         assert_ne!(keys.seal(1, b"x"), keys.seal(1, b"x"), "nonce aléatoire");
         let sig = keys.sign(b"cookie");
         assert!(keys.check(b"cookie", &sig) && !keys.check(b"cookie2", &sig));
+    }
+
+    #[test]
+    fn pas_de_nouvelle_cle_sous_des_doubles_authentifications() {
+        // REL-07 : la base a un TOTP activé, la clé manque : le relais refuse de démarrer.
+        let dir = std::env::temp_dir().join(format!("kn-cle-totp-{}", kybernow_tunnel::id::random_id()));
+        let cfg = crate::config::AccountsConfig { enabled: true, database: dir.join("accounts.db"), secret_key: dir.join("secret.key"), public_url: None, smtp: None };
+        {
+            let store = Store::open(&cfg.database, 100).unwrap();
+            let id = store.create_account("a@exemple.org", "A", "h", "fr", Some(0), 100).unwrap().unwrap();
+            store.set_pending_totp(id, b"chiffre").unwrap();
+            store.activate_totp(id, 0, 100).unwrap();
+        }
+        let err = Accounts::open(&cfg, "https://share.test".into()).err().expect("refusé");
+        assert!(format!("{err:#}").contains("remettez la clé"), "{err:#}");
+        assert!(!cfg.secret_key.exists(), "aucune clé créée");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
