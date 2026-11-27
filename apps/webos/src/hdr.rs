@@ -123,58 +123,19 @@ pub fn decide(seen: &Seen, hevc: bool, expected: bool) -> Option<HdrMeta> {
 /// Lit le HDR dans des données HEVC en Annex B (jeu de paramètres, image clé).
 pub fn scan_hevc(data: &[u8]) -> Seen {
     let mut seen = Seen::default();
-    for nal in annexb_nals(data) {
+    for nal in kybernow_rules::nal::units(data) {
         if nal.len() < 3 {
             continue;
         }
         let kind = (nal[0] >> 1) & 0x3f;
         // Le type d'abord : seuls le SPS et les SEI sont désémulés (WEBOS-21 : pas les ~1 Mo d'une image clé 4K).
         match kind {
-            33 => seen.main10 |= sps_main10(&unescape(&nal[2..])),
-            39 => seen.merge(sei(&unescape(&nal[2..]))),
+            33 => seen.main10 |= sps_main10(&kybernow_rules::nal::unescape(&nal[2..])),
+            39 => seen.merge(sei(&kybernow_rules::nal::unescape(&nal[2..]))),
             _ => {}
         }
     }
     seen
-}
-
-/// Les unités NAL d'un flux Annex B (sans code de départ).
-fn annexb_nals(data: &[u8]) -> Vec<&[u8]> {
-    let mut starts = Vec::new();
-    let mut i = 0;
-    while i + 3 <= data.len() {
-        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
-            starts.push(i + 3);
-            i += 3;
-        } else {
-            i += 1;
-        }
-    }
-    let mut out = Vec::with_capacity(starts.len());
-    for (n, &s) in starts.iter().enumerate() {
-        let mut end = starts.get(n + 1).map(|&next| next - 3).unwrap_or(data.len());
-        // Le zéro de tête d'un code de départ sur 4 octets.
-        while end > s && data[end - 1] == 0 {
-            end -= 1;
-        }
-        out.push(&data[s..end]);
-    }
-    out
-}
-
-/// Retire les octets d'émulation (00 00 03 → 00 00).
-fn unescape(b: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(b.len());
-    let mut zeros = 0;
-    for &x in b {
-        if zeros >= 2 && x == 3 {
-            zeros = 0;
-            continue;
-        }
-        zeros = if x == 0 { zeros + 1 } else { 0 };
-        out.push(x);
-    }
-    out
 }
 
 /// Profil Main 10 dans un SPS HEVC : `general_profile_idc` 2, ou son drapeau
@@ -345,11 +306,6 @@ mod tests {
         assert_eq!(from_configs(r#"{"returnValue":true,"configs":{"tv.model.supportHDR":false}}"#), Some(false));
         assert_eq!(from_configs(r#"{"returnValue":true,"configs":{},"missingConfigs":["tv.model.supportHDR"]}"#), None);
         assert_eq!(from_configs("pas du JSON"), None);
-    }
-
-    #[test]
-    fn emulation_prevention() {
-        assert_eq!(unescape(&[0, 0, 3, 1, 0, 0, 3, 0]), vec![0, 0, 1, 0, 0, 0]);
     }
 
     #[test]

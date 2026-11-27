@@ -45,6 +45,9 @@ pub mod welcome;
 /// bornes et valeurs partagées, courbes HDR) : la caisse `kybernow-rules`,
 /// reprise telle quelle pour les ponts.
 pub use kybernow_rules as rules;
+/// Le découpage d'un flux H.264 ou HEVC en Annex B (`rules::nal`, WEBOS-27) :
+/// unités NAL, leur type, octets d'émulation.
+pub use kybernow_rules::nal;
 
 pub use kyclient::Display;
 pub use kynput_rs;

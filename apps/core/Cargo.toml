@@ -10,7 +10,7 @@ rust-version.workspace = true
 [dependencies]
 # Règles pures communes aux apps (adresses, empreintes, codes, relais,
 # bornes, courbes HDR) : rules/, sans dépendance, reprise par le cœur.
-kybernow-rules = { path = "rules" }
+kybernow-rules = { path = "rules", features = ["serde"] }
 kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", features = ["kymux"] }
 kyclient-common = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient-common" }
 kyvlcplayer = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyvlcplayer" }

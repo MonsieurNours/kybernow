@@ -331,12 +331,14 @@ fn simple_log() -> Result<(), log::SetLoggerError> {
 /// Genre de la première tranche HEVC d'une image : type de NAL et type de
 /// tranche (0 B, 1 P, 2 I), en supposant 0 bit d'en-tête en plus (PPS).
 fn hevc_kind(data: &[u8]) -> String {
-    let mut i = 0;
-    while i + 4 < data.len() {
-        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
-            let nal = (data[i + 3] >> 1) & 0x3f;
+    for start in kybernow_core::nal::starts(data) {
+        if start + 2 >= data.len() {
+            break;
+        }
+        {
+            let nal = (data[start] >> 1) & 0x3f;
             if nal < 32 {
-                let mut r = BitReader { d: &data[i + 5..], bit: 0 };
+                let mut r = BitReader { d: &data[start + 2..], bit: 0 };
                 let first = r.bit();
                 if (16..=23).contains(&nal) {
                     r.bit();
@@ -345,9 +347,6 @@ fn hevc_kind(data: &[u8]) -> String {
                 let ty = if first == 1 { r.ue() } else { 99 };
                 return format!("NAL {nal} tranche {}", match ty { 0 => "B", 1 => "P", 2 => "I", _ => "?" });
             }
-            i += 3;
-        } else {
-            i += 1;
         }
     }
     "sans tranche".into()

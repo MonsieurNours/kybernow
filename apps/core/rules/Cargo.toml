@@ -6,7 +6,15 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-# Aucune dépendance : la caisse se compile partout (cœur, interfaces Linux et
-# LG sans le cœur, Admin plus tard), et ses fichiers peuvent être repris par
-# `#[path]` (welcome.rs du cœur) : chaque module ne nomme que `super::` et std.
+# Aucune dépendance par défaut : la caisse se compile partout (cœur, interfaces
+# Linux et LG sans le cœur, Admin plus tard) ; chaque module ne nomme que
+# `super::` et std. `serde` (facultatif) : le JSON de l'état de l'accueil
+# (`welcome::WelcomeState`), que les apps gardent.
 [dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+[dev-dependencies]
+serde_json = "1"

@@ -519,20 +519,6 @@ mod tests {
         assert!(!app.encoder_ceiling(100));
     }
 
-    /// Le plafond gardé à l'application d'un résultat : le même que celui du cœur (`AutoResult::next_encoder_max`).
-    #[cfg(feature = "device")]
-    #[test]
-    fn plafond_comme_le_coeur() {
-        for (encoder, previous) in [(None, None), (None, Some(200)), (Some((440, true)), Some(200)), (Some((290, false)), Some(200)), (Some((290, false)), Some(390)), (Some((290, false)), None)] {
-            let mut r = result("Ethernet", 2160, 120, false);
-            if let Some((mbps, limited)) = encoder {
-                r["measures"]["encoder"] = serde_json::json!({ "codec": "hevc", "yuv444": false, "width": 3840, "height": 2160, "refresh": 120, "mbps": mbps, "limited": limited });
-            }
-            let core: kybernow_core::autotest::AutoResult = serde_json::from_value(r.clone()).unwrap();
-            assert_eq!(crate::model::next_encoder_max(&r, previous), core.next_encoder_max(previous), "{encoder:?} {previous:?}");
-        }
-    }
-
     /// Le débit adaptatif se coupe sans faire passer en « Personnalisé » ; il est gardé dans le fichier.
     #[test]
     fn debit_adaptatif_hors_profil() {

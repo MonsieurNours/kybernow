@@ -92,16 +92,13 @@ struct EncoderBrief {
     limited: bool,
 }
 
-/// Le plafond de l'encodeur à garder quand on applique ce résultat (`AutoResult::next_encoder_max` du cœur, repris
-/// ici : l'interface se compile sans lui) : la limite trouvée ; sinon un plafond gardé plus bas que le débit accepté
-/// du premier coup est retiré ; sinon celui d'avant.
+/// Le plafond de l'encodeur à garder quand on applique ce résultat (le JSON de `AutoResult`) : la règle commune
+/// (`rules::limits::next_encoder_max`, celle de `AutoResult::next_encoder_max` du cœur), sur la mesure de l'encodeur.
 pub fn next_encoder_max(result: &serde_json::Value, previous: Option<u32>) -> Option<u32> {
     let encoder = result.pointer("/measures/encoder").and_then(|v| serde_json::from_value::<EncoderBrief>(v.clone()).ok());
-    match (encoder, previous) {
-        (Some(e), _) if e.limited => Some(e.mbps),
-        (Some(e), Some(p)) if p < e.mbps => None,
-        (_, p) => p,
-    }
+    let found = encoder.as_ref().filter(|e| e.limited).map(|e| e.mbps);
+    let accepted = encoder.as_ref().filter(|e| !e.limited).map(|e| e.mbps);
+    kybernow_rules::limits::next_encoder_max(found, accepted, previous)
 }
 
 /// Réglages d'un ordinateur, comme Réglages › par ordinateur sur les autres apps.

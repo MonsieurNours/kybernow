@@ -79,6 +79,23 @@ pub fn clamp_manual_mbps(mbps: u32, device: Device, pyrowave: bool) -> u32 {
     mbps.clamp(min, max)
 }
 
+// MARK: - Plafond de l'encodeur
+
+/// Le plafond de l'encodeur de l'ordinateur à garder une fois un résultat du
+/// test Auto appliqué (docs/profil-auto.md, « L'encodeur de l'ordinateur »),
+/// en Mbit/s par écran : `found`, la limite que le test a trouvée ; sinon un
+/// plafond gardé (`previous`) plus bas que le débit que l'encodeur a accepté
+/// du premier coup (`accepted`) est retiré ; sinon celui d'avant.
+pub fn next_encoder_max(found: Option<u32>, accepted: Option<u32>, previous: Option<u32>) -> Option<u32> {
+    if found.is_some() {
+        return found;
+    }
+    match (previous, accepted) {
+        (Some(p), Some(ok)) if p < ok => None,
+        (p, _) => p,
+    }
+}
+
 // MARK: - Partage, sessions
 
 /// Invités d'un partage KyberNow Share, au plus.
@@ -113,6 +130,18 @@ mod tests {
         assert_eq!(clamp_manual_mbps(120, Device::LgTv, false), 95);
         assert_eq!(MANUAL_MBPS_MAX % MANUAL_MBPS_STEP, 0);
         assert_eq!(MANUAL_MBPS_MAX_PYROWAVE % MANUAL_MBPS_STEP, 0);
+    }
+
+    #[test]
+    fn plafond_de_l_encodeur_apres_le_test() {
+        // La limite trouvée remplace tout.
+        assert_eq!(next_encoder_max(Some(440), None, Some(200)), Some(440));
+        // Accepté au-dessus du plafond gardé : il est retiré ; au-dessous : gardé.
+        assert_eq!(next_encoder_max(None, Some(290), Some(200)), None);
+        assert_eq!(next_encoder_max(None, Some(290), Some(390)), Some(390));
+        // Rien de mesuré : celui d'avant.
+        assert_eq!(next_encoder_max(None, None, Some(200)), Some(200));
+        assert_eq!(next_encoder_max(None, Some(290), None), None);
     }
 
     #[test]
