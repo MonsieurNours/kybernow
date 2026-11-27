@@ -79,6 +79,9 @@ Branche `claude/fix-station-windows-9ecece`. Zone : `server/admin`, `server/tray
 - **STWIN-47** : `/api/lend/catalog` retirée ; `Role::from_rights` réservé aux essais.
 - **STWIN-49** : `docs/pret.md` : 35 s pour `ready` (FR et EN).
 - **STWIN-50 (fichiers qui s'accumulent)** : copies des réinstallations bornées (installateur et Admin) ; marques `micro-vbcable-<version>` effacées ; `.staging` vidé au démarrage (après une heure).
+- **Caméra sous Windows 11, bug réel (signalé par l'auteur)** : `kybernow-camera --install` plantait (0xc0000005) depuis la 0.11.5. `KnVirtualCamera` (interface de `mfvirtualcamera.h` déclarée à la main) était dans l'espace de noms anonyme : GCC -O2, sûr qu'aucune classe du programme ne l'implémente, transformait `camera->Start(NULL)` en appel direct de `__cxa_pure_virtual`. Déclarée à la portée globale (appel par la vtable, `call *0x120(%rax)`), COM initialisé, Media Foundation en `FULL`, une ligne de journal par étape. Garde : `server/camera/check-pure-calls.sh`, lancé par `build.sh` sur `install.o`, `mfsource.o` et `dshow.o`, échoue si un objet appelle `__cxa_pure_virtual` (vérifié : il refuse l'ancien `install.o` et accepte le nouveau). Les autres interfaces déclarées à la main (`IMFMediaStream2_` de `mfsource.cpp`) sont implémentées par nous : sans risque.
+- **Caméra jamais inscrite après une mise à jour depuis Admin** : seul l'installateur lançait `--install`. Admin (SYSTEM) l'inscrit à son démarrage si `--probe` dit qu'elle manque, une fois par version (`camera_setup.rs`, essais `la_camera_s_inscrit_sauf_si_elle_est_prete`). VB-CABLE : déjà couvert (`micro::ensure_on_new_version`). Le cas Windows 10 → 11 est couvert (filtre reconnu, mémoire lisible par les apps). L'installateur et Admin écrivent un plantage avec son code (`windows_common::exit_text`, essai `un_plantage_se_lit_dans_le_journal`).
+- **REL-10** : le retour de « Se connecter avec KyberNow » accepte aussi `#token=` (une page lit le fragment, l'efface et le poste) et `POST /api/login/kybernow/return` en formulaire ; `?token=` reste pour les relais publiés (essai dans `se_connecter_avec_kybernow_sur_le_reseau`).
 - **STWIN-17 (court terme)** : `docs/relais.md` (FR et EN) dit ce que le relais voit et signe avec « Admin à distance » et les comptes.
 
 ## Constats laissés
@@ -94,7 +97,7 @@ Branche `claude/fix-station-windows-9ecece`. Zone : `server/admin`, `server/tray
 
 ## Ce qui est vérifié, et comment
 
-- `cargo test` d'Admin sur le Mac : 394 essais passés (deuxième passe comprise : canal refusé sans copie, compte de streaming dans `/api/session`, aide du micro tuée et attendue, choix du micro lu dans `kybernow.json`, hôte du prêt) (dont les nouveaux : coupure après chacun des six renommages, marqueur d'`update.ps1`, listes d'`update.ps1` comparées à la liste commune, nettoyage de `.staging`, identifiant seul refusé, jeton de l'installateur, limites des codes par /64 et globales, plafond des mots de passe Kyber, hôte du prêt et droit Administrer, règles du prêt (`steamapps` et dossiers de Windows), appairage par /64, journaux avec `:`, copie `.bak` des données et des réglages, liens et FIFO du service root, propriétaire et verrou du service root, droits Unix, dossier d'enregistrement lié, adresse de la page d'Admin).
+- `cargo test` d'Admin sur le Mac : 396 essais passés (deuxième passe comprise : canal refusé sans copie, compte de streaming dans `/api/session`, aide du micro tuée et attendue, choix du micro lu dans `kybernow.json`, hôte du prêt) (dont les nouveaux : coupure après chacun des six renommages, marqueur d'`update.ps1`, listes d'`update.ps1` comparées à la liste commune, nettoyage de `.staging`, identifiant seul refusé, jeton de l'installateur, limites des codes par /64 et globales, plafond des mots de passe Kyber, hôte du prêt et droit Administrer, règles du prêt (`steamapps` et dossiers de Windows), appairage par /64, journaux avec `:`, copie `.bak` des données et des réglages, liens et FIFO du service root, propriétaire et verrou du service root, droits Unix, dossier d'enregistrement lié, adresse de la page d'Admin).
 - `cargo test` de l'installateur (44, dont reprise d'une bascule et restes retirés, adresses ouvertes dans le navigateur), de l'icône (28) et du micro (9, dont le registre du micro par défaut).
 - `cargo check --target x86_64-pc-windows-gnu` de l'icône et du micro : sans erreur.
 - `cargo check --target x86_64-pc-windows-gnu` : Admin et installateur (bibliothèque, lanceur et interface `--features ui`) compilent sans avertissement nouveau.
@@ -114,6 +117,7 @@ La 0.11.7 se met à jour avec son propre applicateur (sans marqueur ni verrou) :
 - L'installateur en réinstallation (« Conserver mes réglages ») et le rattachement pendant l'installation (jeton de l'installateur).
 - Le prêt : jeux Steam hors du dossier de Steam, fin du prêt, et un compte KyberNow avec Session seul.
 - Station Linux : mise à jour par le service root (droits du demandeur, 0700/0600, `apt-get` pendant unattended-upgrades) ; avertissement du prêt sans règle udev des entrées. Station Mac : mise à jour signée et arrêt par launchd (SIGTERM).
+- La caméra sous Windows 11 avec `kybernow-camera.exe` reconstruit (`--install 2>&1` doit lister les étapes jusqu'à « virtual camera created »), puis une Station mise à jour depuis Admin : la caméra doit s'inscrire au démarrage d'Admin.
 - Deux appareils qui envoient leur micro en même temps, puis une session coupée brutalement : le micro par défaut de Windows doit revenir.
 - « Démarrer avec l'ordinateur » depuis l'icône (HKLM), et la réinitialisation du mot de passe avec les identifiants d'un autre administrateur.
 
@@ -131,6 +135,7 @@ La 0.11.7 se met à jour avec son propre applicateur (sans marqueur ni verrou) :
 - VB-CABLE n'est plus réinstallé si vous ne l'avez pas choisi.
 - L'icône KyberNow Station démarre avec la session de chaque compte de l'ordinateur.
 - KyberNow Admin travaille moins quand personne ne joue.
+- La caméra de vos appareils fonctionne enfin sous Windows 11 : son installation échouait, et une Station mise à jour depuis Admin n'avait jamais de caméra.
 
 **EN**
 - A power cut or a freeze during an update no longer leaves your Station half installed: when it restarts, it puts itself right.
@@ -144,3 +149,4 @@ La 0.11.7 se met à jour avec son propre applicateur (sans marqueur ni verrou) :
 - VB-CABLE is no longer reinstalled if you did not choose it.
 - The KyberNow Station icon starts with the session of every account on the computer.
 - KyberNow Admin does less work when nobody is playing.
+- Your devices' camera finally works on Windows 11: its installation failed, and a Station updated from Admin never had a camera.
