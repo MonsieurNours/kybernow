@@ -51,35 +51,36 @@ cargo_quiet() {
 }
 
 # kyber_toolchain_check outil… : avertit pour chaque outil dont la version
-# diffère (rustc, nightly, cargo-c, mingw, meson, wasm-bindgen, binaryen). À
-# appeler une fois le PATH de la compilation posé.
+# diffère ou qui manque (rustc, nightly, cargo-c, mingw, meson, wasm-bindgen,
+# binaryen), sans arrêter le script, même sous set -e et pipefail. À appeler
+# une fois le PATH de la compilation posé.
 kyber_toolchain_check() {
     local tool have want inc
     for tool in "$@"; do
         case "$tool" in
             rustc)
                 want=$KYBER_RUSTC
-                have=$(rustc --version 2>/dev/null | awk '{print $2}') ;;
+                have=$(rustc --version 2>/dev/null | awk '{print $2}') || true ;;
             nightly)
                 want=$KYBER_NIGHTLY
-                have=$(rustup run nightly rustc --version 2>/dev/null | sed -n 's/.* \([0-9-]*\))$/\1/p') ;;
+                have=$(rustup run nightly rustc --version 2>/dev/null | sed -n 's/.* \([0-9-]*\))$/\1/p') || true ;;
             cargo-c)
                 want=$KYBER_CARGO_C
-                have=$(cargo cinstall --version 2>/dev/null | sed -n 's/^cargo-c \([0-9.]*\).*/\1/p') ;;
+                have=$(cargo cinstall --version 2>/dev/null | sed -n 's/^cargo-c \([0-9.]*\).*/\1/p') || true ;;
             mingw)
                 want="$KYBER_MINGW (GCC $KYBER_MINGW_GCC)"
                 inc=/opt/homebrew/opt/mingw-w64/toolchain-x86_64/x86_64-w64-mingw32/include/_mingw_mac.h
-                have="$(awk '/define __MINGW64_VERSION_(MAJOR|MINOR|BUGFIX)/ {v = v (v ? "." : "") $3} END {print v}' "$inc" 2>/dev/null)"
-                have="$have (GCC $(x86_64-w64-mingw32-gcc -dumpversion 2>/dev/null))" ;;
+                have="$(awk '/define __MINGW64_VERSION_(MAJOR|MINOR|BUGFIX)/ {v = v (v ? "." : "") $3} END {print v}' "$inc" 2>/dev/null)" || true
+                have="$have (GCC $(x86_64-w64-mingw32-gcc -dumpversion 2>/dev/null || true))" ;;
             meson)
                 want=$KYBER_MESON
-                have=$(meson --version 2>/dev/null) ;;
+                have=$(meson --version 2>/dev/null) || true ;;
             wasm-bindgen)
                 want=$KYBER_WASM_BINDGEN
-                have=$(wasm-bindgen --version 2>/dev/null | awk '{print $2}') ;;
+                have=$(wasm-bindgen --version 2>/dev/null | awk '{print $2}') || true ;;
             binaryen)
                 want=$KYBER_BINARYEN
-                have=$(wasm-opt --version 2>/dev/null | awk '{print $3}') ;;
+                have=$(wasm-opt --version 2>/dev/null | awk '{print $3}') || true ;;
             *)
                 echo "kyber_toolchain_check : outil inconnu « $tool »" >&2
                 return 1 ;;
