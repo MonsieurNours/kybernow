@@ -11,6 +11,7 @@ import { configFromSequenceHeader, encodeConfig, parseConfig } from './bitstream
 import { choose, setRelay } from '../plan'
 import { nextFallback, NO_FALLBACK } from '../fallback'
 import { defaults } from '../prefs'
+import { colorShader, SDR_KNEE, SDR_SLOPE } from './shaders'
 
 const m = (width: number, height: number, refresh: number) => ({ width, height, refresh })
 
@@ -122,5 +123,19 @@ describe('paquet de configuration', () => {
     new DataView(data.buffer).setUint32(0, w0 >>> 0, true)
     new DataView(data.buffer).setUint32(4, 10, true)
     expect(configFromSequenceHeader(data)).toEqual({ chroma444: false, hdr: false, fullRange: true, width: 128, height: 128 })
+  })
+})
+
+describe('courbe vers le SDR (rules::hdr::sdr_curve du cœur)', () => {
+  it('mêmes constantes que le cœur, écrites dans le shader', () => {
+    expect(SDR_KNEE).toBe(0.75)
+    expect(SDR_SLOPE).toBeCloseTo(3.6923077, 6)
+    // Pente 1 au genou, 4 fois le blanc ramené à 1 : la courbe de la Station.
+    const curve = (m: number) => (m <= SDR_KNEE ? m : Math.min(SDR_KNEE + (m - SDR_KNEE) / (1 + SDR_SLOPE * (m - SDR_KNEE)), 1))
+    expect(curve(4)).toBeCloseTo(1, 9)
+    expect(curve(0.5)).toBe(0.5)
+    expect(colorShader).toContain('fn sdr_curve(m: f32) -> f32')
+    expect(colorShader).toContain(`1.0 + ${SDR_SLOPE} * x`)
+    expect(colorShader).toContain('if (m > 0.75)')
   })
 })
