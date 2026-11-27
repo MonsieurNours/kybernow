@@ -190,6 +190,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
     private val padDowns = mutableSetOf<Int>()
     private var quitting = false
+    private val wifi by lazy { LowLatencyWifi(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -704,6 +705,42 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         haptics.stop()
         if (handle != 0L) Native.sessionSetBackground(handle, true, 2_000_000)
         pads.mouse.stop()
+        wifi.release()
+    }
+
+    /**
+     * Mode bureau (fenêtres libres) : une fenêtre qui perd le focus reste « resumed », `onPause` n'est pas appelé
+     * (AND-05). Les relâchements qui suivent iront à l'autre fenêtre : tout est relâché ici, et Android a retiré la
+     * capture du pointeur, qu'on oublie aussi (sinon elle n'était jamais redemandée). Au retour du focus, la souris
+     * reprend son mode (capturée si le jeu le veut).
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!::ui.isInitialized || !::haptics.isInitialized || !::stylus.isInitialized) return
+        if (!hasFocus) {
+            ui.pad.releaseAll()
+            haptics.stop()
+            touch.cancel()
+            stylus.cancel()
+            pads.mouse.stop()
+            if (handle != 0L) Native.inputReleaseAll(handle)
+            pointerCaptureLost()
+        } else {
+            surfaceView.requestFocus()
+            updateMouseMode()
+        }
+    }
+
+    /** Android a retiré la capture (focus perdu, autre app, geste du système) : la souris repasse en absolu. */
+    override fun onPointerCaptureChanged(hasCapture: Boolean) {
+        super.onPointerCaptureChanged(hasCapture)
+        if (!hasCapture && ::ui.isInitialized) pointerCaptureLost()
+    }
+
+    private fun pointerCaptureLost() {
+        if (!relative) return
+        relative = false
+        if (handle != 0L) Native.inputSetRelative(handle, false)
     }
 
     override fun onResume() {
@@ -714,10 +751,12 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             state.cameraState.value = 2
         }
         if (handle != 0L) Native.sessionSetBackground(handle, false, 0)
+        if (::state.isInitialized) wifi.acquire()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        wifi.release()
         // `onCreate` s'arrête avant de construire quoi que ce soit quand la remise d'un invité est perdue (processus ou
         // activité recréés : les jetons ne se gardent pas) ou que l'ordinateur n'existe plus : `onDestroy` suit aussitôt.
         if (!::state.isInitialized) return

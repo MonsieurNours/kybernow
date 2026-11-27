@@ -89,6 +89,7 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
     /** Places branchées dans le lecteur du cœur : place → manette (descripteur). */
     private val plugged = HashMap<Int, String>()
     private var mouseCaptured = false
+    private val wifi by lazy { LowLatencyWifi(this) }
 
     /** La manette à l'écran vers la console, à sa place de joueur. */
     private val onScreenOut = object : PadOut {
@@ -329,10 +330,17 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
         haptics.stop()
         PsNative.releaseAll(handle)
         releasePads()
+        wifi.release()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::state.isInitialized) wifi.acquire()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        wifi.release()
         if (!::state.isInitialized) return
         if (::haptics.isInitialized) haptics.stop()
         app.gamepads.setOnScreen(false)
@@ -615,6 +623,15 @@ class PsSessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionAc
             return true
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    /** Android a retiré la capture (focus perdu, geste du système) : elle sera redemandée, rien ne reste enfoncé (AND-05). */
+    override fun onPointerCaptureChanged(hasCapture: Boolean) {
+        super.onPointerCaptureChanged(hasCapture)
+        if (!hasCapture && mouseCaptured) {
+            mouseCaptured = false
+            PsNative.releaseAll(handle)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
