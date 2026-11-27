@@ -39,6 +39,43 @@ pub fn esc(s: &str) -> String {
     out
 }
 
+/// Le texte d'un `<title>` (REL-01) : les appelants passent tantôt du texte brut (un nom d'ordinateur
+/// ou d'équipe), tantôt un fragment déjà échappé (le même que le `<h1>`). On retire les balises, on
+/// décode les cinq entités que produit [`esc`], puis on échappe tout : rien ne sort du `<title>`,
+/// quelle que soit l'entrée.
+pub fn title_text(s: &str) -> String {
+    let mut plain = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' if !in_tag => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if in_tag => {}
+            _ => plain.push(c),
+        }
+    }
+    let plain = plain.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
+    esc(&plain)
+}
+
+/// Les scripts d'une page (REL-37 : un seul endroit) : `passkey.js` là où il y a une passkey,
+/// `tz.js` là où une date de fin attend le fuseau du navigateur (REL-29).
+pub fn page_scripts(body: &str) -> String {
+    let mut out = String::new();
+    if body.contains("data-passkey=\"") {
+        out.push_str(&format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")));
+    }
+    if body.contains(" data-tz") {
+        out.push_str(&format!("\n<script src=\"{}\" defer></script>", assets::url("tz.js")));
+    }
+    out
+}
+
+/// Le champ caché du fuseau, à côté d'un champ `fin` (REL-29).
+pub fn tz_field() -> &'static str {
+    "<input type=\"hidden\" name=\"tz\" value=\"\" data-tz>"
+}
+
 /// Encode une valeur pour une adresse (`?appareil=iPad%20de%20L%C3%A9a`).
 pub fn pct(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -144,6 +181,9 @@ pub enum Notice {
     InviteCancelled,
     LastOwner,
     OrgLeft,
+    /// REL-11 : une invitation acceptée, ou refusée, dans son espace.
+    InviteAccepted,
+    InviteDeclined,
     GroupCreated,
     GroupTaken,
     GroupDeleted,
@@ -196,6 +236,8 @@ impl Notice {
                 | Notice::MemberRemoved
                 | Notice::InviteCancelled
                 | Notice::OrgLeft
+                | Notice::InviteAccepted
+                | Notice::InviteDeclined
                 | Notice::GroupCreated
                 | Notice::GroupDeleted
                 | Notice::GroupChanged
@@ -258,8 +300,8 @@ impl Notice {
                 "Person added: the computer shows up in their apps, and an email tells them.",
             ),
             Notice::InviteSent => tr(
-                "Invitation envoyée : cette adresse n'a pas encore de compte ; l'ordinateur y sera dès son compte créé.",
-                "Invitation sent: this address has no account yet; the computer will be there as soon as the account is created.",
+                "Invitation envoyée : l'accès compte dès que la personne l'accepte, ou dès qu'elle crée son compte avec cette adresse.",
+                "Invitation sent: access counts as soon as the person accepts it, or creates their account with this address.",
             ),
             Notice::AccessChanged => tr("Accès enregistré.", "Access saved."),
             Notice::AccessRemoved => tr("Accès retiré.", "Access removed."),
@@ -281,6 +323,8 @@ impl Notice {
                 "Il faut toujours au moins un propriétaire : nommez-en un autre d'abord.",
                 "There must always be at least one owner: name another one first.",
             ),
+            Notice::InviteAccepted => tr("Invitation acceptée.", "Invitation accepted."),
+            Notice::InviteDeclined => tr("Invitation refusée.", "Invitation declined."),
             Notice::OrgLeft => tr("Vous êtes parti. Ses ordinateurs ne vous sont plus ouverts.", "You left. Its computers are no longer open to you."),
             Notice::GroupCreated => tr("Groupe créé.", "Group created."),
             Notice::GroupTaken => tr("Un groupe porte déjà ce nom.", "A group already has this name."),
@@ -351,44 +395,65 @@ fn page(v: &View<'_>, title: &str, here: &str, wide: bool, card: &str) -> String
     page_with(v, title, here, if wide { " acct-wide" } else { "" }, card)
 }
 
-/// La page, avec la classe de largeur (`acct-wide`, `acct-console`).
-fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> String {
-    let lang = v.lang;
-    let (other, other_name) = match lang {
-        Lang::Fr => (Lang::En, "English"),
-        Lang::En => (Lang::Fr, "Français"),
-    };
-    // Le seul script des pages, et seulement là où il y a une passkey (lot 1b).
-    let script = if card.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
+/// Le document d'une page des comptes (REL-37 : un seul gabarit, pour les pages seules, la
+/// console et le tour d'accueil). `title` est échappé ici, quoi qu'on lui passe (REL-01) ;
+/// `head_extra` : des balises de plus dans `<head>` (un rafraîchissement) ; les scripts suivent
+/// le contenu ([`page_scripts`]).
+pub fn document(lang: Lang, title: &str, head_extra: &str, body_class: &str, inner: &str) -> String {
     format!(
         r##"<!doctype html>
 <html lang="{lang}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#05070A">
-<meta name="robots" content="noindex">
+<meta name="robots" content="noindex">{head_extra}
 <link rel="icon" type="image/svg+xml" href="{favicon}">
 <link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{css}">
 <title>{title} · KyberNow</title>{script}
 </head>
-<body class="solo">
-<main class="solo-in acct{wide}">
+<body class="{body_class}">
+{inner}
+</body>
+</html>
+"##,
+        lang = lang.code(),
+        title = title_text(title),
+        favicon = assets::url("kybernow-favicon.svg"),
+        font = assets::url("archivo.woff2"),
+        css = assets::url("share.css"),
+        script = page_scripts(inner),
+    )
+}
+
+/// Un rafraîchissement sans script vers `target` (le retour vers l'app, l'ouverture d'Admin).
+pub fn refresh_to(target: &str) -> String {
+    format!("\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target))
+}
+
+/// La page, avec la classe de largeur (`acct-wide`, `acct-console`).
+fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> String {
+    page_with_head(v, title, here, wide, card, "")
+}
+
+/// La même, avec des balises de plus dans `<head>`.
+fn page_with_head(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str, head_extra: &str) -> String {
+    let lang = v.lang;
+    let (other, other_name) = match lang {
+        Lang::Fr => (Lang::En, "English"),
+        Lang::En => (Lang::Fr, "Français"),
+    };
+    let inner = format!(
+        r##"<main class="solo-in acct{wide}">
 <a class="acct-logo" href="/compte{q}" aria-label="{logo_label}"><img class="solo-logo" src="{logo}" alt="KyberNow Share" width="260" height="48"></a>
 <div class="acct-card">
 {card}
 </div>
 <nav class="solo-links"><a href="{here}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></nav>
-</main>
-</body>
-</html>
-"##,
-        lang = lang.code(),
-        favicon = assets::url("kybernow-favicon.svg"),
-        font = assets::url("archivo.woff2"),
-        css = assets::url("share.css"),
+</main>"##,
+        here = esc(here),
         logo = assets::url("kybernow-share-dark.svg"),
         q = v.q(),
         q_other = v.q_lang(other),
@@ -397,7 +462,8 @@ fn page_with(v: &View<'_>, title: &str, here: &str, wide: &str, card: &str) -> S
         privacy = v.tr("Confidentialité", "Privacy"),
         terms = v.tr("Conditions", "Terms"),
         q_lang = format!("?lang={}", lang.code()),
-    )
+    );
+    document(lang, title, head_extra, "solo", &inner)
 }
 
 fn email_input(id: &str, value: &str, autocomplete: &str) -> String {
@@ -732,7 +798,7 @@ pub fn new_password(v: &View<'_>, token: &str, notice: Option<Notice>) -> String
 pub fn message(v: &View<'_>, here: &str, title: &str, text: &str, link: (&str, &str)) -> String {
     let card = format!(
         "<h1>{title}</h1>\n<p class=\"help\">{text}</p>\n<p class=\"acct-links\"><a href=\"{href}{q}\">{label}</a></p>",
-        href = link.0,
+        href = esc(link.0),
         q = v.q(),
         label = link.1,
     );
@@ -809,6 +875,8 @@ pub struct Registration {
     pub display_name: String,
     /// Les passkeys déjà là (base64url) : l'authentificateur n'en crée pas une deuxième.
     pub exclude: Vec<String>,
+    /// La session n'est pas récente : le mot de passe est redemandé (REL-06).
+    pub password: bool,
 }
 
 /// Une durée écoulée, en mots : « 3 jours », `3 days` (« moins d'une minute » en dessous).
@@ -831,6 +899,13 @@ pub fn duration_words(lang: Lang, secs: i64) -> String {
 }
 
 /// Le jour d'une heure Unix (UTC) : `23/11/2026`, ou `Nov 23, 2026`.
+/// Le jour d'une date de fin « jusqu'au JJ/MM » : minuit du lendemain chez la personne, à
+/// 12 h près d'UTC (REL-29 : les décalages sont bornés à [-12 h, +12 h[). Midi avant la fin
+/// tombe toujours dans le jour choisi.
+pub fn end_date(lang: Lang, end: i64) -> String {
+    date(lang, end - 43_200)
+}
+
 pub fn date(lang: Lang, unix: i64) -> String {
     let days = unix.div_euclid(86_400);
     // Jours depuis 1970 vers le calendrier (H. Hinnant, « civil_from_days »).
@@ -938,11 +1013,12 @@ pub fn account(v: &View<'_>, a: &AccountView, shell: &console::Shell, notice: Op
 }
 
 /// Activer la double authentification : le QR code, la clé, le code.
-pub fn totp_setup(v: &View<'_>, qr_svg: &str, secret_grouped: &str, uri: &str, notice: Option<Notice>) -> String {
+pub fn totp_setup(v: &View<'_>, qr_svg: &str, secret_grouped: &str, uri: &str, password: bool, notice: Option<Notice>) -> String {
     let title = v.tr("Double authentification", "Two-factor authentication");
     let inner = format!(
-        "{field}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
+        "{field}{password}\n<button class=\"btn kn-primary\" type=\"submit\">{submit}</button>",
         field = field(&v.tr("Code affiché", "Code shown"), &code_input("code", notice.is_some())),
+        password = if password { format!("\n{}", field(&v.tr("Mot de passe, pour confirmer", "Password, to confirm"), &password_input("password", "current-password"))) } else { String::new() },
         submit = v.tr("Activer", "Turn on"),
     );
     let card = format!(
@@ -1066,15 +1142,16 @@ pub fn done(v: &View<'_>, here: &str, title: &str, text: &str) -> String {
 
 /// « Connecter KyberNow Link sur {appareil} ? » (fenêtre du système).
 /// `etat` : la valeur que l'app a donnée (`?etat=`), rendue telle quelle au retour.
-pub fn device_consent(v: &View<'_>, device: &str, email: &str, etat: &str) -> String {
+pub fn device_consent(v: &View<'_>, device: &str, email: &str, etat: &str, challenge: &str) -> String {
     let device = if device.is_empty() { v.tr("cet appareil", "this device") } else { device.to_string() };
     let title = match v.lang {
         Lang::Fr => t(v.lang, &format!("Connecter KyberNow Link sur {} ?", esc(&device)), ""),
         Lang::En => format!("Connect KyberNow Link on {}?", esc(&device)),
     };
     let inner = format!(
-        "<input type=\"hidden\" name=\"etat\" value=\"{etat}\">\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"connecter\">{yes}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{no}</button>",
+        "<input type=\"hidden\" name=\"etat\" value=\"{etat}\">{challenge}\n<button class=\"btn kn-primary\" type=\"submit\" name=\"action\" value=\"connecter\">{yes}</button>\n<button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"annuler\">{no}</button>",
         etat = esc(etat),
+        challenge = if challenge.is_empty() { String::new() } else { format!("\n<input type=\"hidden\" name=\"code_challenge\" value=\"{}\">", esc(challenge)) },
         yes = v.tr("Connecter", "Connect"),
         no = v.tr("Annuler", "Cancel"),
     );
@@ -1107,9 +1184,8 @@ pub fn device_return(v: &View<'_>, target: &str, connected: bool) -> String {
         target = esc(target),
         open = v.tr("Revenir à KyberNow Link", "Return to KyberNow Link"),
     );
-    let html = page(v, &title, "/compte/connecter-appareil", false, &card);
     // Sans script : un rafraîchissement vers le schéma de l'app.
-    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
+    page_with_head(v, &title, "/compte/connecter-appareil", "", &card, &refresh_to(target))
 }
 
 /// `/tv` : le code affiché sur l'écran du téléviseur.
@@ -1235,6 +1311,7 @@ fn passkey_create_form_with(v: &View<'_>, r: &Registration, class: &str, extra: 
         ]
         .concat(),
         csrf = v.csrf_field(),
+        extra = if r.password { format!("{extra}{}\n", field(&v.tr("Mot de passe, pour confirmer", "Password, to confirm"), &password_input("password-passkey", "current-password"))) } else { extra.to_string() },
         label = v.tr("Ajouter une passkey", "Add a passkey"),
         error = passkey_error(v),
     )
@@ -1376,6 +1453,7 @@ mod tests {
             user_name: "ana@exemple.org".into(),
             display_name: "Ana \"<b>".into(),
             exclude: vec!["Y3JlZA".into()],
+            password: true,
         }
     }
 
@@ -1423,13 +1501,13 @@ mod tests {
             ("nouveau", new_password(&v, "jeton", Some(Notice::Weak(Weak::TooShort)))),
             ("compte", account(&v, &account_view, &console::tests::shell(), Some(Notice::TotpOn))),
             ("compte/sans-2fa", account(&v, &AccountView { totp_on: false, passkeys: vec![], register: None, ..account_view.clone() }, &console::tests::shell(), None)),
-            ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", Some(Notice::WrongCode))),
+            ("2fa", totp_setup(&v, "<svg></svg>", "GEZD GNBV", "otpauth://totp/x", true, Some(Notice::WrongCode))),
             ("secours", recovery_codes(&v, &["abcd-efgh".into()], None)),
             ("message", message(&v, "/compte/verifier", "Titre", "Texte.", ("/compte/connexion", "Lien"))),
             ("rattacher", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[])),
             ("rattacher/organisation", attach(&v, "code", "PC du salon", "Ana", "ana@exemple.org", &[("org_abc".into(), "Les Lignes <Claires>".into())])),
             ("rattache", done(&v, "/compte/rattacher", "Titre", "Texte.")),
-            ("appareil", device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1")),
+            ("appareil", device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1", "")),
             ("tv", tv_entry(&v, "", Some(Notice::WrongCode))),
             ("tv/approuver", tv_approve(&v, "BCDF-GHJK", "Apple TV du salon", "ana@exemple.org")),
         ];
@@ -1527,13 +1605,16 @@ mod tests {
     }
 
     #[test]
-    fn rien_qui_charge_du_dehors_et_un_seul_script() {
+    fn rien_qui_charge_du_dehors_et_deux_scripts_au_plus() {
         let script = format!("<script src=\"{}\" defer></script>", assets::url("passkey.js"));
         for lang in [Lang::Fr, Lang::En] {
             for (name, page) in all(lang, None) {
                 // Le seul script : celui des passkeys, servi par le relais, là où il y a une passkey.
-                let page_without = page.replace(&script, "");
+                // Et celui du fuseau (REL-29), là où une date de fin l'attend.
+                let tz = format!("<script src=\"{}\" defer></script>", assets::url("tz.js"));
+                let page_without = page.replace(&script, "").replace(&tz, "");
                 assert_eq!(page.contains(&script), page.contains("data-passkey=\""), "{name} : script des passkeys");
+                assert_eq!(page.contains(&tz), page.contains(" data-tz"), "{name} : script du fuseau");
                 for bad in ["<script", "<iframe", "style=", "onclick=", "onload=", "analytics", "javascript:"] {
                     assert!(!page_without.contains(bad), "{name} : {bad}");
                 }
@@ -1635,7 +1716,7 @@ mod tests {
         assert_eq!(duration_words(Lang::En, 2 * 86_400 + 5), "2 days");
         assert_eq!(duration_words(Lang::Fr, 3 * 60), "3 minutes");
         let v = View { lang: Lang::Fr, csrf: "c", appareil: Some("iPad de Léa"), challenge: "" };
-        let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1");
+        let consent = device_consent(&v, "iPad de Léa", "ana@exemple.org", "etat-1", "");
         assert!(consent.contains("Connecter KyberNow Link sur iPad de Léa\u{202F}?"));
         assert!(consent.contains("action=\"/compte/connecter-appareil?lang=fr&appareil=iPad%20de%20L%C3%A9a\""));
         let back = device_return(&v, "kybernow://compte?code=abc&etat=x\"y", true);

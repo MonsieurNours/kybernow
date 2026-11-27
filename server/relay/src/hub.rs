@@ -26,7 +26,7 @@ use crate::accounts::stations::StationLink;
 use crate::certs::CertStore;
 use crate::codes::Codes;
 use crate::config::Config;
-use crate::limits::{Banlist, Bucket, Buckets, LookupLimiter};
+use crate::limits::{AtomicRate, Banlist, Bucket, Buckets, LookupLimiter};
 use crate::metrics::{Dg, Dir, Gauges, Leg, Metrics};
 
 /// Version du relais, donnée dans `welcome` et `/v1/health`.
@@ -39,6 +39,17 @@ const FLOW_TIMEOUT: Duration = Duration::from_secs(10);
 const TCP_SILENCE: Duration = Duration::from_secs(35);
 /// Stations demandées dans un `status`, au plus.
 const MAX_STATUS: usize = 16;
+/// Les connexions TCP relayées d'un client en même temps (REL-15).
+const STREAMS_PER_CLIENT: usize = 32;
+/// Une connexion Admin relayée sans un octet dans un sens ni dans l'autre pendant ce temps est
+/// coupée (REL-15) : le navigateur en rouvre une au besoin.
+const ADMIN_STREAM_IDLE: Duration = Duration::from_secs(300);
+/// Les messages de contrôle d'un client (hors `ping` et `pong`) : 64 d'un coup, 32 par seconde (REL-19).
+const CLIENT_MSGS_BURST: u32 = 64;
+const CLIENT_MSGS_PERIOD: Duration = Duration::from_secs(2);
+/// Les demandes d'une Station aux comptes (`attach_request`, `attach_status`, `enroll`) : 20 par
+/// minute (REL-36) ; Admin n'en envoie qu'une ou deux par connexion.
+const STATION_ACCOUNT_MSGS: u32 = 20;
 /// Messages en attente d'envoi vers un bout, au plus : un bout qui ne lit pas
 /// ses réponses (`pong`, `presence`…) est coupé au lieu de faire grossir la
 /// mémoire du relais.
@@ -59,6 +70,10 @@ pub struct StationPeer {
     pending: Mutex<HashMap<u64, Pending>>,
     /// Ses adresses d'Admin sur le réseau et « Admin à distance » (`hello`, `admin_status`), en mémoire seulement.
     admin: Mutex<(Vec<String>, bool)>,
+    /// Retirée de la table ou remplacée : ses paquets ne passent plus (lu sans verrou à chaque paquet, REL-34).
+    gone: std::sync::atomic::AtomicBool,
+    /// Ses demandes aux comptes (REL-36).
+    account_msgs: Mutex<Bucket>,
 }
 
 /// Les adresses d'Admin sur le réseau données par une Station : 4 au plus, `http(s)://hôte[:port]`.
@@ -88,8 +103,14 @@ pub struct ClientPeer {
     next_flow: AtomicU64,
     /// Flux du client → (Station, flux de la Station).
     flows: Mutex<HashMap<u64, (Weak<StationPeer>, u64)>>,
-    /// Connexions TCP relayées en cours vers sa Station.
+    /// Connexions TCP relayées en cours vers sa Station qui le tiennent occupé (pas Admin : REL-15).
     streams: AtomicUsize,
+    /// Toutes ses connexions TCP relayées en cours (Admin compris), bornées par [`STREAMS_PER_CLIENT`].
+    all_streams: AtomicUsize,
+    /// Ses messages de contrôle (REL-19).
+    msgs: Mutex<Bucket>,
+    /// Retiré de la table ou remplacé (REL-34), comme pour une Station.
+    gone: std::sync::atomic::AtomicBool,
     /// La dernière fois qu'il avait un flux ou une connexion en cours (ou
     /// son arrivée) : sa place se libère après `client_idle_secs` sans.
     last_active: Mutex<Instant>,
@@ -107,21 +128,92 @@ impl ClientPeer {
     }
 }
 
-/// Une connexion TCP relayée d'un client, comptée tant qu'elle vit.
-struct StreamBusy(Arc<ClientPeer>);
+/// Une connexion TCP relayée d'un client, comptée tant qu'elle vit ; `busy` : elle le tient
+/// occupé (une session, une console), une connexion Admin non (REL-15).
+struct StreamBusy {
+    peer: Arc<ClientPeer>,
+    busy: bool,
+}
 
 impl StreamBusy {
-    fn new(peer: Arc<ClientPeer>) -> StreamBusy {
-        peer.streams.fetch_add(1, Ordering::Relaxed);
+    /// `None` : il a déjà [`STREAMS_PER_CLIENT`] connexions en cours.
+    fn new(peer: Arc<ClientPeer>, busy: bool) -> Option<StreamBusy> {
+        if peer.all_streams.fetch_add(1, Ordering::Relaxed) >= STREAMS_PER_CLIENT {
+            peer.all_streams.fetch_sub(1, Ordering::Relaxed);
+            return None;
+        }
+        if busy {
+            peer.streams.fetch_add(1, Ordering::Relaxed);
+        }
         peer.touch();
-        StreamBusy(peer)
+        Some(StreamBusy { peer, busy })
     }
 }
 
 impl Drop for StreamBusy {
     fn drop(&mut self) {
-        self.0.streams.fetch_sub(1, Ordering::Relaxed);
-        self.0.touch();
+        self.peer.all_streams.fetch_sub(1, Ordering::Relaxed);
+        if self.busy {
+            self.peer.streams.fetch_sub(1, Ordering::Relaxed);
+        }
+        self.peer.touch();
+    }
+}
+
+/// Un bout d'une connexion relayée : chaque lecture note l'heure (en ms depuis `start`).
+struct Watched<'a, S> {
+    inner: &'a mut S,
+    start: Instant,
+    last: &'a std::sync::atomic::AtomicU64,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Watched<'_, S> {
+    fn poll_read(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let r = std::pin::Pin::new(&mut *self.inner).poll_read(cx, buf);
+        if buf.filled().len() > before {
+            self.last.store(self.start.elapsed().as_millis() as u64, Ordering::Relaxed);
+        }
+        r
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Watched<'_, S> {
+    fn poll_write(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut *self.inner).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut *self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut *self.inner).poll_shutdown(cx)
+    }
+}
+
+/// `copy_bidirectional`, coupé après `idle` sans un octet dans un sens ni dans l'autre (`None` : jamais).
+pub async fn copy_until_idle<A, B>(a: &mut A, b: &mut B, idle: Option<Duration>) -> (u64, u64)
+where
+    A: AsyncRead + AsyncWrite + Unpin,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    let Some(idle) = idle else { return tokio::io::copy_bidirectional(a, b).await.unwrap_or((0, 0)) };
+    let start = Instant::now();
+    let last = AtomicU64::new(0);
+    let mut wa = Watched { inner: a, start, last: &last };
+    let mut wb = Watched { inner: b, start, last: &last };
+    let copy = tokio::io::copy_bidirectional(&mut wa, &mut wb);
+    tokio::pin!(copy);
+    let check = (idle / 4).max(Duration::from_millis(10));
+    loop {
+        tokio::select! {
+            r = &mut copy => return r.unwrap_or((0, 0)),
+            _ = tokio::time::sleep(check) => {
+                let quiet = start.elapsed().saturating_sub(Duration::from_millis(last.load(Ordering::Relaxed)));
+                if quiet >= idle {
+                    return (0, 0);
+                }
+            }
+        }
     }
 }
 
@@ -188,7 +280,7 @@ pub struct Hub {
     station_hellos: Mutex<Buckets<IpAddr>>,
     web_clients: AtomicUsize,
     next_media: AtomicU64,
-    cap: Option<Mutex<Bucket>>,
+    cap: Option<AtomicRate>,
     /// Port écrit dans les liens (réglé une fois le port lié).
     pub link_port: AtomicU16,
     /// Les comptes KyberNow (`[accounts] enabled`), servis sous `/compte/…`.
@@ -251,8 +343,8 @@ impl Hub {
     pub fn new(cfg: Arc<Config>, certs: Arc<CertStore>, banlist: Arc<Banlist>, accounts: Option<Arc<Accounts>>) -> Arc<Hub> {
         let now = Instant::now();
         let cap = (cfg.global_cap_mbps > 0).then(|| {
-            let bytes_per_sec = (cfg.global_cap_mbps * 1_000_000 / 8).min(u64::from(u32::MAX)) as u32;
-            Mutex::new(Bucket::new(bytes_per_sec, Duration::from_secs(1), now))
+            // Sans verrou : il est pris à chaque paquet (REL-34).
+            AtomicRate::new(cfg.global_cap_mbps * 1_000_000 / 8, now)
         });
         let hub = Arc::new(Hub {
             lookups: Mutex::new(LookupLimiter::new(&cfg.limits, now)),
@@ -379,7 +471,8 @@ impl Hub {
         spki: Option<Vec<u8>>,
         ip: IpAddr,
     ) {
-        if self.station_hellos.lock().unwrap().take(&ip, Instant::now()).is_err() {
+        // Les limites par adresse comptent un /64 en IPv6 (REL-18).
+        if self.station_hellos.lock().unwrap().take(&ip_key(ip), Instant::now()).is_err() {
             self.metrics.limit_hit("stations_per_minute_ip");
             return refuse(&conn, tx, writer, ErrorCode::TooMany, "trop de connexions de Station pour cette adresse").await;
         }
@@ -394,7 +487,7 @@ impl Hub {
             return refuse(&conn, tx, writer, ErrorCode::BadRequest, "signature de l'empreinte").await;
         }
         let id = id::station_id(&spki);
-        let others = self.stations.lock().unwrap().values().filter(|s| s.ip == ip && s.id != id).count();
+        let others = self.stations.lock().unwrap().values().filter(|s| ip_key(s.ip) == ip_key(ip) && s.id != id).count();
         if others >= self.cfg.limits.stations_per_ip {
             self.metrics.limit_hit("stations_per_ip");
             return refuse(&conn, tx, writer, ErrorCode::TooMany, "trop de Stations pour cette adresse").await;
@@ -412,9 +505,12 @@ impl Hub {
             flows: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             admin: Mutex::new((clean_admin_lan(hello.admin_lan.clone()), hello.remote_admin)),
+            gone: std::sync::atomic::AtomicBool::new(false),
+            account_msgs: Mutex::new(Bucket::new(STATION_ACCOUNT_MSGS, Duration::from_secs(60), Instant::now())),
         });
         let old = self.stations.lock().unwrap().insert(id.clone(), peer.clone());
         if let Some(old) = old {
+            old.gone.store(true, Ordering::Release);
             let _ = old.ctl.send(Msg::error(None, ErrorCode::Replaced, None));
             old.conn.close("remplacée");
             self.drop_station_flows(&old);
@@ -493,10 +589,20 @@ impl Hub {
             Msg::Pong { n } => pong(&peer.conn, n),
             // Comptes KyberNow (docs/comptes.md, « Rattacher une Station ») :
             // seulement par la connexion de contrôle de la Station elle-même.
-            Msg::AttachRequest { req, name } => match &self.accounts {
+            Msg::AttachRequest { req, .. } | Msg::AttachStatus { req } | Msg::Enroll { req, .. }
+                if peer.account_msgs.lock().unwrap().take(Instant::now()).is_err() =>
+            {
+                self.metrics.limit_hit("station_account_msgs");
+                let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::TooMany, None));
+            }
+            // La table des codes en attente se parcourt hors de l'exécuteur (REL-36).
+            Msg::AttachRequest { req, name } => match self.accounts.clone() {
                 Some(accounts) => {
-                    let (code, url, expires) = accounts.attach_request(&peer.id, &name);
-                    let _ = peer.ctl.send(Msg::AttachCode { req, code, url, expires });
+                    let (ctl, station) = (peer.ctl.clone(), peer.id.clone());
+                    tokio::task::spawn_blocking(move || {
+                        let (code, url, expires) = accounts.attach_request(&station, &name);
+                        let _ = ctl.send(Msg::AttachCode { req, code, url, expires });
+                    });
                 }
                 None => {
                     let _ = peer.ctl.send(Msg::error(Some(req), ErrorCode::NoAccounts, None));
@@ -557,12 +663,13 @@ impl Hub {
         }
     }
 
+    /// Toujours dans la table (ni retirée ni remplacée) : un drapeau, sans verrou ni hachage (REL-34).
     fn is_current_station(&self, peer: &Arc<StationPeer>) -> bool {
-        self.stations.lock().unwrap().get(&peer.id).is_some_and(|p| Arc::ptr_eq(p, peer))
+        !peer.gone.load(Ordering::Acquire)
     }
 
     fn is_current_client(&self, peer: &Arc<ClientPeer>) -> bool {
-        self.clients.lock().unwrap().get(&peer.id).is_some_and(|p| Arc::ptr_eq(p, peer))
+        !peer.gone.load(Ordering::Acquire)
     }
 
     /// Prévient les clients de cette Station qu'elle part ou revient.
@@ -596,6 +703,7 @@ impl Hub {
             if current {
                 map.remove(&peer.id);
             }
+            peer.gone.store(true, Ordering::Release);
             current
         };
         self.drop_station_flows(peer);
@@ -632,6 +740,9 @@ impl Hub {
             next_flow: AtomicU64::new(1),
             flows: Mutex::new(HashMap::new()),
             streams: AtomicUsize::new(0),
+            all_streams: AtomicUsize::new(0),
+            msgs: Mutex::new(Bucket::new(CLIENT_MSGS_BURST, CLIENT_MSGS_PERIOD, Instant::now())),
+            gone: std::sync::atomic::AtomicBool::new(false),
             last_active: Mutex::new(Instant::now()),
         });
         // Admis, et ceux qui lui cèdent leur place, sous le même verrou : deux
@@ -647,11 +758,17 @@ impl Hub {
                         .collect();
                     let limits = &self.cfg.limits;
                     admit(&seats, ip_key(ip), limits.clients_per_station, limits.clients_per_station_per_ip)
-                        .map(|ids| ids.iter().filter_map(|i| map.remove(i)).collect::<Vec<_>>())
+                        .map(|ids| ids.iter().filter_map(|i| map.remove(i)).inspect(|c| c.gone.store(true, Ordering::Release)).collect::<Vec<_>>())
                 }
                 None => Ok(Vec::new()),
             };
-            evicted.map(|evicted| (map.insert(id.clone(), peer.clone()), evicted))
+            evicted.map(|evicted| {
+                let old = map.insert(id.clone(), peer.clone());
+                if let Some(o) = &old {
+                    o.gone.store(true, Ordering::Release);
+                }
+                (old, evicted)
+            })
         };
         let (old, evicted) = match admitted {
             Ok(a) => a,
@@ -716,6 +833,14 @@ impl Hub {
     }
 
     fn client_msg(&self, peer: &Arc<ClientPeer>, msg: Msg) {
+        // Les messages de contrôle, au-delà de leur seau, sont jetés (REL-19) ; une ouverture de flux est refusée.
+        if !matches!(msg, Msg::Ping { .. } | Msg::Pong { .. }) && peer.msgs.lock().unwrap().take(Instant::now()).is_err() {
+            self.metrics.limit_hit("client_msgs");
+            if let Msg::OpenFlow { req, .. } = msg {
+                let _ = peer.ctl.send(Msg::FlowRefused { req, reason: "too_many".into() });
+            }
+            return;
+        }
         match msg {
             Msg::OpenFlow { req, key, to, host_id, port } => {
                 // Vers une console (docs/relais.md, « Consoles PlayStation ») :
@@ -759,6 +884,8 @@ impl Hub {
                 }
             }
             Msg::Status { req, stations } => {
+                // Une question : un client sans Station n'est pas inactif tant qu'il en pose (REL-19).
+                peer.touch();
                 let online = stations.iter().take(MAX_STATUS).map(|s| self.station(s).is_some()).collect();
                 let _ = peer.ctl.send(Msg::Presence { req, online });
             }
@@ -775,7 +902,12 @@ impl Hub {
     async fn client_stream(self: Arc<Self>, peer: Arc<ClientPeer>, mut s: RelayStream) {
         match timeout(HELLO_TIMEOUT, read_msg(&mut s)).await {
             Ok(Ok(Some(Msg::Open { service, to, host_id, port }))) => {
-                let _busy = StreamBusy::new(peer.clone());
+                // Admin ne tient pas la place du client, et se coupe s'il se tait (REL-15).
+                let Some(_busy) = StreamBusy::new(peer.clone(), service != Service::AdminTls) else {
+                    self.metrics.limit_hit("streams_per_client");
+                    return s.reset();
+                };
+                let idle = (service == Service::AdminTls).then_some(ADMIN_STREAM_IDLE);
                 let station = peer.station.as_deref().and_then(|id| self.station(id));
                 let Some(station) = station else { return s.reset() };
                 // L'en-tête, que seul le relais écrit : vers une console, avec
@@ -787,7 +919,7 @@ impl Hub {
                     (_, Ok(None)) => StreamHeader::new(service.kind(), peer.id.clone(), peer.ip, None),
                 };
                 let Some(mut to_station) = open_to_station(&station, header).await else { return s.reset() };
-                let (up, down) = tokio::io::copy_bidirectional(&mut s, &mut to_station).await.unwrap_or((0, 0));
+                let (up, down) = copy_until_idle(&mut s, &mut to_station, idle).await;
                 self.metrics.add_bytes(Leg::Stream, Dir::ToStation, up);
                 self.metrics.add_bytes(Leg::Stream, Dir::ToClient, down);
                 if service == Service::KyberTcp {
@@ -818,6 +950,7 @@ impl Hub {
             if current {
                 map.remove(&peer.id);
             }
+            peer.gone.store(true, Ordering::Release);
             current
         };
         self.drop_client_flows(peer);
@@ -851,9 +984,9 @@ impl Hub {
         let now = Instant::now();
         let gone: Vec<Arc<ClientPeer>> = {
             let mut map = self.clients.lock().unwrap();
+            // Avec ou sans Station (REL-19) : un client sans Station ne sert qu'aux questions de présence.
             let ids: Vec<String> = map
                 .values()
-                .filter(|c| c.station.is_some())
                 .filter(|c| match c.idle_since() {
                     // Occupé : son activité est notée.
                     None => {
@@ -864,7 +997,7 @@ impl Hub {
                 })
                 .map(|c| c.id.clone())
                 .collect();
-            ids.iter().filter_map(|i| map.remove(i)).collect()
+            ids.iter().filter_map(|i| map.remove(i)).inspect(|c| c.gone.store(true, Ordering::Release)).collect()
         };
         for peer in gone {
             self.metrics.limit_hit("client_idle");
@@ -902,7 +1035,11 @@ impl Hub {
 
     async fn station_media(&self, peer: Arc<StationPeer>, tx: MediaSender, mut rx: MediaReceiver) {
         let n = self.next_media.fetch_add(1, Ordering::Relaxed);
-        *peer.media.write().unwrap() = Some((n, tx));
+        // L'ancienne connexion des paquets est fermée : elle ne garde plus de mémoire (REL-14).
+        let old = peer.media.write().unwrap().replace((n, tx));
+        if let Some((_, old)) = old {
+            old.close();
+        }
         while let Some((flow, payload)) = rx.recv().await {
             if !self.is_current_station(&peer) {
                 break;
@@ -917,7 +1054,11 @@ impl Hub {
 
     async fn client_media(&self, peer: Arc<ClientPeer>, tx: MediaSender, mut rx: MediaReceiver) {
         let n = self.next_media.fetch_add(1, Ordering::Relaxed);
-        *peer.media.write().unwrap() = Some((n, tx));
+        // L'ancienne connexion des paquets est fermée : elle ne garde plus de mémoire (REL-14).
+        let old = peer.media.write().unwrap().replace((n, tx));
+        if let Some((_, old)) = old {
+            old.close();
+        }
         while let Some((flow, payload)) = rx.recv().await {
             if !self.is_current_client(&peer) {
                 break;
@@ -931,7 +1072,7 @@ impl Hub {
     }
 
     fn capped(&self, len: usize) -> bool {
-        self.cap.as_ref().is_some_and(|b| b.lock().unwrap().take_n(len as f64, Instant::now()).is_err())
+        self.cap.as_ref().is_some_and(|b| !b.take(len, Instant::now()))
     }
 
     fn deliver(&self, media: Option<MediaSender>, flow: u64, payload: &Bytes, dir: Dir) {
@@ -1061,6 +1202,33 @@ async fn read_with_watchdog<R: AsyncRead + Unpin>(read: &mut R, transport: Trans
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn une_connexion_relayee_muette_est_coupee() {
+        // REL-15 : une connexion Admin relayée qui se tait est coupée ; celle qui parle continue.
+        use tokio::io::AsyncWriteExt;
+        let (_app, mut ra) = tokio::io::duplex(1024);
+        let (mut rb, _station) = tokio::io::duplex(1024);
+        let cut = tokio::time::timeout(Duration::from_secs(5), copy_until_idle(&mut ra, &mut rb, Some(Duration::from_millis(100)))).await;
+        assert!(cut.is_ok(), "coupée après 100 ms de silence");
+        // Un octet toutes les 40 ms : pas coupée tant qu'ils arrivent.
+        let (mut app, mut ra) = tokio::io::duplex(1024);
+        let (mut rb, _station) = tokio::io::duplex(1024);
+        let talker = tokio::spawn(async move {
+            for _ in 0..8 {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                app.write_all(b"x").await.unwrap();
+            }
+            // Puis plus rien : la coupure suit.
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        });
+        let started = Instant::now();
+        let (up, _) = copy_until_idle(&mut ra, &mut rb, Some(Duration::from_millis(100))).await;
+        assert!(started.elapsed() >= Duration::from_millis(300), "pas coupée pendant qu'elle parle");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(up, 0, "coupée : les octets ne sont pas comptés");
+        talker.abort();
+    }
 
     fn seat(id: &str, ip: &str, idle_ago: Option<u64>, now: Instant) -> Seat {
         Seat { id: id.into(), ip: ip_key(ip.parse().unwrap()), idle_since: idle_ago.map(|s| now - Duration::from_secs(s)) }

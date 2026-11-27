@@ -48,8 +48,12 @@ pub async fn read_msg<R: AsyncRead + Unpin + ?Sized>(r: &mut R) -> io::Result<Op
     if len > MAX_FRAME {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "trame trop longue"));
     }
-    let mut body = vec![0u8; len];
-    r.read_exact(&mut body).await?;
+    // Lu au fil de l'arrivée : la longueur annoncée seule n'alloue rien (REL-16).
+    let mut body = Vec::with_capacity(len.min(4096));
+    let got = (&mut *r).take(len as u64).read_to_end(&mut body).await?;
+    if got < len {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "trame coupée"));
+    }
     serde_json::from_slice(&body).map(Some).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
@@ -111,6 +115,24 @@ pub fn encode_record(datagram: &[u8]) -> Option<Bytes> {
     Some(buf.freeze())
 }
 
+/// Lit un enregistrement du repli TCP dans un tampon réutilisé (REL-35) : les paquets suivants
+/// prennent la place qui reste dans la même allocation, au lieu d'un `Vec` chacun.
+pub async fn read_record_into<R: AsyncRead + Unpin + ?Sized>(r: &mut R, buf: &mut BytesMut) -> io::Result<Option<Bytes>> {
+    let mut len = [0u8; 2];
+    match r.read_exact(&mut len).await {
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+        Err(e) => return Err(e),
+    }
+    let len = u16::from_be_bytes(len) as usize;
+    if buf.capacity() < len {
+        buf.reserve(len.max(64 * 1024));
+    }
+    buf.resize(len, 0);
+    r.read_exact(&mut buf[..]).await?;
+    Ok(Some(buf.split().freeze()))
+}
+
 /// Lit un enregistrement du repli TCP ; `None` à la fin du flux.
 pub async fn read_record<R: AsyncRead + Unpin + ?Sized>(r: &mut R) -> io::Result<Option<Bytes>> {
     let mut len = [0u8; 2];
@@ -127,6 +149,35 @@ pub async fn read_record<R: AsyncRead + Unpin + ?Sized>(r: &mut R) -> io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn enregistrements_dans_un_tampon_reutilise() {
+        // REL-35 : trois enregistrements, un seul tampon ; chacun garde son contenu.
+        let mut data = Vec::new();
+        for d in [&b"abc"[..], b"", b"0123456789"] {
+            data.extend_from_slice(&encode_record(d).unwrap());
+        }
+        let mut r = &data[..];
+        let mut buf = BytesMut::new();
+        let a = read_record_into(&mut r, &mut buf).await.unwrap().unwrap();
+        let b = read_record_into(&mut r, &mut buf).await.unwrap().unwrap();
+        let c = read_record_into(&mut r, &mut buf).await.unwrap().unwrap();
+        assert_eq!((&a[..], &b[..], &c[..]), (&b"abc"[..], &b""[..], &b"0123456789"[..]));
+        assert!(read_record_into(&mut r, &mut buf).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn trame_annoncee_longue_mais_coupee() {
+        // REL-16 : 60 000 octets annoncés, 3 envoyés : refusée sans attendre le reste.
+        let mut data = 60_000u32.to_be_bytes().to_vec();
+        data.extend_from_slice(b"{\"t");
+        let err = read_msg(&mut &data[..]).await.unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+        // Une trame entière passe toujours.
+        let msg = Msg::Ping { n: 7 };
+        let framed = encode(&msg);
+        assert!(matches!(read_msg(&mut &framed[..]).await.unwrap(), Some(Msg::Ping { n: 7 })));
+    }
 
     #[test]
     fn entiers_variables_de_quic() {

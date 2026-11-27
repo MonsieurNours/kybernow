@@ -124,12 +124,33 @@ pub struct DeviceCode {
     /// `pending`, `approved`, `denied`.
     pub status: String,
     pub expires_at: i64,
+    /// Un code de retour : le défi PKCE de l'app (S256, base64url), s'il y en a un.
+    pub challenge: Option<String>,
 }
 
-const CODE_COLS: &str = "hash, kind, account, device_name, status, expires_at";
+const CODE_COLS: &str = "hash, kind, account, device_name, status, expires_at, challenge";
 
 fn code_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<DeviceCode> {
-    Ok(DeviceCode { hash: r.get(0)?, kind: r.get(1)?, account: r.get(2)?, device_name: r.get(3)?, status: r.get(4)?, expires_at: r.get(5)? })
+    Ok(DeviceCode {
+        hash: r.get(0)?,
+        kind: r.get(1)?,
+        account: r.get(2)?,
+        device_name: r.get(3)?,
+        status: r.get(4)?,
+        expires_at: r.get(5)?,
+        challenge: r.get(6)?,
+    })
+}
+
+/// Un défi PKCE S256 : 43 signes base64url (l'empreinte SHA-256 du vérificateur).
+pub fn challenge_ok(c: &str) -> bool {
+    c.len() == 43 && c.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// Le vérificateur répond-il au défi ? (RFC 7636 : 43 à 128 signes, `BASE64URL(SHA256(v)) == défi`.)
+pub fn verifier_matches(verifier: &str, challenge: &str) -> bool {
+    let ok = (43..=128).contains(&verifier.len()) && verifier.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~'));
+    ok && super::ct_eq(super::b64(ring::digest::digest(&ring::digest::SHA256, verifier.as_bytes()).as_ref()).as_bytes(), challenge.as_bytes())
 }
 
 impl Store {
@@ -234,8 +255,7 @@ impl Store {
 
 /// Un nom d'appareil donné par l'app : 64 caractères au plus, sans caractère de contrôle.
 pub fn clean_device_name(name: &str) -> String {
-    let spaced: String = name.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(64).collect::<String>().trim_end().to_string()
+    super::stations::clean_text(name, 64)
 }
 
 /// Un nouveau code de téléviseur : `XXXX-XXXX`.
@@ -327,11 +347,16 @@ impl Accounts {
         }))
     }
 
-    /// Le code du retour vers l'app, après « Connecter » (fenêtre du système).
-    pub fn return_code(&self, account: &Account, device_name: &str) -> Result<String> {
+    /// Le code du retour vers l'app, après « Connecter » (fenêtre du système). `challenge` : le
+    /// défi PKCE de l'app (REL-09) ; l'échange du code demandera alors son vérificateur.
+    pub fn return_code(&self, account: &Account, device_name: &str, challenge: Option<&str>) -> Result<String> {
         let (code, hash) = new_token();
         let now = self.now();
-        self.db().insert_device_code(&hash, "return", None, Some(account.id), &clean_device_name(device_name), "approved", now, now + RETURN_SECS)?;
+        let db = self.db();
+        db.insert_device_code(&hash, "return", None, Some(account.id), &clean_device_name(device_name), "approved", now, now + RETURN_SECS)?;
+        if let Some(c) = challenge.filter(|c| challenge_ok(c)) {
+            db.conn.execute("UPDATE device_codes SET challenge = ?2 WHERE hash = ?1", rusqlite::params![hash, c])?;
+        }
         Ok(code)
     }
 
@@ -492,6 +517,13 @@ impl Accounts {
         let Some(found) = found.filter(|c| c.status == "approved") else {
             return error(400, "bad_code");
         };
+        // PKCE (REL-09) : un code demandé avec un défi ne s'échange qu'avec son vérificateur ; une
+        // autre app qui aurait intercepté `kybernow://compte?code=…` ne l'a pas.
+        if let Some(challenge) = &found.challenge
+            && !verifier_matches(field(&req.body, "code_verifier"), challenge)
+        {
+            return error(400, "bad_code");
+        }
         if !self.db().delete_device_code(&hash).unwrap_or(false) {
             return error(400, "bad_code");
         }

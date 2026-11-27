@@ -286,7 +286,13 @@ impl Store {
     fn attach_to(&self, id: &str, name: &str, account: Option<i64>, org: Option<i64>, by: i64, enrolled_by: Option<i64>, now: i64) -> Result<()> {
         let kind = if org.is_some() { "organization" } else { "person" };
         let by = (by > 0).then_some(by);
-        let tx = self.conn.unchecked_transaction()?;
+        // Tout ou rien, et possible dans un enrôlement déjà ouvert (REL-26).
+        super::store::atomic(&self.conn, || self.attach_now(id, name, kind, account, org, by, enrolled_by, now))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn attach_now(&self, id: &str, name: &str, kind: &str, account: Option<i64>, org: Option<i64>, by: Option<i64>, enrolled_by: Option<i64>, now: i64) -> Result<()> {
+        let tx = &self.conn;
         // Un autre propriétaire : les droits donnés et les premières venues repartent de zéro.
         let previous: Option<(Option<i64>, Option<i64>)> =
             tx.query_row("SELECT account, org FROM stations WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
@@ -305,7 +311,6 @@ impl Store {
              attached_by = excluded.attached_by, attached_at = excluded.attached_at, enrolled_by = excluded.enrolled_by",
             params![id, name, kind, account, org, by, now, enrolled_by],
         )?;
-        tx.commit()?;
         Ok(())
     }
 
@@ -328,7 +333,13 @@ impl Store {
     }
 
     /// Détache ; `account` : seulement si elle est à ce compte. Faux si rien n'a changé.
+    /// Tout ou rien (REL-25) : sans quoi des droits orphelins rouvriraient la machine à un
+    /// prochain propriétaire.
     pub fn detach_station(&self, id: &str, account: Option<i64>) -> Result<bool> {
+        super::store::atomic(&self.conn, || self.detach_station_now(id, account))
+    }
+
+    fn detach_station_now(&self, id: &str, account: Option<i64>) -> Result<bool> {
         let n = match account {
             Some(a) => self.conn.execute("DELETE FROM stations WHERE id = ?1 AND account = ?2", params![id, a])?,
             None => self.conn.execute("DELETE FROM stations WHERE id = ?1", [id])?,
@@ -349,8 +360,15 @@ impl Store {
 
 /// Un nom d'ordinateur lisible : 64 caractères au plus, sans caractère de contrôle.
 pub fn clean_name(name: &str) -> String {
-    let spaced: String = name.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(64).collect::<String>().trim_end().to_string()
+    clean_text(name, 64)
+}
+
+/// Un texte d'une ligne, `max` caractères au plus : sans caractère de contrôle ni de mise en
+/// forme bidirectionnelle (qui retourneraient l'affichage d'un nom), espaces resserrés (REL-32).
+pub fn clean_text(text: &str, max: usize) -> String {
+    let bidi = |c: char| matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    let spaced: String = text.chars().filter(|c| !bidi(*c)).map(|c| if c.is_control() { ' ' } else { c }).collect();
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(max).collect::<String>().trim_end().to_string()
 }
 
 impl Accounts {
@@ -369,7 +387,6 @@ impl Accounts {
     /// Admin vient d'être ouvert à distance (« Admin depuis KyberNow Share ») : une ligne au journal
     /// de la famille ou de l'équipe, un e-mail aux propriétaires (au plus un par heure et par personne).
     pub fn admin_opened(&self, station: &str, account: &str, name: &str) {
-        static LAST: std::sync::OnceLock<Mutex<HashMap<(String, String), i64>>> = std::sync::OnceLock::new();
         let now = self.now();
         let Some(row) = self.db().station(station).ok().flatten() else { return };
         tracing::info!(station = %row.id, "Admin ouvert à distance");
@@ -389,18 +406,14 @@ impl Accounts {
         };
         let Some(mailer) = &self.mailer else { return };
         for owner in recipients {
-            {
-                let mut last = LAST.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-                last.retain(|_, at| now - *at < 3600);
-                let key = (format!("{station}:{}", owner.id), account.to_string());
-                if last.contains_key(&key) {
-                    continue;
-                }
-                last.insert(key, now);
+            // Une fois par heure, par la limite commune des comptes (REL-40).
+            let key = format!("{station}:{}:{account}", owner.id);
+            if !self.limits.lock().unwrap_or_else(|e| e.into_inner()).admin_notice(&key) {
+                continue;
             }
             let lang = if owner.lang == "en" { Lang::En } else { Lang::Fr };
             let date = super::pages::date(lang, now);
-            mailer.send(super::mail::compose(&self.public_url, &owner.email, lang, super::mail::Message::AdminOpened { by: name, computer: &row.name, date: &date }));
+            mailer.send(super::mail::compose(&self.public_url, &owner.email, lang, super::mail::Message::AdminOpened { by: name, computer: &row.name, date: &date, manager: row.account.is_none() }));
         }
     }
 
@@ -508,12 +521,13 @@ impl Accounts {
         Ok(self.stations.send(&pending.station, self.attached_msg(account, owner, None)))
     }
 
-    /// Détache depuis la console (le propriétaire, ou un Propriétaire ou
-    /// Administrateur de l'organisation) : la Station le sait si elle est connectée.
+    /// Détache depuis la console (le propriétaire, ou un Propriétaire de
+    /// l'organisation : REL-12) : la Station le sait si elle est connectée.
     pub fn detach_by_account(&self, station: &str, account: &Account) -> Result<bool> {
         let row = self.db().station(station)?;
         let Some(row) = row else { return Ok(false) };
-        if row.account != Some(account.id) && !self.org_manager(account, row.org) {
+        let org_owner = self.org_manager(account, row.org) && row.org.is_some_and(|o| self.db().org_role(o, account.id).ok().flatten() == Some(super::orgs::Role::Owner));
+        if row.account != Some(account.id) && !org_owner {
             return Ok(false);
         }
         let done = self.db().detach_station(station, None)?;
@@ -539,6 +553,14 @@ pub enum Owner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn noms_sans_controle_ni_bidi() {
+        // REL-32 : ni caractère de contrôle ni retournement bidi ; espaces resserrés.
+        assert_eq!(clean_text("  Ana\u{202E}lirva \n  Martin\u{2066} ", 80), "Analirva Martin");
+        assert_eq!(clean_text("Léa\u{200F}", 80), "Léa");
+        assert_eq!(clean_text(&"x".repeat(100), 80).len(), 80);
+    }
 
     #[test]
     fn cle_de_signature_creee_puis_relue_et_rotation() {

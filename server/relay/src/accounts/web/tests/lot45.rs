@@ -64,10 +64,22 @@ fn ajouter_des_personnes_droits_echeance_et_retrait() {
         &[("id", &st), ("email", "Lea@Exemple.org"), ("session", "1"), ("share", "1"), ("admin", "1"), ("fin", "2026-11-30")],
     );
     let text = html(&r);
-    assert!(text.contains("Personne ajoutée") && text.contains("Léa Martin") && text.contains("jusqu&#39;au 30/11/2026"), "{text}");
+    // REL-11 : une invitation, et la même réponse qu'il y ait un compte ou non.
+    assert!(text.contains("Invitation envoyée") && text.contains("lea@exemple.org") && text.contains("jusqu&#39;au 30/11/2026"), "{text}");
     let mail = w.mail("lea@exemple.org");
     assert_eq!(mail.subject, "Ana vous ouvre PC du salon");
-    assert!(mail.text.contains("Ouvrir le bureau, Rejoindre vos partages, Administrer, jusqu'au 30/11/2026") && mail.text.contains("https://share.test/compte/ordinateurs?lang=fr"));
+    assert!(mail.text.contains("Ouvrir le bureau, Rejoindre vos partages, Administrer, jusqu'au 30/11/2026") && mail.text.contains("https://share.test/compte/invitations?lang=fr"));
+    // Rien n'est ouvert avant qu'elle accepte, dans son espace.
+    assert_eq!(computers(&w, &lea), json!([]));
+    let mut lea_b = w.browser_at("192.0.2.11");
+    lea_b.sign_in("lea@exemple.org", PASSWORD);
+    lea_b.post("/compte/bienvenue?lang=fr", &[]);
+    assert!(html(&lea_b.get("/compte/ordinateurs?lang=fr")).contains("Une invitation attend votre réponse"));
+    let page = lea_b.get("/compte/invitations?lang=fr");
+    assert!(html(&page).contains("PC du salon") && html(&page).contains("de Ana"));
+    let id = w.acc.db().pending_invites("lea@exemple.org", w.now()).unwrap()[0].id.to_string();
+    let r = lea_b.post("/compte/invitations?lang=fr", &[("type", "ordinateur"), ("id", &id), ("action", "accepter")]);
+    assert!(html(&r).contains("Invitation acceptée") && html(&r).contains("Aucune invitation en attente"));
     // Ses ordinateurs : celui d'Ana, sans Administrer tant qu'elle n'a pas la double authentification.
     let list = computers(&w, &lea);
     assert_eq!(list[0]["station"], st.as_str());
@@ -101,7 +113,7 @@ fn ajouter_des_personnes_droits_echeance_et_retrait() {
 
     // Sam n'a pas de compte : l'invitation attend son adresse vérifiée.
     let r = ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "sam@exemple.org"), ("lend", "1")]);
-    assert!(html(&r).contains("Invitation envoyée") && html(&r).contains("pas encore de compte"));
+    assert!(html(&r).contains("Invitation envoyée"));
     assert!(w.mail("sam@exemple.org").text.contains("https://share.test/compte/inscription?lang=fr"));
     let mut sam = w.browser_at("192.0.2.12");
     sam.post("/compte/inscription?lang=fr", &[("name", "Sam"), ("email", "sam@exemple.org"), ("password", PASSWORD), ("conditions", "1")]);
@@ -138,8 +150,9 @@ fn organisation_membres_groupes_ordinateurs_et_journal() {
     // Inviter : Hugo a un compte (membre tout de suite), Paul non (invitation en attente).
     let mut hugo_b = person(&w, "hugo@exemple.org", "Hugo", "192.0.2.13");
     let r = ana.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", "hugo@exemple.org"), ("role", "member")]);
-    assert!(html(&r).contains("Membre ajouté"));
+    assert!(html(&r).contains("Invitation envoyée"), "REL-11 : invitation, comme sans compte");
     assert_eq!(w.mail("hugo@exemple.org").subject, "Ana vous invite dans Les Lignes Claires");
+    assert_eq!(w.accept_invites("hugo@exemple.org"), 1);
     let r = ana.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", "paul@exemple.org"), ("role", "member")]);
     assert!(html(&r).contains("paul@exemple.org") && html(&r).contains("Invitation envoyée"));
     // Un groupe, Hugo dedans.
@@ -242,6 +255,7 @@ fn ouvrir_un_ordinateur_personnel_a_une_organisation() {
     let org = w.acc.db().orgs_of(1).unwrap()[0].0.clone();
     let _ines = person(&w, "ines@exemple.org", "Inès", "192.0.2.15");
     ana.post("/compte/organisation/inviter?lang=fr", &[("id", &org.public_id), ("email", "ines@exemple.org"), ("role", "member")]);
+    w.accept_invites("ines@exemple.org");
     let st = station(31);
     link.online.lock().unwrap().insert(st.clone());
     attach(&w, &mut ana, &st);

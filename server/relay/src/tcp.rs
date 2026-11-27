@@ -54,6 +54,10 @@ pub async fn run(hub: Arc<Hub>, listener: TcpListener, configs: Arc<TlsConfigs>)
             hub.metrics.limit_hit("banned");
             continue;
         }
+        if conns.total() >= hub.cfg.limits.tcp_total {
+            hub.metrics.limit_hit("tcp_total");
+            continue;
+        }
         let Some(guard) = conns.try_acquire(ip, hub.cfg.limits.tcp_per_ip) else {
             hub.metrics.limit_hit("tcp_per_ip");
             continue;

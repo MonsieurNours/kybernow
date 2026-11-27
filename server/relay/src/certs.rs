@@ -67,6 +67,7 @@ impl CertStore {
         Ok(true)
     }
 
+    #[cfg(test)]
     pub fn is_ready(&self) -> bool {
         self.current.read().unwrap().is_some()
     }

@@ -88,6 +88,11 @@ fn etat(value: &str) -> &str {
     if value.len() <= 128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~')) { value } else { "" }
 }
 
+/// Le défi PKCE de l'app (S256 seulement, `code_challenge_method` absent ou `S256`).
+fn challenge<'a>(c: Option<&'a str>, method: Option<&str>) -> Option<&'a str> {
+    c.filter(|c| super::super::devices::challenge_ok(c) && method.is_none_or(|m| m == "S256"))
+}
+
 /// `GET /compte/connexion?appareil=…&retour=kybernow://compte` : la demande
 /// de l'app est retenue pour après la connexion ; rend la page de la demande
 /// (« Connecter KyberNow Link sur … ? », avec son `etat`). `None` : retour refusé.
@@ -99,6 +104,10 @@ pub(super) fn remember_device_request(cx: &mut Cx<'_>) -> Option<String> {
     let state = etat(cx.req.query("etat").unwrap_or(""));
     if !state.is_empty() {
         path.push_str(&format!("&etat={state}"));
+    }
+    // PKCE (REL-09) : seulement S256.
+    if let Some(c) = challenge(cx.req.query("code_challenge"), cx.req.query("code_challenge_method")) {
+        path.push_str(&format!("&code_challenge={c}"));
     }
     set_next(cx, &path);
     Some(path)
@@ -128,7 +137,8 @@ pub(super) fn consent(cx: Cx<'_>, post: bool) -> Reply {
     };
     if !post {
         let state = etat(cx.req.query("etat").unwrap_or("")).to_string();
-        let page = pages::device_consent(&cx.view(), &device, &account.email, &state);
+        let defi = challenge(cx.req.query("code_challenge"), cx.req.query("code_challenge_method")).unwrap_or("");
+        let page = pages::device_consent(&cx.view(), &device, &account.email, &state, defi);
         return cx.page(200, page);
     }
     let state = etat(cx.req.form("etat")).to_string();
@@ -138,7 +148,8 @@ pub(super) fn consent(cx: Cx<'_>, post: bool) -> Reply {
         let page = pages::device_return(&cx.view(), &format!("{RETURN_URI}?erreur=annule{suffix}"), false);
         return cx.page(200, page);
     }
-    let code = match acc.return_code(&account, &device) {
+    let defi = challenge(Some(cx.req.form("code_challenge")), None);
+    let code = match acc.return_code(&account, &device, defi) {
         Ok(code) => code,
         Err(e) => {
             tracing::warn!("code de retour : {e:#}");

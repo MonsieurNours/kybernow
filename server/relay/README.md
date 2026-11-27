@@ -114,6 +114,12 @@ Sans vrai certificat (relais signé par lui-même), les apps marchent si l'adres
 
 **Tout seul** : le service `updater` du compose reprend chaque nuit la dernière image du relais (à 4 h UTC, `RELAY_UPDATE_HOUR` dans `.env`), et ne relance le relais que si elle a changé. `RELAY_AUTO_UPDATE=no` le coupe. Le certificat et les réglages ne sont pas touchés. Lancez `docker compose` depuis le dossier du relais : le service le voit au même chemin que la machine.
 
+Ce service a la main sur Docker (`docker.sock`, l'équivalent de root sur la machine) : une image piégée sur le registre passerait la nuit suivante. Trois garde-fous :
+
+- `RELAY_COSIGN_KEY=cosign.pub` (une clé publique [cosign](https://docs.sigstore.dev/) dans le dossier du relais) : une nouvelle image n'est prise que si sa signature se vérifie ; sinon le relais reste tel quel et le journal de `updater` le dit ;
+- `RELAY_IMAGE=ghcr.io/monsieurnours/kybernow-relay@sha256:…` : l'image est épinglée, `updater` ne fait rien ; on change l'empreinte à la main ;
+- une image construite sur place (voir « Depuis les sources ») n'est jamais remplacée.
+
 **À la main**, quand vous voulez :
 
 ```sh
@@ -123,7 +129,7 @@ docker compose up -d
 
 Quand une version change le compose lui-même (rare, le journal des versions le dit), reprenez les fichiers (`for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`) avant ces deux commandes.
 
-**Depuis les sources**, sans l'image publiée : clonez le dépôt et, dans `server/relay`, `docker compose build relay && docker compose up -d`. L'image se construit avec le réseau de la machine (`network: host`) : derrière un DNS local (Pi-hole, unbound), le réseau de construction de Docker ne résout pas les noms. `RELAY_IMAGE` dans `.env` choisit une autre image (une version précise, `…:0.8.0`).
+**Depuis les sources**, sans l'image publiée : clonez le dépôt, mettez `RELAY_IMAGE=kybernow-relay:local` dans `.env`, puis, dans `server/relay`, `docker compose build relay && docker compose up -d`. La mise à jour de la nuit voit une image construite sur place et ne la remplace pas. L'image se construit avec le réseau de la machine (`network: host`) : derrière un DNS local (Pi-hole, unbound), le réseau de construction de Docker ne résout pas les noms. `RELAY_IMAGE` dans `.env` choisit une autre image (une version précise, `…:0.8.0`).
 
 ## Réglages
 
@@ -149,7 +155,7 @@ Les comptes KyberNow ([docs/comptes.md](../../docs/comptes.md), lot 1) : inscrip
 
 Une fois connecté, l'**espace du compte** ([docs/comptes.md](../../docs/comptes.md), « L'espace du compte ») : un menu latéral (Ordinateurs, Personnes, Familles et équipes, Compte et sécurité), un tour d'accueil (`/compte/bienvenue`) et des panneaux sans script ; `KN_PAGES_DIR=<dossier> cargo test ecrire_les_pages -- --ignored` écrit toutes les pages pour les regarder sans relais.
 
-Les pages sont celles du relais (`https://<nom>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`, `/compte/supprimer`), en français et en anglais ; ce sont les seules en POST (formulaires de 16 Kio au plus). Elles n'ont qu'un script, `/assets/passkey.js`, servi par le relais et permis sur ces pages seulement (`script-src 'self'`) : il appelle WebAuthn et envoie la réponse par le formulaire de la page. Sans lui, les boutons des passkeys n'apparaissent pas et tout le reste marche.
+Les pages sont celles du relais (`https://<nom>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`, `/compte/supprimer`), et la console de l'espace (`/compte/ordinateurs`, `/compte/ordinateur/…`, `/compte/personnes`, `/compte/familles`, `/compte/organisation/…`, `/compte/invitations`, `/compte/lien/…`, `/compte/ouvrir-admin`), en français et en anglais ; ce sont les seules en POST (formulaires de 16 Kio au plus, lus en 10 s au plus), avec l'API des appareils (`/v1/devices/…`, `/v1/access`, `/v1/settings`, en JSON). Elles ont deux scripts au plus, servis par le relais et permis sur ces pages seulement (`script-src 'self'`) : `/assets/passkey.js`, qui appelle WebAuthn et envoie la réponse par le formulaire de la page, et `/assets/tz.js`, qui donne le fuseau du navigateur aux dates de fin. Sans eux, les boutons des passkeys n'apparaissent pas, les dates de fin suivent UTC, et tout le reste marche.
 
 Avec les comptes, le relais sert aussi `/conditions` et `/confidentialite` : les conditions d'utilisation et la politique de confidentialité du service ([docs/juridique](../../docs/juridique/README.md)), **brouillons** marqués comme tels, copiés dans `assets/legal/` (un essai vérifie que les copies suivent `docs/juridique`). Ce sont les textes du relais public : un relais tenu par quelqu'un d'autre doit les remplacer par les siens. Sans les comptes, `/confidentialite` reste la page `/privacy`.
 

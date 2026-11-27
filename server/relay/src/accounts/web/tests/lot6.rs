@@ -190,8 +190,10 @@ fn groupes_d_ordinateurs_presents_et_a_venir() {
     let id = org.public_id.clone();
     let mut hugo_b = person(&w, "hugo@exemple.org", "Hugo", "192.0.2.13");
     ana.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", "hugo@exemple.org"), ("role", "member")]);
+    w.accept_invites("hugo@exemple.org");
     let _ines_b = person(&w, "ines@exemple.org", "Inès", "192.0.2.14");
     ana.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", "ines@exemple.org"), ("role", "member")]);
+    w.accept_invites("ines@exemple.org");
     ana.post("/compte/organisation/groupes/creer?lang=fr", &[("id", &id), ("nom", "Graphistes")]);
     let people = w.acc.db().groups(org.id).unwrap()[0].id;
     let hugo_id = w.acc.db().account_by_email("hugo@exemple.org").unwrap().unwrap().id;

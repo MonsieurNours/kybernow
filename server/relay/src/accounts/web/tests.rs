@@ -53,6 +53,17 @@ impl World {
         self.outbox.last_to(to).unwrap_or_else(|| panic!("pas d'e-mail pour {to}"))
     }
 
+    /// Accepte toutes les invitations qui attendent ce compte (REL-11 : plus d'ajout direct).
+    fn accept_invites(&self, email: &str) -> usize {
+        let db = self.acc.db();
+        let account = db.account_by_email(email).unwrap().unwrap();
+        let list = db.pending_invites(email, self.now()).unwrap();
+        for i in &list {
+            assert!(db.accept_invite(account.id, email, i.kind, i.id, self.now()).unwrap());
+        }
+        list.len()
+    }
+
     /// Le code TOTP courant d'un compte.
     fn totp_code(&self, email: &str, offset_steps: i64) -> String {
         let db = self.acc.db();
@@ -410,8 +421,9 @@ fn limites_d_essais() {
     let r = b.sign_in("ana@exemple.org", PASSWORD);
     assert_eq!(r.status, 429);
     assert!(r.retry_after.is_some() && html(&r).contains("Trop d'essais"));
-    // D'une autre adresse IP aussi : la limite est celle du compte.
-    assert_eq!(w.browser_at("198.51.100.1").sign_in("ana@exemple.org", PASSWORD).status, 429);
+    // Du même réseau aussi ; d'un autre réseau, le titulaire passe (REL-08).
+    assert_eq!(w.browser_at("192.0.2.77").sign_in("ana@exemple.org", PASSWORD).status, 429);
+    assert_eq!(location(&w.browser_at("198.51.100.1").sign_in("ana@exemple.org", PASSWORD)), "/compte/ordinateurs?lang=fr");
     // Une adresse e-mail sans compte se comporte de même.
     let mut c = w.browser_at("198.51.100.2");
     for _ in 0..5 {
@@ -556,7 +568,11 @@ mod deplacer;
 mod invitations;
 mod lot2;
 mod lot45;
+mod limites;
 mod lot6;
+mod delegation;
+mod noms_hostiles;
+mod reauth;
 // --- Lot 1b : passkeys, conditions, export, suppression ---------------------------
 
 use super::passkeys::tests::Authenticator;

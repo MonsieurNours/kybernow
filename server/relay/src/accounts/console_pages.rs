@@ -13,7 +13,7 @@ use super::super::links::{AccessLink, LINK_DAYS, LinkState};
 use super::super::moves::MovePlan;
 use super::super::orgs::{EnrollToken, Group, Invite, Kind, LogLine, Member, Role};
 use super::super::station_groups::StationGroup;
-use super::{Notice, Registration, View, date, esc, field, notice_html, passkey_create_form_with, passkey_get_form_with, passkey_unsupported, pct};
+use super::{Notice, Registration, View, date, end_date, esc, field, notice_html, passkey_create_form_with, passkey_get_form_with, passkey_unsupported, pct};
 use crate::assets;
 use crate::pages::{Lang, t};
 
@@ -232,23 +232,8 @@ pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &s
         Lang::Fr => (Lang::En, "English"),
         Lang::En => (Lang::Fr, "Français"),
     };
-    let script = if body.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
-    format!(
-        r##"<!doctype html>
-<html lang="{lang}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#05070A">
-<meta name="robots" content="noindex">
-<link rel="icon" type="image/svg+xml" href="{favicon}">
-<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="{css}">
-<title>{title} · KyberNow</title>{script}
-</head>
-<body class="ka-body">
-{sprite}
+    let inner = format!(
+        r##"{sprite}
 <div class="ka-app">
 {side}
 <main class="ka-main">
@@ -258,21 +243,16 @@ pub fn frame(v: &View<'_>, shell: &Shell, here: Here, title: &str, here_path: &s
 <footer class="ka-foot"><a href="{here_path}{q_other}" hreflang="{other_code}" lang="{other_code}">{other_name}</a><a href="/conditions{q_lang}">{terms}</a><a href="/confidentialite{q_lang}">{privacy}</a></footer>
 </main>
 </div>
-{tabbar}
-</body>
-</html>
-"##,
-        lang = v.lang.code(),
-        favicon = assets::url("kybernow-favicon.svg"),
-        font = assets::url("archivo.woff2"),
-        css = assets::url("share.css"),
+{tabbar}"##,
+        here_path = esc(here_path),
         sprite = SPRITE,
         q_other = v.q_lang(other),
         other_code = other.code(),
         q_lang = format!("?lang={}", v.lang.code()),
         terms = v.tr("Conditions", "Terms"),
         privacy = v.tr("Confidentialité", "Privacy"),
-    )
+    );
+    super::document(v.lang, title, "", "ka-body", &inner)
 }
 
 /// Le titre d'une page : le surtitre, le titre, le chapeau, l'action à droite.
@@ -452,6 +432,8 @@ fn admin_href(v: &View<'_>, id: &str) -> String {
 }
 #[derive(Debug, Clone, Default)]
 pub struct ComputersView {
+    /// Les invitations qui attendent sa réponse (REL-11).
+    pub invites: usize,
     pub mine: Vec<ComputerCard>,
     pub opened: Vec<ComputerCard>,
     /// `(identifiant, nom, genre, ordinateurs)` par famille ou équipe.
@@ -539,8 +521,25 @@ pub fn computers(v: &View<'_>, c: &ComputersView, notice: Option<Notice>) -> Str
             Lang::En => format!("Hello {}", esc(&c.shell.name)),
         }
     };
+    let invites = if c.invites == 0 {
+        String::new()
+    } else {
+        help_box(
+            "info",
+            &format!(
+                "{} <a href=\"/compte/invitations{q}\">{}</a>",
+                match (v.lang, c.invites) {
+                    (Lang::Fr, 1) => "Une invitation attend votre réponse.".to_string(),
+                    (Lang::Fr, n) => format!("{n} invitations attendent votre réponse."),
+                    (Lang::En, 1) => "An invitation is waiting for your answer.".to_string(),
+                    (Lang::En, n) => format!("{n} invitations are waiting for your answer."),
+                },
+                v.tr("Voir les invitations", "See the invitations"),
+            ),
+        )
+    };
     let page = format!(
-        "{head}{notice}{start}{body}{sheet}",
+        "{head}{notice}{invites}{start}{body}{sheet}",
         head = head(
             &hello,
             &format!("<strong>{}</strong>", v.tr("Vos ordinateurs", "Your computers")),
@@ -573,6 +572,67 @@ pub fn computers(v: &View<'_>, c: &ComputersView, notice: Option<Notice>) -> Str
         ),
     );
     frame(v, &c.shell, Here::Computers, &title, "/compte/ordinateurs", &page)
+}
+
+// --- Les invitations reçues (REL-11) ------------------------------------------------------
+
+/// « Invitations » : ordinateurs, familles et équipes qui attendent sa réponse ; « Accepter », « Refuser ».
+pub fn invitations(v: &View<'_>, shell: &Shell, list: &[super::super::people::PendingInvite], notice: Option<Notice>) -> String {
+    let title = v.tr("Invitations", "Invitations");
+    let rows: String = list
+        .iter()
+        .map(|i| {
+            let what = match (&i.rights, i.role) {
+                (Some((rights, until)), _) => {
+                    let until = until.map(|e| match v.lang {
+                        Lang::Fr => t(v.lang, &format!(", jusqu'au {}", end_date(v.lang, e)), ""),
+                        Lang::En => format!(", until {}", end_date(v.lang, e)),
+                    });
+                    format!("{}{}", esc(&rights_words(v.lang, rights)), esc(&until.unwrap_or_default()))
+                }
+                (None, Some(role)) => esc(&role_name(v.lang, role)),
+                (None, None) => String::new(),
+            };
+            let by = if i.by.is_empty() {
+                String::new()
+            } else {
+                match v.lang {
+                    Lang::Fr => format!(" · de {}", esc(&i.by)),
+                    Lang::En => format!(" · from {}", esc(&i.by)),
+                }
+            };
+            let fields = format!("{}\n{}", hidden("type", i.kind), hidden("id", &i.id.to_string()));
+            let form = v.form(
+                "/compte/invitations",
+                "ka-inline-form",
+                &format!(
+                    "{fields}\n<button class=\"btn kn-primary btn-sm\" type=\"submit\" name=\"action\" value=\"accepter\">{yes}</button>\n<button class=\"btn btn-ghost btn-sm\" type=\"submit\" name=\"action\" value=\"refuser\">{no}</button>",
+                    yes = v.tr("Accepter", "Accept"),
+                    no = v.tr("Refuser", "Decline"),
+                ),
+            );
+            format!("<div class=\"ka-row\"><div><b>{name}</b><small>{what}{by}</small></div>{form}</div>\n", name = esc(&i.name))
+        })
+        .collect();
+    let body = if list.is_empty() {
+        help_box("info", &v.tr("Aucune invitation en attente.", "No pending invitations."))
+    } else {
+        format!("<section class=\"ka-section\">\n{rows}</section>\n")
+    };
+    let page = format!(
+        "{head}{notice}{body}",
+        head = head(
+            "",
+            &format!("<strong>{}</strong>", title),
+            &v.tr(
+                "On vous a ouvert un ordinateur, ou invité dans une famille ou une équipe : rien ne vous est ouvert avant que vous acceptiez.",
+                "Someone opened a computer to you, or invited you to a family or team: nothing is opened to you until you accept.",
+            ),
+            "",
+        ),
+        notice = notice_html(v.lang, notice),
+    );
+    frame(v, shell, Here::Computers, &title, "/compte/invitations", &page)
 }
 
 // --- Un ordinateur : qui y a accès ------------------------------------------------------
@@ -701,8 +761,8 @@ fn links_section(v: &View<'_>, p: &PeopleView, sheets: &mut String) -> String {
             let mut detail = vec![esc(&link_state(v, l, p.now)), rights_words(v.lang, &l.rights)];
             if let Some(end) = l.access_expires_at {
                 detail.push(match v.lang {
-                    Lang::Fr => t(v.lang, &format!("accès jusqu'au {}", date(v.lang, end - 1)), ""),
-                    Lang::En => format!("access until {}", date(v.lang, end - 1)),
+                    Lang::Fr => t(v.lang, &format!("accès jusqu'au {}", end_date(v.lang, end)), ""),
+                    Lang::En => format!("access until {}", end_date(v.lang, end)),
                 });
             }
             let frag = format!("lien-{}", l.id);
@@ -771,7 +831,7 @@ fn links_section(v: &View<'_>, p: &PeopleView, sheets: &mut String) -> String {
         during = v.tr("Le lien sert pendant", "The link works for"),
         until = field(
             &v.tr("Accès jusqu'au (facultatif)", "Access until (optional)"),
-            &format!(r#"<input id="lien-fin" name="fin" type="date" value="{}" placeholder="{}">"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+            &format!(r#"<input id="lien-fin" name="fin" type="date" value="{}" placeholder="{}">{}"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy"), super::tz_field()),
         ),
         cancel = v.tr("Annuler", "Cancel"),
         create = v.tr("Créer le lien", "Create the link"),
@@ -947,7 +1007,7 @@ pub fn people(v: &View<'_>, p: &PeopleView, notice: Option<Notice>) -> String {
             rights = rights_tiles(v, &v.tr("Ce qu'elle peut faire", "What they can do"), rights, "ajout"),
             until = field(
                 &v.tr("Jusqu'au (facultatif)", "Until (optional)"),
-                &format!(r#"<input id="fin" name="fin" type="date" value="{}" placeholder="{}">"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+                &format!(r#"<input id="fin" name="fin" type="date" value="{}" placeholder="{}">{}"#, esc(until), v.tr("jj/mm/aaaa", "dd/mm/yyyy"), super::tz_field()),
             ),
             cancel = v.tr("Annuler", "Cancel"),
             send = v.tr("Envoyer l'invitation", "Send the invitation"),
@@ -1467,7 +1527,7 @@ fn group_grant_who(v: &View<'_>, subject: &super::super::people::Subject, kind: 
             Lang::Fr => t(v.lang, &format!("Groupe {name}"), ""),
             Lang::En => format!("Group {name}"),
         },
-        Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+        Subject::Person { name, email, .. } => crate::accounts::store::shown_name(name, email),
         Subject::Invite { email } => email.clone(),
     }
 }
@@ -1496,8 +1556,8 @@ fn station_groups_section(v: &View<'_>, o: &OrgView, sheets: &mut String) -> Str
                     let mut line = format!("{} : {}", esc(&group_grant_who(v, &gr.subject, o.kind)), rights_words(v.lang, &gr.rights));
                     if let Some(end) = gr.expires_at {
                         line.push_str(&match v.lang {
-                            Lang::Fr => format!(" · jusqu'au {}", date(v.lang, end - 1)),
-                            Lang::En => format!(" · until {}", date(v.lang, end - 1)),
+                            Lang::Fr => format!(" · jusqu'au {}", end_date(v.lang, end)),
+                            Lang::En => format!(" · until {}", end_date(v.lang, end)),
                         });
                     }
                     if gr.expired(o.now) {
@@ -1548,8 +1608,8 @@ fn station_groups_section(v: &View<'_>, o: &OrgView, sheets: &mut String) -> Str
                         let mut detail = vec![rights_words(v.lang, &gr.rights)];
                         if let Some(end) = gr.expires_at {
                             detail.push(match v.lang {
-                                Lang::Fr => t(v.lang, &format!("jusqu'au {}", date(v.lang, end - 1)), ""),
-                                Lang::En => format!("until {}", date(v.lang, end - 1)),
+                                Lang::Fr => t(v.lang, &format!("jusqu'au {}", end_date(v.lang, end)), ""),
+                                Lang::En => format!("until {}", end_date(v.lang, end)),
                             });
                         }
                         let remove = form_at(
@@ -1578,7 +1638,7 @@ fn station_groups_section(v: &View<'_>, o: &OrgView, sheets: &mut String) -> Str
                         rights = rights_tiles(v, &v.tr("Ce qu'ils peuvent faire", "What they can do"), &Rights::new([Right::Session]), &format!("groupe-{}", g.id)),
                         until = field(
                             &v.tr("Jusqu'au (facultatif)", "Until (optional)"),
-                            &format!(r#"<input id="fin-{}" name="fin" type="date" placeholder="{}">"#, g.id, v.tr("jj/mm/aaaa", "dd/mm/yyyy")),
+                            &format!(r#"<input id="fin-{}" name="fin" type="date" placeholder="{}">{}"#, g.id, v.tr("jj/mm/aaaa", "dd/mm/yyyy"), super::tz_field()),
                         ),
                         go = v.tr("Ouvrir le groupe", "Open the group"),
                     ),
@@ -2297,36 +2357,8 @@ pub fn welcome(v: &View<'_>, step: u8, w: &Welcome) -> String {
         stage = stage(step),
     );
     let refresh = if step == 2 && w.computer.is_none() { "\n<meta http-equiv=\"refresh\" content=\"5\">" } else { "" };
-    let script = if body.contains("data-passkey=\"") { format!("\n<script src=\"{}\" defer></script>", assets::url("passkey.js")) } else { String::new() };
-    format!(
-        r##"<!doctype html>
-<html lang="{lang}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#05070A">
-<meta name="robots" content="noindex">{refresh}
-<link rel="icon" type="image/svg+xml" href="{favicon}">
-<link rel="preload" href="{font}" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="{css}">
-<title>{title} · KyberNow</title>{script}
-</head>
-<body class="kt-page">
-{sprite}
-<main class="kt-tour">
-{body}
-</main>
-</body>
-</html>
-"##,
-        lang = v.lang.code(),
-        title = v.tr("Bienvenue", "Welcome"),
-        favicon = assets::url("kybernow-favicon.svg"),
-        font = assets::url("archivo.woff2"),
-        css = assets::url("share.css"),
-        sprite = SPRITE,
-    )
+    let inner = format!("{SPRITE}\n<main class=\"kt-tour\">\n{body}\n</main>");
+    super::document(v.lang, &v.tr("Bienvenue", "Welcome"), refresh, "kt-page", &inner)
 }
 
 // --- Admin sur le réseau ---------------------------------------------------------------
@@ -2421,8 +2453,7 @@ pub fn open_admin_go(v: &View<'_>, target: &str) -> String {
         target = esc(target),
         open = v.tr("Ouvrir Admin", "Open Admin"),
     );
-    let html = super::page_with(v, &title, "/compte/ouvrir-admin", "", &card);
-    html.replacen("<meta name=\"robots\" content=\"noindex\">", &format!("<meta name=\"robots\" content=\"noindex\">\n<meta http-equiv=\"refresh\" content=\"0;url={}\">", esc(target)), 1)
+    super::page_with_head(v, &title, "/compte/ouvrir-admin", "", &card, &super::refresh_to(target))
 }
 
 // --- Un lien d'accès ------------------------------------------------------------------
@@ -2458,8 +2489,8 @@ pub fn link_accept(v: &View<'_>, here: &str, by: &str, computer: &str, rights: &
         Some(end) => format!(
             "<p class=\"help\">{}</p>\n",
             match v.lang {
-                Lang::Fr => t(v.lang, &format!("Jusqu'au {}.", date(v.lang, end - 1)), ""),
-                Lang::En => format!("Until {}.", date(v.lang, end - 1)),
+                Lang::Fr => t(v.lang, &format!("Jusqu'au {}.", end_date(v.lang, end)), ""),
+                Lang::En => format!("Until {}.", end_date(v.lang, end)),
             }
         ),
         None => String::new(),
@@ -2646,6 +2677,7 @@ pub(super) mod tests {
         };
         let card = |id: &str, rights: Option<Rights>| ComputerCard { id: id.into(), name: "PC du <salon>".into(), online: id == "st1", detail: "de Léa".into(), admin: rights.is_none(), rights };
         let computers_view = ComputersView {
+            invites: 1,
             mine: vec![card("st1", None)],
             opened: vec![card("st2", Some(Rights::new([Right::Lend, Right::Share])))],
             orgs: vec![("org_abc".into(), "Les Lignes Claires".into(), Kind::Team, vec![card("st3", None)])],
@@ -2865,7 +2897,7 @@ pub(super) mod tests {
         let welcome_view = Welcome {
             name: "Ana".into(),
             protected: false,
-            register: Some(Registration { challenge: "defi".into(), user_id: "dXNlcg".into(), user_name: "ana@exemple.org".into(), display_name: "Ana".into(), exclude: vec![] }),
+            register: Some(Registration { password: false, challenge: "defi".into(), user_id: "dXNlcg".into(), user_name: "ana@exemple.org".into(), display_name: "Ana".into(), exclude: vec![] }),
             computer: None,
         };
         vec![

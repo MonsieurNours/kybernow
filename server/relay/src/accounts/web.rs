@@ -38,6 +38,11 @@ pub const VERIFY_SECS: i64 = DAY;
 pub const RESET_SECS: i64 = 3600;
 /// « Ne plus demander sur cet appareil pendant 30 jours ».
 pub const TRUST_SECS: i64 = 30 * DAY;
+/// Ajouter une passkey ou activer la double authentification : sans mot de passe dans ce temps
+/// après l'ouverture de la session (REL-06).
+pub const REAUTH_SECS: i64 = 15 * 60;
+/// Un nouveau mot de passe retire les passkeys ajoutées depuis ce temps (REL-06).
+pub const RESET_PASSKEY_SECS: i64 = 7 * DAY;
 /// Les codes de secours donnés à l'activation.
 pub const RECOVERY_CODES: usize = 10;
 
@@ -299,6 +304,29 @@ impl<'a> Cx<'a> {
         self.session().filter(|(s, a)| s.mfa_done && a.verified())
     }
 
+    /// La session a été ouverte il y a moins de [`REAUTH_SECS`] (mot de passe, code ou passkey).
+    fn recent_auth(&self) -> bool {
+        self.session().is_some_and(|(s, _)| self.now - s.created_at < REAUTH_SECS)
+    }
+
+    /// Avant d'ajouter une passkey ou d'activer la double authentification (REL-06) : une session
+    /// récente suffit ; sinon le mot de passe du formulaire (`password`), limité comme les codes.
+    fn reauth(&self, account: &Account) -> Result<(), Notice> {
+        if self.recent_auth() {
+            return Ok(());
+        }
+        let key = format!("reauth:{}", account.id);
+        let limit = self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).code(self.req.ip, &key);
+        if let Err(wait) = limit {
+            return Err(Notice::TooMany(wait.0.as_secs().div_ceil(60)));
+        }
+        if !self.acc.hasher.verify(self.req.form("password"), Some(&account.password)) {
+            return Err(Notice::BadPassword);
+        }
+        self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).code_ok(self.req.ip, &key);
+        Ok(())
+    }
+
     /// Ouvre une session (et ferme celle du cookie, s'il y en a une).
     fn open_session(&mut self, account: i64, mfa_done: bool) {
         let db = self.acc.db();
@@ -320,27 +348,52 @@ impl<'a> Cx<'a> {
 
     /// L'adresse en attente de vérification (cookie signé, 24 h).
     fn pending(&self) -> Option<String> {
+        self.pending_with_owner().map(|(email, _)| email)
+    }
+
+    /// L'adresse attendue et le compte que ce navigateur a créé ou ouvert (REL-05) : `Some(0)`
+    /// quand l'adresse était déjà prise (ce navigateur n'en est pas le titulaire), `None` pour un
+    /// cookie d'avant ce changement (`adresse.échéance.signature`).
+    fn pending_with_owner(&self) -> Option<(String, Option<i64>)> {
         let value = self.req.cookie(PENDING_COOKIE)?;
-        let mut parts = value.split('.');
-        let (email, exp, sig) = (parts.next()?, parts.next()?, parts.next()?);
-        let data = format!("attente:{email}.{exp}");
+        let parts: Vec<&str> = value.split('.').collect();
+        let (email, owner, exp, sig, data) = match parts.as_slice() {
+            [email, owner, exp, sig] => (*email, Some(owner.parse::<i64>().ok()?), *exp, *sig, format!("attente:{email}.{owner}.{exp}")),
+            [email, exp, sig] => (*email, None, *exp, *sig, format!("attente:{email}.{exp}")),
+            _ => return None,
+        };
         if !self.acc.keys.check(data.as_bytes(), sig) || exp.parse::<i64>().ok()? <= self.now {
             return None;
         }
-        String::from_utf8(unb64(email)?).ok()
+        Some((String::from_utf8(unb64(email)?).ok()?, owner))
     }
 
-    fn set_pending(&mut self, email: &str) {
+    /// `owner` : le compte créé ou ouvert par ce navigateur (0 : l'adresse appartient à un autre).
+    fn set_pending(&mut self, email: &str, owner: i64) {
         let email = b64(email.as_bytes());
         let exp = self.now + VERIFY_SECS;
-        let sig = self.acc.keys.sign(format!("attente:{email}.{exp}").as_bytes());
-        self.cookies.push(set_cookie(PENDING_COOKIE, &format!("{email}.{exp}.{sig}"), Some(VERIFY_SECS)));
+        let sig = self.acc.keys.sign(format!("attente:{email}.{owner}.{exp}").as_bytes());
+        self.cookies.push(set_cookie(PENDING_COOKIE, &format!("{email}.{owner}.{exp}.{sig}"), Some(VERIFY_SECS)));
+    }
+
+    /// Ce navigateur attend-il la vérification de ce compte-là ?
+    fn pending_owns(&self, account: &Account) -> bool {
+        matches!(self.pending_with_owner(), Some((email, owner)) if email == account.email && owner.is_none_or(|o| o == account.id))
     }
 
     fn mail(&self, to: &str, lang: Lang, message: Message<'_>) {
         if let Some(mailer) = &self.acc.mailer {
             mailer.send(mail::compose(&self.acc.public_url, to, lang, message));
         }
+    }
+
+    /// Une invitation de plus par ce compte (REL-13) ; sinon l'avis « Trop d'essais ».
+    fn invite_limit(&self, account: &Account) -> Result<(), Notice> {
+        let limit = self.acc.limits.lock().unwrap_or_else(|e| e.into_inner()).invite(account.id);
+        limit.map_err(|wait| {
+            tracing::warn!(compte = account.id, "invitations : limite par expéditeur atteinte");
+            Notice::TooMany(wait.0.as_secs().div_ceil(60))
+        })
     }
 
     /// Un e-mail de plus vers cette adresse, dans la limite.
@@ -359,7 +412,9 @@ impl<'a> Cx<'a> {
         }
         let (token, hash) = new_token();
         let code = new_code();
-        if self.acc.db().replace_email_token(account.id, "verify", &hash, Some(&code), self.now + VERIFY_SECS).is_err() {
+        // Gardé en empreinte (REL-22) ; l'e-mail, lui, porte le code.
+        let kept = b64(&self.acc.keys.secret_mac("verify", account.id, &code));
+        if self.acc.db().replace_email_token(account.id, "verify", &hash, Some(&kept), self.now + VERIFY_SECS).is_err() {
             return;
         }
         let link = self.url(&format!("/compte/verifier?jeton={token}&lang={}", lang_of(account).code()));
@@ -467,6 +522,7 @@ impl Accounts {
             ("/compte/ordinateurs/detacher", true) => attach_pages::detach(cx),
             // Lot 4 : la console, les personnes et leurs droits.
             ("/compte/ordinateurs", false) => console::computers(cx, None),
+            ("/compte/invitations", _) => console::invitations(cx, post),
             ("/compte/personnes", false) => console::all_people(cx),
             ("/compte/familles", false) => console::families(cx),
             ("/compte/bienvenue", false) => console::welcome(cx),
@@ -592,11 +648,15 @@ fn sign_in(mut cx: Cx<'_>) -> Reply {
     let typed = cx.req.form("email").trim().to_string();
     let email = normalize_email(&typed).unwrap_or_else(|| typed.to_lowercase());
     let password = cx.req.form("password").to_string();
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &email);
+    let account = acc.db().account_by_email(&email).ok().flatten();
+    // Un navigateur de confiance de ce compte ne se laisse pas bloquer par les essais des autres (REL-08).
+    let trusted = account.as_ref().is_some_and(|a| {
+        cx.req.cookie(TRUST_COOKIE).is_some_and(|tok| acc.db().is_trusted(&token_hash(tok), a.id, cx.now).unwrap_or(false))
+    });
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &email, trusted);
     if let Err(wait) = limit {
         return cx.limited(wait, |cx, n| pages::sign_in(&cx.view(), &typed, Some(n), mail_on, mail_on));
     }
-    let account = acc.db().account_by_email(&email).ok().flatten();
     // Toujours un calcul d'Argon2 : le temps ne dit pas si le compte existe.
     let ok = acc.hasher.verify(&password, account.as_ref().map(|a| a.password.as_str()));
     if ok {
@@ -616,7 +676,7 @@ fn sign_in(mut cx: Cx<'_>) -> Reply {
             return cx.page(200, page);
         }
         cx.send_verification(&account);
-        cx.set_pending(&account.email);
+        cx.set_pending(&account.email, account.id);
         let q = cx.q();
         return cx.redirect(format!("/compte/verifier{q}"));
     }
@@ -667,16 +727,26 @@ fn code_post(mut cx: Cx<'_>) -> Reply {
     }
     let ok = if recovery {
         let code = normalize_recovery(cx.req.form("secours"));
-        acc.db().use_recovery_code(account.id, &token_hash(&code), cx.now).unwrap_or(false)
+        // En HMAC avec la clé du relais (REL-22) ; un code d'avant, en SHA-256 seul, vaut encore.
+        let db = acc.db();
+        db.use_recovery_code(account.id, &acc.keys.secret_mac("secours", account.id, &code), cx.now).unwrap_or(false)
+            || db.use_recovery_code(account.id, &token_hash(&code), cx.now).unwrap_or(false)
     } else {
         let totp = acc.db().totp(account.id).ok().flatten().filter(|t| t.activated_at.is_some());
-        match totp.and_then(|t| acc.keys.open(account.id, &t.secret).map(|s| (s, t.last_step))) {
-            Some((secret, last)) => match totp::verify(&secret, cx.req.form("code"), cx.now, last) {
-                Some(step) => acc.db().use_totp_step(account.id, step).unwrap_or(false),
-                None => false,
-            },
+        match totp {
             // Plus de double authentification (coupée entre-temps) : le mot de passe suffit.
             None => true,
+            Some(t) => match acc.keys.open(account.id, &t.secret) {
+                Some(secret) => match totp::verify(&secret, cx.req.form("code"), cx.now, t.last_step) {
+                    Some(step) => acc.db().use_totp_step(account.id, step).unwrap_or(false),
+                    None => false,
+                },
+                // Le secret ne se déchiffre plus (clé des comptes changée ?) : refusé, jamais ouvert (REL-07).
+                None => {
+                    tracing::error!(compte = account.id, "secret TOTP illisible : la clé des comptes a changé ? (code de secours seulement)");
+                    false
+                }
+            },
         }
     };
     if !ok {
@@ -713,7 +783,7 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
         let page = pages::sign_up(&cx.view(), state, "", "", None);
         return cx.page(status, page);
     }
-    let name: String = cx.req.form("name").trim().chars().take(80).collect();
+    let name = super::stations::clean_text(cx.req.form("name"), 80);
     let typed = cx.req.form("email").trim().to_string();
     let password = cx.req.form("password").to_string();
     let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_up(cx.req.ip);
@@ -737,6 +807,10 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
     }
     let hash = acc.hasher.hash(&password);
     let created = acc.db().create_account(&email, &name, &hash, cx.lang.code(), None, cx.now);
+    let owner = match &created {
+        Ok(Some(id)) => *id,
+        _ => 0,
+    };
     match created {
         Ok(Some(id)) => {
             cx.audit(Some(id), "inscription");
@@ -756,7 +830,8 @@ fn sign_up(mut cx: Cx<'_>, post: bool) -> Reply {
             return cx.failed();
         }
     }
-    cx.set_pending(&email);
+    // Adresse prise : le même cookie (la même réponse), mais il ne vaut pour aucun compte (REL-05).
+    cx.set_pending(&email, owner);
     let q = cx.q();
     cx.redirect(format!("/compte/verifier{q}"))
 }
@@ -769,7 +844,7 @@ fn verified(mut cx: Cx<'_>, account: &Account) -> Reply {
     drop(db);
     cx.audit(Some(account.id), "adresse_verifiee");
     let q = cx.q();
-    if cx.pending().as_deref() == Some(account.email.as_str()) {
+    if cx.pending_owns(account) {
         cx.cookies.push(clear_cookie(PENDING_COOKIE));
         cx.open_session(account.id, true);
         // Une page retenue avant l'inscription (un lien d'accès) : on y revient.
@@ -831,7 +906,10 @@ fn verify_post(mut cx: Cx<'_>) -> Reply {
             if let Err(wait) = limit {
                 return cx.limited(wait, |cx, n| pages::verify(&cx.view(), &email, Some(n), true));
             }
-            if let Some(account) = unverified() {
+            // Seulement le compte que ce navigateur a créé (REL-05) : pas celui d'un autre, en attente sur la même adresse.
+            let mine = unverified().filter(|a| cx.pending_with_owner().is_some_and(|(_, owner)| owner == Some(a.id)));
+            let owner = mine.as_ref().map(|a| a.id).unwrap_or(0);
+            if let Some(account) = mine {
                 let changed = acc.db().set_email(account.id, &new_email).unwrap_or(false);
                 if changed {
                     cx.audit(Some(account.id), "adresse_changee");
@@ -843,7 +921,7 @@ fn verify_post(mut cx: Cx<'_>) -> Reply {
                     cx.send_taken(&new_email);
                 }
             }
-            cx.set_pending(&new_email);
+            cx.set_pending(&new_email, owner);
             let page = pages::verify(&cx.view(), &new_email, Some(Notice::Resent), false);
             cx.page(200, page)
         }
@@ -855,7 +933,10 @@ fn verify_post(mut cx: Cx<'_>) -> Reply {
             let code: String = cx.req.form("code").chars().filter(char::is_ascii_digit).collect();
             let account = unverified();
             let check = match &account {
-                Some(a) => acc.db().check_email_code(a.id, "verify", &code, cx.now).unwrap_or(CodeCheck::None),
+                Some(a) => {
+                    let mac = b64(&acc.keys.secret_mac("verify", a.id, &code));
+                    acc.db().check_email_code(a.id, "verify", &[&mac, &code], cx.now).unwrap_or(CodeCheck::None)
+                }
                 None => CodeCheck::Wrong,
             };
             match (check, account) {
@@ -951,6 +1032,8 @@ fn new_password(mut cx: Cx<'_>, post: bool) -> Reply {
         // Les appareils connectés aussi (lot 3).
         let _ = db.revoke_devices(account.id);
         let _ = db.forget_trusted_browsers(account.id);
+        // Les passkeys ajoutées ces derniers jours partent aussi : un cookie volé a pu en ajouter une (REL-06).
+        let _ = db.delete_passkeys_since(account.id, cx.now - RESET_PASSKEY_SECS);
     }
     cx.audit(Some(account.id), "mot_de_passe_change");
     let forgot_link = cx.url(&format!("/compte/oubli?lang={}", lang_of(&account).code()));
@@ -985,7 +1068,7 @@ fn totp_setup(cx: Cx<'_>, post: bool) -> Reply {
     let show = |cx: Cx<'_>, notice: Option<Notice>| {
         let uri = totp::otpauth_uri(&secret, &acc.issuer(), &account.email);
         let qr = qr_svg(&uri);
-        let page = pages::totp_setup(&cx.view(), &qr, &totp::grouped(&totp::base32(&secret)), &uri, notice);
+        let page = pages::totp_setup(&cx.view(), &qr, &totp::grouped(&totp::base32(&secret)), &uri, !cx.recent_auth(), notice);
         cx.page(200, page)
     };
     if !post {
@@ -1000,11 +1083,16 @@ fn totp_setup(cx: Cx<'_>, post: bool) -> Reply {
         return r;
     }
     let Some(step) = totp::verify(&secret, cx.req.form("code"), cx.now, 0) else { return show(cx, Some(Notice::WrongCode)) };
+    // Une session ancienne (cookie volé ?) redonne le mot de passe avant d'activer (REL-06).
+    if let Err(notice) = cx.reauth(&account) {
+        return show(cx, Some(notice));
+    }
     acc.limits.lock().unwrap_or_else(|e| e.into_inner()).code_ok(cx.req.ip, &format!("totp:{}", account.id));
     let codes = new_recovery_codes();
     {
         let mut db = acc.db();
-        if db.activate_totp(account.id, step, cx.now).is_err() || db.replace_recovery_codes(account.id, &codes.iter().map(|c| token_hash(&normalize_recovery(c))).collect::<Vec<_>>()).is_err() {
+        let hashes: Vec<Vec<u8>> = codes.iter().map(|c| acc.keys.secret_mac("secours", account.id, &normalize_recovery(c))).collect();
+        if db.activate_totp(account.id, step, cx.now).is_err() || db.replace_recovery_codes(account.id, &hashes).is_err() {
             return cx.failed();
         }
     }
@@ -1053,7 +1141,7 @@ fn totp_off(cx: Cx<'_>, codes: bool) -> Reply {
         let q = cx.q();
         return cx.redirect(format!("/compte{q}"));
     }
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &account.email);
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &account.email, false);
     if let Err(wait) = limit {
         let minutes = wait.0.as_secs().div_ceil(60);
         let mut r = account_page(cx, Some(Notice::TooMany(minutes)));
@@ -1067,7 +1155,8 @@ fn totp_off(cx: Cx<'_>, codes: bool) -> Reply {
     acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in_ok(cx.req.ip, &account.email);
     if codes {
         let list = new_recovery_codes();
-        if acc.db().replace_recovery_codes(account.id, &list.iter().map(|c| token_hash(&normalize_recovery(c))).collect::<Vec<_>>()).is_err() {
+        let hashes: Vec<Vec<u8>> = list.iter().map(|c| acc.keys.secret_mac("secours", account.id, &normalize_recovery(c))).collect();
+        if acc.db().replace_recovery_codes(account.id, &hashes).is_err() {
             return cx.failed();
         }
         cx.audit(Some(account.id), "codes_de_secours_refaits");

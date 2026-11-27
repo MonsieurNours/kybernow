@@ -114,6 +114,12 @@ Without a real certificate (self-signed relay), the apps work if the address car
 
 **By itself**: the compose's `updater` service pulls the latest relay image every night (at 4 am UTC, `RELAY_UPDATE_HOUR` in `.env`) and only restarts the relay if it changed. `RELAY_AUTO_UPDATE=no` turns it off. The certificate and settings are not touched. Run `docker compose` from the relay's folder: the service sees it at the same path as the machine.
 
+This service controls Docker (`docker.sock`, the same as root on the machine): a tampered image on the registry would go live the next night. Three safeguards:
+
+- `RELAY_COSIGN_KEY=cosign.pub` (a [cosign](https://docs.sigstore.dev/) public key in the relay's folder): a new image is only taken if its signature checks out; otherwise the relay stays as it is and the `updater` log says so;
+- `RELAY_IMAGE=ghcr.io/monsieurnours/kybernow-relay@sha256:…`: the image is pinned, `updater` does nothing; you change the digest by hand;
+- an image built on the machine (see "From source") is never replaced.
+
 **By hand**, whenever you like:
 
 ```sh
@@ -123,7 +129,7 @@ docker compose up -d
 
 When a version changes the compose file itself (rare, the changelog says so), fetch the files again (`for f in docker-compose.yml lego.sh update.sh; do curl -fsSLO https://raw.githubusercontent.com/MonsieurNours/kybernow/main/server/relay/$f; done`) before these two commands.
 
-**From source**, without the published image: clone the repository and, in `server/relay`, `docker compose build relay && docker compose up -d`. The image is built with the machine's network (`network: host`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names. `RELAY_IMAGE` in `.env` picks another image (a specific version, `…:0.8.0`).
+**From source**, without the published image: clone the repository, put `RELAY_IMAGE=kybernow-relay:local` in `.env`, then, in `server/relay`, `docker compose build relay && docker compose up -d`. The nightly update sees an image built on the machine and does not replace it. The image is built with the machine's network (`network: host`): behind a local DNS (Pi-hole, unbound), Docker's build network does not resolve names. `RELAY_IMAGE` in `.env` picks another image (a specific version, `…:0.8.0`).
 
 ## Settings
 
@@ -149,7 +155,7 @@ KyberNow accounts ([docs/comptes.en.md](../../docs/comptes.en.md), batch 1): sig
 
 Once signed in, the **account space** ([docs/comptes.en.md](../../docs/comptes.en.md), “The account space”): a side menu (Computers, People, Families and teams, Account and security), a welcome tour (`/compte/bienvenue`) and script-free panels; `KN_PAGES_DIR=<folder> cargo test ecrire_les_pages -- --ignored` writes every page to look at without a relay.
 
-The pages are the relay's (`https://<name>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`, `/compte/supprimer`), in French and English; they are the only ones taking POST (forms of 16 KiB at most). They have a single script, `/assets/passkey.js`, served by the relay and allowed on these pages only (`script-src 'self'`): it calls WebAuthn and sends the answer through the page's form. Without it, the passkey buttons don't show and everything else works.
+The pages are the relay's (`https://<name>/compte/connexion`, `/compte/inscription`, `/compte/verifier`, `/compte/proteger`, `/compte/code`, `/compte/oubli`, `/compte/nouveau-mot-de-passe`, `/compte`, `/compte/supprimer`), and the space's console (`/compte/ordinateurs`, `/compte/ordinateur/…`, `/compte/personnes`, `/compte/familles`, `/compte/organisation/…`, `/compte/invitations`, `/compte/lien/…`, `/compte/ouvrir-admin`), in French and English; they are the only ones taking POST (forms of 16 KiB at most, read within 10 s), along with the devices API (`/v1/devices/…`, `/v1/access`, `/v1/settings`, in JSON). They have at most two scripts, served by the relay and allowed on these pages only (`script-src 'self'`): `/assets/passkey.js`, which calls WebAuthn and sends the answer through the page's form, and `/assets/tz.js`, which gives end dates the browser's time zone. Without them, the passkey buttons don't show, end dates follow UTC, and everything else works.
 
 With accounts, the relay also serves `/conditions` and `/confidentialite`: the service's terms of use and privacy policy ([docs/juridique](../../docs/juridique/README.en.md)), **drafts** marked as such, copied into `assets/legal/` (a test checks the copies follow `docs/juridique`). These are the public relay's texts: a relay run by someone else must replace them with its own. Without accounts, `/confidentialite` stays the `/privacy` page.
 

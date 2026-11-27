@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(s.visible_stations(b, 50).unwrap().len(), 2);
         assert_eq!(s.group_grants_on("st2").unwrap().len(), 3);
         // B quitte l'équipe : plus rien par le groupe (même ce qui était donné à lui seul).
-        s.remove_member(org.id, b).unwrap();
+        s.remove_member(org.id, b, 0).unwrap();
         assert!(s.granted_rights(b, "st2", 50).unwrap().is_empty());
         s.set_member(org.id, b, Role::Member, 60).unwrap();
         assert!(s.delete_group_grant(org.id, gb).unwrap().is_some());

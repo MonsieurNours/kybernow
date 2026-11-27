@@ -70,6 +70,55 @@ pub const INVITES_MIGRATION: &str = r#"
     UPDATE org_invites SET sent_at = CAST(strftime('%s', 'now') AS INTEGER);
 "#;
 
+/// La migration 10 de la base (`super::store`) : une échéance par droit (REL-03).
+///
+/// `right_ends` : `session=,admin=1798000000` (vide : sans échéance). NULL : tous
+/// les droits de la ligne finissent à `expires_at`. Quand elle est remplie,
+/// `expires_at` est la plus lointaine de ses échéances (NULL si l'une n'en a
+/// pas) : les requêtes qui ne lisent que `expires_at` voient la ligne vivante
+/// tant qu'un de ses droits l'est, et le tri en Rust retire les droits échus.
+///
+/// Et `device_codes.challenge` : le défi PKCE (S256) d'un code de retour vers
+/// l'app, quand l'app en a donné un (REL-09, voir `super::devices`).
+pub const RIGHT_ENDS_MIGRATION: &str = r#"
+    ALTER TABLE grants ADD COLUMN right_ends TEXT;
+    ALTER TABLE device_codes ADD COLUMN challenge TEXT;
+"#;
+
+/// L'échéance de chaque droit d'une ligne de `grants`.
+pub(super) fn ends_of(rights: &Rights, expires_at: Option<i64>, right_ends: Option<&str>) -> Vec<(Right, Option<i64>)> {
+    match right_ends {
+        None => rights.iter().map(|r| (r, expires_at)).collect(),
+        Some(text) => text
+            .split(',')
+            .filter_map(|pair| {
+                let (word, end) = pair.split_once('=')?;
+                let right = Right::parse(word.trim())?;
+                let end = end.trim();
+                Some((right, if end.is_empty() { None } else { Some(end.parse().ok()?) }))
+            })
+            .collect(),
+    }
+}
+
+/// Les droits pas échus à cette heure.
+pub(super) fn live_rights(ends: &[(Right, Option<i64>)], now: i64) -> Rights {
+    Rights::new(ends.iter().filter(|(_, e)| e.is_none_or(|e| e > now)).map(|(r, _)| *r))
+}
+
+/// Pour la base : les droits, l'échéance de la ligne, et `right_ends` s'ils ne finissent pas ensemble.
+pub(super) fn ends_columns(ends: &[(Right, Option<i64>)]) -> (String, Option<i64>, Option<String>) {
+    let rights = Rights::new(ends.iter().map(|(r, _)| *r));
+    let line_end = if ends.iter().any(|(_, e)| e.is_none()) { None } else { ends.iter().filter_map(|(_, e)| *e).max() };
+    let same = ends.windows(2).all(|w| w[0].1 == w[1].1);
+    let text = (!same).then(|| {
+        let mut sorted: Vec<_> = ends.to_vec();
+        sorted.sort_by_key(|(r, _)| r.as_str());
+        sorted.iter().map(|(r, e)| format!("{}={}", r.as_str(), e.map(|e| e.to_string()).unwrap_or_default())).collect::<Vec<_>>().join(",")
+    });
+    (rights_text(&rights), line_end, text)
+}
+
 /// Une invitation en attente expire après ce temps sans être reprise.
 pub const INVITE_SECS: i64 = 30 * 86_400;
 /// « Renvoyer l'invitation » : une fois par heure au plus, par invitation.
@@ -141,6 +190,7 @@ impl Grant {
     }
 
     /// Une invitation : quand elle expire (30 jours après son dernier envoi).
+    #[cfg(test)]
     pub fn invite_expires_at(&self) -> Option<i64> {
         matches!(self.subject, Subject::Invite { .. }).then_some(self.sent_at + INVITE_SECS)
     }
@@ -161,7 +211,10 @@ impl Store {
         let found: Option<i64> =
             self.conn.query_row("SELECT id FROM grants WHERE station = ?1 AND account = ?2", params![station, account], |r| r.get(0)).optional()?;
         if let Some(id) = found {
-            self.conn.execute("UPDATE grants SET rights = ?2, expires_at = ?3 WHERE id = ?1", params![id, text, expires_at])?;
+            self.conn.execute(
+                "UPDATE grants SET rights = ?2, expires_at = ?3, right_ends = NULL, invited_by = ?4 WHERE id = ?1",
+                params![id, text, expires_at, by],
+            )?;
             return Ok(id);
         }
         self.conn.execute(
@@ -208,6 +261,15 @@ impl Store {
 
     /// Les droits donnés sur une Station : personnes, invitations, organisations, groupes.
     pub fn grants_of(&self, station: &str) -> Result<Vec<Grant>> {
+        Ok(self.grants_of_many(&[station.to_string()])?.remove(station).unwrap_or_default())
+    }
+
+    /// Les mêmes pour plusieurs Stations, en une requête (REL-33 : plus une requête par ordinateur).
+    pub fn grants_of_many(&self, stations: &[String]) -> Result<std::collections::HashMap<String, Vec<Grant>>> {
+        let mut out: std::collections::HashMap<String, Vec<Grant>> = std::collections::HashMap::new();
+        if stations.is_empty() {
+            return Ok(out);
+        }
         let mut stmt = self.conn.prepare(
             "SELECT g.id, g.station, g.account, a.name, a.email, g.email, g.org, o.name, g.grp, gr.name, og.name, g.rights, g.expires_at, g.created_at,
                     COALESCE(g.sent_at, g.created_at)
@@ -216,10 +278,11 @@ impl Store {
              LEFT JOIN organizations o ON o.id = g.org
              LEFT JOIN org_groups gr ON gr.id = g.grp
              LEFT JOIN organizations og ON og.id = gr.org
-             WHERE g.station = ?1
+             WHERE g.station IN (SELECT value FROM json_each(?1))
              ORDER BY g.account IS NULL, g.created_at, g.id",
         )?;
-        let rows = stmt.query_map([station], |r| {
+        let ids = serde_json::to_string(stations)?;
+        let rows = stmt.query_map([ids], |r| {
             let subject = match (r.get::<_, Option<i64>>(2)?, r.get::<_, Option<String>>(5)?, r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(8)?) {
                 (Some(account), _, _, _) => Subject::Person {
                     account,
@@ -245,7 +308,11 @@ impl Store {
                 sent_at: r.get(14)?,
             })
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        for g in rows {
+            let g = g?;
+            out.entry(g.station.clone()).or_default().push(g);
+        }
+        Ok(out)
     }
 
     /// Un droit donné sur cette Station.
@@ -262,23 +329,72 @@ impl Store {
     /// organisations, à ses groupes), pas échus ; et ceux donnés sur un groupe
     /// d'ordinateurs où elle est ([`super::station_groups`]).
     pub fn granted_rights(&self, account: i64, station: &str, now: i64) -> Result<Rights> {
+        Ok(live_rights(&self.rights_ends(account, station, now)?, now))
+    }
+
+    /// Chaque droit de ce compte sur cette Station et son échéance la plus lointaine, toutes
+    /// sources confondues (à lui, à ses organisations, à ses groupes, aux groupes d'ordinateurs) ;
+    /// les droits déjà échus n'y sont pas.
+    pub fn rights_ends(&self, account: i64, station: &str, now: i64) -> Result<Vec<(Right, Option<i64>)>> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT g.rights FROM grants g WHERE g.station = ?3 AND {LIVE} AND (
+            "SELECT g.rights, g.expires_at, g.right_ends FROM grants g WHERE g.station = ?3 AND {LIVE} AND (
                  g.account = ?1
                  OR (g.grp IS NULL AND g.org IN (SELECT org FROM org_members WHERE account = ?1))
                  OR g.grp IN (SELECT grp FROM group_members WHERE account = ?1))
              UNION ALL
-             SELECT gg.rights FROM group_grants gg JOIN station_groups sg ON sg.id = gg.sgroup
+             SELECT gg.rights, NULL, NULL FROM group_grants gg JOIN station_groups sg ON sg.id = gg.sgroup
                  JOIN station_group_members m ON m.sgroup = gg.sgroup
                  JOIN stations s ON s.id = m.station AND s.org = sg.org
              WHERE m.station = ?3 AND {GROUP_GRANT_FOR}"
         ))?;
-        let rows = stmt.query_map(params![account, now, station], |r| r.get::<_, String>(0))?;
-        let mut all = Vec::new();
-        for text in rows {
-            all.extend(parse_rights(&text?).iter());
+        let rows = stmt.query_map(params![account, now, station], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?, r.get::<_, Option<String>>(2)?)))?;
+        let mut best: Vec<(Right, Option<i64>)> = Vec::new();
+        for row in rows {
+            let (text, end, ends) = row?;
+            for (right, e) in ends_of(&parse_rights(&text), end, ends.as_deref()) {
+                if e.is_some_and(|e| e <= now) {
+                    continue;
+                }
+                match best.iter_mut().find(|(r, _)| *r == right) {
+                    Some(slot) => slot.1 = later(slot.1, e),
+                    None => best.push((right, e)),
+                }
+            }
         }
-        Ok(Rights::new(all))
+        Ok(best)
+    }
+
+    /// Ce qu'une personne a donné sur cette Station part avec son droit (REL-02) : les droits
+    /// donnés par elle (puis, de proche en proche, par ceux qui les ont reçus), et ses liens
+    /// d'accès en attente. Le nombre de droits retirés.
+    pub fn drop_delegated(&self, station: &str, account: i64, now: i64) -> Result<usize> {
+        let owner: Option<i64> = self.conn.query_row("SELECT account FROM stations WHERE id = ?1", [station], |r| r.get(0)).optional()?.flatten();
+        let tx = self.conn.unchecked_transaction()?;
+        let mut todo = vec![account];
+        let mut seen = vec![account];
+        let mut n = 0;
+        while let Some(by) = todo.pop() {
+            if Some(by) == owner {
+                continue;
+            }
+            let next: Vec<Option<i64>> = {
+                let mut stmt = tx.prepare("SELECT account FROM grants WHERE station = ?1 AND invited_by = ?2")?;
+                stmt.query_map(params![station, by], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+            };
+            n += tx.execute("DELETE FROM grants WHERE station = ?1 AND invited_by = ?2", params![station, by])?;
+            tx.execute(
+                "UPDATE access_links SET revoked_at = ?3 WHERE station = ?1 AND created_by = ?2 AND used_at IS NULL AND revoked_at IS NULL",
+                params![station, by, now],
+            )?;
+            for a in next.into_iter().flatten() {
+                if !seen.contains(&a) {
+                    seen.push(a);
+                    todo.push(a);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(n)
     }
 
     /// Les Stations qu'un compte peut voir : les siennes, celles des
@@ -312,14 +428,25 @@ impl Store {
         };
         let live = invite_live("grants", "?3");
         let tx = self.conn.unchecked_transaction()?;
-        // Un droit déjà à ce compte sur la même Station l'emporte sur l'invitation.
+        // Un droit déjà à ce compte sur la même Station : l'invitation s'y ajoute (REL-30), chaque
+        // droit avec son échéance ; puis l'invitation part.
+        let merge: Vec<(String, String, Option<i64>, Option<i64>)> = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT station, rights, expires_at, invited_by FROM grants WHERE email = ?2 AND {live}
+                 AND EXISTS (SELECT 1 FROM grants g2 WHERE g2.station = grants.station AND g2.account = ?1)"
+            ))?;
+            stmt.query_map(params![account, email, now], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?
+        };
+        for (station, rights, end, by) in &merge {
+            super::links::add_person_rights(&tx, station, account, &parse_rights(rights), *end, *by, now)?;
+        }
         let n = tx.execute(
             &format!(
                 "UPDATE grants SET account = ?1, email = NULL WHERE email = ?2 AND {live}
                  AND NOT EXISTS (SELECT 1 FROM grants g2 WHERE g2.station = grants.station AND g2.account = ?1)"
             ),
             params![account, email, now],
-        )?;
+        )? + merge.len();
         let live2 = invite_live("grants", "?2");
         tx.execute(&format!("DELETE FROM grants WHERE email = ?1 AND {live2}"), params![email, now])?;
         let m = super::orgs::claim_org_invites(&tx, account, &email, now)?;
@@ -384,6 +511,117 @@ impl Store {
     }
 }
 
+/// Une invitation qui attend la réponse d'un compte (REL-11) : un ordinateur ou une famille ou équipe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingInvite {
+    /// `ordinateur` ou `organisation` (le formulaire le renvoie).
+    pub kind: &'static str,
+    pub id: i64,
+    /// L'ordinateur, ou la famille ou l'équipe.
+    pub name: String,
+    /// Qui invite (son nom, sinon son adresse ; vide s'il n'est plus là).
+    pub by: String,
+    /// Un ordinateur : les droits et l'échéance.
+    pub rights: Option<(Rights, Option<i64>)>,
+    /// Une famille ou une équipe : le rôle.
+    pub role: Option<super::orgs::Role>,
+}
+
+impl Store {
+    /// Les invitations en attente pour cette adresse, pas expirées.
+    pub fn pending_invites(&self, email: &str, now: i64) -> Result<Vec<PendingInvite>> {
+        let mut out = Vec::new();
+        {
+            let live = invite_live("g", "?2");
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT g.id, s.name, COALESCE(NULLIF(a.name, ''), a.email, ''), g.rights, g.expires_at
+                 FROM grants g JOIN stations s ON s.id = g.station LEFT JOIN accounts a ON a.id = g.invited_by
+                 WHERE g.email = ?1 AND {live} ORDER BY g.created_at, g.id"
+            ))?;
+            let rows = stmt.query_map(params![email, now], |r| {
+                Ok(PendingInvite {
+                    kind: "ordinateur",
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    by: r.get(2)?,
+                    rights: Some((parse_rights(&r.get::<_, String>(3)?), r.get(4)?)),
+                    role: None,
+                })
+            })?;
+            out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+        }
+        let live = invite_live("i", "?2");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT i.id, o.name, COALESCE(NULLIF(a.name, ''), a.email, ''), i.role
+             FROM org_invites i JOIN organizations o ON o.id = i.org LEFT JOIN accounts a ON a.id = i.invited_by
+             WHERE i.email = ?1 AND {live} ORDER BY i.created_at, i.id"
+        ))?;
+        let rows = stmt.query_map(params![email, now], |r| {
+            Ok(PendingInvite {
+                kind: "organisation",
+                id: r.get(0)?,
+                name: r.get(1)?,
+                by: r.get(2)?,
+                rights: None,
+                role: super::orgs::Role::parse(&r.get::<_, String>(3)?),
+            })
+        })?;
+        out.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+        Ok(out)
+    }
+
+    /// Accepte une invitation de cette adresse : ses droits s'ajoutent (chacun avec son échéance), ou
+    /// le compte devient membre. Faux si elle n'attend plus.
+    pub fn accept_invite(&self, account: i64, email: &str, kind: &str, id: i64, now: i64) -> Result<bool> {
+        super::store::atomic(&self.conn, || {
+            match kind {
+                "ordinateur" => {
+                    let live = invite_live("grants", "?3");
+                    let row: Option<(String, String, Option<i64>, Option<i64>)> = self
+                        .conn
+                        .query_row(
+                            &format!("SELECT station, rights, expires_at, invited_by FROM grants WHERE id = ?1 AND email = ?2 AND {live}"),
+                            params![id, email, now],
+                            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                        )
+                        .optional()?;
+                    let Some((station, rights, end, by)) = row else { return Ok(false) };
+                    self.conn.execute("DELETE FROM grants WHERE id = ?1", [id])?;
+                    super::links::add_person_rights(&self.conn, &station, account, &parse_rights(&rights), end, by, now)?;
+                    Ok(true)
+                }
+                "organisation" => {
+                    let live = invite_live("org_invites", "?3");
+                    let row: Option<(i64, String)> = self
+                        .conn
+                        .query_row(&format!("SELECT org, role FROM org_invites WHERE id = ?1 AND email = ?2 AND {live}"), params![id, email, now], |r| {
+                            Ok((r.get(0)?, r.get(1)?))
+                        })
+                        .optional()?;
+                    let Some((org, role)) = row else { return Ok(false) };
+                    self.conn.execute("DELETE FROM org_invites WHERE id = ?1", [id])?;
+                    self.conn.execute("INSERT OR IGNORE INTO org_members (org, account, role, joined_at) VALUES (?1, ?2, ?3, ?4)", params![org, account, role, now])?;
+                    let who = self.account(account)?;
+                    let name = who.as_ref().map(|a| a.name.clone()).unwrap_or_default();
+                    self.org_log(org, who.as_ref(), "membre_ajoute", serde_json::json!({ "member": name, "role": role }), None, now)?;
+                    Ok(true)
+                }
+                _ => Ok(false),
+            }
+        })
+    }
+
+    /// Refuse une invitation de cette adresse ; faux si elle n'y était pas.
+    pub fn decline_invite(&self, email: &str, kind: &str, id: i64) -> Result<bool> {
+        let n = match kind {
+            "ordinateur" => self.conn.execute("DELETE FROM grants WHERE id = ?1 AND email = ?2", params![id, email])?,
+            "organisation" => self.conn.execute("DELETE FROM org_invites WHERE id = ?1 AND email = ?2", params![id, email])?,
+            _ => 0,
+        };
+        Ok(n == 1)
+    }
+}
+
 /// Ce qu'un compte peut faire d'un ordinateur.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Standing {
@@ -424,10 +662,50 @@ impl Accounts {
         self.standing(account, station).map(|s| s.rights)
     }
 
+    /// Ce qu'un compte qui gère les accès peut donner (REL-02). `None` : tout, sans borne (le
+    /// propriétaire, les Propriétaires et Administrateurs de l'équipe propriétaire). Sinon (il a
+    /// reçu Administrer) : ses propres droits, chacun jusqu'à sa propre échéance.
+    pub fn delegable(&self, account: &Account, station: &StationRow) -> Option<Vec<(Right, Option<i64>)>> {
+        if station.account == Some(account.id) || self.org_manager(account, station.org) {
+            return None;
+        }
+        let rights = self.standing(account, station).map(|s| s.rights).unwrap_or_default();
+        let ends = self.db().rights_ends(account.id, &station.id, self.now()).unwrap_or_default();
+        Some(ends.into_iter().filter(|(r, _)| rights.has(*r)).collect())
+    }
+
     /// Ce compte gère-t-il les accès de cette Station ?
     pub fn can_manage(&self, account: &Account, station: &StationRow) -> bool {
         self.standing(account, station).is_some_and(|s| s.manage)
     }
+}
+
+/// La plus lointaine de deux échéances (sans échéance l'emporte).
+pub(super) fn later(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        _ => None,
+    }
+}
+
+/// La plus proche de deux échéances (sans échéance perd).
+pub(super) fn sooner(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) | (None, Some(a)) => Some(a),
+        (None, None) => None,
+    }
+}
+
+/// Borne ce qu'un délégué donne (REL-02) : des droits qu'il n'a pas, `None` ; sinon l'échéance
+/// ramenée à la plus proche de celles des droits donnés chez lui.
+pub(super) fn bound_delegation(own: &[(Right, Option<i64>)], rights: &Rights, until: Option<i64>) -> Option<Option<i64>> {
+    let mut end = until;
+    for r in rights.iter() {
+        let (_, e) = own.iter().find(|(o, _)| *o == r)?;
+        end = sooner(end, *e);
+    }
+    Some(end)
 }
 
 #[cfg(test)]
@@ -557,5 +835,20 @@ mod tests {
         let key = super::super::store::NewPasskey { credential: b"c".to_vec(), public_key: b"k".to_vec(), alg: -7, counter: 0 };
         s.add_passkey(a, &key, "Clé", "", 20).unwrap();
         assert!(s.two_factor(a).unwrap());
+    }
+
+    #[test]
+    fn une_invitation_s_ajoute_aux_droits_deja_la() {
+        // REL-30 : Léa a Regarder ; on l'invite par adresse avec Session avant qu'elle ne la vérifie.
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let b = s.create_account("lea@exemple.org", "Léa", "h", "fr", Some(0), 0).unwrap().unwrap();
+        s.attach_station("st1", "PC", a, a, 10).unwrap();
+        s.grant_person("st1", b, &rights(&[Right::View]), None, a, 10).unwrap();
+        s.grant_invite("st1", "lea@exemple.org", &rights(&[Right::Session]), Some(500), a, 20).unwrap();
+        assert_eq!(s.claim_invitations(b, 30).unwrap(), 1);
+        assert_eq!(s.granted_rights(b, "st1", 40).unwrap(), rights(&[Right::View, Right::Session]));
+        assert_eq!(s.granted_rights(b, "st1", 600).unwrap(), rights(&[Right::View]), "Session garde son échéance");
+        assert!(s.grants_of("st1").unwrap().iter().all(|g| !matches!(g.subject, Subject::Invite { .. })), "l'invitation est partie");
     }
 }

@@ -174,6 +174,16 @@ pub struct Org {
     pub kind: Kind,
 }
 
+impl Org {
+    /// « {nom} (toute la famille) » ou « (toute l'équipe) » (REL-38 : un seul endroit).
+    pub fn everyone(&self, lang: crate::pages::Lang) -> String {
+        match self.kind {
+            Kind::Family => crate::pages::t(lang, &format!("{} (toute la famille)", self.name), &format!("{} (the whole family)", self.name)),
+            Kind::Team => crate::pages::t(lang, &format!("{} (toute l'équipe)", self.name), &format!("{} (the whole team)", self.name)),
+        }
+    }
+}
+
 /// Le genre d'une organisation, choisi à sa création.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -395,27 +405,34 @@ impl Store {
 
     /// Les membres, Propriétaires d'abord.
     pub fn members(&self, org: i64) -> Result<Vec<Member>> {
+        // Deux requêtes en tout, au lieu de deux par membre (REL-33).
         let mut stmt = self.conn.prepare(
-            "SELECT a.id, a.name, a.email, m.role, m.joined_at FROM org_members m JOIN accounts a ON a.id = m.account
+            "SELECT a.id, a.name, a.email, m.role, m.joined_at,
+                    (SELECT COUNT(*) FROM totp t WHERE t.account = a.id AND t.activated_at IS NOT NULL) + (SELECT COUNT(*) FROM passkeys p WHERE p.account = a.id)
+             FROM org_members m JOIN accounts a ON a.id = m.account
              WHERE m.org = ?1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, a.name COLLATE NOCASE, a.id",
         )?;
-        let rows: Vec<(i64, String, String, String, i64)> =
-            stmt.query_map([org], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<rusqlite::Result<_>>()?;
-        let mut out = Vec::with_capacity(rows.len());
-        for (account, name, email, role, joined_at) in rows {
-            let mut g = self.conn.prepare(
-                "SELECT g.name FROM org_groups g JOIN group_members gm ON gm.grp = g.id WHERE g.org = ?1 AND gm.account = ?2 ORDER BY g.name COLLATE NOCASE",
-            )?;
-            let groups = g.query_map(params![org, account], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-            out.push(Member {
-                account,
-                name,
-                email,
-                role: Role::parse(&role).unwrap_or(Role::Member),
-                joined_at,
-                two_factor: self.two_factor(account)?,
-                groups,
-            });
+        let mut out: Vec<Member> = stmt
+            .query_map([org], |r| {
+                Ok(Member {
+                    account: r.get(0)?,
+                    name: r.get(1)?,
+                    email: r.get(2)?,
+                    role: Role::parse(&r.get::<_, String>(3)?).unwrap_or(Role::Member),
+                    joined_at: r.get(4)?,
+                    two_factor: r.get::<_, i64>(5)? > 0,
+                    groups: Vec::new(),
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut g = self.conn.prepare(
+            "SELECT gm.account, g.name FROM org_groups g JOIN group_members gm ON gm.grp = g.id WHERE g.org = ?1 ORDER BY g.name COLLATE NOCASE, g.id",
+        )?;
+        let pairs: Vec<(i64, String)> = g.query_map([org], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        for (account, name) in pairs {
+            if let Some(m) = out.iter_mut().find(|m| m.account == account) {
+                m.groups.push(name);
+            }
         }
         Ok(out)
     }
@@ -434,12 +451,28 @@ impl Store {
         Ok(())
     }
 
-    /// Retire un membre (de ses groupes aussi) ; faux s'il n'y était pas.
-    pub fn remove_member(&self, org: i64, account: i64) -> Result<bool> {
+    /// Retire un membre (de ses groupes aussi, et ses droits individuels sur les ordinateurs de
+    /// l'équipe : REL-04) ; faux s'il n'y était pas.
+    ///
+    /// Un simple membre qui avait reçu Administrer sur un ordinateur de l'équipe : ce qu'il y a
+    /// donné part aussi (REL-02). Ce qu'un Propriétaire ou un Administrateur a donné, au nom de
+    /// l'équipe, reste.
+    pub fn remove_member(&self, org: i64, account: i64, now: i64) -> Result<bool> {
+        let delegate = self.org_role(org, account)?.is_some_and(|r| !r.manages());
+        let stations: Vec<String> = {
+            let mut stmt = self.conn.prepare("SELECT station FROM grants WHERE account = ?2 AND station IN (SELECT id FROM stations WHERE org = ?1)")?;
+            stmt.query_map(params![org, account], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM group_members WHERE account = ?2 AND grp IN (SELECT id FROM org_groups WHERE org = ?1)", params![org, account])?;
+        tx.execute("DELETE FROM grants WHERE account = ?2 AND station IN (SELECT id FROM stations WHERE org = ?1)", params![org, account])?;
         let n = tx.execute("DELETE FROM org_members WHERE org = ?1 AND account = ?2", params![org, account])?;
         tx.commit()?;
+        if delegate {
+            for st in stations {
+                self.drop_delegated(&st, account, now)?;
+            }
+        }
         Ok(n == 1)
     }
 
@@ -532,13 +565,17 @@ impl Store {
             let mut stmt = self.conn.prepare("SELECT id, name FROM org_groups WHERE org = ?1 ORDER BY name COLLATE NOCASE, id")?;
             stmt.query_map([org], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
         };
-        let mut out = Vec::with_capacity(list.len());
-        for (id, name) in list {
-            let mut stmt = self
-                .conn
-                .prepare("SELECT a.id, a.name FROM group_members gm JOIN accounts a ON a.id = gm.account WHERE gm.grp = ?1 ORDER BY a.name COLLATE NOCASE, a.id")?;
-            let members = stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-            out.push(Group { id, name, members });
+        // Les membres de tous les groupes en une requête (REL-33).
+        let mut out: Vec<Group> = list.into_iter().map(|(id, name)| Group { id, name, members: Vec::new() }).collect();
+        let mut stmt = self.conn.prepare(
+            "SELECT gm.grp, a.id, a.name FROM group_members gm JOIN accounts a ON a.id = gm.account JOIN org_groups g ON g.id = gm.grp
+             WHERE g.org = ?1 ORDER BY a.name COLLATE NOCASE, a.id",
+        )?;
+        let rows: Vec<(i64, i64, String)> = stmt.query_map([org], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        for (grp, id, name) in rows {
+            if let Some(g) = out.iter_mut().find(|g| g.id == grp) {
+                g.members.push((id, name));
+            }
         }
         Ok(out)
     }
@@ -757,12 +794,12 @@ impl Accounts {
             tracing::info!(station = %station, raison = why, "enrôlement refusé");
             return refused(why);
         }
-        let done = (|| -> Result<()> {
-            let tx = db.conn.unchecked_transaction()?;
+        // Tout ou rien (REL-26) : un échec ne consomme pas de place du jeton, ni ne laisse une
+        // Station rattachée sans les droits de son groupe.
+        let done = super::store::atomic(&db.conn, || -> Result<()> {
             // Compté d'abord : deux Stations en même temps ne dépassent pas le nombre.
-            let n = tx.execute("UPDATE enroll_tokens SET used = used + 1 WHERE id = ?1 AND used < max_stations", [t.id])?;
+            let n = db.conn.execute("UPDATE enroll_tokens SET used = used + 1 WHERE id = ?1 AND used < max_stations", [t.id])?;
             anyhow::ensure!(n == 1, "jeton épuisé");
-            tx.commit()?;
             db.attach_station_to_org(station, &name, org, None, Some(t.id), now)?;
             if let Some(grp) = t.grp.filter(|_| !t.rights.is_empty()) {
                 db.grant_group(station, grp, &t.rights, 0, now)?;
@@ -773,7 +810,7 @@ impl Accounts {
             }
             db.org_log(org, None, "station_enrolee", json!({ "station": name, "token": t.name, "group": t.sgroup_name.clone().unwrap_or_default() }), None, now)?;
             Ok(())
-        })();
+        });
         if let Err(e) = done {
             drop(db);
             tracing::warn!("enrôlement : {e:#}");
@@ -817,7 +854,7 @@ mod tests {
         assert_eq!(s.granted_rights(b, "st1", 70).unwrap(), Rights::new([Right::Session, Right::Lend]));
         assert_eq!(s.members(org.id).unwrap()[1].groups, vec!["Graphistes".to_string()]);
         // Retiré de l'organisation : plus rien.
-        assert!(s.remove_member(org.id, b).unwrap());
+        assert!(s.remove_member(org.id, b, 0).unwrap());
         assert!(s.granted_rights(b, "st1", 70).unwrap().is_empty());
         assert!(s.groups(org.id).unwrap()[0].members.is_empty());
     }

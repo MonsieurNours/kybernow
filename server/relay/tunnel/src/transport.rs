@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt};
 
-use crate::frame::{MAX_VARINT, decode_datagram, encode_datagram, encode_record, read_record};
+use crate::frame::{MAX_VARINT, decode_datagram, encode_datagram, read_record_into};
 
 /// Un paquet de 1200 octets au plus passe toujours, en datagramme ou en flux
 /// de secours ; plus grand, il est jeté s'il ne tient pas.
@@ -480,6 +480,14 @@ impl MediaSender {
         MediaSender(SendInner::Quic(conn, Arc::new(AtomicUsize::new(0))))
     }
 
+    /// Ferme la connexion QUIC des paquets (une nouvelle la remplace) ; rien en repli TCP,
+    /// où les paquets passent par la connexion de contrôle.
+    pub fn close(&self) {
+        if let SendInner::Quic(conn, _) = &self.0 {
+            conn.close(0u32.into(), b"remplacee");
+        }
+    }
+
     /// Envoie un paquet sur un flux. Un numéro de flux qui ne s'écrit pas en
     /// entier variable de QUIC (au-delà de 2^62, venu d'un message mal formé)
     /// ne s'envoie pas.
@@ -519,13 +527,12 @@ impl MediaSender {
                 Err(quinn::SendDatagramError::ConnectionLost(_)) => Sent::Dropped(DropReason::Closed),
                 Err(_) => Sent::Dropped(DropReason::Unsupported),
             },
-            SendInner::Records(tx) => match encode_record(&datagram) {
-                None => Sent::Dropped(DropReason::TooLarge),
-                Some(record) => match tx.try_send(record) {
-                    Ok(()) => Sent::Datagram,
-                    Err(mpsc::error::TrySendError::Full(_)) => Sent::Dropped(DropReason::Full),
-                    Err(mpsc::error::TrySendError::Closed(_)) => Sent::Dropped(DropReason::Closed),
-                },
+            // Le datagramme tel quel : la tâche d'écriture met la longueur devant, dans son tampon (REL-35).
+            SendInner::Records(_) if datagram.len() > u16::MAX as usize => Sent::Dropped(DropReason::TooLarge),
+            SendInner::Records(tx) => match tx.try_send(datagram) {
+                Ok(()) => Sent::Datagram,
+                Err(mpsc::error::TrySendError::Full(_)) => Sent::Dropped(DropReason::Full),
+                Err(mpsc::error::TrySendError::Closed(_)) => Sent::Dropped(DropReason::Closed),
             },
         }
     }
@@ -611,12 +618,13 @@ pub fn media_over_stream(stream: RelayStream) -> (MediaSender, MediaReceiver) {
     let (in_tx, in_rx) = mpsc::channel::<Bytes>(1024);
     let writer = tokio::spawn(async move {
         let mut w = BufWriter::new(write);
+        // Chaque datagramme part en enregistrement `[longueur][datagramme]`, écrit dans le tampon (REL-35).
         while let Some(first) = out_rx.recv().await {
-            if w.write_all(&first).await.is_err() {
+            if w.write_all(&(first.len() as u16).to_be_bytes()).await.is_err() || w.write_all(&first).await.is_err() {
                 return;
             }
             while let Ok(more) = out_rx.try_recv() {
-                if w.write_all(&more).await.is_err() {
+                if w.write_all(&(more.len() as u16).to_be_bytes()).await.is_err() || w.write_all(&more).await.is_err() {
                     return;
                 }
             }
@@ -628,7 +636,8 @@ pub fn media_over_stream(stream: RelayStream) -> (MediaSender, MediaReceiver) {
     let reader = tokio::spawn(async move {
         let _writer = AbortOnDrop(writer);
         let mut read = read;
-        while let Ok(Some(record)) = read_record(&mut read).await {
+        let mut buf = bytes::BytesMut::new();
+        while let Ok(Some(record)) = read_record_into(&mut read, &mut buf).await {
             // File pleine : le paquet est perdu, comme en UDP.
             let _ = in_tx.try_send(record);
         }

@@ -121,6 +121,8 @@ const MIGRATIONS: &[&str] = &[
     // 9 : les réglages synchronisés, par compte et par ordinateur (docs/comptes.md, « Réglages synchronisés et
     // déplacer un ordinateur »), voir `super::settings`.
     super::settings::MIGRATION,
+    // 10 : une échéance par droit donné (audit du 27/11, REL-03), voir `super::people`.
+    super::people::RIGHT_ENDS_MIGRATION,
 ];
 
 /// Les adresses IP du journal sont effacées après ce temps (docs/comptes.md : « quelques jours »).
@@ -129,6 +131,11 @@ pub const AUDIT_IP_SECS: i64 = 7 * 24 * 3600;
 pub const AUDIT_SECS: i64 = 365 * 24 * 3600;
 /// Un compte jamais vérifié est effacé après ce temps (docs/juridique/README.md).
 pub const UNVERIFIED_SECS: i64 = 7 * 24 * 3600;
+
+/// Un nom montré : le nom, sinon l'adresse.
+pub fn shown_name(name: &str, email: &str) -> String {
+    if name.is_empty() { email.to_string() } else { name.to_string() }
+}
 
 /// Un compte.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,6 +150,11 @@ pub struct Account {
 }
 
 impl Account {
+    /// Son nom, sinon son adresse (REL-38 : un seul endroit).
+    pub fn display_name(&self) -> String {
+        shown_name(&self.name, &self.email)
+    }
+
     pub fn verified(&self) -> bool {
         self.verified_at.is_some()
     }
@@ -296,6 +308,7 @@ impl Store {
     }
 
     /// Une base en mémoire (essais).
+    #[cfg(test)]
     pub fn memory(now: i64) -> Result<Store> {
         Store::setup(Connection::open_in_memory()?, now)
     }
@@ -400,7 +413,9 @@ impl Store {
 
     /// Vérifie un code à six chiffres ; chaque erreur compte, et au-delà de
     /// [`CODE_ATTEMPTS`] le code ne vaut plus.
-    pub fn check_email_code(&self, account: i64, purpose: &str, code: &str, now: i64) -> Result<CodeCheck> {
+    /// Le code tapé, sous ses formes possibles (`candidates` : son empreinte, et le code lui-même
+    /// pour un code gardé en clair avant REL-22).
+    pub fn check_email_code(&self, account: i64, purpose: &str, candidates: &[&str], now: i64) -> Result<CodeCheck> {
         let row: Option<(Vec<u8>, Option<String>, i64)> = self
             .conn
             .query_row(
@@ -413,7 +428,7 @@ impl Store {
         if attempts >= CODE_ATTEMPTS {
             return Ok(CodeCheck::None);
         }
-        if super::ct_eq(expected.as_bytes(), code.as_bytes()) {
+        if candidates.iter().any(|c| super::ct_eq(expected.as_bytes(), c.as_bytes())) {
             return Ok(CodeCheck::Ok);
         }
         self.conn.execute("UPDATE email_tokens SET attempts = attempts + 1 WHERE hash = ?1", [hash])?;
@@ -478,6 +493,11 @@ impl Store {
     }
 
     /// Un secret en attente de confirmation (remplace un secret en attente, jamais un secret actif).
+    /// Le nombre de comptes dont la double authentification (TOTP) est activée.
+    pub fn active_totp_count(&self) -> Result<i64> {
+        Ok(self.conn.query_row("SELECT COUNT(*) FROM totp WHERE activated_at IS NOT NULL", [], |r| r.get(0))?)
+    }
+
     pub fn set_pending_totp(&self, account: i64, sealed: &[u8]) -> Result<()> {
         self.conn.execute(
             "INSERT INTO totp (account, secret) VALUES (?1, ?2) ON CONFLICT(account) DO UPDATE SET secret = excluded.secret, last_step = 0 WHERE activated_at IS NULL",
@@ -608,6 +628,11 @@ impl Store {
     }
 
     /// Retire une passkey du compte ; faux si elle n'est pas à lui.
+    /// Retire les passkeys ajoutées à partir de `since` ; leur nombre.
+    pub fn delete_passkeys_since(&self, account: i64, since: i64) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM passkeys WHERE account = ?1 AND created_at >= ?2", params![account, since])?)
+    }
+
     pub fn delete_passkey(&self, id: i64, account: i64) -> Result<bool> {
         Ok(self.conn.execute("DELETE FROM passkeys WHERE id = ?1 AND account = ?2", params![id, account])? == 1)
     }
@@ -765,6 +790,7 @@ impl Store {
     }
 
     /// Les lignes du journal d'un compte : `(type, quand)`, la plus récente d'abord.
+    #[cfg(test)]
     pub fn audit_of(&self, account: i64) -> Result<Vec<(String, i64)>> {
         let mut stmt = self.conn.prepare("SELECT kind, at FROM audit WHERE account = ?1 ORDER BY at DESC, id DESC")?;
         let rows = stmt.query_map([account], |r| Ok((r.get(0)?, r.get(1)?)))?;
@@ -823,6 +849,22 @@ pub fn iso(unix: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", secs / 3600, secs / 60 % 60, secs % 60)
 }
 
+/// Des écritures tout ou rien, même dans une transaction déjà ouverte (un `SAVEPOINT`, qui
+/// s'imbrique, au lieu de `BEGIN`, qui ne s'imbrique pas) : REL-25 et REL-26.
+pub(super) fn atomic<T>(conn: &Connection, f: impl FnOnce() -> Result<T>) -> Result<T> {
+    conn.execute_batch("SAVEPOINT kn_atomic")?;
+    match f() {
+        Ok(v) => {
+            conn.execute_batch("RELEASE kn_atomic")?;
+            Ok(v)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK TO kn_atomic; RELEASE kn_atomic");
+            Err(e)
+        }
+    }
+}
+
 fn migrate(conn: &mut Connection, now: i64) -> Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)")?;
     let current: i64 = conn.query_row("SELECT COALESCE(MAX(version), 0) FROM migrations", [], |r| r.get(0))?;
@@ -841,6 +883,25 @@ fn migrate(conn: &mut Connection, now: i64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tout_ou_rien_meme_imbrique() {
+        // REL-25, REL-26 : une erreur au milieu défait tout, dans une transaction déjà ouverte aussi.
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        s.attach_station("st1", "PC", a, a, 10).unwrap();
+        let r: Result<()> = atomic(&s.conn, || {
+            s.conn.execute("DELETE FROM stations WHERE id = 'st1'", [])?;
+            anyhow::bail!("panne")
+        });
+        assert!(r.is_err());
+        assert!(s.station("st1").unwrap().is_some(), "rien n'a changé");
+        let tx = s.conn.unchecked_transaction().unwrap();
+        s.attach_station("st2", "PC 2", a, a, 10).unwrap();
+        tx.commit().unwrap();
+        assert!(s.station("st2").unwrap().is_some(), "un rattachement dans une transaction ouverte passe");
+        assert!(s.detach_station("st2", None).unwrap());
+    }
 
     #[test]
     fn migration_8_les_invitations_en_attente_repartent_pour_30_jours() {
@@ -901,11 +962,11 @@ mod tests {
         assert_eq!(s.email_token_account(b"jeton", "reset", 10).unwrap(), None);
         assert_eq!(s.email_token_account(b"jeton", "verify", 1000).unwrap(), None, "expiré");
         for _ in 0..CODE_ATTEMPTS {
-            assert_eq!(s.check_email_code(id, "verify", "000000", 10).unwrap(), CodeCheck::Wrong);
+            assert_eq!(s.check_email_code(id, "verify", &["000000"], 10).unwrap(), CodeCheck::Wrong);
         }
-        assert_eq!(s.check_email_code(id, "verify", "123456", 10).unwrap(), CodeCheck::None, "trop d'essais : le code ne vaut plus");
+        assert_eq!(s.check_email_code(id, "verify", &["123456"], 10).unwrap(), CodeCheck::None, "trop d'essais : le code ne vaut plus");
         s.replace_email_token(id, "verify", b"autre", Some("654321"), 1000).unwrap();
-        assert_eq!(s.check_email_code(id, "verify", "654321", 10).unwrap(), CodeCheck::Ok);
+        assert_eq!(s.check_email_code(id, "verify", &["654321"], 10).unwrap(), CodeCheck::Ok);
         assert_eq!(s.email_token_account(b"jeton", "verify", 10).unwrap(), None, "l'ancien jeton est remplacé");
         // Changer d'adresse : seulement vers une adresse libre, avant la vérification.
         let other = s.create_account("b@exemple.org", "B", "h", "fr", Some(1), 0).unwrap().unwrap();

@@ -17,7 +17,7 @@ use super::super::pages::console::{self, DeployView, OrgComputer, OrgView, Tab, 
 use super::super::people::{Resend, Subject, rights_text};
 use super::super::station_groups::GroupTarget;
 use super::super::store::Account;
-use super::console::{form_rights, parse_until, shell, signed_in};
+use super::console::{form_rights, parse_until_tz, shell, signed_in, tz_of};
 use super::device_pages::sign_in_first;
 use super::{Cx, Reply, lang_of, normalize_email, token_hash};
 
@@ -58,13 +58,14 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
     let manage = acc.org_manager(account, Some(org.id));
     let view = {
         let db = acc.db();
-        let computers = db
-            .stations_of_org(org.id)
-            .unwrap_or_default()
+        let stations = db.stations_of_org(org.id).unwrap_or_default();
+        // Les droits de tous les ordinateurs en une requête (REL-33).
+        let mut grants = db.grants_of_many(&stations.iter().map(|s| s.id.clone()).collect::<Vec<_>>()).unwrap_or_default();
+        let computers = stations
             .into_iter()
             .map(|s| {
-                let access: Vec<String> = db
-                    .grants_of(&s.id)
+                let access: Vec<String> = grants
+                    .remove(&s.id)
                     .unwrap_or_default()
                     .into_iter()
                     .map(|g| {
@@ -88,15 +89,16 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
         let members = db.members(org.id).unwrap_or_default();
         let groups = db.groups(org.id).unwrap_or_default();
         // « Ouvrir ce groupe » : toute la famille ou l'équipe, ses groupes de personnes, ses membres.
-        let mut group_targets = vec![(
-            "org".to_string(),
-            match org.kind {
-                Kind::Family => crate::pages::t(cx.lang, &format!("{} (toute la famille)", org.name), &format!("{} (the whole family)", org.name)),
-                Kind::Team => crate::pages::t(cx.lang, &format!("{} (toute l'équipe)", org.name), &format!("{} (the whole team)", org.name)),
-            },
-        )];
+        let mut group_targets = vec![("org".to_string(), org.everyone(cx.lang))];
         group_targets.extend(groups.iter().map(|g| (format!("grp:{}", g.id), crate::pages::t(cx.lang, &format!("Groupe {}", g.name), &format!("Group {}", g.name)))));
-        group_targets.extend(members.iter().map(|m| (format!("compte:{}", m.account), if m.name.is_empty() { m.email.clone() } else { m.name.clone() })));
+        group_targets.extend(members.iter().map(|m| (format!("compte:{}", m.account), crate::accounts::store::shown_name(&m.name, &m.email))));
+        // « Inviter un membre » : les personnes connues qui n'en font pas encore partie.
+        let known = if manage {
+            let inside: Vec<&String> = members.iter().map(|m| &m.email).collect();
+            db.known_people(account.id).unwrap_or_default().into_iter().filter(|(_, e)| !inside.contains(&e)).collect()
+        } else {
+            Vec::new()
+        };
         OrgView {
             id: org.public_id.clone(),
             name: org.name.clone(),
@@ -114,13 +116,7 @@ fn show(cx: Cx<'_>, account: &Account, org: &Org, role: Role, tab: Tab, notice: 
             group_targets,
             now: cx.now,
             log: if role.manages() || tab == Tab::Log { db.org_log_of(org.id, limit).unwrap_or_default() } else { Vec::new() },
-            // « Inviter un membre » : les personnes connues qui n'en font pas encore partie.
-            known: if manage {
-                let inside: Vec<String> = db.members(org.id).unwrap_or_default().into_iter().map(|m| m.email).collect();
-                db.known_people(account.id).unwrap_or_default().into_iter().filter(|(_, e)| !inside.contains(e)).collect()
-            } else {
-                Vec::new()
-            },
+            known,
             shell: Default::default(),
         }
     };
@@ -175,6 +171,12 @@ pub(super) fn create(cx: Cx<'_>, post: bool) -> Reply {
         let page = console::create_org(&cx.view(), "", Some(kind), true, &nav, Some(Notice::OrgNameMissing));
         return cx.page(200, page);
     }
+    // Pas d'équipes à la chaîne (REL-13).
+    let owned = acc.db().orgs_of(account.id).map(|l| l.iter().filter(|(_, r)| *r == Role::Owner).count()).unwrap_or(0);
+    if owned >= super::super::MAX_OWNED_ORGS {
+        let page = console::create_org(&cx.view(), "", Some(kind), true, &nav, Some(Notice::NotAllowed));
+        return cx.page(429, page);
+    }
     let created = acc.db().create_org(&name, kind, account.id, cx.now);
     let org = match created {
         Ok(o) => o,
@@ -216,29 +218,28 @@ pub(super) fn invite(cx: Cx<'_>) -> Reply {
     if wanted == Role::Owner && role != Role::Owner {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
     }
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = show(cx, &account, &org, role, Tab::Members, Some(n));
+        r.status = 429;
+        return r;
+    }
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
     // Déjà membre : refusé, en le nommant ; une invitation en attente pour la même adresse est remplacée.
     if let Some(t) = &target
         && acc.db().org_role(org.id, t.id).ok().flatten().is_some()
     {
-        let name = if t.name.is_empty() { t.email.clone() } else { t.name.clone() };
+        let name = t.display_name();
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::AlreadyMember(name)));
     }
-    let done = match &target {
-        Some(t) => acc.db().set_member(org.id, t.id, wanted, cx.now),
-        None => acc.db().invite_member(org.id, &email, wanted, account.id, cx.now),
-    };
+    // Toujours une invitation, qu'un compte accepte dans son espace, et la même réponse (REL-11).
+    let done = acc.db().invite_member(org.id, &email, wanted, account.id, cx.now);
     if let Err(e) = done {
         tracing::warn!("invitation dans une organisation : {e:#}");
         return cx.failed();
     }
-    match &target {
-        Some(t) => log(&cx, &org, &account, "membre_ajoute", json!({ "member": t.name, "role": wanted.as_str() })),
-        None => log(&cx, &org, &account, "membre_invite", json!({ "email": email, "role": wanted.as_str() })),
-    }
+    log(&cx, &org, &account, "membre_invite", json!({ "email": email, "role": wanted.as_str() }));
     send_invite(&cx, &account, &org, &email, target.as_ref(), wanted);
-    let notice = if target.is_some() { Notice::MemberAdded } else { Notice::InviteSent };
-    show(cx, &account, &org, role, Tab::Members, Some(notice))
+    show(cx, &account, &org, role, Tab::Members, Some(Notice::InviteSent))
 }
 
 /// L'e-mail « {nom} vous invite dans {famille ou équipe} », dans la langue de la personne (la page sinon).
@@ -248,10 +249,10 @@ fn send_invite(cx: &Cx<'_>, account: &Account, org: &Org, email: &str, target: O
     }
     let lang = target.map(lang_of).unwrap_or(cx.lang);
     let link = match target {
-        Some(_) => cx.url(&format!("/compte/organisation?id={}&lang={}", org.public_id, lang.code())),
+        Some(_) => cx.url(&format!("/compte/invitations?lang={}", lang.code())),
         None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
     };
-    let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
+    let by = account.display_name();
     let role_word = role_name(lang, wanted);
     cx.mail(email, lang, Message::OrgInvite { by: &by, org: &org.name, role: &role_word, has_account: target.is_some(), link: &link });
 }
@@ -263,6 +264,11 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
     let (org, role) = managed!(cx, account, Tab::Members);
     let Ok(id) = cx.req.form("invitation").parse::<i64>() else { return show(cx, &account, &org, role, Tab::Members, None) };
     let Some((_, wanted)) = acc.db().org_invite(org.id, id).ok().flatten() else { return show(cx, &account, &org, role, Tab::Members, None) };
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = show(cx, &account, &org, role, Tab::Members, Some(n));
+        r.status = 429;
+        return r;
+    }
     let resent = acc.db().resend_org_invite(org.id, id, cx.now);
     let email = match resent {
         Ok(Resend::Done(email)) => email,
@@ -273,11 +279,8 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
             return cx.failed();
         }
     };
-    // L'adresse a depuis un compte vérifié : l'invitation, de nouveau valable, passe à lui tout de suite.
+    // L'adresse a depuis un compte vérifié : il accepte l'invitation dans son espace (REL-11).
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
-    if let Some(t) = &target {
-        let _ = acc.db().claim_invitations(t.id, cx.now);
-    }
     log(&cx, &org, &account, "invitation_renvoyee", json!({ "email": email, "role": wanted.as_str() }));
     cx.audit(Some(account.id), "invitation_renvoyee");
     send_invite(&cx, &account, &org, &email, target.as_ref(), wanted);
@@ -300,11 +303,16 @@ pub(super) fn set_role(cx: Cx<'_>) -> Reply {
     if (current == Role::Owner || wanted == Role::Owner) && role != Role::Owner {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
     }
-    if current == Role::Owner && acc.db().owners(org.id).unwrap_or(0) <= 1 {
-        return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner));
-    }
-    if acc.db().set_member(org.id, target, wanted, cx.now).is_err() {
-        return cx.failed();
+    // Le compte des Propriétaires et le changement sous le même verrou : deux Propriétaires qui
+    // se rétrogradent en même temps n'en laissent pas zéro (REL-24).
+    let changed = {
+        let db = acc.db();
+        if current == Role::Owner && db.owners(org.id).unwrap_or(0) <= 1 { None } else { Some(db.set_member(org.id, target, wanted, cx.now).is_ok()) }
+    };
+    match changed {
+        None => return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner)),
+        Some(false) => return cx.failed(),
+        Some(true) => {}
     }
     let name = acc.db().account(target).ok().flatten().map(|a| a.name).unwrap_or_default();
     log(&cx, &org, &account, "role_change", json!({ "member": name, "role": wanted.as_str() }));
@@ -334,7 +342,7 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
         return show(cx, &account, &org, role, Tab::Members, Some(Notice::NotAllowed));
     }
     let name = acc.db().account(target).ok().flatten().map(|a| a.name).unwrap_or_default();
-    if !acc.db().remove_member(org.id, target).unwrap_or(false) {
+    if !acc.db().remove_member(org.id, target, cx.now).unwrap_or(false) {
         return show(cx, &account, &org, role, Tab::Members, None);
     }
     log(&cx, &org, &account, "membre_retire", json!({ "member": name }));
@@ -346,11 +354,15 @@ pub(super) fn leave(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
     let Some((org, role)) = org_of(&cx, &account, true) else { return not_found(cx) };
-    if role == Role::Owner && acc.db().owners(org.id).unwrap_or(0) <= 1 {
-        return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner));
-    }
-    if !acc.db().remove_member(org.id, account.id).unwrap_or(false) {
-        return cx.failed();
+    // Sous le même verrou que le compte des Propriétaires (REL-24).
+    let left = {
+        let db = acc.db();
+        if role == Role::Owner && db.owners(org.id).unwrap_or(0) <= 1 { None } else { Some(db.remove_member(org.id, account.id, cx.now).unwrap_or(false)) }
+    };
+    match left {
+        None => return show(cx, &account, &org, role, Tab::Members, Some(Notice::LastOwner)),
+        Some(false) => return cx.failed(),
+        Some(true) => {}
     }
     log(&cx, &org, &account, "membre_parti", json!({}));
     cx.audit(Some(account.id), "organisation_quittee");
@@ -449,6 +461,10 @@ pub(super) fn deploy(cx: Cx<'_>) -> Reply {
         let notice = if role.manages() { Notice::NeedTwoFactor } else { Notice::NotAllowed };
         return show(cx, &account, &org, role, Tab::Computers, Some(notice));
     }
+    // Pas de jetons d'enrôlement pour une famille (REL-27) : l'interface les cache, le serveur aussi.
+    if org.kind == Kind::Family {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NotAllowed));
+    }
     deploy_page(cx, &account, &org, None, None)
 }
 
@@ -456,7 +472,10 @@ pub(super) fn deploy(cx: Cx<'_>) -> Reply {
 pub(super) fn token_create(cx: Cx<'_>) -> Reply {
     let account = signed_in!(cx);
     let acc = cx.acc;
-    let (org, _) = managed!(cx, account, Tab::Computers);
+    let (org, role) = managed!(cx, account, Tab::Computers);
+    if org.kind == Kind::Family {
+        return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NotAllowed));
+    }
     let name = clean_org_name(cx.req.form("nom"));
     let days = cx.req.form("jours").trim().parse::<i64>().ok().filter(|d| (1..=ENROLL_MAX_DAYS).contains(d));
     let count = cx.req.form("nombre").trim().parse::<i64>().ok().filter(|n| (1..=ENROLL_MAX_STATIONS).contains(n));
@@ -578,7 +597,7 @@ pub(super) fn sgroup_open(cx: Cx<'_>) -> Reply {
     if rights.is_empty() {
         return show(cx, &account, &org, role, Tab::Computers, Some(Notice::NoRights));
     }
-    let Some(until) = parse_until(cx.req.form("fin"), cx.now) else {
+    let Some(until) = parse_until_tz(cx.req.form("fin"), cx.now, tz_of(&cx)) else {
         return show(cx, &account, &org, role, Tab::Computers, Some(Notice::BadDate));
     };
     // À qui : toute l'organisation, un de ses groupes de personnes, un de ses membres.

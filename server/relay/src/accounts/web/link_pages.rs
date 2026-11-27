@@ -17,7 +17,7 @@ use super::super::pages::{self, Notice, console};
 use super::super::people::rights_text;
 use super::super::stations::StationRow;
 use super::super::store::Account;
-use super::console::{Kept, form_rights, managed_station, not_found, parse_until, people_page, signed_in};
+use super::console::{Kept, bounded, form_rights, managed_station, not_found, parse_until_tz, people_page, signed_in, tz_of};
 use super::device_pages::{set_next_for, sign_in_first};
 use super::{Cx, Reply, token_hash};
 
@@ -39,8 +39,12 @@ pub(super) fn create(cx: Cx<'_>) -> Reply {
     if !LINK_DAYS.contains(&days) {
         return people_page(cx, &account, &station, Some(Notice::BadNumber), kept(days));
     }
-    let Some(until) = parse_until(&until_text, cx.now) else {
+    let Some(until) = parse_until_tz(&until_text, cx.now, tz_of(&cx)) else {
         return people_page(cx, &account, &station, Some(Notice::BadDate), kept(days));
+    };
+    // Qui a reçu Administrer ne donne que ses droits, jusqu'à leur échéance (REL-02).
+    let Some(until) = bounded(&cx, &account, &station, &rights, until) else {
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), kept(days));
     };
     if acc.db().pending_links(&station.id, cx.now).unwrap_or(MAX_PENDING) >= MAX_PENDING {
         return people_page(cx, &account, &station, Some(Notice::TooManyLinks), Kept::default());
@@ -108,10 +112,6 @@ fn refused(cx: Cx<'_>, here: &str, why: Refusal) -> Reply {
     cx.page(status, page)
 }
 
-/// Le nom d'une personne : son nom, sinon son adresse.
-fn display_name(a: &Account) -> String {
-    if a.name.is_empty() { a.email.clone() } else { a.name.clone() }
-}
 
 /// `GET/POST /compte/lien/<lien>` : « {nom} vous ouvre {ordinateur} », puis « Accepter ».
 pub(super) fn open(mut cx: Cx<'_>, token: &str, post: bool) -> Reply {
@@ -139,7 +139,7 @@ pub(super) fn open(mut cx: Cx<'_>, token: &str, post: bool) -> Reply {
     let Some(station) = station else { return refused(cx, &here, Refusal::Unreadable) };
     let creator = link.created_by.and_then(|c| acc.db().account(c).ok().flatten());
     let Some(creator) = creator.filter(|c| acc.can_manage(c, &station)) else { return refused(cx, &here, Refusal::Revoked) };
-    let by = display_name(&creator);
+    let by = creator.display_name();
     let Some((_, account)) = cx.full_session() else {
         // Mot de passe donné, code attendu : le code d'abord, puis le lien.
         if cx.session().is_some_and(|(s, _)| !s.mfa_done) {
@@ -167,7 +167,9 @@ pub(super) fn open(mut cx: Cx<'_>, token: &str, post: bool) -> Reply {
         let page = console::link_accept(&cx.view(), &here, &by, &station.name, &link.rights, link.access_expires_at, needs_2fa);
         return cx.page(200, page);
     }
-    let used = acc.db().use_access_link(link.id, account.id, cx.now);
+    // Le créateur a reçu Administrer : le lien ne donne que ce qu'il a encore, jusqu'à son échéance (REL-02).
+    let Some(end) = bounded(&cx, &creator, &station, &link.rights, link.access_expires_at) else { return refused(cx, &here, Refusal::Revoked) };
+    let used = acc.db().use_access_link(link.id, account.id, end, cx.now);
     match used {
         Ok(true) => {}
         Ok(false) => {
@@ -196,7 +198,7 @@ fn accepted(cx: Cx<'_>, account: &Account, creator: &Account, station: &StationR
         tracing::warn!("journal des comptes : {e:#}");
     }
     if let Some(org) = station.org {
-        let detail = json!({ "station": station.name, "who": display_name(account), "rights": rights_text(rights) });
+        let detail = json!({ "station": station.name, "who": account.display_name(), "rights": rights_text(rights) });
         let _ = acc.db().org_log(org, Some(account), "lien_utilise", detail, Some(&cx.ip()), cx.now);
     }
     tracing::info!(station = %station.id, "lien d'accès utilisé");

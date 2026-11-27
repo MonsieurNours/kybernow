@@ -12,7 +12,7 @@ use super::super::mail::Message;
 use super::super::pages::console::{
     self, AllPeopleView, ComputerCard, ComputersView, FamiliesView, Granted, NavOrg, OrgCard, PeopleView, PersonRow, Shell, Start, Welcome, invite_state, rights_words,
 };
-use super::super::pages::{Notice, date};
+use super::super::pages::{Notice, date, end_date};
 use super::super::people::{Grant, Resend, Subject};
 use super::super::stations::StationRow;
 use super::super::store::Account;
@@ -28,7 +28,10 @@ pub(super) fn managed_stations(cx: &Cx<'_>, account: &Account) -> Vec<StationRow
 
 /// Ce que le menu de l'espace montre : ses familles et équipes, les nombres, « Pour bien démarrer ».
 pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
-    let managed = managed_stations(cx, account);
+    // Les ordinateurs visibles une seule fois (REL-33) : leur nombre, et ceux qu'il gère.
+    let visible = cx.acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
+    let computers = visible.len();
+    let managed: Vec<StationRow> = visible.into_iter().filter(|s| cx.acc.can_manage(account, s)).collect();
     let db = cx.acc.db();
     let orgs = db.orgs_of(account.id).unwrap_or_default();
     drop(db);
@@ -37,7 +40,7 @@ pub(super) fn shell(cx: &Cx<'_>, account: &Account) -> Shell {
     Shell {
         name: account.name.clone(),
         email: account.email.clone(),
-        computers: db.visible_stations(account.id, cx.now).map(|v| v.len()).unwrap_or(0),
+        computers,
         people,
         start: Start { protected: db.two_factor(account.id).unwrap_or(false), attached: !managed.is_empty(), opened: people > 0, grouped: !orgs.is_empty() },
         orgs: orgs.into_iter().map(|(o, _)| NavOrg { id: o.public_id, name: o.name, kind: o.kind }).collect(),
@@ -50,7 +53,18 @@ pub(super) fn form_rights(cx: &Cx<'_>) -> Rights {
 }
 
 /// Une date de fin (`2026-12-31`, ou `31/12/2026`) : la fin de ce jour (UTC), à venir ; `Some(None)` : pas de date.
+#[cfg(test)]
 pub(super) fn parse_until(text: &str, now: i64) -> Option<Option<i64>> {
+    parse_until_tz(text, now, 0)
+}
+
+/// Le décalage du navigateur (`tz`, minutes, comme `getTimezoneOffset`), borné à [-12 h, +12 h[ ; 0 sans lui.
+pub(super) fn tz_of(cx: &Cx<'_>) -> i64 {
+    cx.req.form("tz").trim().parse::<i64>().map(|m| m.clamp(-720, 719)).unwrap_or(0)
+}
+
+/// La même, à minuit chez la personne (REL-29) : `tz` est son décalage (UTC − heure locale, en minutes).
+pub(super) fn parse_until_tz(text: &str, now: i64, tz: i64) -> Option<Option<i64>> {
     let text = text.trim();
     if text.is_empty() {
         return Some(None);
@@ -76,7 +90,7 @@ pub(super) fn parse_until(text: &str, now: i64) -> Option<Option<i64>> {
     if date(Lang::Fr, days * 86_400) != format!("{d:02}/{m:02}/{y}") {
         return None;
     }
-    let end = (days + 1) * 86_400;
+    let end = (days + 1) * 86_400 + tz.clamp(-720, 719) * 60;
     (end > now).then_some(Some(end))
 }
 
@@ -102,14 +116,17 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
     }
     let orgs = acc.db().orgs_of(account.id).unwrap_or_default();
     let stations = acc.db().visible_stations(account.id, cx.now).unwrap_or_default();
+    let invites = acc.db().pending_invites(&account.email, cx.now).map(|l| l.len()).unwrap_or(0);
     let mut view = ComputersView {
+        invites,
         orgs: orgs.iter().map(|(o, _)| (o.public_id.clone(), o.name.clone(), o.kind, Vec::new())).collect(),
         shell: shell(&cx, &account),
         ..ComputersView::default()
     };
+    let counts = acc.db().grants_of_many(&stations.iter().map(|s| s.id.clone()).collect::<Vec<_>>()).unwrap_or_default();
     for s in &stations {
         let Some(standing) = acc.standing(&account, s) else { continue };
-        let people = acc.db().grants_of(&s.id).map(|g| g.len()).unwrap_or(0);
+        let people = counts.get(&s.id).map(Vec::len).unwrap_or(0);
         let detail = if standing.manage {
             match (people, cx.lang) {
                 (0, _) => cx.tr("Vous seul", "Only you"),
@@ -140,7 +157,7 @@ pub(super) fn computers(cx: Cx<'_>, notice: Option<Notice>) -> Reply {
 /// Qui a accès, en mots : `(nom, détail)`.
 fn subject_words(cx: &Cx<'_>, subject: &Subject) -> (String, String) {
     match subject {
-        Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, email.clone()),
+        Subject::Person { name, email, .. } => (super::super::store::shown_name(name, email), email.clone()),
         Subject::Invite { email } => (email.clone(), cx.tr("Invitation envoyée, pas encore de compte", "Invitation sent, no account yet")),
         Subject::Org { name, .. } => (name.clone(), cx.tr("Tous ses membres", "All its members")),
         Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), cx.tr("Groupe", "Group")),
@@ -155,11 +172,13 @@ pub(super) fn people_rows(cx: &Cx<'_>, stations: &[StationRow]) -> Vec<Granted> 
     let db = cx.acc.db();
     let mut keys: Vec<String> = Vec::new();
     let mut rows: Vec<Granted> = Vec::new();
+    // Une requête pour tous les ordinateurs (REL-33).
+    let mut all = db.grants_of_many(&stations.iter().map(|s| s.id.clone()).collect::<Vec<_>>()).unwrap_or_default();
     for s in stations {
-        for g in db.grants_of(&s.id).unwrap_or_default() {
+        for g in all.remove(&s.id).unwrap_or_default() {
             let (key, name, detail) = match &g.subject {
                 Subject::Invite { email } => match db.account_by_email(email).ok().flatten().filter(|a| a.verified()) {
-                    Some(a) => (format!("compte:{}", a.id), if a.name.is_empty() { a.email.clone() } else { a.name.clone() }, a.email.clone()),
+                    Some(a) => (format!("compte:{}", a.id), a.display_name(), a.email.clone()),
                     None => (format!("adresse:{email}"), email.clone(), invite_state(cx.lang, g.sent_at, cx.now)),
                 },
                 Subject::Person { account, .. } => {
@@ -328,12 +347,12 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         }
         for g in db.grants_of(&station.id).unwrap_or_default() {
             let until = g.expires_at.map(|e| match cx.lang {
-                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", date(cx.lang, e - 1)), ""),
-                Lang::En => format!("until {}", date(cx.lang, e - 1)),
+                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", end_date(cx.lang, e)), ""),
+                Lang::En => format!("until {}", end_date(cx.lang, e)),
             });
             let expired = g.expired(cx.now).then(|| cx.tr("échu", "expired"));
             let (name, mut detail) = match &g.subject {
-                Subject::Person { name, email, .. } => (if name.is_empty() { email.clone() } else { name.clone() }, vec![email.clone()]),
+                Subject::Person { name, email, .. } => (super::super::store::shown_name(name, email), vec![email.clone()]),
                 Subject::Invite { email } => (email.clone(), vec![invite_state(cx.lang, g.sent_at, cx.now)]),
                 Subject::Org { name, .. } => (name.clone(), vec![cx.tr("Tous ses membres", "All its members")]),
                 Subject::Group { name, org_name, .. } => (format!("{org_name} › {name}"), vec![cx.tr("Groupe", "Group")]),
@@ -346,7 +365,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         // Les droits venus d'un groupe d'ordinateurs : « Par le groupe {groupe} », sans « Retirer ».
         for g in db.group_grants_on(&station.id).unwrap_or_default() {
             let name = match &g.subject {
-                Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+                Subject::Person { name, email, .. } => super::super::store::shown_name(name, email),
                 Subject::Invite { email } => email.clone(),
                 Subject::Org { name, .. } => name.clone(),
                 Subject::Group { name, org_name, .. } => format!("{org_name} › {name}"),
@@ -356,8 +375,8 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
                 Lang::En => format!("Through the group {}", g.group_name),
             }];
             detail.extend(g.expires_at.map(|e| match cx.lang {
-                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", date(cx.lang, e - 1)), ""),
-                Lang::En => format!("until {}", date(cx.lang, e - 1)),
+                Lang::Fr => t(cx.lang, &format!("jusqu'au {}", end_date(cx.lang, e)), ""),
+                Lang::En => format!("until {}", end_date(cx.lang, e)),
             }));
             detail.extend(g.expired(cx.now).then(|| cx.tr("échu", "expired")));
             rows.push(PersonRow { grant: None, group: Some(g.group_name.clone()), name, detail: detail.join(" · "), rights: g.rights.clone(), resend: false });
@@ -369,10 +388,7 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         let mut list = Vec::new();
         for (org, _) in db.orgs_of(account.id).unwrap_or_default() {
             if station.org != Some(org.id) {
-                let whole = match org.kind {
-                    super::super::orgs::Kind::Family => t(cx.lang, &format!("{} (toute la famille)", org.name), &format!("{} (the whole family)", org.name)),
-                    super::super::orgs::Kind::Team => t(cx.lang, &format!("{} (toute l'équipe)", org.name), &format!("{} (the whole team)", org.name)),
-                };
+                let whole = org.everyone(cx.lang);
                 list.push((org.public_id.clone(), whole));
             }
             for g in db.groups(org.id).unwrap_or_default() {
@@ -401,7 +417,9 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         online: acc.stations.online(&station.id),
         rows,
         manage: standing.manage,
-        can_detach: station.account == Some(account.id) || acc.org_manager(account, station.org),
+        // Un Propriétaire de l'équipe seulement, pas un Administrateur (REL-12).
+        can_detach: station.account == Some(account.id)
+            || (acc.org_manager(account, station.org) && station.org.is_some_and(|o| acc.db().org_role(o, account.id).ok().flatten() == Some(super::super::orgs::Role::Owner))),
         my_rights: standing.rights.clone(),
         admin_needs_2fa: standing.admin_needs_2fa,
         targets,
@@ -417,6 +435,43 @@ pub(super) fn people_page(cx: Cx<'_>, account: &Account, station: &StationRow, n
         shell: shell(&cx, account),
     };
     let page = console::people(&cx.view(), &view, notice);
+    cx.page(200, page)
+}
+
+/// L'échéance de ce que ce compte donne (REL-02) : `None` s'il donne des droits qu'il n'a pas ;
+/// sinon `until`, ramenée pour un délégué (droit Administrer reçu) à l'échéance de ses propres droits.
+pub(super) fn bounded(cx: &Cx<'_>, account: &Account, station: &StationRow, rights: &Rights, until: Option<i64>) -> Option<Option<i64>> {
+    match cx.acc.delegable(account, station) {
+        None => Some(until),
+        Some(own) => super::super::people::bound_delegation(&own, rights, until),
+    }
+}
+
+/// `GET/POST /compte/invitations` : les invitations reçues ; `type`, `id`, `action` (`accepter`, `refuser`) (REL-11).
+pub(super) fn invitations(cx: Cx<'_>, post: bool) -> Reply {
+    let account = signed_in!(cx);
+    let acc = cx.acc;
+    let mut notice = None;
+    if post {
+        let (kind, id) = (cx.req.form("type").to_string(), cx.req.form("id").parse::<i64>().unwrap_or(0));
+        let done = match cx.req.form("action") {
+            "accepter" => acc.db().accept_invite(account.id, &account.email, &kind, id, cx.now).map(|ok| ok.then_some(Notice::InviteAccepted)),
+            "refuser" => acc.db().decline_invite(&account.email, &kind, id).map(|ok| ok.then_some(Notice::InviteDeclined)),
+            _ => Ok(None),
+        };
+        match done {
+            Ok(n) => notice = n,
+            Err(e) => {
+                tracing::warn!("invitation : {e:#}");
+                return cx.failed();
+            }
+        }
+        if let Some(n) = &notice {
+            cx.audit(Some(account.id), if *n == Notice::InviteAccepted { "invitation_acceptee" } else { "invitation_refusee" });
+        }
+    }
+    let list = acc.db().pending_invites(&account.email, cx.now).unwrap_or_default();
+    let page = super::super::pages::console::invitations(&cx.view(), &shell(&cx, &account), &list, notice);
     cx.page(200, page)
 }
 
@@ -448,10 +503,14 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     if rights.is_empty() {
         return people_page(cx, &account, &station, Some(Notice::NoRights), Kept { form, ..Kept::default() });
     }
-    let Some(until) = parse_until(&until_text, cx.now) else {
+    let Some(until) = parse_until_tz(&until_text, cx.now, tz_of(&cx)) else {
         return people_page(cx, &account, &station, Some(Notice::BadDate), Kept { form, ..Kept::default() });
     };
-    // Quiconque gère les accès peut donner tous les droits (il les a lui-même) ; pas à soi, ni au propriétaire.
+    // Qui a reçu Administrer ne donne que ses droits, jusqu'à leur échéance (REL-02).
+    let Some(until) = bounded(&cx, &account, &station, &rights, until) else {
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
+    };
+    // Pas à soi, ni au propriétaire.
     if email == account.email {
         return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
@@ -459,46 +518,62 @@ pub(super) fn add(cx: Cx<'_>) -> Reply {
     if target.as_ref().is_some_and(|t| station.account == Some(t.id)) {
         return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept { form, ..Kept::default() });
     }
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = people_page(cx, &account, &station, Some(n), Kept::default());
+        r.status = 429;
+        return r;
+    }
     // Déjà là ? Une personne qui a déjà un accès à cet ordinateur : ses droits changent ; une
     // invitation en attente pour la même adresse : remplacée (docs/comptes.md, « Ajouter quelqu'un »).
     let had_access = target.as_ref().is_some_and(|t| {
         acc.db().grants_of(&station.id).unwrap_or_default().iter().any(|g| matches!(g.subject, Subject::Person { account, .. } if account == t.id))
     });
+    // Une personne qui a déjà un accès : ses droits changent. Sinon une invitation, qu'un compte
+    // accepte dans son espace, et la même réponse qu'il y ait un compte ou non (REL-11).
     let done = match &target {
-        Some(t) => acc.db().grant_person(&station.id, t.id, &rights, until, account.id, cx.now),
-        None => acc.db().grant_invite(&station.id, &email, &rights, until, account.id, cx.now),
+        Some(t) if had_access => acc.db().grant_person(&station.id, t.id, &rights, until, account.id, cx.now),
+        _ => acc.db().grant_invite(&station.id, &email, &rights, until, account.id, cx.now).map(|_| 0),
     };
     if let Err(e) = done {
         tracing::warn!("ajout d'une personne : {e:#}");
         return cx.failed();
     }
+    // Ses droits changent et Administrer n'y est plus : ce qu'elle a donné part avec (REL-02).
+    if let Some(t) = &target
+        && had_access
+        && !rights.has(kybernow_tunnel::access::Right::Admin)
+    {
+        let _ = acc.db().drop_delegated(&station.id, t.id, cx.now);
+    }
     cx.audit(Some(account.id), if had_access { "droits_changes" } else { "personne_ajoutee" });
     let to = target.as_ref().map(|t| t.name.clone()).unwrap_or_else(|| email.clone());
     log_rights(&cx, &account, &station, "droits_donnes", &to, &rights);
     tracing::info!(station = %station.id, compte = target.is_some(), deja = had_access, "personne ajoutée à un ordinateur");
-    send_shared(&cx, &account, &station, &email, target.as_ref(), &rights, until);
+    send_shared(&cx, &account, &station, &email, target.as_ref(), !had_access, &rights, until);
     let notice = match &target {
-        Some(t) if had_access => Notice::AccessUpdated(if t.name.is_empty() { t.email.clone() } else { t.name.clone() }),
-        Some(_) => Notice::PersonAdded,
-        None => Notice::InviteSent,
+        Some(t) if had_access => Notice::AccessUpdated(t.display_name()),
+        _ => Notice::InviteSent,
     };
     people_page(cx, &account, &station, Some(notice), Kept::default())
 }
 
 /// L'e-mail « {nom} vous a ouvert {ordinateur} », dans la langue de la personne (la page sinon).
-fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str, target: Option<&Account>, rights: &Rights, until: Option<i64>) {
+/// `pending` : une invitation, à accepter par un compte déjà là (REL-11).
+#[allow(clippy::too_many_arguments)]
+fn send_shared(cx: &Cx<'_>, account: &Account, station: &StationRow, email: &str, target: Option<&Account>, pending: bool, rights: &Rights, until: Option<i64>) {
     if !cx.may_mail(email) {
         return;
     }
     let lang = target.map(lang_of).unwrap_or(cx.lang);
     let link = match target {
+        Some(_) if pending => cx.url(&format!("/compte/invitations?lang={}", lang.code())),
         Some(_) => cx.url(&format!("/compte/ordinateurs?lang={}", lang.code())),
         None => cx.url(&format!("/compte/inscription?lang={}", lang.code())),
     };
     let words = rights_words(lang, rights);
-    let until = until.map(|e| date(lang, e - 1));
-    let by = if account.name.is_empty() { account.email.clone() } else { account.name.clone() };
-    cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), link: &link });
+    let until = until.map(|e| end_date(lang, e));
+    let by = account.display_name();
+    cx.mail(email, lang, Message::ComputerShared { by: &by, computer: &station.name, rights: &words, until: until.as_deref(), has_account: target.is_some(), pending, link: &link });
 }
 
 /// `POST /compte/ordinateur/renvoyer` : « Renvoyer l'invitation » (`acces`), même expirée ; une fois par heure.
@@ -509,6 +584,11 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
     let Ok(id) = cx.req.form("acces").parse::<i64>() else { return people_page(cx, &account, &station, None, Kept::default()) };
     let grant: Option<Grant> = acc.db().grant(&station.id, id).ok().flatten().filter(|g| matches!(g.subject, Subject::Invite { .. }));
     let Some(grant) = grant else { return people_page(cx, &account, &station, None, Kept::default()) };
+    if let Err(n) = cx.invite_limit(&account) {
+        let mut r = people_page(cx, &account, &station, Some(n), Kept::default());
+        r.status = 429;
+        return r;
+    }
     let resent = acc.db().resend_grant_invite(&station.id, id, cx.now);
     let email = match resent {
         Ok(Resend::Done(email)) => email,
@@ -519,17 +599,14 @@ pub(super) fn resend(cx: Cx<'_>) -> Reply {
             return cx.failed();
         }
     };
-    // L'adresse a depuis un compte vérifié : l'invitation, de nouveau valable, passe à lui tout de suite.
+    // L'adresse a depuis un compte vérifié : il accepte l'invitation dans son espace (REL-11).
     let target = acc.db().account_by_email(&email).ok().flatten().filter(|a| a.verified());
-    if let Some(t) = &target {
-        let _ = acc.db().claim_invitations(t.id, cx.now);
-    }
     cx.audit(Some(account.id), "invitation_renvoyee");
     if let Some(org) = station.org {
         let detail = json!({ "station": station.name, "to": email });
         let _ = acc.db().org_log(org, Some(&account), "invitation_renvoyee", detail, Some(&cx.ip()), cx.now);
     }
-    send_shared(&cx, &account, &station, &email, target.as_ref(), &grant.rights, grant.expires_at);
+    send_shared(&cx, &account, &station, &email, target.as_ref(), true, &grant.rights, grant.expires_at);
     people_page(cx, &account, &station, Some(Notice::InviteResent(email)), Kept::default())
 }
 
@@ -541,6 +618,11 @@ pub(super) fn open_to(cx: Cx<'_>) -> Reply {
     let rights = form_rights(&cx);
     if rights.is_empty() {
         return people_page(cx, &account, &station, Some(Notice::NoRights), Kept::default());
+    }
+    // Un droit d'équipe ou de groupe n'a pas d'échéance : seulement par qui peut donner sans borne,
+    // ou par un délégué dont les droits donnés n'en ont pas non plus (REL-02).
+    if bounded(&cx, &account, &station, &rights, None) != Some(None) {
+        return people_page(cx, &account, &station, Some(Notice::NotAllowed), Kept::default());
     }
     let target = cx.req.form("a").to_string();
     let (org_id, grp) = match target.split_once(':') {
@@ -588,9 +670,13 @@ pub(super) fn remove(cx: Cx<'_>) -> Reply {
     if !acc.db().delete_grant(&station.id, id).unwrap_or(false) {
         return people_page(cx, &account, &station, None, Kept::default());
     }
+    // Ce que cette personne a donné sur l'ordinateur part avec son droit (REL-02).
+    if let Subject::Person { account: gone, .. } = &grant.subject {
+        let _ = acc.db().drop_delegated(&station.id, *gone, cx.now);
+    }
     cx.audit(Some(account.id), "acces_retire");
     let to = match &grant.subject {
-        Subject::Person { name, email, .. } => if name.is_empty() { email.clone() } else { name.clone() },
+        Subject::Person { name, email, .. } => super::super::store::shown_name(name, email),
         Subject::Invite { email } => email.clone(),
         Subject::Org { name, .. } => name.clone(),
         Subject::Group { name, org_name, .. } => format!("{org_name} › {name}"),
@@ -620,5 +706,16 @@ mod tests {
         assert_eq!(parse_until("2026-11-22", now), None, "passée");
         assert_eq!(parse_until("2027-02-30", now), None);
         assert_eq!(parse_until("demain", now), None);
+        // REL-29 : à New York (UTC−5, `getTimezoneOffset` = 300), « jusqu'au 31/12 » finit à minuit là-bas.
+        let ny = parse_until_tz("2026-12-31", now, 300).unwrap().unwrap();
+        assert_eq!(ny, end + 5 * 3600);
+        assert_eq!(end_date(Lang::Fr, ny), "31/12/2026");
+        // À Paris (UTC+1, −60) : une heure plus tôt ; même jour affiché.
+        let paris = parse_until_tz("2026-12-31", now, -60).unwrap().unwrap();
+        assert_eq!((paris, end_date(Lang::Fr, paris)), (end - 3600, "31/12/2026".to_string()));
+        // Bornes : ±12 h, et le jour affiché reste le bon.
+        for tz in [-720, -1000, 719, 1000] {
+            assert_eq!(end_date(Lang::Fr, parse_until_tz("2026-12-31", now, tz).unwrap().unwrap()), "31/12/2026", "{tz}");
+        }
     }
 }

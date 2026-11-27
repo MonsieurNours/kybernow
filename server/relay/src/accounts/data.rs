@@ -37,7 +37,7 @@ pub(super) fn delete(mut cx: Cx<'_>, post: bool) -> Reply {
     if !post {
         return show(cx, None, 200);
     }
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &account.email);
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &account.email, false);
     if let Err(wait) = limit {
         let minutes = wait.0.as_secs().div_ceil(60);
         let mut r = show(cx, Some(Notice::TooMany(minutes)), 429);

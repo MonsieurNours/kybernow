@@ -384,6 +384,8 @@ impl Cx<'_> {
 
     /// Les options d'ajout d'une passkey à ce compte ; `None` si le compte en a déjà le maximum.
     pub(super) fn registration(&self, account: &super::Account) -> Option<Registration> {
+        // Avant de prendre la base : `recent_auth` la lit aussi.
+        let password = !self.recent_auth();
         let db = self.acc.db();
         let keys = db.passkeys(account.id).ok()?;
         if keys.len() >= MAX_PER_ACCOUNT {
@@ -394,8 +396,9 @@ impl Cx<'_> {
             challenge: challenge(&self.acc.keys, &create_purpose(account.id), &self.csrf_cookie, self.now),
             user_id: b64(&user),
             user_name: account.email.clone(),
-            display_name: if account.name.is_empty() { account.email.clone() } else { account.name.clone() },
+            display_name: account.display_name(),
             exclude: keys.iter().map(|k| b64(&k.credential)).collect(),
+            password,
         })
     }
 
@@ -446,7 +449,7 @@ pub(super) fn sign_in(mut cx: Cx<'_>) -> Reply {
     // Les échecs comptent par adresse IP (le compte n'est connu qu'après la signature) :
     // une clé par adresse, pour qu'un tiers ne bloque pas les passkeys de tout le monde.
     let key = format!("passkey:{}", super::super::ip_key(cx.req.ip));
-    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &key);
+    let limit = acc.limits.lock().unwrap_or_else(|e| e.into_inner()).sign_in(cx.req.ip, &key, false);
     if let Err(wait) = limit {
         return cx.limited(wait, |cx, n| pages::sign_in(&cx.view(), "", Some(n), mail_on, mail_on));
     }
@@ -476,6 +479,10 @@ pub(super) fn sign_in(mut cx: Cx<'_>) -> Reply {
 pub(super) fn add(cx: Cx<'_>) -> Reply {
     let acc = cx.acc;
     let Some((_, account)) = cx.full_session() else { return to_sign_in(cx) };
+    // Une session ancienne (cookie volé ?) redonne le mot de passe avant d'ajouter une passkey (REL-06).
+    if let Err(notice) = cx.reauth(&account) {
+        return account_page(cx, Some(notice));
+    }
     let rp = cx.rp();
     let result = (|| {
         let client = unb64(cx.req.form("client_data")).ok_or(Refused::Malformed)?;
@@ -532,7 +539,7 @@ fn default_name(cx: &Cx<'_>) -> String {
 
 /// Un nom tapé : sans caractères de contrôle, 60 caractères au plus.
 pub fn clean_name(input: &str) -> String {
-    input.trim().chars().filter(|c| !c.is_control()).take(NAME_MAX).collect::<String>().trim().to_string()
+    crate::accounts::stations::clean_text(input, NAME_MAX)
 }
 
 /// `POST /compte/passkeys/renommer`.

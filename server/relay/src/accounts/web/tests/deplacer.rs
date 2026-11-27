@@ -85,6 +85,7 @@ fn reglages_synchronises_droits_limites_et_menage() {
 
     // Léa reçoit Ouvrir le bureau : elle garde ses réglages ; son accès retiré, ils partent à sa lecture suivante.
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1")]);
+    w.accept_invites("lea@exemple.org");
     assert_eq!(put_settings(&w, &lea_t, &st, json!({ "values": { "hdr": true } })).status, 200);
     assert_eq!(synced(&w, &lea_t), vec![st.clone()]);
     let grant = w.acc.db().grants_of(&st).unwrap()[0].id.to_string();
@@ -95,6 +96,7 @@ fn reglages_synchronises_droits_limites_et_menage() {
     assert!(w.acc.db().settings_of(lea_id).unwrap().is_empty(), "effacée à la lecture");
     // De même au ménage périodique.
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1")]);
+    w.accept_invites("lea@exemple.org");
     put_settings(&w, &lea_t, &st, json!({ "values": { "hdr": true } }));
     let grant = w.acc.db().grants_of(&st).unwrap()[0].id.to_string();
     ana.post("/compte/ordinateur/retirer?lang=fr", &[("id", &st), ("acces", &grant)]);
@@ -124,6 +126,7 @@ fn deplacer_d_une_personne_a_une_equipe_puis_a_une_famille_puis_a_soi() {
     let ana_t = device(&w, "ana@exemple.org", "Mac d'Ana");
     // Léa a Ouvrir le bureau, la famille aussi, un lien attend.
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1")]);
+    w.accept_invites("lea@exemple.org");
     ana.post("/compte/ordinateur/ouvrir?lang=fr", &[("id", &st), ("a", &family.public_id), ("session", "1")]);
     ana.post("/compte/ordinateur/liens/creer?lang=fr", &[("id", &st), ("jours", "7"), ("session", "1")]);
     put_settings(&w, &lea_t, &st, json!({ "values": { "mbps": 30 } }));
@@ -210,6 +213,7 @@ fn deplacer_refuse_sans_gerer_la_destination_sans_double_authentification_ou_san
     with_totp(&w, &mut paul, "paul@exemple.org");
     let other = new_org(&w, &mut paul, "paul@exemple.org", "Studio <Paul>", "equipe");
     paul.post("/compte/organisation/inviter?lang=fr", &[("id", &other.public_id), ("email", "ana@exemple.org"), ("role", "member")]);
+    w.accept_invites("ana@exemple.org");
     let page = txt(&ana.get(&format!("/compte/ordinateur?id={st}&lang=fr")));
     assert!(!page.contains(&format!("name=\"vers\" value=\"{}\"", other.public_id)), "seulement celles qu'elle gère");
     let r = ana.post("/compte/ordinateur/deplacer?lang=fr", &[("id", &st), ("vers", &other.public_id), ("action", "deplacer")]);
@@ -225,6 +229,7 @@ fn deplacer_refuse_sans_gerer_la_destination_sans_double_authentification_ou_san
     attach_as(&w, &mut bob, &stb);
     let bob_id = w.acc.db().account_by_email("bob@exemple.org").unwrap().unwrap().id;
     ana.post("/compte/organisation/inviter?lang=fr", &[("id", &team.public_id), ("email", "bob@exemple.org"), ("role", "admin")]);
+    w.accept_invites("bob@exemple.org");
     assert!(w.acc.db().org_role(team.id, bob_id).unwrap().is_some());
     let page = txt(&bob.get(&format!("/compte/ordinateur?id={stb}&lang=fr")));
     assert!(page.contains("Déplacer…") && page.contains(&format!("name=\"vers\" value=\"{}\"", team.public_id)));
@@ -236,6 +241,7 @@ fn deplacer_refuse_sans_gerer_la_destination_sans_double_authentification_ou_san
     let mut lea = person(&w, "lea@exemple.org", "Léa", "192.0.2.11");
     with_totp(&w, &mut lea, "lea@exemple.org");
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1"), ("admin", "1")]);
+    w.accept_invites("lea@exemple.org");
     let page = txt(&lea.get(&format!("/compte/ordinateur?id={st}&lang=fr")));
     assert!(page.contains("Ajouter une personne") && !page.contains("Déplacer…"));
     let r = lea.post("/compte/ordinateur/deplacer?lang=fr", &[("id", &st), ("vers", "moi"), ("action", "deplacer")]);

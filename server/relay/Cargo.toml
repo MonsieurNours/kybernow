@@ -8,7 +8,8 @@ members = [".", "tunnel"]
 
 [package]
 name = "kybernow-relay"
-version = "0.8.0"
+# Donnée par `/v1/health` et `welcome` : celle de KyberNow (l'image suit ses versions).
+version = "0.11.8"
 edition = "2024"
 rust-version = "1.89"
 license = "AGPL-3.0-or-later"

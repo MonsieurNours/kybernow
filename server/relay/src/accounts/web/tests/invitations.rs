@@ -49,7 +49,8 @@ fn ajouter_deux_fois_met_a_jour_sans_doublon() {
     let _lea = person(&w, "lea@exemple.org", "Léa Martin", "192.0.2.11");
     // Léa, deux fois, l'adresse écrite autrement : ses droits changent, une seule ligne.
     let r = ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1")]);
-    assert!(txt(&r).contains("Personne ajoutée"));
+    assert!(txt(&r).contains("Invitation envoyée"), "REL-11");
+    assert_eq!(w.accept_invites("lea@exemple.org"), 1);
     let r = ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "  LEA@Exemple.ORG "), ("lend", "1")]);
     assert!(txt(&r).contains("Léa Martin avait déjà accès") && txt(&r).contains("ses droits sont mis à jour"), "{}", txt(&r));
     let grants = w.acc.db().grants_of(&st).unwrap();
@@ -96,11 +97,14 @@ fn invitation_d_un_ordinateur_expiree_puis_renvoyee() {
     let list = invites(&w, &st);
     assert_eq!(list.len(), 1, "elle reste dans la liste");
     let id = list[0].0.to_string();
-    // Renvoyer : l'e-mail repart, les 30 jours aussi ; Sam a maintenant un compte vérifié : l'ordinateur passe.
+    // Renvoyer : l'e-mail repart, les 30 jours aussi ; Sam a maintenant un compte vérifié : il accepte (REL-11).
     let before = w.outbox.count_to("sam@exemple.org");
     let r = ana.post("/compte/ordinateur/renvoyer?lang=fr", &[("id", &st), ("acces", &id)]);
     assert!(txt(&r).contains("Invitation renvoyée à sam@exemple.org"), "{}", txt(&r));
     assert_eq!(w.outbox.count_to("sam@exemple.org"), before + 1);
+    assert!(w.mail("sam@exemple.org").text.contains("/compte/invitations"));
+    assert_eq!(computers(&w, &sam), json!([]), "rien avant d'accepter");
+    assert_eq!(w.accept_invites("sam@exemple.org"), 1);
     assert_eq!(computers(&w, &sam)[0]["rights"], json!(["lend"]));
     assert!(invites(&w, &st).is_empty());
     let audit = w.acc.db().audit_of(1).unwrap();
@@ -133,6 +137,7 @@ fn renvoyer_une_fois_par_heure() {
     // Une personne (pas une invitation) ne se renvoie pas ; un autre ordinateur non plus.
     let _lea = person(&w, "lea@exemple.org", "Léa", "192.0.2.11");
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1")]);
+    w.accept_invites("lea@exemple.org");
     let lea_grant = w.acc.db().grants_of(&st).unwrap().into_iter().find(|g| matches!(g.subject, Subject::Person { .. })).unwrap().id.to_string();
     let r = ana.post("/compte/ordinateur/renvoyer?lang=fr", &[("id", &st), ("acces", &lea_grant)]);
     assert!(!txt(&r).contains("Invitation renvoyée"));
@@ -150,7 +155,8 @@ fn inviter_un_membre_deja_la_et_renvoyer() {
     let id = org.public_id.clone();
     let _hugo = person(&w, "hugo@exemple.org", "Hugo", "192.0.2.13");
     let r = ana.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", "hugo@exemple.org"), ("role", "member")]);
-    assert!(txt(&r).contains("Membre ajouté"));
+    assert!(txt(&r).contains("Invitation envoyée"), "REL-11");
+    assert_eq!(w.accept_invites("hugo@exemple.org"), 1);
     // Déjà membre : refusé, en le nommant (l'adresse écrite autrement).
     let r = ana.post("/compte/organisation/inviter?lang=fr", &[("id", &id), ("email", " HUGO@exemple.org"), ("role", "admin")]);
     assert!(txt(&r).contains("Hugo en fait déjà partie."), "{}", txt(&r));
@@ -176,10 +182,12 @@ fn inviter_un_membre_deja_la_et_renvoyer() {
     let paul_id = w.acc.db().account_by_email("paul@exemple.org").unwrap().unwrap().id;
     assert_eq!(w.acc.db().org_role(org.id, paul_id).unwrap(), None);
     assert_eq!(w.acc.db().org_invites(org.id).unwrap().len(), 1);
-    // Renvoyer : il entre, avec le rôle de l'invitation ; une ligne au journal.
+    // Renvoyer : il l'accepte (REL-11), et entre avec le rôle de l'invitation ; une ligne au journal.
     let inv = list[0].id.to_string();
     let r = ana.post("/compte/organisation/renvoyer?lang=fr", &[("id", &id), ("invitation", &inv)]);
     assert!(txt(&r).contains("Invitation renvoyée à paul@exemple.org"), "{}", txt(&r));
+    assert_eq!(w.acc.db().org_role(org.id, paul_id).unwrap(), None, "pas avant d'accepter");
+    assert_eq!(w.accept_invites("paul@exemple.org"), 1);
     assert_eq!(w.acc.db().org_role(org.id, paul_id).unwrap(), Some(crate::accounts::orgs::Role::Admin));
     assert!(w.acc.db().org_invites(org.id).unwrap().is_empty());
     assert!(w.acc.db().org_log_of(org.id, 50).unwrap().iter().any(|l| l.kind == "invitation_renvoyee"));
@@ -209,6 +217,8 @@ fn suggestions_des_personnes_connues_seulement() {
     ana.post("/compte/organisation/inviter?lang=fr", &[("id", &org.public_id), ("email", "hugo@exemple.org"), ("role", "member")]);
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "lea@exemple.org"), ("session", "1")]);
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st), ("email", "sam@exemple.org"), ("session", "1")]);
+    w.accept_invites("hugo@exemple.org");
+    w.accept_invites("lea@exemple.org");
     // « Ajouter une personne » : une liste du navigateur, « Prénom Nom · adresse ».
     let page = txt(&ana.get(&format!("/compte/ordinateur?id={st}&lang=fr")));
     assert!(page.contains(r#"list="connus""#) && page.contains(r#"<datalist id="connus">"#));
@@ -241,17 +251,21 @@ fn personnes_une_fois_chacune() {
     ana.sign_in("ana@exemple.org", PASSWORD);
     let _sam = sign_up(&w, "Sam Petit", "sam@exemple.org", "192.0.2.12");
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st2), ("email", "sam@exemple.org"), ("session", "1")]);
+    w.accept_invites("sam@exemple.org");
     // Léa, par son compte, sur les deux.
     let _lea = person(&w, "lea@exemple.org", "Léa", "192.0.2.11");
     for st in [&st1, &st2] {
         ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", st), ("email", "lea@exemple.org"), ("session", "1")]);
     }
+    w.accept_invites("lea@exemple.org");
     let page = txt(&ana.get("/compte/personnes?lang=fr"));
     assert_eq!(page.matches("<b>Sam Petit</b>").count(), 1, "{page}");
     assert!(!page.contains("<b>sam@exemple.org</b>"), "l'invitation va avec le compte");
     assert_eq!(page.matches("<b>Léa</b>").count(), 1);
     // Ajouter Sam par son compte sur le premier remplace l'invitation expirée.
     ana.post("/compte/ordinateur/ajouter?lang=fr", &[("id", &st1), ("email", "sam@exemple.org"), ("lend", "1")]);
+    assert_eq!(invites(&w, &st1).len(), 1, "une seule invitation, renouvelée");
+    w.accept_invites("sam@exemple.org");
     assert!(invites(&w, &st1).is_empty());
     assert_eq!(w.acc.db().grants_of(&st1).unwrap().len(), 2);
 }
@@ -290,4 +304,39 @@ fn appareil_deconnecte_apres_90_jours_sans_servir() {
     w.advance(DEVICE_IDLE_SECS + 1);
     w.acc.db().sweep(w.now()).unwrap();
     assert!(w.acc.db().devices_of(1).unwrap().is_empty());
+}
+
+#[test]
+fn invitation_a_un_compte_acceptee_ou_refusee() {
+    // REL-11 : plus d'ajout sans consentement ; la réponse ne dit pas si un compte existe.
+    let w = world(true);
+    let mut ana = person(&w, "ana@exemple.org", "Ana", "192.0.2.10");
+    with_totp(&w, &mut ana, "ana@exemple.org");
+    ana.post("/compte/organisations/creer?lang=fr", &[("nom", "Atelier"), ("genre", "equipe")]);
+    let org = w.acc.db().orgs_of(1).unwrap()[0].0.clone();
+    let mut lea = person(&w, "lea@exemple.org", "Léa", "192.0.2.11");
+    let notice = |r: &Reply| between(html(r), "<p class=\"notice ok\" role=\"status\">", "</p>").to_string();
+    let with_account = ana.post("/compte/organisation/inviter?lang=fr", &[("id", &org.public_id), ("email", "lea@exemple.org"), ("role", "member")]);
+    let without = ana.post("/compte/organisation/inviter?lang=fr", &[("id", &org.public_id), ("email", "personne@exemple.org"), ("role", "member")]);
+    assert_eq!(notice(&with_account), notice(&without), "même réponse");
+    let lea_id = w.acc.db().account_by_email("lea@exemple.org").unwrap().unwrap().id;
+    assert_eq!(w.acc.db().org_role(org.id, lea_id).unwrap(), None, "pas membre sans accepter");
+    // Léa refuse : l'invitation part, elle n'entre pas.
+    let list = w.acc.db().pending_invites("lea@exemple.org", w.now()).unwrap();
+    assert_eq!((list.len(), list[0].name.as_str(), list[0].by.as_str()), (1, "Atelier", "Ana"));
+    let r = lea.post("/compte/invitations?lang=fr", &[("type", "organisation"), ("id", &list[0].id.to_string()), ("action", "refuser")]);
+    assert!(txt(&r).contains("Invitation refusée"));
+    assert!(w.acc.db().pending_invites("lea@exemple.org", w.now()).unwrap().is_empty());
+    assert_eq!(w.acc.db().org_role(org.id, lea_id).unwrap(), None);
+    // Une invitation d'un autre compte ne s'accepte pas à sa place.
+    ana.post("/compte/organisation/inviter?lang=fr", &[("id", &org.public_id), ("email", "lea@exemple.org"), ("role", "admin")]);
+    let id = w.acc.db().pending_invites("lea@exemple.org", w.now()).unwrap()[0].id.to_string();
+    let mut bob = person(&w, "bob@exemple.org", "Bob", "192.0.2.12");
+    bob.post("/compte/invitations?lang=fr", &[("type", "organisation"), ("id", &id), ("action", "accepter")]);
+    let bob_id = w.acc.db().account_by_email("bob@exemple.org").unwrap().unwrap().id;
+    assert_eq!(w.acc.db().org_role(org.id, bob_id).unwrap(), None);
+    // Léa accepte cette fois : Administratrice.
+    let r = lea.post("/compte/invitations?lang=fr", &[("type", "organisation"), ("id", &id), ("action", "accepter")]);
+    assert!(txt(&r).contains("Invitation acceptée"));
+    assert_eq!(w.acc.db().org_role(org.id, lea_id).unwrap(), Some(crate::accounts::orgs::Role::Admin));
 }

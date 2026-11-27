@@ -119,6 +119,8 @@ pub fn normalize_email(input: &str) -> Option<String> {
 pub struct Keys {
     totp: aead::LessSafeKey,
     mac: hmac::Key,
+    /// L'empreinte des secrets courts gardés en base (codes de secours, codes e-mail : REL-22).
+    secrets: hmac::Key,
 }
 
 impl Keys {
@@ -126,7 +128,8 @@ impl Keys {
         let derive = |label: &[u8]| hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, secret), label);
         let totp = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_256_GCM, derive(b"kybernow comptes totp v1").as_ref()).expect("clé AES"));
         let mac = hmac::Key::new(hmac::HMAC_SHA256, derive(b"kybernow comptes cookies v1").as_ref());
-        Keys { totp, mac }
+        let secrets = hmac::Key::new(hmac::HMAC_SHA256, derive(b"kybernow comptes secrets v1").as_ref());
+        Keys { totp, mac, secrets }
     }
 
     /// Lit la clé (au moins 32 caractères), ou la crée (64 chiffres hexadécimaux, réservée au relais).
@@ -169,6 +172,12 @@ impl Keys {
         Some(plain.to_vec())
     }
 
+    /// L'empreinte d'un secret court d'un compte (`usage` : `secours`, `verify`…), avec la clé du
+    /// relais : une base qui fuit sans sa clé ne se retrouve pas en force brute (REL-22).
+    pub fn secret_mac(&self, usage: &str, account: i64, secret: &str) -> Vec<u8> {
+        hmac::sign(&self.secrets, format!("{usage}:{account}:{secret}").as_bytes()).as_ref().to_vec()
+    }
+
     /// Signature (HMAC-SHA256) d'une valeur de cookie ou d'un jeton CSRF.
     pub fn sign(&self, data: &[u8]) -> String {
         b64(hmac::sign(&self.mac, data).as_ref())
@@ -198,13 +207,29 @@ const WINDOW: Duration = Duration::from_secs(15 * 60);
 /// vers une même adresse. Un essai réussi est rendu : seuls les échecs comptent.
 pub struct Limiter {
     sign_in_ip: Buckets<IpAddr>,
+    /// Par compte et par réseau (/24, /48) : un tiers ne bloque pas le titulaire depuis ailleurs (REL-08).
+    sign_in_account_net: Buckets<(String, IpAddr)>,
+    /// Par compte, tous réseaux : un plafond plus haut contre les essais répartis.
     sign_in_account: Buckets<String>,
     code_ip: Buckets<IpAddr>,
     code_account: Buckets<String>,
     forgot_ip: Buckets<IpAddr>,
     sign_up_ip: Buckets<IpAddr>,
     mail_to: Buckets<String>,
+    invites_hour: Buckets<i64>,
+    invites_day: Buckets<i64>,
+    /// L'avis « Admin ouvert à distance » : une fois par heure par (ordinateur, destinataire, compte) (REL-40).
+    admin_notice: Buckets<String>,
 }
+
+/// Les essais de mot de passe d'un compte en 15 minutes, tous réseaux confondus (REL-08).
+pub const SIGN_IN_ACCOUNT_ALL: u32 = 30;
+
+/// Les invitations et ajouts qu'un compte envoie (REL-13) : par heure, et par jour.
+pub const INVITES_PER_HOUR: u32 = 20;
+pub const INVITES_PER_DAY: u32 = 100;
+/// Les familles et équipes qu'un compte peut créer.
+pub const MAX_OWNED_ORGS: usize = 20;
 
 /// Une limite atteinte : réessayer dans ce temps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,21 +239,35 @@ impl Default for Limiter {
     fn default() -> Self {
         Limiter {
             sign_in_ip: Buckets::new(10, WINDOW),
-            sign_in_account: Buckets::new(5, WINDOW),
+            sign_in_account_net: Buckets::new(5, WINDOW),
+            sign_in_account: Buckets::new(SIGN_IN_ACCOUNT_ALL, WINDOW),
             code_ip: Buckets::new(10, WINDOW),
             code_account: Buckets::new(5, WINDOW),
             forgot_ip: Buckets::new(10, WINDOW),
             sign_up_ip: Buckets::new(10, Duration::from_secs(3600)),
             mail_to: Buckets::new(3, WINDOW),
+            invites_hour: Buckets::new(INVITES_PER_HOUR, Duration::from_secs(3600)),
+            invites_day: Buckets::new(INVITES_PER_DAY, Duration::from_secs(86_400)),
+            admin_notice: Buckets::new(1, Duration::from_secs(3600)),
         }
     }
 }
 
 impl Limiter {
-    pub fn sign_in(&mut self, ip: IpAddr, account: &str) -> Result<(), Limited> {
+    /// Un essai de mot de passe. `trusted` : ce navigateur présente un cookie de confiance de ce
+    /// compte (REL-08) ; il ne compte alors que par adresse, pas pour le compte.
+    pub fn sign_in(&mut self, ip: IpAddr, account: &str, trusted: bool) -> Result<(), Limited> {
         let now = Instant::now();
         self.sign_in_ip.take(&ip_key(ip), now).map_err(Limited)?;
-        self.sign_in_account.take(&account.to_string(), now).map_err(Limited)
+        if trusted {
+            return Ok(());
+        }
+        let net = (account.to_string(), crate::limits::subnet(ip));
+        self.sign_in_account_net.take(&net, now).map_err(Limited)?;
+        self.sign_in_account.take(&account.to_string(), now).map_err(|wait| {
+            self.sign_in_account_net.refund(&net, now);
+            Limited(wait)
+        })
     }
 
     pub fn code(&mut self, ip: IpAddr, account: &str) -> Result<(), Limited> {
@@ -241,6 +280,7 @@ impl Limiter {
     pub fn sign_in_ok(&mut self, ip: IpAddr, account: &str) {
         let now = Instant::now();
         self.sign_in_ip.refund(&ip_key(ip), now);
+        self.sign_in_account_net.refund(&(account.to_string(), crate::limits::subnet(ip)), now);
         self.sign_in_account.refund(&account.to_string(), now);
     }
 
@@ -259,6 +299,21 @@ impl Limiter {
         self.sign_up_ip.take(&ip_key(ip), Instant::now()).map_err(Limited)
     }
 
+    /// Une invitation (ou un ajout) de plus envoyée par ce compte ?
+    pub fn invite(&mut self, account: i64) -> Result<(), Limited> {
+        let now = Instant::now();
+        self.invites_day.take(&account, now).map_err(Limited)?;
+        self.invites_hour.take(&account, now).map_err(|wait| {
+            self.invites_day.refund(&account, now);
+            Limited(wait)
+        })
+    }
+
+    /// Un avis « Admin ouvert » de plus pour cette clé ?
+    pub fn admin_notice(&mut self, key: &str) -> bool {
+        self.admin_notice.take(&key.to_string(), Instant::now()).is_ok()
+    }
+
     /// Un e-mail de plus vers cette adresse ?
     pub fn mail(&mut self, to: &str) -> bool {
         self.mail_to.take(&to.to_string(), Instant::now()).is_ok()
@@ -267,12 +322,16 @@ impl Limiter {
     fn sweep(&mut self) {
         let now = Instant::now();
         self.sign_in_ip.sweep(now);
+        self.sign_in_account_net.sweep(now);
         self.sign_in_account.sweep(now);
         self.code_ip.sweep(now);
         self.code_account.sweep(now);
         self.forgot_ip.sweep(now);
         self.sign_up_ip.sweep(now);
         self.mail_to.sweep(now);
+        self.invites_hour.sweep(now);
+        self.invites_day.sweep(now);
+        self.admin_notice.sweep(now);
     }
 }
 
@@ -298,6 +357,8 @@ pub struct Accounts {
     clock: Clock,
     /// Quelques requêtes à la fois, hors de l'exécuteur.
     pub gate: tokio::sync::Semaphore,
+    /// L'API des appareils, à part : pas d'Argon2, et `/v1/access` ouvre les sessions (REL-17).
+    pub api_gate: tokio::sync::Semaphore,
     /// Lot 2 : la clé de signature, les codes de rattachement, le lien vers les Stations.
     pub stations: stations::Stations,
     /// Lot 3 : les limites des appareils.
@@ -308,8 +369,18 @@ impl Accounts {
     /// Ouvre la base et la clé, démarre l'envoi des e-mails.
     pub fn open(cfg: &AccountsConfig, public_url: String) -> Result<Accounts> {
         let clock = system_clock();
-        let keys = Keys::load_or_create(&cfg.secret_key)?;
         let store = Store::open(&cfg.database, clock())?;
+        // Une base qui a des doubles authentifications sans sa clé (restaurée à part ?) : une
+        // nouvelle clé les rendrait illisibles. On refuse de démarrer plutôt (REL-07).
+        if !cfg.secret_key.exists() {
+            let active = store.active_totp_count()?;
+            anyhow::ensure!(
+                active == 0,
+                "clé des comptes {} absente, mais {active} compte(s) ont la double authentification : remettez la clé d'origine",
+                cfg.secret_key.display()
+            );
+        }
+        let keys = Keys::load_or_create(&cfg.secret_key)?;
         let mailer: Option<Arc<dyn Mailer>> = match &cfg.smtp {
             Some(smtp) => Some(Arc::new(mail::Smtp::start(smtp)?)),
             None => {
@@ -333,6 +404,7 @@ impl Accounts {
             limits: Mutex::new(Limiter::default()),
             clock,
             gate: tokio::sync::Semaphore::new(CONCURRENT),
+            api_gate: tokio::sync::Semaphore::new(CONCURRENT),
             stations: stations::Stations::new(stations::SigningKeys::ephemeral()),
             devices: devices::Devices::default(),
         }
@@ -403,6 +475,23 @@ mod tests {
         assert_ne!(keys.seal(1, b"x"), keys.seal(1, b"x"), "nonce aléatoire");
         let sig = keys.sign(b"cookie");
         assert!(keys.check(b"cookie", &sig) && !keys.check(b"cookie2", &sig));
+    }
+
+    #[test]
+    fn pas_de_nouvelle_cle_sous_des_doubles_authentifications() {
+        // REL-07 : la base a un TOTP activé, la clé manque : le relais refuse de démarrer.
+        let dir = std::env::temp_dir().join(format!("kn-cle-totp-{}", kybernow_tunnel::id::random_id()));
+        let cfg = crate::config::AccountsConfig { enabled: true, database: dir.join("accounts.db"), secret_key: dir.join("secret.key"), public_url: None, smtp: None };
+        {
+            let store = Store::open(&cfg.database, 100).unwrap();
+            let id = store.create_account("a@exemple.org", "A", "h", "fr", Some(0), 100).unwrap().unwrap();
+            store.set_pending_totp(id, b"chiffre").unwrap();
+            store.activate_totp(id, 0, 100).unwrap();
+        }
+        let err = Accounts::open(&cfg, "https://share.test".into()).err().expect("refusé");
+        assert!(format!("{err:#}").contains("remettez la clé"), "{err:#}");
+        assert!(!cfg.secret_key.exists(), "aucune clé créée");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

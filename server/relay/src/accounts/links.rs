@@ -21,7 +21,7 @@ use kybernow_tunnel::access::Rights;
 use kybernow_tunnel::id::base32_lower;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::people::{parse_rights, rights_text};
+use super::people::{ends_columns, ends_of, later, parse_rights, rights_text};
 use super::random;
 use super::store::Store;
 
@@ -168,29 +168,35 @@ fn link_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AccessLink> {
     })
 }
 
-/// Ajoute des droits à ceux qu'un compte a déjà sur une Station : l'union des
-/// droits, et l'échéance la plus lointaine (pas d'échéance l'emporte). Un droit
-/// déjà échu est remplacé.
+/// Ajoute des droits à ceux qu'un compte a déjà sur une Station. Chaque droit garde son
+/// échéance (REL-03) : un droit déjà là va jusqu'à la plus lointaine des deux (pas
+/// d'échéance l'emporte), un droit nouveau jusqu'à celle donnée ; un droit déjà échu est
+/// remplacé. Un lien « Regarder » sans fin ne prolonge donc pas un Administrer limité.
 pub(super) fn add_person_rights(conn: &Connection, station: &str, account: i64, rights: &Rights, expires_at: Option<i64>, by: Option<i64>, now: i64) -> Result<()> {
-    let found: Option<(i64, String, Option<i64>)> = conn
-        .query_row("SELECT id, rights, expires_at FROM grants WHERE station = ?1 AND account = ?2", params![station, account], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+    let found: Option<(i64, String, Option<i64>, Option<String>)> = conn
+        .query_row("SELECT id, rights, expires_at, right_ends FROM grants WHERE station = ?1 AND account = ?2", params![station, account], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
         .optional()?;
-    match found {
-        Some((id, old, old_end)) if old_end.is_none_or(|e| e > now) => {
-            let all = Rights::new(parse_rights(&old).iter().chain(rights.iter()));
-            let end = match (old_end, expires_at) {
-                (Some(a), Some(b)) => Some(a.max(b)),
-                _ => None,
-            };
-            conn.execute("UPDATE grants SET rights = ?2, expires_at = ?3 WHERE id = ?1", params![id, rights_text(&all), end])?;
+    let mut ends: Vec<(kybernow_tunnel::access::Right, Option<i64>)> = match &found {
+        Some((_, old, old_end, old_ends)) => ends_of(&parse_rights(old), *old_end, old_ends.as_deref()).into_iter().filter(|(_, e)| e.is_none_or(|e| e > now)).collect(),
+        None => Vec::new(),
+    };
+    for r in rights.iter() {
+        match ends.iter_mut().find(|(o, _)| *o == r) {
+            Some(slot) => slot.1 = later(slot.1, expires_at),
+            None => ends.push((r, expires_at)),
         }
-        Some((id, _, _)) => {
-            conn.execute("UPDATE grants SET rights = ?2, expires_at = ?3 WHERE id = ?1", params![id, rights_text(rights), expires_at])?;
+    }
+    let (text, end, per_right) = ends_columns(&ends);
+    match found {
+        Some((id, ..)) => {
+            conn.execute("UPDATE grants SET rights = ?2, expires_at = ?3, right_ends = ?4 WHERE id = ?1", params![id, text, end, per_right])?;
         }
         None => {
             conn.execute(
-                "INSERT INTO grants (station, account, rights, expires_at, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![station, account, rights_text(rights), expires_at, by, now],
+                "INSERT INTO grants (station, account, rights, expires_at, right_ends, invited_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![station, account, text, end, per_right, by, now],
             )?;
         }
     }
@@ -247,9 +253,10 @@ impl Store {
         Ok(self.conn.query_row(&format!("SELECT {LINK_COLS} WHERE l.id = ?1"), [id], link_row).optional()?)
     }
 
-    /// Utilise un lien : ses droits passent au compte, et il ne sert plus.
+    /// Utilise un lien : ses droits passent au compte, jusqu'à `end` (l'échéance du lien, bornée
+    /// par celle de son créateur s'il a reçu Administrer), et il ne sert plus.
     /// Faux s'il ne sert plus (déjà utilisé, révoqué, expiré) : rien n'a changé.
-    pub fn use_access_link(&self, id: i64, account: i64, now: i64) -> Result<bool> {
+    pub fn use_access_link(&self, id: i64, account: i64, end: Option<i64>, now: i64) -> Result<bool> {
         let tx = self.conn.unchecked_transaction()?;
         // Marqué d'abord : deux acceptations en même temps, une seule passe.
         let n = tx.execute(
@@ -259,8 +266,8 @@ impl Store {
         if n != 1 {
             return Ok(false);
         }
-        let (station, rights, end, by): (String, String, Option<i64>, Option<i64>) =
-            tx.query_row("SELECT station, rights, access_expires_at, created_by FROM access_links WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+        let (station, rights, by): (String, String, Option<i64>) =
+            tx.query_row("SELECT station, rights, created_by FROM access_links WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         add_person_rights(&tx, &station, account, &parse_rights(&rights), end, by, now)?;
         tx.commit()?;
         Ok(true)
@@ -299,7 +306,7 @@ mod tests {
         let b = s.create_account("b@exemple.org", "B", "h", "fr", Some(0), 0).unwrap().unwrap();
         let c = s.create_account("c@exemple.org", "C", "h", "fr", Some(0), 0).unwrap().unwrap();
         s.attach_station("st1", "PC", a, a, 10).unwrap();
-        // B a déjà Session jusqu'à 500 ; le lien donne Prêt jusqu'à 300 : l'union, et 500 reste.
+        // B a déjà Session jusqu'à 500 ; le lien donne Prêt jusqu'à 300 : l'union, chaque droit avec son échéance.
         s.grant_person("st1", b, &rights(&[Right::Session]), Some(500), a, 10).unwrap();
         let tok = new_link_token();
         let id = s.create_access_link("st1", &token_hash(&tok), &tok[..9], &rights(&[Right::Lend]), 200, Some(300), a, 20).unwrap();
@@ -307,9 +314,10 @@ mod tests {
         let link = s.access_link_by_hash(&token_hash(&tok)).unwrap().unwrap();
         assert_eq!((link.id, link.state(30), link.created_by_name.as_str()), (id, LinkState::Pending, "A"));
         assert_eq!(link.state(200), LinkState::Expired);
-        assert!(s.use_access_link(id, b, 40).unwrap());
-        assert!(!s.use_access_link(id, c, 41).unwrap(), "une seule fois");
-        assert_eq!(s.granted_rights(b, "st1", 450).unwrap(), rights(&[Right::Session, Right::Lend]));
+        assert!(s.use_access_link(id, b, Some(300), 40).unwrap());
+        assert!(!s.use_access_link(id, c, Some(300), 41).unwrap(), "une seule fois");
+        assert_eq!(s.granted_rights(b, "st1", 250).unwrap(), rights(&[Right::Session, Right::Lend]));
+        assert_eq!(s.granted_rights(b, "st1", 450).unwrap(), rights(&[Right::Session]), "Prêt finit à 300, Session à 500");
         assert!(s.granted_rights(c, "st1", 50).unwrap().is_empty());
         let link = s.access_link_by_hash(&token_hash(&tok)).unwrap().unwrap();
         assert_eq!((link.state(50), link.used_by_name.as_str()), (LinkState::Used, "B"));
@@ -321,17 +329,17 @@ mod tests {
         // Un lien sans échéance d'accès : plus d'échéance du tout.
         let tok2 = new_link_token();
         let id2 = s.create_access_link("st1", &token_hash(&tok2), &tok2[..9], &rights(&[Right::Share]), 1000, None, a, 70).unwrap();
-        assert!(s.use_access_link(id2, b, 80).unwrap());
-        assert_eq!(s.granted_rights(b, "st1", 10_000).unwrap(), rights(&[Right::Session, Right::Lend, Right::Share]));
+        assert!(s.use_access_link(id2, b, None, 80).unwrap());
+        assert_eq!(s.granted_rights(b, "st1", 10_000).unwrap(), rights(&[Right::Share]), "le lien sans fin ne prolonge que Partage");
         // Révoqué, expiré : il ne sert pas.
         let tok3 = new_link_token();
         let id3 = s.create_access_link("st1", &token_hash(&tok3), &tok3[..9], &rights(&[Right::Admin]), 1000, None, a, 90).unwrap();
         assert!(s.revoke_access_link("st1", id3, 95).unwrap().is_some());
         assert!(s.revoke_access_link("st1", id3, 96).unwrap().is_none(), "déjà révoqué");
-        assert!(!s.use_access_link(id3, c, 100).unwrap());
+        assert!(!s.use_access_link(id3, c, None, 100).unwrap());
         let tok4 = new_link_token();
         let id4 = s.create_access_link("st1", &token_hash(&tok4), &tok4[..9], &rights(&[Right::View]), 1000, None, a, 90).unwrap();
-        assert!(!s.use_access_link(id4, c, 1000).unwrap(), "expiré");
+        assert!(!s.use_access_link(id4, c, None, 1000).unwrap(), "expiré");
         assert!(s.granted_rights(c, "st1", 100).unwrap().is_empty());
         // Le ménage, puis le détachement : les liens partent.
         s.sweep_links(1000 + LINK_KEEP_SECS).unwrap();
@@ -352,6 +360,27 @@ mod tests {
         add_person_rights(&s.conn, "st1", b, &rights(&[Right::View]), Some(200), Some(a), 100).unwrap();
         assert_eq!(s.granted_rights(b, "st1", 150).unwrap(), rights(&[Right::View]), "Administrer, échu, ne revient pas");
         add_person_rights(&s.conn, "st1", b, &rights(&[Right::Session]), Some(150), Some(a), 110).unwrap();
-        assert_eq!(s.granted_rights(b, "st1", 180).unwrap(), rights(&[Right::View, Right::Session]), "200 l'emporte sur 150");
+        assert_eq!(s.granted_rights(b, "st1", 140).unwrap(), rights(&[Right::View, Right::Session]));
+        assert_eq!(s.granted_rights(b, "st1", 180).unwrap(), rights(&[Right::View]), "Session finit à 150, Regarder à 200");
+        add_person_rights(&s.conn, "st1", b, &rights(&[Right::Session]), Some(300), Some(a), 120).unwrap();
+        assert_eq!(s.granted_rights(b, "st1", 250).unwrap(), rights(&[Right::Session]), "Session prolongée jusqu'à 300");
+    }
+
+    #[test]
+    fn un_lien_sans_fin_ne_prolonge_pas_administrer() {
+        // REL-03 : Léa a Administrer jusqu'à 500 ; un lien « Regarder » sans échéance ne le rend pas permanent.
+        let s = Store::memory(0).unwrap();
+        let a = s.create_account("a@exemple.org", "A", "h", "fr", Some(0), 0).unwrap().unwrap();
+        let b = s.create_account("b@exemple.org", "B", "h", "fr", Some(0), 0).unwrap().unwrap();
+        s.attach_station("st1", "PC", a, a, 10).unwrap();
+        s.grant_person("st1", b, &rights(&[Right::Admin]), Some(500), a, 10).unwrap();
+        add_person_rights(&s.conn, "st1", b, &rights(&[Right::View]), None, Some(a), 20).unwrap();
+        assert_eq!(s.granted_rights(b, "st1", 400).unwrap(), rights(&[Right::Admin, Right::View]));
+        assert_eq!(s.granted_rights(b, "st1", 600).unwrap(), rights(&[Right::View]), "Administrer finit toujours à 500");
+        assert_eq!(s.granted_rights(b, "st1", 1_000_000).unwrap(), rights(&[Right::View]));
+        // Le propriétaire redonne les droits d'un coup : une seule échéance de nouveau.
+        s.grant_person("st1", b, &rights(&[Right::Admin, Right::View]), Some(800), a, 30).unwrap();
+        assert_eq!(s.granted_rights(b, "st1", 700).unwrap(), rights(&[Right::Admin, Right::View]));
+        assert!(s.granted_rights(b, "st1", 900).unwrap().is_empty());
     }
 }

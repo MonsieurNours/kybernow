@@ -4,7 +4,9 @@
 # chaque nuit la dernière image du relais.
 #   cp .env.example .env   # puis le remplir
 #   docker compose up -d
-# Construire l'image ici depuis les sources plutôt que la télécharger :
+# Construire l'image ici depuis les sources plutôt que la télécharger
+# (RELAY_IMAGE=kybernow-relay:local dans .env : la mise à jour de la nuit ne
+# l'écrase pas, voir update.sh) :
 #   docker compose build relay && docker compose up -d
 
 name: kybernow-relay
@@ -83,7 +85,11 @@ services:
 
   # Mise à jour du relais : chaque nuit (RELAY_UPDATE_HOUR, 4 h par défaut, heure
   # du conteneur, UTC), `docker compose pull relay` puis `up -d relay` : le relais
-  # ne redémarre que si l'image a changé. RELAY_AUTO_UPDATE=no le coupe. Il voit
+  # ne redémarre que si l'image a changé. RELAY_AUTO_UPDATE=no le coupe. Une
+  # image épinglée (…@sha256:…) ou construite ici n'est jamais remplacée ; avec
+  # RELAY_COSIGN_KEY, seule une image signée l'est. Ce service a la main sur
+  # Docker (docker.sock, l'équivalent de root) : sans signature, épinglez
+  # l'image et coupez-le (README.md, « Mettre à jour »). Il voit
   # ce dossier au même chemin que la machine (les chemins ./certs, ./config du
   # compose restent justes) : lancer docker compose depuis ce dossier.
   updater:
@@ -94,6 +100,9 @@ services:
     environment:
       RELAY_UPDATE_HOUR: ${RELAY_UPDATE_HOUR:-4}
       RELAY_AUTO_UPDATE: ${RELAY_AUTO_UPDATE:-yes}
+      RELAY_IMAGE: ${RELAY_IMAGE:-ghcr.io/monsieurnours/kybernow-relay:latest}
+      # Clé publique cosign (chemin dans ce dossier) : la nouvelle image n'est prise que signée.
+      RELAY_COSIGN_KEY: ${RELAY_COSIGN_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PWD}:${PWD}:ro
